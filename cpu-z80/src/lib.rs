@@ -2,6 +2,9 @@
 
 use emu_core::{Cpu, IoBus};
 
+mod flags;
+mod registers;
+
 /// The Z80 CPU state.
 pub struct Z80 {
     // Main registers
@@ -76,38 +79,6 @@ impl Z80 {
         self.pc = self.pc.wrapping_add(1);
         byte
     }
-
-    fn read_register(&self, index: u8) -> u8 {
-        match index {
-            0 => self.b,
-            1 => self.c,
-            2 => self.d,
-            3 => self.e,
-            4 => self.h,
-            5 => self.l,
-            6 => panic!("(HL) not a simple register"),
-            7 => self.a,
-            _ => unreachable!(),
-        }
-    }
-
-    fn set_register(&mut self, index: u8, value: u8) {
-        match index {
-            0 => self.b = value,
-            1 => self.c = value,
-            2 => self.d = value,
-            3 => self.e = value,
-            4 => self.h = value,
-            5 => self.l = value,
-            6 => panic!("(HL) not a simple register"),
-            7 => self.a = value,
-            _ => unreachable!(),
-        }
-    }
-
-    fn hl(&self) -> u16 {
-        (self.h as u16) << 8 | self.l as u16
-    }
 }
 
 impl<B: IoBus> Cpu<B> for Z80 {
@@ -144,6 +115,17 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 }
 
                 if src == 6 || dst == 6 { 7 } else { 4 }
+            }
+            // ALU operations: ADD A, r
+            op if (op & 0b11111000) == (0b10000000) => {
+                let src = op & 0b111;
+                let value = if src == 6 {
+                    bus.read(self.hl() as u32)
+                } else {
+                    self.read_register(src)
+                };
+                self.add_a(value);
+                if src == 6 { 7 } else { 4 }
             }
             _ => todo!("opcode {:#04X}", opcode),
         }
@@ -288,5 +270,20 @@ mod tests {
 
         assert_eq!(cycles, 7);
         assert_eq!(cpu.a, 0x42);
+    }
+
+    #[test]
+    fn add_a_b_adds_registers() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        cpu.a = 0x10;
+        cpu.b = 0x05;
+        bus.memory[0] = 0x80; // ADD A, B
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 4);
+        assert_eq!(cpu.a, 0x15);
     }
 }
