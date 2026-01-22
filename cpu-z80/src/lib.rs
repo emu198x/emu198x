@@ -99,6 +99,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.set_hl(self.hl().wrapping_add(1));
                 6
             }
+            0x3C => {
+                // INC A
+                self.a = self.a.wrapping_add(1);
+                // TODO: set flags properly
+                4
+            }
             0x3E => {
                 // LD A, n
                 self.a = self.fetch(bus);
