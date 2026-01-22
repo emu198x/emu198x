@@ -84,6 +84,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
         match opcode {
             0x00 => 4, // NOP
+            0x3E => {
+                // LD A, n
+                self.a = self.fetch(bus);
+                7
+            }
             _ => todo!("opcode {:#04X}", opcode),
         }
     }
@@ -181,5 +186,20 @@ mod tests {
 
         assert_eq!(cycles, 4);
         assert_eq!(cpu.pc, 1);
+    }
+
+    #[test]
+    fn ld_a_n_loads_immediate() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        bus.memory[0] = 0x3E; // LD A, n
+        bus.memory[1] = 0x42; // n = 0x42
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 7);
+        assert_eq!(cpu.a, 0x42);
+        assert_eq!(cpu.pc, 2);
     }
 }
