@@ -58,4 +58,48 @@ impl Spectrum48K {
     pub fn screen(&self) -> &[u8] {
         &self.memory.data[0x4000..0x5B00]
     }
+
+    /// Load bytes into memory at a given address.
+    pub fn load(&mut self, address: u16, data: &[u8]) {
+        for (i, byte) in data.iter().enumerate() {
+            self.memory.data[address as usize + i] = *byte;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fills_screen_memory() {
+        let mut spec = Spectrum48K::new();
+
+        // Program:
+        // 0000: LD HL, 0x4000
+        // 0003: LD A, 0xFF
+        // 0005: LD (HL), A
+        // 0006: INC HL
+        // 0007: JP 0x0005
+        spec.load(
+            0x0000,
+            &[
+                0x21, 0x00, 0x40, // LD HL, 0x4000
+                0x3E, 0xFF, // LD A, 0xFF
+                0x77, // LD (HL), A
+                0x23, // INC HL
+                0xC3, 0x05, 0x00, // JP 0x0005
+            ],
+        );
+
+        // Run for a while
+        for _ in 0..10000 {
+            spec.cpu.step(&mut spec.memory);
+        }
+
+        // Check first few bytes of screen memory
+        assert_eq!(spec.memory.data[0x4000], 0xFF);
+        assert_eq!(spec.memory.data[0x4001], 0xFF);
+        assert_eq!(spec.memory.data[0x4002], 0xFF);
+    }
 }
