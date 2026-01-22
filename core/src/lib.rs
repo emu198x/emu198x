@@ -1,14 +1,9 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Core traits for retro computer emulation.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod bus;
+mod io_bus;
+mod cpu;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use bus::Bus;
+pub use io_bus::IoBus;
+pub use cpu::Cpu;

@@ -3,11 +3,11 @@
 version = 4
 
 [[package]]
-name = "core"
+name = "cpu-z80"
 version = "0.1.0"
 
 [[package]]
-name = "cpu-z80"
+name = "emu-core"
 version = "0.1.0"
 
 [[package]]
