@@ -4,3 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+emu-core = { path = "../core" }
+cpu-z80 = { path = "../cpu-z80" }

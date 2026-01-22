@@ -87,6 +87,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
         match opcode {
             0x00 => 4, // NOP
+            0x21 => {
+                // LD HL, nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                self.set_hl((high as u16) << 8 | low as u16);
+                10
+            }
             0x23 => {
                 // INC HL
                 self.set_hl(self.hl().wrapping_add(1));
@@ -328,5 +335,21 @@ mod tests {
 
         assert_eq!(cycles, 10);
         assert_eq!(cpu.pc, 0x4000);
+    }
+
+    #[test]
+    fn ld_hl_nn_loads_immediate() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        bus.memory[0] = 0x21; // LD HL, nn
+        bus.memory[1] = 0x00; // low byte
+        bus.memory[2] = 0x40; // high byte
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 10);
+        assert_eq!(cpu.h, 0x40);
+        assert_eq!(cpu.l, 0x00);
     }
 }

@@ -16,3 +16,7 @@ version = "0.1.0"
 [[package]]
 name = "machine-spectrum"
 version = "0.1.0"
+dependencies = [
+ "cpu-z80",
+ "emu-core",
+]
