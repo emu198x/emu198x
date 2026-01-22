@@ -4,12 +4,16 @@ use cpu_z80::Z80;
 use emu_core::{Bus, Cpu, IoBus};
 
 struct Memory {
-    data: [u8; 65536],
+    pub data: [u8; 65536],
+    pub border: u8,
 }
 
 impl Memory {
     fn new() -> Self {
-        Self { data: [0; 65536] }
+        Self {
+            data: [0; 65536],
+            border: 7, // white default
+        }
     }
 }
 
@@ -28,8 +32,11 @@ impl IoBus for Memory {
         0xFF // nothing connected
     }
 
-    fn write_io(&mut self, _port: u16, _value: u8) {
-        // ignore for now
+    fn write_io(&mut self, port: u16, value: u8) {
+        if port & 0x01 == 0 {
+            // ULA port - low bit clear
+            self.border = value & 0x07;
+        }
     }
 }
 
@@ -57,6 +64,10 @@ impl Spectrum48K {
     /// Get a reference to screen memory (for rendering).
     pub fn screen(&self) -> &[u8] {
         &self.memory.data[0x4000..0x5B00]
+    }
+
+    pub fn border(&self) -> u8 {
+        self.memory.border
     }
 
     /// Load bytes into memory at a given address.

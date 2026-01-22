@@ -1,8 +1,9 @@
 use machine_spectrum::Spectrum48K;
 use minifb::{Key, Window, WindowOptions};
 
-const WIDTH: usize = 256;
-const HEIGHT: usize = 192;
+const WIDTH: usize = 320; // 256 + 32 left + 32 right
+const HEIGHT: usize = 256; // 192 + 32 top + 32 bottom
+const BORDER: usize = 32;
 
 const COLOURS: [u32; 16] = [
     // Normal
@@ -56,36 +57,46 @@ fn main() {
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Don't run the CPU any more, just display
-        render_screen(spec.screen(), &mut buffer);
+        render_screen(spec.screen(), spec.border(), &mut buffer);
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
     }
 }
+fn render_screen(screen: &[u8], border: u8, buffer: &mut [u32]) {
+    let border_colour = COLOURS[border as usize];
 
-fn render_screen(screen: &[u8], buffer: &mut [u32]) {
-    for y in 0..192 {
-        for x_byte in 0..32 {
-            // Bitmap address
-            let bitmap_addr = ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2) | x_byte;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let pixel = if y < BORDER || y >= BORDER + 192
+                || x < BORDER || x >= BORDER + 256
+            {
+                border_colour
+            } else {
+                let screen_y = y - BORDER;
+                let screen_x = x - BORDER;
+                let x_byte = screen_x / 8;
+                let bit = screen_x % 8;
 
-            // Attribute address: 0x1800 + (y/8)*32 + x_byte
-            let attr_addr = 0x1800 + (y / 8) * 32 + x_byte;
+                let bitmap_addr = ((screen_y & 0xC0) << 5)
+                                | ((screen_y & 0x07) << 8)
+                                | ((screen_y & 0x38) << 2)
+                                | x_byte;
 
-            let byte = screen[bitmap_addr];
-            let attr = screen[attr_addr];
+                let attr_addr = 0x1800 + (screen_y / 8) * 32 + x_byte;
 
-            let bright = if attr & 0x40 != 0 { 8 } else { 0 };
-            let ink = (attr & 0x07) as usize + bright;
-            let paper = ((attr >> 3) & 0x07) as usize + bright;
+                let byte = screen[bitmap_addr];
+                let attr = screen[attr_addr];
 
-            for bit in 0..8 {
-                let x = x_byte * 8 + bit;
-                let pixel = if byte & (0x80 >> bit) != 0 {
+                let bright = if attr & 0x40 != 0 { 8 } else { 0 };
+                let ink = (attr & 0x07) as usize + bright;
+                let paper = ((attr >> 3) & 0x07) as usize + bright;
+
+                if byte & (0x80 >> bit) != 0 {
                     COLOURS[ink]
                 } else {
                     COLOURS[paper]
-                };
-                buffer[y * 256 + x] = pixel;
-            }
+                }
+            };
+            buffer[y * WIDTH + x] = pixel;
         }
     }
 }
