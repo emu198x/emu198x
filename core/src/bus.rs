@@ -4,8 +4,8 @@
 /// (6502-based machines like the C64 or NES) use this directly.
 pub trait Bus {
     /// Read a byte from the given address.
-    fn read(&self, address: u16) -> u8;
+    fn read(&self, address: u32) -> u8;
 
     /// Write a byte to the given address.
-    fn write(&mut self, address: u16, value: u8);
+    fn write(&mut self, address: u32, value: u8);
 }

@@ -7,8 +7,8 @@ use crate::Bus;
 /// MSX, etc.) implement this trait.
 pub trait IoBus: Bus {
     /// Read a byte from the given I/O port.
-    fn read_io(&self, port: u16) -> u8;
+    fn read_io(&self, port: u32) -> u8;
 
     /// Write a byte to the given I/O port.
-    fn write_io(&mut self, port: u16, value: u8);
+    fn write_io(&mut self, port: u32, value: u8);
 }
