@@ -4,6 +4,27 @@ use minifb::{Key, Window, WindowOptions};
 const WIDTH: usize = 256;
 const HEIGHT: usize = 192;
 
+const COLOURS: [u32; 16] = [
+    // Normal
+    0xFF000000, // 0: black
+    0xFF0000D7, // 1: blue
+    0xFFD70000, // 2: red
+    0xFFD700D7, // 3: magenta
+    0xFF00D700, // 4: green
+    0xFF00D7D7, // 5: cyan
+    0xFFD7D700, // 6: yellow
+    0xFFD7D7D7, // 7: white
+    // Bright
+    0xFF000000, // 8: black (same)
+    0xFF0000FF, // 9: bright blue
+    0xFFFF0000, // 10: bright red
+    0xFFFF00FF, // 11: bright magenta
+    0xFF00FF00, // 12: bright green
+    0xFF00FFFF, // 13: bright cyan
+    0xFFFFFF00, // 14: bright yellow
+    0xFFFFFFFF, // 15: bright white
+];
+
 fn main() {
     let mut spec = Spectrum48K::new();
 
@@ -43,17 +64,25 @@ fn main() {
 fn render_screen(screen: &[u8], buffer: &mut [u32]) {
     for y in 0..192 {
         for x_byte in 0..32 {
-            // Spectrum screen address calculation
-            let addr = ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2) | x_byte;
+            // Bitmap address
+            let bitmap_addr = ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2) | x_byte;
 
-            let byte = screen[addr];
+            // Attribute address: 0x1800 + (y/8)*32 + x_byte
+            let attr_addr = 0x1800 + (y / 8) * 32 + x_byte;
+
+            let byte = screen[bitmap_addr];
+            let attr = screen[attr_addr];
+
+            let bright = if attr & 0x40 != 0 { 8 } else { 0 };
+            let ink = (attr & 0x07) as usize + bright;
+            let paper = ((attr >> 3) & 0x07) as usize + bright;
 
             for bit in 0..8 {
                 let x = x_byte * 8 + bit;
                 let pixel = if byte & (0x80 >> bit) != 0 {
-                    0xFFFFFFFFu32
+                    COLOURS[ink]
                 } else {
-                    0xFF000000u32
+                    COLOURS[paper]
                 };
                 buffer[y * 256 + x] = pixel;
             }
