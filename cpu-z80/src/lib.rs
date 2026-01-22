@@ -87,10 +87,22 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
         match opcode {
             0x00 => 4, // NOP
+            0x23 => {
+                // INC HL
+                self.set_hl(self.hl().wrapping_add(1));
+                6
+            }
             0x3E => {
                 // LD A, n
                 self.a = self.fetch(bus);
                 7
+            }
+            0xC3 => {
+                // JP nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                self.pc = (high as u16) << 8 | low as u16;
+                10
             }
             // LD r, r' (including (HL) cases, excluding HALT)
             op if (op & 0b11000000) == 0b01000000 => {
@@ -285,5 +297,36 @@ mod tests {
 
         assert_eq!(cycles, 4);
         assert_eq!(cpu.a, 0x15);
+    }
+
+    #[test]
+    fn inc_hl_increments() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        cpu.h = 0x40;
+        cpu.l = 0xFF;
+        bus.memory[0] = 0x23; // INC HL
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 6);
+        assert_eq!(cpu.h, 0x41);
+        assert_eq!(cpu.l, 0x00);
+    }
+
+    #[test]
+    fn jp_nn_jumps() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        bus.memory[0] = 0xC3; // JP nn
+        bus.memory[1] = 0x00; // low byte
+        bus.memory[2] = 0x40; // high byte
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 10);
+        assert_eq!(cpu.pc, 0x4000);
     }
 }

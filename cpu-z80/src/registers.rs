@@ -32,4 +32,9 @@ impl Z80 {
     pub(crate) fn hl(&self) -> u16 {
         (self.h as u16) << 8 | self.l as u16
     }
+
+    pub(crate) fn set_hl(&mut self, value: u16) {
+        self.h = (value >> 8) as u8;
+        self.l = value as u8;
+    }
 }
