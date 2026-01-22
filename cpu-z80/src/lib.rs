@@ -77,8 +77,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
         todo!()
     }
 
-    fn reset(&mut self, bus: &mut B) {
-        todo!()
+    fn reset(&mut self, _bus: &mut B) {
+        self.pc = 0;
+        self.i = 0;
+        self.r = 0;
+        self.iff1 = false;
+        self.iff2 = false;
+        self.interrupt_mode = 0;
+
+        // SP, AF, BC, DE, HL, IX, IY left unchanged (undefined)
     }
 
     fn interrupt(&mut self, bus: &mut B) {
@@ -91,5 +98,64 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
     fn pc(&self) -> u16 {
         self.pc
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal bus for testing.
+    struct TestBus {
+        memory: [u8; 65536],
+    }
+
+    impl TestBus {
+        fn new() -> Self {
+            Self { memory: [0; 65536] }
+        }
+    }
+
+    impl emu_core::Bus for TestBus {
+        fn read(&self, address: u32) -> u8 {
+            self.memory[address as usize & 0xFFFF]
+        }
+
+        fn write(&mut self, address: u32, value: u8) {
+            self.memory[address as usize & 0xFFFF] = value;
+        }
+    }
+
+    impl emu_core::IoBus for TestBus {
+        fn read_io(&self, _port: u16) -> u8 {
+            0xFF
+        }
+
+        fn write_io(&mut self, _port: u16, _value: u8) {
+            // ignore
+        }
+    }
+
+    #[test]
+    fn reset_sets_correct_state() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        // Mess up the state first
+        cpu.pc = 0x1234;
+        cpu.i = 0xFF;
+        cpu.r = 0xFF;
+        cpu.iff1 = true;
+        cpu.iff2 = true;
+        cpu.interrupt_mode = 2;
+
+        cpu.reset(&mut bus);
+
+        assert_eq!(cpu.pc, 0);
+        assert_eq!(cpu.i, 0);
+        assert_eq!(cpu.r, 0);
+        assert_eq!(cpu.iff1, false);
+        assert_eq!(cpu.iff2, false);
+        assert_eq!(cpu.interrupt_mode, 0);
     }
 }
