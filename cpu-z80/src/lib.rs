@@ -70,11 +70,22 @@ impl Z80 {
             interrupt_mode: 0,
         }
     }
+
+    fn fetch(&mut self, bus: &impl emu_core::Bus) -> u8 {
+        let byte = bus.read(self.pc as u32);
+        self.pc = self.pc.wrapping_add(1);
+        byte
+    }
 }
 
 impl<B: IoBus> Cpu<B> for Z80 {
     fn step(&mut self, bus: &mut B) -> u32 {
-        todo!()
+        let opcode = self.fetch(bus);
+
+        match opcode {
+            0x00 => 4, // NOP
+            _ => todo!("opcode {:#04X}", opcode),
+        }
     }
 
     fn reset(&mut self, _bus: &mut B) {
@@ -157,5 +168,18 @@ mod tests {
         assert_eq!(cpu.iff1, false);
         assert_eq!(cpu.iff2, false);
         assert_eq!(cpu.interrupt_mode, 0);
+    }
+
+    #[test]
+    fn nop_takes_4_cycles() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        bus.memory[0] = 0x00; // NOP
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 4);
+        assert_eq!(cpu.pc, 1);
     }
 }
