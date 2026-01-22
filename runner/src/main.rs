@@ -1,5 +1,6 @@
 use machine_spectrum::Spectrum48K;
 use minifb::{Key, Window, WindowOptions};
+use std::fs;
 
 const WIDTH: usize = 320; // 256 + 32 left + 32 right
 const HEIGHT: usize = 256; // 192 + 32 top + 32 bottom
@@ -29,18 +30,9 @@ const COLOURS: [u32; 16] = [
 fn main() {
     let mut spec = Spectrum48K::new();
 
-    // Load our test program
-    spec.load(
-        0x0000,
-        &[
-            0x21, 0x00, 0x40, // LD HL, 0x4000
-            0x3E, 0xAA, // LD A, 0xAA (alternating bits: 10101010)
-            0x77, // LD (HL), A
-            0x23, // INC HL
-            0x3C, // INC A
-            0xC3, 0x05, 0x00, // JP 0x0005
-        ],
-    );
+    // Load the ROM
+    let rom = fs::read("roms/48.rom").expect("Failed to load ROM");
+    spec.load_rom(&rom);
 
     let mut window = Window::new("Spectrum", WIDTH, HEIGHT, WindowOptions::default())
         .expect("Failed to create window");
@@ -50,13 +42,8 @@ fn main() {
 
     let mut buffer = vec![0u32; WIDTH * HEIGHT];
 
-    // Run a few frames to fill the screen
-    for _ in 0..3 {
-        spec.run_frame();
-    }
-
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        // Don't run the CPU any more, just display
+        spec.run_frame();
         render_screen(spec.screen(), spec.border(), &mut buffer);
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
     }
@@ -66,9 +53,7 @@ fn render_screen(screen: &[u8], border: u8, buffer: &mut [u32]) {
 
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
-            let pixel = if y < BORDER || y >= BORDER + 192
-                || x < BORDER || x >= BORDER + 256
-            {
+            let pixel = if y < BORDER || y >= BORDER + 192 || x < BORDER || x >= BORDER + 256 {
                 border_colour
             } else {
                 let screen_y = y - BORDER;
@@ -77,9 +62,9 @@ fn render_screen(screen: &[u8], border: u8, buffer: &mut [u32]) {
                 let bit = screen_x % 8;
 
                 let bitmap_addr = ((screen_y & 0xC0) << 5)
-                                | ((screen_y & 0x07) << 8)
-                                | ((screen_y & 0x38) << 2)
-                                | x_byte;
+                    | ((screen_y & 0x07) << 8)
+                    | ((screen_y & 0x38) << 2)
+                    | x_byte;
 
                 let attr_addr = 0x1800 + (screen_y / 8) * 32 + x_byte;
 

@@ -87,6 +87,139 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
         match opcode {
             0x00 => 4, // NOP
+            0x01 => {
+                // LD BC, nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                self.set_bc((high as u16) << 8 | low as u16);
+                10
+            }
+            0x06 => {
+                // LD B, n
+                self.b = self.fetch(bus);
+                7
+            }
+            0x08 => {
+                // EX AF, AF'
+                std::mem::swap(&mut self.a, &mut self.a_shadow);
+                std::mem::swap(&mut self.f, &mut self.f_shadow);
+                4
+            }
+            0x09 => {
+                // ADD HL, BC
+                let hl = self.hl();
+                let bc = self.bc();
+                let result = (hl as u32) + (bc as u32);
+
+                self.set_flag(flags::FLAG_H, (hl & 0x0FFF) + (bc & 0x0FFF) > 0x0FFF);
+                self.set_flag(flags::FLAG_N, false);
+                self.set_flag(flags::FLAG_C, result > 0xFFFF);
+
+                self.set_hl(result as u16);
+                11
+            }
+            0x0B => {
+                // DEC BC
+                self.set_bc(self.bc().wrapping_sub(1));
+                6
+            }
+            0x0E => {
+                // LD C, n
+                self.c = self.fetch(bus);
+                7
+            }
+            0x0F => {
+                // RRCA
+                let bit0 = self.a & 0x01;
+                self.a = (self.a >> 1) | (bit0 << 7);
+                self.set_flag(flags::FLAG_H, false);
+                self.set_flag(flags::FLAG_N, false);
+                self.set_flag(flags::FLAG_C, bit0 != 0);
+                4
+            }
+            0x10 => {
+                // DJNZ n
+                let offset = self.fetch(bus) as i8;
+                self.b = self.b.wrapping_sub(1);
+                if self.b != 0 {
+                    self.pc = self.pc.wrapping_add(offset as u16);
+                    13
+                } else {
+                    8
+                }
+            }
+            0x11 => {
+                // LD DE, nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                self.set_de((high as u16) << 8 | low as u16);
+                10
+            }
+            0x12 => {
+                // LD (DE), A
+                bus.write(self.de() as u32, self.a);
+                7
+            }
+            0x13 => {
+                // INC DE
+                self.set_de(self.de().wrapping_add(1));
+                6
+            }
+            0x16 => {
+                // LD D, n
+                self.d = self.fetch(bus);
+                7
+            }
+            0x18 => {
+                // JR n
+                let offset = self.fetch(bus) as i8;
+                self.pc = self.pc.wrapping_add(offset as u16);
+                12
+            }
+            0x19 => {
+                // ADD HL, DE
+                let hl = self.hl();
+                let de = self.de();
+                let result = (hl as u32) + (de as u32);
+
+                self.set_flag(flags::FLAG_H, (hl & 0x0FFF) + (de & 0x0FFF) > 0x0FFF);
+                self.set_flag(flags::FLAG_N, false);
+                self.set_flag(flags::FLAG_C, result > 0xFFFF);
+                // S, Z, P/V unchanged
+
+                self.set_hl(result as u16);
+                11
+            }
+            0x1A => {
+                // LD A, (DE)
+                self.a = bus.read(self.de() as u32);
+                7
+            }
+            0x1B => {
+                // DEC DE
+                self.set_de(self.de().wrapping_sub(1));
+                6
+            }
+            0x1F => {
+                // RRA
+                let old_carry = if self.carry() { 0x80 } else { 0 };
+                let bit0 = self.a & 0x01;
+                self.a = (self.a >> 1) | old_carry;
+                self.set_flag(flags::FLAG_H, false);
+                self.set_flag(flags::FLAG_N, false);
+                self.set_flag(flags::FLAG_C, bit0 != 0);
+                4
+            }
+            0x20 => {
+                // JR NZ, n
+                let offset = self.fetch(bus) as i8;
+                if !self.zero() {
+                    self.pc = self.pc.wrapping_add(offset as u16);
+                    12
+                } else {
+                    7
+                }
+            }
             0x21 => {
                 // LD HL, nn
                 let low = self.fetch(bus);
@@ -94,21 +227,154 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.set_hl((high as u16) << 8 | low as u16);
                 10
             }
+            0x22 => {
+                // LD (nn), HL
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+                bus.write(addr as u32, self.l);
+                bus.write((addr.wrapping_add(1)) as u32, self.h);
+                16
+            }
             0x23 => {
                 // INC HL
                 self.set_hl(self.hl().wrapping_add(1));
                 6
             }
-            0x3C => {
-                // INC A
-                self.a = self.a.wrapping_add(1);
-                // TODO: set flags properly
+            0x26 => {
+                // LD H, n
+                self.h = self.fetch(bus);
+                7
+            }
+            0x28 => {
+                // JR Z, n
+                let offset = self.fetch(bus) as i8;
+                if self.zero() {
+                    self.pc = self.pc.wrapping_add(offset as u16);
+                    12
+                } else {
+                    7
+                }
+            }
+            0x29 => {
+                // ADD HL, HL
+                let hl = self.hl();
+                let result = (hl as u32) + (hl as u32);
+
+                self.set_flag(flags::FLAG_H, (hl & 0x0FFF) + (hl & 0x0FFF) > 0x0FFF);
+                self.set_flag(flags::FLAG_N, false);
+                self.set_flag(flags::FLAG_C, result > 0xFFFF);
+
+                self.set_hl(result as u16);
+                11
+            }
+            0x2A => {
+                // LD HL, (nn)
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+                let l = bus.read(addr as u32);
+                let h = bus.read((addr.wrapping_add(1)) as u32);
+                self.set_hl((h as u16) << 8 | l as u16);
+                16
+            }
+            0x2B => {
+                // DEC HL
+                self.set_hl(self.hl().wrapping_sub(1));
+                6
+            }
+            0x30 => {
+                // JR NC, n
+                let offset = self.fetch(bus) as i8;
+                if !self.carry() {
+                    self.pc = self.pc.wrapping_add(offset as u16);
+                    12
+                } else {
+                    7
+                }
+            }
+            0x32 => {
+                // LD (nn), A
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+                bus.write(addr as u32, self.a);
+                13
+            }
+            0x36 => {
+                // LD (HL), n
+                let n = self.fetch(bus);
+                bus.write(self.hl() as u32, n);
+                10
+            }
+            0x37 => {
+                // SCF
+                self.set_flag(flags::FLAG_H, false);
+                self.set_flag(flags::FLAG_N, false);
+                self.set_flag(flags::FLAG_C, true);
                 4
+            }
+            0x38 => {
+                // JR C, n
+                let offset = self.fetch(bus) as i8;
+                if self.carry() {
+                    self.pc = self.pc.wrapping_add(offset as u16);
+                    12
+                } else {
+                    7
+                }
+            }
+            0x3A => {
+                // LD A, (nn)
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+                self.a = bus.read(addr as u32);
+                13
             }
             0x3E => {
                 // LD A, n
                 self.a = self.fetch(bus);
                 7
+            }
+            0x3F => {
+                // CCF
+                let old_carry = self.carry();
+                self.set_flag(flags::FLAG_H, old_carry);
+                self.set_flag(flags::FLAG_N, false);
+                self.set_flag(flags::FLAG_C, !old_carry);
+                4
+            }
+            0xC0 => {
+                // RET NZ
+                if !self.zero() {
+                    let low = bus.read(self.sp as u32);
+                    self.sp = self.sp.wrapping_add(1);
+                    let high = bus.read(self.sp as u32);
+                    self.sp = self.sp.wrapping_add(1);
+                    self.pc = (high as u16) << 8 | low as u16;
+                    11
+                } else {
+                    5
+                }
+            }
+            0xC1 => {
+                // POP BC
+                self.c = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                self.b = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                10
+            }
+            0xC2 => {
+                // JP NZ, nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+                if !self.zero() {
+                    self.pc = addr;
+                }
+                10
             }
             0xC3 => {
                 // JP nn
@@ -116,6 +382,528 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let high = self.fetch(bus);
                 self.pc = (high as u16) << 8 | low as u16;
                 10
+            }
+            0xC4 => {
+                // CALL NZ, nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+                if !self.zero() {
+                    self.sp = self.sp.wrapping_sub(1);
+                    bus.write(self.sp as u32, (self.pc >> 8) as u8);
+                    self.sp = self.sp.wrapping_sub(1);
+                    bus.write(self.sp as u32, self.pc as u8);
+                    self.pc = addr;
+                    17
+                } else {
+                    10
+                }
+            }
+            0xC5 => {
+                // PUSH BC
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.b);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.c);
+                11
+            }
+            0xC6 => {
+                // ADD A, n
+                let n = self.fetch(bus);
+                self.add_a(n);
+                7
+            }
+            0xC8 => {
+                // RET Z
+                if self.zero() {
+                    let low = bus.read(self.sp as u32);
+                    self.sp = self.sp.wrapping_add(1);
+                    let high = bus.read(self.sp as u32);
+                    self.sp = self.sp.wrapping_add(1);
+                    self.pc = (high as u16) << 8 | low as u16;
+                    11
+                } else {
+                    5
+                }
+            }
+            0xC9 => {
+                // RET
+                let low = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                let high = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                self.pc = (high as u16) << 8 | low as u16;
+                10
+            }
+            0xCB => {
+                let op2 = self.fetch(bus);
+                let x = op2 >> 6;
+                let bit = (op2 >> 3) & 0x07;
+                let reg = op2 & 0x07;
+
+                match x {
+                    1 => {
+                        // BIT b, r
+                        let value = if reg == 6 {
+                            bus.read(self.hl() as u32)
+                        } else {
+                            self.read_register(reg)
+                        };
+                        self.set_flag(flags::FLAG_Z, value & (1 << bit) == 0);
+                        self.set_flag(flags::FLAG_H, true);
+                        self.set_flag(flags::FLAG_N, false);
+                        if reg == 6 { 12 } else { 8 }
+                    }
+                    2 => {
+                        // RES b, r
+                        if reg == 6 {
+                            let addr = self.hl() as u32;
+                            let value = bus.read(addr);
+                            bus.write(addr, value & !(1 << bit));
+                            15
+                        } else {
+                            let value = self.read_register(reg);
+                            self.set_register(reg, value & !(1 << bit));
+                            8
+                        }
+                    }
+                    3 => {
+                        // SET b, r
+                        if reg == 6 {
+                            let addr = self.hl() as u32;
+                            let value = bus.read(addr);
+                            bus.write(addr, value | (1 << bit));
+                            15
+                        } else {
+                            let value = self.read_register(reg);
+                            self.set_register(reg, value | (1 << bit));
+                            8
+                        }
+                    }
+                    0 => {
+                        // Rotates and shifts
+                        todo!("CB rotate/shift {:#04X}", op2)
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            0xCC => {
+                // CALL Z, nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+                if self.zero() {
+                    self.sp = self.sp.wrapping_sub(1);
+                    bus.write(self.sp as u32, (self.pc >> 8) as u8);
+                    self.sp = self.sp.wrapping_sub(1);
+                    bus.write(self.sp as u32, self.pc as u8);
+                    self.pc = addr;
+                    17
+                } else {
+                    10
+                }
+            }
+            0xCD => {
+                // CALL nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, (self.pc >> 8) as u8);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.pc as u8);
+
+                self.pc = addr;
+                17
+            }
+            0xD0 => {
+                // RET NC
+                if !self.carry() {
+                    let low = bus.read(self.sp as u32);
+                    self.sp = self.sp.wrapping_add(1);
+                    let high = bus.read(self.sp as u32);
+                    self.sp = self.sp.wrapping_add(1);
+                    self.pc = (high as u16) << 8 | low as u16;
+                    11
+                } else {
+                    5
+                }
+            }
+            0xD1 => {
+                // POP DE
+                self.e = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                self.d = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                10
+            }
+            0xD2 => {
+                // JP NC, nn
+                let low = self.fetch(bus);
+                let high = self.fetch(bus);
+                let addr = (high as u16) << 8 | low as u16;
+                if !self.carry() {
+                    self.pc = addr;
+                }
+                10
+            }
+            0xD3 => {
+                // OUT (n), A
+                let port_low = self.fetch(bus);
+                let port = (self.a as u16) << 8 | port_low as u16;
+                bus.write_io(port, self.a);
+                11
+            }
+            0xD5 => {
+                // PUSH DE
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.d);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.e);
+                11
+            }
+            0xD6 => {
+                // SUB n
+                let n = self.fetch(bus);
+                self.sub_a(n);
+                7
+            }
+            0xD8 => {
+                // RET C
+                if self.carry() {
+                    let low = bus.read(self.sp as u32);
+                    self.sp = self.sp.wrapping_add(1);
+                    let high = bus.read(self.sp as u32);
+                    self.sp = self.sp.wrapping_add(1);
+                    self.pc = (high as u16) << 8 | low as u16;
+                    11
+                } else {
+                    5
+                }
+            }
+            0xD9 => {
+                // EXX
+                std::mem::swap(&mut self.b, &mut self.b_shadow);
+                std::mem::swap(&mut self.c, &mut self.c_shadow);
+                std::mem::swap(&mut self.d, &mut self.d_shadow);
+                std::mem::swap(&mut self.e, &mut self.e_shadow);
+                std::mem::swap(&mut self.h, &mut self.h_shadow);
+                std::mem::swap(&mut self.l, &mut self.l_shadow);
+                4
+            }
+            0xE1 => {
+                // POP HL
+                self.l = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                self.h = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                10
+            }
+            0xE3 => {
+                // EX (SP), HL
+                let low = bus.read(self.sp as u32);
+                let high = bus.read((self.sp.wrapping_add(1)) as u32);
+                bus.write(self.sp as u32, self.l);
+                bus.write((self.sp.wrapping_add(1)) as u32, self.h);
+                self.l = low;
+                self.h = high;
+                19
+            }
+            0xE5 => {
+                // PUSH HL
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.h);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.l);
+                11
+            }
+            0xE6 => {
+                // AND n
+                let n = self.fetch(bus);
+                self.and_a(n);
+                7
+            }
+            0xEB => {
+                // EX DE, HL
+                std::mem::swap(&mut self.d, &mut self.h);
+                std::mem::swap(&mut self.e, &mut self.l);
+                4
+            }
+            0xED => {
+                let op2 = self.fetch(bus);
+                match op2 {
+                    0x43 => {
+                        // LD (nn), BC
+                        let low = self.fetch(bus);
+                        let high = self.fetch(bus);
+                        let addr = (high as u16) << 8 | low as u16;
+                        bus.write(addr as u32, self.c);
+                        bus.write((addr.wrapping_add(1)) as u32, self.b);
+                        20
+                    }
+                    0x47 => {
+                        // LD I, A
+                        self.i = self.a;
+                        9
+                    }
+                    0x4B => {
+                        // LD BC, (nn)
+                        let low = self.fetch(bus);
+                        let high = self.fetch(bus);
+                        let addr = (high as u16) << 8 | low as u16;
+                        self.c = bus.read(addr as u32);
+                        self.b = bus.read((addr.wrapping_add(1)) as u32);
+                        20
+                    }
+                    0x52 => {
+                        // SBC HL, DE
+                        let hl = self.hl();
+                        let de = self.de();
+                        let c = if self.carry() { 1u32 } else { 0 };
+                        let result = (hl as u32).wrapping_sub(de as u32).wrapping_sub(c);
+
+                        self.set_flag(flags::FLAG_S, result & 0x8000 != 0);
+                        self.set_flag(flags::FLAG_Z, (result & 0xFFFF) == 0);
+                        self.set_flag(flags::FLAG_H, (hl & 0x0FFF) < (de & 0x0FFF) + c as u16);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((hl ^ de) & 0x8000 != 0) && ((hl ^ result as u16) & 0x8000 != 0),
+                        );
+                        self.set_flag(flags::FLAG_N, true);
+                        self.set_flag(flags::FLAG_C, result > 0xFFFF);
+
+                        self.set_hl(result as u16);
+                        15
+                    }
+                    0x53 => {
+                        // LD (nn), DE
+                        let low = self.fetch(bus);
+                        let high = self.fetch(bus);
+                        let addr = (high as u16) << 8 | low as u16;
+                        bus.write(addr as u32, self.e);
+                        bus.write((addr.wrapping_add(1)) as u32, self.d);
+                        20
+                    }
+                    0x56 => {
+                        // IM 1
+                        self.interrupt_mode = 1;
+                        8
+                    }
+                    0x5B => {
+                        // LD DE, (nn)
+                        let low = self.fetch(bus);
+                        let high = self.fetch(bus);
+                        let addr = (high as u16) << 8 | low as u16;
+                        self.e = bus.read(addr as u32);
+                        self.d = bus.read((addr.wrapping_add(1)) as u32);
+                        20
+                    }
+                    0x73 => {
+                        // LD (nn), SP
+                        let low = self.fetch(bus);
+                        let high = self.fetch(bus);
+                        let addr = (high as u16) << 8 | low as u16;
+                        bus.write(addr as u32, self.sp as u8);
+                        bus.write((addr.wrapping_add(1)) as u32, (self.sp >> 8) as u8);
+                        20
+                    }
+                    0xB0 => {
+                        // LDIR
+                        let value = bus.read(self.hl() as u32);
+                        bus.write(self.de() as u32, value);
+
+                        self.set_hl(self.hl().wrapping_add(1));
+                        self.set_de(self.de().wrapping_add(1));
+                        self.set_bc(self.bc().wrapping_sub(1));
+
+                        self.set_flag(flags::FLAG_H, false);
+                        self.set_flag(flags::FLAG_PV, self.bc() != 0);
+                        self.set_flag(flags::FLAG_N, false);
+
+                        if self.bc() != 0 {
+                            self.pc = self.pc.wrapping_sub(2); // repeat
+                            21
+                        } else {
+                            16
+                        }
+                    }
+                    0xB8 => {
+                        // LDDR
+                        let value = bus.read(self.hl() as u32);
+                        bus.write(self.de() as u32, value);
+
+                        self.set_hl(self.hl().wrapping_sub(1));
+                        self.set_de(self.de().wrapping_sub(1));
+                        self.set_bc(self.bc().wrapping_sub(1));
+
+                        self.set_flag(flags::FLAG_H, false);
+                        self.set_flag(flags::FLAG_PV, self.bc() != 0);
+                        self.set_flag(flags::FLAG_N, false);
+
+                        if self.bc() != 0 {
+                            self.pc = self.pc.wrapping_sub(2); // repeat
+                            21
+                        } else {
+                            16
+                        }
+                    }
+                    _ => todo!("ED opcode {:#04X}", op2),
+                }
+            }
+            0xE9 => {
+                // JP (HL)
+                self.pc = self.hl();
+                4
+            }
+            0xF1 => {
+                // POP AF
+                self.f = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                self.a = bus.read(self.sp as u32);
+                self.sp = self.sp.wrapping_add(1);
+                10
+            }
+            0xF3 => {
+                // DI
+                self.iff1 = false;
+                self.iff2 = false;
+                4
+            }
+            0xF5 => {
+                // PUSH AF
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.a);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.f);
+                11
+            }
+            0xF6 => {
+                // OR n
+                let n = self.fetch(bus);
+                self.or_a(n);
+                7
+            }
+            0xF9 => {
+                // LD SP, HL
+                self.sp = self.hl();
+                6
+            }
+            0xFB => {
+                // EI
+                self.iff1 = true;
+                self.iff2 = true;
+                4
+            }
+            0xFD => {
+                let op2 = self.fetch(bus);
+                match op2 {
+                    0x21 => {
+                        // LD IY, nn
+                        let low = self.fetch(bus);
+                        let high = self.fetch(bus);
+                        self.iy = (high as u16) << 8 | low as u16;
+                        14
+                    }
+                    0x35 => {
+                        // DEC (IY+d)
+                        let d = self.fetch(bus) as i8;
+                        let addr = self.iy.wrapping_add(d as u16) as u32;
+                        let value = bus.read(addr);
+                        let result = value.wrapping_sub(1);
+                        bus.write(addr, result);
+
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
+                        self.set_flag(flags::FLAG_PV, value == 0x80);
+                        self.set_flag(flags::FLAG_N, true);
+                        23
+                    }
+                    0x36 => {
+                        // LD (IY+d), n
+                        let d = self.fetch(bus) as i8;
+                        let n = self.fetch(bus);
+                        let addr = self.iy.wrapping_add(d as u16) as u32;
+                        bus.write(addr, n);
+                        19
+                    }
+                    0x46 => {
+                        // LD B, (IY+d)
+                        let d = self.fetch(bus) as i8;
+                        let addr = self.iy.wrapping_add(d as u16) as u32;
+                        self.b = bus.read(addr);
+                        19
+                    }
+                    0x6E => {
+                        // LD L, (IY+d)
+                        let d = self.fetch(bus) as i8;
+                        let addr = self.iy.wrapping_add(d as u16) as u32;
+                        self.l = bus.read(addr);
+                        19
+                    }
+                    0x71 => {
+                        // LD (IY+d), C
+                        let d = self.fetch(bus) as i8;
+                        let addr = self.iy.wrapping_add(d as u16) as u32;
+                        bus.write(addr, self.c);
+                        19
+                    }
+                    0x75 => {
+                        // LD (IY+d), L
+                        let d = self.fetch(bus) as i8;
+                        let addr = self.iy.wrapping_add(d as u16) as u32;
+                        bus.write(addr, self.l);
+                        19
+                    }
+                    0x86 => {
+                        // ADD A, (IY+d)
+                        let d = self.fetch(bus) as i8;
+                        let addr = self.iy.wrapping_add(d as u16) as u32;
+                        let value = bus.read(addr);
+                        self.add_a(value);
+                        19
+                    }
+                    0xCB => {
+                        let d = self.fetch(bus) as i8;
+                        let addr = self.iy.wrapping_add(d as u16) as u32;
+                        let op3 = self.fetch(bus);
+
+                        let x = op3 >> 6;
+                        let bit = (op3 >> 3) & 0x07;
+
+                        match x {
+                            1 => {
+                                // BIT b, (IY+d)
+                                let value = bus.read(addr);
+                                self.set_flag(flags::FLAG_Z, value & (1 << bit) == 0);
+                                self.set_flag(flags::FLAG_H, true);
+                                self.set_flag(flags::FLAG_N, false);
+                                20
+                            }
+                            2 => {
+                                // RES b, (IY+d)
+                                let value = bus.read(addr);
+                                bus.write(addr, value & !(1 << bit));
+                                23
+                            }
+                            3 => {
+                                // SET b, (IY+d)
+                                let value = bus.read(addr);
+                                bus.write(addr, value | (1 << bit));
+                                23
+                            }
+                            _ => todo!("FD CB rotate/shift {:#04X}", op3),
+                        }
+                    }
+                    _ => todo!("FD opcode {:#04X}", op2),
+                }
+            }
+            0xFE => {
+                // CP n
+                let n = self.fetch(bus);
+                self.cp_a(n);
+                7
             }
             // LD r, r' (including (HL) cases, excluding HALT)
             op if (op & 0b11000000) == 0b01000000 => {
@@ -150,6 +938,142 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     self.read_register(src)
                 };
                 self.add_a(value);
+                if src == 6 { 7 } else { 4 }
+            }
+            // XOR r
+            op if (op & 0b11111000) == 0b10101000 => {
+                let src = op & 0b111;
+                let value = if src == 6 {
+                    bus.read(self.hl() as u32)
+                } else {
+                    self.read_register(src)
+                };
+                self.xor_a(value);
+                if src == 6 { 7 } else { 4 }
+            }
+            // CP r
+            op if (op & 0b11111000) == 0b10111000 => {
+                let src = op & 0b111;
+                let value = if src == 6 {
+                    bus.read(self.hl() as u32)
+                } else {
+                    self.read_register(src)
+                };
+                self.cp_a(value);
+                if src == 6 { 7 } else { 4 }
+            }
+            // AND r
+            op if (op & 0b11111000) == 0b10100000 => {
+                let src = op & 0b111;
+                let value = if src == 6 {
+                    bus.read(self.hl() as u32)
+                } else {
+                    self.read_register(src)
+                };
+                self.and_a(value);
+                if src == 6 { 7 } else { 4 }
+            }
+            // INC r
+            op if (op & 0b11000111) == 0b00000100 => {
+                let reg = (op >> 3) & 0b111;
+
+                if reg == 6 {
+                    // INC (HL)
+                    let addr = self.hl() as u32;
+                    let value = bus.read(addr);
+                    let result = value.wrapping_add(1);
+                    bus.write(addr, result);
+
+                    self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                    self.set_flag(flags::FLAG_Z, result == 0);
+                    self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
+                    self.set_flag(flags::FLAG_PV, value == 0x7F);
+                    self.set_flag(flags::FLAG_N, false);
+                    11
+                } else {
+                    let value = self.read_register(reg);
+                    let result = value.wrapping_add(1);
+                    self.set_register(reg, result);
+
+                    self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                    self.set_flag(flags::FLAG_Z, result == 0);
+                    self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
+                    self.set_flag(flags::FLAG_PV, value == 0x7F);
+                    self.set_flag(flags::FLAG_N, false);
+                    4
+                }
+            }
+            // SUB r
+            op if (op & 0b11111000) == 0b10010000 => {
+                let src = op & 0b111;
+                let value = if src == 6 {
+                    bus.read(self.hl() as u32)
+                } else {
+                    self.read_register(src)
+                };
+                self.sub_a(value);
+                if src == 6 { 7 } else { 4 }
+            }
+            // OR r
+            op if (op & 0b11111000) == 0b10110000 => {
+                let src = op & 0b111;
+                let value = if src == 6 {
+                    bus.read(self.hl() as u32)
+                } else {
+                    self.read_register(src)
+                };
+                self.or_a(value);
+                if src == 6 { 7 } else { 4 }
+            }
+            // DEC r
+            op if (op & 0b11000111) == 0b00000101 => {
+                let reg = (op >> 3) & 0b111;
+
+                if reg == 6 {
+                    // DEC (HL) - already handled at 0x35
+                    let addr = self.hl() as u32;
+                    let value = bus.read(addr);
+                    let result = value.wrapping_sub(1);
+                    bus.write(addr, result);
+
+                    self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                    self.set_flag(flags::FLAG_Z, result == 0);
+                    self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
+                    self.set_flag(flags::FLAG_PV, value == 0x80);
+                    self.set_flag(flags::FLAG_N, true);
+                    11
+                } else {
+                    let value = self.read_register(reg);
+                    let result = value.wrapping_sub(1);
+                    self.set_register(reg, result);
+
+                    self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                    self.set_flag(flags::FLAG_Z, result == 0);
+                    self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
+                    self.set_flag(flags::FLAG_PV, value == 0x80);
+                    self.set_flag(flags::FLAG_N, true);
+                    4
+                }
+            }
+            // RST n
+            op if (op & 0b11000111) == 0b11000111 => {
+                let addr = (op & 0b00111000) as u16;
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, (self.pc >> 8) as u8);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.pc as u8);
+                self.pc = addr;
+                11
+            }
+            // SBC A, r
+            op if (op & 0b11111000) == 0b10011000 => {
+                let src = op & 0b111;
+                let value = if src == 6 {
+                    bus.read(self.hl() as u32)
+                } else {
+                    self.read_register(src)
+                };
+                self.sbc_a(value);
                 if src == 6 { 7 } else { 4 }
             }
             _ => todo!("opcode {:#04X}", opcode),

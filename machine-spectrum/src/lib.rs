@@ -23,7 +23,11 @@ impl Bus for Memory {
     }
 
     fn write(&mut self, address: u32, value: u8) {
-        self.data[(address & 0xFFFF) as usize] = value;
+        let addr = (address & 0xFFFF) as usize;
+        if addr >= 0x4000 {
+            // Only write to RAM, not ROM
+            self.data[addr] = value;
+        }
     }
 }
 
@@ -75,6 +79,10 @@ impl Spectrum48K {
         for (i, byte) in data.iter().enumerate() {
             self.memory.data[address as usize + i] = *byte;
         }
+    }
+
+    pub fn load_rom(&mut self, rom: &[u8]) {
+        self.memory.data[..rom.len()].copy_from_slice(rom);
     }
 }
 
