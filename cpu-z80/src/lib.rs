@@ -76,6 +76,34 @@ impl Z80 {
         self.pc = self.pc.wrapping_add(1);
         byte
     }
+
+    fn read_register(&self, index: u8) -> u8 {
+        match index {
+            0 => self.b,
+            1 => self.c,
+            2 => self.d,
+            3 => self.e,
+            4 => self.h,
+            5 => self.l,
+            6 => panic!("(HL) not a simple register"),
+            7 => self.a,
+            _ => unreachable!(),
+        }
+    }
+
+    fn set_register(&mut self, index: u8, value: u8) {
+        match index {
+            0 => self.b = value,
+            1 => self.c = value,
+            2 => self.d = value,
+            3 => self.e = value,
+            4 => self.h = value,
+            5 => self.l = value,
+            6 => panic!("(HL) not a simple register"),
+            7 => self.a = value,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl<B: IoBus> Cpu<B> for Z80 {
@@ -88,6 +116,19 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 // LD A, n
                 self.a = self.fetch(bus);
                 7
+            }
+            // LD r, r' (except HALT and (HL) cases)
+            op if (op & 0b11000000) == 0b01000000 => {
+                let dst = (op >> 3) & 0b111;
+                let src = op & 0b111;
+
+                if dst == 6 || src == 6 {
+                    todo!("(HL) cases")
+                }
+
+                let value = self.read_register(src);
+                self.set_register(dst, value);
+                4
             }
             _ => todo!("opcode {:#04X}", opcode),
         }
@@ -104,11 +145,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
         // SP, AF, BC, DE, HL, IX, IY left unchanged (undefined)
     }
 
-    fn interrupt(&mut self, bus: &mut B) {
+    fn interrupt(&mut self, _bus: &mut B) {
         todo!()
     }
 
-    fn nmi(&mut self, bus: &mut B) {
+    fn nmi(&mut self, _bus: &mut B) {
         todo!()
     }
 
@@ -201,5 +242,20 @@ mod tests {
         assert_eq!(cycles, 7);
         assert_eq!(cpu.a, 0x42);
         assert_eq!(cpu.pc, 2);
+    }
+
+        #[test]
+    fn ld_b_c_copies_register() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        cpu.c = 0x42;
+        bus.memory[0] = 0x41; // LD B, C
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 4);
+        assert_eq!(cpu.b, 0x42);
+        assert_eq!(cpu.c, 0x42);
     }
 }
