@@ -120,4 +120,19 @@ impl Z80 {
 
         self.a = result;
     }
+
+    pub(crate) fn adc_a(&mut self, value: u8) {
+        let a = self.a;
+        let c = if self.carry() { 1 } else { 0 };
+        let result = a.wrapping_add(value).wrapping_add(c);
+
+        self.set_flag(FLAG_S, result & 0x80 != 0);
+        self.set_flag(FLAG_Z, result == 0);
+        self.set_flag(FLAG_H, (a & 0x0F) + (value & 0x0F) + c > 0x0F);
+        self.set_flag(FLAG_PV, (a ^ value) & 0x80 == 0 && (a ^ result) & 0x80 != 0);
+        self.set_flag(FLAG_N, false);
+        self.set_flag(FLAG_C, (a as u16) + (value as u16) + (c as u16) > 0xFF);
+
+        self.a = result;
+    }
 }

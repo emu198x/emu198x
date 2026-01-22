@@ -6,13 +6,15 @@ use emu_core::{Bus, Cpu, IoBus};
 struct Memory {
     pub data: [u8; 65536],
     pub border: u8,
+    pub keyboard: [u8; 8],
 }
 
 impl Memory {
     fn new() -> Self {
         Self {
             data: [0; 65536],
-            border: 7, // white default
+            border: 7,           // white default
+            keyboard: [0xFF; 8], // all keys released
         }
     }
 }
@@ -32,8 +34,20 @@ impl Bus for Memory {
 }
 
 impl IoBus for Memory {
-    fn read_io(&self, _port: u16) -> u8 {
-        0xFF // nothing connected
+    fn read_io(&self, port: u16) -> u8 {
+        if port & 0x01 == 0 {
+            // ULA port - keyboard
+            let high = (port >> 8) as u8;
+            let mut result = 0x1F; // bits 0-4, active low
+            for row in 0..8 {
+                if high & (1 << row) == 0 {
+                    result &= self.keyboard[row];
+                }
+            }
+            result
+        } else {
+            0xFF
+        }
     }
 
     fn write_io(&mut self, port: u16, value: u8) {
@@ -59,6 +73,8 @@ impl Spectrum48K {
 
     /// Run the CPU for approximately one frame's worth of cycles.
     pub fn run_frame(&mut self) {
+        self.cpu.interrupt(&mut self.memory);
+
         let mut cycles = 0;
         while cycles < 69888 {
             cycles += self.cpu.step(&mut self.memory);
@@ -83,6 +99,20 @@ impl Spectrum48K {
 
     pub fn load_rom(&mut self, rom: &[u8]) {
         self.memory.data[..rom.len()].copy_from_slice(rom);
+    }
+
+    pub fn key_down(&mut self, row: usize, bit: u8) {
+        self.memory.keyboard[row] &= !(1 << bit);
+    }
+
+    pub fn key_up(&mut self, row: usize, bit: u8) {
+        self.memory.keyboard[row] |= 1 << bit;
+    }
+
+    pub fn reset_keyboard(&mut self) {
+        for row in 0..8 {
+            self.memory.keyboard[row] = 0xFF;
+        }
     }
 }
 

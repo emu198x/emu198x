@@ -43,11 +43,84 @@ fn main() {
     let mut buffer = vec![0u32; WIDTH * HEIGHT];
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        // Handle keyboard
+        let keys = window.get_keys();
+        spec.reset_keyboard();
+        for key in keys {
+            if let Some((row, bit)) = map_key(key) {
+                spec.key_down(row, bit);
+            }
+        }
+
         spec.run_frame();
         render_screen(spec.screen(), spec.border(), &mut buffer);
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
     }
 }
+
+fn map_key(key: Key) -> Option<(usize, u8)> {
+    // Returns (row, bit)
+    match key {
+        // Row 0: SHIFT, Z, X, C, V
+        Key::LeftShift | Key::RightShift => Some((0, 0)),
+        Key::Z => Some((0, 1)),
+        Key::X => Some((0, 2)),
+        Key::C => Some((0, 3)),
+        Key::V => Some((0, 4)),
+
+        // Row 1: A, S, D, F, G
+        Key::A => Some((1, 0)),
+        Key::S => Some((1, 1)),
+        Key::D => Some((1, 2)),
+        Key::F => Some((1, 3)),
+        Key::G => Some((1, 4)),
+
+        // Row 2: Q, W, E, R, T
+        Key::Q => Some((2, 0)),
+        Key::W => Some((2, 1)),
+        Key::E => Some((2, 2)),
+        Key::R => Some((2, 3)),
+        Key::T => Some((2, 4)),
+
+        // Row 3: 1, 2, 3, 4, 5
+        Key::Key1 => Some((3, 0)),
+        Key::Key2 => Some((3, 1)),
+        Key::Key3 => Some((3, 2)),
+        Key::Key4 => Some((3, 3)),
+        Key::Key5 => Some((3, 4)),
+
+        // Row 4: 0, 9, 8, 7, 6
+        Key::Key0 => Some((4, 0)),
+        Key::Key9 => Some((4, 1)),
+        Key::Key8 => Some((4, 2)),
+        Key::Key7 => Some((4, 3)),
+        Key::Key6 => Some((4, 4)),
+
+        // Row 5: P, O, I, U, Y
+        Key::P => Some((5, 0)),
+        Key::O => Some((5, 1)),
+        Key::I => Some((5, 2)),
+        Key::U => Some((5, 3)),
+        Key::Y => Some((5, 4)),
+
+        // Row 6: ENTER, L, K, J, H
+        Key::Enter => Some((6, 0)),
+        Key::L => Some((6, 1)),
+        Key::K => Some((6, 2)),
+        Key::J => Some((6, 3)),
+        Key::H => Some((6, 4)),
+
+        // Row 7: SPACE, SYM, M, N, B
+        Key::Space => Some((7, 0)),
+        Key::LeftCtrl | Key::RightCtrl => Some((7, 1)), // Symbol shift
+        Key::M => Some((7, 2)),
+        Key::N => Some((7, 3)),
+        Key::B => Some((7, 4)),
+
+        _ => None,
+    }
+}
+
 fn render_screen(screen: &[u8], border: u8, buffer: &mut [u32]) {
     let border_colour = COLOURS[border as usize];
 
