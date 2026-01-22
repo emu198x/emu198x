@@ -104,6 +104,10 @@ impl Z80 {
             _ => unreachable!(),
         }
     }
+
+    fn hl(&self) -> u16 {
+        (self.h as u16) << 8 | self.l as u16
+    }
 }
 
 impl<B: IoBus> Cpu<B> for Z80 {
@@ -117,18 +121,29 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.a = self.fetch(bus);
                 7
             }
-            // LD r, r' (except HALT and (HL) cases)
+            // LD r, r' (including (HL) cases, excluding HALT)
             op if (op & 0b11000000) == 0b01000000 => {
                 let dst = (op >> 3) & 0b111;
                 let src = op & 0b111;
 
-                if dst == 6 || src == 6 {
-                    todo!("(HL) cases")
+                // 0x76 is HALT, not LD (HL), (HL)
+                if dst == 6 && src == 6 {
+                    todo!("HALT")
                 }
 
-                let value = self.read_register(src);
-                self.set_register(dst, value);
-                4
+                let value = if src == 6 {
+                    bus.read(self.hl() as u32)
+                } else {
+                    self.read_register(src)
+                };
+
+                if dst == 6 {
+                    bus.write(self.hl() as u32, value);
+                } else {
+                    self.set_register(dst, value);
+                }
+
+                if src == 6 || dst == 6 { 7 } else { 4 }
             }
             _ => todo!("opcode {:#04X}", opcode),
         }
@@ -244,7 +259,7 @@ mod tests {
         assert_eq!(cpu.pc, 2);
     }
 
-        #[test]
+    #[test]
     fn ld_b_c_copies_register() {
         let mut cpu = Z80::new();
         let mut bus = TestBus::new();
@@ -257,5 +272,21 @@ mod tests {
         assert_eq!(cycles, 4);
         assert_eq!(cpu.b, 0x42);
         assert_eq!(cpu.c, 0x42);
+    }
+
+    #[test]
+    fn ld_a_hl_reads_memory() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        cpu.h = 0x40;
+        cpu.l = 0x00;
+        bus.memory[0x4000] = 0x42;
+        bus.memory[0] = 0x7E; // LD A, (HL)
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 7);
+        assert_eq!(cpu.a, 0x42);
     }
 }
