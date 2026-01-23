@@ -4,7 +4,9 @@ use crate::Z80;
 pub const FLAG_C: u8 = 0; // Carry
 pub const FLAG_N: u8 = 1; // Add/Subtract
 pub const FLAG_PV: u8 = 2; // Parity/Overflow
+pub const FLAG_F3: u8 = 3; // Undocumented (copy of bit 3)
 pub const FLAG_H: u8 = 4; // Half-carry
+pub const FLAG_F5: u8 = 5; // Undocumented (copy of bit 5)
 pub const FLAG_Z: u8 = 6; // Zero
 pub const FLAG_S: u8 = 7; // Sign
 
@@ -29,6 +31,12 @@ impl Z80 {
         self.get_flag(FLAG_Z)
     }
 
+    /// Set undocumented flags (bits 3 and 5) from a value
+    pub(crate) fn set_undoc_flags(&mut self, value: u8) {
+        self.set_flag(FLAG_F3, value & 0x08 != 0);
+        self.set_flag(FLAG_F5, value & 0x20 != 0);
+    }
+
     pub(crate) fn add_a(&mut self, value: u8) {
         let a = self.a;
         let result = a.wrapping_add(value);
@@ -43,6 +51,7 @@ impl Z80 {
         );
         self.set_flag(FLAG_N, false);
         self.set_flag(FLAG_C, (a as u16) + (value as u16) > 0xFF);
+        self.set_undoc_flags(result);
 
         self.a = result;
     }
@@ -56,6 +65,7 @@ impl Z80 {
         self.set_flag(FLAG_PV, self.a.count_ones() % 2 == 0); // parity
         self.set_flag(FLAG_N, false);
         self.set_flag(FLAG_C, false);
+        self.set_undoc_flags(self.a);
     }
 
     pub(crate) fn cp_a(&mut self, value: u8) {
@@ -68,6 +78,8 @@ impl Z80 {
         self.set_flag(FLAG_PV, (a ^ value) & 0x80 != 0 && (a ^ result) & 0x80 != 0);
         self.set_flag(FLAG_N, true);
         self.set_flag(FLAG_C, a < value);
+        // CP is special: F3/F5 come from the operand, not the result
+        self.set_undoc_flags(value);
     }
 
     pub(crate) fn and_a(&mut self, value: u8) {
@@ -79,6 +91,7 @@ impl Z80 {
         self.set_flag(FLAG_PV, self.a.count_ones() % 2 == 0); // parity
         self.set_flag(FLAG_N, false);
         self.set_flag(FLAG_C, false);
+        self.set_undoc_flags(self.a);
     }
 
     pub(crate) fn sub_a(&mut self, value: u8) {
@@ -91,6 +104,7 @@ impl Z80 {
         self.set_flag(FLAG_PV, (a ^ value) & 0x80 != 0 && (a ^ result) & 0x80 != 0);
         self.set_flag(FLAG_N, true);
         self.set_flag(FLAG_C, a < value);
+        self.set_undoc_flags(result);
 
         self.a = result;
     }
@@ -104,6 +118,7 @@ impl Z80 {
         self.set_flag(FLAG_PV, self.a.count_ones() % 2 == 0);
         self.set_flag(FLAG_N, false);
         self.set_flag(FLAG_C, false);
+        self.set_undoc_flags(self.a);
     }
 
     pub(crate) fn sbc_a(&mut self, value: u8) {
@@ -117,6 +132,7 @@ impl Z80 {
         self.set_flag(FLAG_PV, (a ^ value) & 0x80 != 0 && (a ^ result) & 0x80 != 0);
         self.set_flag(FLAG_N, true);
         self.set_flag(FLAG_C, (a as u16) < (value as u16) + (c as u16));
+        self.set_undoc_flags(result);
 
         self.a = result;
     }
@@ -132,6 +148,7 @@ impl Z80 {
         self.set_flag(FLAG_PV, (a ^ value) & 0x80 == 0 && (a ^ result) & 0x80 != 0);
         self.set_flag(FLAG_N, false);
         self.set_flag(FLAG_C, (a as u16) + (value as u16) + (c as u16) > 0xFF);
+        self.set_undoc_flags(result);
 
         self.a = result;
     }
