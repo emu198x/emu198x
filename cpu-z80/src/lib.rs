@@ -188,12 +188,14 @@ impl Z80 {
         self.halted = false;
     }
 
-    /// Fetch opcode from PC with M1 timing (4 T-states: 3 for read + 1 for refresh).
+    /// Fetch opcode from PC with M1 timing (4 T-states via bus.fetch).
     /// Use this for opcode fetches and prefix bytes.
+    /// Increments R register (bits 0-6) on each M1 cycle.
     fn fetch(&mut self, bus: &mut impl emu_core::Bus) -> u8 {
-        let byte = bus.fetch(self.pc as u32);
-        bus.tick(1); // M1 refresh cycle
+        let byte = bus.fetch(self.pc as u32); // M1 cycle including refresh (4 T-states)
         self.pc = self.pc.wrapping_add(1);
+        // Increment R register (bits 0-6 only, bit 7 preserved)
+        self.r = (self.r & 0x80) | ((self.r.wrapping_add(1)) & 0x7F);
         byte
     }
 
@@ -213,8 +215,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             // This applies proper contention if HALT is in contended memory.
             // PC points to instruction after HALT, so HALT address is PC-1.
             let halt_addr = self.pc.wrapping_sub(1) as u32;
-            let _ = bus.fetch(halt_addr); // M1 cycle with contention (3 T-states + contention)
-            bus.tick(1); // Refresh cycle (1 T-state)
+            let _ = bus.fetch(halt_addr); // M1 cycle with contention (4 T-states + contention)
             self.r = (self.r & 0x80) | ((self.r.wrapping_add(1)) & 0x7F); // R increments during HALT
             return 4;
         }
@@ -4649,7 +4650,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
         // SP, AF, BC, DE, HL, IX, IY left unchanged (undefined)
     }
 
-    fn interrupt(&mut self, _bus: &mut B) {
+    fn interrupt(&mut self, bus: &mut B) {
         if !self.iff1 {
             return;
         }
@@ -4658,14 +4659,54 @@ impl<B: IoBus> Cpu<B> for Z80 {
         self.iff1 = false;
         self.iff2 = false;
 
-        // IM 1: push PC, jump to 0x0038
-        if self.interrupt_mode == 1 {
-            self.sp = self.sp.wrapping_sub(1);
-            _bus.write(self.sp as u32, (self.pc >> 8) as u8);
-            self.sp = self.sp.wrapping_sub(1);
-            _bus.write(self.sp as u32, self.pc as u8);
-            self.pc = 0x0038;
-            self.wz = 0x0038;
+        // Interrupt acknowledge cycle takes time
+        // The exact timing depends on the interrupt mode:
+        // IM 0: 13 T-states (depends on instruction on data bus)
+        // IM 1: 13 T-states (equivalent to RST 38h)
+        // IM 2: 19 T-states (includes vector table read)
+
+        match self.interrupt_mode {
+            0 => {
+                // IM 0: Execute instruction from data bus (usually RST)
+                // Spectrum doesn't use IM 0, but we support it as RST 38h
+                bus.tick(7); // Interrupt acknowledge (5) + internal (2)
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, (self.pc >> 8) as u8);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.pc as u8);
+                self.pc = 0x0038;
+                self.wz = 0x0038;
+            }
+            1 => {
+                // IM 1: RST 38h (13 T-states total)
+                // Timing: 5 (IORQge) + 3 (push high) + 3 (push low) + 2 (internal)
+                // But write already adds 3 T-states each, so:
+                // 7 for acknowledge + internal, then 2 writes (6 total from write)
+                bus.tick(7); // Interrupt acknowledge (5) + internal (2)
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, (self.pc >> 8) as u8);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.pc as u8);
+                self.pc = 0x0038;
+                self.wz = 0x0038;
+            }
+            2 => {
+                // IM 2: Vectored interrupt (19 T-states total)
+                // Read vector from (I << 8) | data_bus (data_bus is 0xFF on Spectrum)
+                bus.tick(7); // Interrupt acknowledge (5) + internal (2)
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, (self.pc >> 8) as u8);
+                self.sp = self.sp.wrapping_sub(1);
+                bus.write(self.sp as u32, self.pc as u8);
+
+                // Vector table lookup (Spectrum data bus floats to 0xFF)
+                let vector_addr = ((self.i as u16) << 8) | 0xFF;
+                let low = bus.read(vector_addr as u32);
+                let high = bus.read(vector_addr.wrapping_add(1) as u32);
+                self.pc = (high as u16) << 8 | low as u16;
+                self.wz = self.pc;
+            }
+            _ => unreachable!(),
         }
     }
 
@@ -4859,5 +4900,55 @@ mod tests {
         assert_eq!(cycles, 10);
         assert_eq!(cpu.h, 0x40);
         assert_eq!(cpu.l, 0x00);
+    }
+
+    #[test]
+    fn r_register_increments_on_fetch() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        // R starts at 0 after new()
+        assert_eq!(cpu.r, 0);
+
+        // Execute a NOP (1 M1 fetch)
+        bus.memory[0] = 0x00; // NOP
+        cpu.step(&mut bus);
+        assert_eq!(cpu.r, 1); // R incremented once
+
+        // Execute another NOP
+        bus.memory[1] = 0x00; // NOP
+        cpu.step(&mut bus);
+        assert_eq!(cpu.r, 2); // R incremented again
+
+        // Execute a CB-prefixed instruction (2 M1 fetches)
+        bus.memory[2] = 0xCB; // CB prefix
+        bus.memory[3] = 0x00; // RLC B
+        cpu.step(&mut bus);
+        assert_eq!(cpu.r, 4); // R incremented twice (prefix + opcode)
+    }
+
+    #[test]
+    fn r_register_preserves_bit_7() {
+        let mut cpu = Z80::new();
+        let mut bus = TestBus::new();
+
+        // Set bit 7 of R via LD R,A
+        // LD R,A copies A to R directly (after the instruction's M1 increments)
+        cpu.a = 0x80;
+        bus.memory[0] = 0xED; // ED prefix
+        bus.memory[1] = 0x4F; // LD R,A
+        cpu.step(&mut bus);
+
+        // R should be 0x80 (copied from A, overwrites increments)
+        assert_eq!(cpu.r, 0x80);
+
+        // Execute NOPs and verify bit 7 is preserved while bits 0-6 increment
+        bus.memory[2] = 0x00; // NOP
+        cpu.step(&mut bus);
+        assert_eq!(cpu.r, 0x81); // 0x80 + 1 increment, bit 7 preserved
+
+        bus.memory[3] = 0x00; // NOP
+        cpu.step(&mut bus);
+        assert_eq!(cpu.r, 0x82); // 0x80 + 2 increments, bit 7 preserved
     }
 }

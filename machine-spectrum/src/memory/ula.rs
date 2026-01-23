@@ -185,27 +185,30 @@ impl Ula {
         }
     }
 
-    /// Apply M1 cycle (opcode fetch) contention timing.
+    /// Apply M1 cycle (opcode fetch + refresh) contention timing.
     ///
     /// The M1 cycle has different contention timing than a normal memory read.
     /// During M1, the ULA checks for contention twice:
     /// - At T1 (address placed on bus)
     /// - At T2 (data read)
+    /// Then there's a refresh cycle (T4) where IR is on the address bus.
     ///
-    /// Pattern for contended memory: C:1, C:2 (total 3 T-states + delays)
-    /// Pattern for non-contended: N:3 (total 3 T-states, no delays)
+    /// Pattern for contended memory: C:1, C:2, N:2 (total 4 T-states + delays)
+    /// Pattern for non-contended: N:4 (total 4 T-states, no delays)
     ///
-    /// Note: The refresh cycle (T4, 1 T-state) is handled separately by the CPU.
+    /// Note: IR contention during refresh is not implemented (requires passing
+    /// IR to the bus). This rarely matters since I is typically in ROM.
     pub fn m1_contention(&mut self, _addr: u16, is_contended: bool) {
         if is_contended {
-            // M1 to contended memory: C:1, C:2
+            // M1 to contended memory: C:1, C:2, N:2 (refresh)
             let delay = self.contention_delay();
             self.tick(delay + 1);
             let delay = self.contention_delay();
             self.tick(delay + 2);
+            self.tick(1); // Refresh cycle (T4)
         } else {
-            // M1 to non-contended memory: N:3
-            self.tick(3);
+            // M1 to non-contended memory: N:4
+            self.tick(4);
         }
     }
 
@@ -526,83 +529,70 @@ mod tests {
 
     #[test]
     fn m1_contention_non_contended() {
-        // M1 to non-contended memory: N:3
+        // M1 to non-contended memory: N:4 (3 fetch + 1 refresh)
         let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         ula.frame_t_state = 0;
 
         ula.m1_contention(0x0000, false);
 
-        assert_eq!(ula.frame_t_state, 3);
+        assert_eq!(ula.frame_t_state, 4);
     }
 
     #[test]
     fn m1_contention_contended_in_border() {
-        // M1 to contended memory during border: C:1, C:2
-        // No actual delay during border, so just 3 T-states
+        // M1 to contended memory during border: C:1, C:2, N:1
+        // No actual delay during border, so just 4 T-states
         let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         ula.frame_t_state = 100; // In top border
 
         ula.m1_contention(0x4000, true);
 
-        assert_eq!(ula.frame_t_state, 103);
+        assert_eq!(ula.frame_t_state, 104);
     }
 
     #[test]
     fn m1_contention_contended_during_display() {
         // M1 to contended memory during display at pattern position 0
-        // Pattern: C:1, C:2
+        // Pattern: C:1, C:2, N:1
         // At pos 0 (delay 6): 6 + 1 = 7, now at pos 7 (delay 0)
-        // At pos 7 (delay 0): 0 + 2 = 2
-        // Total: 7 + 2 = 9
+        // At pos 7 (delay 0): 0 + 2 = 2, now at pos 1
+        // Refresh: 1
+        // Total: 7 + 2 + 1 = 10
         let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
         ula.frame_t_state = display_start;
 
         ula.m1_contention(0x4000, true);
 
-        assert_eq!(ula.frame_t_state, display_start + 9);
+        assert_eq!(ula.frame_t_state, display_start + 10);
     }
 
     #[test]
     fn m1_vs_normal_read_timing_difference() {
         // Compare M1 contention vs normal read contention during display
-        // Both start at pattern position 0 (delay 6)
+        // M1 now includes refresh cycle, so it's 1 T-state longer than read
         //
-        // Normal read (C:3): 6 + 3 = 9 T-states
-        // M1 (C:1, C:2): (6 + 1) + (0 + 2) = 9 T-states
-        //
-        // At pattern position 1 (delay 5):
-        // Normal read (C:3): 5 + 3 = 8 T-states
-        // M1 (C:1, C:2): (5 + 1) + (0 + 2) = 8 T-states (now at pos 6, delay 0)
-        //
-        // The key difference shows at position 5 (delay 1):
-        // Normal read (C:3): 1 + 3 = 4 T-states
-        // M1 (C:1, C:2): (1 + 1) + (0 + 2) = 4 T-states (now at pos 7, delay 0)
-        //
-        // And at position 6 (delay 0):
-        // Normal read (C:3): 0 + 3 = 3 T-states
-        // M1 (C:1, C:2): (0 + 1) + (0 + 2) = 3 T-states (now at pos 1, delay 5 for next)
-        //
-        // The difference matters for cumulative timing across multiple accesses
+        // Normal read (C:3): At pos 0 (delay 6): 6 + 3 = 9 T-states
+        // M1 (C:1, C:2, N:1): (6 + 1) + (0 + 2) + 1 = 10 T-states
 
         let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
 
-        // Test that M1 timing is correctly different from normal read
-        // At position 0: both should take 9 T-states but the internal timing differs
+        // M1 takes 10 T-states (includes refresh)
         ula.frame_t_state = display_start;
         ula.m1_contention(0x4000, true);
         let m1_end = ula.frame_t_state;
+        assert_eq!(m1_end, display_start + 10);
 
-        // Reset and do normal read timing (C:3)
+        // Normal read takes 9 T-states (no refresh)
         ula.frame_t_state = display_start;
         let delay = ula.contention_delay();
         ula.tick(delay + 3);
         let read_end = ula.frame_t_state;
+        assert_eq!(read_end, display_start + 9);
 
-        // Both should end at the same place for this particular starting position
-        assert_eq!(m1_end, read_end);
-        assert_eq!(m1_end, display_start + 9);
+        // M1 is 1 T-state longer due to refresh cycle
+        assert_eq!(m1_end, read_end + 1);
     }
 
     #[test]
