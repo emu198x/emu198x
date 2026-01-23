@@ -47,6 +47,9 @@ pub struct Ula {
     /// Snow events during this frame: (scanline, char_column).
     /// Occurs when CPU reads screen memory while ULA is also reading it.
     pub snow_events: Vec<(u32, u32)>,
+    /// EAR input level (bit 6 of port 0xFE read).
+    /// Used for tape loading - reflects the audio signal from tape.
+    pub ear_level: bool,
 }
 
 impl Ula {
@@ -62,6 +65,7 @@ impl Ula {
             beeper_level: false,
             beeper_transitions: Vec::with_capacity(1024),
             snow_events: Vec::new(),
+            ear_level: false,
         }
     }
 
@@ -76,6 +80,7 @@ impl Ula {
         self.beeper_level = false;
         self.beeper_transitions.clear();
         self.snow_events.clear();
+        self.ear_level = false;
     }
 
     /// Start a new frame.
@@ -282,13 +287,23 @@ impl Ula {
         }
     }
 
-    /// Read keyboard matrix.
+    /// Read keyboard matrix and EAR input.
+    ///
+    /// Returns:
+    /// - Bits 0-4: Keyboard row (active low)
+    /// - Bit 5: Always 1 (unused on 48K)
+    /// - Bit 6: EAR input (tape signal)
+    /// - Bit 7: Floating (returns 1)
     pub fn read_keyboard(&self, high_byte: u8) -> u8 {
-        let mut result = 0x1F; // bits 0-4, active low
+        let mut result = 0xBF; // bits 5 and 7 always high, bit 6 (EAR) low by default
         for row in 0..8 {
             if high_byte & (1 << row) == 0 {
-                result &= self.keyboard[row];
+                result &= self.keyboard[row] | 0xE0; // preserve upper bits
             }
+        }
+        // Add EAR bit (bit 6)
+        if self.ear_level {
+            result |= 0x40;
         }
         result
     }
@@ -669,5 +684,33 @@ mod tests {
         // Start new frame
         ula.start_frame();
         assert!(ula.snow_events.is_empty());
+    }
+
+    #[test]
+    fn ear_bit_returned_in_port_read() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+
+        // EAR bit is bit 6, should be 0 by default
+        let result = ula.read_keyboard(0xFF);
+        assert_eq!(result & 0x40, 0); // bit 6 = 0
+
+        // Bit 5 and 7 should always be 1
+        assert_eq!(result & 0x20, 0x20); // bit 5 = 1
+        assert_eq!(result & 0x80, 0x80); // bit 7 = 1
+
+        // Set EAR level high
+        ula.ear_level = true;
+        let result = ula.read_keyboard(0xFF);
+        assert_eq!(result & 0x40, 0x40); // bit 6 = 1
+    }
+
+    #[test]
+    fn ear_bit_cleared_on_reset() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.ear_level = true;
+        assert!(ula.ear_level);
+
+        ula.reset();
+        assert!(!ula.ear_level);
     }
 }
