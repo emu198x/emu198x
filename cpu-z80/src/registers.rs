@@ -38,10 +38,6 @@ impl Z80 {
         self.l = value as u8;
     }
 
-    pub(crate) fn de(&self) -> u16 {
-        (self.d as u16) << 8 | self.e as u16
-    }
-
     pub(crate) fn set_de(&mut self, value: u16) {
         self.d = (value >> 8) as u8;
         self.e = value as u8;

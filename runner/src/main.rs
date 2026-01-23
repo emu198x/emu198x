@@ -34,6 +34,13 @@ fn main() {
     let rom = fs::read("roms/48.rom").expect("Failed to load ROM");
     spec.load_rom(&rom);
 
+    // Load a tape if provided
+    if let Some(tap_path) = std::env::args().nth(1) {
+        let tape = fs::read(&tap_path).expect("Failed to load tape");
+        spec.load_tape(tape);
+        println!("Loaded tape: {}", tap_path);
+    }
+
     let mut window = Window::new("Spectrum", WIDTH, HEIGHT, WindowOptions::default())
         .expect("Failed to create window");
 

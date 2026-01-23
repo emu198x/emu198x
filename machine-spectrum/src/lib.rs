@@ -61,6 +61,8 @@ impl IoBus for Memory {
 pub struct Spectrum48K {
     cpu: Z80,
     memory: Memory,
+    tape_data: Vec<u8>,
+    tape_pos: usize,
 }
 
 impl Spectrum48K {
@@ -68,6 +70,8 @@ impl Spectrum48K {
         Self {
             cpu: Z80::new(),
             memory: Memory::new(),
+            tape_data: Vec::new(),
+            tape_pos: 0,
         }
     }
 
@@ -77,6 +81,11 @@ impl Spectrum48K {
 
         let mut cycles = 0;
         while cycles < 69888 {
+            // Check for tape trap
+            if self.cpu.pc() == 0x0556 {
+                self.handle_tape_load();
+            }
+
             cycles += self.cpu.step(&mut self.memory);
         }
     }
@@ -97,6 +106,11 @@ impl Spectrum48K {
         }
     }
 
+    pub fn load_tape(&mut self, data: Vec<u8>) {
+        self.tape_data = data;
+        self.tape_pos = 0;
+    }
+
     pub fn load_rom(&mut self, rom: &[u8]) {
         self.memory.data[..rom.len()].copy_from_slice(rom);
     }
@@ -113,6 +127,54 @@ impl Spectrum48K {
         for row in 0..8 {
             self.memory.keyboard[row] = 0xFF;
         }
+    }
+
+    fn handle_tape_load(&mut self) {
+        let Some(block) = self.next_tape_block() else {
+            self.cpu.set_carry(false);
+            self.cpu.force_ret(&mut self.memory);
+            return;
+        };
+
+        let flag = block[0];
+        let expected_flag = self.cpu.a();
+
+        if flag != expected_flag {
+            self.cpu.set_carry(false);
+            self.cpu.force_ret(&mut self.memory);
+            return;
+        }
+
+        let ix = self.cpu.ix();
+        let de = self.cpu.de();
+        let data = &block[1..block.len() - 1];
+        let len = (de as usize).min(data.len());
+
+        for i in 0..len {
+            self.memory.data[ix.wrapping_add(i as u16) as usize] = data[i];
+        }
+
+        self.cpu.set_carry(true);
+        self.cpu.force_ret(&mut self.memory);
+    }
+
+    fn next_tape_block(&mut self) -> Option<Vec<u8>> {
+        if self.tape_pos + 2 > self.tape_data.len() {
+            return None;
+        }
+
+        let len = self.tape_data[self.tape_pos] as usize
+            | (self.tape_data[self.tape_pos + 1] as usize) << 8;
+
+        self.tape_pos += 2;
+
+        if self.tape_pos + len > self.tape_data.len() {
+            return None;
+        }
+
+        let block = self.tape_data[self.tape_pos..self.tape_pos + len].to_vec();
+        self.tape_pos += len;
+        Some(block)
     }
 }
 
