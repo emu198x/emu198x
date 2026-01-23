@@ -3,6 +3,7 @@ mod input;
 mod video;
 
 use audio::{AudioOutput, SAMPLES_PER_FRAME};
+use gilrs::{Event, Gilrs};
 use machine_spectrum::Spectrum48K;
 use minifb::{Key, Window, WindowOptions};
 use std::fs;
@@ -11,15 +12,30 @@ use video::{HEIGHT, WIDTH};
 fn main() {
     let mut spec = Spectrum48K::new();
 
+    // Initialize gamepad support
+    let mut gilrs = Gilrs::new().expect("Failed to initialize gamepad support");
+    let mut active_gamepad = None;
+
     // Load the ROM
     let rom = fs::read("roms/48.rom").expect("Failed to load ROM");
     spec.load_rom(&rom);
 
-    // Load a tape if provided
-    if let Some(tap_path) = std::env::args().nth(1) {
-        let tape = fs::read(&tap_path).expect("Failed to load tape");
-        spec.load_tape(tape);
-        println!("Loaded tape: {}", tap_path);
+    // Load a file if provided (supports .tap and .sna)
+    if let Some(file_path) = std::env::args().nth(1) {
+        let data = fs::read(&file_path).expect("Failed to load file");
+        let lower = file_path.to_lowercase();
+
+        if lower.ends_with(".sna") {
+            spec.load_sna(&data).expect("Failed to load .SNA snapshot");
+            println!("Loaded snapshot: {}", file_path);
+        } else if lower.ends_with(".tap") {
+            spec.load_tape(data);
+            println!("Loaded tape: {}", file_path);
+        } else {
+            eprintln!("Unknown file type: {}", file_path);
+            eprintln!("Supported formats: .tap, .sna");
+            std::process::exit(1);
+        }
     }
 
     let mut window = Window::new("Spectrum", WIDTH, HEIGHT, WindowOptions::default())
@@ -45,13 +61,24 @@ fn main() {
     let mut frame_count: u32 = 0;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        // Handle keyboard
+        // Poll gamepad events to track active gamepad
+        while let Some(Event { id, .. }) = gilrs.next_event() {
+            active_gamepad = Some(id);
+        }
+
+        // Handle input
+        let keys = window.get_keys();
         spec.reset_keyboard();
-        for key in window.get_keys() {
-            for &(row, bit) in input::map_key(key) {
+        for key in &keys {
+            for &(row, bit) in input::keyboard::map_key(*key) {
                 spec.key_down(row, bit);
             }
         }
+
+        // Combine keyboard and gamepad input for Kempston joystick
+        let kempston = input::joystick::map_keyboard(&keys)
+            | input::joystick::map_gamepad(&gilrs, active_gamepad);
+        spec.set_kempston(kempston);
 
         spec.run_frame();
 

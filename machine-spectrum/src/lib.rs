@@ -7,6 +7,8 @@ struct Memory {
     pub data: [u8; 65536],
     pub border: u8,
     pub keyboard: [u8; 8],
+    /// Kempston joystick state (active high, directly returned from port 0x1F)
+    pub kempston: u8,
     /// Current T-state within the frame (0..69887)
     pub frame_t_state: u32,
     /// Current beeper level (bit 4 of port 0xFE)
@@ -21,6 +23,7 @@ impl Memory {
             data: [0; 65536],
             border: 7,           // white default
             keyboard: [0xFF; 8], // all keys released
+            kempston: 0,         // no joystick input
             frame_t_state: 0,
             beeper_level: false,
             beeper_transitions: Vec::new(),
@@ -119,6 +122,9 @@ impl IoBus for Memory {
                 }
             }
             result
+        } else if port & 0xFF == 0x1F {
+            // Kempston joystick (active high)
+            self.kempston
         } else {
             0xFF
         }
@@ -233,6 +239,76 @@ impl Spectrum48K {
         for row in 0..8 {
             self.memory.keyboard[row] = 0xFF;
         }
+    }
+
+    /// Set the Kempston joystick state (directly returned from port 0x1F).
+    ///
+    /// Bits: 0=right, 1=left, 2=down, 3=up, 4=fire (active high)
+    pub fn set_kempston(&mut self, state: u8) {
+        self.memory.kempston = state;
+    }
+
+    /// Load a .SNA snapshot file.
+    ///
+    /// The .SNA format is a 48K snapshot: 27-byte header followed by 48K RAM.
+    /// Returns an error message if the snapshot is invalid.
+    pub fn load_sna(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        if data.len() != 49179 {
+            return Err("Invalid .SNA file size (expected 49179 bytes)");
+        }
+
+        // Parse 27-byte header
+        let i = data[0];
+        let hl_shadow = u16::from_le_bytes([data[1], data[2]]);
+        let de_shadow = u16::from_le_bytes([data[3], data[4]]);
+        let bc_shadow = u16::from_le_bytes([data[5], data[6]]);
+        let af_shadow = u16::from_le_bytes([data[7], data[8]]);
+        let hl = u16::from_le_bytes([data[9], data[10]]);
+        let de = u16::from_le_bytes([data[11], data[12]]);
+        let bc = u16::from_le_bytes([data[13], data[14]]);
+        let iy = u16::from_le_bytes([data[15], data[16]]);
+        let ix = u16::from_le_bytes([data[17], data[18]]);
+        let iff2 = data[19] & 0x04 != 0;
+        let r = data[20];
+        let af = u16::from_le_bytes([data[21], data[22]]);
+        let sp = u16::from_le_bytes([data[23], data[24]]);
+        let interrupt_mode = data[25];
+        let border = data[26] & 0x07;
+
+        // Load 48K RAM (0x4000-0xFFFF)
+        self.memory.data[0x4000..].copy_from_slice(&data[27..]);
+
+        // Set border color
+        self.memory.border = border;
+
+        // Pop PC from stack (SNA format stores PC on the stack)
+        let pc_low = self.memory.data[sp as usize];
+        let pc_high = self.memory.data[sp.wrapping_add(1) as usize];
+        let pc = u16::from_le_bytes([pc_low, pc_high]);
+        let sp = sp.wrapping_add(2);
+
+        // Restore CPU state
+        self.cpu.load_state(
+            af,
+            bc,
+            de,
+            hl,
+            af_shadow,
+            bc_shadow,
+            de_shadow,
+            hl_shadow,
+            ix,
+            iy,
+            sp,
+            pc,
+            i,
+            r,
+            iff2, // IFF1 = IFF2 for .SNA
+            iff2,
+            interrupt_mode,
+        );
+
+        Ok(())
     }
 
     fn handle_tape_load(&mut self) {

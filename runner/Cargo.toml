@@ -8,3 +8,4 @@ machine-spectrum = { path = "../machine-spectrum" }
 minifb = "0.28"
 cpal = "0.15"
 ringbuf = "0.4"
+gilrs = "0.11"

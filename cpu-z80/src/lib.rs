@@ -138,6 +138,56 @@ impl Z80 {
         self.wz = self.pc;
     }
 
+    /// Load complete CPU state for snapshot restoration.
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_state(
+        &mut self,
+        af: u16,
+        bc: u16,
+        de: u16,
+        hl: u16,
+        af_shadow: u16,
+        bc_shadow: u16,
+        de_shadow: u16,
+        hl_shadow: u16,
+        ix: u16,
+        iy: u16,
+        sp: u16,
+        pc: u16,
+        i: u8,
+        r: u8,
+        iff1: bool,
+        iff2: bool,
+        interrupt_mode: u8,
+    ) {
+        self.a = (af >> 8) as u8;
+        self.f = af as u8;
+        self.b = (bc >> 8) as u8;
+        self.c = bc as u8;
+        self.d = (de >> 8) as u8;
+        self.e = de as u8;
+        self.h = (hl >> 8) as u8;
+        self.l = hl as u8;
+        self.a_shadow = (af_shadow >> 8) as u8;
+        self.f_shadow = af_shadow as u8;
+        self.b_shadow = (bc_shadow >> 8) as u8;
+        self.c_shadow = bc_shadow as u8;
+        self.d_shadow = (de_shadow >> 8) as u8;
+        self.e_shadow = de_shadow as u8;
+        self.h_shadow = (hl_shadow >> 8) as u8;
+        self.l_shadow = hl_shadow as u8;
+        self.ix = ix;
+        self.iy = iy;
+        self.sp = sp;
+        self.pc = pc;
+        self.i = i;
+        self.r = r;
+        self.iff1 = iff1;
+        self.iff2 = iff2;
+        self.interrupt_mode = interrupt_mode;
+        self.halted = false;
+    }
+
     /// Fetch opcode from PC with M1 timing (4 T-states: 3 for read + 1 for refresh).
     /// Use this for opcode fetches and prefix bytes.
     fn fetch(&mut self, bus: &mut impl emu_core::Bus) -> u8 {
