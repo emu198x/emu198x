@@ -97,6 +97,30 @@ impl Z80 {
         (self.d as u16) << 8 | self.e as u16
     }
 
+    pub fn c(&self) -> u8 {
+        self.c
+    }
+
+    pub fn e(&self) -> u8 {
+        self.e
+    }
+
+    pub fn sp(&self) -> u16 {
+        self.sp
+    }
+
+    pub fn set_pc(&mut self, value: u16) {
+        self.pc = value;
+    }
+
+    pub fn set_sp(&mut self, value: u16) {
+        self.sp = value;
+    }
+
+    pub fn halted(&self) -> bool {
+        self.halted
+    }
+
     pub fn set_carry(&mut self, value: bool) {
         if value {
             self.f |= 0x01;
@@ -493,26 +517,36 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x27 => {
                 // DAA
+                let a = self.a;
                 let mut adjust = 0u8;
                 let mut carry = self.carry();
 
-                if self.get_flag(flags::FLAG_H) || (self.a & 0x0F) > 9 {
+                if self.get_flag(flags::FLAG_H) || (a & 0x0F) > 9 {
                     adjust |= 0x06;
                 }
-                if carry || self.a > 0x99 {
+                if carry || a > 0x99 {
                     adjust |= 0x60;
                     carry = true;
                 }
 
                 if self.get_flag(flags::FLAG_N) {
-                    self.a = self.a.wrapping_sub(adjust);
+                    self.a = a.wrapping_sub(adjust);
                 } else {
-                    self.a = self.a.wrapping_add(adjust);
+                    self.a = a.wrapping_add(adjust);
                 }
+
+                // H flag:
+                // After ADD (N=0): set if lower nibble > 9
+                // After SUB (N=1): set if previous H was set AND lower nibble < 6
+                let half_carry = if self.get_flag(flags::FLAG_N) {
+                    self.get_flag(flags::FLAG_H) && (a & 0x0F) < 6
+                } else {
+                    (a & 0x0F) > 9
+                };
 
                 self.set_flag(flags::FLAG_S, self.a & 0x80 != 0);
                 self.set_flag(flags::FLAG_Z, self.a == 0);
-                self.set_flag(flags::FLAG_H, false); // Simplified
+                self.set_flag(flags::FLAG_H, half_carry);
                 self.set_flag(flags::FLAG_PV, self.a.count_ones() % 2 == 0);
                 self.set_flag(flags::FLAG_C, carry);
                 self.set_undoc_flags(self.a);
@@ -674,7 +708,9 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.set_flag(flags::FLAG_H, false);
                 self.set_flag(flags::FLAG_N, false);
                 self.set_flag(flags::FLAG_C, true);
-                self.set_undoc_flags(self.a);
+                // F3/F5 are OR of A and F for SCF/CCF
+                self.set_flag(flags::FLAG_F3, (self.a | self.f) & 0x08 != 0);
+                self.set_flag(flags::FLAG_F5, (self.a | self.f) & 0x20 != 0);
                 4
             }
             0x38 => {
@@ -756,7 +792,9 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.set_flag(flags::FLAG_H, old_carry);
                 self.set_flag(flags::FLAG_N, false);
                 self.set_flag(flags::FLAG_C, !old_carry);
-                self.set_undoc_flags(self.a);
+                // F3/F5 are OR of A and F for SCF/CCF
+                self.set_flag(flags::FLAG_F3, (self.a | self.f) & 0x08 != 0);
+                self.set_flag(flags::FLAG_F5, (self.a | self.f) & 0x20 != 0);
                 4
             }
             0x76 => {
@@ -896,8 +934,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         } else {
                             self.read_register(reg)
                         };
-                        self.set_flag(flags::FLAG_Z, value & (1 << bit) == 0);
+                        let bit_set = value & (1 << bit) != 0;
+                        self.set_flag(flags::FLAG_S, bit == 7 && bit_set);
+                        self.set_flag(flags::FLAG_Z, !bit_set);
                         self.set_flag(flags::FLAG_H, true);
+                        self.set_flag(flags::FLAG_PV, !bit_set); // P/V same as Z
                         self.set_flag(flags::FLAG_N, false);
                         // BIT: F3/F5 from tested value for registers, from WZ high byte for (HL)
                         if reg == 6 {
@@ -1266,6 +1307,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
                         self.set_flag(flags::FLAG_PV, value == 0x7F);
                         self.set_flag(flags::FLAG_N, false);
+                        self.set_undoc_flags(result);
                         8
                     }
                     0x25 => {
@@ -1278,6 +1320,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
                         self.set_flag(flags::FLAG_PV, value == 0x80);
                         self.set_flag(flags::FLAG_N, true);
+                        self.set_undoc_flags(result);
                         8
                     }
                     0x26 => {
@@ -1325,6 +1368,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
                         self.set_flag(flags::FLAG_PV, value == 0x7F);
                         self.set_flag(flags::FLAG_N, false);
+                        self.set_undoc_flags(result);
                         8
                     }
                     0x2D => {
@@ -1337,6 +1381,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
                         self.set_flag(flags::FLAG_PV, value == 0x80);
                         self.set_flag(flags::FLAG_N, true);
+                        self.set_undoc_flags(result);
                         8
                     }
                     0x2E => {
@@ -1399,6 +1444,27 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.ix = result as u16;
                         15
                     }
+                    // DD prefix LD r,r' opcodes: regular registers are unaffected
+                    // Only H/L and (HL) are modified to use IX
+                    0x40 => {
+                        // LD B, B (unaffected by DD prefix)
+                        8
+                    }
+                    0x41 => {
+                        // LD B, C (unaffected by DD prefix)
+                        self.b = self.c;
+                        8
+                    }
+                    0x42 => {
+                        // LD B, D (unaffected by DD prefix)
+                        self.b = self.d;
+                        8
+                    }
+                    0x43 => {
+                        // LD B, E (unaffected by DD prefix)
+                        self.b = self.e;
+                        8
+                    }
                     0x44 => {
                         // LD B, IXH (undocumented)
                         self.b = (self.ix >> 8) as u8;
@@ -1415,6 +1481,30 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.b = bus.read(addr);
                         19
+                    }
+                    0x47 => {
+                        // LD B, A (unaffected by DD prefix)
+                        self.b = self.a;
+                        8
+                    }
+                    0x48 => {
+                        // LD C, B (unaffected by DD prefix)
+                        self.c = self.b;
+                        8
+                    }
+                    0x49 => {
+                        // LD C, C (unaffected by DD prefix)
+                        8
+                    }
+                    0x4A => {
+                        // LD C, D (unaffected by DD prefix)
+                        self.c = self.d;
+                        8
+                    }
+                    0x4B => {
+                        // LD C, E (unaffected by DD prefix)
+                        self.c = self.e;
+                        8
                     }
                     0x4C => {
                         // LD C, IXH (undocumented)
@@ -1433,6 +1523,30 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.c = bus.read(addr);
                         19
                     }
+                    0x4F => {
+                        // LD C, A (unaffected by DD prefix)
+                        self.c = self.a;
+                        8
+                    }
+                    0x50 => {
+                        // LD D, B (unaffected by DD prefix)
+                        self.d = self.b;
+                        8
+                    }
+                    0x51 => {
+                        // LD D, C (unaffected by DD prefix)
+                        self.d = self.c;
+                        8
+                    }
+                    0x52 => {
+                        // LD D, D (unaffected by DD prefix)
+                        8
+                    }
+                    0x53 => {
+                        // LD D, E (unaffected by DD prefix)
+                        self.d = self.e;
+                        8
+                    }
                     0x54 => {
                         // LD D, IXH (undocumented)
                         self.d = (self.ix >> 8) as u8;
@@ -1450,6 +1564,30 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.d = bus.read(addr);
                         19
                     }
+                    0x57 => {
+                        // LD D, A (unaffected by DD prefix)
+                        self.d = self.a;
+                        8
+                    }
+                    0x58 => {
+                        // LD E, B (unaffected by DD prefix)
+                        self.e = self.b;
+                        8
+                    }
+                    0x59 => {
+                        // LD E, C (unaffected by DD prefix)
+                        self.e = self.c;
+                        8
+                    }
+                    0x5A => {
+                        // LD E, D (unaffected by DD prefix)
+                        self.e = self.d;
+                        8
+                    }
+                    0x5B => {
+                        // LD E, E (unaffected by DD prefix)
+                        8
+                    }
                     0x5C => {
                         // LD E, IXH (undocumented)
                         self.e = (self.ix >> 8) as u8;
@@ -1466,6 +1604,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.e = bus.read(addr);
                         19
+                    }
+                    0x5F => {
+                        // LD E, A (unaffected by DD prefix)
+                        self.e = self.a;
+                        8
                     }
                     0x60 => {
                         // LD IXH, B (undocumented)
@@ -1598,6 +1741,26 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         bus.write(addr, self.a);
                         19
                     }
+                    0x78 => {
+                        // LD A, B (unaffected by DD prefix)
+                        self.a = self.b;
+                        8
+                    }
+                    0x79 => {
+                        // LD A, C (unaffected by DD prefix)
+                        self.a = self.c;
+                        8
+                    }
+                    0x7A => {
+                        // LD A, D (unaffected by DD prefix)
+                        self.a = self.d;
+                        8
+                    }
+                    0x7B => {
+                        // LD A, E (unaffected by DD prefix)
+                        self.a = self.e;
+                        8
+                    }
                     0x7C => {
                         // LD A, IXH (undocumented)
                         self.a = (self.ix >> 8) as u8;
@@ -1614,6 +1777,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.a = bus.read(addr);
                         19
+                    }
+                    0x7F => {
+                        // LD A, A (unaffected by DD prefix)
+                        8
                     }
                     0x84 => {
                         // ADD A, IXH (undocumented)
@@ -1835,8 +2002,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             1 => {
                                 // BIT b, (IX+d) - z field is ignored for BIT
                                 let value = bus.read(addr);
-                                self.set_flag(flags::FLAG_Z, value & (1 << y) == 0);
+                                let bit_set = value & (1 << y) != 0;
+                                self.set_flag(flags::FLAG_S, y == 7 && bit_set);
+                                self.set_flag(flags::FLAG_Z, !bit_set);
                                 self.set_flag(flags::FLAG_H, true);
+                                self.set_flag(flags::FLAG_PV, !bit_set); // P/V same as Z
                                 self.set_flag(flags::FLAG_N, false);
                                 // BIT (IX+d): F3/F5 from high byte of address
                                 self.set_undoc_flags((addr >> 8) as u8);
@@ -2648,19 +2818,41 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_hl(self.hl().wrapping_add(1));
                         self.b = self.b.wrapping_sub(1);
 
+                        // Block I/O undocumented flags
+                        let k = (value as u16).wrapping_add((self.c.wrapping_add(1)) as u16);
+                        self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.b == 0);
-                        self.set_flag(flags::FLAG_N, true);
+                        self.set_flag(flags::FLAG_H, k > 255);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((k as u8) & 0x07 ^ self.b).count_ones() % 2 == 0,
+                        );
+                        self.set_flag(flags::FLAG_N, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_C, k > 255);
+                        self.set_undoc_flags(self.b);
+                        self.wz = self.bc().wrapping_add(1);
                         16
                     }
                     0xA3 => {
                         // OUTI
                         let value = bus.read(self.hl() as u32);
+                        self.b = self.b.wrapping_sub(1);
                         bus.write_io(self.bc(), value);
                         self.set_hl(self.hl().wrapping_add(1));
-                        self.b = self.b.wrapping_sub(1);
 
+                        // Block I/O undocumented flags (L is after increment)
+                        let k = (value as u16).wrapping_add(self.l as u16);
+                        self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.b == 0);
-                        self.set_flag(flags::FLAG_N, true);
+                        self.set_flag(flags::FLAG_H, k > 255);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((k as u8) & 0x07 ^ self.b).count_ones() % 2 == 0,
+                        );
+                        self.set_flag(flags::FLAG_N, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_C, k > 255);
+                        self.set_undoc_flags(self.b);
+                        self.wz = self.bc().wrapping_add(1);
                         16
                     }
                     0xA8 => {
@@ -2709,19 +2901,41 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_hl(self.hl().wrapping_sub(1));
                         self.b = self.b.wrapping_sub(1);
 
+                        // Block I/O undocumented flags
+                        let k = (value as u16).wrapping_add((self.c.wrapping_sub(1)) as u16);
+                        self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.b == 0);
-                        self.set_flag(flags::FLAG_N, true);
+                        self.set_flag(flags::FLAG_H, k > 255);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((k as u8) & 0x07 ^ self.b).count_ones() % 2 == 0,
+                        );
+                        self.set_flag(flags::FLAG_N, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_C, k > 255);
+                        self.set_undoc_flags(self.b);
+                        self.wz = self.bc().wrapping_sub(1);
                         16
                     }
                     0xAB => {
                         // OUTD
                         let value = bus.read(self.hl() as u32);
+                        self.b = self.b.wrapping_sub(1);
                         bus.write_io(self.bc(), value);
                         self.set_hl(self.hl().wrapping_sub(1));
-                        self.b = self.b.wrapping_sub(1);
 
+                        // Block I/O undocumented flags (L is after decrement)
+                        let k = (value as u16).wrapping_add(self.l as u16);
+                        self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.b == 0);
-                        self.set_flag(flags::FLAG_N, true);
+                        self.set_flag(flags::FLAG_H, k > 255);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((k as u8) & 0x07 ^ self.b).count_ones() % 2 == 0,
+                        );
+                        self.set_flag(flags::FLAG_N, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_C, k > 255);
+                        self.set_undoc_flags(self.b);
+                        self.wz = self.bc().wrapping_sub(1);
                         16
                     }
                     0xB0 => {
@@ -2785,32 +2999,54 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_hl(self.hl().wrapping_add(1));
                         self.b = self.b.wrapping_sub(1);
 
-                        self.set_flag(flags::FLAG_Z, true);
-                        self.set_flag(flags::FLAG_N, true);
+                        // Block I/O undocumented flags
+                        let k = (value as u16).wrapping_add((self.c.wrapping_add(1)) as u16);
+                        self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, self.b == 0);
+                        self.set_flag(flags::FLAG_H, k > 255);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((k as u8) & 0x07 ^ self.b).count_ones() % 2 == 0,
+                        );
+                        self.set_flag(flags::FLAG_N, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_C, k > 255);
+                        self.set_undoc_flags(self.b);
 
                         if self.b != 0 {
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
+                            self.wz = self.bc().wrapping_add(1);
                             16
                         }
                     }
                     0xB3 => {
                         // OTIR
                         let value = bus.read(self.hl() as u32);
+                        self.b = self.b.wrapping_sub(1);
                         bus.write_io(self.bc(), value);
                         self.set_hl(self.hl().wrapping_add(1));
-                        self.b = self.b.wrapping_sub(1);
 
-                        self.set_flag(flags::FLAG_Z, true);
-                        self.set_flag(flags::FLAG_N, true);
+                        // Block I/O undocumented flags (L is after increment)
+                        let k = (value as u16).wrapping_add(self.l as u16);
+                        self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, self.b == 0);
+                        self.set_flag(flags::FLAG_H, k > 255);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((k as u8) & 0x07 ^ self.b).count_ones() % 2 == 0,
+                        );
+                        self.set_flag(flags::FLAG_N, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_C, k > 255);
+                        self.set_undoc_flags(self.b);
 
                         if self.b != 0 {
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
+                            self.wz = self.bc().wrapping_add(1);
                             16
                         }
                     }
@@ -2874,32 +3110,54 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_hl(self.hl().wrapping_sub(1));
                         self.b = self.b.wrapping_sub(1);
 
-                        self.set_flag(flags::FLAG_Z, true);
-                        self.set_flag(flags::FLAG_N, true);
+                        // Block I/O undocumented flags
+                        let k = (value as u16).wrapping_add((self.c.wrapping_sub(1)) as u16);
+                        self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, self.b == 0);
+                        self.set_flag(flags::FLAG_H, k > 255);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((k as u8) & 0x07 ^ self.b).count_ones() % 2 == 0,
+                        );
+                        self.set_flag(flags::FLAG_N, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_C, k > 255);
+                        self.set_undoc_flags(self.b);
 
                         if self.b != 0 {
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
+                            self.wz = self.bc().wrapping_sub(1);
                             16
                         }
                     }
                     0xBB => {
                         // OTDR
                         let value = bus.read(self.hl() as u32);
+                        self.b = self.b.wrapping_sub(1);
                         bus.write_io(self.bc(), value);
                         self.set_hl(self.hl().wrapping_sub(1));
-                        self.b = self.b.wrapping_sub(1);
 
-                        self.set_flag(flags::FLAG_Z, true);
-                        self.set_flag(flags::FLAG_N, true);
+                        // Block I/O undocumented flags (L is after decrement)
+                        let k = (value as u16).wrapping_add(self.l as u16);
+                        self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, self.b == 0);
+                        self.set_flag(flags::FLAG_H, k > 255);
+                        self.set_flag(
+                            flags::FLAG_PV,
+                            ((k as u8) & 0x07 ^ self.b).count_ones() % 2 == 0,
+                        );
+                        self.set_flag(flags::FLAG_N, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_C, k > 255);
+                        self.set_undoc_flags(self.b);
 
                         if self.b != 0 {
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
+                            self.wz = self.bc().wrapping_sub(1);
                             16
                         }
                     }
@@ -3140,6 +3398,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
                         self.set_flag(flags::FLAG_PV, value == 0x7F);
                         self.set_flag(flags::FLAG_N, false);
+                        self.set_undoc_flags(result);
                         8
                     }
                     0x25 => {
@@ -3152,6 +3411,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
                         self.set_flag(flags::FLAG_PV, value == 0x80);
                         self.set_flag(flags::FLAG_N, true);
+                        self.set_undoc_flags(result);
                         8
                     }
                     0x26 => {
@@ -3199,6 +3459,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
                         self.set_flag(flags::FLAG_PV, value == 0x7F);
                         self.set_flag(flags::FLAG_N, false);
+                        self.set_undoc_flags(result);
                         8
                     }
                     0x2D => {
@@ -3211,6 +3472,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
                         self.set_flag(flags::FLAG_PV, value == 0x80);
                         self.set_flag(flags::FLAG_N, true);
+                        self.set_undoc_flags(result);
                         8
                     }
                     0x2E => {
@@ -3273,6 +3535,26 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.iy = result as u16;
                         15
                     }
+                    // FD prefix LD r,r' opcodes: regular registers are unaffected
+                    0x40 => {
+                        // LD B, B (unaffected by FD prefix)
+                        8
+                    }
+                    0x41 => {
+                        // LD B, C (unaffected by FD prefix)
+                        self.b = self.c;
+                        8
+                    }
+                    0x42 => {
+                        // LD B, D (unaffected by FD prefix)
+                        self.b = self.d;
+                        8
+                    }
+                    0x43 => {
+                        // LD B, E (unaffected by FD prefix)
+                        self.b = self.e;
+                        8
+                    }
                     0x44 => {
                         // LD B, IYH (undocumented)
                         self.b = (self.iy >> 8) as u8;
@@ -3289,6 +3571,30 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.b = bus.read(addr);
                         19
+                    }
+                    0x47 => {
+                        // LD B, A (unaffected by FD prefix)
+                        self.b = self.a;
+                        8
+                    }
+                    0x48 => {
+                        // LD C, B (unaffected by FD prefix)
+                        self.c = self.b;
+                        8
+                    }
+                    0x49 => {
+                        // LD C, C (unaffected by FD prefix)
+                        8
+                    }
+                    0x4A => {
+                        // LD C, D (unaffected by FD prefix)
+                        self.c = self.d;
+                        8
+                    }
+                    0x4B => {
+                        // LD C, E (unaffected by FD prefix)
+                        self.c = self.e;
+                        8
                     }
                     0x4C => {
                         // LD C, IYH (undocumented)
@@ -3307,6 +3613,30 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.c = bus.read(addr);
                         19
                     }
+                    0x4F => {
+                        // LD C, A (unaffected by FD prefix)
+                        self.c = self.a;
+                        8
+                    }
+                    0x50 => {
+                        // LD D, B (unaffected by FD prefix)
+                        self.d = self.b;
+                        8
+                    }
+                    0x51 => {
+                        // LD D, C (unaffected by FD prefix)
+                        self.d = self.c;
+                        8
+                    }
+                    0x52 => {
+                        // LD D, D (unaffected by FD prefix)
+                        8
+                    }
+                    0x53 => {
+                        // LD D, E (unaffected by FD prefix)
+                        self.d = self.e;
+                        8
+                    }
                     0x54 => {
                         // LD D, IYH (undocumented)
                         self.d = (self.iy >> 8) as u8;
@@ -3324,6 +3654,30 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.d = bus.read(addr);
                         19
                     }
+                    0x57 => {
+                        // LD D, A (unaffected by FD prefix)
+                        self.d = self.a;
+                        8
+                    }
+                    0x58 => {
+                        // LD E, B (unaffected by FD prefix)
+                        self.e = self.b;
+                        8
+                    }
+                    0x59 => {
+                        // LD E, C (unaffected by FD prefix)
+                        self.e = self.c;
+                        8
+                    }
+                    0x5A => {
+                        // LD E, D (unaffected by FD prefix)
+                        self.e = self.d;
+                        8
+                    }
+                    0x5B => {
+                        // LD E, E (unaffected by FD prefix)
+                        8
+                    }
                     0x5C => {
                         // LD E, IYH (undocumented)
                         self.e = (self.iy >> 8) as u8;
@@ -3340,6 +3694,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.e = bus.read(addr);
                         19
+                    }
+                    0x5F => {
+                        // LD E, A (unaffected by FD prefix)
+                        self.e = self.a;
+                        8
                     }
                     0x60 => {
                         // LD IYH, B (undocumented)
@@ -3472,6 +3831,26 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         bus.write(addr, self.a);
                         19
                     }
+                    0x78 => {
+                        // LD A, B (unaffected by FD prefix)
+                        self.a = self.b;
+                        8
+                    }
+                    0x79 => {
+                        // LD A, C (unaffected by FD prefix)
+                        self.a = self.c;
+                        8
+                    }
+                    0x7A => {
+                        // LD A, D (unaffected by FD prefix)
+                        self.a = self.d;
+                        8
+                    }
+                    0x7B => {
+                        // LD A, E (unaffected by FD prefix)
+                        self.a = self.e;
+                        8
+                    }
                     0x7C => {
                         // LD A, IYH (undocumented)
                         self.a = (self.iy >> 8) as u8;
@@ -3488,6 +3867,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.a = bus.read(addr);
                         19
+                    }
+                    0x7F => {
+                        // LD A, A (unaffected by FD prefix)
+                        8
                     }
                     0x84 => {
                         // ADD A, IYH (undocumented)
@@ -3710,8 +4093,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             1 => {
                                 // BIT b, (IY+d)
                                 let value = bus.read(addr);
-                                self.set_flag(flags::FLAG_Z, value & (1 << y) == 0);
+                                let bit_set = value & (1 << y) != 0;
+                                self.set_flag(flags::FLAG_S, y == 7 && bit_set);
+                                self.set_flag(flags::FLAG_Z, !bit_set);
                                 self.set_flag(flags::FLAG_H, true);
+                                self.set_flag(flags::FLAG_PV, !bit_set); // P/V same as Z
                                 self.set_flag(flags::FLAG_N, false);
                                 // BIT (IY+d): F3/F5 from high byte of address
                                 self.set_undoc_flags((addr >> 8) as u8);
