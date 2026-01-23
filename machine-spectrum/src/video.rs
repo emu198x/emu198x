@@ -102,11 +102,13 @@ fn border_color_at(transitions: &[(u32, u8)], t_state: u32) -> u8 {
 /// # Arguments
 /// * `screen` - The Spectrum's screen memory (6912 bytes: 6144 bitmap + 768 attributes)
 /// * `border_transitions` - List of (t_state, color) pairs for mid-scanline border effects
+/// * `snow_events` - List of (display_line, char_column) pairs where snow occurred
 /// * `flash_swap` - Whether FLASH attribute should currently swap ink/paper
 /// * `buffer` - Output framebuffer (NATIVE_WIDTH * NATIVE_HEIGHT * 4 bytes, RGBA format)
 pub fn render_screen(
     screen: &[u8],
     border_transitions: &[(u32, u8)],
+    snow_events: &[(u32, u32)],
     flash_swap: bool,
     buffer: &mut [u8],
 ) {
@@ -124,7 +126,18 @@ pub fn render_screen(
             } else {
                 let screen_y = native_y - BORDER;
                 let screen_x = native_x - BORDER;
-                render_pixel(screen, screen_x, screen_y, flash_swap)
+
+                // Check if this character cell has snow
+                let char_column = screen_x / 8;
+                let has_snow = snow_events
+                    .iter()
+                    .any(|&(line, col)| line as usize == screen_y && col as usize == char_column);
+
+                if has_snow {
+                    render_snow_pixel(screen, screen_x, screen_y, flash_swap)
+                } else {
+                    render_pixel(screen, screen_x, screen_y, flash_swap)
+                }
             };
 
             // Write pixel to RGBA buffer (no scaling - pixels handles it)
@@ -168,6 +181,39 @@ fn render_pixel(screen: &[u8], screen_x: usize, screen_y: usize, flash_swap: boo
     }
 
     if byte & (0x80 >> bit) != 0 {
+        COLOURS[ink]
+    } else {
+        COLOURS[paper]
+    }
+}
+
+/// Render a single pixel with snow effect corruption.
+///
+/// When snow occurs, the ULA reads corrupted data due to bus conflict with the CPU.
+/// The visual effect is that the bitmap data gets mixed with the attribute data,
+/// creating a scrambled pattern. This simulates the real hardware behavior where
+/// the ULA reads garbage when the CPU accesses screen memory simultaneously.
+fn render_snow_pixel(screen: &[u8], screen_x: usize, screen_y: usize, flash_swap: bool) -> u32 {
+    let bit = screen_x % 8;
+
+    let byte = screen[bitmap_address(screen_x, screen_y)];
+    let attr = screen[attribute_address(screen_x, screen_y)];
+
+    // Snow corruption: XOR bitmap with attribute to simulate bus conflict
+    // This creates the characteristic "snow" visual pattern
+    let corrupted_byte = byte ^ attr;
+
+    let flash = attr & 0x80 != 0;
+    let bright = if attr & 0x40 != 0 { 8 } else { 0 };
+    let mut ink = (attr & 0x07) as usize + bright;
+    let mut paper = ((attr >> 3) & 0x07) as usize + bright;
+
+    if flash && flash_swap {
+        std::mem::swap(&mut ink, &mut paper);
+    }
+
+    // Use the corrupted bitmap data
+    if corrupted_byte & (0x80 >> bit) != 0 {
         COLOURS[ink]
     } else {
         COLOURS[paper]

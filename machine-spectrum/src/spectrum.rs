@@ -48,19 +48,41 @@ impl<M: MemoryModel> Bus for Memory<M> {
             let delay = self.ula.contention_delay();
             self.ula.tick(delay);
         }
+
+        // Check for snow effect before ticking (timing matters)
+        let snow = self.ula.check_snow(addr);
+
         self.ula.tick(3); // Memory read takes 3 T-states
 
-        model.read(&self.data, addr, &self.ula)
+        let value = model.read(&self.data, addr, &self.ula);
+
+        if snow {
+            // During snow, CPU receives corrupted data
+            // Return the floating bus value (what ULA was trying to read)
+            self.ula.floating_bus(self.screen())
+        } else {
+            value
+        }
     }
 
     fn fetch(&mut self, address: u32) -> u8 {
         let addr = (address & 0xFFFF) as u16;
         let model = M::default();
 
+        // Check for snow effect before M1 contention
+        let snow = self.ula.check_snow(addr);
+
         // M1 cycle has different contention pattern: C:1, C:2 vs C:3 for normal read
         self.ula.m1_contention(addr, model.is_contended(addr));
 
-        model.read(&self.data, addr, &self.ula)
+        let value = model.read(&self.data, addr, &self.ula);
+
+        if snow {
+            // During snow, CPU receives corrupted data
+            self.ula.floating_bus(self.screen())
+        } else {
+            value
+        }
     }
 
     fn write(&mut self, address: u32, value: u8) {
@@ -173,6 +195,12 @@ impl<M: MemoryModel> Spectrum<M> {
     /// Get beeper transitions.
     pub fn beeper_transitions(&self) -> &[(u32, bool)] {
         &self.memory.ula.beeper_transitions
+    }
+
+    /// Get snow events for the current frame.
+    /// Each event is (display_line, char_column) where the snow occurred.
+    pub fn snow_events(&self) -> &[(u32, u32)] {
+        &self.memory.ula.snow_events
     }
 
     /// Load bytes into memory at a given address (for testing).
@@ -349,7 +377,13 @@ impl<M: MemoryModel + 'static> Machine for Spectrum<M> {
 
     fn render(&self, buffer: &mut [u8]) {
         let flash_swap = (self.frame_count / 16) % 2 == 1;
-        video::render_screen(self.screen(), self.border_transitions(), flash_swap, buffer);
+        video::render_screen(
+            self.screen(),
+            self.border_transitions(),
+            self.snow_events(),
+            flash_swap,
+            buffer,
+        );
     }
 
     fn generate_audio(&mut self, buffer: &mut [f32]) {
