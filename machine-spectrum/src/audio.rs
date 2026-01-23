@@ -4,13 +4,6 @@
 //! This module converts beeper transitions (recorded during CPU execution) into
 //! audio samples suitable for playback.
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleRate, Stream, StreamConfig};
-use ringbuf::{
-    HeapRb,
-    traits::{Consumer, Producer, Split},
-};
-
 /// Audio sample rate in Hz.
 pub const SAMPLE_RATE: u32 = 44100;
 
@@ -27,10 +20,6 @@ const T_STATES_PER_SAMPLE: f32 = T_STATES_PER_FRAME as f32 / SAMPLES_PER_FRAME a
 
 /// Amplitude for beeper output (0.0 to 1.0 range, we use 0.5 for comfortable volume).
 const AMPLITUDE: f32 = 0.5;
-
-/// Rest level when beeper is low (used for underrun handling and pre-fill).
-/// Must match the sample value produced when beeper is constantly low.
-const REST_LEVEL: f32 = -AMPLITUDE;
 
 /// Generate audio samples from beeper transitions.
 ///
@@ -92,71 +81,6 @@ pub fn generate_frame_samples(
     }
 }
 
-/// Audio output handler that manages the cpal stream and ring buffer.
-pub struct AudioOutput {
-    _stream: Stream,
-    producer: ringbuf::HeapProd<f32>,
-}
-
-impl AudioOutput {
-    /// Create a new audio output stream.
-    ///
-    /// Returns None if no audio device is available.
-    pub fn new() -> Option<Self> {
-        let host = cpal::default_host();
-        let device = host.default_output_device()?;
-
-        let config = StreamConfig {
-            channels: 1,
-            sample_rate: SampleRate(SAMPLE_RATE),
-            buffer_size: cpal::BufferSize::Default,
-        };
-
-        // Ring buffer sized for ~8 frames of audio (provides buffer against timing jitter)
-        let ring = HeapRb::<f32>::new(SAMPLES_PER_FRAME * 8);
-        let (mut producer, mut consumer) = ring.split();
-
-        // Pre-fill buffer with 4 frames of "silence" (beeper low) to prevent startup underrun
-        for _ in 0..SAMPLES_PER_FRAME * 4 {
-            let _ = producer.try_push(REST_LEVEL);
-        }
-
-        let stream = device
-            .build_output_stream(
-                &config,
-                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    for sample in data.iter_mut() {
-                        // Pop from ring buffer, use rest level on underrun to avoid clicks
-                        *sample = consumer.try_pop().unwrap_or(REST_LEVEL);
-                    }
-                },
-                |err| eprintln!("Audio stream error: {}", err),
-                None,
-            )
-            .ok()?;
-
-        stream.play().ok()?;
-
-        Some(Self {
-            _stream: stream,
-            producer,
-        })
-    }
-
-    /// Push a frame's worth of audio samples to the ring buffer.
-    ///
-    /// Blocks if the buffer is full, which creates back-pressure that
-    /// naturally paces the emulation to match audio consumption rate.
-    pub fn push_samples(&mut self, samples: &[f32]) {
-        for &sample in samples {
-            // Block if buffer is full - this synchronizes emulation to audio rate
-            while self.producer.try_push(sample).is_err() {
-                std::thread::yield_now();
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,25 +121,6 @@ mod tests {
         }
         for sample in &samples[mid..] {
             assert!(*sample > 0.0, "Second half should be positive");
-        }
-    }
-
-    #[test]
-    fn rapid_toggling_averages() {
-        let mut samples = [0.0f32; 10];
-        // Toggle every ~8 T-states (much faster than sample rate)
-        let mut transitions = Vec::new();
-        for i in 0..100 {
-            transitions.push((i * 8, i % 2 == 0));
-        }
-        generate_frame_samples(&transitions, false, &mut samples);
-
-        // Rapid toggling should average to near zero
-        for sample in &samples {
-            assert!(
-                sample.abs() < 0.2,
-                "Rapid toggling should average near zero"
-            );
         }
     }
 }

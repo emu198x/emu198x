@@ -4,5 +4,6 @@ members = [
     "core",
     "cpu-z80",
     "machine-spectrum",
-    "runner",
+    "runner-lib",
+    "spectrum-runner",
 ]

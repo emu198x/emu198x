@@ -1,0 +1,9 @@
+[package]
+name = "spectrum-runner"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+emu-core = { path = "../core" }
+machine-spectrum = { path = "../machine-spectrum" }
+runner-lib = { path = "../runner-lib" }

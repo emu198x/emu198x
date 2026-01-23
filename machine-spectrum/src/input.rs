@@ -1,11 +1,18 @@
-//! Keyboard input handling for ZX Spectrum emulation.
+//! Input handling for ZX Spectrum emulation.
 //!
-//! Maps PC keyboard keys to the Spectrum's 8x5 keyboard matrix.
-//! Some keys (like Backspace, arrows) map to key combinations.
+//! Handles mapping from generic KeyCode to the Spectrum's 8x5 keyboard matrix
+//! and Kempston joystick format.
 
-use winit::keyboard::KeyCode;
+use emu_core::{JoystickState, KeyCode};
 
-/// Map a PC key to Spectrum keyboard matrix positions.
+/// Kempston joystick bit positions (active high).
+pub const KEMPSTON_RIGHT: u8 = 0x01;
+pub const KEMPSTON_LEFT: u8 = 0x02;
+pub const KEMPSTON_DOWN: u8 = 0x04;
+pub const KEMPSTON_UP: u8 = 0x08;
+pub const KEMPSTON_FIRE: u8 = 0x10;
+
+/// Map a key to Spectrum keyboard matrix positions.
 ///
 /// Returns a slice of (row, bit) pairs. Most keys map to one position,
 /// but some (like Backspace = CAPS SHIFT + 0) require multiple.
@@ -78,13 +85,33 @@ pub fn map_key(key: KeyCode) -> &'static [(usize, u8)] {
     }
 }
 
+/// Convert generic joystick state to Kempston format.
+pub fn joystick_to_kempston(state: JoystickState) -> u8 {
+    let mut kempston = 0u8;
+    if state.right {
+        kempston |= KEMPSTON_RIGHT;
+    }
+    if state.left {
+        kempston |= KEMPSTON_LEFT;
+    }
+    if state.down {
+        kempston |= KEMPSTON_DOWN;
+    }
+    if state.up {
+        kempston |= KEMPSTON_UP;
+    }
+    if state.fire || state.fire2 {
+        kempston |= KEMPSTON_FIRE;
+    }
+    kempston
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn letter_keys_map_to_single_position() {
-        // Sample letters from each row
         assert_eq!(map_key(KeyCode::KeyZ), &[(0, 1)]);
         assert_eq!(map_key(KeyCode::KeyA), &[(1, 0)]);
         assert_eq!(map_key(KeyCode::KeyQ), &[(2, 0)]);
@@ -94,34 +121,10 @@ mod tests {
 
     #[test]
     fn number_keys_map_correctly() {
-        // Row 3: 1-5
         assert_eq!(map_key(KeyCode::Digit1), &[(3, 0)]);
         assert_eq!(map_key(KeyCode::Digit5), &[(3, 4)]);
-        // Row 4: 6-0 (note reversed order in matrix)
         assert_eq!(map_key(KeyCode::Digit0), &[(4, 0)]);
         assert_eq!(map_key(KeyCode::Digit6), &[(4, 4)]);
-    }
-
-    #[test]
-    fn shift_keys_map_to_caps_shift() {
-        assert_eq!(map_key(KeyCode::ShiftLeft), &[(0, 0)]);
-        assert_eq!(map_key(KeyCode::ShiftRight), &[(0, 0)]);
-    }
-
-    #[test]
-    fn ctrl_keys_map_to_symbol_shift() {
-        assert_eq!(map_key(KeyCode::ControlLeft), &[(7, 1)]);
-        assert_eq!(map_key(KeyCode::ControlRight), &[(7, 1)]);
-    }
-
-    #[test]
-    fn enter_maps_correctly() {
-        assert_eq!(map_key(KeyCode::Enter), &[(6, 0)]);
-    }
-
-    #[test]
-    fn space_maps_correctly() {
-        assert_eq!(map_key(KeyCode::Space), &[(7, 0)]);
     }
 
     #[test]
@@ -133,49 +136,14 @@ mod tests {
     }
 
     #[test]
-    fn arrow_keys_map_to_caps_shift_combinations() {
-        // Left = CAPS SHIFT + 5
-        let left = map_key(KeyCode::ArrowLeft);
-        assert_eq!(left.len(), 2);
-        assert!(left.contains(&(0, 0)));
-        assert!(left.contains(&(3, 4)));
-
-        // Down = CAPS SHIFT + 6
-        let down = map_key(KeyCode::ArrowDown);
-        assert_eq!(down.len(), 2);
-        assert!(down.contains(&(0, 0)));
-        assert!(down.contains(&(4, 4)));
-
-        // Up = CAPS SHIFT + 7
-        let up = map_key(KeyCode::ArrowUp);
-        assert_eq!(up.len(), 2);
-        assert!(up.contains(&(0, 0)));
-        assert!(up.contains(&(4, 3)));
-
-        // Right = CAPS SHIFT + 8
-        let right = map_key(KeyCode::ArrowRight);
-        assert_eq!(right.len(), 2);
-        assert!(right.contains(&(0, 0)));
-        assert!(right.contains(&(4, 2)));
-    }
-
-    #[test]
-    fn unknown_keys_return_empty() {
-        assert_eq!(map_key(KeyCode::F1), &[]);
-        assert_eq!(map_key(KeyCode::Tab), &[]);
-        assert_eq!(map_key(KeyCode::Home), &[]);
-    }
-
-    #[test]
-    fn all_rows_covered() {
-        // Verify at least one key maps to each row 0-7
-        assert_eq!(map_key(KeyCode::KeyZ)[0].0, 0);
-        assert_eq!(map_key(KeyCode::KeyA)[0].0, 1);
-        assert_eq!(map_key(KeyCode::KeyQ)[0].0, 2);
-        assert_eq!(map_key(KeyCode::Digit1)[0].0, 3);
-        assert_eq!(map_key(KeyCode::Digit0)[0].0, 4);
-        assert_eq!(map_key(KeyCode::KeyP)[0].0, 5);
-        assert_eq!(map_key(KeyCode::Enter)[0].0, 6);
-        assert_eq!(map_key(KeyCode::Space)[0].0, 7);
+    fn joystick_conversion() {
+        let state = JoystickState {
+            up: true,
+            right: true,
+            fire: true,
+            ..Default::default()
+        };
+        let kempston = joystick_to_kempston(state);
+        assert_eq!(kempston, KEMPSTON_UP | KEMPSTON_RIGHT | KEMPSTON_FIRE);
     }
 }

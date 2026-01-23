@@ -1,7 +1,11 @@
 //! ZX Spectrum 48K emulator.
 
+mod audio;
+mod input;
+mod video;
+
 use cpu_z80::Z80;
-use emu_core::{Bus, Cpu, IoBus};
+use emu_core::{AudioConfig, Bus, Cpu, IoBus, JoystickState, KeyCode, Machine, VideoConfig};
 
 struct Memory {
     pub data: [u8; 65536],
@@ -160,6 +164,8 @@ pub struct Spectrum48K {
     memory: Memory,
     tape_data: Vec<u8>,
     tape_pos: usize,
+    frame_count: u32,
+    prev_beeper_level: bool,
 }
 
 impl Spectrum48K {
@@ -169,11 +175,13 @@ impl Spectrum48K {
             memory: Memory::new(),
             tape_data: Vec::new(),
             tape_pos: 0,
+            frame_count: 0,
+            prev_beeper_level: false,
         }
     }
 
     /// Run the CPU for approximately one frame's worth of cycles.
-    pub fn run_frame(&mut self) {
+    fn run_frame_internal(&mut self) {
         // Reset frame counter and beeper transitions at start of frame
         self.memory.frame_t_state = 0;
         self.memory.beeper_transitions.clear();
@@ -227,25 +235,14 @@ impl Spectrum48K {
         self.memory.data[..rom.len()].copy_from_slice(rom);
     }
 
-    pub fn key_down(&mut self, row: usize, bit: u8) {
+    /// Press a key by row and bit (internal use).
+    fn press_key(&mut self, row: usize, bit: u8) {
         self.memory.keyboard[row] &= !(1 << bit);
     }
 
-    pub fn key_up(&mut self, row: usize, bit: u8) {
+    /// Release a key by row and bit (internal use).
+    fn release_key(&mut self, row: usize, bit: u8) {
         self.memory.keyboard[row] |= 1 << bit;
-    }
-
-    pub fn reset_keyboard(&mut self) {
-        for row in 0..8 {
-            self.memory.keyboard[row] = 0xFF;
-        }
-    }
-
-    /// Set the Kempston joystick state (directly returned from port 0x1F).
-    ///
-    /// Bits: 0=right, 1=left, 2=down, 3=up, 4=fire (active high)
-    pub fn set_kempston(&mut self, state: u8) {
-        self.memory.kempston = state;
     }
 
     /// Load a .SNA snapshot file.
@@ -357,6 +354,80 @@ impl Spectrum48K {
         let block = self.tape_data[self.tape_pos..self.tape_pos + len].to_vec();
         self.tape_pos += len;
         Some(block)
+    }
+}
+
+impl Machine for Spectrum48K {
+    fn video_config(&self) -> VideoConfig {
+        VideoConfig {
+            width: video::NATIVE_WIDTH,
+            height: video::NATIVE_HEIGHT,
+            fps: 50.0,
+        }
+    }
+
+    fn audio_config(&self) -> AudioConfig {
+        AudioConfig {
+            sample_rate: audio::SAMPLE_RATE,
+            samples_per_frame: audio::SAMPLES_PER_FRAME,
+        }
+    }
+
+    fn run_frame(&mut self) {
+        self.run_frame_internal();
+        self.frame_count = self.frame_count.wrapping_add(1);
+    }
+
+    fn render(&self, buffer: &mut [u8]) {
+        // FLASH attribute swaps ink/paper every 16 frames (320ms at 50Hz)
+        let flash_swap = (self.frame_count / 16) % 2 == 1;
+        video::render_screen(self.screen(), self.border(), flash_swap, buffer);
+    }
+
+    fn generate_audio(&mut self, buffer: &mut [f32]) {
+        audio::generate_frame_samples(self.beeper_transitions(), self.prev_beeper_level, buffer);
+        self.prev_beeper_level = self.memory.beeper_level;
+    }
+
+    fn key_down(&mut self, key: KeyCode) {
+        for &(row, bit) in input::map_key(key) {
+            self.press_key(row, bit);
+        }
+    }
+
+    fn key_up(&mut self, key: KeyCode) {
+        for &(row, bit) in input::map_key(key) {
+            self.release_key(row, bit);
+        }
+    }
+
+    fn set_joystick(&mut self, _port: u8, state: JoystickState) {
+        self.memory.kempston = input::joystick_to_kempston(state);
+    }
+
+    fn reset(&mut self) {
+        self.cpu = Z80::new();
+        self.memory = Memory::new();
+        self.tape_data.clear();
+        self.tape_pos = 0;
+        self.frame_count = 0;
+        self.prev_beeper_level = false;
+    }
+
+    fn load_file(&mut self, path: &str, data: &[u8]) -> Result<(), String> {
+        let lower = path.to_lowercase();
+
+        if lower.ends_with(".rom") || lower == "48.rom" {
+            self.load_rom(data);
+            Ok(())
+        } else if lower.ends_with(".sna") {
+            self.load_sna(data).map_err(|e| e.to_string())
+        } else if lower.ends_with(".tap") {
+            self.load_tape(data.to_vec());
+            Ok(())
+        } else {
+            Err(format!("Unknown file type: {}", path))
+        }
     }
 }
 
