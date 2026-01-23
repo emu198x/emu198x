@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 machine-spectrum = { path = "../machine-spectrum" }
-minifb = "0.28"
+winit = "0.30"
+pixels = "0.15"
+bytemuck = { version = "1.14", features = ["derive"] }
 cpal = "0.15"
 ringbuf = "0.4"
 gilrs = "0.11"

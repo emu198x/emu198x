@@ -20,11 +20,11 @@ pub const WIDTH: usize = NATIVE_WIDTH * SCALE;
 /// Scaled window height.
 pub const HEIGHT: usize = NATIVE_HEIGHT * SCALE;
 
-/// Spectrum color palette (ARGB format).
+/// Spectrum color palette (ARGB format internally).
 ///
 /// Index 0-7: normal colors, 8-15: bright colors.
 /// Note: bright black is the same as normal black.
-pub const COLOURS: [u32; 16] = [
+const COLOURS: [u32; 16] = [
     // Normal
     0xFF000000, // 0: black
     0xFF0000D7, // 1: blue
@@ -45,14 +45,23 @@ pub const COLOURS: [u32; 16] = [
     0xFFFFFFFF, // 15: bright white
 ];
 
+/// Convert ARGB u32 to RGBA bytes at a given index in the buffer.
+#[inline]
+fn write_rgba(buffer: &mut [u8], index: usize, color: u32) {
+    buffer[index] = ((color >> 16) & 0xFF) as u8; // R
+    buffer[index + 1] = ((color >> 8) & 0xFF) as u8; // G
+    buffer[index + 2] = (color & 0xFF) as u8; // B
+    buffer[index + 3] = 0xFF; // A
+}
+
 /// Render the Spectrum screen to a framebuffer.
 ///
 /// # Arguments
 /// * `screen` - The Spectrum's screen memory (6912 bytes: 6144 bitmap + 768 attributes)
 /// * `border` - Current border color (0-7)
 /// * `flash_swap` - Whether FLASH attribute should currently swap ink/paper
-/// * `buffer` - Output framebuffer (WIDTH * HEIGHT pixels)
-pub fn render_screen(screen: &[u8], border: u8, flash_swap: bool, buffer: &mut [u32]) {
+/// * `buffer` - Output framebuffer (NATIVE_WIDTH * NATIVE_HEIGHT * 4 bytes, RGBA format)
+pub fn render_screen(screen: &[u8], border: u8, flash_swap: bool, buffer: &mut [u8]) {
     let border_colour = COLOURS[border as usize];
 
     for native_y in 0..NATIVE_HEIGHT {
@@ -69,14 +78,9 @@ pub fn render_screen(screen: &[u8], border: u8, flash_swap: bool, buffer: &mut [
                 render_pixel(screen, screen_x, screen_y, flash_swap)
             };
 
-            // Write scaled pixel block
-            for sy in 0..SCALE {
-                for sx in 0..SCALE {
-                    let dest_x = native_x * SCALE + sx;
-                    let dest_y = native_y * SCALE + sy;
-                    buffer[dest_y * WIDTH + dest_x] = pixel;
-                }
-            }
+            // Write pixel to RGBA buffer (no scaling - pixels handles it)
+            let pixel_index = (native_y * NATIVE_WIDTH + native_x) * 4;
+            write_rgba(buffer, pixel_index, pixel);
         }
     }
 }
@@ -203,7 +207,7 @@ mod tests {
         assert_eq!(attribute_address(248, 191), 0x1AFF);
     }
 
-    // =========== Color Palette Tests ===========
+    // =========== Color Tests ===========
 
     #[test]
     fn palette_normal_colors() {
@@ -228,6 +232,36 @@ mod tests {
         }
     }
 
+    // =========== RGBA Conversion Tests ===========
+
+    #[test]
+    fn write_rgba_black() {
+        let mut buffer = [0u8; 4];
+        write_rgba(&mut buffer, 0, COLOURS[0]); // black
+        assert_eq!(buffer, [0x00, 0x00, 0x00, 0xFF]);
+    }
+
+    #[test]
+    fn write_rgba_white() {
+        let mut buffer = [0u8; 4];
+        write_rgba(&mut buffer, 0, COLOURS[15]); // bright white
+        assert_eq!(buffer, [0xFF, 0xFF, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn write_rgba_red() {
+        let mut buffer = [0u8; 4];
+        write_rgba(&mut buffer, 0, COLOURS[2]); // red (0xFFD70000 ARGB)
+        assert_eq!(buffer, [0xD7, 0x00, 0x00, 0xFF]); // RGBA
+    }
+
+    #[test]
+    fn write_rgba_blue() {
+        let mut buffer = [0u8; 4];
+        write_rgba(&mut buffer, 0, COLOURS[1]); // blue (0xFF0000D7 ARGB)
+        assert_eq!(buffer, [0x00, 0x00, 0xD7, 0xFF]); // RGBA
+    }
+
     // =========== Render Tests ===========
 
     fn create_test_screen() -> Vec<u8> {
@@ -238,36 +272,44 @@ mod tests {
     #[test]
     fn render_border_top() {
         let screen = create_test_screen();
-        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+        let mut buffer = vec![0u8; NATIVE_WIDTH * NATIVE_HEIGHT * 4];
 
         render_screen(&screen, 1, false, &mut buffer); // blue border
 
-        // Top-left corner should be border color (blue)
-        assert_eq!(buffer[0], COLOURS[1]);
+        // Top-left corner should be border color (blue = 0xFF0000D7 ARGB -> [0x00, 0x00, 0xD7, 0xFF] RGBA)
+        assert_eq!(&buffer[0..4], &[0x00, 0x00, 0xD7, 0xFF]);
     }
 
     #[test]
     fn render_border_color_index() {
         let screen = create_test_screen();
-        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+        let mut buffer = vec![0u8; NATIVE_WIDTH * NATIVE_HEIGHT * 4];
 
-        for border in 0..8 {
+        for border in 0..8u8 {
             render_screen(&screen, border, false, &mut buffer);
-            assert_eq!(buffer[0], COLOURS[border as usize]);
+            let expected_color = COLOURS[border as usize];
+            let r = ((expected_color >> 16) & 0xFF) as u8;
+            let g = ((expected_color >> 8) & 0xFF) as u8;
+            let b = (expected_color & 0xFF) as u8;
+            assert_eq!(&buffer[0..4], &[r, g, b, 0xFF]);
         }
     }
 
     #[test]
     fn render_black_screen() {
         let screen = create_test_screen();
-        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+        let mut buffer = vec![0u8; NATIVE_WIDTH * NATIVE_HEIGHT * 4];
 
         render_screen(&screen, 0, false, &mut buffer);
 
         // Center pixel should be black (paper color when bitmap is 0)
-        let center_x = (BORDER + 128) * SCALE;
-        let center_y = (BORDER + 96) * SCALE;
-        assert_eq!(buffer[center_y * WIDTH + center_x], COLOURS[0]);
+        let center_x = BORDER + 128;
+        let center_y = BORDER + 96;
+        let pixel_index = (center_y * NATIVE_WIDTH + center_x) * 4;
+        assert_eq!(
+            &buffer[pixel_index..pixel_index + 4],
+            &[0x00, 0x00, 0x00, 0xFF]
+        );
     }
 
     #[test]
@@ -279,13 +321,18 @@ mod tests {
         // Set attribute: ink=7 (white), paper=0 (black)
         screen[0x1800] = 0x07;
 
-        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+        let mut buffer = vec![0u8; NATIVE_WIDTH * NATIVE_HEIGHT * 4];
         render_screen(&screen, 0, false, &mut buffer);
 
-        // The pixel at screen position (0,0) is at buffer position (BORDER, BORDER) * SCALE
-        let pixel_x = BORDER * SCALE;
-        let pixel_y = BORDER * SCALE;
-        assert_eq!(buffer[pixel_y * WIDTH + pixel_x], COLOURS[7]); // white ink
+        // The pixel at screen position (0,0) is at buffer position (BORDER, BORDER)
+        let pixel_x = BORDER;
+        let pixel_y = BORDER;
+        let pixel_index = (pixel_y * NATIVE_WIDTH + pixel_x) * 4;
+        // white = 0xFFD7D7D7 ARGB -> [0xD7, 0xD7, 0xD7, 0xFF] RGBA
+        assert_eq!(
+            &buffer[pixel_index..pixel_index + 4],
+            &[0xD7, 0xD7, 0xD7, 0xFF]
+        );
     }
 
     #[test]
@@ -296,12 +343,17 @@ mod tests {
         // Attribute: bright=1, ink=1 (blue) -> bright blue (index 9)
         screen[0x1800] = 0x41;
 
-        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+        let mut buffer = vec![0u8; NATIVE_WIDTH * NATIVE_HEIGHT * 4];
         render_screen(&screen, 0, false, &mut buffer);
 
-        let pixel_x = BORDER * SCALE;
-        let pixel_y = BORDER * SCALE;
-        assert_eq!(buffer[pixel_y * WIDTH + pixel_x], COLOURS[9]); // bright blue
+        let pixel_x = BORDER;
+        let pixel_y = BORDER;
+        let pixel_index = (pixel_y * NATIVE_WIDTH + pixel_x) * 4;
+        // bright blue = 0xFF0000FF ARGB -> [0x00, 0x00, 0xFF, 0xFF] RGBA
+        assert_eq!(
+            &buffer[pixel_index..pixel_index + 4],
+            &[0x00, 0x00, 0xFF, 0xFF]
+        );
     }
 
     #[test]
@@ -312,12 +364,17 @@ mod tests {
         // Attribute: flash=1, ink=7, paper=0
         screen[0x1800] = 0x87;
 
-        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+        let mut buffer = vec![0u8; NATIVE_WIDTH * NATIVE_HEIGHT * 4];
         render_screen(&screen, 0, false, &mut buffer);
 
-        let pixel_x = BORDER * SCALE;
-        let pixel_y = BORDER * SCALE;
-        assert_eq!(buffer[pixel_y * WIDTH + pixel_x], COLOURS[7]); // white (ink)
+        let pixel_x = BORDER;
+        let pixel_y = BORDER;
+        let pixel_index = (pixel_y * NATIVE_WIDTH + pixel_x) * 4;
+        // white ink
+        assert_eq!(
+            &buffer[pixel_index..pixel_index + 4],
+            &[0xD7, 0xD7, 0xD7, 0xFF]
+        );
     }
 
     #[test]
@@ -328,30 +385,17 @@ mod tests {
         // Attribute: flash=1, ink=7, paper=0
         screen[0x1800] = 0x87;
 
-        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+        let mut buffer = vec![0u8; NATIVE_WIDTH * NATIVE_HEIGHT * 4];
         render_screen(&screen, 0, true, &mut buffer); // flash_swap = true
 
-        let pixel_x = BORDER * SCALE;
-        let pixel_y = BORDER * SCALE;
-        // With flash swap, ink and paper are swapped, so set pixel shows paper color
-        assert_eq!(buffer[pixel_y * WIDTH + pixel_x], COLOURS[0]); // black (was paper)
-    }
-
-    #[test]
-    fn render_scaling() {
-        let screen = create_test_screen();
-        let mut buffer = vec![0u32; WIDTH * HEIGHT];
-
-        render_screen(&screen, 2, false, &mut buffer); // red border
-
-        // Each native pixel should be a SCALE x SCALE block
-        // Check that top-left SCALE x SCALE pixels are all the same
-        let expected = COLOURS[2];
-        for y in 0..SCALE {
-            for x in 0..SCALE {
-                assert_eq!(buffer[y * WIDTH + x], expected);
-            }
-        }
+        let pixel_x = BORDER;
+        let pixel_y = BORDER;
+        let pixel_index = (pixel_y * NATIVE_WIDTH + pixel_x) * 4;
+        // With flash swap, ink and paper are swapped, so set pixel shows paper color (black)
+        assert_eq!(
+            &buffer[pixel_index..pixel_index + 4],
+            &[0x00, 0x00, 0x00, 0xFF]
+        );
     }
 
     #[test]

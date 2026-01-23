@@ -6,7 +6,8 @@
 //! Supports both keyboard (numpad) and gamepad input.
 
 use gilrs::{Axis, Button, GamepadId, Gilrs};
-use minifb::Key;
+use std::collections::HashSet;
+use winit::keyboard::KeyCode;
 
 /// Kempston joystick bit positions (active high).
 pub const KEMPSTON_RIGHT: u8 = 0x01;
@@ -19,18 +20,26 @@ pub const KEMPSTON_FIRE: u8 = 0x10;
 const AXIS_THRESHOLD: f32 = 0.5;
 
 /// Map PC keyboard keys to Kempston joystick state.
-pub fn map_keyboard(keys: &[Key]) -> u8 {
+pub fn map_keyboard(keys: &HashSet<KeyCode>) -> u8 {
     let mut state = 0u8;
 
-    for key in keys {
-        state |= match key {
-            Key::NumPad6 => KEMPSTON_RIGHT,
-            Key::NumPad4 => KEMPSTON_LEFT,
-            Key::NumPad2 => KEMPSTON_DOWN,
-            Key::NumPad8 => KEMPSTON_UP,
-            Key::NumPad0 | Key::LeftAlt | Key::RightAlt => KEMPSTON_FIRE,
-            _ => 0,
-        };
+    if keys.contains(&KeyCode::Numpad6) {
+        state |= KEMPSTON_RIGHT;
+    }
+    if keys.contains(&KeyCode::Numpad4) {
+        state |= KEMPSTON_LEFT;
+    }
+    if keys.contains(&KeyCode::Numpad2) {
+        state |= KEMPSTON_DOWN;
+    }
+    if keys.contains(&KeyCode::Numpad8) {
+        state |= KEMPSTON_UP;
+    }
+    if keys.contains(&KeyCode::Numpad0)
+        || keys.contains(&KeyCode::AltLeft)
+        || keys.contains(&KeyCode::AltRight)
+    {
+        state |= KEMPSTON_FIRE;
     }
 
     state
@@ -100,34 +109,55 @@ mod tests {
 
     #[test]
     fn no_keys_returns_zero() {
-        assert_eq!(map_keyboard(&[]), 0);
+        assert_eq!(map_keyboard(&HashSet::new()), 0);
     }
 
     #[test]
     fn numpad_directions() {
-        assert_eq!(map_keyboard(&[Key::NumPad6]), KEMPSTON_RIGHT);
-        assert_eq!(map_keyboard(&[Key::NumPad4]), KEMPSTON_LEFT);
-        assert_eq!(map_keyboard(&[Key::NumPad2]), KEMPSTON_DOWN);
-        assert_eq!(map_keyboard(&[Key::NumPad8]), KEMPSTON_UP);
+        assert_eq!(
+            map_keyboard(&HashSet::from([KeyCode::Numpad6])),
+            KEMPSTON_RIGHT
+        );
+        assert_eq!(
+            map_keyboard(&HashSet::from([KeyCode::Numpad4])),
+            KEMPSTON_LEFT
+        );
+        assert_eq!(
+            map_keyboard(&HashSet::from([KeyCode::Numpad2])),
+            KEMPSTON_DOWN
+        );
+        assert_eq!(
+            map_keyboard(&HashSet::from([KeyCode::Numpad8])),
+            KEMPSTON_UP
+        );
     }
 
     #[test]
     fn numpad_fire_buttons() {
-        assert_eq!(map_keyboard(&[Key::NumPad0]), KEMPSTON_FIRE);
-        assert_eq!(map_keyboard(&[Key::LeftAlt]), KEMPSTON_FIRE);
-        assert_eq!(map_keyboard(&[Key::RightAlt]), KEMPSTON_FIRE);
+        assert_eq!(
+            map_keyboard(&HashSet::from([KeyCode::Numpad0])),
+            KEMPSTON_FIRE
+        );
+        assert_eq!(
+            map_keyboard(&HashSet::from([KeyCode::AltLeft])),
+            KEMPSTON_FIRE
+        );
+        assert_eq!(
+            map_keyboard(&HashSet::from([KeyCode::AltRight])),
+            KEMPSTON_FIRE
+        );
     }
 
     #[test]
     fn diagonal_movement() {
         // Up-right
         assert_eq!(
-            map_keyboard(&[Key::NumPad8, Key::NumPad6]),
+            map_keyboard(&HashSet::from([KeyCode::Numpad8, KeyCode::Numpad6])),
             KEMPSTON_UP | KEMPSTON_RIGHT
         );
         // Down-left
         assert_eq!(
-            map_keyboard(&[Key::NumPad2, Key::NumPad4]),
+            map_keyboard(&HashSet::from([KeyCode::Numpad2, KeyCode::Numpad4])),
             KEMPSTON_DOWN | KEMPSTON_LEFT
         );
     }
@@ -135,20 +165,20 @@ mod tests {
     #[test]
     fn direction_with_fire() {
         assert_eq!(
-            map_keyboard(&[Key::NumPad8, Key::NumPad0]),
+            map_keyboard(&HashSet::from([KeyCode::Numpad8, KeyCode::Numpad0])),
             KEMPSTON_UP | KEMPSTON_FIRE
         );
     }
 
     #[test]
     fn all_directions_and_fire() {
-        let all_keys = [
-            Key::NumPad8,
-            Key::NumPad2,
-            Key::NumPad4,
-            Key::NumPad6,
-            Key::NumPad0,
-        ];
+        let all_keys = HashSet::from([
+            KeyCode::Numpad8,
+            KeyCode::Numpad2,
+            KeyCode::Numpad4,
+            KeyCode::Numpad6,
+            KeyCode::Numpad0,
+        ]);
         assert_eq!(
             map_keyboard(&all_keys),
             KEMPSTON_UP | KEMPSTON_DOWN | KEMPSTON_LEFT | KEMPSTON_RIGHT | KEMPSTON_FIRE
@@ -158,13 +188,24 @@ mod tests {
     #[test]
     fn irrelevant_keys_ignored() {
         // Keys that aren't joystick controls should not affect state
-        assert_eq!(map_keyboard(&[Key::A, Key::Space, Key::Enter]), 0);
+        assert_eq!(
+            map_keyboard(&HashSet::from([
+                KeyCode::KeyA,
+                KeyCode::Space,
+                KeyCode::Enter
+            ])),
+            0
+        );
     }
 
     #[test]
     fn mixed_relevant_and_irrelevant_keys() {
         assert_eq!(
-            map_keyboard(&[Key::A, Key::NumPad8, Key::Space]),
+            map_keyboard(&HashSet::from([
+                KeyCode::KeyA,
+                KeyCode::Numpad8,
+                KeyCode::Space
+            ])),
             KEMPSTON_UP
         );
     }
