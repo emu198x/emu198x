@@ -51,4 +51,14 @@ impl Z80 {
         self.b = (value >> 8) as u8;
         self.c = value as u8;
     }
+
+    /// Get WZ (MEMPTR) - undocumented internal register
+    pub fn wz(&self) -> u16 {
+        self.wz
+    }
+
+    /// Set WZ (MEMPTR) - undocumented internal register
+    pub fn set_wz(&mut self, value: u16) {
+        self.wz = value;
+    }
 }

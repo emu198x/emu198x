@@ -43,6 +43,9 @@ pub struct Z80 {
     interrupt_mode: u8,
 
     halted: bool,
+
+    // Internal undocumented register (MEMPTR)
+    wz: u16,
 }
 
 impl Z80 {
@@ -74,6 +77,7 @@ impl Z80 {
             iff2: false,
             interrupt_mode: 0,
             halted: false,
+            wz: 0,
         }
     }
 
@@ -107,6 +111,7 @@ impl Z80 {
         let high = bus.read(self.sp as u32);
         self.sp = self.sp.wrapping_add(1);
         self.pc = (high as u16) << 8 | low as u16;
+        self.wz = self.pc;
     }
 
     fn fetch(&mut self, bus: &impl emu_core::Bus) -> u8 {
@@ -135,7 +140,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x02 => {
                 // LD (BC), A
-                bus.write(self.bc() as u32, self.a);
+                let bc = self.bc();
+                bus.write(bc as u32, self.a);
+                // WZ = (BC + 1) low byte | (A << 8)
+                self.wz = (bc.wrapping_add(1) & 0xFF) | ((self.a as u16) << 8);
                 7
             }
             0x03 => {
@@ -199,12 +207,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.set_flag(flags::FLAG_N, false);
                 self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                self.wz = hl.wrapping_add(1);
                 self.set_hl(result as u16);
                 11
             }
             0x0A => {
                 // LD A, (BC)
-                self.a = bus.read(self.bc() as u32);
+                let bc = self.bc();
+                self.a = bus.read(bc as u32);
+                self.wz = bc.wrapping_add(1);
                 7
             }
             0x0B => {
@@ -258,6 +269,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.b = self.b.wrapping_sub(1);
                 if self.b != 0 {
                     self.pc = self.pc.wrapping_add(offset as u16);
+                    self.wz = self.pc;
                     13
                 } else {
                     8
@@ -272,7 +284,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x12 => {
                 // LD (DE), A
-                bus.write(self.de() as u32, self.a);
+                let de = self.de();
+                bus.write(de as u32, self.a);
+                // WZ = (DE + 1) low byte | (A << 8)
+                self.wz = (de.wrapping_add(1) & 0xFF) | ((self.a as u16) << 8);
                 7
             }
             0x13 => {
@@ -325,6 +340,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 // JR n
                 let offset = self.fetch(bus) as i8;
                 self.pc = self.pc.wrapping_add(offset as u16);
+                self.wz = self.pc;
                 12
             }
             0x19 => {
@@ -338,12 +354,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.set_flag(flags::FLAG_C, result > 0xFFFF);
                 // S, Z, P/V unchanged
 
+                self.wz = hl.wrapping_add(1);
                 self.set_hl(result as u16);
                 11
             }
             0x1A => {
                 // LD A, (DE)
-                self.a = bus.read(self.de() as u32);
+                let de = self.de();
+                self.a = bus.read(de as u32);
+                self.wz = de.wrapping_add(1);
                 7
             }
             0x1B => {
@@ -397,6 +416,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let offset = self.fetch(bus) as i8;
                 if !self.zero() {
                     self.pc = self.pc.wrapping_add(offset as u16);
+                    self.wz = self.pc;
                     12
                 } else {
                     7
@@ -416,6 +436,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let addr = (high as u16) << 8 | low as u16;
                 bus.write(addr as u32, self.l);
                 bus.write((addr.wrapping_add(1)) as u32, self.h);
+                self.wz = addr.wrapping_add(1);
                 16
             }
             0x23 => {
@@ -485,6 +506,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let offset = self.fetch(bus) as i8;
                 if self.zero() {
                     self.pc = self.pc.wrapping_add(offset as u16);
+                    self.wz = self.pc;
                     12
                 } else {
                     7
@@ -499,6 +521,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.set_flag(flags::FLAG_N, false);
                 self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                self.wz = hl.wrapping_add(1);
                 self.set_hl(result as u16);
                 11
             }
@@ -510,6 +533,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let l = bus.read(addr as u32);
                 let h = bus.read((addr.wrapping_add(1)) as u32);
                 self.set_hl((h as u16) << 8 | l as u16);
+                self.wz = addr.wrapping_add(1);
                 16
             }
             0x2B => {
@@ -560,6 +584,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let offset = self.fetch(bus) as i8;
                 if !self.carry() {
                     self.pc = self.pc.wrapping_add(offset as u16);
+                    self.wz = self.pc;
                     12
                 } else {
                     7
@@ -578,6 +603,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 bus.write(addr as u32, self.a);
+                // WZ = (nn + 1) low byte | (A << 8)
+                self.wz = (addr.wrapping_add(1) & 0xFF) | ((self.a as u16) << 8);
                 13
             }
             0x33 => {
@@ -631,6 +658,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let offset = self.fetch(bus) as i8;
                 if self.carry() {
                     self.pc = self.pc.wrapping_add(offset as u16);
+                    self.wz = self.pc;
                     12
                 } else {
                     7
@@ -646,6 +674,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.set_flag(flags::FLAG_N, false);
                 self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                self.wz = hl.wrapping_add(1);
                 self.set_hl(result as u16);
                 11
             }
@@ -655,6 +684,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.a = bus.read(addr as u32);
+                self.wz = addr.wrapping_add(1);
                 13
             }
             0x3B => {
@@ -714,6 +744,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     let high = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
                     self.pc = (high as u16) << 8 | low as u16;
+                    self.wz = self.pc;
                     11
                 } else {
                     5
@@ -732,6 +763,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if !self.zero() {
                     self.pc = addr;
                 }
@@ -741,7 +773,9 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 // JP nn
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
-                self.pc = (high as u16) << 8 | low as u16;
+                let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
+                self.pc = addr;
                 10
             }
             0xC4 => {
@@ -749,6 +783,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if !self.zero() {
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
@@ -781,6 +816,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
                 self.pc = 0x0000;
+                self.wz = 0x0000;
                 11
             }
             0xC8 => {
@@ -791,6 +827,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     let high = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
                     self.pc = (high as u16) << 8 | low as u16;
+                    self.wz = self.pc;
                     11
                 } else {
                     5
@@ -803,6 +840,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let high = bus.read(self.sp as u32);
                 self.sp = self.sp.wrapping_add(1);
                 self.pc = (high as u16) << 8 | low as u16;
+                self.wz = self.pc;
                 10
             }
             0xCA => {
@@ -810,6 +848,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if self.zero() {
                     self.pc = addr;
                 }
@@ -941,6 +980,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if self.zero() {
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
@@ -963,6 +1003,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
 
+                self.wz = addr;
                 self.pc = addr;
                 17
             }
@@ -979,6 +1020,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
                 self.pc = 0x0008;
+                self.wz = 0x0008;
                 11
             }
             0xD0 => {
@@ -989,6 +1031,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     let high = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
                     self.pc = (high as u16) << 8 | low as u16;
+                    self.wz = self.pc;
                     11
                 } else {
                     5
@@ -1007,6 +1050,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if !self.carry() {
                     self.pc = addr;
                 }
@@ -1017,6 +1061,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let port_low = self.fetch(bus);
                 let port = (self.a as u16) << 8 | port_low as u16;
                 bus.write_io(port, self.a);
+                // WZ = ((n + 1) & 0xFF) | (A << 8)
+                self.wz = (port_low.wrapping_add(1) as u16 & 0xFF) | ((self.a as u16) << 8);
                 11
             }
             0xD4 => {
@@ -1024,6 +1070,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if !self.carry() {
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
@@ -1056,6 +1103,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
                 self.pc = 0x0010;
+                self.wz = 0x0010;
                 11
             }
             0xD8 => {
@@ -1066,6 +1114,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     let high = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
                     self.pc = (high as u16) << 8 | low as u16;
+                    self.wz = self.pc;
                     11
                 } else {
                     5
@@ -1086,6 +1135,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if self.carry() {
                     self.pc = addr;
                 }
@@ -1096,6 +1146,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let n = self.fetch(bus);
                 let port = (self.a as u16) << 8 | n as u16;
                 self.a = bus.read_io(port);
+                // WZ = ((A << 8) | n) + 1
+                self.wz = port.wrapping_add(1);
                 11
             }
             0xDC => {
@@ -1103,6 +1155,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if self.carry() {
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
@@ -1157,6 +1210,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.ix as u8);
                         bus.write((addr.wrapping_add(1)) as u32, (self.ix >> 8) as u8);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x23 => {
@@ -1214,6 +1268,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let ix_low = bus.read(addr as u32);
                         let ix_high = bus.read((addr.wrapping_add(1)) as u32);
                         self.ix = (ix_high as u16) << 8 | ix_low as u16;
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x2B => {
@@ -1791,6 +1846,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         bus.write(self.sp as u32, self.ix as u8);
                         bus.write((self.sp.wrapping_add(1)) as u32, (self.ix >> 8) as u8);
                         self.ix = (high as u16) << 8 | low as u16;
+                        // WZ = new IX value (value read from stack)
+                        self.wz = self.ix;
                         23
                     }
                     0xE9 => {
@@ -1819,6 +1876,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
                 self.pc = 0x0018;
+                self.wz = 0x0018;
                 11
             }
             0xE0 => {
@@ -1829,6 +1887,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     let high = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
                     self.pc = (high as u16) << 8 | low as u16;
+                    self.wz = self.pc;
                     11
                 } else {
                     5
@@ -1847,6 +1906,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if !self.get_flag(flags::FLAG_PV) {
                     self.pc = addr;
                 }
@@ -1860,6 +1920,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 bus.write((self.sp.wrapping_add(1)) as u32, self.h);
                 self.l = low;
                 self.h = high;
+                // WZ = new HL value (value read from stack)
+                self.wz = (high as u16) << 8 | low as u16;
                 19
             }
             0xE4 => {
@@ -1867,6 +1929,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if !self.get_flag(flags::FLAG_PV) {
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
@@ -1899,6 +1962,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
                 self.pc = 0x0020;
+                self.wz = 0x0020;
                 11
             }
             0xE8 => {
@@ -1909,6 +1973,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     let high = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
                     self.pc = (high as u16) << 8 | low as u16;
+                    self.wz = self.pc;
                     11
                 } else {
                     5
@@ -1924,6 +1989,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if self.get_flag(flags::FLAG_PV) {
                     self.pc = addr;
                 }
@@ -1940,6 +2006,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if self.get_flag(flags::FLAG_PV) {
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
@@ -1956,17 +2023,21 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 match op2 {
                     0x40 => {
                         // IN B, (C)
-                        self.b = bus.read_io(self.bc());
+                        let bc = self.bc();
+                        self.b = bus.read_io(bc);
                         self.set_flag(flags::FLAG_S, self.b & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.b == 0);
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.b.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x41 => {
                         // OUT (C), B
-                        bus.write_io(self.bc(), self.b);
+                        let bc = self.bc();
+                        bus.write_io(bc, self.b);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x42 => {
@@ -1986,6 +2057,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, true);
                         self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                        self.wz = hl.wrapping_add(1);
                         self.set_hl(result as u16);
                         15
                     }
@@ -1996,6 +2068,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.c);
                         bus.write((addr.wrapping_add(1)) as u32, self.b);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x44 => {
@@ -2018,6 +2091,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.sp = self.sp.wrapping_add(1);
                         self.pc = (high as u16) << 8 | low as u16;
                         self.iff1 = self.iff2;
+                        self.wz = self.pc;
                         14
                     }
                     0x46 => {
@@ -2032,17 +2106,21 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x48 => {
                         // IN C, (C)
-                        self.c = bus.read_io(self.bc());
+                        let bc = self.bc();
+                        self.c = bus.read_io(bc);
                         self.set_flag(flags::FLAG_S, self.c & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.c == 0);
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.c.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x49 => {
                         // OUT (C), C
-                        bus.write_io(self.bc(), self.c);
+                        let bc = self.bc();
+                        bus.write_io(bc, self.c);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x4A => {
@@ -2065,6 +2143,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, false);
                         self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                        self.wz = hl.wrapping_add(1);
                         self.set_hl(result as u16);
                         15
                     }
@@ -2075,6 +2154,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         self.c = bus.read(addr as u32);
                         self.b = bus.read((addr.wrapping_add(1)) as u32);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x4D => {
@@ -2084,6 +2164,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let high = bus.read(self.sp as u32);
                         self.sp = self.sp.wrapping_add(1);
                         self.pc = (high as u16) << 8 | low as u16;
+                        self.wz = self.pc;
                         14
                     }
                     0x4F => {
@@ -2093,17 +2174,21 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x50 => {
                         // IN D, (C)
-                        self.d = bus.read_io(self.bc());
+                        let bc = self.bc();
+                        self.d = bus.read_io(bc);
                         self.set_flag(flags::FLAG_S, self.d & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.d == 0);
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.d.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x51 => {
                         // OUT (C), D
-                        bus.write_io(self.bc(), self.d);
+                        let bc = self.bc();
+                        bus.write_io(bc, self.d);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x52 => {
@@ -2123,6 +2208,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, true);
                         self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                        self.wz = hl.wrapping_add(1);
                         self.set_hl(result as u16);
                         15
                     }
@@ -2133,6 +2219,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.e);
                         bus.write((addr.wrapping_add(1)) as u32, self.d);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x56 => {
@@ -2152,17 +2239,21 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x58 => {
                         // IN E, (C)
-                        self.e = bus.read_io(self.bc());
+                        let bc = self.bc();
+                        self.e = bus.read_io(bc);
                         self.set_flag(flags::FLAG_S, self.e & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.e == 0);
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.e.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x59 => {
                         // OUT (C), E
-                        bus.write_io(self.bc(), self.e);
+                        let bc = self.bc();
+                        bus.write_io(bc, self.e);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x5A => {
@@ -2185,6 +2276,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, false);
                         self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                        self.wz = hl.wrapping_add(1);
                         self.set_hl(result as u16);
                         15
                     }
@@ -2195,6 +2287,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         self.e = bus.read(addr as u32);
                         self.d = bus.read((addr.wrapping_add(1)) as u32);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x5E => {
@@ -2214,17 +2307,21 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x60 => {
                         // IN H, (C)
-                        self.h = bus.read_io(self.bc());
+                        let bc = self.bc();
+                        self.h = bus.read_io(bc);
                         self.set_flag(flags::FLAG_S, self.h & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.h == 0);
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.h.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x61 => {
                         // OUT (C), H
-                        bus.write_io(self.bc(), self.h);
+                        let bc = self.bc();
+                        bus.write_io(bc, self.h);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x62 => {
@@ -2240,6 +2337,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, true);
                         self.set_flag(flags::FLAG_C, c != 0);
 
+                        self.wz = hl.wrapping_add(1);
                         self.set_hl(result as u16);
                         15
                     }
@@ -2250,6 +2348,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.l);
                         bus.write((addr.wrapping_add(1)) as u32, self.h);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x67 => {
@@ -2265,21 +2364,26 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.a.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = hl.wrapping_add(1);
                         18
                     }
                     0x68 => {
                         // IN L, (C)
-                        self.l = bus.read_io(self.bc());
+                        let bc = self.bc();
+                        self.l = bus.read_io(bc);
                         self.set_flag(flags::FLAG_S, self.l & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.l == 0);
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.l.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x69 => {
                         // OUT (C), L
-                        bus.write_io(self.bc(), self.l);
+                        let bc = self.bc();
+                        bus.write_io(bc, self.l);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x6A => {
@@ -2298,6 +2402,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, false);
                         self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                        self.wz = hl.wrapping_add(1);
                         self.set_hl(result as u16);
                         15
                     }
@@ -2308,6 +2413,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         self.l = bus.read(addr as u32);
                         self.h = bus.read((addr.wrapping_add(1)) as u32);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x6F => {
@@ -2323,21 +2429,26 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.a.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = hl.wrapping_add(1);
                         18
                     }
                     0x70 => {
                         // IN (C) / IN F,(C) (undocumented) - reads port, only affects flags
-                        let value = bus.read_io(self.bc());
+                        let bc = self.bc();
+                        let value = bus.read_io(bc);
                         self.set_flag(flags::FLAG_S, value & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, value == 0);
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, value.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x71 => {
                         // OUT (C),0 (undocumented) - outputs 0 to port
-                        bus.write_io(self.bc(), 0);
+                        let bc = self.bc();
+                        bus.write_io(bc, 0);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x72 => {
@@ -2357,6 +2468,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, true);
                         self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                        self.wz = hl.wrapping_add(1);
                         self.set_hl(result as u16);
                         15
                     }
@@ -2367,21 +2479,26 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.sp as u8);
                         bus.write((addr.wrapping_add(1)) as u32, (self.sp >> 8) as u8);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x78 => {
                         // IN A, (C)
-                        self.a = bus.read_io(self.bc());
+                        let bc = self.bc();
+                        self.a = bus.read_io(bc);
                         self.set_flag(flags::FLAG_S, self.a & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.a == 0);
                         self.set_flag(flags::FLAG_H, false);
                         self.set_flag(flags::FLAG_PV, self.a.count_ones() % 2 == 0);
                         self.set_flag(flags::FLAG_N, false);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x79 => {
                         // OUT (C), A
-                        bus.write_io(self.bc(), self.a);
+                        let bc = self.bc();
+                        bus.write_io(bc, self.a);
+                        self.wz = bc.wrapping_add(1);
                         12
                     }
                     0x7A => {
@@ -2404,6 +2521,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, false);
                         self.set_flag(flags::FLAG_C, result > 0xFFFF);
 
+                        self.wz = hl.wrapping_add(1);
                         self.set_hl(result as u16);
                         15
                     }
@@ -2415,6 +2533,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let sp_low = bus.read(addr as u32);
                         let sp_high = bus.read((addr.wrapping_add(1)) as u32);
                         self.sp = (sp_high as u16) << 8 | sp_low as u16;
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0xA0 => {
@@ -2444,6 +2563,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (self.a & 0x0F) < (value & 0x0F));
                         self.set_flag(flags::FLAG_PV, self.bc() != 0);
                         self.set_flag(flags::FLAG_N, true);
+                        self.wz = self.wz.wrapping_add(1);
                         16
                     }
                     0xA2 => {
@@ -2495,6 +2615,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_H, (self.a & 0x0F) < (value & 0x0F));
                         self.set_flag(flags::FLAG_PV, self.bc() != 0);
                         self.set_flag(flags::FLAG_N, true);
+                        self.wz = self.wz.wrapping_sub(1);
                         16
                     }
                     0xAA => {
@@ -2534,6 +2655,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         if self.bc() != 0 {
                             self.pc = self.pc.wrapping_sub(2); // repeat
+                            self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
                             16
@@ -2556,8 +2678,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         if self.bc() != 0 && result != 0 {
                             self.pc = self.pc.wrapping_sub(2); // repeat
+                            self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
+                            self.wz = self.wz.wrapping_add(1);
                             16
                         }
                     }
@@ -2573,6 +2697,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         if self.b != 0 {
                             self.pc = self.pc.wrapping_sub(2);
+                            self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
                             16
@@ -2590,6 +2715,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         if self.b != 0 {
                             self.pc = self.pc.wrapping_sub(2);
+                            self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
                             16
@@ -2610,6 +2736,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         if self.bc() != 0 {
                             self.pc = self.pc.wrapping_sub(2); // repeat
+                            self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
                             16
@@ -2631,8 +2758,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         if self.bc() != 0 && result != 0 {
                             self.pc = self.pc.wrapping_sub(2);
+                            self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
+                            self.wz = self.wz.wrapping_sub(1);
                             16
                         }
                     }
@@ -2648,6 +2777,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         if self.b != 0 {
                             self.pc = self.pc.wrapping_sub(2);
+                            self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
                             16
@@ -2665,6 +2795,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         if self.b != 0 {
                             self.pc = self.pc.wrapping_sub(2);
+                            self.wz = self.pc.wrapping_add(1);
                             21
                         } else {
                             16
@@ -2690,6 +2821,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.sp = self.sp.wrapping_add(1);
                         self.pc = (high as u16) << 8 | low as u16;
                         self.iff1 = self.iff2;
+                        self.wz = self.pc;
                         14
                     }
                     // Undocumented IM 0 mirrors
@@ -2723,6 +2855,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
                 self.pc = 0x0028;
+                self.wz = 0x0028;
                 11
             }
             0xF0 => {
@@ -2733,6 +2866,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     let high = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
                     self.pc = (high as u16) << 8 | low as u16;
+                    self.wz = self.pc;
                     11
                 } else {
                     5
@@ -2751,6 +2885,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if !self.get_flag(flags::FLAG_S) {
                     self.pc = addr;
                 }
@@ -2767,6 +2902,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if !self.get_flag(flags::FLAG_S) {
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
@@ -2799,6 +2935,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
                 self.pc = 0x0030;
+                self.wz = 0x0030;
                 11
             }
             0xF8 => {
@@ -2809,6 +2946,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     let high = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
                     self.pc = (high as u16) << 8 | low as u16;
+                    self.wz = self.pc;
                     11
                 } else {
                     5
@@ -2824,6 +2962,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if self.get_flag(flags::FLAG_S) {
                     self.pc = addr;
                 }
@@ -2878,6 +3017,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.iy as u8);
                         bus.write((addr.wrapping_add(1)) as u32, (self.iy >> 8) as u8);
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x23 => {
@@ -2935,6 +3075,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let iy_low = bus.read(addr as u32);
                         let iy_high = bus.read((addr.wrapping_add(1)) as u32);
                         self.iy = (iy_high as u16) << 8 | iy_low as u16;
+                        self.wz = addr.wrapping_add(1);
                         20
                     }
                     0x2B => {
@@ -3505,6 +3646,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         bus.write(self.sp as u32, self.iy as u8);
                         bus.write((self.sp.wrapping_add(1)) as u32, (self.iy >> 8) as u8);
                         self.iy = (high as u16) << 8 | low as u16;
+                        // WZ = new IY value (value read from stack)
+                        self.wz = self.iy;
                         23
                     }
                     0xE5 => {
@@ -3533,6 +3676,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 let low = self.fetch(bus);
                 let high = self.fetch(bus);
                 let addr = (high as u16) << 8 | low as u16;
+                self.wz = addr;
                 if self.get_flag(flags::FLAG_S) {
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
@@ -3557,6 +3701,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.pc as u8);
                 self.pc = 0x0038;
+                self.wz = 0x0038;
                 11
             }
             // LD r, r' (including (HL) cases)
@@ -3747,6 +3892,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
         self.r = 0;
         self.iff1 = false;
         self.iff2 = false;
+        self.wz = 0;
         self.interrupt_mode = 0;
 
         // SP, AF, BC, DE, HL, IX, IY left unchanged (undefined)
@@ -3768,6 +3914,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             self.sp = self.sp.wrapping_sub(1);
             _bus.write(self.sp as u32, self.pc as u8);
             self.pc = 0x0038;
+            self.wz = 0x0038;
         }
     }
 
