@@ -1532,7 +1532,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     _ => todo!("DD opcode {:#04X}", op2),
                 }
-            }            
+            }
             0xDE => {
                 // SBC A, n
                 let n = self.fetch(bus);
@@ -1781,7 +1781,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         self.set_flag(flags::FLAG_S, result & 0x8000 != 0);
                         self.set_flag(flags::FLAG_Z, (result & 0xFFFF) == 0);
-                        self.set_flag(flags::FLAG_H, (hl & 0x0FFF) + (bc & 0x0FFF) + c as u16 > 0x0FFF);
+                        self.set_flag(
+                            flags::FLAG_H,
+                            (hl & 0x0FFF) + (bc & 0x0FFF) + c as u16 > 0x0FFF,
+                        );
                         self.set_flag(
                             flags::FLAG_PV,
                             ((hl ^ bc) & 0x8000 == 0) && ((hl ^ result as u16) & 0x8000 != 0),
@@ -1898,7 +1901,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         self.set_flag(flags::FLAG_S, result & 0x8000 != 0);
                         self.set_flag(flags::FLAG_Z, (result & 0xFFFF) == 0);
-                        self.set_flag(flags::FLAG_H, (hl & 0x0FFF) + (de & 0x0FFF) + c as u16 > 0x0FFF);
+                        self.set_flag(
+                            flags::FLAG_H,
+                            (hl & 0x0FFF) + (de & 0x0FFF) + c as u16 > 0x0FFF,
+                        );
                         self.set_flag(
                             flags::FLAG_PV,
                             ((hl ^ de) & 0x8000 == 0) && ((hl ^ result as u16) & 0x8000 != 0),
@@ -2011,7 +2017,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         self.set_flag(flags::FLAG_S, result & 0x8000 != 0);
                         self.set_flag(flags::FLAG_Z, (result & 0xFFFF) == 0);
-                        self.set_flag(flags::FLAG_H, (hl & 0x0FFF) + (hl & 0x0FFF) + c as u16 > 0x0FFF);
+                        self.set_flag(
+                            flags::FLAG_H,
+                            (hl & 0x0FFF) + (hl & 0x0FFF) + c as u16 > 0x0FFF,
+                        );
                         self.set_flag(flags::FLAG_PV, (hl ^ result as u16) & 0x8000 != 0);
                         self.set_flag(flags::FLAG_N, false);
                         self.set_flag(flags::FLAG_C, result > 0xFFFF);
@@ -2096,7 +2105,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
 
                         self.set_flag(flags::FLAG_S, result & 0x8000 != 0);
                         self.set_flag(flags::FLAG_Z, (result & 0xFFFF) == 0);
-                        self.set_flag(flags::FLAG_H, (hl & 0x0FFF) + (sp & 0x0FFF) + c as u16 > 0x0FFF);
+                        self.set_flag(
+                            flags::FLAG_H,
+                            (hl & 0x0FFF) + (sp & 0x0FFF) + c as u16 > 0x0FFF,
+                        );
                         self.set_flag(
                             flags::FLAG_PV,
                             ((hl ^ sp) & 0x8000 == 0) && ((hl ^ result as u16) & 0x8000 != 0),
@@ -2491,7 +2503,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     self.pc = addr;
                 }
                 10
-            }            
+            }
             0xFB => {
                 // EI
                 self.iff1 = true;
