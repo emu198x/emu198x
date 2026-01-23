@@ -992,6 +992,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         if reg == 6 {
                             let addr = self.hl() as u32;
                             let value = bus.read(addr);
+                            bus.tick(1); // internal cycle between read and write
                             bus.write(addr, value & !(1 << bit));
                             15
                         } else {
@@ -1005,6 +1006,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         if reg == 6 {
                             let addr = self.hl() as u32;
                             let value = bus.read(addr);
+                            bus.tick(1); // internal cycle between read and write
                             bus.write(addr, value | (1 << bit));
                             15
                         } else {
@@ -1080,6 +1082,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_undoc_flags(result);
 
                         if reg == 6 {
+                            bus.tick(1); // internal cycle between read and write
                             bus.write(self.hl() as u32, result);
                             15
                         } else {
@@ -1445,8 +1448,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x34 => {
                         // INC (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
+                        bus.tick(1); // internal cycle between read and write
                         let result = value.wrapping_add(1);
                         bus.write(addr, result);
 
@@ -1461,8 +1466,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x35 => {
                         // DEC (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
+                        bus.tick(1); // internal cycle between read and write
                         let result = value.wrapping_sub(1);
                         bus.write(addr, result);
 
@@ -1478,6 +1485,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // LD (IX+d), n
                         let d = self.read_operand(bus) as i8;
                         let n = self.read_operand(bus);
+                        bus.tick(2); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, n);
                         19
@@ -1531,6 +1539,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x46 => {
                         // LD B, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.b = bus.read(addr);
                         19
@@ -1572,6 +1581,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x4E => {
                         // LD C, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.c = bus.read(addr);
                         19
@@ -1613,6 +1623,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x56 => {
                         // LD D, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.d = bus.read(addr);
                         19
@@ -1654,6 +1665,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x5E => {
                         // LD E, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.e = bus.read(addr);
                         19
@@ -1695,6 +1707,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x66 => {
                         // LD H, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.h = bus.read(addr);
                         19
@@ -1736,6 +1749,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x6E => {
                         // LD L, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.l = bus.read(addr);
                         19
@@ -1748,6 +1762,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x70 => {
                         // LD (IX+d), B
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.b);
                         19
@@ -1755,6 +1770,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x71 => {
                         // LD (IX+d), C
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.c);
                         19
@@ -1762,6 +1778,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x72 => {
                         // LD (IX+d), D
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.d);
                         19
@@ -1769,6 +1786,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x73 => {
                         // LD (IX+d), E
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.e);
                         19
@@ -1776,6 +1794,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x74 => {
                         // LD (IX+d), H
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.h);
                         19
@@ -1783,6 +1802,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x75 => {
                         // LD (IX+d), L
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.l);
                         19
@@ -1790,6 +1810,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x77 => {
                         // LD (IX+d), A
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.a);
                         19
@@ -1827,6 +1848,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x7E => {
                         // LD A, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.a = bus.read(addr);
                         19
@@ -1848,6 +1870,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x86 => {
                         // ADD A, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.add_a(value);
@@ -1866,6 +1889,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x8E => {
                         // ADC A, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.adc_a(value);
@@ -1884,6 +1908,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x96 => {
                         // SUB (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.sub_a(value);
@@ -1902,6 +1927,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x9E => {
                         // SBC A, (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.sbc_a(value);
@@ -1920,6 +1946,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xA6 => {
                         // AND (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.and_a(value);
@@ -1938,6 +1965,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xAE => {
                         // XOR (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.xor_a(value);
@@ -1956,6 +1984,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xB6 => {
                         // OR (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.or_a(value);
@@ -1974,6 +2003,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xBE => {
                         // CP (IX+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.cp_a(value);
@@ -1983,6 +2013,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let op3 = self.read_operand(bus);
+                        bus.tick(2); // internal cycles for address calculation
 
                         let x = op3 >> 6;
                         let y = (op3 >> 3) & 0x07;
@@ -1992,6 +2023,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             0 => {
                                 // Rotate/shift operations on (IX+d)
                                 let value = bus.read(addr);
+                                bus.tick(1); // extra T-state for indexed read
                                 let result = match y {
                                     0 => {
                                         // RLC (IX+d)
@@ -2055,6 +2087,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             1 => {
                                 // BIT b, (IX+d) - z field is ignored for BIT
                                 let value = bus.read(addr);
+                                bus.tick(1); // extra T-state for indexed read
                                 let bit_set = value & (1 << y) != 0;
                                 self.set_flag(flags::FLAG_S, y == 7 && bit_set);
                                 self.set_flag(flags::FLAG_Z, !bit_set);
@@ -2068,6 +2101,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             2 => {
                                 // RES b, (IX+d)
                                 let value = bus.read(addr);
+                                bus.tick(1); // extra T-state for indexed read
                                 let result = value & !(1 << y);
                                 bus.write(addr, result);
                                 // Undocumented: also copy result to register if z != 6
@@ -2079,6 +2113,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             3 => {
                                 // SET b, (IX+d)
                                 let value = bus.read(addr);
+                                bus.tick(1); // extra T-state for indexed read
                                 let result = value | (1 << y);
                                 bus.write(addr, result);
                                 // Undocumented: also copy result to register if z != 6
@@ -2386,6 +2421,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x47 => {
                         // LD I, A
+                        bus.tick(1); // internal cycle for I register access
                         self.i = self.a;
                         9
                     }
@@ -2457,6 +2493,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x4F => {
                         // LD R, A
+                        bus.tick(1); // internal cycle for R register access
                         self.r = self.a;
                         9
                     }
@@ -2520,6 +2557,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x57 => {
                         // LD A, I
+                        bus.tick(1); // internal cycle for I register access
                         self.a = self.i;
                         self.set_flag(flags::FLAG_S, self.a & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.a == 0);
@@ -2592,6 +2630,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x5F => {
                         // LD A, R
+                        bus.tick(1); // internal cycle for R register access
                         self.a = self.r;
                         self.set_flag(flags::FLAG_S, self.a & 0x80 != 0);
                         self.set_flag(flags::FLAG_Z, self.a == 0);
@@ -2654,6 +2693,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // RRD
                         let hl = self.hl();
                         let mem = bus.read(hl as u32);
+                        bus.tick(4); // internal cycles for rotate
                         let low_a = self.a & 0x0F;
                         self.a = (self.a & 0xF0) | (mem & 0x0F);
                         let new_mem = (low_a << 4) | (mem >> 4);
@@ -2723,6 +2763,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // RLD
                         let hl = self.hl();
                         let mem = bus.read(hl as u32);
+                        bus.tick(4); // internal cycles for rotate
                         let low_a = self.a & 0x0F;
                         self.a = (self.a & 0xF0) | (mem >> 4);
                         let new_mem = (mem << 4) | low_a;
@@ -2850,6 +2891,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // LDI
                         let value = bus.read(self.hl() as u32);
                         bus.write(self.de() as u32, value);
+                        bus.tick(2); // internal cycles for register updates
 
                         self.set_hl(self.hl().wrapping_add(1));
                         self.set_de(self.de().wrapping_add(1));
@@ -2867,6 +2909,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xA1 => {
                         // CPI
                         let value = bus.read(self.hl() as u32);
+                        bus.tick(5); // internal cycles for comparison
+
                         let result = self.a.wrapping_sub(value);
                         let hf = (self.a & 0x0F) < (value & 0x0F);
 
@@ -2887,6 +2931,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xA2 => {
                         // INI
+                        bus.tick(1); // internal cycle before I/O
                         let value = bus.read_io(self.bc());
                         bus.write(self.hl() as u32, value);
                         self.set_hl(self.hl().wrapping_add(1));
@@ -2909,6 +2954,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xA3 => {
                         // OUTI
+                        bus.tick(1); // internal cycle before B decrement
                         let value = bus.read(self.hl() as u32);
                         self.b = self.b.wrapping_sub(1);
                         bus.write_io(self.bc(), value);
@@ -2933,6 +2979,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // LDD
                         let value = bus.read(self.hl() as u32);
                         bus.write(self.de() as u32, value);
+                        bus.tick(2); // internal cycles for register updates
 
                         self.set_hl(self.hl().wrapping_sub(1));
                         self.set_de(self.de().wrapping_sub(1));
@@ -2950,6 +2997,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xA9 => {
                         // CPD
                         let value = bus.read(self.hl() as u32);
+                        bus.tick(5); // internal cycles for comparison
+
                         let result = self.a.wrapping_sub(value);
                         let hf = (self.a & 0x0F) < (value & 0x0F);
 
@@ -2970,6 +3019,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xAA => {
                         // IND
+                        bus.tick(1); // internal cycle before I/O
                         let value = bus.read_io(self.bc());
                         bus.write(self.hl() as u32, value);
                         self.set_hl(self.hl().wrapping_sub(1));
@@ -2992,6 +3042,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xAB => {
                         // OUTD
+                        bus.tick(1); // internal cycle before B decrement
                         let value = bus.read(self.hl() as u32);
                         self.b = self.b.wrapping_sub(1);
                         bus.write_io(self.bc(), value);
@@ -3016,6 +3067,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // LDIR
                         let value = bus.read(self.hl() as u32);
                         bus.write(self.de() as u32, value);
+                        bus.tick(2); // internal cycles for register updates
 
                         self.set_hl(self.hl().wrapping_add(1));
                         self.set_de(self.de().wrapping_add(1));
@@ -3030,6 +3082,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_F5, n & 0x02 != 0);
 
                         if self.bc() != 0 {
+                            bus.tick(5); // internal cycles for repeat
                             self.pc = self.pc.wrapping_sub(2); // repeat
                             self.wz = self.pc.wrapping_add(1);
                             21
@@ -3040,6 +3093,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xB1 => {
                         // CPIR
                         let value = bus.read(self.hl() as u32);
+                        bus.tick(5); // internal cycles for comparison
+
                         let result = self.a.wrapping_sub(value);
                         let hf = (self.a & 0x0F) < (value & 0x0F);
 
@@ -3058,6 +3113,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // C flag not affected
 
                         if self.bc() != 0 && result != 0 {
+                            bus.tick(5); // internal cycles for repeat
                             self.pc = self.pc.wrapping_sub(2); // repeat
                             self.wz = self.pc.wrapping_add(1);
                             21
@@ -3068,6 +3124,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xB2 => {
                         // INIR
+                        bus.tick(1); // internal cycle before I/O
                         let value = bus.read_io(self.bc());
                         bus.write(self.hl() as u32, value);
                         self.set_hl(self.hl().wrapping_add(1));
@@ -3087,6 +3144,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_undoc_flags(self.b);
 
                         if self.b != 0 {
+                            bus.tick(5); // internal cycles for repeat
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
@@ -3097,6 +3155,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xB3 => {
                         // OTIR
+                        bus.tick(1); // internal cycle before B decrement
                         let value = bus.read(self.hl() as u32);
                         self.b = self.b.wrapping_sub(1);
                         bus.write_io(self.bc(), value);
@@ -3116,6 +3175,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_undoc_flags(self.b);
 
                         if self.b != 0 {
+                            bus.tick(5); // internal cycles for repeat
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
@@ -3128,6 +3188,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // LDDR
                         let value = bus.read(self.hl() as u32);
                         bus.write(self.de() as u32, value);
+                        bus.tick(2); // internal cycles for register updates
 
                         self.set_hl(self.hl().wrapping_sub(1));
                         self.set_de(self.de().wrapping_sub(1));
@@ -3142,6 +3203,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_F5, n & 0x02 != 0);
 
                         if self.bc() != 0 {
+                            bus.tick(5); // internal cycles for repeat
                             self.pc = self.pc.wrapping_sub(2); // repeat
                             self.wz = self.pc.wrapping_add(1);
                             21
@@ -3152,6 +3214,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xB9 => {
                         // CPDR
                         let value = bus.read(self.hl() as u32);
+                        bus.tick(5); // internal cycles for comparison
+
                         let result = self.a.wrapping_sub(value);
                         let hf = (self.a & 0x0F) < (value & 0x0F);
 
@@ -3169,6 +3233,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_F5, n & 0x02 != 0);
 
                         if self.bc() != 0 && result != 0 {
+                            bus.tick(5); // internal cycles for repeat
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
@@ -3179,6 +3244,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xBA => {
                         // INDR
+                        bus.tick(1); // internal cycle before I/O
                         let value = bus.read_io(self.bc());
                         bus.write(self.hl() as u32, value);
                         self.set_hl(self.hl().wrapping_sub(1));
@@ -3198,6 +3264,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_undoc_flags(self.b);
 
                         if self.b != 0 {
+                            bus.tick(5); // internal cycles for repeat
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
@@ -3208,6 +3275,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xBB => {
                         // OTDR
+                        bus.tick(1); // internal cycle before B decrement
                         let value = bus.read(self.hl() as u32);
                         self.b = self.b.wrapping_sub(1);
                         bus.write_io(self.bc(), value);
@@ -3227,6 +3295,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_undoc_flags(self.b);
 
                         if self.b != 0 {
+                            bus.tick(5); // internal cycles for repeat
                             self.pc = self.pc.wrapping_sub(2);
                             self.wz = self.pc.wrapping_add(1);
                             21
@@ -3570,8 +3639,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x34 => {
                         // INC (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
+                        bus.tick(1); // internal cycle between read and write
                         let result = value.wrapping_add(1);
                         bus.write(addr, result);
 
@@ -3586,8 +3657,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x35 => {
                         // DEC (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
+                        bus.tick(1); // internal cycle between read and write
                         let result = value.wrapping_sub(1);
                         bus.write(addr, result);
 
@@ -3603,6 +3676,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // LD (IY+d), n
                         let d = self.read_operand(bus) as i8;
                         let n = self.read_operand(bus);
+                        bus.tick(2); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, n);
                         19
@@ -3655,6 +3729,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x46 => {
                         // LD B, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.b = bus.read(addr);
                         19
@@ -3696,6 +3771,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x4E => {
                         // LD C, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.c = bus.read(addr);
                         19
@@ -3737,6 +3813,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x56 => {
                         // LD D, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.d = bus.read(addr);
                         19
@@ -3778,6 +3855,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x5E => {
                         // LD E, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.e = bus.read(addr);
                         19
@@ -3819,6 +3897,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x66 => {
                         // LD H, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.h = bus.read(addr);
                         19
@@ -3860,6 +3939,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x6E => {
                         // LD L, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.l = bus.read(addr);
                         19
@@ -3872,6 +3952,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x70 => {
                         // LD (IY+d), B
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.b);
                         19
@@ -3879,6 +3960,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x71 => {
                         // LD (IY+d), C
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.c);
                         19
@@ -3886,6 +3968,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x72 => {
                         // LD (IY+d), D
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.d);
                         19
@@ -3893,6 +3976,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x73 => {
                         // LD (IY+d), E
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.e);
                         19
@@ -3900,6 +3984,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x74 => {
                         // LD (IY+d), H
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.h);
                         19
@@ -3907,6 +3992,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x75 => {
                         // LD (IY+d), L
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.l);
                         19
@@ -3914,6 +4000,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x77 => {
                         // LD (IY+d), A
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.a);
                         19
@@ -3951,6 +4038,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x7E => {
                         // LD A, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.a = bus.read(addr);
                         19
@@ -3972,6 +4060,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x86 => {
                         // ADD A, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.add_a(value);
@@ -3990,6 +4079,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x8E => {
                         // ADC A, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.adc_a(value);
@@ -4008,6 +4098,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x96 => {
                         // SUB (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.sub_a(value);
@@ -4026,6 +4117,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0x9E => {
                         // SBC A, (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.sbc_a(value);
@@ -4044,6 +4136,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xA6 => {
                         // AND (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.and_a(value);
@@ -4062,6 +4155,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xAE => {
                         // XOR (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.xor_a(value);
@@ -4080,6 +4174,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xB6 => {
                         // OR (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.or_a(value);
@@ -4098,6 +4193,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     0xBE => {
                         // CP (IY+d)
                         let d = self.read_operand(bus) as i8;
+                        bus.tick(5); // internal cycles for address calculation
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.cp_a(value);
@@ -4107,6 +4203,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let op3 = self.read_operand(bus);
+                        bus.tick(2); // internal cycles for address calculation
 
                         let x = op3 >> 6;
                         let y = (op3 >> 3) & 0x07;
@@ -4117,6 +4214,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                                 // Rotate/shift operations on (IY+d)
                                 // Undocumented: result also copied to register if z != 6
                                 let value = bus.read(addr);
+                                bus.tick(1); // extra T-state for indexed read
                                 let result = match y {
                                     0 => {
                                         // RLC (IY+d)
@@ -4180,6 +4278,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             1 => {
                                 // BIT b, (IY+d)
                                 let value = bus.read(addr);
+                                bus.tick(1); // extra T-state for indexed read
                                 let bit_set = value & (1 << y) != 0;
                                 self.set_flag(flags::FLAG_S, y == 7 && bit_set);
                                 self.set_flag(flags::FLAG_Z, !bit_set);
@@ -4194,6 +4293,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                                 // RES b, (IY+d)
                                 // Undocumented: result also copied to register if z != 6
                                 let value = bus.read(addr);
+                                bus.tick(1); // extra T-state for indexed read
                                 let result = value & !(1 << y);
                                 bus.write(addr, result);
                                 if z != 6 {
@@ -4205,6 +4305,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                                 // SET b, (IY+d)
                                 // Undocumented: result also copied to register if z != 6
                                 let value = bus.read(addr);
+                                bus.tick(1); // extra T-state for indexed read
                                 let result = value | (1 << y);
                                 bus.write(addr, result);
                                 if z != 6 {
@@ -4367,6 +4468,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     // INC (HL)
                     let addr = self.hl() as u32;
                     let value = bus.read(addr);
+                    bus.tick(1); // internal cycle between read and write
                     let result = value.wrapping_add(1);
                     bus.write(addr, result);
 
@@ -4419,6 +4521,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     // DEC (HL) - already handled at 0x35
                     let addr = self.hl() as u32;
                     let value = bus.read(addr);
+                    bus.tick(1); // internal cycle between read and write
                     let result = value.wrapping_sub(1);
                     bus.write(addr, result);
 
@@ -4444,6 +4547,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             // RST n
             op if (op & 0b11000111) == 0b11000111 => {
                 let addr = (op & 0b00111000) as u16;
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
