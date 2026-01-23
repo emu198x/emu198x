@@ -1164,6 +1164,36 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.ix = self.ix.wrapping_add(1);
                         10
                     }
+                    0x24 => {
+                        // INC IXH (undocumented)
+                        let value = (self.ix >> 8) as u8;
+                        let result = value.wrapping_add(1);
+                        self.ix = (result as u16) << 8 | (self.ix & 0xFF);
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
+                        self.set_flag(flags::FLAG_PV, value == 0x7F);
+                        self.set_flag(flags::FLAG_N, false);
+                        8
+                    }
+                    0x25 => {
+                        // DEC IXH (undocumented)
+                        let value = (self.ix >> 8) as u8;
+                        let result = value.wrapping_sub(1);
+                        self.ix = (result as u16) << 8 | (self.ix & 0xFF);
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
+                        self.set_flag(flags::FLAG_PV, value == 0x80);
+                        self.set_flag(flags::FLAG_N, true);
+                        8
+                    }
+                    0x26 => {
+                        // LD IXH, n (undocumented)
+                        let n = self.fetch(bus);
+                        self.ix = (n as u16) << 8 | (self.ix & 0xFF);
+                        11
+                    }
                     0x29 => {
                         // ADD IX, IX
                         let ix = self.ix;
@@ -1190,6 +1220,36 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // DEC IX
                         self.ix = self.ix.wrapping_sub(1);
                         10
+                    }
+                    0x2C => {
+                        // INC IXL (undocumented)
+                        let value = (self.ix & 0xFF) as u8;
+                        let result = value.wrapping_add(1);
+                        self.ix = (self.ix & 0xFF00) | result as u16;
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
+                        self.set_flag(flags::FLAG_PV, value == 0x7F);
+                        self.set_flag(flags::FLAG_N, false);
+                        8
+                    }
+                    0x2D => {
+                        // DEC IXL (undocumented)
+                        let value = (self.ix & 0xFF) as u8;
+                        let result = value.wrapping_sub(1);
+                        self.ix = (self.ix & 0xFF00) | result as u16;
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
+                        self.set_flag(flags::FLAG_PV, value == 0x80);
+                        self.set_flag(flags::FLAG_N, true);
+                        8
+                    }
+                    0x2E => {
+                        // LD IXL, n (undocumented)
+                        let n = self.fetch(bus);
+                        self.ix = (self.ix & 0xFF00) | n as u16;
+                        11
                     }
                     0x34 => {
                         // INC (IX+d)
@@ -1242,12 +1302,32 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.ix = result as u16;
                         15
                     }
+                    0x44 => {
+                        // LD B, IXH (undocumented)
+                        self.b = (self.ix >> 8) as u8;
+                        8
+                    }
+                    0x45 => {
+                        // LD B, IXL (undocumented)
+                        self.b = self.ix as u8;
+                        8
+                    }
                     0x46 => {
                         // LD B, (IX+d)
                         let d = self.fetch(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.b = bus.read(addr);
                         19
+                    }
+                    0x4C => {
+                        // LD C, IXH (undocumented)
+                        self.c = (self.ix >> 8) as u8;
+                        8
+                    }
+                    0x4D => {
+                        // LD C, IXL (undocumented)
+                        self.c = self.ix as u8;
+                        8
                     }
                     0x4E => {
                         // LD C, (IX+d)
@@ -1256,12 +1336,32 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.c = bus.read(addr);
                         19
                     }
+                    0x54 => {
+                        // LD D, IXH (undocumented)
+                        self.d = (self.ix >> 8) as u8;
+                        8
+                    }
+                    0x55 => {
+                        // LD D, IXL (undocumented)
+                        self.d = self.ix as u8;
+                        8
+                    }
                     0x56 => {
                         // LD D, (IX+d)
                         let d = self.fetch(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.d = bus.read(addr);
                         19
+                    }
+                    0x5C => {
+                        // LD E, IXH (undocumented)
+                        self.e = (self.ix >> 8) as u8;
+                        8
+                    }
+                    0x5D => {
+                        // LD E, IXL (undocumented)
+                        self.e = self.ix as u8;
+                        8
                     }
                     0x5E => {
                         // LD E, (IX+d)
@@ -1270,12 +1370,34 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.e = bus.read(addr);
                         19
                     }
-                    0x6E => {
-                        // LD L, (IX+d)
-                        let d = self.fetch(bus) as i8;
-                        let addr = self.ix.wrapping_add(d as u16) as u32;
-                        self.l = bus.read(addr);
-                        19
+                    0x60 => {
+                        // LD IXH, B (undocumented)
+                        self.ix = (self.b as u16) << 8 | (self.ix & 0xFF);
+                        8
+                    }
+                    0x61 => {
+                        // LD IXH, C (undocumented)
+                        self.ix = (self.c as u16) << 8 | (self.ix & 0xFF);
+                        8
+                    }
+                    0x62 => {
+                        // LD IXH, D (undocumented)
+                        self.ix = (self.d as u16) << 8 | (self.ix & 0xFF);
+                        8
+                    }
+                    0x63 => {
+                        // LD IXH, E (undocumented)
+                        self.ix = (self.e as u16) << 8 | (self.ix & 0xFF);
+                        8
+                    }
+                    0x64 => {
+                        // LD IXH, IXH (undocumented) - NOP effectively
+                        8
+                    }
+                    0x65 => {
+                        // LD IXH, IXL (undocumented)
+                        self.ix = ((self.ix & 0xFF) << 8) | (self.ix & 0xFF);
+                        8
                     }
                     0x66 => {
                         // LD H, (IX+d)
@@ -1283,6 +1405,52 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.h = bus.read(addr);
                         19
+                    }
+                    0x67 => {
+                        // LD IXH, A (undocumented)
+                        self.ix = (self.a as u16) << 8 | (self.ix & 0xFF);
+                        8
+                    }
+                    0x68 => {
+                        // LD IXL, B (undocumented)
+                        self.ix = (self.ix & 0xFF00) | self.b as u16;
+                        8
+                    }
+                    0x69 => {
+                        // LD IXL, C (undocumented)
+                        self.ix = (self.ix & 0xFF00) | self.c as u16;
+                        8
+                    }
+                    0x6A => {
+                        // LD IXL, D (undocumented)
+                        self.ix = (self.ix & 0xFF00) | self.d as u16;
+                        8
+                    }
+                    0x6B => {
+                        // LD IXL, E (undocumented)
+                        self.ix = (self.ix & 0xFF00) | self.e as u16;
+                        8
+                    }
+                    0x6C => {
+                        // LD IXL, IXH (undocumented)
+                        self.ix = (self.ix & 0xFF00) | (self.ix >> 8);
+                        8
+                    }
+                    0x6D => {
+                        // LD IXL, IXL (undocumented) - NOP effectively
+                        8
+                    }
+                    0x6E => {
+                        // LD L, (IX+d)
+                        let d = self.fetch(bus) as i8;
+                        let addr = self.ix.wrapping_add(d as u16) as u32;
+                        self.l = bus.read(addr);
+                        19
+                    }
+                    0x6F => {
+                        // LD IXL, A (undocumented)
+                        self.ix = (self.ix & 0xFF00) | self.a as u16;
+                        8
                     }
                     0x70 => {
                         // LD (IX+d), B
@@ -1333,12 +1501,32 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         bus.write(addr, self.a);
                         19
                     }
+                    0x7C => {
+                        // LD A, IXH (undocumented)
+                        self.a = (self.ix >> 8) as u8;
+                        8
+                    }
+                    0x7D => {
+                        // LD A, IXL (undocumented)
+                        self.a = self.ix as u8;
+                        8
+                    }
                     0x7E => {
                         // LD A, (IX+d)
                         let d = self.fetch(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.a = bus.read(addr);
                         19
+                    }
+                    0x84 => {
+                        // ADD A, IXH (undocumented)
+                        self.add_a((self.ix >> 8) as u8);
+                        8
+                    }
+                    0x85 => {
+                        // ADD A, IXL (undocumented)
+                        self.add_a(self.ix as u8);
+                        8
                     }
                     0x86 => {
                         // ADD A, (IX+d)
@@ -1348,6 +1536,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.add_a(value);
                         19
                     }
+                    0x8C => {
+                        // ADC A, IXH (undocumented)
+                        self.adc_a((self.ix >> 8) as u8);
+                        8
+                    }
+                    0x8D => {
+                        // ADC A, IXL (undocumented)
+                        self.adc_a(self.ix as u8);
+                        8
+                    }
                     0x8E => {
                         // ADC A, (IX+d)
                         let d = self.fetch(bus) as i8;
@@ -1355,6 +1553,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let value = bus.read(addr);
                         self.adc_a(value);
                         19
+                    }
+                    0x94 => {
+                        // SUB IXH (undocumented)
+                        self.sub_a((self.ix >> 8) as u8);
+                        8
+                    }
+                    0x95 => {
+                        // SUB IXL (undocumented)
+                        self.sub_a(self.ix as u8);
+                        8
                     }
                     0x96 => {
                         // SUB (IX+d)
@@ -1364,6 +1572,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.sub_a(value);
                         19
                     }
+                    0x9C => {
+                        // SBC A, IXH (undocumented)
+                        self.sbc_a((self.ix >> 8) as u8);
+                        8
+                    }
+                    0x9D => {
+                        // SBC A, IXL (undocumented)
+                        self.sbc_a(self.ix as u8);
+                        8
+                    }
                     0x9E => {
                         // SBC A, (IX+d)
                         let d = self.fetch(bus) as i8;
@@ -1371,6 +1589,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let value = bus.read(addr);
                         self.sbc_a(value);
                         19
+                    }
+                    0xA4 => {
+                        // AND IXH (undocumented)
+                        self.and_a((self.ix >> 8) as u8);
+                        8
+                    }
+                    0xA5 => {
+                        // AND IXL (undocumented)
+                        self.and_a(self.ix as u8);
+                        8
                     }
                     0xA6 => {
                         // AND (IX+d)
@@ -1380,6 +1608,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.and_a(value);
                         19
                     }
+                    0xAC => {
+                        // XOR IXH (undocumented)
+                        self.xor_a((self.ix >> 8) as u8);
+                        8
+                    }
+                    0xAD => {
+                        // XOR IXL (undocumented)
+                        self.xor_a(self.ix as u8);
+                        8
+                    }
                     0xAE => {
                         // XOR (IX+d)
                         let d = self.fetch(bus) as i8;
@@ -1388,6 +1626,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.xor_a(value);
                         19
                     }
+                    0xB4 => {
+                        // OR IXH (undocumented)
+                        self.or_a((self.ix >> 8) as u8);
+                        8
+                    }
+                    0xB5 => {
+                        // OR IXL (undocumented)
+                        self.or_a(self.ix as u8);
+                        8
+                    }
                     0xB6 => {
                         // OR (IX+d)
                         let d = self.fetch(bus) as i8;
@@ -1395,6 +1643,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let value = bus.read(addr);
                         self.or_a(value);
                         19
+                    }
+                    0xBC => {
+                        // CP IXH (undocumented)
+                        self.cp_a((self.ix >> 8) as u8);
+                        8
+                    }
+                    0xBD => {
+                        // CP IXL (undocumented)
+                        self.cp_a(self.ix as u8);
+                        8
                     }
                     0xBE => {
                         // CP (IX+d)
@@ -1410,13 +1668,14 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let op3 = self.fetch(bus);
 
                         let x = op3 >> 6;
-                        let bit = (op3 >> 3) & 0x07;
+                        let y = (op3 >> 3) & 0x07;
+                        let z = op3 & 0x07; // destination register (undocumented)
 
                         match x {
                             0 => {
                                 // Rotate/shift operations on (IX+d)
                                 let value = bus.read(addr);
-                                let result = match bit {
+                                let result = match y {
                                     0 => {
                                         // RLC (IX+d)
                                         let c = value >> 7;
@@ -1464,6 +1723,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                                     _ => unreachable!(),
                                 };
                                 bus.write(addr, result);
+                                // Undocumented: also copy result to register if z != 6
+                                if z != 6 {
+                                    self.set_register(z, result);
+                                }
                                 self.set_flag(flags::FLAG_S, result & 0x80 != 0);
                                 self.set_flag(flags::FLAG_Z, result == 0);
                                 self.set_flag(flags::FLAG_H, false);
@@ -1472,9 +1735,9 @@ impl<B: IoBus> Cpu<B> for Z80 {
                                 23
                             }
                             1 => {
-                                // BIT b, (IX+d)
+                                // BIT b, (IX+d) - z field is ignored for BIT
                                 let value = bus.read(addr);
-                                self.set_flag(flags::FLAG_Z, value & (1 << bit) == 0);
+                                self.set_flag(flags::FLAG_Z, value & (1 << y) == 0);
                                 self.set_flag(flags::FLAG_H, true);
                                 self.set_flag(flags::FLAG_N, false);
                                 20
@@ -1482,13 +1745,23 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             2 => {
                                 // RES b, (IX+d)
                                 let value = bus.read(addr);
-                                bus.write(addr, value & !(1 << bit));
+                                let result = value & !(1 << y);
+                                bus.write(addr, result);
+                                // Undocumented: also copy result to register if z != 6
+                                if z != 6 {
+                                    self.set_register(z, result);
+                                }
                                 23
                             }
                             3 => {
                                 // SET b, (IX+d)
                                 let value = bus.read(addr);
-                                bus.write(addr, value | (1 << bit));
+                                let result = value | (1 << y);
+                                bus.write(addr, result);
+                                // Undocumented: also copy result to register if z != 6
+                                if z != 6 {
+                                    self.set_register(z, result);
+                                }
                                 23
                             }
                             _ => unreachable!(),
@@ -2052,6 +2325,21 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.set_flag(flags::FLAG_N, false);
                         18
                     }
+                    0x70 => {
+                        // IN (C) / IN F,(C) (undocumented) - reads port, only affects flags
+                        let value = bus.read_io(self.bc());
+                        self.set_flag(flags::FLAG_S, value & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, value == 0);
+                        self.set_flag(flags::FLAG_H, false);
+                        self.set_flag(flags::FLAG_PV, value.count_ones() % 2 == 0);
+                        self.set_flag(flags::FLAG_N, false);
+                        12
+                    }
+                    0x71 => {
+                        // OUT (C),0 (undocumented) - outputs 0 to port
+                        bus.write_io(self.bc(), 0);
+                        12
+                    }
                     0x72 => {
                         // SBC HL, SP
                         let hl = self.hl();
@@ -2382,6 +2670,43 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             16
                         }
                     }
+                    // Undocumented NEG mirrors (all behave like NEG at 0x44)
+                    0x4C | 0x54 | 0x5C | 0x64 | 0x6C | 0x74 | 0x7C => {
+                        let a = self.a;
+                        self.a = 0u8.wrapping_sub(a);
+                        self.set_flag(flags::FLAG_S, self.a & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, self.a == 0);
+                        self.set_flag(flags::FLAG_H, (0 & 0x0F) < (a & 0x0F));
+                        self.set_flag(flags::FLAG_PV, a == 0x80);
+                        self.set_flag(flags::FLAG_N, true);
+                        self.set_flag(flags::FLAG_C, a != 0);
+                        8
+                    }
+                    // Undocumented RETN mirrors (all behave like RETN at 0x45)
+                    0x55 | 0x5D | 0x65 | 0x6D | 0x75 | 0x7D => {
+                        let low = bus.read(self.sp as u32);
+                        self.sp = self.sp.wrapping_add(1);
+                        let high = bus.read(self.sp as u32);
+                        self.sp = self.sp.wrapping_add(1);
+                        self.pc = (high as u16) << 8 | low as u16;
+                        self.iff1 = self.iff2;
+                        14
+                    }
+                    // Undocumented IM 0 mirrors
+                    0x4E | 0x66 | 0x6E => {
+                        self.interrupt_mode = 0;
+                        8
+                    }
+                    // Undocumented IM 1 mirror
+                    0x76 => {
+                        self.interrupt_mode = 1;
+                        8
+                    }
+                    // Undocumented IM 2 mirror
+                    0x7E => {
+                        self.interrupt_mode = 2;
+                        8
+                    }
                     _ => todo!("ED opcode {:#04X}", op2),
                 }
             }
@@ -2560,6 +2885,36 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.iy = self.iy.wrapping_add(1);
                         10
                     }
+                    0x24 => {
+                        // INC IYH (undocumented)
+                        let value = (self.iy >> 8) as u8;
+                        let result = value.wrapping_add(1);
+                        self.iy = (result as u16) << 8 | (self.iy & 0xFF);
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
+                        self.set_flag(flags::FLAG_PV, value == 0x7F);
+                        self.set_flag(flags::FLAG_N, false);
+                        8
+                    }
+                    0x25 => {
+                        // DEC IYH (undocumented)
+                        let value = (self.iy >> 8) as u8;
+                        let result = value.wrapping_sub(1);
+                        self.iy = (result as u16) << 8 | (self.iy & 0xFF);
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
+                        self.set_flag(flags::FLAG_PV, value == 0x80);
+                        self.set_flag(flags::FLAG_N, true);
+                        8
+                    }
+                    0x26 => {
+                        // LD IYH, n (undocumented)
+                        let n = self.fetch(bus);
+                        self.iy = (n as u16) << 8 | (self.iy & 0xFF);
+                        11
+                    }
                     0x29 => {
                         // ADD IY, IY
                         let iy = self.iy;
@@ -2586,6 +2941,36 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // DEC IY
                         self.iy = self.iy.wrapping_sub(1);
                         10
+                    }
+                    0x2C => {
+                        // INC IYL (undocumented)
+                        let value = (self.iy & 0xFF) as u8;
+                        let result = value.wrapping_add(1);
+                        self.iy = (self.iy & 0xFF00) | result as u16;
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0x0F);
+                        self.set_flag(flags::FLAG_PV, value == 0x7F);
+                        self.set_flag(flags::FLAG_N, false);
+                        8
+                    }
+                    0x2D => {
+                        // DEC IYL (undocumented)
+                        let value = (self.iy & 0xFF) as u8;
+                        let result = value.wrapping_sub(1);
+                        self.iy = (self.iy & 0xFF00) | result as u16;
+                        self.set_flag(flags::FLAG_S, result & 0x80 != 0);
+                        self.set_flag(flags::FLAG_Z, result == 0);
+                        self.set_flag(flags::FLAG_H, (value & 0x0F) == 0);
+                        self.set_flag(flags::FLAG_PV, value == 0x80);
+                        self.set_flag(flags::FLAG_N, true);
+                        8
+                    }
+                    0x2E => {
+                        // LD IYL, n (undocumented)
+                        let n = self.fetch(bus);
+                        self.iy = (self.iy & 0xFF00) | n as u16;
+                        11
                     }
                     0x34 => {
                         // INC (IY+d)
@@ -2638,12 +3023,32 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.iy = result as u16;
                         15
                     }
+                    0x44 => {
+                        // LD B, IYH (undocumented)
+                        self.b = (self.iy >> 8) as u8;
+                        8
+                    }
+                    0x45 => {
+                        // LD B, IYL (undocumented)
+                        self.b = self.iy as u8;
+                        8
+                    }
                     0x46 => {
                         // LD B, (IY+d)
                         let d = self.fetch(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.b = bus.read(addr);
                         19
+                    }
+                    0x4C => {
+                        // LD C, IYH (undocumented)
+                        self.c = (self.iy >> 8) as u8;
+                        8
+                    }
+                    0x4D => {
+                        // LD C, IYL (undocumented)
+                        self.c = self.iy as u8;
+                        8
                     }
                     0x4E => {
                         // LD C, (IY+d)
@@ -2652,12 +3057,32 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.c = bus.read(addr);
                         19
                     }
+                    0x54 => {
+                        // LD D, IYH (undocumented)
+                        self.d = (self.iy >> 8) as u8;
+                        8
+                    }
+                    0x55 => {
+                        // LD D, IYL (undocumented)
+                        self.d = self.iy as u8;
+                        8
+                    }
                     0x56 => {
                         // LD D, (IY+d)
                         let d = self.fetch(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.d = bus.read(addr);
                         19
+                    }
+                    0x5C => {
+                        // LD E, IYH (undocumented)
+                        self.e = (self.iy >> 8) as u8;
+                        8
+                    }
+                    0x5D => {
+                        // LD E, IYL (undocumented)
+                        self.e = self.iy as u8;
+                        8
                     }
                     0x5E => {
                         // LD E, (IY+d)
@@ -2666,6 +3091,35 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.e = bus.read(addr);
                         19
                     }
+                    0x60 => {
+                        // LD IYH, B (undocumented)
+                        self.iy = (self.b as u16) << 8 | (self.iy & 0xFF);
+                        8
+                    }
+                    0x61 => {
+                        // LD IYH, C (undocumented)
+                        self.iy = (self.c as u16) << 8 | (self.iy & 0xFF);
+                        8
+                    }
+                    0x62 => {
+                        // LD IYH, D (undocumented)
+                        self.iy = (self.d as u16) << 8 | (self.iy & 0xFF);
+                        8
+                    }
+                    0x63 => {
+                        // LD IYH, E (undocumented)
+                        self.iy = (self.e as u16) << 8 | (self.iy & 0xFF);
+                        8
+                    }
+                    0x64 => {
+                        // LD IYH, IYH (undocumented) - NOP effectively
+                        8
+                    }
+                    0x65 => {
+                        // LD IYH, IYL (undocumented)
+                        self.iy = ((self.iy & 0xFF) << 8) | (self.iy & 0xFF);
+                        8
+                    }
                     0x66 => {
                         // LD H, (IY+d)
                         let d = self.fetch(bus) as i8;
@@ -2673,12 +3127,51 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.h = bus.read(addr);
                         19
                     }
+                    0x67 => {
+                        // LD IYH, A (undocumented)
+                        self.iy = (self.a as u16) << 8 | (self.iy & 0xFF);
+                        8
+                    }
+                    0x68 => {
+                        // LD IYL, B (undocumented)
+                        self.iy = (self.iy & 0xFF00) | self.b as u16;
+                        8
+                    }
+                    0x69 => {
+                        // LD IYL, C (undocumented)
+                        self.iy = (self.iy & 0xFF00) | self.c as u16;
+                        8
+                    }
+                    0x6A => {
+                        // LD IYL, D (undocumented)
+                        self.iy = (self.iy & 0xFF00) | self.d as u16;
+                        8
+                    }
+                    0x6B => {
+                        // LD IYL, E (undocumented)
+                        self.iy = (self.iy & 0xFF00) | self.e as u16;
+                        8
+                    }
+                    0x6C => {
+                        // LD IYL, IYH (undocumented)
+                        self.iy = (self.iy & 0xFF00) | (self.iy >> 8);
+                        8
+                    }
+                    0x6D => {
+                        // LD IYL, IYL (undocumented) - NOP effectively
+                        8
+                    }
                     0x6E => {
                         // LD L, (IY+d)
                         let d = self.fetch(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.l = bus.read(addr);
                         19
+                    }
+                    0x6F => {
+                        // LD IYL, A (undocumented)
+                        self.iy = (self.iy & 0xFF00) | self.a as u16;
+                        8
                     }
                     0x70 => {
                         // LD (IY+d), B
@@ -2729,12 +3222,32 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         bus.write(addr, self.a);
                         19
                     }
+                    0x7C => {
+                        // LD A, IYH (undocumented)
+                        self.a = (self.iy >> 8) as u8;
+                        8
+                    }
+                    0x7D => {
+                        // LD A, IYL (undocumented)
+                        self.a = self.iy as u8;
+                        8
+                    }
                     0x7E => {
                         // LD A, (IY+d)
                         let d = self.fetch(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.a = bus.read(addr);
                         19
+                    }
+                    0x84 => {
+                        // ADD A, IYH (undocumented)
+                        self.add_a((self.iy >> 8) as u8);
+                        8
+                    }
+                    0x85 => {
+                        // ADD A, IYL (undocumented)
+                        self.add_a(self.iy as u8);
+                        8
                     }
                     0x86 => {
                         // ADD A, (IY+d)
@@ -2744,6 +3257,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.add_a(value);
                         19
                     }
+                    0x8C => {
+                        // ADC A, IYH (undocumented)
+                        self.adc_a((self.iy >> 8) as u8);
+                        8
+                    }
+                    0x8D => {
+                        // ADC A, IYL (undocumented)
+                        self.adc_a(self.iy as u8);
+                        8
+                    }
                     0x8E => {
                         // ADC A, (IY+d)
                         let d = self.fetch(bus) as i8;
@@ -2751,6 +3274,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let value = bus.read(addr);
                         self.adc_a(value);
                         19
+                    }
+                    0x94 => {
+                        // SUB IYH (undocumented)
+                        self.sub_a((self.iy >> 8) as u8);
+                        8
+                    }
+                    0x95 => {
+                        // SUB IYL (undocumented)
+                        self.sub_a(self.iy as u8);
+                        8
                     }
                     0x96 => {
                         // SUB (IY+d)
@@ -2760,6 +3293,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.sub_a(value);
                         19
                     }
+                    0x9C => {
+                        // SBC A, IYH (undocumented)
+                        self.sbc_a((self.iy >> 8) as u8);
+                        8
+                    }
+                    0x9D => {
+                        // SBC A, IYL (undocumented)
+                        self.sbc_a(self.iy as u8);
+                        8
+                    }
                     0x9E => {
                         // SBC A, (IY+d)
                         let d = self.fetch(bus) as i8;
@@ -2767,6 +3310,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let value = bus.read(addr);
                         self.sbc_a(value);
                         19
+                    }
+                    0xA4 => {
+                        // AND IYH (undocumented)
+                        self.and_a((self.iy >> 8) as u8);
+                        8
+                    }
+                    0xA5 => {
+                        // AND IYL (undocumented)
+                        self.and_a(self.iy as u8);
+                        8
                     }
                     0xA6 => {
                         // AND (IY+d)
@@ -2776,6 +3329,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.and_a(value);
                         19
                     }
+                    0xAC => {
+                        // XOR IYH (undocumented)
+                        self.xor_a((self.iy >> 8) as u8);
+                        8
+                    }
+                    0xAD => {
+                        // XOR IYL (undocumented)
+                        self.xor_a(self.iy as u8);
+                        8
+                    }
                     0xAE => {
                         // XOR (IY+d)
                         let d = self.fetch(bus) as i8;
@@ -2784,6 +3347,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         self.xor_a(value);
                         19
                     }
+                    0xB4 => {
+                        // OR IYH (undocumented)
+                        self.or_a((self.iy >> 8) as u8);
+                        8
+                    }
+                    0xB5 => {
+                        // OR IYL (undocumented)
+                        self.or_a(self.iy as u8);
+                        8
+                    }
                     0xB6 => {
                         // OR (IY+d)
                         let d = self.fetch(bus) as i8;
@@ -2791,6 +3364,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let value = bus.read(addr);
                         self.or_a(value);
                         19
+                    }
+                    0xBC => {
+                        // CP IYH (undocumented)
+                        self.cp_a((self.iy >> 8) as u8);
+                        8
+                    }
+                    0xBD => {
+                        // CP IYL (undocumented)
+                        self.cp_a(self.iy as u8);
+                        8
                     }
                     0xBE => {
                         // CP (IY+d)
@@ -2806,13 +3389,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         let op3 = self.fetch(bus);
 
                         let x = op3 >> 6;
-                        let bit = (op3 >> 3) & 0x07;
+                        let y = (op3 >> 3) & 0x07;
+                        let z = op3 & 0x07; // destination register (undocumented)
 
                         match x {
                             0 => {
                                 // Rotate/shift operations on (IY+d)
+                                // Undocumented: result also copied to register if z != 6
                                 let value = bus.read(addr);
-                                let result = match bit {
+                                let result = match y {
                                     0 => {
                                         // RLC (IY+d)
                                         let c = value >> 7;
@@ -2860,6 +3445,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                                     _ => unreachable!(),
                                 };
                                 bus.write(addr, result);
+                                // Undocumented: copy result to register if z != 6
+                                if z != 6 {
+                                    self.set_register(z, result);
+                                }
                                 self.set_flag(flags::FLAG_S, result & 0x80 != 0);
                                 self.set_flag(flags::FLAG_Z, result == 0);
                                 self.set_flag(flags::FLAG_H, false);
@@ -2870,21 +3459,31 @@ impl<B: IoBus> Cpu<B> for Z80 {
                             1 => {
                                 // BIT b, (IY+d)
                                 let value = bus.read(addr);
-                                self.set_flag(flags::FLAG_Z, value & (1 << bit) == 0);
+                                self.set_flag(flags::FLAG_Z, value & (1 << y) == 0);
                                 self.set_flag(flags::FLAG_H, true);
                                 self.set_flag(flags::FLAG_N, false);
                                 20
                             }
                             2 => {
                                 // RES b, (IY+d)
+                                // Undocumented: result also copied to register if z != 6
                                 let value = bus.read(addr);
-                                bus.write(addr, value & !(1 << bit));
+                                let result = value & !(1 << y);
+                                bus.write(addr, result);
+                                if z != 6 {
+                                    self.set_register(z, result);
+                                }
                                 23
                             }
                             3 => {
                                 // SET b, (IY+d)
+                                // Undocumented: result also copied to register if z != 6
                                 let value = bus.read(addr);
-                                bus.write(addr, value | (1 << bit));
+                                let result = value | (1 << y);
+                                bus.write(addr, result);
+                                if z != 6 {
+                                    self.set_register(z, result);
+                                }
                                 23
                             }
                             _ => unreachable!(),
