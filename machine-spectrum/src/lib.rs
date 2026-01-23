@@ -9,6 +9,10 @@ struct Memory {
     pub keyboard: [u8; 8],
     /// Current T-state within the frame (0..69887)
     pub frame_t_state: u32,
+    /// Current beeper level (bit 4 of port 0xFE)
+    pub beeper_level: bool,
+    /// Beeper transitions during this frame: (t_state, new_level)
+    pub beeper_transitions: Vec<(u32, bool)>,
 }
 
 impl Memory {
@@ -18,6 +22,8 @@ impl Memory {
             border: 7,           // white default
             keyboard: [0xFF; 8], // all keys released
             frame_t_state: 0,
+            beeper_level: false,
+            beeper_transitions: Vec::new(),
         }
     }
 
@@ -129,6 +135,16 @@ impl IoBus for Memory {
         if port & 0x01 == 0 {
             // ULA port - low bit clear
             self.border = value & 0x07;
+
+            // Capture beeper bit (bit 4) transitions
+            let new_level = (value & 0x10) != 0;
+            if new_level != self.beeper_level {
+                // Clamp T-state to frame boundary to avoid audio discontinuities
+                // when instructions overshoot the frame end
+                let t_state = self.frame_t_state.min(69887);
+                self.beeper_transitions.push((t_state, new_level));
+                self.beeper_level = new_level;
+            }
         }
     }
 }
@@ -152,8 +168,9 @@ impl Spectrum48K {
 
     /// Run the CPU for approximately one frame's worth of cycles.
     pub fn run_frame(&mut self) {
-        // Reset frame counter at start of frame
+        // Reset frame counter and beeper transitions at start of frame
         self.memory.frame_t_state = 0;
+        self.memory.beeper_transitions.clear();
 
         self.cpu.interrupt(&mut self.memory);
 
@@ -174,6 +191,18 @@ impl Spectrum48K {
 
     pub fn border(&self) -> u8 {
         self.memory.border
+    }
+
+    /// Get the beeper transitions recorded during the last frame.
+    /// Each entry is (t_state, new_level) where t_state is the frame position
+    /// and new_level is the beeper state after the transition.
+    pub fn beeper_transitions(&self) -> &[(u32, bool)] {
+        &self.memory.beeper_transitions
+    }
+
+    /// Get the current beeper level (used as initial state for audio generation).
+    pub fn beeper_level(&self) -> bool {
+        self.memory.beeper_level
     }
 
     /// Load bytes into memory at a given address.

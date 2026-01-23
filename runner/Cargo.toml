@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 machine-spectrum = { path = "../machine-spectrum" }
 minifb = "0.28"
+cpal = "0.15"
+ringbuf = "0.4"
