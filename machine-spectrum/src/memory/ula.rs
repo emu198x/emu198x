@@ -112,6 +112,61 @@ impl Ula {
         }
     }
 
+    /// Check if port address is in contended range.
+    ///
+    /// A port address is contended if its high byte falls in 0x40-0x7F,
+    /// which corresponds to the contended memory range.
+    #[inline]
+    fn is_port_contended(&self, port: u16) -> bool {
+        let high = (port >> 8) as u8;
+        high >= 0x40 && high < 0x80
+    }
+
+    /// Apply I/O contention timing for a port access.
+    ///
+    /// I/O contention on the Spectrum depends on two factors:
+    /// 1. Whether the port's high byte is in contended range (0x40-0x7F)
+    /// 2. Whether bit 0 of the port is low (ULA port)
+    ///
+    /// The patterns are:
+    /// - Contended + ULA port:     C:1, C:3 (total 4 + delays)
+    /// - Contended + non-ULA:      C:1, C:1, C:1, C:1 (total 4 + delays)
+    /// - Non-contended + ULA:      N:1, C:3 (total 4 + one delay)
+    /// - Non-contended + non-ULA:  N:4 (total 4, no delays)
+    ///
+    /// Where C means check contention, N means no contention check.
+    pub fn io_contention(&mut self, port: u16) {
+        let is_ula_port = port & 0x01 == 0;
+        let is_contended = self.is_port_contended(port);
+
+        match (is_contended, is_ula_port) {
+            (true, true) => {
+                // Contended + ULA: C:1, C:3
+                let delay = self.contention_delay();
+                self.tick(delay + 1);
+                let delay = self.contention_delay();
+                self.tick(delay + 3);
+            }
+            (true, false) => {
+                // Contended + non-ULA: C:1, C:1, C:1, C:1
+                for _ in 0..4 {
+                    let delay = self.contention_delay();
+                    self.tick(delay + 1);
+                }
+            }
+            (false, true) => {
+                // Non-contended + ULA: N:1, C:3
+                self.tick(1);
+                let delay = self.contention_delay();
+                self.tick(delay + 3);
+            }
+            (false, false) => {
+                // Non-contended + non-ULA: N:4
+                self.tick(4);
+            }
+        }
+    }
+
     /// Calculate the floating bus value based on current ULA state.
     ///
     /// When reading from unattached memory or certain I/O ports, the value
@@ -257,5 +312,123 @@ mod tests {
         // During top border
         ula.frame_t_state = 100;
         assert_eq!(ula.floating_bus(&screen_data), 0xFF);
+    }
+
+    #[test]
+    fn io_contention_non_contended_non_ula() {
+        // Port 0x00FF: high byte 0x00 (non-contended), bit 0 = 1 (non-ULA)
+        // Pattern: N:4 (just 4 T-states, no contention)
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.frame_t_state = 0;
+
+        ula.io_contention(0x00FF);
+
+        assert_eq!(ula.frame_t_state, 4);
+    }
+
+    #[test]
+    fn io_contention_non_contended_ula() {
+        // Port 0x00FE: high byte 0x00 (non-contended), bit 0 = 0 (ULA)
+        // Pattern: N:1, C:3
+        // In border (no contention): 1 + 3 = 4 T-states
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.frame_t_state = 100; // In top border
+
+        ula.io_contention(0x00FE);
+
+        assert_eq!(ula.frame_t_state, 104);
+    }
+
+    #[test]
+    fn io_contention_non_contended_ula_during_display() {
+        // Port 0x00FE: high byte 0x00 (non-contended), bit 0 = 0 (ULA)
+        // Pattern: N:1, C:3
+        // During display at pattern position 0: 1 + (6 + 3) = 10 T-states
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+        ula.frame_t_state = display_start;
+
+        ula.io_contention(0x00FE);
+
+        // After N:1, we're at display_start + 1 (pattern pos 1, delay 5)
+        // Then C:3 adds 5 + 3 = 8
+        // Total: 1 + 8 = 9
+        assert_eq!(ula.frame_t_state, display_start + 9);
+    }
+
+    #[test]
+    fn io_contention_contended_non_ula() {
+        // Port 0x40FF: high byte 0x40 (contended), bit 0 = 1 (non-ULA)
+        // Pattern: C:1, C:1, C:1, C:1
+        // In border (no contention): 4 T-states
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.frame_t_state = 100; // In top border
+
+        ula.io_contention(0x40FF);
+
+        assert_eq!(ula.frame_t_state, 104);
+    }
+
+    #[test]
+    fn io_contention_contended_non_ula_during_display() {
+        // Port 0x40FF: high byte 0x40 (contended), bit 0 = 1 (non-ULA)
+        // Pattern: C:1, C:1, C:1, C:1
+        // During display at pattern position 0 (delay 6):
+        // First C:1: 6 + 1 = 7, now at pos 7 (delay 0)
+        // Second C:1: 0 + 1 = 1, now at pos 0 (delay 6)
+        // Third C:1: 6 + 1 = 7, now at pos 7 (delay 0)
+        // Fourth C:1: 0 + 1 = 1
+        // Total: 7 + 1 + 7 + 1 = 16
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+        ula.frame_t_state = display_start;
+
+        ula.io_contention(0x40FF);
+
+        assert_eq!(ula.frame_t_state, display_start + 16);
+    }
+
+    #[test]
+    fn io_contention_contended_ula() {
+        // Port 0x40FE: high byte 0x40 (contended), bit 0 = 0 (ULA)
+        // Pattern: C:1, C:3
+        // In border (no contention): 1 + 3 = 4 T-states
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.frame_t_state = 100; // In top border
+
+        ula.io_contention(0x40FE);
+
+        assert_eq!(ula.frame_t_state, 104);
+    }
+
+    #[test]
+    fn io_contention_contended_ula_during_display() {
+        // Port 0x40FE: high byte 0x40 (contended), bit 0 = 0 (ULA)
+        // Pattern: C:1, C:3
+        // During display at pattern position 0 (delay 6):
+        // First C:1: 6 + 1 = 7, now at pos 7 (delay 0)
+        // Second C:3: 0 + 3 = 3
+        // Total: 7 + 3 = 10
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+        ula.frame_t_state = display_start;
+
+        ula.io_contention(0x40FE);
+
+        assert_eq!(ula.frame_t_state, display_start + 10);
+    }
+
+    #[test]
+    fn port_contention_boundary() {
+        let ula = Ula::new(T_STATES_PER_FRAME_48K);
+
+        // Just below contended range
+        assert!(!ula.is_port_contended(0x3FFF));
+        // Start of contended range
+        assert!(ula.is_port_contended(0x4000));
+        // End of contended range
+        assert!(ula.is_port_contended(0x7FFF));
+        // Just above contended range
+        assert!(!ula.is_port_contended(0x8000));
     }
 }

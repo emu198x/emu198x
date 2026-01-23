@@ -74,12 +74,8 @@ impl<M: MemoryModel> Bus for Memory<M> {
 
 impl<M: MemoryModel> IoBus for Memory<M> {
     fn read_io(&mut self, port: u16) -> u8 {
-        // I/O contention: ULA ports (bit 0 = 0) are contended
-        if port & 0x01 == 0 {
-            let delay = self.ula.contention_delay();
-            self.ula.tick(delay);
-        }
-        self.ula.tick(4); // I/O read takes 4 T-states
+        // Apply proper I/O contention timing
+        self.ula.io_contention(port);
 
         if port & 0x01 == 0 {
             // ULA port - keyboard
@@ -96,12 +92,8 @@ impl<M: MemoryModel> IoBus for Memory<M> {
     }
 
     fn write_io(&mut self, port: u16, value: u8) {
-        // I/O contention: ULA ports (bit 0 = 0) are contended
-        if port & 0x01 == 0 {
-            let delay = self.ula.contention_delay();
-            self.ula.tick(delay);
-        }
-        self.ula.tick(4); // I/O write takes 4 T-states
+        // Apply proper I/O contention timing
+        self.ula.io_contention(port);
 
         if port & 0x01 == 0 {
             // ULA port
