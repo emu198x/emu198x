@@ -209,7 +209,13 @@ impl Z80 {
 impl<B: IoBus> Cpu<B> for Z80 {
     fn step(&mut self, bus: &mut B) -> u32 {
         if self.halted {
-            bus.tick(4); // NOP cycles while halted
+            // HALT repeatedly performs M1-like cycles from the HALT instruction address.
+            // This applies proper contention if HALT is in contended memory.
+            // PC points to instruction after HALT, so HALT address is PC-1.
+            let halt_addr = self.pc.wrapping_sub(1) as u32;
+            let _ = bus.fetch(halt_addr); // M1 cycle with contention (3 T-states + contention)
+            bus.tick(1); // Refresh cycle (1 T-state)
+            self.r = (self.r & 0x80) | ((self.r.wrapping_add(1)) & 0x7F); // R increments during HALT
             return 4;
         }
 
