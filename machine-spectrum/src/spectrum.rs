@@ -102,6 +102,22 @@ impl<M: MemoryModel> Bus for Memory<M> {
     fn tick(&mut self, cycles: u32) {
         self.ula.tick(cycles);
     }
+
+    fn tick_address(&mut self, address: u32, cycles: u32) {
+        let addr = (address & 0xFFFF) as u16;
+        let model = M::default();
+
+        // Apply contention for each cycle if address is in contended memory
+        // This is used for internal CPU cycles that reference a contended address
+        if model.is_contended(addr) {
+            for _ in 0..cycles {
+                let delay = self.ula.contention_delay();
+                self.ula.tick(delay + 1);
+            }
+        } else {
+            self.ula.tick(cycles);
+        }
+    }
 }
 
 impl<M: MemoryModel> IoBus for Memory<M> {

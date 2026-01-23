@@ -41,4 +41,21 @@ pub trait Bus {
     fn fetch(&mut self, address: u32) -> u8 {
         self.read(address)
     }
+
+    /// Advance the clock during internal CPU operations that reference an address.
+    ///
+    /// Some systems (like the ZX Spectrum) apply bus contention during internal
+    /// CPU cycles if those cycles are associated with a contended memory address.
+    /// For example, `INC (HL)` has an internal cycle between the read and write
+    /// that should be contended if HL points to contended memory.
+    ///
+    /// The default implementation just calls `tick()`, which is correct for
+    /// systems without this contention behavior.
+    ///
+    /// # Arguments
+    /// * `address` - The memory address associated with this operation
+    /// * `cycles` - Number of cycles to advance
+    fn tick_address(&mut self, _address: u32, cycles: u32) {
+        self.tick(cycles)
+    }
 }
