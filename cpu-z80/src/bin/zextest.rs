@@ -46,17 +46,21 @@ impl CpmBus {
 }
 
 impl Bus for CpmBus {
-    fn read(&self, addr: u32) -> u8 {
+    fn read(&mut self, addr: u32) -> u8 {
         self.memory[(addr & 0xFFFF) as usize]
     }
 
     fn write(&mut self, addr: u32, val: u8) {
         self.memory[(addr & 0xFFFF) as usize] = val;
     }
+
+    fn tick(&mut self, _cycles: u32) {
+        // CP/M harness doesn't track timing
+    }
 }
 
 impl IoBus for CpmBus {
-    fn read_io(&self, _port: u16) -> u8 {
+    fn read_io(&mut self, _port: u16) -> u8 {
         0xFF
     }
 
@@ -66,7 +70,7 @@ impl IoBus for CpmBus {
 }
 
 /// Handle CP/M BDOS call. Returns true if program should exit.
-fn handle_bdos(cpu: &mut Z80, bus: &CpmBus) -> bool {
+fn handle_bdos(cpu: &mut Z80, bus: &mut CpmBus) -> bool {
     let function = cpu.c();
 
     match function {
@@ -129,7 +133,7 @@ fn run_test(test_name: &str, test_bin: &[u8]) {
     loop {
         // Check if we're at the BDOS entry point (0x0005)
         if cpu.pc() == 0x0005 {
-            if handle_bdos(&mut cpu, &bus) {
+            if handle_bdos(&mut cpu, &mut bus) {
                 break;
             }
             // Return from BDOS call

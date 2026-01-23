@@ -138,7 +138,18 @@ impl Z80 {
         self.wz = self.pc;
     }
 
-    fn fetch(&mut self, bus: &impl emu_core::Bus) -> u8 {
+    /// Fetch opcode from PC with M1 timing (4 T-states: 3 for read + 1 for refresh).
+    /// Use this for opcode fetches and prefix bytes.
+    fn fetch(&mut self, bus: &mut impl emu_core::Bus) -> u8 {
+        let byte = bus.read(self.pc as u32);
+        bus.tick(1); // M1 refresh cycle
+        self.pc = self.pc.wrapping_add(1);
+        byte
+    }
+
+    /// Read operand byte from PC (3 T-states, no M1 refresh).
+    /// Use this for immediate values (n, nn, d) after the opcode.
+    fn read_operand(&mut self, bus: &mut impl emu_core::Bus) -> u8 {
         let byte = bus.read(self.pc as u32);
         self.pc = self.pc.wrapping_add(1);
         byte
@@ -148,7 +159,8 @@ impl Z80 {
 impl<B: IoBus> Cpu<B> for Z80 {
     fn step(&mut self, bus: &mut B) -> u32 {
         if self.halted {
-            return 4; // NOP cycles while halted
+            bus.tick(4); // NOP cycles while halted
+            return 4;
         }
 
         let opcode = self.fetch(bus);
@@ -157,8 +169,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             0x00 => 4, // NOP
             0x01 => {
                 // LD BC, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 self.set_bc((high as u16) << 8 | low as u16);
                 10
             }
@@ -172,6 +184,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x03 => {
                 // INC BC
+                bus.tick(2); // internal cycles for 16-bit increment
                 self.set_bc(self.bc().wrapping_add(1));
                 6
             }
@@ -205,7 +218,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x06 => {
                 // LD B, n
-                self.b = self.fetch(bus);
+                self.b = self.read_operand(bus);
                 7
             }
             0x07 => {
@@ -226,6 +239,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x09 => {
                 // ADD HL, BC
+                bus.tick(7); // internal cycles for 16-bit addition
                 let hl = self.hl();
                 let bc = self.bc();
                 let result = (hl as u32) + (bc as u32);
@@ -248,6 +262,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x0B => {
                 // DEC BC
+                bus.tick(2); // internal cycles for 16-bit decrement
                 self.set_bc(self.bc().wrapping_sub(1));
                 6
             }
@@ -281,7 +296,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x0E => {
                 // LD C, n
-                self.c = self.fetch(bus);
+                self.c = self.read_operand(bus);
                 7
             }
             0x0F => {
@@ -296,9 +311,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x10 => {
                 // DJNZ n
-                let offset = self.fetch(bus) as i8;
+                bus.tick(1); // extra M1 cycle for B decrement
+                let offset = self.read_operand(bus) as i8;
                 self.b = self.b.wrapping_sub(1);
                 if self.b != 0 {
+                    bus.tick(5); // internal cycles when branch taken
                     self.pc = self.pc.wrapping_add(offset as u16);
                     self.wz = self.pc;
                     13
@@ -308,8 +325,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x11 => {
                 // LD DE, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 self.set_de((high as u16) << 8 | low as u16);
                 10
             }
@@ -323,6 +340,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x13 => {
                 // INC DE
+                bus.tick(2); // internal cycles for 16-bit increment
                 self.set_de(self.de().wrapping_add(1));
                 6
             }
@@ -356,7 +374,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x16 => {
                 // LD D, n
-                self.d = self.fetch(bus);
+                self.d = self.read_operand(bus);
                 7
             }
             0x17 => {
@@ -372,13 +390,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x18 => {
                 // JR n
-                let offset = self.fetch(bus) as i8;
+                let offset = self.read_operand(bus) as i8;
+                bus.tick(5); // internal cycles for branch
                 self.pc = self.pc.wrapping_add(offset as u16);
                 self.wz = self.pc;
                 12
             }
             0x19 => {
                 // ADD HL, DE
+                bus.tick(7); // internal cycles for 16-bit addition
                 let hl = self.hl();
                 let de = self.de();
                 let result = (hl as u32) + (de as u32);
@@ -402,6 +422,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x1B => {
                 // DEC DE
+                bus.tick(2); // internal cycles for 16-bit decrement
                 self.set_de(self.de().wrapping_sub(1));
                 6
             }
@@ -435,7 +456,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x1E => {
                 // LD E, n
-                self.e = self.fetch(bus);
+                self.e = self.read_operand(bus);
                 7
             }
             0x1F => {
@@ -451,8 +472,9 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x20 => {
                 // JR NZ, n
-                let offset = self.fetch(bus) as i8;
+                let offset = self.read_operand(bus) as i8;
                 if !self.zero() {
+                    bus.tick(5); // internal cycles when branch taken
                     self.pc = self.pc.wrapping_add(offset as u16);
                     self.wz = self.pc;
                     12
@@ -462,15 +484,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x21 => {
                 // LD HL, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 self.set_hl((high as u16) << 8 | low as u16);
                 10
             }
             0x22 => {
                 // LD (nn), HL
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 bus.write(addr as u32, self.l);
                 bus.write((addr.wrapping_add(1)) as u32, self.h);
@@ -479,6 +501,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x23 => {
                 // INC HL
+                bus.tick(2); // internal cycles for 16-bit increment
                 self.set_hl(self.hl().wrapping_add(1));
                 6
             }
@@ -512,7 +535,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x26 => {
                 // LD H, n
-                self.h = self.fetch(bus);
+                self.h = self.read_operand(bus);
                 7
             }
             0x27 => {
@@ -554,8 +577,9 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x28 => {
                 // JR Z, n
-                let offset = self.fetch(bus) as i8;
+                let offset = self.read_operand(bus) as i8;
                 if self.zero() {
+                    bus.tick(5); // internal cycles when branch taken
                     self.pc = self.pc.wrapping_add(offset as u16);
                     self.wz = self.pc;
                     12
@@ -565,6 +589,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x29 => {
                 // ADD HL, HL
+                bus.tick(7); // internal cycles for 16-bit addition
                 let hl = self.hl();
                 let result = (hl as u32) + (hl as u32);
 
@@ -579,8 +604,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x2A => {
                 // LD HL, (nn)
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 let l = bus.read(addr as u32);
                 let h = bus.read((addr.wrapping_add(1)) as u32);
@@ -590,6 +615,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x2B => {
                 // DEC HL
+                bus.tick(2); // internal cycles for 16-bit decrement
                 self.set_hl(self.hl().wrapping_sub(1));
                 6
             }
@@ -623,7 +649,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x2E => {
                 // LD L, n
-                self.l = self.fetch(bus);
+                self.l = self.read_operand(bus);
                 7
             }
             0x2F => {
@@ -636,8 +662,9 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x30 => {
                 // JR NC, n
-                let offset = self.fetch(bus) as i8;
+                let offset = self.read_operand(bus) as i8;
                 if !self.carry() {
+                    bus.tick(5); // internal cycles when branch taken
                     self.pc = self.pc.wrapping_add(offset as u16);
                     self.wz = self.pc;
                     12
@@ -647,15 +674,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x31 => {
                 // LD SP, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 self.sp = (high as u16) << 8 | low as u16;
                 10
             }
             0x32 => {
                 // LD (nn), A
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 bus.write(addr as u32, self.a);
                 // WZ = (nn + 1) low byte | (A << 8)
@@ -664,6 +691,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x33 => {
                 // INC SP
+                bus.tick(2); // internal cycles for 16-bit increment
                 self.sp = self.sp.wrapping_add(1);
                 6
             }
@@ -671,6 +699,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 // INC (HL)
                 let addr = self.hl() as u32;
                 let value = bus.read(addr);
+                bus.tick(1); // internal cycle between read and write
                 let result = value.wrapping_add(1);
                 bus.write(addr, result);
 
@@ -686,6 +715,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 // DEC (HL)
                 let addr = self.hl() as u32;
                 let value = bus.read(addr);
+                bus.tick(1); // internal cycle between read and write
                 let result = value.wrapping_sub(1);
                 bus.write(addr, result);
 
@@ -699,7 +729,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x36 => {
                 // LD (HL), n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 bus.write(self.hl() as u32, n);
                 10
             }
@@ -715,8 +745,9 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x38 => {
                 // JR C, n
-                let offset = self.fetch(bus) as i8;
+                let offset = self.read_operand(bus) as i8;
                 if self.carry() {
+                    bus.tick(5); // internal cycles for branch calculation
                     self.pc = self.pc.wrapping_add(offset as u16);
                     self.wz = self.pc;
                     12
@@ -726,6 +757,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x39 => {
                 // ADD HL, SP
+                bus.tick(7); // internal cycles for 16-bit addition
                 let hl = self.hl();
                 let sp = self.sp;
                 let result = (hl as u32) + (sp as u32);
@@ -741,8 +773,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x3A => {
                 // LD A, (nn)
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.a = bus.read(addr as u32);
                 self.wz = addr.wrapping_add(1);
@@ -750,6 +782,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x3B => {
                 // DEC SP
+                bus.tick(2); // internal cycles for 16-bit decrement
                 self.sp = self.sp.wrapping_sub(1);
                 6
             }
@@ -783,7 +816,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0x3E => {
                 // LD A, n
-                self.a = self.fetch(bus);
+                self.a = self.read_operand(bus);
                 7
             }
             0x3F => {
@@ -804,6 +837,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xC0 => {
                 // RET NZ
+                bus.tick(1); // internal cycle for condition evaluation
                 if !self.zero() {
                     let low = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
@@ -826,8 +860,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xC2 => {
                 // JP NZ, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if !self.zero() {
@@ -837,8 +871,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xC3 => {
                 // JP nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 self.pc = addr;
@@ -846,11 +880,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xC4 => {
                 // CALL NZ, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if !self.zero() {
+                    bus.tick(1); // internal cycle before push
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
                     self.sp = self.sp.wrapping_sub(1);
@@ -863,6 +898,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xC5 => {
                 // PUSH BC
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.b);
                 self.sp = self.sp.wrapping_sub(1);
@@ -871,12 +907,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xC6 => {
                 // ADD A, n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 self.add_a(n);
                 7
             }
             0xC7 => {
                 // RST 00h
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -887,6 +924,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xC8 => {
                 // RET Z
+                bus.tick(1); // internal cycle for condition evaluation
                 if self.zero() {
                     let low = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
@@ -911,8 +949,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xCA => {
                 // JP Z, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if self.zero() {
@@ -1054,11 +1092,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xCC => {
                 // CALL Z, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if self.zero() {
+                    bus.tick(1); // internal cycle before push
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
                     self.sp = self.sp.wrapping_sub(1);
@@ -1071,10 +1110,11 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xCD => {
                 // CALL nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
 
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -1086,12 +1126,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xCE => {
                 // ADC A, n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 self.adc_a(n);
                 7
             }
             0xCF => {
                 // RST 08h
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -1102,6 +1143,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xD0 => {
                 // RET NC
+                bus.tick(1); // internal cycle for condition evaluation
                 if !self.carry() {
                     let low = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
@@ -1124,8 +1166,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xD2 => {
                 // JP NC, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if !self.carry() {
@@ -1135,7 +1177,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xD3 => {
                 // OUT (n), A
-                let port_low = self.fetch(bus);
+                let port_low = self.read_operand(bus);
                 let port = (self.a as u16) << 8 | port_low as u16;
                 bus.write_io(port, self.a);
                 // WZ = ((n + 1) & 0xFF) | (A << 8)
@@ -1144,11 +1186,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xD4 => {
                 // CALL NC, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if !self.carry() {
+                    bus.tick(1); // internal cycle before push
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
                     self.sp = self.sp.wrapping_sub(1);
@@ -1161,6 +1204,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xD5 => {
                 // PUSH DE
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.d);
                 self.sp = self.sp.wrapping_sub(1);
@@ -1169,12 +1213,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xD6 => {
                 // SUB n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 self.sub_a(n);
                 7
             }
             0xD7 => {
                 // RST 10h
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -1185,6 +1230,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xD8 => {
                 // RET C
+                bus.tick(1); // internal cycle for condition evaluation
                 if self.carry() {
                     let low = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
@@ -1209,8 +1255,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xDA => {
                 // JP C, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if self.carry() {
@@ -1220,7 +1266,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xDB => {
                 // IN A, (n)
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 let port = (self.a as u16) << 8 | n as u16;
                 self.a = bus.read_io(port);
                 // WZ = ((A << 8) | n) + 1
@@ -1229,11 +1275,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xDC => {
                 // CALL C, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if self.carry() {
+                    bus.tick(1); // internal cycle before push
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
                     self.sp = self.sp.wrapping_sub(1);
@@ -1249,6 +1296,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 match op2 {
                     0x09 => {
                         // ADD IX, BC
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let ix = self.ix;
                         let bc = self.bc();
                         let result = (ix as u32) + (bc as u32);
@@ -1263,6 +1311,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x19 => {
                         // ADD IX, DE
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let ix = self.ix;
                         let de = self.de();
                         let result = (ix as u32) + (de as u32);
@@ -1277,15 +1326,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x21 => {
                         // LD IX, nn
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         self.ix = (high as u16) << 8 | low as u16;
                         14
                     }
                     0x22 => {
                         // LD (nn), IX
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.ix as u8);
                         bus.write((addr.wrapping_add(1)) as u32, (self.ix >> 8) as u8);
@@ -1294,6 +1343,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x23 => {
                         // INC IX
+                        bus.tick(2); // internal cycles for 16-bit increment
                         self.ix = self.ix.wrapping_add(1);
                         10
                     }
@@ -1325,12 +1375,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x26 => {
                         // LD IXH, n (undocumented)
-                        let n = self.fetch(bus);
+                        let n = self.read_operand(bus);
                         self.ix = (n as u16) << 8 | (self.ix & 0xFF);
                         11
                     }
                     0x29 => {
                         // ADD IX, IX
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let ix = self.ix;
                         let result = (ix as u32) + (ix as u32);
 
@@ -1344,8 +1395,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x2A => {
                         // LD IX, (nn)
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         let ix_low = bus.read(addr as u32);
                         let ix_high = bus.read((addr.wrapping_add(1)) as u32);
@@ -1355,6 +1406,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x2B => {
                         // DEC IX
+                        bus.tick(2); // internal cycles for 16-bit decrement
                         self.ix = self.ix.wrapping_sub(1);
                         10
                     }
@@ -1386,13 +1438,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x2E => {
                         // LD IXL, n (undocumented)
-                        let n = self.fetch(bus);
+                        let n = self.read_operand(bus);
                         self.ix = (self.ix & 0xFF00) | n as u16;
                         11
                     }
                     0x34 => {
                         // INC (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         let result = value.wrapping_add(1);
@@ -1408,7 +1460,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x35 => {
                         // DEC (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         let result = value.wrapping_sub(1);
@@ -1424,14 +1476,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x36 => {
                         // LD (IX+d), n
-                        let d = self.fetch(bus) as i8;
-                        let n = self.fetch(bus);
+                        let d = self.read_operand(bus) as i8;
+                        let n = self.read_operand(bus);
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, n);
                         19
                     }
                     0x39 => {
                         // ADD IX, SP
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let ix = self.ix;
                         let sp = self.sp;
                         let result = (ix as u32) + (sp as u32);
@@ -1477,7 +1530,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x46 => {
                         // LD B, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.b = bus.read(addr);
                         19
@@ -1518,7 +1571,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x4E => {
                         // LD C, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.c = bus.read(addr);
                         19
@@ -1559,7 +1612,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x56 => {
                         // LD D, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.d = bus.read(addr);
                         19
@@ -1600,7 +1653,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x5E => {
                         // LD E, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.e = bus.read(addr);
                         19
@@ -1641,7 +1694,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x66 => {
                         // LD H, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.h = bus.read(addr);
                         19
@@ -1682,7 +1735,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x6E => {
                         // LD L, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.l = bus.read(addr);
                         19
@@ -1694,49 +1747,49 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x70 => {
                         // LD (IX+d), B
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.b);
                         19
                     }
                     0x71 => {
                         // LD (IX+d), C
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.c);
                         19
                     }
                     0x72 => {
                         // LD (IX+d), D
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.d);
                         19
                     }
                     0x73 => {
                         // LD (IX+d), E
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.e);
                         19
                     }
                     0x74 => {
                         // LD (IX+d), H
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.h);
                         19
                     }
                     0x75 => {
                         // LD (IX+d), L
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.l);
                         19
                     }
                     0x77 => {
                         // LD (IX+d), A
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.a);
                         19
@@ -1773,7 +1826,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x7E => {
                         // LD A, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         self.a = bus.read(addr);
                         19
@@ -1794,7 +1847,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x86 => {
                         // ADD A, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.add_a(value);
@@ -1812,7 +1865,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x8E => {
                         // ADC A, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.adc_a(value);
@@ -1830,7 +1883,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x96 => {
                         // SUB (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.sub_a(value);
@@ -1848,7 +1901,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x9E => {
                         // SBC A, (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.sbc_a(value);
@@ -1866,7 +1919,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xA6 => {
                         // AND (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.and_a(value);
@@ -1884,7 +1937,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xAE => {
                         // XOR (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.xor_a(value);
@@ -1902,7 +1955,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xB6 => {
                         // OR (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.or_a(value);
@@ -1920,16 +1973,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xBE => {
                         // CP (IX+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.cp_a(value);
                         19
                     }
                     0xCB => {
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.ix.wrapping_add(d as u16) as u32;
-                        let op3 = self.fetch(bus);
+                        let op3 = self.read_operand(bus);
 
                         let x = op3 >> 6;
                         let y = (op3 >> 3) & 0x07;
@@ -2048,6 +2101,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xE5 => {
                         // PUSH IX
+                        bus.tick(1); // internal cycle before push
                         self.sp = self.sp.wrapping_sub(1);
                         bus.write(self.sp as u32, (self.ix >> 8) as u8);
                         self.sp = self.sp.wrapping_sub(1);
@@ -2058,8 +2112,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // EX (SP), IX
                         let low = bus.read(self.sp as u32);
                         let high = bus.read((self.sp.wrapping_add(1)) as u32);
+                        bus.tick(1); // internal cycle between reads and writes
                         bus.write(self.sp as u32, self.ix as u8);
                         bus.write((self.sp.wrapping_add(1)) as u32, (self.ix >> 8) as u8);
+                        bus.tick(2); // internal cycles after writes
                         self.ix = (high as u16) << 8 | low as u16;
                         // WZ = new IX value (value read from stack)
                         self.wz = self.ix;
@@ -2072,6 +2128,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xF9 => {
                         // LD SP, IX
+                        bus.tick(2); // internal cycles for 16-bit transfer
                         self.sp = self.ix;
                         10
                     }
@@ -2080,12 +2137,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xDE => {
                 // SBC A, n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 self.sbc_a(n);
                 7
             }
             0xDF => {
                 // RST 18h
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -2096,6 +2154,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xE0 => {
                 // RET PO
+                bus.tick(1); // internal cycle for condition evaluation
                 if !self.get_flag(flags::FLAG_PV) {
                     let low = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
@@ -2118,8 +2177,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xE2 => {
                 // JP PO, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if !self.get_flag(flags::FLAG_PV) {
@@ -2131,8 +2190,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 // EX (SP), HL
                 let low = bus.read(self.sp as u32);
                 let high = bus.read((self.sp.wrapping_add(1)) as u32);
+                bus.tick(1); // internal cycle between reads and writes
                 bus.write(self.sp as u32, self.l);
                 bus.write((self.sp.wrapping_add(1)) as u32, self.h);
+                bus.tick(2); // internal cycles after writes
                 self.l = low;
                 self.h = high;
                 // WZ = new HL value (value read from stack)
@@ -2141,11 +2202,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xE4 => {
                 // CALL PO, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if !self.get_flag(flags::FLAG_PV) {
+                    bus.tick(1); // internal cycle before push
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
                     self.sp = self.sp.wrapping_sub(1);
@@ -2158,6 +2220,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xE5 => {
                 // PUSH HL
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.h);
                 self.sp = self.sp.wrapping_sub(1);
@@ -2166,12 +2229,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xE6 => {
                 // AND n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 self.and_a(n);
                 7
             }
             0xE7 => {
                 // RST 20h
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -2182,6 +2246,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xE8 => {
                 // RET PE
+                bus.tick(1); // internal cycle for condition evaluation
                 if self.get_flag(flags::FLAG_PV) {
                     let low = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
@@ -2201,8 +2266,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xEA => {
                 // JP PE, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if self.get_flag(flags::FLAG_PV) {
@@ -2218,11 +2283,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xEC => {
                 // CALL PE, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if self.get_flag(flags::FLAG_PV) {
+                    bus.tick(1); // internal cycle before push
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
                     self.sp = self.sp.wrapping_sub(1);
@@ -2258,6 +2324,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x42 => {
                         // SBC HL, BC
+                        bus.tick(7); // internal cycles for 16-bit subtraction
                         let hl = self.hl();
                         let bc = self.bc();
                         let c = if self.carry() { 1u32 } else { 0 };
@@ -2280,8 +2347,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x43 => {
                         // LD (nn), BC
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.c);
                         bus.write((addr.wrapping_add(1)) as u32, self.b);
@@ -2344,6 +2411,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x4A => {
                         // ADC HL, BC
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let hl = self.hl();
                         let bc = self.bc();
                         let c = if self.carry() { 1u32 } else { 0 };
@@ -2369,8 +2437,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x4B => {
                         // LD BC, (nn)
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         self.c = bus.read(addr as u32);
                         self.b = bus.read((addr.wrapping_add(1)) as u32);
@@ -2414,6 +2482,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x52 => {
                         // SBC HL, DE
+                        bus.tick(7); // internal cycles for 16-bit subtraction
                         let hl = self.hl();
                         let de = self.de();
                         let c = if self.carry() { 1u32 } else { 0 };
@@ -2436,8 +2505,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x53 => {
                         // LD (nn), DE
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.e);
                         bus.write((addr.wrapping_add(1)) as u32, self.d);
@@ -2482,6 +2551,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x5A => {
                         // ADC HL, DE
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let hl = self.hl();
                         let de = self.de();
                         let c = if self.carry() { 1u32 } else { 0 };
@@ -2507,8 +2577,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x5B => {
                         // LD DE, (nn)
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         self.e = bus.read(addr as u32);
                         self.d = bus.read((addr.wrapping_add(1)) as u32);
@@ -2553,6 +2623,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x62 => {
                         // SBC HL, HL
+                        bus.tick(7); // internal cycles for 16-bit subtraction
                         let hl = self.hl();
                         let c = if self.carry() { 1u32 } else { 0 };
                         let result = (hl as u32).wrapping_sub(hl as u32).wrapping_sub(c);
@@ -2571,8 +2642,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x63 => {
                         // LD (nn), HL
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.l);
                         bus.write((addr.wrapping_add(1)) as u32, self.h);
@@ -2618,6 +2689,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x6A => {
                         // ADC HL, HL
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let hl = self.hl();
                         let c = if self.carry() { 1u32 } else { 0 };
                         let result = (hl as u32) + (hl as u32) + c;
@@ -2639,8 +2711,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x6B => {
                         // LD HL, (nn)
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         self.l = bus.read(addr as u32);
                         self.h = bus.read((addr.wrapping_add(1)) as u32);
@@ -2686,6 +2758,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x72 => {
                         // SBC HL, SP
+                        bus.tick(7); // internal cycles for 16-bit subtraction
                         let hl = self.hl();
                         let sp = self.sp;
                         let c = if self.carry() { 1u32 } else { 0 };
@@ -2708,8 +2781,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x73 => {
                         // LD (nn), SP
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.sp as u8);
                         bus.write((addr.wrapping_add(1)) as u32, (self.sp >> 8) as u8);
@@ -2738,6 +2811,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x7A => {
                         // ADC HL, SP
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let hl = self.hl();
                         let sp = self.sp;
                         let c = if self.carry() { 1u32 } else { 0 };
@@ -2763,8 +2837,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x7B => {
                         // LD SP, (nn)
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         let sp_low = bus.read(addr as u32);
                         let sp_high = bus.read((addr.wrapping_add(1)) as u32);
@@ -3205,12 +3279,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xEE => {
                 // XOR n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 self.xor_a(n);
                 7
             }
             0xEF => {
                 // RST 28h
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -3221,6 +3296,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xF0 => {
                 // RET P
+                bus.tick(1); // internal cycle for condition evaluation
                 if !self.get_flag(flags::FLAG_S) {
                     let low = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
@@ -3243,8 +3319,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xF2 => {
                 // JP P, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if !self.get_flag(flags::FLAG_S) {
@@ -3260,11 +3336,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xF4 => {
                 // CALL P, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if !self.get_flag(flags::FLAG_S) {
+                    bus.tick(1); // internal cycle before push
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
                     self.sp = self.sp.wrapping_sub(1);
@@ -3277,6 +3354,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xF5 => {
                 // PUSH AF
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, self.a);
                 self.sp = self.sp.wrapping_sub(1);
@@ -3285,12 +3363,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xF6 => {
                 // OR n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 self.or_a(n);
                 7
             }
             0xF7 => {
                 // RST 30h
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -3301,6 +3380,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xF8 => {
                 // RET M
+                bus.tick(1); // internal cycle for condition evaluation
                 if self.get_flag(flags::FLAG_S) {
                     let low = bus.read(self.sp as u32);
                     self.sp = self.sp.wrapping_add(1);
@@ -3315,13 +3395,14 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xF9 => {
                 // LD SP, HL
+                bus.tick(2); // internal cycles for 16-bit transfer
                 self.sp = self.hl();
                 6
             }
             0xFA => {
                 // JP M, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if self.get_flag(flags::FLAG_S) {
@@ -3340,6 +3421,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                 match op2 {
                     0x09 => {
                         // ADD IY, BC
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let iy = self.iy;
                         let bc = self.bc();
                         let result = (iy as u32) + (bc as u32);
@@ -3354,6 +3436,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x19 => {
                         // ADD IY, DE
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let iy = self.iy;
                         let de = self.de();
                         let result = (iy as u32) + (de as u32);
@@ -3368,15 +3451,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x21 => {
                         // LD IY, nn
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         self.iy = (high as u16) << 8 | low as u16;
                         14
                     }
                     0x22 => {
                         // LD (nn), IY
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         bus.write(addr as u32, self.iy as u8);
                         bus.write((addr.wrapping_add(1)) as u32, (self.iy >> 8) as u8);
@@ -3385,6 +3468,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x23 => {
                         // INC IY
+                        bus.tick(2); // internal cycles for 16-bit increment
                         self.iy = self.iy.wrapping_add(1);
                         10
                     }
@@ -3416,12 +3500,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x26 => {
                         // LD IYH, n (undocumented)
-                        let n = self.fetch(bus);
+                        let n = self.read_operand(bus);
                         self.iy = (n as u16) << 8 | (self.iy & 0xFF);
                         11
                     }
                     0x29 => {
                         // ADD IY, IY
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let iy = self.iy;
                         let result = (iy as u32) + (iy as u32);
 
@@ -3435,8 +3520,8 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x2A => {
                         // LD IY, (nn)
-                        let low = self.fetch(bus);
-                        let high = self.fetch(bus);
+                        let low = self.read_operand(bus);
+                        let high = self.read_operand(bus);
                         let addr = (high as u16) << 8 | low as u16;
                         let iy_low = bus.read(addr as u32);
                         let iy_high = bus.read((addr.wrapping_add(1)) as u32);
@@ -3446,6 +3531,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x2B => {
                         // DEC IY
+                        bus.tick(2); // internal cycles for 16-bit decrement
                         self.iy = self.iy.wrapping_sub(1);
                         10
                     }
@@ -3477,13 +3563,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x2E => {
                         // LD IYL, n (undocumented)
-                        let n = self.fetch(bus);
+                        let n = self.read_operand(bus);
                         self.iy = (self.iy & 0xFF00) | n as u16;
                         11
                     }
                     0x34 => {
                         // INC (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         let result = value.wrapping_add(1);
@@ -3499,7 +3585,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x35 => {
                         // DEC (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         let result = value.wrapping_sub(1);
@@ -3515,14 +3601,15 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x36 => {
                         // LD (IY+d), n
-                        let d = self.fetch(bus) as i8;
-                        let n = self.fetch(bus);
+                        let d = self.read_operand(bus) as i8;
+                        let n = self.read_operand(bus);
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, n);
                         19
                     }
                     0x39 => {
                         // ADD IY, SP
+                        bus.tick(7); // internal cycles for 16-bit addition
                         let iy = self.iy;
                         let sp = self.sp;
                         let result = (iy as u32) + (sp as u32);
@@ -3567,7 +3654,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x46 => {
                         // LD B, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.b = bus.read(addr);
                         19
@@ -3608,7 +3695,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x4E => {
                         // LD C, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.c = bus.read(addr);
                         19
@@ -3649,7 +3736,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x56 => {
                         // LD D, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.d = bus.read(addr);
                         19
@@ -3690,7 +3777,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x5E => {
                         // LD E, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.e = bus.read(addr);
                         19
@@ -3731,7 +3818,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x66 => {
                         // LD H, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.h = bus.read(addr);
                         19
@@ -3772,7 +3859,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x6E => {
                         // LD L, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.l = bus.read(addr);
                         19
@@ -3784,49 +3871,49 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x70 => {
                         // LD (IY+d), B
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.b);
                         19
                     }
                     0x71 => {
                         // LD (IY+d), C
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.c);
                         19
                     }
                     0x72 => {
                         // LD (IY+d), D
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.d);
                         19
                     }
                     0x73 => {
                         // LD (IY+d), E
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.e);
                         19
                     }
                     0x74 => {
                         // LD (IY+d), H
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.h);
                         19
                     }
                     0x75 => {
                         // LD (IY+d), L
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.l);
                         19
                     }
                     0x77 => {
                         // LD (IY+d), A
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         bus.write(addr, self.a);
                         19
@@ -3863,7 +3950,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x7E => {
                         // LD A, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         self.a = bus.read(addr);
                         19
@@ -3884,7 +3971,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x86 => {
                         // ADD A, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.add_a(value);
@@ -3902,7 +3989,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x8E => {
                         // ADC A, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.adc_a(value);
@@ -3920,7 +4007,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x96 => {
                         // SUB (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.sub_a(value);
@@ -3938,7 +4025,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0x9E => {
                         // SBC A, (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.sbc_a(value);
@@ -3956,7 +4043,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xA6 => {
                         // AND (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.and_a(value);
@@ -3974,7 +4061,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xAE => {
                         // XOR (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.xor_a(value);
@@ -3992,7 +4079,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xB6 => {
                         // OR (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.or_a(value);
@@ -4010,16 +4097,16 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xBE => {
                         // CP (IY+d)
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
                         let value = bus.read(addr);
                         self.cp_a(value);
                         19
                     }
                     0xCB => {
-                        let d = self.fetch(bus) as i8;
+                        let d = self.read_operand(bus) as i8;
                         let addr = self.iy.wrapping_add(d as u16) as u32;
-                        let op3 = self.fetch(bus);
+                        let op3 = self.read_operand(bus);
 
                         let x = op3 >> 6;
                         let y = (op3 >> 3) & 0x07;
@@ -4141,8 +4228,10 @@ impl<B: IoBus> Cpu<B> for Z80 {
                         // EX (SP), IY
                         let low = bus.read(self.sp as u32);
                         let high = bus.read((self.sp.wrapping_add(1)) as u32);
+                        bus.tick(1); // internal cycle between reads and writes
                         bus.write(self.sp as u32, self.iy as u8);
                         bus.write((self.sp.wrapping_add(1)) as u32, (self.iy >> 8) as u8);
+                        bus.tick(2); // internal cycles after writes
                         self.iy = (high as u16) << 8 | low as u16;
                         // WZ = new IY value (value read from stack)
                         self.wz = self.iy;
@@ -4150,6 +4239,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xE5 => {
                         // PUSH IY
+                        bus.tick(1); // internal cycle before push
                         self.sp = self.sp.wrapping_sub(1);
                         bus.write(self.sp as u32, (self.iy >> 8) as u8);
                         self.sp = self.sp.wrapping_sub(1);
@@ -4163,6 +4253,7 @@ impl<B: IoBus> Cpu<B> for Z80 {
                     }
                     0xF9 => {
                         // LD SP, IY
+                        bus.tick(2); // internal cycles for 16-bit transfer
                         self.sp = self.iy;
                         10
                     }
@@ -4171,11 +4262,12 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xFC => {
                 // CALL M, nn
-                let low = self.fetch(bus);
-                let high = self.fetch(bus);
+                let low = self.read_operand(bus);
+                let high = self.read_operand(bus);
                 let addr = (high as u16) << 8 | low as u16;
                 self.wz = addr;
                 if self.get_flag(flags::FLAG_S) {
+                    bus.tick(1); // internal cycle before push
                     self.sp = self.sp.wrapping_sub(1);
                     bus.write(self.sp as u32, (self.pc >> 8) as u8);
                     self.sp = self.sp.wrapping_sub(1);
@@ -4188,12 +4280,13 @@ impl<B: IoBus> Cpu<B> for Z80 {
             }
             0xFE => {
                 // CP n
-                let n = self.fetch(bus);
+                let n = self.read_operand(bus);
                 self.cp_a(n);
                 7
             }
             0xFF => {
                 // RST 38h
+                bus.tick(1); // internal cycle before push
                 self.sp = self.sp.wrapping_sub(1);
                 bus.write(self.sp as u32, (self.pc >> 8) as u8);
                 self.sp = self.sp.wrapping_sub(1);
@@ -4441,17 +4534,21 @@ mod tests {
     }
 
     impl emu_core::Bus for TestBus {
-        fn read(&self, address: u32) -> u8 {
+        fn read(&mut self, address: u32) -> u8 {
             self.memory[address as usize & 0xFFFF]
         }
 
         fn write(&mut self, address: u32, value: u8) {
             self.memory[address as usize & 0xFFFF] = value;
         }
+
+        fn tick(&mut self, _cycles: u32) {
+            // Test bus doesn't track timing
+        }
     }
 
     impl emu_core::IoBus for TestBus {
-        fn read_io(&self, _port: u16) -> u8 {
+        fn read_io(&mut self, _port: u16) -> u8 {
             0xFF
         }
 
