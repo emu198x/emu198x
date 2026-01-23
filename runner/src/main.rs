@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use video::{HEIGHT, NATIVE_HEIGHT, NATIVE_WIDTH, WIDTH};
 use winit::application::ApplicationHandler;
-use winit::dpi::PhysicalSize;
+use winit::dpi::LogicalSize;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
@@ -91,7 +91,7 @@ impl ApplicationHandler for Emulator {
                 .create_window(
                     Window::default_attributes()
                         .with_title("Spectrum (F1: Toggle CRT)")
-                        .with_inner_size(PhysicalSize::new(WIDTH as u32, HEIGHT as u32)),
+                        .with_inner_size(LogicalSize::new(WIDTH as u32, HEIGHT as u32)),
                 )
                 .expect("Failed to create window"),
         );
