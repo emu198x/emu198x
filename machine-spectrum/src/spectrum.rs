@@ -53,6 +53,16 @@ impl<M: MemoryModel> Bus for Memory<M> {
         model.read(&self.data, addr, &self.ula)
     }
 
+    fn fetch(&mut self, address: u32) -> u8 {
+        let addr = (address & 0xFFFF) as u16;
+        let model = M::default();
+
+        // M1 cycle has different contention pattern: C:1, C:2 vs C:3 for normal read
+        self.ula.m1_contention(addr, model.is_contended(addr));
+
+        model.read(&self.data, addr, &self.ula)
+    }
+
     fn write(&mut self, address: u32, value: u8) {
         let addr = (address & 0xFFFF) as u16;
         let model = M::default();

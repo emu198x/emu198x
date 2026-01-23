@@ -26,4 +26,19 @@ pub trait Bus {
     /// Used for internal CPU operations (register transfers, ALU operations,
     /// etc.) that consume cycles but don't access the bus.
     fn tick(&mut self, cycles: u32);
+
+    /// Fetch an opcode byte (M1 cycle for Z80).
+    ///
+    /// This is separate from `read()` because the Z80's M1 cycle has different
+    /// timing characteristics, particularly for bus contention. On the Spectrum,
+    /// M1 cycles check contention twice (at T1 and T2) rather than once.
+    ///
+    /// The default implementation just calls `read()`, which is correct for
+    /// systems without special M1 timing requirements.
+    ///
+    /// Note: This only covers the memory access portion (3 T-states on Z80).
+    /// The caller is responsible for the refresh cycle timing.
+    fn fetch(&mut self, address: u32) -> u8 {
+        self.read(address)
+    }
 }

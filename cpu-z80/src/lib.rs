@@ -191,7 +191,7 @@ impl Z80 {
     /// Fetch opcode from PC with M1 timing (4 T-states: 3 for read + 1 for refresh).
     /// Use this for opcode fetches and prefix bytes.
     fn fetch(&mut self, bus: &mut impl emu_core::Bus) -> u8 {
-        let byte = bus.read(self.pc as u32);
+        let byte = bus.fetch(self.pc as u32);
         bus.tick(1); // M1 refresh cycle
         self.pc = self.pc.wrapping_add(1);
         byte
