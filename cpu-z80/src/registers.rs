@@ -29,10 +29,6 @@ impl Z80 {
         }
     }
 
-    pub(crate) fn hl(&self) -> u16 {
-        (self.h as u16) << 8 | self.l as u16
-    }
-
     pub(crate) fn set_hl(&mut self, value: u16) {
         self.h = (value >> 8) as u8;
         self.l = value as u8;
@@ -41,10 +37,6 @@ impl Z80 {
     pub(crate) fn set_de(&mut self, value: u16) {
         self.d = (value >> 8) as u8;
         self.e = value as u8;
-    }
-
-    pub(crate) fn bc(&self) -> u16 {
-        (self.b as u16) << 8 | self.c as u16
     }
 
     pub(crate) fn set_bc(&mut self, value: u16) {
