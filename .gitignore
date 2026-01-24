@@ -1,2 +1,5 @@
 /target
 taps
+roms/basic.bin
+roms/chargen.bin
+roms/kernal.bin

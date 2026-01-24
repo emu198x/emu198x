@@ -1,0 +1,9 @@
+[package]
+name = "c64-runner"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+emu-core = { path = "../core" }
+machine-c64 = { path = "../machine-c64" }
+runner-lib = { path = "../runner-lib" }

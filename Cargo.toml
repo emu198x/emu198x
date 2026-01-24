@@ -3,7 +3,10 @@ resolver = "2"
 members = [
     "core",
     "cpu-z80",
+    "cpu-6502",
     "machine-spectrum",
+    "machine-c64",
     "runner-lib",
     "spectrum-runner",
+    "c64-runner",
 ]

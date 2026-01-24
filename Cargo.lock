@@ -236,6 +236,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 
 [[package]]
+name = "c64-runner"
+version = "0.1.0"
+dependencies = [
+ "emu-core",
+ "machine-c64",
+ "runner-lib",
+]
+
+[[package]]
 name = "calloop"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -458,6 +467,13 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "windows 0.54.0",
+]
+
+[[package]]
+name = "cpu-6502"
+version = "0.1.0"
+dependencies = [
+ "emu-core",
 ]
 
 [[package]]
@@ -981,6 +997,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "machine-c64"
+version = "0.1.0"
+dependencies = [
+ "cpu-6502",
+ "emu-core",
 ]
 
 [[package]]
