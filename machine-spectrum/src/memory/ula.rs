@@ -25,6 +25,9 @@ const SCREEN_START: u16 = 0x4000;
 /// Screen memory end address (exclusive) - includes bitmap and attributes.
 const SCREEN_END: u16 = 0x5B00;
 
+/// Duration the INT line is held low (approximately 32 T-states on 48K).
+pub const INT_LENGTH: u32 = 32;
+
 /// ULA state shared across all Spectrum models.
 pub struct Ula {
     /// Border color (0-7).
@@ -50,6 +53,9 @@ pub struct Ula {
     /// EAR input level (bit 6 of port 0xFE read).
     /// Used for tape loading - reflects the audio signal from tape.
     pub ear_level: bool,
+    /// Whether the interrupt signal is currently active.
+    /// True during the first INT_LENGTH T-states of each frame.
+    pub int_active: bool,
 }
 
 impl Ula {
@@ -66,6 +72,7 @@ impl Ula {
             beeper_transitions: Vec::with_capacity(1024),
             snow_events: Vec::new(),
             ear_level: false,
+            int_active: true, // INT is active at frame start
         }
     }
 
@@ -81,6 +88,7 @@ impl Ula {
         self.beeper_transitions.clear();
         self.snow_events.clear();
         self.ear_level = false;
+        self.int_active = true;
     }
 
     /// Start a new frame.
@@ -90,6 +98,7 @@ impl Ula {
         self.border_transitions.push((0, self.border)); // Record initial color
         self.beeper_transitions.clear();
         self.snow_events.clear();
+        self.int_active = true; // INT goes active at frame start
     }
 
     /// Check if we've completed a frame.
@@ -185,30 +194,45 @@ impl Ula {
         }
     }
 
-    /// Apply M1 cycle (opcode fetch + refresh) contention timing.
+    /// Apply M1 cycle (opcode fetch only) contention timing.
     ///
     /// The M1 cycle has different contention timing than a normal memory read.
     /// During M1, the ULA checks for contention twice:
     /// - At T1 (address placed on bus)
     /// - At T2 (data read)
-    /// Then there's a refresh cycle (T4) where IR is on the address bus.
     ///
-    /// Pattern for contended memory: C:1, C:2, N:2 (total 4 T-states + delays)
-    /// Pattern for non-contended: N:4 (total 4 T-states, no delays)
+    /// Pattern for contended memory: C:1, C:2 (total 3 T-states + delays)
+    /// Pattern for non-contended: N:3 (total 3 T-states, no delays)
     ///
-    /// Note: IR contention during refresh is not implemented (requires passing
-    /// IR to the bus). This rarely matters since I is typically in ROM.
+    /// Note: The refresh cycle (T4) is handled separately via refresh_contention()
+    /// to allow for IR-based contention checking.
     pub fn m1_contention(&mut self, _addr: u16, is_contended: bool) {
         if is_contended {
-            // M1 to contended memory: C:1, C:2, N:2 (refresh)
+            // M1 to contended memory: C:1, C:2
             let delay = self.contention_delay();
             self.tick(delay + 1);
             let delay = self.contention_delay();
             self.tick(delay + 2);
-            self.tick(1); // Refresh cycle (T4)
         } else {
-            // M1 to non-contended memory: N:4
-            self.tick(4);
+            // M1 to non-contended memory: N:3
+            self.tick(3);
+        }
+    }
+
+    /// Apply refresh cycle contention based on IR register.
+    ///
+    /// During the refresh cycle, the Z80 outputs IR on the address bus.
+    /// If IR points to contended memory (0x4000-0x7FFF), this cycle is contended.
+    ///
+    /// Pattern for contended IR: C:1 (1 T-state + delay)
+    /// Pattern for non-contended IR: N:1 (1 T-state)
+    pub fn refresh_contention(&mut self, ir: u16) {
+        let is_contended = (0x4000..0x8000).contains(&ir);
+        if is_contended {
+            let delay = self.contention_delay();
+            self.tick(delay + 1);
+        } else {
+            self.tick(1);
         }
     }
 
@@ -257,6 +281,16 @@ impl Ula {
     /// When reading from unattached memory or certain I/O ports, the value
     /// returned depends on what the ULA is currently reading from screen RAM.
     /// This was used by some copy protection schemes.
+    ///
+    /// The ULA's memory cycle within each 8 T-state pattern is:
+    /// - T0: Bitmap address placed on bus
+    /// - T1: Bitmap data valid, latched by ULA
+    /// - T2: Attribute address placed on bus
+    /// - T3: Attribute data valid, latched by ULA
+    /// - T4-T5: Next bitmap read (pre-fetch for next character)
+    /// - T6-T7: Next attribute read (pre-fetch for next character)
+    ///
+    /// The floating bus returns whatever byte is currently on the data bus.
     pub fn floating_bus(&self, screen_data: &[u8]) -> u8 {
         let t_state = self.frame_t_state % self.t_states_per_frame;
 
@@ -268,21 +302,40 @@ impl Ula {
             && scanline < DISPLAY_END_LINE
             && line_t_state < DISPLAY_T_STATES_PER_LINE
         {
-            // The ULA reads bitmap and attribute bytes in pairs every 8 T-states
-            // Pattern: bitmap, attribute, bitmap, attribute...
             let screen_y = (scanline - DISPLAY_START_LINE) as usize;
             let char_column = (line_t_state / 8) as usize;
+            let within_cycle = line_t_state % 8;
 
-            // Determine if we're reading bitmap or attribute
-            let within_pair = line_t_state % 8;
-            if within_pair < 4 {
-                // Reading bitmap byte
-                let bitmap_addr = bitmap_address(char_column * 8, screen_y);
-                screen_data.get(bitmap_addr).copied().unwrap_or(0xFF)
-            } else {
-                // Reading attribute byte
-                let attr_addr = attribute_address(char_column * 8, screen_y);
-                screen_data.get(attr_addr).copied().unwrap_or(0xFF)
+            // Precise timing within the 8 T-state cycle
+            match within_cycle {
+                0 | 1 => {
+                    // T0-T1: Current character bitmap byte on bus
+                    let bitmap_addr = bitmap_address(char_column * 8, screen_y);
+                    screen_data.get(bitmap_addr).copied().unwrap_or(0xFF)
+                }
+                2 | 3 => {
+                    // T2-T3: Current character attribute byte on bus
+                    let attr_addr = attribute_address(char_column * 8, screen_y);
+                    screen_data.get(attr_addr).copied().unwrap_or(0xFF)
+                }
+                4 | 5 => {
+                    // T4-T5: Next character bitmap byte (pre-fetch)
+                    // If at last column (15), wraps to next line but timing differs
+                    let next_col = if char_column < 15 {
+                        char_column + 1
+                    } else {
+                        0 // Wraps but screen_y would change - simplified here
+                    };
+                    let bitmap_addr = bitmap_address(next_col * 8, screen_y);
+                    screen_data.get(bitmap_addr).copied().unwrap_or(0xFF)
+                }
+                6 | 7 => {
+                    // T6-T7: Next character attribute byte (pre-fetch)
+                    let next_col = if char_column < 15 { char_column + 1 } else { 0 };
+                    let attr_addr = attribute_address(next_col * 8, screen_y);
+                    screen_data.get(attr_addr).copied().unwrap_or(0xFF)
+                }
+                _ => unreachable!(),
             }
         } else {
             // Outside display area, floating bus returns 0xFF
@@ -332,7 +385,54 @@ impl Ula {
 
     /// Advance the frame clock.
     pub fn tick(&mut self, cycles: u32) {
+        let was_in_int = self.frame_t_state < INT_LENGTH;
         self.frame_t_state += cycles;
+
+        // Deactivate INT when we pass the INT_LENGTH threshold
+        if was_in_int && self.frame_t_state >= INT_LENGTH {
+            self.int_active = false;
+        }
+    }
+
+    /// Check if the interrupt line is currently active.
+    ///
+    /// The INT line is held low for INT_LENGTH T-states at the start of each frame.
+    /// The Z80 samples this at the end of each instruction.
+    pub fn int_pending(&self) -> bool {
+        self.int_active
+    }
+
+    /// Apply contention for interrupt acknowledge cycle.
+    ///
+    /// During interrupt acknowledge, the Z80 performs an I/O-like cycle where
+    /// both IORQ and M1 are active. The IR register is on the address bus.
+    /// On the Spectrum, this cycle is contended if IR points to contended memory.
+    ///
+    /// This applies the contention for the 5 T-state acknowledge portion,
+    /// plus 2 T-states of internal processing.
+    ///
+    /// The remaining timing (stack pushes, vector reads) goes through the
+    /// normal bus.write/bus.read methods which handle their own contention.
+    pub fn interrupt_acknowledge(&mut self, ir: u16) {
+        let is_contended = (0x4000..0x8000).contains(&ir);
+
+        if is_contended {
+            // Interrupt acknowledge with IR in contended memory
+            // The acknowledge cycle checks contention at each T-state
+            // Pattern approximated as: C:5, C:2
+            for _ in 0..5 {
+                let delay = self.contention_delay();
+                self.tick(delay + 1);
+            }
+            // Internal processing (2 T-states)
+            let delay = self.contention_delay();
+            self.tick(delay + 1);
+            let delay = self.contention_delay();
+            self.tick(delay + 1);
+        } else {
+            // Non-contended: just 7 T-states
+            self.tick(7);
+        }
     }
 }
 
@@ -383,20 +483,79 @@ mod tests {
     }
 
     #[test]
-    fn floating_bus_returns_screen_data() {
-        let ula = Ula::new(T_STATES_PER_FRAME_48K);
-        let mut ula = ula;
+    fn floating_bus_returns_bitmap_at_t0_t1() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         let mut screen_data = vec![0u8; 6912];
 
-        // Set a known pattern in screen memory
-        screen_data[0] = 0xAA; // First bitmap byte
+        // Set known patterns: first bitmap byte at 0xAA
+        screen_data[0] = 0xAA;
 
-        // Position ULA at start of display
         let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
-        ula.frame_t_state = display_start;
 
-        // Should return bitmap byte
+        // T0: Bitmap byte should be on bus
+        ula.frame_t_state = display_start;
         assert_eq!(ula.floating_bus(&screen_data), 0xAA);
+
+        // T1: Still bitmap byte
+        ula.frame_t_state = display_start + 1;
+        assert_eq!(ula.floating_bus(&screen_data), 0xAA);
+    }
+
+    #[test]
+    fn floating_bus_returns_attribute_at_t2_t3() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let mut screen_data = vec![0u8; 6912];
+
+        // First attribute byte is at offset 0x1800
+        screen_data[0x1800] = 0x55;
+
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+
+        // T2: Attribute byte should be on bus
+        ula.frame_t_state = display_start + 2;
+        assert_eq!(ula.floating_bus(&screen_data), 0x55);
+
+        // T3: Still attribute byte
+        ula.frame_t_state = display_start + 3;
+        assert_eq!(ula.floating_bus(&screen_data), 0x55);
+    }
+
+    #[test]
+    fn floating_bus_returns_next_bitmap_at_t4_t5() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let mut screen_data = vec![0u8; 6912];
+
+        // Second bitmap byte (column 1)
+        screen_data[1] = 0xBB;
+
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+
+        // T4: Next character's bitmap (pre-fetch)
+        ula.frame_t_state = display_start + 4;
+        assert_eq!(ula.floating_bus(&screen_data), 0xBB);
+
+        // T5: Still next bitmap
+        ula.frame_t_state = display_start + 5;
+        assert_eq!(ula.floating_bus(&screen_data), 0xBB);
+    }
+
+    #[test]
+    fn floating_bus_returns_next_attribute_at_t6_t7() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let mut screen_data = vec![0u8; 6912];
+
+        // Second attribute byte (column 1)
+        screen_data[0x1801] = 0xCC;
+
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+
+        // T6: Next character's attribute (pre-fetch)
+        ula.frame_t_state = display_start + 6;
+        assert_eq!(ula.floating_bus(&screen_data), 0xCC);
+
+        // T7: Still next attribute
+        ula.frame_t_state = display_start + 7;
+        assert_eq!(ula.floating_bus(&screen_data), 0xCC);
     }
 
     #[test]
@@ -406,6 +565,19 @@ mod tests {
 
         // During top border
         ula.frame_t_state = 100;
+        assert_eq!(ula.floating_bus(&screen_data), 0xFF);
+    }
+
+    #[test]
+    fn floating_bus_returns_ff_in_horizontal_blank() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let mut screen_data = vec![0u8; 6912];
+        screen_data[0] = 0xAA;
+
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+
+        // Past the active display portion of the line (T-state 128+)
+        ula.frame_t_state = display_start + 130;
         assert_eq!(ula.floating_bus(&screen_data), 0xFF);
     }
 
@@ -529,70 +701,106 @@ mod tests {
 
     #[test]
     fn m1_contention_non_contended() {
-        // M1 to non-contended memory: N:4 (3 fetch + 1 refresh)
+        // M1 fetch to non-contended memory: N:3 (refresh handled separately)
         let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         ula.frame_t_state = 0;
 
         ula.m1_contention(0x0000, false);
 
-        assert_eq!(ula.frame_t_state, 4);
+        assert_eq!(ula.frame_t_state, 3);
     }
 
     #[test]
     fn m1_contention_contended_in_border() {
-        // M1 to contended memory during border: C:1, C:2, N:1
-        // No actual delay during border, so just 4 T-states
+        // M1 fetch to contended memory during border: C:1, C:2
+        // No actual delay during border, so just 3 T-states
         let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         ula.frame_t_state = 100; // In top border
 
         ula.m1_contention(0x4000, true);
 
-        assert_eq!(ula.frame_t_state, 104);
+        assert_eq!(ula.frame_t_state, 103);
     }
 
     #[test]
     fn m1_contention_contended_during_display() {
-        // M1 to contended memory during display at pattern position 0
-        // Pattern: C:1, C:2, N:1
+        // M1 fetch to contended memory during display at pattern position 0
+        // Pattern: C:1, C:2 (refresh handled separately)
         // At pos 0 (delay 6): 6 + 1 = 7, now at pos 7 (delay 0)
-        // At pos 7 (delay 0): 0 + 2 = 2, now at pos 1
-        // Refresh: 1
-        // Total: 7 + 2 + 1 = 10
+        // At pos 7 (delay 0): 0 + 2 = 2
+        // Total: 7 + 2 = 9
         let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
         ula.frame_t_state = display_start;
 
         ula.m1_contention(0x4000, true);
 
-        assert_eq!(ula.frame_t_state, display_start + 10);
+        assert_eq!(ula.frame_t_state, display_start + 9);
     }
 
     #[test]
     fn m1_vs_normal_read_timing_difference() {
-        // Compare M1 contention vs normal read contention during display
-        // M1 now includes refresh cycle, so it's 1 T-state longer than read
+        // Compare M1 fetch contention vs normal read contention during display
+        // Both are now 3 T-state operations (refresh handled separately for M1)
         //
         // Normal read (C:3): At pos 0 (delay 6): 6 + 3 = 9 T-states
-        // M1 (C:1, C:2, N:1): (6 + 1) + (0 + 2) + 1 = 10 T-states
+        // M1 fetch (C:1, C:2): (6 + 1) + (0 + 2) = 9 T-states
 
         let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
         let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
 
-        // M1 takes 10 T-states (includes refresh)
+        // M1 fetch takes 9 T-states (refresh handled separately)
         ula.frame_t_state = display_start;
         ula.m1_contention(0x4000, true);
         let m1_end = ula.frame_t_state;
-        assert_eq!(m1_end, display_start + 10);
+        assert_eq!(m1_end, display_start + 9);
 
-        // Normal read takes 9 T-states (no refresh)
+        // Normal read takes 9 T-states
         ula.frame_t_state = display_start;
         let delay = ula.contention_delay();
         ula.tick(delay + 3);
         let read_end = ula.frame_t_state;
         assert_eq!(read_end, display_start + 9);
 
-        // M1 is 1 T-state longer due to refresh cycle
-        assert_eq!(m1_end, read_end + 1);
+        // Both take same time for the memory access portion
+        assert_eq!(m1_end, read_end);
+    }
+
+    #[test]
+    fn refresh_contention_non_contended_ir() {
+        // Refresh with IR in ROM (non-contended): N:1
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.frame_t_state = 0;
+
+        ula.refresh_contention(0x0000); // I=0, R=0
+
+        assert_eq!(ula.frame_t_state, 1);
+    }
+
+    #[test]
+    fn refresh_contention_contended_ir_in_border() {
+        // Refresh with IR in contended memory during border: C:1
+        // No delay during border, so just 1 T-state
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.frame_t_state = 100; // In top border
+
+        ula.refresh_contention(0x4000); // I=0x40, R=0
+
+        assert_eq!(ula.frame_t_state, 101);
+    }
+
+    #[test]
+    fn refresh_contention_contended_ir_during_display() {
+        // Refresh with IR in contended memory during display at pattern position 0
+        // Pattern: C:1
+        // At pos 0 (delay 6): 6 + 1 = 7
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+        ula.frame_t_state = display_start;
+
+        ula.refresh_contention(0x5000); // I=0x50, R=0 (contended)
+
+        assert_eq!(ula.frame_t_state, display_start + 7);
     }
 
     #[test]
@@ -702,5 +910,109 @@ mod tests {
 
         ula.reset();
         assert!(!ula.ear_level);
+    }
+
+    #[test]
+    fn int_active_at_frame_start() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+
+        // INT should be active at frame start
+        assert!(ula.int_pending());
+
+        // Still active after a few T-states
+        ula.tick(10);
+        assert!(ula.int_pending());
+
+        // Just before INT_LENGTH, still active
+        ula.frame_t_state = INT_LENGTH - 1;
+        ula.int_active = true; // Reset for test
+        ula.tick(0);
+        assert!(ula.int_pending());
+    }
+
+    #[test]
+    fn int_deactivates_after_int_length() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+
+        // INT is active at start
+        assert!(ula.int_pending());
+
+        // Tick past the INT_LENGTH threshold
+        ula.tick(INT_LENGTH);
+        assert!(!ula.int_pending());
+
+        // Stays inactive for the rest of the frame
+        ula.tick(1000);
+        assert!(!ula.int_pending());
+    }
+
+    #[test]
+    fn int_reactivates_on_new_frame() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+
+        // Deactivate INT
+        ula.tick(INT_LENGTH + 100);
+        assert!(!ula.int_pending());
+
+        // Start new frame
+        ula.start_frame();
+        assert!(ula.int_pending());
+    }
+
+    #[test]
+    fn int_reset_activates_int() {
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+
+        // Deactivate INT
+        ula.tick(INT_LENGTH + 100);
+        assert!(!ula.int_pending());
+
+        // Reset should activate INT
+        ula.reset();
+        assert!(ula.int_pending());
+    }
+
+    #[test]
+    fn interrupt_acknowledge_non_contended_ir() {
+        // Interrupt acknowledge with IR in ROM (non-contended): 7 T-states
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.frame_t_state = 0;
+
+        ula.interrupt_acknowledge(0x0000); // I=0, R=0
+
+        assert_eq!(ula.frame_t_state, 7);
+    }
+
+    #[test]
+    fn interrupt_acknowledge_contended_ir_in_border() {
+        // Interrupt acknowledge with IR in contended memory during border
+        // No actual delay during border, so just 7 T-states
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        ula.frame_t_state = 100; // In top border
+
+        ula.interrupt_acknowledge(0x5000); // I=0x50, R=0 (contended)
+
+        // 7 cycles but pattern would add 0 delay each (border = no contention)
+        assert_eq!(ula.frame_t_state, 107);
+    }
+
+    #[test]
+    fn interrupt_acknowledge_contended_ir_during_display() {
+        // Interrupt acknowledge with IR in contended memory during display
+        // This should add contention delays
+        let mut ula = Ula::new(T_STATES_PER_FRAME_48K);
+        let display_start = DISPLAY_START_LINE * T_STATES_PER_LINE;
+        ula.frame_t_state = display_start;
+
+        ula.interrupt_acknowledge(0x5000); // I=0x50, R=0 (contended)
+
+        // With contention at pattern position 0, each T-state check adds delay
+        // The exact timing depends on the contention pattern
+        // At pos 0: delay 6, then tick 1 -> pos 7
+        // At pos 7: delay 0, tick 1 -> pos 0
+        // At pos 0: delay 6, tick 1 -> pos 7
+        // ... this continues for 7 checks
+        // Total should be significantly more than 7
+        assert!(ula.frame_t_state > display_start + 7);
     }
 }

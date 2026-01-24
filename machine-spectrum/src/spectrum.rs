@@ -3,6 +3,7 @@
 use crate::audio;
 use crate::input;
 use crate::memory::{MemoryModel, T_STATES_PER_FRAME_48K, Ula};
+use crate::tape::Tape;
 use crate::video;
 use cpu_z80::Z80;
 use emu_core::{AudioConfig, Bus, Cpu, IoBus, JoystickState, KeyCode, Machine, VideoConfig};
@@ -118,6 +119,14 @@ impl<M: MemoryModel> Bus for Memory<M> {
             self.ula.tick(cycles);
         }
     }
+
+    fn refresh(&mut self, ir: u16) {
+        self.ula.refresh_contention(ir);
+    }
+
+    fn interrupt_acknowledge(&mut self, ir: u16) {
+        self.ula.interrupt_acknowledge(ir);
+    }
 }
 
 impl<M: MemoryModel> IoBus for Memory<M> {
@@ -154,10 +163,11 @@ impl<M: MemoryModel> IoBus for Memory<M> {
 pub struct Spectrum<M: MemoryModel> {
     cpu: Z80,
     memory: Memory<M>,
-    tape_data: Vec<u8>,
-    tape_pos: usize,
+    tape: Tape,
     frame_count: u32,
     prev_beeper_level: bool,
+    /// Tracks the last T-state for tape tick calculations.
+    last_tape_t_state: u32,
 }
 
 impl<M: MemoryModel> Spectrum<M> {
@@ -166,10 +176,10 @@ impl<M: MemoryModel> Spectrum<M> {
         Self {
             cpu: Z80::new(),
             memory: Memory::new(),
-            tape_data: Vec::new(),
-            tape_pos: 0,
+            tape: Tape::new(),
             frame_count: 0,
             prev_beeper_level: false,
+            last_tape_t_state: 0,
         }
     }
 
@@ -181,16 +191,41 @@ impl<M: MemoryModel> Spectrum<M> {
     /// Run one frame of emulation.
     fn run_frame_internal(&mut self) {
         self.memory.ula.start_frame();
-        self.cpu.interrupt(&mut self.memory);
+        self.last_tape_t_state = 0;
 
         while !self.memory.ula.frame_complete() {
-            // Check for tape trap
-            if self.cpu.pc() == 0x0556 {
+            // Update tape and EAR level based on elapsed T-states
+            self.update_tape();
+
+            // Check for interrupt after each instruction (Z80 samples INT at instruction end)
+            // The INT line is active for ~32 T-states at frame start
+            if self.memory.ula.int_pending() {
+                self.cpu.interrupt(&mut self.memory);
+            }
+
+            // Check for tape trap (only when instant loading is enabled)
+            if self.tape.instant_load() && self.cpu.pc() == 0x0556 {
                 self.handle_tape_load();
             }
 
             self.cpu.step(&mut self.memory);
         }
+
+        // Final tape update for remaining T-states in frame
+        self.update_tape();
+    }
+
+    /// Update tape playback and EAR level.
+    fn update_tape(&mut self) {
+        let current_t_state = self.memory.ula.frame_t_state;
+        let elapsed = current_t_state.saturating_sub(self.last_tape_t_state);
+
+        if elapsed > 0 && self.tape.is_playing() && !self.tape.instant_load() {
+            self.tape.tick(elapsed);
+            self.memory.ula.ear_level = self.tape.ear_level();
+        }
+
+        self.last_tape_t_state = current_t_state;
     }
 
     /// Get screen memory.
@@ -228,8 +263,25 @@ impl<M: MemoryModel> Spectrum<M> {
 
     /// Load tape data.
     pub fn load_tape(&mut self, data: Vec<u8>) {
-        self.tape_data = data;
-        self.tape_pos = 0;
+        self.tape.load(data);
+    }
+
+    /// Enable or disable instant tape loading.
+    ///
+    /// When enabled (default), the ROM trap at 0x0556 is used for instant loading.
+    /// When disabled, accurate pulse generation is used (supports turbo loaders).
+    pub fn set_instant_tape_load(&mut self, enabled: bool) {
+        self.tape.set_instant_load(enabled);
+    }
+
+    /// Start tape playback (for pulse-accurate loading).
+    pub fn tape_play(&mut self) {
+        self.tape.play();
+    }
+
+    /// Stop tape playback.
+    pub fn tape_stop(&mut self) {
+        self.tape.stop();
     }
 
     /// Load ROM into memory.
@@ -312,11 +364,17 @@ impl<M: MemoryModel> Spectrum<M> {
     }
 
     fn handle_tape_load(&mut self) {
-        let Some(block) = self.next_tape_block() else {
+        let Some(block) = self.tape.next_block_for_trap() else {
             self.cpu.set_carry(false);
             self.cpu.force_ret(&mut self.memory);
             return;
         };
+
+        if block.is_empty() {
+            self.cpu.set_carry(false);
+            self.cpu.force_ret(&mut self.memory);
+            return;
+        }
 
         let flag = block[0];
         let expected_flag = self.cpu.a();
@@ -329,7 +387,7 @@ impl<M: MemoryModel> Spectrum<M> {
 
         let ix = self.cpu.ix();
         let de = self.cpu.de();
-        let data = &block[1..block.len() - 1];
+        let data = &block[1..block.len().saturating_sub(1)];
         let len = (de as usize).min(data.len());
 
         for i in 0..len {
@@ -342,25 +400,6 @@ impl<M: MemoryModel> Spectrum<M> {
 
         self.cpu.set_carry(true);
         self.cpu.force_ret(&mut self.memory);
-    }
-
-    fn next_tape_block(&mut self) -> Option<Vec<u8>> {
-        if self.tape_pos + 2 > self.tape_data.len() {
-            return None;
-        }
-
-        let len = self.tape_data[self.tape_pos] as usize
-            | (self.tape_data[self.tape_pos + 1] as usize) << 8;
-
-        self.tape_pos += 2;
-
-        if self.tape_pos + len > self.tape_data.len() {
-            return None;
-        }
-
-        let block = self.tape_data[self.tape_pos..self.tape_pos + len].to_vec();
-        self.tape_pos += len;
-        Some(block)
     }
 }
 
@@ -426,10 +465,10 @@ impl<M: MemoryModel + 'static> Machine for Spectrum<M> {
     fn reset(&mut self) {
         self.cpu = Z80::new();
         self.memory.reset();
-        self.tape_data.clear();
-        self.tape_pos = 0;
+        self.tape.clear();
         self.frame_count = 0;
         self.prev_beeper_level = false;
+        self.last_tape_t_state = 0;
     }
 
     fn load_file(&mut self, path: &str, data: &[u8]) -> Result<(), String> {

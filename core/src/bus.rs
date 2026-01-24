@@ -58,4 +58,38 @@ pub trait Bus {
     fn tick_address(&mut self, _address: u32, cycles: u32) {
         self.tick(cycles)
     }
+
+    /// Handle the refresh cycle after an M1 fetch (Z80 specific).
+    ///
+    /// During the refresh cycle, the Z80 outputs the IR register (I << 8 | R)
+    /// on the address bus. On systems like the ZX Spectrum, if IR points to
+    /// contended memory, this cycle should also be contended.
+    ///
+    /// The default implementation just ticks 1 cycle, which is correct for
+    /// systems without refresh contention or non-Z80 systems.
+    ///
+    /// # Arguments
+    /// * `ir` - The IR register value (I << 8 | R)
+    fn refresh(&mut self, _ir: u16) {
+        self.tick(1)
+    }
+
+    /// Handle the interrupt acknowledge cycle (Z80 specific).
+    ///
+    /// During interrupt acknowledge, the Z80 performs a special I/O-like cycle
+    /// where both IORQ and M1 are active. The IR register is output on the
+    /// address bus during this cycle.
+    ///
+    /// On systems like the ZX Spectrum, this cycle should be contended if IR
+    /// points to contended memory. The timing is approximately 7 T-states
+    /// (5 for acknowledge + 2 internal) before the stack push begins.
+    ///
+    /// The default implementation just ticks 7 cycles, which is correct for
+    /// systems without this contention behavior.
+    ///
+    /// # Arguments
+    /// * `ir` - The IR register value (I << 8 | R)
+    fn interrupt_acknowledge(&mut self, _ir: u16) {
+        self.tick(7)
+    }
 }

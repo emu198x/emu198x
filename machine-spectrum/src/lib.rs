@@ -19,6 +19,7 @@ mod audio;
 mod input;
 mod memory;
 mod spectrum;
+mod tape;
 mod video;
 
 pub use memory::{Memory16K, Memory48K, MemoryModel};
