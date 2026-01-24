@@ -10,9 +10,9 @@
 use emu_core::KeyCode;
 
 /// Map PC key codes to C64 keyboard matrix positions.
-/// Returns (column, row) pairs.
+/// Returns (row, column) pairs for the 8x8 keyboard matrix.
 pub fn map_key(key: KeyCode) -> Option<(usize, usize)> {
-    // C64 keyboard matrix layout:
+    // C64 keyboard matrix layout (active low, accent by row then column):
     //        Col 0    Col 1    Col 2    Col 3    Col 4    Col 5    Col 6    Col 7
     // Row 0: DEL      RETURN   CRSR-R   F7       F1       F3       F5       CRSR-D
     // Row 1: 3        W        A        4        Z        S        E        SHIFT-L
@@ -24,7 +24,7 @@ pub fn map_key(key: KeyCode) -> Option<(usize, usize)> {
     // Row 7: 1        ←        CTRL     2        SPACE    C=       Q        STOP
 
     match key {
-        // Row 7 (top row)
+        // Number row
         KeyCode::Digit1 => Some((7, 0)),
         KeyCode::Digit2 => Some((7, 3)),
         KeyCode::Digit3 => Some((1, 0)),
@@ -64,23 +64,37 @@ pub fn map_key(key: KeyCode) -> Option<(usize, usize)> {
         KeyCode::KeyN => Some((4, 7)),
         KeyCode::KeyM => Some((4, 4)),
 
+        // Punctuation
+        KeyCode::Comma => Some((5, 7)),        // ,
+        KeyCode::Period => Some((5, 4)),       // .
+        KeyCode::Slash => Some((6, 7)),        // /
+        KeyCode::Semicolon => Some((6, 2)),    // ;
+        KeyCode::Quote => Some((5, 5)),        // ' maps to :
+        KeyCode::Minus => Some((5, 3)),        // -
+        KeyCode::Equal => Some((6, 5)),        // =
+        KeyCode::BracketLeft => Some((5, 5)),  // [ maps to :
+        KeyCode::BracketRight => Some((6, 1)), // ] maps to *
+        KeyCode::Backslash => Some((6, 0)),    // \ maps to £
+        KeyCode::Backquote => Some((7, 1)),    // ` maps to ←
+
         // Special keys
         KeyCode::Enter => Some((0, 1)),
         KeyCode::Space => Some((7, 4)),
         KeyCode::Backspace => Some((0, 0)), // DEL/INST
+        KeyCode::Tab => Some((7, 2)),       // Tab maps to CTRL
         KeyCode::ShiftLeft => Some((1, 7)),
         KeyCode::ShiftRight => Some((6, 4)),
         KeyCode::ControlLeft | KeyCode::ControlRight => Some((7, 2)),
         KeyCode::AltLeft | KeyCode::AltRight => Some((7, 5)), // C= key
-        KeyCode::Escape => Some((7, 7)), // RUN/STOP
+        KeyCode::Escape => Some((7, 7)),                      // RUN/STOP
 
         // Cursor keys
         KeyCode::ArrowRight => Some((0, 2)),
         KeyCode::ArrowDown => Some((0, 7)),
         // Arrow Left = Shift + Cursor Right
         // Arrow Up = Shift + Cursor Down (handled in caller)
-        KeyCode::ArrowLeft => Some((0, 2)),  // Same as right, needs shift
-        KeyCode::ArrowUp => Some((0, 7)),    // Same as down, needs shift
+        KeyCode::ArrowLeft => Some((0, 2)), // Same as right, needs shift
+        KeyCode::ArrowUp => Some((0, 7)),   // Same as down, needs shift
 
         // Function keys
         KeyCode::F1 => Some((0, 4)),
@@ -100,6 +114,11 @@ pub fn map_key(key: KeyCode) -> Option<(usize, usize)> {
 pub fn needs_shift(key: KeyCode) -> bool {
     matches!(
         key,
-        KeyCode::ArrowLeft | KeyCode::ArrowUp | KeyCode::F2 | KeyCode::F4 | KeyCode::F6 | KeyCode::F8
+        KeyCode::ArrowLeft
+            | KeyCode::ArrowUp
+            | KeyCode::F2
+            | KeyCode::F4
+            | KeyCode::F6
+            | KeyCode::F8
     )
 }

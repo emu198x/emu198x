@@ -40,7 +40,7 @@ impl Mos6502 {
             y: 0,
             sp: 0xFD, // After reset, SP is $FD
             pc: 0,
-            p: 0x24,  // I flag set, bit 5 always 1
+            p: 0x24, // I flag set, bit 5 always 1
             nmi_pending: false,
             irq_pending: false,
         }
@@ -120,10 +120,7 @@ impl Mos6502 {
         let result8 = result as u8;
 
         self.set_flag(FLAG_C, result > 0xFF);
-        self.set_flag(
-            FLAG_V,
-            (self.a ^ result8) & (value ^ result8) & 0x80 != 0,
-        );
+        self.set_flag(FLAG_V, (self.a ^ result8) & (value ^ result8) & 0x80 != 0);
         self.set_zn(result8);
         self.a = result8;
     }
@@ -148,10 +145,7 @@ impl Mos6502 {
         let br16 = binary_result as u16;
         self.set_flag(FLAG_Z, binary_result == 0);
         self.set_flag(FLAG_N, high & 0x08 != 0);
-        self.set_flag(
-            FLAG_V,
-            ((a ^ br16) & (v ^ br16) & 0x80) != 0,
-        );
+        self.set_flag(FLAG_V, ((a ^ br16) & (v ^ br16) & 0x80) != 0);
 
         if high > 9 {
             high += 6;
@@ -179,10 +173,7 @@ impl Mos6502 {
         let result8 = result as u8;
 
         self.set_flag(FLAG_C, result < 0x100);
-        self.set_flag(
-            FLAG_V,
-            (self.a ^ value) & (self.a ^ result8) & 0x80 != 0,
-        );
+        self.set_flag(FLAG_V, (self.a ^ value) & (self.a ^ result8) & 0x80 != 0);
         self.set_zn(result8);
         self.a = result8;
     }
@@ -299,7 +290,7 @@ impl<B: Bus> Cpu<B> for Mos6502 {
 
         // Initial state after reset
         self.sp = 0xFD; // SP decremented by 3 during reset (but no actual writes)
-        self.p = 0x24;  // I flag set, bit 5 always 1
+        self.p = 0x24; // I flag set, bit 5 always 1
         self.a = 0;
         self.x = 0;
         self.y = 0;
@@ -584,7 +575,6 @@ impl Mos6502 {
             // =====================================================================
             // Register Transfers
             // =====================================================================
-
             0xAA => {
                 // TAX (Transfer A to X)
                 bus.tick(1);
@@ -630,7 +620,6 @@ impl Mos6502 {
             // =====================================================================
             // Stack Operations
             // =====================================================================
-
             0x48 => {
                 // PHA (Push A)
                 bus.tick(1);
@@ -1500,7 +1489,6 @@ impl Mos6502 {
             // =====================================================================
             // Branch Operations
             // =====================================================================
-
             0x10 => {
                 // BPL - Branch if Plus (N = 0)
                 2 + self.branch_if(bus, !self.negative())
@@ -1537,7 +1525,6 @@ impl Mos6502 {
             // =====================================================================
             // Status Flag Operations
             // =====================================================================
-
             0x18 => {
                 // CLC - Clear Carry
                 bus.tick(1);
@@ -1584,7 +1571,6 @@ impl Mos6502 {
             // =====================================================================
             // System Operations
             // =====================================================================
-
             0x00 => {
                 // BRK - Software Interrupt
                 self.fetch(bus); // Padding byte (ignored but fetched)
@@ -1649,7 +1635,11 @@ impl Mos6502 {
 
             // Unknown/illegal opcode
             _ => {
-                panic!("Unimplemented opcode: ${:02X} at PC=${:04X}", opcode, self.pc.wrapping_sub(1));
+                panic!(
+                    "Unimplemented opcode: ${:02X} at PC=${:04X}",
+                    opcode,
+                    self.pc.wrapping_sub(1)
+                );
             }
         }
     }

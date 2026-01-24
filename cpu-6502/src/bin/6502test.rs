@@ -53,7 +53,9 @@ fn main() {
             eprintln!("2. Assemble 6502_functional_test.a65 with origin at $0000");
             eprintln!("3. Place the binary at test-roms/6502_functional_test.bin");
             eprintln!();
-            eprintln!("Or specify the path: cargo run -p cpu-6502 --bin 6502test -- /path/to/test.bin");
+            eprintln!(
+                "Or specify the path: cargo run -p cpu-6502 --bin 6502test -- /path/to/test.bin"
+            );
             std::process::exit(1);
         }
     };
@@ -142,7 +144,11 @@ fn main() {
 
         // Progress indicator every million instructions
         if instruction_count % 1_000_000 == 0 {
-            print!("\rExecuted {} million instructions, PC=${:04X}...", instruction_count / 1_000_000, cpu.pc());
+            print!(
+                "\rExecuted {} million instructions, PC=${:04X}...",
+                instruction_count / 1_000_000,
+                cpu.pc()
+            );
             use std::io::Write;
             std::io::stdout().flush().unwrap();
         }

@@ -40,6 +40,8 @@ pub struct Memory {
     pub(crate) cycles: u32,
     /// Keyboard matrix (directly in Memory for CIA access)
     pub(crate) keyboard_matrix: [u8; 8],
+    /// Pending SID writes (register, value)
+    pub(crate) sid_writes: Vec<(u8, u8)>,
 }
 
 /// CIA (Complex Interface Adapter) chip state.
@@ -91,7 +93,7 @@ impl Memory {
             basic_rom: [0; 8192],
             kernal_rom: [0; 8192],
             char_rom: [0; 4096],
-            port_ddr: 0x2F, // Default DDR
+            port_ddr: 0x2F,  // Default DDR
             port_data: 0x37, // Default: all ROMs visible, I/O enabled
             vic_registers: [0; 64],
             sid_registers: [0; 32],
@@ -100,6 +102,7 @@ impl Memory {
             color_ram: [0; 1024],
             cycles: 0,
             keyboard_matrix: [0xFF; 8], // All keys released
+            sid_writes: Vec::new(),
         }
     }
 
@@ -160,9 +163,12 @@ impl Memory {
                 self.read_vic(reg)
             }
             // SID ($D400-$D7FF, mirrors every 32 bytes)
+            // Most SID registers are write-only, return last written value
             0xD400..=0xD7FF => {
-                let reg = (addr & 0x1F) as usize;
-                self.sid_registers[reg]
+                let reg = (addr & 0x1F) as u8;
+                // Only $1B (osc3 output) and $1C (env3 output) are readable
+                // Return cached value; actual read happens in C64::read_sid
+                self.sid_registers[reg as usize]
             }
             // Color RAM ($D800-$DBFF)
             0xD800..=0xDBFF => {
@@ -195,8 +201,10 @@ impl Memory {
             }
             // SID ($D400-$D7FF)
             0xD400..=0xD7FF => {
-                let reg = (addr & 0x1F) as usize;
-                self.sid_registers[reg] = value;
+                let reg = (addr & 0x1F) as u8;
+                self.sid_registers[reg as usize] = value;
+                // Queue for the actual SID chip
+                self.sid_writes.push((reg, value));
             }
             // Color RAM ($D800-$DBFF)
             0xD800..=0xDBFF => {
@@ -447,6 +455,7 @@ impl Memory {
         self.color_ram = [0; 1024];
         self.cycles = 0;
         self.keyboard_matrix = [0xFF; 8];
+        self.sid_writes.clear();
 
         // Initialize VIC-II to sensible defaults
         self.vic_registers[0x11] = 0x1B; // Screen on, 25 rows
@@ -474,9 +483,7 @@ impl Memory {
         let physical = bank.wrapping_add(addr);
 
         // Check for Character ROM at $1000-$1FFF or $9000-$9FFF in bank 0 or 2
-        if (bank == 0x0000 || bank == 0x8000)
-            && (addr & 0x3000 == 0x1000)
-        {
+        if (bank == 0x0000 || bank == 0x8000) && (addr & 0x3000 == 0x1000) {
             return self.char_rom[(addr & 0x0FFF) as usize];
         }
 

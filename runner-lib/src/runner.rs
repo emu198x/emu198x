@@ -247,8 +247,8 @@ impl<M: Machine> ApplicationHandler for Runner<M> {
                 if let PhysicalKey::Code(keycode) = event.physical_key {
                     match event.state {
                         ElementState::Pressed => {
-                            // Toggle CRT on F1
-                            if keycode == WinitKeyCode::F1 && !event.repeat {
+                            // Toggle CRT on F12 (avoids conflict with C64's F1-F8)
+                            if keycode == WinitKeyCode::F12 && !event.repeat {
                                 self.toggle_crt();
                             }
 
@@ -267,8 +267,12 @@ impl<M: Machine> ApplicationHandler for Runner<M> {
                             }
                         }
                     }
-                    // Check for Escape to exit
-                    if keycode == WinitKeyCode::Escape && event.state == ElementState::Pressed {
+                    // Ctrl+Q to quit (Escape is used by C64 for RUN/STOP)
+                    if keycode == WinitKeyCode::KeyQ
+                        && event.state == ElementState::Pressed
+                        && (self.keys_pressed.contains(&WinitKeyCode::ControlLeft)
+                            || self.keys_pressed.contains(&WinitKeyCode::ControlRight))
+                    {
                         event_loop.exit();
                     }
                 }
@@ -440,6 +444,19 @@ fn convert_keycode(keycode: WinitKeyCode) -> Option<KeyCode> {
         WinitKeyCode::F10 => Some(KeyCode::F10),
         WinitKeyCode::F11 => Some(KeyCode::F11),
         WinitKeyCode::F12 => Some(KeyCode::F12),
+
+        // Punctuation
+        WinitKeyCode::Comma => Some(KeyCode::Comma),
+        WinitKeyCode::Period => Some(KeyCode::Period),
+        WinitKeyCode::Slash => Some(KeyCode::Slash),
+        WinitKeyCode::Semicolon => Some(KeyCode::Semicolon),
+        WinitKeyCode::Quote => Some(KeyCode::Quote),
+        WinitKeyCode::BracketLeft => Some(KeyCode::BracketLeft),
+        WinitKeyCode::BracketRight => Some(KeyCode::BracketRight),
+        WinitKeyCode::Backslash => Some(KeyCode::Backslash),
+        WinitKeyCode::Minus => Some(KeyCode::Minus),
+        WinitKeyCode::Equal => Some(KeyCode::Equal),
+        WinitKeyCode::Backquote => Some(KeyCode::Backquote),
 
         _ => None,
     }

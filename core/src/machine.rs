@@ -129,6 +129,19 @@ pub enum KeyCode {
     F10,
     F11,
     F12,
+
+    // Punctuation
+    Comma,
+    Period,
+    Slash,
+    Semicolon,
+    Quote,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    Minus,
+    Equal,
+    Backquote,
 }
 
 /// Trait for emulated machines.

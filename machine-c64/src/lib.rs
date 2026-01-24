@@ -22,6 +22,7 @@
 mod c64;
 mod input;
 mod memory;
+mod sid;
 mod vic;
 
 pub use c64::C64;

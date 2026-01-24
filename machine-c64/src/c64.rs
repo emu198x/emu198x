@@ -2,7 +2,8 @@
 
 use crate::input;
 use crate::memory::Memory;
-use crate::vic::{self, Vic, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+use crate::sid::Sid;
+use crate::vic::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH, Vic};
 use cpu_6502::Mos6502;
 use emu_core::{AudioConfig, Cpu, JoystickState, KeyCode, Machine, VideoConfig};
 
@@ -15,11 +16,15 @@ pub const SAMPLE_RATE: u32 = 44100;
 /// Samples per frame at 50Hz
 pub const SAMPLES_PER_FRAME: usize = 882;
 
+/// CPU clock speed (PAL)
+const CPU_CLOCK: u32 = 985248;
+
 /// Commodore 64 emulator.
 pub struct C64 {
     cpu: Mos6502,
     memory: Memory,
     vic: Vic,
+    sid: Sid,
     frame_cycles: u32,
 }
 
@@ -29,6 +34,7 @@ impl C64 {
             cpu: Mos6502::new(),
             memory: Memory::new(),
             vic: Vic::new(),
+            sid: Sid::new(),
             frame_cycles: 0,
         };
         c64.memory.reset();
@@ -97,6 +103,18 @@ impl C64 {
             let elapsed = self.memory.cycles - prev_cycles;
             self.frame_cycles = self.memory.cycles;
 
+            // Process pending SID register writes
+            for (reg, value) in self.memory.sid_writes.drain(..) {
+                self.sid.write(reg, value);
+            }
+
+            // Tick SID oscillators and envelopes
+            self.sid.tick(elapsed);
+
+            // Update readable SID registers
+            self.memory.sid_registers[0x1B] = self.sid.read(0x1B);
+            self.memory.sid_registers[0x1C] = self.sid.read(0x1C);
+
             // Update raster line (approximate: 63 cycles per line for PAL)
             self.vic.raster_line = (self.frame_cycles / 63) as u16;
 
@@ -159,10 +177,7 @@ impl Machine for C64 {
     }
 
     fn generate_audio(&mut self, buffer: &mut [f32]) {
-        // SID audio stub - just silence for now
-        for sample in buffer.iter_mut() {
-            *sample = 0.0;
-        }
+        self.sid.generate_samples(buffer, CPU_CLOCK, SAMPLE_RATE);
     }
 
     fn key_down(&mut self, key: KeyCode) {
@@ -224,6 +239,7 @@ impl Machine for C64 {
     fn reset(&mut self) {
         self.memory.reset();
         self.vic.reset();
+        self.sid.reset();
         self.cpu.reset(&mut self.memory);
         self.frame_cycles = 0;
     }
