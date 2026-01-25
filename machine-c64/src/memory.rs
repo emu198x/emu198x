@@ -9,7 +9,14 @@
 //! - Bits 3-5: Cassette/other I/O
 //!
 //! Default value is $37 (all ROMs visible, I/O enabled).
+//!
+//! Cartridges modify memory banking via GAME and EXROM lines:
+//! - EXROM=1, GAME=1: Normal (no cartridge effect)
+//! - EXROM=0, GAME=1: 8K cart at $8000-$9FFF
+//! - EXROM=0, GAME=0: 16K cart at $8000-$9FFF and $A000-$BFFF
+//! - EXROM=1, GAME=0: Ultimax mode (ROML at $8000, ROMH at $E000)
 
+use crate::cartridge::Cartridge;
 use emu_core::Bus;
 
 /// C64 memory subsystem.
@@ -46,6 +53,8 @@ pub struct Memory {
     pub current_raster_line: u16,
     /// Tape signal input (directly set by Tape for accurate $01 bit 4 reads)
     pub tape_signal: bool,
+    /// Inserted cartridge
+    pub cartridge: Cartridge,
 }
 
 /// CIA (Complex Interface Adapter) chip state.
@@ -123,6 +132,7 @@ impl Memory {
             sid_writes: Vec::new(),
             current_raster_line: 0,
             tape_signal: false,
+            cartridge: Cartridge::none(),
         }
     }
 
@@ -170,8 +180,44 @@ impl Memory {
     /// Check if Character ROM is visible.
     fn char_visible(&self) -> bool {
         // Char ROM visible when CHAREN=0 and (LORAM=1 or HIRAM=1)
+        // In Ultimax mode, char ROM is never visible
+        if self.is_ultimax_mode() {
+            return false;
+        }
         let cfg = self.config();
         (cfg & 0x04 == 0) && (cfg & 0x03 != 0)
+    }
+
+    /// Check if cartridge ROML is visible at $8000-$9FFF.
+    fn roml_visible(&self) -> bool {
+        if !self.cartridge.is_inserted() {
+            return false;
+        }
+        // ROML visible when EXROM is active (low)
+        self.cartridge.exrom_active()
+    }
+
+    /// Check if cartridge ROMH is visible at $A000-$BFFF.
+    fn romh_at_a000(&self) -> bool {
+        if !self.cartridge.is_inserted() {
+            return false;
+        }
+        // ROMH at $A000 in 16K mode (EXROM=0, GAME=0)
+        self.cartridge.exrom_active() && self.cartridge.game_active()
+    }
+
+    /// Check if cartridge ROMH is visible at $E000-$FFFF (Ultimax mode).
+    fn romh_at_e000(&self) -> bool {
+        if !self.cartridge.is_inserted() {
+            return false;
+        }
+        // ROMH at $E000 in Ultimax mode (EXROM=1, GAME=0)
+        !self.cartridge.exrom_active() && self.cartridge.game_active()
+    }
+
+    /// Check if we're in Ultimax mode.
+    fn is_ultimax_mode(&self) -> bool {
+        self.cartridge.is_inserted() && !self.cartridge.exrom_active() && self.cartridge.game_active()
     }
 
     /// Read from I/O space ($D000-$DFFF).
@@ -258,8 +304,14 @@ impl Memory {
                     _ => 0xFF,
                 }
             }
-            // I/O expansion areas
-            0xDE00..=0xDFFF => 0xFF, // Open bus
+            // I/O expansion areas - cartridge I/O
+            0xDE00..=0xDFFF => {
+                if let Some(value) = self.cartridge.read_io(addr) {
+                    value
+                } else {
+                    0xFF // Open bus
+                }
+            }
             _ => unreachable!(),
         }
     }
@@ -294,8 +346,10 @@ impl Memory {
                 let reg = (addr & 0x0F) as usize;
                 self.write_cia2(reg, value);
             }
-            // I/O expansion areas - ignored
-            0xDE00..=0xDFFF => {}
+            // I/O expansion areas - cartridge I/O
+            0xDE00..=0xDFFF => {
+                self.cartridge.write_io(addr, value);
+            }
             _ => unreachable!(),
         }
     }
@@ -836,12 +890,34 @@ impl Memory {
         self.current_raster_line = 0;
         self.tape_signal = false;
 
+        // Reset cartridge bank selection (but keep it inserted)
+        if self.cartridge.is_inserted() {
+            self.cartridge.current_bank_lo = 0;
+            self.cartridge.current_bank_hi = 0;
+            self.cartridge.active = true;
+        }
+
         // Initialize VIC-II to sensible defaults
         self.vic_registers[0x11] = 0x1B; // Screen on, 25 rows
         self.vic_registers[0x16] = 0xC8; // 40 columns
         self.vic_registers[0x18] = 0x15; // Screen at $0400, chars at $1000
         self.vic_registers[0x20] = 0x0E; // Border: light blue
         self.vic_registers[0x21] = 0x06; // Background: blue
+    }
+
+    /// Insert a cartridge.
+    pub fn insert_cartridge(&mut self, cartridge: Cartridge) {
+        self.cartridge = cartridge;
+    }
+
+    /// Remove the cartridge.
+    pub fn remove_cartridge(&mut self) {
+        self.cartridge = Cartridge::none();
+    }
+
+    /// Check if a cartridge is inserted.
+    pub fn has_cartridge(&self) -> bool {
+        self.cartridge.is_inserted()
     }
 
     /// Get screen memory pointer for VIC-II.
@@ -894,12 +970,27 @@ impl Bus for Memory {
                 let tape_bit = if self.tape_signal { 0 } else { 0x10 };
                 (self.port_data & self.port_ddr) | (!self.port_ddr & 0xC0) | tape_bit
             }
-            // Zero page and stack (always RAM)
+            // Zero page and stack (always RAM, but not in Ultimax mode for some addresses)
             0x0002..=0x01FF => self.ram[addr as usize],
-            // RAM
-            0x0200..=0x9FFF => self.ram[addr as usize],
-            // BASIC ROM or RAM ($A000-$BFFF)
+            // RAM $0200-$7FFF
+            0x0200..=0x7FFF => self.ram[addr as usize],
+            // Cartridge ROML or RAM ($8000-$9FFF)
+            0x8000..=0x9FFF => {
+                if self.roml_visible() {
+                    if let Some(value) = self.cartridge.read_roml(addr) {
+                        return value;
+                    }
+                }
+                self.ram[addr as usize]
+            }
+            // BASIC ROM, Cartridge ROMH, or RAM ($A000-$BFFF)
             0xA000..=0xBFFF => {
+                // In 16K cartridge mode, ROMH replaces BASIC
+                if self.romh_at_a000() {
+                    if let Some(value) = self.cartridge.read_romh(addr) {
+                        return value;
+                    }
+                }
                 if self.basic_visible() {
                     self.basic_rom[(addr - 0xA000) as usize]
                 } else {
@@ -918,8 +1009,14 @@ impl Bus for Memory {
                     self.ram[addr as usize]
                 }
             }
-            // KERNAL ROM or RAM ($E000-$FFFF)
+            // KERNAL ROM, Cartridge ROMH (Ultimax), or RAM ($E000-$FFFF)
             0xE000..=0xFFFF => {
+                // In Ultimax mode, ROMH is at $E000
+                if self.romh_at_e000() {
+                    if let Some(value) = self.cartridge.read_romh(addr) {
+                        return value;
+                    }
+                }
                 if self.kernal_visible() {
                     self.kernal_rom[(addr - 0xE000) as usize]
                 } else {

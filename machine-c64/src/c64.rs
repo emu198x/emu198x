@@ -1,5 +1,6 @@
 //! Commodore 64 emulator.
 
+use crate::cartridge::Cartridge;
 use crate::config::{MachineConfig, MachineVariant, SidRevision, TimingMode};
 use crate::disk::Disk;
 use crate::input;
@@ -241,6 +242,44 @@ impl C64 {
         if let Some(ref mut disk) = self.disk {
             disk.set_audio_enabled(enabled);
         }
+    }
+
+    /// Load a cartridge from .crt file data.
+    pub fn load_cartridge(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        let cartridge = Cartridge::load_crt(data)?;
+        self.memory.insert_cartridge(cartridge);
+        Ok(())
+    }
+
+    /// Load a raw cartridge ROM (8K or 16K).
+    pub fn load_cartridge_raw(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        let cartridge = Cartridge::load_raw(data)?;
+        self.memory.insert_cartridge(cartridge);
+        Ok(())
+    }
+
+    /// Remove the inserted cartridge.
+    pub fn remove_cartridge(&mut self) {
+        self.memory.remove_cartridge();
+    }
+
+    /// Check if a cartridge is inserted.
+    pub fn has_cartridge(&self) -> bool {
+        self.memory.has_cartridge()
+    }
+
+    /// Get cartridge name (if inserted).
+    pub fn cartridge_name(&self) -> Option<&str> {
+        if self.memory.has_cartridge() {
+            Some(self.memory.cartridge.name())
+        } else {
+            None
+        }
+    }
+
+    /// Check if cartridge has autostart signature (CBM80).
+    pub fn cartridge_has_autostart(&self) -> bool {
+        self.memory.cartridge.has_autostart()
     }
 
     /// Save machine state to a snapshot.
@@ -649,6 +688,11 @@ impl Machine for C64 {
             self.load_t64_program()
                 .map(|_| ())
                 .ok_or_else(|| "No programs in T64 file".to_string())
+        } else if lower.ends_with(".crt") {
+            // Load cartridge and reset to start it
+            self.load_cartridge(data).map_err(|e| e.to_string())?;
+            self.reset();
+            Ok(())
         } else if lower.ends_with("basic.bin") || lower.ends_with("basic.rom") {
             self.load_basic(data);
             Ok(())

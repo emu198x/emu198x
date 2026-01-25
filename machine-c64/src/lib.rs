@@ -30,6 +30,7 @@
 //! - `.t64` - T64 tape archives (instant load)
 
 mod c64;
+mod cartridge;
 mod config;
 mod disk;
 mod input;
@@ -41,6 +42,7 @@ mod tap;
 mod vic;
 
 pub use c64::C64;
+pub use cartridge::{Cartridge, CartridgeType};
 pub use config::{MachineConfig, MachineVariant, SidRevision, TimingMode, VicRevision};
 pub use disk::{Disk, DiskAudioEvent};
 pub use palette::{Color, PALETTE_PEPTO, PALETTE_VICE, Palette, palette_for_revision};
