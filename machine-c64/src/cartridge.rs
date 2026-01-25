@@ -126,6 +126,10 @@ pub struct Cartridge {
     pub exrom: bool,
     /// GAME line state (directly from CRT header)
     pub game: bool,
+    /// Initial EXROM state (for reset)
+    initial_exrom: bool,
+    /// Initial GAME state (for reset)
+    initial_game: bool,
     /// Cartridge name (from CRT header)
     pub name: String,
     /// ROM chips
@@ -138,6 +142,8 @@ pub struct Cartridge {
     pub ram: Vec<u8>,
     /// Whether cartridge is active (some can be disabled)
     pub active: bool,
+    /// Epyx Fastload capacitor charge (counts down, disables at 0)
+    epyx_capacitor: u32,
 }
 
 impl Default for Cartridge {
@@ -153,12 +159,49 @@ impl Cartridge {
             cart_type: CartridgeType::Normal,
             exrom: true, // High = no effect
             game: true,  // High = no effect
+            initial_exrom: true,
+            initial_game: true,
             name: String::new(),
             chips: Vec::new(),
             current_bank_lo: 0,
             current_bank_hi: 0,
             ram: Vec::new(),
             active: false,
+            epyx_capacitor: 0,
+        }
+    }
+
+    /// Reset cartridge to initial state (called on C64 reset).
+    pub fn reset(&mut self) {
+        self.exrom = self.initial_exrom;
+        self.game = self.initial_game;
+        self.current_bank_lo = 0;
+        self.current_bank_hi = 0;
+        if self.cart_type == CartridgeType::EpyxFastload {
+            self.epyx_capacitor = 512; // ~512 cycles before timeout
+        }
+        // Re-enable if it was disabled by software
+        if !self.chips.is_empty() {
+            self.active = true;
+        }
+    }
+
+    /// Tick the cartridge (for time-based cartridge behavior).
+    /// Called once per CPU cycle.
+    pub fn tick(&mut self) {
+        match self.cart_type {
+            CartridgeType::EpyxFastload => {
+                // Epyx Fastload uses a capacitor that discharges over time
+                if self.epyx_capacitor > 0 {
+                    self.epyx_capacitor -= 1;
+                    if self.epyx_capacitor == 0 {
+                        // Capacitor discharged - cartridge becomes invisible
+                        self.exrom = true;
+                        self.game = true;
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -178,14 +221,35 @@ impl Cartridge {
     }
 
     /// Read from ROML area ($8000-$9FFF).
-    pub fn read_roml(&self, addr: u16) -> Option<u8> {
+    pub fn read_roml(&mut self, addr: u16) -> Option<u8> {
         if !self.active {
             return None;
         }
 
-        let offset = (addr - 0x8000) as usize;
-        self.find_chip(0x8000, self.current_bank_lo)
-            .and_then(|chip| chip.data.get(offset).copied())
+        match self.cart_type {
+            CartridgeType::Zaxxon => {
+                // Zaxxon has special mirrored ROM behavior:
+                // - $8000-$8FFF: First 4K, also selects bank based on A12
+                // - $9000-$9FFF: Second 4K from selected bank
+                let offset = (addr & 0x0FFF) as usize;
+                if addr < 0x9000 {
+                    // Reading $8000-$8FFF selects bank 0 and returns first chip
+                    self.current_bank_lo = 0;
+                    self.find_chip(0x8000, 0)
+                        .and_then(|chip| chip.data.get(offset).copied())
+                } else {
+                    // Reading $9000-$9FFF selects bank 1 and returns from offset+4K
+                    self.current_bank_lo = 1;
+                    self.find_chip(0x8000, 0)
+                        .and_then(|chip| chip.data.get(offset + 0x1000).copied())
+                }
+            }
+            _ => {
+                let offset = (addr - 0x8000) as usize;
+                self.find_chip(0x8000, self.current_bank_lo)
+                    .and_then(|chip| chip.data.get(offset).copied())
+            }
+        }
     }
 
     /// Read from ROMH area ($A000-$BFFF or $E000-$FFFF in Ultimax mode).
@@ -221,7 +285,11 @@ impl Cartridge {
         }
 
         match self.cart_type {
-            CartridgeType::Normal => false, // Normal carts don't handle I/O writes
+            CartridgeType::Normal | CartridgeType::SimonsBasic => {
+                // Normal carts don't handle I/O writes
+                // Simons' BASIC uses standard 16K mode
+                false
+            }
 
             CartridgeType::Ocean1 => {
                 // Ocean type 1: bank select via $DE00
@@ -259,12 +327,83 @@ impl Cartridge {
                 }
             }
 
+            CartridgeType::EasyFlash => {
+                // EasyFlash: $DE00 = bank, $DE02 = control
+                match addr {
+                    0xDE00 => {
+                        // Bank register (6 bits = 64 banks)
+                        self.current_bank_lo = (value & 0x3F) as usize;
+                        self.current_bank_hi = self.current_bank_lo;
+                        true
+                    }
+                    0xDE02 => {
+                        // Control register:
+                        // Bit 0: GAME (directly controls line)
+                        // Bit 1: EXROM (directly controls line)
+                        // Bit 2: LED (ignored in emulation)
+                        // Bit 7: NMI (active low, ignored for now)
+                        self.game = value & 0x01 == 0;
+                        self.exrom = value & 0x02 == 0;
+                        true
+                    }
+                    _ => false,
+                }
+            }
+
+            CartridgeType::SuperGames | CartridgeType::FunPlay => {
+                // Super Games / Fun Play: $DF00 = bank and mode control
+                if addr == 0xDF00 {
+                    let bank = (value & 0x03) as usize;
+                    self.current_bank_lo = bank;
+                    self.current_bank_hi = bank;
+
+                    if value & 0x04 != 0 {
+                        // Bit 2: disable cartridge
+                        self.active = false;
+                    } else if value & 0x08 != 0 {
+                        // Bit 3: 16K mode (GAME=0, EXROM=0)
+                        self.game = false;
+                        self.exrom = false;
+                    } else {
+                        // 8K mode (GAME=1, EXROM=0)
+                        self.game = true;
+                        self.exrom = false;
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+
+            CartridgeType::Comal80 => {
+                // Comal-80: $DE00 = bank select
+                if addr == 0xDE00 {
+                    self.current_bank_lo = (value & 0x03) as usize;
+                    self.current_bank_hi = self.current_bank_lo;
+                    // Bit 7 controls EXROM (active low)
+                    self.exrom = value & 0x80 == 0;
+                    true
+                } else {
+                    false
+                }
+            }
+
+            CartridgeType::Zaxxon => {
+                // Zaxxon doesn't use I/O writes - bank select is via ROM reads
+                false
+            }
+
+            CartridgeType::EpyxFastload => {
+                // Epyx Fastload doesn't use I/O writes
+                false
+            }
+
             _ => false,
         }
     }
 
     /// Read from cartridge I/O area ($DE00-$DFFF).
-    pub fn read_io(&self, addr: u16) -> Option<u8> {
+    pub fn read_io(&mut self, addr: u16) -> Option<u8> {
         if !self.active {
             return None;
         }
@@ -279,8 +418,50 @@ impl Cartridge {
                     None
                 }
             }
+
+            CartridgeType::EpyxFastload => {
+                // Reading $DF00-$DFFF resets the capacitor and re-enables the cartridge
+                if (0xDF00..=0xDFFF).contains(&addr) {
+                    self.epyx_capacitor = 512;
+                    self.exrom = false;
+                    self.game = true;
+                    Some(0xFF) // Open bus
+                } else {
+                    None
+                }
+            }
+
+            CartridgeType::EasyFlash => {
+                // EasyFlash: reads from $DE00 area return open bus
+                if (0xDE00..=0xDEFF).contains(&addr) {
+                    Some(0xFF)
+                } else {
+                    None
+                }
+            }
+
             _ => None,
         }
+    }
+
+    /// Read from $9E00-$9EFF area (special handling for Epyx Fastload).
+    /// Call this from the memory read handler.
+    pub fn read_roml_9exx(&mut self, addr: u16) -> Option<u8> {
+        if !self.active {
+            return None;
+        }
+
+        if self.cart_type == CartridgeType::EpyxFastload && (0x9E00..=0x9EFF).contains(&addr) {
+            // Reading $9E00-$9EFF resets the Epyx capacitor
+            self.epyx_capacitor = 512;
+            self.exrom = false;
+            self.game = true;
+        }
+
+        // Return the actual ROM data
+        let offset = (addr - 0x8000) as usize;
+        self.find_chip(0x8000, self.current_bank_lo)
+            .and_then(|chip| chip.data.get(offset).copied())
     }
 
     /// Load a .crt cartridge image.
@@ -319,7 +500,13 @@ impl Cartridge {
             | CartridgeType::MagicDesk
             | CartridgeType::Dinamic
             | CartridgeType::C64GameSystem
-            | CartridgeType::SimonsBasic => {}
+            | CartridgeType::SimonsBasic
+            | CartridgeType::EasyFlash
+            | CartridgeType::Zaxxon
+            | CartridgeType::EpyxFastload
+            | CartridgeType::SuperGames
+            | CartridgeType::FunPlay
+            | CartridgeType::Comal80 => {}
             CartridgeType::Unknown => return Err("Unknown cartridge type"),
             _ => return Err("Unsupported cartridge type (bank switching not implemented)"),
         }
@@ -369,16 +556,33 @@ impl Cartridge {
             return Err("No ROM chips found in CRT");
         }
 
+        // EasyFlash needs RAM for save data
+        let ram = if cart_type == CartridgeType::EasyFlash {
+            vec![0xFF; 256] // 256 bytes of RAM at $DF00
+        } else {
+            Vec::new()
+        };
+
+        // Epyx Fastload starts with capacitor charged
+        let epyx_capacitor = if cart_type == CartridgeType::EpyxFastload {
+            512
+        } else {
+            0
+        };
+
         Ok(Self {
             cart_type,
             exrom,
             game,
+            initial_exrom: exrom,
+            initial_game: game,
             name,
             chips,
             current_bank_lo: 0,
             current_bank_hi: 0,
-            ram: Vec::new(),
+            ram,
             active: true,
+            epyx_capacitor,
         })
     }
 
@@ -391,6 +595,8 @@ impl Cartridge {
                     cart_type: CartridgeType::Normal,
                     exrom: false, // Active
                     game: true,   // 8K mode
+                    initial_exrom: false,
+                    initial_game: true,
                     name: String::from("8K Cartridge"),
                     chips: vec![CartridgeChip {
                         chip_type: 0,
@@ -402,6 +608,7 @@ impl Cartridge {
                     current_bank_hi: 0,
                     ram: Vec::new(),
                     active: true,
+                    epyx_capacitor: 0,
                 })
             }
             16384 => {
@@ -410,6 +617,8 @@ impl Cartridge {
                     cart_type: CartridgeType::Normal,
                     exrom: false, // Active
                     game: false,  // 16K mode
+                    initial_exrom: false,
+                    initial_game: false,
                     name: String::from("16K Cartridge"),
                     chips: vec![
                         CartridgeChip {
@@ -429,6 +638,7 @@ impl Cartridge {
                     current_bank_hi: 0,
                     ram: Vec::new(),
                     active: true,
+                    epyx_capacitor: 0,
                 })
             }
             _ => Err("Invalid ROM size (expected 8K or 16K)"),

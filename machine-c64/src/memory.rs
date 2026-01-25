@@ -890,12 +890,8 @@ impl Memory {
         self.current_raster_line = 0;
         self.tape_signal = false;
 
-        // Reset cartridge bank selection (but keep it inserted)
-        if self.cartridge.is_inserted() {
-            self.cartridge.current_bank_lo = 0;
-            self.cartridge.current_bank_hi = 0;
-            self.cartridge.active = true;
-        }
+        // Reset cartridge (bank selection, GAME/EXROM lines, etc.)
+        self.cartridge.reset();
 
         // Initialize VIC-II to sensible defaults
         self.vic_registers[0x11] = 0x1B; // Screen on, 25 rows
@@ -977,6 +973,10 @@ impl Bus for Memory {
             // Cartridge ROML or RAM ($8000-$9FFF)
             0x8000..=0x9FFF => {
                 if self.roml_visible() {
+                    // Epyx Fastload has special handling for $9E00-$9EFF
+                    if let Some(value) = self.cartridge.read_roml_9exx(addr) {
+                        return value;
+                    }
                     if let Some(value) = self.cartridge.read_roml(addr) {
                         return value;
                     }
@@ -1047,5 +1047,9 @@ impl Bus for Memory {
 
     fn tick(&mut self, cycles: u32) {
         self.cycles += cycles;
+        // Tick cartridge for time-based behavior (e.g., Epyx Fastload capacitor)
+        for _ in 0..cycles {
+            self.cartridge.tick();
+        }
     }
 }
