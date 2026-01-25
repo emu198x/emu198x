@@ -42,6 +42,8 @@ pub struct Memory {
     pub(crate) keyboard_matrix: [u8; 8],
     /// Pending SID writes (register, value)
     pub(crate) sid_writes: Vec<(u8, u8)>,
+    /// Current raster line (synced from VIC for accurate $D011/$D012 reads)
+    pub current_raster_line: u16,
 }
 
 /// CIA (Complex Interface Adapter) chip state.
@@ -103,6 +105,7 @@ impl Memory {
             cycles: 0,
             keyboard_matrix: [0xFF; 8], // All keys released
             sid_writes: Vec::new(),
+            current_raster_line: 0,
         }
     }
 
@@ -254,14 +257,16 @@ impl Memory {
         match reg {
             0x11 => {
                 // Control register 1 with current raster bit 8
-                let raster_line = (self.cycles / 63) as u16; // Approximate
-                let raster_bit8 = if raster_line > 255 { 0x80 } else { 0 };
+                let raster_bit8 = if self.current_raster_line > 255 {
+                    0x80
+                } else {
+                    0
+                };
                 (self.vic_registers[0x11] & 0x7F) | raster_bit8
             }
             0x12 => {
                 // Raster counter (low 8 bits)
-                let raster_line = (self.cycles / 63) as u8;
-                raster_line
+                (self.current_raster_line & 0xFF) as u8
             }
             0x19 => {
                 // Interrupt register - always return with bit 7 set if any IRQ
@@ -602,6 +607,7 @@ impl Memory {
         self.cycles = 0;
         self.keyboard_matrix = [0xFF; 8];
         self.sid_writes.clear();
+        self.current_raster_line = 0;
 
         // Initialize VIC-II to sensible defaults
         self.vic_registers[0x11] = 0x1B; // Screen on, 25 rows

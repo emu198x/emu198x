@@ -139,9 +139,15 @@ impl C64 {
 
             self.frame_cycles = self.vic.frame_cycle;
 
-            // Check for VIC-II raster interrupt at start of each line
-            if self.vic.frame_cycle % 63 == 0 && self.vic.check_irq(&self.memory) {
-                self.memory.vic_registers[0x19] |= 0x01; // Set raster IRQ flag
+            // Sync raster line to memory for accurate reads of $D011/$D012
+            self.memory.current_raster_line = self.vic.raster_line;
+
+            // Check for VIC-II raster interrupt at cycle 0 of each line
+            if self.vic.frame_cycle % 63 == 0
+                && self.vic.check_raster_irq(&self.memory.vic_registers)
+            {
+                // Set raster IRQ flag and main IRQ flag in $D019
+                self.memory.vic_registers[0x19] |= 0x81;
                 self.cpu.interrupt(&mut self.memory);
             }
         }

@@ -42,32 +42,52 @@ const BADLINE_END_CYCLE: u32 = 54;
 pub struct Vic {
     /// Current raster line
     pub raster_line: u16,
-    /// Raster interrupt line
-    pub raster_irq: u16,
     /// Current cycle within the frame
     pub frame_cycle: u32,
     /// Bus Available signal (false = CPU halted due to badline)
     pub ba_low: bool,
+    /// Tracks if raster IRQ already fired on this line (prevents re-triggering)
+    raster_irq_triggered: bool,
 }
 
 impl Vic {
     pub fn new() -> Self {
         Self {
             raster_line: 0,
-            raster_irq: 0,
             frame_cycle: 0,
             ba_low: false,
+            raster_irq_triggered: false,
         }
     }
 
-    /// Check if a VIC interrupt should fire.
-    pub fn check_irq(&self, memory: &Memory) -> bool {
-        // Check raster IRQ
-        if self.raster_line == self.raster_irq {
-            let irq_enable = memory.vic_registers[0x1A];
-            if irq_enable & 0x01 != 0 {
-                return true;
+    /// Get the raster compare value from VIC registers.
+    fn raster_compare(vic_registers: &[u8; 64]) -> u16 {
+        let low = vic_registers[0x12] as u16;
+        let high = if vic_registers[0x11] & 0x80 != 0 {
+            0x100
+        } else {
+            0
+        };
+        low | high
+    }
+
+    /// Check if a VIC raster interrupt should fire.
+    /// Returns true if IRQ should trigger (only once per matching line).
+    pub fn check_raster_irq(&mut self, vic_registers: &[u8; 64]) -> bool {
+        let raster_compare = Self::raster_compare(vic_registers);
+
+        if self.raster_line == raster_compare {
+            if !self.raster_irq_triggered {
+                // Check if raster interrupt is enabled ($D01A bit 0)
+                let irq_enable = vic_registers[0x1A];
+                if irq_enable & 0x01 != 0 {
+                    self.raster_irq_triggered = true;
+                    return true;
+                }
             }
+        } else {
+            // Reset trigger when we move to a different line
+            self.raster_irq_triggered = false;
         }
         false
     }
@@ -121,14 +141,15 @@ impl Vic {
         self.frame_cycle = 0;
         self.raster_line = 0;
         self.ba_low = false;
+        self.raster_irq_triggered = false;
     }
 
     /// Reset the VIC-II.
     pub fn reset(&mut self) {
         self.raster_line = 0;
-        self.raster_irq = 0;
         self.frame_cycle = 0;
         self.ba_low = false;
+        self.raster_irq_triggered = false;
     }
 }
 
