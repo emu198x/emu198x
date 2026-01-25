@@ -38,6 +38,10 @@ const BADLINE_START_CYCLE: u32 = 12;
 /// Last cycle in line where badline steals.
 const BADLINE_END_CYCLE: u32 = 54;
 
+/// Sprite DMA fetch cycles (p-access cycle for each sprite).
+/// Each sprite has its pointer fetched at a specific cycle, then 3 data bytes follow.
+const SPRITE_DMA_CYCLES: [u32; 8] = [58, 60, 62, 1, 3, 5, 7, 9];
+
 /// VIC-II video chip.
 pub struct Vic {
     /// Current raster line
@@ -48,6 +52,10 @@ pub struct Vic {
     pub ba_low: bool,
     /// Tracks if raster IRQ already fired on this line (prevents re-triggering)
     raster_irq_triggered: bool,
+    /// Sprite DMA active flags (bit per sprite) - set when sprite Y matches raster
+    sprite_dma_active: u8,
+    /// Sprite display active flags (remaining lines to display)
+    sprite_display_count: [u8; 8],
 }
 
 impl Vic {
@@ -57,6 +65,8 @@ impl Vic {
             frame_cycle: 0,
             ba_low: false,
             raster_irq_triggered: false,
+            sprite_dma_active: 0,
+            sprite_display_count: [0; 8],
         }
     }
 
@@ -118,12 +128,20 @@ impl Vic {
     ///
     /// During badlines, VIC-II steals cycles from the CPU to fetch character
     /// data. This happens on cycles 12-54 of badlines (40 characters + setup).
+    ///
+    /// Sprite DMA also steals cycles when sprites are displayed on the current line.
     pub fn tick(&mut self, vic_registers: &[u8; 64]) -> bool {
         self.frame_cycle += 1;
         let cycle_in_line = self.frame_cycle % CYCLES_PER_LINE;
+        let prev_raster = self.raster_line;
         self.raster_line = (self.frame_cycle / CYCLES_PER_LINE) as u16;
 
-        // Badline steals cycles 12-54 on character fetch lines
+        // At start of new line, check for sprite Y matches
+        if self.raster_line != prev_raster {
+            self.update_sprite_dma(vic_registers);
+        }
+
+        // Check for badline cycle stealing (character data fetch)
         if self.is_badline(vic_registers)
             && cycle_in_line >= BADLINE_START_CYCLE
             && cycle_in_line < BADLINE_END_CYCLE
@@ -132,7 +150,82 @@ impl Vic {
             return true;
         }
 
+        // Check for sprite DMA cycle stealing
+        if self.check_sprite_dma_steal(cycle_in_line) {
+            self.ba_low = true;
+            return true;
+        }
+
         self.ba_low = false;
+        false
+    }
+
+    /// Update sprite DMA state based on current raster line.
+    /// Called at the start of each new raster line.
+    fn update_sprite_dma(&mut self, vic_registers: &[u8; 64]) {
+        let sprite_enable = vic_registers[0x15];
+        let sprite_expand_y = vic_registers[0x17];
+
+        for i in 0..8 {
+            // Check if sprite is enabled
+            if sprite_enable & (1 << i) == 0 {
+                self.sprite_display_count[i] = 0;
+                continue;
+            }
+
+            // If sprite is already displaying, decrement count
+            if self.sprite_display_count[i] > 0 {
+                self.sprite_display_count[i] -= 1;
+                self.sprite_dma_active |= 1 << i;
+                continue;
+            }
+
+            // Check if current raster matches sprite Y position
+            let sprite_y = vic_registers[0x01 + i * 2] as u16;
+            if self.raster_line == sprite_y {
+                // Sprite starts displaying
+                let height = if sprite_expand_y & (1 << i) != 0 {
+                    42
+                } else {
+                    21
+                };
+                self.sprite_display_count[i] = height;
+                self.sprite_dma_active |= 1 << i;
+            } else {
+                self.sprite_dma_active &= !(1 << i);
+            }
+        }
+    }
+
+    /// Check if current cycle is a sprite DMA steal cycle.
+    /// Returns true if BA should go low.
+    fn check_sprite_dma_steal(&self, cycle_in_line: u32) -> bool {
+        if self.sprite_dma_active == 0 {
+            return false;
+        }
+
+        // Each sprite steals 2 cycles for p-access and 3 for s-access
+        // p-access is at SPRITE_DMA_CYCLES[i], s-access follows
+        for i in 0..8 {
+            if self.sprite_dma_active & (1 << i) == 0 {
+                continue;
+            }
+
+            let p_cycle = SPRITE_DMA_CYCLES[i];
+            // Sprite DMA window: p-access cycle and the following 3 cycles
+            // Handle wrap-around at end of line
+            let in_window = if p_cycle <= 60 {
+                cycle_in_line >= p_cycle && cycle_in_line < p_cycle + 4
+            } else {
+                // Wraps to next line
+                cycle_in_line >= p_cycle || cycle_in_line < (p_cycle + 4) % CYCLES_PER_LINE
+            };
+
+            if in_window {
+                return true;
+            }
+        }
+
         false
     }
 
@@ -142,6 +235,7 @@ impl Vic {
         self.raster_line = 0;
         self.ba_low = false;
         self.raster_irq_triggered = false;
+        // Don't reset sprite DMA state - sprites may span frame boundaries
     }
 
     /// Reset the VIC-II.
@@ -150,6 +244,8 @@ impl Vic {
         self.frame_cycle = 0;
         self.ba_low = false;
         self.raster_irq_triggered = false;
+        self.sprite_dma_active = 0;
+        self.sprite_display_count = [0; 8];
     }
 }
 
