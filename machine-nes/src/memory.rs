@@ -23,11 +23,17 @@ pub struct NesMemory {
     /// Loaded cartridge.
     cartridge: Option<Cartridge>,
     /// Controller 1 shift register.
-    controller_shift: u8,
+    controller1_shift: u8,
     /// Controller 1 current state.
-    pub controller_state: u8,
+    pub controller1_state: u8,
+    /// Controller 2 shift register.
+    controller2_shift: u8,
+    /// Controller 2 current state.
+    pub controller2_state: u8,
     /// Controller strobe latch.
     controller_strobe: bool,
+    /// APU status register (for reads).
+    pub(crate) apu_status: u8,
     /// Pending PPU writes for external rendering.
     ppu_writes: Vec<(u16, u8)>,
     /// Pending APU writes (address, value).
@@ -54,9 +60,12 @@ impl NesMemory {
             vram: [0; 2048],
             palette: [0; 32],
             cartridge: None,
-            controller_shift: 0,
-            controller_state: 0,
+            controller1_shift: 0,
+            controller1_state: 0,
+            controller2_shift: 0,
+            controller2_state: 0,
             controller_strobe: false,
+            apu_status: 0,
             ppu_writes: Vec::new(),
             apu_writes: Vec::new(),
             oam_dma_pending: None,
@@ -210,19 +219,29 @@ impl Bus for NesMemory {
                 }
             }
             // APU/IO registers
-            0x4000..=0x4015 => 0, // TODO: APU reads
+            0x4000..=0x4014 => 0, // Write-only APU registers
+            // APU status ($4015)
+            0x4015 => self.apu_status,
             // Controller 1
             0x4016 => {
                 if self.controller_strobe {
-                    self.controller_state & 1
+                    self.controller1_state & 1
                 } else {
-                    let bit = self.controller_shift & 1;
-                    self.controller_shift >>= 1;
-                    bit
+                    let bit = self.controller1_shift & 1;
+                    self.controller1_shift >>= 1;
+                    0x40 | bit // Open bus bits 6-7
                 }
             }
             // Controller 2
-            0x4017 => 0, // TODO: Controller 2
+            0x4017 => {
+                if self.controller_strobe {
+                    self.controller2_state & 1
+                } else {
+                    let bit = self.controller2_shift & 1;
+                    self.controller2_shift >>= 1;
+                    0x40 | bit // Open bus bits 6-7
+                }
+            }
             // Cartridge space
             0x4020..=0xFFFF => {
                 if let Some(ref cart) = self.cartridge {
@@ -264,9 +283,12 @@ impl Bus for NesMemory {
             }
             // Controller strobe
             0x4016 => {
+                let was_strobing = self.controller_strobe;
                 self.controller_strobe = value & 1 != 0;
-                if self.controller_strobe {
-                    self.controller_shift = self.controller_state;
+                // Load shift registers on strobe falling edge (1->0)
+                if was_strobing && !self.controller_strobe {
+                    self.controller1_shift = self.controller1_state;
+                    self.controller2_shift = self.controller2_state;
                 }
             }
             // Cartridge space

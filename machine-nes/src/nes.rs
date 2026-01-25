@@ -245,6 +245,8 @@ impl Nes {
         for (addr, value) in self.memory.take_apu_writes() {
             self.apu.write(addr, value);
         }
+        // Sync APU status to memory for reads
+        self.memory.apu_status = self.apu.read_status();
 
         // Handle OAM DMA (takes 513/514 cycles, simplified here)
         if let Some(page) = self.memory.take_oam_dma() {
@@ -295,7 +297,7 @@ impl Nes {
 
     /// Set controller state.
     pub fn set_controller(&mut self, controller: u8) {
-        self.memory.controller_state = controller;
+        self.memory.controller1_state = controller;
     }
 
     /// Get total cycles executed.
@@ -370,7 +372,7 @@ impl Machine for Nes {
             KeyCode::ArrowRight => buttons::RIGHT,
             _ => return,
         };
-        self.memory.controller_state |= button;
+        self.memory.controller1_state |= button;
     }
 
     fn key_up(&mut self, key: KeyCode) {
@@ -385,7 +387,7 @@ impl Machine for Nes {
             KeyCode::ArrowRight => buttons::RIGHT,
             _ => return,
         };
-        self.memory.controller_state &= !button;
+        self.memory.controller1_state &= !button;
     }
 
     fn set_joystick(&mut self, _port: u8, state: JoystickState) {
@@ -408,7 +410,7 @@ impl Machine for Nes {
         if state.right {
             buttons |= buttons::RIGHT;
         }
-        self.memory.controller_state = buttons;
+        self.memory.controller1_state = buttons;
     }
 
     fn reset(&mut self) {
