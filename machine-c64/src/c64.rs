@@ -151,6 +151,15 @@ impl C64 {
                 self.cpu.interrupt(&mut self.memory);
             }
         }
+
+        // Tick TOD clocks at end of frame (50Hz)
+        let (tod_irq, tod_nmi) = self.memory.tick_tod();
+        if tod_irq {
+            self.cpu.interrupt(&mut self.memory);
+        }
+        if tod_nmi {
+            self.cpu.nmi(&mut self.memory);
+        }
     }
 
     /// Press a key in the keyboard matrix.

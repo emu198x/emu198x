@@ -81,11 +81,25 @@ pub struct Cia {
     pub icr: u8,
     /// Interrupt mask
     pub icr_mask: u8,
-    /// TOD registers
+    /// TOD counter registers (BCD format)
     pub tod_10ths: u8,
     pub tod_sec: u8,
     pub tod_min: u8,
     pub tod_hr: u8,
+    /// TOD alarm registers (BCD format)
+    pub alarm_10ths: u8,
+    pub alarm_sec: u8,
+    pub alarm_min: u8,
+    pub alarm_hr: u8,
+    /// TOD latch (frozen copy for reading)
+    pub tod_latch_10ths: u8,
+    pub tod_latch_sec: u8,
+    pub tod_latch_min: u8,
+    pub tod_latch_hr: u8,
+    /// True when TOD latch is active (after reading hours, until reading 10ths)
+    pub tod_latched: bool,
+    /// True when TOD is running (stopped while writing hours)
+    pub tod_running: bool,
 }
 
 impl Memory {
@@ -186,7 +200,6 @@ impl Memory {
             // CIA2 ($DD00-$DDFF, mirrors every 16 bytes)
             0xDD00..=0xDDFF => {
                 let reg = (addr & 0x0F) as usize;
-                // Note: read_cia2 clears ICR on read, so it needs &mut self
                 match reg {
                     0x00 => self.cia2.pra,
                     0x01 => self.cia2.prb,
@@ -196,10 +209,41 @@ impl Memory {
                     0x05 => self.cia2.ta_hi,
                     0x06 => self.cia2.tb_lo,
                     0x07 => self.cia2.tb_hi,
-                    0x08 => self.cia2.tod_10ths,
-                    0x09 => self.cia2.tod_sec,
-                    0x0A => self.cia2.tod_min,
-                    0x0B => self.cia2.tod_hr,
+                    0x08 => {
+                        // TOD 10ths - reading unlatches
+                        let value = if self.cia2.tod_latched {
+                            self.cia2.tod_latch_10ths
+                        } else {
+                            self.cia2.tod_10ths
+                        };
+                        self.cia2.tod_latched = false;
+                        value
+                    }
+                    0x09 => {
+                        if self.cia2.tod_latched {
+                            self.cia2.tod_latch_sec
+                        } else {
+                            self.cia2.tod_sec
+                        }
+                    }
+                    0x0A => {
+                        if self.cia2.tod_latched {
+                            self.cia2.tod_latch_min
+                        } else {
+                            self.cia2.tod_min
+                        }
+                    }
+                    0x0B => {
+                        // TOD hours - reading latches all values
+                        if !self.cia2.tod_latched {
+                            self.cia2.tod_latch_10ths = self.cia2.tod_10ths;
+                            self.cia2.tod_latch_sec = self.cia2.tod_sec;
+                            self.cia2.tod_latch_min = self.cia2.tod_min;
+                            self.cia2.tod_latch_hr = self.cia2.tod_hr;
+                            self.cia2.tod_latched = true;
+                        }
+                        self.cia2.tod_latch_hr
+                    }
                     0x0D => {
                         // ICR - reading clears it
                         let value = self.cia2.icr;
@@ -329,10 +373,43 @@ impl Memory {
             0x05 => self.cia1.ta_hi,
             0x06 => self.cia1.tb_lo,
             0x07 => self.cia1.tb_hi,
-            0x08 => self.cia1.tod_10ths,
-            0x09 => self.cia1.tod_sec,
-            0x0A => self.cia1.tod_min,
-            0x0B => self.cia1.tod_hr,
+            0x08 => {
+                // TOD 10ths - reading unlatches
+                let value = if self.cia1.tod_latched {
+                    self.cia1.tod_latch_10ths
+                } else {
+                    self.cia1.tod_10ths
+                };
+                self.cia1.tod_latched = false;
+                value
+            }
+            0x09 => {
+                // TOD seconds
+                if self.cia1.tod_latched {
+                    self.cia1.tod_latch_sec
+                } else {
+                    self.cia1.tod_sec
+                }
+            }
+            0x0A => {
+                // TOD minutes
+                if self.cia1.tod_latched {
+                    self.cia1.tod_latch_min
+                } else {
+                    self.cia1.tod_min
+                }
+            }
+            0x0B => {
+                // TOD hours - reading latches all values
+                if !self.cia1.tod_latched {
+                    self.cia1.tod_latch_10ths = self.cia1.tod_10ths;
+                    self.cia1.tod_latch_sec = self.cia1.tod_sec;
+                    self.cia1.tod_latch_min = self.cia1.tod_min;
+                    self.cia1.tod_latch_hr = self.cia1.tod_hr;
+                    self.cia1.tod_latched = true;
+                }
+                self.cia1.tod_latch_hr
+            }
             0x0D => {
                 // ICR - reading clears it
                 let value = self.cia1.icr;
@@ -366,6 +443,41 @@ impl Memory {
                 if self.cia1.crb & 0x01 == 0 {
                     self.cia1.tb_lo = self.cia1.tb_latch_lo;
                     self.cia1.tb_hi = self.cia1.tb_latch_hi;
+                }
+            }
+            0x08 => {
+                // TOD 10ths - writing starts the clock
+                if self.cia1.crb & 0x80 != 0 {
+                    self.cia1.alarm_10ths = value & 0x0F;
+                } else {
+                    self.cia1.tod_10ths = value & 0x0F;
+                    self.cia1.tod_running = true;
+                }
+            }
+            0x09 => {
+                // TOD seconds (BCD: 0-59)
+                if self.cia1.crb & 0x80 != 0 {
+                    self.cia1.alarm_sec = value & 0x7F;
+                } else {
+                    self.cia1.tod_sec = value & 0x7F;
+                }
+            }
+            0x0A => {
+                // TOD minutes (BCD: 0-59)
+                if self.cia1.crb & 0x80 != 0 {
+                    self.cia1.alarm_min = value & 0x7F;
+                } else {
+                    self.cia1.tod_min = value & 0x7F;
+                }
+            }
+            0x0B => {
+                // TOD hours - writing stops the clock
+                // Bit 7 = PM flag, bits 0-4 = hours (BCD 1-12)
+                if self.cia1.crb & 0x80 != 0 {
+                    self.cia1.alarm_hr = value & 0x9F;
+                } else {
+                    self.cia1.tod_hr = value & 0x9F;
+                    self.cia1.tod_running = false;
                 }
             }
             0x0D => {
@@ -418,6 +530,38 @@ impl Memory {
                 if self.cia2.crb & 0x01 == 0 {
                     self.cia2.tb_lo = self.cia2.tb_latch_lo;
                     self.cia2.tb_hi = self.cia2.tb_latch_hi;
+                }
+            }
+            0x08 => {
+                // TOD 10ths - writing starts the clock
+                if self.cia2.crb & 0x80 != 0 {
+                    self.cia2.alarm_10ths = value & 0x0F;
+                } else {
+                    self.cia2.tod_10ths = value & 0x0F;
+                    self.cia2.tod_running = true;
+                }
+            }
+            0x09 => {
+                if self.cia2.crb & 0x80 != 0 {
+                    self.cia2.alarm_sec = value & 0x7F;
+                } else {
+                    self.cia2.tod_sec = value & 0x7F;
+                }
+            }
+            0x0A => {
+                if self.cia2.crb & 0x80 != 0 {
+                    self.cia2.alarm_min = value & 0x7F;
+                } else {
+                    self.cia2.tod_min = value & 0x7F;
+                }
+            }
+            0x0B => {
+                // TOD hours - writing stops the clock
+                if self.cia2.crb & 0x80 != 0 {
+                    self.cia2.alarm_hr = value & 0x9F;
+                } else {
+                    self.cia2.tod_hr = value & 0x9F;
+                    self.cia2.tod_running = false;
                 }
             }
             0x0D => {
@@ -592,6 +736,85 @@ impl Memory {
         }
 
         nmi
+    }
+
+    /// Tick TOD clocks for both CIAs. Called once per frame (50Hz PAL).
+    /// Returns (cia1_irq, cia2_nmi) if TOD alarm matches.
+    pub fn tick_tod(&mut self) -> (bool, bool) {
+        let cia1_irq = Self::tick_tod_cia(&mut self.cia1);
+        let cia2_nmi = Self::tick_tod_cia(&mut self.cia2);
+        (cia1_irq, cia2_nmi)
+    }
+
+    /// Tick a single CIA's TOD clock. Returns true if alarm triggered.
+    fn tick_tod_cia(cia: &mut Cia) -> bool {
+        if !cia.tod_running {
+            return false;
+        }
+
+        // Increment 10ths (0-9)
+        cia.tod_10ths = (cia.tod_10ths + 1) & 0x0F;
+        if cia.tod_10ths < 10 {
+            return Self::check_tod_alarm(cia);
+        }
+        cia.tod_10ths = 0;
+
+        // Increment seconds (BCD 0-59)
+        let sec_lo = cia.tod_sec & 0x0F;
+        let sec_hi = (cia.tod_sec >> 4) & 0x07;
+        if sec_lo < 9 {
+            cia.tod_sec = (sec_hi << 4) | (sec_lo + 1);
+        } else if sec_hi < 5 {
+            cia.tod_sec = ((sec_hi + 1) << 4) | 0;
+        } else {
+            cia.tod_sec = 0;
+
+            // Increment minutes (BCD 0-59)
+            let min_lo = cia.tod_min & 0x0F;
+            let min_hi = (cia.tod_min >> 4) & 0x07;
+            if min_lo < 9 {
+                cia.tod_min = (min_hi << 4) | (min_lo + 1);
+            } else if min_hi < 5 {
+                cia.tod_min = ((min_hi + 1) << 4) | 0;
+            } else {
+                cia.tod_min = 0;
+
+                // Increment hours (BCD 1-12, 12-hour format with AM/PM)
+                let pm = cia.tod_hr & 0x80;
+                let hr = cia.tod_hr & 0x1F;
+                let hr_lo = hr & 0x0F;
+                let hr_hi = (hr >> 4) & 0x01;
+
+                let new_hr = if hr == 0x12 {
+                    // 12 -> 1, toggle AM/PM
+                    0x01 | (pm ^ 0x80)
+                } else if hr_lo < 9 {
+                    (hr_hi << 4) | (hr_lo + 1) | pm
+                } else {
+                    // 09 -> 10 or similar
+                    ((hr_hi + 1) << 4) | 0 | pm
+                };
+                cia.tod_hr = new_hr;
+            }
+        }
+
+        Self::check_tod_alarm(cia)
+    }
+
+    /// Check if TOD matches alarm. If so, set interrupt flag.
+    fn check_tod_alarm(cia: &mut Cia) -> bool {
+        if cia.tod_10ths == cia.alarm_10ths
+            && cia.tod_sec == cia.alarm_sec
+            && cia.tod_min == cia.alarm_min
+            && cia.tod_hr == cia.alarm_hr
+        {
+            cia.icr |= 0x04; // Set TOD alarm flag
+            if cia.icr_mask & 0x04 != 0 {
+                cia.icr |= 0x80; // Set IRQ/NMI flag
+                return true;
+            }
+        }
+        false
     }
 
     /// Reset the memory subsystem.
