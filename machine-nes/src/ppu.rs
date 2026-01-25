@@ -97,6 +97,24 @@ pub struct Ppu {
 
     /// Frame buffer (256x240, palette indices).
     pub framebuffer: [u8; 256 * 240],
+
+    // Sprite rendering state
+    /// Secondary OAM (sprites for current scanline, 8 sprites x 4 bytes).
+    secondary_oam: [u8; 32],
+    /// Number of sprites on current scanline.
+    sprite_count: u8,
+    /// Sprite pattern shift registers (low bits).
+    sprite_shift_lo: [u8; 8],
+    /// Sprite pattern shift registers (high bits).
+    sprite_shift_hi: [u8; 8],
+    /// Sprite attributes for current scanline.
+    sprite_attrs: [u8; 8],
+    /// Sprite X positions for current scanline.
+    sprite_x: [u8; 8],
+    /// Sprite 0 is on this scanline.
+    sprite_0_on_line: bool,
+    /// Sprite 0 is being rendered.
+    sprite_0_rendering: bool,
 }
 
 impl Ppu {
@@ -128,6 +146,14 @@ impl Ppu {
             pt_lo: 0,
             pt_hi: 0,
             framebuffer: [0; 256 * 240],
+            secondary_oam: [0xFF; 32],
+            sprite_count: 0,
+            sprite_shift_lo: [0; 8],
+            sprite_shift_hi: [0; 8],
+            sprite_attrs: [0; 8],
+            sprite_x: [0; 8],
+            sprite_0_on_line: false,
+            sprite_0_rendering: false,
         }
     }
 
@@ -145,6 +171,10 @@ impl Ppu {
         self.bg_shift_hi = 0;
         self.attr_shift_lo = 0;
         self.attr_shift_hi = 0;
+        self.secondary_oam = [0xFF; 32];
+        self.sprite_count = 0;
+        self.sprite_0_on_line = false;
+        self.sprite_0_rendering = false;
     }
 
     /// Read PPU register (memory-mapped $2000-$2007).
@@ -309,6 +339,14 @@ impl Ppu {
                 if self.cycle == 257 {
                     // v: ....A.. ...BCDEF <- t: ....A.. ...BCDEF
                     self.vram_addr = (self.vram_addr & 0x7BE0) | (self.temp_addr & 0x041F);
+
+                    // Evaluate sprites for next scanline
+                    self.evaluate_sprites();
+                }
+
+                // Fetch sprite data during cycles 257-320
+                if self.cycle >= 257 && self.cycle <= 320 {
+                    self.fetch_sprite_data(memory);
                 }
             }
         }
@@ -432,13 +470,68 @@ impl Ppu {
             }
         }
 
-        // Determine final color
-        let color = if bg_pixel == 0 {
+        // Get sprite pixel
+        let mut sprite_pixel = 0u8;
+        let mut sprite_palette = 0u8;
+        let mut sprite_priority = false;
+        let mut sprite_0_visible = false;
+
+        if self.mask & mask::SPRITE_ENABLE != 0 {
+            // Skip leftmost 8 pixels if SPRITE_LEFT is not set
+            if x >= 8 || self.mask & mask::SPRITE_LEFT != 0 {
+                for i in 0..self.sprite_count as usize {
+                    let sprite_x = self.sprite_x[i] as u16;
+
+                    // Check if sprite is visible at this pixel
+                    if x >= sprite_x && x < sprite_x + 8 {
+                        let offset = (x - sprite_x) as u8;
+                        let lo = (self.sprite_shift_lo[i] >> (7 - offset)) & 1;
+                        let hi = (self.sprite_shift_hi[i] >> (7 - offset)) & 1;
+                        let pixel = (hi << 1) | lo;
+
+                        if pixel != 0 {
+                            // First non-transparent sprite pixel wins
+                            sprite_pixel = pixel;
+                            sprite_palette = (self.sprite_attrs[i] & 0x03) + 4; // Sprite palettes are 4-7
+                            sprite_priority = self.sprite_attrs[i] & 0x20 != 0; // Behind background
+
+                            // Check for sprite 0 hit
+                            if i == 0 && self.sprite_0_rendering {
+                                sprite_0_visible = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sprite 0 hit detection
+        if sprite_0_visible && bg_pixel != 0 && x < 255 {
+            self.status |= status::SPRITE_0_HIT;
+        }
+
+        // Determine final color based on priority
+        let (final_pixel, final_palette) = if sprite_pixel == 0 {
+            // No sprite, use background
+            (bg_pixel, bg_palette)
+        } else if bg_pixel == 0 {
+            // Background transparent, use sprite
+            (sprite_pixel, sprite_palette)
+        } else if sprite_priority {
+            // Sprite has priority behind background
+            (bg_pixel, bg_palette)
+        } else {
+            // Sprite in front of background
+            (sprite_pixel, sprite_palette)
+        };
+
+        // Look up color from palette
+        let color = if final_pixel == 0 {
             // Transparent - use backdrop color
             memory.ppu_read(0x3F00)
         } else {
-            // Use background palette
-            let addr = 0x3F00 + (bg_palette as u16) * 4 + (bg_pixel as u16);
+            let addr = 0x3F00 + (final_palette as u16) * 4 + (final_pixel as u16);
             memory.ppu_read(addr)
         };
 
@@ -450,6 +543,129 @@ impl Ppu {
         };
 
         self.framebuffer[(y as usize) * 256 + (x as usize)] = color;
+    }
+
+    /// Evaluate which sprites are on the next scanline.
+    fn evaluate_sprites(&mut self) {
+        // Clear secondary OAM
+        self.secondary_oam.fill(0xFF);
+        self.sprite_count = 0;
+        self.sprite_0_on_line = false;
+
+        let sprite_height = if self.ctrl & ctrl::SPRITE_SIZE != 0 { 16 } else { 8 };
+        let next_line = self.scanline.wrapping_add(1) as i16;
+
+        for i in 0..64 {
+            let y = self.oam[i * 4] as i16;
+            let diff = next_line - y;
+
+            // Check if sprite is on the next scanline
+            if diff >= 0 && diff < sprite_height {
+                if self.sprite_count < 8 {
+                    // Copy sprite to secondary OAM
+                    let dest = (self.sprite_count as usize) * 4;
+                    self.secondary_oam[dest] = self.oam[i * 4];
+                    self.secondary_oam[dest + 1] = self.oam[i * 4 + 1];
+                    self.secondary_oam[dest + 2] = self.oam[i * 4 + 2];
+                    self.secondary_oam[dest + 3] = self.oam[i * 4 + 3];
+
+                    if i == 0 {
+                        self.sprite_0_on_line = true;
+                    }
+
+                    self.sprite_count += 1;
+                } else {
+                    // More than 8 sprites - set overflow flag
+                    self.status |= status::SPRITE_OVERFLOW;
+                    break;
+                }
+            }
+        }
+
+        self.sprite_0_rendering = self.sprite_0_on_line;
+    }
+
+    /// Fetch sprite pattern data.
+    fn fetch_sprite_data(&mut self, memory: &NesMemory) {
+        // Sprite fetches happen during cycles 257-320 (8 sprites, 8 cycles each)
+        let sprite_index = ((self.cycle - 257) / 8) as usize;
+
+        if sprite_index >= 8 {
+            return;
+        }
+
+        let cycle_in_sprite = (self.cycle - 257) % 8;
+
+        // Only fetch on specific cycles within each sprite's 8-cycle window
+        if cycle_in_sprite != 5 && cycle_in_sprite != 7 {
+            return;
+        }
+
+        // Get sprite data from secondary OAM
+        let y = self.secondary_oam[sprite_index * 4] as u16;
+        let tile = self.secondary_oam[sprite_index * 4 + 1];
+        let attr = self.secondary_oam[sprite_index * 4 + 2];
+        let x = self.secondary_oam[sprite_index * 4 + 3];
+
+        self.sprite_attrs[sprite_index] = attr;
+        self.sprite_x[sprite_index] = x;
+
+        // Skip if sprite is not visible (Y >= 0xEF)
+        if y >= 0xEF {
+            self.sprite_shift_lo[sprite_index] = 0;
+            self.sprite_shift_hi[sprite_index] = 0;
+            return;
+        }
+
+        let sprite_height = if self.ctrl & ctrl::SPRITE_SIZE != 0 { 16 } else { 8 };
+        let next_line = self.scanline.wrapping_add(1) as u16;
+        let mut row = next_line.wrapping_sub(y) as u8;
+
+        // Vertical flip
+        if attr & 0x80 != 0 {
+            row = (sprite_height - 1) as u8 - row;
+        }
+
+        // Calculate pattern address
+        let addr = if self.ctrl & ctrl::SPRITE_SIZE != 0 {
+            // 8x16 sprites: tile bit 0 selects pattern table
+            let bank = (tile & 0x01) as u16 * 0x1000;
+            let tile_num = (tile & 0xFE) as u16;
+            if row >= 8 {
+                bank + (tile_num + 1) * 16 + ((row - 8) as u16)
+            } else {
+                bank + tile_num * 16 + (row as u16)
+            }
+        } else {
+            // 8x8 sprites
+            let pattern_base = if self.ctrl & ctrl::SPRITE_PATTERN != 0 {
+                0x1000
+            } else {
+                0x0000
+            };
+            pattern_base + (tile as u16) * 16 + (row as u16)
+        };
+
+        // Fetch pattern data on cycles 5 and 7
+        if cycle_in_sprite == 5 {
+            let mut lo = memory.ppu_read(addr);
+
+            // Horizontal flip
+            if attr & 0x40 != 0 {
+                lo = lo.reverse_bits();
+            }
+
+            self.sprite_shift_lo[sprite_index] = lo;
+        } else if cycle_in_sprite == 7 {
+            let mut hi = memory.ppu_read(addr + 8);
+
+            // Horizontal flip
+            if attr & 0x40 != 0 {
+                hi = hi.reverse_bits();
+            }
+
+            self.sprite_shift_hi[sprite_index] = hi;
+        }
     }
 
     /// Increment coarse X in VRAM address.
