@@ -17,8 +17,9 @@
 //! - EXROM=1, GAME=0: Ultimax mode (ROML at $8000, ROMH at $E000)
 
 use crate::cartridge::Cartridge;
+use crate::mmu::Mmu;
 use crate::reu::{Reu, ReuModel};
-use emu_core::Bus;
+use emu_core::{Bus, IoBus};
 
 /// C64 memory subsystem.
 pub struct Memory {
@@ -60,6 +61,10 @@ pub struct Memory {
     pub reu: Reu,
     /// Pending REU DMA operation
     reu_dma_pending: bool,
+    /// C128 MMU (optional, for C128 mode)
+    pub mmu: Option<Mmu>,
+    /// Second 64K RAM bank (for C128 mode)
+    pub ram_bank1: Option<Box<[u8; 65536]>>,
 }
 
 /// CIA (Complex Interface Adapter) chip state.
@@ -140,7 +145,51 @@ impl Memory {
             cartridge: Cartridge::none(),
             reu: Reu::default(),
             reu_dma_pending: false,
+            mmu: None,
+            ram_bank1: None,
         }
+    }
+
+    /// Create a new memory configured for C128 mode.
+    pub fn new_c128() -> Self {
+        Self {
+            ram: [0; 65536],
+            basic_rom: [0; 8192],
+            kernal_rom: [0; 8192],
+            char_rom: [0; 4096],
+            port_ddr: 0x2F,
+            port_data: 0x37,
+            vic_registers: [0; 64],
+            sid_registers: [0; 32],
+            cia1: Cia::default(),
+            cia2: Cia::default(),
+            color_ram: [0; 1024],
+            cycles: 0,
+            keyboard_matrix: [0xFF; 8],
+            sid_writes: Vec::new(),
+            current_raster_line: 0,
+            tape_signal: false,
+            cartridge: Cartridge::none(),
+            reu: Reu::default(),
+            reu_dma_pending: false,
+            mmu: Some(Mmu::new()),
+            ram_bank1: Some(Box::new([0; 65536])),
+        }
+    }
+
+    /// Check if this is a C128 memory configuration.
+    pub fn is_c128(&self) -> bool {
+        self.mmu.is_some()
+    }
+
+    /// Get a reference to the MMU (C128 only).
+    pub fn mmu(&self) -> Option<&Mmu> {
+        self.mmu.as_ref()
+    }
+
+    /// Get a mutable reference to the MMU (C128 only).
+    pub fn mmu_mut(&mut self) -> Option<&mut Mmu> {
+        self.mmu.as_mut()
     }
 
     /// Create a new memory with a specific REU model.
@@ -1138,6 +1187,86 @@ impl Bus for Memory {
         // Tick cartridge for time-based behavior (e.g., Epyx Fastload capacitor)
         for _ in 0..cycles {
             self.cartridge.tick();
+        }
+    }
+}
+
+/// Z80 I/O port implementation for C128 mode.
+///
+/// The C128's Z80 uses a minimal I/O port space since most hardware is
+/// memory-mapped. The main uses are:
+///
+/// - Port $D5 (low byte): Read MMU configuration register quickly
+/// - Port $D6 (low byte): Various MMU control
+/// - Keyboard scanning (directly uses PIO-like ports)
+///
+/// Most Z80 software on the C128 uses memory-mapped I/O at $D000-$DFFF
+/// rather than the Z80 I/O port space.
+impl IoBus for Memory {
+    fn read_io(&mut self, port: u16) -> u8 {
+        self.cycles += 4; // Z80 I/O reads take 4 T-states
+
+        // The C128 Z80 I/O space is minimally used; decode low byte
+        let port_lo = port as u8;
+
+        match port_lo {
+            // MMU Configuration Register (quick read via I/O port)
+            0xD5 => {
+                if let Some(ref mmu) = self.mmu {
+                    mmu.cr
+                } else {
+                    0xFF
+                }
+            }
+
+            // Keyboard row read (directly from CIA1 for compatibility)
+            // Z80 keyboard scanning uses port FE (like ZX Spectrum compat)
+            0xFE => {
+                // Return keyboard matrix based on port high byte
+                // High byte selects which keyboard rows to scan
+                let row_select = !(port >> 8) as u8;
+                let mut result = 0xFF;
+                for row in 0..8 {
+                    if row_select & (1 << row) != 0 {
+                        result &= self.keyboard_matrix[row];
+                    }
+                }
+                result
+            }
+
+            // Most I/O is memory-mapped on C128
+            _ => 0xFF,
+        }
+    }
+
+    fn write_io(&mut self, port: u16, value: u8) {
+        self.cycles += 4; // Z80 I/O writes take 4 T-states
+
+        let port_lo = port as u8;
+
+        match port_lo {
+            // MMU Configuration Register (quick write via I/O port)
+            0xD5 => {
+                if let Some(ref mut mmu) = self.mmu {
+                    mmu.cr = value;
+                }
+            }
+
+            // MMU Mode Configuration Register
+            0xD6 => {
+                if let Some(ref mut mmu) = self.mmu {
+                    mmu.mcr = value;
+                }
+            }
+
+            // Border color (Spectrum compatibility, maps to VIC border)
+            0xFE => {
+                // Set VIC border color (register $D020)
+                self.vic_registers[0x20] = value & 0x07;
+            }
+
+            // Most I/O is memory-mapped on C128
+            _ => {}
         }
     }
 }

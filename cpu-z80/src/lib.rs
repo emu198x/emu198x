@@ -1,4 +1,21 @@
 //! Z80 CPU emulator.
+//!
+//! This provides a complete Z80 CPU implementation suitable for:
+//!
+//! - **ZX Spectrum** - 48K, 128K, +2, +3
+//! - **Commodore 128** - Secondary CPU alongside 8502
+//! - **Amstrad CPC** - All models
+//! - **MSX** - Various implementations
+//!
+//! The Z80 uses separate I/O address space via IN/OUT instructions,
+//! so memory subsystems must implement the `IoBus` trait.
+//!
+//! # C128 Support
+//!
+//! The C128 uses a Z80 as a secondary CPU, controlled by the MMU.
+//! When bit 7 of the MMU Configuration Register ($D500) is set,
+//! the Z80 becomes active and the 8502 halts. The memory map in
+//! Z80 mode is controlled by the MMU's banking configuration.
 
 use emu_core::{Cpu, IoBus};
 
