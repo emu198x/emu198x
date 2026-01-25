@@ -18,11 +18,14 @@
 //! # File Formats
 //!
 //! - `.prg` - PRG files (2-byte load address + program data)
+//! - `.d64` - D64 disk images (1541 format)
 
 mod c64;
+mod disk;
 mod input;
 mod memory;
 mod sid;
 mod vic;
 
 pub use c64::C64;
+pub use disk::Disk;

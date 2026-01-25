@@ -1,5 +1,6 @@
 //! Commodore 64 emulator.
 
+use crate::disk::Disk;
 use crate::input;
 use crate::memory::Memory;
 use crate::sid::Sid;
@@ -26,6 +27,8 @@ pub struct C64 {
     vic: Vic,
     sid: Sid,
     frame_cycles: u32,
+    /// Currently loaded disk image.
+    disk: Option<Disk>,
 }
 
 impl C64 {
@@ -36,9 +39,43 @@ impl C64 {
             vic: Vic::new(),
             sid: Sid::new(),
             frame_cycles: 0,
+            disk: None,
         };
         c64.memory.reset();
         c64
+    }
+
+    /// Load a D64 disk image.
+    pub fn load_disk(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
+        self.disk = Some(Disk::new(data)?);
+        Ok(())
+    }
+
+    /// Load and run the first PRG from the disk.
+    pub fn autorun_disk(&mut self) -> Result<(), String> {
+        let disk = self.disk.as_ref().ok_or("No disk loaded")?;
+        let prg_data = disk.load_first_prg().ok_or("No PRG file found on disk")?;
+        self.load_prg(&prg_data)
+    }
+
+    /// Load a specific file from the disk by name.
+    pub fn load_from_disk(&mut self, name: &str) -> Result<(), String> {
+        let disk = self.disk.as_ref().ok_or("No disk loaded")?;
+        let prg_data = disk
+            .load_prg(name)
+            .ok_or_else(|| format!("File '{}' not found on disk", name))?;
+        self.load_prg(&prg_data)
+    }
+
+    /// Get directory listing of loaded disk.
+    pub fn disk_directory(&self) -> Option<Vec<(String, u16)>> {
+        self.disk.as_ref().map(|d| {
+            d.read_directory()
+                .iter()
+                .filter(|e| e.closed)
+                .map(|e| (e.name_string(), e.size_sectors))
+                .collect()
+        })
     }
 
     /// Load BASIC ROM.
@@ -280,6 +317,10 @@ impl Machine for C64 {
 
         if lower.ends_with(".prg") {
             self.load_prg(data)
+        } else if lower.ends_with(".d64") {
+            // Load disk and auto-run first PRG
+            self.load_disk(data.to_vec()).map_err(|e| e.to_string())?;
+            self.autorun_disk()
         } else if lower.ends_with("basic.bin") || lower.ends_with("basic.rom") {
             self.load_basic(data);
             Ok(())
