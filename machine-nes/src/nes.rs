@@ -206,6 +206,7 @@ impl Nes {
         self.memory.ppu_status = self.ppu.status;
         self.memory.ppu_oam_data = self.ppu.oam[self.ppu.oam_addr as usize];
         self.memory.ppu_data_buffer = self.ppu.data_buffer;
+        self.memory.ppu_vram_addr = self.ppu.vram_addr;
 
         let cycles = self.cpu.step(&mut self.memory);
 
@@ -224,10 +225,11 @@ impl Nes {
                         // VRAM data was read - update buffer and increment address
                         let addr = self.ppu.vram_addr & 0x3FFF;
                         if addr >= 0x3F00 {
-                            // Palette reads are immediate
-                            self.memory.ppu_data_buffer = self.memory.ppu_read(addr);
+                            // Palette reads update buffer with underlying nametable data
+                            // The palette value was already returned immediately in memory.rs
+                            self.ppu.data_buffer = self.memory.ppu_read(addr & 0x2FFF);
                         } else {
-                            // Buffer the current location, return previous buffer
+                            // Buffer the current location for next read
                             self.ppu.data_buffer = self.memory.ppu_read(addr);
                         }
                         self.ppu.increment_vram_addr();

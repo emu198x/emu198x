@@ -48,6 +48,8 @@ pub struct NesMemory {
     pub(crate) ppu_oam_data: u8,
     /// PPU VRAM read buffer ($2007).
     pub(crate) ppu_data_buffer: u8,
+    /// PPU VRAM address (for determining palette vs buffered reads).
+    pub(crate) ppu_vram_addr: u16,
     /// Last value written to any PPU register (open bus).
     ppu_latch: u8,
 }
@@ -73,6 +75,7 @@ impl NesMemory {
             ppu_status: 0,
             ppu_oam_data: 0,
             ppu_data_buffer: 0,
+            ppu_vram_addr: 0,
             ppu_latch: 0,
         }
     }
@@ -208,11 +211,18 @@ impl Bus for NesMemory {
                     }
                     // $2004 - OAM data
                     4 => self.ppu_oam_data,
-                    // $2007 - VRAM data (buffered read)
+                    // $2007 - VRAM data (buffered read, except palette)
                     7 => {
-                        // Queue a read event for PPU to update buffer
+                        // Queue a read event for PPU to update buffer and increment address
                         self.ppu_reg_writes.push((0x87, 0)); // Special: 0x80 | reg = data read
-                        self.ppu_data_buffer
+
+                        // Palette reads ($3F00-$3FFF) are immediate, not buffered
+                        let addr = self.ppu_vram_addr & 0x3FFF;
+                        if addr >= 0x3F00 {
+                            self.ppu_read(addr)
+                        } else {
+                            self.ppu_data_buffer
+                        }
                     }
                     // Write-only registers return latch
                     _ => self.ppu_latch,
