@@ -8,6 +8,13 @@
 //! - Keyboard matrix input
 //! - Joystick support
 //!
+//! # Supported Variants
+//!
+//! - C64 "breadbin" (PAL/NTSC) - original 1982 with 6581 SID
+//! - C64C (PAL/NTSC) - 1986 revision with 8580 SID
+//! - SX-64 - portable with built-in drive
+//! - C64 GS - cartridge-only game console
+//!
 //! # ROMs Required
 //!
 //! Place in `roms/` directory:
@@ -19,17 +26,23 @@
 //!
 //! - `.prg` - PRG files (2-byte load address + program data)
 //! - `.d64` - D64 disk images (1541 format)
+//! - `.tap` - TAP tape images (pulse data)
+//! - `.t64` - T64 tape archives (instant load)
 
 mod c64;
+mod config;
 mod disk;
 mod input;
 mod memory;
+mod palette;
 mod sid;
 mod snapshot;
 mod tap;
 mod vic;
 
 pub use c64::C64;
+pub use config::{MachineConfig, MachineVariant, SidRevision, TimingMode, VicRevision};
 pub use disk::{Disk, DiskAudioEvent};
+pub use palette::{Color, PALETTE_PEPTO, PALETTE_VICE, Palette, palette_for_revision};
 pub use snapshot::Snapshot;
 pub use tap::{T64Entry, Tape, TapeFormat};

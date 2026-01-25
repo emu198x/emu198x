@@ -1,5 +1,6 @@
 //! Commodore 64 emulator.
 
+use crate::config::{MachineConfig, MachineVariant, SidRevision, TimingMode};
 use crate::disk::Disk;
 use crate::input;
 use crate::memory::Memory;
@@ -10,20 +11,13 @@ use crate::vic::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH, Vic};
 use cpu_6502::Mos6502;
 use emu_core::{AudioConfig, Cpu, JoystickState, KeyCode, Machine, VideoConfig};
 
-/// Cycles per frame (PAL: 985248 Hz / 50 Hz = 19656 cycles)
-pub const CYCLES_PER_FRAME: u32 = 19656;
-
 /// Audio sample rate
 pub const SAMPLE_RATE: u32 = 44100;
 
-/// Samples per frame at 50Hz
-pub const SAMPLES_PER_FRAME: usize = 882;
-
-/// CPU clock speed (PAL)
-const CPU_CLOCK: u32 = 985248;
-
 /// Commodore 64 emulator.
 pub struct C64 {
+    /// Machine configuration (variant, chips, timing)
+    config: MachineConfig,
     cpu: Mos6502,
     memory: Memory,
     vic: Vic,
@@ -36,18 +30,63 @@ pub struct C64 {
 }
 
 impl C64 {
+    /// Create a new C64 with default configuration (PAL breadbin).
     pub fn new() -> Self {
+        Self::with_variant(MachineVariant::default())
+    }
+
+    /// Create a C64 with a specific machine variant.
+    pub fn with_variant(variant: MachineVariant) -> Self {
+        Self::with_config(variant.config())
+    }
+
+    /// Create a C64 with a custom configuration.
+    pub fn with_config(config: MachineConfig) -> Self {
+        let sid = Sid::with_model(match config.sid {
+            SidRevision::Mos6581 => crate::sid::SidModel::Mos6581,
+            SidRevision::Mos8580 => crate::sid::SidModel::Mos8580,
+        });
+
+        let vic = Vic::with_revision(config.vic);
+
         let mut c64 = Self {
+            config,
             cpu: Mos6502::new(),
             memory: Memory::new(),
-            vic: Vic::new(),
-            sid: Sid::new(),
+            vic,
+            sid,
             frame_cycles: 0,
             disk: None,
             tape: Tape::new(),
         };
         c64.memory.reset();
         c64
+    }
+
+    /// Get the current machine configuration.
+    pub fn config(&self) -> &MachineConfig {
+        &self.config
+    }
+
+    /// Get the timing mode (PAL/NTSC).
+    pub fn timing_mode(&self) -> TimingMode {
+        self.config.timing_mode()
+    }
+
+    /// Get the CPU clock speed in Hz.
+    pub fn cpu_clock(&self) -> u32 {
+        self.config.cpu_clock()
+    }
+
+    /// Get cycles per frame for this configuration.
+    pub fn cycles_per_frame(&self) -> u32 {
+        self.config.cycles_per_frame()
+    }
+
+    /// Get samples per audio frame.
+    fn samples_per_frame(&self) -> usize {
+        let fps = self.config.timing_mode().fps();
+        (SAMPLE_RATE as f32 / fps).ceil() as usize
     }
 
     /// Load a D64 disk image.
@@ -372,11 +411,14 @@ impl C64 {
 
     /// Run one frame of emulation.
     fn run_frame_internal(&mut self) {
+        let cycles_per_frame = self.cycles_per_frame();
+        let cycles_per_line = self.config.timing_mode().cycles_per_line();
+
         self.frame_cycles = 0;
         self.memory.cycles = 0;
         self.vic.reset_frame();
 
-        while self.frame_cycles < CYCLES_PER_FRAME {
+        while self.frame_cycles < cycles_per_frame {
             // Tick VIC first - it may steal cycles via badlines
             let ba_low = self.vic.tick(&self.memory.vic_registers);
 
@@ -387,6 +429,7 @@ impl C64 {
                 let cpu_cycles = self.memory.cycles - prev_cycles;
 
                 // Update tape motor state from processor port bit 5 (active low)
+                // (SX-64 and C64 GS have no cassette port, but this is harmless)
                 let motor_on = self.memory.port_data & 0x20 == 0;
                 self.tape.set_motor(motor_on);
 
@@ -432,7 +475,7 @@ impl C64 {
             self.memory.current_raster_line = self.vic.raster_line;
 
             // Check for VIC-II raster interrupt at cycle 0 of each line
-            if self.vic.frame_cycle % 63 == 0
+            if self.vic.frame_cycle % cycles_per_line == 0
                 && self.vic.check_raster_irq(&self.memory.vic_registers)
             {
                 // Set raster IRQ flag and main IRQ flag in $D019
@@ -477,14 +520,14 @@ impl Machine for C64 {
         VideoConfig {
             width: DISPLAY_WIDTH,
             height: DISPLAY_HEIGHT,
-            fps: 50.0,
+            fps: self.config.timing_mode().fps(),
         }
     }
 
     fn audio_config(&self) -> AudioConfig {
         AudioConfig {
             sample_rate: SAMPLE_RATE,
-            samples_per_frame: SAMPLES_PER_FRAME,
+            samples_per_frame: self.samples_per_frame(),
         }
     }
 
@@ -493,12 +536,13 @@ impl Machine for C64 {
     }
 
     fn render(&mut self, buffer: &mut [u8]) {
-        vic::render(&mut self.memory, buffer);
+        vic::render(&self.vic, &mut self.memory, buffer);
     }
 
     fn generate_audio(&mut self, buffer: &mut [f32]) {
-        // Generate SID audio
-        self.sid.generate_samples(buffer, CPU_CLOCK, SAMPLE_RATE);
+        // Generate SID audio (clock speed varies by PAL/NTSC)
+        self.sid
+            .generate_samples(buffer, self.cpu_clock(), SAMPLE_RATE);
 
         // Mix in tape audio (the characteristic screech)
         if self.tape.is_playing() && self.tape.is_audio_enabled() {

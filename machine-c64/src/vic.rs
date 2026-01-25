@@ -9,7 +9,9 @@
 //! - Sprites (future)
 //! - Raster interrupts
 
+use crate::config::{TimingMode, VicRevision};
 use crate::memory::Memory;
+use crate::palette::{Palette, palette_for_revision};
 
 /// Display width including borders.
 pub const DISPLAY_WIDTH: u32 = 384;
@@ -23,15 +25,6 @@ const BORDER_H: usize = 32;
 /// Border size on top/bottom.
 const BORDER_V: usize = 36;
 
-/// Cycles per raster line (PAL).
-const CYCLES_PER_LINE: u32 = 63;
-
-/// First visible raster line (display area).
-const FIRST_VISIBLE_LINE: u16 = 48;
-
-/// Last visible raster line (display area).
-const LAST_VISIBLE_LINE: u16 = 247;
-
 /// First cycle in line where badline steals (cycles 12-54).
 const BADLINE_START_CYCLE: u32 = 12;
 
@@ -44,6 +37,10 @@ const SPRITE_DMA_CYCLES: [u32; 8] = [58, 60, 62, 1, 3, 5, 7, 9];
 
 /// VIC-II video chip.
 pub struct Vic {
+    /// VIC-II chip revision (determines palette and timing)
+    revision: VicRevision,
+    /// Timing mode derived from revision
+    timing: TimingMode,
     /// Current raster line
     pub raster_line: u16,
     /// Current cycle within the frame
@@ -59,8 +56,16 @@ pub struct Vic {
 }
 
 impl Vic {
+    /// Create a new VIC-II with default revision (6569 R3 PAL).
     pub fn new() -> Self {
+        Self::with_revision(VicRevision::default())
+    }
+
+    /// Create a new VIC-II with the specified revision.
+    pub fn with_revision(revision: VicRevision) -> Self {
         Self {
+            revision,
+            timing: revision.timing_mode(),
             raster_line: 0,
             frame_cycle: 0,
             ba_low: false,
@@ -68,6 +73,36 @@ impl Vic {
             sprite_dma_active: 0,
             sprite_display_count: [0; 8],
         }
+    }
+
+    /// Get the VIC revision.
+    pub fn revision(&self) -> VicRevision {
+        self.revision
+    }
+
+    /// Get the timing mode.
+    pub fn timing(&self) -> TimingMode {
+        self.timing
+    }
+
+    /// Get cycles per raster line.
+    pub fn cycles_per_line(&self) -> u32 {
+        self.timing.cycles_per_line()
+    }
+
+    /// Get first visible raster line for display area.
+    pub fn first_visible_line(&self) -> u16 {
+        self.timing.first_visible_line()
+    }
+
+    /// Get last visible raster line for display area.
+    pub fn last_visible_line(&self) -> u16 {
+        self.timing.last_visible_line()
+    }
+
+    /// Get the color palette for this VIC revision.
+    pub fn palette(&self) -> &'static Palette {
+        palette_for_revision(self.revision)
     }
 
     /// Get the raster compare value from VIC registers.
@@ -106,7 +141,7 @@ impl Vic {
     ///
     /// A badline occurs when:
     /// - Display is enabled (DEN bit in $D011)
-    /// - Raster line is in the visible area (48-247)
+    /// - Raster line is in the visible area (48-247 PAL, different for NTSC)
     /// - Lower 3 bits of raster line match YSCROLL
     fn is_badline(&self, vic_registers: &[u8; 64]) -> bool {
         let ctrl1 = vic_registers[0x11];
@@ -117,7 +152,9 @@ impl Vic {
             return false;
         }
 
-        if self.raster_line < FIRST_VISIBLE_LINE || self.raster_line > LAST_VISIBLE_LINE {
+        if self.raster_line < self.first_visible_line()
+            || self.raster_line > self.last_visible_line()
+        {
             return false;
         }
 
@@ -132,9 +169,10 @@ impl Vic {
     /// Sprite DMA also steals cycles when sprites are displayed on the current line.
     pub fn tick(&mut self, vic_registers: &[u8; 64]) -> bool {
         self.frame_cycle += 1;
-        let cycle_in_line = self.frame_cycle % CYCLES_PER_LINE;
+        let cycles_per_line = self.cycles_per_line();
+        let cycle_in_line = self.frame_cycle % cycles_per_line;
         let prev_raster = self.raster_line;
-        self.raster_line = (self.frame_cycle / CYCLES_PER_LINE) as u16;
+        self.raster_line = (self.frame_cycle / cycles_per_line) as u16;
 
         // At start of new line, check for sprite Y matches
         if self.raster_line != prev_raster {
@@ -204,6 +242,8 @@ impl Vic {
             return false;
         }
 
+        let cycles_per_line = self.cycles_per_line();
+
         // Each sprite steals 2 cycles for p-access and 3 for s-access
         // p-access is at SPRITE_DMA_CYCLES[i], s-access follows
         for i in 0..8 {
@@ -218,7 +258,7 @@ impl Vic {
                 cycle_in_line >= p_cycle && cycle_in_line < p_cycle + 4
             } else {
                 // Wraps to next line
-                cycle_in_line >= p_cycle || cycle_in_line < (p_cycle + 4) % CYCLES_PER_LINE
+                cycle_in_line >= p_cycle || cycle_in_line < (p_cycle + 4) % cycles_per_line
             };
 
             if in_window {
@@ -255,28 +295,9 @@ impl Default for Vic {
     }
 }
 
-// C64 color palette (RGBA)
-pub const PALETTE: [[u8; 4]; 16] = [
-    [0x00, 0x00, 0x00, 0xFF], // 0: Black
-    [0xFF, 0xFF, 0xFF, 0xFF], // 1: White
-    [0x88, 0x39, 0x32, 0xFF], // 2: Red
-    [0x67, 0xB6, 0xBD, 0xFF], // 3: Cyan
-    [0x8B, 0x3F, 0x96, 0xFF], // 4: Purple
-    [0x55, 0xA0, 0x49, 0xFF], // 5: Green
-    [0x40, 0x31, 0x8D, 0xFF], // 6: Blue
-    [0xBF, 0xCE, 0x72, 0xFF], // 7: Yellow
-    [0x8B, 0x54, 0x29, 0xFF], // 8: Orange
-    [0x57, 0x42, 0x00, 0xFF], // 9: Brown
-    [0xB8, 0x69, 0x62, 0xFF], // 10: Light Red
-    [0x50, 0x50, 0x50, 0xFF], // 11: Dark Grey
-    [0x78, 0x78, 0x78, 0xFF], // 12: Grey
-    [0x94, 0xE0, 0x89, 0xFF], // 13: Light Green
-    [0x78, 0x69, 0xC4, 0xFF], // 14: Light Blue
-    [0x9F, 0x9F, 0x9F, 0xFF], // 15: Light Grey
-];
-
 /// Render the C64 display to an RGBA buffer.
-pub fn render(memory: &mut Memory, buffer: &mut [u8]) {
+pub fn render(vic: &Vic, memory: &mut Memory, buffer: &mut [u8]) {
+    let palette = vic.palette();
     let ctrl1 = memory.vic_registers[0x11];
     let ctrl2 = memory.vic_registers[0x16];
 
@@ -289,11 +310,11 @@ pub fn render(memory: &mut Memory, buffer: &mut [u8]) {
     let bg_color = (memory.vic_registers[0x21] & 0x0F) as usize;
 
     // Fill entire buffer with border color
-    let border_rgba = &PALETTE[border_color];
+    let border_rgba = palette[border_color].to_rgba();
     for y in 0..(DISPLAY_HEIGHT as usize) {
         for x in 0..(DISPLAY_WIDTH as usize) {
             let idx = (y * DISPLAY_WIDTH as usize + x) * 4;
-            buffer[idx..idx + 4].copy_from_slice(border_rgba);
+            buffer[idx..idx + 4].copy_from_slice(&border_rgba);
         }
     }
 
@@ -305,38 +326,39 @@ pub fn render(memory: &mut Memory, buffer: &mut [u8]) {
     if bitmap_mode && extended_bg {
         // Fill display area with black (color 0)
         let (x_scroll, y_scroll, _, _) = get_scroll(memory);
+        let black = palette[0].to_rgba();
         for y in 0..200 {
             for x in 0..320 {
                 if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
-                    buffer[idx..idx + 4].copy_from_slice(&PALETTE[0]);
+                    buffer[idx..idx + 4].copy_from_slice(&black);
                 }
             }
         }
-        render_sprites(memory, buffer, 0);
+        render_sprites(palette, memory, buffer, 0);
         return;
     }
 
     // Render screen content in the center
     if bitmap_mode {
         if multicolor {
-            render_multicolor_bitmap(memory, buffer, bg_color);
+            render_multicolor_bitmap(palette, memory, buffer, bg_color);
         } else {
-            render_standard_bitmap(memory, buffer);
+            render_standard_bitmap(palette, memory, buffer);
         }
     } else if extended_bg {
-        render_extended_bg_text(memory, buffer);
+        render_extended_bg_text(palette, memory, buffer);
     } else if multicolor {
-        render_multicolor_text(memory, buffer, bg_color);
+        render_multicolor_text(palette, memory, buffer, bg_color);
     } else {
-        render_standard_text(memory, buffer, bg_color);
+        render_standard_text(palette, memory, buffer, bg_color);
     }
 
     // Render sprites on top of background and detect collisions
-    render_sprites(memory, buffer, bg_color);
+    render_sprites(palette, memory, buffer, bg_color);
 }
 
 /// Render all enabled sprites with collision detection.
-fn render_sprites(memory: &mut Memory, buffer: &mut [u8], bg_color: usize) {
+fn render_sprites(palette: &Palette, memory: &mut Memory, buffer: &mut [u8], bg_color: usize) {
     let sprite_enable = memory.vic_registers[0x15];
     if sprite_enable == 0 {
         return;
@@ -425,6 +447,7 @@ fn render_sprites(memory: &mut Memory, buffer: &mut [u8], bg_color: usize) {
                     for dx in 0..pixel_width {
                         let screen_x = sprite_x + (pixel as i32) * pixel_width + dx;
                         draw_sprite_pixel_with_collision(
+                            palette,
                             memory,
                             buffer,
                             &mut sprite_coverage,
@@ -449,6 +472,7 @@ fn render_sprites(memory: &mut Memory, buffer: &mut [u8], bg_color: usize) {
                     for dx in 0..pixel_width {
                         let screen_x = sprite_x + (pixel as i32) * pixel_width + dx;
                         draw_sprite_pixel_with_collision(
+                            palette,
                             memory,
                             buffer,
                             &mut sprite_coverage,
@@ -468,6 +492,7 @@ fn render_sprites(memory: &mut Memory, buffer: &mut [u8], bg_color: usize) {
 
 /// Draw a single sprite pixel with collision detection.
 fn draw_sprite_pixel_with_collision(
+    palette: &Palette,
     memory: &mut Memory,
     buffer: &mut [u8],
     sprite_coverage: &mut [[u8; 320]; 200],
@@ -505,7 +530,7 @@ fn draw_sprite_pixel_with_collision(
 
     // Check for sprite-background collision
     let current = &buffer[idx..idx + 4];
-    let bg_rgba = &PALETTE[bg_color];
+    let bg_rgba = palette[bg_color].to_rgba();
     let is_background = current == bg_rgba;
 
     if !is_background {
@@ -518,7 +543,7 @@ fn draw_sprite_pixel_with_collision(
         return;
     }
 
-    buffer[idx..idx + 4].copy_from_slice(&PALETTE[color]);
+    buffer[idx..idx + 4].copy_from_slice(&palette[color].to_rgba());
 }
 
 /// Convert screen coordinates to buffer index (accounting for border and scroll).
@@ -549,7 +574,7 @@ fn get_scroll(memory: &Memory) -> (usize, usize, bool, bool) {
     (x_scroll, y_scroll, rows_25, cols_40)
 }
 
-fn render_standard_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
+fn render_standard_text(palette: &Palette, memory: &Memory, buffer: &mut [u8], bg_color: usize) {
     let screen_ptr = memory.screen_ptr();
     let char_ptr = memory.char_ptr();
     let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
@@ -582,8 +607,7 @@ fn render_standard_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
                     let y = row * 8 + line as usize;
 
                     if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
-                        let rgba = &PALETTE[pixel_color];
-                        buffer[idx..idx + 4].copy_from_slice(rgba);
+                        buffer[idx..idx + 4].copy_from_slice(&palette[pixel_color].to_rgba());
                     }
                 }
             }
@@ -591,7 +615,7 @@ fn render_standard_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
     }
 }
 
-fn render_multicolor_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
+fn render_multicolor_text(palette: &Palette, memory: &Memory, buffer: &mut [u8], bg_color: usize) {
     let screen_ptr = memory.screen_ptr();
     let char_ptr = memory.char_ptr();
     let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
@@ -636,10 +660,10 @@ fn render_multicolor_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
                         let x = col * 8 + pixel * 2;
                         let y = row * 8 + line as usize;
 
-                        let rgba = &PALETTE[pixel_color];
+                        let rgba = palette[pixel_color].to_rgba();
                         for dx in 0..2 {
                             if let Some(idx) = screen_to_buffer_idx(x + dx, y, x_scroll, y_scroll) {
-                                buffer[idx..idx + 4].copy_from_slice(rgba);
+                                buffer[idx..idx + 4].copy_from_slice(&rgba);
                             }
                         }
                     }
@@ -657,8 +681,7 @@ fn render_multicolor_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
                         let y = row * 8 + line as usize;
 
                         if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
-                            let rgba = &PALETTE[pixel_color];
-                            buffer[idx..idx + 4].copy_from_slice(rgba);
+                            buffer[idx..idx + 4].copy_from_slice(&palette[pixel_color].to_rgba());
                         }
                     }
                 }
@@ -667,7 +690,7 @@ fn render_multicolor_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
     }
 }
 
-fn render_extended_bg_text(memory: &Memory, buffer: &mut [u8]) {
+fn render_extended_bg_text(palette: &Palette, memory: &Memory, buffer: &mut [u8]) {
     let screen_ptr = memory.screen_ptr();
     let char_ptr = memory.char_ptr();
     let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
@@ -712,8 +735,7 @@ fn render_extended_bg_text(memory: &Memory, buffer: &mut [u8]) {
                     let y = row * 8 + line as usize;
 
                     if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
-                        let rgba = &PALETTE[pixel_color];
-                        buffer[idx..idx + 4].copy_from_slice(rgba);
+                        buffer[idx..idx + 4].copy_from_slice(&palette[pixel_color].to_rgba());
                     }
                 }
             }
@@ -721,7 +743,7 @@ fn render_extended_bg_text(memory: &Memory, buffer: &mut [u8]) {
     }
 }
 
-fn render_standard_bitmap(memory: &Memory, buffer: &mut [u8]) {
+fn render_standard_bitmap(palette: &Palette, memory: &Memory, buffer: &mut [u8]) {
     let screen_ptr = memory.screen_ptr();
     let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
 
@@ -761,8 +783,7 @@ fn render_standard_bitmap(memory: &Memory, buffer: &mut [u8]) {
                     let y = row * 8 + line as usize;
 
                     if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
-                        let rgba = &PALETTE[pixel_color];
-                        buffer[idx..idx + 4].copy_from_slice(rgba);
+                        buffer[idx..idx + 4].copy_from_slice(&palette[pixel_color].to_rgba());
                     }
                 }
             }
@@ -770,7 +791,12 @@ fn render_standard_bitmap(memory: &Memory, buffer: &mut [u8]) {
     }
 }
 
-fn render_multicolor_bitmap(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
+fn render_multicolor_bitmap(
+    palette: &Palette,
+    memory: &Memory,
+    buffer: &mut [u8],
+    bg_color: usize,
+) {
     let screen_ptr = memory.screen_ptr();
     let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
 
@@ -814,10 +840,10 @@ fn render_multicolor_bitmap(memory: &Memory, buffer: &mut [u8], bg_color: usize)
                     let x = col * 8 + pixel * 2;
                     let y = row * 8 + line as usize;
 
-                    let rgba = &PALETTE[pixel_color];
+                    let rgba = palette[pixel_color].to_rgba();
                     for dx in 0..2 {
                         if let Some(idx) = screen_to_buffer_idx(x + dx, y, x_scroll, y_scroll) {
-                            buffer[idx..idx + 4].copy_from_slice(rgba);
+                            buffer[idx..idx + 4].copy_from_slice(&rgba);
                         }
                     }
                 }
