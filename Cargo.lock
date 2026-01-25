@@ -1000,6 +1000,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-c128"
+version = "0.1.0"
+dependencies = [
+ "cpu-6502",
+ "cpu-z80",
+ "emu-core",
+ "machine-c64",
+]
+
+[[package]]
 name = "machine-c64"
 version = "0.1.0"
 dependencies = [

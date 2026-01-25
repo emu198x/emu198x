@@ -6,6 +6,7 @@ members = [
     "cpu-6502",
     "machine-spectrum",
     "machine-c64",
+    "machine-c128",
     "runner-lib",
     "spectrum-runner",
     "c64-runner",

@@ -1,0 +1,10 @@
+[package]
+name = "machine-c128"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+emu-core = { path = "../core" }
+cpu-6502 = { path = "../cpu-6502" }
+cpu-z80 = { path = "../cpu-z80" }
+machine-c64 = { path = "../machine-c64" }
