@@ -93,38 +93,54 @@ impl C64 {
     fn run_frame_internal(&mut self) {
         self.frame_cycles = 0;
         self.memory.cycles = 0;
+        self.vic.reset_frame();
 
         while self.frame_cycles < CYCLES_PER_FRAME {
-            let prev_cycles = self.memory.cycles;
+            // Tick VIC first - it may steal cycles via badlines
+            let ba_low = self.vic.tick(&self.memory.vic_registers);
 
-            // Execute one instruction
-            self.cpu.step(&mut self.memory);
+            if !ba_low {
+                // CPU only runs when bus is available (BA high)
+                let prev_cycles = self.memory.cycles;
+                self.cpu.step(&mut self.memory);
+                let cpu_cycles = self.memory.cycles - prev_cycles;
 
-            let elapsed = self.memory.cycles - prev_cycles;
-            self.frame_cycles = self.memory.cycles;
+                // Process pending SID register writes
+                for (reg, value) in self.memory.sid_writes.drain(..) {
+                    self.sid.write(reg, value);
+                }
 
-            // Process pending SID register writes
-            for (reg, value) in self.memory.sid_writes.drain(..) {
-                self.sid.write(reg, value);
+                // Tick SID oscillators and envelopes
+                self.sid.tick(cpu_cycles);
+
+                // Update readable SID registers
+                self.memory.sid_registers[0x1B] = self.sid.read(0x1B);
+                self.memory.sid_registers[0x1C] = self.sid.read(0x1C);
+
+                // Tick CIA1 timers and check for IRQ
+                if self.memory.tick_cia1(cpu_cycles) {
+                    self.cpu.interrupt(&mut self.memory);
+                }
+
+                // Tick CIA2 timers and check for NMI
+                if self.memory.tick_cia2(cpu_cycles) {
+                    self.cpu.nmi(&mut self.memory);
+                }
+
+                // Advance frame_cycles by CPU cycles (VIC already ticked once)
+                // We need to sync frame_cycles with actual elapsed time
+                if cpu_cycles > 1 {
+                    // Catch up VIC ticks for multi-cycle instructions
+                    for _ in 1..cpu_cycles {
+                        self.vic.tick(&self.memory.vic_registers);
+                    }
+                }
             }
 
-            // Tick SID oscillators and envelopes
-            self.sid.tick(elapsed);
+            self.frame_cycles = self.vic.frame_cycle;
 
-            // Update readable SID registers
-            self.memory.sid_registers[0x1B] = self.sid.read(0x1B);
-            self.memory.sid_registers[0x1C] = self.sid.read(0x1C);
-
-            // Update raster line (approximate: 63 cycles per line for PAL)
-            self.vic.raster_line = (self.frame_cycles / 63) as u16;
-
-            // Tick CIA1 timers and check for IRQ
-            if self.memory.tick_cia1(elapsed) {
-                self.cpu.interrupt(&mut self.memory);
-            }
-
-            // Also check for VIC-II raster interrupt
-            if self.vic.check_irq(&self.memory) {
+            // Check for VIC-II raster interrupt at start of each line
+            if self.vic.frame_cycle % 63 == 0 && self.vic.check_irq(&self.memory) {
                 self.memory.vic_registers[0x19] |= 0x01; // Set raster IRQ flag
                 self.cpu.interrupt(&mut self.memory);
             }

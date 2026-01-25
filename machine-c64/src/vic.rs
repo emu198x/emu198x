@@ -23,12 +23,31 @@ const BORDER_H: usize = 32;
 /// Border size on top/bottom.
 const BORDER_V: usize = 36;
 
+/// Cycles per raster line (PAL).
+const CYCLES_PER_LINE: u32 = 63;
+
+/// First visible raster line (display area).
+const FIRST_VISIBLE_LINE: u16 = 48;
+
+/// Last visible raster line (display area).
+const LAST_VISIBLE_LINE: u16 = 247;
+
+/// First cycle in line where badline steals (cycles 12-54).
+const BADLINE_START_CYCLE: u32 = 12;
+
+/// Last cycle in line where badline steals.
+const BADLINE_END_CYCLE: u32 = 54;
+
 /// VIC-II video chip.
 pub struct Vic {
     /// Current raster line
     pub raster_line: u16,
     /// Raster interrupt line
     pub raster_irq: u16,
+    /// Current cycle within the frame
+    pub frame_cycle: u32,
+    /// Bus Available signal (false = CPU halted due to badline)
+    pub ba_low: bool,
 }
 
 impl Vic {
@@ -36,6 +55,8 @@ impl Vic {
         Self {
             raster_line: 0,
             raster_irq: 0,
+            frame_cycle: 0,
+            ba_low: false,
         }
     }
 
@@ -51,10 +72,63 @@ impl Vic {
         false
     }
 
+    /// Check if current line is a badline.
+    ///
+    /// A badline occurs when:
+    /// - Display is enabled (DEN bit in $D011)
+    /// - Raster line is in the visible area (48-247)
+    /// - Lower 3 bits of raster line match YSCROLL
+    fn is_badline(&self, vic_registers: &[u8; 64]) -> bool {
+        let ctrl1 = vic_registers[0x11];
+        let yscroll = ctrl1 & 0x07;
+        let den = ctrl1 & 0x10 != 0; // Display enable
+
+        if !den {
+            return false;
+        }
+
+        if self.raster_line < FIRST_VISIBLE_LINE || self.raster_line > LAST_VISIBLE_LINE {
+            return false;
+        }
+
+        (self.raster_line & 0x07) == yscroll as u16
+    }
+
+    /// Tick VIC for one cycle. Returns true if BA is low (CPU should halt).
+    ///
+    /// During badlines, VIC-II steals cycles from the CPU to fetch character
+    /// data. This happens on cycles 12-54 of badlines (40 characters + setup).
+    pub fn tick(&mut self, vic_registers: &[u8; 64]) -> bool {
+        self.frame_cycle += 1;
+        let cycle_in_line = self.frame_cycle % CYCLES_PER_LINE;
+        self.raster_line = (self.frame_cycle / CYCLES_PER_LINE) as u16;
+
+        // Badline steals cycles 12-54 on character fetch lines
+        if self.is_badline(vic_registers)
+            && cycle_in_line >= BADLINE_START_CYCLE
+            && cycle_in_line < BADLINE_END_CYCLE
+        {
+            self.ba_low = true;
+            return true;
+        }
+
+        self.ba_low = false;
+        false
+    }
+
+    /// Reset the frame cycle counter (called at start of each frame).
+    pub fn reset_frame(&mut self) {
+        self.frame_cycle = 0;
+        self.raster_line = 0;
+        self.ba_low = false;
+    }
+
     /// Reset the VIC-II.
     pub fn reset(&mut self) {
         self.raster_line = 0;
         self.raster_irq = 0;
+        self.frame_cycle = 0;
+        self.ba_low = false;
     }
 }
 
@@ -124,21 +198,210 @@ pub fn render(memory: &Memory, buffer: &mut [u8]) {
     } else {
         render_standard_text(memory, buffer, bg_color);
     }
+
+    // Render sprites on top of background
+    render_sprites(memory, buffer);
 }
 
-/// Convert screen coordinates to buffer index (accounting for border).
+/// Render all enabled sprites.
+fn render_sprites(memory: &Memory, buffer: &mut [u8]) {
+    let sprite_enable = memory.vic_registers[0x15];
+    if sprite_enable == 0 {
+        return;
+    }
+
+    let x_expand = memory.vic_registers[0x1D];
+    let y_expand = memory.vic_registers[0x17];
+    let multicolor_enable = memory.vic_registers[0x1C];
+    let priority = memory.vic_registers[0x1B]; // 1 = behind background
+    let x_msb = memory.vic_registers[0x10];
+
+    // Multicolor sprite colors
+    let mc0 = (memory.vic_registers[0x25] & 0x0F) as usize;
+    let mc1 = (memory.vic_registers[0x26] & 0x0F) as usize;
+
+    // Sprite pointers are at screen_ptr + $3F8
+    let sprite_ptr_base = memory.screen_ptr().wrapping_add(0x3F8);
+
+    // Render sprites from back to front (sprite 0 has highest priority)
+    for sprite_num in (0..8).rev() {
+        let mask = 1 << sprite_num;
+        if sprite_enable & mask == 0 {
+            continue;
+        }
+
+        // Get sprite position (9-bit X, 8-bit Y)
+        let x_lo = memory.vic_registers[sprite_num * 2] as u16;
+        let y = memory.vic_registers[sprite_num * 2 + 1] as i32;
+        let x_hi = if x_msb & mask != 0 { 256u16 } else { 0u16 };
+        let sprite_x = (x_lo | x_hi) as i32;
+
+        // Get sprite data pointer (64 bytes per sprite block)
+        let pointer = memory.ram[sprite_ptr_base.wrapping_add(sprite_num as u16) as usize];
+        let data_addr = memory.vic_bank().wrapping_add((pointer as u16) * 64);
+
+        // Sprite color
+        let sprite_color = (memory.vic_registers[0x27 + sprite_num] & 0x0F) as usize;
+
+        // Check flags for this sprite
+        let is_expanded_x = x_expand & mask != 0;
+        let is_expanded_y = y_expand & mask != 0;
+        let is_multicolor = multicolor_enable & mask != 0;
+        let is_behind_bg = priority & mask != 0;
+
+        // Sprite is 24x21 pixels
+        let _sprite_width = if is_expanded_x { 48 } else { 24 };
+        let sprite_height = if is_expanded_y { 42 } else { 21 };
+
+        // Render sprite pixels
+        for row in 0..sprite_height {
+            let data_row = if is_expanded_y { row / 2 } else { row };
+            let screen_y = y + row as i32;
+
+            // Skip if outside visible area
+            if screen_y < 0 || screen_y >= 200 {
+                continue;
+            }
+
+            // Get 3 bytes of sprite data for this row
+            let byte0 = memory.vic_read(data_addr.wrapping_add(data_row as u16 * 3)) as u32;
+            let byte1 = memory.vic_read(data_addr.wrapping_add(data_row as u16 * 3 + 1)) as u32;
+            let byte2 = memory.vic_read(data_addr.wrapping_add(data_row as u16 * 3 + 2)) as u32;
+            let row_data = (byte0 << 16) | (byte1 << 8) | byte2;
+
+            if is_multicolor {
+                // Multicolor mode: 2 bits per pixel, 12 pixels per row
+                for pixel in 0..12 {
+                    let bit_pos = 22 - pixel * 2;
+                    let color_bits = ((row_data >> bit_pos) & 0x03) as usize;
+
+                    let pixel_color = match color_bits {
+                        0 => continue, // Transparent
+                        1 => mc0,
+                        2 => sprite_color,
+                        3 => mc1,
+                        _ => unreachable!(),
+                    };
+
+                    let pixel_width = if is_expanded_x { 4 } else { 2 };
+                    for dx in 0..pixel_width {
+                        let screen_x = sprite_x + (pixel as i32) * pixel_width + dx;
+                        draw_sprite_pixel(
+                            buffer,
+                            screen_x,
+                            screen_y,
+                            pixel_color,
+                            is_behind_bg,
+                            memory,
+                        );
+                    }
+                }
+            } else {
+                // Standard mode: 1 bit per pixel, 24 pixels per row
+                for pixel in 0..24 {
+                    let bit_pos = 23 - pixel;
+                    if (row_data >> bit_pos) & 1 == 0 {
+                        continue; // Transparent
+                    }
+
+                    let pixel_width = if is_expanded_x { 2 } else { 1 };
+                    for dx in 0..pixel_width {
+                        let screen_x = sprite_x + (pixel as i32) * pixel_width + dx;
+                        draw_sprite_pixel(
+                            buffer,
+                            screen_x,
+                            screen_y,
+                            sprite_color,
+                            is_behind_bg,
+                            memory,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Draw a single sprite pixel, handling priority.
+fn draw_sprite_pixel(
+    buffer: &mut [u8],
+    x: i32,
+    y: i32,
+    color: usize,
+    behind_bg: bool,
+    memory: &Memory,
+) {
+    // Sprite coordinates are relative to display, offset by 24 pixels for left border
+    let display_x = x - 24;
+    let display_y = y - 50;
+
+    // Check bounds
+    if display_x < 0 || display_x >= 320 || display_y < 0 || display_y >= 200 {
+        return;
+    }
+
+    let buffer_x = display_x as usize + BORDER_H;
+    let buffer_y = display_y as usize + BORDER_V;
+
+    // If sprite is behind background, check if background pixel is non-zero
+    if behind_bg {
+        let bg_color = (memory.vic_registers[0x21] & 0x0F) as usize;
+        let idx = (buffer_y * DISPLAY_WIDTH as usize + buffer_x) * 4;
+        let current = &buffer[idx..idx + 4];
+        let bg_rgba = &PALETTE[bg_color];
+
+        // Skip if there's already non-background color
+        if current != bg_rgba {
+            return;
+        }
+    }
+
+    let idx = (buffer_y * DISPLAY_WIDTH as usize + buffer_x) * 4;
+    buffer[idx..idx + 4].copy_from_slice(&PALETTE[color]);
+}
+
+/// Convert screen coordinates to buffer index (accounting for border and scroll).
 #[inline]
-fn screen_to_buffer_idx(x: usize, y: usize) -> usize {
-    ((y + BORDER_V) * DISPLAY_WIDTH as usize + (x + BORDER_H)) * 4
+fn screen_to_buffer_idx(x: usize, y: usize, x_scroll: usize, y_scroll: usize) -> Option<usize> {
+    // Apply scroll offset
+    let scrolled_x = x.wrapping_sub(x_scroll);
+    let scrolled_y = y.wrapping_sub(y_scroll);
+
+    // Check bounds (320x200 visible area)
+    if scrolled_x >= 320 || scrolled_y >= 200 {
+        return None;
+    }
+
+    Some(((scrolled_y + BORDER_V) * DISPLAY_WIDTH as usize + (scrolled_x + BORDER_H)) * 4)
+}
+
+/// Get scroll values from VIC registers.
+fn get_scroll(memory: &Memory) -> (usize, usize, bool, bool) {
+    let ctrl1 = memory.vic_registers[0x11];
+    let ctrl2 = memory.vic_registers[0x16];
+
+    let y_scroll = (ctrl1 & 0x07) as usize;
+    let x_scroll = (ctrl2 & 0x07) as usize;
+    let rows_25 = ctrl1 & 0x08 != 0; // true = 25 rows, false = 24 rows
+    let cols_40 = ctrl2 & 0x08 != 0; // true = 40 cols, false = 38 cols
+
+    (x_scroll, y_scroll, rows_25, cols_40)
 }
 
 fn render_standard_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
     let screen_ptr = memory.screen_ptr();
     let char_ptr = memory.char_ptr();
+    let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
+
+    // Determine visible area based on row/column mode
+    let first_col = if cols_40 { 0 } else { 1 };
+    let last_col = if cols_40 { 40 } else { 39 };
+    let first_row = if rows_25 { 0 } else { 1 };
+    let last_row = if rows_25 { 25 } else { 24 };
 
     // 40x25 character display
-    for row in 0..25 {
-        for col in 0..40 {
+    for row in first_row..last_row {
+        for col in first_col..last_col {
             let char_index = row * 40 + col;
             let screen_addr = screen_ptr.wrapping_add(char_index as u16);
             let char_code = memory.ram[screen_addr as usize];
@@ -156,10 +419,11 @@ fn render_standard_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
 
                     let x = col * 8 + bit;
                     let y = row * 8 + line as usize;
-                    let idx = screen_to_buffer_idx(x, y);
 
-                    let rgba = &PALETTE[pixel_color];
-                    buffer[idx..idx + 4].copy_from_slice(rgba);
+                    if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
+                        let rgba = &PALETTE[pixel_color];
+                        buffer[idx..idx + 4].copy_from_slice(rgba);
+                    }
                 }
             }
         }
@@ -169,12 +433,18 @@ fn render_standard_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
 fn render_multicolor_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
     let screen_ptr = memory.screen_ptr();
     let char_ptr = memory.char_ptr();
+    let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
 
     let bg1 = (memory.vic_registers[0x22] & 0x0F) as usize;
     let bg2 = (memory.vic_registers[0x23] & 0x0F) as usize;
 
-    for row in 0..25 {
-        for col in 0..40 {
+    let first_col = if cols_40 { 0 } else { 1 };
+    let last_col = if cols_40 { 40 } else { 39 };
+    let first_row = if rows_25 { 0 } else { 1 };
+    let last_row = if rows_25 { 25 } else { 24 };
+
+    for row in first_row..last_row {
+        for col in first_col..last_col {
             let char_index = row * 40 + col;
             let screen_addr = screen_ptr.wrapping_add(char_index as u16);
             let char_code = memory.ram[screen_addr as usize];
@@ -207,8 +477,9 @@ fn render_multicolor_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
 
                         let rgba = &PALETTE[pixel_color];
                         for dx in 0..2 {
-                            let idx = screen_to_buffer_idx(x + dx, y);
-                            buffer[idx..idx + 4].copy_from_slice(rgba);
+                            if let Some(idx) = screen_to_buffer_idx(x + dx, y, x_scroll, y_scroll) {
+                                buffer[idx..idx + 4].copy_from_slice(rgba);
+                            }
                         }
                     }
                 } else {
@@ -223,10 +494,11 @@ fn render_multicolor_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
 
                         let x = col * 8 + bit;
                         let y = row * 8 + line as usize;
-                        let idx = screen_to_buffer_idx(x, y);
 
-                        let rgba = &PALETTE[pixel_color];
-                        buffer[idx..idx + 4].copy_from_slice(rgba);
+                        if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
+                            let rgba = &PALETTE[pixel_color];
+                            buffer[idx..idx + 4].copy_from_slice(rgba);
+                        }
                     }
                 }
             }
@@ -237,6 +509,7 @@ fn render_multicolor_text(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
 fn render_extended_bg_text(memory: &Memory, buffer: &mut [u8]) {
     let screen_ptr = memory.screen_ptr();
     let char_ptr = memory.char_ptr();
+    let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
 
     let bg_colors = [
         (memory.vic_registers[0x21] & 0x0F) as usize,
@@ -245,8 +518,13 @@ fn render_extended_bg_text(memory: &Memory, buffer: &mut [u8]) {
         (memory.vic_registers[0x24] & 0x0F) as usize,
     ];
 
-    for row in 0..25 {
-        for col in 0..40 {
+    let first_col = if cols_40 { 0 } else { 1 };
+    let last_col = if cols_40 { 40 } else { 39 };
+    let first_row = if rows_25 { 0 } else { 1 };
+    let last_row = if rows_25 { 25 } else { 24 };
+
+    for row in first_row..last_row {
+        for col in first_col..last_col {
             let char_index = row * 40 + col;
             let screen_addr = screen_ptr.wrapping_add(char_index as u16);
             let char_byte = memory.ram[screen_addr as usize];
@@ -271,10 +549,11 @@ fn render_extended_bg_text(memory: &Memory, buffer: &mut [u8]) {
 
                     let x = col * 8 + bit;
                     let y = row * 8 + line as usize;
-                    let idx = screen_to_buffer_idx(x, y);
 
-                    let rgba = &PALETTE[pixel_color];
-                    buffer[idx..idx + 4].copy_from_slice(rgba);
+                    if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
+                        let rgba = &PALETTE[pixel_color];
+                        buffer[idx..idx + 4].copy_from_slice(rgba);
+                    }
                 }
             }
         }
@@ -283,6 +562,7 @@ fn render_extended_bg_text(memory: &Memory, buffer: &mut [u8]) {
 
 fn render_standard_bitmap(memory: &Memory, buffer: &mut [u8]) {
     let screen_ptr = memory.screen_ptr();
+    let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
 
     // In bitmap mode, character pointer bits select bitmap location
     let bitmap_ptr = if memory.vic_registers[0x18] & 0x08 != 0 {
@@ -291,8 +571,13 @@ fn render_standard_bitmap(memory: &Memory, buffer: &mut [u8]) {
         memory.vic_bank()
     };
 
-    for row in 0..25 {
-        for col in 0..40 {
+    let first_col = if cols_40 { 0 } else { 1 };
+    let last_col = if cols_40 { 40 } else { 39 };
+    let first_row = if rows_25 { 0 } else { 1 };
+    let last_row = if rows_25 { 25 } else { 24 };
+
+    for row in first_row..last_row {
+        for col in first_col..last_col {
             let char_index = row * 40 + col;
 
             // Color info from screen RAM
@@ -313,10 +598,11 @@ fn render_standard_bitmap(memory: &Memory, buffer: &mut [u8]) {
 
                     let x = col * 8 + bit;
                     let y = row * 8 + line as usize;
-                    let idx = screen_to_buffer_idx(x, y);
 
-                    let rgba = &PALETTE[pixel_color];
-                    buffer[idx..idx + 4].copy_from_slice(rgba);
+                    if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
+                        let rgba = &PALETTE[pixel_color];
+                        buffer[idx..idx + 4].copy_from_slice(rgba);
+                    }
                 }
             }
         }
@@ -325,6 +611,7 @@ fn render_standard_bitmap(memory: &Memory, buffer: &mut [u8]) {
 
 fn render_multicolor_bitmap(memory: &Memory, buffer: &mut [u8], bg_color: usize) {
     let screen_ptr = memory.screen_ptr();
+    let (x_scroll, y_scroll, rows_25, cols_40) = get_scroll(memory);
 
     let bitmap_ptr = if memory.vic_registers[0x18] & 0x08 != 0 {
         memory.vic_bank() + 0x2000
@@ -332,8 +619,13 @@ fn render_multicolor_bitmap(memory: &Memory, buffer: &mut [u8], bg_color: usize)
         memory.vic_bank()
     };
 
-    for row in 0..25 {
-        for col in 0..40 {
+    let first_col = if cols_40 { 0 } else { 1 };
+    let last_col = if cols_40 { 40 } else { 39 };
+    let first_row = if rows_25 { 0 } else { 1 };
+    let last_row = if rows_25 { 25 } else { 24 };
+
+    for row in first_row..last_row {
+        for col in first_col..last_col {
             let char_index = row * 40 + col;
 
             // Colors from screen RAM and color RAM
@@ -363,8 +655,9 @@ fn render_multicolor_bitmap(memory: &Memory, buffer: &mut [u8], bg_color: usize)
 
                     let rgba = &PALETTE[pixel_color];
                     for dx in 0..2 {
-                        let idx = screen_to_buffer_idx(x + dx, y);
-                        buffer[idx..idx + 4].copy_from_slice(rgba);
+                        if let Some(idx) = screen_to_buffer_idx(x + dx, y, x_scroll, y_scroll) {
+                            buffer[idx..idx + 4].copy_from_slice(rgba);
+                        }
                     }
                 }
             }

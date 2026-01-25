@@ -1633,6 +1633,590 @@ impl Mos6502 {
                 4 + if page_crossed { 1 } else { 0 }
             }
 
+            // =====================================================================
+            // Illegal Opcodes (Undocumented but commonly used)
+            // =====================================================================
+
+            // LAX - Load A and X (LDA + LDX combined)
+            0xA7 => {
+                // LAX $nn (Zero Page)
+                let addr = self.addr_zero_page(bus);
+                let value = bus.read(addr as u32);
+                self.a = value;
+                self.x = value;
+                self.set_zn(value);
+                3
+            }
+            0xB7 => {
+                // LAX $nn,Y (Zero Page,Y)
+                let addr = self.addr_zero_page_y(bus);
+                let value = bus.read(addr as u32);
+                self.a = value;
+                self.x = value;
+                self.set_zn(value);
+                4
+            }
+            0xAF => {
+                // LAX $nnnn (Absolute)
+                let addr = self.addr_absolute(bus);
+                let value = bus.read(addr as u32);
+                self.a = value;
+                self.x = value;
+                self.set_zn(value);
+                4
+            }
+            0xBF => {
+                // LAX $nnnn,Y (Absolute,Y)
+                let (addr, page_crossed) = self.addr_absolute_y(bus);
+                if page_crossed {
+                    bus.tick(1);
+                }
+                let value = bus.read(addr as u32);
+                self.a = value;
+                self.x = value;
+                self.set_zn(value);
+                4 + if page_crossed { 1 } else { 0 }
+            }
+            0xA3 => {
+                // LAX ($nn,X) (Indexed Indirect)
+                let addr = self.addr_indexed_indirect(bus);
+                let value = bus.read(addr as u32);
+                self.a = value;
+                self.x = value;
+                self.set_zn(value);
+                6
+            }
+            0xB3 => {
+                // LAX ($nn),Y (Indirect Indexed)
+                let (addr, page_crossed) = self.addr_indirect_indexed(bus);
+                if page_crossed {
+                    bus.tick(1);
+                }
+                let value = bus.read(addr as u32);
+                self.a = value;
+                self.x = value;
+                self.set_zn(value);
+                5 + if page_crossed { 1 } else { 0 }
+            }
+
+            // SAX - Store A AND X
+            0x87 => {
+                // SAX $nn (Zero Page)
+                let addr = self.addr_zero_page(bus);
+                bus.write(addr as u32, self.a & self.x);
+                3
+            }
+            0x97 => {
+                // SAX $nn,Y (Zero Page,Y)
+                let addr = self.addr_zero_page_y(bus);
+                bus.write(addr as u32, self.a & self.x);
+                4
+            }
+            0x8F => {
+                // SAX $nnnn (Absolute)
+                let addr = self.addr_absolute(bus);
+                bus.write(addr as u32, self.a & self.x);
+                4
+            }
+            0x83 => {
+                // SAX ($nn,X) (Indexed Indirect)
+                let addr = self.addr_indexed_indirect(bus);
+                bus.write(addr as u32, self.a & self.x);
+                6
+            }
+
+            // DCP - Decrement memory then Compare (DEC + CMP)
+            0xC7 => {
+                // DCP $nn (Zero Page)
+                let addr = self.addr_zero_page(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_sub(1);
+                bus.write(addr as u32, result);
+                self.cmp(self.a, result);
+                5
+            }
+            0xD7 => {
+                // DCP $nn,X (Zero Page,X)
+                let addr = self.addr_zero_page_x(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_sub(1);
+                bus.write(addr as u32, result);
+                self.cmp(self.a, result);
+                6
+            }
+            0xCF => {
+                // DCP $nnnn (Absolute)
+                let addr = self.addr_absolute(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_sub(1);
+                bus.write(addr as u32, result);
+                self.cmp(self.a, result);
+                6
+            }
+            0xDF => {
+                // DCP $nnnn,X (Absolute,X)
+                let addr = self.addr_absolute_x_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_sub(1);
+                bus.write(addr as u32, result);
+                self.cmp(self.a, result);
+                7
+            }
+            0xDB => {
+                // DCP $nnnn,Y (Absolute,Y)
+                let addr = self.addr_absolute_y_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_sub(1);
+                bus.write(addr as u32, result);
+                self.cmp(self.a, result);
+                7
+            }
+            0xC3 => {
+                // DCP ($nn,X) (Indexed Indirect)
+                let addr = self.addr_indexed_indirect(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_sub(1);
+                bus.write(addr as u32, result);
+                self.cmp(self.a, result);
+                8
+            }
+            0xD3 => {
+                // DCP ($nn),Y (Indirect Indexed)
+                let addr = self.addr_indirect_indexed_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_sub(1);
+                bus.write(addr as u32, result);
+                self.cmp(self.a, result);
+                8
+            }
+
+            // ISC/ISB - Increment memory then Subtract (INC + SBC)
+            0xE7 => {
+                // ISC $nn (Zero Page)
+                let addr = self.addr_zero_page(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_add(1);
+                bus.write(addr as u32, result);
+                self.sbc(result);
+                5
+            }
+            0xF7 => {
+                // ISC $nn,X (Zero Page,X)
+                let addr = self.addr_zero_page_x(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_add(1);
+                bus.write(addr as u32, result);
+                self.sbc(result);
+                6
+            }
+            0xEF => {
+                // ISC $nnnn (Absolute)
+                let addr = self.addr_absolute(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_add(1);
+                bus.write(addr as u32, result);
+                self.sbc(result);
+                6
+            }
+            0xFF => {
+                // ISC $nnnn,X (Absolute,X)
+                let addr = self.addr_absolute_x_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_add(1);
+                bus.write(addr as u32, result);
+                self.sbc(result);
+                7
+            }
+            0xFB => {
+                // ISC $nnnn,Y (Absolute,Y)
+                let addr = self.addr_absolute_y_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_add(1);
+                bus.write(addr as u32, result);
+                self.sbc(result);
+                7
+            }
+            0xE3 => {
+                // ISC ($nn,X) (Indexed Indirect)
+                let addr = self.addr_indexed_indirect(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_add(1);
+                bus.write(addr as u32, result);
+                self.sbc(result);
+                8
+            }
+            0xF3 => {
+                // ISC ($nn),Y (Indirect Indexed)
+                let addr = self.addr_indirect_indexed_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = value.wrapping_add(1);
+                bus.write(addr as u32, result);
+                self.sbc(result);
+                8
+            }
+
+            // SLO - Shift Left then OR (ASL + ORA)
+            0x07 => {
+                // SLO $nn (Zero Page)
+                let addr = self.addr_zero_page(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.asl(value);
+                bus.write(addr as u32, result);
+                self.a |= result;
+                self.set_zn(self.a);
+                5
+            }
+            0x17 => {
+                // SLO $nn,X (Zero Page,X)
+                let addr = self.addr_zero_page_x(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.asl(value);
+                bus.write(addr as u32, result);
+                self.a |= result;
+                self.set_zn(self.a);
+                6
+            }
+            0x0F => {
+                // SLO $nnnn (Absolute)
+                let addr = self.addr_absolute(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.asl(value);
+                bus.write(addr as u32, result);
+                self.a |= result;
+                self.set_zn(self.a);
+                6
+            }
+            0x1F => {
+                // SLO $nnnn,X (Absolute,X)
+                let addr = self.addr_absolute_x_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.asl(value);
+                bus.write(addr as u32, result);
+                self.a |= result;
+                self.set_zn(self.a);
+                7
+            }
+            0x1B => {
+                // SLO $nnnn,Y (Absolute,Y)
+                let addr = self.addr_absolute_y_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.asl(value);
+                bus.write(addr as u32, result);
+                self.a |= result;
+                self.set_zn(self.a);
+                7
+            }
+            0x03 => {
+                // SLO ($nn,X) (Indexed Indirect)
+                let addr = self.addr_indexed_indirect(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.asl(value);
+                bus.write(addr as u32, result);
+                self.a |= result;
+                self.set_zn(self.a);
+                8
+            }
+            0x13 => {
+                // SLO ($nn),Y (Indirect Indexed)
+                let addr = self.addr_indirect_indexed_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.asl(value);
+                bus.write(addr as u32, result);
+                self.a |= result;
+                self.set_zn(self.a);
+                8
+            }
+
+            // SRE - Shift Right then Exclusive OR (LSR + EOR)
+            0x47 => {
+                // SRE $nn (Zero Page)
+                let addr = self.addr_zero_page(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.lsr(value);
+                bus.write(addr as u32, result);
+                self.a ^= result;
+                self.set_zn(self.a);
+                5
+            }
+            0x57 => {
+                // SRE $nn,X (Zero Page,X)
+                let addr = self.addr_zero_page_x(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.lsr(value);
+                bus.write(addr as u32, result);
+                self.a ^= result;
+                self.set_zn(self.a);
+                6
+            }
+            0x4F => {
+                // SRE $nnnn (Absolute)
+                let addr = self.addr_absolute(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.lsr(value);
+                bus.write(addr as u32, result);
+                self.a ^= result;
+                self.set_zn(self.a);
+                6
+            }
+            0x5F => {
+                // SRE $nnnn,X (Absolute,X)
+                let addr = self.addr_absolute_x_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.lsr(value);
+                bus.write(addr as u32, result);
+                self.a ^= result;
+                self.set_zn(self.a);
+                7
+            }
+            0x5B => {
+                // SRE $nnnn,Y (Absolute,Y)
+                let addr = self.addr_absolute_y_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.lsr(value);
+                bus.write(addr as u32, result);
+                self.a ^= result;
+                self.set_zn(self.a);
+                7
+            }
+            0x43 => {
+                // SRE ($nn,X) (Indexed Indirect)
+                let addr = self.addr_indexed_indirect(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.lsr(value);
+                bus.write(addr as u32, result);
+                self.a ^= result;
+                self.set_zn(self.a);
+                8
+            }
+            0x53 => {
+                // SRE ($nn),Y (Indirect Indexed)
+                let addr = self.addr_indirect_indexed_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.lsr(value);
+                bus.write(addr as u32, result);
+                self.a ^= result;
+                self.set_zn(self.a);
+                8
+            }
+
+            // RLA - Rotate Left then AND (ROL + AND)
+            0x27 => {
+                // RLA $nn (Zero Page)
+                let addr = self.addr_zero_page(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.rol(value);
+                bus.write(addr as u32, result);
+                self.a &= result;
+                self.set_zn(self.a);
+                5
+            }
+            0x37 => {
+                // RLA $nn,X (Zero Page,X)
+                let addr = self.addr_zero_page_x(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.rol(value);
+                bus.write(addr as u32, result);
+                self.a &= result;
+                self.set_zn(self.a);
+                6
+            }
+            0x2F => {
+                // RLA $nnnn (Absolute)
+                let addr = self.addr_absolute(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.rol(value);
+                bus.write(addr as u32, result);
+                self.a &= result;
+                self.set_zn(self.a);
+                6
+            }
+            0x3F => {
+                // RLA $nnnn,X (Absolute,X)
+                let addr = self.addr_absolute_x_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.rol(value);
+                bus.write(addr as u32, result);
+                self.a &= result;
+                self.set_zn(self.a);
+                7
+            }
+            0x3B => {
+                // RLA $nnnn,Y (Absolute,Y)
+                let addr = self.addr_absolute_y_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.rol(value);
+                bus.write(addr as u32, result);
+                self.a &= result;
+                self.set_zn(self.a);
+                7
+            }
+            0x23 => {
+                // RLA ($nn,X) (Indexed Indirect)
+                let addr = self.addr_indexed_indirect(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.rol(value);
+                bus.write(addr as u32, result);
+                self.a &= result;
+                self.set_zn(self.a);
+                8
+            }
+            0x33 => {
+                // RLA ($nn),Y (Indirect Indexed)
+                let addr = self.addr_indirect_indexed_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.rol(value);
+                bus.write(addr as u32, result);
+                self.a &= result;
+                self.set_zn(self.a);
+                8
+            }
+
+            // RRA - Rotate Right then Add (ROR + ADC)
+            0x67 => {
+                // RRA $nn (Zero Page)
+                let addr = self.addr_zero_page(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.ror(value);
+                bus.write(addr as u32, result);
+                self.adc(result);
+                5
+            }
+            0x77 => {
+                // RRA $nn,X (Zero Page,X)
+                let addr = self.addr_zero_page_x(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.ror(value);
+                bus.write(addr as u32, result);
+                self.adc(result);
+                6
+            }
+            0x6F => {
+                // RRA $nnnn (Absolute)
+                let addr = self.addr_absolute(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.ror(value);
+                bus.write(addr as u32, result);
+                self.adc(result);
+                6
+            }
+            0x7F => {
+                // RRA $nnnn,X (Absolute,X)
+                let addr = self.addr_absolute_x_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.ror(value);
+                bus.write(addr as u32, result);
+                self.adc(result);
+                7
+            }
+            0x7B => {
+                // RRA $nnnn,Y (Absolute,Y)
+                let addr = self.addr_absolute_y_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.ror(value);
+                bus.write(addr as u32, result);
+                self.adc(result);
+                7
+            }
+            0x63 => {
+                // RRA ($nn,X) (Indexed Indirect)
+                let addr = self.addr_indexed_indirect(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.ror(value);
+                bus.write(addr as u32, result);
+                self.adc(result);
+                8
+            }
+            0x73 => {
+                // RRA ($nn),Y (Indirect Indexed)
+                let addr = self.addr_indirect_indexed_rmw(bus);
+                let value = bus.read(addr as u32);
+                bus.tick(1);
+                let result = self.ror(value);
+                bus.write(addr as u32, result);
+                self.adc(result);
+                8
+            }
+
+            // ANC - AND immediate then copy N to C
+            0x0B | 0x2B => {
+                let value = self.fetch(bus);
+                self.a &= value;
+                self.set_zn(self.a);
+                self.set_flag(FLAG_C, self.a & 0x80 != 0);
+                2
+            }
+
+            // ALR/ASR - AND immediate then LSR A
+            0x4B => {
+                let value = self.fetch(bus);
+                self.a &= value;
+                self.a = self.lsr(self.a);
+                2
+            }
+
+            // ARR - AND immediate then ROR A (with special flag behavior)
+            0x6B => {
+                let value = self.fetch(bus);
+                self.a &= value;
+                self.a = self.ror(self.a);
+                // Special flag behavior for ARR
+                self.set_flag(FLAG_C, self.a & 0x40 != 0);
+                self.set_flag(FLAG_V, ((self.a & 0x40) ^ ((self.a & 0x20) << 1)) != 0);
+                2
+            }
+
+            // SBX/AXS - (A AND X) - immediate -> X (no borrow)
+            0xCB => {
+                let value = self.fetch(bus);
+                let temp = (self.a & self.x) as u16;
+                let result = temp.wrapping_sub(value as u16);
+                self.x = result as u8;
+                self.set_flag(FLAG_C, result < 0x100);
+                self.set_zn(self.x);
+                2
+            }
+
             // Unknown/illegal opcode
             _ => {
                 panic!(

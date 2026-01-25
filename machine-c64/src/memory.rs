@@ -183,7 +183,30 @@ impl Memory {
             // CIA2 ($DD00-$DDFF, mirrors every 16 bytes)
             0xDD00..=0xDDFF => {
                 let reg = (addr & 0x0F) as usize;
-                self.read_cia2(reg)
+                // Note: read_cia2 clears ICR on read, so it needs &mut self
+                match reg {
+                    0x00 => self.cia2.pra,
+                    0x01 => self.cia2.prb,
+                    0x02 => self.cia2.ddra,
+                    0x03 => self.cia2.ddrb,
+                    0x04 => self.cia2.ta_lo,
+                    0x05 => self.cia2.ta_hi,
+                    0x06 => self.cia2.tb_lo,
+                    0x07 => self.cia2.tb_hi,
+                    0x08 => self.cia2.tod_10ths,
+                    0x09 => self.cia2.tod_sec,
+                    0x0A => self.cia2.tod_min,
+                    0x0B => self.cia2.tod_hr,
+                    0x0D => {
+                        // ICR - reading clears it
+                        let value = self.cia2.icr;
+                        self.cia2.icr = 0;
+                        value
+                    }
+                    0x0E => self.cia2.cra,
+                    0x0F => self.cia2.crb,
+                    _ => 0xFF,
+                }
             }
             // I/O expansion areas
             0xDE00..=0xDFFF => 0xFF, // Open bus
@@ -357,22 +380,52 @@ impl Memory {
         }
     }
 
-    fn read_cia2(&self, reg: usize) -> u8 {
-        match reg {
-            0x00 => self.cia2.pra,
-            0x01 => self.cia2.prb,
-            0x02 => self.cia2.ddra,
-            0x03 => self.cia2.ddrb,
-            _ => 0xFF,
-        }
-    }
-
     fn write_cia2(&mut self, reg: usize, value: u8) {
         match reg {
             0x00 => self.cia2.pra = value,
             0x01 => self.cia2.prb = value,
             0x02 => self.cia2.ddra = value,
             0x03 => self.cia2.ddrb = value,
+            0x04 => self.cia2.ta_latch_lo = value,
+            0x05 => {
+                self.cia2.ta_latch_hi = value;
+                // If timer not running, load latch into counter
+                if self.cia2.cra & 0x01 == 0 {
+                    self.cia2.ta_lo = self.cia2.ta_latch_lo;
+                    self.cia2.ta_hi = self.cia2.ta_latch_hi;
+                }
+            }
+            0x06 => self.cia2.tb_latch_lo = value,
+            0x07 => {
+                self.cia2.tb_latch_hi = value;
+                if self.cia2.crb & 0x01 == 0 {
+                    self.cia2.tb_lo = self.cia2.tb_latch_lo;
+                    self.cia2.tb_hi = self.cia2.tb_latch_hi;
+                }
+            }
+            0x0D => {
+                // ICR mask register
+                if value & 0x80 != 0 {
+                    self.cia2.icr_mask |= value & 0x1F;
+                } else {
+                    self.cia2.icr_mask &= !(value & 0x1F);
+                }
+            }
+            0x0E => {
+                self.cia2.cra = value;
+                // Force load if bit 4 set
+                if value & 0x10 != 0 {
+                    self.cia2.ta_lo = self.cia2.ta_latch_lo;
+                    self.cia2.ta_hi = self.cia2.ta_latch_hi;
+                }
+            }
+            0x0F => {
+                self.cia2.crb = value;
+                if value & 0x10 != 0 {
+                    self.cia2.tb_lo = self.cia2.tb_latch_lo;
+                    self.cia2.tb_hi = self.cia2.tb_latch_hi;
+                }
+            }
             _ => {}
         }
     }
@@ -387,6 +440,7 @@ impl Memory {
     /// Tick CIA1 timers. Returns true if IRQ should fire.
     pub fn tick_cia1(&mut self, cycles: u32) -> bool {
         let mut irq = false;
+        let mut ta_underflows = 0u32;
 
         // Timer A - counts down when started (CRA bit 0)
         if self.cia1.cra & 0x01 != 0 {
@@ -396,6 +450,7 @@ impl Memory {
                 self.cia1.ta_hi = (new_timer >> 8) as u8;
             } else {
                 // Timer underflow
+                ta_underflows = 1;
                 self.cia1.icr |= 0x01; // Set Timer A interrupt flag
 
                 // Check if Timer A interrupt is enabled
@@ -416,31 +471,110 @@ impl Memory {
         }
 
         // Timer B - counts down when started (CRB bit 0)
-        // Note: Timer B can also count Timer A underflows (CRB bits 5-6)
-        // For simplicity, just implement system clock counting for now
-        if self.cia1.crb & 0x01 != 0 && self.cia1.crb & 0x60 == 0 {
-            let timer = u16::from_le_bytes([self.cia1.tb_lo, self.cia1.tb_hi]);
-            if let Some(new_timer) = timer.checked_sub(cycles as u16) {
-                self.cia1.tb_lo = (new_timer & 0xFF) as u8;
-                self.cia1.tb_hi = (new_timer >> 8) as u8;
-            } else {
-                // Timer underflow
-                self.cia1.icr |= 0x02; // Set Timer B interrupt flag
+        // CRB bits 5-6 select input source:
+        //   00 = count system clock
+        //   01 = count Timer A underflows
+        //   10 = count CNT pin (not implemented)
+        //   11 = count CNT pin while CNT=1 (not implemented)
+        if self.cia1.crb & 0x01 != 0 {
+            let tb_mode = (self.cia1.crb >> 5) & 0x03;
 
-                if self.cia1.icr_mask & 0x02 != 0 {
-                    self.cia1.icr |= 0x80;
-                    irq = true;
-                }
+            let ticks = match tb_mode {
+                0b00 => cycles,        // Count system clock
+                0b01 => ta_underflows, // Count Timer A underflows
+                _ => 0,                // CNT modes not implemented
+            };
 
-                if self.cia1.crb & 0x08 != 0 {
-                    self.cia1.crb &= !0x01;
+            if ticks > 0 {
+                let timer = u16::from_le_bytes([self.cia1.tb_lo, self.cia1.tb_hi]);
+                if let Some(new_timer) = timer.checked_sub(ticks as u16) {
+                    self.cia1.tb_lo = (new_timer & 0xFF) as u8;
+                    self.cia1.tb_hi = (new_timer >> 8) as u8;
+                } else {
+                    // Timer underflow
+                    self.cia1.icr |= 0x02; // Set Timer B interrupt flag
+
+                    if self.cia1.icr_mask & 0x02 != 0 {
+                        self.cia1.icr |= 0x80;
+                        irq = true;
+                    }
+
+                    if self.cia1.crb & 0x08 != 0 {
+                        self.cia1.crb &= !0x01;
+                    }
+                    self.cia1.tb_lo = self.cia1.tb_latch_lo;
+                    self.cia1.tb_hi = self.cia1.tb_latch_hi;
                 }
-                self.cia1.tb_lo = self.cia1.tb_latch_lo;
-                self.cia1.tb_hi = self.cia1.tb_latch_hi;
             }
         }
 
         irq
+    }
+
+    /// Tick CIA2 timers. Returns true if NMI should fire.
+    pub fn tick_cia2(&mut self, cycles: u32) -> bool {
+        let mut nmi = false;
+        let mut ta_underflows = 0u32;
+
+        // Timer A - counts down when started (CRA bit 0)
+        if self.cia2.cra & 0x01 != 0 {
+            let timer = u16::from_le_bytes([self.cia2.ta_lo, self.cia2.ta_hi]);
+            if let Some(new_timer) = timer.checked_sub(cycles as u16) {
+                self.cia2.ta_lo = (new_timer & 0xFF) as u8;
+                self.cia2.ta_hi = (new_timer >> 8) as u8;
+            } else {
+                // Timer underflow
+                ta_underflows = 1;
+                self.cia2.icr |= 0x01; // Set Timer A interrupt flag
+
+                // Check if Timer A interrupt is enabled
+                if self.cia2.icr_mask & 0x01 != 0 {
+                    self.cia2.icr |= 0x80; // Set NMI flag
+                    nmi = true;
+                }
+
+                // Reload from latch (or stop if one-shot mode)
+                if self.cia2.cra & 0x08 != 0 {
+                    self.cia2.cra &= !0x01;
+                }
+                self.cia2.ta_lo = self.cia2.ta_latch_lo;
+                self.cia2.ta_hi = self.cia2.ta_latch_hi;
+            }
+        }
+
+        // Timer B with cascade mode support
+        if self.cia2.crb & 0x01 != 0 {
+            let tb_mode = (self.cia2.crb >> 5) & 0x03;
+
+            let ticks = match tb_mode {
+                0b00 => cycles,
+                0b01 => ta_underflows,
+                _ => 0,
+            };
+
+            if ticks > 0 {
+                let timer = u16::from_le_bytes([self.cia2.tb_lo, self.cia2.tb_hi]);
+                if let Some(new_timer) = timer.checked_sub(ticks as u16) {
+                    self.cia2.tb_lo = (new_timer & 0xFF) as u8;
+                    self.cia2.tb_hi = (new_timer >> 8) as u8;
+                } else {
+                    self.cia2.icr |= 0x02;
+
+                    if self.cia2.icr_mask & 0x02 != 0 {
+                        self.cia2.icr |= 0x80;
+                        nmi = true;
+                    }
+
+                    if self.cia2.crb & 0x08 != 0 {
+                        self.cia2.crb &= !0x01;
+                    }
+                    self.cia2.tb_lo = self.cia2.tb_latch_lo;
+                    self.cia2.tb_hi = self.cia2.tb_latch_hi;
+                }
+            }
+        }
+
+        nmi
     }
 
     /// Reset the memory subsystem.
