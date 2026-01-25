@@ -144,6 +144,14 @@ pub struct Cartridge {
     pub active: bool,
     /// Epyx Fastload capacitor charge (counts down, disables at 0)
     epyx_capacitor: u32,
+    /// Whether freeze button was pressed (triggers NMI)
+    freeze_pending: bool,
+    /// Whether cartridge ROM is enabled (for freezer cartridges)
+    rom_enabled: bool,
+    /// Whether cartridge RAM is enabled at $DF00-$DFFF
+    ram_enabled: bool,
+    /// Action Replay control register shadow
+    ar_control: u8,
 }
 
 impl Default for Cartridge {
@@ -168,6 +176,10 @@ impl Cartridge {
             ram: Vec::new(),
             active: false,
             epyx_capacitor: 0,
+            freeze_pending: false,
+            rom_enabled: true,
+            ram_enabled: false,
+            ar_control: 0,
         }
     }
 
@@ -177,13 +189,74 @@ impl Cartridge {
         self.game = self.initial_game;
         self.current_bank_lo = 0;
         self.current_bank_hi = 0;
+        self.freeze_pending = false;
+        self.rom_enabled = true;
+        self.ram_enabled = false;
+        self.ar_control = 0;
+
         if self.cart_type == CartridgeType::EpyxFastload {
             self.epyx_capacitor = 512; // ~512 cycles before timeout
         }
+
         // Re-enable if it was disabled by software
         if !self.chips.is_empty() {
             self.active = true;
         }
+    }
+
+    /// Press the freeze button (for freezer cartridges).
+    /// Returns true if an NMI should be triggered.
+    pub fn freeze(&mut self) -> bool {
+        if !self.active {
+            return false;
+        }
+
+        match self.cart_type {
+            CartridgeType::ActionReplay | CartridgeType::AtomicPower => {
+                // Action Replay: pressing freeze triggers NMI and enters freeze mode
+                self.freeze_pending = true;
+                // Set to Ultimax mode during freeze
+                self.exrom = true;
+                self.game = false;
+                self.rom_enabled = true;
+                true // Trigger NMI
+            }
+            CartridgeType::FinalCartridgeIii => {
+                // Final Cartridge III: freeze triggers NMI
+                self.freeze_pending = true;
+                self.exrom = true;
+                self.game = false;
+                true
+            }
+            CartridgeType::SuperSnapshot5 => {
+                // Super Snapshot V5: freeze triggers NMI
+                self.freeze_pending = true;
+                self.exrom = false;
+                self.game = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if freeze is pending and clear the flag.
+    pub fn take_freeze_pending(&mut self) -> bool {
+        let pending = self.freeze_pending;
+        self.freeze_pending = false;
+        pending
+    }
+
+    /// Check if this is a freezer cartridge.
+    pub fn is_freezer(&self) -> bool {
+        matches!(
+            self.cart_type,
+            CartridgeType::ActionReplay
+                | CartridgeType::AtomicPower
+                | CartridgeType::FinalCartridgeIii
+                | CartridgeType::FinalCartridgeI
+                | CartridgeType::SuperSnapshot5
+                | CartridgeType::Expert
+        )
     }
 
     /// Tick the cartridge (for time-based cartridge behavior).
@@ -398,6 +471,106 @@ impl Cartridge {
                 false
             }
 
+            CartridgeType::ActionReplay | CartridgeType::AtomicPower => {
+                // Action Replay / Atomic Power: $DE00 = control register
+                if addr == 0xDE00 {
+                    self.ar_control = value;
+
+                    // Bit 0: Game line (directly controls)
+                    // Bit 1: EXROM line (directly controls)
+                    // Bit 2: Enable/disable cartridge ROM (active low in some versions)
+                    // Bit 3: Enable RAM at $DF00-$DFFF
+                    // Bit 4-5: Bank select
+                    self.game = value & 0x01 == 0;
+                    self.exrom = value & 0x02 == 0;
+                    self.rom_enabled = value & 0x04 == 0;
+                    self.ram_enabled = value & 0x08 != 0;
+
+                    let bank = ((value >> 4) & 0x03) as usize;
+                    self.current_bank_lo = bank;
+                    self.current_bank_hi = bank;
+
+                    // If bit 2 is set, disable the cartridge completely
+                    if value & 0x04 != 0 && !self.freeze_pending {
+                        self.active = false;
+                    }
+                    true
+                } else if (0xDF00..=0xDFFF).contains(&addr) && self.ram_enabled {
+                    // Write to cartridge RAM
+                    let offset = (addr - 0xDF00) as usize;
+                    if offset < self.ram.len() {
+                        self.ram[offset] = value;
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+
+            CartridgeType::FinalCartridgeIii => {
+                // Final Cartridge III: $DFFF = control register
+                if addr == 0xDFFF {
+                    // Bits 0-1: Bank select (4 banks)
+                    // Bit 4: NMI disable
+                    // Bit 5: Freeze mode
+                    // Bit 6: GAME line (active low)
+                    // Bit 7: Hide cartridge (disable)
+                    let bank = (value & 0x03) as usize;
+                    self.current_bank_lo = bank;
+                    self.current_bank_hi = bank;
+
+                    self.game = value & 0x40 == 0;
+                    self.exrom = false; // EXROM is always low on FC3
+
+                    if value & 0x80 != 0 {
+                        // Hide cartridge
+                        self.exrom = true;
+                        self.game = true;
+                        if !self.freeze_pending {
+                            self.active = false;
+                        }
+                    }
+                    true
+                } else if (0xDF00..=0xDFFE).contains(&addr) {
+                    // FC3 RAM at $DF00-$DFFE
+                    let offset = (addr - 0xDF00) as usize;
+                    if offset < self.ram.len() {
+                        self.ram[offset] = value;
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+
+            CartridgeType::SuperSnapshot5 => {
+                // Super Snapshot V5: $DE00 = control register
+                if addr == 0xDE00 {
+                    // Bit 0: GAME line
+                    // Bit 1: EXROM line
+                    // Bit 2: RAM at $8000
+                    // Bit 3: RAM enable
+                    // Bit 4-5: ROM bank
+                    self.game = value & 0x01 != 0;
+                    self.exrom = value & 0x02 != 0;
+                    self.ram_enabled = value & 0x08 != 0;
+
+                    let bank = ((value >> 4) & 0x03) as usize;
+                    self.current_bank_lo = bank;
+                    self.current_bank_hi = bank;
+                    true
+                } else if (0xDF00..=0xDFFF).contains(&addr) && self.ram_enabled {
+                    // Write to cartridge RAM
+                    let offset = (addr - 0xDF00) as usize;
+                    if offset < self.ram.len() {
+                        self.ram[offset] = value;
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+
             _ => false,
         }
     }
@@ -437,6 +610,39 @@ impl Cartridge {
                     Some(0xFF)
                 } else {
                     None
+                }
+            }
+
+            CartridgeType::ActionReplay | CartridgeType::AtomicPower => {
+                if (0xDF00..=0xDFFF).contains(&addr) && self.ram_enabled {
+                    // Read from cartridge RAM
+                    let offset = (addr - 0xDF00) as usize;
+                    Some(self.ram.get(offset).copied().unwrap_or(0xFF))
+                } else {
+                    Some(0xFF) // Open bus
+                }
+            }
+
+            CartridgeType::FinalCartridgeIii => {
+                if (0xDF00..=0xDFFE).contains(&addr) {
+                    // Read from FC3 RAM
+                    let offset = (addr - 0xDF00) as usize;
+                    Some(self.ram.get(offset).copied().unwrap_or(0xFF))
+                } else if addr == 0xDFFF {
+                    // Reading $DFFF returns open bus
+                    Some(0xFF)
+                } else {
+                    None
+                }
+            }
+
+            CartridgeType::SuperSnapshot5 => {
+                if (0xDF00..=0xDFFF).contains(&addr) && self.ram_enabled {
+                    // Read from SS5 RAM
+                    let offset = (addr - 0xDF00) as usize;
+                    Some(self.ram.get(offset).copied().unwrap_or(0xFF))
+                } else {
+                    Some(0xFF)
                 }
             }
 
@@ -506,7 +712,12 @@ impl Cartridge {
             | CartridgeType::EpyxFastload
             | CartridgeType::SuperGames
             | CartridgeType::FunPlay
-            | CartridgeType::Comal80 => {}
+            | CartridgeType::Comal80
+            // Freezer cartridges
+            | CartridgeType::ActionReplay
+            | CartridgeType::AtomicPower
+            | CartridgeType::FinalCartridgeIii
+            | CartridgeType::SuperSnapshot5 => {}
             CartridgeType::Unknown => return Err("Unknown cartridge type"),
             _ => return Err("Unsupported cartridge type (bank switching not implemented)"),
         }
@@ -556,11 +767,15 @@ impl Cartridge {
             return Err("No ROM chips found in CRT");
         }
 
-        // EasyFlash needs RAM for save data
-        let ram = if cart_type == CartridgeType::EasyFlash {
-            vec![0xFF; 256] // 256 bytes of RAM at $DF00
-        } else {
-            Vec::new()
+        // Allocate RAM for cartridges that need it
+        let ram = match cart_type {
+            CartridgeType::EasyFlash => vec![0xFF; 256], // 256 bytes at $DF00
+            CartridgeType::ActionReplay | CartridgeType::AtomicPower => {
+                vec![0xFF; 8192] // 8K RAM
+            }
+            CartridgeType::FinalCartridgeIii => vec![0xFF; 256], // 256 bytes at $DF00-$DFFE
+            CartridgeType::SuperSnapshot5 => vec![0xFF; 32768],  // 32K RAM
+            _ => Vec::new(),
         };
 
         // Epyx Fastload starts with capacitor charged
@@ -583,6 +798,10 @@ impl Cartridge {
             ram,
             active: true,
             epyx_capacitor,
+            freeze_pending: false,
+            rom_enabled: true,
+            ram_enabled: false,
+            ar_control: 0,
         })
     }
 
@@ -609,6 +828,10 @@ impl Cartridge {
                     ram: Vec::new(),
                     active: true,
                     epyx_capacitor: 0,
+                    freeze_pending: false,
+                    rom_enabled: true,
+                    ram_enabled: false,
+                    ar_control: 0,
                 })
             }
             16384 => {
@@ -639,6 +862,10 @@ impl Cartridge {
                     ram: Vec::new(),
                     active: true,
                     epyx_capacitor: 0,
+                    freeze_pending: false,
+                    rom_enabled: true,
+                    ram_enabled: false,
+                    ar_control: 0,
                 })
             }
             _ => Err("Invalid ROM size (expected 8K or 16K)"),

@@ -282,6 +282,23 @@ impl C64 {
         self.memory.cartridge.has_autostart()
     }
 
+    /// Check if cartridge is a freezer cartridge (Action Replay, etc.).
+    pub fn cartridge_is_freezer(&self) -> bool {
+        self.memory.cartridge.is_freezer()
+    }
+
+    /// Press the freeze button on a freezer cartridge.
+    /// Returns true if the button was pressed (cartridge is a freezer and is active).
+    pub fn freeze(&mut self) -> bool {
+        if self.memory.cartridge.freeze() {
+            // Trigger NMI
+            self.cpu.nmi(&mut self.memory);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Save machine state to a snapshot.
     pub fn save_state(&self) -> Snapshot {
         Snapshot::capture(
