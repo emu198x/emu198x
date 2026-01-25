@@ -321,11 +321,18 @@ impl Ppu {
 
         // Visible scanlines (0-239)
         if self.scanline < 240 {
-            // Render pixel during cycles 1-256
+            // Background tile fetches and rendering (cycles 1-256)
+            // Order matters: load→render→shift to handle fine_x > 0 correctly
             if self.cycle >= 1 && self.cycle <= 256 {
+                // First, load new tile data if at the start of a tile (cycle_in_tile == 0)
+                if self.rendering_enabled() {
+                    self.fetch_background_tile(memory);
+                }
+
+                // Then render the pixel using current shifter state
                 self.render_pixel(memory);
 
-                // Shift registers
+                // Finally shift registers for next pixel
                 self.bg_shift_lo <<= 1;
                 self.bg_shift_hi <<= 1;
                 self.attr_shift_lo <<= 1;
@@ -340,28 +347,26 @@ impl Ppu {
                 }
             }
 
-            // Background tile fetches
+            // Background tile prefetch (cycles 321-336) for next scanline
+            if self.rendering_enabled() && self.cycle >= 321 && self.cycle <= 336 {
+                self.fetch_background_tile(memory);
+
+                // Shift registers during prefetch to prime them
+                self.bg_shift_lo <<= 1;
+                self.bg_shift_hi <<= 1;
+                self.attr_shift_lo <<= 1;
+                self.attr_shift_hi <<= 1;
+                if self.attr_latch_lo {
+                    self.attr_shift_lo |= 1;
+                }
+                if self.attr_latch_hi {
+                    self.attr_shift_hi |= 1;
+                }
+            }
+
+            // Other visible scanline processing
             if self.rendering_enabled() {
-                if (self.cycle >= 1 && self.cycle <= 256) || (self.cycle >= 321 && self.cycle <= 336)
-                {
-                    self.fetch_background_tile(memory);
-                }
-
-                // Shift registers during prefetch cycles (321-336) for next scanline
-                if self.cycle >= 321 && self.cycle <= 336 {
-                    self.bg_shift_lo <<= 1;
-                    self.bg_shift_hi <<= 1;
-                    self.attr_shift_lo <<= 1;
-                    self.attr_shift_hi <<= 1;
-                    if self.attr_latch_lo {
-                        self.attr_shift_lo |= 1;
-                    }
-                    if self.attr_latch_hi {
-                        self.attr_shift_hi |= 1;
-                    }
-                }
-
-                // Increment coarse X at cycle 256
+                // Increment Y at cycle 256
                 if self.cycle == 256 {
                     self.increment_y();
                 }
