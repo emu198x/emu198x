@@ -1,8 +1,21 @@
-//! MOS 6502/6510 CPU emulator.
+//! MOS 6502/6510/8502 CPU emulator.
 //!
-//! This implements the official NMOS 6502 instruction set. The 6510 used in the
-//! Commodore 64 is identical except for the I/O port at addresses $00-$01, which
-//! is handled by the memory subsystem.
+//! This implements the NMOS 6502 instruction set including commonly-used
+//! undocumented ("illegal") opcodes. Compatible CPU variants:
+//!
+//! - **6502** - Original NMOS CPU
+//! - **6510** - C64 variant with I/O port at $00-$01
+//! - **8502** - C128 variant, identical to 6510 but runs at 2 MHz
+//!
+//! The I/O port at addresses $00-$01 (used by 6510/8502 for memory banking)
+//! is handled by the memory subsystem, not this CPU implementation.
+//!
+//! # Illegal Opcodes
+//!
+//! Implemented undocumented opcodes commonly used by C64/C128 software:
+//! - LAX, SAX, DCP, ISC (Tier 1 - essential)
+//! - SLO, SRE, RLA, RRA (Tier 2 - important)
+//! - ANC, ALR, ARR, SBX (Tier 3 - immediate-only)
 
 use emu_core::{Bus, Cpu};
 
@@ -11,7 +24,12 @@ mod flags;
 
 use flags::*;
 
-/// The MOS 6502 CPU state.
+/// The MOS 6502/6510/8502 CPU state.
+///
+/// This struct represents the CPU registers and internal state. It can be used
+/// to emulate any of the compatible variants (6502, 6510, 8502) - the only
+/// differences between these CPUs are in their I/O ports and clock speeds,
+/// which are handled externally by the machine emulation.
 pub struct Mos6502 {
     /// Accumulator
     pub(crate) a: u8,
