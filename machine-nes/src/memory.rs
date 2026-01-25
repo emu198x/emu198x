@@ -30,6 +30,10 @@ pub struct NesMemory {
     controller_strobe: bool,
     /// Pending PPU writes for external rendering.
     ppu_writes: Vec<(u16, u8)>,
+    /// Pending APU writes (address, value).
+    pub(crate) apu_writes: Vec<(u16, u8)>,
+    /// OAM DMA pending (page address).
+    pub(crate) oam_dma_pending: Option<u8>,
 }
 
 impl NesMemory {
@@ -44,6 +48,8 @@ impl NesMemory {
             controller_state: 0,
             controller_strobe: false,
             ppu_writes: Vec::new(),
+            apu_writes: Vec::new(),
+            oam_dma_pending: None,
         }
     }
 
@@ -131,6 +137,16 @@ impl NesMemory {
         std::mem::take(&mut self.ppu_writes)
     }
 
+    /// Take pending APU writes.
+    pub fn take_apu_writes(&mut self) -> Vec<(u16, u8)> {
+        std::mem::take(&mut self.apu_writes)
+    }
+
+    /// Take OAM DMA request.
+    pub fn take_oam_dma(&mut self) -> Option<u8> {
+        self.oam_dma_pending.take()
+    }
+
     /// Get palette data.
     pub fn palette(&self) -> &[u8; 32] {
         &self.palette
@@ -185,11 +201,21 @@ impl Bus for NesMemory {
             // PPU registers - handled externally via PPU
             0x2000..=0x3FFF => {} // Should be routed through PPU
             // APU registers
-            0x4000..=0x4013 => {} // TODO: APU
+            0x4000..=0x4013 => {
+                self.apu_writes.push((addr, value));
+            }
             // OAM DMA
-            0x4014 => {} // TODO: OAM DMA
-            // APU status/frame counter
-            0x4015 | 0x4017 => {} // TODO: APU
+            0x4014 => {
+                self.oam_dma_pending = Some(value);
+            }
+            // APU status
+            0x4015 => {
+                self.apu_writes.push((addr, value));
+            }
+            // APU frame counter
+            0x4017 => {
+                self.apu_writes.push((addr, value));
+            }
             // Controller strobe
             0x4016 => {
                 self.controller_strobe = value & 1 != 0;

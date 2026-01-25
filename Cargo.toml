@@ -11,4 +11,5 @@ members = [
     "runner-lib",
     "spectrum-runner",
     "c64-runner",
+    "nes-runner",
 ]
