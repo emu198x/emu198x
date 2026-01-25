@@ -291,9 +291,21 @@ impl Ppu {
                 self.vram_addr = (self.vram_addr & 0x041F) | (self.temp_addr & 0x7BE0);
             }
 
-            // Background tile fetches (cycles 321-336)
+            // Background tile fetches (cycles 321-336) - prefetch for next scanline
             if self.rendering_enabled() && self.cycle >= 321 && self.cycle <= 336 {
                 self.fetch_background_tile(memory);
+
+                // Also shift registers during prefetch to prime them
+                self.bg_shift_lo <<= 1;
+                self.bg_shift_hi <<= 1;
+                self.attr_shift_lo <<= 1;
+                self.attr_shift_hi <<= 1;
+                if self.attr_latch_lo {
+                    self.attr_shift_lo |= 1;
+                }
+                if self.attr_latch_hi {
+                    self.attr_shift_hi |= 1;
+                }
             }
 
             // Skip cycle on odd frames when rendering enabled
@@ -328,6 +340,20 @@ impl Ppu {
                 if (self.cycle >= 1 && self.cycle <= 256) || (self.cycle >= 321 && self.cycle <= 336)
                 {
                     self.fetch_background_tile(memory);
+                }
+
+                // Shift registers during prefetch cycles (321-336) for next scanline
+                if self.cycle >= 321 && self.cycle <= 336 {
+                    self.bg_shift_lo <<= 1;
+                    self.bg_shift_hi <<= 1;
+                    self.attr_shift_lo <<= 1;
+                    self.attr_shift_hi <<= 1;
+                    if self.attr_latch_lo {
+                        self.attr_shift_lo |= 1;
+                    }
+                    if self.attr_latch_hi {
+                        self.attr_shift_hi |= 1;
+                    }
                 }
 
                 // Increment coarse X at cycle 256
