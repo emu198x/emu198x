@@ -280,7 +280,9 @@ impl Memory {
 
     /// Check if we're in Ultimax mode.
     fn is_ultimax_mode(&self) -> bool {
-        self.cartridge.is_inserted() && !self.cartridge.exrom_active() && self.cartridge.game_active()
+        self.cartridge.is_inserted()
+            && !self.cartridge.exrom_active()
+            && self.cartridge.game_active()
     }
 
     /// Read from I/O space ($D000-$DFFF).

@@ -47,9 +47,9 @@ impl ReuModel {
     pub fn bank_mask(&self) -> u8 {
         match self {
             ReuModel::None => 0,
-            ReuModel::Reu1700 => 0x0F,  // 16 banks
-            ReuModel::Reu1764 => 0x1F,  // 32 banks
-            ReuModel::Reu1750 => 0x3F,  // 64 banks
+            ReuModel::Reu1700 => 0x0F, // 16 banks
+            ReuModel::Reu1764 => 0x1F, // 32 banks
+            ReuModel::Reu1750 => 0x3F, // 64 banks
         }
     }
 }

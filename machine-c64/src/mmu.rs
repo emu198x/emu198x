@@ -74,17 +74,17 @@ impl Mmu {
     /// Create a new MMU in reset state.
     pub fn new() -> Self {
         Self {
-            cr: 0x00,    // All ROMs visible, 8502 mode
+            cr: 0x00, // All ROMs visible, 8502 mode
             pcra: 0x00,
             pcrb: 0x00,
             pcrc: 0x00,
             pcrd: 0x00,
-            mcr: 0x00,   // 40-column mode
-            rcr: 0x00,   // No common RAM
+            mcr: 0x00, // 40-column mode
+            rcr: 0x00, // No common RAM
             p0l: 0x00,
-            p0h: 0x00,   // Zero page at $0000
+            p0h: 0x00, // Zero page at $0000
             p1l: 0x01,
-            p1h: 0x00,   // Stack at $0100
+            p1h: 0x00, // Stack at $0100
         }
     }
 

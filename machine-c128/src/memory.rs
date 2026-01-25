@@ -250,7 +250,11 @@ impl C128Memory {
                     0x12 => (self.current_raster_line & 0xFF) as u8,
                     // Control register 1 (includes raster bit 8)
                     0x11 => {
-                        let raster_msb = if self.current_raster_line > 255 { 0x80 } else { 0 };
+                        let raster_msb = if self.current_raster_line > 255 {
+                            0x80
+                        } else {
+                            0
+                        };
                         (self.vic_registers[reg] & 0x7F) | raster_msb
                     }
                     _ => self.vic_registers[reg],

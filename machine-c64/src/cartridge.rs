@@ -737,9 +737,12 @@ impl Cartridge {
                 break;
             }
 
-            let packet_len =
-                u32::from_be_bytes([data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]])
-                    as usize;
+            let packet_len = u32::from_be_bytes([
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]) as usize;
 
             let chip_type = u16::from_be_bytes([data[offset + 8], data[offset + 9]]);
             let bank = u16::from_be_bytes([data[offset + 10], data[offset + 11]]);

@@ -96,16 +96,16 @@ impl Vdc {
     /// Reset VDC to power-on state.
     pub fn reset(&mut self) {
         // Default register values for 80x25 text mode
-        self.registers[0] = 0x7E;  // Horizontal total (126+1 = 127)
-        self.registers[1] = 0x50;  // Horizontal displayed (80)
-        self.registers[2] = 0x66;  // Horizontal sync position
-        self.registers[3] = 0x49;  // Sync width (horizontal/vertical)
-        self.registers[4] = 0x20;  // Vertical total (32+1 = 33 character rows)
-        self.registers[5] = 0x00;  // Vertical adjust
-        self.registers[6] = 0x19;  // Vertical displayed (25 rows)
-        self.registers[7] = 0x1D;  // Vertical sync position
-        self.registers[8] = 0x00;  // Interlace mode (non-interlaced)
-        self.registers[9] = 0x07;  // Character total vertical (8 scanlines)
+        self.registers[0] = 0x7E; // Horizontal total (126+1 = 127)
+        self.registers[1] = 0x50; // Horizontal displayed (80)
+        self.registers[2] = 0x66; // Horizontal sync position
+        self.registers[3] = 0x49; // Sync width (horizontal/vertical)
+        self.registers[4] = 0x20; // Vertical total (32+1 = 33 character rows)
+        self.registers[5] = 0x00; // Vertical adjust
+        self.registers[6] = 0x19; // Vertical displayed (25 rows)
+        self.registers[7] = 0x1D; // Vertical sync position
+        self.registers[8] = 0x00; // Interlace mode (non-interlaced)
+        self.registers[9] = 0x07; // Character total vertical (8 scanlines)
         self.registers[10] = 0x20; // Cursor start (enabled, line 0)
         self.registers[11] = 0x07; // Cursor end (line 7)
         self.registers[12] = 0x00; // Display start address high
