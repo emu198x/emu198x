@@ -285,6 +285,11 @@ impl Ppu {
                 self.nmi_occurred = false;
             }
 
+            // Copy horizontal bits from t to v at cycle 257 (same as visible scanlines)
+            if self.rendering_enabled() && self.cycle == 257 {
+                self.vram_addr = (self.vram_addr & 0x7BE0) | (self.temp_addr & 0x041F);
+            }
+
             // Copy vertical bits from t to v at cycle 280-304
             if self.rendering_enabled() && self.cycle >= 280 && self.cycle <= 304 {
                 // v: GHIA.BC DEF..... <- t: GHIA.BC DEF.....
