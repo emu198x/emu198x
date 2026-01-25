@@ -7,6 +7,7 @@ members = [
     "machine-spectrum",
     "machine-c64",
     "machine-c128",
+    "machine-nes",
     "runner-lib",
     "spectrum-runner",
     "c64-runner",

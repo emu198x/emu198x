@@ -1018,6 +1018,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-nes"
+version = "0.1.0"
+dependencies = [
+ "cpu-6502",
+ "emu-core",
+]
+
+[[package]]
 name = "machine-spectrum"
 version = "0.1.0"
 dependencies = [
