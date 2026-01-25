@@ -1,4 +1,4 @@
-//! MOS 6502/6510/8502 CPU emulator.
+//! MOS 6502/6510/8502/2A03 CPU emulator.
 //!
 //! This implements the NMOS 6502 instruction set including commonly-used
 //! undocumented ("illegal") opcodes. Compatible CPU variants:
@@ -6,6 +6,7 @@
 //! - **6502** - Original NMOS CPU
 //! - **6510** - C64 variant with I/O port at $00-$01
 //! - **8502** - C128 variant, identical to 6510 but runs at 2 MHz
+//! - **2A03** - NES variant with disabled decimal mode (use `new_2a03()`)
 //!
 //! The I/O port at addresses $00-$01 (used by 6510/8502 for memory banking)
 //! is handled by the memory subsystem, not this CPU implementation.
@@ -24,12 +25,12 @@ mod flags;
 
 use flags::*;
 
-/// The MOS 6502/6510/8502 CPU state.
+/// The MOS 6502/6510/8502/2A03 CPU state.
 ///
 /// This struct represents the CPU registers and internal state. It can be used
-/// to emulate any of the compatible variants (6502, 6510, 8502) - the only
-/// differences between these CPUs are in their I/O ports and clock speeds,
-/// which are handled externally by the machine emulation.
+/// to emulate any of the compatible variants (6502, 6510, 8502, 2A03) - the only
+/// differences between these CPUs are in their I/O ports, clock speeds, and
+/// decimal mode support, which are handled by configuration or externally.
 pub struct Mos6502 {
     /// Accumulator
     pub(crate) a: u8,
@@ -48,9 +49,12 @@ pub struct Mos6502 {
     nmi_pending: bool,
     /// IRQ pending flag
     irq_pending: bool,
+    /// Decimal mode disabled (for 2A03/NES)
+    decimal_disabled: bool,
 }
 
 impl Mos6502 {
+    /// Create a new 6502/6510/8502 CPU.
     pub fn new() -> Self {
         Self {
             a: 0,
@@ -61,6 +65,26 @@ impl Mos6502 {
             p: 0x24, // I flag set, bit 5 always 1
             nmi_pending: false,
             irq_pending: false,
+            decimal_disabled: false,
+        }
+    }
+
+    /// Create a new 2A03 CPU (NES variant with decimal mode disabled).
+    ///
+    /// The 2A03 is the NES's CPU, which is a 6502 with the decimal mode
+    /// circuitry disconnected. The D flag can still be set/cleared but
+    /// ADC and SBC always operate in binary mode.
+    pub fn new_2a03() -> Self {
+        Self {
+            a: 0,
+            x: 0,
+            y: 0,
+            sp: 0xFD,
+            pc: 0,
+            p: 0x24,
+            nmi_pending: false,
+            irq_pending: false,
+            decimal_disabled: true,
         }
     }
 
@@ -122,7 +146,7 @@ impl Mos6502 {
 
     /// ADC - Add with Carry
     fn adc(&mut self, value: u8) {
-        if self.decimal() {
+        if self.decimal() && !self.decimal_disabled {
             self.adc_decimal(value);
         } else {
             self.adc_binary(value);
@@ -175,7 +199,7 @@ impl Mos6502 {
 
     /// SBC - Subtract with Carry (borrow)
     fn sbc(&mut self, value: u8) {
-        if self.decimal() {
+        if self.decimal() && !self.decimal_disabled {
             self.sbc_decimal(value);
         } else {
             self.sbc_binary(value);

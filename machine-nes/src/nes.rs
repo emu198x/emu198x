@@ -65,7 +65,7 @@ impl Nes {
     /// Create a new NES with specified timing mode.
     pub fn with_timing(timing: TimingMode) -> Self {
         Self {
-            cpu: Mos6502::new(),
+            cpu: Mos6502::new_2a03(), // 2A03: 6502 without decimal mode
             ppu: Ppu::new(),
             memory: NesMemory::new(),
             timing,
