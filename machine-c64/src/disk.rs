@@ -20,6 +20,12 @@ const D64_SIZE_35: usize = 174848;
 /// Extended D64 size (40 tracks, no error bytes).
 const D64_SIZE_40: usize = 196608;
 
+/// Standard D71 size (70 tracks = 35 per side, no error bytes).
+const D71_SIZE: usize = 349696;
+
+/// Extended D71 size (70 tracks with error bytes).
+const D71_SIZE_ERROR: usize = 351062;
+
 /// File types in directory entries.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FileType {
@@ -99,12 +105,40 @@ const STEP_CLICK_SAMPLES: usize = 220;
 /// Head knock duration in samples (~15ms).
 const KNOCK_SAMPLES: usize = 660;
 
-/// D64 disk image.
+/// Disk format type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiskFormat {
+    /// D64 - single-sided 1541 format (35 or 40 tracks).
+    D64,
+    /// D71 - double-sided 1571 format (70 tracks = 35 per side).
+    D71,
+}
+
+impl DiskFormat {
+    /// Check if this is a double-sided format.
+    pub fn is_double_sided(&self) -> bool {
+        matches!(self, DiskFormat::D71)
+    }
+
+    /// Get the number of sides.
+    pub fn sides(&self) -> u8 {
+        match self {
+            DiskFormat::D64 => 1,
+            DiskFormat::D71 => 2,
+        }
+    }
+}
+
+/// D64/D71 disk image.
 pub struct Disk {
     /// Raw disk data.
     data: Vec<u8>,
-    /// Number of tracks (35 or 40).
-    tracks: u8,
+    /// Disk format.
+    format: DiskFormat,
+    /// Number of tracks per side (35 or 40 for D64, always 35 for D71).
+    tracks_per_side: u8,
+    /// Current side (0 or 1 for double-sided).
+    current_side: u8,
     /// Current head position (track number, 1-based).
     head_track: u8,
     /// Audio enabled flag.
@@ -118,26 +152,64 @@ pub struct Disk {
 }
 
 impl Disk {
-    /// Load a D64 disk image from raw bytes.
+    /// Load a D64 or D71 disk image from raw bytes.
     pub fn new(data: Vec<u8>) -> Result<Self, &'static str> {
-        let tracks = match data.len() {
-            D64_SIZE_35 => 35,
-            D64_SIZE_40 => 40,
+        let (format, tracks_per_side) = match data.len() {
+            D64_SIZE_35 => (DiskFormat::D64, 35),
+            D64_SIZE_40 => (DiskFormat::D64, 40),
             // Also accept sizes with error bytes appended
-            175531 => 35, // 35 tracks + 683 error bytes
-            197376 => 40, // 40 tracks + 768 error bytes
-            _ => return Err("Invalid D64 file size"),
+            175531 => (DiskFormat::D64, 35), // 35 tracks + 683 error bytes
+            197376 => (DiskFormat::D64, 40), // 40 tracks + 768 error bytes
+            // D71 formats
+            D71_SIZE => (DiskFormat::D71, 35),
+            D71_SIZE_ERROR => (DiskFormat::D71, 35), // With error bytes
+            _ => return Err("Invalid D64/D71 file size"),
         };
 
         Ok(Self {
             data,
-            tracks,
+            format,
+            tracks_per_side,
+            current_side: 0,
             head_track: 1,
             audio_enabled: true,
             audio_events: Vec::new(),
             audio_sample_pos: 0,
             current_audio_event: None,
         })
+    }
+
+    /// Get the disk format.
+    pub fn format(&self) -> DiskFormat {
+        self.format
+    }
+
+    /// Check if this is a double-sided disk.
+    pub fn is_double_sided(&self) -> bool {
+        self.format.is_double_sided()
+    }
+
+    /// Get the current side (0 or 1).
+    pub fn current_side(&self) -> u8 {
+        self.current_side
+    }
+
+    /// Switch to the specified side (0 or 1).
+    pub fn set_side(&mut self, side: u8) {
+        if self.format.is_double_sided() && side <= 1 {
+            if self.current_side != side {
+                self.current_side = side;
+                // Generate a step sound for side change
+                if self.audio_enabled {
+                    self.audio_events.push(DiskAudioEvent::HeadStep);
+                }
+            }
+        }
+    }
+
+    /// Get total tracks (including both sides for D71).
+    pub fn total_tracks(&self) -> u8 {
+        self.tracks_per_side * self.format.sides()
     }
 
     /// Enable or disable disk audio.
@@ -153,11 +225,11 @@ impl Disk {
     /// Seek head to a track, generating audio events.
     pub fn seek_track(&mut self, target_track: u8) {
         if !self.audio_enabled {
-            self.head_track = target_track.max(1).min(self.tracks);
+            self.head_track = target_track.max(1).min(self.tracks_per_side);
             return;
         }
 
-        let target = target_track.max(1).min(self.tracks);
+        let target = target_track.max(1).min(self.tracks_per_side);
 
         // Generate step sounds for each track moved
         while self.head_track != target {
@@ -249,9 +321,14 @@ impl Disk {
         self.current_audio_event.is_some() || !self.audio_events.is_empty()
     }
 
-    /// Calculate byte offset for a track/sector.
+    /// Calculate byte offset for a track/sector on the current side.
     fn sector_offset(&self, track: u8, sector: u8) -> Option<usize> {
-        if track < 1 || track > self.tracks {
+        self.sector_offset_side(self.current_side, track, sector)
+    }
+
+    /// Calculate byte offset for a track/sector on a specific side.
+    fn sector_offset_side(&self, side: u8, track: u8, sector: u8) -> Option<usize> {
+        if track < 1 || track > self.tracks_per_side {
             return None;
         }
 
@@ -260,19 +337,40 @@ impl Disk {
             return None;
         }
 
-        // Sum sectors before this track
+        // Sum sectors before this track (on this side)
         let mut offset = 0usize;
         for t in 0..track_idx {
             offset += SECTORS_PER_TRACK.get(t).copied().unwrap_or(17) as usize * 256;
         }
         offset += sector as usize * 256;
 
+        // For D71, add offset for side 1 (side 0 comes first in file)
+        if self.format == DiskFormat::D71 && side == 1 {
+            // Side 0 size = 35 tracks worth of sectors
+            let side_0_size: usize = SECTORS_PER_TRACK
+                .iter()
+                .take(35)
+                .map(|&s| s as usize * 256)
+                .sum();
+            offset += side_0_size;
+        }
+
         Some(offset)
     }
 
-    /// Read a sector (256 bytes).
+    /// Read a sector (256 bytes) from the current side.
     pub fn read_sector(&self, track: u8, sector: u8) -> Option<&[u8]> {
         let offset = self.sector_offset(track, sector)?;
+        if offset + 256 <= self.data.len() {
+            Some(&self.data[offset..offset + 256])
+        } else {
+            None
+        }
+    }
+
+    /// Read a sector from a specific side (for D71).
+    pub fn read_sector_side(&self, side: u8, track: u8, sector: u8) -> Option<&[u8]> {
+        let offset = self.sector_offset_side(side, track, sector)?;
         if offset + 256 <= self.data.len() {
             Some(&self.data[offset..offset + 256])
         } else {

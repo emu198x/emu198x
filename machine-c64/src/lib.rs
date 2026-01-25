@@ -38,7 +38,8 @@
 //! # File Formats
 //!
 //! - `.prg` - PRG files (2-byte load address + program data)
-//! - `.d64` - D64 disk images (1541 format)
+//! - `.d64` - D64 disk images (1541 single-sided format)
+//! - `.d71` - D71 disk images (1571 double-sided format)
 //! - `.tap` - TAP tape images (pulse data)
 //! - `.t64` - T64 tape archives (instant load)
 
@@ -60,7 +61,7 @@ mod vic;
 pub use c64::C64;
 pub use cartridge::{Cartridge, CartridgeType};
 pub use config::{MachineConfig, MachineVariant, SidRevision, TimingMode, VicRevision};
-pub use disk::{Disk, DiskAudioEvent};
+pub use disk::{Disk, DiskAudioEvent, DiskFormat};
 pub use palette::{Color, PALETTE_PEPTO, PALETTE_VICE, Palette, palette_for_revision};
 pub use mmu::Mmu;
 pub use reu::{Reu, ReuModel};
