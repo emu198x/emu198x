@@ -25,7 +25,9 @@ mod disk;
 mod input;
 mod memory;
 mod sid;
+mod snapshot;
 mod vic;
 
 pub use c64::C64;
 pub use disk::Disk;
+pub use snapshot::Snapshot;

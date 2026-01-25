@@ -53,9 +53,9 @@ pub struct Vic {
     /// Tracks if raster IRQ already fired on this line (prevents re-triggering)
     raster_irq_triggered: bool,
     /// Sprite DMA active flags (bit per sprite) - set when sprite Y matches raster
-    sprite_dma_active: u8,
+    pub sprite_dma_active: u8,
     /// Sprite display active flags (remaining lines to display)
-    sprite_display_count: [u8; 8],
+    pub sprite_display_count: [u8; 8],
 }
 
 impl Vic {
@@ -298,6 +298,21 @@ pub fn render(memory: &mut Memory, buffer: &mut [u8]) {
     }
 
     if !screen_on {
+        return;
+    }
+
+    // Invalid mode check: BMM + ECM = black screen (all pixels show black)
+    if bitmap_mode && extended_bg {
+        // Fill display area with black (color 0)
+        let (x_scroll, y_scroll, _, _) = get_scroll(memory);
+        for y in 0..200 {
+            for x in 0..320 {
+                if let Some(idx) = screen_to_buffer_idx(x, y, x_scroll, y_scroll) {
+                    buffer[idx..idx + 4].copy_from_slice(&PALETTE[0]);
+                }
+            }
+        }
+        render_sprites(memory, buffer, 0);
         return;
     }
 

@@ -15,7 +15,7 @@ use emu_core::Bus;
 /// C64 memory subsystem.
 pub struct Memory {
     /// 64KB RAM
-    pub(crate) ram: [u8; 65536],
+    pub ram: [u8; 65536],
     /// 8KB BASIC ROM ($A000-$BFFF)
     basic_rom: [u8; 8192],
     /// 8KB KERNAL ROM ($E000-$FFFF)
@@ -23,23 +23,23 @@ pub struct Memory {
     /// 4KB Character ROM ($D000-$DFFF when CHAREN=0)
     char_rom: [u8; 4096],
     /// Processor port data direction ($00)
-    port_ddr: u8,
+    pub port_ddr: u8,
     /// Processor port data ($01)
-    port_data: u8,
+    pub port_data: u8,
     /// VIC-II registers (directly accessed by Memory)
-    pub(crate) vic_registers: [u8; 64],
+    pub vic_registers: [u8; 64],
     /// SID registers
-    pub(crate) sid_registers: [u8; 32],
+    pub sid_registers: [u8; 32],
     /// CIA1 registers
-    pub(crate) cia1: Cia,
+    pub cia1: Cia,
     /// CIA2 registers
-    pub(crate) cia2: Cia,
+    pub cia2: Cia,
     /// Color RAM (1KB, 4-bit values)
-    pub(crate) color_ram: [u8; 1024],
+    pub color_ram: [u8; 1024],
     /// Cycle counter for the current frame
-    pub(crate) cycles: u32,
+    pub cycles: u32,
     /// Keyboard matrix (directly in Memory for CIA access)
-    pub(crate) keyboard_matrix: [u8; 8],
+    pub keyboard_matrix: [u8; 8],
     /// Pending SID writes (register, value)
     pub(crate) sid_writes: Vec<(u8, u8)>,
     /// Current raster line (synced from VIC for accurate $D011/$D012 reads)

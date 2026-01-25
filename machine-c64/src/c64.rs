@@ -4,6 +4,7 @@ use crate::disk::Disk;
 use crate::input;
 use crate::memory::Memory;
 use crate::sid::Sid;
+use crate::snapshot::Snapshot;
 use crate::vic::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH, Vic};
 use cpu_6502::Mos6502;
 use emu_core::{AudioConfig, Cpu, JoystickState, KeyCode, Machine, VideoConfig};
@@ -76,6 +77,116 @@ impl C64 {
                 .map(|e| (e.name_string(), e.size_sectors))
                 .collect()
         })
+    }
+
+    /// Save machine state to a snapshot.
+    pub fn save_state(&self) -> Snapshot {
+        Snapshot::capture(&self.cpu, &self.memory, &self.vic, &self.sid, self.frame_cycles)
+    }
+
+    /// Save machine state to bytes.
+    pub fn save_state_bytes(&self) -> Vec<u8> {
+        self.save_state().to_bytes()
+    }
+
+    /// Load machine state from a snapshot.
+    pub fn load_state(&mut self, snapshot: &Snapshot) {
+        // Restore CPU
+        self.cpu.set_a(snapshot.cpu.a);
+        self.cpu.set_x(snapshot.cpu.x);
+        self.cpu.set_y(snapshot.cpu.y);
+        self.cpu.set_sp(snapshot.cpu.sp);
+        self.cpu.set_pc(snapshot.cpu.pc);
+        self.cpu.set_status(snapshot.cpu.status);
+
+        // Restore memory
+        self.memory.ram.copy_from_slice(snapshot.memory.ram.as_ref());
+        self.memory.port_ddr = snapshot.memory.port_ddr;
+        self.memory.port_data = snapshot.memory.port_data;
+        self.memory.vic_registers = snapshot.memory.vic_registers;
+        self.memory.sid_registers = snapshot.memory.sid_registers;
+        self.memory.color_ram = snapshot.memory.color_ram;
+        self.memory.keyboard_matrix = snapshot.memory.keyboard_matrix;
+        self.memory.current_raster_line = snapshot.memory.current_raster_line;
+
+        // Restore VIC
+        self.vic.raster_line = snapshot.vic.raster_line;
+        self.vic.frame_cycle = snapshot.vic.frame_cycle;
+        self.vic.ba_low = snapshot.vic.ba_low;
+        self.vic.sprite_dma_active = snapshot.vic.sprite_dma_active;
+        self.vic.sprite_display_count = snapshot.vic.sprite_display_count;
+
+        // Restore CIAs
+        self.restore_cia(&snapshot.cia1, true);
+        self.restore_cia(&snapshot.cia2, false);
+
+        // Restore frame cycles
+        self.frame_cycles = snapshot.frame_cycles;
+    }
+
+    /// Load machine state from bytes.
+    pub fn load_state_bytes(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        let snapshot = Snapshot::from_bytes(data)?;
+        self.load_state(&snapshot);
+        Ok(())
+    }
+
+    /// Helper to restore CIA state.
+    fn restore_cia(&mut self, state: &crate::snapshot::CiaState, is_cia1: bool) {
+        let cia = if is_cia1 {
+            &mut self.memory.cia1
+        } else {
+            &mut self.memory.cia2
+        };
+
+        cia.pra = state.pra;
+        cia.prb = state.prb;
+        cia.ddra = state.ddra;
+        cia.ddrb = state.ddrb;
+        cia.ta_lo = state.ta_lo;
+        cia.ta_hi = state.ta_hi;
+        cia.ta_latch_lo = state.ta_latch_lo;
+        cia.ta_latch_hi = state.ta_latch_hi;
+        cia.tb_lo = state.tb_lo;
+        cia.tb_hi = state.tb_hi;
+        cia.tb_latch_lo = state.tb_latch_lo;
+        cia.tb_latch_hi = state.tb_latch_hi;
+        cia.cra = state.cra;
+        cia.crb = state.crb;
+        cia.icr = state.icr;
+        cia.icr_mask = state.icr_mask;
+        cia.tod_10ths = state.tod_10ths;
+        cia.tod_sec = state.tod_sec;
+        cia.tod_min = state.tod_min;
+        cia.tod_hr = state.tod_hr;
+        cia.alarm_10ths = state.alarm_10ths;
+        cia.alarm_sec = state.alarm_sec;
+        cia.alarm_min = state.alarm_min;
+        cia.alarm_hr = state.alarm_hr;
+        cia.tod_running = state.tod_running;
+        cia.tod_latched = state.tod_latched;
+    }
+
+    /// Dump current CPU state for debugging.
+    pub fn dump_cpu(&self) -> String {
+        self.save_state().dump_cpu()
+    }
+
+    /// Dump current VIC state for debugging.
+    pub fn dump_vic(&self) -> String {
+        self.save_state().dump_vic()
+    }
+
+    /// Peek memory at address (for debugging).
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.memory.ram[addr as usize]
+    }
+
+    /// Peek memory range (for debugging).
+    pub fn peek_range(&self, start: u16, len: u16) -> &[u8] {
+        let start = start as usize;
+        let end = (start + len as usize).min(65536);
+        &self.memory.ram[start..end]
     }
 
     /// Load BASIC ROM.
