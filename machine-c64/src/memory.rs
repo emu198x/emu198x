@@ -44,6 +44,8 @@ pub struct Memory {
     pub(crate) sid_writes: Vec<(u8, u8)>,
     /// Current raster line (synced from VIC for accurate $D011/$D012 reads)
     pub current_raster_line: u16,
+    /// Tape signal input (directly set by Tape for accurate $01 bit 4 reads)
+    pub tape_signal: bool,
 }
 
 /// CIA (Complex Interface Adapter) chip state.
@@ -120,6 +122,7 @@ impl Memory {
             keyboard_matrix: [0xFF; 8], // All keys released
             sid_writes: Vec::new(),
             current_raster_line: 0,
+            tape_signal: false,
         }
     }
 
@@ -831,6 +834,7 @@ impl Memory {
         self.keyboard_matrix = [0xFF; 8];
         self.sid_writes.clear();
         self.current_raster_line = 0;
+        self.tape_signal = false;
 
         // Initialize VIC-II to sensible defaults
         self.vic_registers[0x11] = 0x1B; // Screen on, 25 rows
@@ -881,8 +885,14 @@ impl Bus for Memory {
             // Processor port
             0x0000 => self.port_ddr,
             0x0001 => {
-                // Port data (bits 6-7 read from datasette, always high here)
-                (self.port_data & self.port_ddr) | (!self.port_ddr & 0xC0) | 0x10
+                // Port data:
+                // - Bits 0-2: Memory banking (LORAM, HIRAM, CHAREN)
+                // - Bit 3: Cassette write line
+                // - Bit 4: Cassette sense/read (active low, 0 = signal)
+                // - Bit 5: Cassette motor (active low, 0 = motor on)
+                // - Bits 6-7: Always read high
+                let tape_bit = if self.tape_signal { 0 } else { 0x10 };
+                (self.port_data & self.port_ddr) | (!self.port_ddr & 0xC0) | tape_bit
             }
             // Zero page and stack (always RAM)
             0x0002..=0x01FF => self.ram[addr as usize],

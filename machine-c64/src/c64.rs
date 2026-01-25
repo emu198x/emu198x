@@ -5,6 +5,7 @@ use crate::input;
 use crate::memory::Memory;
 use crate::sid::Sid;
 use crate::snapshot::Snapshot;
+use crate::tap::{Tape, TapeFormat};
 use crate::vic::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH, Vic};
 use cpu_6502::Mos6502;
 use emu_core::{AudioConfig, Cpu, JoystickState, KeyCode, Machine, VideoConfig};
@@ -30,6 +31,8 @@ pub struct C64 {
     frame_cycles: u32,
     /// Currently loaded disk image.
     disk: Option<Disk>,
+    /// Tape player for TAP files.
+    tape: Tape,
 }
 
 impl C64 {
@@ -41,6 +44,7 @@ impl C64 {
             sid: Sid::new(),
             frame_cycles: 0,
             disk: None,
+            tape: Tape::new(),
         };
         c64.memory.reset();
         c64
@@ -48,23 +52,50 @@ impl C64 {
 
     /// Load a D64 disk image.
     pub fn load_disk(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
-        self.disk = Some(Disk::new(data)?);
+        let mut disk = Disk::new(data)?;
+        // Simulate drive initialization - head knock as it seeks to track 0
+        disk.head_knock();
+        self.disk = Some(disk);
         Ok(())
     }
 
     /// Load and run the first PRG from the disk.
     pub fn autorun_disk(&mut self) -> Result<(), String> {
-        let disk = self.disk.as_ref().ok_or("No disk loaded")?;
-        let prg_data = disk.load_first_prg().ok_or("No PRG file found on disk")?;
+        // Find the first PRG entry
+        let entry = {
+            let disk = self.disk.as_ref().ok_or("No disk loaded")?;
+            disk.read_directory()
+                .into_iter()
+                .find(|e| e.file_type == crate::disk::FileType::Prg && e.closed)
+                .ok_or("No PRG file found on disk")?
+        };
+
+        // Load with audio feedback
+        let prg_data = {
+            let disk = self.disk.as_mut().ok_or("No disk loaded")?;
+            disk.load_file_with_audio(&entry)
+                .ok_or("Failed to load PRG file")?
+        };
+
         self.load_prg(&prg_data)
     }
 
     /// Load a specific file from the disk by name.
     pub fn load_from_disk(&mut self, name: &str) -> Result<(), String> {
-        let disk = self.disk.as_ref().ok_or("No disk loaded")?;
-        let prg_data = disk
-            .load_prg(name)
-            .ok_or_else(|| format!("File '{}' not found on disk", name))?;
+        // Find the file entry
+        let entry = {
+            let disk = self.disk.as_ref().ok_or("No disk loaded")?;
+            disk.find_file(name)
+                .ok_or_else(|| format!("File '{}' not found on disk", name))?
+        };
+
+        // Load with audio feedback
+        let prg_data = {
+            let disk = self.disk.as_mut().ok_or("No disk loaded")?;
+            disk.load_file_with_audio(&entry)
+                .ok_or("Failed to load file")?
+        };
+
         self.load_prg(&prg_data)
     }
 
@@ -79,9 +110,109 @@ impl C64 {
         })
     }
 
+    /// Load a TAP tape image.
+    pub fn load_tape(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
+        self.tape.load(data)
+    }
+
+    /// Start tape playback.
+    pub fn play_tape(&mut self) {
+        self.tape.play();
+    }
+
+    /// Stop tape playback.
+    pub fn stop_tape(&mut self) {
+        self.tape.stop();
+    }
+
+    /// Rewind tape to beginning.
+    pub fn rewind_tape(&mut self) {
+        self.tape.rewind();
+    }
+
+    /// Check if tape is loaded.
+    pub fn is_tape_loaded(&self) -> bool {
+        self.tape.is_loaded()
+    }
+
+    /// Check if tape is playing.
+    pub fn is_tape_playing(&self) -> bool {
+        self.tape.is_playing()
+    }
+
+    /// Get tape position as percentage.
+    pub fn tape_position(&self) -> u8 {
+        self.tape.position_percent()
+    }
+
+    /// Get tape format.
+    pub fn tape_format(&self) -> TapeFormat {
+        self.tape.format()
+    }
+
+    /// Get T64 tape directory listing.
+    pub fn tape_directory(&self) -> Vec<(String, u16, u16)> {
+        self.tape
+            .directory()
+            .iter()
+            .map(|e| (e.name_string(), e.load_addr, e.end_addr))
+            .collect()
+    }
+
+    /// Load the current T64 program directly into memory (instant load).
+    /// Returns the load address, or None if not a T64 tape or no more entries.
+    pub fn load_t64_program(&mut self) -> Option<u16> {
+        let (load_addr, data) = self.tape.get_t64_program()?;
+
+        // Load into RAM
+        for (i, &byte) in data.iter().enumerate() {
+            let addr = load_addr.wrapping_add(i as u16);
+            self.memory.ram[addr as usize] = byte;
+        }
+
+        // Update BASIC pointers if loaded at $0801
+        if load_addr == 0x0801 {
+            let end_addr = load_addr.wrapping_add(data.len() as u16);
+            self.memory.ram[0x2D] = (end_addr & 0xFF) as u8;
+            self.memory.ram[0x2E] = (end_addr >> 8) as u8;
+            self.memory.ram[0x2F] = (end_addr & 0xFF) as u8;
+            self.memory.ram[0x30] = (end_addr >> 8) as u8;
+            self.memory.ram[0x31] = (end_addr & 0xFF) as u8;
+            self.memory.ram[0x32] = (end_addr >> 8) as u8;
+        }
+
+        // Advance to next entry
+        self.tape.next_t64_entry();
+
+        Some(load_addr)
+    }
+
+    /// Seek tape to position (0-100%).
+    pub fn seek_tape(&mut self, percent: u8) {
+        self.tape.seek(percent);
+    }
+
+    /// Enable or disable tape audio (the screech sound).
+    pub fn set_tape_audio(&mut self, enabled: bool) {
+        self.tape.set_audio_enabled(enabled);
+    }
+
+    /// Enable or disable disk audio (head step clicks).
+    pub fn set_disk_audio(&mut self, enabled: bool) {
+        if let Some(ref mut disk) = self.disk {
+            disk.set_audio_enabled(enabled);
+        }
+    }
+
     /// Save machine state to a snapshot.
     pub fn save_state(&self) -> Snapshot {
-        Snapshot::capture(&self.cpu, &self.memory, &self.vic, &self.sid, self.frame_cycles)
+        Snapshot::capture(
+            &self.cpu,
+            &self.memory,
+            &self.vic,
+            &self.sid,
+            self.frame_cycles,
+        )
     }
 
     /// Save machine state to bytes.
@@ -100,7 +231,9 @@ impl C64 {
         self.cpu.set_status(snapshot.cpu.status);
 
         // Restore memory
-        self.memory.ram.copy_from_slice(snapshot.memory.ram.as_ref());
+        self.memory
+            .ram
+            .copy_from_slice(snapshot.memory.ram.as_ref());
         self.memory.port_ddr = snapshot.memory.port_ddr;
         self.memory.port_data = snapshot.memory.port_data;
         self.memory.vic_registers = snapshot.memory.vic_registers;
@@ -253,6 +386,14 @@ impl C64 {
                 self.cpu.step(&mut self.memory);
                 let cpu_cycles = self.memory.cycles - prev_cycles;
 
+                // Update tape motor state from processor port bit 5 (active low)
+                let motor_on = self.memory.port_data & 0x20 == 0;
+                self.tape.set_motor(motor_on);
+
+                // Tick tape and update signal in memory
+                self.tape.tick(cpu_cycles);
+                self.memory.tape_signal = self.tape.signal_level;
+
                 // Process pending SID register writes
                 for (reg, value) in self.memory.sid_writes.drain(..) {
                     self.sid.write(reg, value);
@@ -356,7 +497,26 @@ impl Machine for C64 {
     }
 
     fn generate_audio(&mut self, buffer: &mut [f32]) {
+        // Generate SID audio
         self.sid.generate_samples(buffer, CPU_CLOCK, SAMPLE_RATE);
+
+        // Mix in tape audio (the characteristic screech)
+        if self.tape.is_playing() && self.tape.is_audio_enabled() {
+            let tape_sample = self.tape.audio_sample();
+            for sample in buffer.iter_mut() {
+                *sample = (*sample + tape_sample).clamp(-1.0, 1.0);
+            }
+        }
+
+        // Mix in disk audio (head steps, knocks)
+        if let Some(ref mut disk) = self.disk {
+            if disk.is_audio_enabled() && disk.has_audio_pending() {
+                for sample in buffer.iter_mut() {
+                    let disk_sample = disk.audio_sample();
+                    *sample = (*sample + disk_sample).clamp(-1.0, 1.0);
+                }
+            }
+        }
     }
 
     fn key_down(&mut self, key: KeyCode) {
@@ -419,6 +579,8 @@ impl Machine for C64 {
         self.memory.reset();
         self.vic.reset();
         self.sid.reset();
+        self.tape.stop();
+        self.tape.rewind();
         self.cpu.reset(&mut self.memory);
         self.frame_cycles = 0;
     }
@@ -432,6 +594,17 @@ impl Machine for C64 {
             // Load disk and auto-run first PRG
             self.load_disk(data.to_vec()).map_err(|e| e.to_string())?;
             self.autorun_disk()
+        } else if lower.ends_with(".tap") {
+            // Load tape and start playback
+            self.load_tape(data.to_vec()).map_err(|e| e.to_string())?;
+            self.play_tape();
+            Ok(())
+        } else if lower.ends_with(".t64") {
+            // Load T64 tape archive and instantly load first program
+            self.load_tape(data.to_vec()).map_err(|e| e.to_string())?;
+            self.load_t64_program()
+                .map(|_| ())
+                .ok_or_else(|| "No programs in T64 file".to_string())
         } else if lower.ends_with("basic.bin") || lower.ends_with("basic.rom") {
             self.load_basic(data);
             Ok(())

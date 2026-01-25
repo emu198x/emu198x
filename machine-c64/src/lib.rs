@@ -26,8 +26,10 @@ mod input;
 mod memory;
 mod sid;
 mod snapshot;
+mod tap;
 mod vic;
 
 pub use c64::C64;
-pub use disk::Disk;
+pub use disk::{Disk, DiskAudioEvent};
 pub use snapshot::Snapshot;
+pub use tap::{T64Entry, Tape, TapeFormat};

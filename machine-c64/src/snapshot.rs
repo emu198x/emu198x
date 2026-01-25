@@ -290,7 +290,12 @@ impl Snapshot {
         // VIC state
         let vic = VicState {
             raster_line: u16::from_le_bytes([data[pos], data[pos + 1]]),
-            frame_cycle: u32::from_le_bytes([data[pos + 2], data[pos + 3], data[pos + 4], data[pos + 5]]),
+            frame_cycle: u32::from_le_bytes([
+                data[pos + 2],
+                data[pos + 3],
+                data[pos + 4],
+                data[pos + 5],
+            ]),
             ba_low: data[pos + 6] != 0,
             sprite_dma_active: data[pos + 7],
             sprite_display_count: data[pos + 8..pos + 16].try_into().unwrap(),
@@ -298,17 +303,27 @@ impl Snapshot {
         pos += 16;
 
         // SID state
-        let mut voices = [VoiceState::default(), VoiceState::default(), VoiceState::default()];
+        let mut voices = [
+            VoiceState::default(),
+            VoiceState::default(),
+            VoiceState::default(),
+        ];
         for voice in &mut voices {
             voice.frequency = u16::from_le_bytes([data[pos], data[pos + 1]]);
             voice.pulse_width = u16::from_le_bytes([data[pos + 2], data[pos + 3]]);
             voice.control = data[pos + 4];
             voice.attack_decay = data[pos + 5];
             voice.sustain_release = data[pos + 6];
-            voice.phase = u32::from_le_bytes([data[pos + 7], data[pos + 8], data[pos + 9], data[pos + 10]]);
+            voice.phase =
+                u32::from_le_bytes([data[pos + 7], data[pos + 8], data[pos + 9], data[pos + 10]]);
             voice.envelope = data[pos + 11];
             voice.envelope_state = data[pos + 12];
-            voice.envelope_counter = u32::from_le_bytes([data[pos + 13], data[pos + 14], data[pos + 15], data[pos + 16]]);
+            voice.envelope_counter = u32::from_le_bytes([
+                data[pos + 13],
+                data[pos + 14],
+                data[pos + 15],
+                data[pos + 16],
+            ]);
             pos += 17;
         }
 
@@ -329,7 +344,8 @@ impl Snapshot {
         pos += CiaState::SIZE;
 
         // Frame cycles
-        let frame_cycles = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        let frame_cycles =
+            u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
 
         Ok(Self {
             cpu,
@@ -352,12 +368,36 @@ impl Snapshot {
             self.cpu.sp,
             self.cpu.pc,
             self.cpu.status,
-            if self.cpu.status & 0x80 != 0 { 'N' } else { '-' },
-            if self.cpu.status & 0x40 != 0 { 'V' } else { '-' },
-            if self.cpu.status & 0x08 != 0 { 'D' } else { '-' },
-            if self.cpu.status & 0x04 != 0 { 'I' } else { '-' },
-            if self.cpu.status & 0x02 != 0 { 'Z' } else { '-' },
-            if self.cpu.status & 0x01 != 0 { 'C' } else { '-' },
+            if self.cpu.status & 0x80 != 0 {
+                'N'
+            } else {
+                '-'
+            },
+            if self.cpu.status & 0x40 != 0 {
+                'V'
+            } else {
+                '-'
+            },
+            if self.cpu.status & 0x08 != 0 {
+                'D'
+            } else {
+                '-'
+            },
+            if self.cpu.status & 0x04 != 0 {
+                'I'
+            } else {
+                '-'
+            },
+            if self.cpu.status & 0x02 != 0 {
+                'Z'
+            } else {
+                '-'
+            },
+            if self.cpu.status & 0x01 != 0 {
+                'C'
+            } else {
+                '-'
+            },
         )
     }
 

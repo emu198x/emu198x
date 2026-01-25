@@ -84,12 +84,37 @@ fn petscii_to_ascii(c: u8) -> char {
     }
 }
 
+/// Disk audio event types.
+#[derive(Clone, Copy, Debug)]
+pub enum DiskAudioEvent {
+    /// Head step (one track movement).
+    HeadStep,
+    /// Head knock (hit track 0 stop).
+    HeadKnock,
+}
+
+/// Head step click duration in samples (~5ms).
+const STEP_CLICK_SAMPLES: usize = 220;
+
+/// Head knock duration in samples (~15ms).
+const KNOCK_SAMPLES: usize = 660;
+
 /// D64 disk image.
 pub struct Disk {
     /// Raw disk data.
     data: Vec<u8>,
     /// Number of tracks (35 or 40).
     tracks: u8,
+    /// Current head position (track number, 1-based).
+    head_track: u8,
+    /// Audio enabled flag.
+    audio_enabled: bool,
+    /// Pending audio events.
+    audio_events: Vec<DiskAudioEvent>,
+    /// Current audio sample position within an event.
+    audio_sample_pos: usize,
+    /// Current audio event being played.
+    current_audio_event: Option<DiskAudioEvent>,
 }
 
 impl Disk {
@@ -104,7 +129,124 @@ impl Disk {
             _ => return Err("Invalid D64 file size"),
         };
 
-        Ok(Self { data, tracks })
+        Ok(Self {
+            data,
+            tracks,
+            head_track: 1,
+            audio_enabled: true,
+            audio_events: Vec::new(),
+            audio_sample_pos: 0,
+            current_audio_event: None,
+        })
+    }
+
+    /// Enable or disable disk audio.
+    pub fn set_audio_enabled(&mut self, enabled: bool) {
+        self.audio_enabled = enabled;
+    }
+
+    /// Check if disk audio is enabled.
+    pub fn is_audio_enabled(&self) -> bool {
+        self.audio_enabled
+    }
+
+    /// Seek head to a track, generating audio events.
+    pub fn seek_track(&mut self, target_track: u8) {
+        if !self.audio_enabled {
+            self.head_track = target_track.max(1).min(self.tracks);
+            return;
+        }
+
+        let target = target_track.max(1).min(self.tracks);
+
+        // Generate step sounds for each track moved
+        while self.head_track != target {
+            if self.head_track < target {
+                self.head_track += 1;
+                self.audio_events.push(DiskAudioEvent::HeadStep);
+            } else if self.head_track > 1 {
+                self.head_track -= 1;
+                self.audio_events.push(DiskAudioEvent::HeadStep);
+            } else {
+                // Trying to go below track 1 - head knock!
+                self.audio_events.push(DiskAudioEvent::HeadKnock);
+                break;
+            }
+        }
+    }
+
+    /// Perform a head knock (seek to track 0, which causes the head
+    /// to bang against the stop). Called during drive reset/init.
+    pub fn head_knock(&mut self) {
+        if self.audio_enabled {
+            // Multiple knocks as the drive seeks past track 1
+            self.audio_events.push(DiskAudioEvent::HeadKnock);
+            self.audio_events.push(DiskAudioEvent::HeadKnock);
+        }
+        self.head_track = 1;
+    }
+
+    /// Get current head track position.
+    pub fn head_position(&self) -> u8 {
+        self.head_track
+    }
+
+    /// Generate audio sample for disk sounds.
+    /// Returns a value in the range -1.0 to 1.0.
+    pub fn audio_sample(&mut self) -> f32 {
+        if !self.audio_enabled {
+            return 0.0;
+        }
+
+        // Start next event if none is playing
+        if self.current_audio_event.is_none() {
+            if let Some(event) = self.audio_events.pop() {
+                self.current_audio_event = Some(event);
+                self.audio_sample_pos = 0;
+            } else {
+                return 0.0;
+            }
+        }
+
+        let Some(event) = self.current_audio_event else {
+            return 0.0;
+        };
+
+        let (duration, sample) = match event {
+            DiskAudioEvent::HeadStep => {
+                // Short mechanical click
+                let t = self.audio_sample_pos as f32 / STEP_CLICK_SAMPLES as f32;
+                let envelope = (1.0 - t).max(0.0);
+                // Impulse with rapid decay
+                let freq = 800.0;
+                let sample = (t * freq * std::f32::consts::TAU).sin() * envelope * 0.3;
+                (STEP_CLICK_SAMPLES, sample)
+            }
+            DiskAudioEvent::HeadKnock => {
+                // Louder, lower frequency thunk
+                let t = self.audio_sample_pos as f32 / KNOCK_SAMPLES as f32;
+                let envelope = (1.0 - t * 2.0).max(0.0);
+                // Lower frequency impact
+                let freq = 200.0;
+                let sample = (t * freq * std::f32::consts::TAU).sin() * envelope * 0.5;
+                // Add some noise for mechanical sound
+                let noise =
+                    ((self.audio_sample_pos as f32 * 12.9898).sin() * 43758.5453).fract() - 0.5;
+                (KNOCK_SAMPLES, sample + noise * envelope * 0.2)
+            }
+        };
+
+        self.audio_sample_pos += 1;
+        if self.audio_sample_pos >= duration {
+            self.current_audio_event = None;
+        }
+
+        sample.clamp(-1.0, 1.0)
+    }
+
+    /// Check if there are pending audio events.
+    pub fn has_audio_pending(&self) -> bool {
+        self.current_audio_event.is_some() || !self.audio_events.is_empty()
     }
 
     /// Calculate byte offset for a track/sector.
@@ -196,6 +338,7 @@ impl Disk {
     }
 
     /// Load a file's data (follows the track/sector chain).
+    /// Note: Use load_file_with_audio for audio feedback during loading.
     pub fn load_file(&self, entry: &DirEntry) -> Option<Vec<u8>> {
         let mut data = Vec::new();
         let mut track = entry.first_track;
@@ -218,6 +361,45 @@ impl Disk {
             } else {
                 // Full sector - 254 data bytes
                 data.extend_from_slice(&sector_data[2..256]);
+                track = next_track;
+                sector = next_sector;
+            }
+        }
+
+        Some(data)
+    }
+
+    /// Load a file's data with audio feedback (seeks head between tracks).
+    pub fn load_file_with_audio(&mut self, entry: &DirEntry) -> Option<Vec<u8>> {
+        let mut data = Vec::new();
+        let mut track = entry.first_track;
+        let mut sector = entry.first_sector;
+
+        // Seek to first track
+        self.seek_track(track);
+
+        // Follow data chain (max 802 sectors for 200KB limit)
+        for _ in 0..802 {
+            let sector_data = self.read_sector(track, sector)?;
+
+            let next_track = sector_data[0];
+            let next_sector = sector_data[1];
+
+            if next_track == 0 {
+                // Last sector - next_sector contains bytes used
+                let bytes_used = next_sector as usize;
+                if bytes_used >= 1 && bytes_used <= 254 {
+                    data.extend_from_slice(&sector_data[2..2 + bytes_used]);
+                }
+                break;
+            } else {
+                // Full sector - 254 data bytes
+                data.extend_from_slice(&sector_data[2..256]);
+
+                // Seek to next track if different
+                if next_track != track {
+                    self.seek_track(next_track);
+                }
                 track = next_track;
                 sector = next_sector;
             }
