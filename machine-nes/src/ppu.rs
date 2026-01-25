@@ -70,6 +70,33 @@ pub struct Ppu {
     odd_frame: bool,
     /// NMI occurred this frame.
     nmi_occurred: bool,
+
+    // Background rendering shift registers
+    /// Background tile shift register (low bits).
+    bg_shift_lo: u16,
+    /// Background tile shift register (high bits).
+    bg_shift_hi: u16,
+    /// Attribute shift register (low bits).
+    attr_shift_lo: u16,
+    /// Attribute shift register (high bits).
+    attr_shift_hi: u16,
+    /// Attribute latch (low bit).
+    attr_latch_lo: bool,
+    /// Attribute latch (high bit).
+    attr_latch_hi: bool,
+
+    // Background tile fetch latches
+    /// Nametable byte.
+    nt_byte: u8,
+    /// Attribute byte.
+    attr_byte: u8,
+    /// Pattern table low byte.
+    pt_lo: u8,
+    /// Pattern table high byte.
+    pt_hi: u8,
+
+    /// Frame buffer (256x240, palette indices).
+    pub framebuffer: [u8; 256 * 240],
 }
 
 impl Ppu {
@@ -90,6 +117,17 @@ impl Ppu {
             cycle: 0,
             odd_frame: false,
             nmi_occurred: false,
+            bg_shift_lo: 0,
+            bg_shift_hi: 0,
+            attr_shift_lo: 0,
+            attr_shift_hi: 0,
+            attr_latch_lo: false,
+            attr_latch_hi: false,
+            nt_byte: 0,
+            attr_byte: 0,
+            pt_lo: 0,
+            pt_hi: 0,
+            framebuffer: [0; 256 * 240],
         }
     }
 
@@ -103,6 +141,10 @@ impl Ppu {
         self.cycle = 0;
         self.odd_frame = false;
         self.nmi_occurred = false;
+        self.bg_shift_lo = 0;
+        self.bg_shift_hi = 0;
+        self.attr_shift_lo = 0;
+        self.attr_shift_hi = 0;
     }
 
     /// Read PPU register (memory-mapped $2000-$2007).
@@ -202,21 +244,74 @@ impl Ppu {
 
     /// Tick PPU for one cycle.
     /// Returns (nmi_triggered, pixel_output).
-    pub fn tick(&mut self, _memory: &mut NesMemory) -> (bool, Option<u8>) {
+    pub fn tick(&mut self, memory: &mut NesMemory) -> (bool, Option<u8>) {
         let mut nmi = false;
-        let pixel = None; // TODO: implement rendering
 
-        // Pre-render scanline
+        // Pre-render scanline (261)
         if self.scanline == 261 {
             if self.cycle == 1 {
                 // Clear vblank, sprite 0 hit, overflow
                 self.status &= !(status::VBLANK | status::SPRITE_0_HIT | status::SPRITE_OVERFLOW);
                 self.nmi_occurred = false;
             }
+
+            // Copy vertical bits from t to v at cycle 280-304
+            if self.rendering_enabled() && self.cycle >= 280 && self.cycle <= 304 {
+                // v: GHIA.BC DEF..... <- t: GHIA.BC DEF.....
+                self.vram_addr = (self.vram_addr & 0x041F) | (self.temp_addr & 0x7BE0);
+            }
+
+            // Background tile fetches (cycles 321-336)
+            if self.rendering_enabled() && self.cycle >= 321 && self.cycle <= 336 {
+                self.fetch_background_tile(memory);
+            }
+
+            // Skip cycle on odd frames when rendering enabled
+            if self.cycle == 339 && self.odd_frame && self.rendering_enabled() {
+                self.cycle = 340;
+            }
         }
 
-        // Visible scanlines (0-239) - rendering happens here
-        // TODO: implement actual rendering
+        // Visible scanlines (0-239)
+        if self.scanline < 240 {
+            // Render pixel during cycles 1-256
+            if self.cycle >= 1 && self.cycle <= 256 {
+                self.render_pixel(memory);
+
+                // Shift registers
+                self.bg_shift_lo <<= 1;
+                self.bg_shift_hi <<= 1;
+                self.attr_shift_lo <<= 1;
+                self.attr_shift_hi <<= 1;
+
+                // Refill attribute shift registers from latches
+                if self.attr_latch_lo {
+                    self.attr_shift_lo |= 1;
+                }
+                if self.attr_latch_hi {
+                    self.attr_shift_hi |= 1;
+                }
+            }
+
+            // Background tile fetches
+            if self.rendering_enabled() {
+                if (self.cycle >= 1 && self.cycle <= 256) || (self.cycle >= 321 && self.cycle <= 336)
+                {
+                    self.fetch_background_tile(memory);
+                }
+
+                // Increment coarse X at cycle 256
+                if self.cycle == 256 {
+                    self.increment_y();
+                }
+
+                // Copy horizontal bits from t to v at cycle 257
+                if self.cycle == 257 {
+                    // v: ....A.. ...BCDEF <- t: ....A.. ...BCDEF
+                    self.vram_addr = (self.vram_addr & 0x7BE0) | (self.temp_addr & 0x041F);
+                }
+            }
+        }
 
         // Vblank start (scanline 241)
         if self.scanline == 241 && self.cycle == 1 {
@@ -238,7 +333,159 @@ impl Ppu {
             }
         }
 
-        (nmi, pixel)
+        (nmi, None)
+    }
+
+    /// Fetch background tile data based on current cycle.
+    fn fetch_background_tile(&mut self, memory: &NesMemory) {
+        let cycle_in_tile = (self.cycle - 1) & 0x07;
+
+        match cycle_in_tile {
+            0 => {
+                // Load shift registers with new tile data
+                self.load_background_shifters();
+            }
+            1 => {
+                // Fetch nametable byte
+                let addr = 0x2000 | (self.vram_addr & 0x0FFF);
+                self.nt_byte = memory.ppu_read(addr);
+            }
+            3 => {
+                // Fetch attribute byte
+                let v = self.vram_addr;
+                let addr = 0x23C0
+                    | (v & 0x0C00)
+                    | ((v >> 4) & 0x38)
+                    | ((v >> 2) & 0x07);
+                let attr = memory.ppu_read(addr);
+
+                // Select 2-bit palette from attribute byte
+                let shift = ((v >> 4) & 0x04) | (v & 0x02);
+                self.attr_byte = (attr >> shift) & 0x03;
+            }
+            5 => {
+                // Fetch pattern table low byte
+                let pattern_base = if self.ctrl & ctrl::BG_PATTERN != 0 {
+                    0x1000
+                } else {
+                    0x0000
+                };
+                let fine_y = (self.vram_addr >> 12) & 0x07;
+                let addr = pattern_base + (self.nt_byte as u16) * 16 + fine_y;
+                self.pt_lo = memory.ppu_read(addr);
+            }
+            7 => {
+                // Fetch pattern table high byte
+                let pattern_base = if self.ctrl & ctrl::BG_PATTERN != 0 {
+                    0x1000
+                } else {
+                    0x0000
+                };
+                let fine_y = (self.vram_addr >> 12) & 0x07;
+                let addr = pattern_base + (self.nt_byte as u16) * 16 + fine_y + 8;
+                self.pt_hi = memory.ppu_read(addr);
+
+                // Increment coarse X
+                if self.rendering_enabled() {
+                    self.increment_x();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Load fetched tile data into shift registers.
+    fn load_background_shifters(&mut self) {
+        // Load pattern bytes into low 8 bits of shift registers
+        self.bg_shift_lo = (self.bg_shift_lo & 0xFF00) | (self.pt_lo as u16);
+        self.bg_shift_hi = (self.bg_shift_hi & 0xFF00) | (self.pt_hi as u16);
+
+        // Load attribute bits into latches (expanded to fill all 8 bits)
+        self.attr_latch_lo = self.attr_byte & 0x01 != 0;
+        self.attr_latch_hi = self.attr_byte & 0x02 != 0;
+    }
+
+    /// Render a single pixel to the framebuffer.
+    fn render_pixel(&mut self, memory: &NesMemory) {
+        let x = self.cycle - 1;
+        let y = self.scanline;
+
+        if x >= 256 || y >= 240 {
+            return;
+        }
+
+        let mut bg_pixel = 0u8;
+        let mut bg_palette = 0u8;
+
+        // Get background pixel
+        if self.mask & mask::BG_ENABLE != 0 {
+            // Skip leftmost 8 pixels if BG_LEFT is not set
+            if x >= 8 || self.mask & mask::BG_LEFT != 0 {
+                let shift = 15 - self.fine_x;
+                let lo = ((self.bg_shift_lo >> shift) & 1) as u8;
+                let hi = ((self.bg_shift_hi >> shift) & 1) as u8;
+                bg_pixel = (hi << 1) | lo;
+
+                let attr_lo = ((self.attr_shift_lo >> shift) & 1) as u8;
+                let attr_hi = ((self.attr_shift_hi >> shift) & 1) as u8;
+                bg_palette = (attr_hi << 1) | attr_lo;
+            }
+        }
+
+        // Determine final color
+        let color = if bg_pixel == 0 {
+            // Transparent - use backdrop color
+            memory.ppu_read(0x3F00)
+        } else {
+            // Use background palette
+            let addr = 0x3F00 + (bg_palette as u16) * 4 + (bg_pixel as u16);
+            memory.ppu_read(addr)
+        };
+
+        // Apply greyscale if enabled
+        let color = if self.mask & mask::GREYSCALE != 0 {
+            color & 0x30
+        } else {
+            color
+        };
+
+        self.framebuffer[(y as usize) * 256 + (x as usize)] = color;
+    }
+
+    /// Increment coarse X in VRAM address.
+    fn increment_x(&mut self) {
+        if (self.vram_addr & 0x001F) == 31 {
+            // Wrap around and switch horizontal nametable
+            self.vram_addr &= !0x001F;
+            self.vram_addr ^= 0x0400;
+        } else {
+            self.vram_addr += 1;
+        }
+    }
+
+    /// Increment Y in VRAM address.
+    fn increment_y(&mut self) {
+        if (self.vram_addr & 0x7000) != 0x7000 {
+            // Increment fine Y
+            self.vram_addr += 0x1000;
+        } else {
+            // Reset fine Y and increment coarse Y
+            self.vram_addr &= !0x7000;
+            let mut coarse_y = (self.vram_addr & 0x03E0) >> 5;
+
+            if coarse_y == 29 {
+                // Row 29 is last row of tiles, switch vertical nametable
+                coarse_y = 0;
+                self.vram_addr ^= 0x0800;
+            } else if coarse_y == 31 {
+                // Coarse Y wraps without switching nametable
+                coarse_y = 0;
+            } else {
+                coarse_y += 1;
+            }
+
+            self.vram_addr = (self.vram_addr & !0x03E0) | (coarse_y << 5);
+        }
     }
 
     /// Check if rendering is enabled.
@@ -254,6 +501,11 @@ impl Ppu {
     /// Get current cycle.
     pub fn cycle(&self) -> u16 {
         self.cycle
+    }
+
+    /// Get VRAM address (for debugging).
+    pub fn vram_addr(&self) -> u16 {
+        self.vram_addr
     }
 }
 
@@ -289,5 +541,37 @@ mod tests {
         ppu.ctrl = ctrl::VRAM_INCREMENT;
         ppu.increment_vram_addr();
         assert_eq!(ppu.vram_addr, 0x2020);
+    }
+
+    #[test]
+    fn test_increment_x() {
+        let mut ppu = Ppu::new();
+
+        // Normal increment
+        ppu.vram_addr = 0x2000;
+        ppu.increment_x();
+        assert_eq!(ppu.vram_addr & 0x001F, 1);
+
+        // Wrap and switch nametable
+        ppu.vram_addr = 0x2000 | 31;
+        ppu.increment_x();
+        assert_eq!(ppu.vram_addr & 0x001F, 0);
+        assert!(ppu.vram_addr & 0x0400 != 0); // Horizontal nametable bit flipped
+    }
+
+    #[test]
+    fn test_increment_y() {
+        let mut ppu = Ppu::new();
+
+        // Increment fine Y from 0 to 1
+        ppu.vram_addr = 0x0000; // fine_y = 0
+        ppu.increment_y();
+        assert_eq!(ppu.vram_addr & 0x7000, 0x1000); // fine_y = 1
+
+        // Fine Y wraps (7 -> 0), increment coarse Y
+        ppu.vram_addr = 0x7000; // fine_y = 7, coarse_y = 0
+        ppu.increment_y();
+        assert_eq!(ppu.vram_addr & 0x7000, 0); // fine_y = 0
+        assert_eq!((ppu.vram_addr & 0x03E0) >> 5, 1); // coarse_y = 1
     }
 }
