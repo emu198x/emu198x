@@ -53,15 +53,15 @@ pub struct Ppu {
     /// OAM data (256 bytes, 64 sprites x 4 bytes).
     pub oam: [u8; 256],
     /// Current VRAM address (loopy_v).
-    vram_addr: u16,
+    pub vram_addr: u16,
     /// Temporary VRAM address (loopy_t).
     temp_addr: u16,
     /// Fine X scroll (3 bits).
     fine_x: u8,
     /// Write toggle (for $2005/$2006).
-    write_toggle: bool,
+    pub write_toggle: bool,
     /// Data buffer for $2007 reads.
-    data_buffer: u8,
+    pub data_buffer: u8,
     /// Current scanline (0-261).
     scanline: u16,
     /// Current cycle within scanline (0-340).
@@ -69,7 +69,7 @@ pub struct Ppu {
     /// Frame is odd (for NTSC skip).
     odd_frame: bool,
     /// NMI occurred this frame.
-    nmi_occurred: bool,
+    pub nmi_occurred: bool,
 
     // Background rendering shift registers
     /// Background tile shift register (low bits).
@@ -263,7 +263,7 @@ impl Ppu {
     }
 
     /// Increment VRAM address by 1 or 32 based on CTRL register.
-    fn increment_vram_addr(&mut self) {
+    pub fn increment_vram_addr(&mut self) {
         let increment = if self.ctrl & ctrl::VRAM_INCREMENT != 0 {
             32
         } else {

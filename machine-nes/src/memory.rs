@@ -34,6 +34,16 @@ pub struct NesMemory {
     pub(crate) apu_writes: Vec<(u16, u8)>,
     /// OAM DMA pending (page address).
     pub(crate) oam_dma_pending: Option<u8>,
+    /// Pending PPU register writes (register 0-7, value).
+    pub(crate) ppu_reg_writes: Vec<(u8, u8)>,
+    /// PPU status register ($2002) - updated by PPU.
+    pub(crate) ppu_status: u8,
+    /// PPU OAM data for reads ($2004).
+    pub(crate) ppu_oam_data: u8,
+    /// PPU VRAM read buffer ($2007).
+    pub(crate) ppu_data_buffer: u8,
+    /// Last value written to any PPU register (open bus).
+    ppu_latch: u8,
 }
 
 impl NesMemory {
@@ -50,6 +60,11 @@ impl NesMemory {
             ppu_writes: Vec::new(),
             apu_writes: Vec::new(),
             oam_dma_pending: None,
+            ppu_reg_writes: Vec::new(),
+            ppu_status: 0,
+            ppu_oam_data: 0,
+            ppu_data_buffer: 0,
+            ppu_latch: 0,
         }
     }
 
@@ -142,6 +157,11 @@ impl NesMemory {
         std::mem::take(&mut self.apu_writes)
     }
 
+    /// Take pending PPU register writes.
+    pub fn take_ppu_reg_writes(&mut self) -> Vec<(u8, u8)> {
+        std::mem::take(&mut self.ppu_reg_writes)
+    }
+
     /// Take OAM DMA request.
     pub fn take_oam_dma(&mut self) -> Option<u8> {
         self.oam_dma_pending.take()
@@ -165,10 +185,32 @@ impl Bus for NesMemory {
         match addr {
             // RAM and mirrors
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize],
-            // PPU registers - handled externally via PPU
-            0x2000..=0x3FFF => 0, // Should be routed through PPU
+            // PPU registers (mirrored every 8 bytes)
+            0x2000..=0x3FFF => {
+                let reg = addr & 0x07;
+                match reg {
+                    // $2002 - Status (clears vblank flag, handled by NES step)
+                    2 => {
+                        let status = self.ppu_status;
+                        self.ppu_status &= 0x7F; // Clear vblank flag
+                        // Queue a status read event for PPU to handle toggle reset
+                        self.ppu_reg_writes.push((0x82, 0)); // Special: 0x80 | reg = status read
+                        status
+                    }
+                    // $2004 - OAM data
+                    4 => self.ppu_oam_data,
+                    // $2007 - VRAM data (buffered read)
+                    7 => {
+                        // Queue a read event for PPU to update buffer
+                        self.ppu_reg_writes.push((0x87, 0)); // Special: 0x80 | reg = data read
+                        self.ppu_data_buffer
+                    }
+                    // Write-only registers return latch
+                    _ => self.ppu_latch,
+                }
+            }
             // APU/IO registers
-            0x4000..=0x4015 => 0, // TODO: APU
+            0x4000..=0x4015 => 0, // TODO: APU reads
             // Controller 1
             0x4016 => {
                 if self.controller_strobe {
@@ -198,8 +240,12 @@ impl Bus for NesMemory {
         match addr {
             // RAM and mirrors
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize] = value,
-            // PPU registers - handled externally via PPU
-            0x2000..=0x3FFF => {} // Should be routed through PPU
+            // PPU registers (mirrored every 8 bytes)
+            0x2000..=0x3FFF => {
+                let reg = (addr & 0x07) as u8;
+                self.ppu_latch = value;
+                self.ppu_reg_writes.push((reg, value));
+            }
             // APU registers
             0x4000..=0x4013 => {
                 self.apu_writes.push((addr, value));

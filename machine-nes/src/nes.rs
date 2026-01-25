@@ -202,7 +202,44 @@ impl Nes {
 
     /// Run a single CPU step.
     pub fn step(&mut self) -> u32 {
+        // Sync PPU state to memory before CPU step (for reads)
+        self.memory.ppu_status = self.ppu.status;
+        self.memory.ppu_oam_data = self.ppu.oam[self.ppu.oam_addr as usize];
+        self.memory.ppu_data_buffer = self.ppu.data_buffer;
+
         let cycles = self.cpu.step(&mut self.memory);
+
+        // Process any pending PPU register writes
+        for (reg, value) in self.memory.take_ppu_reg_writes() {
+            if reg & 0x80 != 0 {
+                // Special: register read event
+                match reg & 0x7F {
+                    2 => {
+                        // Status was read - clear vblank and write toggle
+                        self.ppu.status &= 0x7F;
+                        self.ppu.write_toggle = false;
+                        self.ppu.nmi_occurred = false;
+                    }
+                    7 => {
+                        // VRAM data was read - update buffer and increment address
+                        let addr = self.ppu.vram_addr & 0x3FFF;
+                        if addr >= 0x3F00 {
+                            // Palette reads are immediate
+                            self.memory.ppu_data_buffer = self.memory.ppu_read(addr);
+                        } else {
+                            // Buffer the current location, return previous buffer
+                            self.ppu.data_buffer = self.memory.ppu_read(addr);
+                        }
+                        self.ppu.increment_vram_addr();
+                        self.memory.ppu_data_buffer = self.ppu.data_buffer;
+                    }
+                    _ => {}
+                }
+            } else {
+                // Normal register write
+                self.ppu.write_register(reg as u16, value, &mut self.memory);
+            }
+        }
 
         // Process any pending APU writes
         for (addr, value) in self.memory.take_apu_writes() {
@@ -225,6 +262,9 @@ impl Nes {
                 self.cpu.nmi(&mut self.memory);
             }
         }
+
+        // Sync PPU status back to memory after PPU ticks
+        self.memory.ppu_status = self.ppu.status;
 
         // APU runs at CPU speed
         for _ in 0..cycles {
