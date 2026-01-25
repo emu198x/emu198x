@@ -259,6 +259,11 @@ impl Cartridge {
         )
     }
 
+    /// Check if cartridge RAM is enabled at $DF00 (for REU priority).
+    pub fn ram_enabled_at_df00(&self) -> bool {
+        self.active && self.ram_enabled
+    }
+
     /// Tick the cartridge (for time-based cartridge behavior).
     /// Called once per CPU cycle.
     pub fn tick(&mut self) {

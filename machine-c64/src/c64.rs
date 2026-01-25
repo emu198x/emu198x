@@ -299,6 +299,21 @@ impl C64 {
         }
     }
 
+    /// Set the REU (Ram Expansion Unit) model.
+    pub fn set_reu(&mut self, model: crate::reu::ReuModel) {
+        self.memory.set_reu(model);
+    }
+
+    /// Check if REU is present.
+    pub fn has_reu(&self) -> bool {
+        self.memory.has_reu()
+    }
+
+    /// Get the REU model.
+    pub fn reu_model(&self) -> crate::reu::ReuModel {
+        self.memory.reu_model()
+    }
+
     /// Save machine state to a snapshot.
     pub fn save_state(&self) -> Snapshot {
         Snapshot::capture(
@@ -513,6 +528,14 @@ impl C64 {
                 // Tick CIA2 timers and check for NMI
                 if self.memory.tick_cia2(cpu_cycles) {
                     self.cpu.nmi(&mut self.memory);
+                }
+
+                // Execute pending REU DMA transfers
+                if self.memory.reu_dma_pending() {
+                    if self.memory.execute_reu_dma() {
+                        // REU DMA triggered IRQ
+                        self.cpu.interrupt(&mut self.memory);
+                    }
                 }
 
                 // Advance frame_cycles by CPU cycles (VIC already ticked once)

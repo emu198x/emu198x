@@ -17,6 +17,7 @@
 //! - EXROM=1, GAME=0: Ultimax mode (ROML at $8000, ROMH at $E000)
 
 use crate::cartridge::Cartridge;
+use crate::reu::{Reu, ReuModel};
 use emu_core::Bus;
 
 /// C64 memory subsystem.
@@ -55,6 +56,10 @@ pub struct Memory {
     pub tape_signal: bool,
     /// Inserted cartridge
     pub cartridge: Cartridge,
+    /// REU (Ram Expansion Unit)
+    pub reu: Reu,
+    /// Pending REU DMA operation
+    reu_dma_pending: bool,
 }
 
 /// CIA (Complex Interface Adapter) chip state.
@@ -133,7 +138,16 @@ impl Memory {
             current_raster_line: 0,
             tape_signal: false,
             cartridge: Cartridge::none(),
+            reu: Reu::default(),
+            reu_dma_pending: false,
         }
+    }
+
+    /// Create a new memory with a specific REU model.
+    pub fn with_reu(model: ReuModel) -> Self {
+        let mut mem = Self::new();
+        mem.reu = Reu::new(model);
+        mem
     }
 
     /// Load BASIC ROM.
@@ -304,8 +318,18 @@ impl Memory {
                     _ => 0xFF,
                 }
             }
-            // I/O expansion areas - cartridge I/O
+            // I/O expansion areas - cartridge I/O and REU
             0xDE00..=0xDFFF => {
+                // REU has priority at $DF00-$DF0A unless cartridge is handling it
+                if (0xDF00..=0xDF0A).contains(&addr) && self.reu.is_present() {
+                    // Check if cartridge wants to handle this address
+                    if !self.cartridge.is_inserted() || !self.cartridge.ram_enabled_at_df00() {
+                        if let Some(value) = self.reu.read(addr) {
+                            return value;
+                        }
+                    }
+                }
+                // Cartridge I/O
                 if let Some(value) = self.cartridge.read_io(addr) {
                     value
                 } else {
@@ -346,8 +370,20 @@ impl Memory {
                 let reg = (addr & 0x0F) as usize;
                 self.write_cia2(reg, value);
             }
-            // I/O expansion areas - cartridge I/O
+            // I/O expansion areas - cartridge I/O and REU
             0xDE00..=0xDFFF => {
+                // REU has priority at $DF00-$DF0A unless cartridge is handling it
+                if (0xDF00..=0xDF0A).contains(&addr) && self.reu.is_present() {
+                    // Check if cartridge wants to handle this address
+                    if !self.cartridge.is_inserted() || !self.cartridge.ram_enabled_at_df00() {
+                        if self.reu.write(addr, value) {
+                            // REU DMA triggered
+                            self.reu_dma_pending = true;
+                        }
+                        return;
+                    }
+                }
+                // Cartridge I/O
                 self.cartridge.write_io(addr, value);
             }
             _ => unreachable!(),
@@ -893,12 +929,57 @@ impl Memory {
         // Reset cartridge (bank selection, GAME/EXROM lines, etc.)
         self.cartridge.reset();
 
+        // Reset REU
+        self.reu.reset();
+        self.reu_dma_pending = false;
+
         // Initialize VIC-II to sensible defaults
         self.vic_registers[0x11] = 0x1B; // Screen on, 25 rows
         self.vic_registers[0x16] = 0xC8; // 40 columns
         self.vic_registers[0x18] = 0x15; // Screen at $0400, chars at $1000
         self.vic_registers[0x20] = 0x0E; // Border: light blue
         self.vic_registers[0x21] = 0x06; // Background: blue
+    }
+
+    /// Check if REU DMA is pending.
+    pub fn reu_dma_pending(&self) -> bool {
+        self.reu_dma_pending
+    }
+
+    /// Execute pending REU DMA transfer.
+    /// Returns true if an IRQ should be triggered.
+    pub fn execute_reu_dma(&mut self) -> bool {
+        if !self.reu_dma_pending {
+            return false;
+        }
+        self.reu_dma_pending = false;
+
+        // Execute the DMA using a closure that accesses C64 RAM
+        self.reu.execute_dma(|addr, value| {
+            if let Some(v) = value {
+                // Write to C64 RAM
+                self.ram[addr as usize] = v;
+                v
+            } else {
+                // Read from C64 RAM
+                self.ram[addr as usize]
+            }
+        })
+    }
+
+    /// Set REU model.
+    pub fn set_reu(&mut self, model: ReuModel) {
+        self.reu = Reu::new(model);
+    }
+
+    /// Check if REU is present.
+    pub fn has_reu(&self) -> bool {
+        self.reu.is_present()
+    }
+
+    /// Get REU model.
+    pub fn reu_model(&self) -> ReuModel {
+        self.reu.model()
     }
 
     /// Insert a cartridge.
@@ -1029,6 +1110,13 @@ impl Bus for Memory {
     fn write(&mut self, address: u32, value: u8) {
         let addr = (address & 0xFFFF) as u16;
         self.cycles += 1;
+
+        // Check for REU FF00 decode trigger
+        if addr == 0xFF00 && self.reu.ff00_decode_active() {
+            if self.reu.trigger_ff00() {
+                self.reu_dma_pending = true;
+            }
+        }
 
         match addr {
             // Processor port
