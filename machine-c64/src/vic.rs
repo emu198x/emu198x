@@ -159,7 +159,7 @@ pub const PALETTE: [[u8; 4]; 16] = [
 ];
 
 /// Render the C64 display to an RGBA buffer.
-pub fn render(memory: &Memory, buffer: &mut [u8]) {
+pub fn render(memory: &mut Memory, buffer: &mut [u8]) {
     let ctrl1 = memory.vic_registers[0x11];
     let ctrl2 = memory.vic_registers[0x16];
 
@@ -199,12 +199,12 @@ pub fn render(memory: &Memory, buffer: &mut [u8]) {
         render_standard_text(memory, buffer, bg_color);
     }
 
-    // Render sprites on top of background
-    render_sprites(memory, buffer);
+    // Render sprites on top of background and detect collisions
+    render_sprites(memory, buffer, bg_color);
 }
 
-/// Render all enabled sprites.
-fn render_sprites(memory: &Memory, buffer: &mut [u8]) {
+/// Render all enabled sprites with collision detection.
+fn render_sprites(memory: &mut Memory, buffer: &mut [u8], bg_color: usize) {
     let sprite_enable = memory.vic_registers[0x15];
     if sprite_enable == 0 {
         return;
@@ -222,6 +222,10 @@ fn render_sprites(memory: &Memory, buffer: &mut [u8]) {
 
     // Sprite pointers are at screen_ptr + $3F8
     let sprite_ptr_base = memory.screen_ptr().wrapping_add(0x3F8);
+
+    // Sprite coverage map: for each pixel, which sprite covers it (0xFF = none)
+    // Used to detect sprite-sprite collisions
+    let mut sprite_coverage: [[u8; 320]; 200] = [[0xFF; 320]; 200];
 
     // Render sprites from back to front (sprite 0 has highest priority)
     for sprite_num in (0..8).rev() {
@@ -249,8 +253,7 @@ fn render_sprites(memory: &Memory, buffer: &mut [u8]) {
         let is_multicolor = multicolor_enable & mask != 0;
         let is_behind_bg = priority & mask != 0;
 
-        // Sprite is 24x21 pixels
-        let _sprite_width = if is_expanded_x { 48 } else { 24 };
+        // Sprite is 24x21 pixels (or expanded)
         let sprite_height = if is_expanded_y { 42 } else { 21 };
 
         // Render sprite pixels
@@ -275,8 +278,11 @@ fn render_sprites(memory: &Memory, buffer: &mut [u8]) {
                     let bit_pos = 22 - pixel * 2;
                     let color_bits = ((row_data >> bit_pos) & 0x03) as usize;
 
+                    if color_bits == 0 {
+                        continue; // Transparent
+                    }
+
                     let pixel_color = match color_bits {
-                        0 => continue, // Transparent
                         1 => mc0,
                         2 => sprite_color,
                         3 => mc1,
@@ -286,13 +292,16 @@ fn render_sprites(memory: &Memory, buffer: &mut [u8]) {
                     let pixel_width = if is_expanded_x { 4 } else { 2 };
                     for dx in 0..pixel_width {
                         let screen_x = sprite_x + (pixel as i32) * pixel_width + dx;
-                        draw_sprite_pixel(
+                        draw_sprite_pixel_with_collision(
+                            memory,
                             buffer,
+                            &mut sprite_coverage,
                             screen_x,
                             screen_y,
                             pixel_color,
+                            bg_color,
                             is_behind_bg,
-                            memory,
+                            sprite_num as u8,
                         );
                     }
                 }
@@ -307,13 +316,16 @@ fn render_sprites(memory: &Memory, buffer: &mut [u8]) {
                     let pixel_width = if is_expanded_x { 2 } else { 1 };
                     for dx in 0..pixel_width {
                         let screen_x = sprite_x + (pixel as i32) * pixel_width + dx;
-                        draw_sprite_pixel(
+                        draw_sprite_pixel_with_collision(
+                            memory,
                             buffer,
+                            &mut sprite_coverage,
                             screen_x,
                             screen_y,
                             sprite_color,
+                            bg_color,
                             is_behind_bg,
-                            memory,
+                            sprite_num as u8,
                         );
                     }
                 }
@@ -322,14 +334,17 @@ fn render_sprites(memory: &Memory, buffer: &mut [u8]) {
     }
 }
 
-/// Draw a single sprite pixel, handling priority.
-fn draw_sprite_pixel(
+/// Draw a single sprite pixel with collision detection.
+fn draw_sprite_pixel_with_collision(
+    memory: &mut Memory,
     buffer: &mut [u8],
+    sprite_coverage: &mut [[u8; 320]; 200],
     x: i32,
     y: i32,
     color: usize,
+    bg_color: usize,
     behind_bg: bool,
-    memory: &Memory,
+    sprite_num: u8,
 ) {
     // Sprite coordinates are relative to display, offset by 24 pixels for left border
     let display_x = x - 24;
@@ -340,23 +355,37 @@ fn draw_sprite_pixel(
         return;
     }
 
-    let buffer_x = display_x as usize + BORDER_H;
-    let buffer_y = display_y as usize + BORDER_V;
+    let dx = display_x as usize;
+    let dy = display_y as usize;
+    let buffer_x = dx + BORDER_H;
+    let buffer_y = dy + BORDER_V;
+    let idx = (buffer_y * DISPLAY_WIDTH as usize + buffer_x) * 4;
 
-    // If sprite is behind background, check if background pixel is non-zero
-    if behind_bg {
-        let bg_color = (memory.vic_registers[0x21] & 0x0F) as usize;
-        let idx = (buffer_y * DISPLAY_WIDTH as usize + buffer_x) * 4;
-        let current = &buffer[idx..idx + 4];
-        let bg_rgba = &PALETTE[bg_color];
-
-        // Skip if there's already non-background color
-        if current != bg_rgba {
-            return;
-        }
+    // Check for sprite-sprite collision
+    let existing_sprite = sprite_coverage[dy][dx];
+    if existing_sprite != 0xFF {
+        // Collision! Set bits for both sprites (latched in vic_registers)
+        memory.vic_registers[0x1E] |= (1 << sprite_num) | (1 << existing_sprite);
     }
 
-    let idx = (buffer_y * DISPLAY_WIDTH as usize + buffer_x) * 4;
+    // Mark this pixel as covered by this sprite
+    sprite_coverage[dy][dx] = sprite_num;
+
+    // Check for sprite-background collision
+    let current = &buffer[idx..idx + 4];
+    let bg_rgba = &PALETTE[bg_color];
+    let is_background = current == bg_rgba;
+
+    if !is_background {
+        // Sprite overlaps with non-background pixel (latched in vic_registers)
+        memory.vic_registers[0x1F] |= 1 << sprite_num;
+    }
+
+    // If sprite is behind background, only draw if pixel is background
+    if behind_bg && !is_background {
+        return;
+    }
+
     buffer[idx..idx + 4].copy_from_slice(&PALETTE[color]);
 }
 

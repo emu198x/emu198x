@@ -188,8 +188,8 @@ impl Machine for C64 {
         self.run_frame_internal();
     }
 
-    fn render(&self, buffer: &mut [u8]) {
-        vic::render(&self.memory, buffer);
+    fn render(&mut self, buffer: &mut [u8]) {
+        vic::render(&mut self.memory, buffer);
     }
 
     fn generate_audio(&mut self, buffer: &mut [f32]) {

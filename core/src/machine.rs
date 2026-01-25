@@ -161,7 +161,7 @@ pub trait Machine {
     /// Render the current display to an RGBA pixel buffer.
     ///
     /// The buffer size should be `width * height * 4` bytes.
-    fn render(&self, buffer: &mut [u8]);
+    fn render(&mut self, buffer: &mut [u8]);
 
     /// Generate audio samples for the current frame.
     ///

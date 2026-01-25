@@ -430,7 +430,7 @@ impl<M: MemoryModel + 'static> Machine for Spectrum<M> {
         self.frame_count = self.frame_count.wrapping_add(1);
     }
 
-    fn render(&self, buffer: &mut [u8]) {
+    fn render(&mut self, buffer: &mut [u8]) {
         let flash_swap = (self.frame_count / 16) % 2 == 1;
         video::render_screen(
             self.screen(),

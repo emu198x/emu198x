@@ -250,7 +250,7 @@ impl Memory {
         }
     }
 
-    fn read_vic(&self, reg: usize) -> u8 {
+    fn read_vic(&mut self, reg: usize) -> u8 {
         match reg {
             0x11 => {
                 // Control register 1 with current raster bit 8
@@ -271,6 +271,18 @@ impl Memory {
                 } else {
                     irq_status
                 }
+            }
+            0x1E => {
+                // Sprite-sprite collision register - cleared on read
+                let value = self.vic_registers[0x1E];
+                self.vic_registers[0x1E] = 0;
+                value
+            }
+            0x1F => {
+                // Sprite-background collision register - cleared on read
+                let value = self.vic_registers[0x1F];
+                self.vic_registers[0x1F] = 0;
+                value
             }
             _ => self.vic_registers[reg],
         }
