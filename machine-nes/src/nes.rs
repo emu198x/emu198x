@@ -142,6 +142,10 @@ pub struct Nes {
     samples_per_cycle: f32,
     /// Audio buffer for frame.
     audio_buffer: Vec<f32>,
+    /// Pending PPU cycles from previous CPU step.
+    pending_ppu_cycles: u32,
+    /// Delayed NMI (triggers after next instruction).
+    delayed_nmi: bool,
 }
 
 impl Nes {
@@ -167,6 +171,8 @@ impl Nes {
             audio_accum: 0.0,
             samples_per_cycle: SAMPLE_RATE as f32 / cpu_clock as f32,
             audio_buffer: Vec::with_capacity(1024),
+            pending_ppu_cycles: 0,
+            delayed_nmi: false,
         }
     }
 
@@ -183,6 +189,7 @@ impl Nes {
         self.frame_cycles = 0;
         self.audio_buffer.clear();
         self.audio_accum = 0.0;
+        self.pending_ppu_cycles = 0;
     }
 
     /// Run for one frame.
@@ -202,6 +209,20 @@ impl Nes {
 
     /// Run a single CPU step.
     pub fn step(&mut self) -> u32 {
+        // Run pending PPU cycles from previous step to improve synchronization
+        // This helps timing-sensitive tests see PPU state changes sooner
+        if self.pending_ppu_cycles > 0 {
+            for _ in 0..self.pending_ppu_cycles {
+                let (nmi, _pixel) = self.ppu.tick(&mut self.memory);
+                if nmi {
+                    self.cpu.nmi(&mut self.memory);
+                }
+                // Keep status synced so CPU sees changes immediately
+                self.memory.ppu_status = self.ppu.status;
+            }
+            self.pending_ppu_cycles = 0;
+        }
+
         // Sync PPU state to memory before CPU step (for reads)
         self.memory.ppu_status = self.ppu.status;
         self.memory.ppu_oam_data = self.ppu.oam[self.ppu.oam_addr as usize];
@@ -209,6 +230,13 @@ impl Nes {
         self.memory.ppu_vram_addr = self.ppu.vram_addr;
 
         let cycles = self.cpu.step(&mut self.memory);
+
+        // Trigger delayed NMI (from enabling NMI while VBL set)
+        // This happens after the current instruction completes
+        if self.delayed_nmi {
+            self.delayed_nmi = false;
+            self.cpu.nmi(&mut self.memory);
+        }
 
         // Process any pending PPU register writes
         for (reg, value) in self.memory.take_ppu_reg_writes() {
@@ -239,7 +267,11 @@ impl Nes {
                 }
             } else {
                 // Normal register write
-                self.ppu.write_register(reg as u16, value, &mut self.memory);
+                let nmi = self.ppu.write_register(reg as u16, value, &mut self.memory);
+                if nmi {
+                    // Delay NMI until after the next instruction
+                    self.delayed_nmi = true;
+                }
             }
         }
 
@@ -251,24 +283,21 @@ impl Nes {
         self.memory.apu_status = self.apu.read_status();
 
         // Handle OAM DMA (takes 513/514 cycles, simplified here)
+        // DMA starts at current OAM address and wraps around
         if let Some(page) = self.memory.take_oam_dma() {
             let base = (page as u16) << 8;
-            for i in 0..256 {
+            let oam_start = self.ppu.oam_addr;
+            for i in 0..256u16 {
                 let value = self.memory.read((base + i) as u32);
-                self.ppu.oam[i as usize] = value;
+                let oam_index = oam_start.wrapping_add(i as u8);
+                self.ppu.oam[oam_index as usize] = value;
             }
+            // OAM address is unchanged after DMA
         }
 
-        // PPU runs 3x faster than CPU
-        for _ in 0..(cycles * 3) {
-            let (nmi, _pixel) = self.ppu.tick(&mut self.memory);
-            if nmi {
-                self.cpu.nmi(&mut self.memory);
-            }
-        }
-
-        // Sync PPU status back to memory after PPU ticks
-        self.memory.ppu_status = self.ppu.status;
+        // Store PPU cycles to run at start of next step
+        // This improves timing accuracy for tests that poll PPU status
+        self.pending_ppu_cycles += cycles * 3;
 
         // APU runs at CPU speed
         for _ in 0..cycles {

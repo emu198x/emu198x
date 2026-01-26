@@ -1152,6 +1152,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "nes-runner"
+version = "0.1.0"
+dependencies = [
+ "emu-core",
+ "machine-nes",
+ "runner-lib",
+]
+
+[[package]]
+name = "nes-test-runner"
+version = "0.1.0"
+dependencies = [
+ "emu-core",
+ "machine-nes",
+]
+
+[[package]]
 name = "nix"
 version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

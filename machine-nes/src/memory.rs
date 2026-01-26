@@ -183,6 +183,39 @@ impl NesMemory {
     pub fn palette(&self) -> &[u8; 32] {
         &self.palette
     }
+
+    /// Read memory without side effects (for test/debug purposes).
+    /// Does not trigger PPU register reads or controller shifts.
+    pub fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            // RAM and mirrors
+            0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize],
+            // PPU registers - return cached status for peek
+            0x2000..=0x3FFF => {
+                let reg = addr & 0x07;
+                match reg {
+                    2 => self.ppu_status,
+                    4 => self.ppu_oam_data,
+                    7 => self.ppu_data_buffer,
+                    _ => self.ppu_latch,
+                }
+            }
+            // APU status
+            0x4015 => self.apu_status,
+            // Controllers - return current state without shifting
+            0x4016 => self.controller1_state & 1,
+            0x4017 => self.controller2_state & 1,
+            // Cartridge space
+            0x4020..=0xFFFF => {
+                if let Some(ref cart) = self.cartridge {
+                    cart.prg_read(addr)
+                } else {
+                    0
+                }
+            }
+            _ => 0,
+        }
+    }
 }
 
 impl Default for NesMemory {
