@@ -1,5 +1,21 @@
 # Milestones
 
+## Current Status
+
+| Phase | Progress |
+|-------|----------|
+| 1. Foundation | M1 ✅ / M2-M4 ⬜ |
+| 2. ZX Spectrum | ⬜ |
+| 3. Commodore 64 | ⬜ |
+| 4. NES/Famicom | ⬜ |
+| 5. Amiga | ⬜ |
+| 6. Integration | ⬜ |
+| 7. Frontend | ⬜ |
+
+**Next:** M2 (Z80 CPU Core)
+
+---
+
 Each milestone has:
 
 - **Deliverable**: What is built
@@ -12,7 +28,7 @@ A milestone is complete when ALL verification criteria pass.
 
 ## Phase 1: Foundation
 
-### M1: Project Scaffolding
+### M1: Project Scaffolding ✅
 
 **Deliverable:** Rust workspace with crate structure.
 
@@ -31,9 +47,9 @@ emu198x/
 
 **Verification:**
 
-- [ ] `cargo build` succeeds
-- [ ] `cargo test` runs (empty tests OK)
-- [ ] Core traits defined per `docs/architecture.md`
+- [x] `cargo build` succeeds
+- [x] `cargo test` runs (empty tests OK)
+- [x] Core traits defined per `docs/architecture.md`
 
 **Links:** [architecture.md](architecture.md)
 
@@ -116,6 +132,7 @@ Sinclair ZX Spectrum/Applications/ZEXALL (1994)(Woodmass, Frank).tap
 **Links:** [spectrum.md](systems/spectrum.md)
 
 **TOSEC:**
+
 ```text
 Sinclair ZX Spectrum/Firmware/ZX Spectrum (1982)(Sinclair Research).rom
 ```
