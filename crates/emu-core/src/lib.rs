@@ -6,11 +6,13 @@
 mod bus;
 mod clock;
 mod cpu;
+mod observable;
 mod tickable;
 mod ticks;
 
 pub use bus::{Bus, ReadResult, SimpleBus};
 pub use clock::MasterClock;
 pub use cpu::Cpu;
+pub use observable::{Observable, Value};
 pub use tickable::Tickable;
 pub use ticks::Ticks;

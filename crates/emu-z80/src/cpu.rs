@@ -5,9 +5,9 @@
 #![allow(clippy::struct_excessive_bools)] // CPU state requires multiple boolean flags.
 #![allow(dead_code)] // Helper functions will be used as more instructions are implemented.
 
-use emu_core::{Bus, Cpu, Ticks};
+use emu_core::{Bus, Cpu, Observable, Ticks, Value};
 
-use crate::flags::{CF, PF, SF, ZF};
+use crate::flags::{CF, HF, NF, PF, SF, XF, YF, ZF};
 use crate::microcode::{MicroOp, MicroOpQueue};
 use crate::registers::Registers;
 
@@ -813,5 +813,111 @@ impl Cpu for Z80 {
         self.int_pending = false;
         self.nmi_pending = false;
         self.nmi_last = false;
+    }
+}
+
+/// All query paths supported by the Z80.
+const Z80_QUERY_PATHS: &[&str] = &[
+    // Main registers
+    "a", "f", "b", "c", "d", "e", "h", "l",
+    // Register pairs
+    "af", "bc", "de", "hl",
+    // Alternate registers
+    "a'", "f'", "b'", "c'", "d'", "e'", "h'", "l'",
+    "af'", "bc'", "de'", "hl'",
+    // Index registers
+    "ix", "iy", "ixh", "ixl", "iyh", "iyl",
+    // Other registers
+    "sp", "pc", "i", "r",
+    // Flags (individual)
+    "flags.s", "flags.z", "flags.y", "flags.h",
+    "flags.x", "flags.p", "flags.n", "flags.c",
+    // Interrupt state
+    "iff1", "iff2", "im",
+    // CPU state
+    "halted", "ticks",
+    // Current instruction state
+    "opcode", "prefix", "t_state",
+];
+
+impl Observable for Z80 {
+    fn query(&self, path: &str) -> Option<Value> {
+        match path {
+            // Main registers
+            "a" => Some(self.regs.a.into()),
+            "f" => Some(self.regs.f.into()),
+            "b" => Some(self.regs.b.into()),
+            "c" => Some(self.regs.c.into()),
+            "d" => Some(self.regs.d.into()),
+            "e" => Some(self.regs.e.into()),
+            "h" => Some(self.regs.h.into()),
+            "l" => Some(self.regs.l.into()),
+
+            // Register pairs
+            "af" => Some(self.regs.af().into()),
+            "bc" => Some(self.regs.bc().into()),
+            "de" => Some(self.regs.de().into()),
+            "hl" => Some(self.regs.hl().into()),
+
+            // Alternate registers
+            "a'" => Some(self.regs.a_alt.into()),
+            "f'" => Some(self.regs.f_alt.into()),
+            "b'" => Some(self.regs.b_alt.into()),
+            "c'" => Some(self.regs.c_alt.into()),
+            "d'" => Some(self.regs.d_alt.into()),
+            "e'" => Some(self.regs.e_alt.into()),
+            "h'" => Some(self.regs.h_alt.into()),
+            "l'" => Some(self.regs.l_alt.into()),
+
+            // Alternate pairs
+            "af'" => Some(((u16::from(self.regs.a_alt) << 8) | u16::from(self.regs.f_alt)).into()),
+            "bc'" => Some(((u16::from(self.regs.b_alt) << 8) | u16::from(self.regs.c_alt)).into()),
+            "de'" => Some(((u16::from(self.regs.d_alt) << 8) | u16::from(self.regs.e_alt)).into()),
+            "hl'" => Some(((u16::from(self.regs.h_alt) << 8) | u16::from(self.regs.l_alt)).into()),
+
+            // Index registers
+            "ix" => Some(self.regs.ix.into()),
+            "iy" => Some(self.regs.iy.into()),
+            "ixh" => Some(((self.regs.ix >> 8) as u8).into()),
+            "ixl" => Some((self.regs.ix as u8).into()),
+            "iyh" => Some(((self.regs.iy >> 8) as u8).into()),
+            "iyl" => Some((self.regs.iy as u8).into()),
+
+            // Other registers
+            "sp" => Some(self.regs.sp.into()),
+            "pc" => Some(self.regs.pc.into()),
+            "i" => Some(self.regs.i.into()),
+            "r" => Some(self.regs.r.into()),
+
+            // Individual flags
+            "flags.s" => Some((self.regs.f & SF != 0).into()),
+            "flags.z" => Some((self.regs.f & ZF != 0).into()),
+            "flags.y" => Some((self.regs.f & YF != 0).into()),
+            "flags.h" => Some((self.regs.f & HF != 0).into()),
+            "flags.x" => Some((self.regs.f & XF != 0).into()),
+            "flags.p" => Some((self.regs.f & PF != 0).into()),
+            "flags.n" => Some((self.regs.f & NF != 0).into()),
+            "flags.c" => Some((self.regs.f & CF != 0).into()),
+
+            // Interrupt state
+            "iff1" => Some(self.regs.iff1.into()),
+            "iff2" => Some(self.regs.iff2.into()),
+            "im" => Some(self.regs.im.into()),
+
+            // CPU state
+            "halted" => Some(self.regs.halted.into()),
+            "ticks" => Some(self.total_ticks.get().into()),
+
+            // Current instruction state
+            "opcode" => Some(self.opcode.into()),
+            "prefix" => Some(self.prefix.into()),
+            "t_state" => Some(self.t_state.into()),
+
+            _ => None,
+        }
+    }
+
+    fn query_paths(&self) -> &'static [&'static str] {
+        Z80_QUERY_PATHS
     }
 }

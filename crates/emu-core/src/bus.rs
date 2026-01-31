@@ -1,5 +1,7 @@
 //! Memory and I/O bus interface.
 
+use crate::{Observable, Value};
+
 /// Result of a bus read operation.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReadResult {
@@ -112,5 +114,38 @@ impl Bus for SimpleBus {
 
     fn io_write(&mut self, _addr: u16, _value: u8) -> u8 {
         0 // No wait states
+    }
+}
+
+impl SimpleBus {
+    /// Read a byte without side effects (for observation).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.memory[addr as usize]
+    }
+
+    /// Parse an address from a query path.
+    ///
+    /// Accepts hex (0x1234, $1234) or decimal (4660).
+    fn parse_address(path: &str) -> Option<u16> {
+        if let Some(hex) = path.strip_prefix("0x").or_else(|| path.strip_prefix("0X")) {
+            u16::from_str_radix(hex, 16).ok()
+        } else if let Some(hex) = path.strip_prefix('$') {
+            u16::from_str_radix(hex, 16).ok()
+        } else {
+            path.parse().ok()
+        }
+    }
+}
+
+impl Observable for SimpleBus {
+    fn query(&self, path: &str) -> Option<Value> {
+        // Memory queries: "0x4000", "$4000", "16384"
+        Self::parse_address(path).map(|addr| self.memory[addr as usize].into())
+    }
+
+    fn query_paths(&self) -> &'static [&'static str] {
+        // Memory is queryable by address, not by fixed paths
+        &["<address>"]
     }
 }
