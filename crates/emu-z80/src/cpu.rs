@@ -1,71 +1,93 @@
 //! Z80 CPU core with per-T-state execution.
 
 #![allow(clippy::cast_possible_truncation)] // Intentional truncation for low byte extraction.
+#![allow(clippy::cast_possible_wrap)] // Intentional i8 casts for displacements.
+#![allow(clippy::struct_excessive_bools)] // CPU state requires multiple boolean flags.
+#![allow(dead_code)] // Helper functions will be used as more instructions are implemented.
 
 use emu_core::{Bus, Cpu, Tickable, Ticks};
 
+use crate::flags::{CF, PF, SF, ZF};
+use crate::microcode::{MicroOp, MicroOpQueue};
 use crate::registers::Registers;
-
-/// Current execution phase within an instruction.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum Phase {
-    /// Fetching opcode byte (M1 cycle).
-    #[default]
-    Fetch,
-    /// Executing instruction (variable T-states).
-    Execute,
-}
 
 /// Z80 CPU.
 pub struct Z80<B: Bus> {
-    /// All CPU registers.
-    regs: Registers,
+    // === Registers ===
+    /// Main register set.
+    pub(crate) regs: Registers,
+
+    // === Bus ===
     /// Memory/IO bus.
     bus: B,
-    /// Current execution phase.
-    phase: Phase,
-    /// T-state counter within current phase.
+
+    // === Execution state ===
+    /// Queue of micro-operations for current instruction.
+    micro_ops: MicroOpQueue,
+    /// T-state counter within current micro-op.
     t_state: u8,
+    /// Total T-states for current micro-op (for Internal ops).
+    t_total: u8,
+
+    // === Instruction decode state ===
     /// Current opcode being executed.
     opcode: u8,
-    /// Prefix state (CB, DD, ED, FD, or combinations).
-    prefix: Prefix,
+    /// Prefix state (0 = none, 0xCB, 0xDD, 0xED, 0xFD).
+    prefix: u8,
+    /// Second prefix for DDCB/FDCB.
+    prefix2: u8,
+    /// Displacement for IX+d / IY+d addressing.
+    displacement: i8,
+    /// Temporary address register.
+    addr: u16,
+    /// Temporary data (low byte).
+    data_lo: u8,
+    /// Temporary data (high byte).
+    data_hi: u8,
+    /// True if next Execute should use followup logic.
+    in_followup: bool,
+    /// True if we're handling IM2 interrupt and need to set PC from vector.
+    im2_pending: bool,
+
+    // === Interrupt state ===
     /// Pending interrupt request.
     int_pending: bool,
     /// Pending NMI request.
     nmi_pending: bool,
+    /// NMI edge detector (to detect rising edge).
+    nmi_last: bool,
+
+    // === Timing ===
     /// Total T-states elapsed.
     total_ticks: Ticks,
-}
-
-/// Instruction prefix state.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[allow(clippy::upper_case_acronyms)] // Standard Z80 terminology.
-enum Prefix {
-    #[default]
-    None,
-    CB,
-    DD,
-    ED,
-    FD,
-    DDCB,
-    FDCB,
 }
 
 impl<B: Bus> Z80<B> {
     /// Create a new Z80 with the given bus.
     pub fn new(bus: B) -> Self {
-        Self {
+        let mut cpu = Self {
             regs: Registers::default(),
             bus,
-            phase: Phase::Fetch,
+            micro_ops: MicroOpQueue::new(),
             t_state: 0,
+            t_total: 0,
             opcode: 0,
-            prefix: Prefix::None,
+            prefix: 0,
+            prefix2: 0,
+            displacement: 0,
+            addr: 0,
+            data_lo: 0,
+            data_hi: 0,
+            in_followup: false,
+            im2_pending: false,
             int_pending: false,
             nmi_pending: false,
+            nmi_last: false,
             total_ticks: Ticks::ZERO,
-        }
+        };
+        // Start with a fetch
+        cpu.micro_ops.push(MicroOp::FetchOpcode);
+        cpu
     }
 
     /// Access the bus.
@@ -78,27 +100,20 @@ impl<B: Bus> Z80<B> {
         &mut self.bus
     }
 
-    /// Total T-states elapsed since reset.
+    /// Total T-states elapsed since creation.
     #[must_use]
     pub const fn total_ticks(&self) -> Ticks {
         self.total_ticks
     }
 
-    /// Read byte from memory (no timing side effects).
+    /// Read byte from memory.
     fn read(&mut self, addr: u16) -> u8 {
         self.bus.read(addr)
     }
 
-    /// Write byte to memory (no timing side effects).
+    /// Write byte to memory.
     fn write(&mut self, addr: u16, value: u8) {
         self.bus.write(addr, value);
-    }
-
-    /// Fetch next byte at PC and increment PC.
-    fn fetch_byte(&mut self) -> u8 {
-        let value = self.read(self.regs.pc);
-        self.regs.pc = self.regs.pc.wrapping_add(1);
-        value
     }
 
     /// Increment R register (lower 7 bits only).
@@ -106,26 +121,127 @@ impl<B: Bus> Z80<B> {
         self.regs.r = (self.regs.r & 0x80) | ((self.regs.r.wrapping_add(1)) & 0x7F);
     }
 
-    /// Execute one T-state of the fetch phase.
-    #[allow(clippy::match_same_arms)] // T-states 0-1 are timing placeholders.
-    fn tick_fetch(&mut self) {
+    /// Get the effective index register (IX or IY based on prefix).
+    fn get_index_reg(&self) -> u16 {
+        match self.prefix {
+            0xDD => self.regs.ix,
+            0xFD => self.regs.iy,
+            _ => self.regs.hl(),
+        }
+    }
+
+    /// Set the effective index register.
+    fn set_index_reg(&mut self, value: u16) {
+        match self.prefix {
+            0xDD => self.regs.ix = value,
+            0xFD => self.regs.iy = value,
+            _ => self.regs.set_hl(value),
+        }
+    }
+
+    /// Queue micro-ops for the next instruction fetch.
+    fn queue_fetch(&mut self) {
+        self.micro_ops.clear();
+        self.prefix = 0;
+        self.prefix2 = 0;
+        self.in_followup = false;
+        self.micro_ops.push(MicroOp::FetchOpcode);
+    }
+
+    /// Execute one T-state.
+    fn tick_internal(&mut self) {
+        let Some(op) = self.micro_ops.current() else {
+            // Queue empty - shouldn't happen, but queue a fetch
+            self.queue_fetch();
+            return;
+        };
+
+        match op {
+            MicroOp::FetchOpcode => self.tick_fetch_opcode(),
+            MicroOp::FetchDisplacement => self.tick_fetch_displacement(),
+            MicroOp::ReadImm8 => self.tick_read_imm8(),
+            MicroOp::ReadImm16Lo => self.tick_read_imm16_lo(),
+            MicroOp::ReadImm16Hi => self.tick_read_imm16_hi(),
+            MicroOp::ReadMem => self.tick_read_mem(),
+            MicroOp::ReadMem16Lo => self.tick_read_mem16_lo(),
+            MicroOp::ReadMem16Hi => self.tick_read_mem16_hi(),
+            MicroOp::WriteMem => self.tick_write_mem(),
+            MicroOp::WriteMemHiFirst => self.tick_write_mem_hi_first(),
+            MicroOp::WriteMemLoSecond => self.tick_write_mem_lo_second(),
+            MicroOp::IoRead => self.tick_io_read(),
+            MicroOp::IoWrite => self.tick_io_write(),
+            MicroOp::Internal => self.tick_internal_op(),
+            MicroOp::Execute => {
+                self.decode_and_execute();
+                self.micro_ops.advance();
+            }
+        }
+    }
+
+    /// T-states for M1 (opcode fetch) cycle.
+    #[allow(clippy::match_same_arms)]
+    fn tick_fetch_opcode(&mut self) {
         match self.t_state {
             0 => {
-                // T1: Address out, MREQ and RD asserted
+                // T1: PC on address bus, MREQ+RD asserted
             }
             1 => {
-                // T2: Memory responds
+                // T2: Memory responds (WAIT sampling)
             }
             2 => {
-                // T3: Data read, RFSH address out
-                self.opcode = self.fetch_byte();
+                // T3: Data read from memory
+                self.opcode = self.read(self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.inc_r();
             }
             3 => {
-                // T4: Refresh cycle complete
-                // Transition to execute phase
-                self.phase = Phase::Execute;
+                // T4: Refresh cycle, decode instruction
                 self.t_state = 0;
+                self.micro_ops.advance();
+
+                // Check for prefix bytes
+                if self.prefix == 0 {
+                    match self.opcode {
+                        0xCB | 0xDD | 0xED | 0xFD => {
+                            self.prefix = self.opcode;
+                            self.micro_ops.push(MicroOp::FetchOpcode);
+                            return;
+                        }
+                        _ => {}
+                    }
+                } else if self.prefix == 0xDD || self.prefix == 0xFD {
+                    // Check for DDCB or FDCB
+                    if self.opcode == 0xCB {
+                        self.prefix2 = 0xCB;
+                        // DDCB/FDCB: fetch displacement, then opcode
+                        self.micro_ops.push(MicroOp::FetchDisplacement);
+                        self.micro_ops.push(MicroOp::FetchOpcode);
+                        return;
+                    }
+                    // Check for prefix chains (DD DD, FD FD, DD FD, FD DD)
+                    match self.opcode {
+                        0xDD => {
+                            self.prefix = 0xDD;
+                            self.micro_ops.push(MicroOp::FetchOpcode);
+                            return;
+                        }
+                        0xFD => {
+                            self.prefix = 0xFD;
+                            self.micro_ops.push(MicroOp::FetchOpcode);
+                            return;
+                        }
+                        0xED => {
+                            // ED after DD/FD cancels the prefix
+                            self.prefix = 0xED;
+                            self.micro_ops.push(MicroOp::FetchOpcode);
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Queue execution
+                self.micro_ops.push(MicroOp::Execute);
                 return;
             }
             _ => unreachable!(),
@@ -133,191 +249,406 @@ impl<B: Bus> Z80<B> {
         self.t_state += 1;
     }
 
-    /// Execute one T-state of the execute phase.
-    fn tick_execute(&mut self) {
-        // For now, handle only NOP (0x00) as a placeholder.
-        // Real implementation will dispatch based on opcode and prefix.
-        match self.prefix {
-            Prefix::None => self.execute_unprefixed(),
-            Prefix::CB => self.execute_cb(),
-            Prefix::DD => self.execute_dd(),
-            Prefix::ED => self.execute_ed(),
-            Prefix::FD => self.execute_fd(),
-            Prefix::DDCB => self.execute_ddcb(),
-            Prefix::FDCB => self.execute_fdcb(),
-        }
-    }
-
-    /// Execute unprefixed instruction.
-    fn execute_unprefixed(&mut self) {
-        match self.opcode {
-            // NOP: 4 T-states total (all in fetch)
-            0x00 => {
-                self.instruction_complete();
-            }
-            // HALT
-            0x76 => {
-                self.regs.halted = true;
-                self.instruction_complete();
-            }
-            // Prefix bytes - fetch another opcode
-            0xCB => {
-                self.prefix = Prefix::CB;
-                self.phase = Phase::Fetch;
-                self.t_state = 0;
-            }
-            0xDD => {
-                self.prefix = Prefix::DD;
-                self.phase = Phase::Fetch;
-                self.t_state = 0;
-            }
-            0xED => {
-                self.prefix = Prefix::ED;
-                self.phase = Phase::Fetch;
-                self.t_state = 0;
-            }
-            0xFD => {
-                self.prefix = Prefix::FD;
-                self.phase = Phase::Fetch;
-                self.t_state = 0;
-            }
-            // Placeholder for unimplemented instructions
-            _ => {
-                // TODO: Implement remaining instructions
-                self.instruction_complete();
-            }
-        }
-    }
-
-    /// Execute CB-prefixed instruction.
-    fn execute_cb(&mut self) {
-        // TODO: Implement CB instructions (bit operations)
-        self.instruction_complete();
-    }
-
-    /// Execute DD-prefixed instruction (IX operations).
-    fn execute_dd(&mut self) {
-        match self.opcode {
-            0xCB => {
-                self.prefix = Prefix::DDCB;
-                self.phase = Phase::Fetch;
-                self.t_state = 0;
-            }
-            _ => {
-                // TODO: Implement DD instructions
-                self.instruction_complete();
-            }
-        }
-    }
-
-    /// Execute ED-prefixed instruction.
-    fn execute_ed(&mut self) {
-        // TODO: Implement ED instructions (misc/block)
-        self.instruction_complete();
-    }
-
-    /// Execute FD-prefixed instruction (IY operations).
-    fn execute_fd(&mut self) {
-        match self.opcode {
-            0xCB => {
-                self.prefix = Prefix::FDCB;
-                self.phase = Phase::Fetch;
-                self.t_state = 0;
-            }
-            _ => {
-                // TODO: Implement FD instructions
-                self.instruction_complete();
-            }
-        }
-    }
-
-    /// Execute DDCB-prefixed instruction.
-    fn execute_ddcb(&mut self) {
-        // TODO: Implement DDCB instructions
-        self.instruction_complete();
-    }
-
-    /// Execute FDCB-prefixed instruction.
-    fn execute_fdcb(&mut self) {
-        // TODO: Implement FDCB instructions
-        self.instruction_complete();
-    }
-
-    /// Mark current instruction as complete and prepare for next.
-    fn instruction_complete(&mut self) {
-        self.prefix = Prefix::None;
-        self.phase = Phase::Fetch;
-        self.t_state = 0;
-
-        // Check for pending interrupts
-        if self.nmi_pending {
-            self.nmi_pending = false;
-            self.handle_nmi();
-        } else if self.int_pending && self.regs.iff1 {
-            self.int_pending = false;
-            self.handle_int();
-        }
-    }
-
-    /// Handle NMI.
-    fn handle_nmi(&mut self) {
-        self.regs.halted = false;
-        self.regs.iff2 = self.regs.iff1;
-        self.regs.iff1 = false;
-
-        // Push PC onto stack
-        self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.write(self.regs.sp, (self.regs.pc >> 8) as u8);
-        self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.write(self.regs.sp, self.regs.pc as u8);
-
-        // Jump to NMI vector
-        self.regs.pc = 0x0066;
-    }
-
-    /// Handle maskable interrupt.
-    fn handle_int(&mut self) {
-        self.regs.halted = false;
-        self.regs.iff1 = false;
-        self.regs.iff2 = false;
-
-        match self.regs.im {
+    /// T-states for reading displacement byte (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_fetch_displacement(&mut self) {
+        match self.t_state {
             0 => {
-                // Mode 0: Execute instruction on data bus (usually RST)
-                // For now, treat as RST 38h
-                self.regs.sp = self.regs.sp.wrapping_sub(1);
-                self.write(self.regs.sp, (self.regs.pc >> 8) as u8);
-                self.regs.sp = self.regs.sp.wrapping_sub(1);
-                self.write(self.regs.sp, self.regs.pc as u8);
-                self.regs.pc = 0x0038;
+                // T1: PC on address bus
             }
             1 => {
-                // Mode 1: Jump to 0x0038
-                self.regs.sp = self.regs.sp.wrapping_sub(1);
-                self.write(self.regs.sp, (self.regs.pc >> 8) as u8);
-                self.regs.sp = self.regs.sp.wrapping_sub(1);
-                self.write(self.regs.sp, self.regs.pc as u8);
-                self.regs.pc = 0x0038;
+                // T2: Memory responds
             }
             2 => {
-                // Mode 2: Jump via vector table
-                // Vector address = (I << 8) | (data_bus & 0xFE)
-                // For now, assume data bus is 0xFF
-                let vector_addr = (u16::from(self.regs.i) << 8) | 0xFE;
-                let lo = self.read(vector_addr);
-                let hi = self.read(vector_addr.wrapping_add(1));
-
-                self.regs.sp = self.regs.sp.wrapping_sub(1);
-                self.write(self.regs.sp, (self.regs.pc >> 8) as u8);
-                self.regs.sp = self.regs.sp.wrapping_sub(1);
-                self.write(self.regs.sp, self.regs.pc as u8);
-
-                self.regs.pc = u16::from(lo) | (u16::from(hi) << 8);
+                // T3: Data read
+                self.displacement = self.read(self.regs.pc) as i8;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
             }
-            _ => {}
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for reading immediate byte (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_read_imm8(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.data_lo = self.read(self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for reading immediate word low byte (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_read_imm16_lo(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.data_lo = self.read(self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for reading immediate word high byte (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_read_imm16_hi(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.data_hi = self.read(self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for memory read (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_read_mem(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.data_lo = self.read(self.addr);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for memory read low byte (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_read_mem16_lo(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.data_lo = self.read(self.addr);
+                self.addr = self.addr.wrapping_add(1);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for memory read high byte (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_read_mem16_hi(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.data_hi = self.read(self.addr);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for memory write (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_write_mem(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.write(self.addr, self.data_lo);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for PUSH high byte first (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_write_mem_hi_first(&mut self) {
+        match self.t_state {
+            0 => {
+                self.regs.sp = self.regs.sp.wrapping_sub(1);
+            }
+            1 => {}
+            2 => {
+                self.write(self.regs.sp, self.data_hi);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for PUSH low byte second (3 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_write_mem_lo_second(&mut self) {
+        match self.t_state {
+            0 => {
+                self.regs.sp = self.regs.sp.wrapping_sub(1);
+            }
+            1 => {}
+            2 => {
+                self.write(self.regs.sp, self.data_lo);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for I/O read (4 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_io_read(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {}
+            3 => {
+                self.data_lo = self.read(self.addr);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for I/O write (4 T-states).
+    #[allow(clippy::match_same_arms)]
+    fn tick_io_write(&mut self) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {}
+            3 => {
+                self.write(self.addr, self.data_lo);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// Internal operation - burns T-states.
+    fn tick_internal_op(&mut self) {
+        self.t_state += 1;
+        if self.t_state >= self.t_total {
+            self.t_state = 0;
+            self.micro_ops.advance();
+        }
+    }
+
+    /// Add internal T-states to the queue.
+    fn queue_internal(&mut self, t_states: u8) {
+        self.t_total = t_states;
+        self.micro_ops.push(MicroOp::Internal);
+    }
+
+    /// Decode and execute the current instruction.
+    fn decode_and_execute(&mut self) {
+        // Handle IM2 vector read completion
+        if self.im2_pending {
+            self.im2_pending = false;
+            self.regs.pc = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+            return;
+        }
+
+        if self.in_followup {
+            self.in_followup = false;
+            self.execute_followup();
+            return;
+        }
+
+        if self.prefix2 == 0xCB {
+            // DDCB or FDCB prefix
+            self.execute_ddcb_fdcb();
+        } else {
+            match self.prefix {
+                0 => self.execute_unprefixed(),
+                0xCB => self.execute_cb(),
+                0xDD | 0xFD => self.execute_dd_fd(),
+                0xED => self.execute_ed(),
+                _ => self.queue_fetch(),
+            }
+        }
+    }
+
+    /// Queue an Execute micro-op for followup after data read.
+    fn queue_execute_followup(&mut self) {
+        self.in_followup = true;
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Get register by 3-bit encoding (bits 5-3 or 2-0).
+    fn get_reg8(&self, r: u8) -> u8 {
+        match r & 7 {
+            0 => self.regs.b,
+            1 => self.regs.c,
+            2 => self.regs.d,
+            3 => self.regs.e,
+            4 => self.regs.h,
+            5 => self.regs.l,
+            6 => 0, // (HL) - should be handled specially
+            7 => self.regs.a,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Set register by 3-bit encoding.
+    fn set_reg8(&mut self, r: u8, value: u8) {
+        match r & 7 {
+            0 => self.regs.b = value,
+            1 => self.regs.c = value,
+            2 => self.regs.d = value,
+            3 => self.regs.e = value,
+            4 => self.regs.h = value,
+            5 => self.regs.l = value,
+            6 => {} // (HL) - should be handled specially
+            7 => self.regs.a = value,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Get register by 3-bit encoding with IX/IY prefix (undocumented IXH/IXL/IYH/IYL).
+    fn get_reg8_indexed(&self, r: u8) -> u8 {
+        match r & 7 {
+            0 => self.regs.b,
+            1 => self.regs.c,
+            2 => self.regs.d,
+            3 => self.regs.e,
+            4 => (self.get_index_reg() >> 8) as u8, // IXH/IYH
+            5 => self.get_index_reg() as u8,        // IXL/IYL
+            6 => 0, // (IX+d)/(IY+d) - handled specially
+            7 => self.regs.a,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Set register by 3-bit encoding with IX/IY prefix (undocumented IXH/IXL/IYH/IYL).
+    fn set_reg8_indexed(&mut self, r: u8, value: u8) {
+        match r & 7 {
+            0 => self.regs.b = value,
+            1 => self.regs.c = value,
+            2 => self.regs.d = value,
+            3 => self.regs.e = value,
+            4 => {
+                // IXH/IYH
+                let idx = self.get_index_reg();
+                self.set_index_reg((idx & 0x00FF) | (u16::from(value) << 8));
+            }
+            5 => {
+                // IXL/IYL
+                let idx = self.get_index_reg();
+                self.set_index_reg((idx & 0xFF00) | u16::from(value));
+            }
+            6 => {} // (IX+d)/(IY+d) - handled specially
+            7 => self.regs.a = value,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Get register pair by 2-bit encoding (for 16-bit ops).
+    fn get_reg16(&self, rp: u8) -> u16 {
+        match rp & 3 {
+            0 => self.regs.bc(),
+            1 => self.regs.de(),
+            2 => self.get_index_reg(),
+            3 => self.regs.sp,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Set register pair by 2-bit encoding.
+    fn set_reg16(&mut self, rp: u8, value: u16) {
+        match rp & 3 {
+            0 => self.regs.set_bc(value),
+            1 => self.regs.set_de(value),
+            2 => self.set_index_reg(value),
+            3 => self.regs.sp = value,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Get register pair for PUSH/POP (AF instead of SP).
+    fn get_reg16_af(&self, rp: u8) -> u16 {
+        match rp & 3 {
+            0 => self.regs.bc(),
+            1 => self.regs.de(),
+            2 => self.get_index_reg(),
+            3 => self.regs.af(),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Set register pair for PUSH/POP.
+    fn set_reg16_af(&mut self, rp: u8, value: u16) {
+        match rp & 3 {
+            0 => self.regs.set_bc(value),
+            1 => self.regs.set_de(value),
+            2 => self.set_index_reg(value),
+            3 => self.regs.set_af(value),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Evaluate condition code.
+    fn condition(&self, cc: u8) -> bool {
+        match cc & 7 {
+            0 => self.regs.f & ZF == 0, // NZ
+            1 => self.regs.f & ZF != 0, // Z
+            2 => self.regs.f & CF == 0, // NC
+            3 => self.regs.f & CF != 0, // C
+            4 => self.regs.f & PF == 0, // PO
+            5 => self.regs.f & PF != 0, // PE
+            6 => self.regs.f & SF == 0, // P
+            7 => self.regs.f & SF != 0, // M
+            _ => unreachable!(),
         }
     }
 }
+
+// Instruction execution split into separate file for readability
+mod execute;
 
 impl<B: Bus> Tickable for Z80<B> {
     fn tick(&mut self) {
@@ -325,20 +656,91 @@ impl<B: Bus> Tickable for Z80<B> {
 
         // If halted, just burn T-states until interrupt
         if self.regs.halted {
-            // Still need to handle pending interrupts
+            if self.nmi_pending {
+                self.nmi_pending = false;
+                self.regs.halted = false;
+                self.handle_nmi();
+            } else if self.int_pending && self.regs.iff1 {
+                self.int_pending = false;
+                self.regs.halted = false;
+                self.handle_int();
+            }
+            return;
+        }
+
+        self.tick_internal();
+
+        // Check for instruction complete and pending interrupts
+        if self.micro_ops.is_empty() {
             if self.nmi_pending {
                 self.nmi_pending = false;
                 self.handle_nmi();
             } else if self.int_pending && self.regs.iff1 {
                 self.int_pending = false;
                 self.handle_int();
+            } else {
+                self.queue_fetch();
             }
-            return;
         }
+    }
+}
 
-        match self.phase {
-            Phase::Fetch => self.tick_fetch(),
-            Phase::Execute => self.tick_execute(),
+impl<B: Bus> Z80<B> {
+    /// Handle NMI.
+    fn handle_nmi(&mut self) {
+        self.regs.iff2 = self.regs.iff1;
+        self.regs.iff1 = false;
+
+        // Push PC (11 T-states total for NMI)
+        self.data_hi = (self.regs.pc >> 8) as u8;
+        self.data_lo = self.regs.pc as u8;
+        self.micro_ops.clear();
+        self.queue_internal(5); // Internal T-states
+        self.micro_ops.push(MicroOp::WriteMemHiFirst);
+        self.micro_ops.push(MicroOp::WriteMemLoSecond);
+        self.regs.pc = 0x0066;
+        self.micro_ops.push(MicroOp::FetchOpcode);
+    }
+
+    /// Handle maskable interrupt.
+    fn handle_int(&mut self) {
+        self.regs.iff1 = false;
+        self.regs.iff2 = false;
+
+        match self.regs.im {
+            0 | 1 => {
+                // Mode 0/1: Jump to 0x0038 (13 T-states)
+                self.data_hi = (self.regs.pc >> 8) as u8;
+                self.data_lo = self.regs.pc as u8;
+                self.micro_ops.clear();
+                self.queue_internal(7);
+                self.micro_ops.push(MicroOp::WriteMemHiFirst);
+                self.micro_ops.push(MicroOp::WriteMemLoSecond);
+                self.regs.pc = 0x0038;
+                self.micro_ops.push(MicroOp::FetchOpcode);
+            }
+            2 => {
+                // Mode 2: Vector table (19 T-states)
+                self.data_hi = (self.regs.pc >> 8) as u8;
+                self.data_lo = self.regs.pc as u8;
+                self.micro_ops.clear();
+                self.queue_internal(7);
+                self.micro_ops.push(MicroOp::WriteMemHiFirst);
+                self.micro_ops.push(MicroOp::WriteMemLoSecond);
+
+                // Read vector - data bus provides low byte (typically 0xFF)
+                self.addr = (u16::from(self.regs.i) << 8) | 0xFE;
+                self.micro_ops.push(MicroOp::ReadMem16Lo);
+                self.micro_ops.push(MicroOp::ReadMem16Hi);
+
+                // Mark that we need to set PC when reads complete
+                self.im2_pending = true;
+                self.micro_ops.push(MicroOp::Execute);
+                self.micro_ops.push(MicroOp::FetchOpcode);
+            }
+            _ => {
+                self.queue_fetch();
+            }
         }
     }
 }
@@ -373,12 +775,21 @@ impl<B: Bus> Cpu for Z80<B> {
 
     fn reset(&mut self) {
         self.regs = Registers::default();
-        self.phase = Phase::Fetch;
+        self.micro_ops.clear();
+        self.micro_ops.push(MicroOp::FetchOpcode);
         self.t_state = 0;
+        self.t_total = 0;
         self.opcode = 0;
-        self.prefix = Prefix::None;
+        self.prefix = 0;
+        self.prefix2 = 0;
+        self.displacement = 0;
+        self.addr = 0;
+        self.data_lo = 0;
+        self.data_hi = 0;
+        self.in_followup = false;
+        self.im2_pending = false;
         self.int_pending = false;
         self.nmi_pending = false;
-        // Note: total_ticks not reset - that's a system concern
+        self.nmi_last = false;
     }
 }

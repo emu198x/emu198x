@@ -2,15 +2,15 @@
 
 ## Current Status
 
-| Phase | Progress |
-|-------|----------|
-| 1. Foundation | M1 ✅ / M2-M4 ⬜ |
-| 2. ZX Spectrum | ⬜ |
-| 3. Commodore 64 | ⬜ |
-| 4. NES/Famicom | ⬜ |
-| 5. Amiga | ⬜ |
-| 6. Integration | ⬜ |
-| 7. Frontend | ⬜ |
+| Phase           | Progress        |
+|-----------------|-----------------|
+| 1. Foundation   | M1 ✅ / M2-M4 ⬜ |
+| 2. ZX Spectrum  | ⬜               |
+| 3. Commodore 64 | ⬜               |
+| 4. NES/Famicom  | ⬜               |
+| 5. Amiga        | ⬜               |
+| 6. Integration  | ⬜               |
+| 7. Frontend     | ⬜               |
 
 **Next:** M2 (Z80 CPU Core)
 

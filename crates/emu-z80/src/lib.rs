@@ -2,8 +2,10 @@
 //!
 //! Each call to `tick()` advances exactly one T-state.
 
+mod alu;
 mod cpu;
 mod flags;
+mod microcode;
 mod registers;
 
 pub use cpu::Z80;

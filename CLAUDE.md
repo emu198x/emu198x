@@ -4,7 +4,8 @@ A cycle-accurate emulator suite for vintage computing education.
 
 ## Project Principles
 
-1. **Crystal-accurate timing.** Every emulator ticks at the system's master crystal frequency. All component timing derives from this. No exceptions. No "good enough" approximations. See `docs/architecture.md`.
+1. **Crystal-accurate timing.** Every emulator ticks at the system's master crystal frequency. All component timing derives from this. No exceptions. No "good enough" approximations. See `docs/architecture.md`. Do not try to take any shortcuts, for
+instance by modelling instruction-level accuracy.
 
 2. **Observable by design.** Internal state is always queryable. CPU registers, memory, video chip state, audio state — all exposed for education and debugging.
 
@@ -20,6 +21,7 @@ docs/
 ├── milestones.md        # Granular milestones with verification
 ├── integration.md       # Code Like It's 198x integration
 ├── future-systems.md    # Out of scope until Phase 6
+|-- constraints.md       # Things you must never do
 ├── systems/
 │   ├── c64.md           # Commodore 64 specifics
 │   ├── spectrum.md      # ZX Spectrum specifics
