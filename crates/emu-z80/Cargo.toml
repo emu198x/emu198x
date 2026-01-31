@@ -1,0 +1,12 @@
+[package]
+name = "emu-z80"
+description = "Cycle-accurate Z80 CPU emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+
+[lints]
+workspace = true
