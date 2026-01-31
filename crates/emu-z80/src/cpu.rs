@@ -5,21 +5,21 @@
 #![allow(clippy::struct_excessive_bools)] // CPU state requires multiple boolean flags.
 #![allow(dead_code)] // Helper functions will be used as more instructions are implemented.
 
-use emu_core::{Bus, Cpu, Tickable, Ticks};
+use emu_core::{Bus, Cpu, Ticks};
 
 use crate::flags::{CF, PF, SF, ZF};
 use crate::microcode::{MicroOp, MicroOpQueue};
 use crate::registers::Registers;
 
 /// Z80 CPU.
-pub struct Z80<B: Bus> {
+///
+/// The CPU does not own the bus. Instead, the bus is passed to `tick()` on
+/// each T-state. This allows the bus to be shared with other components
+/// (e.g., ULA) that may also need bus access or inject wait states.
+pub struct Z80 {
     // === Registers ===
     /// Main register set.
     pub(crate) regs: Registers,
-
-    // === Bus ===
-    /// Memory/IO bus.
-    bus: B,
 
     // === Execution state ===
     /// Queue of micro-operations for current instruction.
@@ -28,6 +28,8 @@ pub struct Z80<B: Bus> {
     t_state: u8,
     /// Total T-states for current micro-op (for Internal ops).
     t_total: u8,
+    /// Pending wait states from memory contention.
+    wait_states: u8,
 
     // === Instruction decode state ===
     /// Current opcode being executed.
@@ -62,15 +64,16 @@ pub struct Z80<B: Bus> {
     total_ticks: Ticks,
 }
 
-impl<B: Bus> Z80<B> {
-    /// Create a new Z80 with the given bus.
-    pub fn new(bus: B) -> Self {
+impl Z80 {
+    /// Create a new Z80.
+    #[must_use]
+    pub fn new() -> Self {
         let mut cpu = Self {
             regs: Registers::default(),
-            bus,
             micro_ops: MicroOpQueue::new(),
             t_state: 0,
             t_total: 0,
+            wait_states: 0,
             opcode: 0,
             prefix: 0,
             prefix2: 0,
@@ -90,32 +93,46 @@ impl<B: Bus> Z80<B> {
         cpu
     }
 
-    /// Access the bus.
-    pub fn bus(&self) -> &B {
-        &self.bus
-    }
-
-    /// Mutably access the bus.
-    pub fn bus_mut(&mut self) -> &mut B {
-        &mut self.bus
-    }
-
     /// Total T-states elapsed since creation.
     #[must_use]
     pub const fn total_ticks(&self) -> Ticks {
         self.total_ticks
     }
 
-    /// Read byte from memory.
-    fn read(&mut self, addr: u16) -> u8 {
-        self.bus.read(addr)
+    /// Read byte from memory, accumulating any wait states.
+    fn read<B: Bus>(&mut self, bus: &mut B, addr: u16) -> u8 {
+        let result = bus.read(addr);
+        self.wait_states = self.wait_states.saturating_add(result.wait);
+        result.data
     }
 
-    /// Write byte to memory.
-    fn write(&mut self, addr: u16, value: u8) {
-        self.bus.write(addr, value);
+    /// Write byte to memory, accumulating any wait states.
+    fn write<B: Bus>(&mut self, bus: &mut B, addr: u16, value: u8) {
+        let wait = bus.write(addr, value);
+        self.wait_states = self.wait_states.saturating_add(wait);
     }
 
+    /// Read byte from I/O port, accumulating any wait states.
+    fn io_read<B: Bus>(&mut self, bus: &mut B, addr: u16) -> u8 {
+        let result = bus.io_read(addr);
+        self.wait_states = self.wait_states.saturating_add(result.wait);
+        result.data
+    }
+
+    /// Write byte to I/O port, accumulating any wait states.
+    fn io_write<B: Bus>(&mut self, bus: &mut B, addr: u16, value: u8) {
+        let wait = bus.io_write(addr, value);
+        self.wait_states = self.wait_states.saturating_add(wait);
+    }
+}
+
+impl Default for Z80 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Z80 {
     /// Increment R register (lower 7 bits only).
     fn inc_r(&mut self) {
         self.regs.r = (self.regs.r & 0x80) | ((self.regs.r.wrapping_add(1)) & 0x7F);
@@ -148,8 +165,8 @@ impl<B: Bus> Z80<B> {
         self.micro_ops.push(MicroOp::FetchOpcode);
     }
 
-    /// Execute one T-state.
-    fn tick_internal(&mut self) {
+    /// Execute one T-state of CPU operation.
+    fn tick_internal<B: Bus>(&mut self, bus: &mut B) {
         let Some(op) = self.micro_ops.current() else {
             // Queue empty - shouldn't happen, but queue a fetch
             self.queue_fetch();
@@ -157,19 +174,19 @@ impl<B: Bus> Z80<B> {
         };
 
         match op {
-            MicroOp::FetchOpcode => self.tick_fetch_opcode(),
-            MicroOp::FetchDisplacement => self.tick_fetch_displacement(),
-            MicroOp::ReadImm8 => self.tick_read_imm8(),
-            MicroOp::ReadImm16Lo => self.tick_read_imm16_lo(),
-            MicroOp::ReadImm16Hi => self.tick_read_imm16_hi(),
-            MicroOp::ReadMem => self.tick_read_mem(),
-            MicroOp::ReadMem16Lo => self.tick_read_mem16_lo(),
-            MicroOp::ReadMem16Hi => self.tick_read_mem16_hi(),
-            MicroOp::WriteMem => self.tick_write_mem(),
-            MicroOp::WriteMemHiFirst => self.tick_write_mem_hi_first(),
-            MicroOp::WriteMemLoSecond => self.tick_write_mem_lo_second(),
-            MicroOp::IoRead => self.tick_io_read(),
-            MicroOp::IoWrite => self.tick_io_write(),
+            MicroOp::FetchOpcode => self.tick_fetch_opcode(bus),
+            MicroOp::FetchDisplacement => self.tick_fetch_displacement(bus),
+            MicroOp::ReadImm8 => self.tick_read_imm8(bus),
+            MicroOp::ReadImm16Lo => self.tick_read_imm16_lo(bus),
+            MicroOp::ReadImm16Hi => self.tick_read_imm16_hi(bus),
+            MicroOp::ReadMem => self.tick_read_mem(bus),
+            MicroOp::ReadMem16Lo => self.tick_read_mem16_lo(bus),
+            MicroOp::ReadMem16Hi => self.tick_read_mem16_hi(bus),
+            MicroOp::WriteMem => self.tick_write_mem(bus),
+            MicroOp::WriteMemHiFirst => self.tick_write_mem_hi_first(bus),
+            MicroOp::WriteMemLoSecond => self.tick_write_mem_lo_second(bus),
+            MicroOp::IoRead => self.tick_io_read(bus),
+            MicroOp::IoWrite => self.tick_io_write(bus),
             MicroOp::Internal => self.tick_internal_op(),
             MicroOp::Execute => {
                 self.decode_and_execute();
@@ -180,7 +197,7 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for M1 (opcode fetch) cycle.
     #[allow(clippy::match_same_arms)]
-    fn tick_fetch_opcode(&mut self) {
+    fn tick_fetch_opcode<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {
                 // T1: PC on address bus, MREQ+RD asserted
@@ -190,7 +207,7 @@ impl<B: Bus> Z80<B> {
             }
             2 => {
                 // T3: Data read from memory
-                self.opcode = self.read(self.regs.pc);
+                self.opcode = self.read(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.inc_r();
             }
@@ -251,7 +268,7 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for reading displacement byte (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_fetch_displacement(&mut self) {
+    fn tick_fetch_displacement<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {
                 // T1: PC on address bus
@@ -261,7 +278,7 @@ impl<B: Bus> Z80<B> {
             }
             2 => {
                 // T3: Data read
-                self.displacement = self.read(self.regs.pc) as i8;
+                self.displacement = self.read(bus, self.regs.pc) as i8;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.t_state = 0;
                 self.micro_ops.advance();
@@ -274,12 +291,12 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for reading immediate byte (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_read_imm8(&mut self) {
+    fn tick_read_imm8<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {
-                self.data_lo = self.read(self.regs.pc);
+                self.data_lo = self.read(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.t_state = 0;
                 self.micro_ops.advance();
@@ -292,12 +309,12 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for reading immediate word low byte (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_read_imm16_lo(&mut self) {
+    fn tick_read_imm16_lo<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {
-                self.data_lo = self.read(self.regs.pc);
+                self.data_lo = self.read(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.t_state = 0;
                 self.micro_ops.advance();
@@ -310,12 +327,12 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for reading immediate word high byte (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_read_imm16_hi(&mut self) {
+    fn tick_read_imm16_hi<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {
-                self.data_hi = self.read(self.regs.pc);
+                self.data_hi = self.read(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.t_state = 0;
                 self.micro_ops.advance();
@@ -328,12 +345,12 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for memory read (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_read_mem(&mut self) {
+    fn tick_read_mem<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {
-                self.data_lo = self.read(self.addr);
+                self.data_lo = self.read(bus, self.addr);
                 self.t_state = 0;
                 self.micro_ops.advance();
                 return;
@@ -345,12 +362,12 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for memory read low byte (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_read_mem16_lo(&mut self) {
+    fn tick_read_mem16_lo<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {
-                self.data_lo = self.read(self.addr);
+                self.data_lo = self.read(bus, self.addr);
                 self.addr = self.addr.wrapping_add(1);
                 self.t_state = 0;
                 self.micro_ops.advance();
@@ -363,12 +380,12 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for memory read high byte (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_read_mem16_hi(&mut self) {
+    fn tick_read_mem16_hi<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {
-                self.data_hi = self.read(self.addr);
+                self.data_hi = self.read(bus, self.addr);
                 self.t_state = 0;
                 self.micro_ops.advance();
                 return;
@@ -380,12 +397,12 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for memory write (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_write_mem(&mut self) {
+    fn tick_write_mem<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {
-                self.write(self.addr, self.data_lo);
+                self.write(bus, self.addr, self.data_lo);
                 self.t_state = 0;
                 self.micro_ops.advance();
                 return;
@@ -397,14 +414,14 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for PUSH high byte first (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_write_mem_hi_first(&mut self) {
+    fn tick_write_mem_hi_first<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {
                 self.regs.sp = self.regs.sp.wrapping_sub(1);
             }
             1 => {}
             2 => {
-                self.write(self.regs.sp, self.data_hi);
+                self.write(bus, self.regs.sp, self.data_hi);
                 self.t_state = 0;
                 self.micro_ops.advance();
                 return;
@@ -416,14 +433,14 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for PUSH low byte second (3 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_write_mem_lo_second(&mut self) {
+    fn tick_write_mem_lo_second<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {
                 self.regs.sp = self.regs.sp.wrapping_sub(1);
             }
             1 => {}
             2 => {
-                self.write(self.regs.sp, self.data_lo);
+                self.write(bus, self.regs.sp, self.data_lo);
                 self.t_state = 0;
                 self.micro_ops.advance();
                 return;
@@ -435,13 +452,13 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for I/O read (4 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_io_read(&mut self) {
+    fn tick_io_read<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {}
             3 => {
-                self.data_lo = self.read(self.addr);
+                self.data_lo = self.io_read(bus, self.addr);
                 self.t_state = 0;
                 self.micro_ops.advance();
                 return;
@@ -453,13 +470,13 @@ impl<B: Bus> Z80<B> {
 
     /// T-states for I/O write (4 T-states).
     #[allow(clippy::match_same_arms)]
-    fn tick_io_write(&mut self) {
+    fn tick_io_write<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
             0 => {}
             1 => {}
             2 => {}
             3 => {
-                self.write(self.addr, self.data_lo);
+                self.io_write(bus, self.addr, self.data_lo);
                 self.t_state = 0;
                 self.micro_ops.advance();
                 return;
@@ -650,42 +667,7 @@ impl<B: Bus> Z80<B> {
 // Instruction execution split into separate file for readability
 mod execute;
 
-impl<B: Bus> Tickable for Z80<B> {
-    fn tick(&mut self) {
-        self.total_ticks += Ticks::new(1);
-
-        // If halted, just burn T-states until interrupt
-        if self.regs.halted {
-            if self.nmi_pending {
-                self.nmi_pending = false;
-                self.regs.halted = false;
-                self.handle_nmi();
-            } else if self.int_pending && self.regs.iff1 {
-                self.int_pending = false;
-                self.regs.halted = false;
-                self.handle_int();
-            }
-            return;
-        }
-
-        self.tick_internal();
-
-        // Check for instruction complete and pending interrupts
-        if self.micro_ops.is_empty() {
-            if self.nmi_pending {
-                self.nmi_pending = false;
-                self.handle_nmi();
-            } else if self.int_pending && self.regs.iff1 {
-                self.int_pending = false;
-                self.handle_int();
-            } else {
-                self.queue_fetch();
-            }
-        }
-    }
-}
-
-impl<B: Bus> Z80<B> {
+impl Z80 {
     /// Handle NMI.
     fn handle_nmi(&mut self) {
         self.regs.iff2 = self.regs.iff1;
@@ -745,8 +727,47 @@ impl<B: Bus> Z80<B> {
     }
 }
 
-impl<B: Bus> Cpu for Z80<B> {
+impl Cpu for Z80 {
     type Registers = Registers;
+
+    fn tick<B: Bus>(&mut self, bus: &mut B) {
+        self.total_ticks += Ticks::new(1);
+
+        // If we have pending wait states from contention, burn them first
+        if self.wait_states > 0 {
+            self.wait_states -= 1;
+            return;
+        }
+
+        // If halted, just burn T-states until interrupt
+        if self.regs.halted {
+            if self.nmi_pending {
+                self.nmi_pending = false;
+                self.regs.halted = false;
+                self.handle_nmi();
+            } else if self.int_pending && self.regs.iff1 {
+                self.int_pending = false;
+                self.regs.halted = false;
+                self.handle_int();
+            }
+            return;
+        }
+
+        self.tick_internal(bus);
+
+        // Check for instruction complete and pending interrupts
+        if self.micro_ops.is_empty() {
+            if self.nmi_pending {
+                self.nmi_pending = false;
+                self.handle_nmi();
+            } else if self.int_pending && self.regs.iff1 {
+                self.int_pending = false;
+                self.handle_int();
+            } else {
+                self.queue_fetch();
+            }
+        }
+    }
 
     fn pc(&self) -> u16 {
         self.regs.pc
@@ -779,6 +800,7 @@ impl<B: Bus> Cpu for Z80<B> {
         self.micro_ops.push(MicroOp::FetchOpcode);
         self.t_state = 0;
         self.t_total = 0;
+        self.wait_states = 0;
         self.opcode = 0;
         self.prefix = 0;
         self.prefix2 = 0;

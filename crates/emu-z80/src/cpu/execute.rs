@@ -7,15 +7,13 @@
 #![allow(clippy::cast_sign_loss)] // Relative jumps add signed offset to unsigned PC.
 #![allow(clippy::cast_lossless)] // Using as casts for clarity in CPU emulation.
 
-use emu_core::Bus;
-
 use crate::alu;
 use crate::flags::{CF, HF, NF, PF, SF, XF, YF, ZF};
 use crate::microcode::MicroOp;
 
 use super::Z80;
 
-impl<B: Bus> Z80<B> {
+impl Z80 {
     /// Execute unprefixed instruction.
     pub(super) fn execute_unprefixed(&mut self) {
         let op = self.opcode;

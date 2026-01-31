@@ -1,14 +1,24 @@
 //! CPU core trait.
 
-use crate::Tickable;
+use crate::Bus;
 
 /// A CPU core.
 ///
-/// CPUs are tickable components that execute instructions. They access
-/// memory through a bus and expose their internal state for observation.
-pub trait Cpu: Tickable {
+/// CPUs execute instructions and access memory through a bus. Unlike other
+/// `Tickable` components, CPUs take a bus reference in their tick method
+/// because they need to access memory on specific cycles.
+///
+/// CPUs expose their internal state for observation and debugging.
+pub trait Cpu {
     /// The type used for register inspection.
     type Registers;
+
+    /// Advance the CPU by one T-state.
+    ///
+    /// The bus is passed in, not owned, so it can be shared with other
+    /// components (e.g., video chip). The bus may return wait states for
+    /// contended memory accesses.
+    fn tick<B: Bus>(&mut self, bus: &mut B);
 
     /// Returns the current program counter.
     fn pc(&self) -> u16;

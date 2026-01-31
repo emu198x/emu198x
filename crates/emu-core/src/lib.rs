@@ -9,7 +9,7 @@ mod cpu;
 mod tickable;
 mod ticks;
 
-pub use bus::Bus;
+pub use bus::{Bus, ReadResult, SimpleBus};
 pub use clock::MasterClock;
 pub use cpu::Cpu;
 pub use tickable::Tickable;
