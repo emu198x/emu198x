@@ -1,0 +1,9 @@
+[package]
+name = "emu-core"
+description = "Core traits and types for cycle-accurate emulation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,27 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Test ROMs (not for distribution)
+/roms/
+*.rom
+*.bin
+*.nes
+*.tap
+*.tzx
+*.z80
+*.sna
+*.adf
+*.d64
+*.t64
+*.prg
