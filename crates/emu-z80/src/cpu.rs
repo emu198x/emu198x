@@ -48,6 +48,8 @@ pub struct Z80 {
     data_hi: u8,
     /// True if next Execute should use followup logic.
     in_followup: bool,
+    /// Followup stage counter for multi-stage instructions (1, 2, 3...).
+    followup_stage: u8,
     /// True if we're handling IM2 interrupt and need to set PC from vector.
     im2_pending: bool,
 
@@ -82,6 +84,7 @@ impl Z80 {
             data_lo: 0,
             data_hi: 0,
             in_followup: false,
+            followup_stage: 0,
             im2_pending: false,
             int_pending: false,
             nmi_pending: false,
@@ -162,7 +165,156 @@ impl Z80 {
         self.prefix = 0;
         self.prefix2 = 0;
         self.in_followup = false;
+        self.followup_stage = 0;
         self.micro_ops.push(MicroOp::FetchOpcode);
+    }
+
+    /// Force a return from a subroutine call.
+    ///
+    /// This pops the return address from the stack and sets PC, then
+    /// clears the micro-op queue so the next tick starts fresh.
+    /// Used by test harnesses to skip trap instructions after handling
+    /// system calls (e.g., CP/M BDOS emulation).
+    ///
+    /// Only available in test builds.
+    #[cfg(feature = "test-utils")]
+    pub fn force_ret<B: Bus>(&mut self, bus: &mut B) {
+        // Pop return address from stack (low byte first, then high)
+        let sp = self.regs.sp;
+        let lo = bus.read(sp).data;
+        let hi = bus.read(sp.wrapping_add(1)).data;
+        self.regs.sp = sp.wrapping_add(2);
+
+        // Set PC to return address
+        let ret_addr = u16::from(lo) | (u16::from(hi) << 8);
+        self.regs.pc = ret_addr;
+
+        // Clear micro-op queue and reset state for next instruction
+        self.queue_fetch();
+        self.t_state = 0;
+    }
+
+    /// Set the program counter.
+    ///
+    /// Only available in test builds.
+    #[cfg(feature = "test-utils")]
+    pub fn set_pc(&mut self, value: u16) {
+        self.regs.pc = value;
+    }
+
+    /// Set the stack pointer.
+    ///
+    /// Only available in test builds.
+    #[cfg(feature = "test-utils")]
+    pub fn set_sp(&mut self, value: u16) {
+        self.regs.sp = value;
+    }
+
+    /// Get the C register.
+    pub fn c(&self) -> u8 {
+        self.regs.c
+    }
+
+    /// Get the E register.
+    pub fn e(&self) -> u8 {
+        self.regs.e
+    }
+
+    /// Get the DE register pair.
+    pub fn de(&self) -> u16 {
+        self.regs.de()
+    }
+
+    /// Get the stack pointer.
+    pub fn sp(&self) -> u16 {
+        self.regs.sp
+    }
+
+    /// Get the A register.
+    #[cfg(feature = "test-utils")]
+    pub fn a(&self) -> u8 {
+        self.regs.a
+    }
+
+    /// Get the F register (flags).
+    #[cfg(feature = "test-utils")]
+    pub fn f(&self) -> u8 {
+        self.regs.f
+    }
+
+    /// Get the BC register pair.
+    #[cfg(feature = "test-utils")]
+    pub fn bc(&self) -> u16 {
+        self.regs.bc()
+    }
+
+    /// Get the HL register pair.
+    #[cfg(feature = "test-utils")]
+    pub fn hl(&self) -> u16 {
+        self.regs.hl()
+    }
+
+    /// Get current micro-op for debugging.
+    #[cfg(feature = "test-utils")]
+    pub fn current_micro_op(&self) -> Option<MicroOp> {
+        self.micro_ops.current()
+    }
+
+    /// Get t_state for debugging.
+    #[cfg(feature = "test-utils")]
+    pub fn t_state(&self) -> u8 {
+        self.t_state
+    }
+
+    /// Get queue state for debugging.
+    #[cfg(feature = "test-utils")]
+    pub fn queue_state(&self) -> (u8, u8) {
+        (self.micro_ops.pos(), self.micro_ops.len())
+    }
+
+    /// Simulate RET instruction - pop return address from stack and jump.
+    ///
+    /// Used by test harnesses to return from BDOS calls.
+    /// Only available in test builds.
+    #[cfg(feature = "test-utils")]
+    pub fn ret<B: Bus>(&mut self, bus: &mut B) {
+        let sp = self.regs.sp;
+        let lo = bus.read(sp).data;
+        let hi = bus.read(sp.wrapping_add(1)).data;
+        self.regs.sp = sp.wrapping_add(2);
+        self.regs.pc = u16::from(lo) | (u16::from(hi) << 8);
+        self.micro_ops.clear();
+        self.queue_fetch();
+        self.t_state = 0;
+    }
+
+    /// Execute one complete instruction.
+    ///
+    /// Returns the number of T-states consumed.
+    /// Used by test harnesses that need instruction-level granularity.
+    ///
+    /// Only available in test builds.
+    #[cfg(feature = "test-utils")]
+    pub fn step<B: Bus>(&mut self, bus: &mut B) -> u32 {
+        let mut ticks = 0u32;
+        let max_ticks = 100; // Safety limit
+
+        // Run at least one tick
+        self.tick(bus);
+        ticks += 1;
+
+        // Continue until queue has only FetchOpcode waiting (ready for next instruction)
+        while !(self.micro_ops.is_empty() ||
+                (self.t_state == 0 && matches!(self.micro_ops.current(), Some(MicroOp::FetchOpcode)))) {
+            self.tick(bus);
+            ticks += 1;
+            if ticks >= max_ticks {
+                // This shouldn't happen - instruction taking too long
+                break;
+            }
+        }
+
+        ticks
     }
 
     /// Execute one T-state of CPU operation.
@@ -183,6 +335,8 @@ impl Z80 {
             MicroOp::ReadMem16Lo => self.tick_read_mem16_lo(bus),
             MicroOp::ReadMem16Hi => self.tick_read_mem16_hi(bus),
             MicroOp::WriteMem => self.tick_write_mem(bus),
+            MicroOp::WriteMem16Lo => self.tick_write_mem16_lo(bus),
+            MicroOp::WriteMem16Hi => self.tick_write_mem16_hi(bus),
             MicroOp::WriteMemHiFirst => self.tick_write_mem_hi_first(bus),
             MicroOp::WriteMemLoSecond => self.tick_write_mem_lo_second(bus),
             MicroOp::IoRead => self.tick_io_read(bus),
@@ -412,6 +566,43 @@ impl Z80 {
         self.t_state += 1;
     }
 
+    /// T-states for memory write low byte of word (3 T-states).
+    /// Writes data_lo to addr, then increments addr for the high byte.
+    #[allow(clippy::match_same_arms)]
+    fn tick_write_mem16_lo<B: Bus>(&mut self, bus: &mut B) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.write(bus, self.addr, self.data_lo);
+                self.addr = self.addr.wrapping_add(1);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
+    /// T-states for memory write high byte of word (3 T-states).
+    /// Writes data_hi to addr.
+    #[allow(clippy::match_same_arms)]
+    fn tick_write_mem16_hi<B: Bus>(&mut self, bus: &mut B) {
+        match self.t_state {
+            0 => {}
+            1 => {}
+            2 => {
+                self.write(bus, self.addr, self.data_hi);
+                self.t_state = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.t_state += 1;
+    }
+
     /// T-states for PUSH high byte first (3 T-states).
     #[allow(clippy::match_same_arms)]
     fn tick_write_mem_hi_first<B: Bus>(&mut self, bus: &mut B) {
@@ -533,6 +724,7 @@ impl Z80 {
     /// Queue an Execute micro-op for followup after data read.
     fn queue_execute_followup(&mut self) {
         self.in_followup = true;
+        self.followup_stage += 1;
         self.micro_ops.push(MicroOp::Execute);
     }
 
@@ -809,6 +1001,7 @@ impl Cpu for Z80 {
         self.data_lo = 0;
         self.data_hi = 0;
         self.in_followup = false;
+        self.followup_stage = 0;
         self.im2_pending = false;
         self.int_pending = false;
         self.nmi_pending = false;

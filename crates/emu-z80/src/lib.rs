@@ -11,3 +11,6 @@ mod registers;
 pub use cpu::Z80;
 pub use flags::{CF, HF, NF, PF, SF, XF, YF, ZF};
 pub use registers::Registers;
+
+#[cfg(feature = "test-utils")]
+pub use microcode::MicroOp;

@@ -5,8 +5,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Enables test utilities like step(), force_ret(), set_pc(), set_sp()
+# These bypass normal cycle-accurate execution and should only be used in tests.
+test-utils = []
+
 [dependencies]
 emu-core = { path = "../emu-core" }
+
+[dev-dependencies]
+emu-z80 = { path = ".", features = ["test-utils"] }
 
 [lints]
 workspace = true

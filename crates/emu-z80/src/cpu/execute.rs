@@ -1,14 +1,16 @@
 //! Instruction execution for the Z80.
+//!
+//! STRIPPED DOWN FOR DEBUGGING - panics on unimplemented opcodes.
 
-#![allow(clippy::too_many_lines)] // Instruction decode is inherently large.
-#![allow(clippy::match_same_arms)] // Some opcodes intentionally share bodies.
-#![allow(clippy::cast_possible_wrap)] // Intentional i8 casts for displacements.
-#![allow(clippy::cast_possible_truncation)] // Intentional truncation for low byte.
-#![allow(clippy::cast_sign_loss)] // Relative jumps add signed offset to unsigned PC.
-#![allow(clippy::cast_lossless)] // Using as casts for clarity in CPU emulation.
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::match_same_arms)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
 
 use crate::alu;
-use crate::flags::{CF, HF, NF, PF, SF, XF, YF, ZF};
+use crate::flags::{sz53p, CF, HF, NF, PF, SF, XF, YF, ZF};
 use crate::microcode::MicroOp;
 
 use super::Z80;
@@ -19,51 +21,51 @@ impl Z80 {
         let op = self.opcode;
 
         match op {
-            // === 0x00-0x0F ===
-            0x00 => {} // NOP
+            // NOP
+            0x00 => {}
 
+            // LD BC, nn
             0x01 => {
-                // LD BC, nn (10 T-states: 4+3+3)
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
+            // LD (BC), A
             0x02 => {
-                // LD (BC), A (7 T-states: 4+3)
                 self.addr = self.regs.bc();
                 self.data_lo = self.regs.a;
                 self.micro_ops.push(MicroOp::WriteMem);
             }
 
+            // INC BC
             0x03 => {
-                // INC BC (6 T-states: 4+2 internal)
                 self.queue_internal(2);
                 self.regs.set_bc(self.regs.bc().wrapping_add(1));
             }
 
+            // INC B
             0x04 => {
-                // INC B (4 T-states)
                 let result = alu::inc8(self.regs.b);
                 self.regs.b = result.value;
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
 
+            // DEC B
             0x05 => {
-                // DEC B (4 T-states)
                 let result = alu::dec8(self.regs.b);
                 self.regs.b = result.value;
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
 
+            // LD B, n
             0x06 => {
-                // LD B, n (7 T-states: 4+3)
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // RLCA
             0x07 => {
-                // RLCA (4 T-states)
                 let carry = self.regs.a >> 7;
                 self.regs.a = (self.regs.a << 1) | carry;
                 self.regs.f = (self.regs.f & (SF | ZF | PF))
@@ -71,55 +73,49 @@ impl Z80 {
                     | if carry != 0 { CF } else { 0 };
             }
 
-            0x08 => {
-                // EX AF, AF' (4 T-states)
-                core::mem::swap(&mut self.regs.a, &mut self.regs.a_alt);
-                core::mem::swap(&mut self.regs.f, &mut self.regs.f_alt);
+            // DEC BC
+            0x0B => {
+                self.queue_internal(2);
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
             }
 
+            // INC C
+            0x0C => {
+                let result = alu::inc8(self.regs.c);
+                self.regs.c = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+            }
+
+            // DEC C
+            0x0D => {
+                let result = alu::dec8(self.regs.c);
+                self.regs.c = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+            }
+
+            // ADD HL, BC
             0x09 => {
-                // ADD HL, BC (11 T-states: 4+4+3 internal)
                 self.queue_internal(7);
                 let (result, flags) = alu::add16(self.regs.hl(), self.regs.bc());
                 self.regs.set_hl(result);
                 self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
             }
 
+            // LD A, (BC)
             0x0A => {
-                // LD A, (BC) (7 T-states: 4+3)
                 self.addr = self.regs.bc();
                 self.micro_ops.push(MicroOp::ReadMem);
                 self.queue_execute_followup();
             }
 
-            0x0B => {
-                // DEC BC (6 T-states: 4+2 internal)
-                self.queue_internal(2);
-                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
-            }
-
-            0x0C => {
-                // INC C
-                let result = alu::inc8(self.regs.c);
-                self.regs.c = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-            }
-
-            0x0D => {
-                // DEC C
-                let result = alu::dec8(self.regs.c);
-                self.regs.c = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-            }
-
+            // LD C, n
             0x0E => {
-                // LD C, n
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // RRCA
             0x0F => {
-                // RRCA
                 let carry = self.regs.a & 1;
                 self.regs.a = (self.regs.a >> 1) | (carry << 7);
                 self.regs.f = (self.regs.f & (SF | ZF | PF))
@@ -127,345 +123,384 @@ impl Z80 {
                     | if carry != 0 { CF } else { 0 };
             }
 
-            // === 0x10-0x1F ===
+            // RLA - rotate left A through carry
+            0x17 => {
+                let old_carry = if self.regs.f & CF != 0 { 1 } else { 0 };
+                let new_carry = self.regs.a >> 7;
+                self.regs.a = (self.regs.a << 1) | old_carry;
+                self.regs.f = (self.regs.f & (SF | ZF | PF))
+                    | (self.regs.a & (YF | XF))
+                    | if new_carry != 0 { CF } else { 0 };
+            }
+
+            // RRA - rotate right A through carry
+            0x1F => {
+                let old_carry = if self.regs.f & CF != 0 { 0x80 } else { 0 };
+                let new_carry = self.regs.a & 1;
+                self.regs.a = (self.regs.a >> 1) | old_carry;
+                self.regs.f = (self.regs.f & (SF | ZF | PF))
+                    | (self.regs.a & (YF | XF))
+                    | if new_carry != 0 { CF } else { 0 };
+            }
+
+            // DJNZ e (Decrement B and Jump if Not Zero)
             0x10 => {
-                // DJNZ e (13/8 T-states)
+                self.queue_internal(1); // 1 extra T-state for internal processing
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // LD DE, nn
             0x11 => {
-                // LD DE, nn
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
+            // LD (DE), A
             0x12 => {
-                // LD (DE), A
                 self.addr = self.regs.de();
                 self.data_lo = self.regs.a;
                 self.micro_ops.push(MicroOp::WriteMem);
             }
 
+            // JR e (unconditional relative jump)
+            0x18 => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
+            }
+
+            // JR NZ, e (relative jump if not zero)
+            0x20 => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
+            }
+
+            // JR Z, e (relative jump if zero)
+            0x28 => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
+            }
+
+            // JR NC, e (relative jump if no carry)
+            0x30 => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
+            }
+
+            // JR C, e (relative jump if carry)
+            0x38 => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
+            }
+
+            // INC DE
             0x13 => {
-                // INC DE
                 self.queue_internal(2);
                 self.regs.set_de(self.regs.de().wrapping_add(1));
             }
 
+            // INC D
             0x14 => {
-                // INC D
                 let result = alu::inc8(self.regs.d);
                 self.regs.d = result.value;
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
 
+            // DEC D
             0x15 => {
-                // DEC D
                 let result = alu::dec8(self.regs.d);
                 self.regs.d = result.value;
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
 
+            // LD D, n
             0x16 => {
-                // LD D, n
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
-            0x17 => {
-                // RLA
-                let carry = self.regs.a >> 7;
-                let old_carry = u8::from(self.regs.f & CF != 0);
-                self.regs.a = (self.regs.a << 1) | old_carry;
-                self.regs.f = (self.regs.f & (SF | ZF | PF))
-                    | (self.regs.a & (YF | XF))
-                    | if carry != 0 { CF } else { 0 };
-            }
-
-            0x18 => {
-                // JR e (12 T-states)
+            // LD E, n
+            0x1E => {
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // INC E
+            0x1C => {
+                let result = alu::inc8(self.regs.e);
+                self.regs.e = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+            }
+
+            // DEC E
+            0x1D => {
+                let result = alu::dec8(self.regs.e);
+                self.regs.e = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+            }
+
+            // INC DE
+            0x13 => {
+                self.queue_internal(2);
+                self.regs.set_de(self.regs.de().wrapping_add(1));
+            }
+
+            // LD A, (DE)
+            0x1A => {
+                self.addr = self.regs.de();
+                self.micro_ops.push(MicroOp::ReadMem);
+                self.queue_execute_followup();
+            }
+
+            // DEC DE
+            0x1B => {
+                self.queue_internal(2);
+                self.regs.set_de(self.regs.de().wrapping_sub(1));
+            }
+
+            // ADD HL, DE
             0x19 => {
-                // ADD HL, DE
                 self.queue_internal(7);
                 let (result, flags) = alu::add16(self.regs.hl(), self.regs.de());
                 self.regs.set_hl(result);
                 self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
             }
 
-            0x1A => {
-                // LD A, (DE)
-                self.addr = self.regs.de();
-                self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_execute_followup();
-            }
-
-            0x1B => {
-                // DEC DE
-                self.queue_internal(2);
-                self.regs.set_de(self.regs.de().wrapping_sub(1));
-            }
-
-            0x1C => {
-                // INC E
-                let result = alu::inc8(self.regs.e);
-                self.regs.e = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-            }
-
-            0x1D => {
-                // DEC E
-                let result = alu::dec8(self.regs.e);
-                self.regs.e = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-            }
-
-            0x1E => {
-                // LD E, n
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
-            }
-
-            0x1F => {
-                // RRA
-                let carry = self.regs.a & 1;
-                let old_carry = if self.regs.f & CF != 0 { 0x80 } else { 0 };
-                self.regs.a = (self.regs.a >> 1) | old_carry;
-                self.regs.f = (self.regs.f & (SF | ZF | PF))
-                    | (self.regs.a & (YF | XF))
-                    | if carry != 0 { CF } else { 0 };
-            }
-
-            // === 0x20-0x2F ===
-            0x20 => {
-                // JR NZ, e
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
-            }
-
+            // LD HL, nn
             0x21 => {
-                // LD HL, nn
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
-            0x22 => {
-                // LD (nn), HL (16 T-states)
-                self.micro_ops.push(MicroOp::ReadImm16Lo);
-                self.micro_ops.push(MicroOp::ReadImm16Hi);
-                self.queue_execute_followup();
-            }
-
-            0x23 => {
-                // INC HL
-                self.queue_internal(2);
-                self.regs.set_hl(self.regs.hl().wrapping_add(1));
-            }
-
-            0x24 => {
-                // INC H
-                let result = alu::inc8(self.regs.h);
-                self.regs.h = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-            }
-
-            0x25 => {
-                // DEC H
-                let result = alu::dec8(self.regs.h);
-                self.regs.h = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-            }
-
-            0x26 => {
-                // LD H, n
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
-            }
-
-            0x27 => {
-                // DAA
-                self.execute_daa();
-            }
-
-            0x28 => {
-                // JR Z, e
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
-            }
-
+            // ADD HL, HL
             0x29 => {
-                // ADD HL, HL
                 self.queue_internal(7);
                 let (result, flags) = alu::add16(self.regs.hl(), self.regs.hl());
                 self.regs.set_hl(result);
                 self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
             }
 
-            0x2A => {
-                // LD HL, (nn)
+            // LD (nn), HL
+            0x22 => {
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
-            0x2B => {
-                // DEC HL
+            // INC HL
+            0x23 => {
                 self.queue_internal(2);
-                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
             }
 
+            // INC H
+            0x24 => {
+                let result = alu::inc8(self.regs.h);
+                self.regs.h = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+            }
+
+            // DEC H
+            0x25 => {
+                let result = alu::dec8(self.regs.h);
+                self.regs.h = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+            }
+
+            // LD H, n
+            0x26 => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
+            }
+
+            // INC L
             0x2C => {
-                // INC L
                 let result = alu::inc8(self.regs.l);
                 self.regs.l = result.value;
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
 
+            // DEC L
             0x2D => {
-                // DEC L
                 let result = alu::dec8(self.regs.l);
                 self.regs.l = result.value;
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
 
-            0x2E => {
-                // LD L, n
-                self.micro_ops.push(MicroOp::ReadImm8);
+            // LD HL, (nn)
+            0x2A => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
+            // DEC HL
+            0x2B => {
+                self.queue_internal(2);
+                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+            }
+
+            // DAA - Decimal Adjust Accumulator
+            0x27 => {
+                let a = self.regs.a;
+                let nf = self.regs.f & NF != 0;
+                let cf = self.regs.f & CF != 0;
+                let hf = self.regs.f & HF != 0;
+
+                let mut correction: u8 = 0;
+                let mut new_cf = cf;
+
+                // Low nibble correction
+                if hf || (a & 0x0F) > 9 {
+                    correction |= 0x06;
+                }
+
+                // High nibble correction
+                if cf || a > 0x99 {
+                    correction |= 0x60;
+                    new_cf = true;
+                }
+
+                // Apply correction
+                let result = if nf {
+                    a.wrapping_sub(correction)
+                } else {
+                    a.wrapping_add(correction)
+                };
+
+                // H flag:
+                // After addition: set if (original A & 0x0F) > 9
+                // After subtraction: set if original H AND (original A & 0x0F) < 6
+                let new_hf = if nf {
+                    hf && (a & 0x0F) < 6
+                } else {
+                    (a & 0x0F) > 9
+                };
+
+                self.regs.a = result;
+                self.regs.f = sz53p(result)
+                    | if nf { NF } else { 0 }
+                    | if new_cf { CF } else { 0 }
+                    | if new_hf { HF } else { 0 };
+            }
+
+            // CPL
             0x2F => {
-                // CPL
                 self.regs.a = !self.regs.a;
                 self.regs.f = (self.regs.f & (SF | ZF | PF | CF))
-                    | (self.regs.a & (YF | XF))
                     | HF
-                    | NF;
+                    | NF
+                    | (self.regs.a & (XF | YF));
             }
 
-            // === 0x30-0x3F ===
-            0x30 => {
-                // JR NC, e
+            // LD L, n
+            0x2E => {
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // LD SP, nn
             0x31 => {
-                // LD SP, nn
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
+            // INC (HL)
+            0x34 => {
+                self.addr = self.regs.hl();
+                self.micro_ops.push(MicroOp::ReadMem);
+                self.queue_execute_followup();
+            }
+
+            // DEC (HL)
+            0x35 => {
+                self.addr = self.regs.hl();
+                self.micro_ops.push(MicroOp::ReadMem);
+                self.queue_execute_followup();
+            }
+
+            // LD (nn), A
             0x32 => {
-                // LD (nn), A
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
+            // LD A, (nn)
+            0x3A => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // INC A
+            0x3C => {
+                let result = alu::inc8(self.regs.a);
+                self.regs.a = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+            }
+
+            // DEC A
+            0x3D => {
+                let result = alu::dec8(self.regs.a);
+                self.regs.a = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+            }
+
+            // INC SP
             0x33 => {
-                // INC SP
                 self.queue_internal(2);
                 self.regs.sp = self.regs.sp.wrapping_add(1);
             }
 
-            0x34 => {
-                // INC (HL) (11 T-states: 4+3+1+3)
-                self.addr = self.regs.hl();
-                self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_internal(1);
-                self.queue_execute_followup();
-            }
-
-            0x35 => {
-                // DEC (HL)
-                self.addr = self.regs.hl();
-                self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_internal(1);
-                self.queue_execute_followup();
-            }
-
+            // LD (HL), n
             0x36 => {
-                // LD (HL), n (10 T-states: 4+3+3)
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // DEC SP
+            0x3B => {
+                self.queue_internal(2);
+                self.regs.sp = self.regs.sp.wrapping_sub(1);
+            }
+
+            // SCF (Set Carry Flag)
             0x37 => {
-                // SCF
                 self.regs.f = (self.regs.f & (SF | ZF | PF))
-                    | (self.regs.a & (YF | XF))
-                    | CF;
+                    | CF
+                    | (self.regs.a & (XF | YF));
             }
 
-            0x38 => {
-                // JR C, e
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
+            // CCF (Complement Carry Flag)
+            0x3F => {
+                let old_cf = self.regs.f & CF;
+                self.regs.f = (self.regs.f & (SF | ZF | PF))
+                    | (self.regs.a & (XF | YF))
+                    | if old_cf != 0 { HF } else { CF };
             }
 
+            // ADD HL, SP
             0x39 => {
-                // ADD HL, SP
                 self.queue_internal(7);
                 let (result, flags) = alu::add16(self.regs.hl(), self.regs.sp);
                 self.regs.set_hl(result);
                 self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
             }
 
-            0x3A => {
-                // LD A, (nn)
-                self.micro_ops.push(MicroOp::ReadImm16Lo);
-                self.micro_ops.push(MicroOp::ReadImm16Hi);
-                self.queue_execute_followup();
-            }
-
-            0x3B => {
-                // DEC SP
-                self.queue_internal(2);
-                self.regs.sp = self.regs.sp.wrapping_sub(1);
-            }
-
-            0x3C => {
-                // INC A
-                let result = alu::inc8(self.regs.a);
-                self.regs.a = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-            }
-
-            0x3D => {
-                // DEC A
-                let result = alu::dec8(self.regs.a);
-                self.regs.a = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-            }
-
+            // LD A, n
             0x3E => {
-                // LD A, n
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
-            0x3F => {
-                // CCF
-                let old_carry = self.regs.f & CF;
-                self.regs.f = (self.regs.f & (SF | ZF | PF))
-                    | (self.regs.a & (YF | XF))
-                    | if old_carry != 0 { HF } else { 0 }
-                    | if old_carry == 0 { CF } else { 0 };
-            }
-
-            // === 0x40-0x7F: LD r, r' and HALT ===
-            0x40..=0x75 | 0x77..=0x7F => {
-                let dst = (op >> 3) & 7;
+            // LD B, r and LD C, r etc - register to register moves
+            0x40..=0x7F if op != 0x76 => {
                 let src = op & 7;
-
+                let dst = (op >> 3) & 7;
                 if src == 6 {
                     // LD r, (HL)
                     self.addr = self.regs.hl();
@@ -477,652 +512,890 @@ impl Z80 {
                     self.data_lo = self.get_reg8(src);
                     self.micro_ops.push(MicroOp::WriteMem);
                 } else {
-                    // LD r, r'
+                    // LD r, r
                     let value = self.get_reg8(src);
                     self.set_reg8(dst, value);
                 }
             }
 
+            // HALT
             0x76 => {
-                // HALT
                 self.regs.halted = true;
             }
 
-            // === 0x80-0xBF: ALU operations ===
-            0x80..=0xBF => {
-                let alu_op = (op >> 3) & 7;
-                let src = op & 7;
-
-                if src == 6 {
-                    // ALU A, (HL)
+            // ADD A, r
+            0x80..=0x87 => {
+                let r = op & 7;
+                if r == 6 {
                     self.addr = self.regs.hl();
                     self.micro_ops.push(MicroOp::ReadMem);
                     self.queue_execute_followup();
                 } else {
-                    let value = self.get_reg8(src);
-                    self.execute_alu(alu_op, value);
+                    let value = self.get_reg8(r);
+                    let result = alu::add8(self.regs.a, value, false);
+                    self.regs.a = result.value;
+                    self.regs.f = result.flags;
                 }
             }
 
-            // === 0xC0-0xFF: Misc, jumps, calls, returns ===
-            0xC0 | 0xC8 | 0xD0 | 0xD8 | 0xE0 | 0xE8 | 0xF0 | 0xF8 => {
-                // RET cc (11/5 T-states)
-                let cc = (op >> 3) & 7;
+            // ADC A, r
+            0x88..=0x8F => {
+                let r = op & 7;
+                let carry = self.regs.f & CF != 0;
+                if r == 6 {
+                    self.addr = self.regs.hl();
+                    self.micro_ops.push(MicroOp::ReadMem);
+                    self.queue_execute_followup();
+                } else {
+                    let value = self.get_reg8(r);
+                    let result = alu::add8(self.regs.a, value, carry);
+                    self.regs.a = result.value;
+                    self.regs.f = result.flags;
+                }
+            }
+
+            // SUB r
+            0x90..=0x97 => {
+                let r = op & 7;
+                if r == 6 {
+                    self.addr = self.regs.hl();
+                    self.micro_ops.push(MicroOp::ReadMem);
+                    self.queue_execute_followup();
+                } else {
+                    let value = self.get_reg8(r);
+                    let result = alu::sub8(self.regs.a, value, false);
+                    self.regs.a = result.value;
+                    self.regs.f = result.flags;
+                }
+            }
+
+            // SBC A, r
+            0x98..=0x9F => {
+                let r = op & 7;
+                let carry = self.regs.f & CF != 0;
+                if r == 6 {
+                    self.addr = self.regs.hl();
+                    self.micro_ops.push(MicroOp::ReadMem);
+                    self.queue_execute_followup();
+                } else {
+                    let value = self.get_reg8(r);
+                    let result = alu::sub8(self.regs.a, value, carry);
+                    self.regs.a = result.value;
+                    self.regs.f = result.flags;
+                }
+            }
+
+            // AND r
+            0xA0..=0xA7 => {
+                let r = op & 7;
+                if r == 6 {
+                    self.addr = self.regs.hl();
+                    self.micro_ops.push(MicroOp::ReadMem);
+                    self.queue_execute_followup();
+                } else {
+                    let value = self.get_reg8(r);
+                    self.regs.a &= value;
+                    self.regs.f = sz53p(self.regs.a) | HF;
+                }
+            }
+
+            // XOR r
+            0xA8..=0xAF => {
+                let r = op & 7;
+                if r == 6 {
+                    self.addr = self.regs.hl();
+                    self.micro_ops.push(MicroOp::ReadMem);
+                    self.queue_execute_followup();
+                } else {
+                    let value = self.get_reg8(r);
+                    self.regs.a ^= value;
+                    self.regs.f = sz53p(self.regs.a);
+                }
+            }
+
+            // OR r
+            0xB0..=0xB7 => {
+                let r = op & 7;
+                if r == 6 {
+                    self.addr = self.regs.hl();
+                    self.micro_ops.push(MicroOp::ReadMem);
+                    self.queue_execute_followup();
+                } else {
+                    let value = self.get_reg8(r);
+                    self.regs.a |= value;
+                    self.regs.f = sz53p(self.regs.a);
+                }
+            }
+
+            // CP r
+            0xB8..=0xBF => {
+                let r = op & 7;
+                if r == 6 {
+                    self.addr = self.regs.hl();
+                    self.micro_ops.push(MicroOp::ReadMem);
+                    self.queue_execute_followup();
+                } else {
+                    let value = self.get_reg8(r);
+                    let result = alu::sub8(self.regs.a, value, false);
+                    // CP doesn't store result, just sets flags
+                    // But undocumented flags come from operand, not result
+                    self.regs.f = (result.flags & !(YF | XF)) | (value & (YF | XF));
+                }
+            }
+
+            // RET NZ
+            0xC0 => {
                 self.queue_internal(1);
-                if self.condition(cc) {
+                if self.regs.f & ZF == 0 {
+                    self.addr = self.regs.sp;
                     self.micro_ops.push(MicroOp::ReadMem16Lo);
                     self.micro_ops.push(MicroOp::ReadMem16Hi);
                     self.queue_execute_followup();
-                    self.addr = self.regs.sp;
                 }
             }
 
+            // POP BC
             0xC1 => {
-                // POP BC
                 self.addr = self.regs.sp;
                 self.micro_ops.push(MicroOp::ReadMem16Lo);
                 self.micro_ops.push(MicroOp::ReadMem16Hi);
                 self.queue_execute_followup();
             }
 
-            0xC2 | 0xCA | 0xD2 | 0xDA | 0xE2 | 0xEA | 0xF2 | 0xFA => {
-                // JP cc, nn (10 T-states)
+            // JP NZ, nn
+            0xC2 => {
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
+            // JP nn
             0xC3 => {
-                // JP nn
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
-            0xC4 | 0xCC | 0xD4 | 0xDC | 0xE4 | 0xEC | 0xF4 | 0xFC => {
-                // CALL cc, nn (17/10 T-states)
+            // CALL NZ, nn
+            0xC4 => {
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
+            // PUSH BC
             0xC5 => {
-                // PUSH BC (11 T-states: 4+1+3+3)
                 self.queue_internal(1);
-                let val = self.regs.bc();
-                self.data_hi = (val >> 8) as u8;
-                self.data_lo = val as u8;
+                // WriteMemHiFirst/WriteMemLoSecond handle SP decrement and write to SP
+                self.data_hi = self.regs.b;
+                self.data_lo = self.regs.c;
                 self.micro_ops.push(MicroOp::WriteMemHiFirst);
                 self.micro_ops.push(MicroOp::WriteMemLoSecond);
             }
 
+            // ADD A, n
             0xC6 => {
-                // ADD A, n
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
-            0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => {
-                // RST p (11 T-states)
-                let p = op & 0x38;
-                self.queue_internal(1);
-                self.data_hi = (self.regs.pc >> 8) as u8;
-                self.data_lo = self.regs.pc as u8;
-                self.micro_ops.push(MicroOp::WriteMemHiFirst);
-                self.micro_ops.push(MicroOp::WriteMemLoSecond);
-                self.regs.pc = u16::from(p);
+            // ADC A, n
+            0xCE => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
             }
 
+            // RET Z
+            0xC8 => {
+                self.queue_internal(1);
+                if self.regs.f & ZF != 0 {
+                    self.addr = self.regs.sp;
+                    self.micro_ops.push(MicroOp::ReadMem16Lo);
+                    self.micro_ops.push(MicroOp::ReadMem16Hi);
+                    self.queue_execute_followup();
+                }
+            }
+
+            // RET
             0xC9 => {
-                // RET (10 T-states)
                 self.addr = self.regs.sp;
                 self.micro_ops.push(MicroOp::ReadMem16Lo);
                 self.micro_ops.push(MicroOp::ReadMem16Hi);
                 self.queue_execute_followup();
             }
 
-            0xCD => {
-                // CALL nn (17 T-states)
+            // JP Z, nn
+            0xCA => {
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
-            0xCE => {
-                // ADC A, n
-                self.micro_ops.push(MicroOp::ReadImm8);
+            // CB prefix
+            0xCB => {
+                self.prefix = 0xCB;
+                self.micro_ops.push(MicroOp::FetchOpcode);
+            }
+
+            // CALL nn
+            0xCD => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
+            // POP DE
             0xD1 => {
-                // POP DE
                 self.addr = self.regs.sp;
                 self.micro_ops.push(MicroOp::ReadMem16Lo);
                 self.micro_ops.push(MicroOp::ReadMem16Hi);
                 self.queue_execute_followup();
             }
 
-            0xD3 => {
-                // OUT (n), A
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
-            }
-
+            // PUSH DE
             0xD5 => {
-                // PUSH DE
                 self.queue_internal(1);
-                let val = self.regs.de();
-                self.data_hi = (val >> 8) as u8;
-                self.data_lo = val as u8;
+                // WriteMemHiFirst/WriteMemLoSecond handle SP decrement and write to SP
+                self.data_hi = self.regs.d;
+                self.data_lo = self.regs.e;
                 self.micro_ops.push(MicroOp::WriteMemHiFirst);
                 self.micro_ops.push(MicroOp::WriteMemLoSecond);
             }
 
+            // SUB n
             0xD6 => {
-                // SUB n
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
-            0xD9 => {
-                // EXX
-                core::mem::swap(&mut self.regs.b, &mut self.regs.b_alt);
-                core::mem::swap(&mut self.regs.c, &mut self.regs.c_alt);
-                core::mem::swap(&mut self.regs.d, &mut self.regs.d_alt);
-                core::mem::swap(&mut self.regs.e, &mut self.regs.e_alt);
-                core::mem::swap(&mut self.regs.h, &mut self.regs.h_alt);
-                core::mem::swap(&mut self.regs.l, &mut self.regs.l_alt);
-            }
-
-            0xDB => {
-                // IN A, (n)
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
-            }
-
+            // SBC A, n
             0xDE => {
-                // SBC A, n
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // RET NC
+            0xD0 => {
+                self.queue_internal(1);
+                if self.regs.f & CF == 0 {
+                    self.addr = self.regs.sp;
+                    self.micro_ops.push(MicroOp::ReadMem16Lo);
+                    self.micro_ops.push(MicroOp::ReadMem16Hi);
+                    self.queue_execute_followup();
+                }
+            }
+
+            // JP NC, nn
+            0xD2 => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // CALL NC, nn
+            0xD4 => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // RET C
+            0xD8 => {
+                self.queue_internal(1);
+                if self.regs.f & CF != 0 {
+                    self.addr = self.regs.sp;
+                    self.micro_ops.push(MicroOp::ReadMem16Lo);
+                    self.micro_ops.push(MicroOp::ReadMem16Hi);
+                    self.queue_execute_followup();
+                }
+            }
+
+            // JP C, nn
+            0xDA => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // CALL C, nn
+            0xDC => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // POP HL
             0xE1 => {
-                // POP HL
                 self.addr = self.regs.sp;
                 self.micro_ops.push(MicroOp::ReadMem16Lo);
                 self.micro_ops.push(MicroOp::ReadMem16Hi);
                 self.queue_execute_followup();
             }
 
-            0xE3 => {
-                // EX (SP), HL (19 T-states)
-                self.addr = self.regs.sp;
-                self.micro_ops.push(MicroOp::ReadMem16Lo);
-                self.micro_ops.push(MicroOp::ReadMem16Hi);
-                self.queue_internal(1);
-                self.queue_execute_followup();
-            }
-
+            // PUSH HL
             0xE5 => {
-                // PUSH HL
                 self.queue_internal(1);
-                let val = self.regs.hl();
-                self.data_hi = (val >> 8) as u8;
-                self.data_lo = val as u8;
+                // WriteMemHiFirst/WriteMemLoSecond handle SP decrement and write to SP
+                self.data_hi = self.regs.h;
+                self.data_lo = self.regs.l;
                 self.micro_ops.push(MicroOp::WriteMemHiFirst);
                 self.micro_ops.push(MicroOp::WriteMemLoSecond);
             }
 
+            // AND n
             0xE6 => {
-                // AND n
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // XOR n
+            0xEE => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
+            }
+
+            // JP (HL)
             0xE9 => {
-                // JP (HL)
                 self.regs.pc = self.regs.hl();
             }
 
+            // EX DE, HL
             0xEB => {
-                // EX DE, HL
-                let de = self.regs.de();
-                let hl = self.regs.hl();
-                self.regs.set_de(hl);
-                self.regs.set_hl(de);
+                let tmp = self.regs.de();
+                self.regs.set_de(self.regs.hl());
+                self.regs.set_hl(tmp);
             }
 
-            0xEE => {
-                // XOR n
+            // ED prefix
+            0xED => {
+                self.prefix = 0xED;
+                self.micro_ops.push(MicroOp::FetchOpcode);
+            }
+
+            // CP n
+            0xFE => {
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // POP AF
             0xF1 => {
-                // POP AF
                 self.addr = self.regs.sp;
                 self.micro_ops.push(MicroOp::ReadMem16Lo);
                 self.micro_ops.push(MicroOp::ReadMem16Hi);
                 self.queue_execute_followup();
             }
 
+            // PUSH AF
+            0xF5 => {
+                self.queue_internal(1);
+                // WriteMemHiFirst/WriteMemLoSecond handle SP decrement and write to SP
+                self.data_hi = self.regs.a;
+                self.data_lo = self.regs.f;
+                self.micro_ops.push(MicroOp::WriteMemHiFirst);
+                self.micro_ops.push(MicroOp::WriteMemLoSecond);
+            }
+
+            // DI
             0xF3 => {
-                // DI
                 self.regs.iff1 = false;
                 self.regs.iff2 = false;
             }
 
-            0xF5 => {
-                // PUSH AF
-                self.queue_internal(1);
-                let val = self.regs.af();
-                self.data_hi = (val >> 8) as u8;
-                self.data_lo = val as u8;
-                self.micro_ops.push(MicroOp::WriteMemHiFirst);
-                self.micro_ops.push(MicroOp::WriteMemLoSecond);
-            }
-
-            0xF6 => {
-                // OR n
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
-            }
-
-            0xF9 => {
-                // LD SP, HL (6 T-states)
-                self.queue_internal(2);
-                self.regs.sp = self.regs.hl();
-            }
-
+            // EI
             0xFB => {
-                // EI
                 self.regs.iff1 = true;
                 self.regs.iff2 = true;
             }
 
-            0xFE => {
-                // CP n
+            // OR n
+            0xF6 => {
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
+            // LD SP, HL
+            0xF9 => {
+                self.queue_internal(2);
+                self.regs.sp = self.regs.hl();
+            }
+
             _ => {
-                // Unimplemented - treat as NOP
+                panic!(
+                    "Unimplemented opcode: {:02X} at PC={:04X}",
+                    op,
+                    self.regs.pc.wrapping_sub(1)
+                );
             }
         }
     }
 
     /// Execute follow-up for instructions that need immediate/memory data.
     pub(super) fn execute_followup(&mut self) {
+        // Dispatch based on prefix
+        if self.prefix == 0xED {
+            self.execute_ed_followup();
+            return;
+        }
+        if (self.prefix == 0xDD || self.prefix == 0xFD) && self.prefix2 == 0xCB {
+            self.execute_ddcb_fdcb_followup();
+            return;
+        }
+        if self.prefix == 0xDD || self.prefix == 0xFD {
+            self.execute_dd_fd_followup();
+            return;
+        }
+        if self.prefix == 0xCB {
+            self.execute_cb_followup();
+            return;
+        }
+
         let op = self.opcode;
 
         match op {
-            // LD instructions using immediate data
-            0x01 => self.regs.set_bc(u16::from(self.data_lo) | (u16::from(self.data_hi) << 8)),
-            0x06 => self.regs.b = self.data_lo,
-            0x0A => self.regs.a = self.data_lo,
-            0x0E => self.regs.c = self.data_lo,
+            // LD BC, nn
+            0x01 => {
+                self.regs.c = self.data_lo;
+                self.regs.b = self.data_hi;
+            }
+
+            // LD B, n
+            0x06 => {
+                self.regs.b = self.data_lo;
+            }
+
+            // LD C, n
+            0x0E => {
+                self.regs.c = self.data_lo;
+            }
+
+            // DJNZ e (Decrement B and Jump if Not Zero)
             0x10 => {
-                // DJNZ
                 self.regs.b = self.regs.b.wrapping_sub(1);
                 if self.regs.b != 0 {
-                    self.queue_internal(5);
-                    self.regs.pc = self.regs.pc.wrapping_add(self.data_lo as i8 as u16);
+                    self.queue_internal(5); // 5 extra T-states when branch taken
+                    let displacement = self.data_lo as i8;
+                    self.regs.pc = self.regs.pc.wrapping_add(displacement as u16);
                 }
             }
-            0x11 => self.regs.set_de(u16::from(self.data_lo) | (u16::from(self.data_hi) << 8)),
-            0x16 => self.regs.d = self.data_lo,
-            0x18 => {
-                // JR e
-                self.queue_internal(5);
-                self.regs.pc = self.regs.pc.wrapping_add(self.data_lo as i8 as u16);
+
+            // LD D, n
+            0x16 => {
+                self.regs.d = self.data_lo;
             }
-            0x1E => self.regs.e = self.data_lo,
+
+            // LD E, n
+            0x1E => {
+                self.regs.e = self.data_lo;
+            }
+
+            // JR e (unconditional relative jump)
+            0x18 => {
+                // Displacement is signed, add 5 internal cycles for taken jump
+                self.queue_internal(5);
+                let displacement = self.data_lo as i8;
+                self.regs.pc = self.regs.pc.wrapping_add(displacement as u16);
+            }
+
+            // JR NZ, e (relative jump if not zero)
             0x20 => {
-                // JR NZ
                 if self.regs.f & ZF == 0 {
                     self.queue_internal(5);
-                    self.regs.pc = self.regs.pc.wrapping_add(self.data_lo as i8 as u16);
+                    let displacement = self.data_lo as i8;
+                    self.regs.pc = self.regs.pc.wrapping_add(displacement as u16);
                 }
             }
-            0x21 => self.regs.set_hl(u16::from(self.data_lo) | (u16::from(self.data_hi) << 8)),
+
+            // JR Z, e (relative jump if zero)
+            0x28 => {
+                if self.regs.f & ZF != 0 {
+                    self.queue_internal(5);
+                    let displacement = self.data_lo as i8;
+                    self.regs.pc = self.regs.pc.wrapping_add(displacement as u16);
+                }
+            }
+
+            // JR NC, e (relative jump if no carry)
+            0x30 => {
+                if self.regs.f & CF == 0 {
+                    self.queue_internal(5);
+                    let displacement = self.data_lo as i8;
+                    self.regs.pc = self.regs.pc.wrapping_add(displacement as u16);
+                }
+            }
+
+            // JR C, e (relative jump if carry)
+            0x38 => {
+                if self.regs.f & CF != 0 {
+                    self.queue_internal(5);
+                    let displacement = self.data_lo as i8;
+                    self.regs.pc = self.regs.pc.wrapping_add(displacement as u16);
+                }
+            }
+
+            // LD DE, nn
+            0x11 => {
+                self.regs.e = self.data_lo;
+                self.regs.d = self.data_hi;
+            }
+
+            // LD A, (BC)
+            0x0A => {
+                self.regs.a = self.data_lo;
+            }
+
+            // LD A, (DE)
+            0x1A => {
+                self.regs.a = self.data_lo;
+            }
+
+            // LD HL, nn
+            0x21 => {
+                self.regs.l = self.data_lo;
+                self.regs.h = self.data_hi;
+            }
+
+            // LD (nn), HL
             0x22 => {
-                // LD (nn), HL
                 self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
                 self.data_lo = self.regs.l;
                 self.data_hi = self.regs.h;
-                self.micro_ops.push(MicroOp::WriteMem);
-                self.addr = self.addr.wrapping_add(1);
-                let tmp = self.data_hi;
-                self.data_lo = tmp;
-                self.micro_ops.push(MicroOp::WriteMem);
+                self.micro_ops.push(MicroOp::WriteMem16Lo);
+                self.micro_ops.push(MicroOp::WriteMem16Hi);
             }
-            0x26 => self.regs.h = self.data_lo,
-            0x28 => {
-                // JR Z
-                if self.regs.f & ZF != 0 {
-                    self.queue_internal(5);
-                    self.regs.pc = self.regs.pc.wrapping_add(self.data_lo as i8 as u16);
-                }
+
+            // LD H, n
+            0x26 => {
+                self.regs.h = self.data_lo;
             }
+
+            // LD HL, (nn) - second stage: data read from memory, load into HL
+            0x2A if self.followup_stage >= 2 => {
+                self.regs.l = self.data_lo;
+                self.regs.h = self.data_hi;
+            }
+
+            // LD HL, (nn) - first stage: set up memory read from immediate address
             0x2A => {
-                // LD HL, (nn)
                 self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
                 self.micro_ops.push(MicroOp::ReadMem16Lo);
                 self.micro_ops.push(MicroOp::ReadMem16Hi);
                 self.queue_execute_followup();
             }
-            0x2E => self.regs.l = self.data_lo,
-            0x30 => {
-                // JR NC
-                if self.regs.f & CF == 0 {
-                    self.queue_internal(5);
-                    self.regs.pc = self.regs.pc.wrapping_add(self.data_lo as i8 as u16);
-                }
+
+            // LD L, n
+            0x2E => {
+                self.regs.l = self.data_lo;
             }
-            0x31 => self.regs.sp = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8),
+
+            // LD SP, nn
+            0x31 => {
+                self.regs.sp = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+            }
+
+            // INC (HL)
+            0x34 => {
+                self.queue_internal(1); // Extra cycle for read-modify-write
+                let result = alu::inc8(self.data_lo);
+                self.data_lo = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+                self.addr = self.regs.hl();
+                self.micro_ops.push(MicroOp::WriteMem);
+            }
+
+            // DEC (HL)
+            0x35 => {
+                self.queue_internal(1); // Extra cycle for read-modify-write
+                let result = alu::dec8(self.data_lo);
+                self.data_lo = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+                self.addr = self.regs.hl();
+                self.micro_ops.push(MicroOp::WriteMem);
+            }
+
+            // LD (nn), A
             0x32 => {
-                // LD (nn), A
                 self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
                 self.data_lo = self.regs.a;
                 self.micro_ops.push(MicroOp::WriteMem);
             }
-            0x34 => {
-                // INC (HL) - second execute
-                let result = alu::inc8(self.data_lo);
-                self.data_lo = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-                self.micro_ops.push(MicroOp::WriteMem);
+
+            // LD A, (nn) - second stage: load byte into A
+            0x3A if self.followup_stage >= 2 => {
+                self.regs.a = self.data_lo;
             }
-            0x35 => {
-                // DEC (HL) - second execute
-                let result = alu::dec8(self.data_lo);
-                self.data_lo = result.value;
-                self.regs.f = (self.regs.f & CF) | result.flags;
-                self.micro_ops.push(MicroOp::WriteMem);
-            }
-            0x36 => {
-                // LD (HL), n
-                self.addr = self.regs.hl();
-                self.micro_ops.push(MicroOp::WriteMem);
-            }
-            0x38 => {
-                // JR C
-                if self.regs.f & CF != 0 {
-                    self.queue_internal(5);
-                    self.regs.pc = self.regs.pc.wrapping_add(self.data_lo as i8 as u16);
-                }
-            }
+
+            // LD A, (nn) - first stage: set up memory read
             0x3A => {
-                // LD A, (nn) - first stage
                 self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
                 self.micro_ops.push(MicroOp::ReadMem);
                 self.queue_execute_followup();
             }
-            0x3E => self.regs.a = self.data_lo,
+
+            // LD A, n (followup)
+            0x3E => {
+                self.regs.a = self.data_lo;
+            }
+
+            // LD (HL), n
+            0x36 => {
+                self.addr = self.regs.hl();
+                self.micro_ops.push(MicroOp::WriteMem);
+            }
+
+            // LD A, n
+            0x3E => {
+                self.regs.a = self.data_lo;
+            }
 
             // LD r, (HL)
-            0x46 => self.regs.b = self.data_lo,
-            0x4E => self.regs.c = self.data_lo,
-            0x56 => self.regs.d = self.data_lo,
-            0x5E => self.regs.e = self.data_lo,
-            0x66 => self.regs.h = self.data_lo,
-            0x6E => self.regs.l = self.data_lo,
-            0x7E => self.regs.a = self.data_lo,
+            0x46 | 0x4E | 0x56 | 0x5E | 0x66 | 0x6E | 0x7E => {
+                let dst = (op >> 3) & 7;
+                self.set_reg8(dst, self.data_lo);
+            }
 
-            // ALU A, (HL) and ALU A, n
-            0x86 | 0xC6 => {
+            // ADD/ADC/SUB/SBC/AND/XOR/OR/CP (HL)
+            0x86 => {
                 let result = alu::add8(self.regs.a, self.data_lo, false);
                 self.regs.a = result.value;
                 self.regs.f = result.flags;
             }
-            0x8E | 0xCE => {
-                let result = alu::add8(self.regs.a, self.data_lo, self.regs.f & CF != 0);
+            0x8E => {
+                let carry = self.regs.f & CF != 0;
+                let result = alu::add8(self.regs.a, self.data_lo, carry);
                 self.regs.a = result.value;
                 self.regs.f = result.flags;
             }
-            0x96 | 0xD6 => {
+            0x96 => {
                 let result = alu::sub8(self.regs.a, self.data_lo, false);
                 self.regs.a = result.value;
                 self.regs.f = result.flags;
             }
-            0x9E | 0xDE => {
-                let result = alu::sub8(self.regs.a, self.data_lo, self.regs.f & CF != 0);
+            0x9E => {
+                let carry = self.regs.f & CF != 0;
+                let result = alu::sub8(self.regs.a, self.data_lo, carry);
                 self.regs.a = result.value;
                 self.regs.f = result.flags;
             }
-            0xA6 | 0xE6 => {
-                let result = alu::and8(self.regs.a, self.data_lo);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
+            0xA6 => {
+                self.regs.a &= self.data_lo;
+                self.regs.f = sz53p(self.regs.a) | HF;
             }
-            0xAE | 0xEE => {
-                let result = alu::xor8(self.regs.a, self.data_lo);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
+            0xAE => {
+                self.regs.a ^= self.data_lo;
+                self.regs.f = sz53p(self.regs.a);
             }
-            0xB6 | 0xF6 => {
-                let result = alu::or8(self.regs.a, self.data_lo);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
+            0xB6 => {
+                self.regs.a |= self.data_lo;
+                self.regs.f = sz53p(self.regs.a);
             }
-            0xBE | 0xFE => {
-                let result = alu::cp8(self.regs.a, self.data_lo);
-                self.regs.f = result.flags;
+            0xBE => {
+                let result = alu::sub8(self.regs.a, self.data_lo, false);
+                self.regs.f = (result.flags & !(YF | XF)) | (self.data_lo & (YF | XF));
             }
 
-            // RET cc - followup after reading return address
-            0xC0 | 0xC8 | 0xD0 | 0xD8 | 0xE0 | 0xE8 | 0xF0 | 0xF8 => {
+            // RET NZ/Z/NC (conditional returns)
+            0xC0 | 0xC8 | 0xD0 => {
                 self.regs.sp = self.regs.sp.wrapping_add(2);
                 self.regs.pc = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
             }
 
-            // POP rr
+            // POP BC
             0xC1 => {
                 self.regs.sp = self.regs.sp.wrapping_add(2);
-                self.regs.set_bc(u16::from(self.data_lo) | (u16::from(self.data_hi) << 8));
-            }
-            0xD1 => {
-                self.regs.sp = self.regs.sp.wrapping_add(2);
-                self.regs.set_de(u16::from(self.data_lo) | (u16::from(self.data_hi) << 8));
-            }
-            0xE1 => {
-                self.regs.sp = self.regs.sp.wrapping_add(2);
-                self.regs.set_hl(u16::from(self.data_lo) | (u16::from(self.data_hi) << 8));
-            }
-            0xF1 => {
-                self.regs.sp = self.regs.sp.wrapping_add(2);
-                self.regs.set_af(u16::from(self.data_lo) | (u16::from(self.data_hi) << 8));
+                self.regs.c = self.data_lo;
+                self.regs.b = self.data_hi;
             }
 
-            // JP cc, nn and JP nn
-            0xC2 | 0xCA | 0xD2 | 0xDA | 0xE2 | 0xEA | 0xF2 | 0xFA => {
-                let cc = (op >> 3) & 7;
-                if self.condition(cc) {
+            // JP NZ, nn
+            0xC2 => {
+                if self.regs.f & ZF == 0 {
                     self.regs.pc = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
                 }
             }
+
+            // JP nn
             0xC3 => {
                 self.regs.pc = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
             }
 
-            // CALL cc, nn and CALL nn
-            0xC4 | 0xCC | 0xD4 | 0xDC | 0xE4 | 0xEC | 0xF4 | 0xFC => {
-                let cc = (op >> 3) & 7;
-                if self.condition(cc) {
+            // ADD A, n
+            0xC6 => {
+                let result = alu::add8(self.regs.a, self.data_lo, false);
+                self.regs.a = result.value;
+                self.regs.f = result.flags;
+            }
+
+            // ADC A, n
+            0xCE => {
+                let carry = self.regs.f & CF != 0;
+                let result = alu::add8(self.regs.a, self.data_lo, carry);
+                self.regs.a = result.value;
+                self.regs.f = result.flags;
+            }
+
+            // RET
+            0xC9 => {
+                let ret_addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.regs.sp = self.regs.sp.wrapping_add(2);
+                self.regs.pc = ret_addr;
+            }
+
+            // JP Z, nn
+            0xCA => {
+                if self.regs.f & ZF != 0 {
+                    self.regs.pc = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                }
+            }
+
+            // CALL NZ, nn
+            0xC4 => {
+                // Save target address before we overwrite data_lo/data_hi
+                let target = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                if self.regs.f & ZF == 0 {
                     self.queue_internal(1);
-                    self.data_hi = (self.regs.pc >> 8) as u8;
-                    let tmp = self.regs.pc as u8;
-                    let target = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
-                    self.data_hi = (self.regs.pc >> 8) as u8;
-                    self.data_lo = tmp;
+                    // WriteMemHiFirst/WriteMemLoSecond handle SP decrement
+                    let ret_addr = self.regs.pc;
+                    self.data_hi = (ret_addr >> 8) as u8;
+                    self.data_lo = ret_addr as u8;
                     self.micro_ops.push(MicroOp::WriteMemHiFirst);
                     self.micro_ops.push(MicroOp::WriteMemLoSecond);
                     self.regs.pc = target;
                 }
             }
+
+            // CALL nn
             0xCD => {
-                self.queue_internal(1);
+                // Save target address before we overwrite data_lo/data_hi
                 let target = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
-                self.data_hi = (self.regs.pc >> 8) as u8;
-                self.data_lo = self.regs.pc as u8;
+                self.queue_internal(1);
+                // WriteMemHiFirst/WriteMemLoSecond handle SP decrement
+                let ret_addr = self.regs.pc;
+                self.data_hi = (ret_addr >> 8) as u8;
+                self.data_lo = ret_addr as u8;
                 self.micro_ops.push(MicroOp::WriteMemHiFirst);
                 self.micro_ops.push(MicroOp::WriteMemLoSecond);
                 self.regs.pc = target;
             }
 
-            // RET
-            0xC9 => {
+            // POP DE
+            0xD1 => {
+                self.regs.sp = self.regs.sp.wrapping_add(2);
+                self.regs.e = self.data_lo;
+                self.regs.d = self.data_hi;
+            }
+
+            // JP NC, nn
+            0xD2 => {
+                if self.regs.f & CF == 0 {
+                    self.regs.pc = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                }
+            }
+
+            // CALL NC, nn
+            0xD4 => {
+                // Save target address before we overwrite data_lo/data_hi
+                let target = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                if self.regs.f & CF == 0 {
+                    self.queue_internal(1);
+                    // WriteMemHiFirst/WriteMemLoSecond handle SP decrement
+                    let ret_addr = self.regs.pc;
+                    self.data_hi = (ret_addr >> 8) as u8;
+                    self.data_lo = ret_addr as u8;
+                    self.micro_ops.push(MicroOp::WriteMemHiFirst);
+                    self.micro_ops.push(MicroOp::WriteMemLoSecond);
+                    self.regs.pc = target;
+                }
+            }
+
+            // RET C (conditional return)
+            0xD8 => {
                 self.regs.sp = self.regs.sp.wrapping_add(2);
                 self.regs.pc = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
             }
 
-            // OUT (n), A
-            0xD3 => {
-                self.addr = u16::from(self.data_lo) | (u16::from(self.regs.a) << 8);
-                self.data_lo = self.regs.a;
-                self.micro_ops.push(MicroOp::IoWrite);
+            // JP C, nn
+            0xDA => {
+                if self.regs.f & CF != 0 {
+                    self.regs.pc = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                }
             }
 
-            // IN A, (n)
-            0xDB => {
-                self.addr = u16::from(self.data_lo) | (u16::from(self.regs.a) << 8);
-                self.micro_ops.push(MicroOp::IoRead);
-                self.queue_execute_followup();
+            // CALL C, nn
+            0xDC => {
+                // Save target address before we overwrite data_lo/data_hi
+                let target = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                if self.regs.f & CF != 0 {
+                    self.queue_internal(1);
+                    let ret_addr = self.regs.pc;
+                    self.data_hi = (ret_addr >> 8) as u8;
+                    self.data_lo = ret_addr as u8;
+                    self.micro_ops.push(MicroOp::WriteMemHiFirst);
+                    self.micro_ops.push(MicroOp::WriteMemLoSecond);
+                    self.regs.pc = target;
+                }
             }
 
-            // EX (SP), HL
-            0xE3 => {
-                let old_hl = self.regs.hl();
-                self.regs.set_hl(u16::from(self.data_lo) | (u16::from(self.data_hi) << 8));
-                self.data_lo = old_hl as u8;
-                self.data_hi = (old_hl >> 8) as u8;
-                self.addr = self.regs.sp;
-                self.micro_ops.push(MicroOp::WriteMem);
-                self.addr = self.regs.sp.wrapping_add(1);
-                let hi = self.data_hi;
-                self.data_lo = hi;
-                self.micro_ops.push(MicroOp::WriteMem);
-                self.queue_internal(2);
-            }
-
-            _ => {}
-        }
-    }
-
-    /// Execute ALU operation.
-    fn execute_alu(&mut self, alu_op: u8, value: u8) {
-        match alu_op {
-            0 => {
-                // ADD
-                let result = alu::add8(self.regs.a, value, false);
+            // SUB n
+            0xD6 => {
+                let result = alu::sub8(self.regs.a, self.data_lo, false);
                 self.regs.a = result.value;
                 self.regs.f = result.flags;
             }
-            1 => {
-                // ADC
-                let result = alu::add8(self.regs.a, value, self.regs.f & CF != 0);
+
+            // SBC A, n
+            0xDE => {
+                let carry = self.regs.f & CF != 0;
+                let result = alu::sub8(self.regs.a, self.data_lo, carry);
                 self.regs.a = result.value;
                 self.regs.f = result.flags;
             }
-            2 => {
-                // SUB
-                let result = alu::sub8(self.regs.a, value, false);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
-            }
-            3 => {
-                // SBC
-                let result = alu::sub8(self.regs.a, value, self.regs.f & CF != 0);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
-            }
-            4 => {
-                // AND
-                let result = alu::and8(self.regs.a, value);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
-            }
-            5 => {
-                // XOR
-                let result = alu::xor8(self.regs.a, value);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
-            }
-            6 => {
-                // OR
-                let result = alu::or8(self.regs.a, value);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
-            }
-            7 => {
-                // CP
-                let result = alu::cp8(self.regs.a, value);
-                self.regs.f = result.flags;
-            }
-            _ => unreachable!(),
-        }
-    }
 
-    /// DAA instruction - decimal adjust accumulator.
-    fn execute_daa(&mut self) {
-        let a = self.regs.a;
-        let flags = self.regs.f;
-        let n_flag = flags & NF != 0;
-        let c_flag = flags & CF != 0;
-        let h_flag = flags & HF != 0;
-
-        let mut correction = 0u8;
-        let mut carry = false;
-
-        // Determine correction based on current value and flags
-        if h_flag || (!n_flag && (a & 0x0F) > 9) {
-            correction |= 0x06;
-        }
-        if c_flag || (!n_flag && a > 0x99) {
-            correction |= 0x60;
-            carry = true;
-        }
-
-        // Apply correction
-        let result = if n_flag {
-            a.wrapping_sub(correction)
-        } else {
-            a.wrapping_add(correction)
-        };
-
-        // Build flags
-        let mut new_flags = flags & NF; // Preserve N flag
-
-        if result == 0 {
-            new_flags |= ZF;
-        }
-        if result & 0x80 != 0 {
-            new_flags |= SF;
-        }
-        new_flags |= result & (YF | XF);
-        if result.count_ones().is_multiple_of(2) {
-            new_flags |= PF;
-        }
-        if carry {
-            new_flags |= CF;
-        }
-
-        // HF: set if lower nibble adjustment caused borrow/carry
-        if n_flag {
-            // After subtraction: HF = old_HF AND (lower nibble of result < 6)
-            if h_flag && (result & 0x0F) < 6 {
-                new_flags |= HF;
+            // POP HL
+            0xE1 => {
+                self.regs.sp = self.regs.sp.wrapping_add(2);
+                self.regs.l = self.data_lo;
+                self.regs.h = self.data_hi;
             }
-        } else {
-            // After addition: HF = lower nibble of original > 9
-            if (a & 0x0F) > 9 {
-                new_flags |= HF;
+
+            // AND n
+            0xE6 => {
+                self.regs.a &= self.data_lo;
+                self.regs.f = sz53p(self.regs.a) | HF;
+            }
+
+            // XOR n
+            0xEE => {
+                self.regs.a ^= self.data_lo;
+                self.regs.f = sz53p(self.regs.a);
+            }
+
+            // POP AF
+            0xF1 => {
+                self.regs.sp = self.regs.sp.wrapping_add(2);
+                self.regs.f = self.data_lo;
+                self.regs.a = self.data_hi;
+            }
+
+            // OR n
+            0xF6 => {
+                self.regs.a |= self.data_lo;
+                self.regs.f = sz53p(self.regs.a);
+            }
+
+            // CP n
+            0xFE => {
+                let result = alu::sub8(self.regs.a, self.data_lo, false);
+                self.regs.f = (result.flags & !(YF | XF)) | (self.data_lo & (YF | XF));
+            }
+
+            _ => {
+                panic!(
+                    "Unimplemented followup: opcode={:02X} PC={:04X}",
+                    op, self.regs.pc
+                );
             }
         }
-
-        self.regs.a = result;
-        self.regs.f = new_flags;
     }
 
     /// Execute CB-prefixed instruction.
@@ -1130,8 +1403,8 @@ impl Z80 {
         let op = self.opcode;
         let r = op & 7;
 
+        // For (HL) operations, need memory access
         if r == 6 {
-            // (HL) operations need memory access
             self.addr = self.regs.hl();
             self.micro_ops.push(MicroOp::ReadMem);
             self.queue_internal(1);
@@ -1139,55 +1412,107 @@ impl Z80 {
             return;
         }
 
+        // Register operations
         let value = self.get_reg8(r);
-        let result = self.execute_cb_op(op, value);
+        let result = self.execute_cb_operation(op, value);
+
         if let Some(res) = result {
             self.set_reg8(r, res);
         }
     }
 
-    /// Execute CB operation on value.
-    fn execute_cb_op(&mut self, op: u8, value: u8) -> Option<u8> {
-        let bit = (op >> 3) & 7;
+    /// Execute CB-prefixed followup for (HL) operations.
+    fn execute_cb_followup(&mut self) {
+        let op = self.opcode;
+        let value = self.data_lo;
 
-        match op >> 6 {
-            0 => {
-                // Rotates/shifts
-                let result = match bit {
-                    0 => alu::rlc8(value),
-                    1 => alu::rrc8(value),
-                    2 => alu::rl8(value, self.regs.f & CF != 0),
-                    3 => alu::rr8(value, self.regs.f & CF != 0),
-                    4 => alu::sla8(value),
-                    5 => alu::sra8(value),
-                    6 => alu::sll8(value), // Undocumented
-                    7 => alu::srl8(value),
-                    _ => unreachable!(),
-                };
-                self.regs.f = result.flags;
-                Some(result.value)
+        let result = self.execute_cb_operation(op, value);
+
+        // Write back if not BIT operation
+        if let Some(res) = result {
+            self.data_lo = res;
+            self.micro_ops.push(MicroOp::WriteMem);
+        }
+    }
+
+    /// Execute CB operation, returns Some(result) for write-back or None for BIT.
+    fn execute_cb_operation(&mut self, op: u8, value: u8) -> Option<u8> {
+        match op & 0xF8 {
+            // RLC
+            0x00 => {
+                let res = alu::rlc8(value);
+                self.regs.f = res.flags;
+                Some(res.value)
             }
-            1 => {
-                // BIT
+            // RRC
+            0x08 => {
+                let res = alu::rrc8(value);
+                self.regs.f = res.flags;
+                Some(res.value)
+            }
+            // RL
+            0x10 => {
+                let res = alu::rl8(value, self.regs.f & CF != 0);
+                self.regs.f = res.flags;
+                Some(res.value)
+            }
+            // RR
+            0x18 => {
+                let res = alu::rr8(value, self.regs.f & CF != 0);
+                self.regs.f = res.flags;
+                Some(res.value)
+            }
+            // SLA
+            0x20 => {
+                let res = alu::sla8(value);
+                self.regs.f = res.flags;
+                Some(res.value)
+            }
+            // SRA
+            0x28 => {
+                let res = alu::sra8(value);
+                self.regs.f = res.flags;
+                Some(res.value)
+            }
+            // SLL (undocumented)
+            0x30 => {
+                let res = alu::sll8(value);
+                self.regs.f = res.flags;
+                Some(res.value)
+            }
+            // SRL
+            0x38 => {
+                let res = alu::srl8(value);
+                self.regs.f = res.flags;
+                Some(res.value)
+            }
+            // BIT
+            0x40 | 0x48 | 0x50 | 0x58 | 0x60 | 0x68 | 0x70 | 0x78 => {
+                let bit = (op >> 3) & 7;
                 let mask = 1 << bit;
-                let result = value & mask;
-                let mut flags = (self.regs.f & CF) | HF;
-                if result == 0 {
-                    flags |= ZF | PF;
+                let is_zero = value & mask == 0;
+
+                let mut flags = self.regs.f & CF; // Preserve carry
+                flags |= HF; // H is set
+                if is_zero {
+                    flags |= ZF | PF; // Z and P/V are set if bit is 0
                 }
-                if bit == 7 && result != 0 {
-                    flags |= SF;
+                if bit == 7 && !is_zero {
+                    flags |= SF; // S is set if bit 7 is tested and is 1
                 }
-                flags |= value & (YF | XF);
+                // Undocumented: X and Y flags from tested value
+                flags |= value & (XF | YF);
                 self.regs.f = flags;
-                None
+                None // BIT doesn't write back
             }
-            2 => {
-                // RES
+            // RES
+            0x80 | 0x88 | 0x90 | 0x98 | 0xA0 | 0xA8 | 0xB0 | 0xB8 => {
+                let bit = (op >> 3) & 7;
                 Some(value & !(1 << bit))
             }
-            3 => {
-                // SET
+            // SET
+            0xC0 | 0xC8 | 0xD0 | 0xD8 | 0xE0 | 0xE8 | 0xF0 | 0xF8 => {
+                let bit = (op >> 3) & 7;
                 Some(value | (1 << bit))
             }
             _ => unreachable!(),
@@ -1196,203 +1521,619 @@ impl Z80 {
 
     /// Execute DD/FD-prefixed instruction.
     pub(super) fn execute_dd_fd(&mut self) {
-        // Most DD/FD instructions are just HL -> IX/IY substitution
-        // For now, delegate to unprefixed with index register awareness
         let op = self.opcode;
+        let is_iy = self.prefix == 0xFD;
 
         match op {
-            // ADD IX/IY, rr
-            0x09 => {
-                self.queue_internal(7);
-                let (result, flags) = alu::add16(self.get_index_reg(), self.regs.bc());
-                self.set_index_reg(result);
-                self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
-            }
-            0x19 => {
-                self.queue_internal(7);
-                let (result, flags) = alu::add16(self.get_index_reg(), self.regs.de());
-                self.set_index_reg(result);
-                self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
-            }
-            0x21 => {
-                // LD IX/IY, nn
-                self.micro_ops.push(MicroOp::ReadImm16Lo);
-                self.micro_ops.push(MicroOp::ReadImm16Hi);
-                self.queue_execute_followup();
-            }
-            0x22 => {
-                // LD (nn), IX/IY
-                self.micro_ops.push(MicroOp::ReadImm16Lo);
-                self.micro_ops.push(MicroOp::ReadImm16Hi);
-                self.queue_execute_followup();
-            }
-            0x23 => {
-                // INC IX/IY
-                self.queue_internal(2);
-                self.set_index_reg(self.get_index_reg().wrapping_add(1));
-            }
-            0x29 => {
-                self.queue_internal(7);
-                let idx = self.get_index_reg();
-                let (result, flags) = alu::add16(idx, idx);
-                self.set_index_reg(result);
-                self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
-            }
-            0x2A => {
-                // LD IX/IY, (nn)
-                self.micro_ops.push(MicroOp::ReadImm16Lo);
-                self.micro_ops.push(MicroOp::ReadImm16Hi);
-                self.queue_execute_followup();
-            }
-            0x2B => {
-                // DEC IX/IY
-                self.queue_internal(2);
-                self.set_index_reg(self.get_index_reg().wrapping_sub(1));
-            }
-            0x39 => {
-                self.queue_internal(7);
-                let (result, flags) = alu::add16(self.get_index_reg(), self.regs.sp);
-                self.set_index_reg(result);
-                self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
-            }
+            // POP IX/IY
             0xE1 => {
-                // POP IX/IY
                 self.addr = self.regs.sp;
                 self.micro_ops.push(MicroOp::ReadMem16Lo);
                 self.micro_ops.push(MicroOp::ReadMem16Hi);
                 self.queue_execute_followup();
             }
-            0xE3 => {
-                // EX (SP), IX/IY
-                self.addr = self.regs.sp;
-                self.micro_ops.push(MicroOp::ReadMem16Lo);
-                self.micro_ops.push(MicroOp::ReadMem16Hi);
-                self.queue_internal(1);
-                self.queue_execute_followup();
-            }
+
+            // PUSH IX/IY
             0xE5 => {
-                // PUSH IX/IY
                 self.queue_internal(1);
-                let val = self.get_index_reg();
-                self.data_hi = (val >> 8) as u8;
-                self.data_lo = val as u8;
+                // WriteMemHiFirst/WriteMemLoSecond handle SP decrement
+                if is_iy {
+                    self.data_hi = (self.regs.iy >> 8) as u8;
+                    self.data_lo = self.regs.iy as u8;
+                } else {
+                    self.data_hi = (self.regs.ix >> 8) as u8;
+                    self.data_lo = self.regs.ix as u8;
+                }
                 self.micro_ops.push(MicroOp::WriteMemHiFirst);
                 self.micro_ops.push(MicroOp::WriteMemLoSecond);
             }
-            0xE9 => {
-                // JP (IX/IY)
-                self.regs.pc = self.get_index_reg();
+
+            // ADD IX/IY, BC
+            0x09 => {
+                self.queue_internal(7);
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                let (result, flags) = alu::add16(idx, self.regs.bc());
+                if is_iy {
+                    self.regs.iy = result;
+                } else {
+                    self.regs.ix = result;
+                }
+                self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
             }
-            0xF9 => {
-                // LD SP, IX/IY
+
+            // ADD IX/IY, DE
+            0x19 => {
+                self.queue_internal(7);
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                let (result, flags) = alu::add16(idx, self.regs.de());
+                if is_iy {
+                    self.regs.iy = result;
+                } else {
+                    self.regs.ix = result;
+                }
+                self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
+            }
+
+            // LD IX/IY, nn
+            0x21 => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // LD (nnnn), IX/IY
+            0x22 => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // LD IX/IY, (nnnn)
+            0x2A => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // INC IX/IY
+            0x23 => {
                 self.queue_internal(2);
-                self.regs.sp = self.get_index_reg();
+                if is_iy {
+                    self.regs.iy = self.regs.iy.wrapping_add(1);
+                } else {
+                    self.regs.ix = self.regs.ix.wrapping_add(1);
+                }
             }
 
-            // Undocumented IXH/IXL/IYH/IYL operations
+            // DEC IX/IY
+            0x2B => {
+                self.queue_internal(2);
+                if is_iy {
+                    self.regs.iy = self.regs.iy.wrapping_sub(1);
+                } else {
+                    self.regs.ix = self.regs.ix.wrapping_sub(1);
+                }
+            }
+
+            // ADD IX/IY, IX/IY
+            0x29 => {
+                self.queue_internal(7);
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                let (result, flags) = alu::add16(idx, idx);
+                if is_iy {
+                    self.regs.iy = result;
+                } else {
+                    self.regs.ix = result;
+                }
+                self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
+            }
+
+            // ADD IX/IY, SP
+            0x39 => {
+                self.queue_internal(7);
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                let (result, flags) = alu::add16(idx, self.regs.sp);
+                if is_iy {
+                    self.regs.iy = result;
+                } else {
+                    self.regs.ix = result;
+                }
+                self.regs.f = (self.regs.f & (SF | ZF | PF)) | flags;
+            }
+
+            // ALU operations with IXH/IXL/IYH/IYL (undocumented)
+            // ADD A, IXH/IXL
+            0x84 | 0x85 => {
+                let value = if op == 0x84 {
+                    if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }
+                } else {
+                    if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }
+                };
+                let result = alu::add8(self.regs.a, value, false);
+                self.regs.a = result.value;
+                self.regs.f = result.flags;
+            }
+
+            // ADC A, IXH/IXL
+            0x8C | 0x8D => {
+                let value = if op == 0x8C {
+                    if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }
+                } else {
+                    if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }
+                };
+                let carry = self.regs.f & CF != 0;
+                let result = alu::add8(self.regs.a, value, carry);
+                self.regs.a = result.value;
+                self.regs.f = result.flags;
+            }
+
+            // SUB IXH/IXL
+            0x94 | 0x95 => {
+                let value = if op == 0x94 {
+                    if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }
+                } else {
+                    if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }
+                };
+                let result = alu::sub8(self.regs.a, value, false);
+                self.regs.a = result.value;
+                self.regs.f = result.flags;
+            }
+
+            // SBC A, IXH/IXL
+            0x9C | 0x9D => {
+                let value = if op == 0x9C {
+                    if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }
+                } else {
+                    if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }
+                };
+                let carry = self.regs.f & CF != 0;
+                let result = alu::sub8(self.regs.a, value, carry);
+                self.regs.a = result.value;
+                self.regs.f = result.flags;
+            }
+
+            // AND IXH/IXL
+            0xA4 | 0xA5 => {
+                let value = if op == 0xA4 {
+                    if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }
+                } else {
+                    if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }
+                };
+                self.regs.a &= value;
+                self.regs.f = sz53p(self.regs.a) | HF;
+            }
+
+            // XOR IXH/IXL
+            0xAC | 0xAD => {
+                let value = if op == 0xAC {
+                    if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }
+                } else {
+                    if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }
+                };
+                self.regs.a ^= value;
+                self.regs.f = sz53p(self.regs.a);
+            }
+
+            // OR IXH/IXL
+            0xB4 | 0xB5 => {
+                let value = if op == 0xB4 {
+                    if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }
+                } else {
+                    if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }
+                };
+                self.regs.a |= value;
+                self.regs.f = sz53p(self.regs.a);
+            }
+
+            // CP IXH/IXL
+            0xBC | 0xBD => {
+                let value = if op == 0xBC {
+                    if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }
+                } else {
+                    if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }
+                };
+                let result = alu::sub8(self.regs.a, value, false);
+                self.regs.f = (result.flags & !(YF | XF)) | (value & (YF | XF));
+            }
+
+            // INC IXH/IYH (undocumented)
             0x24 => {
-                // INC IXH/IYH
-                let val = (self.get_index_reg() >> 8) as u8;
-                let result = alu::inc8(val);
-                self.set_reg8_indexed(4, result.value);
+                let value = if is_iy {
+                    (self.regs.iy >> 8) as u8
+                } else {
+                    (self.regs.ix >> 8) as u8
+                };
+                let result = alu::inc8(value);
+                if is_iy {
+                    self.regs.iy = (self.regs.iy & 0x00FF) | ((result.value as u16) << 8);
+                } else {
+                    self.regs.ix = (self.regs.ix & 0x00FF) | ((result.value as u16) << 8);
+                }
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
+
+            // DEC IXH/IYH (undocumented)
             0x25 => {
-                // DEC IXH/IYH
-                let val = (self.get_index_reg() >> 8) as u8;
-                let result = alu::dec8(val);
-                self.set_reg8_indexed(4, result.value);
+                let value = if is_iy {
+                    (self.regs.iy >> 8) as u8
+                } else {
+                    (self.regs.ix >> 8) as u8
+                };
+                let result = alu::dec8(value);
+                if is_iy {
+                    self.regs.iy = (self.regs.iy & 0x00FF) | ((result.value as u16) << 8);
+                } else {
+                    self.regs.ix = (self.regs.ix & 0x00FF) | ((result.value as u16) << 8);
+                }
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
-            0x26 => {
-                // LD IXH/IYH, n
-                self.micro_ops.push(MicroOp::ReadImm8);
-                self.queue_execute_followup();
-            }
+
+            // INC IXL/IYL (undocumented)
             0x2C => {
-                // INC IXL/IYL
-                let val = self.get_index_reg() as u8;
-                let result = alu::inc8(val);
-                self.set_reg8_indexed(5, result.value);
+                let value = if is_iy {
+                    self.regs.iy as u8
+                } else {
+                    self.regs.ix as u8
+                };
+                let result = alu::inc8(value);
+                if is_iy {
+                    self.regs.iy = (self.regs.iy & 0xFF00) | (result.value as u16);
+                } else {
+                    self.regs.ix = (self.regs.ix & 0xFF00) | (result.value as u16);
+                }
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
+
+            // DEC IXL/IYL (undocumented)
             0x2D => {
-                // DEC IXL/IYL
-                let val = self.get_index_reg() as u8;
-                let result = alu::dec8(val);
-                self.set_reg8_indexed(5, result.value);
+                let value = if is_iy {
+                    self.regs.iy as u8
+                } else {
+                    self.regs.ix as u8
+                };
+                let result = alu::dec8(value);
+                if is_iy {
+                    self.regs.iy = (self.regs.iy & 0xFF00) | (result.value as u16);
+                } else {
+                    self.regs.ix = (self.regs.ix & 0xFF00) | (result.value as u16);
+                }
                 self.regs.f = (self.regs.f & CF) | result.flags;
             }
-            0x2E => {
-                // LD IXL/IYL, n
+
+            // INC (IX+d)/(IY+d)
+            0x34 => {
+                self.micro_ops.push(MicroOp::FetchDisplacement);
+                self.queue_execute_followup();
+            }
+
+            // DEC (IX+d)/(IY+d)
+            0x35 => {
+                self.micro_ops.push(MicroOp::FetchDisplacement);
+                self.queue_execute_followup();
+            }
+
+            // LD (IX+d)/(IY+d), n
+            0x36 => {
+                self.micro_ops.push(MicroOp::FetchDisplacement);
                 self.micro_ops.push(MicroOp::ReadImm8);
                 self.queue_execute_followup();
             }
 
-            // LD r, IXH/IXL/IYH/IYL (undocumented)
-            0x44 => self.regs.b = self.get_reg8_indexed(4), // LD B, IXH
-            0x45 => self.regs.b = self.get_reg8_indexed(5), // LD B, IXL
-            0x4C => self.regs.c = self.get_reg8_indexed(4), // LD C, IXH
-            0x4D => self.regs.c = self.get_reg8_indexed(5), // LD C, IXL
-            0x54 => self.regs.d = self.get_reg8_indexed(4), // LD D, IXH
-            0x55 => self.regs.d = self.get_reg8_indexed(5), // LD D, IXL
-            0x5C => self.regs.e = self.get_reg8_indexed(4), // LD E, IXH
-            0x5D => self.regs.e = self.get_reg8_indexed(5), // LD E, IXL
-            0x60 => self.set_reg8_indexed(4, self.regs.b),  // LD IXH, B
-            0x61 => self.set_reg8_indexed(4, self.regs.c),  // LD IXH, C
-            0x62 => self.set_reg8_indexed(4, self.regs.d),  // LD IXH, D
-            0x63 => self.set_reg8_indexed(4, self.regs.e),  // LD IXH, E
-            0x64 => {} // LD IXH, IXH - no-op
-            0x65 => {
-                // LD IXH, IXL
-                let val = self.get_reg8_indexed(5);
-                self.set_reg8_indexed(4, val);
+            // LD IXH/IYH, n (undocumented)
+            0x26 => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
             }
-            0x67 => self.set_reg8_indexed(4, self.regs.a), // LD IXH, A
-            0x68 => self.set_reg8_indexed(5, self.regs.b), // LD IXL, B
-            0x69 => self.set_reg8_indexed(5, self.regs.c), // LD IXL, C
-            0x6A => self.set_reg8_indexed(5, self.regs.d), // LD IXL, D
-            0x6B => self.set_reg8_indexed(5, self.regs.e), // LD IXL, E
-            0x6C => {
-                // LD IXL, IXH
-                let val = self.get_reg8_indexed(4);
-                self.set_reg8_indexed(5, val);
+
+            // LD IXL/IYL, n (undocumented)
+            0x2E => {
+                self.micro_ops.push(MicroOp::ReadImm8);
+                self.queue_execute_followup();
             }
-            0x6D => {} // LD IXL, IXL - no-op
-            0x6F => self.set_reg8_indexed(5, self.regs.a), // LD IXL, A
-            0x7C => self.regs.a = self.get_reg8_indexed(4), // LD A, IXH
-            0x7D => self.regs.a = self.get_reg8_indexed(5), // LD A, IXL
 
-            // ALU A, IXH/IXL/IYH/IYL (undocumented)
-            0x84 => self.execute_alu(0, self.get_reg8_indexed(4)), // ADD A, IXH
-            0x85 => self.execute_alu(0, self.get_reg8_indexed(5)), // ADD A, IXL
-            0x8C => self.execute_alu(1, self.get_reg8_indexed(4)), // ADC A, IXH
-            0x8D => self.execute_alu(1, self.get_reg8_indexed(5)), // ADC A, IXL
-            0x94 => self.execute_alu(2, self.get_reg8_indexed(4)), // SUB IXH
-            0x95 => self.execute_alu(2, self.get_reg8_indexed(5)), // SUB IXL
-            0x9C => self.execute_alu(3, self.get_reg8_indexed(4)), // SBC A, IXH
-            0x9D => self.execute_alu(3, self.get_reg8_indexed(5)), // SBC A, IXL
-            0xA4 => self.execute_alu(4, self.get_reg8_indexed(4)), // AND IXH
-            0xA5 => self.execute_alu(4, self.get_reg8_indexed(5)), // AND IXL
-            0xAC => self.execute_alu(5, self.get_reg8_indexed(4)), // XOR IXH
-            0xAD => self.execute_alu(5, self.get_reg8_indexed(5)), // XOR IXL
-            0xB4 => self.execute_alu(6, self.get_reg8_indexed(4)), // OR IXH
-            0xB5 => self.execute_alu(6, self.get_reg8_indexed(5)), // OR IXL
-            0xBC => self.execute_alu(7, self.get_reg8_indexed(4)), // CP IXH
-            0xBD => self.execute_alu(7, self.get_reg8_indexed(5)), // CP IXL
+            // LD r, (IX+d)/(IY+d) - B, C, D, E, H, L, A
+            0x46 | 0x4E | 0x56 | 0x5E | 0x66 | 0x6E | 0x7E => {
+                self.micro_ops.push(MicroOp::FetchDisplacement);
+                self.queue_execute_followup();
+            }
 
-            // Instructions with displacement (IX+d)/(IY+d)
-            0x34 | 0x35 | 0x36 | 0x46 | 0x4E | 0x56 | 0x5E | 0x66 | 0x6E | 0x70..=0x77 | 0x7E
-            | 0x86 | 0x8E | 0x96 | 0x9E | 0xA6 | 0xAE | 0xB6 | 0xBE => {
-                // Need to fetch displacement
+            // LD (IX+d)/(IY+d), r - B, C, D, E, H, L, A
+            0x70 | 0x71 | 0x72 | 0x73 | 0x74 | 0x75 | 0x77 => {
+                self.micro_ops.push(MicroOp::FetchDisplacement);
+                self.queue_execute_followup();
+            }
+
+            // Undocumented LD r, r' with IXH/IXL/IYH/IYL substitution
+            // Excludes: 0x46/4E/56/5E/66/6E/7E (LD r,(IX+d)) and 0x76 (HALT)
+            0x40..=0x7F => {
+                let src = op & 0x07;
+                let dst = (op >> 3) & 0x07;
+                // 6 = (HL) which uses indexed addressing (already handled above)
+                // This handles all other register-to-register loads with IXH/IXL substitution
+                let src_val = match src {
+                    0 => self.regs.b,
+                    1 => self.regs.c,
+                    2 => self.regs.d,
+                    3 => self.regs.e,
+                    4 => if is_iy { (self.regs.iy >> 8) as u8 } else { (self.regs.ix >> 8) as u8 }, // IXH/IYH
+                    5 => if is_iy { self.regs.iy as u8 } else { self.regs.ix as u8 }, // IXL/IYL
+                    7 => self.regs.a,
+                    _ => unreachable!(), // 6 is handled by other patterns
+                };
+                match dst {
+                    0 => self.regs.b = src_val,
+                    1 => self.regs.c = src_val,
+                    2 => self.regs.d = src_val,
+                    3 => self.regs.e = src_val,
+                    4 => {
+                        // IXH/IYH
+                        if is_iy {
+                            self.regs.iy = (self.regs.iy & 0x00FF) | ((src_val as u16) << 8);
+                        } else {
+                            self.regs.ix = (self.regs.ix & 0x00FF) | ((src_val as u16) << 8);
+                        }
+                    }
+                    5 => {
+                        // IXL/IYL
+                        if is_iy {
+                            self.regs.iy = (self.regs.iy & 0xFF00) | (src_val as u16);
+                        } else {
+                            self.regs.ix = (self.regs.ix & 0xFF00) | (src_val as u16);
+                        }
+                    }
+                    7 => self.regs.a = src_val,
+                    _ => unreachable!(), // 6 is handled by other patterns
+                }
+            }
+
+            // ALU operations with (IX+d)/(IY+d)
+            0x86 | 0x8E | 0x96 | 0x9E | 0xA6 | 0xAE | 0xB6 | 0xBE => {
                 self.micro_ops.push(MicroOp::FetchDisplacement);
                 self.queue_execute_followup();
             }
 
             _ => {
-                // Unknown DD/FD prefixed - execute as if unprefixed (prefix ignored)
-                self.prefix = 0;
-                self.execute_unprefixed();
+                panic!(
+                    "Unimplemented DD/FD opcode: {:02X} (prefix={:02X}) at PC={:04X}",
+                    op,
+                    self.prefix,
+                    self.regs.pc.wrapping_sub(2)
+                );
+            }
+        }
+    }
+
+    /// Execute DD/FD followup.
+    fn execute_dd_fd_followup(&mut self) {
+        let op = self.opcode;
+        let is_iy = self.prefix == 0xFD;
+
+        match op {
+            // POP IX/IY
+            0xE1 => {
+                self.regs.sp = self.regs.sp.wrapping_add(2);
+                let value = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                if is_iy {
+                    self.regs.iy = value;
+                } else {
+                    self.regs.ix = value;
+                }
+            }
+
+            // LD IX/IY, nn
+            0x21 => {
+                let value = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                if is_iy {
+                    self.regs.iy = value;
+                } else {
+                    self.regs.ix = value;
+                }
+            }
+
+            // LD IXH/IYH, n (undocumented)
+            0x26 => {
+                if is_iy {
+                    self.regs.iy = (self.regs.iy & 0x00FF) | ((self.data_lo as u16) << 8);
+                } else {
+                    self.regs.ix = (self.regs.ix & 0x00FF) | ((self.data_lo as u16) << 8);
+                }
+            }
+
+            // LD IXL/IYL, n (undocumented)
+            0x2E => {
+                if is_iy {
+                    self.regs.iy = (self.regs.iy & 0xFF00) | (self.data_lo as u16);
+                } else {
+                    self.regs.ix = (self.regs.ix & 0xFF00) | (self.data_lo as u16);
+                }
+            }
+
+            // LD (nnnn), IX/IY - stage 1: queue writes
+            0x22 => {
+                let addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                self.addr = addr;
+                self.data_lo = idx as u8;
+                self.data_hi = (idx >> 8) as u8;
+                self.micro_ops.push(MicroOp::WriteMem16Lo);
+                self.micro_ops.push(MicroOp::WriteMem16Hi);
+            }
+
+            // LD IX/IY, (nnnn) - stage 2: store data to register
+            0x2A if self.followup_stage >= 2 => {
+                let value = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                if is_iy {
+                    self.regs.iy = value;
+                } else {
+                    self.regs.ix = value;
+                }
+            }
+
+            // LD IX/IY, (nnnn) - stage 1: queue memory reads
+            0x2A => {
+                let addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.addr = addr;
+                self.micro_ops.push(MicroOp::ReadMem16Lo);
+                self.micro_ops.push(MicroOp::ReadMem16Hi);
+                self.queue_execute_followup();
+            }
+
+            // ALU (IX+d)/(IY+d) - stage 2: perform ALU operation
+            0x86 | 0x8E | 0x96 | 0x9E | 0xA6 | 0xAE | 0xB6 | 0xBE
+                if self.followup_stage >= 2 =>
+            {
+                let value = self.data_lo;
+                match op {
+                    0x86 => {
+                        // ADD A, (IX+d)
+                        let result = alu::add8(self.regs.a, value, false);
+                        self.regs.a = result.value;
+                        self.regs.f = result.flags;
+                    }
+                    0x8E => {
+                        // ADC A, (IX+d)
+                        let carry = self.regs.f & CF != 0;
+                        let result = alu::add8(self.regs.a, value, carry);
+                        self.regs.a = result.value;
+                        self.regs.f = result.flags;
+                    }
+                    0x96 => {
+                        // SUB (IX+d)
+                        let result = alu::sub8(self.regs.a, value, false);
+                        self.regs.a = result.value;
+                        self.regs.f = result.flags;
+                    }
+                    0x9E => {
+                        // SBC A, (IX+d)
+                        let carry = self.regs.f & CF != 0;
+                        let result = alu::sub8(self.regs.a, value, carry);
+                        self.regs.a = result.value;
+                        self.regs.f = result.flags;
+                    }
+                    0xA6 => {
+                        // AND (IX+d)
+                        self.regs.a &= value;
+                        self.regs.f = sz53p(self.regs.a) | HF;
+                    }
+                    0xAE => {
+                        // XOR (IX+d)
+                        self.regs.a ^= value;
+                        self.regs.f = sz53p(self.regs.a);
+                    }
+                    0xB6 => {
+                        // OR (IX+d)
+                        self.regs.a |= value;
+                        self.regs.f = sz53p(self.regs.a);
+                    }
+                    0xBE => {
+                        // CP (IX+d)
+                        let result = alu::sub8(self.regs.a, value, false);
+                        self.regs.f = (result.flags & !(YF | XF)) | (value & (YF | XF));
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            // INC (IX+d)/(IY+d) - stage 2: perform INC, write back
+            0x34 if self.followup_stage >= 2 => {
+                let result = alu::inc8(self.data_lo);
+                self.data_lo = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+                self.micro_ops.push(MicroOp::WriteMem);
+            }
+
+            // INC (IX+d)/(IY+d) - stage 1: calculate address, queue memory read
+            0x34 => {
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                self.addr = idx.wrapping_add(self.displacement as i16 as u16);
+                self.queue_internal(5);
+                self.micro_ops.push(MicroOp::ReadMem);
+                self.queue_internal(1);
+                self.queue_execute_followup();
+            }
+
+            // DEC (IX+d)/(IY+d) - stage 2: perform DEC, write back
+            0x35 if self.followup_stage >= 2 => {
+                let result = alu::dec8(self.data_lo);
+                self.data_lo = result.value;
+                self.regs.f = (self.regs.f & CF) | result.flags;
+                self.micro_ops.push(MicroOp::WriteMem);
+            }
+
+            // DEC (IX+d)/(IY+d) - stage 1: calculate address, queue memory read
+            0x35 => {
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                self.addr = idx.wrapping_add(self.displacement as i16 as u16);
+                self.queue_internal(5);
+                self.micro_ops.push(MicroOp::ReadMem);
+                self.queue_internal(1);
+                self.queue_execute_followup();
+            }
+
+            // LD (IX+d)/(IY+d), n - calculate address and write immediate byte
+            0x36 => {
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                self.addr = idx.wrapping_add(self.displacement as i16 as u16);
+                self.queue_internal(2);
+                self.micro_ops.push(MicroOp::WriteMem);
+            }
+
+            // LD r, (IX+d)/(IY+d) - stage 2: store to register
+            0x46 | 0x4E | 0x56 | 0x5E | 0x66 | 0x6E | 0x7E if self.followup_stage >= 2 => {
+                let value = self.data_lo;
+                match op {
+                    0x46 => self.regs.b = value,
+                    0x4E => self.regs.c = value,
+                    0x56 => self.regs.d = value,
+                    0x5E => self.regs.e = value,
+                    0x66 => self.regs.h = value,
+                    0x6E => self.regs.l = value,
+                    0x7E => self.regs.a = value,
+                    _ => unreachable!(),
+                }
+            }
+
+            // LD r, (IX+d)/(IY+d) - stage 1: queue memory read
+            0x46 | 0x4E | 0x56 | 0x5E | 0x66 | 0x6E | 0x7E => {
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                self.addr = idx.wrapping_add(self.displacement as i16 as u16);
+                self.queue_internal(5);
+                self.micro_ops.push(MicroOp::ReadMem);
+                self.queue_execute_followup();
+            }
+
+            // LD (IX+d)/(IY+d), r - calculate address and write register
+            0x70 | 0x71 | 0x72 | 0x73 | 0x74 | 0x75 | 0x77 => {
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                self.addr = idx.wrapping_add(self.displacement as i16 as u16);
+                self.data_lo = match op {
+                    0x70 => self.regs.b,
+                    0x71 => self.regs.c,
+                    0x72 => self.regs.d,
+                    0x73 => self.regs.e,
+                    0x74 => self.regs.h,
+                    0x75 => self.regs.l,
+                    0x77 => self.regs.a,
+                    _ => unreachable!(),
+                };
+                self.queue_internal(5);
+                self.micro_ops.push(MicroOp::WriteMem);
+            }
+
+            // ALU (IX+d)/(IY+d) - stage 1: calculate address and queue memory read
+            0x86 | 0x8E | 0x96 | 0x9E | 0xA6 | 0xAE | 0xB6 | 0xBE => {
+                let idx = if is_iy { self.regs.iy } else { self.regs.ix };
+                self.addr = idx.wrapping_add(self.displacement as i16 as u16);
+                self.queue_internal(5);
+                self.micro_ops.push(MicroOp::ReadMem);
+                self.queue_execute_followup();
+            }
+
+            _ => {
+                panic!(
+                    "Unimplemented DD/FD followup: opcode={:02X} PC={:04X}",
+                    op, self.regs.pc
+                );
             }
         }
     }
@@ -1402,131 +2143,123 @@ impl Z80 {
         let op = self.opcode;
 
         match op {
-            // IN r, (C)
-            0x40 | 0x48 | 0x50 | 0x58 | 0x60 | 0x68 | 0x70 | 0x78 => {
-                self.addr = self.regs.bc();
-                self.micro_ops.push(MicroOp::IoRead);
-                self.queue_execute_followup();
-            }
-
-            // OUT (C), r
-            0x41 | 0x49 | 0x51 | 0x59 | 0x61 | 0x69 | 0x71 | 0x79 => {
-                let r = (op >> 3) & 7;
-                self.addr = self.regs.bc();
-                self.data_lo = if r == 6 { 0 } else { self.get_reg8(r) };
-                self.micro_ops.push(MicroOp::IoWrite);
-            }
-
-            // SBC HL, rr
-            0x42 | 0x52 | 0x62 | 0x72 => {
+            // SBC HL, BC
+            0x42 => {
                 self.queue_internal(7);
-                let rp = (op >> 4) & 3;
-                let operand = self.get_reg16(rp);
-                let (result, flags) = alu::sbc16(self.regs.hl(), operand, self.regs.f & CF != 0);
+                let (result, flags) = alu::sbc16(self.regs.hl(), self.regs.bc(), self.regs.f & CF != 0);
                 self.regs.set_hl(result);
                 self.regs.f = flags;
             }
 
-            // LD (nn), rr
-            0x43 | 0x53 | 0x63 | 0x73 => {
+            // LD (nn), BC
+            0x43 => {
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
-            // NEG
-            0x44 | 0x4C | 0x54 | 0x5C | 0x64 | 0x6C | 0x74 | 0x7C => {
-                let result = alu::sub8(0, self.regs.a, false);
-                self.regs.a = result.value;
-                self.regs.f = result.flags;
-            }
-
-            // RETN
-            0x45 | 0x55 | 0x5D | 0x65 | 0x6D | 0x75 | 0x7D => {
-                self.regs.iff1 = self.regs.iff2;
-                self.addr = self.regs.sp;
-                self.micro_ops.push(MicroOp::ReadMem16Lo);
-                self.micro_ops.push(MicroOp::ReadMem16Hi);
-                self.queue_execute_followup();
-            }
-
-            // IM 0/1/2
-            0x46 | 0x4E | 0x66 | 0x6E => self.regs.im = 0,
-            0x56 | 0x76 => self.regs.im = 1,
-            0x5E | 0x7E => self.regs.im = 2,
-
-            // LD I, A
-            0x47 => {
-                self.queue_internal(1);
-                self.regs.i = self.regs.a;
-            }
-
-            // ADC HL, rr
-            0x4A | 0x5A | 0x6A | 0x7A => {
+            // ADC HL, BC
+            0x4A => {
                 self.queue_internal(7);
-                let rp = (op >> 4) & 3;
-                let operand = self.get_reg16(rp);
-                let (result, flags) = alu::adc16(self.regs.hl(), operand, self.regs.f & CF != 0);
+                let (result, flags) = alu::adc16(self.regs.hl(), self.regs.bc(), self.regs.f & CF != 0);
                 self.regs.set_hl(result);
                 self.regs.f = flags;
             }
 
-            // LD rr, (nn)
-            0x4B | 0x5B | 0x6B | 0x7B => {
+            // LD BC, (nn)
+            0x4B => {
                 self.micro_ops.push(MicroOp::ReadImm16Lo);
                 self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
-            // RETI
-            0x4D => {
-                self.addr = self.regs.sp;
-                self.micro_ops.push(MicroOp::ReadMem16Lo);
-                self.micro_ops.push(MicroOp::ReadMem16Hi);
+            // SBC HL, DE
+            0x52 => {
+                self.queue_internal(7);
+                let (result, flags) = alu::sbc16(self.regs.hl(), self.regs.de(), self.regs.f & CF != 0);
+                self.regs.set_hl(result);
+                self.regs.f = flags;
+            }
+
+            // LD (nn), DE
+            0x53 => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
-            // LD R, A
-            0x4F => {
-                self.queue_internal(1);
-                self.regs.r = self.regs.a;
+            // ADC HL, DE
+            0x5A => {
+                self.queue_internal(7);
+                let (result, flags) = alu::adc16(self.regs.hl(), self.regs.de(), self.regs.f & CF != 0);
+                self.regs.set_hl(result);
+                self.regs.f = flags;
             }
 
-            // LD A, I
-            0x57 => {
-                self.queue_internal(1);
-                self.regs.a = self.regs.i;
-                self.regs.f = (self.regs.f & CF)
-                    | if self.regs.a == 0 { ZF } else { 0 }
-                    | if self.regs.a & 0x80 != 0 { SF } else { 0 }
-                    | (self.regs.a & (YF | XF))
-                    | if self.regs.iff2 { PF } else { 0 };
-            }
-
-            // LD A, R
-            0x5F => {
-                self.queue_internal(1);
-                self.regs.a = self.regs.r;
-                self.regs.f = (self.regs.f & CF)
-                    | if self.regs.a == 0 { ZF } else { 0 }
-                    | if self.regs.a & 0x80 != 0 { SF } else { 0 }
-                    | (self.regs.a & (YF | XF))
-                    | if self.regs.iff2 { PF } else { 0 };
-            }
-
-            // RRD
-            0x67 => {
-                self.addr = self.regs.hl();
-                self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_internal(4);
+            // LD DE, (nn)
+            0x5B => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
-            // RLD
-            0x6F => {
-                self.addr = self.regs.hl();
-                self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_internal(4);
+            // SBC HL, HL
+            0x62 => {
+                self.queue_internal(7);
+                let (result, flags) = alu::sbc16(self.regs.hl(), self.regs.hl(), self.regs.f & CF != 0);
+                self.regs.set_hl(result);
+                self.regs.f = flags;
+            }
+
+            // LD (nn), HL (ED version)
+            0x63 => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // ADC HL, HL
+            0x6A => {
+                self.queue_internal(7);
+                let (result, flags) = alu::adc16(self.regs.hl(), self.regs.hl(), self.regs.f & CF != 0);
+                self.regs.set_hl(result);
+                self.regs.f = flags;
+            }
+
+            // LD HL, (nn) (ED version)
+            0x6B => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // SBC HL, SP
+            0x72 => {
+                self.queue_internal(7);
+                let (result, flags) = alu::sbc16(self.regs.hl(), self.regs.sp, self.regs.f & CF != 0);
+                self.regs.set_hl(result);
+                self.regs.f = flags;
+            }
+
+            // LD (nn), SP
+            0x73 => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
+                self.queue_execute_followup();
+            }
+
+            // ADC HL, SP
+            0x7A => {
+                self.queue_internal(7);
+                let (result, flags) = alu::adc16(self.regs.hl(), self.regs.sp, self.regs.f & CF != 0);
+                self.regs.set_hl(result);
+                self.regs.f = flags;
+            }
+
+            // LD SP, (nn)
+            0x7B => {
+                self.micro_ops.push(MicroOp::ReadImm16Lo);
+                self.micro_ops.push(MicroOp::ReadImm16Hi);
                 self.queue_execute_followup();
             }
 
@@ -1539,23 +2272,6 @@ impl Z80 {
 
             // CPI
             0xA1 => {
-                self.addr = self.regs.hl();
-                self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_internal(5);
-                self.queue_execute_followup();
-            }
-
-            // INI
-            0xA2 => {
-                self.queue_internal(1);
-                self.addr = self.regs.bc();
-                self.micro_ops.push(MicroOp::IoRead);
-                self.queue_execute_followup();
-            }
-
-            // OUTI
-            0xA3 => {
-                self.queue_internal(1);
                 self.addr = self.regs.hl();
                 self.micro_ops.push(MicroOp::ReadMem);
                 self.queue_execute_followup();
@@ -1572,23 +2288,6 @@ impl Z80 {
             0xA9 => {
                 self.addr = self.regs.hl();
                 self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_internal(5);
-                self.queue_execute_followup();
-            }
-
-            // IND
-            0xAA => {
-                self.queue_internal(1);
-                self.addr = self.regs.bc();
-                self.micro_ops.push(MicroOp::IoRead);
-                self.queue_execute_followup();
-            }
-
-            // OUTD
-            0xAB => {
-                self.queue_internal(1);
-                self.addr = self.regs.hl();
-                self.micro_ops.push(MicroOp::ReadMem);
                 self.queue_execute_followup();
             }
 
@@ -1601,23 +2300,6 @@ impl Z80 {
 
             // CPIR
             0xB1 => {
-                self.addr = self.regs.hl();
-                self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_internal(5);
-                self.queue_execute_followup();
-            }
-
-            // INIR
-            0xB2 => {
-                self.queue_internal(1);
-                self.addr = self.regs.bc();
-                self.micro_ops.push(MicroOp::IoRead);
-                self.queue_execute_followup();
-            }
-
-            // OTIR
-            0xB3 => {
-                self.queue_internal(1);
                 self.addr = self.regs.hl();
                 self.micro_ops.push(MicroOp::ReadMem);
                 self.queue_execute_followup();
@@ -1634,38 +2316,480 @@ impl Z80 {
             0xB9 => {
                 self.addr = self.regs.hl();
                 self.micro_ops.push(MicroOp::ReadMem);
-                self.queue_internal(5);
                 self.queue_execute_followup();
             }
 
-            // INDR
-            0xBA => {
-                self.queue_internal(1);
-                self.addr = self.regs.bc();
-                self.micro_ops.push(MicroOp::IoRead);
+            // NEG - negate accumulator (0 - A)
+            0x44 | 0x4C | 0x54 | 0x5C | 0x64 | 0x6C | 0x74 | 0x7C => {
+                // All these opcodes are undocumented NEG variants, but behave the same
+                let result = alu::sub8(0, self.regs.a, false);
+                self.regs.a = result.value;
+                self.regs.f = result.flags;
+            }
+
+            // RRD - rotate right digit
+            0x67 => {
+                self.addr = self.regs.hl();
+                self.micro_ops.push(MicroOp::ReadMem);
                 self.queue_execute_followup();
             }
 
-            // OTDR
-            0xBB => {
-                self.queue_internal(1);
+            // RLD - rotate left digit
+            0x6F => {
                 self.addr = self.regs.hl();
                 self.micro_ops.push(MicroOp::ReadMem);
                 self.queue_execute_followup();
             }
 
             _ => {
-                // Undocumented ED - treat as NOP NOP
+                panic!(
+                    "Unimplemented ED opcode: {:02X} at PC={:04X}",
+                    op,
+                    self.regs.pc.wrapping_sub(2)
+                );
+            }
+        }
+    }
+
+    /// Execute follow-up for ED-prefixed instructions.
+    fn execute_ed_followup(&mut self) {
+        let op = self.opcode;
+
+        match op {
+            // LD (nn), BC
+            0x43 => {
+                self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.data_lo = self.regs.c;
+                self.data_hi = self.regs.b;
+                self.micro_ops.push(MicroOp::WriteMem16Lo);
+                self.micro_ops.push(MicroOp::WriteMem16Hi);
+            }
+
+            // LD BC, (nn) - second stage: data loaded, store in BC
+            0x4B if self.followup_stage >= 2 => {
+                self.regs.c = self.data_lo;
+                self.regs.b = self.data_hi;
+            }
+
+            // LD BC, (nn) - first stage: set up memory read
+            0x4B => {
+                self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.micro_ops.push(MicroOp::ReadMem16Lo);
+                self.micro_ops.push(MicroOp::ReadMem16Hi);
+                self.queue_execute_followup();
+            }
+
+            // LD (nn), DE
+            0x53 => {
+                self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.data_lo = self.regs.e;
+                self.data_hi = self.regs.d;
+                self.micro_ops.push(MicroOp::WriteMem16Lo);
+                self.micro_ops.push(MicroOp::WriteMem16Hi);
+            }
+
+            // LD DE, (nn) - second stage: data loaded, store in DE
+            0x5B if self.followup_stage >= 2 => {
+                self.regs.e = self.data_lo;
+                self.regs.d = self.data_hi;
+            }
+
+            // LD DE, (nn) - first stage: set up memory read
+            0x5B => {
+                self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.micro_ops.push(MicroOp::ReadMem16Lo);
+                self.micro_ops.push(MicroOp::ReadMem16Hi);
+                self.queue_execute_followup();
+            }
+
+            // LD (nn), HL (ED version)
+            0x63 => {
+                self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.data_lo = self.regs.l;
+                self.data_hi = self.regs.h;
+                self.micro_ops.push(MicroOp::WriteMem16Lo);
+                self.micro_ops.push(MicroOp::WriteMem16Hi);
+            }
+
+            // LD HL, (nn) (ED version) - second stage: data loaded, store in HL
+            0x6B if self.followup_stage >= 2 => {
+                self.regs.l = self.data_lo;
+                self.regs.h = self.data_hi;
+            }
+
+            // LD HL, (nn) (ED version) - first stage: set up memory read
+            0x6B => {
+                self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.micro_ops.push(MicroOp::ReadMem16Lo);
+                self.micro_ops.push(MicroOp::ReadMem16Hi);
+                self.queue_execute_followup();
+            }
+
+            // LD (nn), SP
+            0x73 => {
+                self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.data_lo = self.regs.sp as u8;
+                self.data_hi = (self.regs.sp >> 8) as u8;
+                self.micro_ops.push(MicroOp::WriteMem16Lo);
+                self.micro_ops.push(MicroOp::WriteMem16Hi);
+            }
+
+            // LD SP, (nn) - second stage: data loaded, store in SP
+            0x7B if self.followup_stage >= 2 => {
+                self.regs.sp = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+            }
+
+            // LD SP, (nn) - first stage: set up memory read
+            0x7B => {
+                self.addr = u16::from(self.data_lo) | (u16::from(self.data_hi) << 8);
+                self.micro_ops.push(MicroOp::ReadMem16Lo);
+                self.micro_ops.push(MicroOp::ReadMem16Hi);
+                self.queue_execute_followup();
+            }
+
+            // LDI
+            0xA0 => {
+                let value = self.data_lo;
+                self.addr = self.regs.de();
+                self.data_lo = value;
+                self.micro_ops.push(MicroOp::WriteMem);
+                self.queue_internal(2);
+
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
+                self.regs.set_de(self.regs.de().wrapping_add(1));
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+
+                let n = value.wrapping_add(self.regs.a);
+                self.regs.f = (self.regs.f & (SF | ZF | CF))
+                    | (n & XF)
+                    | if n & 0x02 != 0 { YF } else { 0 }
+                    | if self.regs.bc() != 0 { PF } else { 0 };
+            }
+
+            // CPI
+            0xA1 => {
+                let value = self.data_lo;
+                self.queue_internal(5);
+
+                let result = self.regs.a.wrapping_sub(value);
+                let hf = (self.regs.a & 0x0F) < (value & 0x0F);
+                let n = result.wrapping_sub(if hf { 1 } else { 0 });
+
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+
+                self.regs.f = (self.regs.f & CF)
+                    | NF
+                    | if result == 0 { ZF } else { 0 }
+                    | if result & 0x80 != 0 { SF } else { 0 }
+                    | if hf { HF } else { 0 }
+                    | (n & XF)
+                    | if n & 0x02 != 0 { YF } else { 0 }
+                    | if self.regs.bc() != 0 { PF } else { 0 };
+            }
+
+            // LDD
+            0xA8 => {
+                let value = self.data_lo;
+                self.addr = self.regs.de();
+                self.data_lo = value;
+                self.micro_ops.push(MicroOp::WriteMem);
+                self.queue_internal(2);
+
+                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                self.regs.set_de(self.regs.de().wrapping_sub(1));
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+
+                let n = value.wrapping_add(self.regs.a);
+                self.regs.f = (self.regs.f & (SF | ZF | CF))
+                    | (n & XF)
+                    | if n & 0x02 != 0 { YF } else { 0 }
+                    | if self.regs.bc() != 0 { PF } else { 0 };
+            }
+
+            // CPD
+            0xA9 => {
+                let value = self.data_lo;
+                self.queue_internal(5);
+
+                let result = self.regs.a.wrapping_sub(value);
+                let hf = (self.regs.a & 0x0F) < (value & 0x0F);
+                let n = result.wrapping_sub(if hf { 1 } else { 0 });
+
+                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+
+                self.regs.f = (self.regs.f & CF)
+                    | NF
+                    | if result == 0 { ZF } else { 0 }
+                    | if result & 0x80 != 0 { SF } else { 0 }
+                    | if hf { HF } else { 0 }
+                    | (n & XF)
+                    | if n & 0x02 != 0 { YF } else { 0 }
+                    | if self.regs.bc() != 0 { PF } else { 0 };
+            }
+
+            // LDIR
+            0xB0 => {
+                let value = self.data_lo;
+                self.addr = self.regs.de();
+                self.data_lo = value;
+                self.micro_ops.push(MicroOp::WriteMem);
+                self.queue_internal(2);
+
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
+                self.regs.set_de(self.regs.de().wrapping_add(1));
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+
+                let n = value.wrapping_add(self.regs.a);
+                self.regs.f = (self.regs.f & (SF | ZF | CF))
+                    | (n & XF)
+                    | if n & 0x02 != 0 { YF } else { 0 };
+
+                if self.regs.bc() != 0 {
+                    self.regs.f |= PF;
+                    self.queue_internal(5);
+                    self.regs.pc = self.regs.pc.wrapping_sub(2);
+                }
+            }
+
+            // CPIR
+            0xB1 => {
+                let value = self.data_lo;
+                self.queue_internal(5);
+
+                let result = self.regs.a.wrapping_sub(value);
+                let hf = (self.regs.a & 0x0F) < (value & 0x0F);
+                let n = result.wrapping_sub(if hf { 1 } else { 0 });
+
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+
+                self.regs.f = (self.regs.f & CF)
+                    | NF
+                    | if result == 0 { ZF } else { 0 }
+                    | if result & 0x80 != 0 { SF } else { 0 }
+                    | if hf { HF } else { 0 }
+                    | (n & XF)
+                    | if n & 0x02 != 0 { YF } else { 0 }
+                    | if self.regs.bc() != 0 { PF } else { 0 };
+
+                if self.regs.bc() != 0 && result != 0 {
+                    self.queue_internal(5);
+                    self.regs.pc = self.regs.pc.wrapping_sub(2);
+                }
+            }
+
+            // LDDR
+            0xB8 => {
+                let value = self.data_lo;
+                self.addr = self.regs.de();
+                self.data_lo = value;
+                self.micro_ops.push(MicroOp::WriteMem);
+                self.queue_internal(2);
+
+                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                self.regs.set_de(self.regs.de().wrapping_sub(1));
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+
+                let n = value.wrapping_add(self.regs.a);
+                self.regs.f = (self.regs.f & (SF | ZF | CF))
+                    | (n & XF)
+                    | if n & 0x02 != 0 { YF } else { 0 };
+
+                if self.regs.bc() != 0 {
+                    self.regs.f |= PF;
+                    self.queue_internal(5);
+                    self.regs.pc = self.regs.pc.wrapping_sub(2);
+                }
+            }
+
+            // CPDR
+            0xB9 => {
+                let value = self.data_lo;
+                self.queue_internal(5);
+
+                let result = self.regs.a.wrapping_sub(value);
+                let hf = (self.regs.a & 0x0F) < (value & 0x0F);
+                let n = result.wrapping_sub(if hf { 1 } else { 0 });
+
+                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+
+                self.regs.f = (self.regs.f & CF)
+                    | NF
+                    | if result == 0 { ZF } else { 0 }
+                    | if result & 0x80 != 0 { SF } else { 0 }
+                    | if hf { HF } else { 0 }
+                    | (n & XF)
+                    | if n & 0x02 != 0 { YF } else { 0 }
+                    | if self.regs.bc() != 0 { PF } else { 0 };
+
+                if self.regs.bc() != 0 && result != 0 {
+                    self.queue_internal(5);
+                    self.regs.pc = self.regs.pc.wrapping_sub(2);
+                }
+            }
+
+            // RRD - rotate right digit
+            0x67 => {
+                let mem = self.data_lo;
+                self.queue_internal(4);
+
+                // Low nibble of (HL) -> low nibble of A
+                // Low nibble of A -> high nibble of (HL)
+                // High nibble of (HL) -> low nibble of (HL)
+                let new_a = (self.regs.a & 0xF0) | (mem & 0x0F);
+                let new_mem = ((self.regs.a & 0x0F) << 4) | ((mem >> 4) & 0x0F);
+
+                self.regs.a = new_a;
+                self.data_lo = new_mem;
+                self.micro_ops.push(MicroOp::WriteMem);
+
+                self.regs.f = sz53p(self.regs.a) | (self.regs.f & CF);
+            }
+
+            // RLD - rotate left digit
+            0x6F => {
+                let mem = self.data_lo;
+                self.queue_internal(4);
+
+                // High nibble of (HL) -> low nibble of A
+                // Low nibble of A -> low nibble of (HL)
+                // Low nibble of (HL) -> high nibble of (HL)
+                let new_a = (self.regs.a & 0xF0) | ((mem >> 4) & 0x0F);
+                let new_mem = ((mem & 0x0F) << 4) | (self.regs.a & 0x0F);
+
+                self.regs.a = new_a;
+                self.data_lo = new_mem;
+                self.micro_ops.push(MicroOp::WriteMem);
+
+                self.regs.f = sz53p(self.regs.a) | (self.regs.f & CF);
+            }
+
+            _ => {
+                panic!(
+                    "Unimplemented ED followup: opcode={:02X} PC={:04X}",
+                    op, self.regs.pc
+                );
             }
         }
     }
 
     /// Execute DDCB or FDCB-prefixed instruction.
+    /// By this point: prefix=DD/FD, prefix2=CB, displacement and opcode are set.
     pub(super) fn execute_ddcb_fdcb(&mut self) {
-        let idx = self.get_index_reg();
+        let is_iy = self.prefix == 0xFD;
+        let idx = if is_iy { self.regs.iy } else { self.regs.ix };
         self.addr = idx.wrapping_add(self.displacement as i16 as u16);
+
+        // Queue memory read, internal processing, then followup
         self.micro_ops.push(MicroOp::ReadMem);
         self.queue_internal(2);
         self.queue_execute_followup();
+    }
+
+    /// Execute DDCB/FDCB followup after memory read.
+    fn execute_ddcb_fdcb_followup(&mut self) {
+        let op = self.opcode;
+        let is_iy = self.prefix == 0xFD;
+        let value = self.data_lo;
+        let r = op & 7; // Register to optionally copy result to
+
+        // Determine operation type from opcode
+        let result = match op {
+            // Rotates: 0x00-0x3F
+            0x00..=0x07 => {
+                // RLC (IX+d)
+                let res = alu::rlc8(value);
+                self.regs.f = res.flags;
+                res.value
+            }
+            0x08..=0x0F => {
+                // RRC (IX+d)
+                let res = alu::rrc8(value);
+                self.regs.f = res.flags;
+                res.value
+            }
+            0x10..=0x17 => {
+                // RL (IX+d)
+                let res = alu::rl8(value, self.regs.f & CF != 0);
+                self.regs.f = res.flags;
+                res.value
+            }
+            0x18..=0x1F => {
+                // RR (IX+d)
+                let res = alu::rr8(value, self.regs.f & CF != 0);
+                self.regs.f = res.flags;
+                res.value
+            }
+            0x20..=0x27 => {
+                // SLA (IX+d)
+                let res = alu::sla8(value);
+                self.regs.f = res.flags;
+                res.value
+            }
+            0x28..=0x2F => {
+                // SRA (IX+d)
+                let res = alu::sra8(value);
+                self.regs.f = res.flags;
+                res.value
+            }
+            0x30..=0x37 => {
+                // SLL (IX+d) - undocumented
+                let res = alu::sll8(value);
+                self.regs.f = res.flags;
+                res.value
+            }
+            0x38..=0x3F => {
+                // SRL (IX+d)
+                let res = alu::srl8(value);
+                self.regs.f = res.flags;
+                res.value
+            }
+
+            // BIT: 0x40-0x7F - no write back
+            0x40..=0x7F => {
+                let bit = (op >> 3) & 7;
+                let mask = 1 << bit;
+                let is_zero = value & mask == 0;
+
+                let mut flags = self.regs.f & CF; // Preserve carry
+                flags |= HF; // H is set
+                if is_zero {
+                    flags |= ZF | PF; // Z and P/V are set if bit is 0
+                }
+                if bit == 7 && !is_zero {
+                    flags |= SF; // S is set if bit 7 is tested and is 1
+                }
+                // Undocumented: X and Y flags from high byte of address
+                flags |= ((self.addr >> 8) as u8) & (XF | YF);
+                self.regs.f = flags;
+                return; // BIT doesn't write back
+            }
+
+            // RES: 0x80-0xBF
+            0x80..=0xBF => {
+                let bit = (op >> 3) & 7;
+                let mask = !(1 << bit);
+                value & mask
+            }
+
+            // SET: 0xC0-0xFF
+            0xC0..=0xFF => {
+                let bit = (op >> 3) & 7;
+                let mask = 1 << bit;
+                value | mask
+            }
+        };
+
+        // Write result back to memory
+        self.data_lo = result;
+        self.micro_ops.push(MicroOp::WriteMem);
+
+        // Undocumented: if r != 6, also copy result to register
+        if r != 6 {
+            self.set_reg8(r, result);
+        }
     }
 }

@@ -124,6 +124,11 @@ impl SimpleBus {
         self.memory[addr as usize]
     }
 
+    /// Write a byte to memory without side effects.
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.memory[addr as usize] = value;
+    }
+
     /// Parse an address from a query path.
     ///
     /// Accepts hex (0x1234, $1234) or decimal (4660).

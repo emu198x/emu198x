@@ -44,6 +44,14 @@ pub enum MicroOp {
     /// Write `data_lo` to address in `addr` field (3 T-states).
     WriteMem,
 
+    /// Write low byte of word to address in `addr` field (3 T-states).
+    /// Writes `data_lo` and increments addr for the following high byte write.
+    WriteMem16Lo,
+
+    /// Write high byte of word to address in `addr` field (3 T-states).
+    /// Writes `data_hi` to current addr.
+    WriteMem16Hi,
+
     /// Write high byte first (for PUSH) - write `data_hi` to addr (3 T-states).
     /// Decrements SP before write.
     WriteMemHiFirst,
@@ -81,6 +89,8 @@ impl MicroOp {
             Self::ReadMem16Lo => 3,
             Self::ReadMem16Hi => 3,
             Self::WriteMem => 3,
+            Self::WriteMem16Lo => 3,
+            Self::WriteMem16Hi => 3,
             Self::WriteMemHiFirst => 3,
             Self::WriteMemLoSecond => 3,
             Self::IoRead => 4,
@@ -150,5 +160,17 @@ impl MicroOpQueue {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.pos >= self.len
+    }
+
+    /// Get queue length (for debugging).
+    #[must_use]
+    pub fn len(&self) -> u8 {
+        self.len
+    }
+
+    /// Get current position (for debugging).
+    #[must_use]
+    pub fn pos(&self) -> u8 {
+        self.pos
     }
 }
