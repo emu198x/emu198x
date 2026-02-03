@@ -1853,8 +1853,7 @@ impl M68000 {
 
         // Fetch the register mask
         self.size = size;
-        self.addr2 = u32::from(mode);
-        self.data2 = u32::from(ea_reg);
+        self.addr2 = u32::from(ea_reg); // Store EA register for address update
         self.micro_ops.push(MicroOp::FetchExtWord);
         self.instr_phase = InstrPhase::SrcEACalc;
         self.src_mode = AddrMode::decode(mode, ea_reg);
@@ -1863,56 +1862,74 @@ impl M68000 {
 
     fn exec_movem_to_mem_continuation(&mut self) {
         let mask = self.ext_words[0];
+        if mask == 0 {
+            // No registers to transfer
+            self.queue_internal(8);
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        }
+
         let Some(addr_mode) = self.src_mode else {
             self.instr_phase = InstrPhase::Initial;
             return;
         };
 
-        // For predecrement mode, registers are stored in reverse order (A7-A0, D7-D0)
-        // For other modes, registers are stored in forward order (D0-D7, A0-A7)
+        // Determine addressing mode and starting address
         let is_predec = matches!(addr_mode, AddrMode::AddrIndPreDec(_));
+        self.movem_predec = is_predec;
+        self.movem_postinc = false;
+        self.movem_long_phase = 0;
 
-        let mut addr = match addr_mode {
-            AddrMode::AddrIndPreDec(r) => self.regs.a(r as usize),
-            AddrMode::AddrInd(r) => self.regs.a(r as usize),
+        let (start_addr, ea_reg) = match addr_mode {
+            AddrMode::AddrIndPreDec(r) => {
+                // For predecrement, we start at An and decrement before each write
+                // The actual writes happen at decremented addresses
+                let count = mask.count_ones();
+                let dec_per_reg = if self.size == Size::Long { 4 } else { 2 };
+                let start = self.regs.a(r as usize).wrapping_sub(count * dec_per_reg);
+                (start, r)
+            }
+            AddrMode::AddrInd(r) => (self.regs.a(r as usize), r),
+            AddrMode::AddrIndDisp(r) => {
+                let disp = self.next_ext_word() as i16 as i32;
+                let base = self.regs.a(r as usize) as i32;
+                (base.wrapping_add(disp) as u32, r)
+            }
+            AddrMode::AbsShort => {
+                let addr = self.next_ext_word() as i16 as i32 as u32;
+                (addr, 0)
+            }
+            AddrMode::AbsLong => {
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                ((u32::from(hi) << 16) | u32::from(lo), 0)
+            }
             _ => {
-                // Other modes not implemented yet
                 self.queue_internal(8);
-                self.instr_phase = InstrPhase::Complete;
+                self.instr_phase = InstrPhase::Initial;
                 return;
             }
         };
 
-        // Count registers to transfer
-        let count = mask.count_ones() as u32;
-        let inc = if self.size == Size::Long { 4 } else { 2 };
+        self.addr = start_addr;
+        self.addr2 = u32::from(ea_reg);
 
-        if is_predec {
-            // Predecrement: write in reverse, highest register first
-            // For predecrement, the order is A7,A6,...,A0,D7,D6,...,D0
-            for i in (0..16).rev() {
-                if mask & (1 << i) != 0 {
-                    addr = addr.wrapping_sub(inc);
-                    let value = if i < 8 {
-                        self.regs.d[i]
-                    } else {
-                        self.regs.a(i - 8)
-                    };
-                    // Queue write - simplified synchronous for now
-                    self.addr = addr;
-                    self.data = value;
-                }
-            }
-            // Update address register
-            if let AddrMode::AddrIndPreDec(r) = addr_mode {
-                self.regs.set_a(r as usize, addr);
-            }
+        // Find first register to write
+        // For predecrement mode, the mask is reversed: bit 0 = A7, bit 15 = D0
+        // We iterate from highest bit down so D0 is written first (to lowest address)
+        // For other modes: bit 0 = D0, bit 15 = A7, iterate up
+        let first_bit = if is_predec {
+            self.find_first_movem_bit_down(mask)
+        } else {
+            self.find_first_movem_bit_up(mask)
+        };
+
+        if let Some(bit) = first_bit {
+            self.data2 = bit as u32;
+            self.micro_ops.push(MicroOp::MovemWrite);
         }
 
-        // Timing: 8 + 4n (word) or 8 + 8n (long)
-        let cycles = 8 + count * (if self.size == Size::Long { 8 } else { 4 });
-        self.queue_internal(cycles as u8);
-        self.instr_phase = InstrPhase::Complete;
+        self.instr_phase = InstrPhase::Initial;
     }
 
     fn exec_tas(&mut self, _mode: u8, _ea_reg: u8) {
@@ -1963,8 +1980,7 @@ impl M68000 {
 
         // Fetch the register mask
         self.size = size;
-        self.addr2 = u32::from(mode);
-        self.data2 = u32::from(ea_reg);
+        self.addr2 = u32::from(ea_reg); // Store EA register for address update
         self.micro_ops.push(MicroOp::FetchExtWord);
         self.instr_phase = InstrPhase::DstEACalc;
         self.dst_mode = AddrMode::decode(mode, ea_reg);
@@ -1973,49 +1989,60 @@ impl M68000 {
 
     fn exec_movem_from_mem_continuation(&mut self) {
         let mask = self.ext_words[0];
+        if mask == 0 {
+            // No registers to transfer
+            self.queue_internal(12);
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        }
+
         let Some(addr_mode) = self.dst_mode else {
             self.instr_phase = InstrPhase::Initial;
             return;
         };
 
-        // For postincrement and other modes, registers are loaded D0-D7, A0-A7
+        // For memory to registers, order is always D0-D7, A0-A7 (bits 0-15)
         let is_postinc = matches!(addr_mode, AddrMode::AddrIndPostInc(_));
+        self.movem_predec = false;
+        self.movem_postinc = is_postinc;
+        self.movem_long_phase = 0;
 
-        let mut addr = match addr_mode {
-            AddrMode::AddrIndPostInc(r) => self.regs.a(r as usize),
-            AddrMode::AddrInd(r) => self.regs.a(r as usize),
+        let (start_addr, ea_reg) = match addr_mode {
+            AddrMode::AddrIndPostInc(r) => (self.regs.a(r as usize), r),
+            AddrMode::AddrInd(r) => (self.regs.a(r as usize), r),
+            AddrMode::AddrIndDisp(r) => {
+                let disp = self.next_ext_word() as i16 as i32;
+                let base = self.regs.a(r as usize) as i32;
+                (base.wrapping_add(disp) as u32, r)
+            }
+            AddrMode::AbsShort => {
+                let addr = self.next_ext_word() as i16 as i32 as u32;
+                (addr, 0)
+            }
+            AddrMode::AbsLong => {
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                ((u32::from(hi) << 16) | u32::from(lo), 0)
+            }
             _ => {
-                // Other modes not implemented yet
                 self.queue_internal(12);
-                self.instr_phase = InstrPhase::Complete;
+                self.instr_phase = InstrPhase::Initial;
                 return;
             }
         };
 
-        // Count registers to transfer
-        let count = mask.count_ones() as u32;
-        let inc = if self.size == Size::Long { 4 } else { 2 };
+        self.addr = start_addr;
+        self.addr2 = u32::from(ea_reg);
 
-        // Load registers in order D0-D7, A0-A7
-        for i in 0..16 {
-            if mask & (1 << i) != 0 {
-                // Simplified - actual implementation needs proper bus access
-                self.addr = addr;
-                addr = addr.wrapping_add(inc);
-            }
+        // Find first register to read (always ascending for memory-to-registers)
+        let first_bit = self.find_first_movem_bit_up(mask);
+
+        if let Some(bit) = first_bit {
+            self.data2 = bit as u32;
+            self.micro_ops.push(MicroOp::MovemRead);
         }
 
-        if is_postinc {
-            // Update address register
-            if let AddrMode::AddrIndPostInc(r) = addr_mode {
-                self.regs.set_a(r as usize, addr);
-            }
-        }
-
-        // Timing: 12 + 4n (word) or 12 + 8n (long)
-        let cycles = 12 + count * (if self.size == Size::Long { 8 } else { 4 });
-        self.queue_internal(cycles as u8);
-        self.instr_phase = InstrPhase::Complete;
+        self.instr_phase = InstrPhase::Initial;
     }
 
     fn exec_trap(&mut self, op: u16) {

@@ -83,6 +83,18 @@ pub enum MicroOp {
 
     /// Read exception vector address.
     ReadVector,
+
+    /// MOVEM write: write one register to memory, advance to next.
+    ///
+    /// Uses: `ext_words[0]` for mask, `data2` for register index, `addr` for memory address.
+    /// Size from `self.size` (Word or Long).
+    MovemWrite,
+
+    /// MOVEM read: read one value from memory into register, advance to next.
+    ///
+    /// Uses: `ext_words[0]` for mask, `data2` for register index, `addr` for memory address.
+    /// Size from `self.size` (Word or Long).
+    MovemRead,
 }
 
 impl MicroOp {
@@ -112,6 +124,8 @@ impl MicroOp {
             Self::PopLongLo => 4,
             Self::BeginException => 0, // Sets up exception, instant
             Self::ReadVector => 4,
+            Self::MovemWrite => 4,    // Per word transfer (8 for long = 2 x 4)
+            Self::MovemRead => 4,     // Per word transfer
         }
     }
 }

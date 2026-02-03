@@ -216,6 +216,14 @@ pub struct M68000 {
     /// Second data value (for some instructions).
     data2: u32,
 
+    // === MOVEM state ===
+    /// True if MOVEM is using predecrement mode.
+    movem_predec: bool,
+    /// True if MOVEM is using postincrement mode.
+    movem_postinc: bool,
+    /// Long transfer phase: 0 = high word, 1 = low word.
+    movem_long_phase: u8,
+
     // === Exception state ===
     /// Pending exception vector number.
     pending_exception: Option<u8>,
@@ -253,6 +261,9 @@ impl M68000 {
             size: Size::Word,
             addr2: 0,
             data2: 0,
+            movem_predec: false,
+            movem_postinc: false,
+            movem_long_phase: 0,
             pending_exception: None,
             current_exception: None,
             int_pending: 0,
@@ -371,6 +382,8 @@ impl M68000 {
                 self.micro_ops.advance();
             }
             MicroOp::ReadVector => self.tick_read_vector(bus),
+            MicroOp::MovemWrite => self.tick_movem_write(bus),
+            MicroOp::MovemRead => self.tick_movem_read(bus),
         }
     }
 
@@ -668,6 +681,183 @@ impl M68000 {
             _ => unreachable!(),
         }
         self.cycle += 1;
+    }
+
+    /// Tick for MOVEM write (4 cycles per word).
+    ///
+    /// State: `ext_words[0]` = register mask, `data2` = current bit index (0-15),
+    /// `addr` = current memory address, `addr2` = address register for update.
+    /// For predecrement mode, we iterate from bit 15 down to 0.
+    fn tick_movem_write<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                let mask = self.ext_words[0];
+                let is_predec = self.movem_predec;
+
+                // Find the current register to write
+                let bit_idx = self.data2 as usize;
+
+                // Get register value based on bit index
+                // For normal modes: bits 0-7 = D0-D7, bits 8-15 = A0-A7
+                // For predecrement: bits 0-7 = A7-A0, bits 8-15 = D7-D0
+                let value = if is_predec {
+                    if bit_idx < 8 {
+                        // bit 0 = A7, bit 1 = A6, ..., bit 7 = A0
+                        self.regs.a(7 - bit_idx)
+                    } else {
+                        // bit 8 = D7, bit 9 = D6, ..., bit 15 = D0
+                        self.regs.d[15 - bit_idx]
+                    }
+                } else if bit_idx < 8 {
+                    self.regs.d[bit_idx]
+                } else {
+                    self.regs.a(bit_idx - 8)
+                };
+
+                // Write the value
+                if self.size == Size::Long && self.movem_long_phase == 0 {
+                    // Long mode, phase 0: write high word
+                    self.write_word(bus, self.addr, (value >> 16) as u16);
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 1;
+                    self.cycle = 0;
+                    return;
+                }
+
+                if self.size == Size::Long {
+                    // Long mode, phase 1: write low word
+                    self.write_word(bus, self.addr, value as u16);
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 0;
+                } else {
+                    // Word write
+                    self.write_word(bus, self.addr, value as u16);
+                    self.addr = self.addr.wrapping_add(2);
+                }
+
+                // Find next register in mask
+                let next_bit = if is_predec {
+                    self.find_next_movem_bit_down(mask, bit_idx)
+                } else {
+                    self.find_next_movem_bit_up(mask, bit_idx)
+                };
+
+                if let Some(next) = next_bit {
+                    // More registers to write
+                    self.data2 = next as u32;
+                    self.cycle = 0;
+                    return;
+                }
+
+                // Done - update address register for predecrement mode
+                if is_predec {
+                    let ea_reg = (self.addr2 & 7) as usize;
+                    let start_addr = self.regs.a(ea_reg);
+                    let count = mask.count_ones();
+                    let dec = if self.size == Size::Long { 4 } else { 2 };
+                    self.regs
+                        .set_a(ea_reg, start_addr.wrapping_sub(count * dec));
+                }
+                self.cycle = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Tick for MOVEM read (4 cycles per word).
+    ///
+    /// State: `ext_words[0]` = register mask, `data2` = current bit index (0-15),
+    /// `addr` = current memory address, `addr2` = address register for update.
+    fn tick_movem_read<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                let mask = self.ext_words[0];
+                let bit_idx = self.data2 as usize;
+
+                // Read the value
+                if self.size == Size::Long && self.movem_long_phase == 0 {
+                    // Long mode, phase 0: read high word
+                    self.data = u32::from(self.read_word(bus, self.addr)) << 16;
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 1;
+                    self.cycle = 0;
+                    return;
+                }
+
+                if self.size == Size::Long {
+                    // Long mode, phase 1: read low word and combine
+                    self.data |= u32::from(self.read_word(bus, self.addr));
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 0;
+                } else {
+                    // Word read - sign extend to long for address registers
+                    let word = self.read_word(bus, self.addr);
+                    self.data = if bit_idx >= 8 {
+                        word as i16 as i32 as u32
+                    } else {
+                        u32::from(word)
+                    };
+                    self.addr = self.addr.wrapping_add(2);
+                }
+
+                // Store value in register
+                if bit_idx < 8 {
+                    if self.size == Size::Long {
+                        self.regs.d[bit_idx] = self.data;
+                    } else {
+                        self.regs.d[bit_idx] =
+                            (self.regs.d[bit_idx] & 0xFFFF_0000) | (self.data & 0xFFFF);
+                    }
+                } else {
+                    self.regs.set_a(bit_idx - 8, self.data);
+                }
+
+                // Find next register in mask (always ascending for read)
+                let next_bit = self.find_next_movem_bit_up(mask, bit_idx);
+
+                if let Some(next) = next_bit {
+                    self.data2 = next as u32;
+                    self.cycle = 0;
+                    return;
+                }
+
+                // Done - update address register for postincrement mode
+                if self.movem_postinc {
+                    let ea_reg = (self.addr2 & 7) as usize;
+                    self.regs.set_a(ea_reg, self.addr);
+                }
+                self.cycle = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Find next set bit in mask, going up from current position.
+    fn find_next_movem_bit_up(&self, mask: u16, current: usize) -> Option<usize> {
+        ((current + 1)..16).find(|&i| mask & (1 << i) != 0)
+    }
+
+    /// Find next set bit in mask, going down from current position.
+    fn find_next_movem_bit_down(&self, mask: u16, current: usize) -> Option<usize> {
+        (0..current).rev().find(|&i| mask & (1 << i) != 0)
+    }
+
+    /// Find first set bit in mask going up from 0.
+    fn find_first_movem_bit_up(&self, mask: u16) -> Option<usize> {
+        (0..16).find(|&i| mask & (1 << i) != 0)
+    }
+
+    /// Find first set bit in mask going down from 15.
+    fn find_first_movem_bit_down(&self, mask: u16) -> Option<usize> {
+        (0..16).rev().find(|&i| mask & (1 << i) != 0)
     }
 
     /// Begin exception processing.

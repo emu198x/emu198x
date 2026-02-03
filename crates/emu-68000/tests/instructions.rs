@@ -1557,3 +1557,238 @@ fn test_subx_with_extend() {
     // D1 = D1 - D0 - X = 5 - 1 - 1 = 3
     assert_eq!(cpu.regs.d[1], 0x0000_0003);
 }
+
+// === MOVEM (Move Multiple Registers) ===
+
+#[test]
+fn test_movem_to_mem_word_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.W D0/D1/D2,(A0) (opcode: 0x4890, mask: 0x0007)
+    // 0100 1000 10 010 000 = 0x4890
+    // Mask: bits 0,1,2 = D0,D1,D2
+    load_words(&mut bus, 0x1000, &[0x4890, 0x0007]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.d[0] = 0x1111_1111;
+    cpu.regs.d[1] = 0x2222_2222;
+    cpu.regs.d[2] = 0x3333_3333;
+
+    for _ in 0..40 {
+        cpu.tick(&mut bus);
+    }
+
+    // Check memory - words written at 0x2000, 0x2002, 0x2004
+    let w0 = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    let w1 = u16::from(bus.peek(0x2002)) << 8 | u16::from(bus.peek(0x2003));
+    let w2 = u16::from(bus.peek(0x2004)) << 8 | u16::from(bus.peek(0x2005));
+    assert_eq!(w0, 0x1111, "D0 word at 0x2000");
+    assert_eq!(w1, 0x2222, "D1 word at 0x2002");
+    assert_eq!(w2, 0x3333, "D2 word at 0x2004");
+}
+
+#[test]
+fn test_movem_to_mem_long_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.L D0/D1,(A0) (opcode: 0x48D0, mask: 0x0003)
+    // 0100 1000 11 010 000 = 0x48D0
+    load_words(&mut bus, 0x1000, &[0x48D0, 0x0003]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.d[0] = 0x1234_5678;
+    cpu.regs.d[1] = 0xABCD_EF01;
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // Check memory - longs written at 0x2000 and 0x2004
+    let read_long = |bus: &SimpleBus, addr: u16| {
+        let hi = u16::from(bus.peek(addr)) << 8 | u16::from(bus.peek(addr + 1));
+        let lo = u16::from(bus.peek(addr + 2)) << 8 | u16::from(bus.peek(addr + 3));
+        u32::from(hi) << 16 | u32::from(lo)
+    };
+    assert_eq!(read_long(&bus, 0x2000), 0x1234_5678, "D0 at 0x2000");
+    assert_eq!(read_long(&bus, 0x2004), 0xABCD_EF01, "D1 at 0x2004");
+}
+
+#[test]
+fn test_movem_to_mem_predec() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.L D0/D1,-(A0) (opcode: 0x48E0, mask: 0x0003)
+    // 0100 1000 11 100 000 = 0x48E0
+    // For predecrement, mask is reversed: bit 0=A7, bit 15=D0
+    // To store D0/D1: bits 14,15 = 0xC000
+    load_words(&mut bus, 0x1000, &[0x48E0, 0xC000]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2010); // Start high, decrement down
+    cpu.regs.d[0] = 0x1111_1111;
+    cpu.regs.d[1] = 0x2222_2222;
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // A0 should be decremented by 8 (2 longs)
+    assert_eq!(cpu.regs.a(0), 0x2008, "A0 should be 0x2008 after predec");
+
+    // For predecrement: D0 is written first (highest bit in reversed mask)
+    // Writes happen at decremented addresses
+    let read_long = |bus: &SimpleBus, addr: u16| {
+        let hi = u16::from(bus.peek(addr)) << 8 | u16::from(bus.peek(addr + 1));
+        let lo = u16::from(bus.peek(addr + 2)) << 8 | u16::from(bus.peek(addr + 3));
+        u32::from(hi) << 16 | u32::from(lo)
+    };
+    assert_eq!(read_long(&bus, 0x2008), 0x1111_1111, "D0 at 0x2008");
+    assert_eq!(read_long(&bus, 0x200C), 0x2222_2222, "D1 at 0x200C");
+}
+
+#[test]
+fn test_movem_from_mem_word_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.W (A0),D0/D1/D2 (opcode: 0x4C90, mask: 0x0007)
+    // 0100 1100 10 010 000 = 0x4C90
+    load_words(&mut bus, 0x1000, &[0x4C90, 0x0007]);
+    // Data at 0x2000
+    load_words(&mut bus, 0x2000, &[0x1111, 0x2222, 0x3333]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.d[0] = 0xFFFF_FFFF;
+    cpu.regs.d[1] = 0xFFFF_FFFF;
+    cpu.regs.d[2] = 0xFFFF_FFFF;
+
+    for _ in 0..40 {
+        cpu.tick(&mut bus);
+    }
+
+    // Word loads to data registers don't sign extend, just load low word
+    assert_eq!(cpu.regs.d[0] & 0xFFFF, 0x1111);
+    assert_eq!(cpu.regs.d[1] & 0xFFFF, 0x2222);
+    assert_eq!(cpu.regs.d[2] & 0xFFFF, 0x3333);
+}
+
+#[test]
+fn test_movem_from_mem_long_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.L (A0),D0/D1 (opcode: 0x4CD0, mask: 0x0003)
+    // 0100 1100 11 010 000 = 0x4CD0
+    load_words(&mut bus, 0x1000, &[0x4CD0, 0x0003]);
+    // Data at 0x2000
+    load_words(&mut bus, 0x2000, &[0x1234, 0x5678, 0xABCD, 0xEF01]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0x1234_5678);
+    assert_eq!(cpu.regs.d[1], 0xABCD_EF01);
+}
+
+#[test]
+fn test_movem_from_mem_postinc() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.L (A0)+,D0/D1 (opcode: 0x4CD8, mask: 0x0003)
+    // 0100 1100 11 011 000 = 0x4CD8
+    load_words(&mut bus, 0x1000, &[0x4CD8, 0x0003]);
+    // Data at 0x2000
+    load_words(&mut bus, 0x2000, &[0xCAFE, 0xBABE, 0xDEAD, 0xBEEF]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0xCAFE_BABE);
+    assert_eq!(cpu.regs.d[1], 0xDEAD_BEEF);
+    // A0 should be incremented by 8 (2 longs)
+    assert_eq!(cpu.regs.a(0), 0x2008, "A0 should be 0x2008 after postinc");
+}
+
+#[test]
+fn test_movem_from_mem_word_sign_extend_address_reg() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.W (A0),A1 (opcode: 0x4C90, mask: 0x0200)
+    // Mask bit 9 = A1
+    load_words(&mut bus, 0x1000, &[0x4C90, 0x0200]);
+    // Data at 0x2000 - 0xFFFF is -1 as signed word
+    load_words(&mut bus, 0x2000, &[0xFFFF]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.set_a(1, 0x0000_0000);
+
+    for _ in 0..30 {
+        cpu.tick(&mut bus);
+    }
+
+    // Word to address register should sign-extend to 32 bits
+    assert_eq!(cpu.regs.a(1), 0xFFFF_FFFF, "A1 should be sign-extended");
+}
+
+#[test]
+fn test_movem_empty_mask() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.L (A0)+,<nothing> (opcode: 0x4CD8, mask: 0x0000)
+    load_words(&mut bus, 0x1000, &[0x4CD8, 0x0000]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // A0 should be unchanged (no registers transferred)
+    assert_eq!(cpu.regs.a(0), 0x2000, "A0 unchanged with empty mask");
+}
+
+#[test]
+fn test_movem_all_data_registers() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEM.W D0-D7,(A0) (opcode: 0x4890, mask: 0x00FF)
+    load_words(&mut bus, 0x1000, &[0x4890, 0x00FF]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    for i in 0..8 {
+        cpu.regs.d[i] = (i as u32 + 1) * 0x1111_1111;
+    }
+
+    for _ in 0..80 {
+        cpu.tick(&mut bus);
+    }
+
+    // Check all 8 words in memory
+    for i in 0..8 {
+        let addr = 0x2000 + (i * 2) as u16;
+        let w = u16::from(bus.peek(addr)) << 8 | u16::from(bus.peek(addr + 1));
+        let expected = ((i as u16 + 1) * 0x1111) as u16;
+        assert_eq!(w, expected, "D{} word at {:04X}", i, addr);
+    }
+}
