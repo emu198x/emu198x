@@ -58,6 +58,10 @@ impl M68000 {
 
         // Re-dispatch to the same instruction handler
         match op >> 12 {
+            0x0 => {
+                // Group 0 - immediate operations continuation
+                self.immediate_op_continuation();
+            }
             0x1 => self.decode_move_byte(op),
             0x2 => self.decode_move_long(op),
             0x3 => self.decode_move_word(op),
@@ -93,8 +97,13 @@ impl M68000 {
 
     /// Group 0: Bit manipulation, MOVEP, Immediate
     fn decode_group_0(&mut self, op: u16) {
+        // Encoding guide for Group 0:
+        // - Bit 8 set: Dynamic bit operations (BTST/BCHG/BCLR/BSET with register)
+        // - Bits 11-9 = 100: Static bit operations (BTST/BCHG/BCLR/BSET with immediate)
+        // - Otherwise: Immediate arithmetic/logic (ORI, ANDI, SUBI, ADDI, EORI, CMPI)
+
         if op & 0x0100 != 0 {
-            // Bit operations with register
+            // Bit operations with register (dynamic bit number in Dn)
             let reg = ((op >> 9) & 7) as u8;
             let mode = ((op >> 3) & 7) as u8;
             let ea_reg = (op & 7) as u8;
@@ -106,32 +115,46 @@ impl M68000 {
                 3 => self.exec_bset_reg(reg, mode, ea_reg),
                 _ => unreachable!(),
             }
-        } else if op & 0x0800 != 0 {
-            // Bit operations with immediate
-            let mode = ((op >> 3) & 7) as u8;
-            let ea_reg = (op & 7) as u8;
-
-            match (op >> 6) & 3 {
-                0 => self.exec_btst_imm(mode, ea_reg),
-                1 => self.exec_bchg_imm(mode, ea_reg),
-                2 => self.exec_bclr_imm(mode, ea_reg),
-                3 => self.exec_bset_imm(mode, ea_reg),
-                _ => unreachable!(),
-            }
         } else {
-            // Immediate operations
-            let size = Size::from_bits(((op >> 6) & 3) as u8);
+            // Check bits 11-9 for operation type
             let mode = ((op >> 3) & 7) as u8;
             let ea_reg = (op & 7) as u8;
 
             match (op >> 9) & 7 {
-                0 => self.exec_ori(size, mode, ea_reg),
-                1 => self.exec_andi(size, mode, ea_reg),
-                2 => self.exec_subi(size, mode, ea_reg),
-                3 => self.exec_addi(size, mode, ea_reg),
-                4 => self.exec_btst_imm(mode, ea_reg), // Actually BTST #imm
-                5 => self.exec_eori(size, mode, ea_reg),
-                6 => self.exec_cmpi(size, mode, ea_reg),
+                0 => {
+                    let size = Size::from_bits(((op >> 6) & 3) as u8);
+                    self.exec_ori(size, mode, ea_reg);
+                }
+                1 => {
+                    let size = Size::from_bits(((op >> 6) & 3) as u8);
+                    self.exec_andi(size, mode, ea_reg);
+                }
+                2 => {
+                    let size = Size::from_bits(((op >> 6) & 3) as u8);
+                    self.exec_subi(size, mode, ea_reg);
+                }
+                3 => {
+                    let size = Size::from_bits(((op >> 6) & 3) as u8);
+                    self.exec_addi(size, mode, ea_reg);
+                }
+                4 => {
+                    // Static bit operations with immediate bit number
+                    match (op >> 6) & 3 {
+                        0 => self.exec_btst_imm(mode, ea_reg),
+                        1 => self.exec_bchg_imm(mode, ea_reg),
+                        2 => self.exec_bclr_imm(mode, ea_reg),
+                        3 => self.exec_bset_imm(mode, ea_reg),
+                        _ => unreachable!(),
+                    }
+                }
+                5 => {
+                    let size = Size::from_bits(((op >> 6) & 3) as u8);
+                    self.exec_eori(size, mode, ea_reg);
+                }
+                6 => {
+                    let size = Size::from_bits(((op >> 6) & 3) as u8);
+                    self.exec_cmpi(size, mode, ea_reg);
+                }
                 7 => self.illegal_instruction(),
                 _ => unreachable!(),
             }
@@ -1160,28 +1183,324 @@ impl M68000 {
         self.queue_internal(4); // TODO: implement
     }
 
-    fn exec_ori(&mut self, _size: Option<Size>, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_ori(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
+        // ORI #imm,<ea> - Inclusive OR Immediate
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            // Queue fetching the immediate value
+            let ext_count = if size == Size::Long { 2 } else { 1 };
+            for _ in 0..ext_count {
+                self.micro_ops.push(MicroOp::FetchExtWord);
+            }
+            self.size = size;
+            self.dst_mode = Some(addr_mode);
+            self.instr_phase = InstrPhase::DstEACalc;
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            self.illegal_instruction();
+        }
     }
 
-    fn exec_andi(&mut self, _size: Option<Size>, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_ori_continuation(&mut self) {
+        let Some(dst_mode) = self.dst_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        // Get immediate value from extension words
+        let imm = if self.size == Size::Long {
+            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
+        } else if self.size == Size::Word {
+            u32::from(self.ext_words[0])
+        } else {
+            u32::from(self.ext_words[0] & 0xFF)
+        };
+
+        match dst_mode {
+            AddrMode::DataReg(r) => {
+                let dst = self.read_data_reg(r, self.size);
+                let result = dst | imm;
+                self.write_data_reg(r, result, self.size);
+                self.set_flags_move(result, self.size);
+                self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+            }
+            _ => {
+                // Memory operands - stub
+                self.queue_internal(12);
+            }
+        }
+        self.instr_phase = InstrPhase::Complete;
     }
 
-    fn exec_subi(&mut self, _size: Option<Size>, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_andi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
+        // ANDI #imm,<ea> - AND Immediate
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            let ext_count = if size == Size::Long { 2 } else { 1 };
+            for _ in 0..ext_count {
+                self.micro_ops.push(MicroOp::FetchExtWord);
+            }
+            self.size = size;
+            self.dst_mode = Some(addr_mode);
+            self.instr_phase = InstrPhase::DstEACalc;
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            self.illegal_instruction();
+        }
     }
 
-    fn exec_addi(&mut self, _size: Option<Size>, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_andi_continuation(&mut self) {
+        let Some(dst_mode) = self.dst_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        let imm = if self.size == Size::Long {
+            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
+        } else if self.size == Size::Word {
+            u32::from(self.ext_words[0])
+        } else {
+            u32::from(self.ext_words[0] & 0xFF)
+        };
+
+        match dst_mode {
+            AddrMode::DataReg(r) => {
+                let dst = self.read_data_reg(r, self.size);
+                let result = dst & imm;
+                self.write_data_reg(r, result, self.size);
+                self.set_flags_move(result, self.size);
+                self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+            }
+            _ => {
+                self.queue_internal(12);
+            }
+        }
+        self.instr_phase = InstrPhase::Complete;
     }
 
-    fn exec_eori(&mut self, _size: Option<Size>, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_subi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
+        // SUBI #imm,<ea> - Subtract Immediate
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            let ext_count = if size == Size::Long { 2 } else { 1 };
+            for _ in 0..ext_count {
+                self.micro_ops.push(MicroOp::FetchExtWord);
+            }
+            self.size = size;
+            self.dst_mode = Some(addr_mode);
+            self.instr_phase = InstrPhase::DstEACalc;
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            self.illegal_instruction();
+        }
     }
 
-    fn exec_cmpi(&mut self, _size: Option<Size>, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_subi_continuation(&mut self) {
+        let Some(dst_mode) = self.dst_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        let src = if self.size == Size::Long {
+            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
+        } else if self.size == Size::Word {
+            u32::from(self.ext_words[0])
+        } else {
+            u32::from(self.ext_words[0] & 0xFF)
+        };
+
+        match dst_mode {
+            AddrMode::DataReg(r) => {
+                let dst = self.read_data_reg(r, self.size);
+                let result = dst.wrapping_sub(src);
+                self.write_data_reg(r, result, self.size);
+                self.set_flags_sub(src, dst, result, self.size);
+                self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+            }
+            _ => {
+                self.queue_internal(12);
+            }
+        }
+        self.instr_phase = InstrPhase::Complete;
+    }
+
+    fn exec_addi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
+        // ADDI #imm,<ea> - Add Immediate
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            let ext_count = if size == Size::Long { 2 } else { 1 };
+            for _ in 0..ext_count {
+                self.micro_ops.push(MicroOp::FetchExtWord);
+            }
+            self.size = size;
+            self.dst_mode = Some(addr_mode);
+            self.instr_phase = InstrPhase::DstEACalc;
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            self.illegal_instruction();
+        }
+    }
+
+    fn exec_addi_continuation(&mut self) {
+        let Some(dst_mode) = self.dst_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        let src = if self.size == Size::Long {
+            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
+        } else if self.size == Size::Word {
+            u32::from(self.ext_words[0])
+        } else {
+            u32::from(self.ext_words[0] & 0xFF)
+        };
+
+        match dst_mode {
+            AddrMode::DataReg(r) => {
+                let dst = self.read_data_reg(r, self.size);
+                let result = dst.wrapping_add(src);
+                self.write_data_reg(r, result, self.size);
+                self.set_flags_add(src, dst, result, self.size);
+                self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+            }
+            _ => {
+                self.queue_internal(12);
+            }
+        }
+        self.instr_phase = InstrPhase::Complete;
+    }
+
+    fn exec_eori(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
+        // EORI #imm,<ea> - Exclusive OR Immediate
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            let ext_count = if size == Size::Long { 2 } else { 1 };
+            for _ in 0..ext_count {
+                self.micro_ops.push(MicroOp::FetchExtWord);
+            }
+            self.size = size;
+            self.dst_mode = Some(addr_mode);
+            self.instr_phase = InstrPhase::DstEACalc;
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            self.illegal_instruction();
+        }
+    }
+
+    fn exec_eori_continuation(&mut self) {
+        let Some(dst_mode) = self.dst_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        let imm = if self.size == Size::Long {
+            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
+        } else if self.size == Size::Word {
+            u32::from(self.ext_words[0])
+        } else {
+            u32::from(self.ext_words[0] & 0xFF)
+        };
+
+        match dst_mode {
+            AddrMode::DataReg(r) => {
+                let dst = self.read_data_reg(r, self.size);
+                let result = dst ^ imm;
+                self.write_data_reg(r, result, self.size);
+                self.set_flags_move(result, self.size);
+                self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+            }
+            _ => {
+                self.queue_internal(12);
+            }
+        }
+        self.instr_phase = InstrPhase::Complete;
+    }
+
+    fn exec_cmpi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
+        // CMPI #imm,<ea> - Compare Immediate
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            let ext_count = if size == Size::Long { 2 } else { 1 };
+            for _ in 0..ext_count {
+                self.micro_ops.push(MicroOp::FetchExtWord);
+            }
+            self.size = size;
+            self.dst_mode = Some(addr_mode);
+            self.instr_phase = InstrPhase::DstEACalc;
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            self.illegal_instruction();
+        }
+    }
+
+    fn exec_cmpi_continuation(&mut self) {
+        let Some(dst_mode) = self.dst_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        let src = if self.size == Size::Long {
+            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
+        } else if self.size == Size::Word {
+            u32::from(self.ext_words[0])
+        } else {
+            u32::from(self.ext_words[0] & 0xFF)
+        };
+
+        match dst_mode {
+            AddrMode::DataReg(r) => {
+                let dst = self.read_data_reg(r, self.size);
+                let result = dst.wrapping_sub(src);
+                // CMP only sets flags, doesn't store result
+                self.set_flags_sub(src, dst, result, self.size);
+                self.queue_internal(if self.size == Size::Long { 14 } else { 8 });
+            }
+            _ => {
+                self.queue_internal(12);
+            }
+        }
+        self.instr_phase = InstrPhase::Complete;
+    }
+
+    /// Dispatch continuation for group 0 immediate operations.
+    fn immediate_op_continuation(&mut self) {
+        let op = self.opcode;
+        // Immediate ops: top 3 bits of bits 11-9 determine operation
+        match (op >> 9) & 7 {
+            0 => self.exec_ori_continuation(),
+            1 => self.exec_andi_continuation(),
+            2 => self.exec_subi_continuation(),
+            3 => self.exec_addi_continuation(),
+            5 => self.exec_eori_continuation(),
+            6 => self.exec_cmpi_continuation(),
+            _ => {
+                self.instr_phase = InstrPhase::Initial;
+            }
+        }
     }
 
     fn exec_move_from_sr(&mut self, _mode: u8, _ea_reg: u8) {

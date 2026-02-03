@@ -1170,3 +1170,123 @@ fn test_move_register_to_usp() {
 
     assert_eq!(cpu.regs.usp, 0x0000_6000);
 }
+
+// === Immediate Operation Tests ===
+
+#[test]
+fn test_addi_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADDI.W #$1234, D0 (opcode: 0x0640, immediate: 0x1234)
+    // 0000 011 001 000 000 = 0x0640
+    load_words(&mut bus, 0x1000, &[0x0640, 0x1234]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_1000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0x0000_2234); // 0x1000 + 0x1234 = 0x2234
+}
+
+#[test]
+fn test_subi_long() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SUBI.L #$00000100, D1 (opcode: 0x0481, immediate: 0x0000 0x0100)
+    // 0000 010 010 000 001 = 0x0481
+    load_words(&mut bus, 0x1000, &[0x0481, 0x0000, 0x0100]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[1] = 0x0000_0500;
+
+    for _ in 0..24 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[1], 0x0000_0400); // 0x500 - 0x100 = 0x400
+}
+
+#[test]
+fn test_cmpi_word_sets_zero() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CMPI.W #$5678, D2 (opcode: 0x0C42, immediate: 0x5678)
+    // 0000 110 001 000 010 = 0x0C42
+    load_words(&mut bus, 0x1000, &[0x0C42, 0x5678]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[2] = 0x0000_5678; // Same value as immediate
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z flag should be set because D2 - #$5678 = 0
+    assert!(cpu.regs.sr & emu_68000::Z != 0, "Z flag should be set");
+}
+
+#[test]
+fn test_andi_byte() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ANDI.B #$0F, D3 (opcode: 0x0203, immediate: 0x000F)
+    // 0000 001 000 000 011 = 0x0203
+    load_words(&mut bus, 0x1000, &[0x0203, 0x000F]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[3] = 0x1234_56AB;
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Low byte should be 0xAB & 0x0F = 0x0B, rest unchanged
+    assert_eq!(cpu.regs.d[3], 0x1234_560B);
+}
+
+#[test]
+fn test_ori_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ORI.W #$FF00, D4 (opcode: 0x0044, immediate: 0xFF00)
+    // 0000 000 001 000 100 = 0x0044
+    load_words(&mut bus, 0x1000, &[0x0044, 0xFF00]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[4] = 0x0000_00FF;
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Low word should be 0x00FF | 0xFF00 = 0xFFFF
+    assert_eq!(cpu.regs.d[4], 0x0000_FFFF);
+}
+
+#[test]
+fn test_eori_long() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // EORI.L #$FFFFFFFF, D5 (opcode: 0x0A85, immediate: 0xFFFF 0xFFFF)
+    // 0000 101 010 000 101 = 0x0A85
+    load_words(&mut bus, 0x1000, &[0x0A85, 0xFFFF, 0xFFFF]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[5] = 0x5555_AAAA;
+
+    for _ in 0..24 {
+        cpu.tick(&mut bus);
+    }
+
+    // XOR with all 1s inverts all bits
+    assert_eq!(cpu.regs.d[5], 0xAAAA_5555);
+}
