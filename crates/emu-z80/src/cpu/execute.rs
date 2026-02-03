@@ -1414,7 +1414,8 @@ impl Z80 {
 
         // Register operations
         let value = self.get_reg8(r);
-        let result = self.execute_cb_operation(op, value);
+        // For BIT instruction, X/Y flags come from the register value
+        let result = self.execute_cb_operation(op, value, value);
 
         if let Some(res) = result {
             self.set_reg8(r, res);
@@ -1425,8 +1426,10 @@ impl Z80 {
     fn execute_cb_followup(&mut self) {
         let op = self.opcode;
         let value = self.data_lo;
+        // For BIT n,(HL), X/Y flags come from H register (high byte of address)
+        let flag_source = (self.addr >> 8) as u8;
 
-        let result = self.execute_cb_operation(op, value);
+        let result = self.execute_cb_operation(op, value, flag_source);
 
         // Write back if not BIT operation
         if let Some(res) = result {
@@ -1436,7 +1439,8 @@ impl Z80 {
     }
 
     /// Execute CB operation, returns Some(result) for write-back or None for BIT.
-    fn execute_cb_operation(&mut self, op: u8, value: u8) -> Option<u8> {
+    /// `flag_source` is used for undocumented X/Y flags in BIT instruction.
+    fn execute_cb_operation(&mut self, op: u8, value: u8, flag_source: u8) -> Option<u8> {
         match op & 0xF8 {
             // RLC
             0x00 => {
@@ -1500,8 +1504,10 @@ impl Z80 {
                 if bit == 7 && !is_zero {
                     flags |= SF; // S is set if bit 7 is tested and is 1
                 }
-                // Undocumented: X and Y flags from tested value
-                flags |= value & (XF | YF);
+                // Undocumented: X and Y flags from flag_source
+                // For BIT n,r: flag_source = register value
+                // For BIT n,(HL): flag_source = H register (high byte of address)
+                flags |= flag_source & (XF | YF);
                 self.regs.f = flags;
                 None // BIT doesn't write back
             }

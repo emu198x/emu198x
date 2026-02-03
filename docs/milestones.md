@@ -4,7 +4,7 @@
 
 | Phase           | Progress        |
 |-----------------|-----------------|
-| 1. Foundation   | M1 ✅ / M2-M4 ⬜ |
+| 1. Foundation   | M1 ✅ / M2 ✅ / M3-M4 ⬜ |
 | 2. ZX Spectrum  | ⬜               |
 | 3. Commodore 64 | ⬜               |
 | 4. NES/Famicom  | ⬜               |
@@ -12,7 +12,7 @@
 | 6. Integration  | ⬜               |
 | 7. Frontend     | ⬜               |
 
-**Next:** M2 (Z80 CPU Core)
+**Next:** M3 (6502 CPU Core)
 
 ---
 
@@ -55,24 +55,35 @@ emu198x/
 
 ---
 
-### M2: Z80 CPU Core
+### M2: Z80 CPU Core ✅
 
 **Deliverable:** Z80 CPU implementation with per-tick execution.
 
 **Verification:**
 
-- [ ] ZEXDOC passes (documented instructions)
-- [ ] ZEXALL passes (undocumented instructions)
-- [ ] CPU exposes `Observable` trait
-- [ ] Each `tick()` advances exactly one T-state
+- [x] ZEXDOC passes (documented instructions)
+- [x] ZEXALL passes (undocumented instructions)
+- [x] CPU exposes `Observable` trait
+- [x] Each `tick()` advances exactly one T-state
+
+**Implementation complete:**
+
+- Full instruction set (~700 opcodes) with T-state accurate micro-ops
+- All prefix groups: unprefixed, CB, DD, ED, FD, DDCB, FDCB
+- Undocumented instructions: IXH/IXL/IYH/IYL, SLL, etc.
+- Bus architecture supports memory contention (wait states)
+- Observable trait exposes registers, flags, and timing state
 
 **Links:** [spectrum.md](systems/spectrum.md)
 
-**TOSEC verification:**
+**Verification binaries:**
 
 ```text
-Sinclair ZX Spectrum/Applications/ZEXALL (1994)(Woodmass, Frank).tap
+zexdoc.com - Tests documented Z80 instructions
+zexall.com - Tests all instructions including undocumented
 ```
+
+Run with: `cargo test --package emu-z80 -- --nocapture zex`
 
 ---
 
