@@ -174,3 +174,713 @@ fn test_observable_registers() {
     assert!(paths.contains(&"sr"));
     assert!(paths.contains(&"flags.z"));
 }
+
+#[test]
+fn test_move_data_to_data() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE.L D1, D0 (opcode: 0x2001)
+    load_words(&mut bus, 0x1000, &[0x2001]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[1] = 0xDEAD_BEEF;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0xDEAD_BEEF);
+}
+
+#[test]
+fn test_move_immediate_to_data() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE.L #$12345678, D0 (opcode: 0x203C, followed by immediate)
+    load_words(&mut bus, 0x1000, &[0x203C, 0x1234, 0x5678]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+
+    // Run more cycles for this longer instruction
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0x1234_5678);
+}
+
+#[test]
+fn test_move_word_immediate() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE.W #$ABCD, D0 (opcode: 0x303C, followed by immediate)
+    load_words(&mut bus, 0x1000, &[0x303C, 0xABCD]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x1111_2222;
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Word move should only affect low word
+    assert_eq!(cpu.regs.d[0], 0x1111_ABCD);
+}
+
+#[test]
+fn test_move_addr_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE.L (A0), D0 (opcode: 0x2010)
+    load_words(&mut bus, 0x1000, &[0x2010]);
+    // Put data at address pointed by A0
+    load_words(&mut bus, 0x2000, &[0xCAFE, 0xBABE]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0xCAFE_BABE);
+}
+
+#[test]
+fn test_move_postinc() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE.L (A0)+, D0 (opcode: 0x2018)
+    load_words(&mut bus, 0x1000, &[0x2018]);
+    load_words(&mut bus, 0x2000, &[0x1234, 0x5678]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0x1234_5678);
+    assert_eq!(cpu.regs.a(0), 0x2004); // A0 should be incremented by 4
+}
+
+#[test]
+fn test_move_predec() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE.L -(A0), D0 (opcode: 0x2020)
+    load_words(&mut bus, 0x1000, &[0x2020]);
+    load_words(&mut bus, 0x1FFC, &[0xABCD, 0xEF01]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0xABCD_EF01);
+    assert_eq!(cpu.regs.a(0), 0x1FFC); // A0 should be decremented by 4
+}
+
+#[test]
+fn test_movea_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEA.W D0, A1 (opcode: 0x3240)
+    load_words(&mut bus, 0x1000, &[0x3240]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_FFFF; // -1 as word
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // MOVEA.W should sign-extend to 32 bits
+    assert_eq!(cpu.regs.a(1), 0xFFFF_FFFF);
+}
+
+#[test]
+fn test_move_to_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE.L D0, (A1) (opcode: 0x2280)
+    load_words(&mut bus, 0x1000, &[0x2280]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x1234_5678;
+    cpu.regs.set_a(1, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Check memory was written
+    let hi = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    let lo = u16::from(bus.peek(0x2002)) << 8 | u16::from(bus.peek(0x2003));
+    let value = u32::from(hi) << 16 | u32::from(lo);
+    assert_eq!(value, 0x1234_5678);
+}
+
+#[test]
+fn test_addq_data_reg() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADDQ.L #5, D0 (opcode: 0x5A80)
+    // 0101 101 0 10 000 000 = 0x5A80
+    load_words(&mut bus, 0x1000, &[0x5A80]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0010;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0x0000_0015); // 0x10 + 5 = 0x15
+}
+
+#[test]
+fn test_addq_data_8() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADDQ.L #8, D0 (opcode: 0x5080)
+    // 0101 000 0 10 000 000 = 0x5080 (data=0 means 8)
+    load_words(&mut bus, 0x1000, &[0x5080]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0000;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0x0000_0008); // 0 + 8 = 8
+}
+
+#[test]
+fn test_addq_addr_reg() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADDQ.L #3, A0 (opcode: 0x5648)
+    // 0101 011 0 01 001 000 = 0x5648
+    load_words(&mut bus, 0x1000, &[0x5648]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x0000_1000);
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.a(0), 0x0000_1003); // 0x1000 + 3 = 0x1003
+}
+
+#[test]
+fn test_subq_data_reg() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SUBQ.L #5, D0 (opcode: 0x5B80)
+    // 0101 101 1 10 000 000 = 0x5B80
+    load_words(&mut bus, 0x1000, &[0x5B80]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0015;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0x0000_0010); // 0x15 - 5 = 0x10
+}
+
+#[test]
+fn test_subq_addr_reg() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SUBQ.L #4, A1 (opcode: 0x5989)
+    // 0101 100 1 10 001 001 = 0x5989
+    load_words(&mut bus, 0x1000, &[0x5989]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(1, 0x0000_2000);
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.a(1), 0x0000_1FFC); // 0x2000 - 4 = 0x1FFC
+}
+
+#[test]
+fn test_not() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NOT.L D0 (opcode: 0x4680)
+    // 0100 0110 10 000 000 = 0x4680
+    load_words(&mut bus, 0x1000, &[0x4680]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_FFFF;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0xFFFF_0000); // NOT of 0x0000FFFF
+}
+
+#[test]
+fn test_and_registers() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // AND.L D1, D0 (opcode: 0xC081)
+    // 1100 000 0 10 000 001 = 0xC081
+    load_words(&mut bus, 0x1000, &[0xC081]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xFFFF_0000;
+    cpu.regs.d[1] = 0x00FF_FF00;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0x00FF_0000); // AND result
+}
+
+#[test]
+fn test_or_registers() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // OR.L D1, D0 (opcode: 0x8081)
+    // 1000 000 0 10 000 001 = 0x8081
+    load_words(&mut bus, 0x1000, &[0x8081]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xFFFF_0000;
+    cpu.regs.d[1] = 0x00FF_FF00;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0xFFFF_FF00); // OR result
+}
+
+#[test]
+fn test_eor_registers() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // EOR.L D0, D1 (opcode: 0xB181)
+    // 1011 000 1 10 000 001 = 0xB181
+    load_words(&mut bus, 0x1000, &[0xB181]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xFFFF_0000;
+    cpu.regs.d[1] = 0xF0F0_F0F0;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // D0 XOR D1 -> D1
+    assert_eq!(cpu.regs.d[1], 0x0F0F_F0F0);
+}
+
+#[test]
+fn test_tst() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // TST.L D0 (opcode: 0x4A80)
+    // 0100 1010 10 000 000 = 0x4A80
+    load_words(&mut bus, 0x1000, &[0x4A80]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0000;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Zero flag should be set
+    assert!(cpu.query("flags.z") == Some(emu_core::Value::Bool(true)));
+}
+
+#[test]
+fn test_lsl_immediate() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // LSL.L #4, D0 (opcode: 0xE988)
+    // 1110 100 1 10 001 000 = 0xE988
+    load_words(&mut bus, 0x1000, &[0xE988]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_000F;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0x0000_00F0); // 0x0F << 4 = 0xF0
+}
+
+#[test]
+fn test_lsr_immediate() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // LSR.L #4, D0 (opcode: 0xE888)
+    // 1110 100 0 10 001 000 = 0xE888
+    load_words(&mut bus, 0x1000, &[0xE888]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_00F0;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0x0000_000F); // 0xF0 >> 4 = 0x0F
+}
+
+#[test]
+fn test_asr_sign_extend() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ASR.L #4, D0 (opcode: 0xE880)
+    // 1110 100 0 10 000 000 = 0xE880
+    load_words(&mut bus, 0x1000, &[0xE880]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xF000_0000; // Negative number
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // ASR preserves sign bit
+    assert_eq!(cpu.regs.d[0], 0xFF00_0000);
+}
+
+#[test]
+fn test_rol() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ROL.L #4, D0 (opcode: 0xE998)
+    // 1110 100 1 10 011 000 = 0xE998
+    load_words(&mut bus, 0x1000, &[0xE998]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x1234_5678;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0x2345_6781); // Rotate left 4 bits
+}
+
+#[test]
+fn test_bra_short() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BRA.S $06 (opcode: 0x6006) - branch forward 6 bytes
+    load_words(&mut bus, 0x1000, &[0x6006]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // PC should be 0x1002 + 6 = 0x1008
+    assert_eq!(cpu.regs.pc, 0x1008);
+}
+
+#[test]
+fn test_beq_taken() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BEQ.S $04 (opcode: 0x6704) - branch if equal
+    load_words(&mut bus, 0x1000, &[0x6704]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr |= emu_68000::Z; // Set zero flag
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Branch taken: PC = 0x1002 + 4 = 0x1006
+    assert_eq!(cpu.regs.pc, 0x1006);
+}
+
+#[test]
+fn test_beq_not_taken() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BEQ.S $04 (opcode: 0x6704) - branch if equal
+    load_words(&mut bus, 0x1000, &[0x6704]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr &= !emu_68000::Z; // Clear zero flag
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Branch not taken: PC = 0x1002 (after opcode)
+    assert_eq!(cpu.regs.pc, 0x1002);
+}
+
+#[test]
+fn test_bne_taken() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BNE.S $04 (opcode: 0x6604) - branch if not equal
+    load_words(&mut bus, 0x1000, &[0x6604]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr &= !emu_68000::Z; // Clear zero flag (not equal)
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Branch taken
+    assert_eq!(cpu.regs.pc, 0x1006);
+}
+
+#[test]
+fn test_dbf_terminates() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // DBF D0, label (opcode: 0x51C8 followed by displacement 0xFFFE)
+    // DBF = DBRA = "decrement and branch always (if Dn != -1)"
+    // condition F (false) means always decrement and check
+    load_words(&mut bus, 0x1000, &[0x51C8, 0xFFFE]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0; // Will become -1 after decrement, so no branch
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // D0 should be 0xFFFF (-1 as word)
+    assert_eq!(cpu.regs.d[0] & 0xFFFF, 0xFFFF);
+    // PC should be past the instruction (no branch taken)
+    assert_eq!(cpu.regs.pc, 0x1004);
+}
+
+#[test]
+fn test_dbeq_condition_true() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // DBEQ D1, label (opcode: 0x57C9 followed by displacement)
+    // condition EQ (Z=1) means "if equal, exit loop"
+    load_words(&mut bus, 0x1000, &[0x57C9, 0xFFF8]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[1] = 5;
+    cpu.regs.sr |= emu_68000::Z; // Set Z flag - condition true
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // D1 should NOT be decremented when condition is true
+    assert_eq!(cpu.regs.d[1], 5);
+    // PC should be past the instruction
+    assert_eq!(cpu.regs.pc, 0x1004);
+}
+
+#[test]
+fn test_btst_register() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BTST D1, D0 (opcode: 0x0300)
+    // 0000 001 100 000 000 = 0x0300
+    load_words(&mut bus, 0x1000, &[0x0300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0004; // Bit 2 is set
+    cpu.regs.d[1] = 2; // Test bit 2
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Bit 2 was 1, so Z should be clear
+    assert!(cpu.query("flags.z") == Some(emu_core::Value::Bool(false)));
+}
+
+#[test]
+fn test_btst_register_zero() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BTST D1, D0
+    load_words(&mut bus, 0x1000, &[0x0300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0004; // Bit 2 is set
+    cpu.regs.d[1] = 3; // Test bit 3 (which is 0)
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Bit 3 was 0, so Z should be set
+    assert!(cpu.query("flags.z") == Some(emu_core::Value::Bool(true)));
+}
+
+#[test]
+fn test_bset_register() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BSET D1, D0 (opcode: 0x03C0)
+    // 0000 001 111 000 000 = 0x03C0
+    load_words(&mut bus, 0x1000, &[0x03C0]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0000;
+    cpu.regs.d[1] = 4; // Set bit 4
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0x0000_0010); // Bit 4 now set
+    // Z was set because bit was 0 before
+    assert!(cpu.query("flags.z") == Some(emu_core::Value::Bool(true)));
+}
+
+#[test]
+fn test_bclr_register() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BCLR D1, D0 (opcode: 0x0380)
+    // 0000 001 110 000 000 = 0x0380
+    load_words(&mut bus, 0x1000, &[0x0380]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_00FF;
+    cpu.regs.d[1] = 4; // Clear bit 4
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0x0000_00EF); // Bit 4 now clear (0xFF -> 0xEF)
+    // Z was clear because bit was 1 before
+    assert!(cpu.query("flags.z") == Some(emu_core::Value::Bool(false)));
+}
+
+#[test]
+fn test_clr_long() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CLR.L D0 (opcode: 0x4280)
+    // 0100 0010 10 000 000 = 0x4280
+    load_words(&mut bus, 0x1000, &[0x4280]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x1234_5678;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0x0000_0000);
+    // Z should be set
+    assert!(cpu.query("flags.z") == Some(emu_core::Value::Bool(true)));
+}
+
+#[test]
+fn test_clr_byte() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CLR.B D0 (opcode: 0x4200)
+    // 0100 0010 00 000 000 = 0x4200
+    load_words(&mut bus, 0x1000, &[0x4200]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x1234_56FF;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Only low byte should be cleared
+    assert_eq!(cpu.regs.d[0], 0x1234_5600);
+}
+
+#[test]
+fn test_neg_long() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NEG.L D0 (opcode: 0x4480)
+    // 0100 0100 10 000 000 = 0x4480
+    load_words(&mut bus, 0x1000, &[0x4480]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0001;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.d[0], 0xFFFF_FFFF); // -1
+}
+
+#[test]
+fn test_neg_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NEG.W D0 (opcode: 0x4440)
+    // 0100 0100 01 000 000 = 0x4440
+    load_words(&mut bus, 0x1000, &[0x4440]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x1234_0005;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Only low word should be negated
+    assert_eq!(cpu.regs.d[0], 0x1234_FFFB); // 0 - 5 = -5 = 0xFFFB
+}
+
+#[test]
+fn test_mulu() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MULU D1, D0 (opcode: 0xC0C1)
+    // 1100 000 011 000 001 = 0xC0C1
+    load_words(&mut bus, 0x1000, &[0xC0C1]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0064; // 100
+    cpu.regs.d[1] = 0x0000_000A; // 10
+
+    for _ in 0..80 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0x0000_03E8); // 100 * 10 = 1000
+}
+
+#[test]
+fn test_muls() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MULS D1, D0 (opcode: 0xC1C1)
+    // 1100 000 111 000 001 = 0xC1C1
+    load_words(&mut bus, 0x1000, &[0xC1C1]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_FFFE; // -2 as word
+    cpu.regs.d[1] = 0x0000_0005; // 5
+
+    for _ in 0..80 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.d[0], 0xFFFF_FFF6); // -2 * 5 = -10
+}

@@ -27,6 +27,23 @@ pub enum Size {
     Long,
 }
 
+/// Instruction execution phase for multi-step instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstrPhase {
+    /// Initial decode and setup.
+    Initial,
+    /// Fetched source extension words, need to calculate EA and read.
+    SrcEACalc,
+    /// Read source operand, now fetch dest extension words.
+    SrcRead,
+    /// Fetched dest extension words, need to calculate EA and write.
+    DstEACalc,
+    /// Final write to destination.
+    DstWrite,
+    /// Instruction complete.
+    Complete,
+}
+
 impl Size {
     /// Get size from the standard 2-bit encoding (00=byte, 01=word, 10=long).
     #[must_use]
@@ -178,10 +195,14 @@ pub struct M68000 {
     ext_words: [u16; 4],
     /// Number of extension words read.
     ext_count: u8,
+    /// Index into `ext_words` for current processing.
+    ext_idx: u8,
     /// Source addressing mode.
     src_mode: Option<AddrMode>,
     /// Destination addressing mode.
     dst_mode: Option<AddrMode>,
+    /// Current instruction execution phase.
+    instr_phase: InstrPhase,
 
     // === Temporary storage ===
     /// Effective address calculated.
@@ -223,8 +244,10 @@ impl M68000 {
             opcode: 0,
             ext_words: [0; 4],
             ext_count: 0,
+            ext_idx: 0,
             src_mode: None,
             dst_mode: None,
+            instr_phase: InstrPhase::Initial,
             addr: 0,
             data: 0,
             size: Size::Word,
@@ -296,8 +319,10 @@ impl M68000 {
         self.micro_ops.clear();
         self.state = State::FetchOpcode;
         self.ext_count = 0;
+        self.ext_idx = 0;
         self.src_mode = None;
         self.dst_mode = None;
+        self.instr_phase = InstrPhase::Initial;
         self.micro_ops.push(MicroOp::FetchOpcode);
     }
 
@@ -778,6 +803,166 @@ impl M68000 {
         }
     }
 
+    /// Get next extension word and advance index.
+    fn next_ext_word(&mut self) -> u16 {
+        let idx = self.ext_idx as usize;
+        if idx < self.ext_count as usize {
+            self.ext_idx += 1;
+            self.ext_words[idx]
+        } else {
+            0
+        }
+    }
+
+    /// Calculate effective address for an addressing mode using extension words.
+    /// Returns the address and whether it's a register (not memory).
+    fn calc_ea(&mut self, mode: AddrMode, pc_at_ext: u32) -> (u32, bool) {
+        match mode {
+            AddrMode::DataReg(r) => (r as u32, true),
+            AddrMode::AddrReg(r) => (r as u32, true),
+            AddrMode::AddrInd(r) => (self.regs.a(r as usize), false),
+            AddrMode::AddrIndPostInc(r) => {
+                let addr = self.regs.a(r as usize);
+                let inc = if self.size == Size::Byte && r == 7 {
+                    2
+                } else {
+                    self.size_increment()
+                };
+                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                (addr, false)
+            }
+            AddrMode::AddrIndPreDec(r) => {
+                let dec = if self.size == Size::Byte && r == 7 {
+                    2
+                } else {
+                    self.size_increment()
+                };
+                let addr = self.regs.a(r as usize).wrapping_sub(dec);
+                self.regs.set_a(r as usize, addr);
+                (addr, false)
+            }
+            AddrMode::AddrIndDisp(r) => {
+                let disp = self.next_ext_word() as i16 as i32;
+                let addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                (addr, false)
+            }
+            AddrMode::AddrIndIndex(r) => {
+                let ext = self.next_ext_word();
+                let disp = (ext & 0xFF) as i8 as i32;
+                let xn = ((ext >> 12) & 7) as usize;
+                let is_addr = ext & 0x8000 != 0;
+                let is_long = ext & 0x0800 != 0;
+                let idx_val = if is_addr {
+                    self.regs.a(xn)
+                } else {
+                    self.regs.d[xn]
+                };
+                let idx_val = if is_long {
+                    idx_val as i32
+                } else {
+                    idx_val as i16 as i32
+                };
+                let addr = (self.regs.a(r as usize) as i32)
+                    .wrapping_add(disp)
+                    .wrapping_add(idx_val) as u32;
+                (addr, false)
+            }
+            AddrMode::AbsShort => {
+                let addr = self.next_ext_word() as i16 as i32 as u32;
+                (addr, false)
+            }
+            AddrMode::AbsLong => {
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                let addr = (u32::from(hi) << 16) | u32::from(lo);
+                (addr, false)
+            }
+            AddrMode::PcDisp => {
+                let disp = self.next_ext_word() as i16 as i32;
+                let addr = (pc_at_ext as i32).wrapping_add(disp) as u32;
+                (addr, false)
+            }
+            AddrMode::PcIndex => {
+                let ext = self.next_ext_word();
+                let disp = (ext & 0xFF) as i8 as i32;
+                let xn = ((ext >> 12) & 7) as usize;
+                let is_addr = ext & 0x8000 != 0;
+                let is_long = ext & 0x0800 != 0;
+                let idx_val = if is_addr {
+                    self.regs.a(xn)
+                } else {
+                    self.regs.d[xn]
+                };
+                let idx_val = if is_long {
+                    idx_val as i32
+                } else {
+                    idx_val as i16 as i32
+                };
+                let addr = (pc_at_ext as i32)
+                    .wrapping_add(disp)
+                    .wrapping_add(idx_val) as u32;
+                (addr, false)
+            }
+            AddrMode::Immediate => {
+                // Immediate data is in extension words, return a marker
+                // The actual data will be read from ext_words
+                (0, true) // is_reg=true means "don't read memory"
+            }
+        }
+    }
+
+    /// Read immediate value from extension words.
+    fn read_immediate(&mut self) -> u32 {
+        match self.size {
+            Size::Byte => {
+                u32::from(self.next_ext_word() & 0xFF)
+            }
+            Size::Word => {
+                u32::from(self.next_ext_word())
+            }
+            Size::Long => {
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                (u32::from(hi) << 16) | u32::from(lo)
+            }
+        }
+    }
+
+    /// Read value from register based on size.
+    fn read_data_reg(&self, r: u8, size: Size) -> u32 {
+        let val = self.regs.d[r as usize];
+        match size {
+            Size::Byte => val & 0xFF,
+            Size::Word => val & 0xFFFF,
+            Size::Long => val,
+        }
+    }
+
+    /// Write value to data register based on size.
+    fn write_data_reg(&mut self, r: u8, value: u32, size: Size) {
+        let reg = &mut self.regs.d[r as usize];
+        *reg = match size {
+            Size::Byte => (*reg & 0xFFFF_FF00) | (value & 0xFF),
+            Size::Word => (*reg & 0xFFFF_0000) | (value & 0xFFFF),
+            Size::Long => value,
+        };
+    }
+
+    /// Count extension words needed for an addressing mode.
+    fn ext_words_for_mode(&self, mode: AddrMode) -> u8 {
+        match mode {
+            AddrMode::DataReg(_) | AddrMode::AddrReg(_) => 0,
+            AddrMode::AddrInd(_) | AddrMode::AddrIndPostInc(_) | AddrMode::AddrIndPreDec(_) => 0,
+            AddrMode::AddrIndDisp(_) | AddrMode::AddrIndIndex(_) => 1,
+            AddrMode::AbsShort | AddrMode::PcDisp | AddrMode::PcIndex => 1,
+            AddrMode::AbsLong => 2,
+            AddrMode::Immediate => match self.size {
+                Size::Byte | Size::Word => 1,
+                Size::Long => 2,
+            },
+        }
+    }
+
     /// Trigger an exception.
     fn exception(&mut self, vector: u8) {
         self.pending_exception = Some(vector);
@@ -793,6 +978,96 @@ impl M68000 {
             Size::Word => Status::update_nz_word(self.regs.sr, value as u16),
             Size::Long => Status::update_nz_long(self.regs.sr, value),
         };
+    }
+
+    /// Set flags for ADD operation.
+    fn set_flags_add(&mut self, src: u32, dst: u32, result: u32, size: Size) {
+        let (src, dst, result, msb) = match size {
+            Size::Byte => (src & 0xFF, dst & 0xFF, result & 0xFF, 0x80),
+            Size::Word => (src & 0xFFFF, dst & 0xFFFF, result & 0xFFFF, 0x8000),
+            Size::Long => (src, dst, result, 0x8000_0000),
+        };
+
+        let mut sr = self.regs.sr;
+
+        // Zero flag
+        sr = Status::set_if(sr, Z, result == 0);
+
+        // Negative flag
+        sr = Status::set_if(sr, N, result & msb != 0);
+
+        // Carry flag: set if there was a carry out
+        let carry = match size {
+            Size::Byte => (u16::from(src as u8) + u16::from(dst as u8)) > 0xFF,
+            Size::Word => (u32::from(src as u16) + u32::from(dst as u16)) > 0xFFFF,
+            Size::Long => src.checked_add(dst).is_none(),
+        };
+        sr = Status::set_if(sr, C, carry);
+
+        // Extend flag: copy of carry
+        sr = Status::set_if(sr, X, carry);
+
+        // Overflow: set if both operands had same sign and result has different sign
+        let overflow = (!(src ^ dst) & (src ^ result) & msb) != 0;
+        sr = Status::set_if(sr, V, overflow);
+
+        self.regs.sr = sr;
+    }
+
+    /// Set flags for SUB operation.
+    fn set_flags_sub(&mut self, src: u32, dst: u32, result: u32, size: Size) {
+        let (src, dst, result, msb) = match size {
+            Size::Byte => (src & 0xFF, dst & 0xFF, result & 0xFF, 0x80),
+            Size::Word => (src & 0xFFFF, dst & 0xFFFF, result & 0xFFFF, 0x8000),
+            Size::Long => (src, dst, result, 0x8000_0000),
+        };
+
+        let mut sr = self.regs.sr;
+
+        // Zero flag
+        sr = Status::set_if(sr, Z, result == 0);
+
+        // Negative flag
+        sr = Status::set_if(sr, N, result & msb != 0);
+
+        // Carry (borrow) flag: set if src > dst
+        let carry = src > dst;
+        sr = Status::set_if(sr, C, carry);
+
+        // Extend flag: copy of carry
+        sr = Status::set_if(sr, X, carry);
+
+        // Overflow: set if operands had different signs and result sign differs from dst
+        let overflow = ((src ^ dst) & (dst ^ result) & msb) != 0;
+        sr = Status::set_if(sr, V, overflow);
+
+        self.regs.sr = sr;
+    }
+
+    /// Set flags for CMP operation (like SUB but doesn't set X).
+    fn set_flags_cmp(&mut self, src: u32, dst: u32, result: u32, size: Size) {
+        let (src, dst, result, msb) = match size {
+            Size::Byte => (src & 0xFF, dst & 0xFF, result & 0xFF, 0x80),
+            Size::Word => (src & 0xFFFF, dst & 0xFFFF, result & 0xFFFF, 0x8000),
+            Size::Long => (src, dst, result, 0x8000_0000),
+        };
+
+        let mut sr = self.regs.sr;
+
+        // Zero flag
+        sr = Status::set_if(sr, Z, result == 0);
+
+        // Negative flag
+        sr = Status::set_if(sr, N, result & msb != 0);
+
+        // Carry (borrow) flag: set if src > dst
+        sr = Status::set_if(sr, C, src > dst);
+
+        // Overflow: set if operands had different signs and result sign differs from dst
+        let overflow = ((src ^ dst) & (dst ^ result) & msb) != 0;
+        sr = Status::set_if(sr, V, overflow);
+
+        self.regs.sr = sr;
     }
 }
 
@@ -884,8 +1159,10 @@ impl Cpu for M68000 {
         self.opcode = 0;
         self.ext_words = [0; 4];
         self.ext_count = 0;
+        self.ext_idx = 0;
         self.src_mode = None;
         self.dst_mode = None;
+        self.instr_phase = InstrPhase::Initial;
         self.addr = 0;
         self.data = 0;
         self.size = Size::Word;

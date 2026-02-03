@@ -42,7 +42,7 @@ mod flags;
 mod microcode;
 mod registers;
 
-pub use cpu::{AddrMode, M68000, Size};
+pub use cpu::{AddrMode, InstrPhase, M68000, Size};
 pub use flags::{Status, C, N, V, X, Z};
 pub use microcode::{MicroOp, MicroOpQueue};
 pub use registers::Registers;
