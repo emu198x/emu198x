@@ -13,7 +13,7 @@
 #![allow(clippy::manual_range_patterns)] // Explicit values for instruction decode clarity.
 
 use crate::cpu::{AddrMode, InstrPhase, M68000, Size};
-use crate::flags::{Status, C, X};
+use crate::flags::{Status, C, N, V, X, Z};
 use crate::microcode::MicroOp;
 
 impl M68000 {
@@ -70,8 +70,16 @@ impl M68000 {
                 // MOVEM to memory: 0x4880-0x48FF (bits 11-8 = 8, bit 7 = 1)
                 // MOVEM from memory: 0x4C80-0x4CFF (bits 11-8 = C, bit 7 = 1)
                 // LEA: 0x41C0-0x4FFF with bit 8 set and bits 7-6 = 11
+                // MOVE to CCR: 0x44C0-0x44FF (bits 11-8 = 4, bits 7-6 = 11)
+                // MOVE to SR: 0x46C0-0x46FF (bits 11-8 = 6, bits 7-6 = 11)
                 let subfield = (op >> 8) & 0xF;
-                if subfield == 0x8 && op & 0x0080 != 0 {
+                if subfield == 0x4 && (op >> 6) & 3 == 3 {
+                    // MOVE to CCR continuation
+                    self.exec_move_to_ccr_continuation();
+                } else if subfield == 0x6 && (op >> 6) & 3 == 3 {
+                    // MOVE to SR continuation
+                    self.exec_move_to_sr_continuation();
+                } else if subfield == 0x8 && op & 0x0080 != 0 {
                     // MOVEM to memory continuation
                     self.exec_movem_to_mem_continuation();
                 } else if subfield == 0xC && op & 0x0080 != 0 {
@@ -1167,20 +1175,81 @@ impl M68000 {
         }
     }
 
-    fn exec_btst_imm(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_btst_imm(&mut self, mode: u8, ea_reg: u8) {
+        // BTST #imm,<ea> - test bit (immediate bit number)
+        // Need to fetch the immediate bit number first
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.dst_mode = AddrMode::decode(mode, ea_reg);
+        self.instr_phase = InstrPhase::SrcRead;
+        self.data2 = 0; // Mark as BTST (0)
+        self.micro_ops.push(MicroOp::Execute);
     }
 
-    fn exec_bchg_imm(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_bchg_imm(&mut self, mode: u8, ea_reg: u8) {
+        // BCHG #imm,<ea> - test and change bit
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.dst_mode = AddrMode::decode(mode, ea_reg);
+        self.instr_phase = InstrPhase::SrcRead;
+        self.data2 = 1; // Mark as BCHG (1)
+        self.micro_ops.push(MicroOp::Execute);
     }
 
-    fn exec_bclr_imm(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_bclr_imm(&mut self, mode: u8, ea_reg: u8) {
+        // BCLR #imm,<ea> - test and clear bit
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.dst_mode = AddrMode::decode(mode, ea_reg);
+        self.instr_phase = InstrPhase::SrcRead;
+        self.data2 = 2; // Mark as BCLR (2)
+        self.micro_ops.push(MicroOp::Execute);
     }
 
-    fn exec_bset_imm(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_bset_imm(&mut self, mode: u8, ea_reg: u8) {
+        // BSET #imm,<ea> - test and set bit
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.dst_mode = AddrMode::decode(mode, ea_reg);
+        self.instr_phase = InstrPhase::SrcRead;
+        self.data2 = 3; // Mark as BSET (3)
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    fn exec_bit_imm_continuation(&mut self) {
+        // Continuation for BTST/BCHG/BCLR/BSET with immediate bit number
+        let bit_num = (self.ext_words[0] & 0xFF) as u32;
+        let op_type = self.data2; // 0=BTST, 1=BCHG, 2=BCLR, 3=BSET
+
+        let Some(dst_mode) = self.dst_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        match dst_mode {
+            AddrMode::DataReg(r) => {
+                // For data registers, bit number is mod 32
+                let bit = (bit_num % 32) as u8;
+                let value = self.regs.d[r as usize];
+                let mask = 1u32 << bit;
+                let was_zero = (value & mask) == 0;
+
+                // Set Z flag based on original bit
+                self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, was_zero);
+
+                // Modify bit if not BTST
+                match op_type {
+                    0 => {} // BTST - test only
+                    1 => self.regs.d[r as usize] ^= mask,  // BCHG - toggle
+                    2 => self.regs.d[r as usize] &= !mask, // BCLR - clear
+                    3 => self.regs.d[r as usize] |= mask,  // BSET - set
+                    _ => {}
+                }
+
+                self.queue_internal(if op_type == 0 { 10 } else { 12 });
+            }
+            _ => {
+                // Memory operand - bit number is mod 8
+                self.queue_internal(12); // Stub for memory
+            }
+        }
+        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_ori(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
@@ -1495,6 +1564,7 @@ impl M68000 {
             1 => self.exec_andi_continuation(),
             2 => self.exec_subi_continuation(),
             3 => self.exec_addi_continuation(),
+            4 => self.exec_bit_imm_continuation(), // Static bit operations
             5 => self.exec_eori_continuation(),
             6 => self.exec_cmpi_continuation(),
             _ => {
@@ -1503,16 +1573,109 @@ impl M68000 {
         }
     }
 
-    fn exec_move_from_sr(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_move_from_sr(&mut self, mode: u8, ea_reg: u8) {
+        // MOVE SR,<ea> - Copy status register to destination
+        // On 68000, this is NOT privileged (unlike 68010+)
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    // Store SR in low word of Dn
+                    let sr = u32::from(self.regs.sr);
+                    self.regs.d[r as usize] =
+                        (self.regs.d[r as usize] & 0xFFFF_0000) | sr;
+                    self.queue_internal(6);
+                }
+                _ => {
+                    // Memory destination - stub
+                    self.queue_internal(8);
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
-    fn exec_negx(&mut self, _size: Option<Size>, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_negx(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
+        // NEGX <ea> - Negate with extend (0 - dst - X)
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    let value = self.read_data_reg(r, size);
+                    let x = if self.regs.sr & X != 0 { 1u32 } else { 0 };
+                    let result = 0u32.wrapping_sub(value).wrapping_sub(x);
+                    self.write_data_reg(r, result, size);
+
+                    // NEGX flags: like NEG but X affects result and Z is only cleared, never set
+                    let (src_masked, result_masked, msb) = match size {
+                        Size::Byte => (value & 0xFF, result & 0xFF, 0x80u32),
+                        Size::Word => (value & 0xFFFF, result & 0xFFFF, 0x8000),
+                        Size::Long => (value, result, 0x8000_0000),
+                    };
+
+                    let mut sr = self.regs.sr;
+                    // N: set if result is negative
+                    sr = Status::set_if(sr, N, result_masked & msb != 0);
+                    // Z: cleared if result is non-zero, unchanged otherwise
+                    if result_masked != 0 {
+                        sr &= !Z;
+                    }
+                    // V: set if overflow
+                    let overflow = (src_masked & msb) != 0 && (result_masked & msb) != 0;
+                    sr = Status::set_if(sr, V, overflow);
+                    // C and X: set if borrow
+                    let carry = src_masked != 0 || x != 0;
+                    sr = Status::set_if(sr, C, carry);
+                    sr = Status::set_if(sr, X, carry);
+
+                    self.regs.sr = sr;
+                    self.queue_internal(if size == Size::Long { 6 } else { 4 });
+                }
+                _ => {
+                    self.queue_internal(8); // Memory stub
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
-    fn exec_move_to_ccr(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_move_to_ccr(&mut self, mode: u8, ea_reg: u8) {
+        // MOVE <ea>,CCR - Copy source to condition code register (low byte of SR)
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    // Only low 5 bits are CCR (XNZVC)
+                    let ccr = (self.regs.d[r as usize] & 0x1F) as u16;
+                    self.regs.sr = (self.regs.sr & 0xFF00) | ccr;
+                    self.queue_internal(12);
+                }
+                AddrMode::Immediate => {
+                    // MOVE #imm,CCR - need to fetch immediate
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.instr_phase = InstrPhase::SrcRead;
+                    self.dst_mode = Some(AddrMode::Immediate);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                _ => {
+                    self.queue_internal(12); // Memory source stub
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
+    }
+
+    fn exec_move_to_ccr_continuation(&mut self) {
+        // Continuation for MOVE #imm,CCR
+        let ccr = (self.ext_words[0] & 0x1F) as u16;
+        self.regs.sr = (self.regs.sr & 0xFF00) | ccr;
+        self.instr_phase = InstrPhase::Complete;
+        self.queue_internal(12);
     }
 
     fn exec_neg(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
@@ -1542,8 +1705,40 @@ impl M68000 {
         }
     }
 
-    fn exec_move_to_sr(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_move_to_sr(&mut self, mode: u8, ea_reg: u8) {
+        // MOVE <ea>,SR - Copy source to status register (privileged)
+        if !self.regs.is_supervisor() {
+            self.exception(8); // Privilege violation
+            return;
+        }
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    self.regs.sr = self.regs.d[r as usize] as u16;
+                    self.queue_internal(12);
+                }
+                AddrMode::Immediate => {
+                    // MOVE #imm,SR - need to fetch immediate
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.instr_phase = InstrPhase::SrcRead;
+                    self.dst_mode = Some(AddrMode::Immediate);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                _ => {
+                    self.queue_internal(12); // Memory source stub
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
+    }
+
+    fn exec_move_to_sr_continuation(&mut self) {
+        // Continuation for MOVE #imm,SR
+        self.regs.sr = self.ext_words[0];
+        self.instr_phase = InstrPhase::Complete;
+        self.queue_internal(12);
     }
 
     fn exec_not(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {

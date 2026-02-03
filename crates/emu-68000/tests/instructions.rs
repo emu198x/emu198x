@@ -1290,3 +1290,170 @@ fn test_eori_long() {
     // XOR with all 1s inverts all bits
     assert_eq!(cpu.regs.d[5], 0xAAAA_5555);
 }
+
+// === Immediate Bit Operations ===
+
+#[test]
+fn test_btst_immediate() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BTST #3, D0 (opcode: 0x0800, bit number: 0x0003)
+    // 0000 1000 00 000 000 = 0x0800
+    load_words(&mut bus, 0x1000, &[0x0800, 0x0003]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0008; // Bit 3 is set
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z flag should be clear because bit 3 was set
+    assert!(cpu.regs.sr & emu_68000::Z == 0, "Z should be clear when bit is set");
+}
+
+#[test]
+fn test_btst_immediate_zero() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BTST #3, D0 when bit 3 is clear
+    load_words(&mut bus, 0x1000, &[0x0800, 0x0003]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0000; // Bit 3 is clear
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z flag should be set because bit 3 was clear
+    assert!(cpu.regs.sr & emu_68000::Z != 0, "Z should be set when bit is clear");
+}
+
+#[test]
+fn test_bset_immediate() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BSET #5, D1 (opcode: 0x08C1, bit number: 0x0005)
+    // 0000 1000 11 000 001 = 0x08C1
+    load_words(&mut bus, 0x1000, &[0x08C1, 0x0005]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[1] = 0x0000_0000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Bit 5 should now be set
+    assert_eq!(cpu.regs.d[1], 0x0000_0020);
+    // Z should be set (bit was originally clear)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+}
+
+#[test]
+fn test_bclr_immediate() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BCLR #4, D2 (opcode: 0x0882, bit number: 0x0004)
+    // 0000 1000 10 000 010 = 0x0882
+    load_words(&mut bus, 0x1000, &[0x0882, 0x0004]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[2] = 0x0000_00FF;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Bit 4 should now be clear
+    assert_eq!(cpu.regs.d[2], 0x0000_00EF);
+    // Z should be clear (bit was originally set)
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+}
+
+// === Status Register Operations ===
+
+#[test]
+fn test_move_from_sr() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE SR, D0 (opcode: 0x40C0)
+    // 0100 0000 11 000 000 = 0x40C0
+    load_words(&mut bus, 0x1000, &[0x40C0]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x271F; // Supervisor + some flags
+    cpu.regs.d[0] = 0xFFFF_FFFF;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Low word of D0 should contain SR
+    assert_eq!(cpu.regs.d[0] & 0xFFFF, 0x271F);
+    // High word should be preserved
+    assert_eq!(cpu.regs.d[0] & 0xFFFF_0000, 0xFFFF_0000);
+}
+
+#[test]
+fn test_move_to_ccr_register() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE D3, CCR (opcode: 0x44C3)
+    // 0100 0100 11 000 011 = 0x44C3
+    load_words(&mut bus, 0x1000, &[0x44C3]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2700; // Supervisor, no flags
+    cpu.regs.d[3] = 0x0000_001F; // All CCR flags set
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // CCR (low 5 bits of SR) should be set
+    assert_eq!(cpu.regs.sr & 0x1F, 0x1F);
+    // System byte should be unchanged
+    assert_eq!(cpu.regs.sr & 0xFF00, 0x2700);
+}
+
+#[test]
+fn test_move_to_sr_privileged() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE D4, SR (opcode: 0x46C4)
+    // 0100 0110 11 000 100 = 0x46C4
+    load_words(&mut bus, 0x1000, &[0x46C4]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2700; // Supervisor mode
+    cpu.regs.d[4] = 0x0000_2715;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Entire SR should be updated
+    assert_eq!(cpu.regs.sr, 0x2715);
+}
+
+#[test]
+fn test_negx_with_extend() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NEGX.L D0 (opcode: 0x4080)
+    // 0100 0000 10 000 000 = 0x4080
+    load_words(&mut bus, 0x1000, &[0x4080]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0001;
+    cpu.regs.sr |= emu_68000::X; // Set extend flag
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 0 - 1 - 1 = -2 = 0xFFFF_FFFE
+    assert_eq!(cpu.regs.d[0], 0xFFFF_FFFE);
+}
