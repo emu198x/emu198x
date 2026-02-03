@@ -1969,8 +1969,33 @@ impl M68000 {
         self.instr_phase = InstrPhase::Initial;
     }
 
-    fn exec_tas(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_tas(&mut self, mode: u8, ea_reg: u8) {
+        // TAS <ea> - Test And Set
+        // Tests the byte, sets N and Z, then sets bit 7 (atomically on real hardware)
+        // Format: 0100 1010 11 mode reg
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    // For data register, test and set bit 7 of low byte
+                    let value = (self.regs.d[r as usize] & 0xFF) as u8;
+                    self.set_flags_move(u32::from(value), Size::Byte);
+                    let new_value = value | 0x80;
+                    self.regs.d[r as usize] =
+                        (self.regs.d[r as usize] & 0xFFFF_FF00) | u32::from(new_value);
+                    self.queue_internal(4);
+                }
+                _ => {
+                    // Memory operand - calculate EA then do read-modify-write
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.movem_long_phase = 0;
+                    // Single micro-op handles both read and write phases
+                    self.micro_ops.push(MicroOp::TasExecute);
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
     fn exec_tst(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
@@ -3292,8 +3317,31 @@ impl M68000 {
         }
     }
 
-    fn exec_shift_mem(&mut self, _kind: u8, _direction: bool, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_shift_mem(&mut self, kind: u8, direction: bool, mode: u8, ea_reg: u8) {
+        // Memory shift/rotate - always word size, always shift by 1
+        // Format: 1110 kind dr 11 mode reg
+        // kind: 00=AS, 01=LS, 10=ROX, 11=RO
+        // dr: 0=right, 1=left
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(_) | AddrMode::AddrReg(_) => {
+                    // Memory only - registers use exec_shift_reg
+                    self.illegal_instruction();
+                }
+                _ => {
+                    // Memory operand - calculate EA then do read-modify-write
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(kind);
+                    self.data2 = if direction { 1 } else { 0 };
+                    self.movem_long_phase = 0;
+                    // Single micro-op handles both read and write phases
+                    self.micro_ops.push(MicroOp::ShiftMemExecute);
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
     fn exec_shift_reg(

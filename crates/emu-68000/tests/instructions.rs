@@ -2165,3 +2165,263 @@ fn test_movem_all_data_registers() {
         assert_eq!(w, expected, "D{} word at {:04X}", i, addr);
     }
 }
+
+// ============================================================================
+// TAS (Test And Set) Tests
+// ============================================================================
+
+#[test]
+fn test_tas_data_register() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // TAS D0 (opcode: 0x4AC0), followed by NOP (0x4E71)
+    load_words(&mut bus, 0x1000, &[0x4AC0, 0x4E71]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0055; // Bit 7 clear
+
+    for _ in 0..12 {
+        cpu.tick(&mut bus);
+    }
+
+    // D0 low byte should have bit 7 set: 0x55 | 0x80 = 0xD5
+    assert_eq!(cpu.regs.d[0], 0x0000_00D5);
+    // Flags: N=0 (original was positive), Z=0 (original was non-zero)
+    assert!(cpu.regs.sr & emu_68000::N == 0, "N flag should be clear for value 0x55, sr={:04X}", cpu.regs.sr);
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+}
+
+#[test]
+fn test_tas_data_register_zero() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // TAS D1 (opcode: 0x4AC1), followed by NOP
+    load_words(&mut bus, 0x1000, &[0x4AC1, 0x4E71]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[1] = 0xFFFF_FF00; // Low byte is zero
+
+    for _ in 0..12 {
+        cpu.tick(&mut bus);
+    }
+
+    // D1 low byte should have bit 7 set: 0x00 | 0x80 = 0x80
+    assert_eq!(cpu.regs.d[1], 0xFFFF_FF80);
+    // Flags: Z=1 (original was zero), N=0
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    assert!(cpu.regs.sr & emu_68000::N == 0);
+}
+
+#[test]
+fn test_tas_data_register_negative() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // TAS D2 (opcode: 0x4AC2), followed by NOP
+    load_words(&mut bus, 0x1000, &[0x4AC2, 0x4E71]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[2] = 0x0000_0080; // Already negative (bit 7 set)
+
+    for _ in 0..12 {
+        cpu.tick(&mut bus);
+    }
+
+    // D2 unchanged (0x80 | 0x80 = 0x80)
+    assert_eq!(cpu.regs.d[2], 0x0000_0080);
+    // Flags: N=1 (original was negative), Z=0
+    assert!(cpu.regs.sr & emu_68000::N != 0);
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+}
+
+#[test]
+fn test_tas_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // TAS (A0) (opcode: 0x4AD0), followed by NOP
+    load_words(&mut bus, 0x1000, &[0x4AD0, 0x4E71]);
+    bus.poke(0x2000, 0x42); // Memory byte = 0x42
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Memory should have bit 7 set: 0x42 | 0x80 = 0xC2
+    assert_eq!(bus.peek(0x2000), 0xC2);
+    // Flags: N=0 (original was positive), Z=0
+    assert!(cpu.regs.sr & emu_68000::N == 0);
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+}
+
+// ============================================================================
+// Memory Shift/Rotate Tests
+// ============================================================================
+
+#[test]
+fn test_asl_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ASL (A0) followed by NOP
+    load_words(&mut bus, 0x1000, &[0xE1D0, 0x4E71]);
+    // Memory word = 0x4000 (will shift to 0x8000, carry out 0)
+    bus.poke(0x2000, 0x40);
+    bus.poke(0x2001, 0x00);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0x4000 << 1 = 0x8000
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x8000);
+    // N=1 (result is negative), C=0 (bit 15 was 0)
+    assert!(cpu.regs.sr & emu_68000::N != 0, "N should be set for result 0x8000");
+    assert!(cpu.regs.sr & emu_68000::C == 0);
+}
+
+#[test]
+fn test_asr_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ASR (A0) followed by NOP
+    load_words(&mut bus, 0x1000, &[0xE0D0, 0x4E71]);
+    // Memory word = 0x8002 (negative, will shift to 0xC001, carry out 0)
+    bus.poke(0x2000, 0x80);
+    bus.poke(0x2001, 0x02);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0x8002 >> 1 with sign extend = 0xC001
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0xC001);
+    // N=1 (result still negative), C=0 (bit 0 was 0)
+    assert!(cpu.regs.sr & emu_68000::N != 0);
+    assert!(cpu.regs.sr & emu_68000::C == 0);
+}
+
+#[test]
+fn test_lsl_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // LSL (A0) followed by NOP
+    load_words(&mut bus, 0x1000, &[0xE3D0, 0x4E71]);
+    // Memory word = 0x8001 (will shift to 0x0002, carry out 1)
+    bus.poke(0x2000, 0x80);
+    bus.poke(0x2001, 0x01);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0x8001 << 1 = 0x0002
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x0002);
+    // N=0, Z=0, C=1 (bit 15 was 1), X=1
+    assert!(cpu.regs.sr & emu_68000::N == 0);
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+    assert!(cpu.regs.sr & emu_68000::X != 0);
+}
+
+#[test]
+fn test_lsr_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // LSR (A0) followed by NOP
+    load_words(&mut bus, 0x1000, &[0xE2D0, 0x4E71]);
+    // Memory word = 0x0003 (will shift to 0x0001, carry out 1)
+    bus.poke(0x2000, 0x00);
+    bus.poke(0x2001, 0x03);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0x0003 >> 1 = 0x0001
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x0001);
+    // C=1 (bit 0 was 1), X=1
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+    assert!(cpu.regs.sr & emu_68000::X != 0);
+}
+
+#[test]
+fn test_rol_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ROL (A0) followed by NOP
+    load_words(&mut bus, 0x1000, &[0xE7D0, 0x4E71]);
+    // Memory word = 0x8001 (will rotate to 0x0003)
+    bus.poke(0x2000, 0x80);
+    bus.poke(0x2001, 0x01);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: rotate 0x8001 left = 0x0003
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x0003);
+    // C=1 (bit 15 was 1), X unchanged for rotates
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+}
+
+#[test]
+fn test_ror_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ROR (A0) followed by NOP
+    load_words(&mut bus, 0x1000, &[0xE6D0, 0x4E71]);
+    // Memory word = 0x0003 (will rotate to 0x8001)
+    bus.poke(0x2000, 0x00);
+    bus.poke(0x2001, 0x03);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: rotate 0x0003 right = 0x8001
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x8001);
+    // C=1 (bit 0 was 1)
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+}

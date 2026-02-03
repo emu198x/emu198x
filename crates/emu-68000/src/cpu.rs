@@ -385,6 +385,8 @@ impl M68000 {
             MicroOp::MovemWrite => self.tick_movem_write(bus),
             MicroOp::MovemRead => self.tick_movem_read(bus),
             MicroOp::CmpmExecute => self.tick_cmpm_execute(bus),
+            MicroOp::TasExecute => self.tick_tas_execute(bus),
+            MicroOp::ShiftMemExecute => self.tick_shift_mem_execute(bus),
         }
     }
 
@@ -931,6 +933,160 @@ impl M68000 {
             _ => unreachable!(),
         }
         self.cycle += 1;
+    }
+
+    /// Tick handler for TAS (Test And Set) instruction.
+    ///
+    /// State: `addr` = memory address.
+    /// Uses `movem_long_phase` to track phase: 0=read byte, 1=write byte with bit 7 set.
+    fn tick_tas_execute<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                match self.movem_long_phase {
+                    0 => {
+                        // Phase 0: Read byte and set flags
+                        let value = self.read_byte(bus, self.addr);
+                        self.data = u32::from(value);
+
+                        // Set flags based on original value
+                        self.set_flags_move(u32::from(value), Size::Byte);
+
+                        self.movem_long_phase = 1;
+                        self.cycle = 0;
+                        return;
+                    }
+                    1 => {
+                        // Phase 1: Write byte with bit 7 set
+                        let value = (self.data as u8) | 0x80;
+                        self.write_byte(bus, self.addr, value);
+
+                        self.movem_long_phase = 0;
+                        self.cycle = 0;
+                        self.micro_ops.advance();
+                        return;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Tick handler for memory shift/rotate operations.
+    ///
+    /// State: `addr` = memory address, `data` = kind (0=AS, 1=LS, 2=ROX, 3=RO),
+    /// `data2` = direction (0=right, 1=left).
+    /// Uses `movem_long_phase` to track phase: 0=read word, 1=write shifted word.
+    fn tick_shift_mem_execute<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                match self.movem_long_phase {
+                    0 => {
+                        // Phase 0: Read word
+                        let value = self.read_word(bus, self.addr);
+                        self.ext_words[0] = value;
+
+                        self.movem_long_phase = 1;
+                        self.cycle = 0;
+                        return;
+                    }
+                    1 => {
+                        // Phase 1: Shift by 1 and write back
+                        let value = u32::from(self.ext_words[0]);
+                        let kind = self.data as u8;
+                        let direction = self.data2 != 0; // 0=right, 1=left
+
+                        let (result, carry) = self.shift_word_by_one(value, kind, direction);
+
+                        // Write result
+                        self.write_word(bus, self.addr, result as u16);
+
+                        // Set flags
+                        self.set_flags_move(result, Size::Word);
+                        self.regs.sr = Status::set_if(self.regs.sr, C, carry);
+                        // X is set for shifts (kind 0,1) but not for rotates (kind 2,3)
+                        if kind < 2 {
+                            self.regs.sr = Status::set_if(self.regs.sr, X, carry);
+                        }
+                        // V is cleared (simplified)
+                        self.regs.sr &= !crate::flags::V;
+
+                        self.movem_long_phase = 0;
+                        self.cycle = 0;
+                        self.micro_ops.advance();
+                        return;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Perform a word shift/rotate by 1 bit.
+    /// Returns (result, `carry_out`).
+    fn shift_word_by_one(&self, value: u32, kind: u8, left: bool) -> (u32, bool) {
+        let mask = 0xFFFF_u32;
+        let msb = 0x8000_u32;
+
+        match (kind, left) {
+            // ASL - Arithmetic shift left
+            (0, true) => {
+                let carry = (value & msb) != 0;
+                let result = (value << 1) & mask;
+                (result, carry)
+            }
+            // ASR - Arithmetic shift right (sign extends)
+            (0, false) => {
+                let carry = (value & 1) != 0;
+                let sign = value & msb;
+                let result = ((value >> 1) | sign) & mask;
+                (result, carry)
+            }
+            // LSL - Logical shift left
+            (1, true) => {
+                let carry = (value & msb) != 0;
+                let result = (value << 1) & mask;
+                (result, carry)
+            }
+            // LSR - Logical shift right
+            (1, false) => {
+                let carry = (value & 1) != 0;
+                let result = (value >> 1) & mask;
+                (result, carry)
+            }
+            // ROXL - Rotate through X left
+            (2, true) => {
+                let x_in = u32::from(self.regs.sr & X != 0);
+                let carry = (value & msb) != 0;
+                let result = ((value << 1) | x_in) & mask;
+                (result, carry)
+            }
+            // ROXR - Rotate through X right
+            (2, false) => {
+                let x_in = if self.regs.sr & X != 0 { msb } else { 0 };
+                let carry = (value & 1) != 0;
+                let result = ((value >> 1) | x_in) & mask;
+                (result, carry)
+            }
+            // ROL - Rotate left
+            (3, true) => {
+                let carry = (value & msb) != 0;
+                let result = ((value << 1) | (value >> 15)) & mask;
+                (result, carry)
+            }
+            // ROR - Rotate right
+            (3, false) => {
+                let carry = (value & 1) != 0;
+                let result = ((value >> 1) | (value << 15)) & mask;
+                (result, carry)
+            }
+            _ => (value, false),
+        }
     }
 
     /// Begin exception processing.

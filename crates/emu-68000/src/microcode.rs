@@ -101,6 +101,19 @@ pub enum MicroOp {
     /// Uses: `addr` for source (Ay), `addr2` for dest (Ax), `data` for Ay reg, `data2` for Ax reg.
     /// Size from `self.size`.
     CmpmExecute,
+
+    /// TAS: Test and Set byte.
+    ///
+    /// Uses: `addr` for memory address.
+    /// Phase 0: Read byte, set flags. Phase 1: Write byte with bit 7 set.
+    TasExecute,
+
+    /// Memory shift/rotate: read word, shift by 1, write back.
+    ///
+    /// Uses: `addr` for memory address, `data` for shift kind, `data2` for direction.
+    /// Kind: 0=AS, 1=LS, 2=ROX, 3=RO. Direction: 0=right, 1=left.
+    /// Phase 0: Read word. Phase 1: Shift and write.
+    ShiftMemExecute,
 }
 
 impl MicroOp {
@@ -133,6 +146,8 @@ impl MicroOp {
             Self::MovemWrite => 4,    // Per word transfer (8 for long = 2 x 4)
             Self::MovemRead => 4,     // Per word transfer
             Self::CmpmExecute => 4,   // Memory read cycle (called twice for two operands)
+            Self::TasExecute => 4,    // Per memory access (called twice for read-modify-write)
+            Self::ShiftMemExecute => 4, // Per memory access (called twice for read-modify-write)
         }
     }
 }
