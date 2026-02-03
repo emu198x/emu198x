@@ -80,6 +80,13 @@ impl Mos6502 {
         }
     }
 
+    /// Returns true if the previous instruction has completed and the CPU
+    /// is ready to fetch the next opcode.
+    #[must_use]
+    pub fn is_instruction_complete(&self) -> bool {
+        self.state == State::FetchOpcode
+    }
+
     /// Execute one CPU cycle.
     fn execute_cycle<B: Bus>(&mut self, bus: &mut B) {
         self.total_cycles += 1;
@@ -591,11 +598,135 @@ impl Mos6502 {
             // INC abs,X - 7 cycles
             0xFE => self.addr_abx_rmw(bus, Self::do_inc),
 
-            // Unimplemented - treat as NOP for now (will be illegal opcodes)
-            _ => {
-                // Single-byte NOP for unimplemented opcodes
+            // ====================================================================
+            // Illegal opcodes - stable combined operations
+            // ====================================================================
+
+            // SLO (ASL + ORA) - shift left then OR with accumulator
+            0x07 => self.addr_zp_rmw(bus, Self::do_slo),
+            0x17 => self.addr_zpx_rmw(bus, Self::do_slo),
+            0x0F => self.addr_abs_rmw(bus, Self::do_slo),
+            0x1F => self.addr_abx_rmw(bus, Self::do_slo),
+            0x1B => self.addr_aby_rmw(bus, Self::do_slo),
+            0x03 => self.addr_izx_rmw(bus, Self::do_slo),
+            0x13 => self.addr_izy_rmw(bus, Self::do_slo),
+
+            // RLA (ROL + AND) - rotate left then AND with accumulator
+            0x27 => self.addr_zp_rmw(bus, Self::do_rla),
+            0x37 => self.addr_zpx_rmw(bus, Self::do_rla),
+            0x2F => self.addr_abs_rmw(bus, Self::do_rla),
+            0x3F => self.addr_abx_rmw(bus, Self::do_rla),
+            0x3B => self.addr_aby_rmw(bus, Self::do_rla),
+            0x23 => self.addr_izx_rmw(bus, Self::do_rla),
+            0x33 => self.addr_izy_rmw(bus, Self::do_rla),
+
+            // SRE (LSR + EOR) - shift right then XOR with accumulator
+            0x47 => self.addr_zp_rmw(bus, Self::do_sre),
+            0x57 => self.addr_zpx_rmw(bus, Self::do_sre),
+            0x4F => self.addr_abs_rmw(bus, Self::do_sre),
+            0x5F => self.addr_abx_rmw(bus, Self::do_sre),
+            0x5B => self.addr_aby_rmw(bus, Self::do_sre),
+            0x43 => self.addr_izx_rmw(bus, Self::do_sre),
+            0x53 => self.addr_izy_rmw(bus, Self::do_sre),
+
+            // RRA (ROR + ADC) - rotate right then add with carry
+            0x67 => self.addr_zp_rmw(bus, Self::do_rra),
+            0x77 => self.addr_zpx_rmw(bus, Self::do_rra),
+            0x6F => self.addr_abs_rmw(bus, Self::do_rra),
+            0x7F => self.addr_abx_rmw(bus, Self::do_rra),
+            0x7B => self.addr_aby_rmw(bus, Self::do_rra),
+            0x63 => self.addr_izx_rmw(bus, Self::do_rra),
+            0x73 => self.addr_izy_rmw(bus, Self::do_rra),
+
+            // DCP (DEC + CMP) - decrement then compare
+            0xC7 => self.addr_zp_rmw(bus, Self::do_dcp),
+            0xD7 => self.addr_zpx_rmw(bus, Self::do_dcp),
+            0xCF => self.addr_abs_rmw(bus, Self::do_dcp),
+            0xDF => self.addr_abx_rmw(bus, Self::do_dcp),
+            0xDB => self.addr_aby_rmw(bus, Self::do_dcp),
+            0xC3 => self.addr_izx_rmw(bus, Self::do_dcp),
+            0xD3 => self.addr_izy_rmw(bus, Self::do_dcp),
+
+            // ISC (INC + SBC) - increment then subtract with borrow
+            0xE7 => self.addr_zp_rmw(bus, Self::do_isc),
+            0xF7 => self.addr_zpx_rmw(bus, Self::do_isc),
+            0xEF => self.addr_abs_rmw(bus, Self::do_isc),
+            0xFF => self.addr_abx_rmw(bus, Self::do_isc),
+            0xFB => self.addr_aby_rmw(bus, Self::do_isc),
+            0xE3 => self.addr_izx_rmw(bus, Self::do_isc),
+            0xF3 => self.addr_izy_rmw(bus, Self::do_isc),
+
+            // LAX (LDA + LDX) - load A and X with same value
+            0xA7 => self.addr_zp(bus, Self::do_lax),
+            0xB7 => self.addr_zpy(bus, Self::do_lax),
+            0xAF => self.addr_abs(bus, Self::do_lax),
+            0xBF => self.addr_aby(bus, Self::do_lax),
+            0xA3 => self.addr_izx(bus, Self::do_lax),
+            0xB3 => self.addr_izy(bus, Self::do_lax),
+
+            // SAX (store A AND X)
+            0x87 => self.addr_zp_w(bus, Self::get_sax),
+            0x97 => self.addr_zpy_w(bus, Self::get_sax),
+            0x8F => self.addr_abs_w(bus, Self::get_sax),
+            0x83 => self.addr_izx_w(bus, Self::get_sax),
+
+            // ANC - AND then copy bit 7 to carry
+            0x0B | 0x2B => self.addr_imm(bus, Self::do_anc),
+
+            // ALR - AND then LSR
+            0x4B => self.addr_imm(bus, Self::do_alr),
+
+            // ARR - AND then ROR with weird flags
+            0x6B => self.addr_imm(bus, Self::do_arr),
+
+            // AXS/SBX - (A AND X) - imm, store in X
+            0xCB => self.addr_imm(bus, Self::do_axs),
+
+            // ====================================================================
+            // Illegal NOPs - various byte counts and cycle timings
+            // ====================================================================
+
+            // Single-byte NOPs (1 byte, 2 cycles)
+            0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                 if self.cycle == 1 {
-                    let _ = bus.read(self.regs.pc); // Dummy read
+                    let _ = bus.read(self.regs.pc);
+                    self.finish();
+                }
+            }
+
+            // Two-byte immediate NOPs (2 bytes, 2 cycles)
+            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => {
+                if self.cycle == 1 {
+                    let _ = bus.read(self.regs.pc);
+                    self.regs.pc = self.regs.pc.wrapping_add(1);
+                    self.finish();
+                }
+            }
+
+            // Two-byte zero page NOPs (2 bytes, 3 cycles)
+            0x04 | 0x44 | 0x64 => self.addr_zp(bus, |_, _| {}),
+
+            // Two-byte zero page,X NOPs (2 bytes, 4 cycles)
+            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => self.addr_zpx(bus, |_, _| {}),
+
+            // Three-byte absolute NOP (3 bytes, 4 cycles)
+            0x0C => self.addr_abs(bus, |_, _| {}),
+
+            // Three-byte absolute,X NOPs (3 bytes, 4/5 cycles)
+            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => self.addr_abx(bus, |_, _| {}),
+
+            // ====================================================================
+            // JAM/KIL - halt the CPU
+            // ====================================================================
+            0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2
+            | 0xF2 => {
+                self.state = State::Stopped;
+            }
+
+            // Any remaining undefined opcodes - single-byte NOP
+            _ => {
+                if self.cycle == 1 {
+                    let _ = bus.read(self.regs.pc);
                     self.finish();
                 }
             }
@@ -603,9 +734,19 @@ impl Mos6502 {
     }
 
     /// Finish current instruction and return to opcode fetch.
+    ///
+    /// IMPORTANT: This clears all temporary state to prevent stale values
+    /// from leaking into subsequent instructions. See docs/cpu-state-management.md
+    /// for the bug this prevents (BRK vector corruption from stale `addr`).
     fn finish(&mut self) {
         self.state = State::FetchOpcode;
         self.cycle = 0;
+
+        // Clear temporary state to prevent inter-instruction leakage.
+        // This is the primary defense against stale state bugs.
+        self.addr = 0;
+        self.data = 0;
+        self.pointer = 0;
     }
 
     // ========================================================================
@@ -1208,6 +1349,128 @@ impl Mos6502 {
         }
     }
 
+    /// Absolute,Y read-modify-write (always 7 cycles) - for illegal opcodes.
+    fn addr_aby_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
+        match self.cycle {
+            1 => {
+                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cycle = 2;
+            }
+            2 => {
+                let hi = bus.read(self.regs.pc).data;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                let lo = (self.addr as u8).wrapping_add(self.regs.y);
+                self.addr = u16::from(lo) | (u16::from(hi) << 8);
+                self.data = if lo < self.regs.y { 1 } else { 0 };
+                self.cycle = 3;
+            }
+            3 => {
+                let _ = bus.read(self.addr);
+                if self.data != 0 {
+                    self.addr = self.addr.wrapping_add(0x100);
+                }
+                self.cycle = 4;
+            }
+            4 => {
+                self.data = bus.read(self.addr).data;
+                self.cycle = 5;
+            }
+            5 => {
+                bus.write(self.addr, self.data);
+                self.data = op(self, self.data);
+                self.cycle = 6;
+            }
+            6 => {
+                bus.write(self.addr, self.data);
+                self.finish();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// Indexed indirect (zp,X) read-modify-write - for illegal opcodes.
+    fn addr_izx_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
+        match self.cycle {
+            1 => {
+                self.pointer = bus.read(self.regs.pc).data;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cycle = 2;
+            }
+            2 => {
+                let _ = bus.read(u16::from(self.pointer));
+                self.pointer = self.pointer.wrapping_add(self.regs.x);
+                self.cycle = 3;
+            }
+            3 => {
+                self.addr = u16::from(bus.read(u16::from(self.pointer)).data);
+                self.cycle = 4;
+            }
+            4 => {
+                self.addr |=
+                    u16::from(bus.read(u16::from(self.pointer.wrapping_add(1))).data) << 8;
+                self.cycle = 5;
+            }
+            5 => {
+                self.data = bus.read(self.addr).data;
+                self.cycle = 6;
+            }
+            6 => {
+                bus.write(self.addr, self.data);
+                self.data = op(self, self.data);
+                self.cycle = 7;
+            }
+            7 => {
+                bus.write(self.addr, self.data);
+                self.finish();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// Indirect indexed (zp),Y read-modify-write (always 8 cycles) - for illegal opcodes.
+    fn addr_izy_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
+        match self.cycle {
+            1 => {
+                self.pointer = bus.read(self.regs.pc).data;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cycle = 2;
+            }
+            2 => {
+                self.addr = u16::from(bus.read(u16::from(self.pointer)).data);
+                self.cycle = 3;
+            }
+            3 => {
+                let hi = bus.read(u16::from(self.pointer.wrapping_add(1))).data;
+                let lo = (self.addr as u8).wrapping_add(self.regs.y);
+                self.addr = u16::from(lo) | (u16::from(hi) << 8);
+                self.data = if lo < self.regs.y { 1 } else { 0 };
+                self.cycle = 4;
+            }
+            4 => {
+                let _ = bus.read(self.addr);
+                if self.data != 0 {
+                    self.addr = self.addr.wrapping_add(0x100);
+                }
+                self.cycle = 5;
+            }
+            5 => {
+                self.data = bus.read(self.addr).data;
+                self.cycle = 6;
+            }
+            6 => {
+                bus.write(self.addr, self.data);
+                self.data = op(self, self.data);
+                self.cycle = 7;
+            }
+            7 => {
+                bus.write(self.addr, self.data);
+                self.finish();
+            }
+            _ => unreachable!(),
+        }
+    }
+
     // ========================================================================
     // ALU operations
     // ========================================================================
@@ -1398,6 +1661,112 @@ impl Mos6502 {
     }
 
     // ========================================================================
+    // Illegal opcode operations
+    // ========================================================================
+
+    /// LAX - Load A and X with the same value
+    fn do_lax(&mut self, val: u8) {
+        self.regs.a = val;
+        self.regs.x = val;
+        self.regs.p.update_nz(val);
+    }
+
+    /// SAX - Store A AND X
+    fn get_sax(&self) -> u8 {
+        self.regs.a & self.regs.x
+    }
+
+    /// SLO - Shift Left then OR with accumulator
+    fn do_slo(&mut self, val: u8) -> u8 {
+        self.regs.p.set_if(C, val & 0x80 != 0);
+        let result = val << 1;
+        self.regs.a |= result;
+        self.regs.p.update_nz(self.regs.a);
+        result
+    }
+
+    /// RLA - Rotate Left then AND with accumulator
+    fn do_rla(&mut self, val: u8) -> u8 {
+        let carry = if self.regs.p.is_set(C) { 1 } else { 0 };
+        self.regs.p.set_if(C, val & 0x80 != 0);
+        let result = (val << 1) | carry;
+        self.regs.a &= result;
+        self.regs.p.update_nz(self.regs.a);
+        result
+    }
+
+    /// SRE - Shift Right then XOR with accumulator
+    fn do_sre(&mut self, val: u8) -> u8 {
+        self.regs.p.set_if(C, val & 0x01 != 0);
+        let result = val >> 1;
+        self.regs.a ^= result;
+        self.regs.p.update_nz(self.regs.a);
+        result
+    }
+
+    /// RRA - Rotate Right then ADC with accumulator
+    fn do_rra(&mut self, val: u8) -> u8 {
+        let carry = if self.regs.p.is_set(C) { 0x80 } else { 0 };
+        let new_carry = val & 0x01 != 0;
+        let result = (val >> 1) | carry;
+        self.regs.p.set_if(C, new_carry);
+        self.do_adc(result);
+        result
+    }
+
+    /// DCP - Decrement then Compare
+    fn do_dcp(&mut self, val: u8) -> u8 {
+        let result = val.wrapping_sub(1);
+        // Compare with A (like CMP)
+        self.regs.p.set_if(C, self.regs.a >= result);
+        self.regs.p.update_nz(self.regs.a.wrapping_sub(result));
+        result
+    }
+
+    /// ISC - Increment then Subtract (with carry)
+    fn do_isc(&mut self, val: u8) -> u8 {
+        let result = val.wrapping_add(1);
+        self.do_sbc(result);
+        result
+    }
+
+    /// ANC - AND then copy N to C
+    fn do_anc(&mut self, val: u8) {
+        self.regs.a &= val;
+        self.regs.p.update_nz(self.regs.a);
+        self.regs.p.set_if(C, self.regs.a & 0x80 != 0);
+    }
+
+    /// ALR - AND then LSR accumulator
+    fn do_alr(&mut self, val: u8) {
+        self.regs.a &= val;
+        self.regs.p.set_if(C, self.regs.a & 0x01 != 0);
+        self.regs.a >>= 1;
+        self.regs.p.update_nz(self.regs.a);
+    }
+
+    /// ARR - AND then ROR with weird flags
+    fn do_arr(&mut self, val: u8) {
+        self.regs.a &= val;
+        let carry = if self.regs.p.is_set(C) { 0x80 } else { 0 };
+        self.regs.a = (self.regs.a >> 1) | carry;
+        self.regs.p.update_nz(self.regs.a);
+        // Weird flag behavior: C = bit 6, V = bit 6 XOR bit 5
+        self.regs.p.set_if(C, self.regs.a & 0x40 != 0);
+        self.regs
+            .p
+            .set_if(V, (self.regs.a & 0x40 != 0) != (self.regs.a & 0x20 != 0));
+    }
+
+    /// AXS/SBX - (A AND X) - immediate, result in X, no borrow
+    fn do_axs(&mut self, val: u8) {
+        let tmp = self.regs.a & self.regs.x;
+        self.regs.p.set_if(C, tmp >= val);
+        self.regs.x = tmp.wrapping_sub(val);
+        self.regs.p.update_nz(self.regs.x);
+    }
+
+    // ========================================================================
     // Individual instruction implementations
     // ========================================================================
 
@@ -1405,51 +1774,44 @@ impl Mos6502 {
         match self.cycle {
             1 => {
                 // Padding byte (ignored but PC incremented)
+                // For software BRK, clear addr so cycle 5 uses $FFFE
+                // (begin_nmi/begin_irq skip to cycle 2 with addr already set)
+                self.addr = 0;
                 let _ = bus.read(self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
                 // Push PCH
-                let addr = self.regs.push();
-                bus.write(addr, (self.regs.pc >> 8) as u8);
+                let stack_addr = self.regs.push();
+                bus.write(stack_addr, (self.regs.pc >> 8) as u8);
                 self.cycle = 3;
             }
             3 => {
                 // Push PCL
-                let addr = self.regs.push();
-                bus.write(addr, self.regs.pc as u8);
+                let stack_addr = self.regs.push();
+                bus.write(stack_addr, self.regs.pc as u8);
                 self.cycle = 4;
             }
             4 => {
                 // Push status with B flag set
-                let addr = self.regs.push();
-                bus.write(addr, self.regs.p.to_byte_brk());
+                let stack_addr = self.regs.push();
+                bus.write(stack_addr, self.regs.p.to_byte_brk());
                 self.cycle = 5;
             }
             5 => {
                 // Read vector low byte
-                // Use self.addr if set (for NMI/IRQ), otherwise use BRK vector
+                // self.addr holds the vector base address (set by begin_nmi/begin_irq)
+                // For software BRK, it's 0 so we use $FFFE
                 let vector = if self.addr != 0 { self.addr } else { 0xFFFE };
-                self.addr = u16::from(bus.read(vector).data);
+                self.data = bus.read(vector).data; // Low byte of target
+                self.addr = vector; // Save vector address for high byte read
                 self.cycle = 6;
             }
             6 => {
                 // Read vector high byte
-                let vector = if self.addr < 0x100 {
-                    // IRQ/NMI vector
-                    self.addr | 0xFF00
-                } else {
-                    0xFFFF
-                };
-                let vector_addr = if self.addr >= 0xFFFA {
-                    self.addr + 1
-                } else {
-                    vector
-                };
-                self.addr =
-                    (self.addr & 0xFF) | (u16::from(bus.read(vector_addr).data) << 8);
-                self.regs.pc = self.addr;
+                let hi = bus.read(self.addr.wrapping_add(1)).data;
+                self.regs.pc = u16::from(self.data) | (u16::from(hi) << 8);
                 self.regs.p.set(I);
                 self.addr = 0;
                 self.finish();
@@ -1983,5 +2345,109 @@ mod tests {
         }
 
         assert_eq!(cpu.regs.pc, 0x1234);
+    }
+
+    #[test]
+    fn test_brk_stack_layout() {
+        let mut cpu = Mos6502::new();
+        let mut bus = SimpleBus::new();
+
+        // Set up stack pointer
+        cpu.regs.s = 0xFF;
+        cpu.regs.p = Status::from_byte(0x00); // Clear status
+
+        // BRK at $0200
+        bus.load(0x0200, &[0x00, 0xEA]); // BRK, NOP (padding)
+
+        // Set up BRK vector to $1234
+        bus.poke(0xFFFE, 0x34);
+        bus.poke(0xFFFF, 0x12);
+
+        cpu.regs.pc = 0x0200;
+
+        // Run BRK (7 cycles)
+        for _ in 0..7 {
+            cpu.tick(&mut bus);
+        }
+
+        // Verify PC jumped to vector
+        assert_eq!(cpu.regs.pc, 0x1234, "PC should be at vector");
+
+        // Verify stack contents
+        // BRK pushes: PCH, PCL, P
+        // After BRK at $0200, PC was $0202 when pushed
+        assert_eq!(cpu.regs.s, 0xFC, "SP should be $FC after 3 pushes");
+        assert_eq!(bus.peek(0x01FF), 0x02, "PCH should be $02 at $01FF");
+        assert_eq!(bus.peek(0x01FE), 0x02, "PCL should be $02 at $01FE");
+        // Status should have B and U flags set: $30
+        assert_eq!(bus.peek(0x01FD), 0x30, "Status (with B flag) should be $30 at $01FD");
+    }
+
+    #[test]
+    fn test_dormann_startup() {
+        // Test the first few instructions of the Klaus Dormann test
+        // $0400: D8       CLD
+        // $0401: A2 FF    LDX #$FF
+        // $0403: 9A       TXS
+        // $0404: A9 00    LDA #$00
+        // $0406: 8D 00 02 STA $0200
+        // $0409: A2 05    LDX #$05
+        // $040B: 4C 33 04 JMP $0433
+        let mut cpu = Mos6502::new();
+        let mut bus = SimpleBus::new();
+
+        // Load test program
+        bus.load(0x0400, &[
+            0xD8,             // CLD
+            0xA2, 0xFF,       // LDX #$FF
+            0x9A,             // TXS
+            0xA9, 0x00,       // LDA #$00
+            0x8D, 0x00, 0x02, // STA $0200
+            0xA2, 0x05,       // LDX #$05
+            0x4C, 0x33, 0x04, // JMP $0433
+        ]);
+        cpu.regs.pc = 0x0400;
+
+        // CLD - 2 cycles
+        cpu.tick(&mut bus);
+        cpu.tick(&mut bus);
+        assert_eq!(cpu.regs.pc, 0x0401, "After CLD");
+
+        // LDX #$FF - 2 cycles
+        cpu.tick(&mut bus);
+        cpu.tick(&mut bus);
+        assert_eq!(cpu.regs.pc, 0x0403, "After LDX #$FF");
+        assert_eq!(cpu.regs.x, 0xFF, "X should be $FF");
+
+        // TXS - 2 cycles
+        cpu.tick(&mut bus);
+        cpu.tick(&mut bus);
+        assert_eq!(cpu.regs.pc, 0x0404, "After TXS");
+        assert_eq!(cpu.regs.s, 0xFF, "S should be $FF");
+
+        // LDA #$00 - 2 cycles
+        cpu.tick(&mut bus);
+        cpu.tick(&mut bus);
+        assert_eq!(cpu.regs.pc, 0x0406, "After LDA #$00");
+        assert_eq!(cpu.regs.a, 0x00, "A should be $00");
+
+        // STA $0200 - 4 cycles
+        for _ in 0..4 {
+            cpu.tick(&mut bus);
+        }
+        assert_eq!(cpu.regs.pc, 0x0409, "After STA $0200");
+        assert_eq!(bus.peek(0x0200), 0x00, "Memory $0200 should be $00");
+
+        // LDX #$05 - 2 cycles
+        cpu.tick(&mut bus);
+        cpu.tick(&mut bus);
+        assert_eq!(cpu.regs.pc, 0x040B, "After LDX #$05");
+        assert_eq!(cpu.regs.x, 0x05, "X should be $05");
+
+        // JMP $0433 - 3 cycles
+        for _ in 0..3 {
+            cpu.tick(&mut bus);
+        }
+        assert_eq!(cpu.regs.pc, 0x0433, "After JMP $0433");
     }
 }

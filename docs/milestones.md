@@ -4,7 +4,7 @@
 
 | Phase           | Progress        |
 |-----------------|-----------------|
-| 1. Foundation   | M1 ✅ / M2 ✅ / M3-M4 ⬜ |
+| 1. Foundation   | M1 ✅ / M2 ✅ / M3 ✅ / M4 ⬜ |
 | 2. ZX Spectrum  | ⬜               |
 | 3. Commodore 64 | ⬜               |
 | 4. NES/Famicom  | ⬜               |
@@ -12,7 +12,7 @@
 | 6. Integration  | ⬜               |
 | 7. Frontend     | ⬜               |
 
-**Next:** M3 (6502 CPU Core)
+**Next:** M4 (68000 CPU Core)
 
 ---
 
@@ -87,18 +87,18 @@ Run with: `cargo test --package emu-z80 -- --nocapture zex`
 
 ---
 
-### M3: 6502 CPU Core
+### M3: 6502 CPU Core ✅
 
 **Deliverable:** 6502 CPU implementation with per-cycle execution.
 
 **Verification:**
 
-- [ ] Klaus Dormann test suite passes (all documented opcodes)
-- [ ] Decimal mode tests pass
-- [ ] Illegal opcode tests pass (basic set)
-- [ ] CPU exposes `Observable` trait
-- [ ] Each `tick()` advances exactly one CPU cycle
-- [ ] Memory access timing matches per-cycle expectations
+- [x] Klaus Dormann test suite passes (all documented opcodes) - 30.6M instructions, 96.2M cycles
+- [x] Decimal mode tests pass - 14.5M instructions, 46M cycles
+- [x] Illegal opcode tests pass (basic set) - LAX, SAX, SLO, RLA, SRE, RRA, DCP, ISC, ANC, ALR, ARR, AXS, NOPs, JAM
+- [x] CPU exposes `Observable` trait
+- [x] Each `tick()` advances exactly one CPU cycle
+- [x] Memory access timing matches per-cycle expectations
 
 **Links:** [c64.md](systems/c64.md), [nes.md](systems/nes.md)
 
@@ -108,6 +108,12 @@ Run with: `cargo test --package emu-z80 -- --nocapture zex`
 6502_functional_test.bin (Klaus Dormann)
 6502_decimal_test.bin
 ```
+
+**Test results:**
+- Unit tests: 5 passed
+- Instruction tests: 27 passed (including 13 illegal opcode tests)
+- Dormann functional: PASS
+- Dormann decimal: PASS
 
 ---
 

@@ -5,7 +5,7 @@
 //! tracks its internal state between cycles.
 
 mod cpu;
-mod flags;
+pub mod flags;
 mod registers;
 
 pub use cpu::Mos6502;
