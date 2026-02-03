@@ -1,939 +1,289 @@
-# Milestones
+# Milestones (v1-focused, capture-first)
 
-## Current Status
+## Purpose
 
-| Phase           | Progress        |
-|-----------------|-----------------|
-| 1. Foundation   | M1 ✅ / M2 ✅ / M3 ✅ / M4 ⬜ |
-| 2. ZX Spectrum  | ⬜               |
-| 3. Commodore 64 | ⬜               |
-| 4. NES/Famicom  | ⬜               |
-| 5. Amiga        | ⬜               |
-| 6. Integration  | ⬜               |
-| 7. Frontend     | ⬜               |
+This roadmap is optimised to ship **Code Like It’s 198x v1** with:
 
-**Next:** M4 (68000 CPU Core)
+- Undeniable technical credibility  
+- High-quality, reproducible captured artefacts (images, video, audio)  
+- At least one complete, teachable path per core system  
 
----
+The emulators are **first-class projects**, but during v1 they are treated as  
+**instrumentation and content-production engines**, not general-purpose player emulators.
 
-Each milestone has:
-
-- **Deliverable**: What is built
-- **Verification**: How to prove it works (using TOSEC where applicable)
-- **Links**: Relevant documentation
-
-A milestone is complete when ALL verification criteria pass.
+Emulator work beyond v1 is explicitly valuable, but **non-blocking**.
 
 ---
 
-## Phase 1: Foundation
+## Core Principles
+
+- **Capture first**: emulator features must enable or improve observable, repeatable artefacts.
+- **Demonstrable > complete**: systems are “done” when they can teach and show truth, not when they run most commercial software.
+- **Observability is non-negotiable**: internal state must be inspectable.
+- **Determinism beats convenience**: repeatable runs matter more than realism in v1.
+
+---
+
+## Status Overview
+
+| Track   | Description                            | Status      |
+|---------|----------------------------------------|-------------|
+| Track A | Foundation & Instrumentation           | In progress |
+| Track B | System Demonstrability (v1)            | Not started |
+| Track C | Completeness & Compatibility (Post-v1) | Sealed      |
+
+---
+
+## Track A: Foundation & Instrumentation (v1-blocking)
+
+These milestones define the project’s **differentiator**. They are required for v1.
 
 ### M1: Project Scaffolding ✅
 
-**Deliverable:** Rust workspace with crate structure.
-
-```text
-emu198x/
-├── Cargo.toml (workspace)
-├── crates/
-│   ├── emu-core/        # Shared traits, types
-│   ├── emu-spectrum/    # ZX Spectrum
-│   ├── emu-c64/         # Commodore 64
-│   ├── emu-nes/         # NES/Famicom
-│   ├── emu-amiga/       # Amiga
-│   └── emu-frontend/    # Native UI
-└── docs/
-```
+Rust workspace with clear crate boundaries.
 
 **Verification:**
 
-- [x] `cargo build` succeeds
-- [x] `cargo test` runs (empty tests OK)
-- [x] Core traits defined per `docs/architecture.md`
-
-**Links:** [architecture.md](architecture.md)
+- `cargo build` succeeds  
+- `cargo test` runs  
 
 ---
 
 ### M2: Z80 CPU Core ✅
 
-**Deliverable:** Z80 CPU implementation with per-tick execution.
+Cycle-accurate, observable Z80 implementation.
 
 **Verification:**
 
-- [x] ZEXDOC passes (documented instructions)
-- [x] ZEXALL passes (undocumented instructions)
-- [x] CPU exposes `Observable` trait
-- [x] Each `tick()` advances exactly one T-state
-
-**Implementation complete:**
-
-- Full instruction set (~700 opcodes) with T-state accurate micro-ops
-- All prefix groups: unprefixed, CB, DD, ED, FD, DDCB, FDCB
-- Undocumented instructions: IXH/IXL/IYH/IYL, SLL, etc.
-- Bus architecture supports memory contention (wait states)
-- Observable trait exposes registers, flags, and timing state
-
-**Links:** [spectrum.md](systems/spectrum.md)
-
-**Verification binaries:**
-
-```text
-zexdoc.com - Tests documented Z80 instructions
-zexall.com - Tests all instructions including undocumented
-```
-
-Run with: `cargo test --package emu-z80 -- --nocapture zex`
+- ZEXDOC + ZEXALL pass  
+- `tick()` advances one T-state  
+- Registers, flags, timing exposed  
 
 ---
 
 ### M3: 6502 CPU Core ✅
 
-**Deliverable:** 6502 CPU implementation with per-cycle execution.
+Per-cycle 6502 with illegal opcode coverage.
 
 **Verification:**
 
-- [x] Klaus Dormann test suite passes (all documented opcodes) - 30.6M instructions, 96.2M cycles
-- [x] Decimal mode tests pass - 14.5M instructions, 46M cycles
-- [x] Illegal opcode tests pass (basic set) - LAX, SAX, SLO, RLA, SRE, RRA, DCP, ISC, ANC, ALR, ARR, AXS, NOPs, JAM
-- [x] CPU exposes `Observable` trait
-- [x] Each `tick()` advances exactly one CPU cycle
-- [x] Memory access timing matches per-cycle expectations
-
-**Links:** [c64.md](systems/c64.md), [nes.md](systems/nes.md)
-
-**Verification binaries:**
-
-```text
-6502_functional_test.bin (Klaus Dormann)
-6502_decimal_test.bin
-```
-
-**Test results:**
-- Unit tests: 5 passed
-- Instruction tests: 27 passed (including 13 illegal opcode tests)
-- Dormann functional: PASS
-- Dormann decimal: PASS
+- Klaus Dormann tests pass  
+- Decimal mode correct  
+- `tick()` advances one CPU cycle  
+- Observable CPU state  
 
 ---
 
-### M4: 68000 CPU Core
+### M4: 68000 CPU Core ⬜
 
-**Deliverable:** 68000 CPU implementation.
+Foundational 68000 implementation for Amiga.
 
 **Verification:**
 
-- [ ] Basic instruction tests pass
-- [ ] Address modes verified
-- [ ] Exception handling correct
-- [ ] CPU exposes `Observable` trait
-- [ ] Bus cycle timing accurate (4 clock minimum)
-
-**Links:** [amiga.md](systems/amiga.md)
+- Core instruction execution  
+- Address modes verified  
+- Exceptions handled  
+- Observable CPU state  
 
 ---
 
-## Phase 2: ZX Spectrum
+### M37: Observability & Capture Infrastructure ⬜
 
-### M5: Spectrum Memory Map
-
-**Deliverable:** 48K Spectrum memory layout with ROM.
+First-class introspection across all systems.
 
 **Verification:**
 
-- [ ] 16K ROM at 0x0000-0x3FFF
-- [ ] 48K RAM at 0x4000-0xFFFF
-- [ ] Screen memory at 0x4000-0x5AFF (bitmap) and 0x5800-0x5AFF (attributes)
-- [ ] ROM loaded from Spectrum 48K ROM image
-
-**Links:** [spectrum.md](systems/spectrum.md)
-
-**TOSEC:**
-
-```text
-Sinclair ZX Spectrum/Firmware/ZX Spectrum (1982)(Sinclair Research).rom
-```
+- Query CPU registers  
+- Query memory ranges  
+- Query video and audio chip state  
+- Breakpoints  
+- Step-by-tick execution  
 
 ---
 
-### M6: Spectrum ULA - Basic Video
+### M38: Control Server (MCP) ⬜
 
-**Deliverable:** ULA generating video output (no contention yet).
+Programmatic control of all emulators.
 
 **Verification:**
 
-- [ ] Border colour renders correctly
-- [ ] Screen bitmap displays
-- [ ] Attributes (INK/PAPER/BRIGHT/FLASH) render correctly
-- [ ] Frame timing: 69888 T-states per frame (PAL)
-- [ ] 312 scanlines, 224 T-states per line
-
-**Manual verification:**
-
-- [ ] Load and display any SCREEN$ file
-- [ ] Border colour changes visible
-
-**Links:** [spectrum.md](systems/spectrum.md)
+- Boot/reset  
+- Media insertion  
+- Run/pause/step  
+- Screenshot capture  
+- Input injection  
 
 ---
 
-### M7: Spectrum ULA - Contention
+### M39: Headless Scripting ⬜
 
-**Deliverable:** Accurate memory contention timing.
+Automation without a GUI.
 
 **Verification:**
 
-- [ ] Contention pattern: 6,5,4,3,2,1,0,0 repeated during screen fetch
-- [ ] Contention affects addresses 0x4000-0x7FFF
-- [ ] I/O contention on ULA ports
-
-**TOSEC verification (timing-sensitive demos):**
-
-```text
-Sinclair ZX Spectrum/Demos/Shock Megademo (1990)(Raww Arse).tap
-```
-
-**Links:** [spectrum.md](systems/spectrum.md)
+- JSON command protocol  
+- Batch execution  
+- Deterministic capture of video/audio  
+- Integration with Code Like It’s 198x pipeline  
 
 ---
 
-### M8: Spectrum Keyboard
+## Track B: System Demonstrability (v1-blocking)
 
-**Deliverable:** Keyboard input via I/O port scanning.
+A system is **Demonstrable** when it can:
 
-**Verification:**
+- Boot deterministically  
+- Run a known-good or purpose-built program  
+- Produce stable video and audio  
+- Expose internal state for inspection  
+- Support scripted, repeatable capture  
 
-- [ ] All 40 keys register correctly
-- [ ] Multiple simultaneous keys work
-- [ ] Keyboard I/O port 0xFE responds correctly
-
-**Manual verification:**
-
-- [ ] Type in BASIC prompt
-- [ ] Play a game requiring keyboard
-
-**TOSEC:**
-
-```text
-Sinclair ZX Spectrum/Games/Manic Miner (1983)(Bug-Byte Software).tap
-```
+Broad commercial compatibility is **explicitly not required** for v1.
 
 ---
 
-### M9: Spectrum Tape Loading
+### ZX Spectrum — Demonstrable (v1)
 
-**Deliverable:** TAP file loading.
+#### Required for v1
 
-**Verification:**
+- Memory map (48K)
+- ULA basic video (bitmap + attributes)
+- Accurate contention timing
+- 1-bit beeper audio
 
-- [ ] Standard speed loading works
-- [ ] LOAD "" triggers tape playback
-- [ ] Edge pulses generated correctly
-- [ ] Loading completes without errors
+#### Optional for v1
 
-**TOSEC verification:**
+- Keyboard input
+- Tape loading (instrumented)
 
-```text
-Sinclair ZX Spectrum/Games/Jet Set Willy (1984)(Software Projects).tap
-Sinclair ZX Spectrum/Games/Elite (1985)(Firebird Software).tap
-```
+#### Explicitly deferred
 
-**Links:** [spectrum.md](systems/spectrum.md)
+- 128K models
+- AY sound
+- Broad TOSEC compatibility targets
 
----
+**v1 Exit Criteria:**
 
-### M10: Spectrum Beeper Audio
-
-**Deliverable:** 1-bit beeper sound output.
-
-**Verification:**
-
-- [ ] Port 0xFE bit 4 controls speaker
-- [ ] Audio buffer generated at correct sample rate
-- [ ] No crackling or timing drift
-
-**TOSEC verification:**
-
-```text
-Sinclair ZX Spectrum/Games/Manic Miner (1983)(Bug-Byte Software).tap
-```
-
-(Has recognisable beeper music)
+- One timing-sensitive visual demo
+- One hero screenshot
+- One audio capture
+- One complete lesson draft
 
 ---
 
-### M11: Spectrum 128K
+### Commodore 64 — Demonstrable (v1)
 
-**Deliverable:** 128K memory paging, AY-3-8912 audio.
+#### Required for v1
 
-**Verification:**
+- Memory map and banking
+- VIC-II basic video
+- Badline timing
+- SID audio (core features)
 
-- [ ] 128K RAM paging via port 0x7FFD
-- [ ] ROM switching (48K BASIC / 128K BASIC / 128K Editor)
-- [ ] AY sound chip produces correct output
-- [ ] 128K-specific software runs
+#### Optional for v1
 
-**TOSEC verification:**
+- Hardware sprites
+- CIA timers
 
-```text
-Sinclair ZX Spectrum/Firmware/ZX Spectrum +2 (1986)(Amstrad).rom
-Sinclair ZX Spectrum/Games/Chase H.Q. (1989)(Ocean Software)[128K].tap
-```
+#### Explicitly deferred
 
----
+- Full 1541 drive emulation
+- Broad D64 compatibility targets
 
-### M12: Spectrum System Complete
+**v1 Exit Criteria:**
 
-**Deliverable:** Full Spectrum emulation ready for use.
-
-**Verification (broad compatibility):**
-
-- [ ] Manic Miner — plays correctly with audio
-- [ ] Jet Set Willy — plays correctly
-- [ ] Elite — loads and runs (multiple loaders)
-- [ ] Chase H.Q. (128K) — uses AY audio
-- [ ] Shock Megademo — timing-sensitive effects work
-- [ ] At least 95% of tested TOSEC games boot
-
-**Links:** [spectrum.md](systems/spectrum.md)
+- Clear visual explanation of badlines
+- Recognisable SID audio example
+- One hero visual
+- One complete lesson draft
 
 ---
 
-## Phase 3: Commodore 64
+### NES/Famicom — Demonstrable (v1)
 
-### M13: C64 Memory Map
+#### Required for v1
 
-**Deliverable:** C64 memory layout with banking.
+- Memory map
+- PPU background rendering
+- PPU sprites
+- Controller input
+- Mapper 0 (NROM)
 
-**Verification:**
+#### Optional for v1
 
-- [ ] BASIC ROM, Kernal ROM, Character ROM mapped correctly
-- [ ] RAM banking via CPU port ($01)
-- [ ] I/O area at $D000-$DFFF
+- Mapper 1 (MMC1)
 
-**TOSEC:**
+#### Explicitly deferred
 
-```text
-Commodore C64/Firmware/Commodore 64 - Kernal (1982)(Commodore).bin
-Commodore C64/Firmware/Commodore 64 - BASIC (1982)(Commodore).bin
-Commodore C64/Firmware/Commodore 64 - Character (1982)(Commodore).bin
-```
+- MMC3 and IRQ-heavy mappers
+- Broad compatibility metrics
 
-**Links:** [c64.md](systems/c64.md)
+**v1 Exit Criteria:**
 
----
-
-### M14: C64 VIC-II Basic Video
-
-**Deliverable:** VIC-II generating display (no sprites/scrolling yet).
-
-**Verification:**
-
-- [ ] Text mode displays correctly
-- [ ] Hi-res bitmap mode works
-- [ ] Multi-colour bitmap mode works
-- [ ] Border and background colours correct
-- [ ] Frame timing: 312 lines (PAL), 63 cycles per line
-
-**Manual verification:**
-
-- [ ] Boot to BASIC prompt with correct colours
-- [ ] POKE 53280,0 changes border to black
+- One pipeline-focused visual demo
+- One captured sprite/timing example
+- One complete lesson draft
 
 ---
 
-### M15: C64 VIC-II Badlines
+### Amiga — Demonstrable (v1)
 
-**Deliverable:** Accurate badline timing.
+#### Required for v1
 
-**Verification:**
+- Memory map
+- DMA + Copper basics
+- Bitplane video
+- Paula audio
 
-- [ ] CPU stalled during character fetch
-- [ ] Badline occurs every 8 raster lines in visible area
-- [ ] Sprite DMA steals cycles correctly
+#### Optional for v1
 
-**TOSEC verification (timing-sensitive):**
+- Simplified disk loading
 
-```text
-Commodore C64/Demos/Crest - Deus Ex Machina (1994)(Crest).d64
-```
+#### Explicitly deferred
 
----
+- Full floppy realism (MFM edge cases)
+- Broad game compatibility
 
-### M16: C64 VIC-II Sprites
+**v1 Exit Criteria:**
 
-**Deliverable:** Hardware sprites.
-
-**Verification:**
-
-- [ ] 8 sprites display correctly
-- [ ] Sprite priorities (over/under background)
-- [ ] Sprite-sprite collision
-- [ ] Sprite-background collision
-- [ ] Multi-colour sprites
-- [ ] Sprite stretching (X and Y expand)
-
-**TOSEC verification:**
-
-```text
-Commodore C64/Games/Impossible Mission (1984)(Epyx).d64
-```
+- One Copper/Blitter visual demo
+- One audio DMA example
+- One hero capture
+- One complete lesson draft
 
 ---
 
-### M17: C64 CIA Timers
+## Track C: Completeness & Compatibility (Post-v1, sealed)
 
-**Deliverable:** CIA chips with timers and I/O.
+These milestones remain valuable but **cannot block v1 launch**.
 
-**Verification:**
+Includes (non-exhaustive):
 
-- [ ] Timer A and B on both CIAs
-- [ ] Timer underflow interrupts
-- [ ] Keyboard scanning via CIA
-- [ ] Joystick ports via CIA
+- Spectrum 128K and AY audio
+- Full tape/disk realism
+- NES mapper expansion
+- Amiga full chipset fidelity
+- Broad TOSEC compatibility targets
+- Polished emulator UI
+- Web frontend via WASM
 
-**Manual verification:**
+Work in this track resumes **only after**:
 
-- [ ] Type on BASIC prompt
-- [ ] Joystick input in games
-
----
-
-### M18: C64 SID Audio
-
-**Deliverable:** SID sound chip emulation.
-
-**Verification:**
-
-- [ ] Three oscillators with all waveforms
-- [ ] ADSR envelope
-- [ ] Filter (low-pass, high-pass, band-pass)
-- [ ] Ring modulation
-- [ ] Sync
-
-**TOSEC verification:**
-
-```text
-Commodore C64/Games/Impossible Mission (1984)(Epyx).d64
-```
-
-(Famous "Another visitor. Stay a while... stay forever!" speech samples)
+- Code Like It’s 198x v1 ships
+- At least one lesson per system is public
 
 ---
 
-### M19: C64 1541 Disk Drive
+## Stop Clause (Important)
 
-**Deliverable:** 1541 drive emulation (D64 support).
+> Emulator development may continue after v1, but **Code Like It’s 198x lessons and site content become the primary driver of further emulator work**.
 
-**Verification:**
-
-- [ ] D64 image loading
-- [ ] Directory listing (LOAD "$",8)
-- [ ] File loading (LOAD "FILENAME",8)
-- [ ] Sequential file access
-- [ ] Basic fast loader support
-
-**TOSEC verification:**
-
-```text
-Commodore C64/Games/Boulder Dash (1984)(First Star Software).d64
-```
-
-**Links:** [c64.md](systems/c64.md)
+This clause exists to be argued with — and noticed when broken.
 
 ---
 
-### M20: C64 System Complete
+## Final Note
 
-**Deliverable:** Full C64 emulation ready for use.
+This roadmap does not reduce ambition.
 
-**Verification (broad compatibility):**
-
-- [ ] Impossible Mission — plays with speech samples
-- [ ] Boulder Dash — plays correctly
-- [ ] Elite — loads, plays, saves
-- [ ] Crest demos — timing-sensitive effects
-- [ ] At least 95% of tested TOSEC games boot from D64
-
-**Links:** [c64.md](systems/c64.md)
-
----
-
-## Phase 4: NES/Famicom
-
-### M21: NES Memory Map
-
-**Deliverable:** NES memory layout.
-
-**Verification:**
-
-- [ ] 2K internal RAM (mirrored)
-- [ ] PPU registers at $2000-$2007
-- [ ] APU/IO at $4000-$4017
-- [ ] Cartridge space at $4020-$FFFF
-
-**Links:** [nes.md](systems/nes.md)
-
----
-
-### M22: NES PPU Background
-
-**Deliverable:** PPU rendering backgrounds.
-
-**Verification:**
-
-- [ ] Nametable rendering
-- [ ] Pattern table access
-- [ ] Palette handling
-- [ ] Scrolling (single screen)
-- [ ] VBlank timing and NMI
-
-**Manual verification:**
-
-- [ ] Static title screens display correctly
-
----
-
-### M23: NES PPU Sprites
-
-**Deliverable:** PPU sprite rendering.
-
-**Verification:**
-
-- [ ] OAM sprite display
-- [ ] 8x8 and 8x16 sprites
-- [ ] Sprite priority
-- [ ] Sprite 0 hit detection
-- [ ] 8 sprite per scanline limit
-
----
-
-### M24: NES PPU Timing
-
-**Deliverable:** Cycle-accurate PPU.
-
-**Verification:**
-
-- [ ] PPU runs at 3× CPU rate
-- [ ] Sprite 0 hit timing correct
-- [ ] VBlank flag timing correct
-- [ ] blargg ppu_vbl_nmi tests pass
-
-**Test ROMs:**
-
-```text
-ppu_vbl_nmi.nes (blargg)
-sprite_hit_tests_2005.10.05.nes
-```
-
----
-
-### M25: NES APU
-
-**Deliverable:** Audio Processing Unit.
-
-**Verification:**
-
-- [ ] Two pulse channels
-- [ ] Triangle channel
-- [ ] Noise channel
-- [ ] DMC (sample playback)
-- [ ] Frame counter timing
-- [ ] blargg apu tests pass
-
-**Test ROMs:**
-
-```text
-apu_test.nes (blargg)
-```
-
----
-
-### M26: NES Controller Input
-
-**Deliverable:** Controller input.
-
-**Verification:**
-
-- [ ] Standard controller read via $4016/$4017
-- [ ] Strobe/shift register behavior
-
----
-
-### M27: NES Mapper 0 (NROM)
-
-**Deliverable:** Basic cartridge support.
-
-**Verification:**
-
-- [ ] 16K/32K PRG ROM
-- [ ] 8K CHR ROM
-- [ ] Horizontal/vertical mirroring
-
-**TOSEC verification:**
-
-```text
-Nintendo NES/Games/Super Mario Bros. (1985)(Nintendo).nes
-Nintendo NES/Games/Donkey Kong (1981)(Nintendo).nes
-```
-
----
-
-### M28: NES Mapper 1 (MMC1)
-
-**Deliverable:** MMC1 mapper.
-
-**Verification:**
-
-- [ ] PRG banking
-- [ ] CHR banking
-- [ ] Mirroring control
-
-**TOSEC verification:**
-
-```text
-Nintendo NES/Games/Legend of Zelda, The (1986)(Nintendo).nes
-Nintendo NES/Games/Metroid (1986)(Nintendo).nes
-```
-
----
-
-### M29: NES Additional Mappers
-
-**Deliverable:** MMC3, UxROM, CNROM.
-
-**Verification:**
-
-- [ ] MMC3 (Mapper 4) with IRQ
-- [ ] UxROM (Mapper 2)
-- [ ] CNROM (Mapper 3)
-
-**TOSEC verification:**
-
-```text
-Nintendo NES/Games/Super Mario Bros. 3 (1988)(Nintendo).nes [MMC3]
-Nintendo NES/Games/Mega Man (1987)(Capcom).nes [UxROM]
-```
-
----
-
-### M30: NES System Complete
-
-**Deliverable:** Full NES emulation ready for use.
-
-**Verification (broad compatibility):**
-
-- [ ] Super Mario Bros. — plays correctly
-- [ ] Legend of Zelda — plays, saves work
-- [ ] Super Mario Bros. 3 — MMC3 IRQ effects correct
-- [ ] Mega Man 2 — plays correctly
-- [ ] At least 90% of tested TOSEC games boot
-
-**Links:** [nes.md](systems/nes.md)
-
----
-
-## Phase 5: Amiga
-
-### M31: Amiga Memory Map
-
-**Deliverable:** Amiga memory layout.
-
-**Verification:**
-
-- [ ] Chip RAM at $000000
-- [ ] Kickstart ROM at $F80000 (or $FC0000)
-- [ ] Custom chip registers at $DFF000
-- [ ] CIA registers at $BFE001/$BFD000
-
-**TOSEC:**
-
-```text
-Commodore Amiga/Firmware/Kickstart v1.3 (1987)(Commodore)(A500-A1000-A2000).rom
-```
-
-**Links:** [amiga.md](systems/amiga.md)
-
----
-
-### M32: Amiga Chipset - Agnus/DMA
-
-**Deliverable:** DMA controller and copper.
-
-**Verification:**
-
-- [ ] Bitplane DMA
-- [ ] Sprite DMA
-- [ ] Copper executes display lists
-- [ ] Blitter basic operations
-
----
-
-### M33: Amiga Chipset - Denise/Video
-
-**Deliverable:** Video output.
-
-**Verification:**
-
-- [ ] Bitplane display (1-6 planes)
-- [ ] Hardware sprites
-- [ ] Colour palette
-- [ ] HAM mode (Amiga 500)
-
----
-
-### M34: Amiga Chipset - Paula/Audio
-
-**Deliverable:** Audio output.
-
-**Verification:**
-
-- [ ] 4 DMA audio channels
-- [ ] Volume and period control
-- [ ] Audio interrupts
-
----
-
-### M35: Amiga Disk Support
-
-**Deliverable:** ADF floppy support.
-
-**Verification:**
-
-- [ ] ADF image loading
-- [ ] MFM decoding
-- [ ] DMA disk reads
-- [ ] Boot from floppy
-
-**TOSEC verification:**
-
-```text
-Commodore Amiga/Games/Shadow of the Beast (1989)(Psygnosis).adf
-```
-
----
-
-### M36: Amiga System Complete
-
-**Deliverable:** Full Amiga 500 emulation.
-
-**Verification (broad compatibility):**
-
-- [ ] Workbench 1.3 boots
-- [ ] Shadow of the Beast — plays with copper effects
-- [ ] Turrican — plays correctly
-- [ ] State of the Art demo — timing effects work
-- [ ] At least 85% of tested TOSEC games boot
-
-**Links:** [amiga.md](systems/amiga.md)
-
----
-
-## Phase 6: Integration
-
-### M37: Observability Infrastructure
-
-**Deliverable:** State inspection across all systems.
-
-**Verification:**
-
-- [ ] Query CPU registers
-- [ ] Query memory ranges
-- [ ] Query video chip state
-- [ ] Query audio chip state
-- [ ] Breakpoint support
-- [ ] Step-by-tick execution
-
-**Links:** [observability.md](features/observability.md)
-
----
-
-### M38: MCP Server
-
-**Deliverable:** MCP server exposing emulator control.
-
-**Verification:**
-
-- [ ] Boot/reset commands
-- [ ] Media insertion
-- [ ] State queries
-- [ ] Execution control (run, step, pause)
-- [ ] Screenshot capture
-- [ ] Input injection
-
-**Links:** [mcp.md](features/mcp.md)
-
----
-
-### M39: Headless Scripting
-
-**Deliverable:** Automation without GUI.
-
-**Verification:**
-
-- [ ] JSON command protocol
-- [ ] Batch execution
-- [ ] Content capture (screenshots, video, audio)
-- [ ] Integration with Code Like It's 198x pipeline
-
-**Links:** [scripting.md](features/scripting.md), [integration.md](integration.md)
-
----
-
-### M40: WASM Build
-
-**Deliverable:** Emulators compile to WASM.
-
-**Verification:**
-
-- [ ] `wasm32-unknown-unknown` target builds
-- [ ] JavaScript API wrapper
-- [ ] Runs in browser (where legal per BIOS requirements)
-
-**Links:** [integration.md](integration.md)
-
----
-
-## Phase 7: Frontend
-
-### M41: System Launcher UI
-
-**Deliverable:** Each binary has a launcher screen for configuration.
-
-**Verification:**
-
-- [ ] Spectrum launcher: model selection (48K/128K/+2/+3), region, peripherals
-- [ ] C64 launcher: region, SID revision, expansions (REU)
-- [ ] NES launcher: NES/Famicom, region, FDS option
-- [ ] Amiga launcher: preset models, custom config (chipset, CPU, RAM, Kickstart)
-- [ ] Recent sessions list per system
-- [ ] "Load File..." opens picker and can launch directly
-- [ ] Command-line flags bypass launcher (--start, --model, etc.)
-
-**Links:** [frontend.md](features/frontend.md)
-
----
-
-### M42: Media Controls — Tape
-
-**Deliverable:** Visual tape deck widget.
-
-**Verification:**
-
-- [ ] Play, Stop, Rewind, Fast Forward, Eject buttons
-- [ ] Progress bar showing tape position
-- [ ] Block counter for multi-block tapes
-- [ ] Motor activity indicator
-- [ ] Drag-and-drop TAP/TZX files onto deck
-- [ ] All controls have programmatic equivalent
-
-**Links:** [frontend.md](features/frontend.md)
-
----
-
-### M43: Media Controls — Disk
-
-**Deliverable:** Visual disk drive widget.
-
-**Verification:**
-
-- [ ] Insert/Eject functionality
-- [ ] Activity LED
-- [ ] Track position display
-- [ ] Multiple drives for Amiga (DF0:-DF3:)
-- [ ] Drag-and-drop D64/ADF files onto drive
-- [ ] All controls have programmatic equivalent
-
-**Links:** [frontend.md](features/frontend.md)
-
----
-
-### M44: Input Configuration
-
-**Deliverable:** Keyboard, joystick, and mouse mapping UI.
-
-**Verification:**
-
-- [ ] Keyboard mapping modes (positional, symbolic, custom)
-- [ ] Joystick mapping to keyboard or gamepad
-- [ ] Multi-port assignment (Port 1, Port 2)
-- [ ] Mouse capture and sensitivity
-- [ ] Swap ports function
-- [ ] Configuration persists across sessions
-
-**Links:** [frontend.md](features/frontend.md)
-
----
-
-### M45: Display Options
-
-**Deliverable:** Video output configuration.
-
-**Verification:**
-
-- [ ] Aspect ratio correction (native, 4:3, stretch)
-- [ ] Scaling modes (nearest, integer, bilinear, CRT shader)
-- [ ] Border options (none, visible, overscan)
-- [ ] Fullscreen toggle (F11)
-- [ ] Palette selection per system
-
-**Links:** [frontend.md](features/frontend.md)
-
----
-
-### M46: Web Frontend
-
-**Deliverable:** Browser-based UI via WASM.
-
-**Verification:**
-
-- [ ] System selection
-- [ ] Canvas rendering at correct aspect
-- [ ] File input for media (fallback for no drag-drop)
-- [ ] Touch controls for mobile
-- [ ] Keyboard input capture
-- [ ] Audio playback (Web Audio API)
-
-**Links:** [frontend.md](features/frontend.md), [integration.md](integration.md)
-
----
-
-## Milestone Status Key
-
-- ⬜ Not started
-- 🟨 In progress
-- ✅ Complete
-- ❌ Blocked
-
----
-
-## Verification Notes
-
-### TOSEC Collection Paths
-
-Organise TOSEC by system for verification:
-
-```text
-tosec/
-├── sinclair-zx-spectrum/
-├── commodore-c64/
-├── nintendo-nes/
-└── commodore-amiga/
-```
-
-### Running Verification
-
-Each milestone verification should be automated where possible:
-
-```bash
-# Run milestone verification
-cargo test --package emu-spectrum milestone_m7
-```
-
-### Documenting Failures
-
-If a milestone verification fails, document:
-
-1. Which specific test failed
-2. Expected vs actual behaviour
-3. Relevant system state at failure
+It makes ambition **pay rent** by producing artefacts, lessons, and public proof before pursuing completeness.
