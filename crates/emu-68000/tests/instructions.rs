@@ -1558,6 +1558,220 @@ fn test_subx_with_extend() {
     assert_eq!(cpu.regs.d[1], 0x0000_0003);
 }
 
+// === BCD Operations (ABCD, SBCD, NBCD) ===
+
+#[test]
+fn test_abcd_simple() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ABCD D0,D1 (opcode: 0xC300)
+    // 1100 001 10000 0 000 = 0xC300
+    load_words(&mut bus, 0x1000, &[0xC300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0025; // 25 BCD
+    cpu.regs.d[1] = 0x0000_0034; // 34 BCD
+    cpu.regs.sr &= !emu_68000::X; // Clear extend
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 25 + 34 = 59 BCD
+    assert_eq!(cpu.regs.d[1] & 0xFF, 0x59);
+    // No carry
+    assert!(cpu.regs.sr & emu_68000::C == 0);
+}
+
+#[test]
+fn test_abcd_with_carry() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ABCD D0,D1
+    load_words(&mut bus, 0x1000, &[0xC300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0099; // 99 BCD
+    cpu.regs.d[1] = 0x0000_0001; // 01 BCD
+    cpu.regs.sr &= !emu_68000::X;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 99 + 01 = 100 BCD, but only 00 fits in byte
+    assert_eq!(cpu.regs.d[1] & 0xFF, 0x00);
+    // Carry should be set
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+    assert!(cpu.regs.sr & emu_68000::X != 0);
+}
+
+#[test]
+fn test_abcd_with_extend() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ABCD D0,D1
+    load_words(&mut bus, 0x1000, &[0xC300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0010; // 10 BCD
+    cpu.regs.d[1] = 0x0000_0020; // 20 BCD
+    cpu.regs.sr |= emu_68000::X; // Set extend
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 10 + 20 + 1 = 31 BCD
+    assert_eq!(cpu.regs.d[1] & 0xFF, 0x31);
+}
+
+#[test]
+fn test_abcd_low_nibble_correction() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ABCD D0,D1
+    load_words(&mut bus, 0x1000, &[0xC300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0009; // 09 BCD
+    cpu.regs.d[1] = 0x0000_0008; // 08 BCD
+    cpu.regs.sr &= !emu_68000::X;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 09 + 08 = 17 BCD (requires low nibble correction: 9+8=17, 17>9 so +6=23, take low nibble 7, carry 1)
+    assert_eq!(cpu.regs.d[1] & 0xFF, 0x17);
+}
+
+#[test]
+fn test_sbcd_simple() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SBCD D0,D1 (opcode: 0x8300)
+    // 1000 001 10000 0 000 = 0x8300
+    load_words(&mut bus, 0x1000, &[0x8300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0025; // 25 BCD (subtrahend)
+    cpu.regs.d[1] = 0x0000_0059; // 59 BCD (minuend)
+    cpu.regs.sr &= !emu_68000::X;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 59 - 25 = 34 BCD
+    assert_eq!(cpu.regs.d[1] & 0xFF, 0x34);
+    // No borrow
+    assert!(cpu.regs.sr & emu_68000::C == 0);
+}
+
+#[test]
+fn test_sbcd_with_borrow() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SBCD D0,D1
+    load_words(&mut bus, 0x1000, &[0x8300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0050; // 50 BCD
+    cpu.regs.d[1] = 0x0000_0025; // 25 BCD
+    cpu.regs.sr &= !emu_68000::X;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 25 - 50 = -25, which wraps to 75 BCD with borrow
+    assert_eq!(cpu.regs.d[1] & 0xFF, 0x75);
+    // Borrow should be set
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+    assert!(cpu.regs.sr & emu_68000::X != 0);
+}
+
+#[test]
+fn test_sbcd_with_extend() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SBCD D0,D1
+    load_words(&mut bus, 0x1000, &[0x8300]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0010; // 10 BCD
+    cpu.regs.d[1] = 0x0000_0032; // 32 BCD
+    cpu.regs.sr |= emu_68000::X; // Set extend
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 32 - 10 - 1 = 21 BCD
+    assert_eq!(cpu.regs.d[1] & 0xFF, 0x21);
+}
+
+#[test]
+fn test_nbcd_simple() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NBCD D0 (opcode: 0x4800)
+    // 0100 1000 00 000 000 = 0x4800
+    load_words(&mut bus, 0x1000, &[0x4800]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0025; // 25 BCD
+    cpu.regs.sr &= !emu_68000::X;
+    cpu.regs.sr |= emu_68000::Z; // Set Z to verify it gets cleared
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 0 - 25 = 75 BCD (100's complement)
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x75);
+    // Borrow should be set
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+    // Z should be cleared (result non-zero)
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+}
+
+#[test]
+fn test_nbcd_zero() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NBCD D0
+    load_words(&mut bus, 0x1000, &[0x4800]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0000; // 00 BCD
+    cpu.regs.sr &= !emu_68000::X;
+    cpu.regs.sr |= emu_68000::Z; // Set Z
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 0 - 0 = 0 BCD
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x00);
+    // No borrow
+    assert!(cpu.regs.sr & emu_68000::C == 0);
+    // Z should remain unchanged (was set, result is zero)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+}
+
+#[test]
+fn test_nbcd_with_extend() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NBCD D0
+    load_words(&mut bus, 0x1000, &[0x4800]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0000; // 00 BCD
+    cpu.regs.sr |= emu_68000::X; // Set extend
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // 0 - 0 - 1 = 99 BCD (with borrow)
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x99);
+    // Borrow should be set
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+}
+
 // === MOVEM (Move Multiple Registers) ===
 
 #[test]

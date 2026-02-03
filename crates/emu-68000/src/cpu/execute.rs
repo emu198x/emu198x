@@ -1767,8 +1767,45 @@ impl M68000 {
         }
     }
 
-    fn exec_nbcd(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_nbcd(&mut self, mode: u8, ea_reg: u8) {
+        // NBCD - Negate Decimal with Extend
+        // Computes 0 - <ea> - X (BCD negation)
+        // Format: 0100 1000 00 mode reg (byte only)
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    let src = self.regs.d[r as usize] as u8;
+                    let x = u8::from(self.regs.sr & X != 0);
+
+                    let (result, borrow) = self.bcd_sub(0, src, x);
+
+                    // Write result to low byte
+                    self.regs.d[r as usize] =
+                        (self.regs.d[r as usize] & 0xFFFF_FF00) | u32::from(result);
+
+                    // Set flags
+                    let mut sr = self.regs.sr;
+                    // Z: cleared if non-zero, unchanged otherwise
+                    if result != 0 {
+                        sr &= !Z;
+                    }
+                    // C and X: set if decimal borrow (result != 0 or X was set)
+                    sr = Status::set_if(sr, C, borrow);
+                    sr = Status::set_if(sr, X, borrow);
+                    // N: undefined, but set based on MSB
+                    sr = Status::set_if(sr, N, result & 0x80 != 0);
+                    self.regs.sr = sr;
+
+                    self.queue_internal(6);
+                }
+                _ => {
+                    // Memory operand - stub for now
+                    self.queue_internal(8);
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
     fn exec_swap(&mut self, reg: u8) {
@@ -2539,8 +2576,73 @@ impl M68000 {
         }
     }
 
-    fn exec_sbcd(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_sbcd(&mut self, op: u16) {
+        // SBCD - Subtract Decimal with Extend (packed BCD subtraction)
+        // Two forms: Dx,Dy or -(Ax),-(Ay)
+        // Format: 1000 Ry 10000 R Rx (R=0 register, R=1 memory)
+        let rx = (op & 7) as usize;
+        let ry = ((op >> 9) & 7) as usize;
+        let rm = op & 0x0008 != 0;
+
+        if rm {
+            // Memory to memory: -(Ax),-(Ay) - stub for now
+            self.queue_internal(18);
+        } else {
+            // Register to register: Dy - Dx - X -> Dy
+            let src = self.regs.d[rx] as u8;
+            let dst = self.regs.d[ry] as u8;
+            let x = u8::from(self.regs.sr & X != 0);
+
+            let (result, borrow) = self.bcd_sub(dst, src, x);
+
+            // Write result to low byte of Dy
+            self.regs.d[ry] = (self.regs.d[ry] & 0xFFFF_FF00) | u32::from(result);
+
+            // Set flags
+            let mut sr = self.regs.sr;
+            // Z: cleared if non-zero, unchanged otherwise
+            if result != 0 {
+                sr &= !Z;
+            }
+            // C and X: set if decimal borrow
+            sr = Status::set_if(sr, C, borrow);
+            sr = Status::set_if(sr, X, borrow);
+            // N: undefined, but set based on MSB for consistency
+            sr = Status::set_if(sr, N, result & 0x80 != 0);
+            // V: undefined
+            self.regs.sr = sr;
+
+            self.queue_internal(6);
+        }
+    }
+
+    /// Perform packed BCD subtraction: dst - src - extend.
+    /// Returns (result, borrow).
+    fn bcd_sub(&self, dst: u8, src: u8, extend: u8) -> (u8, bool) {
+        // Subtract low nibbles
+        let low_dst = i16::from(dst & 0x0F);
+        let low_src = i16::from(src & 0x0F) + i16::from(extend);
+        let mut low = low_dst - low_src;
+
+        // Track borrow from low nibble
+        let low_borrow = low < 0;
+        if low_borrow {
+            low += 10; // BCD correction
+        }
+
+        // Subtract high nibbles
+        let high_dst = i16::from(dst >> 4);
+        let high_src = i16::from(src >> 4) + i16::from(low_borrow);
+        let mut high = high_dst - high_src;
+
+        // Track borrow from high nibble
+        let borrow = high < 0;
+        if borrow {
+            high += 10; // BCD correction
+        }
+
+        let result = ((high as u8 & 0x0F) << 4) | (low as u8 & 0x0F);
+        (result, borrow)
     }
 
     fn exec_or(&mut self, size: Option<Size>, reg: u8, mode: u8, ea_reg: u8, to_ea: bool) {
@@ -2879,8 +2981,69 @@ impl M68000 {
         }
     }
 
-    fn exec_abcd(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_abcd(&mut self, op: u16) {
+        // ABCD - Add Decimal with Extend (packed BCD addition)
+        // Two forms: Dx,Dy or -(Ax),-(Ay)
+        // Format: 1100 Ry 10000 R Rx (R=0 register, R=1 memory)
+        let rx = (op & 7) as usize;
+        let ry = ((op >> 9) & 7) as usize;
+        let rm = op & 0x0008 != 0;
+
+        if rm {
+            // Memory to memory: -(Ax),-(Ay) - stub for now
+            self.queue_internal(18);
+        } else {
+            // Register to register: Dx,Dy
+            let src = self.regs.d[rx] as u8;
+            let dst = self.regs.d[ry] as u8;
+            let x = u8::from(self.regs.sr & X != 0);
+
+            let (result, carry) = self.bcd_add(src, dst, x);
+
+            // Write result to low byte of Dy
+            self.regs.d[ry] = (self.regs.d[ry] & 0xFFFF_FF00) | u32::from(result);
+
+            // Set flags
+            let mut sr = self.regs.sr;
+            // Z: cleared if non-zero, unchanged otherwise
+            if result != 0 {
+                sr &= !Z;
+            }
+            // C and X: set if decimal carry
+            sr = Status::set_if(sr, C, carry);
+            sr = Status::set_if(sr, X, carry);
+            // N: undefined, but set based on MSB for consistency
+            sr = Status::set_if(sr, N, result & 0x80 != 0);
+            // V: undefined
+            self.regs.sr = sr;
+
+            self.queue_internal(6);
+        }
+    }
+
+    /// Perform packed BCD addition: src + dst + extend.
+    /// Returns (result, carry).
+    fn bcd_add(&self, src: u8, dst: u8, extend: u8) -> (u8, bool) {
+        // Add low nibbles
+        let mut low = (dst & 0x0F) + (src & 0x0F) + extend;
+        let mut carry = false;
+
+        // BCD correction for low nibble
+        if low > 9 {
+            low += 6;
+        }
+
+        // Add high nibbles plus carry from low
+        let mut high = (dst >> 4) + (src >> 4) + u8::from(low > 0x0F);
+
+        // BCD correction for high nibble
+        if high > 9 {
+            high += 6;
+            carry = true;
+        }
+
+        let result = ((high & 0x0F) << 4) | (low & 0x0F);
+        (result, carry)
     }
 
     fn exec_exg(&mut self, op: u16) {
