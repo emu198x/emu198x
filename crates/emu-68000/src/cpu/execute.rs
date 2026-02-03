@@ -2234,8 +2234,47 @@ impl M68000 {
         }
     }
 
-    fn exec_chk(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_chk(&mut self, op: u16) {
+        // CHK <ea>,Dn - Check register against bounds
+        // If Dn < 0 or Dn > <ea>, trigger CHK exception
+        let reg = ((op >> 9) & 7) as usize;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+
+        // Get the data register value (word operation)
+        let dn = self.regs.d[reg] as i16;
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            let upper_bound = match addr_mode {
+                AddrMode::DataReg(r) => self.regs.d[r as usize] as i16,
+                AddrMode::Immediate => {
+                    // Need to fetch immediate - simplified for now
+                    self.queue_internal(10);
+                    return;
+                }
+                _ => {
+                    // Memory source - stub
+                    self.queue_internal(10);
+                    return;
+                }
+            };
+
+            // Check bounds
+            if dn < 0 {
+                // N flag set for negative
+                self.regs.sr |= N;
+                self.exception(6); // CHK exception
+            } else if dn > upper_bound {
+                // N flag clear for upper bound violation
+                self.regs.sr &= !N;
+                self.exception(6); // CHK exception
+            } else {
+                // Value is within bounds, no exception
+                self.queue_internal(10);
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
     fn exec_addq(&mut self, size: Option<Size>, data: u8, mode: u8, ea_reg: u8) {
@@ -2314,8 +2353,31 @@ impl M68000 {
         }
     }
 
-    fn exec_scc(&mut self, _condition: u8, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_scc(&mut self, condition: u8, mode: u8, ea_reg: u8) {
+        // Scc <ea> - Set byte to $FF if condition true, $00 if false
+        let value: u8 = if Status::condition(self.regs.sr, condition) {
+            0xFF
+        } else {
+            0x00
+        };
+
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    // Set low byte of register
+                    self.regs.d[r as usize] =
+                        (self.regs.d[r as usize] & 0xFFFF_FF00) | u32::from(value);
+                    // 4 cycles if false, 6 if true
+                    self.queue_internal(if value == 0xFF { 6 } else { 4 });
+                }
+                _ => {
+                    // Memory destination - stub
+                    self.queue_internal(8);
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
     fn exec_dbcc(&mut self, condition: u8, reg: u8) {
@@ -2584,8 +2646,56 @@ impl M68000 {
         }
     }
 
-    fn exec_subx(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_subx(&mut self, op: u16) {
+        // SUBX - Subtract with extend (for multi-precision arithmetic)
+        // Two forms: Dx,Dy or -(Ax),-(Ay)
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        let rx = (op & 7) as usize;
+        let ry = ((op >> 9) & 7) as usize;
+        let rm = op & 0x0008 != 0; // Register/Memory flag
+
+        if rm {
+            // Memory to memory: -(Ax),-(Ay) - stub
+            self.queue_internal(18);
+        } else {
+            // Register to register: Dx,Dy
+            let src = self.read_data_reg(rx as u8, size);
+            let dst = self.read_data_reg(ry as u8, size);
+            let x = if self.regs.sr & X != 0 { 1u32 } else { 0 };
+
+            let result = dst.wrapping_sub(src).wrapping_sub(x);
+            self.write_data_reg(ry as u8, result, size);
+
+            // SUBX flags (like SUB but Z is only cleared, never set)
+            let (src_masked, dst_masked, result_masked, msb) = match size {
+                Size::Byte => (src & 0xFF, dst & 0xFF, result & 0xFF, 0x80u32),
+                Size::Word => (src & 0xFFFF, dst & 0xFFFF, result & 0xFFFF, 0x8000),
+                Size::Long => (src, dst, result, 0x8000_0000),
+            };
+
+            let mut sr = self.regs.sr;
+            sr = Status::set_if(sr, N, result_masked & msb != 0);
+            // Z: cleared if non-zero, unchanged if zero
+            if result_masked != 0 {
+                sr &= !Z;
+            }
+            // V: overflow
+            let overflow = ((dst_masked ^ src_masked) & (dst_masked ^ result_masked) & msb) != 0;
+            sr = Status::set_if(sr, V, overflow);
+            // C: borrow
+            let carry = (src_masked + x) > dst_masked
+                || (src_masked == dst_masked && x != 0);
+            sr = Status::set_if(sr, C, carry);
+            sr = Status::set_if(sr, X, carry);
+
+            self.regs.sr = sr;
+            self.queue_internal(if size == Size::Long { 8 } else { 4 });
+        }
     }
 
     fn exec_cmp(&mut self, size: Option<Size>, reg: u8, mode: u8, ea_reg: u8) {
@@ -2912,8 +3022,63 @@ impl M68000 {
         }
     }
 
-    fn exec_addx(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_addx(&mut self, op: u16) {
+        // ADDX - Add with extend (for multi-precision arithmetic)
+        // Two forms: Dx,Dy or -(Ax),-(Ay)
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        let rx = (op & 7) as usize;
+        let ry = ((op >> 9) & 7) as usize;
+        let rm = op & 0x0008 != 0; // Register/Memory flag
+
+        if rm {
+            // Memory to memory: -(Ax),-(Ay) - stub
+            self.queue_internal(18);
+        } else {
+            // Register to register: Dx,Dy
+            let src = self.read_data_reg(rx as u8, size);
+            let dst = self.read_data_reg(ry as u8, size);
+            let x = if self.regs.sr & X != 0 { 1u32 } else { 0 };
+
+            let result = dst.wrapping_add(src).wrapping_add(x);
+            self.write_data_reg(ry as u8, result, size);
+
+            // ADDX flags (like ADD but Z is only cleared, never set)
+            let (src_masked, dst_masked, result_masked, msb) = match size {
+                Size::Byte => (src & 0xFF, dst & 0xFF, result & 0xFF, 0x80u32),
+                Size::Word => (src & 0xFFFF, dst & 0xFFFF, result & 0xFFFF, 0x8000),
+                Size::Long => (src, dst, result, 0x8000_0000),
+            };
+
+            let mut sr = self.regs.sr;
+            sr = Status::set_if(sr, N, result_masked & msb != 0);
+            // Z: cleared if non-zero, unchanged if zero
+            if result_masked != 0 {
+                sr &= !Z;
+            }
+            // V: overflow (same signs in, different sign out)
+            let overflow = (!(src_masked ^ dst_masked) & (src_masked ^ result_masked) & msb) != 0;
+            sr = Status::set_if(sr, V, overflow);
+            // C: carry out
+            let carry = match size {
+                Size::Byte => {
+                    (u16::from(src as u8) + u16::from(dst as u8) + u16::from(x as u8)) > 0xFF
+                }
+                Size::Word => {
+                    (u32::from(src as u16) + u32::from(dst as u16) + x) > 0xFFFF
+                }
+                Size::Long => src.checked_add(dst).and_then(|v| v.checked_add(x)).is_none(),
+            };
+            sr = Status::set_if(sr, C, carry);
+            sr = Status::set_if(sr, X, carry);
+
+            self.regs.sr = sr;
+            self.queue_internal(if size == Size::Long { 8 } else { 4 });
+        }
     }
 
     fn exec_shift_mem(&mut self, _kind: u8, _direction: bool, _mode: u8, _ea_reg: u8) {

@@ -1457,3 +1457,103 @@ fn test_negx_with_extend() {
     // 0 - 1 - 1 = -2 = 0xFFFF_FFFE
     assert_eq!(cpu.regs.d[0], 0xFFFF_FFFE);
 }
+
+// === Scc (Set on Condition) ===
+
+#[test]
+fn test_seq_true() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SEQ D0 (opcode: 0x57C0) - Set if equal
+    // 0101 0111 11 000 000 = 0x57C0
+    load_words(&mut bus, 0x1000, &[0x57C0]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr |= emu_68000::Z; // Set Z flag so condition is true
+    cpu.regs.d[0] = 0x0000_0000;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Low byte should be 0xFF
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0xFF);
+}
+
+#[test]
+fn test_seq_false() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SEQ D0 (opcode: 0x57C0) - Set if equal
+    load_words(&mut bus, 0x1000, &[0x57C0]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr &= !emu_68000::Z; // Clear Z flag so condition is false
+    cpu.regs.d[0] = 0x0000_00FF;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Low byte should be 0x00
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x00);
+}
+
+#[test]
+fn test_sne() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SNE D1 (opcode: 0x56C1) - Set if not equal
+    // 0101 0110 11 000 001 = 0x56C1
+    load_words(&mut bus, 0x1000, &[0x56C1]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr &= !emu_68000::Z; // Z clear means not equal
+    cpu.regs.d[1] = 0x0000_0000;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // Low byte should be 0xFF (condition true)
+    assert_eq!(cpu.regs.d[1] & 0xFF, 0xFF);
+}
+
+// === ADDX/SUBX (Multi-precision arithmetic) ===
+
+#[test]
+fn test_addx_with_extend() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADDX.L D0,D1 (opcode: 0xD380)
+    // 1101 001 1 10 00 0 000 = 0xD380
+    load_words(&mut bus, 0x1000, &[0xD380]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0001;
+    cpu.regs.d[1] = 0x0000_0002;
+    cpu.regs.sr |= emu_68000::X; // Set extend flag
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // D1 = D1 + D0 + X = 2 + 1 + 1 = 4
+    assert_eq!(cpu.regs.d[1], 0x0000_0004);
+}
+
+#[test]
+fn test_subx_with_extend() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SUBX.L D0,D1 (opcode: 0x9380)
+    // 1001 001 1 10 00 0 000 = 0x9380
+    load_words(&mut bus, 0x1000, &[0x9380]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0000_0001;
+    cpu.regs.d[1] = 0x0000_0005;
+    cpu.regs.sr |= emu_68000::X; // Set extend flag
+
+    run_instruction(&mut cpu, &mut bus);
+
+    // D1 = D1 - D0 - X = 5 - 1 - 1 = 3
+    assert_eq!(cpu.regs.d[1], 0x0000_0003);
+}
