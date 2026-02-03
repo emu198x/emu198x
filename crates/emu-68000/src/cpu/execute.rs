@@ -62,15 +62,28 @@ impl M68000 {
             0x2 => self.decode_move_long(op),
             0x3 => self.decode_move_word(op),
             0x4 => {
-                // Group 4 - check if it's LEA (0x41C0-0x4FFF with bit 8 set and bits 7-6 = 11)
-                if op & 0x01C0 == 0x01C0 {
+                // Group 4 continuations
+                // MOVEM to memory: 0x4880-0x48FF (bits 11-8 = 8, bit 7 = 1)
+                // MOVEM from memory: 0x4C80-0x4CFF (bits 11-8 = C, bit 7 = 1)
+                // LEA: 0x41C0-0x4FFF with bit 8 set and bits 7-6 = 11
+                let subfield = (op >> 8) & 0xF;
+                if subfield == 0x8 && op & 0x0080 != 0 {
+                    // MOVEM to memory continuation
+                    self.exec_movem_to_mem_continuation();
+                } else if subfield == 0xC && op & 0x0080 != 0 {
+                    // MOVEM from memory continuation
+                    self.exec_movem_from_mem_continuation();
+                } else if op & 0x01C0 == 0x01C0 {
                     // LEA continuation
                     self.exec_lea_continuation();
                 } else {
                     self.instr_phase = crate::cpu::InstrPhase::Initial;
                 }
             }
-            // Add other multi-phase instructions here as needed
+            0x6 => {
+                // Branch instructions with word displacement
+                self.branch_continuation();
+            }
             _ => {
                 // Instruction doesn't support phases, reset
                 self.instr_phase = crate::cpu::InstrPhase::Initial;
@@ -948,8 +961,10 @@ impl M68000 {
 
     fn exec_bra(&mut self, displacement: i8) {
         if displacement == 0 {
-            // Word displacement follows
+            // Word displacement follows - need continuation after fetch
             self.micro_ops.push(MicroOp::FetchExtWord);
+            self.instr_phase = InstrPhase::SrcEACalc; // Signal word branch
+            self.micro_ops.push(MicroOp::Execute);
         } else {
             // Byte displacement
             let offset = displacement as i32;
@@ -959,39 +974,77 @@ impl M68000 {
     }
 
     fn exec_bsr(&mut self, displacement: i8) {
-        // Push return address
-        self.data = self.regs.pc;
         if displacement == 0 {
-            // Word displacement - need to read it first and adjust
+            // Word displacement - fetch first, then continue
+            // Store that this is BSR in data2 (1 = BSR)
+            self.data2 = 1;
             self.micro_ops.push(MicroOp::FetchExtWord);
-        }
-        self.micro_ops.push(MicroOp::PushLongHi);
-        self.micro_ops.push(MicroOp::PushLongLo);
-
-        if displacement != 0 {
+            self.instr_phase = InstrPhase::SrcRead; // Signal word BSR
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            // Byte displacement - push return address then branch
+            self.data = self.regs.pc;
+            self.micro_ops.push(MicroOp::PushLongHi);
+            self.micro_ops.push(MicroOp::PushLongLo);
             // Calculate branch target
             let offset = displacement as i32;
             self.regs.pc = (self.regs.pc as i32).wrapping_add(offset) as u32;
+            self.queue_internal(4);
         }
-        self.queue_internal(4);
     }
 
     fn exec_bcc(&mut self, condition: u8, displacement: i8) {
         if Status::condition(self.regs.sr, condition) {
             if displacement == 0 {
-                // Word displacement
+                // Word displacement - fetch and continue
+                // Store condition in data2 for continuation
+                self.data2 = u32::from(condition) | 0x100; // Mark as conditional, taken
                 self.micro_ops.push(MicroOp::FetchExtWord);
+                self.instr_phase = InstrPhase::SrcEACalc;
+                self.micro_ops.push(MicroOp::Execute);
             } else {
                 let offset = displacement as i32;
                 self.regs.pc = (self.regs.pc as i32).wrapping_add(offset) as u32;
+                self.queue_internal(10); // Branch taken timing
             }
-            self.queue_internal(10); // Branch taken timing
         } else {
             if displacement == 0 {
                 // Skip word displacement
                 self.regs.pc = self.regs.pc.wrapping_add(2);
             }
             self.queue_internal(8); // Branch not taken timing
+        }
+    }
+
+    /// Continuation for word displacement branches (BRA.W, BSR.W, Bcc.W).
+    fn branch_continuation(&mut self) {
+        // Extension word was fetched, apply word displacement
+        let disp = self.ext_words[0] as i16 as i32;
+
+        match self.instr_phase {
+            InstrPhase::SrcEACalc => {
+                // BRA.W or Bcc.W (taken)
+                // PC already advanced past extension word, adjust from there
+                // But displacement is relative to the start of the extension word
+                // PC was at ext word, then advanced by 2, so: PC-2 + disp
+                self.regs.pc = ((self.regs.pc as i32) - 2 + disp) as u32;
+                self.instr_phase = InstrPhase::Complete;
+                self.queue_internal(10);
+            }
+            InstrPhase::SrcRead => {
+                // BSR.W - push return address (after ext word) then branch
+                // Return address is current PC (after ext word)
+                self.data = self.regs.pc;
+                self.micro_ops.push(MicroOp::PushLongHi);
+                self.micro_ops.push(MicroOp::PushLongLo);
+                // Branch: PC-2 + disp
+                self.regs.pc = ((self.regs.pc as i32) - 2 + disp) as u32;
+                self.instr_phase = InstrPhase::Complete;
+                self.queue_internal(4);
+            }
+            _ => {
+                self.instr_phase = InstrPhase::Initial;
+            }
         }
     }
 
@@ -1272,8 +1325,80 @@ impl M68000 {
         self.queue_internal(4);
     }
 
-    fn exec_movem_to_mem(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_movem_to_mem(&mut self, op: u16) {
+        // MOVEM registers to memory
+        // Format: 0100 1000 1s ea (s=0: word, s=1: long)
+        // Register mask follows in extension word
+        let size = if op & 0x0040 != 0 {
+            Size::Long
+        } else {
+            Size::Word
+        };
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+
+        // Fetch the register mask
+        self.size = size;
+        self.addr2 = u32::from(mode);
+        self.data2 = u32::from(ea_reg);
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.instr_phase = InstrPhase::SrcEACalc;
+        self.src_mode = AddrMode::decode(mode, ea_reg);
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    fn exec_movem_to_mem_continuation(&mut self) {
+        let mask = self.ext_words[0];
+        let Some(addr_mode) = self.src_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        // For predecrement mode, registers are stored in reverse order (A7-A0, D7-D0)
+        // For other modes, registers are stored in forward order (D0-D7, A0-A7)
+        let is_predec = matches!(addr_mode, AddrMode::AddrIndPreDec(_));
+
+        let mut addr = match addr_mode {
+            AddrMode::AddrIndPreDec(r) => self.regs.a(r as usize),
+            AddrMode::AddrInd(r) => self.regs.a(r as usize),
+            _ => {
+                // Other modes not implemented yet
+                self.queue_internal(8);
+                self.instr_phase = InstrPhase::Complete;
+                return;
+            }
+        };
+
+        // Count registers to transfer
+        let count = mask.count_ones() as u32;
+        let inc = if self.size == Size::Long { 4 } else { 2 };
+
+        if is_predec {
+            // Predecrement: write in reverse, highest register first
+            // For predecrement, the order is A7,A6,...,A0,D7,D6,...,D0
+            for i in (0..16).rev() {
+                if mask & (1 << i) != 0 {
+                    addr = addr.wrapping_sub(inc);
+                    let value = if i < 8 {
+                        self.regs.d[i]
+                    } else {
+                        self.regs.a(i - 8)
+                    };
+                    // Queue write - simplified synchronous for now
+                    self.addr = addr;
+                    self.data = value;
+                }
+            }
+            // Update address register
+            if let AddrMode::AddrIndPreDec(r) = addr_mode {
+                self.regs.set_a(r as usize, addr);
+            }
+        }
+
+        // Timing: 8 + 4n (word) or 8 + 8n (long)
+        let cycles = 8 + count * (if self.size == Size::Long { 8 } else { 4 });
+        self.queue_internal(cycles as u8);
+        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_tas(&mut self, _mode: u8, _ea_reg: u8) {
@@ -1310,8 +1435,73 @@ impl M68000 {
         }
     }
 
-    fn exec_movem_from_mem(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_movem_from_mem(&mut self, op: u16) {
+        // MOVEM memory to registers
+        // Format: 0100 1100 1s ea (s=0: word, s=1: long)
+        // Register mask follows in extension word
+        let size = if op & 0x0040 != 0 {
+            Size::Long
+        } else {
+            Size::Word
+        };
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+
+        // Fetch the register mask
+        self.size = size;
+        self.addr2 = u32::from(mode);
+        self.data2 = u32::from(ea_reg);
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.instr_phase = InstrPhase::DstEACalc;
+        self.dst_mode = AddrMode::decode(mode, ea_reg);
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    fn exec_movem_from_mem_continuation(&mut self) {
+        let mask = self.ext_words[0];
+        let Some(addr_mode) = self.dst_mode else {
+            self.instr_phase = InstrPhase::Initial;
+            return;
+        };
+
+        // For postincrement and other modes, registers are loaded D0-D7, A0-A7
+        let is_postinc = matches!(addr_mode, AddrMode::AddrIndPostInc(_));
+
+        let mut addr = match addr_mode {
+            AddrMode::AddrIndPostInc(r) => self.regs.a(r as usize),
+            AddrMode::AddrInd(r) => self.regs.a(r as usize),
+            _ => {
+                // Other modes not implemented yet
+                self.queue_internal(12);
+                self.instr_phase = InstrPhase::Complete;
+                return;
+            }
+        };
+
+        // Count registers to transfer
+        let count = mask.count_ones() as u32;
+        let inc = if self.size == Size::Long { 4 } else { 2 };
+
+        // Load registers in order D0-D7, A0-A7
+        for i in 0..16 {
+            if mask & (1 << i) != 0 {
+                // Simplified - actual implementation needs proper bus access
+                self.addr = addr;
+                addr = addr.wrapping_add(inc);
+            }
+        }
+
+        if is_postinc {
+            // Update address register
+            if let AddrMode::AddrIndPostInc(r) = addr_mode {
+                self.regs.set_a(r as usize, addr);
+            }
+        }
+
+        // Timing: 12 + 4n (word) or 12 + 8n (long)
+        let cycles = 12 + count * (if self.size == Size::Long { 8 } else { 4 });
+        self.queue_internal(cycles as u8);
+        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_trap(&mut self, op: u16) {
@@ -1368,8 +1558,23 @@ impl M68000 {
         self.queue_internal(12);
     }
 
-    fn exec_move_usp(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_move_usp(&mut self, op: u16) {
+        // MOVE USP - requires supervisor mode
+        if !self.regs.is_supervisor() {
+            self.exception(8); // Privilege violation
+            return;
+        }
+
+        let reg = (op & 7) as usize;
+        if op & 0x0008 != 0 {
+            // USP -> An (bit 3 = 1)
+            let usp = self.regs.usp;
+            self.regs.set_a(reg, usp);
+        } else {
+            // An -> USP (bit 3 = 0)
+            self.regs.usp = self.regs.a(reg);
+        }
+        self.queue_internal(4);
     }
 
     fn exec_reset(&mut self) {

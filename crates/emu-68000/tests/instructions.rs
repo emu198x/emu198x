@@ -1051,3 +1051,122 @@ fn test_lea_absolute_short() {
 
     assert_eq!(cpu.regs.a(2), 0x0000_1234);
 }
+
+// === Word Displacement Branch Tests ===
+
+#[test]
+fn test_bra_word_displacement() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BRA.W $0010 (opcode: 0x6000, displacement: 0x0010)
+    // Branch forward 16 bytes from the start of the extension word
+    load_words(&mut bus, 0x1000, &[0x6000, 0x0010]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at 0x1002 + 0x0010 = 0x1012
+    assert_eq!(cpu.regs.pc, 0x1012);
+}
+
+#[test]
+fn test_bra_word_backward() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BRA.W $FFF0 (opcode: 0x6000, displacement: -16)
+    // Place at 0x1020 to have room for backward branch
+    load_words(&mut bus, 0x1020, &[0x6000, 0xFFF0]);
+    cpu.reset();
+    cpu.regs.pc = 0x1020;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at 0x1022 + (-16) = 0x1022 - 16 = 0x1012
+    assert_eq!(cpu.regs.pc, 0x1012);
+}
+
+#[test]
+fn test_beq_word_taken() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BEQ.W $0020 (opcode: 0x6700, displacement: 0x0020)
+    load_words(&mut bus, 0x1000, &[0x6700, 0x0020]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr |= emu_68000::Z; // Set Z flag so branch is taken
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at 0x1002 + 0x0020 = 0x1022
+    assert_eq!(cpu.regs.pc, 0x1022);
+}
+
+#[test]
+fn test_beq_word_not_taken() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BEQ.W $0020 (opcode: 0x6700, displacement: 0x0020)
+    // Put a NOP at 0x1004 to have a clean boundary
+    load_words(&mut bus, 0x1000, &[0x6700, 0x0020, 0x4E71]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr &= !emu_68000::Z; // Clear Z flag so branch is not taken
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should skip past instruction and start fetching NOP: 0x1000 + 4 = 0x1004
+    // After NOP fetch, PC will be 0x1006
+    // Just verify we advanced past the BEQ.W (PC >= 0x1004)
+    assert!(cpu.regs.pc >= 0x1004, "PC should be past BEQ.W instruction, got {:04X}", cpu.regs.pc);
+}
+
+// === MOVE USP Test ===
+
+#[test]
+fn test_move_usp_to_register() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE USP,A3 (opcode: 0x4E6B)
+    // 0100 1110 0110 1011 = 0x4E6B
+    load_words(&mut bus, 0x1000, &[0x4E6B]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr |= 0x2000; // Set supervisor mode
+    cpu.regs.usp = 0x0000_8000;
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.a(3), 0x0000_8000);
+}
+
+#[test]
+fn test_move_register_to_usp() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVE A2,USP (opcode: 0x4E62)
+    // 0100 1110 0110 0010 = 0x4E62
+    load_words(&mut bus, 0x1000, &[0x4E62]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr |= 0x2000; // Set supervisor mode
+    cpu.regs.set_a(2, 0x0000_6000);
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.usp, 0x0000_6000);
+}

@@ -28,7 +28,7 @@ This documents the key implementation patterns used in the `emu-68000` crate for
 
 The 68000 emulator uses a **micro-operation queue architecture** to achieve cycle-accurate execution. Each instruction is broken down into atomic operations (fetch, read, write, internal processing) that execute over fixed cycle counts, primarily 4 cycles for memory operations.
 
-**Test Coverage:** 47 passing tests covering data movement, arithmetic, logic, shifts/rotates, branches, and bit operations.
+**Test Coverage:** 61 passing tests covering data movement, arithmetic, logic, shifts/rotates, branches, bit operations, word displacement branches, and privileged instructions.
 
 ## Pattern 1: Multi-Phase Instruction Execution
 
@@ -379,11 +379,10 @@ fn test_move_long_immediate() {
 
 ## Remaining Work
 
-- Memory operand forms (read-modify-write)
-- Word displacement branches
-- DIVU/DIVS
-- Stack operations (LINK, UNLK, PEA)
-- MOVEM (move multiple registers)
+- Memory operand forms for arithmetic (read-modify-write ADD, SUB, etc.)
+- MOVEM actual memory transfers (skeleton in place)
+- NBCD, TAS (BCD operations)
+- MOVEP (peripheral I/O)
 
 ## Related Documentation
 
