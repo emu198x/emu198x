@@ -95,6 +95,12 @@ pub enum MicroOp {
     /// Uses: `ext_words[0]` for mask, `data2` for register index, `addr` for memory address.
     /// Size from `self.size` (Word or Long).
     MovemRead,
+
+    /// CMPM: Compare memory (Ay)+,(Ax)+.
+    ///
+    /// Uses: `addr` for source (Ay), `addr2` for dest (Ax), `data` for Ay reg, `data2` for Ax reg.
+    /// Size from `self.size`.
+    CmpmExecute,
 }
 
 impl MicroOp {
@@ -126,6 +132,7 @@ impl MicroOp {
             Self::ReadVector => 4,
             Self::MovemWrite => 4,    // Per word transfer (8 for long = 2 x 4)
             Self::MovemRead => 4,     // Per word transfer
+            Self::CmpmExecute => 4,   // Memory read cycle (called twice for two operands)
         }
     }
 }

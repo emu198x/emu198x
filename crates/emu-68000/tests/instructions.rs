@@ -1772,6 +1772,165 @@ fn test_nbcd_with_extend() {
     assert!(cpu.regs.sr & emu_68000::C != 0);
 }
 
+// === CMPM (Compare Memory) ===
+
+#[test]
+fn test_cmpm_byte_equal() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CMPM.B (A0)+,(A1)+ (opcode: 0xB308)
+    // 1011 001 1 00 001 000 = 0xB308
+    load_words(&mut bus, 0x1000, &[0xB308]);
+    // Put equal bytes at source and destination
+    bus.poke(0x2000, 0x42); // Source (A0)
+    bus.poke(0x3000, 0x42); // Destination (A1)
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000); // Source
+    cpu.regs.set_a(1, 0x3000); // Destination
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z flag should be set (equal)
+    assert!(cpu.regs.sr & emu_68000::Z != 0, "Z should be set for equal values");
+    // Both address registers should be incremented by 1
+    assert_eq!(cpu.regs.a(0), 0x2001, "A0 should be incremented");
+    assert_eq!(cpu.regs.a(1), 0x3001, "A1 should be incremented");
+}
+
+#[test]
+fn test_cmpm_byte_not_equal() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CMPM.B (A0)+,(A1)+
+    load_words(&mut bus, 0x1000, &[0xB308]);
+    bus.poke(0x2000, 0x10); // Source (A0)
+    bus.poke(0x3000, 0x20); // Destination (A1)
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.set_a(1, 0x3000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z flag should be clear (not equal)
+    assert!(cpu.regs.sr & emu_68000::Z == 0, "Z should be clear for unequal values");
+    // N flag should be clear (0x20 - 0x10 = 0x10, positive)
+    assert!(cpu.regs.sr & emu_68000::N == 0, "N should be clear");
+}
+
+#[test]
+fn test_cmpm_byte_negative_result() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CMPM.B (A0)+,(A1)+
+    load_words(&mut bus, 0x1000, &[0xB308]);
+    bus.poke(0x2000, 0x20); // Source (A0)
+    bus.poke(0x3000, 0x10); // Destination (A1) - smaller
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.set_a(1, 0x3000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // 0x10 - 0x20 = 0xF0 (negative, with borrow)
+    assert!(cpu.regs.sr & emu_68000::N != 0, "N should be set for negative result");
+    assert!(cpu.regs.sr & emu_68000::C != 0, "C should be set for borrow");
+}
+
+#[test]
+fn test_cmpm_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CMPM.W (A0)+,(A1)+ (opcode: 0xB348)
+    // 1011 001 1 01 001 000 = 0xB348
+    load_words(&mut bus, 0x1000, &[0xB348]);
+    load_words(&mut bus, 0x2000, &[0x1234]); // Source
+    load_words(&mut bus, 0x3000, &[0x1234]); // Destination (equal)
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.set_a(1, 0x3000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z flag should be set
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    // Address registers incremented by 2
+    assert_eq!(cpu.regs.a(0), 0x2002);
+    assert_eq!(cpu.regs.a(1), 0x3002);
+}
+
+#[test]
+fn test_cmpm_long() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CMPM.L (A0)+,(A1)+ (opcode: 0xB388)
+    // 1011 001 1 10 001 000 = 0xB388
+    load_words(&mut bus, 0x1000, &[0xB388]);
+    load_words(&mut bus, 0x2000, &[0xDEAD, 0xBEEF]); // Source
+    load_words(&mut bus, 0x3000, &[0xDEAD, 0xBEEF]); // Destination (equal)
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.set_a(1, 0x3000);
+
+    for _ in 0..30 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z flag should be set
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    // Address registers incremented by 4
+    assert_eq!(cpu.regs.a(0), 0x2004);
+    assert_eq!(cpu.regs.a(1), 0x3004);
+}
+
+#[test]
+fn test_cmpm_a7_byte_increment() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CMPM.B (A7)+,(A0)+ - A7 should increment by 2 for byte ops
+    // 1011 000 1 00 001 111 = 0xB10F
+    load_words(&mut bus, 0x1000, &[0xB10F]);
+    bus.poke(0x4000, 0x55); // Source at A7
+    bus.poke(0x2000, 0x55); // Destination at A0
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(7, 0x4000);
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // A7 should increment by 2 (stack pointer alignment)
+    assert_eq!(cpu.regs.a(7), 0x4002, "A7 should increment by 2 for byte");
+    // A0 should increment by 1
+    assert_eq!(cpu.regs.a(0), 0x2001, "A0 should increment by 1 for byte");
+}
+
 // === MOVEM (Move Multiple Registers) ===
 
 #[test]

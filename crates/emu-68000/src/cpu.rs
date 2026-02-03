@@ -384,6 +384,7 @@ impl M68000 {
             MicroOp::ReadVector => self.tick_read_vector(bus),
             MicroOp::MovemWrite => self.tick_movem_write(bus),
             MicroOp::MovemRead => self.tick_movem_read(bus),
+            MicroOp::CmpmExecute => self.tick_cmpm_execute(bus),
         }
     }
 
@@ -858,6 +859,78 @@ impl M68000 {
     /// Find first set bit in mask going down from 15.
     fn find_first_movem_bit_down(&self, mask: u16) -> Option<usize> {
         (0..16).rev().find(|&i| mask & (1 << i) != 0)
+    }
+
+    /// Tick for CMPM: Compare memory (Ay)+,(Ax)+.
+    ///
+    /// State: `addr` = source address (Ay), `addr2` = dest address (Ax),
+    /// `data` = Ay register number, `data2` = Ax register number.
+    /// Uses `movem_long_phase` to track read phase: 0=read src, 1=read dst, 2=compare.
+    fn tick_cmpm_execute<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                match self.movem_long_phase {
+                    0 => {
+                        // Phase 0: Read source operand from (Ay)
+                        let src_val = match self.size {
+                            Size::Byte => u32::from(self.read_byte(bus, self.addr)),
+                            Size::Word => u32::from(self.read_word(bus, self.addr)),
+                            Size::Long => self.read_long(bus, self.addr),
+                        };
+                        // Store source value temporarily
+                        self.ext_words[0] = src_val as u16;
+                        self.ext_words[1] = (src_val >> 16) as u16;
+
+                        // Increment Ay
+                        let ay = self.data as usize;
+                        let inc = match self.size {
+                            Size::Byte => if ay == 7 { 2 } else { 1 },
+                            Size::Word => 2,
+                            Size::Long => 4,
+                        };
+                        self.regs.set_a(ay, self.addr.wrapping_add(inc));
+
+                        self.movem_long_phase = 1;
+                        self.cycle = 0;
+                        return;
+                    }
+                    1 => {
+                        // Phase 1: Read destination operand from (Ax)
+                        let dst_val = match self.size {
+                            Size::Byte => u32::from(self.read_byte(bus, self.addr2)),
+                            Size::Word => u32::from(self.read_word(bus, self.addr2)),
+                            Size::Long => self.read_long(bus, self.addr2),
+                        };
+
+                        // Increment Ax
+                        let ax = self.data2 as usize;
+                        let inc = match self.size {
+                            Size::Byte => if ax == 7 { 2 } else { 1 },
+                            Size::Word => 2,
+                            Size::Long => 4,
+                        };
+                        self.regs.set_a(ax, self.addr2.wrapping_add(inc));
+
+                        // Retrieve source value
+                        let src_val =
+                            u32::from(self.ext_words[0]) | (u32::from(self.ext_words[1]) << 16);
+
+                        // Compare: dst - src
+                        let result = dst_val.wrapping_sub(src_val);
+                        self.set_flags_cmp(src_val, dst_val, result, self.size);
+
+                        self.movem_long_phase = 0;
+                        self.cycle = 0;
+                        self.micro_ops.advance();
+                        return;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
     }
 
     /// Begin exception processing.

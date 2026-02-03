@@ -2898,8 +2898,29 @@ impl M68000 {
         }
     }
 
-    fn exec_cmpm(&mut self, _op: u16) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_cmpm(&mut self, op: u16) {
+        // CMPM (Ay)+,(Ax)+ - Compare memory with postincrement
+        // Format: 1011 Ax 1 ss 001 Ay
+        let ay = (op & 7) as usize;
+        let ax = ((op >> 9) & 7) as usize;
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+
+        let Some(size) = size else {
+            self.illegal_instruction();
+            return;
+        };
+
+        // Set up state for tick_cmpm_execute
+        self.size = size;
+        self.addr = self.regs.a(ay);   // Source address
+        self.addr2 = self.regs.a(ax);  // Destination address
+        self.data = ay as u32;         // Source register number
+        self.data2 = ax as u32;        // Destination register number
+        self.movem_long_phase = 0;     // Start at phase 0
+
+        // Queue the CMPM micro-op (two phases: read src, read dst + compare)
+        self.micro_ops.push(MicroOp::CmpmExecute);
+        self.micro_ops.push(MicroOp::CmpmExecute);
     }
 
     fn exec_eor(&mut self, size: Option<Size>, reg: u8, mode: u8, ea_reg: u8) {
