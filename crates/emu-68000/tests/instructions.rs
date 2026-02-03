@@ -884,3 +884,116 @@ fn test_muls() {
 
     assert_eq!(cpu.regs.d[0], 0xFFFF_FFF6); // -2 * 5 = -10
 }
+
+#[test]
+fn test_divu() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // DIVU D1, D0 (opcode: 0x80C1)
+    // 1000 000 011 000 001 = 0x80C1
+    load_words(&mut bus, 0x1000, &[0x80C1]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 100; // Dividend
+    cpu.regs.d[1] = 7;   // Divisor
+
+    for _ in 0..150 {
+        cpu.tick(&mut bus);
+    }
+
+    // 100 / 7 = 14 remainder 2
+    // Result: remainder(high) : quotient(low) = 0x0002_000E
+    assert_eq!(cpu.regs.d[0], 0x0002_000E);
+}
+
+#[test]
+fn test_divs() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // DIVS D1, D0 (opcode: 0x81C1)
+    // 1000 000 111 000 001 = 0x81C1
+    load_words(&mut bus, 0x1000, &[0x81C1]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xFFFF_FF9C; // -100 as 32-bit signed
+    cpu.regs.d[1] = 7;           // Divisor
+
+    for _ in 0..170 {
+        cpu.tick(&mut bus);
+    }
+
+    // -100 / 7 = -14 remainder -2
+    // Result: remainder(high) : quotient(low)
+    // -14 = 0xFFF2, -2 = 0xFFFE
+    assert_eq!(cpu.regs.d[0], 0xFFFE_FFF2);
+}
+
+#[test]
+fn test_jmp_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // JMP (A0) (opcode: 0x4ED0)
+    // 0100 1110 11 010 000 = 0x4ED0
+    load_words(&mut bus, 0x1000, &[0x4ED0]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..12 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.pc, 0x2000);
+}
+
+#[test]
+fn test_jsr_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // JSR (A0) (opcode: 0x4E90)
+    // 0100 1110 10 010 000 = 0x4E90
+    load_words(&mut bus, 0x1000, &[0x4E90]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+    cpu.regs.set_a(7, 0x8000); // Stack at 0x8000
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at subroutine
+    assert_eq!(cpu.regs.pc, 0x2000);
+    // Stack should have return address pushed (SP decremented by 4)
+    assert_eq!(cpu.regs.a(7), 0x7FFC);
+}
+
+#[test]
+fn test_pea_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // PEA (A0) (opcode: 0x4850)
+    // 0100 1000 01 010 000 = 0x4850
+    load_words(&mut bus, 0x1000, &[0x4850]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x1234_5678);
+    cpu.regs.set_a(7, 0x8000);
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    // SP should be decremented by 4
+    assert_eq!(cpu.regs.a(7), 0x7FFC);
+    // Value pushed should be the effective address (A0 value)
+    let hi = u16::from(bus.peek(0x7FFC)) << 8 | u16::from(bus.peek(0x7FFD));
+    let lo = u16::from(bus.peek(0x7FFE)) << 8 | u16::from(bus.peek(0x7FFF));
+    let pushed = u32::from(hi) << 16 | u32::from(lo);
+    assert_eq!(pushed, 0x1234_5678);
+}

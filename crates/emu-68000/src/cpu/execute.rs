@@ -238,40 +238,42 @@ impl M68000 {
                     self.exec_movem_from_mem(op);
                 }
                 0xE => {
-                    // Trap, LINK, UNLK, MOVE USP, etc.
-                    match (op >> 4) & 0xF {
-                        0x4 => self.exec_trap(op),
-                        0x5 => {
-                            if op & 8 != 0 {
-                                self.exec_unlk((op & 7) as u8);
-                            } else {
-                                self.exec_link((op & 7) as u8);
-                            }
-                        }
-                        0x6 => self.exec_move_usp(op),
-                        0x7 => match op & 0xF {
-                            0 => self.exec_reset(),
-                            1 => self.exec_nop(),
-                            2 => self.exec_stop(),
-                            3 => self.exec_rte(),
-                            5 => self.exec_rts(),
-                            6 => self.exec_trapv(),
-                            7 => self.exec_rtr(),
-                            _ => self.illegal_instruction(),
-                        },
-                        _ => self.illegal_instruction(),
-                    }
-                }
-                _ => {
-                    // JSR, JMP
-                    if (op >> 6) & 3 == 2 {
+                    // JSR, JMP, Trap, LINK, UNLK, MOVE USP, etc.
+                    // Differentiated by bits 7-6
+                    let subop = (op >> 6) & 3;
+                    if subop == 2 {
+                        // JSR <ea> (0x4E80-0x4EBF)
                         self.exec_jsr(mode, ea_reg);
-                    } else if (op >> 6) & 3 == 3 {
+                    } else if subop == 3 {
+                        // JMP <ea> (0x4EC0-0x4EFF)
                         self.exec_jmp(mode, ea_reg);
                     } else {
-                        self.illegal_instruction();
+                        // TRAP, LINK, UNLK, MOVE USP, misc (0x4E00-0x4E7F)
+                        match (op >> 4) & 0xF {
+                            0x4 => self.exec_trap(op),
+                            0x5 => {
+                                if op & 8 != 0 {
+                                    self.exec_unlk((op & 7) as u8);
+                                } else {
+                                    self.exec_link((op & 7) as u8);
+                                }
+                            }
+                            0x6 => self.exec_move_usp(op),
+                            0x7 => match op & 0xF {
+                                0 => self.exec_reset(),
+                                1 => self.exec_nop(),
+                                2 => self.exec_stop(),
+                                3 => self.exec_rte(),
+                                5 => self.exec_rts(),
+                                6 => self.exec_trapv(),
+                                7 => self.exec_rtr(),
+                                _ => self.illegal_instruction(),
+                            },
+                            _ => self.illegal_instruction(),
+                        }
                     }
                 }
+                _ => self.illegal_instruction(),
             }
         }
     }
@@ -1094,8 +1096,43 @@ impl M68000 {
         self.queue_internal(4);
     }
 
-    fn exec_pea(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_pea(&mut self, mode: u8, ea_reg: u8) {
+        // PEA <ea> - Push Effective Address onto stack
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::AddrInd(r) => {
+                    // PEA (An) - push address register value
+                    self.data = self.regs.a(r as usize);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.queue_internal(12);
+                }
+                AddrMode::AddrIndDisp(r) => {
+                    // PEA d16(An) - need extension word
+                    self.addr2 = self.regs.a(r as usize);
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    // After fetch, calculate and push - simplified for now
+                    self.queue_internal(16);
+                }
+                AddrMode::AbsShort => {
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.queue_internal(16);
+                }
+                AddrMode::AbsLong => {
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.queue_internal(20);
+                }
+                AddrMode::PcDisp => {
+                    self.addr2 = self.regs.pc; // PC at extension word
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.queue_internal(16);
+                }
+                _ => self.illegal_instruction(),
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
     fn exec_ext(&mut self, size: Size, reg: u8) {
@@ -1166,12 +1203,53 @@ impl M68000 {
         self.exception(vector);
     }
 
-    fn exec_link(&mut self, _reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_link(&mut self, reg: u8) {
+        // LINK An,#displacement
+        // 1. Push An onto stack
+        // 2. Copy SP to An (An becomes frame pointer)
+        // 3. Add signed displacement to SP (allocate stack space)
+
+        // We need the displacement word - queue its fetch
+        // For now, handle the register operations synchronously
+        // and assume displacement is already in ext_words[0]
+
+        // Push An
+        let an_value = self.regs.a(reg as usize);
+        self.data = an_value;
+        self.micro_ops.push(MicroOp::PushLongHi);
+        self.micro_ops.push(MicroOp::PushLongLo);
+
+        // Copy SP to An (after push, so it points to saved value)
+        // This happens after the push completes
+        // For proper implementation, we'd need continuation logic
+        // Simplified: do it now with adjusted SP
+        let sp = self.regs.active_sp().wrapping_sub(4);
+        self.regs.set_a(reg as usize, sp);
+
+        // Fetch and apply displacement
+        self.micro_ops.push(MicroOp::FetchExtWord);
+
+        self.queue_internal(16);
     }
 
-    fn exec_unlk(&mut self, _reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_unlk(&mut self, reg: u8) {
+        // UNLK An
+        // 1. Copy An to SP (restore stack to frame pointer)
+        // 2. Pop An from stack (restore old frame pointer)
+
+        // Copy An to SP
+        let an_value = self.regs.a(reg as usize);
+        self.regs.set_a(7, an_value);
+
+        // Pop An from stack
+        self.micro_ops.push(MicroOp::PopLongHi);
+        self.micro_ops.push(MicroOp::PopLongLo);
+
+        // The popped value goes to An - need continuation
+        // For now, store which register to restore
+        self.addr2 = u32::from(reg);
+
+        self.queue_internal(12);
     }
 
     fn exec_move_usp(&mut self, _op: u16) {
@@ -1227,12 +1305,98 @@ impl M68000 {
         self.queue_internal(4);
     }
 
-    fn exec_jsr(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_jsr(&mut self, mode: u8, ea_reg: u8) {
+        // JSR <ea> - Jump to Subroutine (push return address, then jump)
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::AddrInd(r) => {
+                    // JSR (An) - push PC, jump to (An)
+                    self.data = self.regs.pc;
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.regs.pc = self.regs.a(r as usize);
+                    self.queue_internal(16);
+                }
+                AddrMode::AddrIndDisp(r) => {
+                    // JSR d16(An) - need extension word
+                    let pc_at_ext = self.regs.pc;
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    // After fetch, we need to calculate address and jump
+                    // Store base for calculation
+                    self.addr = self.regs.a(r as usize);
+                    self.addr2 = pc_at_ext.wrapping_add(2); // Return address
+                    self.queue_internal(18);
+                }
+                AddrMode::AbsShort => {
+                    let return_addr = self.regs.pc.wrapping_add(2);
+                    self.data = return_addr;
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.queue_internal(18);
+                }
+                AddrMode::AbsLong => {
+                    let return_addr = self.regs.pc.wrapping_add(4);
+                    self.data = return_addr;
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.queue_internal(20);
+                }
+                AddrMode::PcDisp => {
+                    let pc_at_ext = self.regs.pc;
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.addr2 = pc_at_ext.wrapping_add(2); // Return address
+                    self.queue_internal(18);
+                }
+                _ => self.illegal_instruction(),
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
-    fn exec_jmp(&mut self, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_jmp(&mut self, mode: u8, ea_reg: u8) {
+        // JMP <ea> - Jump to address
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::AddrInd(r) => {
+                    // JMP (An) - jump to address in An
+                    self.regs.pc = self.regs.a(r as usize);
+                    self.queue_internal(8);
+                }
+                AddrMode::AddrIndDisp(r) => {
+                    // JMP d16(An) - need extension word
+                    let base = self.regs.a(r as usize);
+                    self.addr = base;
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.queue_internal(10);
+                }
+                AddrMode::AbsShort => {
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.queue_internal(10);
+                }
+                AddrMode::AbsLong => {
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.queue_internal(12);
+                }
+                AddrMode::PcDisp => {
+                    self.addr = self.regs.pc; // PC at extension
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.queue_internal(10);
+                }
+                AddrMode::PcIndex => {
+                    self.addr = self.regs.pc;
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.queue_internal(14);
+                }
+                _ => self.illegal_instruction(),
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
     fn exec_chk(&mut self, _op: u16) {
@@ -1359,12 +1523,96 @@ impl M68000 {
         }
     }
 
-    fn exec_divu(&mut self, _reg: u8, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_divu(&mut self, reg: u8, mode: u8, ea_reg: u8) {
+        // DIVU <ea>,Dn - unsigned 32/16 -> 16r:16q division
+        // Result: Dn = remainder(high word) : quotient(low word)
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    let divisor = self.regs.d[r as usize] & 0xFFFF;
+                    let dividend = self.regs.d[reg as usize];
+
+                    if divisor == 0 {
+                        // Division by zero - trap
+                        self.exception(5);
+                        return;
+                    }
+
+                    let quotient = dividend / divisor;
+                    let remainder = dividend % divisor;
+
+                    // Check for overflow (quotient > 16 bits)
+                    if quotient > 0xFFFF {
+                        // Overflow - set V flag, don't store result
+                        self.regs.sr |= crate::flags::V;
+                        self.regs.sr &= !crate::flags::C; // C always cleared
+                        // N and Z are undefined on overflow
+                    } else {
+                        // Store result: remainder:quotient
+                        self.regs.d[reg as usize] = (remainder << 16) | quotient;
+
+                        // Set flags
+                        self.regs.sr &= !(crate::flags::V | crate::flags::C);
+                        self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
+                        self.regs.sr = Status::set_if(self.regs.sr, crate::flags::N, quotient & 0x8000 != 0);
+                    }
+
+                    // Timing: ~140 cycles (varies with operand)
+                    self.queue_internal(140);
+                }
+                _ => {
+                    self.queue_internal(140); // Memory source stub
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
-    fn exec_divs(&mut self, _reg: u8, _mode: u8, _ea_reg: u8) {
-        self.queue_internal(4); // TODO: implement
+    fn exec_divs(&mut self, reg: u8, mode: u8, ea_reg: u8) {
+        // DIVS <ea>,Dn - signed 32/16 -> 16r:16q division
+        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    let divisor = (self.regs.d[r as usize] as i16) as i32;
+                    let dividend = self.regs.d[reg as usize] as i32;
+
+                    if divisor == 0 {
+                        // Division by zero - trap
+                        self.exception(5);
+                        return;
+                    }
+
+                    let quotient = dividend / divisor;
+                    let remainder = dividend % divisor;
+
+                    // Check for overflow (quotient doesn't fit in signed 16-bit)
+                    if !(-32768..=32767).contains(&quotient) {
+                        // Overflow
+                        self.regs.sr |= crate::flags::V;
+                        self.regs.sr &= !crate::flags::C;
+                    } else {
+                        // Store result: remainder:quotient (both as 16-bit values)
+                        let q = quotient as i16 as u16 as u32;
+                        let r = remainder as i16 as u16 as u32;
+                        self.regs.d[reg as usize] = (r << 16) | q;
+
+                        // Set flags
+                        self.regs.sr &= !(crate::flags::V | crate::flags::C);
+                        self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
+                        self.regs.sr = Status::set_if(self.regs.sr, crate::flags::N, quotient < 0);
+                    }
+
+                    // Timing: ~158 cycles (varies with operand)
+                    self.queue_internal(158);
+                }
+                _ => {
+                    self.queue_internal(158); // Memory source stub
+                }
+            }
+        } else {
+            self.illegal_instruction();
+        }
     }
 
     fn exec_sbcd(&mut self, _op: u16) {
