@@ -1,0 +1,15 @@
+[package]
+name = "emu-6502"
+description = "Cycle-accurate 6502 CPU emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+
+[dev-dependencies]
+
+[lints]
+workspace = true
