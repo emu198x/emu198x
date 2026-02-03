@@ -12,7 +12,7 @@
 #![allow(clippy::manual_rotate)] // SWAP is conceptually a register swap, not rotation.
 #![allow(clippy::manual_range_patterns)] // Explicit values for instruction decode clarity.
 
-use crate::cpu::{AddrMode, M68000, Size};
+use crate::cpu::{AddrMode, InstrPhase, M68000, Size};
 use crate::flags::{Status, C, X};
 use crate::microcode::MicroOp;
 
@@ -61,6 +61,15 @@ impl M68000 {
             0x1 => self.decode_move_byte(op),
             0x2 => self.decode_move_long(op),
             0x3 => self.decode_move_word(op),
+            0x4 => {
+                // Group 4 - check if it's LEA (0x41C0-0x4FFF with bit 8 set and bits 7-6 = 11)
+                if op & 0x01C0 == 0x01C0 {
+                    // LEA continuation
+                    self.exec_lea_continuation();
+                } else {
+                    self.instr_phase = crate::cpu::InstrPhase::Initial;
+                }
+            }
             // Add other multi-phase instructions here as needed
             _ => {
                 // Instruction doesn't support phases, reset
@@ -757,31 +766,138 @@ impl M68000 {
 
     fn exec_lea(&mut self, reg: u8, mode: u8, ea_reg: u8) {
         // LEA calculates effective address and loads it into An
+        // LEA does NOT access memory - it only calculates the address
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             match addr_mode {
                 AddrMode::AddrInd(r) => {
+                    // LEA (An),Am - just copy address register
                     self.regs.set_a(reg as usize, self.regs.a(r as usize));
                     self.queue_internal(4);
                 }
-                AddrMode::AddrIndDisp(_r) => {
-                    // Need extension word for displacement
+                AddrMode::AddrIndDisp(r) => {
+                    // LEA d16(An),Am - need extension word
+                    // Store info for continuation
+                    self.addr = self.regs.a(r as usize);
+                    self.addr2 = u32::from(reg);
                     self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.dst_mode = Some(AddrMode::AddrReg(reg));
+                    // After fetch, calculate and store
+                    self.instr_phase = InstrPhase::SrcEACalc;
+                    self.src_mode = Some(addr_mode);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                AddrMode::AddrIndIndex(r) => {
+                    // LEA d8(An,Xn),Am
+                    self.addr = self.regs.a(r as usize);
+                    self.addr2 = u32::from(reg);
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.instr_phase = InstrPhase::SrcEACalc;
+                    self.src_mode = Some(addr_mode);
+                    self.micro_ops.push(MicroOp::Execute);
                 }
                 AddrMode::AbsShort => {
+                    self.addr2 = u32::from(reg);
                     self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.dst_mode = Some(AddrMode::AddrReg(reg));
+                    self.instr_phase = InstrPhase::SrcEACalc;
+                    self.src_mode = Some(addr_mode);
+                    self.micro_ops.push(MicroOp::Execute);
                 }
                 AddrMode::AbsLong => {
+                    self.addr2 = u32::from(reg);
                     self.micro_ops.push(MicroOp::FetchExtWord);
                     self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.dst_mode = Some(AddrMode::AddrReg(reg));
+                    self.instr_phase = InstrPhase::SrcEACalc;
+                    self.src_mode = Some(addr_mode);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                AddrMode::PcDisp => {
+                    self.addr = self.regs.pc; // PC at extension word
+                    self.addr2 = u32::from(reg);
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.instr_phase = InstrPhase::SrcEACalc;
+                    self.src_mode = Some(addr_mode);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                AddrMode::PcIndex => {
+                    self.addr = self.regs.pc;
+                    self.addr2 = u32::from(reg);
+                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    self.instr_phase = InstrPhase::SrcEACalc;
+                    self.src_mode = Some(addr_mode);
+                    self.micro_ops.push(MicroOp::Execute);
                 }
                 _ => self.illegal_instruction(),
             }
         } else {
             self.illegal_instruction();
         }
+    }
+
+    fn exec_lea_continuation(&mut self) {
+        // Called after extension words are fetched for LEA
+        let Some(src_mode) = self.src_mode else {
+            return;
+        };
+        let dest_reg = self.addr2 as usize;
+
+        let addr = match src_mode {
+            AddrMode::AddrIndDisp(_) => {
+                let disp = self.ext_words[0] as i16 as i32;
+                (self.addr as i32).wrapping_add(disp) as u32
+            }
+            AddrMode::AddrIndIndex(_) => {
+                let ext = self.ext_words[0];
+                let disp = (ext & 0xFF) as i8 as i32;
+                let xn = ((ext >> 12) & 7) as usize;
+                let is_addr = ext & 0x8000 != 0;
+                let is_long = ext & 0x0800 != 0;
+                let idx_val = if is_addr {
+                    self.regs.a(xn)
+                } else {
+                    self.regs.d[xn]
+                };
+                let idx_val = if is_long {
+                    idx_val as i32
+                } else {
+                    idx_val as i16 as i32
+                };
+                (self.addr as i32)
+                    .wrapping_add(disp)
+                    .wrapping_add(idx_val) as u32
+            }
+            AddrMode::AbsShort => self.ext_words[0] as i16 as i32 as u32,
+            AddrMode::AbsLong => {
+                (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
+            }
+            AddrMode::PcDisp => {
+                let disp = self.ext_words[0] as i16 as i32;
+                (self.addr as i32).wrapping_add(disp) as u32
+            }
+            AddrMode::PcIndex => {
+                let ext = self.ext_words[0];
+                let disp = (ext & 0xFF) as i8 as i32;
+                let xn = ((ext >> 12) & 7) as usize;
+                let is_addr = ext & 0x8000 != 0;
+                let is_long = ext & 0x0800 != 0;
+                let idx_val = if is_addr {
+                    self.regs.a(xn)
+                } else {
+                    self.regs.d[xn]
+                };
+                let idx_val = if is_long {
+                    idx_val as i32
+                } else {
+                    idx_val as i16 as i32
+                };
+                (self.addr as i32)
+                    .wrapping_add(disp)
+                    .wrapping_add(idx_val) as u32
+            }
+            _ => return,
+        };
+
+        self.regs.set_a(dest_reg, addr);
+        self.instr_phase = InstrPhase::Complete;
+        self.queue_internal(8);
     }
 
     fn exec_clr(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {

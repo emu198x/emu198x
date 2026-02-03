@@ -997,3 +997,57 @@ fn test_pea_indirect() {
     let pushed = u32::from(hi) << 16 | u32::from(lo);
     assert_eq!(pushed, 0x1234_5678);
 }
+
+#[test]
+fn test_lea_indirect() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // LEA (A0), A1 (opcode: 0x43D0)
+    // 0100 001 111 010 000 = 0x43D0
+    load_words(&mut bus, 0x1000, &[0x43D0]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x1234_5678);
+
+    run_instruction(&mut cpu, &mut bus);
+
+    assert_eq!(cpu.regs.a(1), 0x1234_5678);
+}
+
+#[test]
+fn test_lea_displacement() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // LEA $0010(A0), A1 (opcode: 0x43E8, displacement: 0x0010)
+    // 0100 001 111 101 000 = 0x43E8
+    load_words(&mut bus, 0x1000, &[0x43E8, 0x0010]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x0000_2000);
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.a(1), 0x0000_2010); // 0x2000 + 0x10 = 0x2010
+}
+
+#[test]
+fn test_lea_absolute_short() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // LEA $1234.W, A2 (opcode: 0x45F8, address: 0x1234)
+    // 0100 010 111 111 000 = 0x45F8
+    load_words(&mut bus, 0x1000, &[0x45F8, 0x1234]);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+
+    for _ in 0..16 {
+        cpu.tick(&mut bus);
+    }
+
+    assert_eq!(cpu.regs.a(2), 0x0000_1234);
+}
