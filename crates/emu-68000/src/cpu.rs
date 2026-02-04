@@ -1648,12 +1648,13 @@ impl M68000 {
                         let upper_bound = src as i16;
 
                         if dn < 0 {
-                            // N flag set for negative
+                            // Clear N/Z/V/C then set N (X not affected)
+                            self.regs.sr &= !(N | Z | V | C);
                             self.regs.sr |= N;
                             self.exception(6); // CHK exception
                         } else if dn > upper_bound {
-                            // N flag clear for upper bound violation
-                            self.regs.sr &= !N;
+                            // Clear N/Z/V/C (X not affected)
+                            self.regs.sr &= !(N | Z | V | C);
                             self.exception(6); // CHK exception
                         }
                         // If within bounds, just continue normally

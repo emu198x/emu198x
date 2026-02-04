@@ -3224,12 +3224,15 @@ impl M68000 {
 
                     // Check bounds
                     if dn < 0 {
-                        // N flag set for negative
+                        // N flag set for negative, clear N/Z/V/C then set N
+                        // X is not affected by CHK
+                        self.regs.sr &= !(N | Z | V | C);
                         self.regs.sr |= N;
                         self.exception(6); // CHK exception
                     } else if dn > upper_bound {
-                        // N flag clear for upper bound violation
-                        self.regs.sr &= !N;
+                        // N flag clear for upper bound violation, clear N/Z/V/C
+                        // X is not affected by CHK
+                        self.regs.sr &= !(N | Z | V | C);
                         self.exception(6); // CHK exception
                     } else {
                         // Value is within bounds, no exception
