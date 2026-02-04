@@ -391,6 +391,10 @@ impl M68000 {
             MicroOp::AluMemSrc => self.tick_alu_mem_src(bus),
             MicroOp::BitMemOp => self.tick_bit_mem_op(bus),
             MicroOp::ExtendMemOp => self.tick_extend_mem_op(bus),
+            MicroOp::SetDataFromData2 => {
+                self.data = self.data2;
+                self.micro_ops.advance();
+            }
         }
     }
 
@@ -1763,11 +1767,15 @@ impl M68000 {
             self.regs.sr &= !flags::T; // Clear trace
 
             // Queue push of PC and SR
+            // PC is stored in data for PushLongHi/Lo
             self.data = self.regs.pc;
+            // Old SR is stored in data2 to preserve it during PC push
+            self.data2 = u32::from(old_sr);
+
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
-
-            self.data = u32::from(old_sr);
+            // After PC push, copy old_sr from data2 to data for PushWord
+            self.micro_ops.push(MicroOp::SetDataFromData2);
             self.micro_ops.push(MicroOp::PushWord);
 
             // Queue vector read

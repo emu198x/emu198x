@@ -157,6 +157,12 @@ pub enum MicroOp {
     /// Size from `self.size` (ABCD/SBCD always byte, ADDX/SUBX can vary).
     /// Phase 0: Read src. Phase 1: Read dst. Phase 2: Compute and write result.
     ExtendMemOp,
+
+    /// Copy `data2` to `data` (0 cycles, instant).
+    ///
+    /// Used during exception processing to load saved SR into `data`
+    /// after pushing PC, so PushWord can write the SR.
+    SetDataFromData2,
 }
 
 impl MicroOp {
@@ -195,6 +201,7 @@ impl MicroOp {
             Self::AluMemSrc => 4,     // Memory read cycle
             Self::BitMemOp => 4,      // Per memory access phase
             Self::ExtendMemOp => 4,   // Per memory access phase (read src, read dst, write)
+            Self::SetDataFromData2 => 0, // Instant internal operation
         }
     }
 }

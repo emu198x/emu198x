@@ -3134,3 +3134,419 @@ fn test_tst_memory_negative() {
     assert!(cpu.regs.sr & emu_68000::Z == 0);
     assert!(cpu.regs.sr & emu_68000::N != 0);
 }
+
+// === Exception Tests ===
+
+/// Helper to set up an exception vector.
+/// Vector address = vector_number * 4, contains the handler address.
+fn set_exception_vector(bus: &mut SimpleBus, vector: u8, handler_addr: u32) {
+    let vector_addr = u32::from(vector) * 4;
+    // Write handler address as big-endian long
+    bus.poke(vector_addr as u16, (handler_addr >> 24) as u8);
+    bus.poke((vector_addr + 1) as u16, (handler_addr >> 16) as u8);
+    bus.poke((vector_addr + 2) as u16, (handler_addr >> 8) as u8);
+    bus.poke((vector_addr + 3) as u16, handler_addr as u8);
+}
+
+#[test]
+fn test_trap_instruction() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up TRAP #0 vector (vector 32, address 0x80)
+    // Handler at 0x3000
+    set_exception_vector(&mut bus, 32, 0x3000);
+
+    // TRAP #0 (opcode: 0x4E40) followed by NOP at handler
+    load_words(&mut bus, 0x1000, &[0x4E40]);
+    load_words(&mut bus, 0x3000, &[0x4E71]); // NOP at handler
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000; // Supervisor mode, no flags
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+    let old_sp = cpu.regs.a(7);
+
+    // Run enough cycles for exception processing
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at handler (or past it after NOP)
+    assert!(cpu.regs.pc >= 0x3000, "PC should jump to handler, got {:#X}", cpu.regs.pc);
+
+    // Stack should have old PC and SR pushed
+    // SP decremented by 6 (4 for PC + 2 for SR)
+    assert_eq!(cpu.regs.a(7), old_sp - 6);
+
+    // Should still be in supervisor mode
+    assert!(cpu.regs.sr & 0x2000 != 0, "Should be in supervisor mode");
+}
+
+#[test]
+fn test_trap_15() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up TRAP #15 vector (vector 47, address 0xBC)
+    set_exception_vector(&mut bus, 47, 0x4000);
+
+    // TRAP #15 (opcode: 0x4E4F) followed by NOP at handler
+    load_words(&mut bus, 0x1000, &[0x4E4F]);
+    load_words(&mut bus, 0x4000, &[0x4E71]); // NOP at handler
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at handler
+    assert!(cpu.regs.pc >= 0x4000, "PC should jump to TRAP #15 handler");
+}
+
+#[test]
+fn test_division_by_zero_exception() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up divide by zero vector (vector 5, address 0x14)
+    set_exception_vector(&mut bus, 5, 0x5000);
+
+    // DIVU D1,D0 (opcode: 0x80C1) - D0 / D1 where D1 = 0
+    load_words(&mut bus, 0x1000, &[0x80C1]);
+    load_words(&mut bus, 0x5000, &[0x4E71]); // NOP at handler
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+    cpu.regs.d[0] = 0x0001_0000; // Dividend
+    cpu.regs.d[1] = 0x0000_0000; // Divisor = 0
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at divide by zero handler
+    assert!(cpu.regs.pc >= 0x5000, "PC should jump to divide by zero handler");
+}
+
+#[test]
+fn test_divs_by_zero_exception() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up divide by zero vector (vector 5)
+    set_exception_vector(&mut bus, 5, 0x5000);
+
+    // DIVS D1,D0 (opcode: 0x81C1) - signed D0 / D1 where D1 = 0
+    load_words(&mut bus, 0x1000, &[0x81C1]);
+    load_words(&mut bus, 0x5000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+    cpu.regs.d[0] = 0xFFFF_0000; // Negative dividend
+    cpu.regs.d[1] = 0x0000_0000; // Divisor = 0
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    assert!(cpu.regs.pc >= 0x5000, "PC should jump to divide by zero handler");
+}
+
+#[test]
+fn test_chk_exception_negative() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up CHK vector (vector 6, address 0x18)
+    set_exception_vector(&mut bus, 6, 0x6000);
+
+    // CHK D1,D0 (opcode: 0x4181) - check if D0 is in range 0..D1
+    // Format: 0100 reg 110 mode reg = 0100 000 110 000 001 = 0x4181
+    load_words(&mut bus, 0x1000, &[0x4181]);
+    load_words(&mut bus, 0x6000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+    cpu.regs.d[0] = 0xFFFF_FFFF; // -1 (negative, out of bounds)
+    cpu.regs.d[1] = 0x0000_0064; // Upper bound = 100
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at CHK handler
+    assert!(cpu.regs.pc >= 0x6000, "PC should jump to CHK handler for negative value");
+    // N flag should be set (value was negative)
+    assert!(cpu.regs.sr & emu_68000::N != 0, "N flag should be set");
+}
+
+#[test]
+fn test_chk_exception_upper_bound() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up CHK vector (vector 6)
+    set_exception_vector(&mut bus, 6, 0x6000);
+
+    // CHK D1,D0 - check if D0 is in range 0..D1
+    load_words(&mut bus, 0x1000, &[0x4181]);
+    load_words(&mut bus, 0x6000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+    cpu.regs.d[0] = 0x0000_00C8; // 200 (greater than upper bound)
+    cpu.regs.d[1] = 0x0000_0064; // Upper bound = 100
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at CHK handler
+    assert!(cpu.regs.pc >= 0x6000, "PC should jump to CHK handler for value > upper bound");
+    // N flag is undefined for upper bound violation per 68000 spec
+}
+
+#[test]
+fn test_chk_no_exception() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up CHK vector (vector 6)
+    set_exception_vector(&mut bus, 6, 0x6000);
+
+    // CHK D1,D0 followed by NOP
+    load_words(&mut bus, 0x1000, &[0x4181, 0x4E71]);
+    load_words(&mut bus, 0x6000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.d[0] = 0x0000_0032; // 50 (in bounds)
+    cpu.regs.d[1] = 0x0000_0064; // Upper bound = 100
+
+    for _ in 0..30 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should NOT be at CHK handler - should continue to NOP
+    assert!(cpu.regs.pc < 0x6000, "PC should not jump to CHK handler when in bounds");
+}
+
+#[test]
+fn test_trapv_exception() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up TRAPV vector (vector 7, address 0x1C)
+    set_exception_vector(&mut bus, 7, 0x7000);
+
+    // TRAPV (opcode: 0x4E76)
+    load_words(&mut bus, 0x1000, &[0x4E76]);
+    load_words(&mut bus, 0x7000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000 | emu_68000::V; // Set overflow flag
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at TRAPV handler (V was set)
+    assert!(cpu.regs.pc >= 0x7000, "PC should jump to TRAPV handler when V is set");
+}
+
+#[test]
+fn test_trapv_no_exception() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up TRAPV vector (vector 7)
+    set_exception_vector(&mut bus, 7, 0x7000);
+
+    // TRAPV followed by NOP
+    load_words(&mut bus, 0x1000, &[0x4E76, 0x4E71]);
+    load_words(&mut bus, 0x7000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000; // V flag clear
+
+    for _ in 0..30 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should NOT jump to handler (V was clear)
+    assert!(cpu.regs.pc < 0x7000, "PC should not jump to TRAPV handler when V is clear");
+}
+
+#[test]
+fn test_privilege_violation_move_to_sr() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up privilege violation vector (vector 8, address 0x20)
+    set_exception_vector(&mut bus, 8, 0x8000);
+
+    // MOVE D0,SR (opcode: 0x46C0) - privileged instruction
+    load_words(&mut bus, 0x1000, &[0x46C0]);
+    load_words(&mut bus, 0x8000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x0000; // User mode (S bit clear)
+    // Note: In user mode, A7 is USP. But exception switches to supervisor and uses SSP.
+    // SSP starts at 0 after reset, so we need to set it up via register direct access.
+    cpu.regs.set_a(7, 0x8000); // This sets USP since we're in user mode
+    // We also need to set SSP for when the exception occurs
+    // The 68000 has separate USP and SSP, and exception uses SSP
+    cpu.regs.d[0] = 0x0000_2700;
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at privilege violation handler
+    assert!(cpu.regs.pc >= 0x8000, "PC should jump to privilege violation handler");
+    // Should now be in supervisor mode
+    assert!(cpu.regs.sr & 0x2000 != 0, "Should be in supervisor mode after exception");
+}
+
+#[test]
+fn test_illegal_instruction_exception() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up illegal instruction vector (vector 4, address 0x10)
+    set_exception_vector(&mut bus, 4, 0x4000);
+
+    // Illegal instruction: 0x4AFC is the official ILLEGAL opcode
+    load_words(&mut bus, 0x1000, &[0x4AFC]);
+    load_words(&mut bus, 0x4000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at illegal instruction handler
+    assert!(cpu.regs.pc >= 0x4000, "PC should jump to illegal instruction handler");
+}
+
+#[test]
+fn test_line_a_exception() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up Line A vector (vector 10, address 0x28)
+    set_exception_vector(&mut bus, 10, 0xA000);
+
+    // Line A instruction: 0xAxxx (any instruction starting with 0xA)
+    load_words(&mut bus, 0x1000, &[0xA123]);
+    load_words(&mut bus, 0xA000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at Line A handler
+    assert!(cpu.regs.pc >= 0xA000, "PC should jump to Line A handler");
+}
+
+#[test]
+fn test_line_f_exception() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up Line F vector (vector 11, address 0x2C)
+    set_exception_vector(&mut bus, 11, 0xF000);
+
+    // Line F instruction: 0xFxxx (any instruction starting with 0xF)
+    load_words(&mut bus, 0x1000, &[0xF123]);
+    load_words(&mut bus, 0xF000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.sr = 0x2000;
+    cpu.regs.set_a(7, 0x8000); // Set up SSP
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // PC should be at Line F handler
+    assert!(cpu.regs.pc >= 0xF000, "PC should jump to Line F handler");
+}
+
+#[test]
+fn test_exception_saves_state() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // Set up TRAP #0 vector
+    set_exception_vector(&mut bus, 32, 0x3000);
+
+    // TRAP #0
+    load_words(&mut bus, 0x1000, &[0x4E40]);
+    load_words(&mut bus, 0x3000, &[0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    // Start in supervisor mode for simpler testing
+    cpu.regs.sr = 0x201F; // Supervisor mode with all CCR flags set
+    cpu.regs.set_a(7, 0x8000); // SSP
+
+    let expected_return_pc = 0x1002u32;
+    let expected_old_sr = 0x201Fu16;
+    let initial_sp = cpu.regs.a(7);
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // SP should be decremented by 6 (PC=4, SR=2)
+    let final_sp = cpu.regs.a(7);
+    assert_eq!(final_sp, initial_sp - 6, "Stack should be decremented by 6");
+
+    // Read pushed values from stack
+    // 68000 exception frame: SR (2 bytes) at SP, then PC (4 bytes) at SP+2
+    // Stack grows down, SP points to top of stack (lowest used address)
+    // Push order: PC first (SP-=4), then SR (SP-=2)
+    // Final layout: SP+0=SR, SP+2=PC
+
+    // Read pushed SR (at SP)
+    let pushed_sr = u16::from(bus.peek(final_sp as u16)) << 8
+        | u16::from(bus.peek((final_sp + 1) as u16));
+
+    // Read pushed PC (at SP + 2)
+    let pushed_pc = u32::from(bus.peek((final_sp + 2) as u16)) << 24
+        | u32::from(bus.peek((final_sp + 3) as u16)) << 16
+        | u32::from(bus.peek((final_sp + 4) as u16)) << 8
+        | u32::from(bus.peek((final_sp + 5) as u16));
+
+    assert_eq!(pushed_sr, expected_old_sr, "Pushed SR should be original SR");
+    assert_eq!(pushed_pc, expected_return_pc, "Pushed PC should be return address");
+}
