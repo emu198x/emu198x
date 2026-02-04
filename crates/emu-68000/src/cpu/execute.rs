@@ -1224,10 +1224,10 @@ impl M68000 {
             self.instr_phase = InstrPhase::SrcEACalc; // Signal word branch
             self.micro_ops.push(MicroOp::Execute);
         } else {
-            // Byte displacement
+            // Byte displacement - PC is set directly
             let offset = displacement as i32;
             self.regs.pc = (self.regs.pc as i32).wrapping_add(offset) as u32;
-            self.queue_internal(4);
+            self.queue_internal_no_pc(4);
         }
     }
 
@@ -1244,10 +1244,10 @@ impl M68000 {
             self.data = self.regs.pc;
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
-            // Calculate branch target
+            // Calculate branch target - PC is set directly
             let offset = displacement as i32;
             self.regs.pc = (self.regs.pc as i32).wrapping_add(offset) as u32;
-            self.queue_internal(4);
+            self.queue_internal_no_pc(4);
         }
     }
 
@@ -1261,9 +1261,10 @@ impl M68000 {
                 self.instr_phase = InstrPhase::SrcEACalc;
                 self.micro_ops.push(MicroOp::Execute);
             } else {
+                // PC is set directly
                 let offset = displacement as i32;
                 self.regs.pc = (self.regs.pc as i32).wrapping_add(offset) as u32;
-                self.queue_internal(10); // Branch taken timing
+                self.queue_internal_no_pc(10); // Branch taken timing
             }
         } else {
             if displacement == 0 {
@@ -1285,9 +1286,10 @@ impl M68000 {
                 // PC already advanced past extension word, adjust from there
                 // But displacement is relative to the start of the extension word
                 // PC was at ext word, then advanced by 2, so: PC-2 + disp
+                // PC is set directly, so don't advance during internal cycles
                 self.regs.pc = ((self.regs.pc as i32) - 2 + disp) as u32;
                 self.instr_phase = InstrPhase::Complete;
-                self.queue_internal(10);
+                self.queue_internal_no_pc(10);
             }
             InstrPhase::SrcRead => {
                 // BSR.W - push return address (after ext word) then branch
@@ -1295,10 +1297,10 @@ impl M68000 {
                 self.data = self.regs.pc;
                 self.micro_ops.push(MicroOp::PushLongHi);
                 self.micro_ops.push(MicroOp::PushLongLo);
-                // Branch: PC-2 + disp
+                // Branch: PC-2 + disp - PC is set directly
                 self.regs.pc = ((self.regs.pc as i32) - 2 + disp) as u32;
                 self.instr_phase = InstrPhase::Complete;
-                self.queue_internal(4);
+                self.queue_internal_no_pc(4);
             }
             _ => {
                 self.instr_phase = InstrPhase::Initial;
@@ -2369,6 +2371,12 @@ impl M68000 {
                     self.data = 0; // Not used for TST
                     self.data2 = 8; // 8 = TST
                     self.movem_long_phase = 0;
+                    // Add internal cycles for EA calculation based on addressing mode
+                    let ea_cycles = self.ea_calc_cycles(addr_mode);
+                    if ea_cycles > 0 {
+                        self.internal_cycles = ea_cycles;
+                        self.micro_ops.push(MicroOp::Internal);
+                    }
                     self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
@@ -2636,8 +2644,9 @@ impl M68000 {
             match addr_mode {
                 AddrMode::AddrInd(r) => {
                     // JMP (An) - jump to address in An
+                    // PC is set directly, so don't advance it during internal cycles
                     self.regs.pc = self.regs.a(r as usize);
-                    self.queue_internal(8);
+                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::AddrIndDisp(r) => {
                     // JMP d16(An) - need extension word
@@ -2854,8 +2863,9 @@ impl M68000 {
 
         if Status::condition(self.regs.sr, condition) {
             // Condition true - no branch, but we still skip displacement word
+            // PC adjustment is final, don't advance further during internal cycles
             self.regs.pc = self.regs.pc.wrapping_add(2);
-            self.queue_internal(12); // Condition true, no loop
+            self.queue_internal_no_pc(12); // Condition true, no loop
         } else {
             // Condition false - decrement and possibly branch
             let val = (self.regs.d[reg as usize] & 0xFFFF) as i16;
@@ -2865,8 +2875,9 @@ impl M68000 {
 
             if new_val == -1 {
                 // Counter exhausted (-1) - no branch, skip displacement
+                // PC adjustment is final
                 self.regs.pc = self.regs.pc.wrapping_add(2);
-                self.queue_internal(14); // Loop terminated
+                self.queue_internal_no_pc(14); // Loop terminated
             } else {
                 // Counter not exhausted - branch taken
                 // We need the displacement word. Store PC location and queue fetch.
@@ -2874,7 +2885,8 @@ impl M68000 {
                 self.micro_ops.push(MicroOp::FetchExtWord);
                 // The branch calculation will use the fetched displacement
                 // For now, this is incomplete - we'd need continuation logic
-                self.queue_internal(10); // Loop continues
+                // Branch target will be set, so no PC advance
+                self.queue_internal_no_pc(10); // Loop continues
             }
         }
     }
@@ -3461,8 +3473,9 @@ impl M68000 {
                     self.regs.sr = Status::clear_vc(self.regs.sr);
                     self.regs.sr = Status::update_nz_long(self.regs.sr, result);
 
-                    // Timing: 38 + 2*number of 1-bits in source (simplified to ~70 cycles)
-                    self.queue_internal(70);
+                    // Timing: 38 + 2*number of 1-bits in source operand
+                    let ones = (src as u16).count_ones() as u8;
+                    self.queue_internal(38 + 2 * ones);
                 }
                 _ => {
                     // Memory source - use AluMemSrc
@@ -3494,8 +3507,12 @@ impl M68000 {
                     self.regs.sr = Status::clear_vc(self.regs.sr);
                     self.regs.sr = Status::update_nz_long(self.regs.sr, result);
 
-                    // Timing: approximately 70 cycles (varies with operand)
-                    self.queue_internal(70);
+                    // Timing: 38 + 2*number of 1-bits in <ea> XOR'd with sign bit
+                    // For negative source, effectively count bit transitions
+                    let src16 = self.regs.d[r as usize] as u16;
+                    let pattern = src16 ^ (src16 << 1); // Count bit transitions
+                    let ones = pattern.count_ones() as u8;
+                    self.queue_internal(38 + 2 * ones);
                 }
                 _ => {
                     // Memory source - use AluMemSrc
@@ -3932,9 +3949,23 @@ impl M68000 {
                 if count == 0 {
                     (value, false)
                 } else {
-                    let shifted = (value << count) & mask;
-                    let c = if count <= 32 { (value >> (32 - count)) & 1 != 0 } else { false };
-                    (shifted, c)
+                    let bits = match size {
+                        Size::Byte => 8u32,
+                        Size::Word => 16,
+                        Size::Long => 32,
+                    };
+                    if count >= bits {
+                        let c = if count == bits {
+                            value & 1 != 0
+                        } else {
+                            false
+                        };
+                        (0, c)
+                    } else {
+                        let shifted = (value << count) & mask;
+                        let c = (value >> (bits - count)) & 1 != 0;
+                        (shifted, c)
+                    }
                 }
             }
             // ASR - Arithmetic shift right (sign extends)
@@ -3943,12 +3974,23 @@ impl M68000 {
                     (value, false)
                 } else {
                     let sign_bit = value & msb_bit != 0;
-                    let mut result = value;
-                    for _ in 0..count {
-                        result = (result >> 1) | if sign_bit { msb_bit } else { 0 };
+                    let bits = match size {
+                        Size::Byte => 8u32,
+                        Size::Word => 16,
+                        Size::Long => 32,
+                    };
+                    // For large counts, result is all sign bits
+                    if count >= bits {
+                        let result = if sign_bit { mask } else { 0 };
+                        (result, sign_bit)
+                    } else {
+                        let mut result = value;
+                        for _ in 0..count {
+                            result = (result >> 1) | if sign_bit { msb_bit } else { 0 };
+                        }
+                        let c = (value >> (count - 1)) & 1 != 0;
+                        (result & mask, c)
                     }
-                    let c = if count > 0 { (value >> (count - 1)) & 1 != 0 } else { false };
-                    (result & mask, c)
                 }
             }
             // LSL - Logical shift left
@@ -3956,9 +3998,24 @@ impl M68000 {
                 if count == 0 {
                     (value, false)
                 } else {
-                    let shifted = (value << count) & mask;
-                    let c = if count <= 32 { (value >> (32 - count)) & 1 != 0 } else { false };
-                    (shifted, c)
+                    let bits = match size {
+                        Size::Byte => 8u32,
+                        Size::Word => 16,
+                        Size::Long => 32,
+                    };
+                    if count >= bits {
+                        // All bits shifted out, carry is last bit shifted out
+                        let c = if count == bits {
+                            value & 1 != 0
+                        } else {
+                            false
+                        };
+                        (0, c)
+                    } else {
+                        let shifted = (value << count) & mask;
+                        let c = (value >> (bits - count)) & 1 != 0;
+                        (shifted, c)
+                    }
                 }
             }
             // LSR - Logical shift right
@@ -3966,9 +4023,24 @@ impl M68000 {
                 if count == 0 {
                     (value, false)
                 } else {
-                    let shifted = (value >> count) & mask;
-                    let c = if count > 0 { (value >> (count - 1)) & 1 != 0 } else { false };
-                    (shifted, c)
+                    let bits = match size {
+                        Size::Byte => 8u32,
+                        Size::Word => 16,
+                        Size::Long => 32,
+                    };
+                    if count >= bits {
+                        // All bits shifted out
+                        let c = if count == bits {
+                            (value >> (bits - 1)) & 1 != 0
+                        } else {
+                            false
+                        };
+                        (0, c)
+                    } else {
+                        let shifted = (value >> count) & mask;
+                        let c = (value >> (count - 1)) & 1 != 0;
+                        (shifted, c)
+                    }
                 }
             }
             // ROXL - Rotate through X left
@@ -4047,10 +4119,15 @@ impl M68000 {
                         Size::Word => 16,
                         Size::Long => 32,
                     };
-                    let count = count % bits;
-                    let rotated = ((value << count) | (value >> (bits - count))) & mask;
-                    let c = rotated & 1 != 0;
-                    (rotated, c)
+                    let eff_count = count % bits;
+                    if eff_count == 0 {
+                        // Full rotation, value unchanged, carry is LSB
+                        (value, value & 1 != 0)
+                    } else {
+                        let rotated = ((value << eff_count) | (value >> (bits - eff_count))) & mask;
+                        let c = rotated & 1 != 0;
+                        (rotated, c)
+                    }
                 }
             }
             // ROR - Rotate right
@@ -4063,10 +4140,15 @@ impl M68000 {
                         Size::Word => 16,
                         Size::Long => 32,
                     };
-                    let count = count % bits;
-                    let rotated = ((value >> count) | (value << (bits - count))) & mask;
-                    let c = (value >> (count - 1)) & 1 != 0;
-                    (rotated, c)
+                    let eff_count = count % bits;
+                    if eff_count == 0 {
+                        // Full rotation, value unchanged, carry is MSB
+                        (value, value & msb_bit != 0)
+                    } else {
+                        let rotated = ((value >> eff_count) | (value << (bits - eff_count))) & mask;
+                        let c = (value >> (eff_count - 1)) & 1 != 0;
+                        (rotated, c)
+                    }
                 }
             }
             _ => (value, false),

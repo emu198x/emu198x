@@ -163,6 +163,18 @@ pub enum MicroOp {
     /// Used during exception processing to load saved SR into `data`
     /// after pushing PC, so PushWord can write the SR.
     SetDataFromData2,
+
+    /// Push IR (opcode) for group 0 exception (4 cycles).
+    /// Uses: `addr2` contains the opcode value to push.
+    PushGroup0IR,
+
+    /// Push fault address for group 0 exception (8 cycles for long).
+    /// Uses: `fault_addr` field contains the address to push.
+    PushGroup0FaultAddr,
+
+    /// Push access info word for group 0 exception (4 cycles).
+    /// Uses: `group0_access_info` field contains the value to push.
+    PushGroup0AccessInfo,
 }
 
 impl MicroOp {
@@ -202,6 +214,9 @@ impl MicroOp {
             Self::BitMemOp => 4,      // Per memory access phase
             Self::ExtendMemOp => 4,   // Per memory access phase (read src, read dst, write)
             Self::SetDataFromData2 => 0, // Instant internal operation
+            Self::PushGroup0IR => 4,     // Push word (4 cycles)
+            Self::PushGroup0FaultAddr => 4, // Per word (8 total for long, called in 2 phases)
+            Self::PushGroup0AccessInfo => 4, // Push word (4 cycles)
         }
     }
 }

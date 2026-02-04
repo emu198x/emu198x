@@ -187,6 +187,8 @@ pub struct M68000 {
     cycle: u8,
     /// Total internal cycles for current Internal micro-op.
     internal_cycles: u8,
+    /// Whether Internal micro-op should advance PC (false for jumps/branches that set PC directly).
+    internal_advances_pc: bool,
 
     // === Instruction decode state ===
     /// Current opcode word.
@@ -229,6 +231,16 @@ pub struct M68000 {
     pending_exception: Option<u8>,
     /// Current exception being processed.
     current_exception: Option<u8>,
+    /// Fault address for address/bus error exceptions.
+    fault_addr: u32,
+    /// True if fault was during read, false for write.
+    fault_read: bool,
+    /// True if fault was during instruction fetch, false for data access.
+    fault_in_instruction: bool,
+    /// Function code at time of fault (for bus/address error frame).
+    fault_fc: u8,
+    /// Access info word for group 0 exception frame (computed in begin_exception).
+    group0_access_info: u16,
 
     // === Interrupt state ===
     /// Pending interrupt level (1-7), 0 = none.
@@ -249,6 +261,7 @@ impl M68000 {
             micro_ops: MicroOpQueue::new(),
             cycle: 0,
             internal_cycles: 0,
+            internal_advances_pc: true,
             opcode: 0,
             ext_words: [0; 4],
             ext_count: 0,
@@ -266,6 +279,11 @@ impl M68000 {
             movem_long_phase: 0,
             pending_exception: None,
             current_exception: None,
+            fault_addr: 0,
+            fault_read: true,
+            fault_in_instruction: false,
+            fault_fc: 0,
+            group0_access_info: 0,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
         };
@@ -280,20 +298,36 @@ impl M68000 {
         self.total_cycles
     }
 
+    /// Set up CPU with a pre-fetched opcode for single-step testing.
+    ///
+    /// This initializes the CPU as if the opcode has already been fetched,
+    /// ready to execute. Used by test harnesses that provide prefetch state.
+    ///
+    /// The prefetch array should contain [opcode, next_word].
+    pub fn setup_prefetch(&mut self, prefetch: [u16; 2]) {
+        self.opcode = prefetch[0];
+        self.ext_words[0] = prefetch[1];
+        self.ext_count = 0;
+        self.ext_idx = 0;
+        self.micro_ops.clear();
+        // Queue Execute instead of FetchOpcode - opcode is already loaded
+        self.micro_ops.push(MicroOp::Execute);
+        self.state = State::Execute;
+        self.cycle = 0;
+    }
+
     /// Read byte from memory.
     fn read_byte<B: Bus>(&mut self, bus: &mut B, addr: u32) -> u8 {
         // 68000 uses 24-bit addresses
         let addr24 = addr & 0x00FF_FFFF;
-        // Byte reads use even address for high byte, odd for low byte
-        // For simplicity, we read as if addresses are byte-aligned
-        bus.read(addr24 as u16).data
+        bus.read(addr24).data
     }
 
     /// Read word from memory (big-endian).
     fn read_word<B: Bus>(&mut self, bus: &mut B, addr: u32) -> u16 {
         let addr24 = addr & 0x00FF_FFFE; // Word-aligned
-        let hi = bus.read(addr24 as u16).data;
-        let lo = bus.read((addr24 + 1) as u16).data;
+        let hi = bus.read(addr24).data;
+        let lo = bus.read(addr24 + 1).data;
         u16::from(hi) << 8 | u16::from(lo)
     }
 
@@ -308,14 +342,14 @@ impl M68000 {
     /// Write byte to memory.
     fn write_byte<B: Bus>(&mut self, bus: &mut B, addr: u32, value: u8) {
         let addr24 = addr & 0x00FF_FFFF;
-        bus.write(addr24 as u16, value);
+        bus.write(addr24, value);
     }
 
     /// Write word to memory (big-endian).
     fn write_word<B: Bus>(&mut self, bus: &mut B, addr: u32, value: u16) {
         let addr24 = addr & 0x00FF_FFFE;
-        bus.write(addr24 as u16, (value >> 8) as u8);
-        bus.write((addr24 + 1) as u16, value as u8);
+        bus.write(addr24, (value >> 8) as u8);
+        bus.write(addr24 + 1, value as u8);
     }
 
     /// Write long to memory (big-endian).
@@ -337,72 +371,103 @@ impl M68000 {
         self.micro_ops.push(MicroOp::FetchOpcode);
     }
 
-    /// Queue internal cycles.
+    /// Queue internal cycles (with overlapped PC advancement for long operations).
     fn queue_internal(&mut self, cycles: u8) {
         self.internal_cycles = cycles;
+        self.internal_advances_pc = true;
+        self.micro_ops.push(MicroOp::Internal);
+    }
+
+    /// Queue internal cycles without PC advancement (for jumps/branches that set PC directly).
+    fn queue_internal_no_pc(&mut self, cycles: u8) {
+        self.internal_cycles = cycles;
+        self.internal_advances_pc = false;
         self.micro_ops.push(MicroOp::Internal);
     }
 
     /// Execute one clock cycle of CPU operation.
+    ///
+    /// Instant micro-ops (those taking 0 cycles like Execute, CalcEA) are
+    /// processed in a loop until we hit a micro-op that takes actual cycles.
     fn tick_internal<B: Bus>(&mut self, bus: &mut B) {
-        let Some(op) = self.micro_ops.current() else {
-            // Queue empty - start next instruction
-            self.queue_fetch();
-            return;
-        };
+        loop {
+            let Some(op) = self.micro_ops.current() else {
+                // Queue empty - start next instruction
+                self.queue_fetch();
+                return;
+            };
 
-        match op {
-            MicroOp::FetchOpcode => self.tick_fetch_opcode(bus),
-            MicroOp::FetchExtWord => self.tick_fetch_ext_word(bus),
-            MicroOp::ReadByte => self.tick_read_byte(bus),
-            MicroOp::ReadWord => self.tick_read_word(bus),
-            MicroOp::ReadLongHi => self.tick_read_long_hi(bus),
-            MicroOp::ReadLongLo => self.tick_read_long_lo(bus),
-            MicroOp::WriteByte => self.tick_write_byte(bus),
-            MicroOp::WriteWord => self.tick_write_word(bus),
-            MicroOp::WriteLongHi => self.tick_write_long_hi(bus),
-            MicroOp::WriteLongLo => self.tick_write_long_lo(bus),
-            MicroOp::CalcEA => {
-                self.calc_effective_address();
-                self.micro_ops.advance();
+            match op {
+                // Instant micro-ops (0 cycles) - continue loop after processing
+                MicroOp::CalcEA => {
+                    self.calc_effective_address();
+                    self.micro_ops.advance();
+                    continue;
+                }
+                MicroOp::Execute => {
+                    self.decode_and_execute();
+                    self.micro_ops.advance();
+                    continue;
+                }
+                MicroOp::BeginException => {
+                    self.begin_exception();
+                    self.micro_ops.advance();
+                    continue;
+                }
+                MicroOp::SetDataFromData2 => {
+                    self.data = self.data2;
+                    self.micro_ops.advance();
+                    continue;
+                }
+
+                // Timed micro-ops (consume cycles) - return after processing
+                MicroOp::FetchOpcode => self.tick_fetch_opcode(bus),
+                MicroOp::FetchExtWord => self.tick_fetch_ext_word(bus),
+                MicroOp::ReadByte => self.tick_read_byte(bus),
+                MicroOp::ReadWord => self.tick_read_word(bus),
+                MicroOp::ReadLongHi => self.tick_read_long_hi(bus),
+                MicroOp::ReadLongLo => self.tick_read_long_lo(bus),
+                MicroOp::WriteByte => self.tick_write_byte(bus),
+                MicroOp::WriteWord => self.tick_write_word(bus),
+                MicroOp::WriteLongHi => self.tick_write_long_hi(bus),
+                MicroOp::WriteLongLo => self.tick_write_long_lo(bus),
+                MicroOp::Internal => self.tick_internal_cycles(),
+                MicroOp::PushWord => self.tick_push_word(bus),
+                MicroOp::PushLongHi => self.tick_push_long_hi(bus),
+                MicroOp::PushLongLo => self.tick_push_long_lo(bus),
+                MicroOp::PopWord => self.tick_pop_word(bus),
+                MicroOp::PopLongHi => self.tick_pop_long_hi(bus),
+                MicroOp::PopLongLo => self.tick_pop_long_lo(bus),
+                MicroOp::ReadVector => self.tick_read_vector(bus),
+                MicroOp::MovemWrite => self.tick_movem_write(bus),
+                MicroOp::MovemRead => self.tick_movem_read(bus),
+                MicroOp::CmpmExecute => self.tick_cmpm_execute(bus),
+                MicroOp::TasExecute => self.tick_tas_execute(bus),
+                MicroOp::ShiftMemExecute => self.tick_shift_mem_execute(bus),
+                MicroOp::AluMemRmw => self.tick_alu_mem_rmw(bus),
+                MicroOp::AluMemSrc => self.tick_alu_mem_src(bus),
+                MicroOp::BitMemOp => self.tick_bit_mem_op(bus),
+                MicroOp::ExtendMemOp => self.tick_extend_mem_op(bus),
+                MicroOp::PushGroup0IR => self.tick_push_group0_ir(bus),
+                MicroOp::PushGroup0FaultAddr => self.tick_push_group0_fault_addr(bus),
+                MicroOp::PushGroup0AccessInfo => self.tick_push_group0_access_info(bus),
             }
-            MicroOp::Execute => {
-                self.decode_and_execute();
-                self.micro_ops.advance();
-            }
-            MicroOp::Internal => self.tick_internal_cycles(),
-            MicroOp::PushWord => self.tick_push_word(bus),
-            MicroOp::PushLongHi => self.tick_push_long_hi(bus),
-            MicroOp::PushLongLo => self.tick_push_long_lo(bus),
-            MicroOp::PopWord => self.tick_pop_word(bus),
-            MicroOp::PopLongHi => self.tick_pop_long_hi(bus),
-            MicroOp::PopLongLo => self.tick_pop_long_lo(bus),
-            MicroOp::BeginException => {
-                self.begin_exception();
-                self.micro_ops.advance();
-            }
-            MicroOp::ReadVector => self.tick_read_vector(bus),
-            MicroOp::MovemWrite => self.tick_movem_write(bus),
-            MicroOp::MovemRead => self.tick_movem_read(bus),
-            MicroOp::CmpmExecute => self.tick_cmpm_execute(bus),
-            MicroOp::TasExecute => self.tick_tas_execute(bus),
-            MicroOp::ShiftMemExecute => self.tick_shift_mem_execute(bus),
-            MicroOp::AluMemRmw => self.tick_alu_mem_rmw(bus),
-            MicroOp::AluMemSrc => self.tick_alu_mem_src(bus),
-            MicroOp::BitMemOp => self.tick_bit_mem_op(bus),
-            MicroOp::ExtendMemOp => self.tick_extend_mem_op(bus),
-            MicroOp::SetDataFromData2 => {
-                self.data = self.data2;
-                self.micro_ops.advance();
-            }
+            return;
         }
     }
 
     /// Tick for opcode fetch (4 cycles).
     fn tick_fetch_opcode<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {
-                // Bus cycles 1-3: Address setup and data read
+            0 => {
+                // Check for odd PC - triggers address error
+                if self.regs.pc & 1 != 0 {
+                    self.address_error(self.regs.pc, true, true);
+                    return;
+                }
+            }
+            1 | 2 => {
+                // Bus cycles 2-3: Address setup and data read
             }
             3 => {
                 // Cycle 4: Read complete
@@ -422,7 +487,14 @@ impl M68000 {
     /// Tick for extension word fetch (4 cycles).
     fn tick_fetch_ext_word<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd PC - triggers address error
+                if self.regs.pc & 1 != 0 {
+                    self.address_error(self.regs.pc, true, true);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 let word = self.read_word(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(2);
@@ -457,7 +529,14 @@ impl M68000 {
     /// Tick for word read (4 cycles).
     fn tick_read_word<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd address - triggers address error
+                if self.addr & 1 != 0 {
+                    self.address_error(self.addr, true, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 self.data = u32::from(self.read_word(bus, self.addr));
                 self.cycle = 0;
@@ -472,7 +551,14 @@ impl M68000 {
     /// Tick for long read high word (4 cycles).
     fn tick_read_long_hi<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd address - triggers address error
+                if self.addr & 1 != 0 {
+                    self.address_error(self.addr, true, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 self.data = u32::from(self.read_word(bus, self.addr)) << 16;
                 self.addr = self.addr.wrapping_add(2);
@@ -518,7 +604,14 @@ impl M68000 {
     /// Tick for word write (4 cycles).
     fn tick_write_word<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd address - triggers address error
+                if self.addr & 1 != 0 {
+                    self.address_error(self.addr, false, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 self.write_word(bus, self.addr, self.data as u16);
                 self.cycle = 0;
@@ -533,7 +626,14 @@ impl M68000 {
     /// Tick for long write high word (4 cycles).
     fn tick_write_long_hi<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd address - triggers address error
+                if self.addr & 1 != 0 {
+                    self.address_error(self.addr, false, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 self.write_word(bus, self.addr, (self.data >> 16) as u16);
                 self.addr = self.addr.wrapping_add(2);
@@ -562,9 +662,19 @@ impl M68000 {
     }
 
     /// Tick for internal processing cycles.
+    ///
+    /// For long internal operations (>= 4 cycles), the 68000 overlaps prefetch with
+    /// computation. We advance PC by 2 to simulate this. For short operations,
+    /// prefetch happens sequentially during FetchOpcode.
+    /// Jump/branch instructions set internal_advances_pc = false to prevent this.
     fn tick_internal_cycles(&mut self) {
         self.cycle += 1;
         if self.cycle >= self.internal_cycles {
+            // For operations with >= 4 internal cycles and PC advancement enabled,
+            // prefetch is overlapped so we advance PC here.
+            if self.internal_advances_pc && self.internal_cycles >= 4 {
+                self.regs.pc = self.regs.pc.wrapping_add(2);
+            }
             self.cycle = 0;
             self.micro_ops.advance();
         }
@@ -575,6 +685,11 @@ impl M68000 {
         match self.cycle {
             0 => {
                 self.addr = self.regs.push_word();
+                // Check for odd address - triggers address error
+                if self.addr & 1 != 0 {
+                    self.address_error(self.addr, false, false);
+                    return;
+                }
             }
             1 | 2 => {}
             3 => {
@@ -593,6 +708,11 @@ impl M68000 {
         match self.cycle {
             0 => {
                 self.addr = self.regs.push_long();
+                // Check for odd address - triggers address error
+                if self.addr & 1 != 0 {
+                    self.address_error(self.addr, false, false);
+                    return;
+                }
             }
             1 | 2 => {}
             3 => {
@@ -626,6 +746,11 @@ impl M68000 {
         match self.cycle {
             0 => {
                 self.addr = self.regs.pop_word();
+                // Check for odd address - triggers address error (read from addr-2)
+                if (self.addr.wrapping_sub(2)) & 1 != 0 {
+                    self.address_error(self.addr.wrapping_sub(2), true, false);
+                    return;
+                }
             }
             1 | 2 => {}
             3 => {
@@ -644,6 +769,11 @@ impl M68000 {
         match self.cycle {
             0 => {
                 self.addr = self.regs.pop_long();
+                // Check for odd address - triggers address error (read from addr-4)
+                if (self.addr.wrapping_sub(4)) & 1 != 0 {
+                    self.address_error(self.addr.wrapping_sub(4), true, false);
+                    return;
+                }
             }
             1 | 2 => {}
             3 => {
@@ -674,20 +804,31 @@ impl M68000 {
 
     /// Tick for reading exception vector (4 cycles).
     fn tick_read_vector<B: Bus>(&mut self, bus: &mut B) {
+        // Vector read is a long read (8 cycles total: 4 for high word, 4 for low word)
         match self.cycle {
             0 | 1 | 2 => {}
             3 => {
-                // Read vector address (vector * 4)
-                if let Some(vec) = self.current_exception {
-                    let vector_addr = u32::from(vec) * 4;
-                    self.data = self.read_long(bus, vector_addr);
+                if self.movem_long_phase == 0 {
+                    // Phase 0: Read high word of vector
+                    if let Some(vec) = self.current_exception {
+                        let vector_addr = u32::from(vec) * 4;
+                        self.data = u32::from(self.read_word(bus, vector_addr)) << 16;
+                        self.addr = vector_addr; // Save for low word read
+                    }
+                    self.movem_long_phase = 1;
+                    self.cycle = 0;
+                    return;
+                } else {
+                    // Phase 1: Read low word of vector
+                    self.data |= u32::from(self.read_word(bus, self.addr.wrapping_add(2)));
                     self.regs.pc = self.data;
+                    self.current_exception = None;
+                    self.movem_long_phase = 0;
+                    self.cycle = 0;
+                    self.micro_ops.advance();
+                    self.queue_fetch();
+                    return;
                 }
-                self.current_exception = None;
-                self.cycle = 0;
-                self.micro_ops.advance();
-                self.queue_fetch();
-                return;
             }
             _ => unreachable!(),
         }
@@ -701,7 +842,14 @@ impl M68000 {
     /// For predecrement mode, we iterate from bit 15 down to 0.
     fn tick_movem_write<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // MOVEM always uses word/long; check for odd address on first phase
+                if self.movem_long_phase == 0 && self.addr & 1 != 0 {
+                    self.address_error(self.addr, false, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 let mask = self.ext_words[0];
                 let is_predec = self.movem_predec;
@@ -785,7 +933,14 @@ impl M68000 {
     /// `addr` = current memory address, `addr2` = address register for update.
     fn tick_movem_read<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // MOVEM always uses word/long; check for odd address on first phase
+                if self.movem_long_phase == 0 && self.addr & 1 != 0 {
+                    self.address_error(self.addr, true, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 let mask = self.ext_words[0];
                 let bit_idx = self.data2 as usize;
@@ -878,7 +1033,18 @@ impl M68000 {
     /// Uses `movem_long_phase` to track read phase: 0=read src, 1=read dst, 2=compare.
     fn tick_cmpm_execute<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd address on word/long access
+                // Phase 0 checks source (addr), Phase 1 checks dest (addr2)
+                if self.size != Size::Byte {
+                    let check_addr = if self.movem_long_phase == 0 { self.addr } else { self.addr2 };
+                    if check_addr & 1 != 0 {
+                        self.address_error(check_addr, true, false);
+                        return;
+                    }
+                }
+            }
+            1 | 2 => {}
             3 => {
                 match self.movem_long_phase {
                     0 => {
@@ -989,7 +1155,14 @@ impl M68000 {
     /// Uses `movem_long_phase` to track phase: 0=read word, 1=write shifted word.
     fn tick_shift_mem_execute<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Memory shifts are always word-sized; check for odd address on initial read
+                if self.movem_long_phase == 0 && self.addr & 1 != 0 {
+                    self.address_error(self.addr, true, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 match self.movem_long_phase {
                     0 => {
@@ -1105,7 +1278,14 @@ impl M68000 {
     #[allow(clippy::too_many_lines)]
     fn tick_alu_mem_rmw<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd address on word/long access (only check on initial read phase)
+                if self.movem_long_phase == 0 && self.size != Size::Byte && self.addr & 1 != 0 {
+                    self.address_error(self.addr, true, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 match self.movem_long_phase {
                     0 => {
@@ -1250,7 +1430,14 @@ impl M68000 {
     #[allow(clippy::too_many_lines)]
     fn tick_alu_mem_src<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd address on word/long access
+                if self.size != Size::Byte && self.addr & 1 != 0 {
+                    self.address_error(self.addr, true, false);
+                    return;
+                }
+            }
+            1 | 2 => {}
             3 => {
                 // For long operations, need two read phases
                 if self.size == Size::Long && self.movem_long_phase == 0 {
@@ -1382,8 +1569,11 @@ impl M68000 {
                         self.regs.sr = Status::clear_vc(self.regs.sr);
                         self.regs.sr = Status::update_nz_long(self.regs.sr, result);
 
-                        // Queue internal cycles for multiply timing
-                        self.internal_cycles = 70;
+                        // Timing: 38 + 2*ones in source, minus the memory read cycles already spent
+                        let ones = (src_word as u16).count_ones() as u8;
+                        // Memory read took 4 cycles, so subtract to get remaining internal time
+                        let timing = (38 + 2 * ones).saturating_sub(4);
+                        self.internal_cycles = timing;
                         self.micro_ops.push(MicroOp::Internal);
                     }
                     11 => {
@@ -1396,7 +1586,12 @@ impl M68000 {
                         self.regs.sr = Status::clear_vc(self.regs.sr);
                         self.regs.sr = Status::update_nz_long(self.regs.sr, result);
 
-                        self.internal_cycles = 70;
+                        // Timing: 38 + 2*bit transitions, minus memory read cycles
+                        let src16 = src as u16;
+                        let pattern = src16 ^ (src16 << 1);
+                        let ones = pattern.count_ones() as u8;
+                        let timing = (38 + 2 * ones).saturating_sub(4);
+                        self.internal_cycles = timing;
                         self.micro_ops.push(MicroOp::Internal);
                     }
                     12 => {
@@ -1555,7 +1750,35 @@ impl M68000 {
         // For word: phases 0=read src, 1=read dst, 2=write
         // For long: phases 0=read src hi, 1=read src lo, 2=read dst hi, 3=read dst lo, 4=write hi, 5=write lo
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Check for odd address on word/long access
+                if self.size != Size::Byte {
+                    // Determine which address to check based on phase
+                    let check_addr = match self.size {
+                        Size::Word => match self.movem_long_phase {
+                            0 => self.addr,  // Reading source
+                            1 | 2 => self.addr2,  // Reading/writing dest
+                            _ => self.addr,
+                        },
+                        Size::Long => match self.movem_long_phase {
+                            0 | 1 => self.addr,  // Reading source
+                            2 | 3 | 4 | 5 => self.addr2,  // Reading/writing dest
+                            _ => self.addr,
+                        },
+                        Size::Byte => self.addr,  // Never checked
+                    };
+                    if check_addr & 1 != 0 {
+                        let is_read = match self.size {
+                            Size::Word => self.movem_long_phase < 2,
+                            Size::Long => self.movem_long_phase < 4,
+                            Size::Byte => true,
+                        };
+                        self.address_error(check_addr, is_read, false);
+                        return;
+                    }
+                }
+            }
+            1 | 2 => {}
             3 => {
                 match self.size {
                     Size::Byte => {
@@ -1756,7 +1979,89 @@ impl M68000 {
         }
     }
 
+    /// Tick for pushing IR (opcode) during group 0 exception (4 cycles).
+    fn tick_push_group0_ir<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 => {
+                self.addr = self.regs.push_word();
+                // Stack should always be aligned, but check anyway
+                if self.addr & 1 != 0 {
+                    // Double fault - can't handle address error during address error
+                    // Real 68000 would halt; we'll just proceed with the push
+                }
+            }
+            1 | 2 => {}
+            3 => {
+                // Write opcode (stored in addr2)
+                self.write_word(bus, self.addr, self.addr2 as u16);
+                self.cycle = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Tick for pushing fault address during group 0 exception (8 cycles for long).
+    fn tick_push_group0_fault_addr<B: Bus>(&mut self, bus: &mut B) {
+        // Phase 0: push high word, Phase 1: push low word
+        match self.cycle {
+            0 => {
+                if self.movem_long_phase == 0 {
+                    self.addr = self.regs.push_long();
+                }
+            }
+            1 | 2 => {}
+            3 => {
+                if self.movem_long_phase == 0 {
+                    // Write high word of fault address
+                    self.write_word(bus, self.addr, (self.fault_addr >> 16) as u16);
+                    self.movem_long_phase = 1;
+                    self.cycle = 0;
+                    return;
+                } else {
+                    // Write low word of fault address
+                    self.write_word(bus, self.addr.wrapping_add(2), self.fault_addr as u16);
+                    self.movem_long_phase = 0;
+                    self.cycle = 0;
+                    self.micro_ops.advance();
+                    return;
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Tick for pushing access info word during group 0 exception (4 cycles).
+    fn tick_push_group0_access_info<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 => {
+                self.addr = self.regs.push_word();
+            }
+            1 | 2 => {}
+            3 => {
+                self.write_word(bus, self.addr, self.group0_access_info);
+                self.cycle = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
     /// Begin exception processing.
+    ///
+    /// Group 0 exceptions (bus error, address error) use a 14-byte stack frame:
+    /// - PC (4 bytes)
+    /// - SR (2 bytes)
+    /// - IR/opcode (2 bytes)
+    /// - Fault address (4 bytes)
+    /// - Access info word (2 bytes): bit 4 = R/W, bit 3 = I/N, bits 2-0 = FC
+    ///
+    /// Other exceptions use a standard 6-byte frame (PC + SR).
     fn begin_exception(&mut self) {
         if let Some(vec) = self.pending_exception.take() {
             self.current_exception = Some(vec);
@@ -1766,17 +2071,73 @@ impl M68000 {
             self.regs.enter_supervisor();
             self.regs.sr &= !flags::T; // Clear trace
 
-            // Queue push of PC and SR
-            // PC is stored in data for PushLongHi/Lo
-            self.data = self.regs.pc;
-            // Old SR is stored in data2 to preserve it during PC push
-            self.data2 = u32::from(old_sr);
+            // Group 0 exceptions (bus error = 2, address error = 3) have extended stack frame
+            let is_group_0 = vec == 2 || vec == 3;
 
-            self.micro_ops.push(MicroOp::PushLongHi);
-            self.micro_ops.push(MicroOp::PushLongLo);
-            // After PC push, copy old_sr from data2 to data for PushWord
-            self.micro_ops.push(MicroOp::SetDataFromData2);
-            self.micro_ops.push(MicroOp::PushWord);
+            if is_group_0 {
+                // 14-byte frame for group 0 exceptions
+                // Reset phase tracking before starting push operations
+                self.movem_long_phase = 0;
+
+                // Group 0 exceptions have additional internal cycles for exception processing
+                // The 68000 needs time to capture the fault state before stacking
+                self.internal_cycles = 8;
+                self.internal_advances_pc = false;
+                self.micro_ops.push(MicroOp::Internal);
+
+                // Push order: PC, SR, IR, fault addr, access info
+
+                // Build access info word:
+                // bit 4: R/W (1 = read, 0 = write)
+                // bit 3: I/N (0 = instruction fetch, 1 = not instruction/data)
+                // bits 2-0: Function code
+                let access_info: u16 = (if self.fault_read { 0x10 } else { 0 })
+                    | (if self.fault_in_instruction { 0 } else { 0x08 })
+                    | u16::from(self.fault_fc & 0x07);
+
+                // Store values for pushing
+                // We need to push: PC, SR, IR (opcode), fault_addr, access_info
+                // Using data for PC, data2 for SR, we'll need to handle the rest inline
+
+                self.data = self.regs.pc;
+                self.data2 = u32::from(old_sr);
+
+                // Push PC (4 bytes)
+                self.micro_ops.push(MicroOp::PushLongHi);
+                self.micro_ops.push(MicroOp::PushLongLo);
+
+                // Push SR (2 bytes) - copy from data2 to data
+                self.micro_ops.push(MicroOp::SetDataFromData2);
+                self.micro_ops.push(MicroOp::PushWord);
+
+                // For the remaining pushes, we need to set up data appropriately
+                // Store opcode in addr2 and fault_addr/access_info in fault fields
+                // We'll use internal state to track what to push
+
+                // Push IR/opcode (2 bytes)
+                self.addr2 = u32::from(self.opcode);
+                self.micro_ops.push(MicroOp::PushGroup0IR);
+
+                // Push fault address (4 bytes)
+                self.micro_ops.push(MicroOp::PushGroup0FaultAddr);
+
+                // Push access info (2 bytes)
+                self.group0_access_info = access_info;
+                self.micro_ops.push(MicroOp::PushGroup0AccessInfo);
+            } else {
+                // Standard 6-byte frame for other exceptions
+                // Queue push of PC and SR
+                // PC is stored in data for PushLongHi/Lo
+                self.data = self.regs.pc;
+                // Old SR is stored in data2 to preserve it during PC push
+                self.data2 = u32::from(old_sr);
+
+                self.micro_ops.push(MicroOp::PushLongHi);
+                self.micro_ops.push(MicroOp::PushLongLo);
+                // After PC push, copy old_sr from data2 to data for PushWord
+                self.micro_ops.push(MicroOp::SetDataFromData2);
+                self.micro_ops.push(MicroOp::PushWord);
+            }
 
             // Queue vector read
             self.micro_ops.push(MicroOp::ReadVector);
@@ -1795,6 +2156,27 @@ impl M68000 {
             Size::Byte => 1,
             Size::Word => 2,
             Size::Long => 4,
+        }
+    }
+
+    /// Get the number of internal cycles needed for EA calculation.
+    /// Different addressing modes have different timing overhead.
+    fn ea_calc_cycles(&self, mode: AddrMode) -> u8 {
+        match mode {
+            // Register direct: no extra cycles
+            AddrMode::DataReg(_) | AddrMode::AddrReg(_) => 0,
+            // Simple indirect: no extra cycles
+            AddrMode::AddrInd(_) => 0,
+            // Post-increment/pre-decrement: 2 cycles for register update
+            AddrMode::AddrIndPostInc(_) | AddrMode::AddrIndPreDec(_) => 2,
+            // Displacement: no extra cycles (displacement added during address phase)
+            AddrMode::AddrIndDisp(_) | AddrMode::PcDisp => 0,
+            // Index modes: 2 cycles for index calculation
+            AddrMode::AddrIndIndex(_) | AddrMode::PcIndex => 2,
+            // Absolute modes: no extra cycles beyond the extension word fetch
+            AddrMode::AbsShort | AddrMode::AbsLong => 0,
+            // Immediate: no extra cycles beyond extension word fetch
+            AddrMode::Immediate => 0,
         }
     }
 
@@ -2058,6 +2440,26 @@ impl M68000 {
         self.pending_exception = Some(vector);
         self.micro_ops.clear();
         self.micro_ops.push(MicroOp::BeginException);
+        // Reset cycle and phase tracking for clean exception processing
+        self.cycle = 0;
+        self.movem_long_phase = 0;
+    }
+
+    /// Trigger an address error exception (vector 3).
+    /// Called when word/long access is attempted at an odd address.
+    fn address_error(&mut self, addr: u32, is_read: bool, is_instruction: bool) {
+        // Calculate function code based on supervisor mode and access type
+        let supervisor = self.regs.sr & flags::S != 0;
+        self.fault_fc = match (supervisor, is_instruction) {
+            (false, false) => 1, // User data
+            (false, true) => 2,  // User program
+            (true, false) => 5,  // Supervisor data
+            (true, true) => 6,   // Supervisor program
+        };
+        self.fault_addr = addr;
+        self.fault_read = is_read;
+        self.fault_in_instruction = is_instruction;
+        self.exception(3); // Address error vector
     }
 
     /// Set flags for MOVE-style operations (clears V and C, sets N and Z).
@@ -2246,6 +2648,7 @@ impl Cpu for M68000 {
         self.micro_ops.clear();
         self.cycle = 0;
         self.internal_cycles = 0;
+        self.internal_advances_pc = true;
         self.opcode = 0;
         self.ext_words = [0; 4];
         self.ext_count = 0;
@@ -2260,6 +2663,11 @@ impl Cpu for M68000 {
         self.data2 = 0;
         self.pending_exception = None;
         self.current_exception = None;
+        self.fault_addr = 0;
+        self.fault_read = true;
+        self.fault_in_instruction = false;
+        self.fault_fc = 0;
+        self.group0_access_info = 0;
         self.int_pending = 0;
 
         // Start fetch sequence (in real hardware, this reads SSP and PC first)
