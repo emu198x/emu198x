@@ -1516,7 +1516,16 @@ impl M68000 {
         // Set PC = return address + 4 (for prefetch)
         self.regs.pc = self.data.wrapping_add(4);
         self.instr_phase = InstrPhase::Complete;
-        self.queue_internal_no_pc(8); // Prefetch cycles
+        // In prefetch_only mode, PC already includes the prefetch advance.
+        // Use queue_internal with internal_advances_pc = true to prevent
+        // both tick_internal_cycles from adding +2 (internal_cycles < 4)
+        // and final tick() from adding +2 (internal_advances_pc = true).
+        if self.prefetch_only {
+            self.internal_cycles = 0; // No internal cycles needed
+            self.internal_advances_pc = true;
+        } else {
+            self.queue_internal_no_pc(8); // Prefetch cycles
+        }
     }
 
     fn exec_bra(&mut self, displacement: i8) {
@@ -3156,7 +3165,13 @@ impl M68000 {
                 // Set PC = return address + 4 (for prefetch)
                 self.regs.pc = self.data.wrapping_add(4);
                 self.instr_phase = InstrPhase::Complete;
-                self.queue_internal_no_pc(8); // Prefetch cycles
+                // In prefetch_only mode, PC already includes the prefetch advance.
+                if self.prefetch_only {
+                    self.internal_cycles = 0;
+                    self.internal_advances_pc = true;
+                } else {
+                    self.queue_internal_no_pc(8); // Prefetch cycles
+                }
             }
             _ => {
                 self.instr_phase = InstrPhase::Initial;
