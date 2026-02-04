@@ -1576,8 +1576,8 @@ impl M68000 {
                         let ones = (src_word as u16).count_ones() as u8;
                         // Memory read took 4 cycles, so subtract to get remaining internal time
                         let timing = (38 + 2 * ones).saturating_sub(4);
-                        self.internal_cycles = timing;
-                        self.micro_ops.push(MicroOp::Internal);
+                        // Don't advance PC during internal cycles - already positioned correctly
+                        self.queue_internal_no_pc(timing);
                     }
                     11 => {
                         // MULS: signed 16x16->32 multiply
@@ -1594,8 +1594,8 @@ impl M68000 {
                         let pattern = src16 ^ (src16 << 1);
                         let ones = pattern.count_ones() as u8;
                         let timing = (38 + 2 * ones).saturating_sub(4);
-                        self.internal_cycles = timing;
-                        self.micro_ops.push(MicroOp::Internal);
+                        // Don't advance PC during internal cycles - already positioned correctly
+                        self.queue_internal_no_pc(timing);
                     }
                     12 => {
                         // DIVU: unsigned 32/16 -> 16r:16q division
@@ -1626,8 +1626,8 @@ impl M68000 {
                             );
                         }
 
-                        self.internal_cycles = 140;
-                        self.micro_ops.push(MicroOp::Internal);
+                        // Don't advance PC during internal cycles - already positioned correctly
+                        self.queue_internal_no_pc(140);
                     }
                     13 => {
                         // DIVS: signed 32/16 -> 16r:16q division
@@ -1657,8 +1657,8 @@ impl M68000 {
                             self.regs.sr &= !crate::flags::C;
                         }
 
-                        self.internal_cycles = 158;
-                        self.micro_ops.push(MicroOp::Internal);
+                        // Don't advance PC during internal cycles - already positioned correctly
+                        self.queue_internal_no_pc(158);
                     }
                     14 => {
                         // CMPI: compare immediate (memory - immediate)
