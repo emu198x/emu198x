@@ -310,7 +310,8 @@ impl M68000 {
     pub fn setup_prefetch(&mut self, prefetch: [u16; 2]) {
         self.opcode = prefetch[0];
         self.ext_words[0] = prefetch[1];
-        self.ext_count = 0;
+        // The prefetch provides one extension word - mark it as available
+        self.ext_count = 1;
         self.ext_idx = 0;
         self.micro_ops.clear();
         // Queue Execute instead of FetchOpcode - opcode is already loaded
@@ -829,7 +830,19 @@ impl M68000 {
                     self.movem_long_phase = 0;
                     self.cycle = 0;
                     self.micro_ops.advance();
-                    self.queue_fetch();
+
+                    // After exception, need to fill 2-word prefetch queue before executing.
+                    // First word is the opcode, second word is prefetch.
+                    self.micro_ops.clear();
+                    self.state = State::FetchOpcode;
+                    self.ext_count = 0;
+                    self.ext_idx = 0;
+                    self.src_mode = None;
+                    self.dst_mode = None;
+                    self.instr_phase = InstrPhase::Initial;
+                    // Queue: FetchOpcode (4 cycles), FetchExtWord (4 cycles), then Execute
+                    self.micro_ops.push(MicroOp::FetchOpcode);
+                    self.micro_ops.push(MicroOp::FetchExtWord);
                     return;
                 }
             }
@@ -2118,7 +2131,7 @@ impl M68000 {
 
                 // Group 0 exceptions have additional internal cycles for exception processing
                 // The 68000 needs time to capture the fault state before stacking
-                self.internal_cycles = 8;
+                self.internal_cycles = 13;
                 self.internal_advances_pc = false;
                 self.micro_ops.push(MicroOp::Internal);
 
