@@ -335,8 +335,21 @@ fn setup_cpu(cpu: &mut M68000, mem: &mut TestBus, state: &CpuState) {
     cpu.regs.pc = state.pc;
 
     // Set up prefetch - the test provides the opcode already fetched
-    // prefetch[0] is the opcode to execute, prefetch[1] is the next word
-    cpu.setup_prefetch([state.prefetch[0] as u16, state.prefetch[1] as u16]);
+    // prefetch[0] is the opcode to execute, prefetch[1] is the first extension word
+    // The 68000 prefetch queue: IR=opcode, IRC=next word
+    // PC points to where the NEXT fetch would come from (after the prefetch)
+    // So additional extension words come from PC, PC+2, PC+4, etc.
+    let opcode = state.prefetch[0] as u16;
+    let mut ext_words = [0u16; 4];
+    ext_words[0] = state.prefetch[1] as u16;
+    // Read additional extension words from memory at PC, PC+2, PC+4
+    for i in 1..4 {
+        let addr = state.pc.wrapping_add((i - 1) as u32 * 2);
+        let hi = mem.peek(addr);
+        let lo = mem.peek(addr | 1);
+        ext_words[i] = u16::from(hi) << 8 | u16::from(lo);
+    }
+    cpu.setup_prefetch(opcode, &ext_words);
 }
 
 /// Compare CPU state with expected final state.
@@ -457,6 +470,31 @@ fn run_test_file(path: &Path) -> (usize, usize, Vec<String>) {
     (passed, failed, all_errors)
 }
 
+/// Run just DIVU tests to see pass rate.
+#[test]
+fn test_divu() {
+    let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("test-data/m68000-dl/v1/DIVU.json.bin");
+
+    if !test_file.exists() {
+        eprintln!("Test file not found: {}", test_file.display());
+        return;
+    }
+
+    let (passed, failed, errors) = run_test_file(&test_file);
+    println!("DIVU tests: {} passed, {} failed", passed, failed);
+    if !errors.is_empty() {
+        println!("First 10 errors:");
+        for err in errors.iter().take(10) {
+            println!("  {}", err);
+        }
+    }
+}
+
 /// Diagnostic test to understand test format and timing differences.
 #[test]
 fn diagnose_single_test() {
@@ -465,7 +503,7 @@ fn diagnose_single_test() {
         .unwrap()
         .parent()
         .unwrap()
-        .join("test-data/m68000-dl/v1/JSR.json.bin");
+        .join("test-data/m68000-dl/v1/DIVU.json.bin");
 
     if !test_file.exists() {
         eprintln!("Test file not found: {}", test_file.display());
@@ -473,7 +511,7 @@ fn diagnose_single_test() {
     }
 
     let tests = decode_file(&test_file).expect("Failed to decode");
-    let test = &tests[0]; // Test 000
+    let test = &tests[0]; // First test in the file
 
     println!("\n=== Test: {} ===", test.name);
     println!("Expected cycles: {}", test.cycles);

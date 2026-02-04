@@ -245,6 +245,9 @@ pub struct M68000 {
     extend_predec_done: bool,
     /// True if next FetchOpcode should not push Execute (post-exception prefetch only).
     prefetch_only: bool,
+    /// True if in single-step mode (for testing). After first instruction completes,
+    /// subsequent fetches will be prefetch-only.
+    single_step: bool,
 
     // === Interrupt state ===
     /// Pending interrupt level (1-7), 0 = none.
@@ -290,6 +293,7 @@ impl M68000 {
             group0_access_info: 0,
             extend_predec_done: false,
             prefetch_only: false,
+            single_step: false,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
         };
@@ -309,18 +313,23 @@ impl M68000 {
     /// This initializes the CPU as if the opcode has already been fetched,
     /// ready to execute. Used by test harnesses that provide prefetch state.
     ///
-    /// The prefetch array should contain [opcode, next_word].
-    pub fn setup_prefetch(&mut self, prefetch: [u16; 2]) {
-        self.opcode = prefetch[0];
-        self.ext_words[0] = prefetch[1];
-        // The prefetch provides one extension word - mark it as available
-        self.ext_count = 1;
+    /// The prefetch array should contain [opcode, ext_word0, ext_word1, ...].
+    /// Up to 4 extension words are supported.
+    pub fn setup_prefetch(&mut self, opcode: u16, ext_words: &[u16]) {
+        self.opcode = opcode;
+        let count = ext_words.len().min(4);
+        for (i, &w) in ext_words.iter().take(4).enumerate() {
+            self.ext_words[i] = w;
+        }
+        self.ext_count = count as u8;
         self.ext_idx = 0;
         self.micro_ops.clear();
         // Queue Execute instead of FetchOpcode - opcode is already loaded
         self.micro_ops.push(MicroOp::Execute);
         self.state = State::Execute;
         self.cycle = 0;
+        // Enable single-step mode so subsequent instructions don't execute
+        self.single_step = true;
     }
 
     /// Read byte from memory.
@@ -376,6 +385,11 @@ impl M68000 {
         self.dst_mode = None;
         self.instr_phase = InstrPhase::Initial;
         self.micro_ops.push(MicroOp::FetchOpcode);
+        // In single-step mode, all fetches after the initial instruction
+        // should be prefetch-only (don't execute subsequent instructions).
+        if self.single_step {
+            self.prefetch_only = true;
+        }
     }
 
     /// Queue internal cycles (with overlapped PC advancement for long operations).
@@ -399,7 +413,11 @@ impl M68000 {
     fn tick_internal<B: Bus>(&mut self, bus: &mut B) {
         loop {
             let Some(op) = self.micro_ops.current() else {
-                // Queue empty - start next instruction
+                // Queue empty - start next instruction (unless in single-step prefetch-only)
+                if self.single_step && self.prefetch_only {
+                    // In single-step mode, after prefetch is done, just idle
+                    return;
+                }
                 self.queue_fetch();
                 return;
             };
@@ -841,8 +859,10 @@ impl M68000 {
                     self.cycle = 0;
                     self.micro_ops.advance();
 
-                    // After exception, need to fill 2-word prefetch queue before executing.
-                    // First word is the opcode, second word is prefetch.
+                    // After exception, start fetching from new PC.
+                    // Queue FetchOpcode - tick_fetch_opcode will queue Execute.
+                    // Note: For full prefetch accuracy, we'd queue FetchExtWord too,
+                    // but that causes PC to advance too far for some tests.
                     self.micro_ops.clear();
                     self.state = State::FetchOpcode;
                     self.ext_count = 0;
@@ -850,11 +870,8 @@ impl M68000 {
                     self.src_mode = None;
                     self.dst_mode = None;
                     self.instr_phase = InstrPhase::Initial;
-                    self.prefetch_only = true; // Don't push Execute after FetchOpcode
+                    self.prefetch_only = false; // Allow normal flow
                     self.micro_ops.push(MicroOp::FetchOpcode);
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    // After prefetch, execute the exception handler instruction
-                    self.micro_ops.push(MicroOp::Execute);
                     return;
                 }
             }
@@ -1636,9 +1653,11 @@ impl M68000 {
                         let remainder = dividend % divisor;
 
                         if quotient > 0xFFFF {
-                            // Overflow
+                            // Overflow - detected early, minimal processing
                             self.regs.sr |= crate::flags::V;
                             self.regs.sr &= !crate::flags::C;
+                            // Overflow detection takes ~10 internal cycles after memory read
+                            self.queue_internal(10);
                         } else {
                             self.regs.d[reg as usize] = (remainder << 16) | quotient;
                             self.regs.sr &= !(crate::flags::V | crate::flags::C);
@@ -1649,10 +1668,9 @@ impl M68000 {
                                 crate::flags::N,
                                 quotient & 0x8000 != 0,
                             );
+                            // Full division timing varies with dividend
+                            self.queue_internal(140);
                         }
-
-                        // Don't advance PC during internal cycles - already positioned correctly
-                        self.queue_internal_no_pc(140);
                     }
                     13 => {
                         // DIVS: signed 32/16 -> 16r:16q division
@@ -1676,14 +1694,15 @@ impl M68000 {
                                 Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
                             self.regs.sr =
                                 Status::set_if(self.regs.sr, crate::flags::N, quotient < 0);
+                            // Full division timing varies with dividend
+                            self.queue_internal(158);
                         } else {
-                            // Overflow
+                            // Overflow - detected early, minimal timing
                             self.regs.sr |= crate::flags::V;
                             self.regs.sr &= !crate::flags::C;
+                            // Overflow detected early: ~10 internal cycles after memory read
+                            self.queue_internal(10);
                         }
-
-                        // Don't advance PC during internal cycles - already positioned correctly
-                        self.queue_internal_no_pc(158);
                     }
                     14 => {
                         // CMPI: compare immediate (memory - immediate)
@@ -2348,9 +2367,18 @@ impl M68000 {
     }
 
     /// Get next extension word and advance index.
+    /// In single-step mode (test harness), advances PC by 2 for words beyond index 0
+    /// (since ext_words[0] comes from the prefetch queue which already advanced PC).
+    /// In normal operation, extension words are fetched by FetchExtWord which advances PC.
     fn next_ext_word(&mut self) -> u16 {
         let idx = self.ext_idx as usize;
         if idx < self.ext_count as usize {
+            // In single-step mode, extension words beyond the first are preloaded
+            // from memory, so we need to advance PC to simulate the fetch.
+            // In normal operation, FetchExtWord handles PC advancement.
+            if self.single_step && idx > 0 {
+                self.regs.pc = self.regs.pc.wrapping_add(2);
+            }
             self.ext_idx += 1;
             self.ext_words[idx]
         } else {

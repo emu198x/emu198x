@@ -122,6 +122,17 @@ impl M68000 {
                     self.instr_phase = crate::cpu::InstrPhase::Initial;
                 }
             }
+            0x5 => {
+                // DBcc/Scc continuations
+                let mode = ((op >> 3) & 7) as u8;
+                if mode == 1 {
+                    // DBcc continuation
+                    self.dbcc_continuation();
+                } else {
+                    // Scc doesn't have continuations
+                    self.instr_phase = crate::cpu::InstrPhase::Initial;
+                }
+            }
             0x6 => {
                 // Branch instructions with word displacement
                 self.branch_continuation();
@@ -853,8 +864,8 @@ impl M68000 {
         let is_long = op & 0x0040 != 0;
         let to_memory = op & 0x0080 != 0;
 
-        // Need to fetch the displacement extension word
-        // Store everything in data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
+        // Need to fetch the displacement extension word first
+        // Store fields in data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
         self.data2 = u32::from(addr_reg)
             | (u32::from(data_reg) << 4)
             | (if is_long { 0x100 } else { 0 })
@@ -867,14 +878,17 @@ impl M68000 {
 
     /// Continuation for MOVEP after fetching displacement.
     fn exec_movep_continuation(&mut self) {
-        // Extract fields from data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
+        // Extract fields from data2
         let addr_reg = (self.data2 & 7) as usize;
         let data_reg = ((self.data2 >> 4) & 7) as usize;
         let is_long = self.data2 & 0x100 != 0;
         let to_memory = self.data2 & 0x200 != 0;
-        let displacement = self.ext_words[0] as i16 as i32;
+        let displacement = self.ext_words[self.ext_count as usize - 1] as i16 as i32;
 
         let base_addr = (self.regs.a(addr_reg) as i32).wrapping_add(displacement) as u32;
+
+        // Update data2 for phase handler
+        self.data2 = (data_reg << 4) as u32 | (if to_memory { 0x200 } else { 0 });
 
         if to_memory {
             // Register to memory: write bytes to alternate addresses
@@ -907,7 +921,7 @@ impl M68000 {
                 self.movem_long_phase = 0;
                 self.micro_ops.push(MicroOp::ReadByte);
                 self.micro_ops.push(MicroOp::Execute); // Continue after read
-                self.instr_phase = InstrPhase::DstWrite; // Use DstWrite for read continuation
+                self.instr_phase = InstrPhase::DstWrite;
             } else {
                 // MOVEP.W d(An),Dn: 2 byte reads
                 self.addr = base_addr;
@@ -915,7 +929,7 @@ impl M68000 {
                 self.movem_long_phase = 4; // Start at phase 4 for word
                 self.micro_ops.push(MicroOp::ReadByte);
                 self.micro_ops.push(MicroOp::Execute); // Continue after read
-                self.instr_phase = InstrPhase::DstWrite; // Use DstWrite for read continuation
+                self.instr_phase = InstrPhase::DstWrite;
             }
         }
     }
@@ -969,7 +983,9 @@ impl M68000 {
                     // Done with word write
                     self.instr_phase = InstrPhase::Complete;
                 }
-                _ => self.instr_phase = InstrPhase::Complete,
+                _ => {
+                    self.instr_phase = InstrPhase::Complete;
+                }
             }
         } else {
             // Reading: accumulate bytes and advance
@@ -1020,7 +1036,9 @@ impl M68000 {
                     self.regs.d[data_reg] = (self.regs.d[data_reg] & 0xFFFF_0000) | self.addr2;
                     self.instr_phase = InstrPhase::Complete;
                 }
-                _ => self.instr_phase = InstrPhase::Complete,
+                _ => {
+                    self.instr_phase = InstrPhase::Complete;
+                }
             }
         }
     }
@@ -1030,16 +1048,16 @@ impl M68000 {
         use crate::cpu::InstrPhase;
         match self.instr_phase {
             InstrPhase::SrcRead => {
-                // After FetchExtWord, start the transfer
+                // Just fetched the displacement - set up the actual transfers
                 self.exec_movep_continuation();
             }
             InstrPhase::DstWrite => {
-                // After a write phase, continue or complete
+                // In the middle of read/write phases
                 self.exec_movep_phase();
             }
             _ => {
-                // After a read phase, continue or complete
-                self.exec_movep_phase();
+                // Complete
+                self.instr_phase = InstrPhase::Complete;
             }
         }
     }
@@ -1285,7 +1303,7 @@ impl M68000 {
             self.micro_ops.push(MicroOp::Internal);
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
-            self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+            self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
             self.queue_internal_no_pc(8);
         } else {
             // Byte displacement - instruction is 2 bytes (opcode only)
@@ -1301,7 +1319,7 @@ impl M68000 {
             self.micro_ops.push(MicroOp::Internal);
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
-            self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+            self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
             self.queue_internal_no_pc(8);
         }
     }
@@ -2697,6 +2715,9 @@ impl M68000 {
 
     fn exec_trap(&mut self, op: u16) {
         let vector = 32 + (op & 0xF) as u8;
+        // TRAP is a 1-word instruction.
+        // After FetchOpcode: PC = opcode_addr + 2 (pointing to next instruction)
+        // This is the correct return address to push.
         self.exception(vector);
     }
 
@@ -2832,6 +2853,8 @@ impl M68000 {
 
     fn exec_trapv(&mut self) {
         if self.regs.sr & crate::flags::V != 0 {
+            // TRAPV is a 1-word instruction.
+            // PC already points past the instruction (correct return address).
             self.exception(7); // TRAPV exception
         } else {
             self.queue_internal(4);
@@ -2861,7 +2884,7 @@ impl M68000 {
                     self.data = self.regs.pc; // Return address
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
                     self.queue_internal_no_pc(8); // Prefetch time
                 }
                 AddrMode::AddrIndDisp(r) => {
@@ -2874,7 +2897,7 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::AddrIndIndex(r) => {
@@ -2886,7 +2909,7 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsShort => {
@@ -2898,7 +2921,7 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsLong => {
@@ -2912,7 +2935,7 @@ impl M68000 {
                         self.data = self.regs.pc;
                         self.micro_ops.push(MicroOp::PushLongHi);
                         self.micro_ops.push(MicroOp::PushLongLo);
-                        self.regs.pc = target.wrapping_add(4);
+                        self.regs.pc = target.wrapping_add(4); // Include prefetch
                         self.queue_internal_no_pc(8);
                     } else {
                         // Need to fetch second word - set up continuation
@@ -2934,7 +2957,7 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::PcIndex => {
@@ -2947,7 +2970,7 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch
                     self.queue_internal_no_pc(8);
                 }
                 _ => self.illegal_instruction(),
@@ -2969,7 +2992,7 @@ impl M68000 {
         self.data = self.regs.pc;
         self.micro_ops.push(MicroOp::PushLongHi);
         self.micro_ops.push(MicroOp::PushLongLo);
-        self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+        self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
         self.instr_phase = InstrPhase::Complete;
         self.queue_internal_no_pc(8); // Prefetch time
     }
@@ -2985,7 +3008,7 @@ impl M68000 {
                 AddrMode::AddrInd(r) => {
                     // JMP (An) = 8 cycles (prefetch only)
                     let target = self.regs.a(r as usize);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::AddrIndDisp(r) => {
@@ -2995,7 +3018,7 @@ impl M68000 {
                     self.internal_cycles = 2;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::AddrIndIndex(r) => {
@@ -3004,7 +3027,7 @@ impl M68000 {
                     self.internal_cycles = 6;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsShort => {
@@ -3013,7 +3036,7 @@ impl M68000 {
                     self.internal_cycles = 2;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsLong => {
@@ -3023,7 +3046,7 @@ impl M68000 {
                         let hi = u32::from(self.ext_words[0]);
                         let lo = u32::from(self.ext_words[1]);
                         let target = (hi << 16) | lo;
-                        self.regs.pc = target.wrapping_add(4);
+                        self.regs.pc = target.wrapping_add(4); // Include prefetch
                         self.queue_internal_no_pc(8);
                     } else {
                         // Need to fetch second word - set up continuation
@@ -3041,7 +3064,7 @@ impl M68000 {
                     self.internal_cycles = 2;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::PcIndex => {
@@ -3051,7 +3074,7 @@ impl M68000 {
                     self.internal_cycles = 6;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4);
+                    self.regs.pc = target.wrapping_add(4); // Include prefetch
                     self.queue_internal_no_pc(8);
                 }
                 _ => self.illegal_instruction(),
@@ -3069,7 +3092,7 @@ impl M68000 {
         let lo = u32::from(self.ext_words[1]);
         let target = (hi << 16) | lo;
 
-        self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+        self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
         self.instr_phase = InstrPhase::Complete;
         self.queue_internal_no_pc(8); // Prefetch time
     }
@@ -3247,38 +3270,58 @@ impl M68000 {
         // If condition is false, decrement Dn.W and branch if Dn != -1
         // Note: DBcc ALWAYS has word displacement following the opcode
 
-        // Remember PC before reading displacement (for branch calculation)
-        let pc_before_disp = self.regs.pc;
+        // Store condition and register for continuation
+        // data2: bits 0-3 = reg, bits 4-7 = condition
+        self.data2 = u32::from(reg) | (u32::from(condition) << 4);
+        self.instr_phase = InstrPhase::SrcRead;
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.micro_ops.push(MicroOp::Execute);
+    }
 
-        // Queue extension word fetch - this will advance PC by 2
-        // We need to check condition after the word is fetched
-        // For now, handle synchronously by reading what will be fetched
+    /// DBcc continuation after fetching displacement word.
+    fn dbcc_continuation(&mut self) {
+        use crate::cpu::InstrPhase;
+
+        if self.instr_phase != InstrPhase::SrcRead {
+            self.instr_phase = InstrPhase::Complete;
+            return;
+        }
+
+        let reg = (self.data2 & 0xF) as usize;
+        let condition = ((self.data2 >> 4) & 0xF) as u8;
+        let disp = self.ext_words[0] as i16 as i32;
+
+        self.instr_phase = InstrPhase::Complete;
 
         if Status::condition(self.regs.sr, condition) {
-            // Condition true - no branch, but we still skip displacement word
-            // PC adjustment is final, don't advance further during internal cycles
-            self.regs.pc = self.regs.pc.wrapping_add(2);
+            // Condition true - no branch, PC is already past the displacement word
             self.queue_internal_no_pc(12); // Condition true, no loop
         } else {
-            // Condition false - decrement and possibly branch
-            let val = (self.regs.d[reg as usize] & 0xFFFF) as i16;
+            // Condition false - check if we would branch
+            let val = (self.regs.d[reg] & 0xFFFF) as i16;
             let new_val = val.wrapping_sub(1);
-            self.regs.d[reg as usize] =
-                (self.regs.d[reg as usize] & 0xFFFF_0000) | (new_val as u16 as u32);
 
             if new_val == -1 {
-                // Counter exhausted (-1) - no branch, skip displacement
-                // PC adjustment is final
-                self.regs.pc = self.regs.pc.wrapping_add(2);
+                // Counter will be exhausted - no branch, fall through
+                self.regs.d[reg] =
+                    (self.regs.d[reg] & 0xFFFF_0000) | (new_val as u16 as u32);
                 self.queue_internal_no_pc(14); // Loop terminated
             } else {
-                // Counter not exhausted - branch taken
-                // We need the displacement word. Store PC location and queue fetch.
-                self.addr = pc_before_disp; // Remember where displacement is
-                self.micro_ops.push(MicroOp::FetchExtWord);
-                // The branch calculation will use the fetched displacement
-                // For now, this is incomplete - we'd need continuation logic
-                // Branch target will be set, so no PC advance
+                // Counter not exhausted - would branch
+                // Calculate branch target: displacement is relative to PC after opcode
+                // PC is now at opcode+4 (past displacement), so target = PC - 2 + disp
+                let target = ((self.regs.pc as i32) - 2 + disp) as u32;
+
+                // Check for odd branch target - this causes address error
+                if target & 1 != 0 {
+                    self.address_error(target, true, true); // read, instruction fetch
+                    return;
+                }
+
+                // Target is valid - now we can decrement and branch
+                self.regs.d[reg] =
+                    (self.regs.d[reg] & 0xFFFF_0000) | (new_val as u16 as u32);
+                self.regs.pc = target.wrapping_add(4); // Include prefetch
                 self.queue_internal_no_pc(10); // Loop continues
             }
         }
@@ -3694,7 +3737,7 @@ impl M68000 {
             let overflow = ((dst_masked ^ src_masked) & (dst_masked ^ result_masked) & msb) != 0;
             sr = Status::set_if(sr, V, overflow);
             // C: borrow
-            let carry = (src_masked + x) > dst_masked
+            let carry = src_masked.wrapping_add(x) > dst_masked
                 || (src_masked == dst_masked && x != 0);
             sr = Status::set_if(sr, C, carry);
             sr = Status::set_if(sr, X, carry);

@@ -1040,7 +1040,8 @@ fn test_jmp_indirect() {
         cpu.tick(&mut bus);
     }
 
-    assert_eq!(cpu.regs.pc, 0x2000);
+    // PC = target + 4 due to prefetch queue fill
+    assert_eq!(cpu.regs.pc, 0x2004);
 }
 
 #[test]
@@ -1060,8 +1061,8 @@ fn test_jsr_indirect() {
         cpu.tick(&mut bus);
     }
 
-    // PC should be at subroutine
-    assert_eq!(cpu.regs.pc, 0x2000);
+    // PC = target + 4 due to prefetch queue fill
+    assert_eq!(cpu.regs.pc, 0x2004);
     // Stack should have return address pushed (SP decremented by 4)
     assert_eq!(cpu.regs.a(7), 0x7FFC);
 }
