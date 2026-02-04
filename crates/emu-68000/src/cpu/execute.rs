@@ -74,24 +74,47 @@ impl M68000 {
             0x3 => self.decode_move_word(op),
             0x4 => {
                 // Group 4 continuations
+                // PEA: 0x4840-0x487F (bits 11-8 = 8, bits 7-6 = 01)
                 // MOVEM to memory: 0x4880-0x48FF (bits 11-8 = 8, bit 7 = 1)
                 // MOVEM from memory: 0x4C80-0x4CFF (bits 11-8 = C, bit 7 = 1)
                 // LEA: 0x41C0-0x4FFF with bit 8 set and bits 7-6 = 11
                 // MOVE to CCR: 0x44C0-0x44FF (bits 11-8 = 4, bits 7-6 = 11)
                 // MOVE to SR: 0x46C0-0x46FF (bits 11-8 = 6, bits 7-6 = 11)
+                // RTS: 0x4E75 (bits 11-8 = E, bits 7-6 = 01)
+                // JSR: 0x4E80-0x4EBF (bits 11-8 = E, bits 7-6 = 10)
+                // JMP: 0x4EC0-0x4EFF (bits 11-8 = E, bits 7-6 = 11)
                 let subfield = (op >> 8) & 0xF;
-                if subfield == 0x4 && (op >> 6) & 3 == 3 {
+                let bits_7_6 = (op >> 6) & 3;
+                if subfield == 0x4 && bits_7_6 == 3 {
                     // MOVE to CCR continuation
                     self.exec_move_to_ccr_continuation();
-                } else if subfield == 0x6 && (op >> 6) & 3 == 3 {
+                } else if subfield == 0x6 && bits_7_6 == 3 {
                     // MOVE to SR continuation
                     self.exec_move_to_sr_continuation();
+                } else if subfield == 0x8 && bits_7_6 == 1 {
+                    // PEA continuation (0x4840-0x487F)
+                    self.exec_pea_continuation();
                 } else if subfield == 0x8 && op & 0x0080 != 0 {
                     // MOVEM to memory continuation
                     self.exec_movem_to_mem_continuation();
                 } else if subfield == 0xC && op & 0x0080 != 0 {
                     // MOVEM from memory continuation
                     self.exec_movem_from_mem_continuation();
+                } else if subfield == 0xE && bits_7_6 == 1 && op & 0x3F == 0x35 {
+                    // RTS continuation (0x4E75)
+                    self.exec_rts_continuation();
+                } else if subfield == 0xE && (op >> 4) & 0xF == 5 && op & 8 == 0 {
+                    // LINK continuation (0x4E50-0x4E57)
+                    self.exec_link_continuation();
+                } else if subfield == 0xE && (op >> 4) & 0xF == 5 && op & 8 != 0 {
+                    // UNLK continuation (0x4E58-0x4E5F)
+                    self.exec_unlk_continuation();
+                } else if subfield == 0xE && bits_7_6 == 2 {
+                    // JSR continuation
+                    self.exec_jsr_continuation();
+                } else if subfield == 0xE && bits_7_6 == 3 {
+                    // JMP continuation
+                    self.exec_jmp_continuation();
                 } else if op & 0x01C0 == 0x01C0 {
                     // LEA continuation
                     self.exec_lea_continuation();
@@ -1210,11 +1233,21 @@ impl M68000 {
     }
 
     fn exec_rts(&mut self) {
-        // Pop PC from stack
+        // RTS = 16 cycles: 8 (pop) + 8 (prefetch at return address)
+        // Pop return address from stack into self.data
         self.micro_ops.push(MicroOp::PopLongHi);
         self.micro_ops.push(MicroOp::PopLongLo);
-        // PC will be set when pop completes
-        self.queue_internal(4);
+        // Continue to set PC from popped value
+        self.instr_phase = InstrPhase::SrcRead;
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    fn exec_rts_continuation(&mut self) {
+        // After pop, data contains the return address
+        // Set PC = return address + 4 (for prefetch)
+        self.regs.pc = self.data.wrapping_add(4);
+        self.instr_phase = InstrPhase::Complete;
+        self.queue_internal_no_pc(8); // Prefetch cycles
     }
 
     fn exec_bra(&mut self, displacement: i8) {
@@ -1232,22 +1265,44 @@ impl M68000 {
     }
 
     fn exec_bsr(&mut self, displacement: i8) {
+        // BSR = 18 cycles: 8 (push) + 2 (internal) + 8 (prefetch at target)
+        // With prefetch model: PC already points past opcode.
+        // Displacement is relative to PC - 2 (the opcode position).
+        // Return address is PC - 2 (address of BSR instruction).
+        // After BSR, PC should be target + 4 for prefetch.
         if displacement == 0 {
-            // Word displacement - fetch first, then continue
-            // Store that this is BSR in data2 (1 = BSR)
-            self.data2 = 1;
-            self.micro_ops.push(MicroOp::FetchExtWord);
-            self.instr_phase = InstrPhase::SrcRead; // Signal word BSR
-            self.micro_ops.push(MicroOp::Execute);
-        } else {
-            // Byte displacement - push return address then branch
+            // Word displacement - use prefetched extension word
+            let disp = self.next_ext_word() as i16 as i32;
+            // Return address is PC - 2 (opcode position) + 4 (instruction size) = PC + 2
+            // Wait, for BSR.W the instruction is 4 bytes, so return = opcode + 4 = PC + 2
+            // But PC is past the prefetched extension, so return = PC
             self.data = self.regs.pc;
+            // Displacement is relative to extension word position (PC - 2)
+            let pc_at_ext = (self.regs.pc as i32).wrapping_sub(2);
+            let target = pc_at_ext.wrapping_add(disp) as u32;
+            self.internal_cycles = 2;
+            self.internal_advances_pc = false;
+            self.micro_ops.push(MicroOp::Internal);
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
-            // Calculate branch target - PC is set directly
-            let offset = displacement as i32;
-            self.regs.pc = (self.regs.pc as i32).wrapping_add(offset) as u32;
-            self.queue_internal_no_pc(4);
+            self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+            self.queue_internal_no_pc(8);
+        } else {
+            // Byte displacement - instruction is 2 bytes (opcode only)
+            // Return address is opcode + 2 = PC (already past opcode)
+            // But tests show return should be PC - 2 (opcode address)
+            // This suggests the 68000 pushes PC BEFORE the prefetch increment
+            self.data = self.regs.pc.wrapping_sub(2); // Return to BSR instruction address
+            // Displacement is relative to opcode position (PC - 2)
+            let pc_base = (self.regs.pc as i32).wrapping_sub(2);
+            let target = pc_base.wrapping_add(displacement as i32) as u32;
+            self.internal_cycles = 2;
+            self.internal_advances_pc = false;
+            self.micro_ops.push(MicroOp::Internal);
+            self.micro_ops.push(MicroOp::PushLongHi);
+            self.micro_ops.push(MicroOp::PushLongLo);
+            self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+            self.queue_internal_no_pc(8);
         }
     }
 
@@ -2163,41 +2218,130 @@ impl M68000 {
 
     fn exec_pea(&mut self, mode: u8, ea_reg: u8) {
         // PEA <ea> - Push Effective Address onto stack
+        // Uses prefetched extension words. Computes EA and pushes it.
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             match addr_mode {
                 AddrMode::AddrInd(r) => {
-                    // PEA (An) - push address register value
+                    // PEA (An) = 12 cycles: 4 (internal) + 8 (push)
                     self.data = self.regs.a(r as usize);
+                    self.internal_cycles = 4;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.queue_internal(12);
+                    // Advance PC by 2 (single-word instruction, no extension)
+                    self.regs.pc = self.regs.pc.wrapping_add(2);
                 }
                 AddrMode::AddrIndDisp(r) => {
-                    // PEA d16(An) - need extension word
-                    self.addr2 = self.regs.a(r as usize);
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    // After fetch, calculate and push - simplified for now
-                    self.queue_internal(16);
+                    // PEA d16(An) = 16 cycles: 8 (internal) + 8 (push)
+                    let disp = self.next_ext_word() as i16 as i32;
+                    let ea = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                    self.data = ea;
+                    self.internal_cycles = 8;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    // Advance PC for prefetch refill
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                }
+                AddrMode::AddrIndIndex(r) => {
+                    // PEA d8(An,Xn) = 20 cycles: 12 (internal) + 8 (push)
+                    let ea = self.calc_index_ea(self.regs.a(r as usize));
+                    self.data = ea;
+                    self.internal_cycles = 12;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    // Advance PC for prefetch refill
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                 }
                 AddrMode::AbsShort => {
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.queue_internal(16);
+                    // PEA addr.W = 16 cycles: 8 (internal) + 8 (push)
+                    let ea = self.next_ext_word() as i16 as i32 as u32;
+                    self.data = ea;
+                    self.internal_cycles = 8;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    // Advance PC for prefetch refill
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                 }
                 AddrMode::AbsLong => {
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.queue_internal(20);
+                    // PEA addr.L = 20 cycles: 12 (internal) + 8 (push)
+                    // Need both extension words
+                    if self.ext_count >= 2 {
+                        let hi = u32::from(self.ext_words[0]);
+                        let lo = u32::from(self.ext_words[1]);
+                        let ea = (hi << 16) | lo;
+                        self.data = ea;
+                        self.internal_cycles = 12;
+                        self.internal_advances_pc = false;
+                        self.micro_ops.push(MicroOp::Internal);
+                        self.micro_ops.push(MicroOp::PushLongHi);
+                        self.micro_ops.push(MicroOp::PushLongLo);
+                        // Advance PC for prefetch refill
+                        self.regs.pc = self.regs.pc.wrapping_add(4);
+                    } else {
+                        // Need to fetch second word - set up continuation
+                        self.micro_ops.push(MicroOp::FetchExtWord);
+                        self.instr_phase = InstrPhase::SrcEACalc;
+                        self.src_mode = Some(addr_mode);
+                        self.micro_ops.push(MicroOp::Execute);
+                    }
                 }
                 AddrMode::PcDisp => {
-                    self.addr2 = self.regs.pc; // PC at extension word
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.queue_internal(16);
+                    // PEA d16(PC) = 16 cycles: 8 (internal) + 8 (push)
+                    // PC for calculation is where the extension word was (PC - 2)
+                    let pc_at_ext = self.regs.pc.wrapping_sub(2);
+                    let disp = self.next_ext_word() as i16 as i32;
+                    let ea = (pc_at_ext as i32).wrapping_add(disp) as u32;
+                    self.data = ea;
+                    self.internal_cycles = 8;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    // Advance PC for prefetch refill
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                }
+                AddrMode::PcIndex => {
+                    // PEA d8(PC,Xn) = 20 cycles: 12 (internal) + 8 (push)
+                    let pc_at_ext = self.regs.pc.wrapping_sub(2);
+                    let ea = self.calc_index_ea(pc_at_ext);
+                    self.data = ea;
+                    self.internal_cycles = 12;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    // Advance PC for prefetch refill
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                 }
                 _ => self.illegal_instruction(),
             }
         } else {
             self.illegal_instruction();
         }
+    }
+
+    fn exec_pea_continuation(&mut self) {
+        // Called after fetching second extension word for PEA AbsLong
+        // FetchExtWord already advanced PC by 2, so we only add 2 more
+        let hi = u32::from(self.ext_words[0]);
+        let lo = u32::from(self.ext_words[1]);
+        let ea = (hi << 16) | lo;
+        self.data = ea;
+        self.internal_cycles = 4; // Remaining internal time
+        self.internal_advances_pc = false;
+        self.micro_ops.push(MicroOp::Internal);
+        self.micro_ops.push(MicroOp::PushLongHi);
+        self.micro_ops.push(MicroOp::PushLongLo);
+        // Advance PC by 2 (FetchExtWord already advanced by 2)
+        self.regs.pc = self.regs.pc.wrapping_add(2);
+        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_ext(&mut self, size: Size, reg: u8) {
@@ -2470,14 +2614,13 @@ impl M68000 {
     }
 
     fn exec_link(&mut self, reg: u8) {
-        // LINK An,#displacement
+        // LINK An,#displacement (16 cycles)
         // 1. Push An onto stack
         // 2. Copy SP to An (An becomes frame pointer)
         // 3. Add signed displacement to SP (allocate stack space)
 
-        // We need the displacement word - queue its fetch
-        // For now, handle the register operations synchronously
-        // and assume displacement is already in ext_words[0]
+        // Get displacement from prefetched extension word
+        let disp = self.next_ext_word() as i16 as i32;
 
         // Push An
         let an_value = self.regs.a(reg as usize);
@@ -2485,37 +2628,67 @@ impl M68000 {
         self.micro_ops.push(MicroOp::PushLongHi);
         self.micro_ops.push(MicroOp::PushLongLo);
 
-        // Copy SP to An (after push, so it points to saved value)
-        // This happens after the push completes
-        // For proper implementation, we'd need continuation logic
-        // Simplified: do it now with adjusted SP
-        let sp = self.regs.active_sp().wrapping_sub(4);
-        self.regs.set_a(reg as usize, sp);
+        // Store reg and displacement for continuation
+        self.addr2 = u32::from(reg);
+        self.data2 = disp as u32;
+        self.instr_phase = InstrPhase::SrcRead;
+        self.micro_ops.push(MicroOp::Execute);
 
-        // Fetch and apply displacement
-        self.micro_ops.push(MicroOp::FetchExtWord);
+        // Advance PC for prefetch refill
+        self.regs.pc = self.regs.pc.wrapping_add(4);
+    }
 
-        self.queue_internal(16);
+    fn exec_link_continuation(&mut self) {
+        // After push completes:
+        // 1. Copy SP to An (frame pointer)
+        // 2. Add displacement to SP
+
+        let reg = self.addr2 as usize;
+        let disp = self.data2 as i32;
+
+        // SP now points to the pushed value
+        let sp = self.regs.active_sp();
+        self.regs.set_a(reg, sp);
+
+        // Add displacement to SP
+        let new_sp = (sp as i32).wrapping_add(disp) as u32;
+        self.regs.set_active_sp(new_sp);
+
+        self.instr_phase = InstrPhase::Complete;
+        // 8 internal cycles for the remaining operations
+        self.queue_internal_no_pc(8);
     }
 
     fn exec_unlk(&mut self, reg: u8) {
-        // UNLK An
+        // UNLK An (12 cycles)
         // 1. Copy An to SP (restore stack to frame pointer)
         // 2. Pop An from stack (restore old frame pointer)
 
         // Copy An to SP
         let an_value = self.regs.a(reg as usize);
-        self.regs.set_a(7, an_value);
+        self.regs.set_active_sp(an_value);
 
         // Pop An from stack
         self.micro_ops.push(MicroOp::PopLongHi);
         self.micro_ops.push(MicroOp::PopLongLo);
 
-        // The popped value goes to An - need continuation
-        // For now, store which register to restore
+        // Store which register to restore, set up continuation
         self.addr2 = u32::from(reg);
+        self.instr_phase = InstrPhase::SrcRead;
+        self.micro_ops.push(MicroOp::Execute);
 
-        self.queue_internal(12);
+        // Advance PC by 2 (single-word instruction)
+        self.regs.pc = self.regs.pc.wrapping_add(2);
+    }
+
+    fn exec_unlk_continuation(&mut self) {
+        // After pop completes: An = popped value (in self.data)
+        let reg = self.addr2 as usize;
+        self.regs.set_a(reg, self.data);
+
+        self.instr_phase = InstrPhase::Complete;
+        // 4 internal cycles for remaining operations
+        self.queue_internal_no_pc(4);
     }
 
     fn exec_move_usp(&mut self, op: u16) {
@@ -2588,48 +2761,107 @@ impl M68000 {
 
     fn exec_jsr(&mut self, mode: u8, ea_reg: u8) {
         // JSR <ea> - Jump to Subroutine (push return address, then jump)
+        // With prefetch model: PC already points past the instruction,
+        // and ext_words[0] may contain the extension word from prefetch.
+        //
+        // After JSR completes, the 68000 fills its 2-word prefetch queue at the
+        // new PC, which advances PC by 4. We simulate this by adding 4 to target.
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             match addr_mode {
                 AddrMode::AddrInd(r) => {
-                    // JSR (An) - push PC, jump to (An)
-                    self.data = self.regs.pc;
+                    // JSR (An) = 16 cycles: 8 (push) + 8 (prefetch)
+                    let target = self.regs.a(r as usize);
+                    self.data = self.regs.pc; // Return address
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.regs.pc = self.regs.a(r as usize);
-                    self.queue_internal(16);
+                    self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+                    self.queue_internal_no_pc(8); // Prefetch time
                 }
                 AddrMode::AddrIndDisp(r) => {
-                    // JSR d16(An) - need extension word
-                    let pc_at_ext = self.regs.pc;
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    // After fetch, we need to calculate address and jump
-                    // Store base for calculation
-                    self.addr = self.regs.a(r as usize);
-                    self.addr2 = pc_at_ext.wrapping_add(2); // Return address
-                    self.queue_internal(18);
+                    // JSR d16(An) = 18 cycles: 2 (EA calc) + 8 (push) + 8 (prefetch)
+                    let disp = self.next_ext_word() as i16 as i32;
+                    let target = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                    self.data = self.regs.pc; // Return address
+                    self.internal_cycles = 2;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+                    self.queue_internal_no_pc(8);
+                }
+                AddrMode::AddrIndIndex(r) => {
+                    // JSR d8(An,Xn) = 22 cycles: 6 (EA calc) + 8 (push) + 8 (prefetch)
+                    let target = self.calc_index_ea(self.regs.a(r as usize));
+                    self.data = self.regs.pc; // Return address
+                    self.internal_cycles = 6;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsShort => {
-                    let return_addr = self.regs.pc.wrapping_add(2);
-                    self.data = return_addr;
-                    self.micro_ops.push(MicroOp::FetchExtWord);
+                    // JSR addr.W = 18 cycles: 2 (EA) + 8 (push) + 8 (prefetch)
+                    let target = self.next_ext_word() as i16 as i32 as u32;
+                    self.data = self.regs.pc; // Return address
+                    self.internal_cycles = 2;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    self.queue_internal(18);
+                    self.regs.pc = target.wrapping_add(4);
+                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsLong => {
-                    let return_addr = self.regs.pc.wrapping_add(4);
-                    self.data = return_addr;
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.micro_ops.push(MicroOp::PushLongHi);
-                    self.micro_ops.push(MicroOp::PushLongLo);
-                    self.queue_internal(20);
+                    // JSR addr.L = 20 cycles: 4 (fetch 2nd word) + 8 (push) + 8 (prefetch)
+                    // Note: First word from prefetch, second word needs fetch
+                    if self.ext_count >= 2 {
+                        // Both words available (rare case)
+                        let hi = u32::from(self.ext_words[0]);
+                        let lo = u32::from(self.ext_words[1]);
+                        let target = (hi << 16) | lo;
+                        self.data = self.regs.pc;
+                        self.micro_ops.push(MicroOp::PushLongHi);
+                        self.micro_ops.push(MicroOp::PushLongLo);
+                        self.regs.pc = target.wrapping_add(4);
+                        self.queue_internal_no_pc(8);
+                    } else {
+                        // Need to fetch second word - set up continuation
+                        self.micro_ops.push(MicroOp::FetchExtWord);
+                        self.instr_phase = InstrPhase::SrcEACalc;
+                        self.src_mode = Some(addr_mode);
+                        self.micro_ops.push(MicroOp::Execute);
+                    }
                 }
                 AddrMode::PcDisp => {
-                    let pc_at_ext = self.regs.pc;
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.addr2 = pc_at_ext.wrapping_add(2); // Return address
-                    self.queue_internal(18);
+                    // JSR d16(PC) = 18 cycles: 2 (EA calc) + 8 (push) + 8 (prefetch)
+                    // The "PC" for calculation is where the extension word was (PC - 2)
+                    let pc_at_ext = self.regs.pc.wrapping_sub(2);
+                    let disp = self.next_ext_word() as i16 as i32;
+                    let target = (pc_at_ext as i32).wrapping_add(disp) as u32;
+                    self.data = self.regs.pc; // Return address
+                    self.internal_cycles = 2;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.regs.pc = target.wrapping_add(4);
+                    self.queue_internal_no_pc(8);
+                }
+                AddrMode::PcIndex => {
+                    // JSR d8(PC,Xn) = 22 cycles: 6 (EA calc) + 8 (push) + 8 (prefetch)
+                    let pc_at_ext = self.regs.pc.wrapping_sub(2);
+                    let target = self.calc_index_ea(pc_at_ext);
+                    self.data = self.regs.pc; // Return address
+                    self.internal_cycles = 6;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.regs.pc = target.wrapping_add(4);
+                    self.queue_internal_no_pc(8);
                 }
                 _ => self.illegal_instruction(),
             }
@@ -2638,47 +2870,121 @@ impl M68000 {
         }
     }
 
+    fn exec_jsr_continuation(&mut self) {
+        // Called after fetching second extension word for JSR AbsLong
+        // At this point: ext_words[0] has high word (from prefetch),
+        // ext_words[1] has low word (just fetched), PC is past both words
+        let hi = u32::from(self.ext_words[0]);
+        let lo = u32::from(self.ext_words[1]);
+        let target = (hi << 16) | lo;
+
+        // Return address is current PC (past both extension words)
+        self.data = self.regs.pc;
+        self.micro_ops.push(MicroOp::PushLongHi);
+        self.micro_ops.push(MicroOp::PushLongLo);
+        self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+        self.instr_phase = InstrPhase::Complete;
+        self.queue_internal_no_pc(8); // Prefetch time
+    }
+
     fn exec_jmp(&mut self, mode: u8, ea_reg: u8) {
         // JMP <ea> - Jump to address
+        // With prefetch model: PC already points past the instruction,
+        // and ext_words[0] may contain the extension word from prefetch.
+        // After JMP, the 68000 fills its prefetch queue at the new PC,
+        // advancing PC by 4.
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             match addr_mode {
                 AddrMode::AddrInd(r) => {
-                    // JMP (An) - jump to address in An
-                    // PC is set directly, so don't advance it during internal cycles
-                    self.regs.pc = self.regs.a(r as usize);
+                    // JMP (An) = 8 cycles (prefetch only)
+                    let target = self.regs.a(r as usize);
+                    self.regs.pc = target.wrapping_add(4);
                     self.queue_internal_no_pc(8);
                 }
                 AddrMode::AddrIndDisp(r) => {
-                    // JMP d16(An) - need extension word
-                    let base = self.regs.a(r as usize);
-                    self.addr = base;
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.queue_internal(10);
+                    // JMP d16(An) = 10 cycles: 2 (EA) + 8 (prefetch)
+                    let disp = self.next_ext_word() as i16 as i32;
+                    let target = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                    self.internal_cycles = 2;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.regs.pc = target.wrapping_add(4);
+                    self.queue_internal_no_pc(8);
+                }
+                AddrMode::AddrIndIndex(r) => {
+                    // JMP d8(An,Xn) = 14 cycles: 6 (EA) + 8 (prefetch)
+                    let target = self.calc_index_ea(self.regs.a(r as usize));
+                    self.internal_cycles = 6;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.regs.pc = target.wrapping_add(4);
+                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsShort => {
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.queue_internal(10);
+                    // JMP addr.W = 10 cycles: 2 (EA) + 8 (prefetch)
+                    let target = self.next_ext_word() as i16 as i32 as u32;
+                    self.internal_cycles = 2;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.regs.pc = target.wrapping_add(4);
+                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsLong => {
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.queue_internal(12);
+                    // JMP addr.L = 12 cycles: 4 (fetch 2nd word) + 8 (prefetch)
+                    if self.ext_count >= 2 {
+                        // Both words available (rare case)
+                        let hi = u32::from(self.ext_words[0]);
+                        let lo = u32::from(self.ext_words[1]);
+                        let target = (hi << 16) | lo;
+                        self.regs.pc = target.wrapping_add(4);
+                        self.queue_internal_no_pc(8);
+                    } else {
+                        // Need to fetch second word - set up continuation
+                        self.micro_ops.push(MicroOp::FetchExtWord);
+                        self.instr_phase = InstrPhase::SrcEACalc;
+                        self.src_mode = Some(addr_mode);
+                        self.micro_ops.push(MicroOp::Execute);
+                    }
                 }
                 AddrMode::PcDisp => {
-                    self.addr = self.regs.pc; // PC at extension
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.queue_internal(10);
+                    // JMP d16(PC) = 10 cycles: 2 (EA) + 8 (prefetch)
+                    let pc_at_ext = self.regs.pc.wrapping_sub(2);
+                    let disp = self.next_ext_word() as i16 as i32;
+                    let target = (pc_at_ext as i32).wrapping_add(disp) as u32;
+                    self.internal_cycles = 2;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.regs.pc = target.wrapping_add(4);
+                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::PcIndex => {
-                    self.addr = self.regs.pc;
-                    self.micro_ops.push(MicroOp::FetchExtWord);
-                    self.queue_internal(14);
+                    // JMP d8(PC,Xn) = 14 cycles: 6 (EA) + 8 (prefetch)
+                    let pc_at_ext = self.regs.pc.wrapping_sub(2);
+                    let target = self.calc_index_ea(pc_at_ext);
+                    self.internal_cycles = 6;
+                    self.internal_advances_pc = false;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.regs.pc = target.wrapping_add(4);
+                    self.queue_internal_no_pc(8);
                 }
                 _ => self.illegal_instruction(),
             }
         } else {
             self.illegal_instruction();
         }
+    }
+
+    fn exec_jmp_continuation(&mut self) {
+        // Called after fetching second extension word for JMP AbsLong
+        // JMP addr.L = 12 cycles total: 4 (fetch 2nd word) + 8 (prefetch)
+        // At this point we've already fetched (4 cycles), just need prefetch (8 cycles)
+        let hi = u32::from(self.ext_words[0]);
+        let lo = u32::from(self.ext_words[1]);
+        let target = (hi << 16) | lo;
+
+        self.regs.pc = target.wrapping_add(4); // +4 for prefetch
+        self.instr_phase = InstrPhase::Complete;
+        self.queue_internal_no_pc(8); // Prefetch time
     }
 
     fn exec_chk(&mut self, op: u16) {

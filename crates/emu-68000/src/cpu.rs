@@ -243,6 +243,8 @@ pub struct M68000 {
     group0_access_info: u16,
     /// True if ExtendMemOp has performed its pre-decrements.
     extend_predec_done: bool,
+    /// True if next FetchOpcode should not push Execute (post-exception prefetch only).
+    prefetch_only: bool,
 
     // === Interrupt state ===
     /// Pending interrupt level (1-7), 0 = none.
@@ -287,6 +289,7 @@ impl M68000 {
             fault_fc: 0,
             group0_access_info: 0,
             extend_predec_done: false,
+            prefetch_only: false,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
         };
@@ -479,8 +482,10 @@ impl M68000 {
                 self.regs.pc = self.regs.pc.wrapping_add(2);
                 self.cycle = 0;
                 self.micro_ops.advance();
-                // Queue decode and execute
-                self.micro_ops.push(MicroOp::Execute);
+                // Queue decode and execute (unless prefetch_only is set)
+                if !self.prefetch_only {
+                    self.micro_ops.push(MicroOp::Execute);
+                }
                 return;
             }
             _ => unreachable!(),
@@ -508,6 +513,7 @@ impl M68000 {
                 }
                 self.cycle = 0;
                 self.micro_ops.advance();
+                self.prefetch_only = false;
                 return;
             }
             _ => unreachable!(),
@@ -833,6 +839,7 @@ impl M68000 {
 
                     // After exception, need to fill 2-word prefetch queue before executing.
                     // First word is the opcode, second word is prefetch.
+                    // Don't execute the instruction yet - just prefetch.
                     self.micro_ops.clear();
                     self.state = State::FetchOpcode;
                     self.ext_count = 0;
@@ -840,7 +847,7 @@ impl M68000 {
                     self.src_mode = None;
                     self.dst_mode = None;
                     self.instr_phase = InstrPhase::Initial;
-                    // Queue: FetchOpcode (4 cycles), FetchExtWord (4 cycles), then Execute
+                    self.prefetch_only = true; // Don't push Execute after FetchOpcode
                     self.micro_ops.push(MicroOp::FetchOpcode);
                     self.micro_ops.push(MicroOp::FetchExtWord);
                     return;
@@ -2178,7 +2185,17 @@ impl M68000 {
                 // Standard 6-byte frame for other exceptions
                 // Queue push of PC and SR
                 // PC is stored in data for PushLongHi/Lo
-                self.data = self.regs.pc;
+                //
+                // For most exceptions, PC points to the faulting instruction:
+                // - Privilege violation (8): PC of the privileged instruction
+                // - Illegal instruction (4): PC of the illegal opcode
+                // - Line A/F emulator (10, 11): PC of the line A/F instruction
+                // With prefetch model, current PC is opcode + 4, so subtract 4.
+                let saved_pc = match vec {
+                    4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(4),
+                    _ => self.regs.pc,
+                };
+                self.data = saved_pc;
                 // Old SR is stored in data2 to preserve it during PC push
                 self.data2 = u32::from(old_sr);
 
@@ -2334,6 +2351,27 @@ impl M68000 {
         } else {
             0
         }
+    }
+
+    /// Calculate indexed effective address: base + index + displacement.
+    /// Uses the next extension word from the prefetch queue.
+    fn calc_index_ea(&mut self, base: u32) -> u32 {
+        let ext = self.next_ext_word();
+        let disp = (ext & 0xFF) as i8 as i32;
+        let xn = ((ext >> 12) & 7) as usize;
+        let is_addr = ext & 0x8000 != 0;
+        let is_long = ext & 0x0800 != 0;
+        let idx_val = if is_addr {
+            self.regs.a(xn)
+        } else {
+            self.regs.d[xn]
+        };
+        let idx_val = if is_long {
+            idx_val as i32
+        } else {
+            idx_val as i16 as i32
+        };
+        (base as i32).wrapping_add(disp).wrapping_add(idx_val) as u32
     }
 
     /// Calculate effective address for an addressing mode using extension words.
@@ -2719,6 +2757,7 @@ impl Cpu for M68000 {
         self.fault_fc = 0;
         self.group0_access_info = 0;
         self.extend_predec_done = false;
+        self.prefetch_only = false;
         self.int_pending = 0;
 
         // Start fetch sequence (in real hardware, this reads SSP and PC first)

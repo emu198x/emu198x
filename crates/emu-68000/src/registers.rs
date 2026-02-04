@@ -161,17 +161,21 @@ impl Registers {
         sp
     }
 
-    /// Pop a word from the active stack, returning the address to read.
+    /// Pop a word from the active stack, returning the NEW SP (after increment).
+    /// Caller should read from (returned_value - 2) to get the actual data.
     pub fn pop_word(&mut self) -> u32 {
         let sp = self.active_sp();
-        self.set_active_sp(sp.wrapping_add(2));
-        sp
+        let new_sp = sp.wrapping_add(2);
+        self.set_active_sp(new_sp);
+        new_sp
     }
 
-    /// Pop a long from the active stack, returning the address to read.
+    /// Pop a long from the active stack, returning the NEW SP (after increment).
+    /// Caller should read from (returned_value - 4) to get the actual data.
     pub fn pop_long(&mut self) -> u32 {
         let sp = self.active_sp();
-        self.set_active_sp(sp.wrapping_add(4));
-        sp
+        let new_sp = sp.wrapping_add(4);
+        self.set_active_sp(new_sp);
+        new_sp
     }
 }
