@@ -3349,46 +3349,73 @@ impl M68000 {
                 AddrMode::AddrInd(r) => {
                     // JMP (An) = 8 cycles (prefetch only)
                     let target = self.regs.a(r as usize);
-                    self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
-                    self.queue_internal_no_pc(8);
+                    // Check for odd target address (instruction fetch must be even)
+                    if target & 1 != 0 {
+                        self.trigger_jmp_address_error(target);
+                        return;
+                    }
+                    // Set PC to target+2; tick_internal_cycles adds +2 when done (cycles >= 4)
+                    self.regs.pc = target.wrapping_add(2);
+                    self.internal_cycles = 8;
+                    self.internal_advances_pc = true;
+                    self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AddrIndDisp(r) => {
                     // JMP d16(An) = 10 cycles: 2 (EA) + 8 (prefetch)
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
-                    self.internal_cycles = 2;
-                    self.internal_advances_pc = false;
+                    if target & 1 != 0 {
+                        self.trigger_jmp_address_error(target);
+                        return;
+                    }
+                    // Set PC to target+2; tick_internal_cycles adds +2 when done (cycles >= 4)
+                    self.regs.pc = target.wrapping_add(2);
+                    self.internal_cycles = 10;
+                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4); // Include prefetch
-                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::AddrIndIndex(r) => {
                     // JMP d8(An,Xn) = 14 cycles: 6 (EA) + 8 (prefetch)
                     let target = self.calc_index_ea(self.regs.a(r as usize));
-                    self.internal_cycles = 6;
-                    self.internal_advances_pc = false;
+                    if target & 1 != 0 {
+                        self.trigger_jmp_address_error(target);
+                        return;
+                    }
+                    // Set PC to target+2; tick_internal_cycles adds +2 when done (cycles >= 4)
+                    self.regs.pc = target.wrapping_add(2);
+                    self.internal_cycles = 14;
+                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4); // Include prefetch
-                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsShort => {
                     // JMP addr.W = 10 cycles: 2 (EA) + 8 (prefetch)
                     let target = self.next_ext_word() as i16 as i32 as u32;
-                    self.internal_cycles = 2;
-                    self.internal_advances_pc = false;
+                    if target & 1 != 0 {
+                        self.trigger_jmp_address_error(target);
+                        return;
+                    }
+                    // Set PC to target+2; tick_internal_cycles adds +2 when done (cycles >= 4)
+                    self.regs.pc = target.wrapping_add(2);
+                    self.internal_cycles = 10;
+                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4); // Include prefetch
-                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::AbsLong => {
                     // JMP addr.L = 12 cycles: 4 (fetch 2nd word) + 8 (prefetch)
                     if self.ext_count >= 2 {
-                        // Both words available (rare case)
+                        // Both words available (prefetch_only mode)
                         let hi = u32::from(self.ext_words[0]);
                         let lo = u32::from(self.ext_words[1]);
                         let target = (hi << 16) | lo;
-                        self.regs.pc = target.wrapping_add(4); // Include prefetch
-                        self.queue_internal_no_pc(8);
+                        if target & 1 != 0 {
+                            self.trigger_jmp_address_error(target);
+                            return;
+                        }
+                        // Set PC to target+2; tick_internal_cycles adds +2 when done (cycles >= 4)
+                        self.regs.pc = target.wrapping_add(2);
+                        self.internal_cycles = 12;
+                        self.internal_advances_pc = true;
+                        self.micro_ops.push(MicroOp::Internal);
                     } else {
                         // Need to fetch second word - set up continuation
                         self.micro_ops.push(MicroOp::FetchExtWord);
@@ -3402,27 +3429,47 @@ impl M68000 {
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (pc_at_ext as i32).wrapping_add(disp) as u32;
-                    self.internal_cycles = 2;
-                    self.internal_advances_pc = false;
+                    if target & 1 != 0 {
+                        self.trigger_jmp_address_error(target);
+                        return;
+                    }
+                    // Set PC to target+2; tick_internal_cycles adds +2 when done (cycles >= 4)
+                    self.regs.pc = target.wrapping_add(2);
+                    self.internal_cycles = 10;
+                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4); // Include prefetch
-                    self.queue_internal_no_pc(8);
                 }
                 AddrMode::PcIndex => {
                     // JMP d8(PC,Xn) = 14 cycles: 6 (EA) + 8 (prefetch)
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let target = self.calc_index_ea(pc_at_ext);
-                    self.internal_cycles = 6;
-                    self.internal_advances_pc = false;
+                    if target & 1 != 0 {
+                        self.trigger_jmp_address_error(target);
+                        return;
+                    }
+                    // Set PC to target+2; tick_internal_cycles adds +2 when done (cycles >= 4)
+                    self.regs.pc = target.wrapping_add(2);
+                    self.internal_cycles = 14;
+                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
-                    self.regs.pc = target.wrapping_add(4); // Include prefetch
-                    self.queue_internal_no_pc(8);
                 }
                 _ => self.illegal_instruction(),
             }
         } else {
             self.illegal_instruction();
         }
+    }
+
+    /// Trigger address error for JMP to odd address.
+    /// Although logically this is an instruction fetch, the 68000's I/N bit reflects
+    /// that the error was detected during data processing (before actual prefetch).
+    fn trigger_jmp_address_error(&mut self, target: u32) {
+        self.fault_addr = target;
+        self.fault_fc = if self.regs.is_supervisor() { 6 } else { 2 }; // Program fetch
+        self.fault_read = true;
+        self.fault_in_instruction = false; // I/N=0 for address errors detected during EA calc
+        // begin_exception subtracts 2 from PC, giving us PC-2 which is the return address
+        self.exception(3); // Address error
     }
 
     fn exec_jmp_continuation(&mut self) {
@@ -3433,9 +3480,17 @@ impl M68000 {
         let lo = u32::from(self.ext_words[1]);
         let target = (hi << 16) | lo;
 
-        self.regs.pc = target.wrapping_add(4); // Include prefetch in PC
+        if target & 1 != 0 {
+            self.trigger_jmp_address_error(target);
+            return;
+        }
+
+        // Set PC to target+2; tick_internal_cycles adds +2 when done (cycles >= 4)
+        self.regs.pc = target.wrapping_add(2);
         self.instr_phase = InstrPhase::Complete;
-        self.queue_internal_no_pc(8); // Prefetch time
+        self.internal_cycles = 8;
+        self.internal_advances_pc = true;
+        self.micro_ops.push(MicroOp::Internal);
     }
 
     fn exec_chk(&mut self, op: u16) {
