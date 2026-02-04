@@ -114,6 +114,49 @@ pub enum MicroOp {
     /// Kind: 0=AS, 1=LS, 2=ROX, 3=RO. Direction: 0=right, 1=left.
     /// Phase 0: Read word. Phase 1: Shift and write.
     ShiftMemExecute,
+
+    /// ALU operation with memory destination (read-modify-write).
+    ///
+    /// Uses: `addr` for memory address, `data` for source value (from register),
+    /// `data2` for operation:
+    ///   0=ADD, 1=SUB, 2=AND, 3=OR, 4=EOR (binary ops with register source)
+    ///   5=NEG, 6=NOT, 7=NEGX (unary ops, `data` ignored)
+    ///   8=NBCD (BCD negate: 0 - mem - X)
+    /// Size from `self.size`.
+    /// Phase 0: Read memory. Phase 1: Perform op and write.
+    AluMemRmw,
+
+    /// ALU operation with memory source (read from memory, operate, store to register).
+    ///
+    /// Uses: `addr` for memory address, `data` for destination register number,
+    /// `data2` for operation:
+    ///   0=ADD, 1=SUB, 2=AND, 3=OR, 4=CMP, 5=ADDA, 6=SUBA, 7=CMPA
+    ///   8=TST (just set flags, no register destination)
+    ///   9=CHK (check bounds, trigger exception if out of range)
+    ///   10=MULU, 11=MULS, 12=DIVU, 13=DIVS (multiply/divide with memory source)
+    ///   14=CMPI (compare immediate: memory - `data`, where `data` holds immediate)
+    /// Size from `self.size`.
+    /// Single phase: Read memory, perform op, store to register.
+    AluMemSrc,
+
+    /// Bit operation on memory byte (BTST/BCHG/BCLR/BSET).
+    ///
+    /// Uses: `addr` for memory address, `data` for bit number (0-7),
+    /// `data2` for operation (0=BTST, 1=BCHG, 2=BCLR, 3=BSET).
+    /// BTST is read-only, others are read-modify-write.
+    /// Phase 0: Read byte. Phase 1 (for BCHG/BCLR/BSET): Write modified byte.
+    BitMemOp,
+
+    /// Multi-precision/BCD memory-to-memory: -(Ax),-(Ay).
+    ///
+    /// Uses: `addr` for source (Ax already pre-decremented),
+    /// `addr2` for destination (Ay already pre-decremented),
+    /// `data` for source register number (Ax), `data2` for operation:
+    ///   0=ABCD (BCD add), 1=SBCD (BCD subtract),
+    ///   2=ADDX (binary add), 3=SUBX (binary subtract).
+    /// Size from `self.size` (ABCD/SBCD always byte, ADDX/SUBX can vary).
+    /// Phase 0: Read src. Phase 1: Read dst. Phase 2: Compute and write result.
+    ExtendMemOp,
 }
 
 impl MicroOp {
@@ -146,8 +189,12 @@ impl MicroOp {
             Self::MovemWrite => 4,    // Per word transfer (8 for long = 2 x 4)
             Self::MovemRead => 4,     // Per word transfer
             Self::CmpmExecute => 4,   // Memory read cycle (called twice for two operands)
-            Self::TasExecute => 4,    // Per memory access (called twice for read-modify-write)
-            Self::ShiftMemExecute => 4, // Per memory access (called twice for read-modify-write)
+            Self::TasExecute => 4,    // Per memory access phase
+            Self::ShiftMemExecute => 4, // Per memory access phase
+            Self::AluMemRmw => 4,     // Per memory access phase (read then write)
+            Self::AluMemSrc => 4,     // Memory read cycle
+            Self::BitMemOp => 4,      // Per memory access phase
+            Self::ExtendMemOp => 4,   // Per memory access phase (read src, read dst, write)
         }
     }
 }

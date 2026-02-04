@@ -965,9 +965,16 @@ impl M68000 {
                         self.queue_internal(4);
                     }
                     _ => {
-                        // Memory destination - queue write
-                        self.queue_ea_read(addr_mode, size);
+                        // Memory destination - write zero
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
                         self.data = 0;
+                        // Set flags: N=0, Z=1, V=0, C=0
+                        self.regs.sr = Status::clear_vc(self.regs.sr);
+                        self.regs.sr = Status::update_nz_byte(self.regs.sr, 0);
+                        // Queue write
+                        self.queue_write_ops(size);
                     }
                 }
             } else {
@@ -1094,8 +1101,14 @@ impl M68000 {
                     self.queue_internal(6);
                 }
                 _ => {
-                    // Memory operand - bit number mod 8, stub for now
-                    self.queue_internal(4);
+                    // Memory operand - bit number mod 8
+                    self.size = Size::Byte;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = bit_num & 7; // mod 8 for memory
+                    self.data2 = 0; // 0 = BTST
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::BitMemOp);
                 }
             }
         } else {
@@ -1119,7 +1132,14 @@ impl M68000 {
                     self.queue_internal(8);
                 }
                 _ => {
-                    self.queue_internal(4); // Memory stub
+                    // Memory operand - bit number mod 8
+                    self.size = Size::Byte;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = bit_num & 7; // mod 8 for memory
+                    self.data2 = 1; // 1 = BCHG
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::BitMemOp);
                 }
             }
         } else {
@@ -1143,7 +1163,14 @@ impl M68000 {
                     self.queue_internal(10);
                 }
                 _ => {
-                    self.queue_internal(4); // Memory stub
+                    // Memory operand - bit number mod 8
+                    self.size = Size::Byte;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = bit_num & 7; // mod 8 for memory
+                    self.data2 = 2; // 2 = BCLR
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::BitMemOp);
                 }
             }
         } else {
@@ -1167,7 +1194,14 @@ impl M68000 {
                     self.queue_internal(8);
                 }
                 _ => {
-                    self.queue_internal(4); // Memory stub
+                    // Memory operand - bit number mod 8
+                    self.size = Size::Byte;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = bit_num & 7; // mod 8 for memory
+                    self.data2 = 3; // 3 = BSET
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::BitMemOp);
                 }
             }
         } else {
@@ -1296,13 +1330,19 @@ impl M68000 {
                 self.write_data_reg(r, result, self.size);
                 self.set_flags_move(result, self.size);
                 self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+                self.instr_phase = InstrPhase::Complete;
             }
             _ => {
-                // Memory operands - stub
-                self.queue_internal(12);
+                // Memory destination - read-modify-write
+                let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
+                self.addr = addr;
+                self.data = imm; // Immediate as source
+                self.data2 = 3;  // 3 = OR
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::AluMemRmw);
+                // Don't set Complete yet - AluMemRmw will handle it
             }
         }
-        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_andi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
@@ -1347,12 +1387,18 @@ impl M68000 {
                 self.write_data_reg(r, result, self.size);
                 self.set_flags_move(result, self.size);
                 self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+                self.instr_phase = InstrPhase::Complete;
             }
             _ => {
-                self.queue_internal(12);
+                // Memory destination - read-modify-write
+                let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
+                self.addr = addr;
+                self.data = imm; // Immediate as source
+                self.data2 = 2;  // 2 = AND
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::AluMemRmw);
             }
         }
-        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_subi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
@@ -1397,12 +1443,18 @@ impl M68000 {
                 self.write_data_reg(r, result, self.size);
                 self.set_flags_sub(src, dst, result, self.size);
                 self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+                self.instr_phase = InstrPhase::Complete;
             }
             _ => {
-                self.queue_internal(12);
+                // Memory destination - read-modify-write
+                let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
+                self.addr = addr;
+                self.data = src; // Immediate as source
+                self.data2 = 1;  // 1 = SUB
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::AluMemRmw);
             }
         }
-        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_addi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
@@ -1447,12 +1499,18 @@ impl M68000 {
                 self.write_data_reg(r, result, self.size);
                 self.set_flags_add(src, dst, result, self.size);
                 self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+                self.instr_phase = InstrPhase::Complete;
             }
             _ => {
-                self.queue_internal(12);
+                // Memory destination - read-modify-write
+                let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
+                self.addr = addr;
+                self.data = src; // Immediate as source
+                self.data2 = 0;  // 0 = ADD
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::AluMemRmw);
             }
         }
-        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_eori(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
@@ -1497,12 +1555,18 @@ impl M68000 {
                 self.write_data_reg(r, result, self.size);
                 self.set_flags_move(result, self.size);
                 self.queue_internal(if self.size == Size::Long { 16 } else { 8 });
+                self.instr_phase = InstrPhase::Complete;
             }
             _ => {
-                self.queue_internal(12);
+                // Memory destination - read-modify-write
+                let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
+                self.addr = addr;
+                self.data = imm; // Immediate as source
+                self.data2 = 4;  // 4 = EOR
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::AluMemRmw);
             }
         }
-        self.instr_phase = InstrPhase::Complete;
     }
 
     fn exec_cmpi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
@@ -1545,14 +1609,20 @@ impl M68000 {
                 let dst = self.read_data_reg(r, self.size);
                 let result = dst.wrapping_sub(src);
                 // CMP only sets flags, doesn't store result
-                self.set_flags_sub(src, dst, result, self.size);
+                self.set_flags_cmp(src, dst, result, self.size);
                 self.queue_internal(if self.size == Size::Long { 14 } else { 8 });
+                self.instr_phase = InstrPhase::Complete;
             }
             _ => {
-                self.queue_internal(12);
+                // Memory destination - read and compare
+                let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
+                self.addr = addr;
+                self.data = src;  // Immediate as source
+                self.data2 = 14;  // 14 = CMPI
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::AluMemSrc);
             }
         }
-        self.instr_phase = InstrPhase::Complete;
     }
 
     /// Dispatch continuation for group 0 immediate operations.
@@ -1586,8 +1656,12 @@ impl M68000 {
                     self.queue_internal(6);
                 }
                 _ => {
-                    // Memory destination - stub
-                    self.queue_internal(8);
+                    // Memory destination - write SR word
+                    self.size = Size::Word;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(self.regs.sr);
+                    self.micro_ops.push(MicroOp::WriteWord);
                 }
             }
         } else {
@@ -1606,7 +1680,7 @@ impl M68000 {
             match addr_mode {
                 AddrMode::DataReg(r) => {
                     let value = self.read_data_reg(r, size);
-                    let x = if self.regs.sr & X != 0 { 1u32 } else { 0 };
+                    let x = u32::from(self.regs.sr & X != 0);
                     let result = 0u32.wrapping_sub(value).wrapping_sub(x);
                     self.write_data_reg(r, result, size);
 
@@ -1636,7 +1710,13 @@ impl M68000 {
                     self.queue_internal(if size == Size::Long { 6 } else { 4 });
                 }
                 _ => {
-                    self.queue_internal(8); // Memory stub
+                    // Memory operand - use AluMemRmw
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data2 = 7; // 7 = NEGX
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
                 }
             }
         } else {
@@ -1662,7 +1742,14 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Execute);
                 }
                 _ => {
-                    self.queue_internal(12); // Memory source stub
+                    // Memory source - read word and apply to CCR
+                    self.size = Size::Word;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.micro_ops.push(MicroOp::ReadWord);
+                    self.instr_phase = InstrPhase::SrcRead;
+                    self.dst_mode = Some(AddrMode::DataReg(0)); // Marker for memory source
+                    self.micro_ops.push(MicroOp::Execute);
                 }
             }
         } else {
@@ -1671,8 +1758,15 @@ impl M68000 {
     }
 
     fn exec_move_to_ccr_continuation(&mut self) {
-        // Continuation for MOVE #imm,CCR
-        let ccr = (self.ext_words[0] & 0x1F) as u16;
+        // Continuation for MOVE <ea>,CCR
+        // For immediate: data is in ext_words[0]
+        // For memory: data is in self.data (from ReadWord)
+        let src = if self.dst_mode == Some(AddrMode::Immediate) {
+            self.ext_words[0]
+        } else {
+            self.data as u16
+        };
+        let ccr = src & 0x1F;
         self.regs.sr = (self.regs.sr & 0xFF00) | ccr;
         self.instr_phase = InstrPhase::Complete;
         self.queue_internal(12);
@@ -1696,8 +1790,13 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 _ => {
-                    // Memory operand - stub
-                    self.queue_internal(4);
+                    // Memory operand - read-modify-write
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data2 = 5; // 5 = NEG
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
                 }
             }
         } else {
@@ -1726,7 +1825,14 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Execute);
                 }
                 _ => {
-                    self.queue_internal(12); // Memory source stub
+                    // Memory source - read word and apply to SR
+                    self.size = Size::Word;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.micro_ops.push(MicroOp::ReadWord);
+                    self.instr_phase = InstrPhase::SrcRead;
+                    self.dst_mode = Some(AddrMode::DataReg(0)); // Marker for memory source
+                    self.micro_ops.push(MicroOp::Execute);
                 }
             }
         } else {
@@ -1735,8 +1841,15 @@ impl M68000 {
     }
 
     fn exec_move_to_sr_continuation(&mut self) {
-        // Continuation for MOVE #imm,SR
-        self.regs.sr = self.ext_words[0];
+        // Continuation for MOVE <ea>,SR
+        // For immediate: data is in ext_words[0]
+        // For memory: data is in self.data (from ReadWord)
+        let src = if self.dst_mode == Some(AddrMode::Immediate) {
+            self.ext_words[0]
+        } else {
+            self.data as u16
+        };
+        self.regs.sr = src;
         self.instr_phase = InstrPhase::Complete;
         self.queue_internal(12);
     }
@@ -1758,8 +1871,13 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 _ => {
-                    // Memory destination - stub
-                    self.queue_internal(4);
+                    // Memory operand - read-modify-write
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data2 = 6; // 6 = NOT
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
                 }
             }
         } else {
@@ -1799,8 +1917,13 @@ impl M68000 {
                     self.queue_internal(6);
                 }
                 _ => {
-                    // Memory operand - stub for now
-                    self.queue_internal(8);
+                    // Memory operand - read-modify-write with BCD negate
+                    self.size = Size::Byte; // NBCD is always byte
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data2 = 8; // 8 = NBCD
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
                 }
             }
         } else {
@@ -2019,8 +2142,14 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 _ => {
-                    // Memory operand - stub
-                    self.queue_internal(4);
+                    // Memory operand - read and set flags
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = 0; // Not used for TST
+                    self.data2 = 8; // 8 = TST
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -2326,40 +2455,45 @@ impl M68000 {
     fn exec_chk(&mut self, op: u16) {
         // CHK <ea>,Dn - Check register against bounds
         // If Dn < 0 or Dn > <ea>, trigger CHK exception
-        let reg = ((op >> 9) & 7) as usize;
+        let reg = ((op >> 9) & 7) as u8;
         let mode = ((op >> 3) & 7) as u8;
         let ea_reg = (op & 7) as u8;
 
-        // Get the data register value (word operation)
-        let dn = self.regs.d[reg] as i16;
-
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
-            let upper_bound = match addr_mode {
-                AddrMode::DataReg(r) => self.regs.d[r as usize] as i16,
+            match addr_mode {
+                AddrMode::DataReg(r) => {
+                    // Get the data register value (word operation)
+                    let dn = self.regs.d[reg as usize] as i16;
+                    let upper_bound = self.regs.d[r as usize] as i16;
+
+                    // Check bounds
+                    if dn < 0 {
+                        // N flag set for negative
+                        self.regs.sr |= N;
+                        self.exception(6); // CHK exception
+                    } else if dn > upper_bound {
+                        // N flag clear for upper bound violation
+                        self.regs.sr &= !N;
+                        self.exception(6); // CHK exception
+                    } else {
+                        // Value is within bounds, no exception
+                        self.queue_internal(10);
+                    }
+                }
                 AddrMode::Immediate => {
                     // Need to fetch immediate - simplified for now
                     self.queue_internal(10);
-                    return;
                 }
                 _ => {
-                    // Memory source - stub
-                    self.queue_internal(10);
-                    return;
+                    // Memory source - use AluMemSrc with CHK operation
+                    self.size = Size::Word; // CHK always operates on word
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg); // Data register to check
+                    self.data2 = 9; // 9 = CHK
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
-            };
-
-            // Check bounds
-            if dn < 0 {
-                // N flag set for negative
-                self.regs.sr |= N;
-                self.exception(6); // CHK exception
-            } else if dn > upper_bound {
-                // N flag clear for upper bound violation
-                self.regs.sr &= !N;
-                self.exception(6); // CHK exception
-            } else {
-                // Value is within bounds, no exception
-                self.queue_internal(10);
             }
         } else {
             self.illegal_instruction();
@@ -2392,11 +2526,17 @@ impl M68000 {
                 }
                 _ => {
                     // Memory destination - requires read-modify-write
-                    let Some(_size) = size else {
+                    let Some(size) = size else {
                         self.illegal_instruction();
                         return;
                     };
-                    self.queue_internal(4); // Stub for memory operations
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = imm; // Immediate value as source
+                    self.data2 = 0; // 0 = ADD
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
                 }
             }
         } else {
@@ -2430,11 +2570,17 @@ impl M68000 {
                 }
                 _ => {
                     // Memory destination - requires read-modify-write
-                    let Some(_size) = size else {
+                    let Some(size) = size else {
                         self.illegal_instruction();
                         return;
                     };
-                    self.queue_internal(4); // Stub for memory operations
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = imm; // Immediate value as source
+                    self.data2 = 1; // 1 = SUB
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
                 }
             }
         } else {
@@ -2460,8 +2606,12 @@ impl M68000 {
                     self.queue_internal(if value == 0xFF { 6 } else { 4 });
                 }
                 _ => {
-                    // Memory destination - stub
-                    self.queue_internal(8);
+                    // Memory destination - write byte
+                    self.size = Size::Byte;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(value);
+                    self.micro_ops.push(MicroOp::WriteByte);
                 }
             }
         } else {
@@ -2547,7 +2697,14 @@ impl M68000 {
                     self.queue_internal(140);
                 }
                 _ => {
-                    self.queue_internal(140); // Memory source stub
+                    // Memory source - use AluMemSrc
+                    self.size = Size::Word; // DIVU reads word operand
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg);
+                    self.data2 = 12; // 12 = DIVU
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -2593,7 +2750,14 @@ impl M68000 {
                     self.queue_internal(158);
                 }
                 _ => {
-                    self.queue_internal(158); // Memory source stub
+                    // Memory source - use AluMemSrc
+                    self.size = Size::Word; // DIVS reads word operand
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg);
+                    self.data2 = 13; // 13 = DIVS
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -2610,8 +2774,16 @@ impl M68000 {
         let rm = op & 0x0008 != 0;
 
         if rm {
-            // Memory to memory: -(Ax),-(Ay) - stub for now
-            self.queue_internal(18);
+            // Memory to memory: -(Ax),-(Ay)
+            // Pre-decrement both address registers
+            self.regs.set_a(rx, self.regs.a(rx).wrapping_sub(1));
+            self.regs.set_a(ry, self.regs.a(ry).wrapping_sub(1));
+            self.addr = self.regs.a(rx);
+            self.addr2 = self.regs.a(ry);
+            self.size = Size::Byte;
+            self.data2 = 1; // 1 = SBCD
+            self.movem_long_phase = 0;
+            self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dy - Dx - X -> Dy
             let src = self.regs.d[rx] as u8;
@@ -2643,7 +2815,7 @@ impl M68000 {
 
     /// Perform packed BCD subtraction: dst - src - extend.
     /// Returns (result, borrow).
-    fn bcd_sub(&self, dst: u8, src: u8, extend: u8) -> (u8, bool) {
+    pub(crate) fn bcd_sub(&self, dst: u8, src: u8, extend: u8) -> (u8, bool) {
         // Subtract low nibbles
         let low_dst = i16::from(dst & 0x0F);
         let low_src = i16::from(src & 0x0F) + i16::from(extend);
@@ -2680,16 +2852,25 @@ impl M68000 {
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             if to_ea {
                 // OR Dn,<ea> - destination is EA
-                if let AddrMode::DataReg(r) = addr_mode {
-                    let src = self.read_data_reg(reg, size);
-                    let dst = self.read_data_reg(r, size);
-                    let result = dst | src;
-                    self.write_data_reg(r, result, size);
-                    self.set_flags_move(result, size); // OR sets N,Z, clears V,C
-                    self.queue_internal(4);
-                } else {
-                    // Memory destination - stub
-                    self.queue_internal(4);
+                match addr_mode {
+                    AddrMode::DataReg(r) => {
+                        let src = self.read_data_reg(reg, size);
+                        let dst = self.read_data_reg(r, size);
+                        let result = dst | src;
+                        self.write_data_reg(r, result, size);
+                        self.set_flags_move(result, size); // OR sets N,Z, clears V,C
+                        self.queue_internal(4);
+                    }
+                    _ => {
+                        // Memory destination: read-modify-write
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
+                        self.data = self.read_data_reg(reg, size);
+                        self.data2 = 3; // 3 = OR
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemRmw);
+                    }
                 }
             } else {
                 // OR <ea>,Dn - destination is register
@@ -2703,8 +2884,14 @@ impl M68000 {
                         self.queue_internal(4);
                     }
                     _ => {
-                        // Memory source - stub
-                        self.queue_internal(4);
+                        // Memory source
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
+                        self.data = u32::from(reg);
+                        self.data2 = 3; // 3 = OR
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemSrc);
                     }
                 }
             }
@@ -2729,16 +2916,25 @@ impl M68000 {
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             if to_ea {
                 // SUB Dn,<ea> - destination is EA
-                if let AddrMode::DataReg(r) = addr_mode {
-                    let src = self.read_data_reg(reg, size);
-                    let dst = self.read_data_reg(r, size);
-                    let result = dst.wrapping_sub(src);
-                    self.write_data_reg(r, result, size);
-                    self.set_flags_sub(src, dst, result, size);
-                    self.queue_internal(4);
-                } else {
-                    // Memory destination - more complex, stub for now
-                    self.queue_internal(4);
+                match addr_mode {
+                    AddrMode::DataReg(r) => {
+                        let src = self.read_data_reg(reg, size);
+                        let dst = self.read_data_reg(r, size);
+                        let result = dst.wrapping_sub(src);
+                        self.write_data_reg(r, result, size);
+                        self.set_flags_sub(src, dst, result, size);
+                        self.queue_internal(4);
+                    }
+                    _ => {
+                        // Memory destination: read-modify-write
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
+                        self.data = self.read_data_reg(reg, size);
+                        self.data2 = 1; // 1 = SUB
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemRmw);
+                    }
                 }
             } else {
                 // SUB <ea>,Dn - destination is register
@@ -2751,12 +2947,28 @@ impl M68000 {
                         self.set_flags_sub(src, dst, result, size);
                         self.queue_internal(4);
                     }
+                    AddrMode::AddrReg(r) => {
+                        // SUB.W/L An,Dn
+                        let src = self.regs.a(r as usize);
+                        let dst = self.read_data_reg(reg, size);
+                        let result = dst.wrapping_sub(src);
+                        self.write_data_reg(reg, result, size);
+                        self.set_flags_sub(src, dst, result, size);
+                        self.queue_internal(4);
+                    }
                     AddrMode::Immediate => {
                         // SUBI - immediate subtract
                         self.queue_internal(4); // Stub
                     }
                     _ => {
-                        self.queue_internal(4); // Memory source stub
+                        // Memory source
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
+                        self.data = u32::from(reg);
+                        self.data2 = 1; // 1 = SUB
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemSrc);
                     }
                 }
             }
@@ -2792,7 +3004,14 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 _ => {
-                    self.queue_internal(4); // Memory source stub
+                    // Memory source
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg);
+                    self.data2 = 6; // 6 = SUBA
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -2814,13 +3033,26 @@ impl M68000 {
         let rm = op & 0x0008 != 0; // Register/Memory flag
 
         if rm {
-            // Memory to memory: -(Ax),-(Ay) - stub
-            self.queue_internal(18);
+            // Memory to memory: -(Ax),-(Ay)
+            // Pre-decrement both address registers by size
+            let decr = match size {
+                Size::Byte => 1,
+                Size::Word => 2,
+                Size::Long => 4,
+            };
+            self.regs.set_a(rx, self.regs.a(rx).wrapping_sub(decr));
+            self.regs.set_a(ry, self.regs.a(ry).wrapping_sub(decr));
+            self.addr = self.regs.a(rx);
+            self.addr2 = self.regs.a(ry);
+            self.size = size;
+            self.data2 = 3; // 3 = SUBX
+            self.movem_long_phase = 0;
+            self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy
             let src = self.read_data_reg(rx as u8, size);
             let dst = self.read_data_reg(ry as u8, size);
-            let x = if self.regs.sr & X != 0 { 1u32 } else { 0 };
+            let x = u32::from(self.regs.sr & X != 0);
 
             let result = dst.wrapping_sub(src).wrapping_sub(x);
             self.write_data_reg(ry as u8, result, size);
@@ -2876,11 +3108,18 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 AddrMode::Immediate => {
-                    // CMPI - immediate compare (stub)
-                    self.queue_internal(4);
+                    // CMP #imm,Dn is encoded as CMPI (different opcode)
+                    self.illegal_instruction();
                 }
                 _ => {
-                    self.queue_internal(4); // Memory source stub
+                    // Memory source
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg);
+                    self.data2 = 4; // 4 = CMP
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -2915,7 +3154,14 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 _ => {
-                    self.queue_internal(4); // Memory source stub
+                    // Memory source
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg);
+                    self.data2 = 7; // 7 = CMPA
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -2966,8 +3212,14 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 _ => {
-                    // Memory destination - stub
-                    self.queue_internal(4);
+                    // Memory destination: read-modify-write
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = self.read_data_reg(reg, size);
+                    self.data2 = 4; // 4 = EOR
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
                 }
             }
         } else {
@@ -2993,7 +3245,14 @@ impl M68000 {
                     self.queue_internal(70);
                 }
                 _ => {
-                    self.queue_internal(70); // Memory source stub
+                    // Memory source - use AluMemSrc
+                    self.size = Size::Word; // MULU reads word operand
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg);
+                    self.data2 = 10; // 10 = MULU
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -3019,7 +3278,14 @@ impl M68000 {
                     self.queue_internal(70);
                 }
                 _ => {
-                    self.queue_internal(70); // Memory source stub
+                    // Memory source - use AluMemSrc
+                    self.size = Size::Word; // MULS reads word operand
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg);
+                    self.data2 = 11; // 11 = MULS
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -3036,8 +3302,16 @@ impl M68000 {
         let rm = op & 0x0008 != 0;
 
         if rm {
-            // Memory to memory: -(Ax),-(Ay) - stub for now
-            self.queue_internal(18);
+            // Memory to memory: -(Ax),-(Ay)
+            // Pre-decrement both address registers
+            self.regs.set_a(rx, self.regs.a(rx).wrapping_sub(1));
+            self.regs.set_a(ry, self.regs.a(ry).wrapping_sub(1));
+            self.addr = self.regs.a(rx);
+            self.addr2 = self.regs.a(ry);
+            self.size = Size::Byte;
+            self.data2 = 0; // 0 = ABCD
+            self.movem_long_phase = 0;
+            self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy
             let src = self.regs.d[rx] as u8;
@@ -3069,7 +3343,7 @@ impl M68000 {
 
     /// Perform packed BCD addition: src + dst + extend.
     /// Returns (result, carry).
-    fn bcd_add(&self, src: u8, dst: u8, extend: u8) -> (u8, bool) {
+    pub(crate) fn bcd_add(&self, src: u8, dst: u8, extend: u8) -> (u8, bool) {
         // Add low nibbles
         let mut low = (dst & 0x0F) + (src & 0x0F) + extend;
         let mut carry = false;
@@ -3138,16 +3412,25 @@ impl M68000 {
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             if to_ea {
                 // AND Dn,<ea> - destination is EA
-                if let AddrMode::DataReg(r) = addr_mode {
-                    let src = self.read_data_reg(reg, size);
-                    let dst = self.read_data_reg(r, size);
-                    let result = dst & src;
-                    self.write_data_reg(r, result, size);
-                    self.set_flags_move(result, size); // AND sets N,Z, clears V,C
-                    self.queue_internal(4);
-                } else {
-                    // Memory destination - stub
-                    self.queue_internal(4);
+                match addr_mode {
+                    AddrMode::DataReg(r) => {
+                        let src = self.read_data_reg(reg, size);
+                        let dst = self.read_data_reg(r, size);
+                        let result = dst & src;
+                        self.write_data_reg(r, result, size);
+                        self.set_flags_move(result, size); // AND sets N,Z, clears V,C
+                        self.queue_internal(4);
+                    }
+                    _ => {
+                        // Memory destination: read-modify-write
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
+                        self.data = self.read_data_reg(reg, size);
+                        self.data2 = 2; // 2 = AND
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemRmw);
+                    }
                 }
             } else {
                 // AND <ea>,Dn - destination is register
@@ -3161,8 +3444,14 @@ impl M68000 {
                         self.queue_internal(4);
                     }
                     _ => {
-                        // Memory source - stub
-                        self.queue_internal(4);
+                        // Memory source
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
+                        self.data = u32::from(reg);
+                        self.data2 = 2; // 2 = AND
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemSrc);
                     }
                 }
             }
@@ -3187,16 +3476,25 @@ impl M68000 {
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             if to_ea {
                 // ADD Dn,<ea> - destination is EA
-                if let AddrMode::DataReg(r) = addr_mode {
-                    let src = self.read_data_reg(reg, size);
-                    let dst = self.read_data_reg(r, size);
-                    let result = dst.wrapping_add(src);
-                    self.write_data_reg(r, result, size);
-                    self.set_flags_add(src, dst, result, size);
-                    self.queue_internal(4);
-                } else {
-                    // Memory destination - stub for now
-                    self.queue_internal(4);
+                match addr_mode {
+                    AddrMode::DataReg(r) => {
+                        let src = self.read_data_reg(reg, size);
+                        let dst = self.read_data_reg(r, size);
+                        let result = dst.wrapping_add(src);
+                        self.write_data_reg(r, result, size);
+                        self.set_flags_add(src, dst, result, size);
+                        self.queue_internal(4);
+                    }
+                    _ => {
+                        // Memory destination: read-modify-write
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
+                        self.data = self.read_data_reg(reg, size);
+                        self.data2 = 0; // 0 = ADD
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemRmw);
+                    }
                 }
             } else {
                 // ADD <ea>,Dn - destination is register
@@ -3209,12 +3507,28 @@ impl M68000 {
                         self.set_flags_add(src, dst, result, size);
                         self.queue_internal(4);
                     }
-                    AddrMode::Immediate => {
-                        // ADDI - immediate add (stub)
+                    AddrMode::AddrReg(r) => {
+                        // ADD.W/L An,Dn
+                        let src = self.regs.a(r as usize);
+                        let dst = self.read_data_reg(reg, size);
+                        let result = dst.wrapping_add(src);
+                        self.write_data_reg(reg, result, size);
+                        self.set_flags_add(src, dst, result, size);
                         self.queue_internal(4);
                     }
+                    AddrMode::Immediate => {
+                        // ADD #imm,Dn is encoded as ADDI (different opcode)
+                        self.illegal_instruction();
+                    }
                     _ => {
-                        self.queue_internal(4); // Memory source stub
+                        // Memory source: read from memory, add to register
+                        self.size = size;
+                        let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        self.addr = addr;
+                        self.data = u32::from(reg);
+                        self.data2 = 0; // 0 = ADD
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemSrc);
                     }
                 }
             }
@@ -3250,7 +3564,14 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 _ => {
-                    self.queue_internal(4); // Memory source stub
+                    // Memory source
+                    self.size = size;
+                    let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                    self.addr = addr;
+                    self.data = u32::from(reg);
+                    self.data2 = 5; // 5 = ADDA
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemSrc);
                 }
             }
         } else {
@@ -3272,13 +3593,26 @@ impl M68000 {
         let rm = op & 0x0008 != 0; // Register/Memory flag
 
         if rm {
-            // Memory to memory: -(Ax),-(Ay) - stub
-            self.queue_internal(18);
+            // Memory to memory: -(Ax),-(Ay)
+            // Pre-decrement both address registers by size
+            let decr = match size {
+                Size::Byte => 1,
+                Size::Word => 2,
+                Size::Long => 4,
+            };
+            self.regs.set_a(rx, self.regs.a(rx).wrapping_sub(decr));
+            self.regs.set_a(ry, self.regs.a(ry).wrapping_sub(decr));
+            self.addr = self.regs.a(rx);
+            self.addr2 = self.regs.a(ry);
+            self.size = size;
+            self.data2 = 2; // 2 = ADDX
+            self.movem_long_phase = 0;
+            self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy
             let src = self.read_data_reg(rx as u8, size);
             let dst = self.read_data_reg(ry as u8, size);
-            let x = if self.regs.sr & X != 0 { 1u32 } else { 0 };
+            let x = u32::from(self.regs.sr & X != 0);
 
             let result = dst.wrapping_add(src).wrapping_add(x);
             self.write_data_reg(ry as u8, result, size);
@@ -3333,7 +3667,7 @@ impl M68000 {
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
                     self.data = u32::from(kind);
-                    self.data2 = if direction { 1 } else { 0 };
+                    self.data2 = u32::from(direction);
                     self.movem_long_phase = 0;
                     // Single micro-op handles both read and write phases
                     self.micro_ops.push(MicroOp::ShiftMemExecute);

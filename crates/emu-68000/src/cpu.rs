@@ -387,6 +387,10 @@ impl M68000 {
             MicroOp::CmpmExecute => self.tick_cmpm_execute(bus),
             MicroOp::TasExecute => self.tick_tas_execute(bus),
             MicroOp::ShiftMemExecute => self.tick_shift_mem_execute(bus),
+            MicroOp::AluMemRmw => self.tick_alu_mem_rmw(bus),
+            MicroOp::AluMemSrc => self.tick_alu_mem_src(bus),
+            MicroOp::BitMemOp => self.tick_bit_mem_op(bus),
+            MicroOp::ExtendMemOp => self.tick_extend_mem_op(bus),
         }
     }
 
@@ -1086,6 +1090,665 @@ impl M68000 {
                 (result, carry)
             }
             _ => (value, false),
+        }
+    }
+
+    /// Tick handler for ALU memory read-modify-write operations.
+    ///
+    /// State: `addr` = memory address, `data` = source value (from register),
+    /// `data2` = operation (0=ADD, 1=SUB, 2=AND, 3=OR, 4=EOR).
+    /// Uses `movem_long_phase` to track phase: 0=read, 1=write.
+    #[allow(clippy::too_many_lines)]
+    fn tick_alu_mem_rmw<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                match self.movem_long_phase {
+                    0 => {
+                        // Phase 0: Read from memory
+                        let mem_val = match self.size {
+                            Size::Byte => u32::from(self.read_byte(bus, self.addr)),
+                            Size::Word => u32::from(self.read_word(bus, self.addr)),
+                            Size::Long => self.read_long(bus, self.addr),
+                        };
+                        // Store memory value temporarily in ext_words
+                        self.ext_words[0] = mem_val as u16;
+                        self.ext_words[1] = (mem_val >> 16) as u16;
+
+                        self.movem_long_phase = 1;
+                        self.cycle = 0;
+                        return;
+                    }
+                    1 => {
+                        // Phase 1: Perform operation and write back
+                        let mem_val =
+                            u32::from(self.ext_words[0]) | (u32::from(self.ext_words[1]) << 16);
+                        let src = self.data;
+                        let op = self.data2;
+
+                        let result = match op {
+                            0 => {
+                                // ADD: mem + src
+                                let res = mem_val.wrapping_add(src);
+                                self.set_flags_add(src, mem_val, res, self.size);
+                                res
+                            }
+                            1 => {
+                                // SUB: mem - src
+                                let res = mem_val.wrapping_sub(src);
+                                self.set_flags_sub(src, mem_val, res, self.size);
+                                res
+                            }
+                            2 => {
+                                // AND: mem & src
+                                let res = mem_val & src;
+                                self.set_flags_move(res, self.size);
+                                res
+                            }
+                            3 => {
+                                // OR: mem | src
+                                let res = mem_val | src;
+                                self.set_flags_move(res, self.size);
+                                res
+                            }
+                            4 => {
+                                // EOR: mem ^ src
+                                let res = mem_val ^ src;
+                                self.set_flags_move(res, self.size);
+                                res
+                            }
+                            5 => {
+                                // NEG: 0 - mem
+                                let res = 0u32.wrapping_sub(mem_val);
+                                self.set_flags_sub(mem_val, 0, res, self.size);
+                                res
+                            }
+                            6 => {
+                                // NOT: ~mem
+                                let res = !mem_val;
+                                self.set_flags_move(res, self.size);
+                                res
+                            }
+                            7 => {
+                                // NEGX: 0 - mem - X
+                                let x = u32::from(self.regs.sr & X != 0);
+                                let res = 0u32.wrapping_sub(mem_val).wrapping_sub(x);
+
+                                // NEGX flags: like NEG but Z is only cleared (never set)
+                                let (src_masked, result_masked, msb) = match self.size {
+                                    Size::Byte => (mem_val & 0xFF, res & 0xFF, 0x80u32),
+                                    Size::Word => (mem_val & 0xFFFF, res & 0xFFFF, 0x8000),
+                                    Size::Long => (mem_val, res, 0x8000_0000),
+                                };
+
+                                let mut sr = self.regs.sr;
+                                sr = Status::set_if(sr, N, result_masked & msb != 0);
+                                if result_masked != 0 {
+                                    sr &= !Z; // Only clear, never set
+                                }
+                                let overflow =
+                                    (src_masked & msb) != 0 && (result_masked & msb) != 0;
+                                sr = Status::set_if(sr, V, overflow);
+                                let carry = src_masked != 0 || x != 0;
+                                sr = Status::set_if(sr, C, carry);
+                                sr = Status::set_if(sr, X, carry);
+                                self.regs.sr = sr;
+
+                                res
+                            }
+                            8 => {
+                                // NBCD: 0 - mem - X (BCD negate, byte only)
+                                let src = mem_val as u8;
+                                let x = u8::from(self.regs.sr & X != 0);
+                                let (result, borrow) = self.bcd_sub(0, src, x);
+
+                                // Set flags
+                                let mut sr = self.regs.sr;
+                                // Z: cleared if non-zero, unchanged otherwise
+                                if result != 0 {
+                                    sr &= !Z;
+                                }
+                                sr = Status::set_if(sr, C, borrow);
+                                sr = Status::set_if(sr, X, borrow);
+                                sr = Status::set_if(sr, N, result & 0x80 != 0);
+                                self.regs.sr = sr;
+
+                                u32::from(result)
+                            }
+                            _ => mem_val,
+                        };
+
+                        // Write result back to memory
+                        match self.size {
+                            Size::Byte => self.write_byte(bus, self.addr, result as u8),
+                            Size::Word => self.write_word(bus, self.addr, result as u16),
+                            Size::Long => self.write_long(bus, self.addr, result),
+                        }
+
+                        self.movem_long_phase = 0;
+                        self.cycle = 0;
+                        self.micro_ops.advance();
+                        return;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Tick handler for ALU memory source operations.
+    ///
+    /// State: `addr` = memory address, `data` = destination register number,
+    /// `data2` = operation (0=ADD, 1=SUB, 2=AND, 3=OR, 4=CMP, 5=ADDA, 6=SUBA, 7=CMPA).
+    /// Uses `movem_long_phase` for long reads: 0=hi word, 1=lo word.
+    #[allow(clippy::too_many_lines)]
+    fn tick_alu_mem_src<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                // For long operations, need two read phases
+                if self.size == Size::Long && self.movem_long_phase == 0 {
+                    // Phase 0: Read high word
+                    let hi = self.read_word(bus, self.addr);
+                    self.ext_words[2] = hi;
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 1;
+                    self.cycle = 0;
+                    return;
+                }
+
+                // Read the value (or low word for long)
+                let src = if self.size == Size::Long {
+                    // Phase 1: Read low word and combine
+                    let lo = self.read_word(bus, self.addr);
+                    self.movem_long_phase = 0;
+                    (u32::from(self.ext_words[2]) << 16) | u32::from(lo)
+                } else {
+                    match self.size {
+                        Size::Byte => u32::from(self.read_byte(bus, self.addr)),
+                        Size::Word => u32::from(self.read_word(bus, self.addr)),
+                        Size::Long => unreachable!(),
+                    }
+                };
+
+                let reg = self.data as u8;
+                let op = self.data2;
+
+                match op {
+                    0 => {
+                        // ADD: reg + mem -> reg
+                        let dst = self.read_data_reg(reg, self.size);
+                        let result = dst.wrapping_add(src);
+                        self.write_data_reg(reg, result, self.size);
+                        self.set_flags_add(src, dst, result, self.size);
+                    }
+                    1 => {
+                        // SUB: reg - mem -> reg
+                        let dst = self.read_data_reg(reg, self.size);
+                        let result = dst.wrapping_sub(src);
+                        self.write_data_reg(reg, result, self.size);
+                        self.set_flags_sub(src, dst, result, self.size);
+                    }
+                    2 => {
+                        // AND: reg & mem -> reg
+                        let dst = self.read_data_reg(reg, self.size);
+                        let result = dst & src;
+                        self.write_data_reg(reg, result, self.size);
+                        self.set_flags_move(result, self.size);
+                    }
+                    3 => {
+                        // OR: reg | mem -> reg
+                        let dst = self.read_data_reg(reg, self.size);
+                        let result = dst | src;
+                        self.write_data_reg(reg, result, self.size);
+                        self.set_flags_move(result, self.size);
+                    }
+                    4 => {
+                        // CMP: reg - mem (flags only)
+                        let dst = self.read_data_reg(reg, self.size);
+                        let result = dst.wrapping_sub(src);
+                        self.set_flags_cmp(src, dst, result, self.size);
+                    }
+                    5 => {
+                        // ADDA: An + mem -> An (no flags)
+                        let src_extended = if self.size == Size::Word {
+                            src as i16 as i32 as u32
+                        } else {
+                            src
+                        };
+                        let dst = self.regs.a(reg as usize);
+                        let result = dst.wrapping_add(src_extended);
+                        self.regs.set_a(reg as usize, result);
+                    }
+                    6 => {
+                        // SUBA: An - mem -> An (no flags)
+                        let src_extended = if self.size == Size::Word {
+                            src as i16 as i32 as u32
+                        } else {
+                            src
+                        };
+                        let dst = self.regs.a(reg as usize);
+                        let result = dst.wrapping_sub(src_extended);
+                        self.regs.set_a(reg as usize, result);
+                    }
+                    7 => {
+                        // CMPA: An - mem (flags only, word sign-extends)
+                        let src_extended = if self.size == Size::Word {
+                            src as i16 as i32 as u32
+                        } else {
+                            src
+                        };
+                        let dst = self.regs.a(reg as usize);
+                        let result = dst.wrapping_sub(src_extended);
+                        // CMPA always compares as long
+                        self.set_flags_cmp(src_extended, dst, result, Size::Long);
+                    }
+                    8 => {
+                        // TST: just set flags based on memory value
+                        self.set_flags_move(src, self.size);
+                    }
+                    9 => {
+                        // CHK: check bounds, trigger exception if out of range
+                        // `data` contains the data register number
+                        // `src` is the upper bound from memory (word)
+                        let dn = self.regs.d[reg as usize] as i16;
+                        let upper_bound = src as i16;
+
+                        if dn < 0 {
+                            // N flag set for negative
+                            self.regs.sr |= N;
+                            self.exception(6); // CHK exception
+                        } else if dn > upper_bound {
+                            // N flag clear for upper bound violation
+                            self.regs.sr &= !N;
+                            self.exception(6); // CHK exception
+                        }
+                        // If within bounds, just continue normally
+                    }
+                    10 => {
+                        // MULU: unsigned 16x16->32 multiply
+                        let src_word = src & 0xFFFF;
+                        let dst_word = self.regs.d[reg as usize] & 0xFFFF;
+                        let result = src_word * dst_word;
+                        self.regs.d[reg as usize] = result;
+
+                        // Set flags: N based on bit 31, Z if result is 0, V=0, C=0
+                        self.regs.sr = Status::clear_vc(self.regs.sr);
+                        self.regs.sr = Status::update_nz_long(self.regs.sr, result);
+
+                        // Queue internal cycles for multiply timing
+                        self.internal_cycles = 70;
+                        self.micro_ops.push(MicroOp::Internal);
+                    }
+                    11 => {
+                        // MULS: signed 16x16->32 multiply
+                        let src_signed = (src as i16) as i32;
+                        let dst_signed = (self.regs.d[reg as usize] as i16) as i32;
+                        let result = (src_signed * dst_signed) as u32;
+                        self.regs.d[reg as usize] = result;
+
+                        self.regs.sr = Status::clear_vc(self.regs.sr);
+                        self.regs.sr = Status::update_nz_long(self.regs.sr, result);
+
+                        self.internal_cycles = 70;
+                        self.micro_ops.push(MicroOp::Internal);
+                    }
+                    12 => {
+                        // DIVU: unsigned 32/16 -> 16r:16q division
+                        let divisor = src & 0xFFFF;
+                        let dividend = self.regs.d[reg as usize];
+
+                        if divisor == 0 {
+                            self.exception(5); // Division by zero
+                            return;
+                        }
+
+                        let quotient = dividend / divisor;
+                        let remainder = dividend % divisor;
+
+                        if quotient > 0xFFFF {
+                            // Overflow
+                            self.regs.sr |= crate::flags::V;
+                            self.regs.sr &= !crate::flags::C;
+                        } else {
+                            self.regs.d[reg as usize] = (remainder << 16) | quotient;
+                            self.regs.sr &= !(crate::flags::V | crate::flags::C);
+                            self.regs.sr =
+                                Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
+                            self.regs.sr = Status::set_if(
+                                self.regs.sr,
+                                crate::flags::N,
+                                quotient & 0x8000 != 0,
+                            );
+                        }
+
+                        self.internal_cycles = 140;
+                        self.micro_ops.push(MicroOp::Internal);
+                    }
+                    13 => {
+                        // DIVS: signed 32/16 -> 16r:16q division
+                        let divisor = (src as i16) as i32;
+                        let dividend = self.regs.d[reg as usize] as i32;
+
+                        if divisor == 0 {
+                            self.exception(5); // Division by zero
+                            return;
+                        }
+
+                        let quotient = dividend / divisor;
+                        let remainder = dividend % divisor;
+
+                        if (-32768..=32767).contains(&quotient) {
+                            let q = quotient as i16 as u16 as u32;
+                            let r = remainder as i16 as u16 as u32;
+                            self.regs.d[reg as usize] = (r << 16) | q;
+                            self.regs.sr &= !(crate::flags::V | crate::flags::C);
+                            self.regs.sr =
+                                Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
+                            self.regs.sr =
+                                Status::set_if(self.regs.sr, crate::flags::N, quotient < 0);
+                        } else {
+                            // Overflow
+                            self.regs.sr |= crate::flags::V;
+                            self.regs.sr &= !crate::flags::C;
+                        }
+
+                        self.internal_cycles = 158;
+                        self.micro_ops.push(MicroOp::Internal);
+                    }
+                    14 => {
+                        // CMPI: compare immediate (memory - immediate)
+                        // For CMPI, self.data holds the immediate value, src is memory
+                        let dst = src; // Memory value is the destination
+                        let imm = self.data; // Immediate is the source
+                        let result = dst.wrapping_sub(imm);
+                        self.set_flags_cmp(imm, dst, result, self.size);
+                    }
+                    _ => {}
+                }
+
+                self.cycle = 0;
+                self.micro_ops.advance();
+                return;
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Tick handler for bit operations on memory byte.
+    ///
+    /// State: `addr` = memory address, `data` = bit number (0-7),
+    /// `data2` = operation (0=BTST, 1=BCHG, 2=BCLR, 3=BSET).
+    /// Uses `movem_long_phase`: 0=read, 1=write (for modifying ops).
+    fn tick_bit_mem_op<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                match self.movem_long_phase {
+                    0 => {
+                        // Phase 0: Read byte
+                        let value = self.read_byte(bus, self.addr);
+                        let bit = (self.data & 7) as u8;
+                        let mask = 1u8 << bit;
+                        let was_zero = (value & mask) == 0;
+
+                        // Set Z flag based on original bit value
+                        self.regs.sr = Status::set_if(self.regs.sr, Z, was_zero);
+
+                        let op = self.data2;
+                        if op == 0 {
+                            // BTST: read-only, done
+                            self.cycle = 0;
+                            self.micro_ops.advance();
+                            return;
+                        }
+
+                        // Calculate new value for BCHG/BCLR/BSET
+                        let new_value = match op {
+                            1 => value ^ mask,  // BCHG: toggle
+                            2 => value & !mask, // BCLR: clear
+                            3 => value | mask,  // BSET: set
+                            _ => value,
+                        };
+
+                        // Store for write phase
+                        self.ext_words[0] = u16::from(new_value);
+                        self.movem_long_phase = 1;
+                        self.cycle = 0;
+                        return;
+                    }
+                    1 => {
+                        // Phase 1: Write modified byte
+                        let value = self.ext_words[0] as u8;
+                        self.write_byte(bus, self.addr, value);
+
+                        self.movem_long_phase = 0;
+                        self.cycle = 0;
+                        self.micro_ops.advance();
+                        return;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Tick handler for multi-precision/BCD memory-to-memory: -(Ax),-(Ay).
+    ///
+    /// State: `addr` = source address (Ax pre-decremented),
+    /// `addr2` = destination address (Ay pre-decremented),
+    /// `data2` = operation (0=ABCD, 1=SBCD, 2=ADDX, 3=SUBX).
+    /// Size from `self.size` (ABCD/SBCD always byte).
+    /// Uses `movem_long_phase` for phase tracking.
+    #[allow(clippy::too_many_lines)]
+    fn tick_extend_mem_op<B: Bus>(&mut self, bus: &mut B) {
+        // For byte: phases 0=read src, 1=read dst, 2=write
+        // For word: phases 0=read src, 1=read dst, 2=write
+        // For long: phases 0=read src hi, 1=read src lo, 2=read dst hi, 3=read dst lo, 4=write hi, 5=write lo
+        match self.cycle {
+            0 | 1 | 2 => {}
+            3 => {
+                match self.size {
+                    Size::Byte => {
+                        match self.movem_long_phase {
+                            0 => {
+                                // Read source byte
+                                self.data = u32::from(self.read_byte(bus, self.addr));
+                                self.movem_long_phase = 1;
+                                self.cycle = 0;
+                                return;
+                            }
+                            1 => {
+                                // Read destination byte, compute result
+                                let src = self.data as u8;
+                                let dst = self.read_byte(bus, self.addr2);
+                                let x = u8::from(self.regs.sr & X != 0);
+
+                                let (result, carry) = match self.data2 {
+                                    0 => self.bcd_add(src, dst, x),
+                                    1 => self.bcd_sub(dst, src, x),
+                                    2 => {
+                                        let r = u16::from(dst) + u16::from(src) + u16::from(x);
+                                        (r as u8, r > 0xFF)
+                                    }
+                                    3 => {
+                                        let r = u16::from(dst).wrapping_sub(u16::from(src)).wrapping_sub(u16::from(x));
+                                        (r as u8, u16::from(dst) < u16::from(src) + u16::from(x))
+                                    }
+                                    _ => unreachable!(),
+                                };
+
+                                self.data = u32::from(result);
+                                self.set_extend_flags(u32::from(src), u32::from(dst), u32::from(result), carry, Size::Byte);
+                                self.movem_long_phase = 2;
+                                self.cycle = 0;
+                                return;
+                            }
+                            2 => {
+                                self.write_byte(bus, self.addr2, self.data as u8);
+                                self.cycle = 0;
+                                self.micro_ops.advance();
+                                return;
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    Size::Word => {
+                        match self.movem_long_phase {
+                            0 => {
+                                // Read source word
+                                self.data = u32::from(self.read_word(bus, self.addr));
+                                self.movem_long_phase = 1;
+                                self.cycle = 0;
+                                return;
+                            }
+                            1 => {
+                                // Read destination word, compute result
+                                let src = self.data as u16;
+                                let dst = self.read_word(bus, self.addr2);
+                                let x = u32::from(self.regs.sr & X != 0);
+
+                                let (result, carry) = if self.data2 == 2 {
+                                    // ADDX
+                                    let r = u32::from(dst) + u32::from(src) + x;
+                                    (r as u16, r > 0xFFFF)
+                                } else {
+                                    // SUBX
+                                    let r = u32::from(dst).wrapping_sub(u32::from(src)).wrapping_sub(x);
+                                    (r as u16, u32::from(dst) < u32::from(src) + x)
+                                };
+
+                                self.data = u32::from(result);
+                                self.set_extend_flags(src.into(), dst.into(), result.into(), carry, Size::Word);
+                                self.movem_long_phase = 2;
+                                self.cycle = 0;
+                                return;
+                            }
+                            2 => {
+                                self.write_word(bus, self.addr2, self.data as u16);
+                                self.cycle = 0;
+                                self.micro_ops.advance();
+                                return;
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    Size::Long => {
+                        match self.movem_long_phase {
+                            0 => {
+                                // Read source high word
+                                self.ext_words[3] = self.read_word(bus, self.addr);
+                                self.movem_long_phase = 1;
+                                self.cycle = 0;
+                                return;
+                            }
+                            1 => {
+                                // Read source low word
+                                self.data = (u32::from(self.ext_words[3]) << 16) | u32::from(self.read_word(bus, self.addr.wrapping_add(2)));
+                                self.movem_long_phase = 2;
+                                self.cycle = 0;
+                                return;
+                            }
+                            2 => {
+                                // Read destination high word
+                                self.ext_words[3] = self.read_word(bus, self.addr2);
+                                self.movem_long_phase = 3;
+                                self.cycle = 0;
+                                return;
+                            }
+                            3 => {
+                                // Read destination low word, compute result
+                                let src = self.data;
+                                let dst = (u32::from(self.ext_words[3]) << 16) | u32::from(self.read_word(bus, self.addr2.wrapping_add(2)));
+                                let x = u32::from(self.regs.sr & X != 0);
+
+                                let (result, carry) = if self.data2 == 2 {
+                                    // ADDX
+                                    let r = (dst as u64) + (src as u64) + (x as u64);
+                                    (r as u32, r > 0xFFFF_FFFF)
+                                } else {
+                                    // SUBX
+                                    let r = (dst as u64).wrapping_sub(src as u64).wrapping_sub(x as u64);
+                                    (r as u32, (dst as u64) < (src as u64) + (x as u64))
+                                };
+
+                                self.data = result;
+                                self.set_extend_flags(src, dst, result, carry, Size::Long);
+                                self.movem_long_phase = 4;
+                                self.cycle = 0;
+                                return;
+                            }
+                            4 => {
+                                // Write result high word
+                                self.write_word(bus, self.addr2, (self.data >> 16) as u16);
+                                self.movem_long_phase = 5;
+                                self.cycle = 0;
+                                return;
+                            }
+                            5 => {
+                                // Write result low word
+                                self.write_word(bus, self.addr2.wrapping_add(2), self.data as u16);
+                                self.cycle = 0;
+                                self.micro_ops.advance();
+                                return;
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.cycle += 1;
+    }
+
+    /// Set flags for ADDX/SUBX/ABCD/SBCD operations.
+    fn set_extend_flags(&mut self, src: u32, dst: u32, result: u32, carry: bool, size: Size) {
+        let (result_masked, msb) = match size {
+            Size::Byte => (result & 0xFF, 0x80u32),
+            Size::Word => (result & 0xFFFF, 0x8000),
+            Size::Long => (result, 0x8000_0000),
+        };
+
+        // Z: cleared if non-zero, unchanged otherwise
+        if result_masked != 0 {
+            self.regs.sr &= !Z;
+        }
+        // C and X: set on carry/borrow
+        self.regs.sr = Status::set_if(self.regs.sr, C, carry);
+        self.regs.sr = Status::set_if(self.regs.sr, X, carry);
+
+        // For ADDX/SUBX (ops 2,3), set N and V
+        if self.data2 >= 2 {
+            self.regs.sr = Status::set_if(self.regs.sr, N, result_masked & msb != 0);
+
+            let src_masked = match size {
+                Size::Byte => src & 0xFF,
+                Size::Word => src & 0xFFFF,
+                Size::Long => src,
+            };
+            let dst_masked = match size {
+                Size::Byte => dst & 0xFF,
+                Size::Word => dst & 0xFFFF,
+                Size::Long => dst,
+            };
+
+            let overflow = if self.data2 == 2 {
+                // ADDX: same signs produce different sign
+                (!(src_masked ^ dst_masked) & (src_masked ^ result_masked) & msb) != 0
+            } else {
+                // SUBX: different signs produce sign same as src
+                ((dst_masked ^ src_masked) & (dst_masked ^ result_masked) & msb) != 0
+            };
+            self.regs.sr = Status::set_if(self.regs.sr, V, overflow);
+        } else {
+            // N undefined for BCD but set based on MSB
+            self.regs.sr = Status::set_if(self.regs.sr, N, result_masked & msb != 0);
         }
     }
 

@@ -417,6 +417,53 @@ fn test_subq_addr_reg() {
 }
 
 #[test]
+fn test_addq_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADDQ.W #3, (A0) (opcode: 0x5650)
+    // 0101 011 0 01 010 000 = 0x5650
+    // NOP to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0x5650, 0x4E71]);
+    load_words(&mut bus, 0x2000, &[0x0010]); // Memory contains 0x0010
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.a[0] = 0x2000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Memory should now contain 0x0010 + 3 = 0x0013
+    let hi = bus.peek(0x2000);
+    let lo = bus.peek(0x2001);
+    let result = u16::from(hi) << 8 | u16::from(lo);
+    assert_eq!(result, 0x0013);
+}
+
+#[test]
+fn test_subq_memory_byte() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SUBQ.B #2, (A0) (opcode: 0x5510)
+    // 0101 010 1 00 010 000 = 0x5510
+    // NOP to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0x5510, 0x4E71]);
+    bus.poke(0x2000, 0x10); // Memory contains 0x10
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.a[0] = 0x2000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Memory should now contain 0x10 - 2 = 0x0E
+    assert_eq!(bus.peek(0x2000), 0x0E);
+}
+
+#[test]
 fn test_not() {
     let mut cpu = M68000::new();
     let mut bus = SimpleBus::new();
@@ -931,6 +978,53 @@ fn test_divs() {
 }
 
 #[test]
+fn test_mulu_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MULU (A0), D0 (opcode: 0xC0D0)
+    // 1100 000 011 010 000 = 0xC0D0
+    // NOP to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0xC0D0, 0x4E71]);
+    load_words(&mut bus, 0x2000, &[0x0010]); // Source value: 16
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.a[0] = 0x2000;
+    cpu.regs.d[0] = 0x0008; // Destination: 8
+
+    for _ in 0..100 {
+        cpu.tick(&mut bus);
+    }
+
+    // 8 * 16 = 128 = 0x80
+    assert_eq!(cpu.regs.d[0], 0x0000_0080);
+}
+
+#[test]
+fn test_divu_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // DIVU (A0), D0 (opcode: 0x80D0)
+    // 1000 000 011 010 000 = 0x80D0
+    // NOP to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0x80D0, 0x4E71]);
+    load_words(&mut bus, 0x2000, &[0x0003]); // Divisor: 3
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.a[0] = 0x2000;
+    cpu.regs.d[0] = 0x0000_000A; // Dividend: 10
+
+    for _ in 0..200 {
+        cpu.tick(&mut bus);
+    }
+
+    // 10 / 3 = 3 remainder 1
+    // Result: remainder(high) : quotient(low) = 0x0001_0003
+    assert_eq!(cpu.regs.d[0], 0x0001_0003);
+}
+
+#[test]
 fn test_jmp_indirect() {
     let mut cpu = M68000::new();
     let mut bus = SimpleBus::new();
@@ -1374,6 +1468,133 @@ fn test_bclr_immediate() {
     assert_eq!(cpu.regs.d[2], 0x0000_00EF);
     // Z should be clear (bit was originally set)
     assert!(cpu.regs.sr & emu_68000::Z == 0);
+}
+
+// === Bit Operations on Memory ===
+
+#[test]
+fn test_btst_reg_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BTST D0, (A0) - test bit in memory (mode=010, ea_reg=0)
+    // 0000 rrr1 00 mmm rrr = 0000 0001 00 010 000 = 0x0110
+    // NOP (0x4E71) added to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0x0110, 0x4E71]);
+    bus.poke(0x2000, 0xFB); // Bit 2 is clear
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 2; // Test bit 2
+    cpu.regs.a[0] = 0x2000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z should be set (bit 2 was clear)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    // Memory should be unchanged (BTST is read-only)
+    assert_eq!(bus.peek(0x2000), 0xFB);
+}
+
+#[test]
+fn test_bchg_reg_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BCHG D1, (A0) - toggle bit in memory
+    // 0000 rrr1 01 mmm rrr = 0000 0011 01 010 000 = 0x0350
+    // NOP (0x4E71) added to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0x0350, 0x4E71]);
+    bus.poke(0x2000, 0x55); // 0101_0101
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[1] = 3; // Toggle bit 3
+    cpu.regs.a[0] = 0x2000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z should be set (bit 3 was clear before)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    // Bit 3 should now be toggled: 0101_0101 -> 0101_1101 = 0x5D
+    assert_eq!(bus.peek(0x2000), 0x5D);
+}
+
+#[test]
+fn test_bclr_reg_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BCLR D2, (A0) - clear bit in memory
+    // 0000 rrr1 10 mmm rrr = 0000 0101 10 010 000 = 0x0590
+    // NOP (0x4E71) added to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0x0590, 0x4E71]);
+    bus.poke(0x2000, 0xFF);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[2] = 5; // Clear bit 5
+    cpu.regs.a[0] = 0x2000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z should be clear (bit 5 was set before)
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+    // Bit 5 should be cleared: 0xFF -> 0xDF
+    assert_eq!(bus.peek(0x2000), 0xDF);
+}
+
+#[test]
+fn test_bset_reg_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BSET D3, (A0) - set bit in memory
+    // 0000 rrr1 11 mmm rrr = 0000 0111 11 010 000 = 0x07D0
+    // NOP (0x4E71) added to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0x07D0, 0x4E71]);
+    bus.poke(0x2000, 0x00);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[3] = 7; // Set bit 7
+    cpu.regs.a[0] = 0x2000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z should be set (bit 7 was clear before)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    // Bit 7 should be set: 0x00 -> 0x80
+    assert_eq!(bus.peek(0x2000), 0x80);
+}
+
+#[test]
+fn test_bset_reg_memory_bit_mod8() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // BSET D0, (A0) - set bit in memory, bit number > 7 should mod 8
+    // 0000 rrr1 11 mmm rrr = 0000 0001 11 010 000 = 0x01D0
+    // NOP (0x4E71) added to prevent garbage execution
+    load_words(&mut bus, 0x1000, &[0x01D0, 0x4E71]);
+    bus.poke(0x2000, 0x00);
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 10; // Bit 10 mod 8 = bit 2
+    cpu.regs.a[0] = 0x2000;
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z should be set (bit 2 was clear before)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    // Bit 2 should be set: 0x00 -> 0x04
+    assert_eq!(bus.peek(0x2000), 0x04);
 }
 
 // === Status Register Operations ===
@@ -2424,4 +2645,492 @@ fn test_ror_memory() {
     assert_eq!(result, 0x8001);
     // C=1 (bit 0 was 1)
     assert!(cpu.regs.sr & emu_68000::C != 0);
+}
+
+// =============================================================================
+// ALU Memory Destination Tests
+// =============================================================================
+
+#[test]
+fn test_add_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADD.W D0,(A0) followed by NOP
+    // Opcode: 1101 reg 1 01 mode reg = 1101 000 1 01 010 000 = 0xD150
+    load_words(&mut bus, 0x1000, &[0xD150, 0x4E71]);
+    // Memory word = 0x0010
+    bus.poke(0x2000, 0x00);
+    bus.poke(0x2001, 0x10);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0005;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0x0010 + 0x0005 = 0x0015
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x0015);
+    // Z=0 (non-zero), N=0 (positive)
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+    assert!(cpu.regs.sr & emu_68000::N == 0);
+}
+
+#[test]
+fn test_sub_memory_byte() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SUB.B D0,(A0) followed by NOP
+    // Opcode: 1001 reg 1 00 mode reg = 1001 000 1 00 010 000 = 0x9110
+    load_words(&mut bus, 0x1000, &[0x9110, 0x4E71]);
+    // Memory byte = 0x20
+    bus.poke(0x2000, 0x20);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x05;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0x20 - 0x05 = 0x1B
+    let result = bus.peek(0x2000);
+    assert_eq!(result, 0x1B);
+}
+
+#[test]
+fn test_and_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // AND.W D0,(A0) followed by NOP
+    // Opcode: 1100 reg 1 01 mode reg = 1100 000 1 01 010 000 = 0xC150
+    load_words(&mut bus, 0x1000, &[0xC150, 0x4E71]);
+    // Memory word = 0xFF0F
+    bus.poke(0x2000, 0xFF);
+    bus.poke(0x2001, 0x0F);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0F0F;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0xFF0F & 0x0F0F = 0x0F0F
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x0F0F);
+}
+
+#[test]
+fn test_or_memory_byte() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // OR.B D0,(A0) followed by NOP
+    // Opcode: 1000 reg 1 00 mode reg = 1000 000 1 00 010 000 = 0x8110
+    load_words(&mut bus, 0x1000, &[0x8110, 0x4E71]);
+    // Memory byte = 0x0F
+    bus.poke(0x2000, 0x0F);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xF0;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0x0F | 0xF0 = 0xFF
+    let result = bus.peek(0x2000);
+    assert_eq!(result, 0xFF);
+    // N=1 (negative in byte), Z=0
+    assert!(cpu.regs.sr & emu_68000::N != 0);
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+}
+
+#[test]
+fn test_eor_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // EOR.W D0,(A0) followed by NOP
+    // Opcode: 1011 reg 1 01 mode reg = 1011 000 1 01 010 000 = 0xB150
+    load_words(&mut bus, 0x1000, &[0xB150, 0x4E71]);
+    // Memory word = 0xAAAA
+    bus.poke(0x2000, 0xAA);
+    bus.poke(0x2001, 0xAA);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x5555;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0xAAAA ^ 0x5555 = 0xFFFF
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0xFFFF);
+    // N=1 (negative), Z=0
+    assert!(cpu.regs.sr & emu_68000::N != 0);
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+}
+
+#[test]
+fn test_add_memory_with_carry() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADD.W D0,(A0) followed by NOP
+    load_words(&mut bus, 0x1000, &[0xD150, 0x4E71]);
+    // Memory word = 0xFFFF
+    bus.poke(0x2000, 0xFF);
+    bus.poke(0x2001, 0xFF);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0001;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0xFFFF + 0x0001 = 0x0000 with carry
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x0000);
+    // Z=1 (zero), C=1 (carry), X=1 (extend)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+    assert!(cpu.regs.sr & emu_68000::X != 0);
+}
+
+// =============================================================================
+// ALU Memory Source Tests
+// =============================================================================
+
+#[test]
+fn test_add_from_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADD.W (A0),D0 followed by NOP
+    // Opcode: 1101 reg 0 size mode reg = 1101 000 0 01 010 000 = 0xD050
+    load_words(&mut bus, 0x1000, &[0xD050, 0x4E71]);
+    // Memory word = 0x0010
+    bus.poke(0x2000, 0x00);
+    bus.poke(0x2001, 0x10);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0005;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: D0 = 0x0005 + 0x0010 = 0x0015
+    assert_eq!(cpu.regs.d[0] & 0xFFFF, 0x0015);
+}
+
+#[test]
+fn test_sub_from_memory_byte() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // SUB.B (A0),D0 followed by NOP
+    // Opcode: 1001 reg 0 size mode reg = 1001 000 0 00 010 000 = 0x9010
+    load_words(&mut bus, 0x1000, &[0x9010, 0x4E71]);
+    // Memory byte = 0x05
+    bus.poke(0x2000, 0x05);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x20;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: D0 = 0x20 - 0x05 = 0x1B
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x1B);
+}
+
+#[test]
+fn test_and_from_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // AND.W (A0),D0 followed by NOP
+    // Opcode: 1100 reg 0 size mode reg = 1100 000 0 01 010 000 = 0xC050
+    load_words(&mut bus, 0x1000, &[0xC050, 0x4E71]);
+    // Memory word = 0x0F0F
+    bus.poke(0x2000, 0x0F);
+    bus.poke(0x2001, 0x0F);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xFF00;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: D0 = 0xFF00 & 0x0F0F = 0x0F00
+    assert_eq!(cpu.regs.d[0] & 0xFFFF, 0x0F00);
+}
+
+#[test]
+fn test_or_from_memory_byte() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // OR.B (A0),D0 followed by NOP
+    // Opcode: 1000 reg 0 size mode reg = 1000 000 0 00 010 000 = 0x8010
+    load_words(&mut bus, 0x1000, &[0x8010, 0x4E71]);
+    // Memory byte = 0x0F
+    bus.poke(0x2000, 0x0F);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xF0;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: D0 = 0xF0 | 0x0F = 0xFF
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0xFF);
+}
+
+#[test]
+fn test_cmp_from_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CMP.W (A0),D0 followed by NOP
+    // Opcode: 1011 reg 0 size mode reg = 1011 000 0 01 010 000 = 0xB050
+    load_words(&mut bus, 0x1000, &[0xB050, 0x4E71]);
+    // Memory word = 0x0010
+    bus.poke(0x2000, 0x00);
+    bus.poke(0x2001, 0x10);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x0010; // Equal values
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // D0 unchanged (CMP doesn't modify destination)
+    assert_eq!(cpu.regs.d[0] & 0xFFFF, 0x0010);
+    // Z=1 (equal)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+}
+
+#[test]
+fn test_adda_from_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADDA.W (A1),A0 followed by NOP
+    // Opcode: 1101 reg 011 mode reg = 1101 000 011 010 001 = 0xD0D1
+    load_words(&mut bus, 0x1000, &[0xD0D1, 0x4E71]);
+    // Memory word = 0xFFF0 (will sign-extend to 0xFFFFFFF0 = -16)
+    bus.poke(0x2000, 0xFF);
+    bus.poke(0x2001, 0xF0);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x0100);
+    cpu.regs.set_a(1, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: A0 = 0x0100 + 0xFFFFFFF0 = 0x000000F0
+    assert_eq!(cpu.regs.a(0), 0x000000F0);
+}
+
+#[test]
+fn test_add_from_memory_long() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ADD.L (A0),D0 followed by NOP
+    // Opcode: 1101 reg 0 10 mode reg = 1101 000 0 10 010 000 = 0xD090
+    load_words(&mut bus, 0x1000, &[0xD090, 0x4E71]);
+    // Memory long = 0x12345678
+    bus.poke(0x2000, 0x12);
+    bus.poke(0x2001, 0x34);
+    bus.poke(0x2002, 0x56);
+    bus.poke(0x2003, 0x78);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x00000001;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..24 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: D0 = 0x00000001 + 0x12345678 = 0x12345679
+    assert_eq!(cpu.regs.d[0], 0x12345679);
+}
+
+// =============================================================================
+// CLR/NEG/NOT/TST Memory Tests
+// =============================================================================
+
+#[test]
+fn test_clr_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // CLR.W (A0) followed by NOP
+    // Opcode: 0100 0010 01 mode reg = 0100 0010 01 010 000 = 0x4250
+    load_words(&mut bus, 0x1000, &[0x4250, 0x4E71]);
+    // Memory word = 0x1234
+    bus.poke(0x2000, 0x12);
+    bus.poke(0x2001, 0x34);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: memory cleared to 0x0000
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x0000);
+    // Z=1, N=0
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+    assert!(cpu.regs.sr & emu_68000::N == 0);
+}
+
+#[test]
+fn test_neg_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NEG.W (A0) followed by NOP
+    // Opcode: 0100 0100 01 mode reg = 0100 0100 01 010 000 = 0x4450
+    load_words(&mut bus, 0x1000, &[0x4450, 0x4E71]);
+    // Memory word = 0x0001
+    bus.poke(0x2000, 0x00);
+    bus.poke(0x2001, 0x01);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: 0 - 1 = 0xFFFF
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0xFFFF);
+    // N=1 (negative), C=1 (borrow), X=1
+    assert!(cpu.regs.sr & emu_68000::N != 0);
+    assert!(cpu.regs.sr & emu_68000::C != 0);
+}
+
+#[test]
+fn test_not_memory_byte() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // NOT.B (A0) followed by NOP
+    // Opcode: 0100 0110 00 mode reg = 0100 0110 00 010 000 = 0x4610
+    load_words(&mut bus, 0x1000, &[0x4610, 0x4E71]);
+    // Memory byte = 0x55
+    bus.poke(0x2000, 0x55);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Result: ~0x55 = 0xAA
+    let result = bus.peek(0x2000);
+    assert_eq!(result, 0xAA);
+    // N=1 (bit 7 set)
+    assert!(cpu.regs.sr & emu_68000::N != 0);
+}
+
+#[test]
+fn test_tst_memory_word() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // TST.W (A0) followed by NOP
+    // Opcode: 0100 1010 01 mode reg = 0100 1010 01 010 000 = 0x4A50
+    load_words(&mut bus, 0x1000, &[0x4A50, 0x4E71]);
+    // Memory word = 0x0000
+    bus.poke(0x2000, 0x00);
+    bus.poke(0x2001, 0x00);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Memory unchanged
+    let result = u16::from(bus.peek(0x2000)) << 8 | u16::from(bus.peek(0x2001));
+    assert_eq!(result, 0x0000);
+    // Z=1 (zero)
+    assert!(cpu.regs.sr & emu_68000::Z != 0);
+}
+
+#[test]
+fn test_tst_memory_negative() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // TST.W (A0) followed by NOP
+    load_words(&mut bus, 0x1000, &[0x4A50, 0x4E71]);
+    // Memory word = 0x8000 (negative)
+    bus.poke(0x2000, 0x80);
+    bus.poke(0x2001, 0x00);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.set_a(0, 0x2000);
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // Z=0, N=1
+    assert!(cpu.regs.sr & emu_68000::Z == 0);
+    assert!(cpu.regs.sr & emu_68000::N != 0);
 }
