@@ -861,6 +861,18 @@ impl M68000 {
                     self.cycle = 0;
                     self.micro_ops.advance();
 
+                    // In prefetch_only mode (single-step tests), don't continue
+                    // executing from the vector - just stop with PC set to the
+                    // vector address. The test validates the exception frame
+                    // and final PC, not the execution at the vector.
+                    if self.prefetch_only {
+                        // The test expects final PC to include prefetch advance.
+                        // Exception entry does 2 prefetches from new PC.
+                        self.regs.pc = self.regs.pc.wrapping_add(4);
+                        self.micro_ops.clear();
+                        return;
+                    }
+
                     // After exception, start fetching from new PC.
                     // Queue FetchOpcode - tick_fetch_opcode will queue Execute.
                     // Note: For full prefetch accuracy, we'd queue FetchExtWord too,
@@ -2253,13 +2265,27 @@ impl M68000 {
                 // Queue push of PC and SR
                 // PC is stored in data for PushLongHi/Lo
                 //
-                // For most exceptions, PC points to the faulting instruction:
+                // Different exceptions save different PC values:
+                //
+                // Faulting instruction address (PC - 4):
                 // - Privilege violation (8): PC of the privileged instruction
                 // - Illegal instruction (4): PC of the illegal opcode
                 // - Line A/F emulator (10, 11): PC of the line A/F instruction
-                // With prefetch model, current PC is opcode + 4, so subtract 4.
+                //
+                // Return address (PC - 2):
+                // - TRAP (32-47): address of instruction after TRAP
+                // - TRAPV (7): address of instruction after TRAPV
+                // - CHK (6): return address (instruction following CHK)
+                //
+                // With prefetch model, current PC = opcode + 4, so:
+                // - For fault address: subtract 4 to get opcode address
+                // - For return address: subtract 2 to get next instruction
                 let saved_pc = match vec {
+                    // Push fault address (back to the instruction that caused exception)
                     4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(4),
+                    // Push return address (instruction after the trap/exception)
+                    6 | 7 | 32..=47 => self.regs.pc.wrapping_sub(2),
+                    // Other exceptions use current PC
                     _ => self.regs.pc,
                 };
                 self.data = saved_pc;
