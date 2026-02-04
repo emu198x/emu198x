@@ -869,6 +869,8 @@ impl M68000 {
                         // The test expects final PC to include prefetch advance.
                         // Exception entry does 2 prefetches from new PC.
                         self.regs.pc = self.regs.pc.wrapping_add(4);
+                        // Mark that PC was already advanced so tick() doesn't add +2
+                        self.internal_advances_pc = true;
                         self.micro_ops.clear();
                         return;
                     }
