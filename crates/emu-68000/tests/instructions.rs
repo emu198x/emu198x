@@ -3550,3 +3550,248 @@ fn test_exception_saves_state() {
     assert_eq!(pushed_sr, expected_old_sr, "Pushed SR should be original SR");
     assert_eq!(pushed_pc, expected_return_pc, "Pushed PC should be return address");
 }
+
+// =============================================================================
+// ROXL/ROXR - Rotate through Extend
+// =============================================================================
+
+#[test]
+fn test_roxl_byte_with_x_clear() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ROXL.B #1,D0 (opcode: 0xE310)
+    // Rotate left through X by 1 bit
+    load_words(&mut bus, 0x1000, &[0xE310, 0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x80; // 1000_0000 - MSB set
+    cpu.regs.sr &= !emu_68000::X; // X clear
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // After ROXL.B #1 with X=0:
+    // 0x80 = 1000_0000, X=0
+    // Rotate left: MSB (1) goes to X and C, old X (0) goes to LSB
+    // Result: 0000_0000 = 0x00, X=1, C=1
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x00);
+    assert!(cpu.regs.sr & emu_68000::X != 0, "X should be set");
+    assert!(cpu.regs.sr & emu_68000::C != 0, "C should be set");
+}
+
+#[test]
+fn test_roxl_byte_with_x_set() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ROXL.B #1,D0 (opcode: 0xE310)
+    load_words(&mut bus, 0x1000, &[0xE310, 0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x40; // 0100_0000
+    cpu.regs.sr |= emu_68000::X; // X set
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // After ROXL.B #1 with X=1:
+    // 0x40 = 0100_0000, X=1
+    // Rotate left: MSB (0) goes to X and C, old X (1) goes to LSB
+    // Result: 1000_0001 = 0x81, X=0, C=0
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x81);
+    assert!(cpu.regs.sr & emu_68000::X == 0, "X should be clear");
+    assert!(cpu.regs.sr & emu_68000::C == 0, "C should be clear");
+}
+
+#[test]
+fn test_roxr_byte_with_x_clear() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ROXR.B #1,D0 (opcode: 0xE210)
+    load_words(&mut bus, 0x1000, &[0xE210, 0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x01; // 0000_0001 - LSB set
+    cpu.regs.sr &= !emu_68000::X; // X clear
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // After ROXR.B #1 with X=0:
+    // 0x01 = 0000_0001, X=0
+    // Rotate right: LSB (1) goes to X and C, old X (0) goes to MSB
+    // Result: 0000_0000 = 0x00, X=1, C=1
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x00);
+    assert!(cpu.regs.sr & emu_68000::X != 0, "X should be set");
+    assert!(cpu.regs.sr & emu_68000::C != 0, "C should be set");
+}
+
+#[test]
+fn test_roxr_byte_with_x_set() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ROXR.B #1,D0 (opcode: 0xE210)
+    load_words(&mut bus, 0x1000, &[0xE210, 0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x02; // 0000_0010
+    cpu.regs.sr |= emu_68000::X; // X set
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // After ROXR.B #1 with X=1:
+    // 0x02 = 0000_0010, X=1
+    // Rotate right: LSB (0) goes to X and C, old X (1) goes to MSB
+    // Result: 1000_0001 = 0x81, X=0, C=0
+    assert_eq!(cpu.regs.d[0] & 0xFF, 0x81);
+    assert!(cpu.regs.sr & emu_68000::X == 0, "X should be clear");
+    assert!(cpu.regs.sr & emu_68000::C == 0, "C should be clear");
+}
+
+#[test]
+fn test_roxl_word_count_2() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // ROXL.W #2,D0 (opcode: 0xE550)
+    load_words(&mut bus, 0x1000, &[0xE550, 0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xC000; // 1100_0000_0000_0000
+    cpu.regs.sr |= emu_68000::X; // X=1
+
+    for _ in 0..20 {
+        cpu.tick(&mut bus);
+    }
+
+    // After ROXL.W #2 with X=1:
+    // Initial: X=1, value=1100_0000_0000_0000
+    // Step 1: MSB(1)->X, old_X(1)->LSB: X=1, value=1000_0000_0000_0001
+    // Step 2: MSB(1)->X, old_X(1)->LSB: X=1, value=0000_0000_0000_0011
+    assert_eq!(cpu.regs.d[0] & 0xFFFF, 0x0003);
+    assert!(cpu.regs.sr & emu_68000::X != 0, "X should be set");
+}
+
+// =============================================================================
+// MOVEP - Move Peripheral Data
+// =============================================================================
+
+#[test]
+fn test_movep_word_to_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEP.W D0,2(A0) (opcode: 0x0188 + displacement 0x0002)
+    // Encoding: 0000_rrr1_1000_1aaa = 0x0188 for D0,d(A0)
+    load_words(&mut bus, 0x1000, &[0x0188, 0x0002, 0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0x1234; // Value to write (low word)
+    cpu.regs.set_a(0, 0x2000); // Base address
+
+    for _ in 0..40 {
+        cpu.tick(&mut bus);
+    }
+
+    // MOVEP.W writes high byte to d(An), low byte to d(An)+2
+    // D0.W = 0x1234, so high byte 0x12 to 0x2002, low byte 0x34 to 0x2004
+    assert_eq!(bus.peek(0x2002), 0x12, "High byte should be at base+disp");
+    assert_eq!(bus.peek(0x2004), 0x34, "Low byte should be at base+disp+2");
+}
+
+#[test]
+fn test_movep_long_to_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEP.L D1,4(A1) (opcode: 0x03C9 + displacement 0x0004)
+    // Encoding: 0000_xxx1_mm00_1yyy where xxx=001(D1), mm=11(long,reg->mem), yyy=001(A1)
+    // = 0000_0011_1100_1001 = 0x03C9
+    load_words(&mut bus, 0x1000, &[0x03C9, 0x0004, 0x4E71]);
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[1] = 0xDEADBEEF; // Value to write
+    cpu.regs.set_a(1, 0x2000); // Base address
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // MOVEP.L writes bytes to d(An), d(An)+2, d(An)+4, d(An)+6
+    // D1 = 0xDEADBEEF
+    assert_eq!(bus.peek(0x2004), 0xDE, "Byte 3 (MSB)");
+    assert_eq!(bus.peek(0x2006), 0xAD, "Byte 2");
+    assert_eq!(bus.peek(0x2008), 0xBE, "Byte 1");
+    assert_eq!(bus.peek(0x200A), 0xEF, "Byte 0 (LSB)");
+}
+
+#[test]
+fn test_movep_word_from_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEP.W 2(A0),D0 (opcode: 0x0108 + displacement 0x0002)
+    // Encoding: 0000_rrr1_0000_1aaa = 0x0108 for d(A0),D0
+    load_words(&mut bus, 0x1000, &[0x0108, 0x0002, 0x4E71]);
+
+    // Set up memory bytes at alternate addresses
+    bus.poke(0x2002, 0xAB); // High byte
+    bus.poke(0x2004, 0xCD); // Low byte
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[0] = 0xFFFF_0000; // Pre-fill upper word
+    cpu.regs.set_a(0, 0x2000); // Base address
+
+    for _ in 0..40 {
+        cpu.tick(&mut bus);
+    }
+
+    // MOVEP.W reads from d(An) and d(An)+2 into low word of Dn
+    // Result: 0xABCD in low word, upper word unchanged
+    assert_eq!(cpu.regs.d[0], 0xFFFF_ABCD);
+}
+
+#[test]
+fn test_movep_long_from_memory() {
+    let mut cpu = M68000::new();
+    let mut bus = SimpleBus::new();
+
+    // MOVEP.L 0(A2),D2 (opcode: 0x054A + displacement 0x0000)
+    // Encoding: 0000_xxx1_mm00_1yyy where xxx=010(D2), mm=01(long,mem->reg), yyy=010(A2)
+    // = 0000_0101_0100_1010 = 0x054A
+    load_words(&mut bus, 0x1000, &[0x054A, 0x0000, 0x4E71]);
+
+    // Set up memory bytes at alternate addresses
+    bus.poke(0x3000, 0x12); // Byte 3 (MSB)
+    bus.poke(0x3002, 0x34); // Byte 2
+    bus.poke(0x3004, 0x56); // Byte 1
+    bus.poke(0x3006, 0x78); // Byte 0 (LSB)
+
+    cpu.reset();
+    cpu.regs.pc = 0x1000;
+    cpu.regs.d[2] = 0; // Clear
+    cpu.regs.set_a(2, 0x3000); // Base address
+
+    for _ in 0..50 {
+        cpu.tick(&mut bus);
+    }
+
+    // MOVEP.L reads 4 bytes into Dn
+    assert_eq!(cpu.regs.d[2], 0x12345678);
+}

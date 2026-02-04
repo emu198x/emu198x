@@ -59,8 +59,15 @@ impl M68000 {
         // Re-dispatch to the same instruction handler
         match op >> 12 {
             0x0 => {
-                // Group 0 - immediate operations continuation
-                self.immediate_op_continuation();
+                // Group 0 - check for MOVEP (bit 8 set + mode 1) vs immediate ops
+                let mode = ((op >> 3) & 7) as u8;
+                if op & 0x0100 != 0 && mode == 1 {
+                    // MOVEP continuation
+                    self.movep_continuation();
+                } else {
+                    // Immediate operations continuation
+                    self.immediate_op_continuation();
+                }
             }
             0x1 => self.decode_move_byte(op),
             0x2 => self.decode_move_long(op),
@@ -106,22 +113,32 @@ impl M68000 {
     /// Group 0: Bit manipulation, MOVEP, Immediate
     fn decode_group_0(&mut self, op: u16) {
         // Encoding guide for Group 0:
-        // - Bit 8 set: Dynamic bit operations (BTST/BCHG/BCLR/BSET with register)
+        // - Bit 8 set + mode=001: MOVEP (move peripheral data)
+        // - Bit 8 set + mode!=001: Dynamic bit operations (BTST/BCHG/BCLR/BSET with register)
         // - Bits 11-9 = 100: Static bit operations (BTST/BCHG/BCLR/BSET with immediate)
         // - Otherwise: Immediate arithmetic/logic (ORI, ANDI, SUBI, ADDI, EORI, CMPI)
 
-        if op & 0x0100 != 0 {
-            // Bit operations with register (dynamic bit number in Dn)
-            let reg = ((op >> 9) & 7) as u8;
-            let mode = ((op >> 3) & 7) as u8;
-            let ea_reg = (op & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
 
-            match (op >> 6) & 3 {
-                0 => self.exec_btst_reg(reg, mode, ea_reg),
-                1 => self.exec_bchg_reg(reg, mode, ea_reg),
-                2 => self.exec_bclr_reg(reg, mode, ea_reg),
-                3 => self.exec_bset_reg(reg, mode, ea_reg),
-                _ => unreachable!(),
+        if op & 0x0100 != 0 {
+            if mode == 1 {
+                // MOVEP - Move Peripheral Data
+                // Encoding: 0000_rrr1_0sD0_1aaa
+                // rrr = data register, s = size (0=word, 1=long)
+                // D = direction (0=mem to reg, 1=reg to mem), aaa = address register
+                self.exec_movep(op);
+            } else {
+                // Bit operations with register (dynamic bit number in Dn)
+                let reg = ((op >> 9) & 7) as u8;
+                let ea_reg = (op & 7) as u8;
+
+                match (op >> 6) & 3 {
+                    0 => self.exec_btst_reg(reg, mode, ea_reg),
+                    1 => self.exec_bchg_reg(reg, mode, ea_reg),
+                    2 => self.exec_bclr_reg(reg, mode, ea_reg),
+                    3 => self.exec_bset_reg(reg, mode, ea_reg),
+                    _ => unreachable!(),
+                }
             }
         } else {
             // Check bits 11-9 for operation type
@@ -797,6 +814,209 @@ impl M68000 {
             }
             _ => {
                 self.illegal_instruction();
+            }
+        }
+    }
+
+    /// MOVEP - Move Peripheral Data
+    /// Transfers data between a data register and alternate bytes in memory.
+    /// Used for accessing 8-bit peripherals on the 16-bit bus.
+    fn exec_movep(&mut self, op: u16) {
+        // Encoding: 0000_rrr1_0sD0_1aaa + 16-bit displacement
+        // rrr = data register, s = size (0=word, 1=long)
+        // D = direction (0=mem to reg, 1=reg to mem), aaa = address register
+        let data_reg = ((op >> 9) & 7) as u8;
+        let addr_reg = (op & 7) as u8;
+        let is_long = op & 0x0040 != 0;
+        let to_memory = op & 0x0080 != 0;
+
+        // Need to fetch the displacement extension word
+        // Store everything in data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
+        self.data2 = u32::from(addr_reg)
+            | (u32::from(data_reg) << 4)
+            | (if is_long { 0x100 } else { 0 })
+            | (if to_memory { 0x200 } else { 0 });
+        self.movem_long_phase = 0;
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.micro_ops.push(MicroOp::Execute); // Continue after fetching displacement
+        self.instr_phase = InstrPhase::SrcRead;
+    }
+
+    /// Continuation for MOVEP after fetching displacement.
+    fn exec_movep_continuation(&mut self) {
+        // Extract fields from data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
+        let addr_reg = (self.data2 & 7) as usize;
+        let data_reg = ((self.data2 >> 4) & 7) as usize;
+        let is_long = self.data2 & 0x100 != 0;
+        let to_memory = self.data2 & 0x200 != 0;
+        let displacement = self.ext_words[0] as i16 as i32;
+
+        let base_addr = (self.regs.a(addr_reg) as i32).wrapping_add(displacement) as u32;
+
+        if to_memory {
+            // Register to memory: write bytes to alternate addresses
+            let value = self.regs.d[data_reg];
+            if is_long {
+                // MOVEP.L Dn,d(An): 4 byte writes
+                self.addr = base_addr;
+                self.addr2 = value; // Store full value for later phases
+                self.data = (value >> 24) & 0xFF; // Byte 3 (MSB) to write first
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::WriteByte);
+                self.micro_ops.push(MicroOp::Execute); // Continue after write
+                self.instr_phase = InstrPhase::DstWrite;
+            } else {
+                // MOVEP.W Dn,d(An): 2 byte writes
+                self.addr = base_addr;
+                self.addr2 = value; // Store full value for later phases
+                self.data = (value >> 8) & 0xFF; // High byte of word to write first
+                self.movem_long_phase = 4; // Start at phase 4 for word
+                self.micro_ops.push(MicroOp::WriteByte);
+                self.micro_ops.push(MicroOp::Execute); // Continue after write
+                self.instr_phase = InstrPhase::DstWrite;
+            }
+        } else {
+            // Memory to register: read bytes from alternate addresses
+            if is_long {
+                // MOVEP.L d(An),Dn: 4 byte reads
+                self.addr = base_addr;
+                self.addr2 = 0; // Will accumulate result
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::ReadByte);
+                self.micro_ops.push(MicroOp::Execute); // Continue after read
+                self.instr_phase = InstrPhase::DstWrite; // Use DstWrite for read continuation
+            } else {
+                // MOVEP.W d(An),Dn: 2 byte reads
+                self.addr = base_addr;
+                self.addr2 = 0; // Will accumulate result
+                self.movem_long_phase = 4; // Start at phase 4 for word
+                self.micro_ops.push(MicroOp::ReadByte);
+                self.micro_ops.push(MicroOp::Execute); // Continue after read
+                self.instr_phase = InstrPhase::DstWrite; // Use DstWrite for read continuation
+            }
+        }
+    }
+
+    /// Handle MOVEP read/write phases.
+    fn exec_movep_phase(&mut self) {
+        // Extract fields from data2: bits 4-6=data_reg, bit 9=to_memory
+        let data_reg = ((self.data2 >> 4) & 7) as usize;
+        let to_memory = self.data2 & 0x200 != 0;
+
+        if to_memory {
+            // Writing: advance to next byte
+            match self.movem_long_phase {
+                0 => {
+                    // Just wrote byte 3, write byte 2
+                    self.addr = self.addr.wrapping_add(2);
+                    self.data = (self.addr2 >> 16) & 0xFF; // Byte 2
+                    self.movem_long_phase = 1;
+                    self.micro_ops.push(MicroOp::WriteByte);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                1 => {
+                    // Just wrote byte 2, write byte 1
+                    self.addr = self.addr.wrapping_add(2);
+                    self.data = (self.addr2 >> 8) & 0xFF; // Byte 1
+                    self.movem_long_phase = 2;
+                    self.micro_ops.push(MicroOp::WriteByte);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                2 => {
+                    // Just wrote byte 1, write byte 0
+                    self.addr = self.addr.wrapping_add(2);
+                    self.data = self.addr2 & 0xFF; // Byte 0 (LSB)
+                    self.movem_long_phase = 3;
+                    self.micro_ops.push(MicroOp::WriteByte);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                3 => {
+                    // Done with long write
+                    self.instr_phase = InstrPhase::Complete;
+                }
+                4 => {
+                    // Word: just wrote high byte (bits 15-8), write low byte (bits 7-0)
+                    self.addr = self.addr.wrapping_add(2);
+                    self.data = self.addr2 & 0xFF; // Low byte of word
+                    self.movem_long_phase = 5;
+                    self.micro_ops.push(MicroOp::WriteByte);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                5 => {
+                    // Done with word write
+                    self.instr_phase = InstrPhase::Complete;
+                }
+                _ => self.instr_phase = InstrPhase::Complete,
+            }
+        } else {
+            // Reading: accumulate bytes and advance
+            let byte_read = self.data as u8;
+            match self.movem_long_phase {
+                0 => {
+                    // Read byte 3 (MSB), read byte 2
+                    self.addr2 = u32::from(byte_read) << 24;
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 1;
+                    self.micro_ops.push(MicroOp::ReadByte);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                1 => {
+                    // Read byte 2, read byte 1
+                    self.addr2 |= u32::from(byte_read) << 16;
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 2;
+                    self.micro_ops.push(MicroOp::ReadByte);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                2 => {
+                    // Read byte 1, read byte 0
+                    self.addr2 |= u32::from(byte_read) << 8;
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 3;
+                    self.micro_ops.push(MicroOp::ReadByte);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                3 => {
+                    // Read byte 0 (LSB), store to register
+                    self.addr2 |= u32::from(byte_read);
+                    self.regs.d[data_reg] = self.addr2;
+                    self.instr_phase = InstrPhase::Complete;
+                }
+                4 => {
+                    // Word: read high byte, read low byte
+                    self.addr2 = u32::from(byte_read) << 8;
+                    self.addr = self.addr.wrapping_add(2);
+                    self.movem_long_phase = 5;
+                    self.micro_ops.push(MicroOp::ReadByte);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
+                5 => {
+                    // Word: read low byte, store to register (low word only)
+                    self.addr2 |= u32::from(byte_read);
+                    // MOVEP.W only affects low word of Dn
+                    self.regs.d[data_reg] = (self.regs.d[data_reg] & 0xFFFF_0000) | self.addr2;
+                    self.instr_phase = InstrPhase::Complete;
+                }
+                _ => self.instr_phase = InstrPhase::Complete,
+            }
+        }
+    }
+
+    /// MOVEP continuation dispatcher.
+    fn movep_continuation(&mut self) {
+        use crate::cpu::InstrPhase;
+        match self.instr_phase {
+            InstrPhase::SrcRead => {
+                // After FetchExtWord, start the transfer
+                self.exec_movep_continuation();
+            }
+            InstrPhase::DstWrite => {
+                // After a write phase, continue or complete
+                self.exec_movep_phase();
+            }
+            _ => {
+                // After a read phase, continue or complete
+                self.exec_movep_phase();
             }
         }
     }
@@ -3752,14 +3972,70 @@ impl M68000 {
                 }
             }
             // ROXL - Rotate through X left
+            // X flag is included as bit in the rotation chain
             (2, true) => {
-                // Stub - complex with X flag involvement
-                (value, false)
+                if count == 0 {
+                    // Count 0: result unchanged, C = X
+                    let x = self.regs.sr & X != 0;
+                    (value, x)
+                } else {
+                    let bits = match size {
+                        Size::Byte => 8u32,
+                        Size::Word => 16,
+                        Size::Long => 32,
+                    };
+                    // Rotation is through (bits + 1) positions (including X)
+                    let total_bits = bits + 1;
+                    let count = count % total_bits;
+                    if count == 0 {
+                        let x = self.regs.sr & X != 0;
+                        (value, x)
+                    } else {
+                        // Build extended value: X in position 'bits', data in lower bits
+                        let x_bit = if self.regs.sr & X != 0 { 1u64 } else { 0 };
+                        let extended = (x_bit << bits) | u64::from(value & mask);
+                        // Rotate left through the (bits+1) wide value
+                        let rotated = ((extended << count) | (extended >> (total_bits - count)))
+                            & ((1u64 << total_bits) - 1);
+                        // Extract result and new X
+                        let result = (rotated & u64::from(mask)) as u32;
+                        let new_x = (rotated >> bits) & 1 != 0;
+                        (result, new_x)
+                    }
+                }
             }
             // ROXR - Rotate through X right
+            // X flag is included as bit in the rotation chain
             (2, false) => {
-                // Stub - complex with X flag involvement
-                (value, false)
+                if count == 0 {
+                    // Count 0: result unchanged, C = X
+                    let x = self.regs.sr & X != 0;
+                    (value, x)
+                } else {
+                    let bits = match size {
+                        Size::Byte => 8u32,
+                        Size::Word => 16,
+                        Size::Long => 32,
+                    };
+                    // Rotation is through (bits + 1) positions (including X)
+                    let total_bits = bits + 1;
+                    let count = count % total_bits;
+                    if count == 0 {
+                        let x = self.regs.sr & X != 0;
+                        (value, x)
+                    } else {
+                        // Build extended value: X in position 'bits', data in lower bits
+                        let x_bit = if self.regs.sr & X != 0 { 1u64 } else { 0 };
+                        let extended = (x_bit << bits) | u64::from(value & mask);
+                        // Rotate right through the (bits+1) wide value
+                        let rotated = ((extended >> count) | (extended << (total_bits - count)))
+                            & ((1u64 << total_bits) - 1);
+                        // Extract result and new X
+                        let result = (rotated & u64::from(mask)) as u32;
+                        let new_x = (rotated >> bits) & 1 != 0;
+                        (result, new_x)
+                    }
+                }
             }
             // ROL - Rotate left
             (3, true) => {
@@ -3802,17 +4078,22 @@ impl M68000 {
         // N and Z based on result
         self.set_flags_move(result, size);
 
-        // C flag is last bit shifted out (or cleared if count=0)
-        // X flag is set same as C for shifts, unchanged for rotates
+        // C flag is last bit shifted out (or cleared if count=0 for non-ROX)
+        // X flag is set same as C for shifts and ROXL/ROXR, unchanged for ROL/ROR
         if count > 0 {
             self.regs.sr = Status::set_if(self.regs.sr, C, carry);
-            // X is set for shifts (kind 0,1) but not for rotates (kind 2,3)
-            if kind < 2 {
+            // X is set for shifts (kind 0,1) and ROXL/ROXR (kind 2), not ROL/ROR (kind 3)
+            if kind < 3 {
                 self.regs.sr = Status::set_if(self.regs.sr, X, carry);
             }
         } else {
-            // Count=0: C is cleared, X unchanged
-            self.regs.sr &= !C;
+            // Count=0: For ROXL/ROXR, C = X; for others, C is cleared
+            if kind == 2 {
+                let x = self.regs.sr & X != 0;
+                self.regs.sr = Status::set_if(self.regs.sr, C, x);
+            } else {
+                self.regs.sr &= !C;
+            }
         }
 
         // V is cleared except for ASL where it can be set
