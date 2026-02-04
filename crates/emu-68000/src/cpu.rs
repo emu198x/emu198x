@@ -2801,12 +2801,13 @@ impl Cpu for M68000 {
         if self.micro_ops.is_empty() {
             if self.prefetch_only {
                 // In prefetch-only mode (single-step testing):
-                // Add PC advance for prefetch refill only if:
-                // - Any extension words were consumed (ext_idx > 0), AND
-                // - The internal cycles didn't already advance PC
-                // Instructions with long internal cycles (DIVU, MULU, etc.) overlap
-                // their prefetch during execution, handled by tick_internal_cycles.
-                if self.ext_idx > 0 && !self.internal_advances_pc {
+                // Add PC advance for prefetch refill unless the internal cycles
+                // already advanced PC (DIVU, MULU, etc. overlap their prefetch
+                // during execution, handled by tick_internal_cycles).
+                //
+                // This applies to ALL instructions - both those with and without
+                // extension words need the final prefetch advance.
+                if !self.internal_advances_pc {
                     self.regs.pc = self.regs.pc.wrapping_add(2);
                 }
                 self.state = State::Halted;

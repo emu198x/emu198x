@@ -655,6 +655,10 @@ impl M68000 {
                 if src_ext + dst_ext == 0 {
                     // No extension words needed - direct register operations
                     self.exec_move_direct(src_mode, dst_mode, is_movea);
+                } else if self.prefetch_only {
+                    // In prefetch_only mode, extension words are already preloaded.
+                    // Execute the MOVE directly using next_ext_word().
+                    self.exec_move_prefetch_only(src_mode, dst_mode, is_movea);
                 } else {
                     // Queue fetching all extension words
                     for _ in 0..src_ext {
@@ -843,6 +847,193 @@ impl M68000 {
                 let addr = self.regs.a(r as usize).wrapping_sub(dec);
                 self.regs.set_a(r as usize, addr);
                 self.addr = addr;
+                self.data = value;
+                self.queue_write_ops(self.size);
+                if !is_movea {
+                    self.set_flags_move(value, self.size);
+                }
+            }
+            _ => {
+                self.illegal_instruction();
+            }
+        }
+    }
+
+    /// Execute MOVE in prefetch_only mode where extension words are already preloaded.
+    /// Uses next_ext_word() to properly advance ext_idx for PC tracking.
+    fn exec_move_prefetch_only(&mut self, src_mode: AddrMode, dst_mode: AddrMode, is_movea: bool) {
+        // Calculate source EA and read value
+        let value = match src_mode {
+            AddrMode::DataReg(r) => self.read_data_reg(r, self.size),
+            AddrMode::AddrReg(r) => self.regs.a(r as usize),
+            AddrMode::AddrInd(r) => {
+                self.addr = self.regs.a(r as usize);
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::AddrIndPostInc(r) => {
+                let addr = self.regs.a(r as usize);
+                let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
+                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                self.addr = addr;
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::AddrIndPreDec(r) => {
+                let dec = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
+                let addr = self.regs.a(r as usize).wrapping_sub(dec);
+                self.regs.set_a(r as usize, addr);
+                self.addr = addr;
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::AddrIndDisp(r) => {
+                let disp = self.next_ext_word() as i16 as i32;
+                self.addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::AddrIndIndex(r) => {
+                let ea = self.calc_index_ea(self.regs.a(r as usize));
+                self.addr = ea;
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::AbsShort => {
+                self.addr = self.next_ext_word() as i16 as i32 as u32;
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::AbsLong => {
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                self.addr = (u32::from(hi) << 16) | u32::from(lo);
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::PcDisp => {
+                let pc = self.regs.pc; // PC at extension word
+                let disp = self.next_ext_word() as i16 as i32;
+                self.addr = (pc as i32).wrapping_add(disp) as u32;
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::PcIndex => {
+                let ea = self.calc_index_ea(self.regs.pc);
+                self.addr = ea;
+                self.dst_mode = Some(dst_mode);
+                self.queue_read_ops(self.size);
+                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            AddrMode::Immediate => {
+                self.data = self.read_immediate();
+                // Fall through to write destination
+                self.data
+            }
+        };
+
+        // Write destination
+        match dst_mode {
+            AddrMode::DataReg(r) => {
+                self.write_data_reg(r, value, self.size);
+                if !is_movea {
+                    self.set_flags_move(value, self.size);
+                }
+            }
+            AddrMode::AddrReg(r) => {
+                let value = if self.size == Size::Word {
+                    value as i16 as i32 as u32
+                } else {
+                    value
+                };
+                self.regs.set_a(r as usize, value);
+            }
+            AddrMode::AddrInd(r) => {
+                self.addr = self.regs.a(r as usize);
+                self.data = value;
+                self.queue_write_ops(self.size);
+                if !is_movea {
+                    self.set_flags_move(value, self.size);
+                }
+            }
+            AddrMode::AddrIndPostInc(r) => {
+                let addr = self.regs.a(r as usize);
+                let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
+                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                self.addr = addr;
+                self.data = value;
+                self.queue_write_ops(self.size);
+                if !is_movea {
+                    self.set_flags_move(value, self.size);
+                }
+            }
+            AddrMode::AddrIndPreDec(r) => {
+                let dec = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
+                let addr = self.regs.a(r as usize).wrapping_sub(dec);
+                self.regs.set_a(r as usize, addr);
+                self.addr = addr;
+                self.data = value;
+                self.queue_write_ops(self.size);
+                if !is_movea {
+                    self.set_flags_move(value, self.size);
+                }
+            }
+            AddrMode::AddrIndDisp(r) => {
+                let disp = self.next_ext_word() as i16 as i32;
+                self.addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                self.data = value;
+                self.queue_write_ops(self.size);
+                if !is_movea {
+                    self.set_flags_move(value, self.size);
+                }
+            }
+            AddrMode::AddrIndIndex(r) => {
+                let ea = self.calc_index_ea(self.regs.a(r as usize));
+                self.addr = ea;
+                self.data = value;
+                self.queue_write_ops(self.size);
+                if !is_movea {
+                    self.set_flags_move(value, self.size);
+                }
+            }
+            AddrMode::AbsShort => {
+                self.addr = self.next_ext_word() as i16 as i32 as u32;
+                self.data = value;
+                self.queue_write_ops(self.size);
+                if !is_movea {
+                    self.set_flags_move(value, self.size);
+                }
+            }
+            AddrMode::AbsLong => {
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                self.addr = (u32::from(hi) << 16) | u32::from(lo);
                 self.data = value;
                 self.queue_write_ops(self.size);
                 if !is_movea {
