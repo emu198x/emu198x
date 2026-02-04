@@ -241,6 +241,8 @@ pub struct M68000 {
     fault_fc: u8,
     /// Access info word for group 0 exception frame (computed in begin_exception).
     group0_access_info: u16,
+    /// True if ExtendMemOp has performed its pre-decrements.
+    extend_predec_done: bool,
 
     // === Interrupt state ===
     /// Pending interrupt level (1-7), 0 = none.
@@ -284,6 +286,7 @@ impl M68000 {
             fault_in_instruction: false,
             fault_fc: 0,
             group0_access_info: 0,
+            extend_predec_done: false,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
         };
@@ -1751,8 +1754,42 @@ impl M68000 {
         // For long: phases 0=read src hi, 1=read src lo, 2=read dst hi, 3=read dst lo, 4=write hi, 5=write lo
         match self.cycle {
             0 => {
-                // Check for odd address on word/long access
-                if self.size != Size::Byte {
+                // Handle deferred pre-decrement at the start of the operation
+                if !self.extend_predec_done && self.movem_long_phase == 0 {
+                    // Extract register numbers from self.data (packed as rx | (ry << 8))
+                    let rx = (self.data & 0xFF) as usize;
+                    let ry = ((self.data >> 8) & 0xFF) as usize;
+
+                    // Calculate decrement size
+                    let decr = match self.size {
+                        Size::Byte => 1,
+                        Size::Word => 2,
+                        Size::Long => 4,
+                    };
+
+                    // Calculate the would-be addresses BEFORE pre-decrementing
+                    let src_addr = self.regs.a(rx).wrapping_sub(decr);
+                    let dst_addr = self.regs.a(ry).wrapping_sub(decr);
+
+                    // Check for address error on source address (word/long only)
+                    if self.size != Size::Byte && src_addr & 1 != 0 {
+                        self.address_error(src_addr, true, false);
+                        return;
+                    }
+
+                    // Source address is OK, perform pre-decrements
+                    self.regs.set_a(rx, src_addr);
+                    self.regs.set_a(ry, dst_addr);
+                    self.addr = src_addr;
+                    self.addr2 = dst_addr;
+                    self.extend_predec_done = true;
+
+                    // Store rx for later use (we overwrote data, need to keep track)
+                    // Actually, we don't need rx anymore after this point
+                }
+
+                // Check for odd address on word/long access (for subsequent phases)
+                if self.size != Size::Byte && self.extend_predec_done {
                     // Determine which address to check based on phase
                     let check_addr = match self.size {
                         Size::Word => match self.movem_long_phase {
@@ -2668,6 +2705,7 @@ impl Cpu for M68000 {
         self.fault_in_instruction = false;
         self.fault_fc = 0;
         self.group0_access_info = 0;
+        self.extend_predec_done = false;
         self.int_pending = 0;
 
         // Start fetch sequence (in real hardware, this reads SSP and PC first)

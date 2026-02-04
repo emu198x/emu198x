@@ -3007,14 +3007,14 @@ impl M68000 {
 
         if rm {
             // Memory to memory: -(Ax),-(Ay)
-            // Pre-decrement both address registers
-            self.regs.set_a(rx, self.regs.a(rx).wrapping_sub(1));
-            self.regs.set_a(ry, self.regs.a(ry).wrapping_sub(1));
-            self.addr = self.regs.a(rx);
-            self.addr2 = self.regs.a(ry);
+            // DON'T pre-decrement here - let tick_extend_mem_op handle it
+            // so address errors don't modify registers
             self.size = Size::Byte;
+            // Pack register numbers: data = rx | (ry << 8)
+            self.data = (rx as u32) | ((ry as u32) << 8);
             self.data2 = 1; // 1 = SBCD
             self.movem_long_phase = 0;
+            self.extend_predec_done = false;
             self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dy - Dx - X -> Dy
@@ -3266,19 +3266,14 @@ impl M68000 {
 
         if rm {
             // Memory to memory: -(Ax),-(Ay)
-            // Pre-decrement both address registers by size
-            let decr = match size {
-                Size::Byte => 1,
-                Size::Word => 2,
-                Size::Long => 4,
-            };
-            self.regs.set_a(rx, self.regs.a(rx).wrapping_sub(decr));
-            self.regs.set_a(ry, self.regs.a(ry).wrapping_sub(decr));
-            self.addr = self.regs.a(rx);
-            self.addr2 = self.regs.a(ry);
+            // DON'T pre-decrement here - let tick_extend_mem_op handle it
+            // so address errors don't modify registers
             self.size = size;
+            // Pack register numbers: data = rx | (ry << 8)
+            self.data = (rx as u32) | ((ry as u32) << 8);
             self.data2 = 3; // 3 = SUBX
             self.movem_long_phase = 0;
+            self.extend_predec_done = false;
             self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy
@@ -3540,14 +3535,14 @@ impl M68000 {
 
         if rm {
             // Memory to memory: -(Ax),-(Ay)
-            // Pre-decrement both address registers
-            self.regs.set_a(rx, self.regs.a(rx).wrapping_sub(1));
-            self.regs.set_a(ry, self.regs.a(ry).wrapping_sub(1));
-            self.addr = self.regs.a(rx);
-            self.addr2 = self.regs.a(ry);
+            // DON'T pre-decrement here - let tick_extend_mem_op handle it
+            // so address errors don't modify registers
             self.size = Size::Byte;
+            // Pack register numbers: data = rx | (ry << 8)
+            self.data = (rx as u32) | ((ry as u32) << 8);
             self.data2 = 0; // 0 = ABCD
             self.movem_long_phase = 0;
+            self.extend_predec_done = false;
             self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy
@@ -3831,19 +3826,15 @@ impl M68000 {
 
         if rm {
             // Memory to memory: -(Ax),-(Ay)
-            // Pre-decrement both address registers by size
-            let decr = match size {
-                Size::Byte => 1,
-                Size::Word => 2,
-                Size::Long => 4,
-            };
-            self.regs.set_a(rx, self.regs.a(rx).wrapping_sub(decr));
-            self.regs.set_a(ry, self.regs.a(ry).wrapping_sub(decr));
-            self.addr = self.regs.a(rx);
-            self.addr2 = self.regs.a(ry);
+            // DON'T pre-decrement here - let tick_extend_mem_op handle it
+            // so address errors don't modify registers
             self.size = size;
+            // Pack register numbers: data = rx | (ry << 8)
+            self.data = (rx as u32) | ((ry as u32) << 8);
             self.data2 = 2; // 2 = ADDX
             self.movem_long_phase = 0;
+            // Mark that registers haven't been pre-decremented yet
+            self.extend_predec_done = false;
             self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy
