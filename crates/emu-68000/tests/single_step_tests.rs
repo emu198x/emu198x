@@ -334,21 +334,23 @@ fn setup_cpu(cpu: &mut M68000, mem: &mut TestBus, state: &CpuState) {
     cpu.regs.sr = state.sr;
     cpu.regs.pc = state.pc;
 
-    // Set up prefetch - the test provides the opcode already fetched
-    // prefetch[0] is the opcode to execute, prefetch[1] is the first extension word
-    // The 68000 prefetch queue: IR=opcode, IRC=next word
-    // PC points to where the NEXT fetch would come from (after the prefetch)
-    // So additional extension words come from PC, PC+2, PC+4, etc.
+    // Set up prefetch - the 68000 has a 2-word prefetch queue:
+    // - IR (Instruction Register): the opcode being executed
+    // - IRC (Instruction Register Cache): the next word (first extension word)
+    // PC points to where the NEXT fetch would come from (after IRC).
+    // Additional extension words are read from memory at PC, PC+2, PC+4.
     let opcode = state.prefetch[0] as u16;
+    let pc = state.pc;
+
+    // Build extension words array: IRC + words from memory at PC, PC+2, PC+4
     let mut ext_words = [0u16; 4];
-    ext_words[0] = state.prefetch[1] as u16;
-    // Read additional extension words from memory at PC, PC+2, PC+4
-    for i in 1..4 {
-        let addr = state.pc.wrapping_add((i - 1) as u32 * 2);
-        let hi = mem.peek(addr);
-        let lo = mem.peek(addr | 1);
-        ext_words[i] = u16::from(hi) << 8 | u16::from(lo);
-    }
+    ext_words[0] = state.prefetch[1] as u16; // IRC
+    ext_words[1] = (u16::from(mem.peek(pc)) << 8) | u16::from(mem.peek(pc.wrapping_add(1)));
+    ext_words[2] = (u16::from(mem.peek(pc.wrapping_add(2))) << 8)
+        | u16::from(mem.peek(pc.wrapping_add(3)));
+    ext_words[3] = (u16::from(mem.peek(pc.wrapping_add(4))) << 8)
+        | u16::from(mem.peek(pc.wrapping_add(5)));
+
     cpu.setup_prefetch(opcode, &ext_words);
 }
 

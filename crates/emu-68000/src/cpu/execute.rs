@@ -883,7 +883,8 @@ impl M68000 {
         let data_reg = ((self.data2 >> 4) & 7) as usize;
         let is_long = self.data2 & 0x100 != 0;
         let to_memory = self.data2 & 0x200 != 0;
-        let displacement = self.ext_words[self.ext_count as usize - 1] as i16 as i32;
+        // Displacement is always in ext_words[0] - it's the first (and only) extension word
+        let displacement = self.ext_words[0] as i16 as i32;
 
         let base_addr = (self.regs.a(addr_reg) as i32).wrapping_add(displacement) as u32;
 

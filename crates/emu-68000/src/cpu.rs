@@ -245,9 +245,9 @@ pub struct M68000 {
     extend_predec_done: bool,
     /// True if next FetchOpcode should not push Execute (post-exception prefetch only).
     prefetch_only: bool,
-    /// True if in single-step mode (for testing). After first instruction completes,
-    /// subsequent fetches will be prefetch-only.
-    single_step: bool,
+    /// In prefetch_only mode: did the instruction access external memory?
+    /// Used to determine if prefetch advance is needed even without extension words.
+    mem_accessed: bool,
 
     // === Interrupt state ===
     /// Pending interrupt level (1-7), 0 = none.
@@ -293,7 +293,7 @@ impl M68000 {
             group0_access_info: 0,
             extend_predec_done: false,
             prefetch_only: false,
-            single_step: false,
+            mem_accessed: false,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
         };
@@ -313,13 +313,16 @@ impl M68000 {
     /// This initializes the CPU as if the opcode has already been fetched,
     /// ready to execute. Used by test harnesses that provide prefetch state.
     ///
-    /// The prefetch array should contain [opcode, ext_word0, ext_word1, ...].
-    /// Up to 4 extension words are supported.
-    pub fn setup_prefetch(&mut self, opcode: u16, ext_words: &[u16]) {
+    /// - `opcode`: The instruction opcode (IR register)
+    /// - `ext_words_in`: Extension words (IRC and subsequent words from memory)
+    ///
+    /// The first element is IRC (prefetch[1]), followed by words from PC, PC+2, etc.
+    pub fn setup_prefetch(&mut self, opcode: u16, ext_words_in: &[u16]) {
         self.opcode = opcode;
-        let count = ext_words.len().min(4);
-        for (i, &w) in ext_words.iter().take(4).enumerate() {
-            self.ext_words[i] = w;
+        // Copy extension words (up to 4)
+        let count = ext_words_in.len().min(4);
+        for i in 0..count {
+            self.ext_words[i] = ext_words_in[i];
         }
         self.ext_count = count as u8;
         self.ext_idx = 0;
@@ -328,8 +331,9 @@ impl M68000 {
         self.micro_ops.push(MicroOp::Execute);
         self.state = State::Execute;
         self.cycle = 0;
-        // Enable single-step mode so subsequent instructions don't execute
-        self.single_step = true;
+        // Set prefetch_only so after this instruction, we just prefetch without executing
+        self.prefetch_only = true;
+        self.mem_accessed = false;
     }
 
     /// Read byte from memory.
@@ -385,11 +389,6 @@ impl M68000 {
         self.dst_mode = None;
         self.instr_phase = InstrPhase::Initial;
         self.micro_ops.push(MicroOp::FetchOpcode);
-        // In single-step mode, all fetches after the initial instruction
-        // should be prefetch-only (don't execute subsequent instructions).
-        if self.single_step {
-            self.prefetch_only = true;
-        }
     }
 
     /// Queue internal cycles (with overlapped PC advancement for long operations).
@@ -413,9 +412,9 @@ impl M68000 {
     fn tick_internal<B: Bus>(&mut self, bus: &mut B) {
         loop {
             let Some(op) = self.micro_ops.current() else {
-                // Queue empty - start next instruction (unless in single-step prefetch-only)
-                if self.single_step && self.prefetch_only {
-                    // In single-step mode, after prefetch is done, just idle
+                // Queue empty - start next instruction (unless in prefetch-only mode)
+                if self.prefetch_only {
+                    // In prefetch-only mode (e.g., single-step testing), just idle
                     return;
                 }
                 self.queue_fetch();
@@ -1319,7 +1318,9 @@ impl M68000 {
     ///
     /// State: `addr` = memory address, `data` = source value (from register),
     /// `data2` = operation (0=ADD, 1=SUB, 2=AND, 3=OR, 4=EOR).
-    /// Uses `movem_long_phase` to track phase: 0=read, 1=write.
+    /// Uses `movem_long_phase` to track phase:
+    ///   Byte/Word: 0=read, 1=write
+    ///   Long: 0=read hi, 1=read lo, 2=write hi, 3=write lo
     #[allow(clippy::too_many_lines)]
     fn tick_alu_mem_rmw<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
@@ -1334,22 +1335,37 @@ impl M68000 {
             3 => {
                 match self.movem_long_phase {
                     0 => {
-                        // Phase 0: Read from memory
-                        let mem_val = match self.size {
+                        // Phase 0: Read from memory (first/only read)
+                        let val = match self.size {
                             Size::Byte => u32::from(self.read_byte(bus, self.addr)),
                             Size::Word => u32::from(self.read_word(bus, self.addr)),
-                            Size::Long => self.read_long(bus, self.addr),
+                            Size::Long => {
+                                // Long: read high word first
+                                u32::from(self.read_word(bus, self.addr))
+                            }
                         };
-                        // Store memory value temporarily in ext_words
-                        self.ext_words[0] = mem_val as u16;
-                        self.ext_words[1] = (mem_val >> 16) as u16;
-
-                        self.movem_long_phase = 1;
+                        // Store value in ext_words
+                        if self.size == Size::Long {
+                            self.ext_words[1] = val as u16; // High word
+                            self.movem_long_phase = 1; // Need to read low word
+                        } else {
+                            self.ext_words[0] = val as u16;
+                            self.ext_words[1] = 0;
+                            self.movem_long_phase = 2; // Skip to compute+write
+                        }
                         self.cycle = 0;
                         return;
                     }
                     1 => {
-                        // Phase 1: Perform operation and write back
+                        // Phase 1 (Long only): Read low word
+                        let lo = self.read_word(bus, self.addr.wrapping_add(2));
+                        self.ext_words[0] = lo; // Low word
+                        self.movem_long_phase = 2; // Go to compute+write
+                        self.cycle = 0;
+                        return;
+                    }
+                    2 => {
+                        // Phase 2: Compute and write (first/only write)
                         let mem_val =
                             u32::from(self.ext_words[0]) | (u32::from(self.ext_words[1]) << 16);
                         let src = self.data;
@@ -1449,11 +1465,33 @@ impl M68000 {
 
                         // Write result back to memory
                         match self.size {
-                            Size::Byte => self.write_byte(bus, self.addr, result as u8),
-                            Size::Word => self.write_word(bus, self.addr, result as u16),
-                            Size::Long => self.write_long(bus, self.addr, result),
+                            Size::Byte => {
+                                self.write_byte(bus, self.addr, result as u8);
+                                self.movem_long_phase = 0;
+                                self.cycle = 0;
+                                self.micro_ops.advance();
+                                return;
+                            }
+                            Size::Word => {
+                                self.write_word(bus, self.addr, result as u16);
+                                self.movem_long_phase = 0;
+                                self.cycle = 0;
+                                self.micro_ops.advance();
+                                return;
+                            }
+                            Size::Long => {
+                                // Write high word first, store result for low word write
+                                self.write_word(bus, self.addr, (result >> 16) as u16);
+                                self.ext_words[2] = result as u16; // Store low word
+                                self.movem_long_phase = 3;
+                                self.cycle = 0;
+                                return;
+                            }
                         }
-
+                    }
+                    3 => {
+                        // Phase 3 (Long only): Write low word
+                        self.write_word(bus, self.addr.wrapping_add(2), self.ext_words[2]);
                         self.movem_long_phase = 0;
                         self.cycle = 0;
                         self.micro_ops.advance();
@@ -1476,6 +1514,8 @@ impl M68000 {
     fn tick_alu_mem_src<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
+                // Mark that we're accessing external memory (for prefetch tracking)
+                self.mem_accessed = true;
                 // Check for odd address on word/long access
                 if self.size != Size::Byte && self.addr & 1 != 0 {
                     self.address_error(self.addr, true, false);
@@ -2366,20 +2406,25 @@ impl M68000 {
         }
     }
 
-    /// Get next extension word and advance index.
-    /// In single-step mode (test harness), advances PC by 2 for words beyond index 0
-    /// (since ext_words[0] comes from the prefetch queue which already advanced PC).
-    /// In normal operation, extension words are fetched by FetchExtWord which advances PC.
+    /// Get next extension word from the prefetch queue.
+    /// Returns the word at ext_idx and increments the index.
+    ///
+    /// In prefetch_only mode (single-step testing):
+    /// - Index 0 is IRC (Instruction Register Cache). Consuming it triggers the
+    ///   prefetch pipeline to refill IRC from memory at PC, advancing PC by 2.
+    /// - Index 1+ are words that were preloaded from memory at PC, PC+2, etc.
+    ///   Consuming them also advances PC by 2 each.
+    ///
+    /// Returns 0 if the queue is exhausted (shouldn't happen in correct code).
     fn next_ext_word(&mut self) -> u16 {
         let idx = self.ext_idx as usize;
         if idx < self.ext_count as usize {
-            // In single-step mode, extension words beyond the first are preloaded
-            // from memory, so we need to advance PC to simulate the fetch.
-            // In normal operation, FetchExtWord handles PC advancement.
-            if self.single_step && idx > 0 {
+            self.ext_idx += 1;
+            // In prefetch_only mode, consuming ANY extension word advances PC by 2
+            // because the prefetch pipeline always fetches the next word.
+            if self.prefetch_only {
                 self.regs.pc = self.regs.pc.wrapping_add(2);
             }
-            self.ext_idx += 1;
             self.ext_words[idx]
         } else {
             0
@@ -2724,6 +2769,20 @@ impl Cpu for M68000 {
 
         // Check for pending interrupts at instruction boundary
         if self.micro_ops.is_empty() {
+            if self.prefetch_only {
+                // In prefetch-only mode (single-step testing):
+                // Add PC advance for prefetch only if:
+                // - Extension words beyond IRC were consumed (ext_idx > 1), AND
+                // - The internal cycles didn't already advance PC
+                // Instructions with long internal cycles (DIVU, MULU, etc.) overlap
+                // their prefetch during execution, handled by tick_internal_cycles.
+                if self.ext_idx > 1 && !self.internal_advances_pc {
+                    self.regs.pc = self.regs.pc.wrapping_add(2);
+                }
+                self.state = State::Halted;
+                self.prefetch_only = false;
+                return;
+            }
             if self.int_pending > self.regs.interrupt_mask() {
                 let level = self.int_pending;
                 self.int_pending = 0;
