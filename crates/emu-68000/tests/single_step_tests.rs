@@ -505,7 +505,7 @@ fn diagnose_single_test() {
         .unwrap()
         .parent()
         .unwrap()
-        .join("test-data/m68000-dl/v1/DIVU.json.bin");
+        .join("test-data/m68000-dl/v1/LINK.json.bin");
 
     if !test_file.exists() {
         eprintln!("Test file not found: {}", test_file.display());

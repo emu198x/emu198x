@@ -334,6 +334,9 @@ impl M68000 {
         // Set prefetch_only so after this instruction, we just prefetch without executing
         self.prefetch_only = true;
         self.mem_accessed = false;
+        // Reset internal_advances_pc - instructions that don't use internal cycles
+        // need the final prefetch advance
+        self.internal_advances_pc = false;
     }
 
     /// Read byte from memory.
@@ -2771,12 +2774,12 @@ impl Cpu for M68000 {
         if self.micro_ops.is_empty() {
             if self.prefetch_only {
                 // In prefetch-only mode (single-step testing):
-                // Add PC advance for prefetch only if:
-                // - Extension words beyond IRC were consumed (ext_idx > 1), AND
+                // Add PC advance for prefetch refill only if:
+                // - Any extension words were consumed (ext_idx > 0), AND
                 // - The internal cycles didn't already advance PC
                 // Instructions with long internal cycles (DIVU, MULU, etc.) overlap
                 // their prefetch during execution, handled by tick_internal_cycles.
-                if self.ext_idx > 1 && !self.internal_advances_pc {
+                if self.ext_idx > 0 && !self.internal_advances_pc {
                     self.regs.pc = self.regs.pc.wrapping_add(2);
                 }
                 self.state = State::Halted;

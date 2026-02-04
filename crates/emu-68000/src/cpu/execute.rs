@@ -103,6 +103,9 @@ impl M68000 {
                 } else if subfield == 0xE && bits_7_6 == 1 && op & 0x3F == 0x35 {
                     // RTS continuation (0x4E75)
                     self.exec_rts_continuation();
+                } else if subfield == 0xE && bits_7_6 == 1 && op & 0x3F == 0x37 {
+                    // RTR continuation (0x4E77)
+                    self.exec_rtr_continuation();
                 } else if subfield == 0xE && (op >> 4) & 0xF == 5 && op & 8 == 0 {
                     // LINK continuation (0x4E50-0x4E57)
                     self.exec_link_continuation();
@@ -864,16 +867,72 @@ impl M68000 {
         let is_long = op & 0x0040 != 0;
         let to_memory = op & 0x0080 != 0;
 
-        // Need to fetch the displacement extension word first
-        // Store fields in data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
-        self.data2 = u32::from(addr_reg)
-            | (u32::from(data_reg) << 4)
-            | (if is_long { 0x100 } else { 0 })
-            | (if to_memory { 0x200 } else { 0 });
-        self.movem_long_phase = 0;
-        self.micro_ops.push(MicroOp::FetchExtWord);
-        self.micro_ops.push(MicroOp::Execute); // Continue after fetching displacement
-        self.instr_phase = InstrPhase::SrcRead;
+        if self.prefetch_only {
+            // In prefetch_only mode, use preloaded ext_words directly
+            let displacement = self.next_ext_word() as i16 as i32;
+            self.exec_movep_with_disp(data_reg, addr_reg, is_long, to_memory, displacement);
+        } else {
+            // Need to fetch the displacement extension word first
+            // Store fields in data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
+            self.data2 = u32::from(addr_reg)
+                | (u32::from(data_reg) << 4)
+                | (if is_long { 0x100 } else { 0 })
+                | (if to_memory { 0x200 } else { 0 });
+            self.movem_long_phase = 0;
+            self.micro_ops.push(MicroOp::FetchExtWord);
+            self.micro_ops.push(MicroOp::Execute); // Continue after fetching displacement
+            self.instr_phase = InstrPhase::SrcRead;
+        }
+    }
+
+    fn exec_movep_with_disp(&mut self, data_reg: u8, addr_reg: u8, is_long: bool, to_memory: bool, displacement: i32) {
+        let base_addr = (self.regs.a(addr_reg as usize) as i32).wrapping_add(displacement) as u32;
+
+        // Update data2 for phase handler
+        self.data2 = ((data_reg as u32) << 4) | (if to_memory { 0x200 } else { 0 });
+
+        if to_memory {
+            // Register to memory: write bytes to alternate addresses
+            let value = self.regs.d[data_reg as usize];
+            if is_long {
+                // MOVEP.L Dn,d(An): 4 byte writes
+                self.addr = base_addr;
+                self.addr2 = value;
+                self.data = (value >> 24) & 0xFF;
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::WriteByte);
+                self.micro_ops.push(MicroOp::Execute);
+                self.instr_phase = InstrPhase::DstWrite;
+            } else {
+                // MOVEP.W Dn,d(An): 2 byte writes
+                self.addr = base_addr;
+                self.addr2 = value;
+                self.data = (value >> 8) & 0xFF;
+                self.movem_long_phase = 4;
+                self.micro_ops.push(MicroOp::WriteByte);
+                self.micro_ops.push(MicroOp::Execute);
+                self.instr_phase = InstrPhase::DstWrite;
+            }
+        } else {
+            // Memory to register: read bytes from alternate addresses
+            if is_long {
+                // MOVEP.L d(An),Dn: 4 byte reads
+                self.addr = base_addr;
+                self.addr2 = 0;
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::ReadByte);
+                self.micro_ops.push(MicroOp::Execute);
+                self.instr_phase = InstrPhase::DstWrite;
+            } else {
+                // MOVEP.W d(An),Dn: 2 byte reads
+                self.addr = base_addr;
+                self.addr2 = 0;
+                self.movem_long_phase = 4;
+                self.micro_ops.push(MicroOp::ReadByte);
+                self.micro_ops.push(MicroOp::Execute);
+                self.instr_phase = InstrPhase::DstWrite;
+            }
+        }
     }
 
     /// Continuation for MOVEP after fetching displacement.
@@ -1593,8 +1652,10 @@ impl M68000 {
                     let imm = (self.next_ext_word() & 0x1F) as u8; // Mask to valid CCR bits
                     let ccr = self.regs.ccr() & 0x1F; // CCR bits 5-7 always read as 0
                     self.regs.set_ccr(ccr | imm);
-                    // Advance PC past the 4-byte instruction
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    // In normal mode, advance PC for prefetch refill
+                    if !self.prefetch_only {
+                        self.regs.pc = self.regs.pc.wrapping_add(4);
+                    }
                     self.queue_internal_no_pc(20);
                 }
                 Some(Size::Word) => {
@@ -1605,7 +1666,9 @@ impl M68000 {
                     }
                     let imm = self.next_ext_word();
                     self.regs.sr |= imm;
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    if !self.prefetch_only {
+                        self.regs.pc = self.regs.pc.wrapping_add(4);
+                    }
                     self.queue_internal_no_pc(20);
                 }
                 _ => self.illegal_instruction(),
@@ -1681,8 +1744,11 @@ impl M68000 {
                     let imm = (self.next_ext_word() & 0x1F) as u8;
                     let ccr = self.regs.ccr() & 0x1F;
                     self.regs.set_ccr(ccr & imm);
-                    // Advance PC past the 4-byte instruction
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    // In normal mode, advance PC for prefetch refill
+                    // In prefetch_only mode, next_ext_word + tick ending handle it
+                    if !self.prefetch_only {
+                        self.regs.pc = self.regs.pc.wrapping_add(4);
+                    }
                     self.queue_internal_no_pc(20);
                 }
                 Some(Size::Word) => {
@@ -1693,7 +1759,9 @@ impl M68000 {
                     }
                     let imm = self.next_ext_word();
                     self.regs.sr &= imm;
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    if !self.prefetch_only {
+                        self.regs.pc = self.regs.pc.wrapping_add(4);
+                    }
                     self.queue_internal_no_pc(20);
                 }
                 _ => self.illegal_instruction(),
@@ -1878,8 +1946,10 @@ impl M68000 {
                     let imm = (self.next_ext_word() & 0x1F) as u8;
                     let ccr = self.regs.ccr() & 0x1F;
                     self.regs.set_ccr(ccr ^ imm);
-                    // Advance PC past the 4-byte instruction
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    // In normal mode, advance PC for prefetch refill
+                    if !self.prefetch_only {
+                        self.regs.pc = self.regs.pc.wrapping_add(4);
+                    }
                     self.queue_internal_no_pc(20);
                 }
                 Some(Size::Word) => {
@@ -1890,7 +1960,9 @@ impl M68000 {
                     }
                     let imm = self.next_ext_word();
                     self.regs.sr ^= imm;
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    if !self.prefetch_only {
+                        self.regs.pc = self.regs.pc.wrapping_add(4);
+                    }
                     self.queue_internal_no_pc(20);
                 }
                 _ => self.illegal_instruction(),
@@ -2743,8 +2815,11 @@ impl M68000 {
         self.instr_phase = InstrPhase::SrcRead;
         self.micro_ops.push(MicroOp::Execute);
 
-        // Advance PC for prefetch refill
-        self.regs.pc = self.regs.pc.wrapping_add(4);
+        // In normal mode, advance PC for prefetch refill (4 bytes: 2 for ext word + 2 for prefetch)
+        // In prefetch_only mode, next_ext_word() already advanced PC by 2 for the ext word
+        if !self.prefetch_only {
+            self.regs.pc = self.regs.pc.wrapping_add(4);
+        }
     }
 
     fn exec_link_continuation(&mut self) {
@@ -2863,11 +2938,39 @@ impl M68000 {
     }
 
     fn exec_rtr(&mut self) {
-        // Pop CCR, then PC
+        // RTR = 20 cycles: 4 (pop CCR) + 8 (pop PC) + 8 (prefetch)
+        // Pop CCR first, then save it before popping PC
         self.micro_ops.push(MicroOp::PopWord);
-        self.micro_ops.push(MicroOp::PopLongHi);
-        self.micro_ops.push(MicroOp::PopLongLo);
-        self.queue_internal(4);
+        self.instr_phase = InstrPhase::SrcRead; // Signal continuation
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    fn exec_rtr_continuation(&mut self) {
+        match self.instr_phase {
+            InstrPhase::SrcRead => {
+                // After PopWord: data contains CCR word
+                // Save CCR to data2 before it's overwritten by PC pop
+                self.data2 = self.data;
+                // Now pop PC
+                self.micro_ops.push(MicroOp::PopLongHi);
+                self.micro_ops.push(MicroOp::PopLongLo);
+                self.instr_phase = InstrPhase::DstWrite;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            InstrPhase::DstWrite => {
+                // After PopLong: data contains return PC, data2 contains CCR
+                // Restore CCR (only low 5 bits - XNZVC, keeping upper SR bits)
+                let ccr = (self.data2 & 0x1F) as u8;
+                self.regs.set_ccr(ccr);
+                // Set PC = return address + 4 (for prefetch)
+                self.regs.pc = self.data.wrapping_add(4);
+                self.instr_phase = InstrPhase::Complete;
+                self.queue_internal_no_pc(8); // Prefetch cycles
+            }
+            _ => {
+                self.instr_phase = InstrPhase::Initial;
+            }
+        }
     }
 
     fn exec_jsr(&mut self, mode: u8, ea_reg: u8) {
@@ -2890,9 +2993,10 @@ impl M68000 {
                 }
                 AddrMode::AddrIndDisp(r) => {
                     // JSR d16(An) = 18 cycles: 2 (EA calc) + 8 (push) + 8 (prefetch)
+                    let return_addr = self.regs.pc; // Capture before consuming ext word
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
-                    self.data = self.regs.pc; // Return address
+                    self.data = return_addr;
                     self.internal_cycles = 2;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
@@ -2903,8 +3007,9 @@ impl M68000 {
                 }
                 AddrMode::AddrIndIndex(r) => {
                     // JSR d8(An,Xn) = 22 cycles: 6 (EA calc) + 8 (push) + 8 (prefetch)
+                    let return_addr = self.regs.pc; // Capture before consuming ext word
                     let target = self.calc_index_ea(self.regs.a(r as usize));
-                    self.data = self.regs.pc; // Return address
+                    self.data = return_addr;
                     self.internal_cycles = 6;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
@@ -2915,8 +3020,9 @@ impl M68000 {
                 }
                 AddrMode::AbsShort => {
                     // JSR addr.W = 18 cycles: 2 (EA) + 8 (push) + 8 (prefetch)
+                    let return_addr = self.regs.pc; // Capture before consuming ext word
                     let target = self.next_ext_word() as i16 as i32 as u32;
-                    self.data = self.regs.pc; // Return address
+                    self.data = return_addr;
                     self.internal_cycles = 2;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
@@ -2949,10 +3055,12 @@ impl M68000 {
                 AddrMode::PcDisp => {
                     // JSR d16(PC) = 18 cycles: 2 (EA calc) + 8 (push) + 8 (prefetch)
                     // The "PC" for calculation is where the extension word was (PC - 2)
+                    // Capture return address before consuming ext word
+                    let return_addr = self.regs.pc;
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (pc_at_ext as i32).wrapping_add(disp) as u32;
-                    self.data = self.regs.pc; // Return address
+                    self.data = return_addr;
                     self.internal_cycles = 2;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
@@ -2963,9 +3071,11 @@ impl M68000 {
                 }
                 AddrMode::PcIndex => {
                     // JSR d8(PC,Xn) = 22 cycles: 6 (EA calc) + 8 (push) + 8 (prefetch)
+                    // Capture return address before consuming ext word
+                    let return_addr = self.regs.pc;
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let target = self.calc_index_ea(pc_at_ext);
-                    self.data = self.regs.pc; // Return address
+                    self.data = return_addr;
                     self.internal_cycles = 6;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
@@ -3271,12 +3381,62 @@ impl M68000 {
         // If condition is false, decrement Dn.W and branch if Dn != -1
         // Note: DBcc ALWAYS has word displacement following the opcode
 
-        // Store condition and register for continuation
-        // data2: bits 0-3 = reg, bits 4-7 = condition
-        self.data2 = u32::from(reg) | (u32::from(condition) << 4);
-        self.instr_phase = InstrPhase::SrcRead;
-        self.micro_ops.push(MicroOp::FetchExtWord);
-        self.micro_ops.push(MicroOp::Execute);
+        if self.prefetch_only {
+            // In prefetch_only mode, displacement is already preloaded
+            let disp = self.next_ext_word() as i16 as i32;
+            self.exec_dbcc_with_disp(condition, reg, disp);
+        } else {
+            // Store condition and register for continuation
+            // data2: bits 0-3 = reg, bits 4-7 = condition
+            self.data2 = u32::from(reg) | (u32::from(condition) << 4);
+            self.instr_phase = InstrPhase::SrcRead;
+            self.micro_ops.push(MicroOp::FetchExtWord);
+            self.micro_ops.push(MicroOp::Execute);
+        }
+    }
+
+    /// Execute DBcc with known displacement.
+    fn exec_dbcc_with_disp(&mut self, condition: u8, reg: u8, disp: i32) {
+        use crate::flags::Status;
+
+        if Status::condition(self.regs.sr, condition) {
+            // Condition true - no branch, fall through past displacement
+            // PC needs to advance +2 for prefetch of next instruction
+            self.queue_internal(12); // Condition true, no loop (internal advances PC)
+        } else {
+            // Condition false - check if we would branch
+            let val = (self.regs.d[reg as usize] & 0xFFFF) as i16;
+            let new_val = val.wrapping_sub(1);
+
+            if new_val == -1 {
+                // Counter exhausted - no branch, fall through
+                self.regs.d[reg as usize] =
+                    (self.regs.d[reg as usize] & 0xFFFF_0000) | (new_val as u16 as u32);
+                // PC needs to advance +2 for prefetch of next instruction
+                self.queue_internal(14); // Loop terminated (internal advances PC)
+            } else {
+                // Counter not exhausted - branch
+                // Displacement is relative to PC after opcode (before displacement word)
+                // But next_ext_word already advanced PC past the displacement, so:
+                // target = (PC - 2) + disp, where PC is now past displacement
+                // Actually: target = (opcode_addr + 2) + disp
+                // PC is now at opcode_addr + 4 (after consuming displacement via next_ext_word)
+                let target = ((self.regs.pc as i32) - 2 + disp) as u32;
+
+                // Check for odd branch target
+                if target & 1 != 0 {
+                    self.address_error(target, true, true);
+                    return;
+                }
+
+                // Decrement and branch
+                self.regs.d[reg as usize] =
+                    (self.regs.d[reg as usize] & 0xFFFF_0000) | (new_val as u16 as u32);
+                // After branch, PC = target + 4 to account for prefetch refill
+                self.regs.pc = target.wrapping_add(4);
+                self.queue_internal_no_pc(10); // Loop continues
+            }
+        }
     }
 
     /// DBcc continuation after fetching displacement word.
