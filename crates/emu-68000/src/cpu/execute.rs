@@ -2601,17 +2601,19 @@ impl M68000 {
             match addr_mode {
                 AddrMode::AddrInd(r) => {
                     // PEA (An) = 12 cycles: 4 (internal) + 8 (push)
+                    // 2-byte instruction, final tick adds +2 for prefetch refill
                     self.data = self.regs.a(r as usize);
                     self.internal_cycles = 4;
                     self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Advance PC by 2 (single-word instruction, no extension)
-                    self.regs.pc = self.regs.pc.wrapping_add(2);
+                    // PC advance handled by final tick
                 }
                 AddrMode::AddrIndDisp(r) => {
                     // PEA d16(An) = 16 cycles: 8 (internal) + 8 (push)
+                    // next_ext_word advances PC by 2 in prefetch_only
+                    // Final tick adds +2 for prefetch refill, giving correct total
                     let disp = self.next_ext_word() as i16 as i32;
                     let ea = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
                     self.data = ea;
@@ -2620,11 +2622,12 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Advance PC for prefetch refill
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    // PC advance handled by next_ext_word + final tick
                 }
                 AddrMode::AddrIndIndex(r) => {
                     // PEA d8(An,Xn) = 20 cycles: 12 (internal) + 8 (push)
+                    // calc_index_ea consumes extension word (advances PC by 2 in prefetch_only)
+                    // Final tick adds +2 for prefetch refill, giving correct total
                     let ea = self.calc_index_ea(self.regs.a(r as usize));
                     self.data = ea;
                     self.internal_cycles = 12;
@@ -2632,11 +2635,12 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Advance PC for prefetch refill
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    // PC advance handled by next_ext_word + final tick
                 }
                 AddrMode::AbsShort => {
                     // PEA addr.W = 16 cycles: 8 (internal) + 8 (push)
+                    // next_ext_word advances PC by 2 in prefetch_only
+                    // Final tick adds +2 for prefetch refill, giving correct total
                     let ea = self.next_ext_word() as i16 as i32 as u32;
                     self.data = ea;
                     self.internal_cycles = 8;
@@ -2644,13 +2648,14 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Advance PC for prefetch refill
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    // PC advance handled by next_ext_word + final tick
                 }
                 AddrMode::AbsLong => {
                     // PEA addr.L = 20 cycles: 12 (internal) + 8 (push)
-                    // Need both extension words
+                    // Need both extension words (6-byte instruction total)
                     if self.ext_count >= 2 {
+                        // In prefetch_only mode, both ext words are preloaded
+                        // Need +6 total: +4 here + +2 from final tick
                         let hi = u32::from(self.ext_words[0]);
                         let lo = u32::from(self.ext_words[1]);
                         let ea = (hi << 16) | lo;
@@ -2660,7 +2665,7 @@ impl M68000 {
                         self.micro_ops.push(MicroOp::Internal);
                         self.micro_ops.push(MicroOp::PushLongHi);
                         self.micro_ops.push(MicroOp::PushLongLo);
-                        // Advance PC for prefetch refill
+                        // Add +4, final tick adds +2, giving total +6 for 6-byte instruction
                         self.regs.pc = self.regs.pc.wrapping_add(4);
                     } else {
                         // Need to fetch second word - set up continuation
@@ -2673,6 +2678,8 @@ impl M68000 {
                 AddrMode::PcDisp => {
                     // PEA d16(PC) = 16 cycles: 8 (internal) + 8 (push)
                     // PC for calculation is where the extension word was (PC - 2)
+                    // next_ext_word advances PC by 2 in prefetch_only
+                    // Final tick adds +2 for prefetch refill, giving correct total
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let disp = self.next_ext_word() as i16 as i32;
                     let ea = (pc_at_ext as i32).wrapping_add(disp) as u32;
@@ -2682,11 +2689,12 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Advance PC for prefetch refill
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    // PC advance handled by next_ext_word + final tick
                 }
                 AddrMode::PcIndex => {
                     // PEA d8(PC,Xn) = 20 cycles: 12 (internal) + 8 (push)
+                    // calc_index_ea consumes extension word (advances PC by 2 in prefetch_only)
+                    // Final tick adds +2 for prefetch refill, giving correct total
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let ea = self.calc_index_ea(pc_at_ext);
                     self.data = ea;
@@ -2695,8 +2703,7 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Advance PC for prefetch refill
-                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    // PC advance handled by next_ext_word + final tick
                 }
                 _ => self.illegal_instruction(),
             }
@@ -3048,8 +3055,25 @@ impl M68000 {
         // 1. Copy An to SP (restore stack to frame pointer)
         // 2. Pop An from stack (restore old frame pointer)
 
-        // Copy An to SP
+        // Get An value that will become the new SP
         let an_value = self.regs.a(reg as usize);
+
+        // Check for address error BEFORE modifying SP
+        // (the 68000 detects odd addresses before committing SP change)
+        if an_value & 1 != 0 {
+            self.fault_addr = an_value;
+            self.fault_fc = if self.regs.is_supervisor() { 5 } else { 1 }; // Data access
+            self.fault_read = true;
+            self.fault_in_instruction = false;
+            // Adjust PC by +2 so that begin_exception's -2 gives us the original PC.
+            // For early-detected address errors (before any bus operation), the PC
+            // pushed should be the current PC, not PC-2.
+            self.regs.pc = self.regs.pc.wrapping_add(2);
+            self.exception(3); // Address error
+            return;
+        }
+
+        // Copy An to SP
         self.regs.set_active_sp(an_value);
 
         // Pop An from stack
@@ -4975,9 +4999,37 @@ impl M68000 {
             }
         }
 
-        // V is cleared except for ASL where it can be set
-        // Simplified: always clear V for now
-        self.regs.sr &= !crate::flags::V;
+        // V flag handling:
+        // - For ASL: V is set if the MSB changed at ANY point during the shift
+        // - For all other shifts/rotates: V is always cleared
+        if kind == 0 && direction {
+            // ASL: Check if any of the top (count+1) bits differ
+            // This determines if the MSB will change during any shift
+            if count == 0 {
+                self.regs.sr &= !crate::flags::V;
+            } else {
+                let bits = match size {
+                    Size::Byte => 8u32,
+                    Size::Word => 16,
+                    Size::Long => 32,
+                };
+                // Build a mask for the top (count+1) bits, or all bits if count >= bits
+                let check_bits = (count + 1).min(bits);
+                let check_mask = if check_bits >= bits {
+                    mask
+                } else {
+                    ((1u32 << check_bits) - 1) << (bits - check_bits)
+                };
+                // Get the bits to check
+                let top_bits = value & check_mask;
+                // V is set if these bits are neither all 0s nor all 1s
+                let v = top_bits != 0 && top_bits != check_mask;
+                self.regs.sr = Status::set_if(self.regs.sr, crate::flags::V, v);
+            }
+        } else {
+            // All other shifts/rotates: V is always cleared
+            self.regs.sr &= !crate::flags::V;
+        }
 
         // Timing: 6 + 2*count for byte/word, 8 + 2*count for long
         let base_cycles = if size == Size::Long { 8 } else { 6 };

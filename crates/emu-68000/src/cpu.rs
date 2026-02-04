@@ -2226,19 +2226,26 @@ impl M68000 {
 
                 // Push order: PC, SR, IR, fault addr, access info
 
-                // Build access info word:
+                // Build access info word (special status word):
+                // The 68000 includes parts of the instruction register in the upper bits.
+                // bits 15-8: IR[15:8] (high byte of instruction register)
+                // bits 7-5: IR[7:5] (high bits of IR low byte, often undefined/random)
                 // bit 4: R/W (1 = read, 0 = write)
-                // bit 3: I/N (0 = instruction fetch, 1 = not instruction/data)
+                // bit 3: I/N (1 = instruction fetch, 0 = not instruction/data)
                 // bits 2-0: Function code
-                let access_info: u16 = (if self.fault_read { 0x10 } else { 0 })
-                    | (if self.fault_in_instruction { 0 } else { 0x08 })
+                let access_info: u16 = (u16::from(self.opcode) & 0xFF00) // IR[15:8]
+                    | (u16::from(self.opcode) & 0x00E0) // IR[7:5]
+                    | (if self.fault_read { 0x10 } else { 0 })
+                    | (if self.fault_in_instruction { 0x08 } else { 0 })
                     | u16::from(self.fault_fc & 0x07);
 
                 // Store values for pushing
                 // We need to push: PC, SR, IR (opcode), fault_addr, access_info
                 // Using data for PC, data2 for SR, we'll need to handle the rest inline
-
-                self.data = self.regs.pc;
+                //
+                // For group 0 exceptions, the PC pushed is PC-2 (address of next instruction
+                // in the prefetch stream, which allows RTE to retry or continue).
+                self.data = self.regs.pc.wrapping_sub(2);
                 self.data2 = u32::from(old_sr);
 
                 // Push PC (4 bytes)

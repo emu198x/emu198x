@@ -505,7 +505,7 @@ fn diagnose_single_test() {
         .unwrap()
         .parent()
         .unwrap()
-        .join("test-data/m68000-dl/v1/LINK.json.bin");
+        .join("test-data/m68000-dl/v1/PEA.json.bin");
 
     if !test_file.exists() {
         eprintln!("Test file not found: {}", test_file.display());
@@ -513,7 +513,7 @@ fn diagnose_single_test() {
     }
 
     let tests = decode_file(&test_file).expect("Failed to decode");
-    let test = &tests[0]; // First test in the file
+    let test = &tests[0]; // Test to debug
 
     println!("\n=== Test: {} ===", test.name);
     println!("Expected cycles: {}", test.cycles);
