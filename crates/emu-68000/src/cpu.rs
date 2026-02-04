@@ -413,7 +413,11 @@ impl M68000 {
                 }
                 MicroOp::Execute => {
                     self.decode_and_execute();
-                    self.micro_ops.advance();
+                    // Don't advance if exception() was called - it clears the queue
+                    // and pushes BeginException which we need to execute
+                    if self.pending_exception.is_none() {
+                        self.micro_ops.advance();
+                    }
                     continue;
                 }
                 MicroOp::BeginException => {
@@ -839,7 +843,6 @@ impl M68000 {
 
                     // After exception, need to fill 2-word prefetch queue before executing.
                     // First word is the opcode, second word is prefetch.
-                    // Don't execute the instruction yet - just prefetch.
                     self.micro_ops.clear();
                     self.state = State::FetchOpcode;
                     self.ext_count = 0;
@@ -850,6 +853,8 @@ impl M68000 {
                     self.prefetch_only = true; // Don't push Execute after FetchOpcode
                     self.micro_ops.push(MicroOp::FetchOpcode);
                     self.micro_ops.push(MicroOp::FetchExtWord);
+                    // After prefetch, execute the exception handler instruction
+                    self.micro_ops.push(MicroOp::Execute);
                     return;
                 }
             }

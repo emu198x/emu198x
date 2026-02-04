@@ -1565,6 +1565,35 @@ impl M68000 {
 
     fn exec_ori(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
         // ORI #imm,<ea> - Inclusive OR Immediate
+        // Special case: mode=7, reg=4 means CCR (byte) or SR (word)
+        if mode == 7 && ea_reg == 4 {
+            match size {
+                Some(Size::Byte) => {
+                    // ORI #xx,CCR - 20 cycles
+                    // Get immediate from prefetch queue (only low byte used)
+                    let imm = (self.next_ext_word() & 0x1F) as u8; // Mask to valid CCR bits
+                    let ccr = self.regs.ccr() & 0x1F; // CCR bits 5-7 always read as 0
+                    self.regs.set_ccr(ccr | imm);
+                    // Advance PC past the 4-byte instruction
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    self.queue_internal_no_pc(20);
+                }
+                Some(Size::Word) => {
+                    // ORI #xx,SR - privileged, 20 cycles
+                    if !self.regs.is_supervisor() {
+                        self.exception(8); // Privilege violation
+                        return;
+                    }
+                    let imm = self.next_ext_word();
+                    self.regs.sr |= imm;
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    self.queue_internal_no_pc(20);
+                }
+                _ => self.illegal_instruction(),
+            }
+            return;
+        }
+
         let Some(size) = size else {
             self.illegal_instruction();
             return;
@@ -1624,6 +1653,35 @@ impl M68000 {
 
     fn exec_andi(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
         // ANDI #imm,<ea> - AND Immediate
+        // Special case: mode=7, reg=4 means CCR (byte) or SR (word)
+        if mode == 7 && ea_reg == 4 {
+            match size {
+                Some(Size::Byte) => {
+                    // ANDI #xx,CCR - 20 cycles
+                    // Get immediate from prefetch queue (low byte, masked to CCR bits)
+                    let imm = (self.next_ext_word() & 0x1F) as u8;
+                    let ccr = self.regs.ccr() & 0x1F;
+                    self.regs.set_ccr(ccr & imm);
+                    // Advance PC past the 4-byte instruction
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    self.queue_internal_no_pc(20);
+                }
+                Some(Size::Word) => {
+                    // ANDI #xx,SR - privileged, 20 cycles
+                    if !self.regs.is_supervisor() {
+                        self.exception(8); // Privilege violation
+                        return;
+                    }
+                    let imm = self.next_ext_word();
+                    self.regs.sr &= imm;
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    self.queue_internal_no_pc(20);
+                }
+                _ => self.illegal_instruction(),
+            }
+            return;
+        }
+
         let Some(size) = size else {
             self.illegal_instruction();
             return;
@@ -1792,6 +1850,35 @@ impl M68000 {
 
     fn exec_eori(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) {
         // EORI #imm,<ea> - Exclusive OR Immediate
+        // Special case: mode=7, reg=4 means CCR (byte) or SR (word)
+        if mode == 7 && ea_reg == 4 {
+            match size {
+                Some(Size::Byte) => {
+                    // EORI #xx,CCR - 20 cycles
+                    // Get immediate from prefetch queue (low byte, masked to CCR bits)
+                    let imm = (self.next_ext_word() & 0x1F) as u8;
+                    let ccr = self.regs.ccr() & 0x1F;
+                    self.regs.set_ccr(ccr ^ imm);
+                    // Advance PC past the 4-byte instruction
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    self.queue_internal_no_pc(20);
+                }
+                Some(Size::Word) => {
+                    // EORI #xx,SR - privileged, 20 cycles
+                    if !self.regs.is_supervisor() {
+                        self.exception(8); // Privilege violation
+                        return;
+                    }
+                    let imm = self.next_ext_word();
+                    self.regs.sr ^= imm;
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
+                    self.queue_internal_no_pc(20);
+                }
+                _ => self.illegal_instruction(),
+            }
+            return;
+        }
+
         let Some(size) = size else {
             self.illegal_instruction();
             return;
