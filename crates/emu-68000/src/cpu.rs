@@ -2262,11 +2262,26 @@ impl M68000 {
                 // We need to push: PC, SR, IR (opcode), fault_addr, access_info
                 // Using data for PC, data2 for SR, we'll need to handle the rest inline
                 //
-                // For group 0 exceptions, the PC pushed is the instruction start PC minus 2
-                // (pointing to the first extension word or preceding instruction).
-                // We use instr_start_pc which was saved before extension words were consumed,
-                // rather than the current PC which may have been advanced.
-                self.data = self.instr_start_pc.wrapping_sub(2);
+                // For group 0 exceptions, the PC pushed depends on the addressing mode:
+                // - Pre-decrement mode: push instr_start_pc (PC past opcode)
+                // - Absolute modes (AbsShort, AbsLong): push instr_start_pc + (ext_words - 1) * 2
+                // - Other modes: push instr_start_pc - 2
+                let (ext_words, is_absolute) = match self.src_mode {
+                    Some(AddrMode::AbsShort) => (1u8, true),
+                    Some(AddrMode::AbsLong) => (2u8, true),
+                    Some(mode) => (self.ext_words_for_mode(mode), false),
+                    None => (0, false),
+                };
+                self.data = if self.uses_predec_mode() {
+                    self.instr_start_pc
+                } else if is_absolute {
+                    // For absolute modes, adjust based on extension word count
+                    self.instr_start_pc
+                        .wrapping_add(u32::from(ext_words.saturating_sub(1)) * 2)
+                } else {
+                    // For all other modes, point to opcode or first extension word
+                    self.instr_start_pc.wrapping_sub(2)
+                };
                 self.data2 = u32::from(old_sr);
 
                 // Push PC (4 bytes)
@@ -2659,6 +2674,13 @@ impl M68000 {
                 Size::Long => 2,
             },
         }
+    }
+
+    /// Check if the current instruction uses pre-decrement addressing mode.
+    /// Used to determine the correct PC value to push during address errors.
+    fn uses_predec_mode(&self) -> bool {
+        matches!(self.src_mode, Some(AddrMode::AddrIndPreDec(_)))
+            || matches!(self.dst_mode, Some(AddrMode::AddrIndPreDec(_)))
     }
 
     /// Trigger an exception.

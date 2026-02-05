@@ -2939,6 +2939,7 @@ impl M68000 {
                 _ => {
                     // Memory operand - read and set flags
                     self.size = size;
+                    self.src_mode = Some(addr_mode); // Save for exception PC calculation
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
                     self.data = 0; // Not used for TST
@@ -3174,11 +3175,33 @@ impl M68000 {
 
     fn exec_stop(&mut self) {
         // STOP #imm - requires supervisor mode
+        // Loads immediate value into SR (masked), then halts CPU
         if !self.regs.is_supervisor() {
             self.exception(8);
         } else {
-            self.micro_ops.push(MicroOp::FetchExtWord);
+            // Get the immediate value from extension word
+            // In prefetch_only mode, this doesn't advance PC since we handle it specially
+            let imm = self.next_ext_word();
+
+            // 68000 masks reserved bits when writing to SR
+            // Valid bits: 15 (T), 13 (S), 10-8 (interrupt level), 4-0 (XNZVC)
+            // Note: Bit 14 is T0 on 68010+, but reserved (always 0) on 68000
+            const SR_MASK: u16 = 0xA71F;
+            self.regs.sr = imm & SR_MASK;
+
+            // STOP halts the CPU waiting for interrupt
             self.state = crate::cpu::State::Stopped;
+
+            // In prefetch_only mode, next_ext_word advanced PC by 2
+            // For STOP, PC should remain at the instruction (not past extension word)
+            // The test expects PC to be at instr_start_pc (past opcode but at extension word)
+            if self.prefetch_only {
+                // PC was at instr_start_pc, next_ext_word advanced it by 2
+                // Subtract 2 to get back to where it should be
+                self.regs.pc = self.regs.pc.wrapping_sub(2);
+                // Also prevent the post-instruction prefetch advance
+                self.internal_advances_pc = true;
+            }
         }
     }
 
