@@ -1835,7 +1835,15 @@ impl M68000 {
             }
             _ => {
                 // Memory operand - bit number is mod 8
-                self.queue_internal(12); // Stub for memory
+                // Calculate EA (may consume another extension word for indexed modes)
+                let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
+                self.addr = addr;
+                self.data = bit_num & 7; // mod 8 for memory
+                self.data2 = op_type;
+                self.movem_long_phase = 0;
+                self.micro_ops.push(MicroOp::BitMemOp);
+                self.instr_phase = InstrPhase::Complete;
+                return;
             }
         }
         self.instr_phase = InstrPhase::Complete;
