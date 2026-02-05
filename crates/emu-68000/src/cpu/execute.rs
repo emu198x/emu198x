@@ -3523,6 +3523,11 @@ impl M68000 {
                 AddrMode::AddrInd(r) => {
                     // JSR (An) = 16 cycles: 8 (push) + 8 (prefetch)
                     let target = self.regs.a(r as usize);
+                    // Check for odd target address - triggers address error (before push)
+                    if target & 1 != 0 {
+                        self.trigger_jsr_address_error(target);
+                        return;
+                    }
                     // Return address: In prefetch_only mode, PC is past IRC (which JSR (An)
                     // doesn't consume), so return addr = PC - 2
                     self.data = if self.prefetch_only {
@@ -3542,6 +3547,11 @@ impl M68000 {
                     // JSR d16(An) = 18 cycles: 2 (EA calc) + 8 (push) + 8 (prefetch)
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                    // Check for odd target address - triggers address error (before push)
+                    if target & 1 != 0 {
+                        self.trigger_jsr_address_error(target);
+                        return;
+                    }
                     // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
                     self.data = if self.prefetch_only {
                         self.regs.pc.wrapping_sub(2)
@@ -3559,6 +3569,11 @@ impl M68000 {
                 AddrMode::AddrIndIndex(r) => {
                     // JSR d8(An,Xn) = 22 cycles: 6 (EA calc) + 8 (push) + 8 (prefetch)
                     let target = self.calc_index_ea(self.regs.a(r as usize));
+                    // Check for odd target address - triggers address error (before push)
+                    if target & 1 != 0 {
+                        self.trigger_jsr_address_error(target);
+                        return;
+                    }
                     // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
                     self.data = if self.prefetch_only {
                         self.regs.pc.wrapping_sub(2)
@@ -3576,6 +3591,11 @@ impl M68000 {
                 AddrMode::AbsShort => {
                     // JSR addr.W = 18 cycles: 2 (EA) + 8 (push) + 8 (prefetch)
                     let target = self.next_ext_word() as i16 as i32 as u32;
+                    // Check for odd target address - triggers address error (before push)
+                    if target & 1 != 0 {
+                        self.trigger_jsr_address_error(target);
+                        return;
+                    }
                     // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
                     self.data = if self.prefetch_only {
                         self.regs.pc.wrapping_sub(2)
@@ -3597,6 +3617,11 @@ impl M68000 {
                         let hi = u32::from(self.next_ext_word());
                         let lo = u32::from(self.next_ext_word());
                         let target = (hi << 16) | lo;
+                        // Check for odd target address - triggers address error (before push)
+                        if target & 1 != 0 {
+                            self.trigger_jsr_address_error(target);
+                            return;
+                        }
                         // Return address: PC - 2 in prefetch_only (2nd ext word in prefetch pipeline)
                         self.data = self.regs.pc.wrapping_sub(2);
                         self.micro_ops.push(MicroOp::PushLongHi);
@@ -3624,6 +3649,11 @@ impl M68000 {
                     };
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (pc_at_ext as i32).wrapping_add(disp) as u32;
+                    // Check for odd target address - triggers address error (before push)
+                    if target & 1 != 0 {
+                        self.trigger_jsr_address_error(target);
+                        return;
+                    }
                     // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
                     self.data = if self.prefetch_only {
                         self.regs.pc.wrapping_sub(2)
@@ -3647,6 +3677,11 @@ impl M68000 {
                         self.regs.pc
                     };
                     let target = self.calc_index_ea(pc_at_ext);
+                    // Check for odd target address - triggers address error (before push)
+                    if target & 1 != 0 {
+                        self.trigger_jsr_address_error(target);
+                        return;
+                    }
                     // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
                     self.data = if self.prefetch_only {
                         self.regs.pc.wrapping_sub(2)
@@ -3675,6 +3710,12 @@ impl M68000 {
         let hi = u32::from(self.ext_words[0]);
         let lo = u32::from(self.ext_words[1]);
         let target = (hi << 16) | lo;
+
+        // Check for odd target address - triggers address error (before push)
+        if target & 1 != 0 {
+            self.trigger_jsr_address_error(target);
+            return;
+        }
 
         // Return address is current PC (past both extension words)
         self.data = self.regs.pc;
@@ -3819,6 +3860,15 @@ impl M68000 {
         self.fault_read = true;
         self.fault_in_instruction = false; // I/N=0 for address errors detected during EA calc
         // begin_exception subtracts 2 from PC, giving us PC-2 which is the return address
+        self.exception(3); // Address error
+    }
+
+    fn trigger_jsr_address_error(&mut self, target: u32) {
+        // JSR to odd address triggers address error (same as JMP)
+        self.fault_addr = target;
+        self.fault_fc = if self.regs.is_supervisor() { 6 } else { 2 }; // Program fetch
+        self.fault_read = true;
+        self.fault_in_instruction = false; // I/N=0 for address errors detected during EA calc
         self.exception(3); // Address error
     }
 
