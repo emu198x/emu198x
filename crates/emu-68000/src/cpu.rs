@@ -1741,8 +1741,9 @@ impl M68000 {
                             );
                             // Z is cleared on overflow
                             self.regs.sr &= !crate::flags::Z;
-                            // Overflow detection takes ~10 internal cycles after memory read
-                            self.queue_internal(10);
+                            // Overflow detection takes ~10 internal cycles total
+                            // Subtract 4 for memory read already done
+                            self.queue_internal_no_pc(6);
                         } else {
                             self.regs.d[reg as usize] = (remainder << 16) | quotient;
                             self.regs.sr &= !(crate::flags::V | crate::flags::C);
@@ -1753,8 +1754,10 @@ impl M68000 {
                                 crate::flags::N,
                                 quotient & 0x8000 != 0,
                             );
-                            // Full division timing varies with dividend
-                            self.queue_internal(140);
+                            // Full division timing varies with dividend (~76-156 cycles total)
+                            // Subtract 4 for memory read already done
+                            // Use ~110 as average, minus memory read = 106
+                            self.queue_internal_no_pc(106);
                         }
                     }
                     13 => {
@@ -1779,8 +1782,9 @@ impl M68000 {
                                 Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
                             self.regs.sr =
                                 Status::set_if(self.regs.sr, crate::flags::N, quotient < 0);
-                            // Full division timing varies with dividend
-                            self.queue_internal(158);
+                            // Full division timing varies with dividend (~120-180 cycles total)
+                            // Subtract 4 for memory read already done
+                            self.queue_internal_no_pc(150);
                         } else {
                             // Overflow - detected early, minimal timing
                             self.regs.sr |= crate::flags::V;
@@ -1790,8 +1794,8 @@ impl M68000 {
                                 Status::set_if(self.regs.sr, crate::flags::N, dividend < 0);
                             // Z is cleared on overflow
                             self.regs.sr &= !crate::flags::Z;
-                            // Overflow detected early: ~10 internal cycles after memory read
-                            self.queue_internal(10);
+                            // Overflow detected early: ~16 cycles total, minus 4 for memory read
+                            self.queue_internal_no_pc(12);
                         }
                     }
                     14 => {
