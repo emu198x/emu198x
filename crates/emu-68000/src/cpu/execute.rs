@@ -3176,9 +3176,7 @@ impl M68000 {
         self.addr2 = u32::from(reg);
         self.instr_phase = InstrPhase::SrcRead;
         self.micro_ops.push(MicroOp::Execute);
-
-        // Advance PC by 2 (single-word instruction)
-        self.regs.pc = self.regs.pc.wrapping_add(2);
+        // Don't advance PC here - the completion code will handle it
     }
 
     fn exec_unlk_continuation(&mut self) {

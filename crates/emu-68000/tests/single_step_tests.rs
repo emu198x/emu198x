@@ -514,7 +514,7 @@ fn diagnose_single_test() {
 
     let tests = decode_file(&test_file).expect("Failed to decode");
     // Find a test that doesn't result in an exception (final PC close to initial)
-    let test = &tests[50]; // Try a different test
+    let test = &tests[50];
 
     println!("\n=== Test: {} ===", test.name);
     println!("Expected cycles: {}", test.cycles);
