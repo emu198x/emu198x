@@ -1874,7 +1874,8 @@ impl M68000 {
                         return;
                     }
                     let imm = self.next_ext_word();
-                    self.regs.sr |= imm;
+                    // Apply OR then mask to valid SR bits (68000 has reserved bits)
+                    self.regs.sr = (self.regs.sr | imm) & crate::flags::SR_MASK;
                     if !self.prefetch_only {
                         self.regs.pc = self.regs.pc.wrapping_add(4);
                     }
@@ -1972,7 +1973,8 @@ impl M68000 {
                         return;
                     }
                     let imm = self.next_ext_word();
-                    self.regs.sr &= imm;
+                    // Apply AND then mask to valid SR bits (68000 has reserved bits)
+                    self.regs.sr = (self.regs.sr & imm) & crate::flags::SR_MASK;
                     if !self.prefetch_only {
                         self.regs.pc = self.regs.pc.wrapping_add(4);
                     }
@@ -2191,7 +2193,8 @@ impl M68000 {
                         return;
                     }
                     let imm = self.next_ext_word();
-                    self.regs.sr ^= imm;
+                    // Apply XOR then mask to valid SR bits (68000 has reserved bits)
+                    self.regs.sr = (self.regs.sr ^ imm) & crate::flags::SR_MASK;
                     if !self.prefetch_only {
                         self.regs.pc = self.regs.pc.wrapping_add(4);
                     }
@@ -2513,7 +2516,8 @@ impl M68000 {
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             match addr_mode {
                 AddrMode::DataReg(r) => {
-                    self.regs.sr = self.regs.d[r as usize] as u16;
+                    // Mask to valid SR bits (68000 has reserved bits)
+                    self.regs.sr = (self.regs.d[r as usize] as u16) & crate::flags::SR_MASK;
                     self.queue_internal(12);
                 }
                 AddrMode::Immediate => {
@@ -2548,7 +2552,8 @@ impl M68000 {
         } else {
             self.data as u16
         };
-        self.regs.sr = src;
+        // Mask to valid SR bits (68000 has reserved bits)
+        self.regs.sr = src & crate::flags::SR_MASK;
         self.instr_phase = InstrPhase::Complete;
         self.queue_internal(12);
     }
@@ -3184,10 +3189,7 @@ impl M68000 {
             let imm = self.next_ext_word();
 
             // 68000 masks reserved bits when writing to SR
-            // Valid bits: 15 (T), 13 (S), 10-8 (interrupt level), 4-0 (XNZVC)
-            // Note: Bit 14 is T0 on 68010+, but reserved (always 0) on 68000
-            const SR_MASK: u16 = 0xA71F;
-            self.regs.sr = imm & SR_MASK;
+            self.regs.sr = imm & crate::flags::SR_MASK;
 
             // STOP halts the CPU waiting for interrupt
             self.state = crate::cpu::State::Stopped;
