@@ -5076,8 +5076,13 @@ impl M68000 {
                     (value & mask) != 0
                 } else {
                     // Build a mask for the top (count+1) bits
+                    // Note: when count+1 >= bits, we need to check all bits
                     let check_bits = count + 1;
-                    let check_mask = ((1u32 << check_bits) - 1) << (bits - check_bits);
+                    let check_mask = if check_bits >= bits {
+                        mask
+                    } else {
+                        ((1u32 << check_bits) - 1) << (bits - check_bits)
+                    };
                     // Get the bits to check
                     let top_bits = value & check_mask;
                     // V is set if these bits are neither all 0s nor all 1s
