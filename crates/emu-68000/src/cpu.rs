@@ -453,7 +453,15 @@ impl M68000 {
 
                 // Timed micro-ops (consume cycles) - return after processing
                 MicroOp::FetchOpcode => self.tick_fetch_opcode(bus),
-                MicroOp::FetchExtWord => self.tick_fetch_ext_word(bus),
+                MicroOp::FetchExtWord => {
+                    // In prefetch_only mode, extension words are already preloaded
+                    // so this is an instant no-op (0 cycles)
+                    if self.prefetch_only {
+                        self.micro_ops.advance();
+                        continue;
+                    }
+                    self.tick_fetch_ext_word(bus);
+                }
                 MicroOp::ReadByte => self.tick_read_byte(bus),
                 MicroOp::ReadWord => self.tick_read_word(bus),
                 MicroOp::ReadLongHi => self.tick_read_long_hi(bus),
@@ -518,6 +526,8 @@ impl M68000 {
     }
 
     /// Tick for extension word fetch (4 cycles).
+    /// Note: In prefetch_only mode, this function is not called - the caller handles
+    /// that case as an instant no-op since extension words are already preloaded.
     fn tick_fetch_ext_word<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
@@ -537,7 +547,6 @@ impl M68000 {
                 }
                 self.cycle = 0;
                 self.micro_ops.advance();
-                self.prefetch_only = false;
                 return;
             }
             _ => unreachable!(),

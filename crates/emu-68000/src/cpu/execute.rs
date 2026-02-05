@@ -1802,8 +1802,9 @@ impl M68000 {
     }
 
     fn exec_bit_imm_continuation(&mut self) {
-        // Continuation for BTST/BCHG/BCLR/BSET with immediate bit number
-        let bit_num = (self.ext_words[0] & 0xFF) as u32;
+        // Continuation for BTST/BCHG/BCLR/BSET with immediate bit number.
+        // Use next_ext_word() to properly consume the extension word and advance PC.
+        let bit_num = (self.next_ext_word() & 0xFF) as u32;
         let op_type = self.data2; // 0=BTST, 1=BCHG, 2=BCLR, 3=BSET
 
         let Some(dst_mode) = self.dst_mode else {
@@ -1910,13 +1911,18 @@ impl M68000 {
             return;
         };
 
-        // Get immediate value from extension words
+        // Get immediate value using next_ext_word() to properly track consumption
         let imm = if self.size == Size::Long {
-            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
-        } else if self.size == Size::Word {
-            u32::from(self.ext_words[0])
+            let hi = self.next_ext_word();
+            let lo = self.next_ext_word();
+            (u32::from(hi) << 16) | u32::from(lo)
         } else {
-            u32::from(self.ext_words[0] & 0xFF)
+            let word = self.next_ext_word();
+            if self.size == Size::Word {
+                u32::from(word)
+            } else {
+                u32::from(word & 0xFF)
+            }
         };
 
         match dst_mode {
@@ -2002,12 +2008,18 @@ impl M68000 {
             return;
         };
 
+        // Get immediate value using next_ext_word() to properly track consumption
         let imm = if self.size == Size::Long {
-            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
-        } else if self.size == Size::Word {
-            u32::from(self.ext_words[0])
+            let hi = self.next_ext_word();
+            let lo = self.next_ext_word();
+            (u32::from(hi) << 16) | u32::from(lo)
         } else {
-            u32::from(self.ext_words[0] & 0xFF)
+            let word = self.next_ext_word();
+            if self.size == Size::Word {
+                u32::from(word)
+            } else {
+                u32::from(word & 0xFF)
+            }
         };
 
         match dst_mode {
@@ -2058,12 +2070,18 @@ impl M68000 {
             return;
         };
 
+        // Get immediate value using next_ext_word() to properly track consumption
         let src = if self.size == Size::Long {
-            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
-        } else if self.size == Size::Word {
-            u32::from(self.ext_words[0])
+            let hi = self.next_ext_word();
+            let lo = self.next_ext_word();
+            (u32::from(hi) << 16) | u32::from(lo)
         } else {
-            u32::from(self.ext_words[0] & 0xFF)
+            let word = self.next_ext_word();
+            if self.size == Size::Word {
+                u32::from(word)
+            } else {
+                u32::from(word & 0xFF)
+            }
         };
 
         match dst_mode {
@@ -2114,12 +2132,18 @@ impl M68000 {
             return;
         };
 
+        // Get immediate value using next_ext_word() to properly track consumption
         let src = if self.size == Size::Long {
-            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
-        } else if self.size == Size::Word {
-            u32::from(self.ext_words[0])
+            let hi = self.next_ext_word();
+            let lo = self.next_ext_word();
+            (u32::from(hi) << 16) | u32::from(lo)
         } else {
-            u32::from(self.ext_words[0] & 0xFF)
+            let word = self.next_ext_word();
+            if self.size == Size::Word {
+                u32::from(word)
+            } else {
+                u32::from(word & 0xFF)
+            }
         };
 
         match dst_mode {
@@ -2203,12 +2227,18 @@ impl M68000 {
             return;
         };
 
+        // Get immediate value using next_ext_word() to properly track consumption
         let imm = if self.size == Size::Long {
-            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
-        } else if self.size == Size::Word {
-            u32::from(self.ext_words[0])
+            let hi = self.next_ext_word();
+            let lo = self.next_ext_word();
+            (u32::from(hi) << 16) | u32::from(lo)
         } else {
-            u32::from(self.ext_words[0] & 0xFF)
+            let word = self.next_ext_word();
+            if self.size == Size::Word {
+                u32::from(word)
+            } else {
+                u32::from(word & 0xFF)
+            }
         };
 
         match dst_mode {
@@ -2259,12 +2289,18 @@ impl M68000 {
             return;
         };
 
+        // Get immediate value using next_ext_word() to properly track consumption
         let src = if self.size == Size::Long {
-            (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
-        } else if self.size == Size::Word {
-            u32::from(self.ext_words[0])
+            let hi = self.next_ext_word();
+            let lo = self.next_ext_word();
+            (u32::from(hi) << 16) | u32::from(lo)
         } else {
-            u32::from(self.ext_words[0] & 0xFF)
+            let word = self.next_ext_word();
+            if self.size == Size::Word {
+                u32::from(word)
+            } else {
+                u32::from(word & 0xFF)
+            }
         };
 
         match dst_mode {
@@ -4365,6 +4401,20 @@ impl M68000 {
                     let ones = (src as u16).count_ones() as u8;
                     self.queue_internal(38 + 2 * ones);
                 }
+                AddrMode::Immediate => {
+                    // MULU #imm,Dn - immediate source
+                    self.size = Size::Word;
+                    let src = self.next_ext_word() as u32;
+                    let dst = self.regs.d[reg as usize] & 0xFFFF;
+                    let result = src * dst;
+                    self.regs.d[reg as usize] = result;
+
+                    self.regs.sr = Status::clear_vc(self.regs.sr);
+                    self.regs.sr = Status::update_nz_long(self.regs.sr, result);
+
+                    let ones = (src as u16).count_ones() as u8;
+                    self.queue_internal(38 + 2 * ones);
+                }
                 _ => {
                     // Memory source - use AluMemSrc
                     self.size = Size::Word; // MULU reads word operand
@@ -4399,6 +4449,22 @@ impl M68000 {
                     // For negative source, effectively count bit transitions
                     let src16 = self.regs.d[r as usize] as u16;
                     let pattern = src16 ^ (src16 << 1); // Count bit transitions
+                    let ones = pattern.count_ones() as u8;
+                    self.queue_internal(38 + 2 * ones);
+                }
+                AddrMode::Immediate => {
+                    // MULS #imm,Dn - immediate source
+                    self.size = Size::Word;
+                    let src = self.next_ext_word() as i16 as i32;
+                    let dst = (self.regs.d[reg as usize] as i16) as i32;
+                    let result = (src * dst) as u32;
+                    self.regs.d[reg as usize] = result;
+
+                    self.regs.sr = Status::clear_vc(self.regs.sr);
+                    self.regs.sr = Status::update_nz_long(self.regs.sr, result);
+
+                    let src16 = src as u16;
+                    let pattern = src16 ^ (src16 << 1);
                     let ones = pattern.count_ones() as u8;
                     self.queue_internal(38 + 2 * ones);
                 }
