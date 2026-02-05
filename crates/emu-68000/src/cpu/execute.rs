@@ -1621,11 +1621,13 @@ impl M68000 {
     }
 
     fn trigger_rts_address_error(&mut self, addr: u32) {
-        // RTS to odd address triggers address error
+        // RTS to odd address triggers address error.
+        // Error detected during address calculation, before any bus cycle,
+        // so I/N (fault_in_instruction) is 0.
         self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
         self.fault_addr = addr;
         self.fault_read = true;
-        self.fault_in_instruction = true;
+        self.fault_in_instruction = false;
         self.exception(3);
     }
 
@@ -3498,11 +3500,13 @@ impl M68000 {
     }
 
     fn trigger_rte_address_error(&mut self, addr: u32) {
-        // RTE to odd address triggers address error
+        // RTE to odd address triggers address error.
+        // Error detected during address calculation, before any bus cycle,
+        // so I/N (fault_in_instruction) is 0.
         self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
         self.fault_addr = addr;
         self.fault_read = true;
-        self.fault_in_instruction = true;
+        self.fault_in_instruction = false;
         self.exception(3);
     }
 
@@ -3564,11 +3568,13 @@ impl M68000 {
     }
 
     fn trigger_rtr_address_error(&mut self, addr: u32) {
-        // RTR to odd address triggers address error
+        // RTR to odd address triggers address error.
+        // Error detected during address calculation, before any bus cycle,
+        // so I/N (fault_in_instruction) is 0.
         self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
         self.fault_addr = addr;
         self.fault_read = true;
-        self.fault_in_instruction = true;
+        self.fault_in_instruction = false;
         self.exception(3);
     }
 

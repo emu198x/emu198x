@@ -725,6 +725,72 @@ fn diagnose_bcc_test() {
     println!("All Bcc tests passed!");
 }
 
+/// Diagnostic test for RTS failures.
+#[test]
+fn diagnose_rts_test() {
+    let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("test-data/m68000-dl/v1/RTS.json.bin");
+
+    if !test_file.exists() {
+        eprintln!("Test file not found: {}", test_file.display());
+        return;
+    }
+
+    let tests = decode_file(&test_file).expect("Failed to decode");
+
+    // Find first failing test
+    for (i, test) in tests.iter().enumerate() {
+        let mut cpu = M68000::new();
+        let mut mem = TestBus::new();
+        setup_cpu(&mut cpu, &mut mem, &test.initial);
+
+        for _ in 0..test.cycles {
+            cpu.tick(&mut mem);
+        }
+
+        let errors = compare_state(&cpu, &mem, &test.final_state, &test.name);
+        if !errors.is_empty() {
+            println!("\n=== First failing test: {} (index {}) ===", test.name, i);
+            println!("Expected cycles: {}", test.cycles);
+
+            println!("\n--- Initial State ---");
+            println!("PC: 0x{:08X}", test.initial.pc);
+            println!("SR: 0x{:04X}", test.initial.sr);
+            println!("USP: 0x{:08X}, SSP: 0x{:08X}", test.initial.usp, test.initial.ssp);
+            println!("Prefetch: [{:04X}, {:04X}]", test.initial.prefetch[0], test.initial.prefetch[1]);
+
+            // Show stack contents
+            let sp = if test.initial.sr & 0x2000 != 0 { test.initial.ssp } else { test.initial.usp };
+            println!("Active SP: 0x{:08X}", sp);
+            println!("Stack contents:");
+            for offset in 0..8u32 {
+                let addr = sp.wrapping_add(offset);
+                if let Some(&(_, val)) = test.initial.ram.iter().find(|&&(a, _)| a == addr) {
+                    println!("  [SP+{}] 0x{:06X}: 0x{:02X}", offset, addr, val);
+                }
+            }
+
+            println!("\n--- Our Final State ---");
+            println!("PC: 0x{:08X} (expected 0x{:08X})", cpu.regs.pc, test.final_state.pc);
+            println!("SR: 0x{:04X} (expected 0x{:04X})", cpu.regs.sr, test.final_state.sr);
+            println!("USP: 0x{:08X} (expected 0x{:08X})", cpu.regs.usp, test.final_state.usp);
+            println!("SSP: 0x{:08X} (expected 0x{:08X})", cpu.regs.ssp, test.final_state.ssp);
+
+            println!("\n--- Errors ---");
+            for err in &errors {
+                println!("  {}", err);
+            }
+
+            return;
+        }
+    }
+    println!("All RTS tests passed!");
+}
+
 /// Diagnostic test to understand MOVEA.w increment issue.
 #[test]
 fn diagnose_movea_test() {
