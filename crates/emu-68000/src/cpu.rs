@@ -227,6 +227,9 @@ pub struct M68000 {
     movem_long_phase: u8,
 
     // === Exception state ===
+    /// PC at instruction start (before extension words consumed).
+    /// Used for correct PC value in exception frames.
+    instr_start_pc: u32,
     /// Pending exception vector number.
     pending_exception: Option<u8>,
     /// Current exception being processed.
@@ -284,6 +287,7 @@ impl M68000 {
             movem_predec: false,
             movem_postinc: false,
             movem_long_phase: 0,
+            instr_start_pc: 0,
             pending_exception: None,
             current_exception: None,
             fault_addr: 0,
@@ -337,6 +341,9 @@ impl M68000 {
         // Reset internal_advances_pc - instructions that don't use internal cycles
         // need the final prefetch advance
         self.internal_advances_pc = false;
+        // Save instruction start PC for exception handling.
+        // In prefetch_only mode, this is the PC value before execution begins.
+        self.instr_start_pc = self.regs.pc;
     }
 
     /// Read byte from memory.
@@ -512,6 +519,9 @@ impl M68000 {
                 // Cycle 4: Read complete
                 self.opcode = self.read_word(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(2);
+                // Save instruction start PC for exception handling.
+                // At this point, PC points past the opcode to where extension words begin.
+                self.instr_start_pc = self.regs.pc;
                 self.cycle = 0;
                 self.micro_ops.advance();
                 // Queue decode and execute (unless prefetch_only is set)
@@ -2252,9 +2262,11 @@ impl M68000 {
                 // We need to push: PC, SR, IR (opcode), fault_addr, access_info
                 // Using data for PC, data2 for SR, we'll need to handle the rest inline
                 //
-                // For group 0 exceptions, the PC pushed is PC-2 (address of next instruction
-                // in the prefetch stream, which allows RTE to retry or continue).
-                self.data = self.regs.pc.wrapping_sub(2);
+                // For group 0 exceptions, the PC pushed is the instruction start PC minus 2
+                // (pointing to the first extension word or preceding instruction).
+                // We use instr_start_pc which was saved before extension words were consumed,
+                // rather than the current PC which may have been advanced.
+                self.data = self.instr_start_pc.wrapping_sub(2);
                 self.data2 = u32::from(old_sr);
 
                 // Push PC (4 bytes)
