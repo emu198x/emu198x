@@ -1733,6 +1733,14 @@ impl M68000 {
                             // Overflow - detected early, minimal processing
                             self.regs.sr |= crate::flags::V;
                             self.regs.sr &= !crate::flags::C;
+                            // On overflow, N is set based on bit 16 of quotient (overflow bit)
+                            self.regs.sr = Status::set_if(
+                                self.regs.sr,
+                                crate::flags::N,
+                                quotient & 0x1_0000 != 0,
+                            );
+                            // Z is cleared on overflow
+                            self.regs.sr &= !crate::flags::Z;
                             // Overflow detection takes ~10 internal cycles after memory read
                             self.queue_internal(10);
                         } else {
@@ -1777,6 +1785,11 @@ impl M68000 {
                             // Overflow - detected early, minimal timing
                             self.regs.sr |= crate::flags::V;
                             self.regs.sr &= !crate::flags::C;
+                            // On overflow, N is set based on MSB of dividend (bit 31)
+                            self.regs.sr =
+                                Status::set_if(self.regs.sr, crate::flags::N, dividend < 0);
+                            // Z is cleared on overflow
+                            self.regs.sr &= !crate::flags::Z;
                             // Overflow detected early: ~10 internal cycles after memory read
                             self.queue_internal(10);
                         }

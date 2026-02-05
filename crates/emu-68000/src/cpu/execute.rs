@@ -1643,12 +1643,6 @@ impl M68000 {
             // Word displacement - BSR.W is 4 bytes (opcode + ext word)
             // In prefetch_only: PC starts at opcode + 4, ext word consumed advances to opcode + 6
             let disp = self.next_ext_word() as i16 as i32;
-            // Return address: instruction after BSR = opcode + 4 = PC - 2 after consuming ext word
-            self.data = if self.prefetch_only {
-                self.regs.pc.wrapping_sub(2)
-            } else {
-                self.regs.pc
-            };
             // Displacement is relative to extension word position
             let pc_at_ext = if self.prefetch_only {
                 (self.regs.pc as i32).wrapping_sub(4) // PC - 4 = opcode + 2 (ext word address)
@@ -1656,6 +1650,12 @@ impl M68000 {
                 (self.regs.pc as i32).wrapping_sub(2)
             };
             let target = pc_at_ext.wrapping_add(disp) as u32;
+            // Return address: instruction after BSR = opcode + 4 = PC - 2 after consuming ext word
+            self.data = if self.prefetch_only {
+                self.regs.pc.wrapping_sub(2)
+            } else {
+                self.regs.pc
+            };
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
             // PC = target + 2; tick_internal_cycles adds +2 for final PC = target + 4
@@ -1666,12 +1666,6 @@ impl M68000 {
         } else {
             // Byte displacement - BSR.B is 2 bytes (opcode only)
             // In prefetch_only: PC starts at opcode + 4, no ext word consumed
-            // Return address: instruction after BSR = opcode + 2 = PC - 2
-            self.data = if self.prefetch_only {
-                self.regs.pc.wrapping_sub(2)
-            } else {
-                self.regs.pc
-            };
             // Displacement is relative to opcode + 2 (standard 68000 PC relative)
             let pc_base = if self.prefetch_only {
                 (self.regs.pc as i32).wrapping_sub(2) // PC - 2 = opcode + 2
@@ -1679,6 +1673,12 @@ impl M68000 {
                 self.regs.pc as i32
             };
             let target = pc_base.wrapping_add(displacement as i32) as u32;
+            // Return address: instruction after BSR = opcode + 2 = PC - 2
+            self.data = if self.prefetch_only {
+                self.regs.pc.wrapping_sub(2)
+            } else {
+                self.regs.pc
+            };
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
             // PC = target + 2; tick_internal_cycles adds +2 for final PC = target + 4
@@ -1687,6 +1687,15 @@ impl M68000 {
             self.internal_advances_pc = true;
             self.micro_ops.push(MicroOp::Internal);
         }
+    }
+
+    fn trigger_branch_address_error(&mut self, addr: u32) {
+        // Branch to odd address triggers address error
+        self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
+        self.fault_addr = addr;
+        self.fault_read = true;
+        self.fault_in_instruction = true;
+        self.exception(3);
     }
 
     fn exec_bcc(&mut self, condition: u8, displacement: i8) {
@@ -4114,7 +4123,11 @@ impl M68000 {
                         // Overflow - set V flag, don't store result
                         self.regs.sr |= crate::flags::V;
                         self.regs.sr &= !crate::flags::C; // C always cleared
-                        // N and Z are undefined on overflow
+                        // On overflow, N is set based on bit 16 of the quotient (the overflow bit)
+                        self.regs.sr =
+                            Status::set_if(self.regs.sr, crate::flags::N, quotient & 0x1_0000 != 0);
+                        // Z is cleared on overflow
+                        self.regs.sr &= !crate::flags::Z;
                     } else {
                         // Store result: remainder:quotient
                         self.regs.d[reg as usize] = (remainder << 16) | quotient;
@@ -4166,6 +4179,14 @@ impl M68000 {
                         // Overflow
                         self.regs.sr |= crate::flags::V;
                         self.regs.sr &= !crate::flags::C;
+                        // On overflow, N is set based on MSB of dividend (bit 31)
+                        self.regs.sr = Status::set_if(
+                            self.regs.sr,
+                            crate::flags::N,
+                            (self.regs.d[reg as usize] as i32) < 0,
+                        );
+                        // Z is cleared on overflow
+                        self.regs.sr &= !crate::flags::Z;
                     } else {
                         // Store result: remainder:quotient (both as 16-bit values)
                         let q = quotient as i16 as u16 as u32;
