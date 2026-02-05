@@ -5058,8 +5058,7 @@ impl M68000 {
         // - For ASL: V is set if the MSB changed at ANY point during the shift
         // - For all other shifts/rotates: V is always cleared
         if kind == 0 && direction {
-            // ASL: Check if any of the top (count+1) bits differ
-            // This determines if the MSB will change during any shift
+            // ASL: Check if any of the bits that pass through the MSB position differ
             if count == 0 {
                 self.regs.sr &= !crate::flags::V;
             } else {
@@ -5068,17 +5067,22 @@ impl M68000 {
                     Size::Word => 16,
                     Size::Long => 32,
                 };
-                // Build a mask for the top (count+1) bits, or all bits if count >= bits
-                let check_bits = (count + 1).min(bits);
-                let check_mask = if check_bits >= bits {
-                    mask
+
+                let v = if count >= bits {
+                    // When shifting by >= operand size, ALL bits shift out and zeros fill in.
+                    // V is set if value is non-zero (at some point MSB will change)
+                    // - If all 0s: MSB never changes (0→0), V=0
+                    // - If any 1s: eventually MSB becomes 1 then shifts out to 0, V=1
+                    (value & mask) != 0
                 } else {
-                    ((1u32 << check_bits) - 1) << (bits - check_bits)
+                    // Build a mask for the top (count+1) bits
+                    let check_bits = count + 1;
+                    let check_mask = ((1u32 << check_bits) - 1) << (bits - check_bits);
+                    // Get the bits to check
+                    let top_bits = value & check_mask;
+                    // V is set if these bits are neither all 0s nor all 1s
+                    top_bits != 0 && top_bits != check_mask
                 };
-                // Get the bits to check
-                let top_bits = value & check_mask;
-                // V is set if these bits are neither all 0s nor all 1s
-                let v = top_bits != 0 && top_bits != check_mask;
                 self.regs.sr = Status::set_if(self.regs.sr, crate::flags::V, v);
             }
         } else {
