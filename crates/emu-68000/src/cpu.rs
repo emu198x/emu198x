@@ -2192,7 +2192,9 @@ impl M68000 {
         self.regs.sr = Status::set_if(self.regs.sr, X, carry);
 
         // For ADDX/SUBX (ops 2,3), set N and V
-        if self.data2 >= 2 {
+        // Note: data2 has operation type in low byte, register indices in upper bytes
+        let op_type = self.data2 & 0xFF;
+        if op_type >= 2 {
             self.regs.sr = Status::set_if(self.regs.sr, N, result_masked & msb != 0);
 
             let src_masked = match size {
@@ -2206,7 +2208,7 @@ impl M68000 {
                 Size::Long => dst,
             };
 
-            let overflow = if self.data2 == 2 {
+            let overflow = if op_type == 2 {
                 // ADDX: same signs produce different sign
                 (!(src_masked ^ dst_masked) & (src_masked ^ result_masked) & msb) != 0
             } else {
@@ -2217,6 +2219,8 @@ impl M68000 {
         } else {
             // N undefined for BCD but set based on MSB
             self.regs.sr = Status::set_if(self.regs.sr, N, result_masked & msb != 0);
+            // V: cleared for BCD operations
+            self.regs.sr &= !V;
         }
     }
 

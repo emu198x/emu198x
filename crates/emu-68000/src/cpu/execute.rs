@@ -4387,7 +4387,8 @@ impl M68000 {
             sr = Status::set_if(sr, X, borrow);
             // N: undefined, but set based on MSB for consistency
             sr = Status::set_if(sr, N, result & 0x80 != 0);
-            // V: undefined
+            // V: cleared for BCD operations
+            sr &= !V;
             self.regs.sr = sr;
 
             self.queue_internal(6);
@@ -4412,10 +4413,8 @@ impl M68000 {
             result = result.wrapping_sub(0x60);
         }
 
-        // Borrow: if the result represents a negative BCD number (> 0x99)
-        let borrow = result > 0x99;
-
-        (result, borrow)
+        // Borrow: set if the high nibble needed to borrow
+        (result, high_borrowed)
     }
 
     /// Perform NBCD: negate BCD (0 - src - X).
@@ -4962,7 +4961,8 @@ impl M68000 {
             sr = Status::set_if(sr, X, carry);
             // N: undefined, but set based on MSB for consistency
             sr = Status::set_if(sr, N, result & 0x80 != 0);
-            // V: undefined
+            // V: always cleared for BCD (this matches observed real hardware behavior)
+            sr &= !V;
             self.regs.sr = sr;
 
             self.queue_internal(6);
