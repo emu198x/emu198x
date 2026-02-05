@@ -1636,10 +1636,19 @@ impl M68000 {
             self.instr_phase = InstrPhase::SrcEACalc; // Signal word branch
             self.micro_ops.push(MicroOp::Execute);
         } else {
-            // Byte displacement - PC is set directly
+            // Byte displacement
+            // Displacement is relative to PC after fetching opcode = self.regs.pc - 2
             let offset = displacement as i32;
-            self.regs.pc = (self.regs.pc as i32).wrapping_add(offset) as u32;
-            self.queue_internal_no_pc(4);
+            let pc_for_branch = self.regs.pc.wrapping_sub(2);
+            let target = (pc_for_branch as i32).wrapping_add(offset) as u32;
+            // Check for odd target address
+            if target & 1 != 0 {
+                self.trigger_branch_address_error(target);
+                return;
+            }
+            // Set PC = target + 2; tick_internal_cycles adds +2 for final PC = target + 4
+            self.regs.pc = target.wrapping_add(2);
+            self.queue_internal(4); // 4 cycles, advances PC
         }
     }
 
@@ -1738,11 +1747,15 @@ impl M68000 {
     }
 
     fn trigger_branch_address_error(&mut self, addr: u32) {
-        // Branch to odd address triggers address error
+        // Branch to odd address triggers address error.
+        // The error is detected during address calculation, before any bus cycle,
+        // so I/N (fault_in_instruction) is 0, not 1.
+        // PC in exception frame: for BRA/Bcc, the standard calculation gives the
+        // correct value (instruction PC). BSR has special handling.
         self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
         self.fault_addr = addr;
         self.fault_read = true;
-        self.fault_in_instruction = true;
+        self.fault_in_instruction = false;
         self.exception(3);
     }
 
@@ -1757,14 +1770,18 @@ impl M68000 {
                 self.micro_ops.push(MicroOp::Execute);
             } else {
                 // Byte displacement - compute target and check for odd address
+                // Displacement is relative to PC after fetching opcode, which is
+                // instruction_address + 2 = self.regs.pc - 2 (with 2-word prefetch)
                 let offset = displacement as i32;
-                let target = (self.regs.pc as i32).wrapping_add(offset) as u32;
+                let pc_for_branch = self.regs.pc.wrapping_sub(2);
+                let target = (pc_for_branch as i32).wrapping_add(offset) as u32;
                 if target & 1 != 0 {
                     self.trigger_branch_address_error(target);
                     return;
                 }
-                self.regs.pc = target;
-                self.queue_internal_no_pc(10); // Branch taken timing
+                // Set PC = target + 2; tick_internal_cycles adds +2 for final PC = target + 4
+                self.regs.pc = target.wrapping_add(2);
+                self.queue_internal(10); // Branch taken timing, advances PC
             }
         } else {
             if displacement == 0 {
@@ -1792,10 +1809,10 @@ impl M68000 {
                     self.trigger_branch_address_error(target);
                     return;
                 }
-                // PC is set directly, so don't advance during internal cycles
-                self.regs.pc = target;
+                // Set PC = target + 2; tick_internal_cycles adds +2 for final PC = target + 4
+                self.regs.pc = target.wrapping_add(2);
                 self.instr_phase = InstrPhase::Complete;
-                self.queue_internal_no_pc(10);
+                self.queue_internal(10); // advances PC by +2
             }
             InstrPhase::SrcRead => {
                 // BSR.W - push return address (after ext word) then branch
@@ -1812,10 +1829,10 @@ impl M68000 {
                 self.data = self.regs.pc;
                 self.micro_ops.push(MicroOp::PushLongHi);
                 self.micro_ops.push(MicroOp::PushLongLo);
-                // Branch: PC-2 + disp - PC is set directly
-                self.regs.pc = target;
+                // Branch: set PC = target + 2; tick_internal_cycles adds +2 for final PC = target + 4
+                self.regs.pc = target.wrapping_add(2);
                 self.instr_phase = InstrPhase::Complete;
-                self.queue_internal_no_pc(4);
+                self.queue_internal(4); // advances PC by +2
             }
             _ => {
                 self.instr_phase = InstrPhase::Initial;

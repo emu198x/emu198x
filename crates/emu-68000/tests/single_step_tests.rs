@@ -572,6 +572,159 @@ fn test_divu() {
     }
 }
 
+/// Diagnostic test for BSR failures.
+#[test]
+fn diagnose_bsr_test() {
+    let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("test-data/m68000-dl/v1/BSR.json.bin");
+
+    if !test_file.exists() {
+        eprintln!("Test file not found: {}", test_file.display());
+        return;
+    }
+
+    let tests = decode_file(&test_file).expect("Failed to decode");
+
+    // Find first failing test
+    for (i, test) in tests.iter().enumerate() {
+        let mut cpu = M68000::new();
+        let mut mem = TestBus::new();
+        setup_cpu(&mut cpu, &mut mem, &test.initial);
+
+        for _ in 0..test.cycles {
+            cpu.tick(&mut mem);
+        }
+
+        let errors = compare_state(&cpu, &mem, &test.final_state, &test.name);
+        if !errors.is_empty() {
+            println!("\n=== First failing test: {} (index {}) ===", test.name, i);
+            println!("Expected cycles: {}", test.cycles);
+
+            println!("\n--- Initial State ---");
+            println!("PC: 0x{:08X}", test.initial.pc);
+            println!("SR: 0x{:04X}", test.initial.sr);
+            println!("USP: 0x{:08X}, SSP: 0x{:08X}", test.initial.usp, test.initial.ssp);
+            println!("Prefetch: [{:04X}, {:04X}]", test.initial.prefetch[0], test.initial.prefetch[1]);
+
+            println!("\n--- Our Final State ---");
+            println!("PC: 0x{:08X} (expected 0x{:08X})", cpu.regs.pc, test.final_state.pc);
+            println!("SR: 0x{:04X} (expected 0x{:04X})", cpu.regs.sr, test.final_state.sr);
+            println!("USP: 0x{:08X} (expected 0x{:08X})", cpu.regs.usp, test.final_state.usp);
+            println!("SSP: 0x{:08X} (expected 0x{:08X})", cpu.regs.ssp, test.final_state.ssp);
+
+            println!("\n--- Errors ---");
+            for err in &errors {
+                println!("  {}", err);
+            }
+
+            // Show stack area
+            println!("\n--- Stack area (around SSP) ---");
+            let ssp = test.final_state.ssp;
+            for offset in 0..16u32 {
+                let addr = ssp.wrapping_sub(8).wrapping_add(offset);
+                let expected = test.final_state.ram.iter().find(|&&(a, _)| a == addr).map(|&(_, v)| v);
+                let actual = mem.peek(addr);
+                let marker = if expected.map(|e| e != actual).unwrap_or(false) { " <-- MISMATCH" } else { "" };
+                println!("  0x{:06X}: actual=0x{:02X}, expected={}{}",
+                    addr, actual,
+                    expected.map(|e| format!("0x{:02X}", e)).unwrap_or("N/A".to_string()),
+                    marker);
+            }
+
+            return;
+        }
+    }
+    println!("All BSR tests passed!");
+}
+
+/// Diagnostic test for Bcc failures.
+#[test]
+fn diagnose_bcc_test() {
+    let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("test-data/m68000-dl/v1/Bcc.json.bin");
+
+    if !test_file.exists() {
+        eprintln!("Test file not found: {}", test_file.display());
+        return;
+    }
+
+    let tests = decode_file(&test_file).expect("Failed to decode");
+
+    // Find first failing test
+    for (i, test) in tests.iter().enumerate() {
+        let mut cpu = M68000::new();
+        let mut mem = TestBus::new();
+        setup_cpu(&mut cpu, &mut mem, &test.initial);
+
+        for _ in 0..test.cycles {
+            cpu.tick(&mut mem);
+        }
+
+        let errors = compare_state(&cpu, &mem, &test.final_state, &test.name);
+        if !errors.is_empty() {
+            println!("\n=== First failing test: {} (index {}) ===", test.name, i);
+            println!("Expected cycles: {}", test.cycles);
+
+            println!("\n--- Initial State ---");
+            println!("PC: 0x{:08X}", test.initial.pc);
+            println!("SR: 0x{:04X} (CCR: {:02X})", test.initial.sr, test.initial.sr & 0xFF);
+            println!("USP: 0x{:08X}, SSP: 0x{:08X}", test.initial.usp, test.initial.ssp);
+            println!("Prefetch: [{:04X}, {:04X}]", test.initial.prefetch[0], test.initial.prefetch[1]);
+
+            // Decode instruction
+            let opcode = test.initial.prefetch[0];
+            let condition = (opcode >> 8) & 0xF;
+            let displacement = opcode as u8;
+            let cond_names = ["T", "F", "HI", "LS", "CC", "CS", "NE", "EQ", "VC", "VS", "PL", "MI", "GE", "LT", "GT", "LE"];
+            println!("Opcode: 0x{:04X} = B{} displacement={} (signed: {})",
+                opcode, cond_names[condition as usize], displacement, displacement as i8);
+
+            // Calculate target
+            let instr_addr = test.initial.pc.wrapping_sub(4);
+            let pc_for_branch = instr_addr.wrapping_add(2);
+            let target = (pc_for_branch as i32).wrapping_add(displacement as i8 as i32) as u32;
+            println!("Instruction at: 0x{:08X}, PC for branch: 0x{:08X}, Target: 0x{:08X} (odd: {})",
+                instr_addr, pc_for_branch, target, target & 1 != 0);
+
+            println!("\n--- Our Final State ---");
+            println!("PC: 0x{:08X} (expected 0x{:08X})", cpu.regs.pc, test.final_state.pc);
+            println!("SR: 0x{:04X} (expected 0x{:04X})", cpu.regs.sr, test.final_state.sr);
+            println!("USP: 0x{:08X} (expected 0x{:08X})", cpu.regs.usp, test.final_state.usp);
+            println!("SSP: 0x{:08X} (expected 0x{:08X})", cpu.regs.ssp, test.final_state.ssp);
+
+            println!("\n--- Errors ---");
+            for err in &errors {
+                println!("  {}", err);
+            }
+
+            // Show stack area
+            println!("\n--- Stack area (around final SSP 0x{:08X}) ---", test.final_state.ssp);
+            let ssp = test.final_state.ssp;
+            for offset in 0..20u32 {
+                let addr = ssp.wrapping_add(offset);
+                let expected = test.final_state.ram.iter().find(|&&(a, _)| a == addr).map(|&(_, v)| v);
+                let actual = mem.peek(addr);
+                let marker = if expected.map(|e| e != actual).unwrap_or(false) { " <-- MISMATCH" } else { "" };
+                println!("  0x{:06X}: actual=0x{:02X}, expected={}{}",
+                    addr, actual,
+                    expected.map(|e| format!("0x{:02X}", e)).unwrap_or("N/A".to_string()),
+                    marker);
+            }
+
+            return;
+        }
+    }
+    println!("All Bcc tests passed!");
+}
+
 /// Diagnostic test to understand MOVEA.w increment issue.
 #[test]
 fn diagnose_movea_test() {

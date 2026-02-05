@@ -254,6 +254,9 @@ pub struct M68000 {
     /// Deferred post-increment: (register, amount). Applied after successful memory read.
     /// Cleared on address error so register is not modified on fault.
     deferred_postinc: Option<(u8, u32)>,
+    /// Override PC value for exception frame. Used for branch instructions that cause
+    /// address errors, where the PC should be the target address rather than calculated.
+    exception_pc_override: Option<u32>,
 
     // === Interrupt state ===
     /// Pending interrupt level (1-7), 0 = none.
@@ -302,6 +305,7 @@ impl M68000 {
             prefetch_only: false,
             mem_accessed: false,
             deferred_postinc: None,
+            exception_pc_override: None,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
         };
@@ -752,11 +756,15 @@ impl M68000 {
             // Check for BSR odd target flag - trigger address error after push completed
             if self.data2 == 0x8000_0001 {
                 self.data2 = 0;
-                // Trigger address error for the odd target stored in addr2
+                // Trigger address error for the odd target stored in addr2.
+                // The error is detected during address calculation, before any bus cycle,
+                // so I/N (fault_in_instruction) is 0, not 1.
+                // Set PC override so exception frame contains target address.
+                self.exception_pc_override = Some(self.addr2);
                 self.fault_fc = if self.regs.sr & S != 0 { 6 } else { 2 };
                 self.fault_addr = self.addr2;
                 self.fault_read = true;
-                self.fault_in_instruction = true;
+                self.fault_in_instruction = false;
                 self.exception(3);
                 self.cycle = 0;
                 return;
@@ -2349,30 +2357,35 @@ impl M68000 {
                 // We need to push: PC, SR, IR (opcode), fault_addr, access_info
                 // Using data for PC, data2 for SR, we'll need to handle the rest inline
                 //
-                // For group 0 exceptions, the PC pushed depends on the addressing mode:
-                // - Pre-decrement mode: push instr_start_pc (PC past opcode)
-                // - Absolute modes (AbsShort, AbsLong): push instr_start_pc + (ext_words - 1) * 2
-                // - Other modes: push instr_start_pc - 2
-                let (ext_words, is_absolute) = match self.src_mode {
-                    Some(AddrMode::AbsShort) => (1u8, true),
-                    Some(AddrMode::AbsLong) => (2u8, true),
-                    Some(mode) => (self.ext_words_for_mode(mode), false),
-                    None => (0, false),
-                };
-                // MOVEM instructions (0x48xx, 0x4Cxx) consume extension words via next_ext_word()
-                // which advances PC in prefetch_only mode, so they need current PC
-                let is_movem = (self.opcode & 0xFB80) == 0x4880;
-                self.data = if self.uses_predec_mode() || (is_movem && !is_absolute) {
-                    // For predecrement mode or MOVEM with displacement/indexed modes,
-                    // use current PC (after extension words were consumed)
-                    self.regs.pc
-                } else if is_absolute {
-                    // For absolute modes, adjust based on extension word count
-                    self.instr_start_pc
-                        .wrapping_add(u32::from(ext_words.saturating_sub(1)) * 2)
+                // Check for explicit PC override first (used by branch address errors)
+                self.data = if let Some(pc) = self.exception_pc_override.take() {
+                    pc
                 } else {
-                    // For all other modes, point to opcode or first extension word
-                    self.instr_start_pc.wrapping_sub(2)
+                    // For group 0 exceptions, the PC pushed depends on the addressing mode:
+                    // - Pre-decrement mode: push instr_start_pc (PC past opcode)
+                    // - Absolute modes (AbsShort, AbsLong): push instr_start_pc + (ext_words - 1) * 2
+                    // - Other modes: push instr_start_pc - 2
+                    let (ext_words, is_absolute) = match self.src_mode {
+                        Some(AddrMode::AbsShort) => (1u8, true),
+                        Some(AddrMode::AbsLong) => (2u8, true),
+                        Some(mode) => (self.ext_words_for_mode(mode), false),
+                        None => (0, false),
+                    };
+                    // MOVEM instructions (0x48xx, 0x4Cxx) consume extension words via next_ext_word()
+                    // which advances PC in prefetch_only mode, so they need current PC
+                    let is_movem = (self.opcode & 0xFB80) == 0x4880;
+                    if self.uses_predec_mode() || (is_movem && !is_absolute) {
+                        // For predecrement mode or MOVEM with displacement/indexed modes,
+                        // use current PC (after extension words were consumed)
+                        self.regs.pc
+                    } else if is_absolute {
+                        // For absolute modes, adjust based on extension word count
+                        self.instr_start_pc
+                            .wrapping_add(u32::from(ext_words.saturating_sub(1)) * 2)
+                    } else {
+                        // For all other modes, point to opcode or first extension word
+                        self.instr_start_pc.wrapping_sub(2)
+                    }
                 };
                 self.data2 = u32::from(old_sr);
 
