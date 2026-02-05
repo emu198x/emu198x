@@ -3931,7 +3931,13 @@ impl M68000 {
     }
 
     fn trigger_jsr_address_error(&mut self, target: u32) {
-        // JSR to odd address triggers address error (same as JMP)
+        // JSR to odd address triggers address error.
+        // Exception PC should be the return address (instruction after JSR).
+        // In prefetch_only mode, PC has advanced past any extension words,
+        // so return_addr = PC - 2.
+        if self.prefetch_only {
+            self.exception_pc_override = Some(self.regs.pc.wrapping_sub(2));
+        }
         self.fault_addr = target;
         self.fault_fc = if self.regs.is_supervisor() { 6 } else { 2 }; // Program fetch
         self.fault_read = true;

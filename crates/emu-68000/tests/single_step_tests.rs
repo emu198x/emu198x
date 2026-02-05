@@ -791,6 +791,86 @@ fn diagnose_rts_test() {
     println!("All RTS tests passed!");
 }
 
+/// Diagnostic test for JSR failures.
+#[test]
+fn diagnose_jsr_test() {
+    let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("test-data/m68000-dl/v1/JSR.json.bin");
+
+    if !test_file.exists() {
+        eprintln!("Test file not found: {}", test_file.display());
+        return;
+    }
+
+    let tests = decode_file(&test_file).expect("Failed to decode");
+
+    // Find first failing test
+    for (i, test) in tests.iter().enumerate() {
+        let mut cpu = M68000::new();
+        let mut mem = TestBus::new();
+        setup_cpu(&mut cpu, &mut mem, &test.initial);
+
+        for _ in 0..test.cycles {
+            cpu.tick(&mut mem);
+        }
+
+        let errors = compare_state(&cpu, &mem, &test.final_state, &test.name);
+        if !errors.is_empty() {
+            println!("\n=== First failing test: {} (index {}) ===", test.name, i);
+            println!("Expected cycles: {}", test.cycles);
+
+            println!("\n--- Initial State ---");
+            println!("PC: 0x{:08X}", test.initial.pc);
+            println!("SR: 0x{:04X}", test.initial.sr);
+            println!("USP: 0x{:08X}, SSP: 0x{:08X}", test.initial.usp, test.initial.ssp);
+            println!("Prefetch: [{:04X}, {:04X}]", test.initial.prefetch[0], test.initial.prefetch[1]);
+            for i in 0..7 {
+                println!("A{}: 0x{:08X}", i, test.initial.a[i]);
+            }
+            println!("A7/SP: USP=0x{:08X}, SSP=0x{:08X}", test.initial.usp, test.initial.ssp);
+
+            // Decode instruction
+            let opcode = test.initial.prefetch[0];
+            let instr_addr = test.initial.pc.wrapping_sub(4);
+            println!("\nInstruction at: 0x{:08X}", instr_addr);
+            println!("Opcode: 0x{:04X}", opcode);
+            println!("Expected return addr: instruction_addr + instruction_length");
+
+            println!("\n--- Our Final State ---");
+            println!("PC: 0x{:08X} (expected 0x{:08X})", cpu.regs.pc, test.final_state.pc);
+            println!("SR: 0x{:04X} (expected 0x{:04X})", cpu.regs.sr, test.final_state.sr);
+            println!("USP: 0x{:08X} (expected 0x{:08X})", cpu.regs.usp, test.final_state.usp);
+            println!("SSP: 0x{:08X} (expected 0x{:08X})", cpu.regs.ssp, test.final_state.ssp);
+
+            // Show stack to see pushed return address
+            let sp = if test.final_state.sr & 0x2000 != 0 { test.final_state.ssp } else { test.final_state.usp };
+            println!("\n--- Stack (return addr pushed by JSR) ---");
+            for offset in 0..8u32 {
+                let addr = sp.wrapping_add(offset);
+                let expected = test.final_state.ram.iter().find(|&&(a, _)| a == addr).map(|&(_, v)| v);
+                let actual = mem.peek(addr);
+                let marker = if expected.map(|e| e != actual).unwrap_or(false) { " <-- MISMATCH" } else { "" };
+                println!("  [SP+{}] 0x{:06X}: actual=0x{:02X}, expected={}{}",
+                    offset, addr, actual,
+                    expected.map(|e| format!("0x{:02X}", e)).unwrap_or("N/A".to_string()),
+                    marker);
+            }
+
+            println!("\n--- Errors ---");
+            for err in &errors {
+                println!("  {}", err);
+            }
+
+            return;
+        }
+    }
+    println!("All JSR tests passed!");
+}
+
 /// Diagnostic test to understand MOVEA.w increment issue.
 #[test]
 fn diagnose_movea_test() {
