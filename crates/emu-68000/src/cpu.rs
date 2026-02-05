@@ -1888,7 +1888,13 @@ impl M68000 {
         // For long: phases 0=read src hi, 1=read src lo, 2=read dst hi, 3=read dst lo, 4=write hi, 5=write lo
         match self.cycle {
             0 => {
-                // Handle deferred pre-decrement at the start of the operation
+                // Handle pre-decrements at the correct phases.
+                // Source pre-decrement happens in phase 0 (before source read).
+                // Destination pre-decrement happens before destination read:
+                //   - Byte/Word: phase 1
+                //   - Long: phase 2 (after source lo read)
+
+                // Phase 0: Pre-decrement source register
                 if !self.extend_predec_done && self.movem_long_phase == 0 {
                     // Extract register numbers from self.data (packed as rx | (ry << 8))
                     let rx = (self.data & 0xFF) as usize;
@@ -1901,53 +1907,61 @@ impl M68000 {
                         Size::Long => 4,
                     };
 
-                    // Calculate the would-be addresses BEFORE pre-decrementing
+                    // Calculate and apply source pre-decrement
                     let src_addr = self.regs.a(rx).wrapping_sub(decr);
-                    let dst_addr = self.regs.a(ry).wrapping_sub(decr);
+                    self.regs.set_a(rx, src_addr);
+                    self.addr = src_addr;
 
-                    // Check for address error on source address (word/long only)
+                    // Check for address error AFTER pre-decrementing (word/long only)
+                    // On 68000, the register is modified before the address error is detected
                     if self.size != Size::Byte && src_addr & 1 != 0 {
                         self.address_error(src_addr, true, false);
                         return;
                     }
 
-                    // Source address is OK, perform pre-decrements
-                    self.regs.set_a(rx, src_addr);
-                    self.regs.set_a(ry, dst_addr);
-                    self.addr = src_addr;
-                    self.addr2 = dst_addr;
-                    self.extend_predec_done = true;
+                    // Store ry in upper bits of data2 for later use (data2 low byte = op type)
+                    self.data2 = (self.data2 & 0xFF) | ((ry as u32) << 8);
+                    // Also store rx in case we need it for same-register detection
+                    self.data2 = (self.data2 & 0xFFFF) | ((rx as u32) << 16);
 
-                    // Store rx for later use (we overwrote data, need to keep track)
-                    // Actually, we don't need rx anymore after this point
+                    self.extend_predec_done = true;
                 }
 
-                // Check for odd address on word/long access (for subsequent phases)
-                if self.size != Size::Byte && self.extend_predec_done {
-                    // Determine which address to check based on phase
-                    let check_addr = match self.size {
-                        Size::Word => match self.movem_long_phase {
-                            0 => self.addr,  // Reading source
-                            1 | 2 => self.addr2,  // Reading/writing dest
-                            _ => self.addr,
-                        },
-                        Size::Long => match self.movem_long_phase {
-                            0 | 1 => self.addr,  // Reading source
-                            2 | 3 | 4 | 5 => self.addr2,  // Reading/writing dest
-                            _ => self.addr,
-                        },
-                        Size::Byte => self.addr,  // Never checked
+                // Destination pre-decrement: before phase 1 (byte/word) or phase 2 (long)
+                let dest_predec_phase = match self.size {
+                    Size::Byte | Size::Word => 1,
+                    Size::Long => 2,
+                };
+                // Use bit 24 of data2 to track if dest has been decremented
+                let dest_decremented = self.data2 & 0x0100_0000 != 0;
+                if !dest_decremented && self.movem_long_phase == dest_predec_phase {
+                    let ry = ((self.data2 >> 8) & 0xFF) as usize;
+
+                    let decr = match self.size {
+                        Size::Byte => 1,
+                        Size::Word => 2,
+                        Size::Long => 4,
                     };
-                    if check_addr & 1 != 0 {
-                        let is_read = match self.size {
-                            Size::Word => self.movem_long_phase < 2,
-                            Size::Long => self.movem_long_phase < 4,
-                            Size::Byte => true,
-                        };
-                        self.address_error(check_addr, is_read, false);
+
+                    // Calculate and apply destination pre-decrement
+                    // (For same-register case, ry == rx, and rx has already been decremented,
+                    // so we get the correct sequential behavior automatically)
+                    let dst_addr = self.regs.a(ry).wrapping_sub(decr);
+                    self.regs.set_a(ry, dst_addr);
+                    self.addr2 = dst_addr;
+
+                    // Check for address error AFTER pre-decrementing (word/long only)
+                    if self.size != Size::Byte && dst_addr & 1 != 0 {
+                        self.address_error(dst_addr, true, false);
                         return;
                     }
+
+                    // Mark dest as decremented
+                    self.data2 |= 0x0100_0000;
                 }
+
+                // Address checks are now done at pre-decrement time.
+                // Source checked in phase 0, destination checked at dest_predec_phase.
             }
             1 | 2 => {}
             3 => {
@@ -1967,7 +1981,9 @@ impl M68000 {
                                 let dst = self.read_byte(bus, self.addr2);
                                 let x = u8::from(self.regs.sr & X != 0);
 
-                                let (result, carry) = match self.data2 {
+                                // Mask to get just the operation type (low byte), ignoring
+                                // ry and flags stored in upper bits
+                                let (result, carry) = match self.data2 & 0xFF {
                                     0 => self.bcd_add(src, dst, x),
                                     1 => self.bcd_sub(dst, src, x),
                                     2 => {
@@ -2011,7 +2027,8 @@ impl M68000 {
                                 let dst = self.read_word(bus, self.addr2);
                                 let x = u32::from(self.regs.sr & X != 0);
 
-                                let (result, carry) = if self.data2 == 2 {
+                                // Mask to get just the operation type (low byte)
+                                let (result, carry) = if (self.data2 & 0xFF) == 2 {
                                     // ADDX
                                     let r = u32::from(dst) + u32::from(src) + x;
                                     (r as u16, r > 0xFFFF)
@@ -2065,7 +2082,8 @@ impl M68000 {
                                 let dst = (u32::from(self.ext_words[3]) << 16) | u32::from(self.read_word(bus, self.addr2.wrapping_add(2)));
                                 let x = u32::from(self.regs.sr & X != 0);
 
-                                let (result, carry) = if self.data2 == 2 {
+                                // Mask to get just the operation type (low byte)
+                                let (result, carry) = if (self.data2 & 0xFF) == 2 {
                                     // ADDX
                                     let r = (dst as u64) + (src as u64) + (x as u64);
                                     (r as u32, r > 0xFFFF_FFFF)

@@ -3044,6 +3044,8 @@ impl M68000 {
                 }
                 _ => {
                     // Memory operand - calculate EA then do read-modify-write
+                    // TAS is always a byte operation - set size for correct (An)+/-(An) increment
+                    self.size = Size::Byte;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
                     self.movem_long_phase = 0;
@@ -5143,6 +5145,8 @@ impl M68000 {
                 }
                 _ => {
                     // Memory operand - calculate EA then do read-modify-write
+                    // Memory shifts are always word size - set for correct (An)+/-(An) increment
+                    self.size = Size::Word;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
                     self.data = u32::from(kind);
