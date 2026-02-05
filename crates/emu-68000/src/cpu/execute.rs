@@ -1732,9 +1732,14 @@ impl M68000 {
                 self.instr_phase = InstrPhase::SrcEACalc;
                 self.micro_ops.push(MicroOp::Execute);
             } else {
-                // PC is set directly
+                // Byte displacement - compute target and check for odd address
                 let offset = displacement as i32;
-                self.regs.pc = (self.regs.pc as i32).wrapping_add(offset) as u32;
+                let target = (self.regs.pc as i32).wrapping_add(offset) as u32;
+                if target & 1 != 0 {
+                    self.trigger_branch_address_error(target);
+                    return;
+                }
+                self.regs.pc = target;
                 self.queue_internal_no_pc(10); // Branch taken timing
             }
         } else {
@@ -1757,19 +1762,34 @@ impl M68000 {
                 // PC already advanced past extension word, adjust from there
                 // But displacement is relative to the start of the extension word
                 // PC was at ext word, then advanced by 2, so: PC-2 + disp
+                let target = ((self.regs.pc as i32) - 2 + disp) as u32;
+                // Check for odd target address
+                if target & 1 != 0 {
+                    self.trigger_branch_address_error(target);
+                    return;
+                }
                 // PC is set directly, so don't advance during internal cycles
-                self.regs.pc = ((self.regs.pc as i32) - 2 + disp) as u32;
+                self.regs.pc = target;
                 self.instr_phase = InstrPhase::Complete;
                 self.queue_internal_no_pc(10);
             }
             InstrPhase::SrcRead => {
                 // BSR.W - push return address (after ext word) then branch
+                let target = ((self.regs.pc as i32) - 2 + disp) as u32;
+                // Check for odd target address - BSR pushes first, then checks
+                if target & 1 != 0 {
+                    // Decrement stack pointer by 4 (for the return address that would be pushed)
+                    let sp = self.regs.active_sp().wrapping_sub(4);
+                    self.regs.set_active_sp(sp);
+                    self.trigger_branch_address_error(target);
+                    return;
+                }
                 // Return address is current PC (after ext word)
                 self.data = self.regs.pc;
                 self.micro_ops.push(MicroOp::PushLongHi);
                 self.micro_ops.push(MicroOp::PushLongLo);
                 // Branch: PC-2 + disp - PC is set directly
-                self.regs.pc = ((self.regs.pc as i32) - 2 + disp) as u32;
+                self.regs.pc = target;
                 self.instr_phase = InstrPhase::Complete;
                 self.queue_internal_no_pc(4);
             }
