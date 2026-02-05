@@ -746,14 +746,78 @@ impl M68000 {
                         self.regs.set_a(r as usize, value);
                         self.instr_phase = InstrPhase::Complete;
                     }
-                    _ => {
-                        // Memory destination
-                        self.addr = self.addr2;
+                    AddrMode::AddrInd(r) => {
+                        // Simple indirect
+                        self.addr = self.regs.a(r as usize);
                         self.queue_write_ops(self.size);
                         if !is_movea {
                             self.set_flags_move(value, self.size);
                         }
                         self.instr_phase = InstrPhase::Complete;
+                    }
+                    AddrMode::AddrIndPostInc(r) => {
+                        // Post-increment: use current value, then increment
+                        let addr = self.regs.a(r as usize);
+                        let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
+                        self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                        self.addr = addr;
+                        self.queue_write_ops(self.size);
+                        if !is_movea {
+                            self.set_flags_move(value, self.size);
+                        }
+                        self.instr_phase = InstrPhase::Complete;
+                    }
+                    AddrMode::AddrIndPreDec(r) => {
+                        // Pre-decrement: decrement first, then use
+                        let dec = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
+                        let addr = self.regs.a(r as usize).wrapping_sub(dec);
+                        self.regs.set_a(r as usize, addr);
+                        self.addr = addr;
+                        self.queue_write_ops(self.size);
+                        if !is_movea {
+                            self.set_flags_move(value, self.size);
+                        }
+                        self.instr_phase = InstrPhase::Complete;
+                    }
+                    AddrMode::AddrIndDisp(r) => {
+                        let disp = self.next_ext_word() as i16 as i32;
+                        self.addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                        self.queue_write_ops(self.size);
+                        if !is_movea {
+                            self.set_flags_move(value, self.size);
+                        }
+                        self.instr_phase = InstrPhase::Complete;
+                    }
+                    AddrMode::AddrIndIndex(r) => {
+                        let ea = self.calc_index_ea(self.regs.a(r as usize));
+                        self.addr = ea;
+                        self.queue_write_ops(self.size);
+                        if !is_movea {
+                            self.set_flags_move(value, self.size);
+                        }
+                        self.instr_phase = InstrPhase::Complete;
+                    }
+                    AddrMode::AbsShort => {
+                        self.addr = self.next_ext_word() as i16 as i32 as u32;
+                        self.queue_write_ops(self.size);
+                        if !is_movea {
+                            self.set_flags_move(value, self.size);
+                        }
+                        self.instr_phase = InstrPhase::Complete;
+                    }
+                    AddrMode::AbsLong => {
+                        let hi = self.next_ext_word();
+                        let lo = self.next_ext_word();
+                        self.addr = (u32::from(hi) << 16) | u32::from(lo);
+                        self.queue_write_ops(self.size);
+                        if !is_movea {
+                            self.set_flags_move(value, self.size);
+                        }
+                        self.instr_phase = InstrPhase::Complete;
+                    }
+                    _ => {
+                        // PC-relative and Immediate are invalid destination modes
+                        self.illegal_instruction();
                     }
                 }
             }
@@ -933,7 +997,9 @@ impl M68000 {
                 return;
             }
             AddrMode::PcDisp => {
-                let pc = self.regs.pc; // PC at extension word
+                // PC-relative: base PC is address of extension word.
+                // In prefetch_only mode, PC is already 2 past it, so subtract 2.
+                let pc = self.regs.pc.wrapping_sub(2);
                 let disp = self.next_ext_word() as i16 as i32;
                 self.addr = (pc as i32).wrapping_add(disp) as u32;
                 self.dst_mode = Some(dst_mode);
@@ -943,7 +1009,10 @@ impl M68000 {
                 return;
             }
             AddrMode::PcIndex => {
-                let ea = self.calc_index_ea(self.regs.pc);
+                // PC-relative: base PC is address of extension word.
+                // In prefetch_only mode, PC is already 2 past it, so subtract 2.
+                let pc = self.regs.pc.wrapping_sub(2);
+                let ea = self.calc_index_ea(pc);
                 self.addr = ea;
                 self.dst_mode = Some(dst_mode);
                 self.queue_read_ops(self.size);
@@ -1366,7 +1435,8 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Execute);
                 }
                 AddrMode::PcDisp => {
-                    self.addr = self.regs.pc; // PC at extension word
+                    // For PC-relative modes, use PC-2 as base (address of extension word)
+                    self.addr = self.regs.pc.wrapping_sub(2);
                     self.addr2 = u32::from(reg);
                     self.micro_ops.push(MicroOp::FetchExtWord);
                     self.instr_phase = InstrPhase::SrcEACalc;
@@ -1374,7 +1444,8 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::Execute);
                 }
                 AddrMode::PcIndex => {
-                    self.addr = self.regs.pc;
+                    // For PC-relative modes, use PC-2 as base (address of extension word)
+                    self.addr = self.regs.pc.wrapping_sub(2);
                     self.addr2 = u32::from(reg);
                     self.micro_ops.push(MicroOp::FetchExtWord);
                     self.instr_phase = InstrPhase::SrcEACalc;
@@ -1390,6 +1461,7 @@ impl M68000 {
 
     fn exec_lea_continuation(&mut self) {
         // Called after extension words are fetched for LEA
+        // Use next_ext_word() to properly advance PC in prefetch_only mode
         let Some(src_mode) = self.src_mode else {
             return;
         };
@@ -1397,11 +1469,11 @@ impl M68000 {
 
         let addr = match src_mode {
             AddrMode::AddrIndDisp(_) => {
-                let disp = self.ext_words[0] as i16 as i32;
+                let disp = self.next_ext_word() as i16 as i32;
                 (self.addr as i32).wrapping_add(disp) as u32
             }
             AddrMode::AddrIndIndex(_) => {
-                let ext = self.ext_words[0];
+                let ext = self.next_ext_word();
                 let disp = (ext & 0xFF) as i8 as i32;
                 let xn = ((ext >> 12) & 7) as usize;
                 let is_addr = ext & 0x8000 != 0;
@@ -1420,16 +1492,18 @@ impl M68000 {
                     .wrapping_add(disp)
                     .wrapping_add(idx_val) as u32
             }
-            AddrMode::AbsShort => self.ext_words[0] as i16 as i32 as u32,
+            AddrMode::AbsShort => self.next_ext_word() as i16 as i32 as u32,
             AddrMode::AbsLong => {
-                (u32::from(self.ext_words[0]) << 16) | u32::from(self.ext_words[1])
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                (u32::from(hi) << 16) | u32::from(lo)
             }
             AddrMode::PcDisp => {
-                let disp = self.ext_words[0] as i16 as i32;
+                let disp = self.next_ext_word() as i16 as i32;
                 (self.addr as i32).wrapping_add(disp) as u32
             }
             AddrMode::PcIndex => {
-                let ext = self.ext_words[0];
+                let ext = self.next_ext_word();
                 let disp = (ext & 0xFF) as i8 as i32;
                 let xn = ((ext >> 12) & 7) as usize;
                 let is_addr = ext & 0x8000 != 0;

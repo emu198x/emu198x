@@ -2596,11 +2596,25 @@ impl M68000 {
                 (addr, false)
             }
             AddrMode::PcDisp => {
+                // For PC-relative modes, the base PC is the address of the extension word.
+                // In prefetch_only mode, this is PC-2 (before next_ext_word advances PC).
+                let base_pc = if self.prefetch_only {
+                    self.regs.pc.wrapping_sub(2)
+                } else {
+                    pc_at_ext
+                };
                 let disp = self.next_ext_word() as i16 as i32;
-                let addr = (pc_at_ext as i32).wrapping_add(disp) as u32;
+                let addr = (base_pc as i32).wrapping_add(disp) as u32;
                 (addr, false)
             }
             AddrMode::PcIndex => {
+                // For PC-relative modes, the base PC is the address of the extension word.
+                // In prefetch_only mode, this is PC-2 (before next_ext_word advances PC).
+                let base_pc = if self.prefetch_only {
+                    self.regs.pc.wrapping_sub(2)
+                } else {
+                    pc_at_ext
+                };
                 let ext = self.next_ext_word();
                 let disp = (ext & 0xFF) as i8 as i32;
                 let xn = ((ext >> 12) & 7) as usize;
@@ -2616,7 +2630,7 @@ impl M68000 {
                 } else {
                     idx_val as i16 as i32
                 };
-                let addr = (pc_at_ext as i32)
+                let addr = (base_pc as i32)
                     .wrapping_add(disp)
                     .wrapping_add(idx_val) as u32;
                 (addr, false)
