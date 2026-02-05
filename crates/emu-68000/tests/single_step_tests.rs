@@ -472,6 +472,31 @@ fn run_test_file(path: &Path) -> (usize, usize, Vec<String>) {
     (passed, failed, all_errors)
 }
 
+/// Run MOVEA.w tests to see pass rate.
+#[test]
+fn test_movea_w() {
+    let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("test-data/m68000-dl/v1/MOVEA.w.json.bin");
+
+    if !test_file.exists() {
+        eprintln!("Test file not found: {}", test_file.display());
+        return;
+    }
+
+    let (passed, failed, errors) = run_test_file(&test_file);
+    println!("MOVEA.w tests: {} passed, {} failed", passed, failed);
+    if !errors.is_empty() {
+        println!("First 10 errors:");
+        for err in errors.iter().take(10) {
+            println!("  {}", err);
+        }
+    }
+}
+
 /// Run just ABCD tests to see pass rate.
 #[test]
 fn test_abcd() {
@@ -547,6 +572,70 @@ fn test_divu() {
     }
 }
 
+/// Diagnostic test to understand MOVEA.w increment issue.
+#[test]
+fn diagnose_movea_test() {
+    let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("test-data/m68000-dl/v1/MOVEA.w.json.bin");
+
+    if !test_file.exists() {
+        eprintln!("Test file not found: {}", test_file.display());
+        return;
+    }
+
+    let tests = decode_file(&test_file).expect("Failed to decode");
+    // Test 036 has A3 increment issue
+    let test = &tests[36];
+
+    println!("\n=== Test: {} ===", test.name);
+    println!("Expected cycles: {}", test.cycles);
+
+    println!("\n--- Initial State ---");
+    println!("PC: 0x{:08X}", test.initial.pc);
+    println!("SR: 0x{:04X} (CCR: 0x{:02X})", test.initial.sr, test.initial.sr & 0xFF);
+    for i in 0..8 {
+        println!("D{}: 0x{:08X}", i, test.initial.d[i]);
+    }
+    for i in 0..7 {
+        println!("A{}: 0x{:08X}", i, test.initial.a[i]);
+    }
+    println!("Prefetch: [{:08X}, {:08X}]", test.initial.prefetch[0], test.initial.prefetch[1]);
+
+    // Run the test
+    let mut cpu = M68000::new();
+    let mut mem = TestBus::new();
+    setup_cpu(&mut cpu, &mut mem, &test.initial);
+
+    // Run for specified cycles
+    for _ in 0..test.cycles {
+        cpu.tick(&mut mem);
+    }
+
+    println!("\n--- Our Final State ---");
+    println!("SR: 0x{:04X} (CCR: 0x{:02X})", cpu.regs.sr, cpu.regs.sr & 0xFF);
+    for i in 0..8 {
+        let marker = if cpu.regs.d[i] != test.final_state.d[i] { " <-- MISMATCH" } else { "" };
+        println!("D{}: 0x{:08X}{}", i, cpu.regs.d[i], marker);
+    }
+    for i in 0..7 {
+        let marker = if cpu.regs.a[i] != test.final_state.a[i] { " <-- MISMATCH" } else { "" };
+        println!("A{}: 0x{:08X}{}", i, cpu.regs.a[i], marker);
+    }
+
+    println!("\n--- Expected Final State ---");
+    println!("SR: 0x{:04X} (CCR: 0x{:02X})", test.final_state.sr, test.final_state.sr & 0xFF);
+    for i in 0..8 {
+        println!("D{}: 0x{:08X}", i, test.final_state.d[i]);
+    }
+    for i in 0..7 {
+        println!("A{}: 0x{:08X}", i, test.final_state.a[i]);
+    }
+}
+
 /// Diagnostic test to understand SBCD borrow detection.
 #[test]
 fn diagnose_sbcd_test() {
@@ -563,8 +652,8 @@ fn diagnose_sbcd_test() {
     }
 
     let tests = decode_file(&test_file).expect("Failed to decode");
-    // Test 012 has borrow detection issue (false positive)
-    let test = &tests[12];
+    // Test 000 is an interesting V flag case
+    let test = &tests[0];
 
     println!("\n=== Test: {} ===", test.name);
     println!("Expected cycles: {}", test.cycles);

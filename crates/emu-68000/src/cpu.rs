@@ -2501,11 +2501,10 @@ impl M68000 {
                 } else {
                     self.size_increment()
                 };
-                // Defer the increment until after successful memory access.
-                // If an address error occurs, the register should not be modified.
-                self.deferred_postinc = Some((r, inc));
+                // Increment immediately - on the 68000, the register is modified
+                // before the address error check, so errors still have the increment.
+                self.regs.set_a(r as usize, self.addr.wrapping_add(inc));
                 self.queue_read_ops(size);
-                self.micro_ops.push(MicroOp::ApplyPostInc);
             }
             AddrMode::AddrIndPreDec(r) => {
                 let dec = if size == Size::Byte && r == 7 {

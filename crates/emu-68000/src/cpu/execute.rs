@@ -762,11 +762,11 @@ impl M68000 {
                         // Post-increment: use current value, then increment
                         let addr = self.regs.a(r as usize);
                         let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                        // Defer the increment until after successful memory access.
-                        self.deferred_postinc = Some((r, inc));
+                        // Increment immediately - on the 68000, the register is modified
+                        // before the address error check, so errors still have the increment.
+                        self.regs.set_a(r as usize, addr.wrapping_add(inc));
                         self.addr = addr;
                         self.queue_write_ops(self.size);
-                        self.micro_ops.push(MicroOp::ApplyPostInc);
                         if !is_movea {
                             self.set_flags_move(value, self.size);
                         }
@@ -850,12 +850,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Defer the increment until after successful memory access.
-                self.deferred_postinc = Some((r, inc));
+                // Increment immediately - on the 68000, the register is modified
+                // before the address error check, so errors still have the increment.
+                self.regs.set_a(r as usize, addr.wrapping_add(inc));
                 self.addr = addr;
                 self.dst_mode = Some(dst_mode);
                 self.queue_read_ops(self.size);
-                self.micro_ops.push(MicroOp::ApplyPostInc);
                 self.instr_phase = crate::cpu::InstrPhase::SrcRead;
                 self.micro_ops.push(MicroOp::Execute);
                 return;
@@ -905,12 +905,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Defer the increment until after successful memory access.
-                self.deferred_postinc = Some((r, inc));
+                // Increment immediately - on the 68000, the register is modified
+                // before the address error check, so errors still have the increment.
+                self.regs.set_a(r as usize, addr.wrapping_add(inc));
                 self.addr = addr;
                 self.data = value;
                 self.queue_write_ops(self.size);
-                self.micro_ops.push(MicroOp::ApplyPostInc);
                 if !is_movea {
                     self.set_flags_move(value, self.size);
                 }
@@ -950,12 +950,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Defer the increment until after successful memory access.
-                self.deferred_postinc = Some((r, inc));
+                // Increment immediately - on the 68000, the register is modified
+                // before the address error check, so errors still have the increment.
+                self.regs.set_a(r as usize, addr.wrapping_add(inc));
                 self.addr = addr;
                 self.dst_mode = Some(dst_mode);
                 self.queue_read_ops(self.size);
-                self.micro_ops.push(MicroOp::ApplyPostInc);
                 self.instr_phase = crate::cpu::InstrPhase::SrcRead;
                 self.micro_ops.push(MicroOp::Execute);
                 return;
@@ -1065,12 +1065,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Defer the increment until after successful memory access.
-                self.deferred_postinc = Some((r, inc));
+                // Increment immediately - on the 68000, the register is modified
+                // before the address error check, so errors still have the increment.
+                self.regs.set_a(r as usize, addr.wrapping_add(inc));
                 self.addr = addr;
                 self.data = value;
                 self.queue_write_ops(self.size);
-                self.micro_ops.push(MicroOp::ApplyPostInc);
                 if !is_movea {
                     self.set_flags_move(value, self.size);
                 }
