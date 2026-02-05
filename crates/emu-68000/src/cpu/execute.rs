@@ -100,6 +100,9 @@ impl M68000 {
                 } else if subfield == 0xC && op & 0x0080 != 0 {
                     // MOVEM from memory continuation
                     self.exec_movem_from_mem_continuation();
+                } else if subfield == 0xE && bits_7_6 == 1 && op & 0x3F == 0x33 {
+                    // RTE continuation (0x4E73)
+                    self.exec_rte_continuation();
                 } else if subfield == 0xE && bits_7_6 == 1 && op & 0x3F == 0x35 {
                     // RTS continuation (0x4E75)
                     self.exec_rts_continuation();
@@ -1587,6 +1590,11 @@ impl M68000 {
 
     fn exec_rts_continuation(&mut self) {
         // After pop, data contains the return address
+        // Check for odd return address (triggers address error)
+        if self.data & 1 != 0 {
+            self.trigger_rts_address_error(self.data);
+            return;
+        }
         // Set PC = return address + 4 (for prefetch)
         self.regs.pc = self.data.wrapping_add(4);
         self.instr_phase = InstrPhase::Complete;
@@ -1600,6 +1608,15 @@ impl M68000 {
         } else {
             self.queue_internal_no_pc(8); // Prefetch cycles
         }
+    }
+
+    fn trigger_rts_address_error(&mut self, addr: u32) {
+        // RTS to odd address triggers address error
+        self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
+        self.fault_addr = addr;
+        self.fault_read = true;
+        self.fault_in_instruction = true;
+        self.exception(3);
     }
 
     fn exec_bra(&mut self, displacement: i8) {
@@ -3340,12 +3357,57 @@ impl M68000 {
         if !self.regs.is_supervisor() {
             self.exception(8);
         } else {
-            // Pop SR, then PC
+            // Pop SR first, then use continuation to save it before popping PC
             self.micro_ops.push(MicroOp::PopWord);
-            self.micro_ops.push(MicroOp::PopLongHi);
-            self.micro_ops.push(MicroOp::PopLongLo);
-            self.queue_internal(4);
+            self.instr_phase = InstrPhase::SrcRead;
+            self.micro_ops.push(MicroOp::Execute);
         }
+    }
+
+    fn exec_rte_continuation(&mut self) {
+        match self.instr_phase {
+            InstrPhase::SrcRead => {
+                // After PopWord: data contains SR
+                // Save SR to data2 before it's overwritten by PC pop
+                self.data2 = self.data;
+                // Now pop PC
+                self.micro_ops.push(MicroOp::PopLongHi);
+                self.micro_ops.push(MicroOp::PopLongLo);
+                self.instr_phase = InstrPhase::DstWrite;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            InstrPhase::DstWrite => {
+                // After PopLong: data contains return PC, data2 contains SR
+                // Check for odd return address (triggers address error)
+                if self.data & 1 != 0 {
+                    self.trigger_rte_address_error(self.data);
+                    return;
+                }
+                // Apply the popped SR (this may change supervisor mode)
+                self.regs.sr = (self.data2 as u16) & crate::flags::SR_MASK;
+                // Set PC = return address + 4 (for prefetch)
+                self.regs.pc = self.data.wrapping_add(4);
+                self.instr_phase = InstrPhase::Complete;
+                if self.prefetch_only {
+                    self.internal_cycles = 0;
+                    self.internal_advances_pc = true;
+                } else {
+                    self.queue_internal_no_pc(8);
+                }
+            }
+            _ => {
+                self.instr_phase = InstrPhase::Initial;
+            }
+        }
+    }
+
+    fn trigger_rte_address_error(&mut self, addr: u32) {
+        // RTE to odd address triggers address error
+        self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
+        self.fault_addr = addr;
+        self.fault_read = true;
+        self.fault_in_instruction = true;
+        self.exception(3);
     }
 
     fn exec_trapv(&mut self) {
@@ -3380,6 +3442,11 @@ impl M68000 {
             }
             InstrPhase::DstWrite => {
                 // After PopLong: data contains return PC, data2 contains CCR
+                // Check for odd return address (triggers address error)
+                if self.data & 1 != 0 {
+                    self.trigger_rtr_address_error(self.data);
+                    return;
+                }
                 // Restore CCR (only low 5 bits - XNZVC, keeping upper SR bits)
                 let ccr = (self.data2 & 0x1F) as u8;
                 self.regs.set_ccr(ccr);
@@ -3398,6 +3465,15 @@ impl M68000 {
                 self.instr_phase = InstrPhase::Initial;
             }
         }
+    }
+
+    fn trigger_rtr_address_error(&mut self, addr: u32) {
+        // RTR to odd address triggers address error
+        self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
+        self.fault_addr = addr;
+        self.fault_read = true;
+        self.fault_in_instruction = true;
+        self.exception(3);
     }
 
     fn exec_jsr(&mut self, mode: u8, ea_reg: u8) {
