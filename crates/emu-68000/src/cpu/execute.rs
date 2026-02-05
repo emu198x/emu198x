@@ -4177,25 +4177,32 @@ impl M68000 {
                 self.queue_internal(14); // Loop terminated (internal advances PC)
             } else {
                 // Counter not exhausted - branch
-                // Displacement is relative to PC after opcode (before displacement word)
-                // But next_ext_word already advanced PC past the displacement, so:
-                // target = (PC - 2) + disp, where PC is now past displacement
-                // Actually: target = (opcode_addr + 2) + disp
-                // PC is now at opcode_addr + 4 (after consuming displacement via next_ext_word)
-                let target = ((self.regs.pc as i32) - 2 + disp) as u32;
+                // Displacement is relative to PC after opcode (opcode_addr + 2).
+                // In prefetch_only mode, next_ext_word advanced PC by 2, so:
+                // PC is now at opcode_addr + 6 (initial opcode_addr + 4, then +2 for ext word)
+                // target = (opcode_addr + 2) + disp = (PC - 4) + disp
+                let target = ((self.regs.pc as i32) - 4 + disp) as u32;
 
                 // Check for odd branch target
                 if target & 1 != 0 {
-                    self.address_error(target, true, true);
+                    // DBcc to odd address triggers address error.
+                    // Exception PC should be instruction after DBcc (opcode_addr + 4 = PC - 2).
+                    // I/N = 0 because error detected during address calculation.
+                    self.exception_pc_override = Some(self.regs.pc.wrapping_sub(2));
+                    self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
+                    self.fault_addr = target;
+                    self.fault_read = true;
+                    self.fault_in_instruction = false;
+                    self.exception(3);
                     return;
                 }
 
                 // Decrement and branch
                 self.regs.d[reg as usize] =
                     (self.regs.d[reg as usize] & 0xFFFF_0000) | (new_val as u16 as u32);
-                // After branch, PC = target + 4 to account for prefetch refill
-                self.regs.pc = target.wrapping_add(4);
-                self.queue_internal_no_pc(10); // Loop continues
+                // Set PC = target + 2, then queue_internal adds +2 for final PC = target + 4
+                self.regs.pc = target.wrapping_add(2);
+                self.queue_internal(10); // Loop continues (internal advances PC)
             }
         }
     }
@@ -4236,7 +4243,15 @@ impl M68000 {
 
                 // Check for odd branch target - this causes address error
                 if target & 1 != 0 {
-                    self.address_error(target, true, true); // read, instruction fetch
+                    // DBcc to odd address triggers address error.
+                    // Exception PC should be instruction after DBcc (= current PC).
+                    // I/N = 0 because error detected during address calculation.
+                    self.exception_pc_override = Some(self.regs.pc);
+                    self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
+                    self.fault_addr = target;
+                    self.fault_read = true;
+                    self.fault_in_instruction = false;
+                    self.exception(3);
                     return;
                 }
 
@@ -4393,6 +4408,9 @@ impl M68000 {
             self.data2 = 1; // 1 = SBCD
             self.movem_long_phase = 0;
             self.extend_predec_done = false;
+            // Set addressing modes so exception handling can detect predec mode
+            self.src_mode = Some(AddrMode::AddrIndPreDec(rx as u8));
+            self.dst_mode = Some(AddrMode::AddrIndPreDec(ry as u8));
             self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dy - Dx - X -> Dy
@@ -4668,6 +4686,9 @@ impl M68000 {
             self.data2 = 3; // 3 = SUBX
             self.movem_long_phase = 0;
             self.extend_predec_done = false;
+            // Set addressing modes so exception handling can detect predec mode
+            self.src_mode = Some(AddrMode::AddrIndPreDec(rx as u8));
+            self.dst_mode = Some(AddrMode::AddrIndPreDec(ry as u8));
             self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy
@@ -4967,6 +4988,9 @@ impl M68000 {
             self.data2 = 0; // 0 = ABCD
             self.movem_long_phase = 0;
             self.extend_predec_done = false;
+            // Set addressing modes so exception handling can detect predec mode
+            self.src_mode = Some(AddrMode::AddrIndPreDec(rx as u8));
+            self.dst_mode = Some(AddrMode::AddrIndPreDec(ry as u8));
             self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy
@@ -5260,6 +5284,9 @@ impl M68000 {
             self.movem_long_phase = 0;
             // Mark that registers haven't been pre-decremented yet
             self.extend_predec_done = false;
+            // Set addressing modes so exception handling can detect predec mode
+            self.src_mode = Some(AddrMode::AddrIndPreDec(rx as u8));
+            self.dst_mode = Some(AddrMode::AddrIndPreDec(ry as u8));
             self.micro_ops.push(MicroOp::ExtendMemOp);
         } else {
             // Register to register: Dx,Dy

@@ -1960,6 +1960,21 @@ impl M68000 {
                     let rx = (self.data & 0xFF) as usize;
                     let ry = ((self.data >> 8) & 0xFF) as usize;
 
+                    let an = self.regs.a(rx);
+
+                    // For LONG pre-decrement only: the 68000 checks alignment of first word
+                    // address (An - 2) BEFORE modifying the register. If odd, fault with
+                    // address = An - 2, register unchanged.
+                    // For WORD, the register is decremented first, then alignment checked.
+                    if self.size == Size::Long {
+                        let first_word_addr = an.wrapping_sub(2);
+                        if first_word_addr & 1 != 0 {
+                            // Address error: register unchanged, fault address = first word address
+                            self.address_error(first_word_addr, true, false);
+                            return;
+                        }
+                    }
+
                     // Calculate decrement size
                     let decr = match self.size {
                         Size::Byte => 1,
@@ -1967,14 +1982,13 @@ impl M68000 {
                         Size::Long => 4,
                     };
 
-                    // Calculate and apply source pre-decrement
-                    let src_addr = self.regs.a(rx).wrapping_sub(decr);
+                    // Apply source pre-decrement
+                    let src_addr = an.wrapping_sub(decr);
                     self.regs.set_a(rx, src_addr);
                     self.addr = src_addr;
 
-                    // Check for address error AFTER pre-decrementing (word/long only)
-                    // On 68000, the register is modified before the address error is detected
-                    if self.size != Size::Byte && src_addr & 1 != 0 {
+                    // For WORD, check alignment AFTER pre-decrement (register is modified)
+                    if self.size == Size::Word && src_addr & 1 != 0 {
                         self.address_error(src_addr, true, false);
                         return;
                     }
@@ -1997,21 +2011,34 @@ impl M68000 {
                 if !dest_decremented && self.movem_long_phase == dest_predec_phase {
                     let ry = ((self.data2 >> 8) & 0xFF) as usize;
 
+                    let an = self.regs.a(ry);
+
+                    // For LONG pre-decrement only: check alignment of first word address
+                    // BEFORE modifying the register.
+                    if self.size == Size::Long {
+                        let first_word_addr = an.wrapping_sub(2);
+                        if first_word_addr & 1 != 0 {
+                            // Address error: register unchanged, fault address = first word address
+                            self.address_error(first_word_addr, true, false);
+                            return;
+                        }
+                    }
+
                     let decr = match self.size {
                         Size::Byte => 1,
                         Size::Word => 2,
                         Size::Long => 4,
                     };
 
-                    // Calculate and apply destination pre-decrement
+                    // Apply destination pre-decrement
                     // (For same-register case, ry == rx, and rx has already been decremented,
                     // so we get the correct sequential behavior automatically)
-                    let dst_addr = self.regs.a(ry).wrapping_sub(decr);
+                    let dst_addr = an.wrapping_sub(decr);
                     self.regs.set_a(ry, dst_addr);
                     self.addr2 = dst_addr;
 
-                    // Check for address error AFTER pre-decrementing (word/long only)
-                    if self.size != Size::Byte && dst_addr & 1 != 0 {
+                    // For WORD, check alignment AFTER pre-decrement (register is modified)
+                    if self.size == Size::Word && dst_addr & 1 != 0 {
                         self.address_error(dst_addr, true, false);
                         return;
                     }
@@ -2428,16 +2455,31 @@ impl M68000 {
                 // - TRAPV (7): address of instruction after TRAPV
                 // - CHK (6): return address (instruction following CHK)
                 //
-                // With prefetch model, current PC = opcode + 4, so:
+                // In prefetch_only mode, PC = opcode + 4, so:
                 // - For fault address: subtract 4 to get opcode address
                 // - For return address: subtract 2 to get next instruction
-                let saved_pc = match vec {
-                    // Push fault address (back to the instruction that caused exception)
-                    4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(4),
-                    // Push return address (instruction after the trap/exception)
-                    6 | 7 | 32..=47 => self.regs.pc.wrapping_sub(2),
-                    // Other exceptions use current PC
-                    _ => self.regs.pc,
+                // In non-prefetch mode, PC = opcode + 2, so:
+                // - For fault address: subtract 2 to get opcode address
+                // - For return address: use PC directly (it's already at next instruction)
+                let saved_pc = if self.prefetch_only {
+                    match vec {
+                        // Push fault address (back to the instruction that caused exception)
+                        4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(4),
+                        // Push return address (instruction after the trap/exception)
+                        6 | 7 | 32..=47 => self.regs.pc.wrapping_sub(2),
+                        // Other exceptions use current PC
+                        _ => self.regs.pc,
+                    }
+                } else {
+                    match vec {
+                        // Push fault address (back to the instruction that caused exception)
+                        4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(2),
+                        // Push return address (instruction after the trap/exception)
+                        // In non-prefetch mode, PC is already at next instruction
+                        6 | 7 | 32..=47 => self.regs.pc,
+                        // Other exceptions use current PC
+                        _ => self.regs.pc,
+                    }
                 };
                 self.data = saved_pc;
                 // Old SR is stored in data2 to preserve it during PC push
