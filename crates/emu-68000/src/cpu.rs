@@ -925,7 +925,16 @@ impl M68000 {
             0 => {
                 // MOVEM always uses word/long; check for odd address on first phase
                 if self.movem_long_phase == 0 && self.addr & 1 != 0 {
-                    self.address_error(self.addr, false, false);
+                    // For predecrement mode, the fault address should be An - size (first access),
+                    // not the pre-calculated start address (An - total)
+                    let fault_addr = if self.movem_predec {
+                        let ea_reg = (self.addr2 & 7) as usize;
+                        let size = if self.size == Size::Long { 4 } else { 2 };
+                        self.regs.a(ea_reg).wrapping_sub(size)
+                    } else {
+                        self.addr
+                    };
+                    self.address_error(fault_addr, false, false);
                     return;
                 }
             }
@@ -1041,24 +1050,15 @@ impl M68000 {
                     self.addr = self.addr.wrapping_add(2);
                     self.movem_long_phase = 0;
                 } else {
-                    // Word read - sign extend to long for address registers
+                    // Word read - sign extend to long for ALL registers (per M68000 spec)
                     let word = self.read_word(bus, self.addr);
-                    self.data = if bit_idx >= 8 {
-                        word as i16 as i32 as u32
-                    } else {
-                        u32::from(word)
-                    };
+                    self.data = word as i16 as i32 as u32;
                     self.addr = self.addr.wrapping_add(2);
                 }
 
-                // Store value in register
+                // Store value in register (MOVEM.W always sign-extends to full 32-bit)
                 if bit_idx < 8 {
-                    if self.size == Size::Long {
-                        self.regs.d[bit_idx] = self.data;
-                    } else {
-                        self.regs.d[bit_idx] =
-                            (self.regs.d[bit_idx] & 0xFFFF_0000) | (self.data & 0xFFFF);
-                    }
+                    self.regs.d[bit_idx] = self.data;
                 } else {
                     self.regs.set_a(bit_idx - 8, self.data);
                 }
@@ -2272,8 +2272,13 @@ impl M68000 {
                     Some(mode) => (self.ext_words_for_mode(mode), false),
                     None => (0, false),
                 };
-                self.data = if self.uses_predec_mode() {
-                    self.instr_start_pc
+                // MOVEM instructions (0x48xx, 0x4Cxx) consume extension words via next_ext_word()
+                // which advances PC in prefetch_only mode, so they need current PC
+                let is_movem = (self.opcode & 0xFB80) == 0x4880;
+                self.data = if self.uses_predec_mode() || (is_movem && !is_absolute) {
+                    // For predecrement mode or MOVEM with displacement/indexed modes,
+                    // use current PC (after extension words were consumed)
+                    self.regs.pc
                 } else if is_absolute {
                     // For absolute modes, adjust based on extension word count
                     self.instr_start_pc

@@ -2821,7 +2821,9 @@ impl M68000 {
     }
 
     fn exec_movem_to_mem_continuation(&mut self) {
-        let mask = self.ext_words[0];
+        // Get mask via next_ext_word to properly advance ext_idx
+        // This ensures subsequent next_ext_word calls get the displacement, not the mask
+        let mask = self.next_ext_word();
         if mask == 0 {
             // No registers to transfer
             self.queue_internal(8);
@@ -2863,6 +2865,25 @@ impl M68000 {
                 let hi = self.next_ext_word();
                 let lo = self.next_ext_word();
                 ((u32::from(hi) << 16) | u32::from(lo), 0)
+            }
+            AddrMode::AddrIndIndex(r) => {
+                let ext = self.next_ext_word();
+                let disp = (ext & 0xFF) as i8 as i32;
+                let idx_reg = ((ext >> 12) & 7) as usize;
+                let idx_is_addr = ext & 0x8000 != 0;
+                let idx_is_long = ext & 0x0800 != 0;
+                let idx_value = if idx_is_addr {
+                    self.regs.a(idx_reg)
+                } else {
+                    self.regs.d[idx_reg]
+                };
+                let idx_value = if idx_is_long {
+                    idx_value as i32
+                } else {
+                    idx_value as i16 as i32
+                };
+                let base = self.regs.a(r as usize) as i32;
+                (base.wrapping_add(disp).wrapping_add(idx_value) as u32, r)
             }
             _ => {
                 self.queue_internal(8);
@@ -2986,7 +3007,9 @@ impl M68000 {
     }
 
     fn exec_movem_from_mem_continuation(&mut self) {
-        let mask = self.ext_words[0];
+        // Get mask via next_ext_word to properly advance ext_idx
+        // This ensures subsequent next_ext_word calls get the displacement, not the mask
+        let mask = self.next_ext_word();
         if mask == 0 {
             // No registers to transfer
             self.queue_internal(12);
@@ -3021,6 +3044,25 @@ impl M68000 {
                 let hi = self.next_ext_word();
                 let lo = self.next_ext_word();
                 ((u32::from(hi) << 16) | u32::from(lo), 0)
+            }
+            AddrMode::AddrIndIndex(r) => {
+                let ext = self.next_ext_word();
+                let disp = (ext & 0xFF) as i8 as i32;
+                let idx_reg = ((ext >> 12) & 7) as usize;
+                let idx_is_addr = ext & 0x8000 != 0;
+                let idx_is_long = ext & 0x0800 != 0;
+                let idx_value = if idx_is_addr {
+                    self.regs.a(idx_reg)
+                } else {
+                    self.regs.d[idx_reg]
+                };
+                let idx_value = if idx_is_long {
+                    idx_value as i32
+                } else {
+                    idx_value as i16 as i32
+                };
+                let base = self.regs.a(r as usize) as i32;
+                (base.wrapping_add(disp).wrapping_add(idx_value) as u32, r)
             }
             _ => {
                 self.queue_internal(12);

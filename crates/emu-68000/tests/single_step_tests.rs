@@ -505,7 +505,7 @@ fn diagnose_single_test() {
         .unwrap()
         .parent()
         .unwrap()
-        .join("test-data/m68000-dl/v1/TST.w.json.bin");
+        .join("test-data/m68000-dl/v1/MOVEM.l.json.bin");
 
     if !test_file.exists() {
         eprintln!("Test file not found: {}", test_file.display());
@@ -513,7 +513,8 @@ fn diagnose_single_test() {
     }
 
     let tests = decode_file(&test_file).expect("Failed to decode");
-    let test = &tests[10]; // Test 010 TST.w (A3) - indirect mode test
+    // Find a test that doesn't result in an exception (final PC close to initial)
+    let test = &tests[50]; // Try a different test
 
     println!("\n=== Test: {} ===", test.name);
     println!("Expected cycles: {}", test.cycles);
