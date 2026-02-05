@@ -762,9 +762,11 @@ impl M68000 {
                         // Post-increment: use current value, then increment
                         let addr = self.regs.a(r as usize);
                         let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                        self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                        // Defer the increment until after successful memory access.
+                        self.deferred_postinc = Some((r, inc));
                         self.addr = addr;
                         self.queue_write_ops(self.size);
+                        self.micro_ops.push(MicroOp::ApplyPostInc);
                         if !is_movea {
                             self.set_flags_move(value, self.size);
                         }
@@ -848,10 +850,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                // Defer the increment until after successful memory access.
+                self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.dst_mode = Some(dst_mode);
                 self.queue_read_ops(self.size);
+                self.micro_ops.push(MicroOp::ApplyPostInc);
                 self.instr_phase = crate::cpu::InstrPhase::SrcRead;
                 self.micro_ops.push(MicroOp::Execute);
                 return;
@@ -901,10 +905,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                // Defer the increment until after successful memory access.
+                self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.data = value;
                 self.queue_write_ops(self.size);
+                self.micro_ops.push(MicroOp::ApplyPostInc);
                 if !is_movea {
                     self.set_flags_move(value, self.size);
                 }
@@ -944,10 +950,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                // Defer the increment until after successful memory access.
+                self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.dst_mode = Some(dst_mode);
                 self.queue_read_ops(self.size);
+                self.micro_ops.push(MicroOp::ApplyPostInc);
                 self.instr_phase = crate::cpu::InstrPhase::SrcRead;
                 self.micro_ops.push(MicroOp::Execute);
                 return;
@@ -1057,10 +1065,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                // Defer the increment until after successful memory access.
+                self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.data = value;
                 self.queue_write_ops(self.size);
+                self.micro_ops.push(MicroOp::ApplyPostInc);
                 if !is_movea {
                     self.set_flags_move(value, self.size);
                 }
@@ -1661,9 +1671,17 @@ impl M68000 {
             // Check for odd target address
             // BSR pushes return address BEFORE detecting odd target
             if target & 1 != 0 {
-                let sp = self.regs.active_sp().wrapping_sub(4);
-                self.regs.set_active_sp(sp);
-                self.trigger_branch_address_error(target);
+                // BSR actually writes the return address to stack before address error
+                // Queue the push operations - they will handle SP decrement
+                self.micro_ops.push(MicroOp::PushLongHi);
+                self.micro_ops.push(MicroOp::PushLongLo);
+                // Store target for address error (reuse addr2)
+                self.addr2 = target;
+                // Set flag to trigger address error after push (reuse data2)
+                self.data2 = 0x8000_0001; // High bit = BSR odd target flag
+                self.micro_ops.push(MicroOp::Internal);
+                self.internal_cycles = 0;
+                self.internal_advances_pc = false;
                 return;
             }
 
@@ -1693,13 +1711,19 @@ impl M68000 {
             };
 
             // Check for odd target address
-            // BSR pushes return address BEFORE detecting odd target, so we need
-            // to decrement SP first, then trigger address error
+            // BSR pushes return address BEFORE detecting odd target
             if target & 1 != 0 {
-                // Decrement stack pointer by 4 (for the return address that would be pushed)
-                let sp = self.regs.active_sp().wrapping_sub(4);
-                self.regs.set_active_sp(sp);
-                self.trigger_branch_address_error(target);
+                // BSR actually writes the return address to stack before address error
+                // Queue the push operations - they will handle SP decrement
+                self.micro_ops.push(MicroOp::PushLongHi);
+                self.micro_ops.push(MicroOp::PushLongLo);
+                // Store target for address error
+                self.addr2 = target;
+                // Set flag to trigger address error after push
+                self.data2 = 0x8000_0001;
+                self.micro_ops.push(MicroOp::Internal);
+                self.internal_cycles = 0;
+                self.internal_advances_pc = false;
                 return;
             }
 
@@ -2757,7 +2781,7 @@ impl M68000 {
                     let src = self.regs.d[r as usize] as u8;
                     let x = u8::from(self.regs.sr & X != 0);
 
-                    let (result, borrow) = self.bcd_sub(0, src, x);
+                    let (result, borrow) = self.nbcd(src, x);
 
                     // Write result to low byte
                     self.regs.d[r as usize] =
@@ -4373,30 +4397,47 @@ impl M68000 {
     /// Perform packed BCD subtraction: dst - src - extend.
     /// Returns (result, borrow).
     pub(crate) fn bcd_sub(&self, dst: u8, src: u8, extend: u8) -> (u8, bool) {
-        // Subtract low nibbles
-        let low_dst = i16::from(dst & 0x0F);
-        let low_src = i16::from(src & 0x0F) + i16::from(extend);
-        let mut low = low_dst - low_src;
+        // Binary subtraction first
+        let mut result = dst.wrapping_sub(src).wrapping_sub(extend);
 
-        // Track borrow from low nibble
-        let low_borrow = low < 0;
-        if low_borrow {
-            low += 10; // BCD correction
+        // Low nibble correction: if low nibble would have underflowed
+        let low_borrowed = (dst & 0x0F) < (src & 0x0F).saturating_add(extend);
+        if low_borrowed {
+            result = result.wrapping_sub(6);
         }
 
-        // Subtract high nibbles
-        let high_dst = i16::from(dst >> 4);
-        let high_src = i16::from(src >> 4) + i16::from(low_borrow);
-        let mut high = high_dst - high_src;
-
-        // Track borrow from high nibble
-        let borrow = high < 0;
-        if borrow {
-            high += 10; // BCD correction
+        // High nibble correction: only if high nibble would have underflowed
+        let high_borrowed = (dst >> 4) < (src >> 4) + u8::from(low_borrowed);
+        if high_borrowed {
+            result = result.wrapping_sub(0x60);
         }
 
-        let result = ((high as u8 & 0x0F) << 4) | (low as u8 & 0x0F);
+        // Borrow: if the result represents a negative BCD number (> 0x99)
+        let borrow = result > 0x99;
+
         (result, borrow)
+    }
+
+    /// Perform NBCD: negate BCD (0 - src - X).
+    /// The 68000 uses a specific algorithm different from regular BCD subtraction.
+    /// Returns (result, borrow).
+    pub(crate) fn nbcd(&self, src: u8, extend: u8) -> (u8, bool) {
+        // NBCD algorithm: binary subtraction 0x9A - src - X, then conditional BCD correction
+        let mut result = 0x9Au32.wrapping_sub(u32::from(src)).wrapping_sub(u32::from(extend));
+
+        // Apply BCD correction only when:
+        // 1. Low nibble didn't underflow ((src & 0x0F) + X <= 0x0A), AND
+        // 2. Result low nibble is invalid BCD (> 9)
+        let low_underflow = u32::from(src & 0x0F) + u32::from(extend) > 0x0A;
+        let result_low_invalid = (result & 0x0F) > 9;
+        if !low_underflow && result_low_invalid {
+            result = result.wrapping_add(6);
+        }
+
+        // Borrow occurs if the result is non-zero or if the operation would have borrowed
+        let borrow = u32::from(src) + u32::from(extend) > 0x9A || (result as u8 != 0);
+
+        (result as u8, borrow)
     }
 
     fn exec_or(&mut self, size: Option<Size>, reg: u8, mode: u8, ea_reg: u8, to_ea: bool) {
@@ -4931,26 +4972,26 @@ impl M68000 {
     /// Perform packed BCD addition: src + dst + extend.
     /// Returns (result, carry).
     pub(crate) fn bcd_add(&self, src: u8, dst: u8, extend: u8) -> (u8, bool) {
-        // Add low nibbles
-        let mut low = (dst & 0x0F) + (src & 0x0F) + extend;
-        let mut carry = false;
+        // Binary addition first
+        let mut result = u16::from(dst) + u16::from(src) + u16::from(extend);
 
-        // BCD correction for low nibble
-        if low > 9 {
-            low += 6;
+        // Low nibble correction: add 6 if nibble sum > 9 (BCD threshold)
+        let low_sum = (dst & 0x0F) + (src & 0x0F) + extend;
+        let low_carry = if low_sum > 9 {
+            result += 6;
+            1
+        } else {
+            0
+        };
+
+        // High nibble correction: add 0x60 if nibble sum > 9 (BCD threshold)
+        let high_sum = (dst >> 4) + (src >> 4) + low_carry;
+        let carry = high_sum > 9;
+        if carry {
+            result += 0x60;
         }
 
-        // Add high nibbles plus carry from low
-        let mut high = (dst >> 4) + (src >> 4) + u8::from(low > 0x0F);
-
-        // BCD correction for high nibble
-        if high > 9 {
-            high += 6;
-            carry = true;
-        }
-
-        let result = ((high & 0x0F) << 4) | (low & 0x0F);
-        (result, carry)
+        (result as u8, carry)
     }
 
     fn exec_exg(&mut self, op: u16) {

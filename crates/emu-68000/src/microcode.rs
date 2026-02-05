@@ -175,6 +175,14 @@ pub enum MicroOp {
     /// Push access info word for group 0 exception (4 cycles).
     /// Uses: `group0_access_info` field contains the value to push.
     PushGroup0AccessInfo,
+
+    /// Apply deferred post-increment (0 cycles, instant).
+    ///
+    /// Used after memory reads with (An)+ addressing mode to defer the
+    /// register increment until after the memory access completes successfully.
+    /// If an address error occurs during the read, this op is cleared
+    /// and the register is not modified.
+    ApplyPostInc,
 }
 
 impl MicroOp {
@@ -217,6 +225,7 @@ impl MicroOp {
             Self::PushGroup0IR => 4,     // Push word (4 cycles)
             Self::PushGroup0FaultAddr => 4, // Per word (8 total for long, called in 2 phases)
             Self::PushGroup0AccessInfo => 4, // Push word (4 cycles)
+            Self::ApplyPostInc => 0, // Instant internal operation
         }
     }
 }

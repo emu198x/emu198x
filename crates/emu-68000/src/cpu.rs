@@ -12,7 +12,7 @@
 
 use emu_core::{Bus, Cpu, Observable, Ticks, Value};
 
-use crate::flags::{self, Status, C, N, V, X, Z};
+use crate::flags::{self, Status, C, N, S, V, X, Z};
 use crate::microcode::{MicroOp, MicroOpQueue};
 use crate::registers::Registers;
 
@@ -251,6 +251,9 @@ pub struct M68000 {
     /// In prefetch_only mode: did the instruction access external memory?
     /// Used to determine if prefetch advance is needed even without extension words.
     mem_accessed: bool,
+    /// Deferred post-increment: (register, amount). Applied after successful memory read.
+    /// Cleared on address error so register is not modified on fault.
+    deferred_postinc: Option<(u8, u32)>,
 
     // === Interrupt state ===
     /// Pending interrupt level (1-7), 0 = none.
@@ -298,6 +301,7 @@ impl M68000 {
             extend_predec_done: false,
             prefetch_only: false,
             mem_accessed: false,
+            deferred_postinc: None,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
         };
@@ -457,6 +461,16 @@ impl M68000 {
                     self.micro_ops.advance();
                     continue;
                 }
+                MicroOp::ApplyPostInc => {
+                    // Apply deferred post-increment after successful memory read.
+                    // If an address error occurred, deferred_postinc is None.
+                    if let Some((reg, inc)) = self.deferred_postinc.take() {
+                        let addr = self.regs.a(reg as usize);
+                        self.regs.set_a(reg as usize, addr.wrapping_add(inc));
+                    }
+                    self.micro_ops.advance();
+                    continue;
+                }
 
                 // Timed micro-ops (consume cycles) - return after processing
                 MicroOp::FetchOpcode => self.tick_fetch_opcode(bus),
@@ -570,6 +584,8 @@ impl M68000 {
             0 | 1 | 2 => {}
             3 => {
                 self.data = u32::from(self.read_byte(bus, self.addr));
+                // Apply any deferred post-increment now that memory access succeeded.
+                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -592,6 +608,8 @@ impl M68000 {
             1 | 2 => {}
             3 => {
                 self.data = u32::from(self.read_word(bus, self.addr));
+                // Apply any deferred post-increment now that memory access succeeded.
+                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -630,6 +648,8 @@ impl M68000 {
             0 | 1 | 2 => {}
             3 => {
                 self.data |= u32::from(self.read_word(bus, self.addr));
+                // Apply any deferred post-increment now that memory access succeeded.
+                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -645,6 +665,8 @@ impl M68000 {
             0 | 1 | 2 => {}
             3 => {
                 self.write_byte(bus, self.addr, self.data as u8);
+                // Apply any deferred post-increment now that memory access succeeded.
+                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -667,6 +689,8 @@ impl M68000 {
             1 | 2 => {}
             3 => {
                 self.write_word(bus, self.addr, self.data as u16);
+                // Apply any deferred post-increment now that memory access succeeded.
+                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -705,6 +729,8 @@ impl M68000 {
             0 | 1 | 2 => {}
             3 => {
                 self.write_word(bus, self.addr, self.data as u16);
+                // Apply any deferred post-increment now that memory access succeeded.
+                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -723,6 +749,19 @@ impl M68000 {
     fn tick_internal_cycles(&mut self) {
         self.cycle += 1;
         if self.cycle >= self.internal_cycles {
+            // Check for BSR odd target flag - trigger address error after push completed
+            if self.data2 == 0x8000_0001 {
+                self.data2 = 0;
+                // Trigger address error for the odd target stored in addr2
+                self.fault_fc = if self.regs.sr & S != 0 { 6 } else { 2 };
+                self.fault_addr = self.addr2;
+                self.fault_read = true;
+                self.fault_in_instruction = true;
+                self.exception(3);
+                self.cycle = 0;
+                return;
+            }
+
             // For operations with >= 4 internal cycles and PC advancement enabled,
             // prefetch is overlapped so we advance PC here.
             if self.internal_advances_pc && self.internal_cycles >= 4 {
@@ -1215,6 +1254,7 @@ impl M68000 {
                         let value = (self.data as u8) | 0x80;
                         self.write_byte(bus, self.addr, value);
 
+                        self.apply_deferred_postinc();
                         self.movem_long_phase = 0;
                         self.cycle = 0;
                         self.micro_ops.advance();
@@ -1275,6 +1315,7 @@ impl M68000 {
                         // V is cleared (simplified)
                         self.regs.sr &= !crate::flags::V;
 
+                        self.apply_deferred_postinc();
                         self.movem_long_phase = 0;
                         self.cycle = 0;
                         self.micro_ops.advance();
@@ -1481,7 +1522,7 @@ impl M68000 {
                                 // NBCD: 0 - mem - X (BCD negate, byte only)
                                 let src = mem_val as u8;
                                 let x = u8::from(self.regs.sr & X != 0);
-                                let (result, borrow) = self.bcd_sub(0, src, x);
+                                let (result, borrow) = self.nbcd(src, x);
 
                                 // Set flags
                                 let mut sr = self.regs.sr;
@@ -1503,6 +1544,7 @@ impl M68000 {
                         match self.size {
                             Size::Byte => {
                                 self.write_byte(bus, self.addr, result as u8);
+                                self.apply_deferred_postinc();
                                 self.movem_long_phase = 0;
                                 self.cycle = 0;
                                 self.micro_ops.advance();
@@ -1510,6 +1552,7 @@ impl M68000 {
                             }
                             Size::Word => {
                                 self.write_word(bus, self.addr, result as u16);
+                                self.apply_deferred_postinc();
                                 self.movem_long_phase = 0;
                                 self.cycle = 0;
                                 self.micro_ops.advance();
@@ -1528,6 +1571,7 @@ impl M68000 {
                     3 => {
                         // Phase 3 (Long only): Write low word
                         self.write_word(bus, self.addr.wrapping_add(2), self.ext_words[2]);
+                        self.apply_deferred_postinc();
                         self.movem_long_phase = 0;
                         self.cycle = 0;
                         self.micro_ops.advance();
@@ -1809,6 +1853,8 @@ impl M68000 {
                     _ => {}
                 }
 
+                // Apply any deferred post-increment now that memory access is complete.
+                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -1841,6 +1887,7 @@ impl M68000 {
                         let op = self.data2;
                         if op == 0 {
                             // BTST: read-only, done
+                            self.apply_deferred_postinc();
                             self.cycle = 0;
                             self.micro_ops.advance();
                             return;
@@ -1865,6 +1912,7 @@ impl M68000 {
                         let value = self.ext_words[0] as u8;
                         self.write_byte(bus, self.addr, value);
 
+                        self.apply_deferred_postinc();
                         self.movem_long_phase = 0;
                         self.cycle = 0;
                         self.micro_ops.advance();
@@ -2449,8 +2497,11 @@ impl M68000 {
                 } else {
                     self.size_increment()
                 };
-                self.regs.set_a(r as usize, self.addr.wrapping_add(inc));
+                // Defer the increment until after successful memory access.
+                // If an address error occurs, the register should not be modified.
+                self.deferred_postinc = Some((r, inc));
                 self.queue_read_ops(size);
+                self.micro_ops.push(MicroOp::ApplyPostInc);
             }
             AddrMode::AddrIndPreDec(r) => {
                 let dec = if size == Size::Byte && r == 7 {
@@ -2581,6 +2632,8 @@ impl M68000 {
                 } else {
                     self.size_increment()
                 };
+                // Increment immediately - the 68000 applies the increment during
+                // address calculation, before detecting address errors.
                 self.regs.set_a(r as usize, addr.wrapping_add(inc));
                 (addr, false)
             }
@@ -2750,6 +2803,10 @@ impl M68000 {
     /// Trigger an address error exception (vector 3).
     /// Called when word/long access is attempted at an odd address.
     fn address_error(&mut self, addr: u32, is_read: bool, is_instruction: bool) {
+        // Clear any deferred post-increment - on address error the register
+        // should not be modified (the memory access failed).
+        self.deferred_postinc = None;
+
         // Calculate function code based on supervisor mode and access type
         let supervisor = self.regs.sr & flags::S != 0;
         self.fault_fc = match (supervisor, is_instruction) {
@@ -2762,6 +2819,18 @@ impl M68000 {
         self.fault_read = is_read;
         self.fault_in_instruction = is_instruction;
         self.exception(3); // Address error vector
+    }
+
+    /// Apply any pending deferred post-increment.
+    ///
+    /// Called after successful memory operations to increment the address register
+    /// when using (An)+ addressing mode. This allows address errors to prevent
+    /// the increment if the memory access fails.
+    fn apply_deferred_postinc(&mut self) {
+        if let Some((reg, inc)) = self.deferred_postinc.take() {
+            let addr = self.regs.a(reg as usize);
+            self.regs.set_a(reg as usize, addr.wrapping_add(inc));
+        }
     }
 
     /// Set flags for MOVE-style operations (clears V and C, sets N and Z).
