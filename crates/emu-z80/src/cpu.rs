@@ -104,27 +104,27 @@ impl Z80 {
 
     /// Read byte from memory, accumulating any wait states.
     fn read<B: Bus>(&mut self, bus: &mut B, addr: u16) -> u8 {
-        let result = bus.read(addr);
+        let result = bus.read(u32::from(addr));
         self.wait_states = self.wait_states.saturating_add(result.wait);
         result.data
     }
 
     /// Write byte to memory, accumulating any wait states.
     fn write<B: Bus>(&mut self, bus: &mut B, addr: u16, value: u8) {
-        let wait = bus.write(addr, value);
+        let wait = bus.write(u32::from(addr), value);
         self.wait_states = self.wait_states.saturating_add(wait);
     }
 
     /// Read byte from I/O port, accumulating any wait states.
     fn io_read<B: Bus>(&mut self, bus: &mut B, addr: u16) -> u8 {
-        let result = bus.io_read(addr);
+        let result = bus.io_read(u32::from(addr));
         self.wait_states = self.wait_states.saturating_add(result.wait);
         result.data
     }
 
     /// Write byte to I/O port, accumulating any wait states.
     fn io_write<B: Bus>(&mut self, bus: &mut B, addr: u16, value: u8) {
-        let wait = bus.io_write(addr, value);
+        let wait = bus.io_write(u32::from(addr), value);
         self.wait_states = self.wait_states.saturating_add(wait);
     }
 }
@@ -181,8 +181,8 @@ impl Z80 {
     pub fn force_ret<B: Bus>(&mut self, bus: &mut B) {
         // Pop return address from stack (low byte first, then high)
         let sp = self.regs.sp;
-        let lo = bus.read(sp).data;
-        let hi = bus.read(sp.wrapping_add(1)).data;
+        let lo = self.read(bus, sp);
+        let hi = self.read(bus, sp.wrapping_add(1));
         self.regs.sp = sp.wrapping_add(2);
 
         // Set PC to return address
@@ -279,8 +279,8 @@ impl Z80 {
     #[cfg(feature = "test-utils")]
     pub fn ret<B: Bus>(&mut self, bus: &mut B) {
         let sp = self.regs.sp;
-        let lo = bus.read(sp).data;
-        let hi = bus.read(sp.wrapping_add(1)).data;
+        let lo = self.read(bus, sp);
+        let hi = self.read(bus, sp.wrapping_add(1));
         self.regs.sp = sp.wrapping_add(2);
         self.regs.pc = u16::from(lo) | (u16::from(hi) << 8);
         self.micro_ops.clear();

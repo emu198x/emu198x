@@ -3,7 +3,7 @@
 //! Cycle-accurate emulation where each `tick()` performs exactly one
 //! bus access. Instructions are broken down into their component cycles.
 
-use emu_core::{Bus, Cpu, Observable, Value};
+use emu_core::{Bus, Cpu, Observable, ReadResult, Value};
 
 use crate::flags::{C, D, I, N, V, Z};
 use crate::{Registers, Status};
@@ -87,6 +87,24 @@ impl Mos6502 {
         self.state == State::FetchOpcode
     }
 
+    /// Read byte from memory (converts 16-bit address to 32-bit for Bus trait).
+    #[inline]
+    fn read_mem<B: Bus>(&self, bus: &mut B, addr: u16) -> u8 {
+        bus.read(u32::from(addr)).data
+    }
+
+    /// Read from memory returning full result (for dummy reads).
+    #[inline]
+    fn read_mem_result<B: Bus>(&self, bus: &mut B, addr: u16) -> ReadResult {
+        bus.read(u32::from(addr))
+    }
+
+    /// Write byte to memory (converts 16-bit address to 32-bit for Bus trait).
+    #[inline]
+    fn write_mem<B: Bus>(&self, bus: &mut B, addr: u16, value: u8) {
+        bus.write(u32::from(addr), value);
+    }
+
     /// Execute one CPU cycle.
     fn execute_cycle<B: Bus>(&mut self, bus: &mut B) {
         self.total_cycles += 1;
@@ -105,7 +123,7 @@ impl Mos6502 {
                 }
 
                 // Fetch opcode
-                self.opcode = bus.read(self.regs.pc).data;
+                self.opcode = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 1;
                 self.state = State::Execute;
@@ -115,7 +133,7 @@ impl Mos6502 {
             }
             State::Stopped => {
                 // JAM/KIL - CPU is locked up, just read current PC
-                let _ = bus.read(self.regs.pc);
+                let _ = self.read_mem_result(bus, self.regs.pc);
             }
         }
     }
@@ -124,7 +142,7 @@ impl Mos6502 {
     fn begin_nmi<B: Bus>(&mut self, bus: &mut B) {
         // NMI uses the same sequence as BRK but reads from $FFFA
         // Cycle 1: read next instruction byte (discarded)
-        let _ = bus.read(self.regs.pc);
+        let _ = self.read_mem_result(bus, self.regs.pc);
         self.opcode = 0x00; // Treat as BRK for cycle counting
         self.cycle = 2;
         self.addr = 0xFFFA; // NMI vector
@@ -135,7 +153,7 @@ impl Mos6502 {
     fn begin_irq<B: Bus>(&mut self, bus: &mut B) {
         // IRQ uses the same sequence as BRK but reads from $FFFE
         // Cycle 1: read next instruction byte (discarded)
-        let _ = bus.read(self.regs.pc);
+        let _ = self.read_mem_result(bus, self.regs.pc);
         self.opcode = 0x00; // Treat as BRK for cycle counting
         self.cycle = 2;
         self.addr = 0xFFFE; // IRQ vector (same as BRK)
@@ -689,7 +707,7 @@ impl Mos6502 {
             // Single-byte NOPs (1 byte, 2 cycles)
             0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                 if self.cycle == 1 {
-                    let _ = bus.read(self.regs.pc);
+                    let _ = self.read_mem_result(bus, self.regs.pc);
                     self.finish();
                 }
             }
@@ -697,7 +715,7 @@ impl Mos6502 {
             // Two-byte immediate NOPs (2 bytes, 2 cycles)
             0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => {
                 if self.cycle == 1 {
-                    let _ = bus.read(self.regs.pc);
+                    let _ = self.read_mem_result(bus, self.regs.pc);
                     self.regs.pc = self.regs.pc.wrapping_add(1);
                     self.finish();
                 }
@@ -726,7 +744,7 @@ impl Mos6502 {
             // Any remaining undefined opcodes - single-byte NOP
             _ => {
                 if self.cycle == 1 {
-                    let _ = bus.read(self.regs.pc);
+                    let _ = self.read_mem_result(bus, self.regs.pc);
                     self.finish();
                 }
             }
@@ -757,7 +775,7 @@ impl Mos6502 {
     fn addr_imm<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8)) {
         // Cycle 1: read operand
         if self.cycle == 1 {
-            self.data = bus.read(self.regs.pc).data;
+            self.data = self.read_mem(bus, self.regs.pc);
             self.regs.pc = self.regs.pc.wrapping_add(1);
             op(self, self.data);
             self.finish();
@@ -769,13 +787,13 @@ impl Mos6502 {
         match self.cycle {
             1 => {
                 // Read zero page address
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
                 // Read from zero page
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 op(self, self.data);
                 self.finish();
             }
@@ -788,19 +806,19 @@ impl Mos6502 {
         match self.cycle {
             1 => {
                 // Read zero page address
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
                 // Dummy read while adding X (wraps in zero page)
-                let _ = bus.read(u16::from(self.pointer));
+                let _ = self.read_mem_result(bus, u16::from(self.pointer));
                 self.addr = u16::from(self.pointer.wrapping_add(self.regs.x));
                 self.cycle = 3;
             }
             3 => {
                 // Read from indexed address
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 op(self, self.data);
                 self.finish();
             }
@@ -812,17 +830,17 @@ impl Mos6502 {
     fn addr_zpy<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8)) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(u16::from(self.pointer));
+                let _ = self.read_mem_result(bus, u16::from(self.pointer));
                 self.addr = u16::from(self.pointer.wrapping_add(self.regs.y));
                 self.cycle = 3;
             }
             3 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 op(self, self.data);
                 self.finish();
             }
@@ -835,19 +853,19 @@ impl Mos6502 {
         match self.cycle {
             1 => {
                 // Read low byte of address
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
                 // Read high byte of address
-                self.addr |= u16::from(bus.read(self.regs.pc).data) << 8;
+                self.addr |= u16::from(self.read_mem(bus, self.regs.pc)) << 8;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 3;
             }
             3 => {
                 // Read from address
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 op(self, self.data);
                 self.finish();
             }
@@ -859,12 +877,12 @@ impl Mos6502 {
     fn addr_abx<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8)) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let hi = bus.read(self.regs.pc).data;
+                let hi = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.x);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
@@ -875,19 +893,19 @@ impl Mos6502 {
             3 => {
                 if self.data != 0 {
                     // Page crossed - dummy read from wrong address, then fix
-                    let _ = bus.read(self.addr);
+                    let _ = self.read_mem_result(bus, self.addr);
                     self.addr = self.addr.wrapping_add(0x100);
                     self.cycle = 4;
                 } else {
                     // No page cross - read data
-                    self.data = bus.read(self.addr).data;
+                    self.data = self.read_mem(bus, self.addr);
                     op(self, self.data);
                     self.finish();
                 }
             }
             4 => {
                 // Read from correct address after page fix
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 op(self, self.data);
                 self.finish();
             }
@@ -899,12 +917,12 @@ impl Mos6502 {
     fn addr_aby<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8)) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let hi = bus.read(self.regs.pc).data;
+                let hi = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
@@ -913,17 +931,17 @@ impl Mos6502 {
             }
             3 => {
                 if self.data != 0 {
-                    let _ = bus.read(self.addr);
+                    let _ = self.read_mem_result(bus, self.addr);
                     self.addr = self.addr.wrapping_add(0x100);
                     self.cycle = 4;
                 } else {
-                    self.data = bus.read(self.addr).data;
+                    self.data = self.read_mem(bus, self.addr);
                     op(self, self.data);
                     self.finish();
                 }
             }
             4 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 op(self, self.data);
                 self.finish();
             }
@@ -935,30 +953,30 @@ impl Mos6502 {
     fn addr_izx<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8)) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
                 // Dummy read while adding X
-                let _ = bus.read(u16::from(self.pointer));
+                let _ = self.read_mem_result(bus, u16::from(self.pointer));
                 self.pointer = self.pointer.wrapping_add(self.regs.x);
                 self.cycle = 3;
             }
             3 => {
                 // Read low byte of address
-                self.addr = u16::from(bus.read(u16::from(self.pointer)).data);
+                self.addr = u16::from(self.read_mem_result(bus, u16::from(self.pointer)).data);
                 self.cycle = 4;
             }
             4 => {
                 // Read high byte of address (wraps in zero page)
                 self.addr |=
-                    u16::from(bus.read(u16::from(self.pointer.wrapping_add(1))).data) << 8;
+                    u16::from(self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data) << 8;
                 self.cycle = 5;
             }
             5 => {
                 // Read from final address
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 op(self, self.data);
                 self.finish();
             }
@@ -970,18 +988,18 @@ impl Mos6502 {
     fn addr_izy<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8)) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
                 // Read low byte of base address
-                self.addr = u16::from(bus.read(u16::from(self.pointer)).data);
+                self.addr = u16::from(self.read_mem_result(bus, u16::from(self.pointer)).data);
                 self.cycle = 3;
             }
             3 => {
                 // Read high byte of base address
-                let hi = bus.read(u16::from(self.pointer.wrapping_add(1))).data;
+                let hi = self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
                 self.data = if lo < self.regs.y { 1 } else { 0 };
@@ -990,17 +1008,17 @@ impl Mos6502 {
             4 => {
                 if self.data != 0 {
                     // Page crossed
-                    let _ = bus.read(self.addr);
+                    let _ = self.read_mem_result(bus, self.addr);
                     self.addr = self.addr.wrapping_add(0x100);
                     self.cycle = 5;
                 } else {
-                    self.data = bus.read(self.addr).data;
+                    self.data = self.read_mem(bus, self.addr);
                     op(self, self.data);
                     self.finish();
                 }
             }
             5 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 op(self, self.data);
                 self.finish();
             }
@@ -1016,12 +1034,12 @@ impl Mos6502 {
     fn addr_zp_w<B: Bus>(&mut self, bus: &mut B, val: fn(&Self) -> u8) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                bus.write(self.addr, val(self));
+                self.write_mem(bus, self.addr, val(self));
                 self.finish();
             }
             _ => unreachable!(),
@@ -1032,17 +1050,17 @@ impl Mos6502 {
     fn addr_zpx_w<B: Bus>(&mut self, bus: &mut B, val: fn(&Self) -> u8) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(u16::from(self.pointer));
+                let _ = self.read_mem_result(bus, u16::from(self.pointer));
                 self.addr = u16::from(self.pointer.wrapping_add(self.regs.x));
                 self.cycle = 3;
             }
             3 => {
-                bus.write(self.addr, val(self));
+                self.write_mem(bus, self.addr, val(self));
                 self.finish();
             }
             _ => unreachable!(),
@@ -1053,17 +1071,17 @@ impl Mos6502 {
     fn addr_zpy_w<B: Bus>(&mut self, bus: &mut B, val: fn(&Self) -> u8) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(u16::from(self.pointer));
+                let _ = self.read_mem_result(bus, u16::from(self.pointer));
                 self.addr = u16::from(self.pointer.wrapping_add(self.regs.y));
                 self.cycle = 3;
             }
             3 => {
-                bus.write(self.addr, val(self));
+                self.write_mem(bus, self.addr, val(self));
                 self.finish();
             }
             _ => unreachable!(),
@@ -1074,17 +1092,17 @@ impl Mos6502 {
     fn addr_abs_w<B: Bus>(&mut self, bus: &mut B, val: fn(&Self) -> u8) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                self.addr |= u16::from(bus.read(self.regs.pc).data) << 8;
+                self.addr |= u16::from(self.read_mem(bus, self.regs.pc)) << 8;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 3;
             }
             3 => {
-                bus.write(self.addr, val(self));
+                self.write_mem(bus, self.addr, val(self));
                 self.finish();
             }
             _ => unreachable!(),
@@ -1095,12 +1113,12 @@ impl Mos6502 {
     fn addr_abx_w<B: Bus>(&mut self, bus: &mut B, val: fn(&Self) -> u8) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let hi = bus.read(self.regs.pc).data;
+                let hi = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.x);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
@@ -1109,14 +1127,14 @@ impl Mos6502 {
             }
             3 => {
                 // Always dummy read for write operations
-                let _ = bus.read(self.addr);
+                let _ = self.read_mem_result(bus, self.addr);
                 if self.data != 0 {
                     self.addr = self.addr.wrapping_add(0x100);
                 }
                 self.cycle = 4;
             }
             4 => {
-                bus.write(self.addr, val(self));
+                self.write_mem(bus, self.addr, val(self));
                 self.finish();
             }
             _ => unreachable!(),
@@ -1127,12 +1145,12 @@ impl Mos6502 {
     fn addr_aby_w<B: Bus>(&mut self, bus: &mut B, val: fn(&Self) -> u8) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let hi = bus.read(self.regs.pc).data;
+                let hi = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
@@ -1140,14 +1158,14 @@ impl Mos6502 {
                 self.cycle = 3;
             }
             3 => {
-                let _ = bus.read(self.addr);
+                let _ = self.read_mem_result(bus, self.addr);
                 if self.data != 0 {
                     self.addr = self.addr.wrapping_add(0x100);
                 }
                 self.cycle = 4;
             }
             4 => {
-                bus.write(self.addr, val(self));
+                self.write_mem(bus, self.addr, val(self));
                 self.finish();
             }
             _ => unreachable!(),
@@ -1158,26 +1176,26 @@ impl Mos6502 {
     fn addr_izx_w<B: Bus>(&mut self, bus: &mut B, val: fn(&Self) -> u8) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(u16::from(self.pointer));
+                let _ = self.read_mem_result(bus, u16::from(self.pointer));
                 self.pointer = self.pointer.wrapping_add(self.regs.x);
                 self.cycle = 3;
             }
             3 => {
-                self.addr = u16::from(bus.read(u16::from(self.pointer)).data);
+                self.addr = u16::from(self.read_mem_result(bus, u16::from(self.pointer)).data);
                 self.cycle = 4;
             }
             4 => {
                 self.addr |=
-                    u16::from(bus.read(u16::from(self.pointer.wrapping_add(1))).data) << 8;
+                    u16::from(self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data) << 8;
                 self.cycle = 5;
             }
             5 => {
-                bus.write(self.addr, val(self));
+                self.write_mem(bus, self.addr, val(self));
                 self.finish();
             }
             _ => unreachable!(),
@@ -1188,16 +1206,16 @@ impl Mos6502 {
     fn addr_izy_w<B: Bus>(&mut self, bus: &mut B, val: fn(&Self) -> u8) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                self.addr = u16::from(bus.read(u16::from(self.pointer)).data);
+                self.addr = u16::from(self.read_mem_result(bus, u16::from(self.pointer)).data);
                 self.cycle = 3;
             }
             3 => {
-                let hi = bus.read(u16::from(self.pointer.wrapping_add(1))).data;
+                let hi = self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
                 self.data = if lo < self.regs.y { 1 } else { 0 };
@@ -1205,14 +1223,14 @@ impl Mos6502 {
             }
             4 => {
                 // Always dummy read for writes
-                let _ = bus.read(self.addr);
+                let _ = self.read_mem_result(bus, self.addr);
                 if self.data != 0 {
                     self.addr = self.addr.wrapping_add(0x100);
                 }
                 self.cycle = 5;
             }
             5 => {
-                bus.write(self.addr, val(self));
+                self.write_mem(bus, self.addr, val(self));
                 self.finish();
             }
             _ => unreachable!(),
@@ -1227,22 +1245,22 @@ impl Mos6502 {
     fn addr_zp_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 self.cycle = 3;
             }
             3 => {
                 // Write original value back (dummy write)
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.data = op(self, self.data);
                 self.cycle = 4;
             }
             4 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.finish();
             }
             _ => unreachable!(),
@@ -1253,26 +1271,26 @@ impl Mos6502 {
     fn addr_zpx_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(u16::from(self.pointer));
+                let _ = self.read_mem_result(bus, u16::from(self.pointer));
                 self.addr = u16::from(self.pointer.wrapping_add(self.regs.x));
                 self.cycle = 3;
             }
             3 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 self.cycle = 4;
             }
             4 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.data = op(self, self.data);
                 self.cycle = 5;
             }
             5 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.finish();
             }
             _ => unreachable!(),
@@ -1283,26 +1301,26 @@ impl Mos6502 {
     fn addr_abs_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                self.addr |= u16::from(bus.read(self.regs.pc).data) << 8;
+                self.addr |= u16::from(self.read_mem(bus, self.regs.pc)) << 8;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 3;
             }
             3 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 self.cycle = 4;
             }
             4 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.data = op(self, self.data);
                 self.cycle = 5;
             }
             5 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.finish();
             }
             _ => unreachable!(),
@@ -1313,12 +1331,12 @@ impl Mos6502 {
     fn addr_abx_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let hi = bus.read(self.regs.pc).data;
+                let hi = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.x);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
@@ -1326,23 +1344,23 @@ impl Mos6502 {
                 self.cycle = 3;
             }
             3 => {
-                let _ = bus.read(self.addr);
+                let _ = self.read_mem_result(bus, self.addr);
                 if self.data != 0 {
                     self.addr = self.addr.wrapping_add(0x100);
                 }
                 self.cycle = 4;
             }
             4 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 self.cycle = 5;
             }
             5 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.data = op(self, self.data);
                 self.cycle = 6;
             }
             6 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.finish();
             }
             _ => unreachable!(),
@@ -1353,12 +1371,12 @@ impl Mos6502 {
     fn addr_aby_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let hi = bus.read(self.regs.pc).data;
+                let hi = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
@@ -1366,23 +1384,23 @@ impl Mos6502 {
                 self.cycle = 3;
             }
             3 => {
-                let _ = bus.read(self.addr);
+                let _ = self.read_mem_result(bus, self.addr);
                 if self.data != 0 {
                     self.addr = self.addr.wrapping_add(0x100);
                 }
                 self.cycle = 4;
             }
             4 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 self.cycle = 5;
             }
             5 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.data = op(self, self.data);
                 self.cycle = 6;
             }
             6 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.finish();
             }
             _ => unreachable!(),
@@ -1393,35 +1411,35 @@ impl Mos6502 {
     fn addr_izx_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(u16::from(self.pointer));
+                let _ = self.read_mem_result(bus, u16::from(self.pointer));
                 self.pointer = self.pointer.wrapping_add(self.regs.x);
                 self.cycle = 3;
             }
             3 => {
-                self.addr = u16::from(bus.read(u16::from(self.pointer)).data);
+                self.addr = u16::from(self.read_mem_result(bus, u16::from(self.pointer)).data);
                 self.cycle = 4;
             }
             4 => {
                 self.addr |=
-                    u16::from(bus.read(u16::from(self.pointer.wrapping_add(1))).data) << 8;
+                    u16::from(self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data) << 8;
                 self.cycle = 5;
             }
             5 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 self.cycle = 6;
             }
             6 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.data = op(self, self.data);
                 self.cycle = 7;
             }
             7 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.finish();
             }
             _ => unreachable!(),
@@ -1432,39 +1450,39 @@ impl Mos6502 {
     fn addr_izy_rmw<B: Bus>(&mut self, bus: &mut B, op: fn(&mut Self, u8) -> u8) {
         match self.cycle {
             1 => {
-                self.pointer = bus.read(self.regs.pc).data;
+                self.pointer = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                self.addr = u16::from(bus.read(u16::from(self.pointer)).data);
+                self.addr = u16::from(self.read_mem_result(bus, u16::from(self.pointer)).data);
                 self.cycle = 3;
             }
             3 => {
-                let hi = bus.read(u16::from(self.pointer.wrapping_add(1))).data;
+                let hi = self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
                 self.data = if lo < self.regs.y { 1 } else { 0 };
                 self.cycle = 4;
             }
             4 => {
-                let _ = bus.read(self.addr);
+                let _ = self.read_mem_result(bus, self.addr);
                 if self.data != 0 {
                     self.addr = self.addr.wrapping_add(0x100);
                 }
                 self.cycle = 5;
             }
             5 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 self.cycle = 6;
             }
             6 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.data = op(self, self.data);
                 self.cycle = 7;
             }
             7 => {
-                bus.write(self.addr, self.data);
+                self.write_mem(bus, self.addr, self.data);
                 self.finish();
             }
             _ => unreachable!(),
@@ -1777,26 +1795,26 @@ impl Mos6502 {
                 // For software BRK, clear addr so cycle 5 uses $FFFE
                 // (begin_nmi/begin_irq skip to cycle 2 with addr already set)
                 self.addr = 0;
-                let _ = bus.read(self.regs.pc);
+                let _ = self.read_mem_result(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
                 // Push PCH
                 let stack_addr = self.regs.push();
-                bus.write(stack_addr, (self.regs.pc >> 8) as u8);
+                self.write_mem(bus, stack_addr, (self.regs.pc >> 8) as u8);
                 self.cycle = 3;
             }
             3 => {
                 // Push PCL
                 let stack_addr = self.regs.push();
-                bus.write(stack_addr, self.regs.pc as u8);
+                self.write_mem(bus, stack_addr, self.regs.pc as u8);
                 self.cycle = 4;
             }
             4 => {
                 // Push status with B flag set
                 let stack_addr = self.regs.push();
-                bus.write(stack_addr, self.regs.p.to_byte_brk());
+                self.write_mem(bus, stack_addr, self.regs.p.to_byte_brk());
                 self.cycle = 5;
             }
             5 => {
@@ -1804,13 +1822,13 @@ impl Mos6502 {
                 // self.addr holds the vector base address (set by begin_nmi/begin_irq)
                 // For software BRK, it's 0 so we use $FFFE
                 let vector = if self.addr != 0 { self.addr } else { 0xFFFE };
-                self.data = bus.read(vector).data; // Low byte of target
+                self.data = self.read_mem(bus, vector); // Low byte of target
                 self.addr = vector; // Save vector address for high byte read
                 self.cycle = 6;
             }
             6 => {
                 // Read vector high byte
-                let hi = bus.read(self.addr.wrapping_add(1)).data;
+                let hi = self.read_mem_result(bus, self.addr.wrapping_add(1)).data;
                 self.regs.pc = u16::from(self.data) | (u16::from(hi) << 8);
                 self.regs.p.set(I);
                 self.addr = 0;
@@ -1824,30 +1842,30 @@ impl Mos6502 {
         match self.cycle {
             1 => {
                 // Dummy read
-                let _ = bus.read(self.regs.pc);
+                let _ = self.read_mem_result(bus, self.regs.pc);
                 self.cycle = 2;
             }
             2 => {
                 // Dummy stack read
-                let _ = bus.read(self.regs.stack_addr());
+                let _ = self.read_mem_result(bus, self.regs.stack_addr());
                 self.cycle = 3;
             }
             3 => {
                 // Pull status
                 let addr = self.regs.pop();
-                self.regs.p = Status::from_byte(bus.read(addr).data);
+                self.regs.p = Status::from_byte(self.read_mem(bus, addr));
                 self.cycle = 4;
             }
             4 => {
                 // Pull PCL
                 let addr = self.regs.pop();
-                self.addr = u16::from(bus.read(addr).data);
+                self.addr = u16::from(self.read_mem(bus, addr));
                 self.cycle = 5;
             }
             5 => {
                 // Pull PCH
                 let addr = self.regs.pop();
-                self.addr |= u16::from(bus.read(addr).data) << 8;
+                self.addr |= u16::from(self.read_mem(bus, addr)) << 8;
                 self.regs.pc = self.addr;
                 self.finish();
             }
@@ -1858,26 +1876,26 @@ impl Mos6502 {
     fn op_rts<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             1 => {
-                let _ = bus.read(self.regs.pc);
+                let _ = self.read_mem_result(bus, self.regs.pc);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(self.regs.stack_addr());
+                let _ = self.read_mem_result(bus, self.regs.stack_addr());
                 self.cycle = 3;
             }
             3 => {
                 let addr = self.regs.pop();
-                self.addr = u16::from(bus.read(addr).data);
+                self.addr = u16::from(self.read_mem(bus, addr));
                 self.cycle = 4;
             }
             4 => {
                 let addr = self.regs.pop();
-                self.addr |= u16::from(bus.read(addr).data) << 8;
+                self.addr |= u16::from(self.read_mem(bus, addr)) << 8;
                 self.cycle = 5;
             }
             5 => {
                 // Increment PC (RTS returns to address + 1)
-                let _ = bus.read(self.addr);
+                let _ = self.read_mem_result(bus, self.addr);
                 self.regs.pc = self.addr.wrapping_add(1);
                 self.finish();
             }
@@ -1889,30 +1907,30 @@ impl Mos6502 {
         match self.cycle {
             1 => {
                 // Read low byte of target
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
                 // Internal operation (stack read)
-                let _ = bus.read(self.regs.stack_addr());
+                let _ = self.read_mem_result(bus, self.regs.stack_addr());
                 self.cycle = 3;
             }
             3 => {
                 // Push PCH
                 let addr = self.regs.push();
-                bus.write(addr, (self.regs.pc >> 8) as u8);
+                self.write_mem(bus, addr, (self.regs.pc >> 8) as u8);
                 self.cycle = 4;
             }
             4 => {
                 // Push PCL
                 let addr = self.regs.push();
-                bus.write(addr, self.regs.pc as u8);
+                self.write_mem(bus, addr, self.regs.pc as u8);
                 self.cycle = 5;
             }
             5 => {
                 // Read high byte of target
-                self.addr |= u16::from(bus.read(self.regs.pc).data) << 8;
+                self.addr |= u16::from(self.read_mem(bus, self.regs.pc)) << 8;
                 self.regs.pc = self.addr;
                 self.finish();
             }
@@ -1923,12 +1941,12 @@ impl Mos6502 {
     fn op_jmp_abs<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                self.addr |= u16::from(bus.read(self.regs.pc).data) << 8;
+                self.addr |= u16::from(self.read_mem(bus, self.regs.pc)) << 8;
                 self.regs.pc = self.addr;
                 self.finish();
             }
@@ -1939,22 +1957,22 @@ impl Mos6502 {
     fn op_jmp_ind<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             1 => {
-                self.addr = u16::from(bus.read(self.regs.pc).data);
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.cycle = 2;
             }
             2 => {
-                self.addr |= u16::from(bus.read(self.regs.pc).data) << 8;
+                self.addr |= u16::from(self.read_mem(bus, self.regs.pc)) << 8;
                 self.cycle = 3;
             }
             3 => {
-                self.data = bus.read(self.addr).data;
+                self.data = self.read_mem(bus, self.addr);
                 self.cycle = 4;
             }
             4 => {
                 // 6502 bug: wraps within page for high byte
                 let hi_addr = (self.addr & 0xFF00) | ((self.addr.wrapping_add(1)) & 0x00FF);
-                let hi = bus.read(hi_addr).data;
+                let hi = self.read_mem(bus, hi_addr);
                 self.regs.pc = u16::from(self.data) | (u16::from(hi) << 8);
                 self.finish();
             }
@@ -1966,7 +1984,7 @@ impl Mos6502 {
         match self.cycle {
             1 => {
                 // Read offset
-                self.data = bus.read(self.regs.pc).data;
+                self.data = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 if !taken {
                     self.finish();
@@ -1976,7 +1994,7 @@ impl Mos6502 {
             }
             2 => {
                 // Branch taken - calculate target
-                let _ = bus.read(self.regs.pc); // Dummy read
+                let _ = self.read_mem_result(bus, self.regs.pc); // Dummy read
                 let offset = self.data as i8 as i16;
                 let new_pc = (self.regs.pc as i16).wrapping_add(offset) as u16;
                 // Check for page crossing
@@ -1991,7 +2009,7 @@ impl Mos6502 {
             }
             3 => {
                 // Page boundary crossed
-                let _ = bus.read((self.regs.pc & 0xFF00) | (self.addr & 0x00FF));
+                let _ = self.read_mem_result(bus, (self.regs.pc & 0xFF00) | (self.addr & 0x00FF));
                 self.regs.pc = self.addr;
                 self.finish();
             }
@@ -2002,12 +2020,12 @@ impl Mos6502 {
     fn op_php<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             1 => {
-                let _ = bus.read(self.regs.pc);
+                let _ = self.read_mem_result(bus, self.regs.pc);
                 self.cycle = 2;
             }
             2 => {
                 let addr = self.regs.push();
-                bus.write(addr, self.regs.p.to_byte_brk());
+                self.write_mem(bus, addr, self.regs.p.to_byte_brk());
                 self.finish();
             }
             _ => unreachable!(),
@@ -2017,16 +2035,16 @@ impl Mos6502 {
     fn op_plp<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             1 => {
-                let _ = bus.read(self.regs.pc);
+                let _ = self.read_mem_result(bus, self.regs.pc);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(self.regs.stack_addr());
+                let _ = self.read_mem_result(bus, self.regs.stack_addr());
                 self.cycle = 3;
             }
             3 => {
                 let addr = self.regs.pop();
-                self.regs.p = Status::from_byte(bus.read(addr).data);
+                self.regs.p = Status::from_byte(self.read_mem(bus, addr));
                 self.finish();
             }
             _ => unreachable!(),
@@ -2036,12 +2054,12 @@ impl Mos6502 {
     fn op_pha<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             1 => {
-                let _ = bus.read(self.regs.pc);
+                let _ = self.read_mem_result(bus, self.regs.pc);
                 self.cycle = 2;
             }
             2 => {
                 let addr = self.regs.push();
-                bus.write(addr, self.regs.a);
+                self.write_mem(bus, addr, self.regs.a);
                 self.finish();
             }
             _ => unreachable!(),
@@ -2051,16 +2069,16 @@ impl Mos6502 {
     fn op_pla<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             1 => {
-                let _ = bus.read(self.regs.pc);
+                let _ = self.read_mem_result(bus, self.regs.pc);
                 self.cycle = 2;
             }
             2 => {
-                let _ = bus.read(self.regs.stack_addr());
+                let _ = self.read_mem_result(bus, self.regs.stack_addr());
                 self.cycle = 3;
             }
             3 => {
                 let addr = self.regs.pop();
-                self.regs.a = bus.read(addr).data;
+                self.regs.a = self.read_mem(bus, addr);
                 self.regs.p.update_nz(self.regs.a);
                 self.finish();
             }
@@ -2070,7 +2088,7 @@ impl Mos6502 {
 
     fn op_flag<B: Bus>(&mut self, bus: &mut B, flag: u8, set: bool) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.p.set_if(flag, set);
             self.finish();
         }
@@ -2078,7 +2096,7 @@ impl Mos6502 {
 
     fn op_nop<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.finish();
         }
     }
@@ -2086,7 +2104,7 @@ impl Mos6502 {
     // Transfer instructions
     fn op_tax<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.x = self.regs.a;
             self.regs.p.update_nz(self.regs.x);
             self.finish();
@@ -2095,7 +2113,7 @@ impl Mos6502 {
 
     fn op_tay<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.y = self.regs.a;
             self.regs.p.update_nz(self.regs.y);
             self.finish();
@@ -2104,7 +2122,7 @@ impl Mos6502 {
 
     fn op_txa<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.a = self.regs.x;
             self.regs.p.update_nz(self.regs.a);
             self.finish();
@@ -2113,7 +2131,7 @@ impl Mos6502 {
 
     fn op_tya<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.a = self.regs.y;
             self.regs.p.update_nz(self.regs.a);
             self.finish();
@@ -2122,7 +2140,7 @@ impl Mos6502 {
 
     fn op_tsx<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.x = self.regs.s;
             self.regs.p.update_nz(self.regs.x);
             self.finish();
@@ -2131,7 +2149,7 @@ impl Mos6502 {
 
     fn op_txs<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.s = self.regs.x;
             // TXS does not affect flags
             self.finish();
@@ -2141,7 +2159,7 @@ impl Mos6502 {
     // Increment/decrement registers
     fn op_inx<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.x = self.regs.x.wrapping_add(1);
             self.regs.p.update_nz(self.regs.x);
             self.finish();
@@ -2150,7 +2168,7 @@ impl Mos6502 {
 
     fn op_iny<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.y = self.regs.y.wrapping_add(1);
             self.regs.p.update_nz(self.regs.y);
             self.finish();
@@ -2159,7 +2177,7 @@ impl Mos6502 {
 
     fn op_dex<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.x = self.regs.x.wrapping_sub(1);
             self.regs.p.update_nz(self.regs.x);
             self.finish();
@@ -2168,7 +2186,7 @@ impl Mos6502 {
 
     fn op_dey<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.y = self.regs.y.wrapping_sub(1);
             self.regs.p.update_nz(self.regs.y);
             self.finish();
@@ -2178,7 +2196,7 @@ impl Mos6502 {
     // Accumulator shift/rotate
     fn op_asl_a<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.a = self.do_asl(self.regs.a);
             self.finish();
         }
@@ -2186,7 +2204,7 @@ impl Mos6502 {
 
     fn op_lsr_a<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.a = self.do_lsr(self.regs.a);
             self.finish();
         }
@@ -2194,7 +2212,7 @@ impl Mos6502 {
 
     fn op_rol_a<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.a = self.do_rol(self.regs.a);
             self.finish();
         }
@@ -2202,7 +2220,7 @@ impl Mos6502 {
 
     fn op_ror_a<B: Bus>(&mut self, bus: &mut B) {
         if self.cycle == 1 {
-            let _ = bus.read(self.regs.pc);
+            let _ = self.read_mem_result(bus, self.regs.pc);
             self.regs.a = self.do_ror(self.regs.a);
             self.finish();
         }

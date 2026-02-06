@@ -40,29 +40,36 @@ impl From<u8> for ReadResult {
 ///
 /// For systems with memory contention (e.g., ZX Spectrum), read/write
 /// operations return the number of wait states to inject.
+///
+/// Addresses use 32-bit values to support systems with larger address spaces
+/// (e.g., 68000 with 24-bit addresses, Amiga with 32-bit). Systems with
+/// smaller address spaces (e.g., Z80 with 16-bit) use only the low bits.
 pub trait Bus {
     /// Read a byte from memory.
     ///
     /// Returns the data and any wait states due to contention.
-    fn read(&mut self, addr: u16) -> ReadResult;
+    fn read(&mut self, addr: u32) -> ReadResult;
 
     /// Write a byte to memory.
     ///
     /// Returns the number of wait states due to contention.
-    fn write(&mut self, addr: u16, value: u8) -> u8;
+    fn write(&mut self, addr: u32, value: u8) -> u8;
 
     /// Read a byte from an I/O port.
     ///
     /// Returns the data and any wait states.
-    fn io_read(&mut self, addr: u16) -> ReadResult;
+    fn io_read(&mut self, addr: u32) -> ReadResult;
 
     /// Write a byte to an I/O port.
     ///
     /// Returns the number of wait states.
-    fn io_write(&mut self, addr: u16, value: u8) -> u8;
+    fn io_write(&mut self, addr: u32, value: u8) -> u8;
 }
 
-/// Simple bus implementation for testing - no contention.
+/// Simple bus implementation for testing - 64KB, no contention.
+///
+/// This is primarily for Z80-based systems. For 68000 systems, use a bus
+/// with a larger address space.
 pub struct SimpleBus {
     memory: [u8; 65536],
 }
@@ -96,28 +103,7 @@ impl SimpleBus {
         let e = s + len as usize;
         &self.memory[s..e]
     }
-}
 
-impl Bus for SimpleBus {
-    fn read(&mut self, addr: u16) -> ReadResult {
-        ReadResult::new(self.memory[addr as usize])
-    }
-
-    fn write(&mut self, addr: u16, value: u8) -> u8 {
-        self.memory[addr as usize] = value;
-        0 // No wait states
-    }
-
-    fn io_read(&mut self, _addr: u16) -> ReadResult {
-        ReadResult::new(0xFF) // Floating bus
-    }
-
-    fn io_write(&mut self, _addr: u16, _value: u8) -> u8 {
-        0 // No wait states
-    }
-}
-
-impl SimpleBus {
     /// Read a byte without side effects (for observation).
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
@@ -132,21 +118,42 @@ impl SimpleBus {
     /// Parse an address from a query path.
     ///
     /// Accepts hex (0x1234, $1234) or decimal (4660).
-    fn parse_address(path: &str) -> Option<u16> {
+    fn parse_address(path: &str) -> Option<u32> {
         if let Some(hex) = path.strip_prefix("0x").or_else(|| path.strip_prefix("0X")) {
-            u16::from_str_radix(hex, 16).ok()
+            u32::from_str_radix(hex, 16).ok()
         } else if let Some(hex) = path.strip_prefix('$') {
-            u16::from_str_radix(hex, 16).ok()
+            u32::from_str_radix(hex, 16).ok()
         } else {
             path.parse().ok()
         }
     }
 }
 
+impl Bus for SimpleBus {
+    fn read(&mut self, addr: u32) -> ReadResult {
+        // Mask to 16-bit address space
+        ReadResult::new(self.memory[(addr & 0xFFFF) as usize])
+    }
+
+    fn write(&mut self, addr: u32, value: u8) -> u8 {
+        // Mask to 16-bit address space
+        self.memory[(addr & 0xFFFF) as usize] = value;
+        0 // No wait states
+    }
+
+    fn io_read(&mut self, _addr: u32) -> ReadResult {
+        ReadResult::new(0xFF) // Floating bus
+    }
+
+    fn io_write(&mut self, _addr: u32, _value: u8) -> u8 {
+        0 // No wait states
+    }
+}
+
 impl Observable for SimpleBus {
     fn query(&self, path: &str) -> Option<Value> {
         // Memory queries: "0x4000", "$4000", "16384"
-        Self::parse_address(path).map(|addr| self.memory[addr as usize].into())
+        Self::parse_address(path).map(|addr| self.memory[(addr & 0xFFFF) as usize].into())
     }
 
     fn query_paths(&self) -> &'static [&'static str] {
