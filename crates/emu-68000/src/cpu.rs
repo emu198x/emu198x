@@ -257,6 +257,10 @@ pub struct M68000 {
     /// Override PC value for exception frame. Used for branch instructions that cause
     /// address errors, where the PC should be the target address rather than calculated.
     exception_pc_override: Option<u32>,
+    /// True when the current EA was computed from a PC-relative mode (PcDisp/PcIndex).
+    /// Used to select program-space function code (FC=2/6) for address error exceptions
+    /// on data reads from program memory.
+    program_space_access: bool,
 
     // === Interrupt state ===
     /// Pending interrupt level (1-7), 0 = none.
@@ -306,6 +310,7 @@ impl M68000 {
             mem_accessed: false,
             deferred_postinc: None,
             exception_pc_override: None,
+            program_space_access: false,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
         };
@@ -371,7 +376,7 @@ impl M68000 {
 
     /// Read long from memory (big-endian).
     fn read_long<B: Bus>(&mut self, bus: &mut B, addr: u32) -> u32 {
-        let addr24 = addr & 0x00FF_FFFC; // Long-aligned
+        let addr24 = addr & 0x00FF_FFFE; // Word-aligned (68000 has no long alignment requirement)
         let hi = self.read_word(bus, addr24);
         let lo = self.read_word(bus, addr24 + 2);
         u32::from(hi) << 16 | u32::from(lo)
@@ -392,7 +397,7 @@ impl M68000 {
 
     /// Write long to memory (big-endian).
     fn write_long<B: Bus>(&mut self, bus: &mut B, addr: u32, value: u32) {
-        let addr24 = addr & 0x00FF_FFFC;
+        let addr24 = addr & 0x00FF_FFFE; // Word-aligned (68000 has no long alignment requirement)
         self.write_word(bus, addr24, (value >> 16) as u16);
         self.write_word(bus, addr24 + 2, value as u16);
     }
@@ -585,11 +590,14 @@ impl M68000 {
     /// Tick for byte read (4 cycles).
     fn tick_read_byte<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
-            0 | 1 | 2 => {}
+            0 => {
+                // Apply deferred (An)+ increment at the start of the bus cycle.
+                // On the real 68000, calc_ea already committed the increment.
+                self.apply_deferred_postinc();
+            }
+            1 | 2 => {}
             3 => {
                 self.data = u32::from(self.read_byte(bus, self.addr));
-                // Apply any deferred post-increment now that memory access succeeded.
-                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -603,6 +611,10 @@ impl M68000 {
     fn tick_read_word<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
+                // Apply deferred (An)+ increment before address error check.
+                // On the real 68000, calc_ea already committed the increment
+                // before the bus cycle that detects the odd address.
+                self.apply_deferred_postinc();
                 // Check for odd address - triggers address error
                 if self.addr & 1 != 0 {
                     self.address_error(self.addr, true, false);
@@ -612,8 +624,6 @@ impl M68000 {
             1 | 2 => {}
             3 => {
                 self.data = u32::from(self.read_word(bus, self.addr));
-                // Apply any deferred post-increment now that memory access succeeded.
-                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -627,6 +637,9 @@ impl M68000 {
     fn tick_read_long_hi<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
+                // Long reads: do NOT apply deferred (An)+ increment before address
+                // error check. On the real 68000, the 4-byte postincrement is only
+                // committed after both bus cycles complete (deferred to tick_read_long_lo).
                 // Check for odd address - triggers address error
                 if self.addr & 1 != 0 {
                     self.address_error(self.addr, true, false);
@@ -652,7 +665,7 @@ impl M68000 {
             0 | 1 | 2 => {}
             3 => {
                 self.data |= u32::from(self.read_word(bus, self.addr));
-                // Apply any deferred post-increment now that memory access succeeded.
+                // Both long read bus cycles completed — now commit the postincrement.
                 self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
@@ -669,7 +682,9 @@ impl M68000 {
             0 | 1 | 2 => {}
             3 => {
                 self.write_byte(bus, self.addr, self.data as u8);
-                // Apply any deferred post-increment now that memory access succeeded.
+                // Apply deferred register update after successful write.
+                // For MOVE destination (An)+ or -(An), this commits the
+                // address register change only when the write completes.
                 self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
@@ -684,7 +699,10 @@ impl M68000 {
     fn tick_write_word<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
-                // Check for odd address - triggers address error
+                // Check for odd address - triggers address error.
+                // Do NOT apply deferred register update before the AE check.
+                // For MOVE destination (An)+ or -(An), the register should
+                // remain unchanged when the write faults.
                 if self.addr & 1 != 0 {
                     self.address_error(self.addr, false, false);
                     return;
@@ -693,7 +711,7 @@ impl M68000 {
             1 | 2 => {}
             3 => {
                 self.write_word(bus, self.addr, self.data as u16);
-                // Apply any deferred post-increment now that memory access succeeded.
+                // Apply deferred register update after successful write.
                 self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
@@ -708,6 +726,8 @@ impl M68000 {
     fn tick_write_long_hi<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
+                // Long writes: do NOT apply deferred (An)+ increment before address
+                // error check (same as long reads — deferred to tick_write_long_lo).
                 // Check for odd address - triggers address error
                 if self.addr & 1 != 0 {
                     self.address_error(self.addr, false, false);
@@ -733,7 +753,7 @@ impl M68000 {
             0 | 1 | 2 => {}
             3 => {
                 self.write_word(bus, self.addr, self.data as u16);
-                // Apply any deferred post-increment now that memory access succeeded.
+                // Both long write bus cycles completed — now commit the postincrement.
                 self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
@@ -972,12 +992,13 @@ impl M68000 {
             0 => {
                 // MOVEM always uses word/long; check for odd address on first phase
                 if self.movem_long_phase == 0 && self.addr & 1 != 0 {
-                    // For predecrement mode, the fault address should be An - size (first access),
-                    // not the pre-calculated start address (An - total)
+                    // For predecrement mode, the fault address should be An - 2 (first word access),
+                    // not the pre-calculated start address (An - total).
+                    // The 68000 always uses word-sized bus accesses, so the first decrement
+                    // for addressing is always 2, even for MOVEM.l.
                     let fault_addr = if self.movem_predec {
                         let ea_reg = (self.addr2 & 7) as usize;
-                        let size = if self.size == Size::Long { 4 } else { 2 };
-                        self.regs.a(ea_reg).wrapping_sub(size)
+                        self.regs.a(ea_reg).wrapping_sub(2)
                     } else {
                         self.addr
                     };
@@ -1161,12 +1182,21 @@ impl M68000 {
     fn tick_cmpm_execute<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
-                // Check for odd address on word/long access
-                // Phase 0 checks source (addr), Phase 1 checks dest (addr2)
+                // Check for odd address on word/long access.
+                // Phase 0 checks source (addr/Ay), Phase 1 checks dest (addr2/Ax).
+                // The real 68000 increments the register by one word (2 bytes) before
+                // the address error is detected, since the postincrement happens as
+                // part of the bus cycle initiation.
                 if self.size != Size::Byte {
-                    let check_addr = if self.movem_long_phase == 0 { self.addr } else { self.addr2 };
-                    if check_addr & 1 != 0 {
-                        self.address_error(check_addr, true, false);
+                    if self.movem_long_phase == 0 && self.addr & 1 != 0 {
+                        let ay = self.data as usize;
+                        self.regs.set_a(ay, self.addr.wrapping_add(2));
+                        self.address_error(self.addr, true, false);
+                        return;
+                    } else if self.movem_long_phase == 1 && self.addr2 & 1 != 0 {
+                        // Destination AE: do NOT increment Ax — the real 68000
+                        // only increments the source register before the AE fires.
+                        self.address_error(self.addr2, true, false);
                         return;
                     }
                 }
@@ -1187,12 +1217,20 @@ impl M68000 {
 
                         // Increment Ay
                         let ay = self.data as usize;
+                        let ax = self.data2 as usize;
                         let inc = match self.size {
                             Size::Byte => if ay == 7 { 2 } else { 1 },
                             Size::Word => 2,
                             Size::Long => 4,
                         };
                         self.regs.set_a(ay, self.addr.wrapping_add(inc));
+
+                        // If Ay == Ax (same register), update addr2 to the
+                        // post-incremented value so the destination read uses
+                        // the updated address.
+                        if ay == ax {
+                            self.addr2 = self.regs.a(ax);
+                        }
 
                         self.movem_long_phase = 1;
                         self.cycle = 0;
@@ -1284,6 +1322,10 @@ impl M68000 {
     fn tick_shift_mem_execute<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
+                // Apply (An)+ increment before address error check.
+                if self.movem_long_phase == 0 {
+                    self.apply_deferred_postinc();
+                }
                 // Memory shifts are always word-sized; check for odd address on initial read
                 if self.movem_long_phase == 0 && self.addr & 1 != 0 {
                     self.address_error(self.addr, true, false);
@@ -1316,14 +1358,19 @@ impl M68000 {
                         // Set flags
                         self.set_flags_move(result, Size::Word);
                         self.regs.sr = Status::set_if(self.regs.sr, C, carry);
-                        // X is set for shifts (kind 0,1) but not for rotates (kind 2,3)
-                        if kind < 2 {
+                        // X is set for AS/LS/ROX but NOT for RO (ROL/ROR)
+                        if kind != 3 {
                             self.regs.sr = Status::set_if(self.regs.sr, X, carry);
                         }
-                        // V is cleared (simplified)
-                        self.regs.sr &= !crate::flags::V;
+                        // V: set for ASL if MSB changed, cleared for all others
+                        if kind == 0 && direction {
+                            // ASL: V = MSB of source XOR MSB of result
+                            let v = (value ^ result) & 0x8000 != 0;
+                            self.regs.sr = Status::set_if(self.regs.sr, crate::flags::V, v);
+                        } else {
+                            self.regs.sr &= !crate::flags::V;
+                        }
 
-                        self.apply_deferred_postinc();
                         self.movem_long_phase = 0;
                         self.cycle = 0;
                         self.micro_ops.advance();
@@ -1410,8 +1457,19 @@ impl M68000 {
     fn tick_alu_mem_rmw<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
+                // For byte/word: commit (An)+ at cycle 0 before address error check.
+                // For long: defer until both bus cycles complete (phase 1).
+                if self.movem_long_phase == 0 && self.size != Size::Long {
+                    self.apply_deferred_postinc();
+                }
                 // Check for odd address on word/long access (only check on initial read phase)
                 if self.movem_long_phase == 0 && self.size != Size::Byte && self.addr & 1 != 0 {
+                    // For long predec, the 68000's prefetch pipeline is one
+                    // step further along, so the saved PC is 2 less.
+                    if self.size == Size::Long && self.uses_predec_mode() {
+                        self.exception_pc_override =
+                            Some(self.regs.pc.wrapping_sub(2));
+                    }
                     self.address_error(self.addr, true, false);
                     return;
                 }
@@ -1445,6 +1503,8 @@ impl M68000 {
                         // Phase 1 (Long only): Read low word
                         let lo = self.read_word(bus, self.addr.wrapping_add(2));
                         self.ext_words[0] = lo; // Low word
+                        // Both long read bus cycles completed — commit postincrement.
+                        self.apply_deferred_postinc();
                         self.movem_long_phase = 2; // Go to compute+write
                         self.cycle = 0;
                         return;
@@ -1530,7 +1590,7 @@ impl M68000 {
                                 // NBCD: 0 - mem - X (BCD negate, byte only)
                                 let src = mem_val as u8;
                                 let x = u8::from(self.regs.sr & X != 0);
-                                let (result, borrow) = self.nbcd(src, x);
+                                let (result, borrow, overflow) = self.nbcd(src, x);
 
                                 // Set flags
                                 let mut sr = self.regs.sr;
@@ -1541,9 +1601,24 @@ impl M68000 {
                                 sr = Status::set_if(sr, C, borrow);
                                 sr = Status::set_if(sr, X, borrow);
                                 sr = Status::set_if(sr, N, result & 0x80 != 0);
+                                sr = Status::set_if(sr, V, overflow);
                                 self.regs.sr = sr;
 
                                 u32::from(result)
+                            }
+                            9 => {
+                                // CLR: ignore read, write 0
+                                // Set flags here (not before RMW) so address errors
+                                // during the read phase don't modify flags.
+                                self.regs.sr = Status::clear_vc(self.regs.sr);
+                                self.regs.sr =
+                                    Status::update_nz_byte(self.regs.sr, 0);
+                                0
+                            }
+                            10 => {
+                                // MOVEfromSR: ignore read, write self.data (SR value)
+                                // Flags not affected
+                                src
                             }
                             _ => mem_val,
                         };
@@ -1604,8 +1679,20 @@ impl M68000 {
             0 => {
                 // Mark that we're accessing external memory (for prefetch tracking)
                 self.mem_accessed = true;
+                // For byte/word source reads, the 68000 commits (An)+ before
+                // the address error check. For long reads, the 4-byte increment
+                // is deferred until both bus cycles complete.
+                if self.size != Size::Long {
+                    self.apply_deferred_postinc();
+                }
                 // Check for odd address on word/long access
                 if self.size != Size::Byte && self.addr & 1 != 0 {
+                    // For long predec, the 68000's prefetch pipeline is one
+                    // step further along, so the saved PC is 2 less.
+                    if self.size == Size::Long && self.uses_predec_mode() {
+                        self.exception_pc_override =
+                            Some(self.regs.pc.wrapping_sub(2));
+                    }
                     self.address_error(self.addr, true, false);
                     return;
                 }
@@ -1628,6 +1715,8 @@ impl M68000 {
                     // Phase 1: Read low word and combine
                     let lo = self.read_word(bus, self.addr);
                     self.movem_long_phase = 0;
+                    // Both long read bus cycles completed — commit the postincrement.
+                    self.apply_deferred_postinc();
                     (u32::from(self.ext_words[2]) << 16) | u32::from(lo)
                 } else {
                     match self.size {
@@ -1725,12 +1814,15 @@ impl M68000 {
                             self.regs.sr &= !(N | Z | V | C);
                             self.regs.sr |= N;
                             self.exception(6); // CHK exception
+                            return;
                         } else if dn > upper_bound {
                             // Clear N/Z/V/C (X not affected)
                             self.regs.sr &= !(N | Z | V | C);
                             self.exception(6); // CHK exception
+                            return;
                         }
-                        // If within bounds, just continue normally
+                        // Within bounds — real 68000 clears NZVC
+                        self.regs.sr &= !(N | Z | V | C);
                     }
                     10 => {
                         // MULU: unsigned 16x16->32 multiply
@@ -1743,12 +1835,10 @@ impl M68000 {
                         self.regs.sr = Status::clear_vc(self.regs.sr);
                         self.regs.sr = Status::update_nz_long(self.regs.sr, result);
 
-                        // Timing: 38 + 2*ones in source, minus the memory read cycles already spent
+                        // Timing: 38 + 2*ones in source, minus the memory read cycles
                         let ones = (src_word as u16).count_ones() as u8;
-                        // Memory read took 4 cycles, so subtract to get remaining internal time
                         let timing = (38 + 2 * ones).saturating_sub(4);
-                        // Don't advance PC during internal cycles - already positioned correctly
-                        self.queue_internal_no_pc(timing);
+                        self.queue_internal(timing);
                     }
                     11 => {
                         // MULS: signed 16x16->32 multiply
@@ -1765,8 +1855,7 @@ impl M68000 {
                         let pattern = src16 ^ (src16 << 1);
                         let ones = pattern.count_ones() as u8;
                         let timing = (38 + 2 * ones).saturating_sub(4);
-                        // Don't advance PC during internal cycles - already positioned correctly
-                        self.queue_internal_no_pc(timing);
+                        self.queue_internal(timing);
                     }
                     12 => {
                         // DIVU: unsigned 32/16 -> 16r:16q division
@@ -1781,21 +1870,18 @@ impl M68000 {
                         let quotient = dividend / divisor;
                         let remainder = dividend % divisor;
 
+                        // Compute timing from actual algorithm, minus 4 for
+                        // overlapped memory read cycles
+                        let timing = Self::divu_cycles(dividend, divisor as u16)
+                            .saturating_sub(4);
+
                         if quotient > 0xFFFF {
-                            // Overflow - detected early, minimal processing
+                            // Overflow
                             self.regs.sr |= crate::flags::V;
                             self.regs.sr &= !crate::flags::C;
-                            // On overflow, N is set based on bit 16 of quotient (overflow bit)
-                            self.regs.sr = Status::set_if(
-                                self.regs.sr,
-                                crate::flags::N,
-                                quotient & 0x1_0000 != 0,
-                            );
-                            // Z is cleared on overflow
+                            // On the real 68000, N is always set on DIVU overflow
+                            self.regs.sr |= crate::flags::N;
                             self.regs.sr &= !crate::flags::Z;
-                            // Overflow detection takes ~10 internal cycles total
-                            // Subtract 4 for memory read already done
-                            self.queue_internal_no_pc(6);
                         } else {
                             self.regs.d[reg as usize] = (remainder << 16) | quotient;
                             self.regs.sr &= !(crate::flags::V | crate::flags::C);
@@ -1806,11 +1892,8 @@ impl M68000 {
                                 crate::flags::N,
                                 quotient & 0x8000 != 0,
                             );
-                            // Full division timing varies with dividend (~76-156 cycles total)
-                            // Subtract 4 for memory read already done
-                            // Use ~110 as average, minus memory read = 106
-                            self.queue_internal_no_pc(106);
                         }
+                        self.queue_internal(timing);
                     }
                     13 => {
                         // DIVS: signed 32/16 -> 16r:16q division
@@ -1825,6 +1908,11 @@ impl M68000 {
                         let quotient = dividend / divisor;
                         let remainder = dividend % divisor;
 
+                        // Compute timing from actual algorithm, minus 4 for
+                        // overlapped memory read cycles
+                        let timing = Self::divs_cycles(dividend, divisor as i16)
+                            .saturating_sub(4);
+
                         if (-32768..=32767).contains(&quotient) {
                             let q = quotient as i16 as u16 as u32;
                             let r = remainder as i16 as u16 as u32;
@@ -1834,21 +1922,15 @@ impl M68000 {
                                 Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
                             self.regs.sr =
                                 Status::set_if(self.regs.sr, crate::flags::N, quotient < 0);
-                            // Full division timing varies with dividend (~120-180 cycles total)
-                            // Subtract 4 for memory read already done
-                            self.queue_internal_no_pc(150);
                         } else {
-                            // Overflow - detected early, minimal timing
+                            // Overflow
                             self.regs.sr |= crate::flags::V;
                             self.regs.sr &= !crate::flags::C;
-                            // On overflow, N is set based on MSB of dividend (bit 31)
-                            self.regs.sr =
-                                Status::set_if(self.regs.sr, crate::flags::N, dividend < 0);
-                            // Z is cleared on overflow
+                            // On the real 68000, N is always set on DIVS overflow
+                            self.regs.sr |= crate::flags::N;
                             self.regs.sr &= !crate::flags::Z;
-                            // Overflow detected early: ~16 cycles total, minus 4 for memory read
-                            self.queue_internal_no_pc(12);
                         }
+                        self.queue_internal(timing);
                     }
                     14 => {
                         // CMPI: compare immediate (memory - immediate)
@@ -1861,8 +1943,6 @@ impl M68000 {
                     _ => {}
                 }
 
-                // Apply any deferred post-increment now that memory access is complete.
-                self.apply_deferred_postinc();
                 self.cycle = 0;
                 self.micro_ops.advance();
                 return;
@@ -1975,9 +2055,9 @@ impl M68000 {
                         }
                     }
 
-                    // Calculate decrement size
+                    // Calculate decrement size (A7 always uses word-aligned access)
                     let decr = match self.size {
-                        Size::Byte => 1,
+                        Size::Byte => if rx == 7 { 2 } else { 1 },
                         Size::Word => 2,
                         Size::Long => 4,
                     };
@@ -2025,7 +2105,7 @@ impl M68000 {
                     }
 
                     let decr = match self.size {
-                        Size::Byte => 1,
+                        Size::Byte => if ry == 7 { 2 } else { 1 },
                         Size::Word => 2,
                         Size::Long => 4,
                     };
@@ -2070,22 +2150,22 @@ impl M68000 {
 
                                 // Mask to get just the operation type (low byte), ignoring
                                 // ry and flags stored in upper bits
-                                let (result, carry) = match self.data2 & 0xFF {
+                                let (result, carry, bcd_overflow) = match self.data2 & 0xFF {
                                     0 => self.bcd_add(src, dst, x),
                                     1 => self.bcd_sub(dst, src, x),
                                     2 => {
                                         let r = u16::from(dst) + u16::from(src) + u16::from(x);
-                                        (r as u8, r > 0xFF)
+                                        (r as u8, r > 0xFF, false)
                                     }
                                     3 => {
                                         let r = u16::from(dst).wrapping_sub(u16::from(src)).wrapping_sub(u16::from(x));
-                                        (r as u8, u16::from(dst) < u16::from(src) + u16::from(x))
+                                        (r as u8, u16::from(dst) < u16::from(src) + u16::from(x), false)
                                     }
                                     _ => unreachable!(),
                                 };
 
                                 self.data = u32::from(result);
-                                self.set_extend_flags(u32::from(src), u32::from(dst), u32::from(result), carry, Size::Byte);
+                                self.set_extend_flags(u32::from(src), u32::from(dst), u32::from(result), carry, bcd_overflow, Size::Byte);
                                 self.movem_long_phase = 2;
                                 self.cycle = 0;
                                 return;
@@ -2126,7 +2206,7 @@ impl M68000 {
                                 };
 
                                 self.data = u32::from(result);
-                                self.set_extend_flags(src.into(), dst.into(), result.into(), carry, Size::Word);
+                                self.set_extend_flags(src.into(), dst.into(), result.into(), carry, false, Size::Word);
                                 self.movem_long_phase = 2;
                                 self.cycle = 0;
                                 return;
@@ -2181,7 +2261,7 @@ impl M68000 {
                                 };
 
                                 self.data = result;
-                                self.set_extend_flags(src, dst, result, carry, Size::Long);
+                                self.set_extend_flags(src, dst, result, carry, false, Size::Long);
                                 self.movem_long_phase = 4;
                                 self.cycle = 0;
                                 return;
@@ -2211,7 +2291,7 @@ impl M68000 {
     }
 
     /// Set flags for ADDX/SUBX/ABCD/SBCD operations.
-    fn set_extend_flags(&mut self, src: u32, dst: u32, result: u32, carry: bool, size: Size) {
+    fn set_extend_flags(&mut self, src: u32, dst: u32, result: u32, carry: bool, bcd_overflow: bool, size: Size) {
         let (result_masked, msb) = match size {
             Size::Byte => (result & 0xFF, 0x80u32),
             Size::Word => (result & 0xFFFF, 0x8000),
@@ -2254,8 +2334,8 @@ impl M68000 {
         } else {
             // N undefined for BCD but set based on MSB
             self.regs.sr = Status::set_if(self.regs.sr, N, result_masked & msb != 0);
-            // V: cleared for BCD operations
-            self.regs.sr &= !V;
+            // V: set when BCD correction flips bit 7
+            self.regs.sr = Status::set_if(self.regs.sr, V, bcd_overflow);
         }
     }
 
@@ -2367,6 +2447,39 @@ impl M68000 {
 
                 // Push order: PC, SR, IR, fault addr, access info
 
+                // For MOVE byte/word with pre-decrement destination, the pipeline
+                // IR register has advanced past the opcode by the time of the
+                // destination write. The pre-decrement internal cycle allows the
+                // pipeline to fetch ahead, so IR = ext_words[src_ext + dst_ext].
+                let is_move = matches!((self.opcode >> 12) & 0xF, 1 | 2 | 3);
+                let is_predec_dst = matches!(
+                    self.dst_mode,
+                    Some(AddrMode::AddrIndPreDec(_))
+                );
+                let effective_ir = if self.prefetch_only
+                    && is_move
+                    && !self.fault_read
+                    && self.size != Size::Long
+                    && is_predec_dst
+                {
+                    let src_ext = match self.src_mode {
+                        Some(mode) => self.ext_words_for_mode(mode),
+                        None => 0u8,
+                    };
+                    let dst_ext = match self.dst_mode {
+                        Some(mode) => self.ext_words_for_mode(mode),
+                        None => 0u8,
+                    };
+                    let ir_idx = (src_ext + dst_ext) as usize;
+                    if ir_idx < self.ext_count as usize {
+                        self.ext_words[ir_idx]
+                    } else {
+                        self.opcode
+                    }
+                } else {
+                    self.opcode
+                };
+
                 // Build access info word (special status word):
                 // The 68000 includes parts of the instruction register in the upper bits.
                 // bits 15-8: IR[15:8] (high byte of instruction register)
@@ -2374,8 +2487,8 @@ impl M68000 {
                 // bit 4: R/W (1 = read, 0 = write)
                 // bit 3: I/N (1 = instruction fetch, 0 = not instruction/data)
                 // bits 2-0: Function code
-                let access_info: u16 = (u16::from(self.opcode) & 0xFF00) // IR[15:8]
-                    | (u16::from(self.opcode) & 0x00E0) // IR[7:5]
+                let access_info: u16 = (effective_ir & 0xFF00) // IR[15:8]
+                    | (effective_ir & 0x00E0) // IR[7:5]
                     | (if self.fault_read { 0x10 } else { 0 })
                     | (if self.fault_in_instruction { 0x08 } else { 0 })
                     | u16::from(self.fault_fc & 0x07);
@@ -2388,30 +2501,146 @@ impl M68000 {
                 self.data = if let Some(pc) = self.exception_pc_override.take() {
                     pc
                 } else {
-                    // For group 0 exceptions, the PC pushed depends on the addressing mode:
-                    // - Pre-decrement mode: push instr_start_pc (PC past opcode)
-                    // - Absolute modes (AbsShort, AbsLong): push instr_start_pc + (ext_words - 1) * 2
-                    // - Other modes: push instr_start_pc - 2
-                    let (ext_words, is_absolute) = match self.src_mode {
-                        Some(AddrMode::AbsShort) => (1u8, true),
-                        Some(AddrMode::AbsLong) => (2u8, true),
-                        Some(mode) => (self.ext_words_for_mode(mode), false),
-                        None => (0, false),
+                    let src_ext_words = match self.src_mode {
+                        Some(mode) => self.ext_words_for_mode(mode),
+                        None => 0u8,
                     };
-                    // MOVEM instructions (0x48xx, 0x4Cxx) consume extension words via next_ext_word()
-                    // which advances PC in prefetch_only mode, so they need current PC
-                    let is_movem = (self.opcode & 0xFB80) == 0x4880;
-                    if self.uses_predec_mode() || (is_movem && !is_absolute) {
-                        // For predecrement mode or MOVEM with displacement/indexed modes,
-                        // use current PC (after extension words were consumed)
-                        self.regs.pc
-                    } else if is_absolute {
-                        // For absolute modes, adjust based on extension word count
+
+                    // MOVE/MOVEA destination write and source read AE frame PC.
+                    // The PC reflects how far the prefetch pipeline has advanced,
+                    // which varies by size, addressing mode, and fault type.
+                    if is_move && self.size == Size::Long && !self.fault_read {
+                        // MOVE.l destination write AE:
+                        // Pipeline advancement depends on source and destination modes.
+                        let is_abs_dst = matches!(
+                            self.dst_mode,
+                            Some(AddrMode::AbsShort) | Some(AddrMode::AbsLong)
+                        );
+                        if self.uses_predec_mode() {
+                            // Predecrement (source or dest): the pipeline advances
+                            // by the number of source extension words consumed.
+                            self.instr_start_pc.wrapping_add(
+                                u32::from(src_ext_words) * 2,
+                            )
+                        } else {
+                            // No predecrement: for register sources with AbsLong
+                            // destinations, the pipeline fetches the destination address
+                            // words in parallel, adding +2 to the frame PC.
+                            let is_reg_src = matches!(
+                                self.src_mode,
+                                Some(AddrMode::DataReg(_)) | Some(AddrMode::AddrReg(_))
+                            );
+                            let dst_adj =
+                                if matches!(self.dst_mode, Some(AddrMode::AbsLong))
+                                    && is_reg_src
+                                {
+                                    2u32
+                                } else {
+                                    0
+                                };
+                            self.instr_start_pc
+                                .wrapping_add(u32::from(src_ext_words) * 2 + dst_adj)
+                        }
+                    } else if is_move && self.size == Size::Long && self.fault_read {
+                        // MOVE.l source-read AE: PC depends on source addressing mode.
+                        let is_abs_src = matches!(
+                            self.src_mode,
+                            Some(AddrMode::AbsShort) | Some(AddrMode::AbsLong)
+                        );
+                        if is_abs_src {
+                            // Absolute source: the pipeline has advanced past the
+                            // extension words minus one (the prefetch overlap).
+                            self.instr_start_pc.wrapping_add(
+                                u32::from(src_ext_words.saturating_sub(1)) * 2,
+                            )
+                        } else {
+                            // All other sources (predec, indirect, postinc, disp, index):
+                            // the pipeline is one step behind.
+                            self.instr_start_pc.wrapping_sub(2)
+                        }
+                    } else if is_move && !self.fault_read {
+                        // MOVE.w/b destination write AE: the middle prefetch has
+                        // already occurred, adding +2 to the PC.
+                        // For register sources with AbsLong destinations, the extra
+                        // destination extension word fetch advances the pipeline by +2.
+                        let is_reg_src = matches!(
+                            self.src_mode,
+                            Some(AddrMode::DataReg(_)) | Some(AddrMode::AddrReg(_))
+                        );
+                        let dst_adj = if matches!(
+                            self.dst_mode,
+                            Some(AddrMode::AbsLong)
+                        ) && is_reg_src
+                        {
+                            2u32
+                        } else {
+                            0
+                        };
                         self.instr_start_pc
-                            .wrapping_add(u32::from(ext_words.saturating_sub(1)) * 2)
+                            .wrapping_add(u32::from(src_ext_words) * 2 + dst_adj)
                     } else {
-                        // For all other modes, point to opcode or first extension word
-                        self.instr_start_pc.wrapping_sub(2)
+                        // Non-MOVE instructions (and MOVE source-read AEs)
+                        let is_movem = (self.opcode & 0xFB80) == 0x4880;
+                        let is_absolute = matches!(
+                            self.src_mode,
+                            Some(AddrMode::AbsShort) | Some(AddrMode::AbsLong)
+                        );
+                        let is_immediate = matches!(
+                            self.src_mode,
+                            Some(AddrMode::Immediate)
+                        );
+
+                        // CMPM (Ay)+,(Ax)+: 1011 xxx 1ss 001 yyy
+                        let is_cmpm = (self.opcode & 0xF138) == 0xB108;
+
+                        let is_src_predec = matches!(
+                            self.src_mode,
+                            Some(AddrMode::AddrIndPreDec(_))
+                        );
+
+                        if is_move
+                            && self.fault_read
+                            && is_predec_dst
+                            && !is_src_predec
+                        {
+                            // MOVE source-read AE with pre-decrement destination.
+                            // For absolute sources, the pipeline has advanced past
+                            // extension words. For other sources, the pre-decrement
+                            // internal cycle delays the pipeline by one step.
+                            if is_absolute {
+                                self.instr_start_pc.wrapping_add(
+                                    u32::from(src_ext_words.saturating_sub(1)) * 2,
+                                )
+                            } else {
+                                self.instr_start_pc.wrapping_sub(2)
+                            }
+                        } else if self.uses_predec_mode()
+                            || is_cmpm
+                            || is_movem
+                        {
+                            self.regs.pc
+                        } else if is_immediate {
+                            // Immediate source: the CPU has consumed the immediate
+                            // extension words before the destination EA triggers the
+                            // address error, so the frame PC reflects that advancement.
+                            // For absolute destinations, the address word(s) are also
+                            // consumed before the write, adding to the PC offset.
+                            let dst_abs_ext = match self.dst_mode {
+                                Some(AddrMode::AbsShort) => 1u8,
+                                Some(AddrMode::AbsLong) => 2u8,
+                                _ => 0,
+                            };
+                            self.instr_start_pc
+                                .wrapping_sub(2)
+                                .wrapping_add(u32::from(src_ext_words + dst_abs_ext) * 2)
+                        } else if is_absolute {
+                            self.instr_start_pc
+                                .wrapping_add(
+                                    u32::from(src_ext_words.saturating_sub(1)) * 2,
+                                )
+                        } else {
+                            self.instr_start_pc.wrapping_sub(2)
+                        }
                     }
                 };
                 self.data2 = u32::from(old_sr);
@@ -2428,9 +2657,23 @@ impl M68000 {
                 // Store opcode in addr2 and fault_addr/access_info in fault fields
                 // We'll use internal state to track what to push
 
-                // Push IR/opcode (2 bytes)
-                self.addr2 = u32::from(self.opcode);
+                // Push IR (2 bytes) — effective_ir accounts for pipeline advancement
+                self.addr2 = u32::from(effective_ir);
                 self.micro_ops.push(MicroOp::PushGroup0IR);
+
+                // For MOVE.l -(An) destination write AE, the 68000 reports the
+                // fault address as An - 2 (word-sized initial decrement), not
+                // An - 4 (the full long decrement used for addressing).
+                if is_move && !self.fault_read && self.size == Size::Long && is_predec_dst {
+                    self.fault_addr = self.fault_addr.wrapping_add(2);
+                }
+
+                // On MOVE.l destination write AE with predecrement, the 68000
+                // does not commit the address register decrement.
+                if is_move && !self.fault_read && self.size == Size::Long && is_predec_dst {
+                    let dst_reg = ((self.opcode >> 9) & 7) as usize;
+                    self.regs.set_a(dst_reg, self.regs.a(dst_reg).wrapping_add(4));
+                }
 
                 // Push fault address (4 bytes)
                 self.micro_ops.push(MicroOp::PushGroup0FaultAddr);
@@ -2453,20 +2696,25 @@ impl M68000 {
                 // Return address (PC - 2):
                 // - TRAP (32-47): address of instruction after TRAP
                 // - TRAPV (7): address of instruction after TRAPV
-                // - CHK (6): return address (instruction following CHK)
                 //
-                // In prefetch_only mode, PC = opcode + 4, so:
+                // CHK/Zero divide: the 68000 pushes the current pipeline PC
+                // (not PC-2 like TRAP). This is 2 bytes past what documentation
+                // calls the "next instruction" for 1-word instructions.
+                //
+                // In prefetch_only mode, PC = opcode + 4 + ext_words*2, so:
                 // - For fault address: subtract 4 to get opcode address
-                // - For return address: subtract 2 to get next instruction
+                // - For TRAP/TRAPV return address: subtract 2
+                // - For CHK/ZeroDivide: use PC as-is
                 // In non-prefetch mode, PC = opcode + 2, so:
                 // - For fault address: subtract 2 to get opcode address
-                // - For return address: use PC directly (it's already at next instruction)
+                // - For TRAP/TRAPV: use PC directly
+                // - For CHK/ZeroDivide: add 2
                 let saved_pc = if self.prefetch_only {
                     match vec {
                         // Push fault address (back to the instruction that caused exception)
                         4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(4),
-                        // Push return address (instruction after the trap/exception)
-                        6 | 7 | 32..=47 => self.regs.pc.wrapping_sub(2),
+                        // Return address (next instruction after the one causing exception)
+                        5 | 6 | 7 | 32..=47 => self.regs.pc.wrapping_sub(2),
                         // Other exceptions use current PC
                         _ => self.regs.pc,
                     }
@@ -2474,9 +2722,8 @@ impl M68000 {
                     match vec {
                         // Push fault address (back to the instruction that caused exception)
                         4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(2),
-                        // Push return address (instruction after the trap/exception)
-                        // In non-prefetch mode, PC is already at next instruction
-                        6 | 7 | 32..=47 => self.regs.pc,
+                        // Return address (next instruction)
+                        5 | 6 | 7 | 32..=47 => self.regs.pc,
                         // Other exceptions use current PC
                         _ => self.regs.pc,
                     }
@@ -2679,6 +2926,8 @@ impl M68000 {
     /// Calculate effective address for an addressing mode using extension words.
     /// Returns the address and whether it's a register (not memory).
     fn calc_ea(&mut self, mode: AddrMode, pc_at_ext: u32) -> (u32, bool) {
+        // Track whether this is a PC-relative access for function code in address errors
+        self.program_space_access = matches!(mode, AddrMode::PcDisp | AddrMode::PcIndex);
         match mode {
             AddrMode::DataReg(r) => (r as u32, true),
             AddrMode::AddrReg(r) => (r as u32, true),
@@ -2690,9 +2939,10 @@ impl M68000 {
                 } else {
                     self.size_increment()
                 };
-                // Increment immediately - the 68000 applies the increment during
-                // address calculation, before detecting address errors.
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                // Defer the increment until the memory access succeeds.
+                // If an address error occurs, address_error() clears
+                // deferred_postinc so the register stays unchanged.
+                self.deferred_postinc = Some((r, inc));
                 (addr, false)
             }
             AddrMode::AddrIndPreDec(r) => {
@@ -2865,9 +3115,11 @@ impl M68000 {
         // should not be modified (the memory access failed).
         self.deferred_postinc = None;
 
-        // Calculate function code based on supervisor mode and access type
+        // Calculate function code based on supervisor mode and access type.
+        // PC-relative addressing modes use program-space FC even for data reads.
         let supervisor = self.regs.sr & flags::S != 0;
-        self.fault_fc = match (supervisor, is_instruction) {
+        let is_program = is_instruction || self.program_space_access;
+        self.fault_fc = match (supervisor, is_program) {
             (false, false) => 1, // User data
             (false, true) => 2,  // User program
             (true, false) => 5,  // Supervisor data
@@ -2894,6 +3146,19 @@ impl M68000 {
     /// Set flags for MOVE-style operations (clears V and C, sets N and Z).
     fn set_flags_move(&mut self, value: u32, size: Size) {
         self.regs.sr = Status::clear_vc(self.regs.sr);
+        self.regs.sr = match size {
+            Size::Byte => Status::update_nz_byte(self.regs.sr, value as u8),
+            Size::Word => Status::update_nz_word(self.regs.sr, value as u16),
+            Size::Long => Status::update_nz_long(self.regs.sr, value),
+        };
+    }
+
+    /// Set MOVE flags with only N and Z updated (V and C preserved).
+    /// On the real 68000, MOVE.l to a destination that requires extension words
+    /// partially computes flags during EA calculation — N and Z are updated but
+    /// V and C are not yet cleared when the first write bus cycle starts. If that
+    /// cycle causes an address error, V and C retain their pre-instruction values.
+    fn set_flags_move_nz_only(&mut self, value: u32, size: Size) {
         self.regs.sr = match size {
             Size::Byte => Status::update_nz_byte(self.regs.sr, value as u8),
             Size::Word => Status::update_nz_word(self.regs.sr, value as u16),

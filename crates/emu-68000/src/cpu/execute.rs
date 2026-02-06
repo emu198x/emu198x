@@ -727,7 +727,11 @@ impl M68000 {
                 self.micro_ops.push(MicroOp::Execute);
             }
             InstrPhase::DstEACalc => {
-                // Write to destination
+                // Write to destination.
+                // Reset program_space_access: the source EA may have used PC-relative
+                // addressing (PcDisp/PcIndex) which sets this flag. The destination
+                // write always uses data space, so clear it before any potential AE.
+                self.program_space_access = false;
                 let dst_mode = self.dst_mode.expect("dst_mode should be set");
                 let value = self.data;
 
@@ -752,73 +756,47 @@ impl M68000 {
                     AddrMode::AddrInd(r) => {
                         // Simple indirect
                         self.addr = self.regs.a(r as usize);
-                        self.queue_write_ops(self.size);
-                        if !is_movea {
-                            self.set_flags_move(value, self.size);
-                        }
-                        self.instr_phase = InstrPhase::Complete;
+                        self.set_move_ae_flags_and_queue_write(value, is_movea);
                     }
                     AddrMode::AddrIndPostInc(r) => {
-                        // Post-increment: use current value, then increment
+                        // Post-increment: defer until write succeeds.
+                        // On AE, address_error() clears deferred_postinc so the
+                        // register stays at its original value.
                         let addr = self.regs.a(r as usize);
                         let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                        // Increment immediately - on the 68000, the register is modified
-                        // before the address error check, so errors still have the increment.
-                        self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                        self.deferred_postinc = Some((r, inc));
                         self.addr = addr;
-                        self.queue_write_ops(self.size);
-                        if !is_movea {
-                            self.set_flags_move(value, self.size);
-                        }
-                        self.instr_phase = InstrPhase::Complete;
+                        self.set_move_ae_flags_and_queue_write(value, is_movea);
                     }
                     AddrMode::AddrIndPreDec(r) => {
-                        // Pre-decrement: decrement first, then use
+                        // Pre-decrement: modify register immediately. Unlike (An)+,
+                        // the 68000 decrements the register BEFORE the write attempt,
+                        // so it stays decremented even if an address error occurs.
                         let dec = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
                         let addr = self.regs.a(r as usize).wrapping_sub(dec);
                         self.regs.set_a(r as usize, addr);
                         self.addr = addr;
-                        self.queue_write_ops(self.size);
-                        if !is_movea {
-                            self.set_flags_move(value, self.size);
-                        }
-                        self.instr_phase = InstrPhase::Complete;
+                        self.set_move_ae_flags_and_queue_write(value, is_movea);
                     }
                     AddrMode::AddrIndDisp(r) => {
                         let disp = self.next_ext_word() as i16 as i32;
                         self.addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
-                        self.queue_write_ops(self.size);
-                        if !is_movea {
-                            self.set_flags_move(value, self.size);
-                        }
-                        self.instr_phase = InstrPhase::Complete;
+                        self.set_move_ae_flags_and_queue_write(value, is_movea);
                     }
                     AddrMode::AddrIndIndex(r) => {
                         let ea = self.calc_index_ea(self.regs.a(r as usize));
                         self.addr = ea;
-                        self.queue_write_ops(self.size);
-                        if !is_movea {
-                            self.set_flags_move(value, self.size);
-                        }
-                        self.instr_phase = InstrPhase::Complete;
+                        self.set_move_ae_flags_and_queue_write(value, is_movea);
                     }
                     AddrMode::AbsShort => {
                         self.addr = self.next_ext_word() as i16 as i32 as u32;
-                        self.queue_write_ops(self.size);
-                        if !is_movea {
-                            self.set_flags_move(value, self.size);
-                        }
-                        self.instr_phase = InstrPhase::Complete;
+                        self.set_move_ae_flags_and_queue_write(value, is_movea);
                     }
                     AddrMode::AbsLong => {
                         let hi = self.next_ext_word();
                         let lo = self.next_ext_word();
                         self.addr = (u32::from(hi) << 16) | u32::from(lo);
-                        self.queue_write_ops(self.size);
-                        if !is_movea {
-                            self.set_flags_move(value, self.size);
-                        }
-                        self.instr_phase = InstrPhase::Complete;
+                        self.set_move_ae_flags_and_queue_write(value, is_movea);
                     }
                     _ => {
                         // PC-relative and Immediate are invalid destination modes
@@ -826,10 +804,113 @@ impl M68000 {
                     }
                 }
             }
-            InstrPhase::DstWrite | InstrPhase::Complete => {
+            InstrPhase::DstWrite => {
+                // Write completed — set MOVE flags now.
+                // For MOVE.l destination writes, the 68000 computes flags after
+                // both write bus cycles. If the first cycle AEs, this phase is
+                // never reached, so the old flags are preserved in the frame.
+                if !is_movea {
+                    self.set_flags_move(self.data, self.size);
+                }
+                self.instr_phase = InstrPhase::Complete;
+            }
+            InstrPhase::Complete => {
                 // Done
             }
         }
+    }
+
+    /// Set "AE-compatible" flags for a MOVE.l memory destination write.
+    ///
+    /// On the real 68000, MOVE.l flag computation timing depends on the source
+    /// and destination addressing modes. When a destination write causes an
+    /// address error, the flags in the exception frame reflect how far the
+    /// microcode had progressed:
+    ///
+    /// - Memory source: full MOVE flags (NZVC from data, X preserved)
+    /// - Register/immediate source + extension-word destination: N and Z from
+    ///   data, V and C preserved from pre-instruction state
+    /// - Register/immediate source + simple destination: all flags preserved
+    ///
+    /// This method sets the "partial" flags that would be in the frame on AE.
+    /// After the write completes successfully, the DstWrite phase sets full
+    /// MOVE flags — overwriting the partial state for the non-AE case.
+    ///
+    /// For Byte/Word, the flag computation and single write bus cycle are
+    /// effectively atomic on the real 68000, so full MOVE flags are set
+    /// eagerly (before the write). For Long, flags are deferred using a
+    /// two-phase approach because the two write bus cycles create a window
+    /// where an AE can capture partially-computed flags.
+    fn set_move_ae_flags_and_queue_write(
+        &mut self,
+        value: u32,
+        is_movea: bool,
+    ) {
+        if self.size != Size::Long || is_movea {
+            // Byte/Word or MOVEA: set full flags eagerly, no deferred step needed
+            self.queue_write_ops(self.size);
+            if !is_movea {
+                self.set_flags_move(value, self.size);
+            }
+            self.instr_phase = crate::cpu::InstrPhase::Complete;
+            return;
+        }
+
+        // Size::Long — set partial "AE-compatible" flags before the write.
+        // The partial state depends on source and destination modes.
+        let src_mode = self.src_mode.expect("src_mode should be set for MOVE");
+        let dst_mode = self.dst_mode.expect("dst_mode should be set for MOVE");
+        let is_reg_or_imm_src = matches!(
+            src_mode,
+            AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate
+        );
+
+        if is_reg_or_imm_src {
+            let is_predec_dst = matches!(dst_mode, AddrMode::AddrIndPreDec(_));
+            let is_abs_dst = matches!(
+                dst_mode,
+                AddrMode::AbsShort | AddrMode::AbsLong
+            );
+            if is_predec_dst || is_abs_dst {
+                // Predecrement and absolute destinations: full MOVE flags.
+                // The 68000 has fully committed the flag computation by this point.
+                self.set_flags_move(value, self.size);
+            } else {
+                let dst_needs_ext = matches!(
+                    dst_mode,
+                    AddrMode::AddrIndDisp(_) | AddrMode::AddrIndIndex(_)
+                );
+                if dst_needs_ext {
+                    // Displacement/index destinations: N and Z from data, V and C preserved.
+                    self.set_flags_move_nz_only(value, self.size);
+                }
+                // Other simple destinations (direct, postinc, indirect): all flags preserved.
+            }
+        } else {
+            // Memory source MOVE.l: flag computation depends on destination mode.
+            // For simple destinations with no extra EA cycles ((An), (An)+),
+            // the last bus read was the source low word, so N/Z reflect word-sized
+            // computation. For destinations with extra EA cycles (predecrement
+            // internal cycle, extension word reads for d(An)/d(An,Xn)/abs.w),
+            // the 68000 has time to compute full long-sized flags from the
+            // assembled value.
+            let is_simple_dst = matches!(
+                dst_mode,
+                AddrMode::AddrInd(_)
+                    | AddrMode::AddrIndPostInc(_)
+                    | AddrMode::AbsLong
+            );
+            if is_simple_dst {
+                self.set_flags_move(value, Size::Word);
+            } else {
+                self.set_flags_move(value, self.size);
+            }
+        }
+
+        // Queue write ops, then defer final flag setting to DstWrite
+        self.queue_write_ops(self.size);
+        self.micro_ops.push(MicroOp::Execute);
+        self.instr_phase = crate::cpu::InstrPhase::DstWrite;
     }
 
     /// Execute direct register-to-register MOVE (no extension words).
@@ -850,9 +931,8 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Increment immediately - on the 68000, the register is modified
-                // before the address error check, so errors still have the increment.
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                // Defer the increment — see exec_move_prefetch_only for rationale.
+                self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.dst_mode = Some(dst_mode);
                 self.queue_read_ops(self.size);
@@ -897,34 +977,24 @@ impl M68000 {
             AddrMode::AddrInd(r) => {
                 self.addr = self.regs.a(r as usize);
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Increment immediately - on the 68000, the register is modified
-                // before the address error check, so errors still have the increment.
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             AddrMode::AddrIndPreDec(r) => {
+                // Pre-decrement: modify register immediately (see DstEACalc comment).
                 let dec = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
                 let addr = self.regs.a(r as usize).wrapping_sub(dec);
                 self.regs.set_a(r as usize, addr);
                 self.addr = addr;
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             _ => {
                 self.illegal_instruction();
@@ -950,9 +1020,12 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Increment immediately - on the 68000, the register is modified
-                // before the address error check, so errors still have the increment.
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                // Defer the increment — the micro-op handlers apply it at the
+                // correct point: before the address-error check for word reads
+                // (so the register IS modified on word-size errors) but after
+                // both bus cycles for long reads (so the register is NOT modified
+                // if the first bus cycle faults).
+                self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.dst_mode = Some(dst_mode);
                 self.queue_read_ops(self.size);
@@ -1010,6 +1083,7 @@ impl M68000 {
             AddrMode::PcDisp => {
                 // PC-relative: base PC is address of extension word.
                 // In prefetch_only mode, PC is already 2 past it, so subtract 2.
+                self.program_space_access = true;
                 let pc = self.regs.pc.wrapping_sub(2);
                 let disp = self.next_ext_word() as i16 as i32;
                 self.addr = (pc as i32).wrapping_add(disp) as u32;
@@ -1022,6 +1096,7 @@ impl M68000 {
             AddrMode::PcIndex => {
                 // PC-relative: base PC is address of extension word.
                 // In prefetch_only mode, PC is already 2 past it, so subtract 2.
+                self.program_space_access = true;
                 let pc = self.regs.pc.wrapping_sub(2);
                 let ea = self.calc_index_ea(pc);
                 self.addr = ea;
@@ -1057,70 +1132,48 @@ impl M68000 {
             AddrMode::AddrInd(r) => {
                 self.addr = self.regs.a(r as usize);
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Increment immediately - on the 68000, the register is modified
-                // before the address error check, so errors still have the increment.
-                self.regs.set_a(r as usize, addr.wrapping_add(inc));
+                self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             AddrMode::AddrIndPreDec(r) => {
+                // Pre-decrement: modify register immediately (see DstEACalc comment).
                 let dec = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
                 let addr = self.regs.a(r as usize).wrapping_sub(dec);
                 self.regs.set_a(r as usize, addr);
                 self.addr = addr;
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             AddrMode::AddrIndDisp(r) => {
                 let disp = self.next_ext_word() as i16 as i32;
                 self.addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             AddrMode::AddrIndIndex(r) => {
                 let ea = self.calc_index_ea(self.regs.a(r as usize));
                 self.addr = ea;
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             AddrMode::AbsShort => {
                 self.addr = self.next_ext_word() as i16 as i32 as u32;
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             AddrMode::AbsLong => {
                 let hi = self.next_ext_word();
                 let lo = self.next_ext_word();
                 self.addr = (u32::from(hi) << 16) | u32::from(lo);
                 self.data = value;
-                self.queue_write_ops(self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
+                self.set_move_ae_flags_and_queue_write(value, is_movea);
             }
             _ => {
                 self.illegal_instruction();
@@ -1564,16 +1617,19 @@ impl M68000 {
                         self.queue_internal(4);
                     }
                     _ => {
-                        // Memory destination - write zero
+                        // Memory destination - read-modify-write
+                        // The 68000 reads from the address before writing (even
+                        // though the read value is discarded). This affects timing.
+                        // Flags are set in the RMW handler (after the read phase)
+                        // to avoid modifying flags if an address error occurs.
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
                         self.data = 0;
-                        // Set flags: N=0, Z=1, V=0, C=0
-                        self.regs.sr = Status::clear_vc(self.regs.sr);
-                        self.regs.sr = Status::update_nz_byte(self.regs.sr, 0);
-                        // Queue write
-                        self.queue_write_ops(size);
+                        self.data2 = 9; // 9 = CLR
+                        self.movem_long_phase = 0;
+                        self.micro_ops.push(MicroOp::AluMemRmw);
                     }
                 }
             } else {
@@ -1856,11 +1912,20 @@ impl M68000 {
                     self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, was_zero);
                     self.queue_internal(6);
                 }
+                AddrMode::Immediate => {
+                    // BTST Dn,#imm - test bit in immediate byte
+                    let value = (self.next_ext_word() & 0xFF) as u32;
+                    let bit = (bit_num % 8) as u8;
+                    let was_zero = (value >> bit) & 1 == 0;
+                    self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, was_zero);
+                    self.queue_internal(10);
+                }
                 _ => {
                     // Memory operand - bit number mod 8
                     self.size = Size::Byte;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = bit_num & 7; // mod 8 for memory
                     self.data2 = 0; // 0 = BTST
                     self.movem_long_phase = 0;
@@ -1885,13 +1950,14 @@ impl M68000 {
                     let was_zero = value & mask == 0;
                     self.regs.d[r as usize] = value ^ mask; // Toggle bit
                     self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, was_zero);
-                    self.queue_internal(8);
+                    self.queue_internal(6);
                 }
                 _ => {
                     // Memory operand - bit number mod 8
                     self.size = Size::Byte;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = bit_num & 7; // mod 8 for memory
                     self.data2 = 1; // 1 = BCHG
                     self.movem_long_phase = 0;
@@ -1916,13 +1982,14 @@ impl M68000 {
                     let was_zero = value & mask == 0;
                     self.regs.d[r as usize] = value & !mask; // Clear bit
                     self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, was_zero);
-                    self.queue_internal(10);
+                    self.queue_internal(8);
                 }
                 _ => {
                     // Memory operand - bit number mod 8
                     self.size = Size::Byte;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = bit_num & 7; // mod 8 for memory
                     self.data2 = 2; // 2 = BCLR
                     self.movem_long_phase = 0;
@@ -1947,13 +2014,14 @@ impl M68000 {
                     let was_zero = value & mask == 0;
                     self.regs.d[r as usize] = value | mask; // Set bit
                     self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, was_zero);
-                    self.queue_internal(8);
+                    self.queue_internal(6);
                 }
                 _ => {
                     // Memory operand - bit number mod 8
                     self.size = Size::Byte;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = bit_num & 7; // mod 8 for memory
                     self.data2 = 3; // 3 = BSET
                     self.movem_long_phase = 0;
@@ -2033,13 +2101,15 @@ impl M68000 {
                     _ => {}
                 }
 
-                self.queue_internal(if op_type == 0 { 10 } else { 12 });
+                // Timing for #n,Dn: BTST=10, BCHG=10, BCLR=12, BSET=10
+                self.queue_internal(if op_type == 2 { 12 } else { 10 });
             }
             _ => {
-                // Memory operand - bit number is mod 8
-                // Calculate EA (may consume another extension word for indexed modes)
+                // Memory operand - bit number is mod 8, always byte-sized
+                self.size = Size::Byte;
                 let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
                 self.addr = addr;
+                self.src_mode = Some(dst_mode);
                 self.data = bit_num & 7; // mod 8 for memory
                 self.data2 = op_type;
                 self.movem_long_phase = 0;
@@ -2140,6 +2210,7 @@ impl M68000 {
                 // Memory destination - read-modify-write
                 let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
                 self.addr = addr;
+                self.src_mode = Some(AddrMode::Immediate);
                 self.data = imm; // Immediate as source
                 self.data2 = 3;  // 3 = OR
                 self.movem_long_phase = 0;
@@ -2238,6 +2309,7 @@ impl M68000 {
                 // Memory destination - read-modify-write
                 let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
                 self.addr = addr;
+                self.src_mode = Some(AddrMode::Immediate);
                 self.data = imm; // Immediate as source
                 self.data2 = 2;  // 2 = AND
                 self.movem_long_phase = 0;
@@ -2300,6 +2372,7 @@ impl M68000 {
                 // Memory destination - read-modify-write
                 let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
                 self.addr = addr;
+                self.src_mode = Some(AddrMode::Immediate);
                 self.data = src; // Immediate as source
                 self.data2 = 1;  // 1 = SUB
                 self.movem_long_phase = 0;
@@ -2362,6 +2435,7 @@ impl M68000 {
                 // Memory destination - read-modify-write
                 let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
                 self.addr = addr;
+                self.src_mode = Some(AddrMode::Immediate);
                 self.data = src; // Immediate as source
                 self.data2 = 0;  // 0 = ADD
                 self.movem_long_phase = 0;
@@ -2458,6 +2532,7 @@ impl M68000 {
                 // Memory destination - read-modify-write
                 let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
                 self.addr = addr;
+                self.src_mode = Some(AddrMode::Immediate);
                 self.data = imm; // Immediate as source
                 self.data2 = 4;  // 4 = EOR
                 self.movem_long_phase = 0;
@@ -2520,6 +2595,7 @@ impl M68000 {
                 // Memory destination - read and compare
                 let (addr, _is_reg) = self.calc_ea(dst_mode, self.regs.pc);
                 self.addr = addr;
+                self.src_mode = Some(AddrMode::Immediate);
                 self.data = src;  // Immediate as source
                 self.data2 = 14;  // 14 = CMPI
                 self.movem_long_phase = 0;
@@ -2559,12 +2635,17 @@ impl M68000 {
                     self.queue_internal(6);
                 }
                 _ => {
-                    // Memory destination - write SR word
+                    // Memory destination - read-modify-write
+                    // The 68000 reads from the address before writing (even
+                    // though the read value is discarded). This affects timing.
+                    self.src_mode = Some(addr_mode);
                     self.size = Size::Word;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
                     self.data = u32::from(self.regs.sr);
-                    self.micro_ops.push(MicroOp::WriteWord);
+                    self.data2 = 10; // 10 = MOVEfromSR
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
                 }
             }
         } else {
@@ -2614,6 +2695,7 @@ impl M68000 {
                 }
                 _ => {
                     // Memory operand - use AluMemRmw
+                    self.src_mode = Some(addr_mode);
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -2649,6 +2731,7 @@ impl M68000 {
                     self.size = Size::Word;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.micro_ops.push(MicroOp::ReadWord);
                     self.instr_phase = InstrPhase::SrcRead;
                     self.dst_mode = Some(AddrMode::DataReg(0)); // Marker for memory source
@@ -2662,10 +2745,10 @@ impl M68000 {
 
     fn exec_move_to_ccr_continuation(&mut self) {
         // Continuation for MOVE <ea>,CCR
-        // For immediate: data is in ext_words[0]
+        // For immediate: consume extension word via next_ext_word() to advance PC
         // For memory: data is in self.data (from ReadWord)
         let src = if self.dst_mode == Some(AddrMode::Immediate) {
-            self.ext_words[0]
+            self.next_ext_word()
         } else {
             self.data as u16
         };
@@ -2694,6 +2777,7 @@ impl M68000 {
                 }
                 _ => {
                     // Memory operand - read-modify-write
+                    self.src_mode = Some(addr_mode);
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -2733,6 +2817,7 @@ impl M68000 {
                     self.size = Size::Word;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.micro_ops.push(MicroOp::ReadWord);
                     self.instr_phase = InstrPhase::SrcRead;
                     self.dst_mode = Some(AddrMode::DataReg(0)); // Marker for memory source
@@ -2746,10 +2831,10 @@ impl M68000 {
 
     fn exec_move_to_sr_continuation(&mut self) {
         // Continuation for MOVE <ea>,SR
-        // For immediate: data is in ext_words[0]
+        // For immediate: consume extension word via next_ext_word() to advance PC
         // For memory: data is in self.data (from ReadWord)
         let src = if self.dst_mode == Some(AddrMode::Immediate) {
-            self.ext_words[0]
+            self.next_ext_word()
         } else {
             self.data as u16
         };
@@ -2777,6 +2862,7 @@ impl M68000 {
                 }
                 _ => {
                     // Memory operand - read-modify-write
+                    self.src_mode = Some(addr_mode);
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -2800,7 +2886,7 @@ impl M68000 {
                     let src = self.regs.d[r as usize] as u8;
                     let x = u8::from(self.regs.sr & X != 0);
 
-                    let (result, borrow) = self.nbcd(src, x);
+                    let (result, borrow, overflow) = self.nbcd(src, x);
 
                     // Write result to low byte
                     self.regs.d[r as usize] =
@@ -2812,17 +2898,20 @@ impl M68000 {
                     if result != 0 {
                         sr &= !Z;
                     }
-                    // C and X: set if decimal borrow (result != 0 or X was set)
+                    // C and X: set if decimal borrow
                     sr = Status::set_if(sr, C, borrow);
                     sr = Status::set_if(sr, X, borrow);
                     // N: undefined, but set based on MSB
                     sr = Status::set_if(sr, N, result & 0x80 != 0);
+                    // V: set when BCD correction flips bit 7
+                    sr = Status::set_if(sr, V, overflow);
                     self.regs.sr = sr;
 
                     self.queue_internal(6);
                 }
                 _ => {
                     // Memory operand - read-modify-write with BCD negate
+                    self.src_mode = Some(addr_mode);
                     self.size = Size::Byte; // NBCD is always byte
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -3267,6 +3356,36 @@ impl M68000 {
                 let base = self.regs.a(r as usize) as i32;
                 (base.wrapping_add(disp).wrapping_add(idx_value) as u32, r)
             }
+            AddrMode::PcDisp => {
+                self.program_space_access = true;
+                // Base PC = address of the displacement word.
+                // After consuming the mask, PC was advanced by 2 (in prefetch_only)
+                // so PC now points at the displacement word in non-prefetch mode,
+                // or 2 past it in prefetch mode. Use PC-2 as the base.
+                let base_pc = self.regs.pc.wrapping_sub(2);
+                let disp = self.next_ext_word() as i16 as i32;
+                ((base_pc as i32).wrapping_add(disp) as u32, 0)
+            }
+            AddrMode::PcIndex => {
+                self.program_space_access = true;
+                let base_pc = self.regs.pc.wrapping_sub(2);
+                let ext = self.next_ext_word();
+                let disp = (ext & 0xFF) as i8 as i32;
+                let idx_reg = ((ext >> 12) & 7) as usize;
+                let idx_is_addr = ext & 0x8000 != 0;
+                let idx_is_long = ext & 0x0800 != 0;
+                let idx_value = if idx_is_addr {
+                    self.regs.a(idx_reg)
+                } else {
+                    self.regs.d[idx_reg]
+                };
+                let idx_value = if idx_is_long {
+                    idx_value as i32
+                } else {
+                    idx_value as i16 as i32
+                };
+                ((base_pc as i32).wrapping_add(disp).wrapping_add(idx_value) as u32, 0)
+            }
             _ => {
                 self.queue_internal(12);
                 self.instr_phase = InstrPhase::Initial;
@@ -3360,10 +3479,9 @@ impl M68000 {
             self.fault_fc = if self.regs.is_supervisor() { 5 } else { 1 }; // Data access
             self.fault_read = true;
             self.fault_in_instruction = false;
-            // Adjust PC by +2 so that begin_exception's -2 gives us the original PC.
-            // For early-detected address errors (before any bus operation), the PC
-            // pushed should be the current PC, not PC-2.
-            self.regs.pc = self.regs.pc.wrapping_add(2);
+            // For UNLINK address errors, the saved PC in the exception frame
+            // should be the current PC (regs.pc), not regs.pc - 2.
+            self.exception_pc_override = Some(self.regs.pc);
             self.exception(3); // Address error
             return;
         }
@@ -3476,13 +3594,15 @@ impl M68000 {
             }
             InstrPhase::DstWrite => {
                 // After PopLong: data contains return PC, data2 contains SR
+                // Apply the popped SR first (the real 68000 restores SR before
+                // detecting the address error on the return PC, so the address
+                // error frame saves the popped SR, not the original).
+                self.regs.sr = (self.data2 as u16) & crate::flags::SR_MASK;
                 // Check for odd return address (triggers address error)
                 if self.data & 1 != 0 {
                     self.trigger_rte_address_error(self.data);
                     return;
                 }
-                // Apply the popped SR (this may change supervisor mode)
-                self.regs.sr = (self.data2 as u16) & crate::flags::SR_MASK;
                 // Set PC = return address + 4 (for prefetch)
                 self.regs.pc = self.data.wrapping_add(4);
                 self.instr_phase = InstrPhase::Complete;
@@ -3542,14 +3662,15 @@ impl M68000 {
             }
             InstrPhase::DstWrite => {
                 // After PopLong: data contains return PC, data2 contains CCR
+                // Restore CCR first — the 68000 applies the popped CCR before
+                // detecting the address error on the return PC.
+                let ccr = (self.data2 & 0x1F) as u8;
+                self.regs.set_ccr(ccr);
                 // Check for odd return address (triggers address error)
                 if self.data & 1 != 0 {
                     self.trigger_rtr_address_error(self.data);
                     return;
                 }
-                // Restore CCR (only low 5 bits - XNZVC, keeping upper SR bits)
-                let ccr = (self.data2 & 0x1F) as u8;
-                self.regs.set_ccr(ccr);
                 // Set PC = return address + 4 (for prefetch)
                 self.regs.pc = self.data.wrapping_add(4);
                 self.instr_phase = InstrPhase::Complete;
@@ -3993,19 +4114,34 @@ impl M68000 {
                         self.regs.sr &= !(N | Z | V | C);
                         self.exception(6); // CHK exception
                     } else {
-                        // Value is within bounds, no exception
+                        // Value is within bounds — real 68000 clears NZVC
+                        self.regs.sr &= !(N | Z | V | C);
                         self.queue_internal(10);
                     }
                 }
                 AddrMode::Immediate => {
-                    // Need to fetch immediate - simplified for now
-                    self.queue_internal(10);
+                    let upper_bound = self.next_ext_word() as i16;
+                    let dn = self.regs.d[reg as usize] as i16;
+
+                    if dn < 0 {
+                        self.regs.sr &= !(N | Z | V | C);
+                        self.regs.sr |= N;
+                        self.exception(6);
+                    } else if dn > upper_bound {
+                        self.regs.sr &= !(N | Z | V | C);
+                        self.exception(6);
+                    } else {
+                        // Value is within bounds — real 68000 clears NZVC
+                        self.regs.sr &= !(N | Z | V | C);
+                        self.queue_internal(10);
+                    }
                 }
                 _ => {
                     // Memory source - use AluMemSrc with CHK operation
                     self.size = Size::Word; // CHK always operates on word
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = u32::from(reg); // Data register to check
                     self.data2 = 9; // 9 = CHK
                     self.movem_long_phase = 0;
@@ -4050,6 +4186,7 @@ impl M68000 {
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = imm; // Immediate value as source
                     self.data2 = 0; // 0 = ADD
                     self.movem_long_phase = 0;
@@ -4094,6 +4231,7 @@ impl M68000 {
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = imm; // Immediate value as source
                     self.data2 = 1; // 1 = SUB
                     self.movem_long_phase = 0;
@@ -4264,6 +4402,79 @@ impl M68000 {
         }
     }
 
+    /// Compute exact DIVU cycle timing based on Jorge Cwik's algorithm.
+    /// Returns total clock cycles for the division computation.
+    /// The 68000 uses a restoring division algorithm where timing depends
+    /// on intermediate values during the shift-and-subtract process.
+    pub(crate) fn divu_cycles(dividend: u32, divisor: u16) -> u8 {
+        // Overflow case
+        if (dividend >> 16) >= u32::from(divisor) {
+            return 10;
+        }
+
+        let mut mcycles: u32 = 38;
+        let hdivisor = u32::from(divisor) << 16;
+        let mut dvd = dividend;
+
+        for _ in 0..15 {
+            let temp = dvd;
+            dvd <<= 1;
+
+            if temp & 0x8000_0000 != 0 {
+                // Carry from shift — subtract divisor (no extra cycles)
+                dvd = dvd.wrapping_sub(hdivisor);
+            } else {
+                // No carry — 2 extra cycles for the comparison step
+                mcycles += 2;
+                if dvd >= hdivisor {
+                    // Subtraction succeeds — save 1 cycle
+                    dvd = dvd.wrapping_sub(hdivisor);
+                    mcycles -= 1;
+                }
+            }
+        }
+        (mcycles * 2) as u8
+    }
+
+    /// Compute exact DIVS cycle timing based on Jorge Cwik's algorithm.
+    /// Returns total clock cycles for the division computation.
+    pub(crate) fn divs_cycles(dividend: i32, divisor: i16) -> u8 {
+        let mut mcycles: u32 = 6;
+        if dividend < 0 {
+            mcycles += 1;
+        }
+
+        // Overflow check using absolute values
+        let abs_dividend = (dividend as i64).unsigned_abs() as u32;
+        let abs_divisor = (divisor as i32).unsigned_abs() as u16;
+
+        if (abs_dividend >> 16) >= u32::from(abs_divisor) {
+            return ((mcycles + 2) * 2) as u8;
+        }
+
+        // Compute absolute quotient for bit-counting
+        let mut aquot = abs_dividend / u32::from(abs_divisor);
+
+        mcycles += 55;
+
+        if divisor >= 0 {
+            if dividend >= 0 {
+                mcycles -= 1;
+            } else {
+                mcycles += 1;
+            }
+        }
+
+        // Count 15 MSBs of absolute quotient — each 0-bit adds 1 mcycle
+        for _ in 0..15 {
+            if (aquot as i16) >= 0 {
+                mcycles += 1;
+            }
+            aquot <<= 1;
+        }
+        (mcycles * 2) as u8
+    }
+
     fn exec_divu(&mut self, reg: u8, mode: u8, ea_reg: u8) {
         // DIVU <ea>,Dn - unsigned 32/16 -> 16r:16q division
         // Result: Dn = remainder(high word) : quotient(low word)
@@ -4282,18 +4493,18 @@ impl M68000 {
                     let quotient = dividend / divisor;
                     let remainder = dividend % divisor;
 
+                    // Compute timing from actual division algorithm
+                    let timing = Self::divu_cycles(dividend, divisor as u16);
+
                     // Check for overflow (quotient > 16 bits)
                     if quotient > 0xFFFF {
                         // Overflow - set V flag, don't store result
                         self.regs.sr |= crate::flags::V;
                         self.regs.sr &= !crate::flags::C; // C always cleared
-                        // On overflow, N is set based on bit 16 of the quotient (the overflow bit)
-                        self.regs.sr =
-                            Status::set_if(self.regs.sr, crate::flags::N, quotient & 0x1_0000 != 0);
+                        // On the real 68000, N is always set on DIVU overflow
+                        self.regs.sr |= crate::flags::N;
                         // Z is cleared on overflow
                         self.regs.sr &= !crate::flags::Z;
-                        // Overflow detected early - minimal timing (~10 cycles)
-                        self.queue_internal(10);
                     } else {
                         // Store result: remainder:quotient
                         self.regs.d[reg as usize] = (remainder << 16) | quotient;
@@ -4302,15 +4513,47 @@ impl M68000 {
                         self.regs.sr &= !(crate::flags::V | crate::flags::C);
                         self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
                         self.regs.sr = Status::set_if(self.regs.sr, crate::flags::N, quotient & 0x8000 != 0);
-                        // Timing: 76 + 2*n cycles where n = number of 1 bits in quotient
-                        // This gives 76-108 range. Tests show ~120 cycles, so use slightly higher base.
-                        let ones = (quotient as u16).count_ones() as u8;
-                        let timing = 76 + 2 * ones;
-                        self.queue_internal(timing);
                     }
+                    self.queue_internal(timing);
+                }
+                AddrMode::Immediate => {
+                    // DIVU #imm,Dn - immediate source
+                    self.size = Size::Word;
+                    let divisor = u32::from(self.next_ext_word());
+                    let dividend = self.regs.d[reg as usize];
+
+                    if divisor == 0 {
+                        self.exception(5);
+                        return;
+                    }
+
+                    let quotient = dividend / divisor;
+                    let remainder = dividend % divisor;
+
+                    let timing = Self::divu_cycles(dividend, divisor as u16);
+
+                    if quotient > 0xFFFF {
+                        self.regs.sr |= crate::flags::V;
+                        self.regs.sr &= !crate::flags::C;
+                        // On the real 68000, N is always set on DIVU overflow
+                        self.regs.sr |= crate::flags::N;
+                        self.regs.sr &= !crate::flags::Z;
+                    } else {
+                        self.regs.d[reg as usize] = (remainder << 16) | quotient;
+                        self.regs.sr &= !(crate::flags::V | crate::flags::C);
+                        self.regs.sr =
+                            Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
+                        self.regs.sr = Status::set_if(
+                            self.regs.sr,
+                            crate::flags::N,
+                            quotient & 0x8000 != 0,
+                        );
+                    }
+                    self.queue_internal(timing);
                 }
                 _ => {
                     // Memory source - use AluMemSrc
+                    self.src_mode = Some(addr_mode);
                     self.size = Size::Word; // DIVU reads word operand
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -4342,21 +4585,18 @@ impl M68000 {
                     let quotient = dividend / divisor;
                     let remainder = dividend % divisor;
 
+                    // Compute timing from actual division algorithm
+                    let timing = Self::divs_cycles(dividend, divisor as i16);
+
                     // Check for overflow (quotient doesn't fit in signed 16-bit)
                     if !(-32768..=32767).contains(&quotient) {
                         // Overflow
                         self.regs.sr |= crate::flags::V;
                         self.regs.sr &= !crate::flags::C;
-                        // On overflow, N is set based on MSB of dividend (bit 31)
-                        self.regs.sr = Status::set_if(
-                            self.regs.sr,
-                            crate::flags::N,
-                            (self.regs.d[reg as usize] as i32) < 0,
-                        );
+                        // On the real 68000, N is always set on DIVS overflow
+                        self.regs.sr |= crate::flags::N;
                         // Z is cleared on overflow
                         self.regs.sr &= !crate::flags::Z;
-                        // Overflow detected early - minimal timing (~16 cycles for DIVS)
-                        self.queue_internal(16);
                     } else {
                         // Store result: remainder:quotient (both as 16-bit values)
                         let q = quotient as i16 as u16 as u32;
@@ -4367,15 +4607,46 @@ impl M68000 {
                         self.regs.sr &= !(crate::flags::V | crate::flags::C);
                         self.regs.sr = Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
                         self.regs.sr = Status::set_if(self.regs.sr, crate::flags::N, quotient < 0);
-                        // Timing: 120 + 2*n cycles where n based on quotient (DIVS more complex)
-                        let q16 = quotient as i16 as u16;
-                        let ones = q16.count_ones() as u8;
-                        let timing = 120 + 2 * ones;
-                        self.queue_internal(timing);
                     }
+                    self.queue_internal(timing);
+                }
+                AddrMode::Immediate => {
+                    // DIVS #imm,Dn - immediate source
+                    self.size = Size::Word;
+                    let divisor = (self.next_ext_word() as i16) as i32;
+                    let dividend = self.regs.d[reg as usize] as i32;
+
+                    if divisor == 0 {
+                        self.exception(5);
+                        return;
+                    }
+
+                    let quotient = dividend / divisor;
+                    let remainder = dividend % divisor;
+
+                    let timing = Self::divs_cycles(dividend, divisor as i16);
+
+                    if !(-32768..=32767).contains(&quotient) {
+                        self.regs.sr |= crate::flags::V;
+                        self.regs.sr &= !crate::flags::C;
+                        // On the real 68000, N is always set on DIVS overflow
+                        self.regs.sr |= crate::flags::N;
+                        self.regs.sr &= !crate::flags::Z;
+                    } else {
+                        let q = quotient as i16 as u16 as u32;
+                        let r = remainder as i16 as u16 as u32;
+                        self.regs.d[reg as usize] = (r << 16) | q;
+                        self.regs.sr &= !(crate::flags::V | crate::flags::C);
+                        self.regs.sr =
+                            Status::set_if(self.regs.sr, crate::flags::Z, quotient == 0);
+                        self.regs.sr =
+                            Status::set_if(self.regs.sr, crate::flags::N, quotient < 0);
+                    }
+                    self.queue_internal(timing);
                 }
                 _ => {
                     // Memory source - use AluMemSrc
+                    self.src_mode = Some(addr_mode);
                     self.size = Size::Word; // DIVS reads word operand
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -4418,7 +4689,7 @@ impl M68000 {
             let dst = self.regs.d[ry] as u8;
             let x = u8::from(self.regs.sr & X != 0);
 
-            let (result, borrow) = self.bcd_sub(dst, src, x);
+            let (result, borrow, overflow) = self.bcd_sub(dst, src, x);
 
             // Write result to low byte of Dy
             self.regs.d[ry] = (self.regs.d[ry] & 0xFFFF_FF00) | u32::from(result);
@@ -4432,10 +4703,10 @@ impl M68000 {
             // C and X: set if decimal borrow
             sr = Status::set_if(sr, C, borrow);
             sr = Status::set_if(sr, X, borrow);
-            // N: undefined, but set based on MSB for consistency
+            // N: set based on MSB of result
             sr = Status::set_if(sr, N, result & 0x80 != 0);
-            // V: cleared for BCD operations
-            sr &= !V;
+            // V: set when BCD correction flips bit 7
+            sr = Status::set_if(sr, V, overflow);
             self.regs.sr = sr;
 
             self.queue_internal(6);
@@ -4443,10 +4714,12 @@ impl M68000 {
     }
 
     /// Perform packed BCD subtraction: dst - src - extend.
-    /// Returns (result, borrow).
-    pub(crate) fn bcd_sub(&self, dst: u8, src: u8, extend: u8) -> (u8, bool) {
+    /// Returns (result, borrow, overflow).
+    pub(crate) fn bcd_sub(&self, dst: u8, src: u8, extend: u8) -> (u8, bool, bool) {
         // Binary subtraction first
-        let mut result = dst.wrapping_sub(src).wrapping_sub(extend);
+        let uncorrected = dst.wrapping_sub(src).wrapping_sub(extend);
+
+        let mut result = uncorrected;
 
         // Low nibble correction: if low nibble would have underflowed
         let low_borrowed = (dst & 0x0F) < (src & 0x0F).saturating_add(extend);
@@ -4454,36 +4727,33 @@ impl M68000 {
             result = result.wrapping_sub(6);
         }
 
-        // High nibble correction: only if high nibble would have underflowed
+        // High nibble correction: only if the original high nibble underflowed
         let high_borrowed = (dst >> 4) < (src >> 4) + u8::from(low_borrowed);
         if high_borrowed {
             result = result.wrapping_sub(0x60);
         }
 
-        // Borrow: set if the high nibble needed to borrow
-        (result, high_borrowed)
+        // Borrow: set if either the original high nibble underflowed, OR
+        // the low nibble correction (-6) caused the whole byte to wrap.
+        // The latter happens when the uncorrected result is < 6 and low
+        // correction is needed (with invalid BCD inputs).
+        let low_correction_wraps = low_borrowed && uncorrected < 6;
+        let borrow = high_borrowed || low_correction_wraps;
+
+        // V: set when BCD correction flips bit 7 from 1 to 0
+        let overflow = (uncorrected & !result & 0x80) != 0;
+
+        (result, borrow, overflow)
     }
 
     /// Perform NBCD: negate BCD (0 - src - X).
     /// The 68000 uses a specific algorithm different from regular BCD subtraction.
-    /// Returns (result, borrow).
-    pub(crate) fn nbcd(&self, src: u8, extend: u8) -> (u8, bool) {
-        // NBCD algorithm: binary subtraction 0x9A - src - X, then conditional BCD correction
-        let mut result = 0x9Au32.wrapping_sub(u32::from(src)).wrapping_sub(u32::from(extend));
+    /// Returns (result, borrow, overflow).
+    pub(crate) fn nbcd(&self, src: u8, extend: u8) -> (u8, bool, bool) {
+        // NBCD: compute as 0 - src - X using BCD subtraction
+        let (result, borrow, overflow) = self.bcd_sub(0, src, extend);
 
-        // Apply BCD correction only when:
-        // 1. Low nibble didn't underflow ((src & 0x0F) + X <= 0x0A), AND
-        // 2. Result low nibble is invalid BCD (> 9)
-        let low_underflow = u32::from(src & 0x0F) + u32::from(extend) > 0x0A;
-        let result_low_invalid = (result & 0x0F) > 9;
-        if !low_underflow && result_low_invalid {
-            result = result.wrapping_add(6);
-        }
-
-        // Borrow occurs if the result is non-zero or if the operation would have borrowed
-        let borrow = u32::from(src) + u32::from(extend) > 0x9A || (result as u8 != 0);
-
-        (result as u8, borrow)
+        (result, borrow, overflow)
     }
 
     fn exec_or(&mut self, size: Option<Size>, reg: u8, mode: u8, ea_reg: u8, to_ea: bool) {
@@ -4507,6 +4777,7 @@ impl M68000 {
                     }
                     _ => {
                         // Memory destination: read-modify-write
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
@@ -4527,8 +4798,19 @@ impl M68000 {
                         self.set_flags_move(result, size);
                         self.queue_internal(4);
                     }
+                    AddrMode::Immediate => {
+                        // OR #imm,Dn (same behaviour as ORI #imm,Dn)
+                        self.size = size;
+                        let src = self.read_immediate();
+                        let dst = self.read_data_reg(reg, size);
+                        let result = dst | src;
+                        self.write_data_reg(reg, result, size);
+                        self.set_flags_move(result, size);
+                        self.queue_internal(4);
+                    }
                     _ => {
                         // Memory source
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
@@ -4571,6 +4853,7 @@ impl M68000 {
                     }
                     _ => {
                         // Memory destination: read-modify-write
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
@@ -4601,11 +4884,18 @@ impl M68000 {
                         self.queue_internal(4);
                     }
                     AddrMode::Immediate => {
-                        // SUBI - immediate subtract
-                        self.queue_internal(4); // Stub
+                        // SUB #imm,Dn (same behaviour as SUBI #imm,Dn)
+                        self.size = size;
+                        let src = self.read_immediate();
+                        let dst = self.read_data_reg(reg, size);
+                        let result = dst.wrapping_sub(src);
+                        self.write_data_reg(reg, result, size);
+                        self.set_flags_sub(src, dst, result, size);
+                        self.queue_internal(4);
                     }
                     _ => {
                         // Memory source
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
@@ -4647,11 +4937,26 @@ impl M68000 {
                     self.regs.set_a(reg as usize, result);
                     self.queue_internal(4);
                 }
+                AddrMode::Immediate => {
+                    self.size = size;
+                    let src = if size == Size::Word {
+                        self.next_ext_word() as i16 as i32 as u32
+                    } else {
+                        let hi = u32::from(self.next_ext_word());
+                        let lo = u32::from(self.next_ext_word());
+                        (hi << 16) | lo
+                    };
+                    let dst = self.regs.a(reg as usize);
+                    let result = dst.wrapping_sub(src);
+                    self.regs.set_a(reg as usize, result);
+                    self.queue_internal(4);
+                }
                 _ => {
                     // Memory source
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = u32::from(reg);
                     self.data2 = 6; // 6 = SUBA
                     self.movem_long_phase = 0;
@@ -4750,14 +5055,20 @@ impl M68000 {
                     self.queue_internal(4);
                 }
                 AddrMode::Immediate => {
-                    // CMP #imm,Dn is encoded as CMPI (different opcode)
-                    self.illegal_instruction();
+                    // CMP #imm,Dn (same behaviour as CMPI #imm,Dn)
+                    self.size = size;
+                    let src = self.read_immediate();
+                    let dst = self.read_data_reg(reg, size);
+                    let result = dst.wrapping_sub(src);
+                    self.set_flags_cmp(src, dst, result, size);
+                    self.queue_internal(4);
                 }
                 _ => {
                     // Memory source
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = u32::from(reg);
                     self.data2 = 4; // 4 = CMP
                     self.movem_long_phase = 0;
@@ -4795,11 +5106,26 @@ impl M68000 {
                     self.set_flags_cmp(src, dst, result, Size::Long);
                     self.queue_internal(4);
                 }
+                AddrMode::Immediate => {
+                    self.size = size;
+                    let src = if size == Size::Word {
+                        self.next_ext_word() as i16 as i32 as u32
+                    } else {
+                        let hi = u32::from(self.next_ext_word());
+                        let lo = u32::from(self.next_ext_word());
+                        (hi << 16) | lo
+                    };
+                    let dst = self.regs.a(reg as usize);
+                    let result = dst.wrapping_sub(src);
+                    self.set_flags_cmp(src, dst, result, Size::Long);
+                    self.queue_internal(4);
+                }
                 _ => {
                     // Memory source
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = u32::from(reg);
                     self.data2 = 7; // 7 = CMPA
                     self.movem_long_phase = 0;
@@ -4832,8 +5158,9 @@ impl M68000 {
         self.movem_long_phase = 0;     // Start at phase 0
 
         // Queue the CMPM micro-op (two phases: read src, read dst + compare)
+        // followed by internal cycles for the final prefetch which advances PC.
         self.micro_ops.push(MicroOp::CmpmExecute);
-        self.micro_ops.push(MicroOp::CmpmExecute);
+        self.queue_internal(4);
     }
 
     fn exec_eor(&mut self, size: Option<Size>, reg: u8, mode: u8, ea_reg: u8) {
@@ -4855,6 +5182,7 @@ impl M68000 {
                 }
                 _ => {
                     // Memory destination: read-modify-write
+                    self.src_mode = Some(addr_mode);
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -4903,6 +5231,7 @@ impl M68000 {
                 }
                 _ => {
                     // Memory source - use AluMemSrc
+                    self.src_mode = Some(addr_mode);
                     self.size = Size::Word; // MULU reads word operand
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -4922,6 +5251,9 @@ impl M68000 {
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
             match addr_mode {
                 AddrMode::DataReg(r) => {
+                    // Save source word for timing BEFORE writing result
+                    // (when r == reg, the register is overwritten by the result)
+                    let src16 = self.regs.d[r as usize] as u16;
                     let src = (self.regs.d[r as usize] as i16) as i32;
                     let dst = (self.regs.d[reg as usize] as i16) as i32;
                     let result = (src * dst) as u32;
@@ -4931,10 +5263,8 @@ impl M68000 {
                     self.regs.sr = Status::clear_vc(self.regs.sr);
                     self.regs.sr = Status::update_nz_long(self.regs.sr, result);
 
-                    // Timing: 38 + 2*number of 1-bits in <ea> XOR'd with sign bit
-                    // For negative source, effectively count bit transitions
-                    let src16 = self.regs.d[r as usize] as u16;
-                    let pattern = src16 ^ (src16 << 1); // Count bit transitions
+                    // Timing: 38 + 2*number of bit transitions in source word
+                    let pattern = src16 ^ (src16 << 1);
                     let ones = pattern.count_ones() as u8;
                     self.queue_internal(38 + 2 * ones);
                 }
@@ -4956,6 +5286,7 @@ impl M68000 {
                 }
                 _ => {
                     // Memory source - use AluMemSrc
+                    self.src_mode = Some(addr_mode);
                     self.size = Size::Word; // MULS reads word operand
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
@@ -4998,7 +5329,7 @@ impl M68000 {
             let dst = self.regs.d[ry] as u8;
             let x = u8::from(self.regs.sr & X != 0);
 
-            let (result, carry) = self.bcd_add(src, dst, x);
+            let (result, carry, overflow) = self.bcd_add(src, dst, x);
 
             // Write result to low byte of Dy
             self.regs.d[ry] = (self.regs.d[ry] & 0xFFFF_FF00) | u32::from(result);
@@ -5012,10 +5343,10 @@ impl M68000 {
             // C and X: set if decimal carry
             sr = Status::set_if(sr, C, carry);
             sr = Status::set_if(sr, X, carry);
-            // N: undefined, but set based on MSB for consistency
+            // N: set based on MSB of result
             sr = Status::set_if(sr, N, result & 0x80 != 0);
-            // V: always cleared for BCD (this matches observed real hardware behavior)
-            sr &= !V;
+            // V: set when BCD correction flips bit 7
+            sr = Status::set_if(sr, V, overflow);
             self.regs.sr = sr;
 
             self.queue_internal(6);
@@ -5023,28 +5354,36 @@ impl M68000 {
     }
 
     /// Perform packed BCD addition: src + dst + extend.
-    /// Returns (result, carry).
-    pub(crate) fn bcd_add(&self, src: u8, dst: u8, extend: u8) -> (u8, bool) {
-        // Binary addition first
-        let mut result = u16::from(dst) + u16::from(src) + u16::from(extend);
-
-        // Low nibble correction: add 6 if nibble sum > 9 (BCD threshold)
+    /// Returns (result, carry, overflow).
+    /// The overflow flag matches real 68000 hardware: set when bit 7 flips from 0 to 1
+    /// during BCD correction.
+    pub(crate) fn bcd_add(&self, src: u8, dst: u8, extend: u8) -> (u8, bool, bool) {
+        // Low nibble: binary add then correct
         let low_sum = (dst & 0x0F) + (src & 0x0F) + extend;
-        let low_carry = if low_sum > 9 {
-            result += 6;
-            1
-        } else {
-            0
-        };
+        let corf: u16 = if low_sum > 9 { 6 } else { 0 };
 
-        // High nibble correction: add 0x60 if nibble sum > 9 (BCD threshold)
+        // Full binary sum (before any correction)
+        let uncorrected = u16::from(dst) + u16::from(src) + u16::from(extend);
+
+        // Carry: compute from high digit sum including full carry from low
+        // correction. With invalid BCD inputs the low correction can produce
+        // more than one bit of carry (e.g. 0xD + 0xD + 1 + 6 = 33, carry = 2).
+        let low_corrected = low_sum + if low_sum > 9 { 6 } else { 0 };
+        let low_carry = low_corrected >> 4;
         let high_sum = (dst >> 4) + (src >> 4) + low_carry;
         let carry = high_sum > 9;
-        if carry {
-            result += 0x60;
-        }
 
-        (result as u8, carry)
+        // Result: apply low correction, then high correction if carry
+        let result = if carry {
+            uncorrected + corf + 0x60
+        } else {
+            uncorrected + corf
+        };
+
+        // V: set when uncorrected bit 7 was 0 but corrected bit 7 is 1
+        let overflow = (!uncorrected & result & 0x80) != 0;
+
+        (result as u8, carry, overflow)
     }
 
     fn exec_exg(&mut self, op: u16) {
@@ -5104,6 +5443,7 @@ impl M68000 {
                     }
                     _ => {
                         // Memory destination: read-modify-write
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
@@ -5124,8 +5464,19 @@ impl M68000 {
                         self.set_flags_move(result, size);
                         self.queue_internal(4);
                     }
+                    AddrMode::Immediate => {
+                        // AND #imm,Dn (same behaviour as ANDI #imm,Dn)
+                        self.size = size;
+                        let src = self.read_immediate();
+                        let dst = self.read_data_reg(reg, size);
+                        let result = dst & src;
+                        self.write_data_reg(reg, result, size);
+                        self.set_flags_move(result, size);
+                        self.queue_internal(4);
+                    }
                     _ => {
                         // Memory source
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
@@ -5168,6 +5519,7 @@ impl M68000 {
                     }
                     _ => {
                         // Memory destination: read-modify-write
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
@@ -5198,11 +5550,18 @@ impl M68000 {
                         self.queue_internal(4);
                     }
                     AddrMode::Immediate => {
-                        // ADD #imm,Dn is encoded as ADDI (different opcode)
-                        self.illegal_instruction();
+                        // ADD #imm,Dn (same behaviour as ADDI #imm,Dn)
+                        self.size = size;
+                        let src = self.read_immediate();
+                        let dst = self.read_data_reg(reg, size);
+                        let result = dst.wrapping_add(src);
+                        self.write_data_reg(reg, result, size);
+                        self.set_flags_add(src, dst, result, size);
+                        self.queue_internal(4);
                     }
                     _ => {
                         // Memory source: read from memory, add to register
+                        self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                         self.addr = addr;
@@ -5244,11 +5603,26 @@ impl M68000 {
                     self.regs.set_a(reg as usize, result);
                     self.queue_internal(4);
                 }
+                AddrMode::Immediate => {
+                    self.size = size;
+                    let src = if size == Size::Word {
+                        self.next_ext_word() as i16 as i32 as u32
+                    } else {
+                        let hi = u32::from(self.next_ext_word());
+                        let lo = u32::from(self.next_ext_word());
+                        (hi << 16) | lo
+                    };
+                    let dst = self.regs.a(reg as usize);
+                    let result = dst.wrapping_add(src);
+                    self.regs.set_a(reg as usize, result);
+                    self.queue_internal(4);
+                }
                 _ => {
                     // Memory source
                     self.size = size;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
+                    self.src_mode = Some(addr_mode);
                     self.data = u32::from(reg);
                     self.data2 = 5; // 5 = ADDA
                     self.movem_long_phase = 0;
@@ -5345,6 +5719,7 @@ impl M68000 {
                 _ => {
                     // Memory operand - calculate EA then do read-modify-write
                     // Memory shifts are always word size - set for correct (An)+/-(An) increment
+                    self.src_mode = Some(addr_mode);
                     self.size = Size::Word;
                     let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
                     self.addr = addr;
