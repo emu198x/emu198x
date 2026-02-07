@@ -12,6 +12,9 @@ Cargo.lock
 # macOS
 .DS_Store
 
+# SingleStepTests data (multi-GB, download separately)
+/test-data/
+
 # Test ROMs (not for distribution)
 /roms/
 *.rom

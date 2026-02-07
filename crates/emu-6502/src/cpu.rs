@@ -700,6 +700,33 @@ impl Mos6502 {
             // AXS/SBX - (A AND X) - imm, store in X
             0xCB => self.addr_imm(bus, Self::do_axs),
 
+            // USBC/SBC #imm (unofficial duplicate of $E9)
+            0xEB => self.addr_imm(bus, Self::do_sbc),
+
+            // XAA/ANE - (A OR magic) AND X AND #imm
+            0x8B => self.addr_imm(bus, Self::do_xaa),
+
+            // LAX #imm (unstable) - A = X = (A OR magic) AND #imm
+            0xAB => self.addr_imm(bus, Self::do_lax_imm),
+
+            // LAS/LAR - A = X = S = S AND mem
+            0xBB => self.addr_aby(bus, Self::do_las),
+
+            // SHA (zp),Y - store A AND X AND (addr_hi+1)
+            0x93 => self.op_sha_izy(bus),
+
+            // TAS abs,Y - S = A AND X; store S AND (addr_hi+1)
+            0x9B => self.op_tas(bus),
+
+            // SHY abs,X - store Y AND (addr_hi+1)
+            0x9C => self.op_shy(bus),
+
+            // SHX abs,Y - store X AND (addr_hi+1)
+            0x9E => self.op_shx(bus),
+
+            // SHA abs,Y - store A AND X AND (addr_hi+1)
+            0x9F => self.op_sha_aby(bus),
+
             // ====================================================================
             // Illegal NOPs - various byte counts and cycle timings
             // ====================================================================
@@ -741,13 +768,7 @@ impl Mos6502 {
                 self.state = State::Stopped;
             }
 
-            // Any remaining undefined opcodes - single-byte NOP
-            _ => {
-                if self.cycle == 1 {
-                    let _ = self.read_mem_result(bus, self.regs.pc);
-                    self.finish();
-                }
-            }
+            // All 256 opcodes are explicitly handled above
         }
     }
 
@@ -1546,32 +1567,35 @@ impl Mos6502 {
 
     fn do_adc_decimal(&mut self, val: u8) {
         let a = self.regs.a;
-        let carry = if self.regs.p.is_set(C) { 1 } else { 0 };
+        let carry: u16 = if self.regs.p.is_set(C) { 1 } else { 0 };
 
-        // Low nibble
-        let mut lo = (a & 0x0F) + (val & 0x0F) + carry;
-        if lo > 9 {
-            lo += 6;
+        // Z flag is based on binary result (NMOS 6502 quirk)
+        let bin_sum = u16::from(a) + u16::from(val) + carry;
+        self.regs.p.set_if(Z, (bin_sum as u8) == 0);
+
+        // Low nibble with decimal correction
+        let mut al = u16::from(a & 0x0F) + u16::from(val & 0x0F) + carry;
+        if al >= 0x0A {
+            al = ((al + 0x06) & 0x0F) + 0x10;
         }
 
-        // High nibble
-        let mut hi = (a >> 4) + (val >> 4) + if lo > 0x0F { 1 } else { 0 };
+        // High nibble intermediate (before final correction)
+        let mut s = u16::from(a & 0xF0) + u16::from(val & 0xF0) + al;
 
-        // N and V flags are set based on binary result on NMOS 6502
-        let bin_sum = u16::from(a) + u16::from(val) + u16::from(carry);
-        let bin_result = bin_sum as u8;
-        self.regs.p.set_if(Z, bin_result == 0);
-        self.regs.p.set_if(N, hi & 0x08 != 0);
-        self.regs
-            .p
-            .set_if(V, (a ^ bin_result) & (val ^ bin_result) & 0x80 != 0);
+        // N and V flags are based on this intermediate (NMOS 6502 behavior)
+        self.regs.p.set_if(N, s & 0x80 != 0);
+        self.regs.p.set_if(
+            V,
+            ((u16::from(a) ^ s) & (u16::from(val) ^ s) & 0x80) != 0,
+        );
 
-        if hi > 9 {
-            hi += 6;
+        // Final decimal correction of high nibble
+        if s >= 0xA0 {
+            s += 0x60;
         }
 
-        self.regs.p.set_if(C, hi > 0x0F);
-        self.regs.a = ((hi << 4) | (lo & 0x0F)) as u8;
+        self.regs.p.set_if(C, s > 0xFF);
+        self.regs.a = s as u8;
     }
 
     fn do_sbc(&mut self, val: u8) {
@@ -1763,25 +1787,242 @@ impl Mos6502 {
         self.regs.p.update_nz(self.regs.a);
     }
 
-    /// ARR - AND then ROR with weird flags
-    fn do_arr(&mut self, val: u8) {
-        self.regs.a &= val;
-        let carry = if self.regs.p.is_set(C) { 0x80 } else { 0 };
-        self.regs.a = (self.regs.a >> 1) | carry;
-        self.regs.p.update_nz(self.regs.a);
-        // Weird flag behavior: C = bit 6, V = bit 6 XOR bit 5
-        self.regs.p.set_if(C, self.regs.a & 0x40 != 0);
-        self.regs
-            .p
-            .set_if(V, (self.regs.a & 0x40 != 0) != (self.regs.a & 0x20 != 0));
-    }
-
     /// AXS/SBX - (A AND X) - immediate, result in X, no borrow
     fn do_axs(&mut self, val: u8) {
         let tmp = self.regs.a & self.regs.x;
         self.regs.p.set_if(C, tmp >= val);
         self.regs.x = tmp.wrapping_sub(val);
         self.regs.p.update_nz(self.regs.x);
+    }
+
+    fn do_arr(&mut self, val: u8) {
+        let tmp = self.regs.a & val;
+        if self.regs.p.is_set(D) {
+            // Decimal mode ARR: AND, then ROR using old carry, then decimal fixup
+            let mut result = tmp;
+            let old_carry = self.regs.p.is_set(C);
+
+            // ROR
+            result = (result >> 1) | if old_carry { 0x80 } else { 0 };
+            self.regs.p.update_nz(result);
+            self.regs
+                .p
+                .set_if(V, (result ^ tmp) & 0x40 != 0);
+
+            // Decimal fixup on low nibble
+            if u16::from(tmp & 0x0F) + u16::from(tmp & 0x01) > 5 {
+                result = (result & 0xF0) | ((result.wrapping_add(6)) & 0x0F);
+            }
+
+            // Decimal fixup on high nibble sets carry
+            if u16::from(tmp & 0xF0) + u16::from(tmp & 0x10) > 0x50 {
+                self.regs.p.set(C);
+                result = result.wrapping_add(0x60);
+            } else {
+                self.regs.p.clear(C);
+            }
+
+            self.regs.a = result;
+        } else {
+            // Binary mode ARR: AND then ROR, C = bit 6, V = bit 6 XOR bit 5
+            let old_carry = self.regs.p.is_set(C);
+            self.regs.a = (tmp >> 1) | if old_carry { 0x80 } else { 0 };
+            self.regs.p.update_nz(self.regs.a);
+            self.regs.p.set_if(C, self.regs.a & 0x40 != 0);
+            self.regs.p.set_if(
+                V,
+                (self.regs.a & 0x40) ^ ((self.regs.a & 0x20) << 1) != 0,
+            );
+        }
+    }
+
+    fn do_xaa(&mut self, val: u8) {
+        // XAA/ANE: A = (A OR magic) AND X AND imm. Magic = $EE on most chips.
+        self.regs.a = (self.regs.a | 0xEE) & self.regs.x & val;
+        self.regs.p.update_nz(self.regs.a);
+    }
+
+    fn do_lax_imm(&mut self, val: u8) {
+        // LAX #imm: A = X = (A OR magic) AND imm. Magic = $EE.
+        self.regs.a = (self.regs.a | 0xEE) & val;
+        self.regs.x = self.regs.a;
+        self.regs.p.update_nz(self.regs.a);
+    }
+
+    fn do_las(&mut self, val: u8) {
+        // LAS: A = X = S = S AND mem
+        let result = self.regs.s & val;
+        self.regs.a = result;
+        self.regs.x = result;
+        self.regs.s = result;
+        self.regs.p.update_nz(result);
+    }
+
+    // ========================================================================
+    // Unstable illegal store instructions (SHA, SHX, SHY, TAS)
+    //
+    // These AND the value with (addr_high_byte + 1). On a page crossing,
+    // the high byte of the effective address also becomes the AND result.
+    // ========================================================================
+
+    /// SHA (zp),Y — store A AND X AND (hi+1)
+    fn op_sha_izy<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            1 => {
+                self.pointer = self.read_mem(bus, self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cycle = 2;
+            }
+            2 => {
+                self.addr = u16::from(self.read_mem(bus, u16::from(self.pointer)));
+                self.cycle = 3;
+            }
+            3 => {
+                let hi = self.read_mem(bus, u16::from(self.pointer.wrapping_add(1)));
+                let lo = (self.addr as u8).wrapping_add(self.regs.y);
+                let page_cross = lo < self.regs.y;
+                let val = self.regs.a & self.regs.x & hi.wrapping_add(1);
+                let eff_hi = if page_cross { val } else { hi };
+                self.addr = u16::from(lo) | (u16::from(eff_hi) << 8);
+                self.data = val;
+                self.cycle = 4;
+            }
+            4 => {
+                // Dummy read at partially-computed address
+                let _ = self.read_mem_result(bus, self.addr);
+                self.cycle = 5;
+            }
+            5 => {
+                self.write_mem(bus, self.addr, self.data);
+                self.finish();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// SHA abs,Y — store A AND X AND (hi+1)
+    fn op_sha_aby<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            1 => {
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cycle = 2;
+            }
+            2 => {
+                let hi = self.read_mem(bus, self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                let lo = (self.addr as u8).wrapping_add(self.regs.y);
+                let page_cross = lo < self.regs.y;
+                let val = self.regs.a & self.regs.x & hi.wrapping_add(1);
+                let eff_hi = if page_cross { val } else { hi };
+                self.addr = u16::from(lo) | (u16::from(eff_hi) << 8);
+                self.data = val;
+                self.cycle = 3;
+            }
+            3 => {
+                let _ = self.read_mem_result(bus, self.addr);
+                self.cycle = 4;
+            }
+            4 => {
+                self.write_mem(bus, self.addr, self.data);
+                self.finish();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// SHY abs,X — store Y AND (hi+1)
+    fn op_shy<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            1 => {
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cycle = 2;
+            }
+            2 => {
+                let hi = self.read_mem(bus, self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                let lo = (self.addr as u8).wrapping_add(self.regs.x);
+                let page_cross = lo < self.regs.x;
+                let val = self.regs.y & hi.wrapping_add(1);
+                let eff_hi = if page_cross { val } else { hi };
+                self.addr = u16::from(lo) | (u16::from(eff_hi) << 8);
+                self.data = val;
+                self.cycle = 3;
+            }
+            3 => {
+                let _ = self.read_mem_result(bus, self.addr);
+                self.cycle = 4;
+            }
+            4 => {
+                self.write_mem(bus, self.addr, self.data);
+                self.finish();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// SHX abs,Y — store X AND (hi+1)
+    fn op_shx<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            1 => {
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cycle = 2;
+            }
+            2 => {
+                let hi = self.read_mem(bus, self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                let lo = (self.addr as u8).wrapping_add(self.regs.y);
+                let page_cross = lo < self.regs.y;
+                let val = self.regs.x & hi.wrapping_add(1);
+                let eff_hi = if page_cross { val } else { hi };
+                self.addr = u16::from(lo) | (u16::from(eff_hi) << 8);
+                self.data = val;
+                self.cycle = 3;
+            }
+            3 => {
+                let _ = self.read_mem_result(bus, self.addr);
+                self.cycle = 4;
+            }
+            4 => {
+                self.write_mem(bus, self.addr, self.data);
+                self.finish();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// TAS abs,Y — S = A AND X; store S AND (hi+1)
+    fn op_tas<B: Bus>(&mut self, bus: &mut B) {
+        match self.cycle {
+            1 => {
+                self.addr = u16::from(self.read_mem(bus, self.regs.pc));
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cycle = 2;
+            }
+            2 => {
+                let hi = self.read_mem(bus, self.regs.pc);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.regs.s = self.regs.a & self.regs.x;
+                let lo = (self.addr as u8).wrapping_add(self.regs.y);
+                let page_cross = lo < self.regs.y;
+                let val = self.regs.s & hi.wrapping_add(1);
+                let eff_hi = if page_cross { val } else { hi };
+                self.addr = u16::from(lo) | (u16::from(eff_hi) << 8);
+                self.data = val;
+                self.cycle = 3;
+            }
+            3 => {
+                let _ = self.read_mem_result(bus, self.addr);
+                self.cycle = 4;
+            }
+            4 => {
+                self.write_mem(bus, self.addr, self.data);
+                self.finish();
+            }
+            _ => unreachable!(),
+        }
     }
 
     // ========================================================================
@@ -1851,9 +2092,10 @@ impl Mos6502 {
                 self.cycle = 3;
             }
             3 => {
-                // Pull status
+                // Pull status — B flag is not a real register bit, clear it
                 let addr = self.regs.pop();
-                self.regs.p = Status::from_byte(self.read_mem(bus, addr));
+                let val = self.read_mem(bus, addr);
+                self.regs.p = Status::from_byte(val & !crate::flags::B);
                 self.cycle = 4;
             }
             4 => {
@@ -2043,8 +2285,10 @@ impl Mos6502 {
                 self.cycle = 3;
             }
             3 => {
+                // B flag is not a real register bit, clear it on pull
                 let addr = self.regs.pop();
-                self.regs.p = Status::from_byte(self.read_mem(bus, addr));
+                let val = self.read_mem(bus, addr);
+                self.regs.p = Status::from_byte(val & !crate::flags::B);
                 self.finish();
             }
             _ => unreachable!(),
