@@ -19,15 +19,13 @@ use crate::registers::Registers;
 pub struct Z80 {
     // === Registers ===
     /// Main register set.
-    pub(crate) regs: Registers,
+    pub regs: Registers,
 
     // === Execution state ===
     /// Queue of micro-operations for current instruction.
     micro_ops: MicroOpQueue,
     /// T-state counter within current micro-op.
     t_state: u8,
-    /// Total T-states for current micro-op (for Internal ops).
-    t_total: u8,
     /// Pending wait states from memory contention.
     wait_states: u8,
 
@@ -61,6 +59,18 @@ pub struct Z80 {
     /// NMI edge detector (to detect rising edge).
     nmi_last: bool,
 
+    // === Internal state for test comparison ===
+    /// EI delay active (interrupts suppressed for one more instruction).
+    pub ei_delay: bool,
+    /// Last instruction was LD A,I or LD A,R (affects IFF2→PF behavior).
+    pub last_was_ld_a_ir: bool,
+    /// Last F register value (used for SCF/CCF undocumented flag behavior).
+    /// 0 means last instruction did not modify flags.
+    pub last_q: u8,
+    /// Previous instruction's Q value, preserved for SCF/CCF to read during
+    /// execution (since last_q is cleared to 0 at the start of each instruction).
+    prev_q: u8,
+
     // === Timing ===
     /// Total T-states elapsed.
     total_ticks: Ticks,
@@ -74,7 +84,6 @@ impl Z80 {
             regs: Registers::default(),
             micro_ops: MicroOpQueue::new(),
             t_state: 0,
-            t_total: 0,
             wait_states: 0,
             opcode: 0,
             prefix: 0,
@@ -89,6 +98,10 @@ impl Z80 {
             int_pending: false,
             nmi_pending: false,
             nmi_last: false,
+            ei_delay: false,
+            last_was_ld_a_ir: false,
+            last_q: 0,
+            prev_q: 0,
             total_ticks: Ticks::ZERO,
         };
         // Start with a fetch
@@ -318,6 +331,10 @@ impl Z80 {
     }
 
     /// Execute one T-state of CPU operation.
+    ///
+    /// Execute micro-ops are zero-cost (instant) — they run within the same
+    /// T-state as the preceding timed operation. After any timed micro-op
+    /// completes a step, we immediately process any pending Execute ops.
     fn tick_internal<B: Bus>(&mut self, bus: &mut B) {
         let Some(op) = self.micro_ops.current() else {
             // Queue empty - shouldn't happen, but queue a fetch
@@ -341,11 +358,19 @@ impl Z80 {
             MicroOp::WriteMemLoSecond => self.tick_write_mem_lo_second(bus),
             MicroOp::IoRead => self.tick_io_read(bus),
             MicroOp::IoWrite => self.tick_io_write(bus),
-            MicroOp::Internal => self.tick_internal_op(),
+            MicroOp::Internal(n) => self.tick_internal_op(n),
             MicroOp::Execute => {
                 self.decode_and_execute();
                 self.micro_ops.advance();
             }
+        }
+
+        // Execute is zero-cost: process immediately after any timed micro-op.
+        // This ensures decode/execute happens within the final T-state of the
+        // preceding bus cycle (e.g., M1 T4 for opcode fetch), not as an extra tick.
+        while let Some(MicroOp::Execute) = self.micro_ops.current() {
+            self.decode_and_execute();
+            self.micro_ops.advance();
         }
     }
 
@@ -384,9 +409,12 @@ impl Z80 {
                     // Check for DDCB or FDCB
                     if self.opcode == 0xCB {
                         self.prefix2 = 0xCB;
-                        // DDCB/FDCB: fetch displacement, then opcode
+                        // DDCB/FDCB: fetch displacement, then read opcode byte.
+                        // The last byte is NOT an M1 fetch — it's a regular 3T memory
+                        // read that doesn't increment R.
                         self.micro_ops.push(MicroOp::FetchDisplacement);
-                        self.micro_ops.push(MicroOp::FetchOpcode);
+                        self.micro_ops.push(MicroOp::ReadImm8);
+                        self.queue_execute_followup();
                         return;
                     }
                     // Check for prefix chains (DD DD, FD FD, DD FD, FD DD)
@@ -678,9 +706,9 @@ impl Z80 {
     }
 
     /// Internal operation - burns T-states.
-    fn tick_internal_op(&mut self) {
+    fn tick_internal_op(&mut self, duration: u8) {
         self.t_state += 1;
-        if self.t_state >= self.t_total {
+        if self.t_state >= duration {
             self.t_state = 0;
             self.micro_ops.advance();
         }
@@ -688,8 +716,7 @@ impl Z80 {
 
     /// Add internal T-states to the queue.
     fn queue_internal(&mut self, t_states: u8) {
-        self.t_total = t_states;
-        self.micro_ops.push(MicroOp::Internal);
+        self.micro_ops.push(MicroOp::Internal(t_states));
     }
 
     /// Decode and execute the current instruction.
@@ -706,6 +733,15 @@ impl Z80 {
             self.execute_followup();
             return;
         }
+
+        // New instruction start — clear internal state.
+        // EI delay is consumed after one instruction.
+        self.ei_delay = false;
+        // P is only set by LD A,I and LD A,R.
+        self.last_was_ld_a_ir = false;
+        // Save Q from previous instruction for SCF/CCF, then reset for this instruction.
+        self.prev_q = self.last_q;
+        self.last_q = 0;
 
         if self.prefix2 == 0xCB {
             // DDCB or FDCB prefix
@@ -838,6 +874,17 @@ impl Z80 {
             3 => self.regs.set_af(value),
             _ => unreachable!(),
         }
+    }
+
+    /// Set flags register and update Q (SCF/CCF undocumented flag source).
+    fn set_f(&mut self, f: u8) {
+        self.regs.f = f;
+        self.last_q = f;
+    }
+
+    /// Update Q after a flags |= operation.
+    fn update_q(&mut self) {
+        self.last_q = self.regs.f;
     }
 
     /// Evaluate condition code.
@@ -991,7 +1038,6 @@ impl Cpu for Z80 {
         self.micro_ops.clear();
         self.micro_ops.push(MicroOp::FetchOpcode);
         self.t_state = 0;
-        self.t_total = 0;
         self.wait_states = 0;
         self.opcode = 0;
         self.prefix = 0;
@@ -1006,6 +1052,10 @@ impl Cpu for Z80 {
         self.int_pending = false;
         self.nmi_pending = false;
         self.nmi_last = false;
+        self.ei_delay = false;
+        self.last_was_ld_a_ir = false;
+        self.last_q = 0;
+        self.prev_q = 0;
     }
 }
 

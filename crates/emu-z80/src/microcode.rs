@@ -67,8 +67,8 @@ pub enum MicroOp {
     /// Write `data_lo` to I/O port in `addr` low byte (4 T-states).
     IoWrite,
 
-    /// Internal operation - just burns T-states (variable count stored in `t_total`).
-    Internal,
+    /// Internal operation - just burns T-states. Duration is embedded in the variant.
+    Internal(u8),
 
     /// Execute the decoded instruction.
     /// This performs the actual operation and may queue more micro-ops.
@@ -95,7 +95,7 @@ impl MicroOp {
             Self::WriteMemLoSecond => 3,
             Self::IoRead => 4,
             Self::IoWrite => 4,
-            Self::Internal => 0, // Variable, handled separately
+            Self::Internal(n) => n,
             Self::Execute => 0,  // Instant
         }
     }

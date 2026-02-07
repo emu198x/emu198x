@@ -35,6 +35,11 @@ pub struct Registers {
     pub i: u8,
     pub r: u8,
 
+    // Internal registers
+    /// WZ/MEMPTR - internal temporary register.
+    /// Affects undocumented X/Y flags in BIT instructions and some jumps.
+    pub wz: u16,
+
     // Interrupt state
     pub iff1: bool,
     pub iff2: bool,
