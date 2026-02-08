@@ -229,6 +229,19 @@ impl Z80 {
         self.regs.sp = value;
     }
 
+    /// Force the CPU to start fetching from a new PC address.
+    ///
+    /// Clears the micro-op queue, resets decode state, and starts a fresh
+    /// opcode fetch cycle at the given address. Used by ROM trap handlers
+    /// (e.g., tape loading) that need to redirect execution without going
+    /// through the normal instruction pipeline.
+    pub fn force_pc(&mut self, addr: u16) {
+        self.regs.pc = addr;
+        self.queue_fetch();
+        self.t_state = 0;
+        self.wait_states = 0;
+    }
+
     /// Get the C register.
     pub fn c(&self) -> u8 {
         self.regs.c

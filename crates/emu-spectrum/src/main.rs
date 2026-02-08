@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu_spectrum::{capture, keyboard_map, load_sna, Spectrum, SpectrumConfig, SpectrumModel};
+use emu_spectrum::{capture, keyboard_map, load_sna, mcp::McpServer, Spectrum, SpectrumConfig, SpectrumModel, TapFile};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -36,7 +36,9 @@ const FRAME_DURATION: Duration = Duration::from_micros(20_000);
 
 struct CliArgs {
     sna_path: Option<PathBuf>,
+    tap_path: Option<PathBuf>,
     headless: bool,
+    mcp: bool,
     frames: u32,
     screenshot_path: Option<PathBuf>,
     audio_path: Option<PathBuf>,
@@ -49,7 +51,9 @@ fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut cli = CliArgs {
         sna_path: None,
+        tap_path: None,
         headless: false,
+        mcp: false,
         frames: 200,
         screenshot_path: None,
         audio_path: None,
@@ -65,8 +69,15 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 cli.sna_path = args.get(i).map(PathBuf::from);
             }
+            "--tap" => {
+                i += 1;
+                cli.tap_path = args.get(i).map(PathBuf::from);
+            }
             "--headless" => {
                 cli.headless = true;
+            }
+            "--mcp" => {
+                cli.mcp = true;
             }
             "--frames" => {
                 i += 1;
@@ -101,7 +112,9 @@ fn parse_args() -> CliArgs {
                 eprintln!();
                 eprintln!("Options:");
                 eprintln!("  --sna <file>         Load a 48K SNA snapshot");
+                eprintln!("  --tap <file>         Insert a TAP file into the tape deck");
                 eprintln!("  --headless           Run without a window");
+                eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
                 eprintln!("  --frames <n>         Number of frames in headless mode [default: 200]");
                 eprintln!("  --screenshot <file>  Save a PNG screenshot (headless)");
                 eprintln!("  --audio <file>       Save a WAV audio dump (headless)");
@@ -342,6 +355,31 @@ fn make_spectrum(cli: &CliArgs) -> Spectrum {
         eprintln!("Loaded SNA: {}", path.display());
     }
 
+    // Insert TAP file if provided.
+    if let Some(ref path) = cli.tap_path {
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to read TAP file {}: {e}", path.display());
+                process::exit(1);
+            }
+        };
+        match TapFile::parse(&data) {
+            Ok(tap) => {
+                eprintln!(
+                    "Inserted TAP: {} ({} blocks)",
+                    path.display(),
+                    tap.blocks.len()
+                );
+                spectrum.insert_tap(tap);
+            }
+            Err(e) => {
+                eprintln!("Failed to parse TAP file: {e}");
+                process::exit(1);
+            }
+        }
+    }
+
     // Enqueue typed text if provided.
     if let Some(ref text) = cli.type_text {
         // Unescape \n to actual newlines.
@@ -358,6 +396,12 @@ fn make_spectrum(cli: &CliArgs) -> Spectrum {
 
 fn main() {
     let cli = parse_args();
+
+    if cli.mcp {
+        let mut server = McpServer::new();
+        server.run();
+        return;
+    }
 
     if cli.headless {
         run_headless(&cli);

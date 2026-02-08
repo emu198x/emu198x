@@ -77,9 +77,8 @@ impl Bus for SpectrumBus {
             // bit 7: unused (1). For now, EAR returns 1 (no tape).
             keyboard | 0xC0
         } else {
-            // Unimplemented ports return 0xFF (floating bus behaviour
-            // is not modelled in v1).
-            0xFF
+            // Non-ULA ports: floating bus leaks ULA data bus
+            self.video.floating_bus(&*self.memory)
         };
 
         ReadResult::with_wait(data, wait)

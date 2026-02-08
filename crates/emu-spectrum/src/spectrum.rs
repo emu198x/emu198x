@@ -22,6 +22,8 @@ use crate::bus::SpectrumBus;
 use crate::config::{SpectrumConfig, SpectrumModel};
 use crate::input::{InputQueue, SpectrumKey};
 use crate::memory::Memory48K;
+use crate::tap::TapFile;
+use crate::tape::TapeDeck;
 use crate::ula::Ula;
 
 /// CPU clock divider (crystal ticks per CPU T-state).
@@ -38,6 +40,9 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// CPU frequency in Hz (3.5 MHz).
 const CPU_FREQUENCY: u32 = 3_500_000;
 
+/// ROM address of the LD-BYTES routine (tape loading entry point).
+const LD_BYTES_ADDR: u16 = 0x0556;
+
 /// ZX Spectrum system.
 pub struct Spectrum {
     cpu: Z80,
@@ -50,6 +55,8 @@ pub struct Spectrum {
     frame_count: u64,
     /// Timed input event queue for scripted key sequences.
     input_queue: InputQueue,
+    /// Virtual tape deck for TAP loading.
+    tape: TapeDeck,
 }
 
 impl Spectrum {
@@ -77,6 +84,7 @@ impl Spectrum {
             cpu_divider: CPU_DIVIDER,
             frame_count: 0,
             input_queue: InputQueue::new(),
+            tape: TapeDeck::new(),
         }
     }
 
@@ -181,6 +189,94 @@ impl Spectrum {
     pub fn release_all_keys(&mut self) {
         self.bus.keyboard.release_all();
     }
+
+    /// Insert a TAP file into the tape deck.
+    pub fn insert_tap(&mut self, tap: TapFile) {
+        self.tape.insert(tap);
+    }
+
+    /// Eject the tape.
+    pub fn eject_tape(&mut self) {
+        self.tape.eject();
+    }
+
+    /// Rewind the tape to the start.
+    pub fn rewind_tape(&mut self) {
+        self.tape.rewind();
+    }
+
+    /// Reference to the tape deck.
+    #[must_use]
+    pub fn tape(&self) -> &TapeDeck {
+        &self.tape
+    }
+
+    /// Check for and handle the ROM tape-loading trap.
+    ///
+    /// The Spectrum ROM's `LD-BYTES` routine at $0556 is the standard entry
+    /// point for loading data from tape. Instead of emulating tape signal
+    /// timing, we intercept this address and copy data directly from the
+    /// TAP file into memory.
+    ///
+    /// Register conventions on entry to LD-BYTES:
+    ///   A  = expected flag byte ($00 for header, $FF for data)
+    ///   DE = number of bytes expected
+    ///   IX = destination address in memory
+    ///   Carry flag = set for LOAD, clear for VERIFY
+    ///
+    /// On success, we set Carry flag and return to the caller by popping
+    /// the return address from the stack.
+    fn check_tape_trap(&mut self) {
+        if self.cpu.regs.pc != LD_BYTES_ADDR || !self.tape.is_loaded() {
+            return;
+        }
+
+        let expected_flag = self.cpu.regs.a;
+        let byte_count = self.cpu.regs.de() as usize;
+        let dest_addr = self.cpu.regs.ix;
+        let is_load = self.cpu.regs.f & 0x01 != 0; // Carry flag
+
+        // Get the next block from the tape
+        let Some(block) = self.tape.next_block() else {
+            // No more blocks — let the ROM routine run (it will time out)
+            return;
+        };
+
+        // Check flag byte matches
+        if block.flag != expected_flag {
+            // Flag mismatch — ROM would report "Tape loading error"
+            // Clear carry to indicate failure, pop return address, jump back
+            self.cpu.regs.f &= !0x01; // Clear carry
+            self.pop_ret();
+            return;
+        }
+
+        if is_load {
+            // Copy data from TAP block into memory at IX
+            let copy_len = byte_count.min(block.data.len());
+            for i in 0..copy_len {
+                let addr = dest_addr.wrapping_add(i as u16);
+                self.bus.memory.write(addr, block.data[i]);
+            }
+        }
+        // VERIFY mode: we skip the actual comparison (always succeed)
+
+        // Set carry flag to indicate success
+        self.cpu.regs.f |= 0x01;
+
+        // Pop return address from stack and redirect PC
+        self.pop_ret();
+    }
+
+    /// Pop the return address from the stack and redirect the CPU to it.
+    fn pop_ret(&mut self) {
+        let sp = self.cpu.regs.sp;
+        let lo = self.bus.memory.read(sp);
+        let hi = self.bus.memory.read(sp.wrapping_add(1));
+        let ret_addr = u16::from(lo) | (u16::from(hi) << 8);
+        self.cpu.regs.sp = sp.wrapping_add(2);
+        self.cpu.force_pc(ret_addr);
+    }
 }
 
 impl Tickable for Spectrum {
@@ -199,6 +295,8 @@ impl Tickable for Spectrum {
                 self.cpu.interrupt();
             }
             self.cpu.tick(&mut self.bus);
+            // ROM trap: intercept tape loading at LD-BYTES ($0556)
+            self.check_tape_trap();
             // Sample audio at CPU rate
             self.bus.beeper.sample();
         }

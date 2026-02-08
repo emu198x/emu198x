@@ -61,4 +61,14 @@ pub trait SpectrumVideo {
 
     /// Set border colour (from port $FE write).
     fn set_border_colour(&mut self, colour: u8);
+
+    /// Return the floating bus value at the current beam position.
+    ///
+    /// On a real 48K, unattached port reads leak the ULA's data bus through
+    /// 470-ohm resistors. The value depends on what the ULA is fetching:
+    ///   T+0: bitmap byte, T+1: attribute byte,
+    ///   T+2: bitmap+1 byte, T+3: attribute+1 byte,
+    ///   T+4..T+7: $FF (idle).
+    /// During border/vblank, returns $FF.
+    fn floating_bus(&self, memory: &dyn SpectrumMemory) -> u8;
 }
