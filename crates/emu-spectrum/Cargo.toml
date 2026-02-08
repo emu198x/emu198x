@@ -1,0 +1,25 @@
+[package]
+name = "emu-spectrum"
+description = "Cycle-accurate ZX Spectrum emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "emu-spectrum"
+path = "src/main.rs"
+
+[lib]
+name = "emu_spectrum"
+path = "src/lib.rs"
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+emu-z80 = { path = "../emu-z80" }
+winit = "0.30"
+pixels = "0.15"
+png = "0.17"
+hound = "3.5"
+
+[lints]
+workspace = true

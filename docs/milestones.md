@@ -74,7 +74,7 @@ Per-cycle 6502 with illegal opcode coverage.
 
 ---
 
-### M4: 68000 CPU Core ⬜
+### M4: 68000 CPU Core ✅
 
 Foundational 68000 implementation for Amiga.
 
