@@ -175,11 +175,17 @@ impl Z80 {
     /// Queue micro-ops for the next instruction fetch.
     fn queue_fetch(&mut self) {
         self.micro_ops.clear();
+        self.reset_decode_state();
+        self.micro_ops.push(MicroOp::FetchOpcode);
+    }
+
+    /// Clear any in-flight decode state (prefixes/followups).
+    fn reset_decode_state(&mut self) {
         self.prefix = 0;
         self.prefix2 = 0;
         self.in_followup = false;
         self.followup_stage = 0;
-        self.micro_ops.push(MicroOp::FetchOpcode);
+        self.im2_pending = false;
     }
 
     /// Force a return from a subroutine call.
@@ -916,6 +922,7 @@ impl Z80 {
         self.data_hi = (self.regs.pc >> 8) as u8;
         self.data_lo = self.regs.pc as u8;
         self.micro_ops.clear();
+        self.reset_decode_state();
         self.queue_internal(5); // Internal T-states
         self.micro_ops.push(MicroOp::WriteMemHiFirst);
         self.micro_ops.push(MicroOp::WriteMemLoSecond);
@@ -934,6 +941,7 @@ impl Z80 {
                 self.data_hi = (self.regs.pc >> 8) as u8;
                 self.data_lo = self.regs.pc as u8;
                 self.micro_ops.clear();
+                self.reset_decode_state();
                 self.queue_internal(7);
                 self.micro_ops.push(MicroOp::WriteMemHiFirst);
                 self.micro_ops.push(MicroOp::WriteMemLoSecond);
@@ -945,6 +953,7 @@ impl Z80 {
                 self.data_hi = (self.regs.pc >> 8) as u8;
                 self.data_lo = self.regs.pc as u8;
                 self.micro_ops.clear();
+                self.reset_decode_state();
                 self.queue_internal(7);
                 self.micro_ops.push(MicroOp::WriteMemHiFirst);
                 self.micro_ops.push(MicroOp::WriteMemLoSecond);
@@ -999,7 +1008,7 @@ impl Cpu for Z80 {
             if self.nmi_pending {
                 self.nmi_pending = false;
                 self.handle_nmi();
-            } else if self.int_pending && self.regs.iff1 {
+            } else if self.int_pending && self.regs.iff1 && !self.ei_delay {
                 self.int_pending = false;
                 self.handle_int();
             } else {
