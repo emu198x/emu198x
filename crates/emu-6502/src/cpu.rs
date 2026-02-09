@@ -51,6 +51,8 @@ pub struct Mos6502 {
 
     /// IRQ level - true when IRQ line is low.
     irq_pending: bool,
+    /// One-instruction delay after clearing I (CLI/PLP/RTI behavior).
+    irq_delay: bool,
 
     /// Total cycles executed (for debugging).
     total_cycles: u64,
@@ -76,6 +78,7 @@ impl Mos6502 {
             pointer: 0,
             nmi_pending: false,
             irq_pending: false,
+            irq_delay: false,
             total_cycles: 0,
         }
     }
@@ -112,12 +115,14 @@ impl Mos6502 {
         match self.state {
             State::FetchOpcode => {
                 // Check for interrupts before fetching next opcode
-                if self.nmi_pending {
+                if self.irq_delay {
+                    // 6502 delays IRQ recognition by one instruction after I is cleared
+                    self.irq_delay = false;
+                } else if self.nmi_pending {
                     self.nmi_pending = false;
                     self.begin_nmi(bus);
                     return;
-                }
-                if self.irq_pending && !self.regs.p.is_set(I) {
+                } else if self.irq_pending && !self.regs.p.is_set(I) {
                     self.begin_irq(bus);
                     return;
                 }
@@ -153,6 +158,8 @@ impl Mos6502 {
     fn begin_irq<B: Bus>(&mut self, bus: &mut B) {
         // IRQ uses the same sequence as BRK but reads from $FFFE
         // Cycle 1: read next instruction byte (discarded)
+        // Clear the pending latch now that we're servicing the IRQ.
+        self.irq_pending = false;
         let _ = self.read_mem_result(bus, self.regs.pc);
         self.opcode = 0x00; // Treat as BRK for cycle counting
         self.cycle = 2;
@@ -2055,7 +2062,14 @@ impl Mos6502 {
             4 => {
                 // Push status with B flag set
                 let stack_addr = self.regs.push();
-                self.write_mem(bus, stack_addr, self.regs.p.to_byte_brk());
+                let status = if self.addr != 0 {
+                    // IRQ/NMI: B flag must be clear in pushed status
+                    self.regs.p.to_byte_irq()
+                } else {
+                    // Software BRK: B flag is set in pushed status
+                    self.regs.p.to_byte_brk()
+                };
+                self.write_mem(bus, stack_addr, status);
                 self.cycle = 5;
             }
             5 => {
@@ -2095,7 +2109,11 @@ impl Mos6502 {
                 // Pull status — B flag is not a real register bit, clear it
                 let addr = self.regs.pop();
                 let val = self.read_mem(bus, addr);
-                self.regs.p = Status::from_byte(val & !crate::flags::B);
+                let new_p = Status::from_byte(val & !crate::flags::B);
+                if self.regs.p.is_set(I) && !new_p.is_set(I) {
+                    self.irq_delay = true;
+                }
+                self.regs.p = new_p;
                 self.cycle = 4;
             }
             4 => {
@@ -2288,7 +2306,12 @@ impl Mos6502 {
                 // B flag is not a real register bit, clear it on pull
                 let addr = self.regs.pop();
                 let val = self.read_mem(bus, addr);
-                self.regs.p = Status::from_byte(val & !crate::flags::B);
+                let new_p = Status::from_byte(val & !crate::flags::B);
+                // If I was set and is now clear, delay IRQ by one instruction.
+                if self.regs.p.is_set(I) && !new_p.is_set(I) {
+                    self.irq_delay = true;
+                }
+                self.regs.p = new_p;
                 self.finish();
             }
             _ => unreachable!(),
@@ -2333,6 +2356,10 @@ impl Mos6502 {
     fn op_flag<B: Bus>(&mut self, bus: &mut B, flag: u8, set: bool) {
         if self.cycle == 1 {
             let _ = self.read_mem_result(bus, self.regs.pc);
+            if flag == I && !set && self.regs.p.is_set(I) {
+                // CLI: delay IRQ recognition by one instruction
+                self.irq_delay = true;
+            }
             self.regs.p.set_if(flag, set);
             self.finish();
         }
@@ -2517,6 +2544,7 @@ impl Cpu for Mos6502 {
         self.pointer = 0;
         self.nmi_pending = false;
         self.irq_pending = false;
+        self.irq_delay = false;
         // Note: reset sequence should read from $FFFC/$FFFD
         // For now, caller must set PC after reset
     }

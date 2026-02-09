@@ -2512,10 +2512,6 @@ impl M68000 {
                     if is_move && self.size == Size::Long && !self.fault_read {
                         // MOVE.l destination write AE:
                         // Pipeline advancement depends on source and destination modes.
-                        let is_abs_dst = matches!(
-                            self.dst_mode,
-                            Some(AddrMode::AbsShort) | Some(AddrMode::AbsLong)
-                        );
                         if self.uses_predec_mode() {
                             // Predecrement (source or dest): the pipeline advances
                             // by the number of source extension words consumed.

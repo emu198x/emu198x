@@ -1036,7 +1036,7 @@ impl Z80 {
     /// Execute DD/FD-prefixed instruction.
     pub(super) fn execute_dd_fd(&mut self) {
         let op = self.opcode;
-        let is_iy = self.prefix == 0xFD;
+        let _is_iy = self.prefix == 0xFD;
 
         match op {
             // ADD IX/IY, rr (09=BC, 19=DE, 29=IX/IY, 39=SP)
@@ -1233,7 +1233,7 @@ impl Z80 {
     /// Execute DD/FD followup.
     fn execute_dd_fd_followup(&mut self) {
         let op = self.opcode;
-        let is_iy = self.prefix == 0xFD;
+        let _is_iy = self.prefix == 0xFD;
 
         match op {
             // POP IX/IY

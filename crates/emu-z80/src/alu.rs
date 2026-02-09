@@ -2,6 +2,7 @@
 
 #![allow(clippy::cast_possible_truncation)] // Intentional truncation for low byte extraction.
 #![allow(clippy::verbose_bit_mask)] // Clearer to read mask comparisons.
+#![allow(dead_code)] // Some ALU helpers are defined for completeness but not yet called.
 
 use crate::flags::{CF, HF, NF, PF, SF, XF, YF, ZF};
 

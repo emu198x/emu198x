@@ -1,0 +1,28 @@
+[package]
+name = "emu-c64"
+description = "Cycle-accurate Commodore 64 emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "emu-c64"
+path = "src/main.rs"
+
+[lib]
+name = "emu_c64"
+path = "src/lib.rs"
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+emu-6502 = { path = "../emu-6502" }
+winit = "0.30"
+pixels = "0.15"
+png = "0.17"
+hound = "3.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[lints]
+workspace = true

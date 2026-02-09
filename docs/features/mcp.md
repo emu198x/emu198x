@@ -81,6 +81,7 @@ Run continuously.
 
 #### `run_frames`
 Run for N frames.
+Either `count` or `frames` may be provided.
 
 ```json
 {
@@ -150,6 +151,54 @@ Response:
 {
   "address": 53280,
   "data": [14, 6, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0]
+}
+```
+
+#### `get_screen_text`
+Read the text screen as rows of ASCII.
+
+Response:
+```json
+{
+  "rows": 25,
+  "cols": 40,
+  "lines": [
+    "**** COMMODORE 64 BASIC V2 ****",
+    " 38911 BASIC BYTES FREE",
+    "READY.",
+    "                                        "
+  ]
+}
+```
+
+#### `boot_detected`
+Check whether the boot banner is present on the text screen.
+
+Response:
+```json
+{
+  "boot_detected": true,
+  "reason": "found READY."
+}
+```
+
+#### `boot_status`
+Return boot detection along with screen contents and frame count.
+
+Response:
+```json
+{
+  "boot_detected": true,
+  "reason": "found READY.",
+  "frame_count": 150,
+  "rows": 25,
+  "cols": 40,
+  "lines": [
+    "**** COMMODORE 64 BASIC V2 ****",
+    " 38911 BASIC BYTES FREE",
+    "READY.",
+    "                                        "
+  ]
 }
 ```
 

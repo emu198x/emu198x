@@ -1,5 +1,6 @@
 //! 6502 CPU registers.
 
+use crate::flags::{I, U};
 use crate::Status;
 
 /// 6502 CPU register set.
@@ -48,7 +49,9 @@ impl Registers {
             y: 0,
             s: 0xFD,
             pc: 0,
-            p: Status::new(),
+            // On reset, the 6502 sets I and leaves other flags undefined; we
+            // model this as only U and I set.
+            p: Status(U | I),
         }
     }
 
