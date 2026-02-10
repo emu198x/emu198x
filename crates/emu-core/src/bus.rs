@@ -64,6 +64,11 @@ pub trait Bus {
     ///
     /// Returns the number of wait states.
     fn io_write(&mut self, addr: u32, value: u8) -> u8;
+
+    /// Assert a reset signal to attached devices.
+    ///
+    /// Default implementation does nothing.
+    fn reset(&mut self) {}
 }
 
 /// Simple bus implementation for testing - 64KB, no contention.

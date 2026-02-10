@@ -183,6 +183,9 @@ pub enum MicroOp {
     /// If an address error occurs during the read, this op is cleared
     /// and the register is not modified.
     ApplyPostInc,
+
+    /// Assert RESET signal on the external bus (0 cycles, instant).
+    ResetBus,
 }
 
 impl MicroOp {
@@ -226,6 +229,7 @@ impl MicroOp {
             Self::PushGroup0FaultAddr => 4, // Per word (8 total for long, called in 2 phases)
             Self::PushGroup0AccessInfo => 4, // Push word (4 cycles)
             Self::ApplyPostInc => 0, // Instant internal operation
+            Self::ResetBus => 0, // Instant internal operation
         }
     }
 }

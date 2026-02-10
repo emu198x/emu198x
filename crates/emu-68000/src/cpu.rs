@@ -11,6 +11,7 @@
 #![allow(dead_code)] // Helper functions will be used as more instructions are implemented.
 
 use emu_core::{Bus, Cpu, Observable, Ticks, Value};
+use std::sync::OnceLock;
 
 use crate::flags::{self, Status, C, N, S, V, X, Z};
 use crate::microcode::{MicroOp, MicroOpQueue};
@@ -272,6 +273,63 @@ pub struct M68000 {
 }
 
 impl M68000 {
+    fn trace_pc_range() -> Option<(u32, u32)> {
+        static RANGE: OnceLock<Option<(u32, u32)>> = OnceLock::new();
+        *RANGE.get_or_init(|| {
+            let Ok(spec) = std::env::var("EMU68000_TRACE_PC_RANGE") else {
+                return None;
+            };
+            let (start, end) = spec.split_once('-')?;
+            let parse_hex = |s: &str| {
+                let s = s.trim_start_matches("0x").trim_start_matches("0X");
+                u32::from_str_radix(s, 16).ok()
+            };
+            let start = parse_hex(start)?;
+            let end = parse_hex(end)?;
+            Some((start, end))
+        })
+    }
+
+    fn trace_mem_ranges() -> Option<&'static Vec<(u32, u32)>> {
+        static RANGES: OnceLock<Option<Vec<(u32, u32)>>> = OnceLock::new();
+        RANGES
+            .get_or_init(|| {
+                let Ok(spec) = std::env::var("EMU68000_TRACE_MEM_RANGE") else {
+                    return None;
+                };
+                let parse_hex = |s: &str| {
+                    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+                    u32::from_str_radix(s, 16).ok()
+                };
+                let mut ranges = Vec::new();
+                for part in spec.split(',') {
+                    let part = part.trim();
+                    if part.is_empty() {
+                        continue;
+                    }
+                    let (start, end) = part.split_once('-')?;
+                    let start = parse_hex(start.trim())?;
+                    let end = parse_hex(end.trim())?;
+                    ranges.push((start, end));
+                }
+                if ranges.is_empty() { None } else { Some(ranges) }
+            })
+            .as_ref()
+    }
+
+    fn should_trace_mem(addr: u32) -> bool {
+        let Some(ranges) = Self::trace_mem_ranges() else {
+            return false;
+        };
+        ranges.iter().any(|(start, end)| addr >= *start && addr <= *end)
+    }
+
+    fn trace_mem_access(&self, kind: &str, size: &str, addr: u32, value: u32, width: usize) {
+        let op_pc = self.instr_start_pc.wrapping_sub(2);
+        eprintln!(
+            "[CPU] MEM {kind}{size} ${addr:08X} = ${value:0width$X} (pc=${op_pc:08X})"
+        );
+    }
     /// Create a new 68000 CPU.
     #[must_use]
     pub fn new() -> Self {
@@ -325,6 +383,19 @@ impl M68000 {
         self.total_cycles
     }
 
+    /// Set the interrupt priority level (IPL) lines.
+    ///
+    /// The 68000 has three IPL inputs encoding interrupt priority 0-7.
+    /// Level 0 means no interrupt. Levels 1-6 are maskable (compared
+    /// against SR interrupt mask). Level 7 is non-maskable (NMI).
+    ///
+    /// On the Amiga, Paula drives IPL based on INTENA/INTREQ state.
+    /// The CPU checks `int_pending > interrupt_mask` at instruction
+    /// boundaries and enters the exception handler for the active level.
+    pub fn set_ipl(&mut self, level: u8) {
+        self.int_pending = level & 0x07;
+    }
+
     /// Set up CPU with a pre-fetched opcode for single-step testing.
     ///
     /// This initializes the CPU as if the opcode has already been fetched,
@@ -363,7 +434,11 @@ impl M68000 {
     fn read_byte<B: Bus>(&mut self, bus: &mut B, addr: u32) -> u8 {
         // 68000 uses 24-bit addresses
         let addr24 = addr & 0x00FF_FFFF;
-        bus.read(addr24).data
+        let value = bus.read(addr24).data;
+        if Self::should_trace_mem(addr24) {
+            self.trace_mem_access("R", "B", addr24, u32::from(value), 2);
+        }
+        value
     }
 
     /// Read word from memory (big-endian).
@@ -371,7 +446,11 @@ impl M68000 {
         let addr24 = addr & 0x00FF_FFFE; // Word-aligned
         let hi = bus.read(addr24).data;
         let lo = bus.read(addr24 + 1).data;
-        u16::from(hi) << 8 | u16::from(lo)
+        let value = u16::from(hi) << 8 | u16::from(lo);
+        if Self::should_trace_mem(addr24) {
+            self.trace_mem_access("R", "W", addr24, u32::from(value), 4);
+        }
+        value
     }
 
     /// Read long from memory (big-endian).
@@ -385,12 +464,18 @@ impl M68000 {
     /// Write byte to memory.
     fn write_byte<B: Bus>(&mut self, bus: &mut B, addr: u32, value: u8) {
         let addr24 = addr & 0x00FF_FFFF;
+        if Self::should_trace_mem(addr24) {
+            self.trace_mem_access("W", "B", addr24, u32::from(value), 2);
+        }
         bus.write(addr24, value);
     }
 
     /// Write word to memory (big-endian).
     fn write_word<B: Bus>(&mut self, bus: &mut B, addr: u32, value: u16) {
         let addr24 = addr & 0x00FF_FFFE;
+        if Self::should_trace_mem(addr24) {
+            self.trace_mem_access("W", "W", addr24, u32::from(value), 4);
+        }
         bus.write(addr24, (value >> 8) as u8);
         bus.write(addr24 + 1, value as u8);
     }
@@ -419,6 +504,21 @@ impl M68000 {
         self.internal_cycles = cycles;
         self.internal_advances_pc = true;
         self.micro_ops.push(MicroOp::Internal);
+    }
+
+    /// Set PC for a jump target (JMP/JSR) where `target` is the real destination address.
+    ///
+    /// In prefetch_only (DL) mode: PC = target + 2, and `tick_internal_cycles`
+    /// will add another +2, giving final PC = target + 4 (2-word prefetch queue fill).
+    ///
+    /// In normal execution mode: PC = target. FetchOpcode will read the instruction
+    /// at the target and advance PC by +2.
+    fn set_jump_pc(&mut self, target: u32) {
+        if self.prefetch_only {
+            self.regs.pc = target.wrapping_add(2);
+        } else {
+            self.regs.pc = target;
+        }
     }
 
     /// Queue internal cycles without PC advancement (for jumps/branches that set PC directly).
@@ -458,6 +558,11 @@ impl M68000 {
                     if self.pending_exception.is_none() {
                         self.micro_ops.advance();
                     }
+                    continue;
+                }
+                MicroOp::ResetBus => {
+                    bus.reset();
+                    self.micro_ops.advance();
                     continue;
                 }
                 MicroOp::BeginException => {
@@ -539,13 +644,56 @@ impl M68000 {
                 // Bus cycles 2-3: Address setup and data read
             }
             3 => {
+                let pc_addr = self.regs.pc;
                 // Cycle 4: Read complete
                 self.opcode = self.read_word(bus, self.regs.pc);
+                if std::env::var("EMU68000_TRACE_OPFFFF").is_ok() && self.opcode == 0xFFFF {
+                    eprintln!("[CPU] FFFF opcode fetched at ${pc_addr:08X}");
+                }
+                if let Some((start, end)) = Self::trace_pc_range() {
+                    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+                    static LAST_PC: AtomicU32 = AtomicU32::new(0);
+                    static LAST_IN_RANGE: AtomicBool = AtomicBool::new(false);
+                    let last_pc = LAST_PC.swap(pc_addr, Ordering::Relaxed);
+                    let in_range = pc_addr >= start && pc_addr <= end;
+                    let was_in_range = LAST_IN_RANGE.swap(in_range, Ordering::Relaxed);
+                    if in_range {
+                        if !was_in_range {
+                            eprintln!(
+                                "[CPU] Enter range ${start:08X}-${end:08X} from ${last_pc:08X}"
+                            );
+                        }
+                        eprintln!(
+                            "[CPU] OP @ ${pc_addr:08X} = ${:04X}",
+                            self.opcode
+                        );
+                        if std::env::var("EMU68000_TRACE_PC_REGS").is_ok() {
+                            eprintln!(
+                                "[CPU]   SR=${:04X} D0=${:08X} D1=${:08X} A0=${:08X} A1=${:08X} A2=${:08X} A3=${:08X} A4=${:08X} A5=${:08X} A6=${:08X} A7=${:08X}",
+                                self.regs.sr,
+                                self.regs.d[0],
+                                self.regs.d[1],
+                                self.regs.a(0),
+                                self.regs.a(1),
+                                self.regs.a(2),
+                                self.regs.a(3),
+                                self.regs.a(4),
+                                self.regs.a(5),
+                                self.regs.a(6),
+                                self.regs.a(7)
+                            );
+                        }
+                    }
+                }
                 self.regs.pc = self.regs.pc.wrapping_add(2);
                 // Save instruction start PC for exception handling.
                 // At this point, PC points past the opcode to where extension words begin.
                 self.instr_start_pc = self.regs.pc;
                 self.cycle = 0;
+                // Reset per-instruction state for the new instruction
+                self.ext_count = 0;
+                self.ext_idx = 0;
+                self.instr_phase = InstrPhase::Initial;
                 self.micro_ops.advance();
                 // Queue decode and execute (unless prefetch_only is set)
                 if !self.prefetch_only {
@@ -792,7 +940,9 @@ impl M68000 {
 
             // For operations with >= 4 internal cycles and PC advancement enabled,
             // prefetch is overlapped so we advance PC here.
-            if self.internal_advances_pc && self.internal_cycles >= 4 {
+            // Only in prefetch_only mode (DL single-step tests). In normal mode,
+            // FetchOpcode handles all PC advancement independently.
+            if self.prefetch_only && self.internal_advances_pc && self.internal_cycles >= 4 {
                 self.regs.pc = self.regs.pc.wrapping_add(2);
             }
             self.cycle = 0;
@@ -2947,6 +3097,16 @@ impl M68000 {
                 } else {
                     self.size_increment()
                 };
+                if std::env::var("EMU68000_TRACE_PREDEC").is_ok() {
+                    eprintln!(
+                        "[CPU] PREDEC op=${:04X} size={:?} dec={} A{}=${:08X}",
+                        self.opcode,
+                        self.size,
+                        dec,
+                        r,
+                        self.regs.a(r as usize)
+                    );
+                }
                 let addr = self.regs.a(r as usize).wrapping_sub(dec);
                 self.regs.set_a(r as usize, addr);
                 (addr, false)
@@ -3096,6 +3256,15 @@ impl M68000 {
 
     /// Trigger an exception.
     fn exception(&mut self, vector: u8) {
+        if std::env::var("EMU68000_TRACE_EXC").is_ok() {
+            let op_pc = self.instr_start_pc.wrapping_sub(2);
+            eprintln!(
+                "[CPU] Exception vector {} at pc=${:08X} op=${:04X}",
+                vector,
+                op_pc,
+                self.opcode
+            );
+        }
         self.pending_exception = Some(vector);
         self.micro_ops.clear();
         self.micro_ops.push(MicroOp::BeginException);
@@ -3107,6 +3276,18 @@ impl M68000 {
     /// Trigger an address error exception (vector 3).
     /// Called when word/long access is attempted at an odd address.
     fn address_error(&mut self, addr: u32, is_read: bool, is_instruction: bool) {
+        if std::env::var("EMU68000_TRACE_ADDRERR").is_ok() {
+            eprintln!(
+                "[CPU] Address error: addr=${:08X} pc=${:08X} op=${:04X} read={} instr={} instr_start=${:08X} A7=${:08X}",
+                addr,
+                self.regs.pc,
+                self.opcode,
+                is_read,
+                is_instruction,
+                self.instr_start_pc,
+                self.regs.a(7)
+            );
+        }
         // Clear any deferred post-increment - on address error the register
         // should not be modified (the memory access failed).
         self.deferred_postinc = None;
