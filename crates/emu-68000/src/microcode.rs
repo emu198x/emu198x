@@ -186,6 +186,13 @@ pub enum MicroOp {
 
     /// Assert RESET signal on the external bus (0 cycles, instant).
     ResetBus,
+
+    /// Execute a recipe step (0 cycles, instant).
+    ///
+    /// Recipes are higher-level instruction descriptions that expand into
+    /// existing micro-ops. The step advances through the recipe and may
+    /// queue timed micro-ops (reads/writes/internal), then reschedule itself.
+    RecipeStep,
 }
 
 impl MicroOp {
@@ -230,6 +237,7 @@ impl MicroOp {
             Self::PushGroup0AccessInfo => 4, // Push word (4 cycles)
             Self::ApplyPostInc => 0, // Instant internal operation
             Self::ResetBus => 0, // Instant internal operation
+            Self::RecipeStep => 0, // Instant internal operation
         }
     }
 }

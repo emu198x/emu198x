@@ -135,6 +135,22 @@ fn run_headless(cli: &CliArgs) {
             }
             if addrs.is_empty() { None } else { Some(addrs) }
         });
+    let trace_chip_addrs = std::env::var("EMU_AMIGA_TRACE_CHIP_ADDRS")
+        .ok()
+        .and_then(|spec| {
+            let mut addrs = Vec::new();
+            for part in spec.split(',') {
+                let part = part.trim();
+                if part.is_empty() {
+                    continue;
+                }
+                let part = part.trim_start_matches("0x").trim_start_matches("0X");
+                if let Ok(addr) = u32::from_str_radix(part, 16) {
+                    addrs.push(addr);
+                }
+            }
+            if addrs.is_empty() { None } else { Some(addrs) }
+        });
     for i in 0..cli.frames {
         amiga.run_frame();
         if i % 50 == 0 {
@@ -171,6 +187,19 @@ fn run_headless(cli: &CliArgs) {
                             | u32::from(b2) << 8
                             | u32::from(b3);
                         eprintln!("  MEM[{addr:08X}] = ${val:08X}");
+                    }
+                }
+                if let Some(ref addrs) = trace_chip_addrs {
+                    for &addr in addrs {
+                        let b0 = amiga.bus().peek_chip_ram(addr);
+                        let b1 = amiga.bus().peek_chip_ram(addr.wrapping_add(1));
+                        let b2 = amiga.bus().peek_chip_ram(addr.wrapping_add(2));
+                        let b3 = amiga.bus().peek_chip_ram(addr.wrapping_add(3));
+                        let val = u32::from(b0) << 24
+                            | u32::from(b1) << 16
+                            | u32::from(b2) << 8
+                            | u32::from(b3);
+                        eprintln!("  CHIP[{addr:08X}] = ${val:08X}");
                     }
                 }
             } else {

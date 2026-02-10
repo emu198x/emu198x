@@ -45,6 +45,106 @@ pub enum InstrPhase {
     Complete,
 }
 
+/// Side selector for recipe EA operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EaSide {
+    Src,
+    Dst,
+}
+
+/// Recipe operations for the new execution path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipeOp {
+    /// Fetch N extension words.
+    FetchExtWords(u8),
+    /// Calculate EA for the given side.
+    CalcEa(EaSide),
+    /// Read EA value into `data` (Src) or `data2` (Dst).
+    ReadEa(EaSide),
+    /// Write EA value from `data` (Dst).
+    WriteEa(EaSide),
+    /// Load immediate into `data` from `recipe_imm`.
+    LoadImm,
+    /// Load computed EA address into `data`.
+    LoadEaAddr(EaSide),
+    /// Set N/Z and clear V/C based on `data` and `size`.
+    SetFlagsMove,
+    /// Internal cycles.
+    Internal(u8),
+    /// Advance extension word cursor by N (used to skip MOVEM mask).
+    SkipExt(u8),
+    /// Setup MOVEM registers-to-memory transfer.
+    MovemToMem,
+    /// Setup MOVEM memory-to-registers transfer.
+    MovemFromMem,
+    /// ALU operation writing to a data register.
+    AluReg { op: RecipeAlu, reg: u8 },
+    /// ALU operation writing back to EA (uses `data` as src, `data2` as dst).
+    AluMem { op: RecipeAlu },
+    /// Compare `data` against a register, set flags only.
+    CmpReg { reg: u8, addr: bool },
+    /// Add/sub source `data` to address register (no flags).
+    AddrArith { reg: u8, add: bool },
+    /// Read immediate bit number into `data` (masked for reg/mem).
+    ReadBitImm { reg: bool },
+    /// Read bit number from Dn into `data` (masked for reg/mem).
+    ReadBitReg { reg: u8, mem: bool },
+    /// Bit operation on data register (Z set, optional modify).
+    BitReg { reg: u8, op: u8 },
+    /// Bit operation on memory byte using BitMemOp.
+    BitMem { op: u8 },
+    /// Compare `data` (src) against `data2` (dst), set flags only.
+    CmpEa,
+    /// ADDX register to register.
+    AddxReg { src: u8, dst: u8 },
+    /// SUBX register to register.
+    SubxReg { src: u8, dst: u8 },
+    /// Unary operation on a data register.
+    UnaryReg { op: RecipeUnary, reg: u8 },
+    /// Unary operation on a memory EA (uses AluMemRmw).
+    UnaryMem { op: RecipeUnary },
+    /// Shift/rotate on a data register.
+    ShiftReg {
+        kind: u8,
+        direction: bool,
+        count_or_reg: u8,
+        reg: u8,
+        immediate: bool,
+    },
+    /// Shift/rotate on a memory EA (word, by 1).
+    ShiftMem { kind: u8, direction: bool },
+}
+
+const RECIPE_MAX_OPS: usize = 16;
+
+/// ALU ops supported by the recipe path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipeAlu {
+    Add,
+    Sub,
+    And,
+    Or,
+    Eor,
+}
+
+/// Unary ops supported by the recipe path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipeUnary {
+    Neg,
+    Not,
+    Negx,
+}
+
+impl RecipeUnary {
+    fn to_alu_mem_rmw(self) -> u8 {
+        match self {
+            Self::Neg => 5,
+            Self::Not => 6,
+            Self::Negx => 7,
+        }
+    }
+}
+
 impl Size {
     /// Get size from the standard 2-bit encoding (00=byte, 01=word, 10=long).
     #[must_use]
@@ -189,7 +289,6 @@ pub struct M68000 {
     /// Total internal cycles for current Internal micro-op.
     internal_cycles: u8,
     /// Whether Internal micro-op should advance PC (false for jumps/branches that set PC directly).
-    internal_advances_pc: bool,
 
     // === Instruction decode state ===
     /// Current opcode word.
@@ -227,6 +326,19 @@ pub struct M68000 {
     /// Long transfer phase: 0 = high word, 1 = low word.
     movem_long_phase: u8,
 
+    // === Recipe state ===
+    recipe_ops: [RecipeOp; RECIPE_MAX_OPS],
+    recipe_len: u8,
+    recipe_idx: u8,
+    recipe_active: bool,
+    recipe_src_addr: u32,
+    recipe_dst_addr: u32,
+    recipe_src_is_reg: bool,
+    recipe_dst_is_reg: bool,
+    recipe_src_pc_at_ext: u32,
+    recipe_dst_pc_at_ext: u32,
+    recipe_imm: u32,
+
     // === Exception state ===
     /// PC at instruction start (before extension words consumed).
     /// Used for correct PC value in exception frames.
@@ -247,11 +359,6 @@ pub struct M68000 {
     group0_access_info: u16,
     /// True if ExtendMemOp has performed its pre-decrements.
     extend_predec_done: bool,
-    /// True if next FetchOpcode should not push Execute (post-exception prefetch only).
-    prefetch_only: bool,
-    /// In prefetch_only mode: did the instruction access external memory?
-    /// Used to determine if prefetch advance is needed even without extension words.
-    mem_accessed: bool,
     /// Deferred post-increment: (register, amount). Applied after successful memory read.
     /// Cleared on address error so register is not modified on fault.
     deferred_postinc: Option<(u8, u32)>,
@@ -339,7 +446,6 @@ impl M68000 {
             micro_ops: MicroOpQueue::new(),
             cycle: 0,
             internal_cycles: 0,
-            internal_advances_pc: true,
             opcode: 0,
             ext_words: [0; 4],
             ext_count: 0,
@@ -355,6 +461,17 @@ impl M68000 {
             movem_predec: false,
             movem_postinc: false,
             movem_long_phase: 0,
+            recipe_ops: [RecipeOp::LoadImm; RECIPE_MAX_OPS],
+            recipe_len: 0,
+            recipe_idx: 0,
+            recipe_active: false,
+            recipe_src_addr: 0,
+            recipe_dst_addr: 0,
+            recipe_src_is_reg: false,
+            recipe_dst_is_reg: false,
+            recipe_src_pc_at_ext: 0,
+            recipe_dst_pc_at_ext: 0,
+            recipe_imm: 0,
             instr_start_pc: 0,
             pending_exception: None,
             current_exception: None,
@@ -364,8 +481,6 @@ impl M68000 {
             fault_fc: 0,
             group0_access_info: 0,
             extend_predec_done: false,
-            prefetch_only: false,
-            mem_accessed: false,
             deferred_postinc: None,
             exception_pc_override: None,
             program_space_access: false,
@@ -419,14 +534,8 @@ impl M68000 {
         self.micro_ops.push(MicroOp::Execute);
         self.state = State::Execute;
         self.cycle = 0;
-        // Set prefetch_only so after this instruction, we just prefetch without executing
-        self.prefetch_only = true;
-        self.mem_accessed = false;
-        // Reset internal_advances_pc - instructions that don't use internal cycles
-        // need the final prefetch advance
-        self.internal_advances_pc = false;
+        // Reset internal cycles.
         // Save instruction start PC for exception handling.
-        // In prefetch_only mode, this is the PC value before execution begins.
         self.instr_start_pc = self.regs.pc;
     }
 
@@ -435,6 +544,17 @@ impl M68000 {
         // 68000 uses 24-bit addresses
         let addr24 = addr & 0x00FF_FFFF;
         let value = bus.read(addr24).data;
+        if let Ok(spec) = std::env::var("EMU68000_TRACE_MEM_PC") {
+            let hex = spec.trim().trim_start_matches("0x").trim_start_matches("0X");
+            if let Ok(target) = u32::from_str_radix(hex, 16) {
+                if self.instr_start_pc.wrapping_sub(2) == target {
+                    eprintln!(
+                        "[CPU] MEMPC RB pc=${:08X} addr=${addr24:08X} -> ${value:02X}",
+                        self.instr_start_pc.wrapping_sub(2)
+                    );
+                }
+            }
+        }
         if Self::should_trace_mem(addr24) {
             self.trace_mem_access("R", "B", addr24, u32::from(value), 2);
         }
@@ -447,6 +567,17 @@ impl M68000 {
         let hi = bus.read(addr24).data;
         let lo = bus.read(addr24 + 1).data;
         let value = u16::from(hi) << 8 | u16::from(lo);
+        if let Ok(spec) = std::env::var("EMU68000_TRACE_MEM_PC") {
+            let hex = spec.trim().trim_start_matches("0x").trim_start_matches("0X");
+            if let Ok(target) = u32::from_str_radix(hex, 16) {
+                if self.instr_start_pc.wrapping_sub(2) == target {
+                    eprintln!(
+                        "[CPU] MEMPC RW pc=${:08X} addr=${addr24:08X} -> ${value:04X}",
+                        self.instr_start_pc.wrapping_sub(2)
+                    );
+                }
+            }
+        }
         if Self::should_trace_mem(addr24) {
             self.trace_mem_access("R", "W", addr24, u32::from(value), 4);
         }
@@ -496,35 +627,24 @@ impl M68000 {
         self.src_mode = None;
         self.dst_mode = None;
         self.instr_phase = InstrPhase::Initial;
+        self.recipe_reset();
         self.micro_ops.push(MicroOp::FetchOpcode);
     }
 
-    /// Queue internal cycles (with overlapped PC advancement for long operations).
+    /// Queue internal cycles.
     fn queue_internal(&mut self, cycles: u8) {
         self.internal_cycles = cycles;
-        self.internal_advances_pc = true;
         self.micro_ops.push(MicroOp::Internal);
     }
 
     /// Set PC for a jump target (JMP/JSR) where `target` is the real destination address.
-    ///
-    /// In prefetch_only (DL) mode: PC = target + 2, and `tick_internal_cycles`
-    /// will add another +2, giving final PC = target + 4 (2-word prefetch queue fill).
-    ///
-    /// In normal execution mode: PC = target. FetchOpcode will read the instruction
-    /// at the target and advance PC by +2.
     fn set_jump_pc(&mut self, target: u32) {
-        if self.prefetch_only {
-            self.regs.pc = target.wrapping_add(2);
-        } else {
-            self.regs.pc = target;
-        }
+        self.regs.pc = target;
     }
 
     /// Queue internal cycles without PC advancement (for jumps/branches that set PC directly).
     fn queue_internal_no_pc(&mut self, cycles: u8) {
         self.internal_cycles = cycles;
-        self.internal_advances_pc = false;
         self.micro_ops.push(MicroOp::Internal);
     }
 
@@ -535,11 +655,7 @@ impl M68000 {
     fn tick_internal<B: Bus>(&mut self, bus: &mut B) {
         loop {
             let Some(op) = self.micro_ops.current() else {
-                // Queue empty - start next instruction (unless in prefetch-only mode)
-                if self.prefetch_only {
-                    // In prefetch-only mode (e.g., single-step testing), just idle
-                    return;
-                }
+                // Queue empty - start next instruction
                 self.queue_fetch();
                 return;
             };
@@ -585,18 +701,15 @@ impl M68000 {
                     self.micro_ops.advance();
                     continue;
                 }
+                MicroOp::RecipeStep => {
+                    self.tick_recipe_step();
+                    self.micro_ops.advance();
+                    continue;
+                }
 
                 // Timed micro-ops (consume cycles) - return after processing
                 MicroOp::FetchOpcode => self.tick_fetch_opcode(bus),
-                MicroOp::FetchExtWord => {
-                    // In prefetch_only mode, extension words are already preloaded
-                    // so this is an instant no-op (0 cycles)
-                    if self.prefetch_only {
-                        self.micro_ops.advance();
-                        continue;
-                    }
-                    self.tick_fetch_ext_word(bus);
-                }
+                MicroOp::FetchExtWord => self.tick_fetch_ext_word(bus),
                 MicroOp::ReadByte => self.tick_read_byte(bus),
                 MicroOp::ReadWord => self.tick_read_word(bus),
                 MicroOp::ReadLongHi => self.tick_read_long_hi(bus),
@@ -695,10 +808,8 @@ impl M68000 {
                 self.ext_idx = 0;
                 self.instr_phase = InstrPhase::Initial;
                 self.micro_ops.advance();
-                // Queue decode and execute (unless prefetch_only is set)
-                if !self.prefetch_only {
-                    self.micro_ops.push(MicroOp::Execute);
-                }
+                // Queue decode and execute
+                self.micro_ops.push(MicroOp::Execute);
                 return;
             }
             _ => unreachable!(),
@@ -707,8 +818,6 @@ impl M68000 {
     }
 
     /// Tick for extension word fetch (4 cycles).
-    /// Note: In prefetch_only mode, this function is not called - the caller handles
-    /// that case as an instant no-op since extension words are already preloaded.
     fn tick_fetch_ext_word<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
@@ -915,9 +1024,7 @@ impl M68000 {
     /// Tick for internal processing cycles.
     ///
     /// For long internal operations (>= 4 cycles), the 68000 overlaps prefetch with
-    /// computation. We advance PC by 2 to simulate this. For short operations,
-    /// prefetch happens sequentially during FetchOpcode.
-    /// Jump/branch instructions set internal_advances_pc = false to prevent this.
+    /// computation. Prefetch does not advance the architectural PC in this model.
     fn tick_internal_cycles(&mut self) {
         self.cycle += 1;
         if self.cycle >= self.internal_cycles {
@@ -938,13 +1045,6 @@ impl M68000 {
                 return;
             }
 
-            // For operations with >= 4 internal cycles and PC advancement enabled,
-            // prefetch is overlapped so we advance PC here.
-            // Only in prefetch_only mode (DL single-step tests). In normal mode,
-            // FetchOpcode handles all PC advancement independently.
-            if self.prefetch_only && self.internal_advances_pc && self.internal_cycles >= 4 {
-                self.regs.pc = self.regs.pc.wrapping_add(2);
-            }
             self.cycle = 0;
             self.micro_ops.advance();
         }
@@ -1097,20 +1197,6 @@ impl M68000 {
                     self.cycle = 0;
                     self.micro_ops.advance();
 
-                    // In prefetch_only mode (single-step tests), don't continue
-                    // executing from the vector - just stop with PC set to the
-                    // vector address. The test validates the exception frame
-                    // and final PC, not the execution at the vector.
-                    if self.prefetch_only {
-                        // The test expects final PC to include prefetch advance.
-                        // Exception entry does 2 prefetches from new PC.
-                        self.regs.pc = self.regs.pc.wrapping_add(4);
-                        // Mark that PC was already advanced so tick() doesn't add +2
-                        self.internal_advances_pc = true;
-                        self.micro_ops.clear();
-                        return;
-                    }
-
                     // After exception, start fetching from new PC.
                     // Queue FetchOpcode - tick_fetch_opcode will queue Execute.
                     // Note: For full prefetch accuracy, we'd queue FetchExtWord too,
@@ -1122,7 +1208,6 @@ impl M68000 {
                     self.src_mode = None;
                     self.dst_mode = None;
                     self.instr_phase = InstrPhase::Initial;
-                    self.prefetch_only = false; // Allow normal flow
                     self.micro_ops.push(MicroOp::FetchOpcode);
                     return;
                 }
@@ -1827,8 +1912,6 @@ impl M68000 {
     fn tick_alu_mem_src<B: Bus>(&mut self, bus: &mut B) {
         match self.cycle {
             0 => {
-                // Mark that we're accessing external memory (for prefetch tracking)
-                self.mem_accessed = true;
                 // For byte/word source reads, the 68000 commits (An)+ before
                 // the address error check. For long reads, the 4-byte increment
                 // is deferred until both bus cycles complete.
@@ -2592,7 +2675,6 @@ impl M68000 {
                 // Group 0 exceptions have additional internal cycles for exception processing
                 // The 68000 needs time to capture the fault state before stacking
                 self.internal_cycles = 13;
-                self.internal_advances_pc = false;
                 self.micro_ops.push(MicroOp::Internal);
 
                 // Push order: PC, SR, IR, fault addr, access info
@@ -2606,29 +2688,7 @@ impl M68000 {
                     self.dst_mode,
                     Some(AddrMode::AddrIndPreDec(_))
                 );
-                let effective_ir = if self.prefetch_only
-                    && is_move
-                    && !self.fault_read
-                    && self.size != Size::Long
-                    && is_predec_dst
-                {
-                    let src_ext = match self.src_mode {
-                        Some(mode) => self.ext_words_for_mode(mode),
-                        None => 0u8,
-                    };
-                    let dst_ext = match self.dst_mode {
-                        Some(mode) => self.ext_words_for_mode(mode),
-                        None => 0u8,
-                    };
-                    let ir_idx = (src_ext + dst_ext) as usize;
-                    if ir_idx < self.ext_count as usize {
-                        self.ext_words[ir_idx]
-                    } else {
-                        self.opcode
-                    }
-                } else {
-                    self.opcode
-                };
+                let effective_ir = self.opcode;
 
                 // Build access info word (special status word):
                 // The 68000 includes parts of the instruction register in the upper bits.
@@ -2847,32 +2907,17 @@ impl M68000 {
                 // (not PC-2 like TRAP). This is 2 bytes past what documentation
                 // calls the "next instruction" for 1-word instructions.
                 //
-                // In prefetch_only mode, PC = opcode + 4 + ext_words*2, so:
-                // - For fault address: subtract 4 to get opcode address
-                // - For TRAP/TRAPV return address: subtract 2
-                // - For CHK/ZeroDivide: use PC as-is
-                // In non-prefetch mode, PC = opcode + 2, so:
-                // - For fault address: subtract 2 to get opcode address
-                // - For TRAP/TRAPV: use PC directly
-                // - For CHK/ZeroDivide: add 2
-                let saved_pc = if self.prefetch_only {
-                    match vec {
-                        // Push fault address (back to the instruction that caused exception)
-                        4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(4),
-                        // Return address (next instruction after the one causing exception)
-                        5 | 6 | 7 | 32..=47 => self.regs.pc.wrapping_sub(2),
-                        // Other exceptions use current PC
-                        _ => self.regs.pc,
-                    }
-                } else {
-                    match vec {
-                        // Push fault address (back to the instruction that caused exception)
-                        4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(2),
-                        // Return address (next instruction)
-                        5 | 6 | 7 | 32..=47 => self.regs.pc,
-                        // Other exceptions use current PC
-                        _ => self.regs.pc,
-                    }
+                // PC = opcode + 2 after fetch, so:
+                // - Fault address: subtract 2 to get opcode address
+                // - TRAP/TRAPV return address: use PC directly
+                // - CHK/ZeroDivide: use PC directly (68000 pushes pipeline PC)
+                let saved_pc = match vec {
+                    // Push fault address (back to the instruction that caused exception)
+                    4 | 8 | 10 | 11 => self.regs.pc.wrapping_sub(2),
+                    // Return address (next instruction)
+                    5 | 6 | 7 | 32..=47 => self.regs.pc,
+                    // Other exceptions use current PC
+                    _ => self.regs.pc,
                 };
                 self.data = saved_pc;
                 // Old SR is stored in data2 to preserve it during PC push
@@ -3023,25 +3068,660 @@ impl M68000 {
         }
     }
 
+    fn recipe_reset(&mut self) {
+        self.recipe_len = 0;
+        self.recipe_idx = 0;
+        self.recipe_active = false;
+    }
+
+    fn recipe_begin(&mut self) {
+        self.recipe_len = 0;
+        self.recipe_idx = 0;
+        self.recipe_active = true;
+        self.recipe_src_is_reg = false;
+        self.recipe_dst_is_reg = false;
+    }
+
+    fn recipe_push(&mut self, op: RecipeOp) -> bool {
+        if (self.recipe_len as usize) >= self.recipe_ops.len() {
+            return false;
+        }
+        self.recipe_ops[self.recipe_len as usize] = op;
+        self.recipe_len += 1;
+        true
+    }
+
+    fn recipe_commit(&mut self) -> bool {
+        if self.recipe_len == 0 {
+            self.recipe_active = false;
+            return false;
+        }
+        self.ext_count = 0;
+        self.ext_idx = 0;
+        self.micro_ops.push(MicroOp::RecipeStep);
+        true
+    }
+
+    fn tick_recipe_step(&mut self) {
+        while (self.recipe_idx as usize) < self.recipe_len as usize {
+            let op = self.recipe_ops[self.recipe_idx as usize];
+            self.recipe_idx += 1;
+            if std::env::var("EMU68000_TRACE_RECIPE").is_ok() {
+                let op_pc = self.instr_start_pc.wrapping_sub(2);
+                eprintln!(
+                    "[CPU] RECIPE op=${:04X} pc=${op_pc:08X} step={} kind={op:?}",
+                    self.opcode,
+                    self.recipe_idx - 1
+                );
+            }
+            match op {
+                RecipeOp::FetchExtWords(count) => {
+                    if count > 0 {
+                        for _ in 0..count {
+                            self.micro_ops.push(MicroOp::FetchExtWord);
+                        }
+                        self.micro_ops.push(MicroOp::RecipeStep);
+                        return;
+                    }
+                }
+                RecipeOp::CalcEa(side) => {
+                    let (mode, pc_at_ext) = match side {
+                        EaSide::Src => (self.src_mode, self.recipe_src_pc_at_ext),
+                        EaSide::Dst => (self.dst_mode, self.recipe_dst_pc_at_ext),
+                    };
+                    let Some(mode) = mode else {
+                        self.recipe_reset();
+                        return;
+                    };
+                    let (addr, is_reg) = self.calc_ea(mode, pc_at_ext);
+                    match side {
+                        EaSide::Src => {
+                            self.recipe_src_addr = addr;
+                            self.recipe_src_is_reg = is_reg;
+                        }
+                        EaSide::Dst => {
+                            self.recipe_dst_addr = addr;
+                            self.recipe_dst_is_reg = is_reg;
+                        }
+                    }
+                }
+                RecipeOp::ReadEa(side) => {
+                    let mode = match side {
+                        EaSide::Src => self.src_mode,
+                        EaSide::Dst => self.dst_mode,
+                    };
+                    let Some(mode) = mode else {
+                        self.recipe_reset();
+                        return;
+                    };
+                    if matches!(mode, AddrMode::Immediate) {
+                        let value = self.read_immediate();
+                        match side {
+                            EaSide::Src => self.data = value,
+                            EaSide::Dst => self.data2 = value,
+                        }
+                        continue;
+                    }
+
+                    let (is_reg, addr) = match side {
+                        EaSide::Src => (self.recipe_src_is_reg, self.recipe_src_addr),
+                        EaSide::Dst => (self.recipe_dst_is_reg, self.recipe_dst_addr),
+                    };
+
+                    if is_reg {
+                        let value = match mode {
+                            AddrMode::DataReg(r) => self.read_data_reg(r, self.size),
+                            AddrMode::AddrReg(r) => {
+                                let val = self.regs.a(r as usize);
+                                match self.size {
+                                    Size::Byte => val & 0xFF,
+                                    Size::Word => val & 0xFFFF,
+                                    Size::Long => val,
+                                }
+                            }
+                            _ => 0,
+                        };
+                        match side {
+                            EaSide::Src => self.data = value,
+                            EaSide::Dst => self.data2 = value,
+                        }
+                        continue;
+                    }
+
+                    self.addr = addr;
+                    self.queue_read_ops(self.size);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::WriteEa(side) => {
+                    let mode = match side {
+                        EaSide::Src => self.src_mode,
+                        EaSide::Dst => self.dst_mode,
+                    };
+                    let Some(mode) = mode else {
+                        self.recipe_reset();
+                        return;
+                    };
+                    let (is_reg, addr) = match side {
+                        EaSide::Src => (self.recipe_src_is_reg, self.recipe_src_addr),
+                        EaSide::Dst => (self.recipe_dst_is_reg, self.recipe_dst_addr),
+                    };
+                    if matches!(mode, AddrMode::DataReg(_) | AddrMode::AddrReg(_)) || is_reg {
+                        match mode {
+                            AddrMode::DataReg(r) => {
+                                self.write_data_reg(r, self.data, self.size);
+                            }
+                            AddrMode::AddrReg(r) => {
+                                let value = match self.size {
+                                    Size::Word => self.data as i16 as i32 as u32,
+                                    Size::Long => self.data,
+                                    Size::Byte => self.data & 0xFF,
+                                };
+                                self.regs.set_a(r as usize, value);
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
+                    self.addr = addr;
+                    if std::env::var("EMU68000_TRACE_RECIPE_EA").is_ok() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        eprintln!(
+                            "[CPU] RECIPE_WRITE op=${:04X} pc=${op_pc:08X} addr=${addr:08X} size={:?}",
+                            self.opcode,
+                            self.size
+                        );
+                    }
+                    self.queue_write_ops(self.size);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::LoadImm => {
+                    self.data = self.recipe_imm;
+                }
+                RecipeOp::LoadEaAddr(side) => {
+                    self.data = match side {
+                        EaSide::Src => self.recipe_src_addr,
+                        EaSide::Dst => self.recipe_dst_addr,
+                    };
+                }
+                RecipeOp::SetFlagsMove => {
+                    self.set_flags_move(self.data, self.size);
+                }
+                RecipeOp::Internal(cycles) => {
+                    self.internal_cycles = cycles;
+                    self.micro_ops.push(MicroOp::Internal);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::SkipExt(count) => {
+                    let max = self.ext_count;
+                    let next = self.ext_idx.saturating_add(count);
+                    self.ext_idx = if next > max { max } else { next };
+                }
+                RecipeOp::MovemToMem => {
+                    if self.recipe_setup_movem_to_mem() {
+                        self.micro_ops.push(MicroOp::RecipeStep);
+                        return;
+                    }
+                    self.recipe_reset();
+                    return;
+                }
+                RecipeOp::MovemFromMem => {
+                    if self.recipe_setup_movem_from_mem() {
+                        self.micro_ops.push(MicroOp::RecipeStep);
+                        return;
+                    }
+                    self.recipe_reset();
+                    return;
+                }
+                RecipeOp::AluReg { op, reg } => {
+                    let src = self.data;
+                    let dst = self.read_data_reg(reg, self.size);
+                    let mask = match self.size {
+                        Size::Byte => 0xFF,
+                        Size::Word => 0xFFFF,
+                        Size::Long => 0xFFFF_FFFF,
+                    };
+                    let result = match op {
+                        RecipeAlu::Add => dst.wrapping_add(src) & mask,
+                        RecipeAlu::Sub => dst.wrapping_sub(src) & mask,
+                        RecipeAlu::And => (dst & src) & mask,
+                        RecipeAlu::Or => (dst | src) & mask,
+                        RecipeAlu::Eor => (dst ^ src) & mask,
+                    };
+
+                    match op {
+                        RecipeAlu::Add => self.set_flags_add(src, dst, result, self.size),
+                        RecipeAlu::Sub => self.set_flags_sub(src, dst, result, self.size),
+                        RecipeAlu::And | RecipeAlu::Or | RecipeAlu::Eor => {
+                            self.set_flags_move(result, self.size);
+                        }
+                    }
+
+                    self.write_data_reg(reg, result, self.size);
+                }
+                RecipeOp::AluMem { op } => {
+                    let src = self.data;
+                    let dst = self.data2;
+                    let mask = match self.size {
+                        Size::Byte => 0xFF,
+                        Size::Word => 0xFFFF,
+                        Size::Long => 0xFFFF_FFFF,
+                    };
+                    let result = match op {
+                        RecipeAlu::Add => dst.wrapping_add(src) & mask,
+                        RecipeAlu::Sub => dst.wrapping_sub(src) & mask,
+                        RecipeAlu::And => (dst & src) & mask,
+                        RecipeAlu::Or => (dst | src) & mask,
+                        RecipeAlu::Eor => (dst ^ src) & mask,
+                    };
+
+                    match op {
+                        RecipeAlu::Add => self.set_flags_add(src, dst, result, self.size),
+                        RecipeAlu::Sub => self.set_flags_sub(src, dst, result, self.size),
+                        RecipeAlu::And | RecipeAlu::Or | RecipeAlu::Eor => {
+                            self.set_flags_move(result, self.size);
+                        }
+                    }
+
+                    self.data = result;
+                }
+                RecipeOp::CmpReg { reg, addr } => {
+                    let src = self.data;
+                    let (src_ext, dst, size) = if addr {
+                        let src_ext = if self.size == Size::Word {
+                            src as i16 as i32 as u32
+                        } else {
+                            src
+                        };
+                        (src_ext, self.regs.a(reg as usize), Size::Long)
+                    } else {
+                        (src, self.read_data_reg(reg, self.size), self.size)
+                    };
+                    let result = dst.wrapping_sub(src_ext);
+                    self.set_flags_cmp(src_ext, dst, result, size);
+                }
+                RecipeOp::AddrArith { reg, add } => {
+                    let src = if self.size == Size::Word {
+                        self.data as i16 as i32 as u32
+                    } else {
+                        self.data
+                    };
+                    let dst = self.regs.a(reg as usize);
+                    let result = if add {
+                        dst.wrapping_add(src)
+                    } else {
+                        dst.wrapping_sub(src)
+                    };
+                    self.regs.set_a(reg as usize, result);
+                }
+                RecipeOp::ReadBitImm { reg } => {
+                    let word = self.next_ext_word();
+                    let mask = if reg { 31 } else { 7 };
+                    self.data = u32::from(word & mask);
+                }
+                RecipeOp::ReadBitReg { reg, mem } => {
+                    let mask = if mem { 7 } else { 31 };
+                    self.data = self.regs.d[reg as usize] & mask;
+                }
+                RecipeOp::BitReg { reg, op } => {
+                    let bit = (self.data & 31) as u8;
+                    let mask = 1u32 << bit;
+                    let value = self.regs.d[reg as usize];
+                    let was_zero = value & mask == 0;
+                    self.regs.sr = Status::set_if(self.regs.sr, Z, was_zero);
+
+                    match op {
+                        1 => self.regs.d[reg as usize] = value ^ mask,       // BCHG
+                        2 => self.regs.d[reg as usize] = value & !mask,      // BCLR
+                        3 => self.regs.d[reg as usize] = value | mask,       // BSET
+                        _ => {}                                              // BTST
+                    }
+                }
+                RecipeOp::BitMem { op } => {
+                    self.addr = self.recipe_src_addr;
+                    self.data2 = u32::from(op);
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::BitMemOp);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::CmpEa => {
+                    let src = self.data;
+                    let dst = self.data2;
+                    let result = dst.wrapping_sub(src);
+                    self.set_flags_cmp(src, dst, result, self.size);
+                }
+                RecipeOp::AddxReg { src, dst } => {
+                    let src = self.read_data_reg(src, self.size);
+                    let dst_val = self.read_data_reg(dst, self.size);
+                    let x = u32::from(self.regs.sr & X != 0);
+
+                    let result = dst_val.wrapping_add(src).wrapping_add(x);
+                    self.write_data_reg(dst, result, self.size);
+
+                    let (src_masked, dst_masked, result_masked, msb) = match self.size {
+                        Size::Byte => (src & 0xFF, dst_val & 0xFF, result & 0xFF, 0x80u32),
+                        Size::Word => (src & 0xFFFF, dst_val & 0xFFFF, result & 0xFFFF, 0x8000),
+                        Size::Long => (src, dst_val, result, 0x8000_0000),
+                    };
+
+                    let mut sr = self.regs.sr;
+                    sr = Status::set_if(sr, N, result_masked & msb != 0);
+                    if result_masked != 0 {
+                        sr &= !Z;
+                    }
+                    let overflow =
+                        (!(src_masked ^ dst_masked) & (src_masked ^ result_masked) & msb) != 0;
+                    sr = Status::set_if(sr, V, overflow);
+                    let carry = match self.size {
+                        Size::Byte => {
+                            (u16::from(src as u8) + u16::from(dst_val as u8) + u16::from(x as u8))
+                                > 0xFF
+                        }
+                        Size::Word => {
+                            (u32::from(src as u16) + u32::from(dst_val as u16) + x) > 0xFFFF
+                        }
+                        Size::Long => src
+                            .checked_add(dst_val)
+                            .and_then(|v| v.checked_add(x))
+                            .is_none(),
+                    };
+                    sr = Status::set_if(sr, C, carry);
+                    sr = Status::set_if(sr, X, carry);
+                    self.regs.sr = sr;
+                }
+                RecipeOp::SubxReg { src, dst } => {
+                    let src = self.read_data_reg(src, self.size);
+                    let dst_val = self.read_data_reg(dst, self.size);
+                    let x = u32::from(self.regs.sr & X != 0);
+
+                    let result = dst_val.wrapping_sub(src).wrapping_sub(x);
+                    self.write_data_reg(dst, result, self.size);
+
+                    let (src_masked, dst_masked, result_masked, msb) = match self.size {
+                        Size::Byte => (src & 0xFF, dst_val & 0xFF, result & 0xFF, 0x80u32),
+                        Size::Word => (src & 0xFFFF, dst_val & 0xFFFF, result & 0xFFFF, 0x8000),
+                        Size::Long => (src, dst_val, result, 0x8000_0000),
+                    };
+
+                    let mut sr = self.regs.sr;
+                    sr = Status::set_if(sr, N, result_masked & msb != 0);
+                    if result_masked != 0 {
+                        sr &= !Z;
+                    }
+                    let overflow =
+                        ((dst_masked ^ src_masked) & (dst_masked ^ result_masked) & msb) != 0;
+                    sr = Status::set_if(sr, V, overflow);
+                    let carry = src_masked.wrapping_add(x) > dst_masked
+                        || (src_masked == dst_masked && x != 0);
+                    sr = Status::set_if(sr, C, carry);
+                    sr = Status::set_if(sr, X, carry);
+                    self.regs.sr = sr;
+                }
+                RecipeOp::UnaryReg { op, reg } => {
+                    let value = self.read_data_reg(reg, self.size);
+                    let result = match op {
+                        RecipeUnary::Neg => {
+                            let res = 0u32.wrapping_sub(value);
+                            self.set_flags_sub(value, 0, res, self.size);
+                            res
+                        }
+                        RecipeUnary::Not => {
+                            let res = !value;
+                            self.set_flags_move(res, self.size);
+                            res
+                        }
+                        RecipeUnary::Negx => {
+                            let x = u32::from(self.regs.sr & X != 0);
+                            let res = 0u32.wrapping_sub(value).wrapping_sub(x);
+
+                            let (src_masked, result_masked, msb) = match self.size {
+                                Size::Byte => (value & 0xFF, res & 0xFF, 0x80u32),
+                                Size::Word => (value & 0xFFFF, res & 0xFFFF, 0x8000),
+                                Size::Long => (value, res, 0x8000_0000),
+                            };
+
+                            let mut sr = self.regs.sr;
+                            sr = Status::set_if(sr, N, result_masked & msb != 0);
+                            if result_masked != 0 {
+                                sr &= !Z;
+                            }
+                            let overflow =
+                                (src_masked & msb) != 0 && (result_masked & msb) != 0;
+                            sr = Status::set_if(sr, V, overflow);
+                            let carry = src_masked != 0 || x != 0;
+                            sr = Status::set_if(sr, C, carry);
+                            sr = Status::set_if(sr, X, carry);
+                            self.regs.sr = sr;
+
+                            res
+                        }
+                    };
+                    self.write_data_reg(reg, result, self.size);
+                }
+                RecipeOp::UnaryMem { op } => {
+                    self.addr = self.recipe_dst_addr;
+                    self.data2 = u32::from(op.to_alu_mem_rmw());
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::AluMemRmw);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::ShiftReg {
+                    kind,
+                    direction,
+                    count_or_reg,
+                    reg,
+                    immediate,
+                } => {
+                    self.exec_shift_reg(
+                        kind,
+                        direction,
+                        count_or_reg,
+                        reg,
+                        Some(self.size),
+                        immediate,
+                    );
+                }
+                RecipeOp::ShiftMem { kind, direction } => {
+                    self.addr = self.recipe_dst_addr;
+                    self.data = u32::from(kind);
+                    self.data2 = if direction { 1 } else { 0 };
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::ShiftMemExecute);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+            }
+        }
+        self.recipe_reset();
+    }
+
+    fn recipe_setup_movem_to_mem(&mut self) -> bool {
+        let mask = self.ext_words[0];
+        if mask == 0 {
+            self.queue_internal(8);
+            return true;
+        }
+
+        let Some(addr_mode) = self.src_mode else {
+            return false;
+        };
+
+        self.program_space_access = matches!(addr_mode, AddrMode::PcDisp | AddrMode::PcIndex);
+
+        let is_predec = matches!(addr_mode, AddrMode::AddrIndPreDec(_));
+        self.movem_predec = is_predec;
+        self.movem_postinc = false;
+        self.movem_long_phase = 0;
+
+        let (start_addr, ea_reg) = match addr_mode {
+            AddrMode::AddrIndPreDec(r) => {
+                let dec_per_reg = if self.size == Size::Long { 4 } else { 2 };
+                let start = self.regs.a(r as usize).wrapping_sub(dec_per_reg);
+                (start, r)
+            }
+            AddrMode::AddrInd(r) => (self.regs.a(r as usize), r),
+            AddrMode::AddrIndDisp(r) => {
+                let disp = self.next_ext_word() as i16 as i32;
+                let base = self.regs.a(r as usize) as i32;
+                (base.wrapping_add(disp) as u32, r)
+            }
+            AddrMode::AbsShort => {
+                let addr = self.next_ext_word() as i16 as i32 as u32;
+                (addr, 0)
+            }
+            AddrMode::AbsLong => {
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                ((u32::from(hi) << 16) | u32::from(lo), 0)
+            }
+            AddrMode::AddrIndIndex(r) => {
+                let ext = self.next_ext_word();
+                let disp = (ext & 0xFF) as i8 as i32;
+                let idx_reg = ((ext >> 12) & 7) as usize;
+                let idx_is_addr = ext & 0x8000 != 0;
+                let idx_is_long = ext & 0x0800 != 0;
+                let idx_value = if idx_is_addr {
+                    self.regs.a(idx_reg)
+                } else {
+                    self.regs.d[idx_reg]
+                };
+                let idx_value = if idx_is_long {
+                    idx_value as i32
+                } else {
+                    idx_value as i16 as i32
+                };
+                let base = self.regs.a(r as usize) as i32;
+                (base.wrapping_add(disp).wrapping_add(idx_value) as u32, r)
+            }
+            _ => return false,
+        };
+
+        self.addr = start_addr;
+        self.addr2 = u32::from(ea_reg);
+
+        let first_bit = if is_predec {
+            self.find_first_movem_bit_down(mask)
+        } else {
+            self.find_first_movem_bit_up(mask)
+        };
+
+        if let Some(bit) = first_bit {
+            self.data2 = bit as u32;
+            self.micro_ops.push(MicroOp::MovemWrite);
+        }
+
+        true
+    }
+
+    fn recipe_setup_movem_from_mem(&mut self) -> bool {
+        let mask = self.ext_words[0];
+        if mask == 0 {
+            self.queue_internal(12);
+            return true;
+        }
+
+        let Some(addr_mode) = self.dst_mode else {
+            return false;
+        };
+
+        self.program_space_access = matches!(addr_mode, AddrMode::PcDisp | AddrMode::PcIndex);
+
+        let is_postinc = matches!(addr_mode, AddrMode::AddrIndPostInc(_));
+        self.movem_predec = false;
+        self.movem_postinc = is_postinc;
+        self.movem_long_phase = 0;
+
+        let (start_addr, ea_reg) = match addr_mode {
+            AddrMode::AddrIndPostInc(r) => (self.regs.a(r as usize), r),
+            AddrMode::AddrInd(r) => (self.regs.a(r as usize), r),
+            AddrMode::AddrIndDisp(r) => {
+                let disp = self.next_ext_word() as i16 as i32;
+                let base = self.regs.a(r as usize) as i32;
+                (base.wrapping_add(disp) as u32, r)
+            }
+            AddrMode::AbsShort => {
+                let addr = self.next_ext_word() as i16 as i32 as u32;
+                (addr, 0)
+            }
+            AddrMode::AbsLong => {
+                let hi = self.next_ext_word();
+                let lo = self.next_ext_word();
+                ((u32::from(hi) << 16) | u32::from(lo), 0)
+            }
+            AddrMode::AddrIndIndex(r) => {
+                let ext = self.next_ext_word();
+                let disp = (ext & 0xFF) as i8 as i32;
+                let idx_reg = ((ext >> 12) & 7) as usize;
+                let idx_is_addr = ext & 0x8000 != 0;
+                let idx_is_long = ext & 0x0800 != 0;
+                let idx_value = if idx_is_addr {
+                    self.regs.a(idx_reg)
+                } else {
+                    self.regs.d[idx_reg]
+                };
+                let idx_value = if idx_is_long {
+                    idx_value as i32
+                } else {
+                    idx_value as i16 as i32
+                };
+                let base = self.regs.a(r as usize) as i32;
+                (base.wrapping_add(disp).wrapping_add(idx_value) as u32, r)
+            }
+            AddrMode::PcDisp => {
+                let base_pc = self.recipe_dst_pc_at_ext;
+                let disp = self.next_ext_word() as i16 as i32;
+                ((base_pc as i32).wrapping_add(disp) as u32, 0)
+            }
+            AddrMode::PcIndex => {
+                let base_pc = self.recipe_dst_pc_at_ext;
+                let ext = self.next_ext_word();
+                let disp = (ext & 0xFF) as i8 as i32;
+                let idx_reg = ((ext >> 12) & 7) as usize;
+                let idx_is_addr = ext & 0x8000 != 0;
+                let idx_is_long = ext & 0x0800 != 0;
+                let idx_value = if idx_is_addr {
+                    self.regs.a(idx_reg)
+                } else {
+                    self.regs.d[idx_reg]
+                };
+                let idx_value = if idx_is_long {
+                    idx_value as i32
+                } else {
+                    idx_value as i16 as i32
+                };
+                (
+                    (base_pc as i32).wrapping_add(disp).wrapping_add(idx_value) as u32,
+                    0,
+                )
+            }
+            _ => return false,
+        };
+
+        self.addr = start_addr;
+        self.addr2 = u32::from(ea_reg);
+
+        let first_bit = self.find_first_movem_bit_up(mask);
+        if let Some(bit) = first_bit {
+            self.data2 = bit as u32;
+            self.micro_ops.push(MicroOp::MovemRead);
+        }
+
+        true
+    }
+
     /// Get next extension word from the prefetch queue.
     /// Returns the word at ext_idx and increments the index.
-    ///
-    /// In prefetch_only mode (single-step testing):
-    /// - Index 0 is IRC (Instruction Register Cache). Consuming it triggers the
-    ///   prefetch pipeline to refill IRC from memory at PC, advancing PC by 2.
-    /// - Index 1+ are words that were preloaded from memory at PC, PC+2, etc.
-    ///   Consuming them also advances PC by 2 each.
     ///
     /// Returns 0 if the queue is exhausted (shouldn't happen in correct code).
     fn next_ext_word(&mut self) -> u16 {
         let idx = self.ext_idx as usize;
         if idx < self.ext_count as usize {
             self.ext_idx += 1;
-            // In prefetch_only mode, consuming ANY extension word advances PC by 2
-            // because the prefetch pipeline always fetches the next word.
-            if self.prefetch_only {
-                self.regs.pc = self.regs.pc.wrapping_add(2);
-            }
             self.ext_words[idx]
         } else {
             0
@@ -3072,6 +3752,13 @@ impl M68000 {
     /// Calculate effective address for an addressing mode using extension words.
     /// Returns the address and whether it's a register (not memory).
     fn calc_ea(&mut self, mode: AddrMode, pc_at_ext: u32) -> (u32, bool) {
+        let log_ea = std::env::var("EMU68000_TRACE_EA_PC")
+            .ok()
+            .and_then(|spec| {
+                let hex = spec.trim().trim_start_matches("0x").trim_start_matches("0X");
+                u32::from_str_radix(hex, 16).ok()
+            })
+            .map_or(false, |target| target == self.instr_start_pc.wrapping_sub(2));
         // Track whether this is a PC-relative access for function code in address errors
         self.program_space_access = matches!(mode, AddrMode::PcDisp | AddrMode::PcIndex);
         match mode {
@@ -3114,6 +3801,15 @@ impl M68000 {
             AddrMode::AddrIndDisp(r) => {
                 let disp = self.next_ext_word() as i16 as i32;
                 let addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                if log_ea {
+                    eprintln!(
+                        "[CPU] EA AddrIndDisp A{}=${:08X} disp={} -> ${:08X}",
+                        r,
+                        self.regs.a(r as usize),
+                        disp,
+                        addr
+                    );
+                }
                 (addr, false)
             }
             AddrMode::AddrIndIndex(r) => {
@@ -3135,38 +3831,50 @@ impl M68000 {
                 let addr = (self.regs.a(r as usize) as i32)
                     .wrapping_add(disp)
                     .wrapping_add(idx_val) as u32;
+                if log_ea {
+                    eprintln!(
+                        "[CPU] EA AddrIndIndex A{}=${:08X} disp={} idx={} -> ${:08X}",
+                        r,
+                        self.regs.a(r as usize),
+                        disp,
+                        idx_val,
+                        addr
+                    );
+                }
                 (addr, false)
             }
             AddrMode::AbsShort => {
                 let addr = self.next_ext_word() as i16 as i32 as u32;
+                if log_ea {
+                    eprintln!("[CPU] EA AbsShort -> ${:08X}", addr);
+                }
                 (addr, false)
             }
             AddrMode::AbsLong => {
                 let hi = self.next_ext_word();
                 let lo = self.next_ext_word();
                 let addr = (u32::from(hi) << 16) | u32::from(lo);
+                if log_ea {
+                    eprintln!("[CPU] EA AbsLong -> ${:08X}", addr);
+                }
                 (addr, false)
             }
             AddrMode::PcDisp => {
                 // For PC-relative modes, the base PC is the address of the extension word.
-                // In prefetch_only mode, this is PC-2 (before next_ext_word advances PC).
-                let base_pc = if self.prefetch_only {
-                    self.regs.pc.wrapping_sub(2)
-                } else {
-                    pc_at_ext
-                };
+                let base_pc = pc_at_ext;
                 let disp = self.next_ext_word() as i16 as i32;
                 let addr = (base_pc as i32).wrapping_add(disp) as u32;
+                if log_ea {
+                    eprintln!(
+                        "[CPU] EA PcDisp base=${:08X} disp={} -> ${:08X}",
+                        base_pc, disp, addr
+                    );
+                }
                 (addr, false)
             }
             AddrMode::PcIndex => {
                 // For PC-relative modes, the base PC is the address of the extension word.
-                // In prefetch_only mode, this is PC-2 (before next_ext_word advances PC).
-                let base_pc = if self.prefetch_only {
-                    self.regs.pc.wrapping_sub(2)
-                } else {
-                    pc_at_ext
-                };
+                let base_pc = pc_at_ext;
                 let ext = self.next_ext_word();
                 let disp = (ext & 0xFF) as i8 as i32;
                 let xn = ((ext >> 12) & 7) as usize;
@@ -3185,6 +3893,12 @@ impl M68000 {
                 let addr = (base_pc as i32)
                     .wrapping_add(disp)
                     .wrapping_add(idx_val) as u32;
+                if log_ea {
+                    eprintln!(
+                        "[CPU] EA PcIndex base=${:08X} disp={} idx={} -> ${:08X}",
+                        base_pc, disp, idx_val, addr
+                    );
+                }
                 (addr, false)
             }
             AddrMode::Immediate => {
@@ -3271,6 +3985,7 @@ impl M68000 {
         // Reset cycle and phase tracking for clean exception processing
         self.cycle = 0;
         self.movem_long_phase = 0;
+        self.recipe_reset();
     }
 
     /// Trigger an address error exception (vector 3).
@@ -3474,21 +4189,6 @@ impl Cpu for M68000 {
 
         // Check for pending interrupts at instruction boundary
         if self.micro_ops.is_empty() {
-            if self.prefetch_only {
-                // In prefetch-only mode (single-step testing):
-                // Add PC advance for prefetch refill unless the internal cycles
-                // already advanced PC (DIVU, MULU, etc. overlap their prefetch
-                // during execution, handled by tick_internal_cycles).
-                //
-                // This applies to ALL instructions - both those with and without
-                // extension words need the final prefetch advance.
-                if !self.internal_advances_pc {
-                    self.regs.pc = self.regs.pc.wrapping_add(2);
-                }
-                self.state = State::Halted;
-                self.prefetch_only = false;
-                return;
-            }
             if self.int_pending > self.regs.interrupt_mask() {
                 let level = self.int_pending;
                 self.int_pending = 0;
@@ -3534,7 +4234,6 @@ impl Cpu for M68000 {
         self.micro_ops.clear();
         self.cycle = 0;
         self.internal_cycles = 0;
-        self.internal_advances_pc = true;
         self.opcode = 0;
         self.ext_words = [0; 4];
         self.ext_count = 0;
@@ -3555,7 +4254,6 @@ impl Cpu for M68000 {
         self.fault_fc = 0;
         self.group0_access_info = 0;
         self.extend_predec_done = false;
-        self.prefetch_only = false;
         self.int_pending = 0;
 
         // Start fetch sequence (in real hardware, this reads SSP and PC first)

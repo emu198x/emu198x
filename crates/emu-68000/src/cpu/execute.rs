@@ -12,7 +12,9 @@
 #![allow(clippy::manual_rotate)] // SWAP is conceptually a register swap, not rotation.
 #![allow(clippy::manual_range_patterns)] // Explicit values for instruction decode clarity.
 
-use crate::cpu::{AddrMode, InstrPhase, M68000, Size};
+use crate::cpu::{
+    AddrMode, EaSide, InstrPhase, M68000, RecipeAlu, RecipeOp, RecipeUnary, Size,
+};
 use crate::flags::{Status, C, N, V, X, Z};
 use crate::microcode::MicroOp;
 use std::sync::OnceLock;
@@ -26,7 +28,65 @@ fn trace_enabled() -> bool {
     })
 }
 
+fn trace_jump_targets() -> Option<&'static Vec<u32>> {
+    static TARGETS: OnceLock<Option<Vec<u32>>> = OnceLock::new();
+    TARGETS
+        .get_or_init(|| {
+            let Ok(spec) = std::env::var("EMU68000_TRACE_JUMP_TO") else {
+                return None;
+            };
+            let mut targets = Vec::new();
+            for part in spec.split(',') {
+                let part = part.trim();
+                if part.is_empty() {
+                    continue;
+                }
+                let hex = part.trim_start_matches("0x").trim_start_matches("0X");
+                let Ok(value) = u32::from_str_radix(hex, 16) else {
+                    return None;
+                };
+                targets.push(value);
+            }
+            if targets.is_empty() { None } else { Some(targets) }
+        })
+        .as_ref()
+}
+
+fn trace_add_pc_target() -> Option<u32> {
+    static TARGET: OnceLock<Option<u32>> = OnceLock::new();
+    *TARGET.get_or_init(|| {
+        let Ok(spec) = std::env::var("EMU68000_TRACE_ADD_PC") else {
+            return None;
+        };
+        let hex = spec.trim().trim_start_matches("0x").trim_start_matches("0X");
+        u32::from_str_radix(hex, 16).ok()
+    })
+}
+
+fn recipe_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("EMU68000_RECIPE")
+            .map(|v| v != "0")
+            .unwrap_or(false)
+    })
+}
+
 impl M68000 {
+    fn trace_jump_to(&self, kind: &str, target: u32) {
+        let Some(targets) = trace_jump_targets() else {
+            return;
+        };
+        if !targets.contains(&target) {
+            return;
+        }
+        let op_pc = self.instr_start_pc.wrapping_sub(2);
+        eprintln!(
+            "[CPU] {kind} target=${target:08X} pc=${:08X} op_pc=${op_pc:08X}",
+            self.regs.pc
+        );
+    }
+
     /// Decode and execute the current instruction.
     pub(super) fn decode_and_execute(&mut self) {
         use crate::cpu::InstrPhase;
@@ -38,7 +98,7 @@ impl M68000 {
         if self.instr_phase != InstrPhase::Initial {
             self.continue_instruction();
             let queue_after = self.micro_ops.len();
-            if !self.prefetch_only && trace_enabled() {
+            if trace_enabled() {
                 eprintln!("[CPU] CONT op=${:04X} phase={:?} queue {}/{}→{}/{}",
                     self.opcode, self.instr_phase, pos_before, queue_before, self.micro_ops.pos(), queue_after);
             }
@@ -47,6 +107,10 @@ impl M68000 {
 
         // Extract common fields from opcode
         let op = self.opcode;
+
+        if recipe_enabled() && self.try_recipe(op) {
+            return;
+        }
 
         // Top 4 bits determine instruction group
         match op >> 12 {
@@ -68,7 +132,7 @@ impl M68000 {
             0xF => self.decode_line_f(op),
             _ => unreachable!(),
         }
-        if !self.prefetch_only && trace_enabled() {
+        if trace_enabled() {
             let queue_after = self.micro_ops.len();
             eprintln!("[CPU] EXEC op=${:04X} PC=${:08X} queue {}/{}→{}/{}",
                 op, self.regs.pc, pos_before, queue_before, self.micro_ops.pos(), queue_after);
@@ -78,6 +142,16 @@ impl M68000 {
     /// Continue executing an instruction that's in a follow-up phase.
     fn continue_instruction(&mut self) {
         let op = self.opcode;
+        if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+            let op_pc = self.instr_start_pc.wrapping_sub(2);
+            let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+            if log_this {
+                eprintln!(
+                    "[CPU] continue op=${op:04X} op_pc=${op_pc:08X} phase={:?}",
+                    self.instr_phase
+                );
+            }
+        }
 
         // Re-dispatch to the same instruction handler
         match op >> 12 {
@@ -166,11 +240,1190 @@ impl M68000 {
                 // Branch instructions with word displacement
                 self.branch_continuation();
             }
+            0x7 => self.decode_moveq(op),
+            0x8 => self.decode_group_8(op),
+            0x9 => self.decode_sub(op),
+            0xA => self.decode_line_a(op),
+            0xB => self.decode_group_b(op),
+            0xC => self.decode_group_c(op),
+            0xD => self.decode_add(op),
+            0xE => self.decode_shift_rotate(op),
+            0xF => self.decode_line_f(op),
             _ => {
                 // Instruction doesn't support phases, reset
                 self.instr_phase = crate::cpu::InstrPhase::Initial;
             }
         }
+    }
+
+    fn try_recipe(&mut self, op: u16) -> bool {
+        match op >> 12 {
+            0x0 => self.recipe_group_0(op),
+            0x1 => self.recipe_move(Size::Byte, op),
+            0x2 => self.recipe_move(Size::Long, op),
+            0x3 => self.recipe_move(Size::Word, op),
+            0x7 => self.recipe_moveq(op),
+            0x4 => self.recipe_group_4(op),
+            0x8 => self.recipe_or(op),
+            0x9 => {
+                if (op >> 6) & 3 == 3 {
+                    self.recipe_suba(op)
+                } else if op & 0x0100 != 0 && (op >> 4) & 3 == 0 {
+                    self.recipe_subx(op)
+                } else {
+                    self.recipe_sub(op)
+                }
+            }
+            0xB => self.recipe_group_b(op),
+            0xC => self.recipe_and(op),
+            0xD => {
+                if (op >> 6) & 3 == 3 {
+                    self.recipe_adda(op)
+                } else if op & 0x0100 != 0 && (op >> 4) & 3 == 0 {
+                    self.recipe_addx(op)
+                } else {
+                    self.recipe_add(op)
+                }
+            }
+            0xE => self.recipe_shift_rotate(op),
+            _ => false,
+        }
+    }
+
+    fn recipe_moveq(&mut self, op: u16) -> bool {
+        let reg = ((op >> 9) & 7) as u8;
+        let imm = (op & 0xFF) as i8 as i32 as u32;
+
+        self.size = Size::Long;
+        self.src_mode = None;
+        self.dst_mode = Some(AddrMode::DataReg(reg));
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+        self.recipe_imm = imm;
+
+        self.recipe_begin();
+        if !self.recipe_push(RecipeOp::LoadImm) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Dst)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::WriteEa(EaSide::Dst)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::SetFlagsMove) {
+            self.recipe_reset();
+            return false;
+        }
+        self.recipe_commit()
+    }
+
+    fn recipe_group_0(&mut self, op: u16) -> bool {
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+
+        if op & 0x0100 != 0 {
+            if mode == 1 {
+                return false; // MOVEP
+            }
+            return self.recipe_bit_reg(op, mode, ea_reg);
+        }
+
+        match (op >> 9) & 7 {
+            4 => self.recipe_bit_imm(op, mode, ea_reg),
+            0 => self.recipe_imm_op(op, RecipeAlu::Or, mode, ea_reg),
+            1 => self.recipe_imm_op(op, RecipeAlu::And, mode, ea_reg),
+            2 => self.recipe_imm_op(op, RecipeAlu::Sub, mode, ea_reg),
+            3 => self.recipe_imm_op(op, RecipeAlu::Add, mode, ea_reg),
+            5 => self.recipe_imm_op(op, RecipeAlu::Eor, mode, ea_reg),
+            6 => self.recipe_cmpi(op, mode, ea_reg),
+            _ => false,
+        }
+    }
+
+    fn recipe_bit_reg(&mut self, op: u16, mode: u8, ea_reg: u8) -> bool {
+        let reg = ((op >> 9) & 7) as u8;
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(addr_mode, AddrMode::AddrReg(_)) {
+            return false;
+        }
+
+        let op_kind = ((op >> 6) & 3) as u8; // 0=BTST,1=BCHG,2=BCLR,3=BSET
+        let is_reg = matches!(addr_mode, AddrMode::DataReg(_));
+
+        self.size = if is_reg { Size::Long } else { Size::Byte };
+        self.src_mode = Some(addr_mode);
+        self.dst_mode = None;
+
+        let ext_needed = self.ext_words_for_mode(addr_mode);
+        if (ext_needed as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if ext_needed > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_needed)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::ReadBitReg {
+            reg,
+            mem: !is_reg,
+        }) {
+            self.recipe_reset();
+            return false;
+        }
+
+        if is_reg {
+            if !self.recipe_push(RecipeOp::BitReg {
+                reg: ea_reg,
+                op: op_kind,
+            }) {
+                self.recipe_reset();
+                return false;
+            }
+        } else {
+            if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+                || !self.recipe_push(RecipeOp::BitMem { op: op_kind })
+            {
+                self.recipe_reset();
+                return false;
+            }
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_imm_op(
+        &mut self,
+        op: u16,
+        kind: RecipeAlu,
+        mode: u8,
+        ea_reg: u8,
+    ) -> bool {
+        if mode == 7 && ea_reg == 4 {
+            return false; // CCR/SR special cases handled by legacy path
+        }
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let Some(size) = size else {
+            return false;
+        };
+
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(addr_mode, AddrMode::AddrReg(_) | AddrMode::Immediate) {
+            return false;
+        }
+        if !addr_mode.is_data_alterable() && !matches!(addr_mode, AddrMode::DataReg(_)) {
+            return false;
+        }
+
+        self.size = size;
+        self.src_mode = Some(AddrMode::Immediate);
+        self.dst_mode = Some(addr_mode);
+
+        let src_ext = self.ext_words_for_mode(AddrMode::Immediate);
+        let dst_ext = self.ext_words_for_mode(addr_mode);
+        if (src_ext as usize + dst_ext as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc.wrapping_add(u32::from(src_ext) * 2);
+
+        let ext_total = src_ext + dst_ext;
+        if ext_total > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_total)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::ReadEa(EaSide::Src)) {
+            self.recipe_reset();
+            return false;
+        }
+
+        if let AddrMode::DataReg(r) = addr_mode {
+            if !self.recipe_push(RecipeOp::AluReg { op: kind, reg: r }) {
+                self.recipe_reset();
+                return false;
+            }
+        } else {
+            if !self.recipe_push(RecipeOp::CalcEa(EaSide::Dst))
+                || !self.recipe_push(RecipeOp::ReadEa(EaSide::Dst))
+                || !self.recipe_push(RecipeOp::AluMem { op: kind })
+                || !self.recipe_push(RecipeOp::WriteEa(EaSide::Dst))
+            {
+                self.recipe_reset();
+                return false;
+            }
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_cmpi(&mut self, op: u16, mode: u8, ea_reg: u8) -> bool {
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let Some(size) = size else {
+            return false;
+        };
+
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(addr_mode, AddrMode::AddrReg(_) | AddrMode::Immediate) {
+            return false;
+        }
+
+        self.size = size;
+        self.src_mode = Some(AddrMode::Immediate);
+        self.dst_mode = Some(addr_mode);
+
+        let src_ext = self.ext_words_for_mode(AddrMode::Immediate);
+        let dst_ext = self.ext_words_for_mode(addr_mode);
+        if (src_ext as usize + dst_ext as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc.wrapping_add(u32::from(src_ext) * 2);
+
+        let ext_total = src_ext + dst_ext;
+        if ext_total > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_total)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::ReadEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::CalcEa(EaSide::Dst))
+            || !self.recipe_push(RecipeOp::ReadEa(EaSide::Dst))
+            || !self.recipe_push(RecipeOp::CmpEa)
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_bit_imm(&mut self, op: u16, mode: u8, ea_reg: u8) -> bool {
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(addr_mode, AddrMode::AddrReg(_)) {
+            return false;
+        }
+
+        let op_kind = ((op >> 6) & 3) as u8; // 0=BTST,1=BCHG,2=BCLR,3=BSET
+        let is_reg = matches!(addr_mode, AddrMode::DataReg(_));
+
+        self.size = if is_reg { Size::Long } else { Size::Byte };
+        self.src_mode = Some(addr_mode);
+        self.dst_mode = None;
+
+        let ext_needed = 1 + self.ext_words_for_mode(addr_mode);
+        if (ext_needed as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc.wrapping_add(2);
+        self.recipe_dst_pc_at_ext = self.instr_start_pc.wrapping_add(2);
+
+        if !self.recipe_push(RecipeOp::FetchExtWords(ext_needed))
+            || !self.recipe_push(RecipeOp::ReadBitImm { reg: is_reg })
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        if is_reg {
+            if !self.recipe_push(RecipeOp::BitReg {
+                reg: ea_reg,
+                op: op_kind,
+            }) {
+                self.recipe_reset();
+                return false;
+            }
+        } else {
+            if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+                || !self.recipe_push(RecipeOp::BitMem { op: op_kind })
+            {
+                self.recipe_reset();
+                return false;
+            }
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_move(&mut self, size: Size, op: u16) -> bool {
+        let dst_reg = ((op >> 9) & 7) as u8;
+        let dst_mode = ((op >> 6) & 7) as u8;
+        let src_mode = ((op >> 3) & 7) as u8;
+        let src_reg = (op & 7) as u8;
+
+        let Some(src_mode) = AddrMode::decode(src_mode, src_reg) else {
+            return false;
+        };
+        let Some(dst_mode) = AddrMode::decode(dst_mode, dst_reg) else {
+            return false;
+        };
+
+        // MOVE.B to address register is illegal.
+        if matches!(dst_mode, AddrMode::AddrReg(_)) && size == Size::Byte {
+            return false;
+        }
+        if !dst_mode.is_data_alterable() && !matches!(dst_mode, AddrMode::AddrReg(_)) {
+            return false;
+        }
+
+        self.size = size;
+        self.src_mode = Some(src_mode);
+        self.dst_mode = Some(dst_mode);
+
+        self.recipe_begin();
+
+        let src_ext = self.ext_words_for_mode(src_mode);
+        let dst_ext = self.ext_words_for_mode(dst_mode);
+        if (src_ext as usize + dst_ext as usize) > self.ext_words.len() {
+            self.recipe_reset();
+            return false;
+        }
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc.wrapping_add(u32::from(src_ext) * 2);
+
+        let ext_total = src_ext + dst_ext;
+        if ext_total > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_total)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::ReadEa(EaSide::Src)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Dst)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::WriteEa(EaSide::Dst)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !matches!(dst_mode, AddrMode::AddrReg(_)) {
+            if !self.recipe_push(RecipeOp::SetFlagsMove) {
+                self.recipe_reset();
+                return false;
+            }
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_group_4(&mut self, op: u16) -> bool {
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+
+        if op & 0x0100 != 0 {
+            // CHK / LEA
+            if (op >> 6) & 7 == 7 {
+                let reg = ((op >> 9) & 7) as u8;
+                return self.recipe_lea(reg, mode, ea_reg);
+            }
+            return false;
+        }
+
+        match (op >> 8) & 0xF {
+            0x0 => {
+                if (op >> 6) & 3 == 3 {
+                    return false; // MOVE from SR
+                }
+                let size = Size::from_bits(((op >> 6) & 3) as u8);
+                return self.recipe_unary(RecipeUnary::Negx, size, mode, ea_reg);
+            }
+            0x2 => {
+                let size = Size::from_bits(((op >> 6) & 3) as u8);
+                return self.recipe_clr(size, mode, ea_reg);
+            }
+            0x4 => {
+                if (op >> 6) & 3 == 3 {
+                    return false; // MOVE to CCR
+                }
+                let size = Size::from_bits(((op >> 6) & 3) as u8);
+                return self.recipe_unary(RecipeUnary::Neg, size, mode, ea_reg);
+            }
+            0x6 => {
+                if (op >> 6) & 3 == 3 {
+                    return false; // MOVE to SR
+                }
+                let size = Size::from_bits(((op >> 6) & 3) as u8);
+                return self.recipe_unary(RecipeUnary::Not, size, mode, ea_reg);
+            }
+            0x8 => {
+                // NBCD, SWAP, PEA, EXT, MOVEM to mem
+                match (op >> 6) & 3 {
+                    2 | 3 => {
+                        if mode == 0 {
+                            return false; // EXT
+                        }
+                        self.recipe_movem_to_mem(op, mode, ea_reg)
+                    }
+                    _ => false,
+                }
+            }
+            0xA => {
+                if (op >> 6) & 3 == 3 {
+                    return false; // TAS/ILLEGAL via legacy
+                }
+                let size = Size::from_bits(((op >> 6) & 3) as u8);
+                return self.recipe_tst(size, mode, ea_reg);
+            }
+            0xC => self.recipe_movem_from_mem(op, mode, ea_reg),
+            _ => false,
+        }
+    }
+
+    fn recipe_unary(
+        &mut self,
+        op: RecipeUnary,
+        size: Option<Size>,
+        mode: u8,
+        ea_reg: u8,
+    ) -> bool {
+        let Some(size) = size else {
+            return false;
+        };
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(addr_mode, AddrMode::AddrReg(_) | AddrMode::Immediate) {
+            return false;
+        }
+        if !addr_mode.is_data_alterable() && !matches!(addr_mode, AddrMode::DataReg(_)) {
+            return false;
+        }
+
+        self.size = size;
+        self.src_mode = None;
+        self.dst_mode = Some(addr_mode);
+
+        let ext_count = self.ext_words_for_mode(addr_mode);
+        if (ext_count as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if ext_count > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_count)) {
+            self.recipe_reset();
+            return false;
+        }
+
+        match addr_mode {
+            AddrMode::DataReg(r) => {
+                if !self.recipe_push(RecipeOp::UnaryReg { op, reg: r }) {
+                    self.recipe_reset();
+                    return false;
+                }
+            }
+            _ => {
+                if !self.recipe_push(RecipeOp::CalcEa(EaSide::Dst))
+                    || !self.recipe_push(RecipeOp::UnaryMem { op })
+                {
+                    self.recipe_reset();
+                    return false;
+                }
+            }
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_lea(&mut self, reg: u8, mode: u8, ea_reg: u8) -> bool {
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(
+            addr_mode,
+            AddrMode::DataReg(_)
+                | AddrMode::AddrReg(_)
+                | AddrMode::Immediate
+                | AddrMode::AddrIndPostInc(_)
+                | AddrMode::AddrIndPreDec(_)
+        ) {
+            return false;
+        }
+
+        self.size = Size::Long;
+        self.src_mode = Some(addr_mode);
+        self.dst_mode = Some(AddrMode::AddrReg(reg));
+
+        let src_ext = self.ext_words_for_mode(addr_mode);
+        if (src_ext as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if src_ext > 0 && !self.recipe_push(RecipeOp::FetchExtWords(src_ext)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::LoadEaAddr(EaSide::Src))
+            || !self.recipe_push(RecipeOp::WriteEa(EaSide::Dst))
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_movem_to_mem(&mut self, op: u16, mode: u8, ea_reg: u8) -> bool {
+        let size = if op & 0x0040 != 0 {
+            Size::Long
+        } else {
+            Size::Word
+        };
+
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(
+            addr_mode,
+            AddrMode::DataReg(_)
+                | AddrMode::AddrReg(_)
+                | AddrMode::Immediate
+                | AddrMode::PcDisp
+                | AddrMode::PcIndex
+        ) {
+            return false;
+        }
+
+        self.size = size;
+        self.src_mode = Some(addr_mode);
+        self.dst_mode = None;
+
+        let ext_needed = 1 + self.ext_words_for_mode(addr_mode);
+        if (ext_needed as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc.wrapping_add(2);
+        self.recipe_dst_pc_at_ext = self.instr_start_pc.wrapping_add(2);
+
+        if !self.recipe_push(RecipeOp::FetchExtWords(ext_needed))
+            || !self.recipe_push(RecipeOp::SkipExt(1))
+            || !self.recipe_push(RecipeOp::MovemToMem)
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_movem_from_mem(&mut self, op: u16, mode: u8, ea_reg: u8) -> bool {
+        let size = if op & 0x0040 != 0 {
+            Size::Long
+        } else {
+            Size::Word
+        };
+
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+
+        self.size = size;
+        self.src_mode = None;
+        self.dst_mode = Some(addr_mode);
+
+        let ext_needed = 1 + self.ext_words_for_mode(addr_mode);
+        if (ext_needed as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc.wrapping_add(2);
+        self.recipe_dst_pc_at_ext = self.instr_start_pc.wrapping_add(2);
+
+        if !self.recipe_push(RecipeOp::FetchExtWords(ext_needed))
+            || !self.recipe_push(RecipeOp::SkipExt(1))
+            || !self.recipe_push(RecipeOp::MovemFromMem)
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_clr(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) -> bool {
+        let Some(size) = size else {
+            return false;
+        };
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(addr_mode, AddrMode::AddrReg(_) | AddrMode::Immediate) {
+            return false;
+        }
+        if !addr_mode.is_data_alterable() && !matches!(addr_mode, AddrMode::DataReg(_)) {
+            return false;
+        }
+
+        self.size = size;
+        self.src_mode = None;
+        self.dst_mode = Some(addr_mode);
+        self.recipe_imm = 0;
+
+        let ext_count = self.ext_words_for_mode(addr_mode);
+        if (ext_count as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if ext_count > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_count)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Dst))
+            || !self.recipe_push(RecipeOp::LoadImm)
+            || !self.recipe_push(RecipeOp::WriteEa(EaSide::Dst))
+            || !self.recipe_push(RecipeOp::SetFlagsMove)
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_tst(&mut self, size: Option<Size>, mode: u8, ea_reg: u8) -> bool {
+        let Some(size) = size else {
+            return false;
+        };
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+
+        self.size = size;
+        self.src_mode = Some(addr_mode);
+        self.dst_mode = None;
+
+        let ext_count = self.ext_words_for_mode(addr_mode);
+        if (ext_count as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if ext_count > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_count)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::ReadEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::SetFlagsMove)
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_or(&mut self, op: u16) -> bool {
+        if (op >> 6) & 3 == 3 {
+            return false; // DIV
+        }
+        if op & 0x0100 != 0 && (op >> 4) & 3 == 0 {
+            return false; // SBCD
+        }
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let reg = ((op >> 9) & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        let to_ea = op & 0x0100 != 0;
+        self.recipe_binop(size, RecipeAlu::Or, reg, mode, ea_reg, to_ea)
+    }
+
+    fn recipe_sub(&mut self, op: u16) -> bool {
+        if (op >> 6) & 3 == 3 {
+            return false; // SUBA
+        }
+        if op & 0x0100 != 0 && (op >> 4) & 3 == 0 {
+            return false; // SUBX
+        }
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let reg = ((op >> 9) & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        let to_ea = op & 0x0100 != 0;
+        self.recipe_binop(size, RecipeAlu::Sub, reg, mode, ea_reg, to_ea)
+    }
+
+    fn recipe_subx(&mut self, op: u16) -> bool {
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let Some(size) = size else {
+            return false;
+        };
+        let rm = op & 0x0008 != 0;
+        if rm {
+            return false;
+        }
+        let src = (op & 7) as u8;
+        let dst = ((op >> 9) & 7) as u8;
+
+        self.size = size;
+        self.src_mode = Some(AddrMode::DataReg(src));
+        self.dst_mode = Some(AddrMode::DataReg(dst));
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if !self.recipe_push(RecipeOp::SubxReg { src, dst }) {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_add(&mut self, op: u16) -> bool {
+        if (op >> 6) & 3 == 3 {
+            return false; // ADDA
+        }
+        if op & 0x0100 != 0 && (op >> 4) & 3 == 0 {
+            return false; // ADDX
+        }
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let reg = ((op >> 9) & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        let to_ea = op & 0x0100 != 0;
+        self.recipe_binop(size, RecipeAlu::Add, reg, mode, ea_reg, to_ea)
+    }
+
+    fn recipe_addx(&mut self, op: u16) -> bool {
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let Some(size) = size else {
+            return false;
+        };
+        let rm = op & 0x0008 != 0;
+        if rm {
+            return false;
+        }
+        let src = (op & 7) as u8;
+        let dst = ((op >> 9) & 7) as u8;
+
+        self.size = size;
+        self.src_mode = Some(AddrMode::DataReg(src));
+        self.dst_mode = Some(AddrMode::DataReg(dst));
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if !self.recipe_push(RecipeOp::AddxReg { src, dst }) {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_adda(&mut self, op: u16) -> bool {
+        let size = if op & 0x0100 != 0 {
+            Size::Long
+        } else {
+            Size::Word
+        };
+        let reg = ((op >> 9) & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        self.recipe_addr_arith(size, reg, mode, ea_reg, true)
+    }
+
+    fn recipe_suba(&mut self, op: u16) -> bool {
+        let size = if op & 0x0100 != 0 {
+            Size::Long
+        } else {
+            Size::Word
+        };
+        let reg = ((op >> 9) & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        self.recipe_addr_arith(size, reg, mode, ea_reg, false)
+    }
+
+    fn recipe_shift_rotate(&mut self, op: u16) -> bool {
+        let size_bits = ((op >> 6) & 3) as u8;
+        if size_bits == 3 {
+            let mode = ((op >> 3) & 7) as u8;
+            let ea_reg = (op & 7) as u8;
+            let direction = (op >> 8) & 1 != 0;
+            let kind = ((op >> 9) & 3) as u8;
+            return self.recipe_shift_mem(kind, direction, mode, ea_reg);
+        }
+
+        let size = Size::from_bits(size_bits);
+        let Some(size) = size else {
+            return false;
+        };
+        let count_or_reg = ((op >> 9) & 7) as u8;
+        let reg = (op & 7) as u8;
+        let direction = (op >> 8) & 1 != 0;
+        let immediate = (op >> 5) & 1 == 0;
+        let kind = ((op >> 9) & 3) as u8;
+        self.recipe_shift_reg(kind, direction, count_or_reg, reg, size, immediate)
+    }
+
+    fn recipe_shift_reg(
+        &mut self,
+        kind: u8,
+        direction: bool,
+        count_or_reg: u8,
+        reg: u8,
+        size: Size,
+        immediate: bool,
+    ) -> bool {
+        self.size = size;
+        self.src_mode = None;
+        self.dst_mode = Some(AddrMode::DataReg(reg));
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if !self.recipe_push(RecipeOp::ShiftReg {
+            kind,
+            direction,
+            count_or_reg,
+            reg,
+            immediate,
+        }) {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_shift_mem(
+        &mut self,
+        kind: u8,
+        direction: bool,
+        mode: u8,
+        ea_reg: u8,
+    ) -> bool {
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if !addr_mode.is_memory_alterable() {
+            return false;
+        }
+
+        self.size = Size::Word;
+        self.src_mode = None;
+        self.dst_mode = Some(addr_mode);
+
+        let ext_count = self.ext_words_for_mode(addr_mode);
+        if (ext_count as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if ext_count > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_count)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Dst))
+            || !self.recipe_push(RecipeOp::ShiftMem { kind, direction })
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_addr_arith(
+        &mut self,
+        size: Size,
+        reg: u8,
+        mode: u8,
+        ea_reg: u8,
+        add: bool,
+    ) -> bool {
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+
+        self.size = size;
+        self.src_mode = Some(addr_mode);
+        self.dst_mode = Some(AddrMode::AddrReg(reg));
+
+        let ext_count = self.ext_words_for_mode(addr_mode);
+        if (ext_count as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if ext_count > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_count)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::ReadEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::AddrArith { reg, add })
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_group_b(&mut self, op: u16) -> bool {
+        let mode = ((op >> 3) & 7) as u8;
+
+        if (op >> 6) & 3 == 3 {
+            return self.recipe_cmpa(op);
+        }
+        if op & 0x0100 != 0 {
+            if mode == 1 {
+                return false; // CMPM
+            }
+            return self.recipe_eor(op);
+        }
+        self.recipe_cmp(op)
+    }
+
+    fn recipe_cmp(&mut self, op: u16) -> bool {
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let Some(size) = size else {
+            return false;
+        };
+        let reg = ((op >> 9) & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+
+        self.size = size;
+        self.src_mode = Some(addr_mode);
+        self.dst_mode = Some(AddrMode::DataReg(reg));
+
+        let ext_count = self.ext_words_for_mode(addr_mode);
+        if (ext_count as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if ext_count > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_count)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::ReadEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::CmpReg { reg, addr: false })
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_cmpa(&mut self, op: u16) -> bool {
+        let size = if op & 0x0100 != 0 {
+            Size::Long
+        } else {
+            Size::Word
+        };
+        let reg = ((op >> 9) & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+
+        self.size = size;
+        self.src_mode = Some(addr_mode);
+        self.dst_mode = Some(AddrMode::AddrReg(reg));
+
+        let ext_count = self.ext_words_for_mode(addr_mode);
+        if (ext_count as usize) > self.ext_words.len() {
+            return false;
+        }
+
+        self.recipe_begin();
+        self.recipe_src_pc_at_ext = self.instr_start_pc;
+        self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+        if ext_count > 0 && !self.recipe_push(RecipeOp::FetchExtWords(ext_count)) {
+            self.recipe_reset();
+            return false;
+        }
+        if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::ReadEa(EaSide::Src))
+            || !self.recipe_push(RecipeOp::CmpReg { reg, addr: true })
+        {
+            self.recipe_reset();
+            return false;
+        }
+
+        self.recipe_commit()
+    }
+
+    fn recipe_and(&mut self, op: u16) -> bool {
+        if (op >> 6) & 3 == 3 {
+            return false; // MUL
+        }
+        if op & 0x0100 != 0 {
+            let opmode = (op >> 3) & 0x1F;
+            match opmode {
+                0x08 | 0x09 | 0x11 | 0x00 | 0x01 => return false, // EXG/ABCD
+                _ => {}
+            }
+        }
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let reg = ((op >> 9) & 7) as u8;
+        let mode = ((op >> 3) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        let to_ea = op & 0x0100 != 0;
+        self.recipe_binop(size, RecipeAlu::And, reg, mode, ea_reg, to_ea)
+    }
+
+    fn recipe_eor(&mut self, op: u16) -> bool {
+        if (op >> 6) & 3 == 3 {
+            return false; // CMPA
+        }
+        if op & 0x0100 == 0 {
+            return false; // CMP
+        }
+        let mode = ((op >> 3) & 7) as u8;
+        if mode == 1 {
+            return false; // CMPM
+        }
+        let size = Size::from_bits(((op >> 6) & 3) as u8);
+        let reg = ((op >> 9) & 7) as u8;
+        let ea_reg = (op & 7) as u8;
+        // EOR is always Dn -> <ea>
+        self.recipe_binop(size, RecipeAlu::Eor, reg, mode, ea_reg, true)
+    }
+
+    fn recipe_binop(
+        &mut self,
+        size: Option<Size>,
+        op: RecipeAlu,
+        reg: u8,
+        mode: u8,
+        ea_reg: u8,
+        to_ea: bool,
+    ) -> bool {
+        let Some(size) = size else {
+            return false;
+        };
+        let Some(addr_mode) = AddrMode::decode(mode, ea_reg) else {
+            return false;
+        };
+        if matches!(addr_mode, AddrMode::Immediate | AddrMode::AddrReg(_)) {
+            return false;
+        }
+        if to_ea && !addr_mode.is_data_alterable() {
+            return false;
+        }
+
+        self.size = size;
+        self.recipe_begin();
+
+        if to_ea {
+            self.src_mode = Some(AddrMode::DataReg(reg));
+            self.dst_mode = Some(addr_mode);
+
+            let dst_ext = self.ext_words_for_mode(addr_mode);
+            if (dst_ext as usize) > self.ext_words.len() {
+                self.recipe_reset();
+                return false;
+            }
+            self.recipe_src_pc_at_ext = self.instr_start_pc;
+            self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+            if dst_ext > 0 && !self.recipe_push(RecipeOp::FetchExtWords(dst_ext)) {
+                self.recipe_reset();
+                return false;
+            }
+            if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+                || !self.recipe_push(RecipeOp::ReadEa(EaSide::Src))
+                || !self.recipe_push(RecipeOp::CalcEa(EaSide::Dst))
+                || !self.recipe_push(RecipeOp::ReadEa(EaSide::Dst))
+                || !self.recipe_push(RecipeOp::AluMem { op })
+                || !self.recipe_push(RecipeOp::WriteEa(EaSide::Dst))
+            {
+                self.recipe_reset();
+                return false;
+            }
+        } else {
+            self.src_mode = Some(addr_mode);
+            self.dst_mode = Some(AddrMode::DataReg(reg));
+
+            let src_ext = self.ext_words_for_mode(addr_mode);
+            if (src_ext as usize) > self.ext_words.len() {
+                self.recipe_reset();
+                return false;
+            }
+            self.recipe_src_pc_at_ext = self.instr_start_pc;
+            self.recipe_dst_pc_at_ext = self.instr_start_pc;
+
+            if src_ext > 0 && !self.recipe_push(RecipeOp::FetchExtWords(src_ext)) {
+                self.recipe_reset();
+                return false;
+            }
+            if !self.recipe_push(RecipeOp::CalcEa(EaSide::Src))
+                || !self.recipe_push(RecipeOp::ReadEa(EaSide::Src))
+                || !self.recipe_push(RecipeOp::AluReg { op, reg })
+            {
+                self.recipe_reset();
+                return false;
+            }
+        }
+
+        self.recipe_commit()
     }
 
     /// Group 0: Bit manipulation, MOVEP, Immediate
@@ -596,6 +1849,21 @@ impl M68000 {
         let mode = ((op >> 3) & 7) as u8;
         let ea_reg = (op & 7) as u8;
 
+        if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+            let op_pc = self.instr_start_pc.wrapping_sub(2);
+            let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+            if self.instr_phase != InstrPhase::Initial {
+                eprintln!(
+                    "[CPU] decode_add CONT op=${op:04X} pc=${op_pc:08X} mode={mode} reg={reg} ea_reg={ea_reg} phase={:?}",
+                    self.instr_phase
+                );
+            } else if log_this {
+                eprintln!(
+                    "[CPU] decode_add op=${op:04X} pc=${op_pc:08X} mode={mode} reg={reg} ea_reg={ea_reg} phase={:?}",
+                    self.instr_phase
+                );
+            }
+        }
         if (op >> 6) & 3 == 3 {
             // ADDA
             let size = if op & 0x0100 != 0 {
@@ -699,10 +1967,6 @@ impl M68000 {
                 if src_ext + dst_ext == 0 {
                     // No extension words needed - direct register operations
                     self.exec_move_direct(src_mode, dst_mode, is_movea);
-                } else if self.prefetch_only {
-                    // In prefetch_only mode, extension words are already preloaded.
-                    // Execute the MOVE directly using next_ext_word().
-                    self.exec_move_prefetch_only(src_mode, dst_mode, is_movea);
                 } else {
                     // Queue fetching all extension words
                     for _ in 0..src_ext {
@@ -1005,7 +2269,7 @@ impl M68000 {
             AddrMode::AddrIndPostInc(r) => {
                 let addr = self.regs.a(r as usize);
                 let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Defer the increment — see exec_move_prefetch_only for rationale.
+                // Defer the increment until after a successful read.
                 self.deferred_postinc = Some((r, inc));
                 self.addr = addr;
                 self.dst_mode = Some(dst_mode);
@@ -1096,185 +2360,6 @@ impl M68000 {
         }
     }
 
-    /// Execute MOVE in prefetch_only mode where extension words are already preloaded.
-    /// Uses next_ext_word() to properly advance ext_idx for PC tracking.
-    fn exec_move_prefetch_only(&mut self, src_mode: AddrMode, dst_mode: AddrMode, is_movea: bool) {
-        // Calculate source EA and read value
-        let value = match src_mode {
-            AddrMode::DataReg(r) => self.read_data_reg(r, self.size),
-            AddrMode::AddrReg(r) => self.regs.a(r as usize),
-            AddrMode::AddrInd(r) => {
-                self.addr = self.regs.a(r as usize);
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::AddrIndPostInc(r) => {
-                let addr = self.regs.a(r as usize);
-                let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                // Defer the increment — the micro-op handlers apply it at the
-                // correct point: before the address-error check for word reads
-                // (so the register IS modified on word-size errors) but after
-                // both bus cycles for long reads (so the register is NOT modified
-                // if the first bus cycle faults).
-                self.deferred_postinc = Some((r, inc));
-                self.addr = addr;
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::AddrIndPreDec(r) => {
-                let dec = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                let addr = self.regs.a(r as usize).wrapping_sub(dec);
-                self.regs.set_a(r as usize, addr);
-                self.addr = addr;
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::AddrIndDisp(r) => {
-                let disp = self.next_ext_word() as i16 as i32;
-                self.addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::AddrIndIndex(r) => {
-                let ea = self.calc_index_ea(self.regs.a(r as usize));
-                self.addr = ea;
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::AbsShort => {
-                self.addr = self.next_ext_word() as i16 as i32 as u32;
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::AbsLong => {
-                let hi = self.next_ext_word();
-                let lo = self.next_ext_word();
-                self.addr = (u32::from(hi) << 16) | u32::from(lo);
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::PcDisp => {
-                // PC-relative: base PC is address of extension word.
-                // In prefetch_only mode, PC is already 2 past it, so subtract 2.
-                self.program_space_access = true;
-                let pc = self.regs.pc.wrapping_sub(2);
-                let disp = self.next_ext_word() as i16 as i32;
-                self.addr = (pc as i32).wrapping_add(disp) as u32;
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::PcIndex => {
-                // PC-relative: base PC is address of extension word.
-                // In prefetch_only mode, PC is already 2 past it, so subtract 2.
-                self.program_space_access = true;
-                let pc = self.regs.pc.wrapping_sub(2);
-                let ea = self.calc_index_ea(pc);
-                self.addr = ea;
-                self.dst_mode = Some(dst_mode);
-                self.queue_read_ops(self.size);
-                self.instr_phase = crate::cpu::InstrPhase::SrcRead;
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-            AddrMode::Immediate => {
-                self.data = self.read_immediate();
-                // Fall through to write destination
-                self.data
-            }
-        };
-
-        // Write destination
-        match dst_mode {
-            AddrMode::DataReg(r) => {
-                self.write_data_reg(r, value, self.size);
-                if !is_movea {
-                    self.set_flags_move(value, self.size);
-                }
-            }
-            AddrMode::AddrReg(r) => {
-                let value = if self.size == Size::Word {
-                    value as i16 as i32 as u32
-                } else {
-                    value
-                };
-                self.regs.set_a(r as usize, value);
-            }
-            AddrMode::AddrInd(r) => {
-                self.addr = self.regs.a(r as usize);
-                self.data = value;
-                self.set_move_ae_flags_and_queue_write(value, is_movea);
-            }
-            AddrMode::AddrIndPostInc(r) => {
-                let addr = self.regs.a(r as usize);
-                let inc = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                self.deferred_postinc = Some((r, inc));
-                self.addr = addr;
-                self.data = value;
-                self.set_move_ae_flags_and_queue_write(value, is_movea);
-            }
-            AddrMode::AddrIndPreDec(r) => {
-                // Pre-decrement: modify register immediately (see DstEACalc comment).
-                let dec = if self.size == Size::Byte && r == 7 { 2 } else { self.size_increment() };
-                let addr = self.regs.a(r as usize).wrapping_sub(dec);
-                self.regs.set_a(r as usize, addr);
-                self.addr = addr;
-                self.data = value;
-                self.set_move_ae_flags_and_queue_write(value, is_movea);
-            }
-            AddrMode::AddrIndDisp(r) => {
-                let disp = self.next_ext_word() as i16 as i32;
-                self.addr = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
-                self.data = value;
-                self.set_move_ae_flags_and_queue_write(value, is_movea);
-            }
-            AddrMode::AddrIndIndex(r) => {
-                let ea = self.calc_index_ea(self.regs.a(r as usize));
-                self.addr = ea;
-                self.data = value;
-                self.set_move_ae_flags_and_queue_write(value, is_movea);
-            }
-            AddrMode::AbsShort => {
-                self.addr = self.next_ext_word() as i16 as i32 as u32;
-                self.data = value;
-                self.set_move_ae_flags_and_queue_write(value, is_movea);
-            }
-            AddrMode::AbsLong => {
-                let hi = self.next_ext_word();
-                let lo = self.next_ext_word();
-                self.addr = (u32::from(hi) << 16) | u32::from(lo);
-                self.data = value;
-                self.set_move_ae_flags_and_queue_write(value, is_movea);
-            }
-            _ => {
-                self.illegal_instruction();
-            }
-        }
-    }
-
     /// MOVEP - Move Peripheral Data
     /// Transfers data between a data register and alternate bytes in memory.
     /// Used for accessing 8-bit peripherals on the 16-bit bus.
@@ -1287,22 +2372,16 @@ impl M68000 {
         let is_long = op & 0x0040 != 0;
         let to_memory = op & 0x0080 != 0;
 
-        if self.prefetch_only {
-            // In prefetch_only mode, use preloaded ext_words directly
-            let displacement = self.next_ext_word() as i16 as i32;
-            self.exec_movep_with_disp(data_reg, addr_reg, is_long, to_memory, displacement);
-        } else {
-            // Need to fetch the displacement extension word first
-            // Store fields in data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
-            self.data2 = u32::from(addr_reg)
-                | (u32::from(data_reg) << 4)
-                | (if is_long { 0x100 } else { 0 })
-                | (if to_memory { 0x200 } else { 0 });
-            self.movem_long_phase = 0;
-            self.micro_ops.push(MicroOp::FetchExtWord);
-            self.micro_ops.push(MicroOp::Execute); // Continue after fetching displacement
-            self.instr_phase = InstrPhase::SrcRead;
-        }
+        // Need to fetch the displacement extension word first
+        // Store fields in data2: bits 0-2=addr_reg, bits 4-6=data_reg, bit 8=is_long, bit 9=to_memory
+        self.data2 = u32::from(addr_reg)
+            | (u32::from(data_reg) << 4)
+            | (if is_long { 0x100 } else { 0 })
+            | (if to_memory { 0x200 } else { 0 });
+        self.movem_long_phase = 0;
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.micro_ops.push(MicroOp::Execute); // Continue after fetching displacement
+        self.instr_phase = InstrPhase::SrcRead;
     }
 
     fn exec_movep_with_disp(&mut self, data_reg: u8, addr_reg: u8, is_long: bool, to_memory: bool, displacement: i32) {
@@ -1596,12 +2675,7 @@ impl M68000 {
                 }
                 AddrMode::PcDisp => {
                     // For PC-relative modes, base is the address of the extension word.
-                    // In prefetch_only mode, next_ext_word advances PC by 2, so use PC-2.
-                    self.addr = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.addr = self.regs.pc;
                     self.addr2 = u32::from(reg);
                     self.micro_ops.push(MicroOp::FetchExtWord);
                     self.instr_phase = InstrPhase::SrcEACalc;
@@ -1610,12 +2684,7 @@ impl M68000 {
                 }
                 AddrMode::PcIndex => {
                     // For PC-relative modes, base is the address of the extension word.
-                    // In prefetch_only mode, next_ext_word advances PC by 2, so use PC-2.
-                    self.addr = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.addr = self.regs.pc;
                     self.addr2 = u32::from(reg);
                     self.micro_ops.push(MicroOp::FetchExtWord);
                     self.instr_phase = InstrPhase::SrcEACalc;
@@ -1631,7 +2700,6 @@ impl M68000 {
 
     fn exec_lea_continuation(&mut self) {
         // Called after extension words are fetched for LEA
-        // Use next_ext_word() to properly advance PC in prefetch_only mode
         let Some(src_mode) = self.src_mode else {
             return;
         };
@@ -1707,7 +2775,17 @@ impl M68000 {
         };
 
         let continued = self.instr_phase != InstrPhase::Initial;
-        if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+        let addr_mode = AddrMode::decode(mode, ea_reg);
+        if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+            let op_pc = self.instr_start_pc.wrapping_sub(2);
+            let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+            if log_this {
+                eprintln!(
+                    "[CPU] exec_add decode_result op_pc=${op_pc:08X} addr_mode={addr_mode:?} continued={continued}"
+                );
+            }
+        }
+        if let Some(addr_mode) = addr_mode {
             if !addr_mode.is_data_alterable() {
                 self.illegal_instruction();
                 return;
@@ -1728,7 +2806,7 @@ impl M68000 {
                 _ => {
                     if !continued {
                         let ext_count = self.ext_words_for_mode(addr_mode);
-                        if ext_count > 0 && !self.prefetch_only {
+                        if ext_count > 0 {
                             for _ in 0..ext_count {
                                 self.micro_ops.push(MicroOp::FetchExtWord);
                             }
@@ -1792,6 +2870,7 @@ impl M68000 {
             self.trigger_rts_address_error(self.data);
             return;
         }
+        self.trace_jump_to("RTS", self.data);
         if std::env::var("EMU68000_TRACE_RTS").is_ok() {
             let op_pc = self.instr_start_pc.wrapping_sub(2);
             eprintln!(
@@ -1810,24 +2889,10 @@ impl M68000 {
                 }
             }
         }
-        // In normal mode, PC should return to the exact address popped.
-        // Prefetch advancement is only modeled in prefetch_only mode.
-        self.regs.pc = if self.prefetch_only {
-            self.data.wrapping_add(4)
-        } else {
-            self.data
-        };
+        // PC should return to the exact address popped.
+        self.regs.pc = self.data;
         self.instr_phase = InstrPhase::Complete;
-        // In prefetch_only mode, PC already includes the prefetch advance.
-        // Use queue_internal with internal_advances_pc = true to prevent
-        // both tick_internal_cycles from adding +2 (internal_cycles < 4)
-        // and final tick() from adding +2 (internal_advances_pc = true).
-        if self.prefetch_only {
-            self.internal_cycles = 0; // No internal cycles needed
-            self.internal_advances_pc = true;
-        } else {
-            self.queue_internal_no_pc(8); // Prefetch cycles
-        }
+        self.queue_internal_no_pc(8); // Prefetch cycles
     }
 
     fn trigger_rts_address_error(&mut self, addr: u32) {
@@ -1851,11 +2916,7 @@ impl M68000 {
             // Byte displacement
             // Displacement is relative to PC after fetching opcode.
             let offset = displacement as i32;
-            let pc_for_branch = if self.prefetch_only {
-                self.regs.pc.wrapping_sub(2)
-            } else {
-                self.regs.pc
-            };
+            let pc_for_branch = self.regs.pc;
             let target = (pc_for_branch as i32).wrapping_add(offset) as u32;
             // Check for odd target address
             if target & 1 != 0 {
@@ -1864,7 +2925,7 @@ impl M68000 {
             }
             // Set PC to branch target (prefetch handled via set_jump_pc)
             self.set_jump_pc(target);
-            self.queue_internal(4); // 4 cycles, advances PC in prefetch_only mode
+            self.queue_internal(4);
         }
     }
 
@@ -1876,32 +2937,17 @@ impl M68000 {
         // After BSR, PC should be target + 4 for prefetch.
         if displacement == 0 {
             // Word displacement - BSR.W is 4 bytes (opcode + ext word)
-            if self.prefetch_only {
-                // Extension word is already prefetched; advance PC as if consumed
-                let _ = self.next_ext_word();
-                self.instr_phase = InstrPhase::SrcRead;
-                self.branch_continuation();
-            } else {
-                self.micro_ops.push(MicroOp::FetchExtWord);
-                self.instr_phase = InstrPhase::SrcRead; // Signal BSR.W continuation
-                self.micro_ops.push(MicroOp::Execute);
-            }
+            self.micro_ops.push(MicroOp::FetchExtWord);
+            self.instr_phase = InstrPhase::SrcRead; // Signal BSR.W continuation
+            self.micro_ops.push(MicroOp::Execute);
         } else {
             // Byte displacement - BSR.B is 2 bytes (opcode only)
             // Displacement is relative to PC after fetching opcode.
-            let pc_base = if self.prefetch_only {
-                (self.regs.pc as i32).wrapping_sub(2)
-            } else {
-                self.regs.pc as i32
-            };
+            let pc_base = self.regs.pc as i32;
             let target = pc_base.wrapping_add(displacement as i32) as u32;
 
             // Return address: instruction after BSR = opcode + 2 = PC - 2
-            self.data = if self.prefetch_only {
-                self.regs.pc.wrapping_sub(2)
-            } else {
-                self.regs.pc
-            };
+            self.data = self.regs.pc;
 
             // Check for odd target address
             // BSR pushes return address BEFORE detecting odd target
@@ -1916,7 +2962,6 @@ impl M68000 {
                 self.data2 = 0x8000_0001;
                 self.micro_ops.push(MicroOp::Internal);
                 self.internal_cycles = 0;
-                self.internal_advances_pc = false;
                 return;
             }
 
@@ -1925,7 +2970,6 @@ impl M68000 {
             // Set PC to branch target (prefetch handled via set_jump_pc)
             self.set_jump_pc(target);
             self.internal_cycles = 10; // 2 (internal) + 8 (prefetch)
-            self.internal_advances_pc = true;
             self.micro_ops.push(MicroOp::Internal);
         }
     }
@@ -1956,11 +3000,7 @@ impl M68000 {
                 // Byte displacement - compute target and check for odd address
                 // Displacement is relative to PC after fetching opcode.
                 let offset = displacement as i32;
-                let pc_for_branch = if self.prefetch_only {
-                    self.regs.pc.wrapping_sub(2)
-                } else {
-                    self.regs.pc
-                };
+                let pc_for_branch = self.regs.pc;
                 let target = (pc_for_branch as i32).wrapping_add(offset) as u32;
                 if target & 1 != 0 {
                     self.trigger_branch_address_error(target);
@@ -1968,7 +3008,7 @@ impl M68000 {
                 }
                 // Set PC to branch target (prefetch handled via set_jump_pc)
                 self.set_jump_pc(target);
-                self.queue_internal(10); // Branch taken timing, advances PC in prefetch_only mode
+                self.queue_internal(10); // Branch taken timing
             }
         } else {
             if displacement == 0 {
@@ -1988,7 +3028,7 @@ impl M68000 {
             InstrPhase::SrcEACalc => {
                 // BRA.W or Bcc.W (taken)
                 // PC already advanced past extension word; displacement is relative to
-                // the extension word, so base is PC-2 in both normal and prefetch_only.
+                // the extension word, so base is PC-2.
                 let target = ((self.regs.pc as i32) - 2 + disp) as u32;
                 // Check for odd target address
                 if target & 1 != 0 {
@@ -2308,10 +3348,7 @@ impl M68000 {
                     let imm = (self.next_ext_word() & 0x1F) as u8; // Mask to valid CCR bits
                     let ccr = self.regs.ccr() & 0x1F; // CCR bits 5-7 always read as 0
                     self.regs.set_ccr(ccr | imm);
-                    // In normal mode, advance PC for prefetch refill
-                    if !self.prefetch_only {
-                        self.regs.pc = self.regs.pc.wrapping_add(4);
-                    }
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                     self.queue_internal_no_pc(20);
                 }
                 Some(Size::Word) => {
@@ -2323,9 +3360,7 @@ impl M68000 {
                     let imm = self.next_ext_word();
                     // Apply OR then mask to valid SR bits (68000 has reserved bits)
                     self.regs.sr = (self.regs.sr | imm) & crate::flags::SR_MASK;
-                    if !self.prefetch_only {
-                        self.regs.pc = self.regs.pc.wrapping_add(4);
-                    }
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                     self.queue_internal_no_pc(20);
                 }
                 _ => self.illegal_instruction(),
@@ -2415,11 +3450,7 @@ impl M68000 {
                     let imm = (self.next_ext_word() & 0x1F) as u8;
                     let ccr = self.regs.ccr() & 0x1F;
                     self.regs.set_ccr(ccr & imm);
-                    // In normal mode, advance PC for prefetch refill
-                    // In prefetch_only mode, next_ext_word + tick ending handle it
-                    if !self.prefetch_only {
-                        self.regs.pc = self.regs.pc.wrapping_add(4);
-                    }
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                     self.queue_internal_no_pc(20);
                 }
                 Some(Size::Word) => {
@@ -2431,9 +3462,7 @@ impl M68000 {
                     let imm = self.next_ext_word();
                     // Apply AND then mask to valid SR bits (68000 has reserved bits)
                     self.regs.sr = (self.regs.sr & imm) & crate::flags::SR_MASK;
-                    if !self.prefetch_only {
-                        self.regs.pc = self.regs.pc.wrapping_add(4);
-                    }
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                     self.queue_internal_no_pc(20);
                 }
                 _ => self.illegal_instruction(),
@@ -2663,10 +3692,7 @@ impl M68000 {
                     let imm = (self.next_ext_word() & 0x1F) as u8;
                     let ccr = self.regs.ccr() & 0x1F;
                     self.regs.set_ccr(ccr ^ imm);
-                    // In normal mode, advance PC for prefetch refill
-                    if !self.prefetch_only {
-                        self.regs.pc = self.regs.pc.wrapping_add(4);
-                    }
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                     self.queue_internal_no_pc(20);
                 }
                 Some(Size::Word) => {
@@ -2678,9 +3704,7 @@ impl M68000 {
                     let imm = self.next_ext_word();
                     // Apply XOR then mask to valid SR bits (68000 has reserved bits)
                     self.regs.sr = (self.regs.sr ^ imm) & crate::flags::SR_MASK;
-                    if !self.prefetch_only {
-                        self.regs.pc = self.regs.pc.wrapping_add(4);
-                    }
+                    self.regs.pc = self.regs.pc.wrapping_add(4);
                     self.queue_internal_no_pc(20);
                 }
                 _ => self.illegal_instruction(),
@@ -3164,71 +4188,52 @@ impl M68000 {
             match addr_mode {
                 AddrMode::AddrInd(r) => {
                     // PEA (An) = 12 cycles: 4 (internal) + 8 (push)
-                    // 2-byte instruction, final tick adds +2 for prefetch refill
                     self.data = self.regs.a(r as usize);
                     self.internal_cycles = 4;
-                    self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // PC advance handled by final tick
                 }
                 AddrMode::AddrIndDisp(r) => {
                     // PEA d16(An) = 16 cycles: 8 (internal) + 8 (push)
-                    // next_ext_word advances PC by 2 in prefetch_only
-                    // Final tick adds +2 for prefetch refill, giving correct total
                     let disp = self.next_ext_word() as i16 as i32;
                     let ea = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
                     self.data = ea;
                     self.internal_cycles = 8;
-                    self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // PC advance handled by next_ext_word + final tick
                 }
                 AddrMode::AddrIndIndex(r) => {
                     // PEA d8(An,Xn) = 20 cycles: 12 (internal) + 8 (push)
-                    // calc_index_ea consumes extension word (advances PC by 2 in prefetch_only)
-                    // Final tick adds +2 for prefetch refill, giving correct total
                     let ea = self.calc_index_ea(self.regs.a(r as usize));
                     self.data = ea;
                     self.internal_cycles = 12;
-                    self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // PC advance handled by next_ext_word + final tick
                 }
                 AddrMode::AbsShort => {
                     // PEA addr.W = 16 cycles: 8 (internal) + 8 (push)
-                    // next_ext_word advances PC by 2 in prefetch_only
-                    // Final tick adds +2 for prefetch refill, giving correct total
                     let ea = self.next_ext_word() as i16 as i32 as u32;
                     self.data = ea;
                     self.internal_cycles = 8;
-                    self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // PC advance handled by next_ext_word + final tick
                 }
                 AddrMode::AbsLong => {
                     // PEA addr.L = 20 cycles: 12 (internal) + 8 (push)
                     // Need both extension words (6-byte instruction total)
                     if self.ext_count >= 2 {
-                        // In prefetch_only mode, both ext words are preloaded
-                        // Need +6 total: +4 here + +2 from final tick
                         let hi = u32::from(self.ext_words[0]);
                         let lo = u32::from(self.ext_words[1]);
                         let ea = (hi << 16) | lo;
                         self.data = ea;
                         self.internal_cycles = 12;
-                        self.internal_advances_pc = false;
                         self.micro_ops.push(MicroOp::Internal);
                         self.micro_ops.push(MicroOp::PushLongHi);
                         self.micro_ops.push(MicroOp::PushLongLo);
-                        // Add +4, final tick adds +2, giving total +6 for 6-byte instruction
                         self.regs.pc = self.regs.pc.wrapping_add(4);
                     } else {
                         // Need to fetch second word - set up continuation
@@ -3241,32 +4246,24 @@ impl M68000 {
                 AddrMode::PcDisp => {
                     // PEA d16(PC) = 16 cycles: 8 (internal) + 8 (push)
                     // PC for calculation is where the extension word was (PC - 2)
-                    // next_ext_word advances PC by 2 in prefetch_only
-                    // Final tick adds +2 for prefetch refill, giving correct total
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let disp = self.next_ext_word() as i16 as i32;
                     let ea = (pc_at_ext as i32).wrapping_add(disp) as u32;
                     self.data = ea;
                     self.internal_cycles = 8;
-                    self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // PC advance handled by next_ext_word + final tick
                 }
                 AddrMode::PcIndex => {
                     // PEA d8(PC,Xn) = 20 cycles: 12 (internal) + 8 (push)
-                    // calc_index_ea consumes extension word (advances PC by 2 in prefetch_only)
-                    // Final tick adds +2 for prefetch refill, giving correct total
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let ea = self.calc_index_ea(pc_at_ext);
                     self.data = ea;
                     self.internal_cycles = 12;
-                    self.internal_advances_pc = false;
                     self.micro_ops.push(MicroOp::Internal);
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // PC advance handled by next_ext_word + final tick
                 }
                 _ => self.illegal_instruction(),
             }
@@ -3283,7 +4280,6 @@ impl M68000 {
         let ea = (hi << 16) | lo;
         self.data = ea;
         self.internal_cycles = 4; // Remaining internal time
-        self.internal_advances_pc = false;
         self.micro_ops.push(MicroOp::Internal);
         self.micro_ops.push(MicroOp::PushLongHi);
         self.micro_ops.push(MicroOp::PushLongLo);
@@ -3365,11 +4361,10 @@ impl M68000 {
 
         let (start_addr, ea_reg) = match addr_mode {
             AddrMode::AddrIndPreDec(r) => {
-                // For predecrement, we start at An and decrement before each write
-                // The actual writes happen at decremented addresses
-                let count = mask.count_ones();
+                // For predecrement, the address register is decremented before each write.
+                // Start at An - size (first transfer), then decrement per register.
                 let dec_per_reg = if self.size == Size::Long { 4 } else { 2 };
-                let start = self.regs.a(r as usize).wrapping_sub(count * dec_per_reg);
+                let start = self.regs.a(r as usize).wrapping_sub(dec_per_reg);
                 (start, r)
             }
             AddrMode::AddrInd(r) => (self.regs.a(r as usize), r),
@@ -3477,7 +4472,29 @@ impl M68000 {
             if !continued {
                 self.size = size;
                 let ext_count = self.ext_words_for_mode(addr_mode);
-                if ext_count > 0 && !self.prefetch_only {
+                if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                    if log_this {
+                        eprintln!(
+                            "[CPU] exec_add ext_count={ext_count} addr_mode={addr_mode:?} continued={continued} phase={:?} queue_len={}",
+                            self.instr_phase,
+                            self.micro_ops.len()
+                        );
+                    }
+                }
+                if ext_count > 0 {
+                    if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                        if log_this {
+                            eprintln!(
+                                "[CPU] exec_add queue ext_words={ext_count} phase={:?} queue_pos={}",
+                                self.instr_phase,
+                                self.micro_ops.pos()
+                            );
+                        }
+                    }
                     for _ in 0..ext_count {
                         self.micro_ops.push(MicroOp::FetchExtWord);
                     }
@@ -3614,9 +4631,6 @@ impl M68000 {
             AddrMode::PcDisp => {
                 self.program_space_access = true;
                 // Base PC = address of the displacement word.
-                // After consuming the mask, PC was advanced by 2 (in prefetch_only)
-                // so PC now points at the displacement word in non-prefetch mode,
-                // or 2 past it in prefetch mode. Use PC-2 as the base.
                 let base_pc = self.regs.pc.wrapping_sub(2);
                 let disp = self.next_ext_word() as i16 as i32;
                 ((base_pc as i32).wrapping_add(disp) as u32, 0)
@@ -3691,11 +4705,8 @@ impl M68000 {
         self.instr_phase = InstrPhase::SrcRead;
         self.micro_ops.push(MicroOp::Execute);
 
-        // In normal mode, advance PC for prefetch refill (4 bytes: 2 for ext word + 2 for prefetch)
-        // In prefetch_only mode, next_ext_word() already advanced PC by 2 for the ext word
-        if !self.prefetch_only {
-            self.regs.pc = self.regs.pc.wrapping_add(4);
-        }
+        // Advance PC for prefetch refill (4 bytes: 2 for ext word + 2 for prefetch)
+        self.regs.pc = self.regs.pc.wrapping_add(4);
     }
 
     fn exec_link_continuation(&mut self) {
@@ -3802,7 +4813,6 @@ impl M68000 {
             self.exception(8);
         } else {
             // Get the immediate value from extension word
-            // In prefetch_only mode, this doesn't advance PC since we handle it specially
             let imm = self.next_ext_word();
 
             // 68000 masks reserved bits when writing to SR
@@ -3811,16 +4821,6 @@ impl M68000 {
             // STOP halts the CPU waiting for interrupt
             self.state = crate::cpu::State::Stopped;
 
-            // In prefetch_only mode, next_ext_word advanced PC by 2
-            // For STOP, PC should remain at the instruction (not past extension word)
-            // The test expects PC to be at instr_start_pc (past opcode but at extension word)
-            if self.prefetch_only {
-                // PC was at instr_start_pc, next_ext_word advanced it by 2
-                // Subtract 2 to get back to where it should be
-                self.regs.pc = self.regs.pc.wrapping_sub(2);
-                // Also prevent the post-instruction prefetch advance
-                self.internal_advances_pc = true;
-            }
         }
     }
 
@@ -3859,19 +4859,11 @@ impl M68000 {
                     self.trigger_rte_address_error(self.data);
                     return;
                 }
-                // In normal mode, PC should return to the exact address popped.
-                self.regs.pc = if self.prefetch_only {
-                    self.data.wrapping_add(4)
-                } else {
-                    self.data
-                };
+                self.trace_jump_to("RTE", self.data);
+                // PC should return to the exact address popped.
+                self.regs.pc = self.data;
                 self.instr_phase = InstrPhase::Complete;
-                if self.prefetch_only {
-                    self.internal_cycles = 0;
-                    self.internal_advances_pc = true;
-                } else {
-                    self.queue_internal_no_pc(8);
-                }
+                self.queue_internal_no_pc(8);
             }
             _ => {
                 self.instr_phase = InstrPhase::Initial;
@@ -3931,20 +4923,11 @@ impl M68000 {
                     self.trigger_rtr_address_error(self.data);
                     return;
                 }
-                // In normal mode, PC should return to the exact address popped.
-                self.regs.pc = if self.prefetch_only {
-                    self.data.wrapping_add(4)
-                } else {
-                    self.data
-                };
+                self.trace_jump_to("RTR", self.data);
+                // PC should return to the exact address popped.
+                self.regs.pc = self.data;
                 self.instr_phase = InstrPhase::Complete;
-                // In prefetch_only mode, PC already includes the prefetch advance.
-                if self.prefetch_only {
-                    self.internal_cycles = 0;
-                    self.internal_advances_pc = true;
-                } else {
-                    self.queue_internal_no_pc(8); // Prefetch cycles
-                }
+                self.queue_internal_no_pc(8); // Prefetch cycles
             }
             _ => {
                 self.instr_phase = InstrPhase::Initial;
@@ -3965,23 +4948,16 @@ impl M68000 {
 
     fn exec_jsr(&mut self, mode: u8, ea_reg: u8) {
         // JSR <ea> - Jump to Subroutine (push return address, then jump)
-        // With prefetch model: PC already points past the instruction,
-        // and ext_words[0] may contain the extension word from prefetch.
-        //
-        // After JSR completes, the 68000 fills its 2-word prefetch queue at the
-        // new PC, which advances PC by 4. We simulate this by adding 4 to target.
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
-            if !self.prefetch_only {
-                let ext_count = self.ext_words_for_mode(addr_mode);
-                if ext_count > 0 {
-                    for _ in 0..ext_count {
-                        self.micro_ops.push(MicroOp::FetchExtWord);
-                    }
-                    self.instr_phase = InstrPhase::SrcEACalc;
-                    self.src_mode = Some(addr_mode);
-                    self.micro_ops.push(MicroOp::Execute);
-                    return;
+            let ext_count = self.ext_words_for_mode(addr_mode);
+            if ext_count > 0 {
+                for _ in 0..ext_count {
+                    self.micro_ops.push(MicroOp::FetchExtWord);
                 }
+                self.instr_phase = InstrPhase::SrcEACalc;
+                self.src_mode = Some(addr_mode);
+                self.micro_ops.push(MicroOp::Execute);
+                return;
             }
             match addr_mode {
                 AddrMode::AddrInd(r) => {
@@ -3995,91 +4971,66 @@ impl M68000 {
                             target
                         );
                     }
+                    self.trace_jump_to("JSR", target);
                     // Check for odd target address - triggers address error (before push)
                     if target & 1 != 0 {
                         self.trigger_jsr_address_error(target);
                         return;
                     }
-                    // Return address: In prefetch_only mode, PC is past IRC (which JSR (An)
-                    // doesn't consume), so return addr = PC - 2
-                    self.data = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.data = self.regs.pc;
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 8; // prefetch
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AddrIndDisp(r) => {
                     // JSR d16(An) = 18 cycles: 2 (EA calc) + 8 (push) + 8 (prefetch)
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                    self.trace_jump_to("JSR", target);
                     // Check for odd target address - triggers address error (before push)
                     if target & 1 != 0 {
                         self.trigger_jsr_address_error(target);
                         return;
                     }
-                    // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
-                    self.data = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.data = self.regs.pc;
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 10; // 2 (EA) + 8 (prefetch)
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AddrIndIndex(r) => {
                     // JSR d8(An,Xn) = 22 cycles: 6 (EA calc) + 8 (push) + 8 (prefetch)
                     let target = self.calc_index_ea(self.regs.a(r as usize));
+                    self.trace_jump_to("JSR", target);
                     // Check for odd target address - triggers address error (before push)
                     if target & 1 != 0 {
                         self.trigger_jsr_address_error(target);
                         return;
                     }
-                    // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
-                    self.data = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.data = self.regs.pc;
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 14; // 6 (EA) + 8 (prefetch)
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AbsShort => {
                     // JSR addr.W = 18 cycles: 2 (EA) + 8 (push) + 8 (prefetch)
                     let target = self.next_ext_word() as i16 as i32 as u32;
+                    self.trace_jump_to("JSR", target);
                     // Check for odd target address - triggers address error (before push)
                     if target & 1 != 0 {
                         self.trigger_jsr_address_error(target);
                         return;
                     }
-                    // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
-                    self.data = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.data = self.regs.pc;
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 10; // 2 (EA) + 8 (prefetch)
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AbsLong => {
@@ -4087,80 +5038,54 @@ impl M68000 {
                     let hi = u32::from(self.next_ext_word());
                     let lo = u32::from(self.next_ext_word());
                     let target = (hi << 16) | lo;
+                    self.trace_jump_to("JSR", target);
                     // Check for odd target address - triggers address error (before push)
                     if target & 1 != 0 {
                         self.trigger_jsr_address_error(target);
                         return;
                     }
-                    // Return address: PC - 2 in prefetch_only (2nd ext word in prefetch pipeline)
-                    self.data = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.data = self.regs.pc;
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 12; // 4 (EA) + 8 (prefetch)
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::PcDisp => {
                     // JSR d16(PC) = 18 cycles: 2 (EA calc) + 8 (push) + 8 (prefetch)
-                    // PC-relative: base is address of extension word (PC - 2 in prefetch_only)
-                    let pc_at_ext = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    // PC-relative: base is address of extension word.
+                    let pc_at_ext = self.regs.pc;
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (pc_at_ext as i32).wrapping_add(disp) as u32;
+                    self.trace_jump_to("JSR", target);
                     // Check for odd target address - triggers address error (before push)
                     if target & 1 != 0 {
                         self.trigger_jsr_address_error(target);
                         return;
                     }
-                    // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
-                    self.data = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.data = self.regs.pc;
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 10; // 2 (EA) + 8 (prefetch)
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::PcIndex => {
                     // JSR d8(PC,Xn) = 22 cycles: 6 (EA calc) + 8 (push) + 8 (prefetch)
-                    // PC-relative: base is address of extension word (PC - 2 in prefetch_only)
-                    let pc_at_ext = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    // PC-relative: base is address of extension word.
+                    let pc_at_ext = self.regs.pc;
                     let target = self.calc_index_ea(pc_at_ext);
+                    self.trace_jump_to("JSR", target);
                     // Check for odd target address - triggers address error (before push)
                     if target & 1 != 0 {
                         self.trigger_jsr_address_error(target);
                         return;
                     }
-                    // Return address: PC - 2 in prefetch_only (before ext word in prefetch pipeline)
-                    self.data = if self.prefetch_only {
-                        self.regs.pc.wrapping_sub(2)
-                    } else {
-                        self.regs.pc
-                    };
+                    self.data = self.regs.pc;
                     self.micro_ops.push(MicroOp::PushLongHi);
                     self.micro_ops.push(MicroOp::PushLongLo);
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 14; // 6 (EA) + 8 (prefetch)
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 _ => self.illegal_instruction(),
@@ -4205,6 +5130,7 @@ impl M68000 {
             }
         };
 
+        self.trace_jump_to("JSR", target);
         if target & 1 != 0 {
             self.trigger_jsr_address_error(target);
             return;
@@ -4217,82 +5143,71 @@ impl M68000 {
         self.set_jump_pc(target);
         self.instr_phase = InstrPhase::Complete;
         self.internal_cycles = cycles;
-        self.internal_advances_pc = true;
         self.micro_ops.push(MicroOp::Internal);
     }
 
     fn exec_jmp(&mut self, mode: u8, ea_reg: u8) {
         // JMP <ea> - Jump to address
-        // With prefetch model: PC already points past the instruction,
-        // and ext_words[0] may contain the extension word from prefetch.
-        // After JMP, the 68000 fills its prefetch queue at the new PC,
-        // advancing PC by 4.
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
-            if !self.prefetch_only {
-                let ext_count = self.ext_words_for_mode(addr_mode);
-                if ext_count > 0 {
-                    for _ in 0..ext_count {
-                        self.micro_ops.push(MicroOp::FetchExtWord);
-                    }
-                    self.instr_phase = InstrPhase::SrcEACalc;
-                    self.src_mode = Some(addr_mode);
-                    self.micro_ops.push(MicroOp::Execute);
-                    return;
+            let ext_count = self.ext_words_for_mode(addr_mode);
+            if ext_count > 0 {
+                for _ in 0..ext_count {
+                    self.micro_ops.push(MicroOp::FetchExtWord);
                 }
+                self.instr_phase = InstrPhase::SrcEACalc;
+                self.src_mode = Some(addr_mode);
+                self.micro_ops.push(MicroOp::Execute);
+                return;
             }
             match addr_mode {
                 AddrMode::AddrInd(r) => {
                     // JMP (An) = 8 cycles (prefetch only)
                     let target = self.regs.a(r as usize);
+                    self.trace_jump_to("JMP", target);
                     // Check for odd target address (instruction fetch must be even)
                     if target & 1 != 0 {
                         self.trigger_jmp_address_error(target);
                         return;
                     }
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 8;
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AddrIndDisp(r) => {
                     // JMP d16(An) = 10 cycles: 2 (EA) + 8 (prefetch)
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (self.regs.a(r as usize) as i32).wrapping_add(disp) as u32;
+                    self.trace_jump_to("JMP", target);
                     if target & 1 != 0 {
                         self.trigger_jmp_address_error(target);
                         return;
                     }
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 10;
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AddrIndIndex(r) => {
                     // JMP d8(An,Xn) = 14 cycles: 6 (EA) + 8 (prefetch)
                     let target = self.calc_index_ea(self.regs.a(r as usize));
+                    self.trace_jump_to("JMP", target);
                     if target & 1 != 0 {
                         self.trigger_jmp_address_error(target);
                         return;
                     }
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 14;
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AbsShort => {
                     // JMP addr.W = 10 cycles: 2 (EA) + 8 (prefetch)
                     let target = self.next_ext_word() as i16 as i32 as u32;
+                    self.trace_jump_to("JMP", target);
                     if target & 1 != 0 {
                         self.trigger_jmp_address_error(target);
                         return;
                     }
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 10;
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::AbsLong => {
@@ -4300,14 +5215,13 @@ impl M68000 {
                     let hi = u32::from(self.next_ext_word());
                     let lo = u32::from(self.next_ext_word());
                     let target = (hi << 16) | lo;
+                    self.trace_jump_to("JMP", target);
                     if target & 1 != 0 {
                         self.trigger_jmp_address_error(target);
                         return;
                     }
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 12;
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::PcDisp => {
@@ -4315,28 +5229,26 @@ impl M68000 {
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let disp = self.next_ext_word() as i16 as i32;
                     let target = (pc_at_ext as i32).wrapping_add(disp) as u32;
+                    self.trace_jump_to("JMP", target);
                     if target & 1 != 0 {
                         self.trigger_jmp_address_error(target);
                         return;
                     }
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 10;
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 AddrMode::PcIndex => {
                     // JMP d8(PC,Xn) = 14 cycles: 6 (EA) + 8 (prefetch)
                     let pc_at_ext = self.regs.pc.wrapping_sub(2);
                     let target = self.calc_index_ea(pc_at_ext);
+                    self.trace_jump_to("JMP", target);
                     if target & 1 != 0 {
                         self.trigger_jmp_address_error(target);
                         return;
                     }
-                    // Set PC for jump target (handles prefetch_only vs normal mode)
                     self.set_jump_pc(target);
                     self.internal_cycles = 14;
-                    self.internal_advances_pc = true;
                     self.micro_ops.push(MicroOp::Internal);
                 }
                 _ => self.illegal_instruction(),
@@ -4361,11 +5273,6 @@ impl M68000 {
     fn trigger_jsr_address_error(&mut self, target: u32) {
         // JSR to odd address triggers address error.
         // Exception PC should be the return address (instruction after JSR).
-        // In prefetch_only mode, PC has advanced past any extension words,
-        // so return_addr = PC - 2.
-        if self.prefetch_only {
-            self.exception_pc_override = Some(self.regs.pc.wrapping_sub(2));
-        }
         self.fault_addr = target;
         self.fault_fc = if self.regs.is_supervisor() { 6 } else { 2 }; // Program fetch
         self.fault_read = true;
@@ -4408,6 +5315,7 @@ impl M68000 {
             }
         };
 
+        self.trace_jump_to("JMP", target);
         if target & 1 != 0 {
             self.trigger_jmp_address_error(target);
             return;
@@ -4416,7 +5324,6 @@ impl M68000 {
         self.set_jump_pc(target);
         self.instr_phase = InstrPhase::Complete;
         self.internal_cycles = cycles;
-        self.internal_advances_pc = true;
         self.micro_ops.push(MicroOp::Internal);
     }
 
@@ -4613,69 +5520,12 @@ impl M68000 {
         // If condition is false, decrement Dn.W and branch if Dn != -1
         // Note: DBcc ALWAYS has word displacement following the opcode
 
-        if self.prefetch_only {
-            // In prefetch_only mode, displacement is already preloaded
-            let disp = self.next_ext_word() as i16 as i32;
-            self.exec_dbcc_with_disp(condition, reg, disp);
-        } else {
-            // Store condition and register for continuation
-            // data2: bits 0-3 = reg, bits 4-7 = condition
-            self.data2 = u32::from(reg) | (u32::from(condition) << 4);
-            self.instr_phase = InstrPhase::SrcRead;
-            self.micro_ops.push(MicroOp::FetchExtWord);
-            self.micro_ops.push(MicroOp::Execute);
-        }
-    }
-
-    /// Execute DBcc with known displacement.
-    fn exec_dbcc_with_disp(&mut self, condition: u8, reg: u8, disp: i32) {
-        use crate::flags::Status;
-
-        if Status::condition(self.regs.sr, condition) {
-            // Condition true - no branch, fall through past displacement
-            // PC needs to advance +2 for prefetch of next instruction
-            self.queue_internal(12); // Condition true, no loop (internal advances PC)
-        } else {
-            // Condition false - check if we would branch
-            let val = (self.regs.d[reg as usize] & 0xFFFF) as i16;
-            let new_val = val.wrapping_sub(1);
-
-            if new_val == -1 {
-                // Counter exhausted - no branch, fall through
-                self.regs.d[reg as usize] =
-                    (self.regs.d[reg as usize] & 0xFFFF_0000) | (new_val as u16 as u32);
-                // PC needs to advance +2 for prefetch of next instruction
-                self.queue_internal(14); // Loop terminated (internal advances PC)
-            } else {
-                // Counter not exhausted - branch
-                // Displacement is relative to PC after opcode (opcode_addr + 2).
-                // In prefetch_only mode, next_ext_word advanced PC by 2, so:
-                // PC is now at opcode_addr + 6 (initial opcode_addr + 4, then +2 for ext word)
-                // target = (opcode_addr + 2) + disp = (PC - 4) + disp
-                let target = ((self.regs.pc as i32) - 4 + disp) as u32;
-
-                // Check for odd branch target
-                if target & 1 != 0 {
-                    // DBcc to odd address triggers address error.
-                    // Exception PC should be instruction after DBcc (opcode_addr + 4 = PC - 2).
-                    // I/N = 0 because error detected during address calculation.
-                    self.exception_pc_override = Some(self.regs.pc.wrapping_sub(2));
-                    self.fault_fc = if self.regs.sr & crate::flags::S != 0 { 6 } else { 2 };
-                    self.fault_addr = target;
-                    self.fault_read = true;
-                    self.fault_in_instruction = false;
-                    self.exception(3);
-                    return;
-                }
-
-                // Decrement and branch
-                self.regs.d[reg as usize] =
-                    (self.regs.d[reg as usize] & 0xFFFF_0000) | (new_val as u16 as u32);
-                // Set PC = target + 2, then queue_internal adds +2 for final PC = target + 4
-                self.regs.pc = target.wrapping_add(2);
-                self.queue_internal(10); // Loop continues (internal advances PC)
-            }
-        }
+        // Store condition and register for continuation
+        // data2: bits 0-3 = reg, bits 4-7 = condition
+        self.data2 = u32::from(reg) | (u32::from(condition) << 4);
+        self.instr_phase = InstrPhase::SrcRead;
+        self.micro_ops.push(MicroOp::FetchExtWord);
+        self.micro_ops.push(MicroOp::Execute);
     }
 
     /// DBcc continuation after fetching displacement word.
@@ -5132,7 +5982,24 @@ impl M68000 {
             return;
         };
 
+        let continued = self.instr_phase != InstrPhase::Initial;
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            if !continued {
+                self.size = size;
+                let ext_count = self.ext_words_for_mode(addr_mode);
+                if ext_count > 0 {
+                    for _ in 0..ext_count {
+                        self.micro_ops.push(MicroOp::FetchExtWord);
+                    }
+                    self.instr_phase = if to_ea {
+                        InstrPhase::DstEACalc
+                    } else {
+                        InstrPhase::SrcEACalc
+                    };
+                    self.micro_ops.push(MicroOp::Execute);
+                    return;
+                }
+            }
             if to_ea {
                 // OR Dn,<ea> - destination is EA
                 match addr_mode {
@@ -5190,6 +6057,9 @@ impl M68000 {
                     }
                 }
             }
+            if continued {
+                self.instr_phase = InstrPhase::Complete;
+            }
         } else {
             self.illegal_instruction();
         }
@@ -5208,7 +6078,50 @@ impl M68000 {
             return;
         };
 
+        let continued = self.instr_phase != InstrPhase::Initial;
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            if !continued {
+                self.size = size;
+                let ext_count = self.ext_words_for_mode(addr_mode);
+                if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                    if log_this {
+                        eprintln!(
+                            "[CPU] exec_add ext_words={ext_count} addr_mode={addr_mode:?}"
+                        );
+                    }
+                }
+                if ext_count > 0 {
+                    if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                        if log_this {
+                            eprintln!(
+                                "[CPU] exec_add queue ext_words={ext_count} phase={:?}",
+                                self.instr_phase
+                            );
+                        }
+                    }
+                    for _ in 0..ext_count {
+                        self.micro_ops.push(MicroOp::FetchExtWord);
+                    }
+                    self.instr_phase = if to_ea {
+                        InstrPhase::DstEACalc
+                    } else {
+                        InstrPhase::SrcEACalc
+                    };
+                    self.micro_ops.push(MicroOp::Execute);
+                    return;
+                }
+            }
+            if continued && std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                let op_pc = self.instr_start_pc.wrapping_sub(2);
+                let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                if log_this {
+                    eprintln!("[CPU] exec_add continued phase={:?}", self.instr_phase);
+                }
+            }
             if to_ea {
                 // SUB Dn,<ea> - destination is EA
                 match addr_mode {
@@ -5275,6 +6188,9 @@ impl M68000 {
                     }
                 }
             }
+            if continued {
+                self.instr_phase = InstrPhase::Complete;
+            }
         } else {
             self.illegal_instruction();
         }
@@ -5287,7 +6203,29 @@ impl M68000 {
             if !continued {
                 self.size = size;
                 let ext_count = self.ext_words_for_mode(addr_mode);
-                if ext_count > 0 && !self.prefetch_only {
+                if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                    if log_this {
+                        eprintln!(
+                            "[CPU] exec_add ext_count={ext_count} addr_mode={addr_mode:?} continued={continued} phase={:?} queue_len={}",
+                            self.instr_phase,
+                            self.micro_ops.len()
+                        );
+                    }
+                }
+                if ext_count > 0 {
+                    if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                        if log_this {
+                            eprintln!(
+                                "[CPU] exec_add queue ext_words={ext_count} phase={:?} queue_pos={}",
+                                self.instr_phase,
+                                self.micro_ops.pos()
+                            );
+                        }
+                    }
                     for _ in 0..ext_count {
                         self.micro_ops.push(MicroOp::FetchExtWord);
                     }
@@ -5430,7 +6368,29 @@ impl M68000 {
             if !continued {
                 self.size = size;
                 let ext_count = self.ext_words_for_mode(addr_mode);
-                if ext_count > 0 && !self.prefetch_only {
+                if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                    if log_this {
+                        eprintln!(
+                            "[CPU] exec_add ext_count={ext_count} addr_mode={addr_mode:?} continued={continued} phase={:?} queue_len={}",
+                            self.instr_phase,
+                            self.micro_ops.len()
+                        );
+                    }
+                }
+                if ext_count > 0 {
+                    if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                        if log_this {
+                            eprintln!(
+                                "[CPU] exec_add queue ext_words={ext_count} phase={:?} queue_pos={}",
+                                self.instr_phase,
+                                self.micro_ops.pos()
+                            );
+                        }
+                    }
                     for _ in 0..ext_count {
                         self.micro_ops.push(MicroOp::FetchExtWord);
                     }
@@ -5491,7 +6451,7 @@ impl M68000 {
             if !continued {
                 self.size = size;
                 let ext_count = self.ext_words_for_mode(addr_mode);
-                if ext_count > 0 && !self.prefetch_only {
+                if ext_count > 0 {
                     for _ in 0..ext_count {
                         self.micro_ops.push(MicroOp::FetchExtWord);
                     }
@@ -5592,7 +6552,20 @@ impl M68000 {
             return;
         };
 
+        let continued = self.instr_phase != InstrPhase::Initial;
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            if !continued {
+                self.size = size;
+                let ext_count = self.ext_words_for_mode(addr_mode);
+                if ext_count > 0 {
+                    for _ in 0..ext_count {
+                        self.micro_ops.push(MicroOp::FetchExtWord);
+                    }
+                    self.instr_phase = InstrPhase::DstEACalc;
+                    self.micro_ops.push(MicroOp::Execute);
+                    return;
+                }
+            }
             match addr_mode {
                 AddrMode::DataReg(r) => {
                     let src = self.read_data_reg(reg, size);
@@ -5613,6 +6586,9 @@ impl M68000 {
                     self.movem_long_phase = 0;
                     self.micro_ops.push(MicroOp::AluMemRmw);
                 }
+            }
+            if continued {
+                self.instr_phase = InstrPhase::Complete;
             }
         } else {
             self.illegal_instruction();
@@ -5851,7 +6827,24 @@ impl M68000 {
             return;
         };
 
+        let continued = self.instr_phase != InstrPhase::Initial;
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            if !continued {
+                self.size = size;
+                let ext_count = self.ext_words_for_mode(addr_mode);
+                if ext_count > 0 {
+                    for _ in 0..ext_count {
+                        self.micro_ops.push(MicroOp::FetchExtWord);
+                    }
+                    self.instr_phase = if to_ea {
+                        InstrPhase::DstEACalc
+                    } else {
+                        InstrPhase::SrcEACalc
+                    };
+                    self.micro_ops.push(MicroOp::Execute);
+                    return;
+                }
+            }
             if to_ea {
                 // AND Dn,<ea> - destination is EA
                 match addr_mode {
@@ -5909,6 +6902,9 @@ impl M68000 {
                     }
                 }
             }
+            if continued {
+                self.instr_phase = InstrPhase::Complete;
+            }
         } else {
             self.illegal_instruction();
         }
@@ -5927,7 +6923,56 @@ impl M68000 {
             return;
         };
 
+        if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+            let op_pc = self.instr_start_pc.wrapping_sub(2);
+            let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+            if log_this {
+                eprintln!(
+                    "[CPU] exec_add op_pc=${op_pc:08X} size={size:?} mode={mode} ea_reg={ea_reg} to_ea={to_ea} phase={:?}",
+                    self.instr_phase
+                );
+            }
+        }
+        let continued = self.instr_phase != InstrPhase::Initial;
         if let Some(addr_mode) = AddrMode::decode(mode, ea_reg) {
+            if !continued {
+                self.size = size;
+                let ext_count = self.ext_words_for_mode(addr_mode);
+                if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                    if log_this {
+                        eprintln!(
+                            "[CPU] exec_add ext_count={ext_count} addr_mode={addr_mode:?} continued={continued} phase={:?} queue_len={}",
+                            self.instr_phase,
+                            self.micro_ops.len()
+                        );
+                    }
+                }
+                if ext_count > 0 {
+                    if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        let log_this = trace_add_pc_target().map_or(true, |target| target == op_pc);
+                        if log_this {
+                            eprintln!(
+                                "[CPU] exec_add queue ext_words={ext_count} phase={:?} queue_pos={}",
+                                self.instr_phase,
+                                self.micro_ops.pos()
+                            );
+                        }
+                    }
+                    for _ in 0..ext_count {
+                        self.micro_ops.push(MicroOp::FetchExtWord);
+                    }
+                    self.instr_phase = if to_ea {
+                        InstrPhase::DstEACalc
+                    } else {
+                        InstrPhase::SrcEACalc
+                    };
+                    self.micro_ops.push(MicroOp::Execute);
+                    return;
+                }
+            }
             if to_ea {
                 // ADD Dn,<ea> - destination is EA
                 match addr_mode {
@@ -5944,6 +6989,16 @@ impl M68000 {
                         self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                            let op_pc = self.instr_start_pc.wrapping_sub(2);
+                            let log_this =
+                                trace_add_pc_target().map_or(true, |target| target == op_pc);
+                            if log_this {
+                                eprintln!(
+                                    "[CPU] ADD->EA op_pc=${op_pc:08X} mode={addr_mode:?} addr=${addr:08X}"
+                                );
+                            }
+                        }
                         self.addr = addr;
                         self.data = self.read_data_reg(reg, size);
                         self.data2 = 0; // 0 = ADD
@@ -5986,6 +7041,16 @@ impl M68000 {
                         self.src_mode = Some(addr_mode);
                         self.size = size;
                         let (addr, _is_reg) = self.calc_ea(addr_mode, self.regs.pc);
+                        if std::env::var("EMU68000_TRACE_ADD_EA").is_ok() {
+                            let op_pc = self.instr_start_pc.wrapping_sub(2);
+                            let log_this =
+                                trace_add_pc_target().map_or(true, |target| target == op_pc);
+                            if log_this {
+                                eprintln!(
+                                    "[CPU] ADD<-EA op_pc=${op_pc:08X} mode={addr_mode:?} addr=${addr:08X}"
+                                );
+                            }
+                        }
                         self.addr = addr;
                         self.data = u32::from(reg);
                         self.data2 = 0; // 0 = ADD
@@ -5993,6 +7058,9 @@ impl M68000 {
                         self.micro_ops.push(MicroOp::AluMemSrc);
                     }
                 }
+            }
+            if continued {
+                self.instr_phase = InstrPhase::Complete;
             }
         } else {
             self.illegal_instruction();
@@ -6006,7 +7074,7 @@ impl M68000 {
             if !continued {
                 self.size = size;
                 let ext_count = self.ext_words_for_mode(addr_mode);
-                if ext_count > 0 && !self.prefetch_only {
+                if ext_count > 0 {
                     for _ in 0..ext_count {
                         self.micro_ops.push(MicroOp::FetchExtWord);
                     }
@@ -6175,7 +7243,7 @@ impl M68000 {
         }
     }
 
-    fn exec_shift_reg(
+    pub(super) fn exec_shift_reg(
         &mut self,
         kind: u8,
         direction: bool, // false=right, true=left

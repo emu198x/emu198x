@@ -95,12 +95,10 @@ impl Memory {
 
     /// Clear the overlay (ROM no longer mapped at $000000).
     pub fn clear_overlay(&mut self) {
+        if !self.overlay {
+            return;
+        }
         self.overlay = false;
-        // Preserve reset vectors by copying them into RAM when overlay is cleared.
-        // Kickstart expects meaningful data at address 0 after the overlay drops.
-        // Copy the full vector table (1KB) so exception vectors remain valid.
-        let copy_len = 0x400.min(self.kickstart.len());
-        self.chip_ram[0..copy_len].copy_from_slice(&self.kickstart[0..copy_len]);
     }
 
     /// Set the overlay (ROM mapped at $000000).

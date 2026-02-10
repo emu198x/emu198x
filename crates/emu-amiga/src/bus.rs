@@ -250,10 +250,17 @@ impl AmigaBus {
         // CIA-A PRA bit 0 controls ROM overlay
         if reg == 0x00 || reg == 0x02 {
             let output = self.cia_a.port_a_output();
-            if output & 0x01 != 0 {
+            let overlay_on = output & 0x01 != 0;
+            if overlay_on {
                 self.memory.set_overlay();
             } else {
                 self.memory.clear_overlay();
+            }
+            if std::env::var("EMU_AMIGA_TRACE_OVERLAY").is_ok() {
+                let state = if overlay_on { "ON" } else { "OFF" };
+                eprintln!(
+                    "[AMIGA] OVL {state} via CIA-A port A output ${output:02X} (reg=${reg:02X})"
+                );
             }
         }
     }
@@ -350,6 +357,9 @@ impl Bus for AmigaBus {
 
     fn reset(&mut self) {
         // RESET line: reinitialize CIAs and restore overlay.
+        if std::env::var("EMU_AMIGA_TRACE_OVERLAY").is_ok() {
+            eprintln!("[AMIGA] RESET asserted; overlay ON");
+        }
         self.cia_a.reset();
         self.cia_a.queue_serial_byte(0xFD);
         self.cia_b.reset();
