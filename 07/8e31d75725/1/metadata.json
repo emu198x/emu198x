@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "078e31d75725",
+  "session_id": "bc1bb741-c062-4115-a757-ecbb67408b85",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-11T15:39:37.900529Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/emu-m68k/Cargo.toml",
+    "crates/emu-m68k/src/bus.rs",
+    "crates/emu-m68k/src/common/addressing.rs",
+    "crates/emu-m68k/src/common/alu.rs",
+    "crates/emu-m68k/src/common/conditions.rs",
+    "crates/emu-m68k/src/common/flags.rs",
+    "crates/emu-m68k/src/common/mod.rs",
+    "crates/emu-m68k/src/common/registers.rs",
+    "crates/emu-m68k/src/lib.rs",
+    "crates/emu-m68k/src/m68000/execute.rs",
+    "crates/emu-m68k/src/m68000/mod.rs",
+    "crates/emu-m68k/tests/single_step_tests.rs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 186,
+    "cache_creation_tokens": 294038,
+    "cache_read_tokens": 18005000,
+    "output_tokens": 11246,
+    "api_call_count": 162
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-11T15:39:37.382419Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 2766,
+    "human_removed": 13451,
+    "total_committed": 2766,
+    "agent_percentage": 0
+  }
+}

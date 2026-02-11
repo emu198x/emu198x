@@ -26,9 +26,20 @@
     "crates/emu-amiga2/src/main.rs",
     "crates/emu-amiga2/src/memory.rs",
     "crates/emu-amiga2/src/paula.rs",
+    "crates/emu-m68k/Cargo.toml",
+    "crates/emu-m68k/src/bus.rs",
+    "crates/emu-m68k/src/common/addressing.rs",
+    "crates/emu-m68k/src/common/alu.rs",
+    "crates/emu-m68k/src/common/conditions.rs",
+    "crates/emu-m68k/src/common/flags.rs",
+    "crates/emu-m68k/src/common/mod.rs",
+    "crates/emu-m68k/src/common/registers.rs",
+    "crates/emu-m68k/src/lib.rs",
     "crates/emu-m68k/src/m68000/decode.rs",
+    "crates/emu-m68k/src/m68000/execute.rs",
     "crates/emu-m68k/src/m68000/mod.rs",
     "crates/emu-m68k/src/m68000/recipe.rs",
+    "crates/emu-m68k/tests/single_step_tests.rs",
     "docs/amiga-variants-plan.md",
     "docs/decode-rewrite-plan.md",
     "ks10-boot.png",
@@ -41,13 +52,20 @@
       "context": "/07/8e31d75725/0/context.md",
       "content_hash": "/07/8e31d75725/0/content_hash.txt",
       "prompt": "/07/8e31d75725/0/prompt.txt"
+    },
+    {
+      "metadata": "/07/8e31d75725/1/metadata.json",
+      "transcript": "/07/8e31d75725/1/full.jsonl",
+      "context": "/07/8e31d75725/1/context.md",
+      "content_hash": "/07/8e31d75725/1/content_hash.txt",
+      "prompt": "/07/8e31d75725/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 729,
-    "cache_creation_tokens": 960678,
-    "cache_read_tokens": 42140552,
-    "output_tokens": 105341,
-    "api_call_count": 409
+    "input_tokens": 915,
+    "cache_creation_tokens": 1254716,
+    "cache_read_tokens": 60145552,
+    "output_tokens": 116587,
+    "api_call_count": 571
   }
 }
