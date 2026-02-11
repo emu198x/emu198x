@@ -1,0 +1,18 @@
+[package]
+name = "cpu-m68k"
+description = "Motorola 68000 CPU core with cycle-accurate IR/IRC prefetch pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+glob = "0.3"
+
+[lints]
+workspace = true
