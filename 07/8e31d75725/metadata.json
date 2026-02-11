@@ -3,9 +3,25 @@
   "checkpoint_id": "078e31d75725",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 4,
+  "checkpoints_count": 6,
   "files_touched": [
     "Cargo.toml",
+    "crates/cpu-m68k/Cargo.toml",
+    "crates/cpu-m68k/src/addressing.rs",
+    "crates/cpu-m68k/src/alu.rs",
+    "crates/cpu-m68k/src/bus.rs",
+    "crates/cpu-m68k/src/cpu.rs",
+    "crates/cpu-m68k/src/decode.rs",
+    "crates/cpu-m68k/src/ea.rs",
+    "crates/cpu-m68k/src/exceptions.rs",
+    "crates/cpu-m68k/src/execute.rs",
+    "crates/cpu-m68k/src/flags.rs",
+    "crates/cpu-m68k/src/lib.rs",
+    "crates/cpu-m68k/src/microcode.rs",
+    "crates/cpu-m68k/src/registers.rs",
+    "crates/cpu-m68k/src/shifts.rs",
+    "crates/cpu-m68k/src/timing.rs",
+    "crates/cpu-m68k/tests/single_step_tests.rs",
     "crates/emu-amiga2/Cargo.toml",
     "crates/emu-amiga2/src/agnus/beam.rs",
     "crates/emu-amiga2/src/agnus/dma.rs",
@@ -41,6 +57,7 @@
     "crates/emu-m68k/src/m68000/recipe.rs",
     "crates/emu-m68k/tests/single_step_tests.rs",
     "docs/amiga-variants-plan.md",
+    "docs/cpu-m68k-plan.md",
     "docs/decode-rewrite-plan.md",
     "ks10-boot.png",
     "ks13-boot.png"
@@ -59,13 +76,20 @@
       "context": "/07/8e31d75725/1/context.md",
       "content_hash": "/07/8e31d75725/1/content_hash.txt",
       "prompt": "/07/8e31d75725/1/prompt.txt"
+    },
+    {
+      "metadata": "/07/8e31d75725/2/metadata.json",
+      "transcript": "/07/8e31d75725/2/full.jsonl",
+      "context": "/07/8e31d75725/2/context.md",
+      "content_hash": "/07/8e31d75725/2/content_hash.txt",
+      "prompt": "/07/8e31d75725/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 915,
-    "cache_creation_tokens": 1254716,
-    "cache_read_tokens": 60145552,
-    "output_tokens": 116587,
-    "api_call_count": 571
+    "input_tokens": 1303,
+    "cache_creation_tokens": 1380476,
+    "cache_read_tokens": 66538778,
+    "output_tokens": 118730,
+    "api_call_count": 632
   }
 }

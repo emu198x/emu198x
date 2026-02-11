@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "078e31d75725",
+  "session_id": "8118c915-899f-4e8b-81ba-1789f20f52c4",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-11T15:41:17.616325Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "crates/cpu-m68k/Cargo.toml",
+    "crates/cpu-m68k/src/addressing.rs",
+    "crates/cpu-m68k/src/alu.rs",
+    "crates/cpu-m68k/src/bus.rs",
+    "crates/cpu-m68k/src/cpu.rs",
+    "crates/cpu-m68k/src/decode.rs",
+    "crates/cpu-m68k/src/ea.rs",
+    "crates/cpu-m68k/src/exceptions.rs",
+    "crates/cpu-m68k/src/execute.rs",
+    "crates/cpu-m68k/src/flags.rs",
+    "crates/cpu-m68k/src/lib.rs",
+    "crates/cpu-m68k/src/microcode.rs",
+    "crates/cpu-m68k/src/registers.rs",
+    "crates/cpu-m68k/src/shifts.rs",
+    "crates/cpu-m68k/src/timing.rs",
+    "crates/cpu-m68k/tests/single_step_tests.rs",
+    "docs/cpu-m68k-plan.md"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 388,
+    "cache_creation_tokens": 125760,
+    "cache_read_tokens": 6393226,
+    "output_tokens": 2143,
+    "api_call_count": 61
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-11T15:41:17.545398Z",
+    "agent_lines": 2766,
+    "human_added": 0,
+    "human_modified": 158,
+    "human_removed": 180,
+    "total_committed": 2924,
+    "agent_percentage": 94.59644322845418
+  }
+}
