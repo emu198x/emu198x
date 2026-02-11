@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "078e31d75725",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "Cargo.toml",
+    "crates/emu-amiga2/Cargo.toml",
+    "crates/emu-amiga2/src/agnus/beam.rs",
+    "crates/emu-amiga2/src/agnus/dma.rs",
+    "crates/emu-amiga2/src/agnus/mod.rs",
+    "crates/emu-amiga2/src/amiga.rs",
+    "crates/emu-amiga2/src/blitter.rs",
+    "crates/emu-amiga2/src/bus.rs",
+    "crates/emu-amiga2/src/capture.rs",
+    "crates/emu-amiga2/src/cia.rs",
+    "crates/emu-amiga2/src/config.rs",
+    "crates/emu-amiga2/src/copper.rs",
+    "crates/emu-amiga2/src/custom_regs.rs",
+    "crates/emu-amiga2/src/denise/mod.rs",
+    "crates/emu-amiga2/src/denise/video.rs",
+    "crates/emu-amiga2/src/input.rs",
+    "crates/emu-amiga2/src/keyboard.rs",
+    "crates/emu-amiga2/src/lib.rs",
+    "crates/emu-amiga2/src/main.rs",
+    "crates/emu-amiga2/src/memory.rs",
+    "crates/emu-amiga2/src/paula.rs",
+    "crates/emu-m68k/src/m68000/decode.rs",
+    "crates/emu-m68k/src/m68000/mod.rs",
+    "crates/emu-m68k/src/m68000/recipe.rs",
+    "docs/amiga-variants-plan.md",
+    "docs/decode-rewrite-plan.md",
+    "ks10-boot.png",
+    "ks13-boot.png"
+  ],
+  "sessions": [
+    {
+      "metadata": "/07/8e31d75725/0/metadata.json",
+      "transcript": "/07/8e31d75725/0/full.jsonl",
+      "context": "/07/8e31d75725/0/context.md",
+      "content_hash": "/07/8e31d75725/0/content_hash.txt",
+      "prompt": "/07/8e31d75725/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 729,
+    "cache_creation_tokens": 960678,
+    "cache_read_tokens": 42140552,
+    "output_tokens": 105341,
+    "api_call_count": 409
+  }
+}
