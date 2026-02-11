@@ -23,12 +23,9 @@ impl Cpu68000 {
                 0xFE => { self.exception_continue(); return; }
                 0xFF => { self.exception_jump_vector(); return; }
                 _ => {
-                    // Instruction-specific followup — will be handled per-instruction
-                    // in later phases. For now, treat as illegal.
-                    self.in_followup = false;
-                    self.followup_tag = 0;
-                    self.illegal_instruction();
-                    return;
+                    // Instruction-specific followup — fall through to opcode dispatch.
+                    // The instruction handler (e.g. exec_move) checks in_followup
+                    // and followup_tag to resume its multi-stage decode.
                 }
             }
         }
