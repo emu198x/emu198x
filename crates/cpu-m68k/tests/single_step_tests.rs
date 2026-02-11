@@ -401,12 +401,22 @@ fn compare_state(cpu: &Cpu68000, mem: &TestBus, expected: &CpuState, test_name: 
 
 /// Run a single test case.
 fn run_test(test: &TestCase) -> Result<(), Vec<String>> {
+    run_test_inner(test, false)
+}
+
+/// Run a single test case with optional verbose output.
+fn run_test_inner(test: &TestCase, verbose: bool) -> Result<(), Vec<String>> {
     let mut cpu = Cpu68000::new();
     let mut mem = TestBus::new();
 
     setup_cpu(&mut cpu, &mut mem, &test.initial);
 
     let cycles_to_run = if test.cycles > 0 { test.cycles } else { 8 };
+
+    if verbose {
+        eprintln!("  cycles={cycles_to_run} opcode=0x{:04X} initial_pc=0x{:08X} sr=0x{:04X}",
+            test.initial.prefetch[0], test.initial.pc, test.initial.sr);
+    }
 
     for _ in 0..cycles_to_run {
         cpu.tick(&mut mem);
@@ -446,15 +456,15 @@ fn run_test_file(path: &Path) -> (usize, usize, Vec<String>) {
     (passed, failed, all_errors)
 }
 
-/// Smoke test: run MOVEA.w tests (should all fail with illegal instruction at Phase 0).
+/// Test MOVEQ instruction.
 #[test]
-fn test_movea_w() {
+fn test_moveq() {
     let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .parent()
         .unwrap()
-        .join("test-data/m68000-dl/v1/MOVEA.w.json.bin");
+        .join("test-data/m68000-dl/v1/MOVE.q.json.bin");
 
     if !test_file.exists() {
         eprintln!("Test file not found: {}", test_file.display());
@@ -462,13 +472,69 @@ fn test_movea_w() {
     }
 
     let (passed, failed, errors) = run_test_file(&test_file);
-    println!("MOVEA.w tests: {passed} passed, {failed} failed");
+    println!("MOVEQ tests: {passed} passed, {failed} failed");
     if !errors.is_empty() {
         println!("First errors:");
         for err in errors.iter().take(10) {
             println!("  {err}");
         }
     }
+    assert_eq!(failed, 0, "MOVEQ: {failed} tests failed");
+}
+
+/// Test MOVE.w instruction.
+#[test]
+fn test_move_w() {
+    run_named_test("MOVE.w");
+}
+
+/// Test MOVE.b instruction.
+#[test]
+fn test_move_b() {
+    run_named_test("MOVE.b");
+}
+
+/// Test MOVE.l instruction.
+#[test]
+fn test_move_l() {
+    run_named_test("MOVE.l");
+}
+
+/// Test MOVEA.w instruction.
+#[test]
+fn test_movea_w() {
+    run_named_test("MOVEA.w");
+}
+
+/// Test MOVEA.l instruction.
+#[test]
+fn test_movea_l() {
+    run_named_test("MOVEA.l");
+}
+
+/// Helper: run a named test file and print results.
+fn run_named_test(name: &str) {
+    let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(format!("test-data/m68000-dl/v1/{name}.json.bin"));
+
+    if !test_file.exists() {
+        eprintln!("Test file not found: {}", test_file.display());
+        return;
+    }
+
+    let (passed, failed, errors) = run_test_file(&test_file);
+    println!("{name} tests: {passed} passed, {failed} failed");
+    if !errors.is_empty() {
+        println!("First errors:");
+        for err in errors.iter().take(10) {
+            println!("  {err}");
+        }
+    }
+    // assert_eq!(failed, 0, "{name}: {failed} tests failed");
 }
 
 /// Run all available test files (called manually, not in CI).

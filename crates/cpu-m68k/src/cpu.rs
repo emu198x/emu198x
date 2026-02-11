@@ -243,11 +243,10 @@ impl Cpu68000 {
                 self.execute_bus_op(completed_op, bus);
                 self.cycle = 0;
 
-                // Step 5: Process trailing instant ops
-                self.process_instant_ops(bus);
-
-                // If queue emptied after trailing ops, DON'T start next instruction
-                // until the next tick — that tick is the first cycle of the next instruction
+                // No trailing instant ops — they'll be processed as leading
+                // instant ops on the next tick. This prevents the next
+                // instruction's Execute from firing within the current
+                // instruction's cycle budget.
             }
         }
     }
@@ -469,6 +468,30 @@ impl Cpu68000 {
     /// Trigger an illegal instruction exception.
     pub(crate) fn illegal_instruction(&mut self) {
         self.exception(4);
+    }
+
+    /// Queue read micro-ops based on operation size. Reads from self.addr.
+    pub(crate) fn queue_read_ops(&mut self, size: Size) {
+        match size {
+            Size::Byte => self.micro_ops.push(MicroOp::ReadByte),
+            Size::Word => self.micro_ops.push(MicroOp::ReadWord),
+            Size::Long => {
+                self.micro_ops.push(MicroOp::ReadLongHi);
+                self.micro_ops.push(MicroOp::ReadLongLo);
+            }
+        }
+    }
+
+    /// Queue write micro-ops based on operation size. Writes self.data to self.addr.
+    pub(crate) fn queue_write_ops(&mut self, size: Size) {
+        match size {
+            Size::Byte => self.micro_ops.push(MicroOp::WriteByte),
+            Size::Word => self.micro_ops.push(MicroOp::WriteWord),
+            Size::Long => {
+                self.micro_ops.push(MicroOp::WriteLongHi);
+                self.micro_ops.push(MicroOp::WriteLongLo);
+            }
+        }
     }
 
     /// Trigger a privilege violation exception.

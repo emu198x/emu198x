@@ -89,7 +89,7 @@ impl Cpu68000 {
     }
 
     /// Calculate indexed EA: base + d8 + Xn.
-    fn calc_index_ea(&mut self, base: u32, ext: u16) -> u32 {
+    pub(crate) fn calc_index_ea(&mut self, base: u32, ext: u16) -> u32 {
         let disp = ext as u8 as i8 as i32;
         let xn_reg = ((ext >> 12) & 0x0F) as usize;
         let xn_long = ext & 0x0800 != 0;

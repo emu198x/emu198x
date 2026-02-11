@@ -35,11 +35,17 @@ impl Cpu68000 {
 
         let op = self.ir;
 
-        // All opcodes are currently unimplemented — trigger illegal instruction
-        // exception. As instruction groups are implemented in later phases,
-        // this match will expand.
         match op >> 12 {
-            // Phase 1+: instruction groups will be added here
+            // MOVE.b / MOVE.w / MOVE.l / MOVEA.w / MOVEA.l
+            0x1 | 0x2 | 0x3 => self.exec_move(),
+            0x7 => {
+                // MOVEQ: 0111 RRR 0 DDDDDDDD
+                if op & 0x0100 == 0 {
+                    self.exec_moveq();
+                } else {
+                    self.illegal_instruction();
+                }
+            }
             _ => self.illegal_instruction(),
         }
     }
