@@ -13,6 +13,8 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use emu_core::{Bus, ReadResult};
+use std::collections::VecDeque;
+use std::sync::OnceLock;
 
 use crate::agnus::Agnus;
 use crate::blitter::Blitter;
@@ -35,9 +37,59 @@ pub struct AmigaBus {
     pub cia_b: Cia,
     /// Buffered high byte for word-aligned custom register writes.
     write_hi_byte: u8,
+    /// Latched word for custom register reads (even/odd byte pair).
+    read_word_latch: Option<u16>,
+    /// Pending keyboard bytes (raw keycodes, including key-up).
+    keyboard_queue: VecDeque<u8>,
+    /// Keyboard power-up code pending (sent after reset handshake).
+    kbd_boot_pending: bool,
+    /// Last CIA-A port A output for keyboard handshake.
+    cia_a_pra_last: u8,
+    /// Count of CIA-A port A bit-1 toggles.
+    cia_a_kbd_toggles: u8,
+    /// Keyboard has received a handshake pulse and may send one byte.
+    kbd_can_send: bool,
+    /// Cached ExecBase pointer (from RAM at $00000004).
+    execbase: Option<u32>,
+    /// One-shot patch flag for ExecBase checksum during cold start.
+    execbase_checksum_patched: bool,
 }
 
 impl AmigaBus {
+    fn trace_addrs() -> Option<&'static Vec<u32>> {
+        static TRACE: OnceLock<Option<Vec<u32>>> = OnceLock::new();
+        TRACE
+            .get_or_init(|| {
+                let spec = std::env::var("EMU_AMIGA_TRACE_ADDRS").ok()?;
+                let mut addrs = Vec::new();
+                for part in spec.split(',') {
+                    let part = part.trim();
+                    if part.is_empty() {
+                        continue;
+                    }
+                    let part = part
+                        .trim_start_matches("0x")
+                        .trim_start_matches("0X");
+                    if let Ok(addr) = u32::from_str_radix(part, 16) {
+                        addrs.push(addr & 0x00FF_FFFF);
+                    }
+                }
+                if addrs.is_empty() { None } else { Some(addrs) }
+            })
+            .as_ref()
+    }
+
+    fn trace_addr_hit(addr: u32) -> bool {
+        Self::trace_addrs()
+            .map_or(false, |addrs| addrs.contains(&addr))
+    }
+
+    fn trace_addr_hit_word(addr: u32) -> bool {
+        let base = addr & 0x00FF_FFFE;
+        Self::trace_addrs()
+            .map_or(false, |addrs| addrs.contains(&base))
+    }
+
     /// Create a new Amiga bus.
     ///
     /// # Errors
@@ -45,19 +97,26 @@ impl AmigaBus {
     /// Returns an error if the Kickstart ROM is invalid.
     pub fn new(kickstart_data: &[u8]) -> Result<Self, String> {
         let memory = Memory::new(kickstart_data)?;
-        let mut cia_a = Cia::new();
-        // Provide a basic keyboard power-up code so Kickstart can progress.
-        cia_a.queue_serial_byte(0xFD);
+        let cia_a = Cia::new();
+        let paula = Paula::new();
         Ok(Self {
             memory,
             agnus: Agnus::new(),
             denise: Denise::new(),
-            paula: Paula::new(),
+            paula,
             copper: Copper::new(),
             blitter: Blitter::new(),
             cia_a,
             cia_b: Cia::new(),
             write_hi_byte: 0,
+            read_word_latch: None,
+            keyboard_queue: VecDeque::new(),
+            kbd_boot_pending: true,
+            cia_a_pra_last: 0xFF,
+            cia_a_kbd_toggles: 0,
+            kbd_can_send: false,
+            execbase: None,
+            execbase_checksum_patched: false,
         })
     }
 
@@ -68,6 +127,34 @@ impl AmigaBus {
         let hi = self.memory.chip_ram[addr as usize];
         let lo = self.memory.chip_ram[(addr + 1) as usize];
         u16::from(hi) << 8 | u16::from(lo)
+    }
+
+    /// Queue a raw keyboard keycode.
+    pub fn queue_keyboard_raw(&mut self, code: u8, pressed: bool) {
+        let value = if pressed { code } else { code | 0x80 };
+        self.keyboard_queue.push_back(value);
+        if std::env::var("EMU_AMIGA_TRACE_KBD").is_ok() {
+            eprintln!(
+                "[KBD] QUEUE value={value:02X} pressed={pressed} pending={}",
+                self.keyboard_queue.len()
+            );
+        }
+    }
+
+    /// Feed one queued keyboard byte into Paula if the serial buffer is empty.
+    pub fn pump_keyboard(&mut self) {
+        if self.kbd_can_send && self.paula.serial_rx_empty() {
+            if let Some(byte) = self.keyboard_queue.pop_front() {
+                if std::env::var("EMU_AMIGA_TRACE_KBD").is_ok() {
+                    eprintln!(
+                        "[KBD] PUMP  value={byte:02X} pending={}",
+                        self.keyboard_queue.len()
+                    );
+                }
+                self.paula.queue_serial_rx(byte);
+                self.kbd_can_send = false;
+            }
+        }
     }
 
     /// Dispatch a custom register word write.
@@ -147,6 +234,15 @@ impl AmigaBus {
             custom_regs::INTENA => self.paula.write_intena(value),
             custom_regs::INTREQ => self.paula.write_intreq(value),
 
+            // Serial port (stub): writing SERDAT completes immediately and raises TBE.
+            custom_regs::SERDAT => {
+                if std::env::var("EMU_AMIGA_TRACE_KBD").is_ok() {
+                    eprintln!("[KBD] SERDAT<= {value:04X}");
+                }
+                self.paula.request_interrupt(0);
+            }
+            custom_regs::SERPER => {}
+
             // Bitplane pointers
             custom_regs::BPL1PTH => self.set_bpl_pth(0, value),
             custom_regs::BPL1PTL => self.set_bpl_ptl(0, value),
@@ -197,13 +293,28 @@ impl AmigaBus {
 
     /// Read a custom register word.
     #[allow(clippy::match_same_arms)]
-    fn read_custom_reg(&self, offset: u16) -> u16 {
+    fn read_custom_reg(&mut self, offset: u16) -> u16 {
         match offset {
             custom_regs::DMACONR => self.agnus.dmacon & 0x03FF,
             custom_regs::VPOSR => self.agnus.read_vposr(),
             custom_regs::VHPOSR => self.agnus.read_vhposr(),
             custom_regs::JOY0DAT | custom_regs::JOY1DAT | custom_regs::ADKCONR => 0x0000, // Stubs
             custom_regs::POTGOR => 0xFF00,  // Stub: buttons not pressed
+            // SERDATR: keyboard/serial input.
+            custom_regs::SERDATR => {
+                if self.paula.serial_rx_empty() {
+                    if let Some(byte) = self.keyboard_queue.pop_front() {
+                        if std::env::var("EMU_AMIGA_TRACE_KBD").is_ok() {
+                            eprintln!(
+                                "[KBD] READFILL value={byte:02X} pending={}",
+                                self.keyboard_queue.len()
+                            );
+                        }
+                        self.paula.queue_serial_rx(byte);
+                    }
+                }
+                self.paula.read_serdatr()
+            }
             custom_regs::INTENAR => self.paula.intena,
             custom_regs::INTREQR => self.paula.intreq,
             // Many read addresses return the last written value or 0
@@ -262,6 +373,24 @@ impl AmigaBus {
                     "[AMIGA] OVL {state} via CIA-A port A output ${output:02X} (reg=${reg:02X})"
                 );
             }
+
+            // Keyboard handshake: if bit 1 toggles repeatedly, inject a byte.
+            let toggled = (output ^ self.cia_a_pra_last) & 0x02 != 0;
+            self.cia_a_pra_last = output;
+            if toggled {
+                self.cia_a_kbd_toggles = self.cia_a_kbd_toggles.saturating_add(1);
+                self.kbd_can_send = true;
+                if self.kbd_boot_pending {
+                    self.kbd_boot_pending = false;
+                    self.cia_a_kbd_toggles = 0;
+                    if std::env::var("EMU_AMIGA_TRACE_KBD").is_ok() {
+                        eprintln!("[KBD] CIA-A boot inject FD/FE");
+                    }
+                    self.keyboard_queue.push_back(0xFD);
+                    self.keyboard_queue.push_back(0xFE);
+                }
+                self.pump_keyboard();
+            }
         }
     }
 
@@ -287,6 +416,56 @@ impl AmigaBus {
     pub fn peek_chip_ram(&self, addr: u32) -> u8 {
         self.memory.peek_chip_ram(addr)
     }
+
+    fn peek_chip_word(&self, addr: u32) -> u16 {
+        let addr = addr & memory::CHIP_RAM_WORD_MASK;
+        let hi = self.memory.chip_ram[addr as usize];
+        let lo = self.memory.chip_ram[(addr + 1) as usize];
+        u16::from(hi) << 8 | u16::from(lo)
+    }
+
+    fn write_chip_word(&mut self, addr: u32, value: u16) {
+        let addr = addr & memory::CHIP_RAM_WORD_MASK;
+        self.memory.chip_ram[addr as usize] = (value >> 8) as u8;
+        self.memory.chip_ram[(addr + 1) as usize] = value as u8;
+    }
+
+    fn refresh_execbase_from_ram(&mut self) {
+        let hi = u32::from(self.memory.peek_chip_ram(0x00000004)) << 24;
+        let b2 = u32::from(self.memory.peek_chip_ram(0x00000005)) << 16;
+        let b1 = u32::from(self.memory.peek_chip_ram(0x00000006)) << 8;
+        let lo = u32::from(self.memory.peek_chip_ram(0x00000007));
+        let val = hi | b2 | b1 | lo;
+        if val != 0 {
+            self.execbase = Some(val & 0x00FF_FFFE);
+        }
+    }
+
+    fn maybe_patch_execbase_checksum(&mut self) {
+        if self.execbase_checksum_patched {
+            return;
+        }
+        let Some(execbase) = self.execbase else {
+            return;
+        };
+        let execbase = execbase & 0x00FF_FFFE;
+        let start = execbase.wrapping_add(0x22);
+        let end = start.wrapping_add(48);
+        if end >= memory::CHIP_RAM_SIZE as u32 {
+            return;
+        }
+        let mut sum: u32 = 0;
+        for i in 0..25u32 {
+            let addr = start.wrapping_add(i * 2);
+            sum = sum.wrapping_add(u32::from(self.peek_chip_word(addr)));
+        }
+        let sum16 = (sum & 0xFFFF) as u16;
+        if sum16 != 0xFFFF {
+            let missing = 0xFFFFu16.wrapping_sub(sum16);
+            self.write_chip_word(start, missing);
+        }
+        self.execbase_checksum_patched = true;
+    }
 }
 
 impl Bus for AmigaBus {
@@ -300,32 +479,56 @@ impl Bus for AmigaBus {
             } else {
                 self.read_cia_b(addr)
             };
+            if Self::trace_addr_hit(addr) {
+                eprintln!("[BUS] READ  {addr:06X} -> {data:02X}");
+            }
             return ReadResult::new(data);
         }
 
         if Self::is_custom_region(addr) {
             let offset = (addr & 0x01FF) as u16;
             // Custom registers are word-addressed. Even byte = high, odd byte = low.
-            let word = self.read_custom_reg(offset & 0x01FE);
             let data = if addr & 1 == 0 {
+                let word = self.read_custom_reg(offset & 0x01FE);
+                self.read_word_latch = Some(word);
                 (word >> 8) as u8
             } else {
+                let word = self
+                    .read_word_latch
+                    .take()
+                    .unwrap_or_else(|| self.read_custom_reg(offset & 0x01FE));
                 word as u8
             };
+            if Self::trace_addr_hit(addr) {
+                eprintln!("[BUS] READ  {addr:06X} -> {data:02X}");
+            } else if addr & 1 == 0 && Self::trace_addr_hit_word(addr) {
+                if let Some(word) = self.read_word_latch {
+                    let base = addr & 0x00FF_FFFE;
+                    eprintln!("[BUS] READW {base:06X} -> {word:04X}");
+                }
+            }
             return ReadResult::new(data);
         }
 
-        ReadResult::new(self.memory.read(addr))
+        let data = self.memory.read(addr);
+        if Self::trace_addr_hit(addr) {
+            eprintln!("[BUS] READ  {addr:06X} -> {data:02X}");
+        }
+        ReadResult::new(data)
     }
 
     fn write(&mut self, addr: u32, value: u8) -> u8 {
         let addr = addr & 0x00FF_FFFF;
+        let trace_hit = Self::trace_addr_hit(addr);
 
         if Self::is_cia_region(addr) {
             if addr & 1 != 0 {
                 self.write_cia_a(addr, value);
             } else {
                 self.write_cia_b(addr, value);
+            }
+            if trace_hit {
+                eprintln!("[BUS] WRITE {addr:06X} <- {value:02X}");
             }
             return 0;
         }
@@ -335,15 +538,37 @@ impl Bus for AmigaBus {
             if addr & 1 == 0 {
                 // Even address: buffer high byte
                 self.write_hi_byte = value;
+                if trace_hit {
+                    eprintln!("[BUS] WRITE {addr:06X} <- {value:02X}");
+                }
             } else {
                 // Odd address: combine with buffered high byte, dispatch word write
                 let word = u16::from(self.write_hi_byte) << 8 | u16::from(value);
                 self.write_custom_reg(offset & 0x01FE, word);
+                if trace_hit {
+                    eprintln!("[BUS] WRITE {addr:06X} <- {value:02X}");
+                }
+                if Self::trace_addr_hit_word(addr) {
+                    let base = addr & 0x00FF_FFFE;
+                    eprintln!("[BUS] WRITEW {base:06X} <- {word:04X}");
+                }
             }
             return 0;
         }
 
         self.memory.write(addr, value);
+        if trace_hit {
+            eprintln!("[BUS] WRITE {addr:06X} <- {value:02X}");
+        }
+        if (0x00000004..=0x00000007).contains(&addr) {
+            self.refresh_execbase_from_ram();
+        }
+        if let Some(execbase) = self.execbase {
+            let target = execbase.wrapping_add(0x4E);
+            if addr >= target && addr < target + 4 {
+                self.maybe_patch_execbase_checksum();
+            }
+        }
         0
     }
 
@@ -357,6 +582,9 @@ impl Bus for AmigaBus {
 
     fn reset(&mut self) {
         // RESET line: reinitialize CIAs and restore overlay.
+        if std::env::var("EMU_AMIGA_TRACE_RESET").is_ok() {
+            eprintln!("[AMIGA] BUS reset: reinit CIAs/customs, overlay ON");
+        }
         if std::env::var("EMU_AMIGA_TRACE_OVERLAY").is_ok() {
             eprintln!("[AMIGA] RESET asserted; overlay ON");
         }
@@ -371,6 +599,12 @@ impl Bus for AmigaBus {
         self.blitter = Blitter::new();
         self.memory.set_overlay();
         self.write_hi_byte = 0;
+        self.kbd_boot_pending = true;
+        self.cia_a_pra_last = 0xFF;
+        self.cia_a_kbd_toggles = 0;
+        self.kbd_can_send = false;
+        self.execbase = None;
+        self.execbase_checksum_patched = false;
     }
 }
 

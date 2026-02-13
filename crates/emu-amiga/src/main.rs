@@ -6,10 +6,12 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::path::PathBuf;
+use std::{fs::File, io::Write};
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu_amiga::{capture, mcp::McpServer, Amiga, AmigaConfig};
+use emu_amiga::{capture, keyboard_map, mcp::McpServer, Amiga, AmigaConfig};
+use emu_amiga::input::AutoBootScript;
 use emu_amiga::denise;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -39,6 +41,11 @@ struct CliArgs {
     frames: u32,
     screenshot_path: Option<PathBuf>,
     record_dir: Option<PathBuf>,
+    keys: Vec<String>,
+    type_texts: Vec<String>,
+    auto_boot: bool,
+    auto_boot_frame: Option<u64>,
+    auto_boot_script: Option<String>,
 }
 
 fn parse_args() -> CliArgs {
@@ -50,6 +57,11 @@ fn parse_args() -> CliArgs {
         frames: 200,
         screenshot_path: None,
         record_dir: None,
+        keys: Vec::new(),
+        type_texts: Vec::new(),
+        auto_boot: false,
+        auto_boot_frame: None,
+        auto_boot_script: None,
     };
 
     let mut i = 1;
@@ -79,6 +91,31 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 cli.record_dir = args.get(i).map(PathBuf::from);
             }
+            "--key" => {
+                i += 1;
+                if let Some(s) = args.get(i) {
+                    cli.keys.push(s.to_string());
+                }
+            }
+            "--type" => {
+                i += 1;
+                if let Some(s) = args.get(i) {
+                    cli.type_texts.push(s.to_string());
+                }
+            }
+            "--auto-boot" => {
+                cli.auto_boot = true;
+            }
+            "--auto-boot-frame" => {
+                i += 1;
+                if let Some(s) = args.get(i) {
+                    cli.auto_boot_frame = s.parse().ok();
+                }
+            }
+            "--auto-boot-script" => {
+                i += 1;
+                cli.auto_boot_script = args.get(i).cloned();
+            }
             "--help" | "-h" => {
                 eprintln!("Usage: emu-amiga [OPTIONS]");
                 eprintln!();
@@ -89,6 +126,11 @@ fn parse_args() -> CliArgs {
                 eprintln!("  --frames <n>         Number of frames in headless mode [default: 200]");
                 eprintln!("  --screenshot <file>  Save a PNG screenshot (headless)");
                 eprintln!("  --record <dir>       Record frames to directory (headless)");
+                eprintln!("  --key <name>         Queue a key press+release (headless)");
+                eprintln!("  --type <text>        Queue text input (headless)");
+                eprintln!("  --auto-boot          Queue a small boot-menu script (headless)");
+                eprintln!("  --auto-boot-frame <n>  Frame to start auto-boot script");
+                eprintln!("  --auto-boot-script <name>  Script: bootmenu, enter, f1");
                 process::exit(0);
             }
             other => {
@@ -108,6 +150,10 @@ fn parse_args() -> CliArgs {
 
 fn run_headless(cli: &CliArgs) {
     let mut amiga = make_amiga(cli);
+    queue_headless_inputs(&mut amiga, cli);
+    if !cli.keys.is_empty() {
+        queue_cli_keys(&mut amiga, &cli.keys);
+    }
 
     if let Some(ref dir) = cli.record_dir {
         if let Err(e) = capture::record(&mut amiga, dir, cli.frames) {
@@ -211,6 +257,33 @@ fn run_headless(cli: &CliArgs) {
         }
     }
 
+    if let Ok(spec) = std::env::var("EMU_AMIGA_DUMP_CHIP_RANGE") {
+        if let Some((start, end)) = spec.split_once('-') {
+            let parse_hex = |s: &str| {
+                let s = s.trim().trim_start_matches("0x").trim_start_matches("0X");
+                u32::from_str_radix(s, 16).ok()
+            };
+            if let (Some(start), Some(end)) = (parse_hex(start), parse_hex(end)) {
+                let out_path = std::env::var("EMU_AMIGA_DUMP_CHIP_OUT")
+                    .unwrap_or_else(|_| "/tmp/amiga_chip_dump.bin".to_string());
+                if let Ok(mut file) = File::create(&out_path) {
+                    let mut addr = start;
+                    while addr <= end {
+                        let byte = amiga.bus().peek_chip_ram(addr);
+                        let _ = file.write_all(&[byte]);
+                        if addr == u32::MAX {
+                            break;
+                        }
+                        addr = addr.wrapping_add(1);
+                    }
+                    eprintln!(
+                        "[AMIGA] dumped chip RAM ${start:08X}-${end:08X} to {out_path}"
+                    );
+                }
+            }
+        }
+    }
+
     if let Some(ref path) = cli.screenshot_path {
         if let Err(e) = capture::save_screenshot(&amiga, path) {
             eprintln!("Screenshot error: {e}");
@@ -255,6 +328,12 @@ impl App {
             frame[offset + 1] = ((argb >> 8) & 0xFF) as u8;
             frame[offset + 2] = (argb & 0xFF) as u8;
             frame[offset + 3] = 0xFF;
+        }
+    }
+
+    fn handle_key(&mut self, keycode: KeyCode, pressed: bool) {
+        if let Some(code) = keyboard_map::map_keycode(keycode) {
+            self.amiga.queue_keycode(code, pressed);
         }
     }
 }
@@ -306,11 +385,12 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if let PhysicalKey::Code(keycode) = event.physical_key
-                    && keycode == KeyCode::Escape
-                    && event.state == ElementState::Pressed
-                {
-                    event_loop.exit();
+                if let PhysicalKey::Code(keycode) = event.physical_key {
+                    if keycode == KeyCode::Escape && event.state == ElementState::Pressed {
+                        event_loop.exit();
+                        return;
+                    }
+                    self.handle_key(keycode, event.state == ElementState::Pressed);
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -372,6 +452,54 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
             eprintln!("Failed to initialize Amiga: {e}");
             process::exit(1);
         }
+    }
+}
+
+fn queue_cli_keys(amiga: &mut Amiga, keys: &[String]) {
+    for key in keys {
+        if let Some(code) = keyboard_map::parse_key_name(key) {
+            amiga.queue_keycode(code, true);
+            amiga.queue_keycode(code, false);
+        } else {
+            eprintln!("Unknown key: {key}");
+        }
+    }
+}
+
+fn parse_auto_boot_script(name: &str) -> Option<AutoBootScript> {
+    match name.to_lowercase().as_str() {
+        "bootmenu" | "menu" => Some(AutoBootScript::BootMenu),
+        "enter" | "return" => Some(AutoBootScript::Enter),
+        "f1" => Some(AutoBootScript::F1),
+        _ => None,
+    }
+}
+
+fn queue_headless_inputs(amiga: &mut Amiga, cli: &CliArgs) {
+    let mut next_frame = 0u64;
+    if cli.auto_boot {
+        let script = cli
+            .auto_boot_script
+            .as_deref()
+            .and_then(parse_auto_boot_script)
+            .unwrap_or(AutoBootScript::BootMenu);
+        let start = cli.auto_boot_frame.unwrap_or(200);
+        next_frame = amiga
+            .input_queue_mut()
+            .enqueue_auto_boot(start, 3, 30, script);
+    }
+
+    if !cli.type_texts.is_empty() {
+        let mut frame = next_frame;
+        for text in &cli.type_texts {
+            frame = amiga
+                .input_queue_mut()
+                .enqueue_text(text, frame, 3, 3);
+        }
+    }
+
+    if !cli.keys.is_empty() {
+        queue_cli_keys(amiga, &cli.keys);
     }
 }
 

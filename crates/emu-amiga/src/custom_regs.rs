@@ -27,6 +27,9 @@ pub const JOY0DAT: u16 = 0x00A;
 pub const JOY1DAT: u16 = 0x00C;
 pub const ADKCONR: u16 = 0x010;
 pub const POTGOR: u16 = 0x016;
+pub const SERDATR: u16 = 0x018;
+pub const SERDAT: u16 = 0x030;
+pub const SERPER: u16 = 0x032;
 pub const INTENAR: u16 = 0x01C;
 pub const INTREQR: u16 = 0x01E;
 

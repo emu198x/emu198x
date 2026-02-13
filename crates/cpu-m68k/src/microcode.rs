@@ -161,4 +161,19 @@ impl MicroOpQueue {
     pub(crate) fn len(&self) -> usize {
         self.len as usize
     }
+
+    /// Return a debug string listing all queued micro-ops in order.
+    pub(crate) fn debug_contents(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::from("[");
+        for i in 0..self.len as usize {
+            let idx = (self.head as usize + i) % QUEUE_CAPACITY;
+            if i > 0 {
+                out.push_str(", ");
+            }
+            let _ = write!(out, "{:?}", self.ops[idx]);
+        }
+        out.push(']');
+        out
+    }
 }

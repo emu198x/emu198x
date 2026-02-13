@@ -19,6 +19,7 @@ mod copper;
 mod custom_regs;
 pub mod denise;
 pub mod input;
+pub mod keyboard_map;
 pub mod mcp;
 mod memory;
 mod paula;

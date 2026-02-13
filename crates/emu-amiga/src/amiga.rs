@@ -15,6 +15,8 @@ use crate::agnus::{self, SlotOwner};
 use crate::bus::AmigaBus;
 use crate::config::AmigaConfig;
 use crate::denise;
+use crate::input::InputQueue;
+use std::sync::OnceLock;
 
 /// Crystal frequency: 28,375,160 Hz (PAL).
 #[allow(dead_code)]
@@ -42,6 +44,7 @@ const DISPLAY_HSTART_CCK: u16 = 0x40;
 pub struct Amiga {
     cpu: M68000,
     bus: AmigaBus,
+    input: InputQueue,
     /// Master clock: counts crystal ticks.
     master_clock: u64,
     /// Completed frame counter.
@@ -86,6 +89,7 @@ impl Amiga {
         Ok(Self {
             cpu,
             bus,
+            input: InputQueue::new(),
             master_clock: 0,
             frame_count: 0,
             current_slot: SlotOwner::Cpu,
@@ -99,6 +103,11 @@ impl Amiga {
         self.frame_count += 1;
         let start_clock = self.master_clock;
         let target = start_clock + TICKS_PER_FRAME;
+        let frame = self.frame_count;
+        let bus = &mut self.bus;
+        self.input.process(frame, |code, pressed| {
+            bus.queue_keyboard_raw(code, pressed);
+        });
 
         while self.master_clock < target {
             self.tick();
@@ -145,6 +154,22 @@ impl Amiga {
     /// Mutable reference to the bus.
     pub fn bus_mut(&mut self) -> &mut AmigaBus {
         &mut self.bus
+    }
+
+    /// Reference to the input queue.
+    #[must_use]
+    pub fn input_queue(&self) -> &InputQueue {
+        &self.input
+    }
+
+    /// Mutable reference to the input queue.
+    pub fn input_queue_mut(&mut self) -> &mut InputQueue {
+        &mut self.input
+    }
+
+    /// Queue a raw keyboard keycode (press/release).
+    pub fn queue_keycode(&mut self, code: u8, pressed: bool) {
+        self.bus.queue_keyboard_raw(code, pressed);
     }
 
     /// Tick only the CPU (for debugging — bypasses DMA/beam/copper).
@@ -286,11 +311,15 @@ impl Tickable for Amiga {
 
         // === CPU clock (every 4 crystal ticks) ===
         if self.master_clock.is_multiple_of(CPU_DIVISOR) {
-            // CPU only runs when it owns the current CCK slot
-            let cpu_can_run = matches!(
-                self.current_slot,
-                SlotOwner::Cpu | SlotOwner::Copper // CPU can run on copper slots too (odd halves)
-            );
+            // CPU only runs when it owns the current CCK slot unless forced.
+            let force_cpu = *FORCE_CPU.get_or_init(|| {
+                std::env::var("EMU_AMIGA_FORCE_CPU").is_ok()
+            });
+            let cpu_can_run = force_cpu
+                || matches!(
+                    self.current_slot,
+                    SlotOwner::Cpu | SlotOwner::Copper // CPU can run on copper slots too (odd halves)
+                );
 
             if cpu_can_run {
                 // Update IPL from Paula
@@ -313,6 +342,7 @@ impl Tickable for Amiga {
         if self.master_clock.is_multiple_of(CIA_DIVISOR) {
             self.bus.cia_a.tick();
             self.bus.cia_b.tick();
+            self.bus.pump_keyboard();
 
             // CIA-A IRQ → INTREQ bit 3 (PORTS, level 2)
             if self.bus.cia_a.irq_active() {
@@ -325,6 +355,8 @@ impl Tickable for Amiga {
         }
     }
 }
+
+static FORCE_CPU: OnceLock<bool> = OnceLock::new();
 
 impl Observable for Amiga {
     fn query(&self, path: &str) -> Option<Value> {

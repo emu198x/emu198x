@@ -95,6 +95,70 @@ pub enum RecipeOp {
     BitMem { op: u8 },
     /// Compare `data` (src) against `data2` (dst), set flags only.
     CmpEa,
+    /// Set byte based on condition code (Scc).
+    Scc { condition: u8 },
+    /// Decrement and branch on condition false (DBcc).
+    Dbcc { condition: u8, reg: u8 },
+    /// Branch/BSR using opcode displacement.
+    Branch { condition: u8, disp8: i8 },
+    /// Multiply word source by Dn (MULU/MULS).
+    Mul { signed: bool, reg: u8 },
+    /// Divide Dn by word source (DIVU/DIVS).
+    Div { signed: bool, reg: u8 },
+    /// Exchange registers (EXG).
+    Exg { kind: u8, rx: u8, ry: u8 },
+    /// ABCD register-to-register.
+    AbcdReg { src: u8, dst: u8 },
+    /// SBCD register-to-register.
+    SbcdReg { src: u8, dst: u8 },
+    /// CMPM (Ay)+,(Ax)+.
+    Cmpm { ax: u8, ay: u8 },
+    /// Jump to subroutine using computed EA.
+    Jsr,
+    /// Jump to computed EA.
+    Jmp,
+    /// RTS: pop return address.
+    RtsPop,
+    /// RTS: finish and set PC.
+    RtsFinish,
+    /// RTE: pop SR.
+    RtePopSr,
+    /// RTE: pop PC.
+    RtePopPc,
+    /// RTE: finish and set PC/SR.
+    RteFinish,
+    /// RTR: pop CCR.
+    RtrPopCcr,
+    /// RTR: pop PC.
+    RtrPopPc,
+    /// RTR: finish and set PC/CCR.
+    RtrFinish,
+    /// LINK: push An and capture displacement.
+    LinkStart { reg: u8 },
+    /// LINK: finish by updating An/SP.
+    LinkFinish,
+    /// UNLK: restore SP and pop An.
+    UnlkStart { reg: u8 },
+    /// UNLK: finish by writing An.
+    UnlkFinish,
+    /// MOVE USP (requires supervisor).
+    MoveUsp { reg: u8, to_usp: bool },
+    /// TRAP vector.
+    Trap { vector: u8 },
+    /// TRAPV.
+    Trapv,
+    /// RESET (requires supervisor).
+    Reset,
+    /// STOP (requires supervisor).
+    Stop,
+    /// Write condition code register (low 5 bits of SR) from `data`.
+    WriteCcr,
+    /// Write status register (masked) from `data`.
+    WriteSr,
+    /// Logical op (AND/OR/EOR) on CCR using `data`.
+    LogicCcr { op: RecipeAlu },
+    /// Logical op (AND/OR/EOR) on SR using `data`.
+    LogicSr { op: RecipeAlu },
     /// ADDX register to register.
     AddxReg { src: u8, dst: u8 },
     /// SUBX register to register.
@@ -113,6 +177,14 @@ pub enum RecipeOp {
     },
     /// Shift/rotate on a memory EA (word, by 1).
     ShiftMem { kind: u8, direction: bool },
+    /// Multi-precision memory-to-memory predecrement (ADDX/SUBX).
+    ExtendMem { op: u8, src: u8, dst: u8 },
+    /// Swap high/low words of a data register.
+    SwapReg { reg: u8 },
+    /// Sign-extend a data register (EXT.W/EXT.L).
+    Ext { size: Size, reg: u8 },
+    /// Push `data` as a long onto the stack.
+    PushLong,
 }
 
 const RECIPE_MAX_OPS: usize = 16;
@@ -377,9 +449,89 @@ pub struct M68000 {
     // === Timing ===
     /// Total clock cycles elapsed.
     total_cycles: Ticks,
+    /// Last observed A4 value for trace logging.
+    trace_last_a4: u32,
+    /// Last observed A6 value for trace logging.
+    trace_last_a6: u32,
 }
 
 impl M68000 {
+    fn trace_kbd_io_enabled() -> bool {
+        use std::sync::OnceLock;
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        *ENABLED.get_or_init(|| std::env::var("EMU_AMIGA_TRACE_KBD_IO").is_ok())
+    }
+
+    fn trace_vec_enabled() -> bool {
+        use std::sync::OnceLock;
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        *ENABLED.get_or_init(|| std::env::var("EMU68000_TRACE_VEC").is_ok())
+    }
+
+    fn trace_d2_target() -> Option<Option<u32>> {
+        use std::sync::OnceLock;
+        static TARGET: OnceLock<Option<Option<u32>>> = OnceLock::new();
+        *TARGET.get_or_init(|| {
+            let Ok(spec) = std::env::var("EMU68000_TRACE_D2") else {
+                return None;
+            };
+            let spec = spec.trim();
+            if spec.is_empty() {
+                return Some(None);
+            }
+            let spec = spec.trim_start_matches("0x").trim_start_matches("0X");
+            let value = u32::from_str_radix(spec, 16).ok();
+            Some(value)
+        })
+    }
+
+    fn trace_d0_target() -> Option<Option<u32>> {
+        use std::sync::OnceLock;
+        static TARGET: OnceLock<Option<Option<u32>>> = OnceLock::new();
+        *TARGET.get_or_init(|| {
+            let Ok(spec) = std::env::var("EMU68000_TRACE_D0") else {
+                return None;
+            };
+            let spec = spec.trim();
+            if spec.is_empty() {
+                return Some(None);
+            }
+            let spec = spec.trim_start_matches("0x").trim_start_matches("0X");
+            let value = u32::from_str_radix(spec, 16).ok();
+            Some(value)
+        })
+    }
+
+    fn trace_movem_predec_enabled() -> bool {
+        use std::sync::OnceLock;
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        *ENABLED.get_or_init(|| std::env::var("EMU68000_TRACE_MOVEM_PREDEC").is_ok())
+    }
+
+    fn trace_movem_read_enabled() -> bool {
+        use std::sync::OnceLock;
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        *ENABLED.get_or_init(|| std::env::var("EMU68000_TRACE_MOVEM_READ").is_ok())
+    }
+
+    fn trace_movem_read_pc() -> Option<u32> {
+        use std::sync::OnceLock;
+        static TARGET: OnceLock<Option<u32>> = OnceLock::new();
+        *TARGET.get_or_init(|| {
+            let Ok(spec) = std::env::var("EMU68000_TRACE_MOVEM_READ_PC") else {
+                return None;
+            };
+            let spec = spec.trim().trim_start_matches("0x").trim_start_matches("0X");
+            u32::from_str_radix(spec, 16).ok()
+        })
+    }
+
+    fn trace_reset_enabled() -> bool {
+        use std::sync::OnceLock;
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        *ENABLED.get_or_init(|| std::env::var("EMU68000_TRACE_RESET").is_ok())
+    }
+
     fn trace_pc_range() -> Option<(u32, u32)> {
         static RANGE: OnceLock<Option<(u32, u32)>> = OnceLock::new();
         *RANGE.get_or_init(|| {
@@ -486,6 +638,8 @@ impl M68000 {
             program_space_access: false,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
+            trace_last_a4: 0,
+            trace_last_a6: 0,
         };
         // Start with a fetch
         cpu.micro_ops.push(MicroOp::FetchOpcode);
@@ -578,6 +732,14 @@ impl M68000 {
                 }
             }
         }
+        if std::env::var("EMU68000_TRACE_SERDATR").is_ok()
+            && addr24 == 0x00DF_F018
+            && self.instr_start_pc.wrapping_sub(2) == 0x00FC_2240
+        {
+            eprintln!(
+                "[CPU] SERDATR read pc=$00FC2240 -> ${value:04X}"
+            );
+        }
         if Self::should_trace_mem(addr24) {
             self.trace_mem_access("R", "W", addr24, u32::from(value), 4);
         }
@@ -595,6 +757,14 @@ impl M68000 {
     /// Write byte to memory.
     fn write_byte<B: Bus>(&mut self, bus: &mut B, addr: u32, value: u8) {
         let addr24 = addr & 0x00FF_FFFF;
+        if Self::trace_kbd_io_enabled()
+            && (addr24 == 0x00BF_E001 || addr24 == 0x00BF_E201)
+        {
+            let op_pc = self.instr_start_pc.wrapping_sub(2);
+            eprintln!(
+                "[KBDIO] CIA-A write pc=${op_pc:08X} addr=${addr24:06X} value=${value:02X}"
+            );
+        }
         if Self::should_trace_mem(addr24) {
             self.trace_mem_access("W", "B", addr24, u32::from(value), 2);
         }
@@ -604,6 +774,12 @@ impl M68000 {
     /// Write word to memory (big-endian).
     fn write_word<B: Bus>(&mut self, bus: &mut B, addr: u32, value: u16) {
         let addr24 = addr & 0x00FF_FFFE;
+        if Self::trace_kbd_io_enabled() && addr24 == 0x00DF_F030 {
+            let op_pc = self.instr_start_pc.wrapping_sub(2);
+            eprintln!(
+                "[KBDIO] SERDAT write pc=${op_pc:08X} value=${value:04X}"
+            );
+        }
         if Self::should_trace_mem(addr24) {
             self.trace_mem_access("W", "W", addr24, u32::from(value), 4);
         }
@@ -677,6 +853,16 @@ impl M68000 {
                     continue;
                 }
                 MicroOp::ResetBus => {
+                    if Self::trace_reset_enabled() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        eprintln!(
+                            "[CPU] RESET bus asserted at pc=${:08X} op=${:04X} SR=${:04X} A7=${:08X}",
+                            op_pc,
+                            self.opcode,
+                            self.regs.sr,
+                            self.regs.a(7)
+                        );
+                    }
                     bus.reset();
                     self.micro_ops.advance();
                     continue;
@@ -760,8 +946,88 @@ impl M68000 {
                 let pc_addr = self.regs.pc;
                 // Cycle 4: Read complete
                 self.opcode = self.read_word(bus, self.regs.pc);
+                if std::env::var("EMU68000_TRACE_WAIT").is_ok()
+                    && pc_addr == 0x00FC_225E
+                {
+                    let sp = self.regs.a(7);
+                    let ret = self.read_long(bus, sp);
+                    eprintln!(
+                        "[CPU] WAIT @ ${pc_addr:08X} SP=${sp:08X} RET=${ret:08X}"
+                    );
+                }
+                if std::env::var("EMU68000_TRACE_MONITOR").is_ok()
+                    && pc_addr == 0x00FC_2BD0
+                {
+                    let sp = self.regs.a(7);
+                    let ret0 = self.read_long(bus, sp);
+                    let ret1 = self.read_long(bus, sp.wrapping_add(4));
+                    let ret2 = self.read_long(bus, sp.wrapping_add(8));
+                    eprintln!(
+                        "[CPU] MONITOR @ ${pc_addr:08X} SP=${sp:08X} RET0=${ret0:08X} RET1=${ret1:08X} RET2=${ret2:08X}"
+                    );
+                }
+                if std::env::var("EMU68000_TRACE_ALERT").is_ok()
+                    && (pc_addr == 0x00FC_2420 || pc_addr == 0x00FC_245E)
+                {
+                    eprintln!(
+                        "[CPU] ALERT pc=${pc_addr:08X} D2=${:08X} D0=${:08X} A4=${:08X} A5=${:08X} A7=${:08X}",
+                        self.regs.d[2],
+                        self.regs.d[0],
+                        self.regs.a(4),
+                        self.regs.a(5),
+                        self.regs.a(7)
+                    );
+                }
+                if std::env::var("EMU68000_DUMP_ON_MONITOR").is_ok()
+                    && pc_addr == 0x00FC_2BD0
+                {
+                    use std::sync::OnceLock;
+                    static DUMPED: OnceLock<()> = OnceLock::new();
+                    if DUMPED.get().is_none() {
+                        DUMPED.set(()).ok();
+                        let start = 0x0008_02F0u32;
+                        let end = 0x0008_0380u32;
+                        let out_path = "/tmp/amiga_80300_on_monitor.bin";
+                        if let Ok(mut file) = std::fs::File::create(out_path) {
+                            let mut addr = start;
+                            while addr <= end {
+                                let byte = bus.read(addr).data;
+                                let _ = std::io::Write::write_all(&mut file, &[byte]);
+                                if addr == u32::MAX {
+                                    break;
+                                }
+                                addr = addr.wrapping_add(1);
+                            }
+                            eprintln!(
+                                "[CPU] dumped chip RAM ${start:08X}-${end:08X} to {out_path}"
+                            );
+                        }
+                    }
+                }
                 if std::env::var("EMU68000_TRACE_OPFFFF").is_ok() && self.opcode == 0xFFFF {
                     eprintln!("[CPU] FFFF opcode fetched at ${pc_addr:08X}");
+                }
+                if std::env::var("EMU68000_TRACE_A4").is_ok() {
+                    let a4 = self.regs.a(4);
+                    if a4 != self.trace_last_a4 {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        eprintln!(
+                            "[CPU] A4 ${:08X} -> ${:08X} (pc=${:08X})",
+                            self.trace_last_a4, a4, op_pc
+                        );
+                        self.trace_last_a4 = a4;
+                    }
+                }
+                if std::env::var("EMU68000_TRACE_A6").is_ok() {
+                    let a6 = self.regs.a(6);
+                    if a6 != self.trace_last_a6 {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        eprintln!(
+                            "[CPU] A6 ${:08X} -> ${:08X} (pc=${:08X})",
+                            self.trace_last_a6, a6, op_pc
+                        );
+                        self.trace_last_a6 = a6;
+                    }
                 }
                 if let Some((start, end)) = Self::trace_pc_range() {
                     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -782,10 +1048,16 @@ impl M68000 {
                         );
                         if std::env::var("EMU68000_TRACE_PC_REGS").is_ok() {
                             eprintln!(
-                                "[CPU]   SR=${:04X} D0=${:08X} D1=${:08X} A0=${:08X} A1=${:08X} A2=${:08X} A3=${:08X} A4=${:08X} A5=${:08X} A6=${:08X} A7=${:08X}",
+                                "[CPU]   SR=${:04X} D0=${:08X} D1=${:08X} D2=${:08X} D3=${:08X} D4=${:08X} D5=${:08X} D6=${:08X} D7=${:08X} A0=${:08X} A1=${:08X} A2=${:08X} A3=${:08X} A4=${:08X} A5=${:08X} A6=${:08X} A7=${:08X}",
                                 self.regs.sr,
                                 self.regs.d[0],
                                 self.regs.d[1],
+                                self.regs.d[2],
+                                self.regs.d[3],
+                                self.regs.d[4],
+                                self.regs.d[5],
+                                self.regs.d[6],
+                                self.regs.d[7],
                                 self.regs.a(0),
                                 self.regs.a(1),
                                 self.regs.a(2),
@@ -1191,6 +1463,16 @@ impl M68000 {
                 } else {
                     // Phase 1: Read low word of vector
                     self.data |= u32::from(self.read_word(bus, self.addr.wrapping_add(2)));
+                    if Self::trace_vec_enabled() {
+                        if let Some(vec) = self.current_exception {
+                            let vec_hi = (self.data >> 16) as u16;
+                            let vec_lo = (self.data & 0xFFFF) as u16;
+                            eprintln!(
+                                "[CPU] VECTOR {} addr=${:08X} hi=${:04X} lo=${:04X} target=${:08X}",
+                                vec, self.addr, vec_hi, vec_lo, self.data
+                            );
+                        }
+                    }
                     self.regs.pc = self.data;
                     self.current_exception = None;
                     self.movem_long_phase = 0;
@@ -1336,6 +1618,7 @@ impl M68000 {
             3 => {
                 let mask = self.ext_words[0];
                 let bit_idx = self.data2 as usize;
+                let addr_before = self.addr;
 
                 // Read the value
                 if self.size == Size::Long && self.movem_long_phase == 0 {
@@ -1365,6 +1648,15 @@ impl M68000 {
                 } else {
                     self.regs.set_a(bit_idx - 8, self.data);
                 }
+                if Self::trace_movem_read_enabled() {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    if Self::trace_movem_read_pc().map_or(true, |target| op_pc == target) {
+                        eprintln!(
+                            "[CPU] MOVEM RD @ ${op_pc:08X} mask=${:04X} bit={} addr=${:08X} val=${:08X}",
+                            mask, bit_idx, addr_before, self.data
+                        );
+                    }
+                }
 
                 // Find next register in mask (always ascending for read)
                 let next_bit = self.find_next_movem_bit_up(mask, bit_idx);
@@ -1379,6 +1671,18 @@ impl M68000 {
                 if self.movem_postinc {
                     let ea_reg = (self.addr2 & 7) as usize;
                     self.regs.set_a(ea_reg, self.addr);
+                }
+                if Self::trace_movem_read_enabled() {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    if Self::trace_movem_read_pc().map_or(true, |target| op_pc == target) {
+                        eprintln!(
+                            "[CPU] MOVEM RD done @ ${op_pc:08X} final_addr=${:08X} postinc={} A{}=${:08X}",
+                            self.addr,
+                            self.movem_postinc,
+                            self.addr2 & 7,
+                            self.regs.a((self.addr2 & 7) as usize)
+                        );
+                    }
                 }
                 self.cycle = 0;
                 self.micro_ops.advance();
@@ -2663,6 +2967,15 @@ impl M68000 {
             let old_sr = self.regs.sr;
             self.regs.enter_supervisor();
             self.regs.sr &= !flags::T; // Clear trace
+            if std::env::var("EMU68000_TRACE_SR").is_ok() {
+                let op_pc = self.instr_start_pc.wrapping_sub(2);
+                eprintln!(
+                    "[CPU] SR EXC pc=${op_pc:08X} op=${:04X} old=${:04X} new=${:04X} vec={vec}",
+                    self.opcode,
+                    old_sr,
+                    self.regs.sr
+                );
+            }
 
             // Group 0 exceptions (bus error = 2, address error = 3) have extended stack frame
             let is_group_0 = vec == 2 || vec == 3;
@@ -3255,6 +3568,12 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::RecipeStep);
                     return;
                 }
+                RecipeOp::PushLong => {
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
                 RecipeOp::SkipExt(count) => {
                     let max = self.ext_count;
                     let next = self.ext_idx.saturating_add(count);
@@ -3297,6 +3616,19 @@ impl M68000 {
                         RecipeAlu::Sub => self.set_flags_sub(src, dst, result, self.size),
                         RecipeAlu::And | RecipeAlu::Or | RecipeAlu::Eor => {
                             self.set_flags_move(result, self.size);
+                        }
+                    }
+
+                    if std::env::var("EMU68000_TRACE_BOOTLOOP").is_ok() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        if op_pc == 0x00FC_30E8 && matches!(op, RecipeAlu::And) && reg == 0 {
+                            eprintln!(
+                                "[CPU] ANDI.B pc=$00FC30E8 src=${:02X} dst=${:02X} result=${:02X} sr=${:04X}",
+                                (src & 0xFF),
+                                (dst & 0xFF),
+                                (result & 0xFF),
+                                self.regs.sr
+                            );
                         }
                     }
 
@@ -3393,6 +3725,625 @@ impl M68000 {
                     let dst = self.data2;
                     let result = dst.wrapping_sub(src);
                     self.set_flags_cmp(src, dst, result, self.size);
+                    if std::env::var("EMU68000_TRACE_BOOTLOOP").is_ok() {
+                        let op_pc = self.instr_start_pc.wrapping_sub(2);
+                        if op_pc == 0x00FC_30EC {
+                            eprintln!(
+                                "[CPU] CMPI.B pc=$00FC30EC src=${:02X} dst=${:02X} result=${:02X} sr=${:04X}",
+                                (src & 0xFF),
+                                (dst & 0xFF),
+                                (result & 0xFF),
+                                self.regs.sr
+                            );
+                        }
+                    }
+                }
+                RecipeOp::Scc { condition } => {
+                    let value = if Status::condition(self.regs.sr, condition) {
+                        0xFFu32
+                    } else {
+                        0x00u32
+                    };
+                    match self.dst_mode {
+                        Some(AddrMode::DataReg(r)) => {
+                            self.regs.d[r as usize] =
+                                (self.regs.d[r as usize] & 0xFFFF_FF00) | value;
+                            self.internal_cycles = if value != 0 { 6 } else { 4 };
+                            self.micro_ops.push(MicroOp::Internal);
+                            return;
+                        }
+                        Some(AddrMode::AddrReg(_)) | Some(AddrMode::Immediate) | None => {
+                            self.recipe_reset();
+                            return;
+                        }
+                        _ => {
+                            self.data = value;
+                            self.addr = self.recipe_dst_addr;
+                            self.queue_write_ops(Size::Byte);
+                            self.micro_ops.push(MicroOp::RecipeStep);
+                            return;
+                        }
+                    }
+                }
+                RecipeOp::Dbcc { condition, reg } => {
+                    let disp = self.next_ext_word() as i16 as i32;
+
+                    if Status::condition(self.regs.sr, condition) {
+                        self.queue_internal_no_pc(12);
+                        return;
+                    }
+
+                    let reg = reg as usize;
+                    let val = (self.regs.d[reg] & 0xFFFF) as i16;
+                    let new_val = val.wrapping_sub(1);
+
+                    if new_val == -1 {
+                        self.regs.d[reg] =
+                            (self.regs.d[reg] & 0xFFFF_0000) | (new_val as u16 as u32);
+                        if condition == 1 && std::env::var("EMU68000_TRACE_DBF_TERM").is_ok() {
+                            let op_pc = self.instr_start_pc.wrapping_sub(2);
+                            eprintln!(
+                                "[CPU] DBF term pc=${op_pc:08X} disp={:+} d{}=${:04X} sr=${:04X} d0=${:08X} d1=${:08X}",
+                                disp,
+                                reg,
+                                new_val as u16,
+                                self.regs.sr,
+                                self.regs.d[0],
+                                self.regs.d[1]
+                            );
+                        }
+                        self.queue_internal_no_pc(14);
+                        return;
+                    }
+
+                    let target = ((self.regs.pc as i32) - 2 + disp) as u32;
+                    if target & 1 != 0 {
+                        self.exception_pc_override = Some(self.regs.pc);
+                        self.fault_fc = if self.regs.sr & S != 0 { 6 } else { 2 };
+                        self.fault_addr = target;
+                        self.fault_read = true;
+                        self.fault_in_instruction = false;
+                        self.exception(3);
+                        return;
+                    }
+
+                    if std::env::var("EMU68000_TRACE_DBF").is_ok() && condition == 1 {
+                        let new_val_u16 = new_val as u16;
+                        if new_val_u16 == 0xFFFF || (new_val_u16 & 0x1FFF) == 0 {
+                            let new_d =
+                                (self.regs.d[reg] & 0xFFFF_0000) | u32::from(new_val_u16);
+                            eprintln!(
+                                "[CPU] DBF D{} new=${:04X} pc=${:08X} d0=${:08X} d1=${:08X}",
+                                reg,
+                                new_val_u16,
+                                self.regs.pc,
+                                new_d,
+                                self.regs.d[1]
+                            );
+                        }
+                    }
+
+                    self.regs.d[reg] =
+                        (self.regs.d[reg] & 0xFFFF_0000) | (new_val as u16 as u32);
+                    self.regs.pc = target;
+                    self.queue_internal_no_pc(10);
+                    return;
+                }
+                RecipeOp::Mul { signed, reg } => {
+                    let src = self.data & 0xFFFF;
+                    let dst = self.regs.d[reg as usize] & 0xFFFF;
+                    let result = if signed {
+                        let src_signed = (src as i16) as i32;
+                        let dst_signed = (dst as i16) as i32;
+                        (src_signed * dst_signed) as u32
+                    } else {
+                        src.wrapping_mul(dst)
+                    };
+
+                    self.regs.d[reg as usize] = result;
+                    self.regs.sr = Status::clear_vc(self.regs.sr);
+                    self.regs.sr = Status::update_nz_long(self.regs.sr, result);
+
+                    let timing = if signed {
+                        let src16 = src as u16;
+                        let pattern = src16 ^ (src16 << 1);
+                        let ones = pattern.count_ones() as u8;
+                        38 + 2 * ones
+                    } else {
+                        let ones = (src as u16).count_ones() as u8;
+                        38 + 2 * ones
+                    };
+
+                    let mem_src = !matches!(
+                        self.src_mode,
+                        Some(AddrMode::DataReg(_)) | Some(AddrMode::Immediate)
+                    );
+                    let timing = if mem_src {
+                        timing.saturating_sub(4)
+                    } else {
+                        timing
+                    };
+                    self.queue_internal(timing);
+                    return;
+                }
+                RecipeOp::Div { signed, reg } => {
+                    let divisor = self.data & 0xFFFF;
+                    if divisor == 0 {
+                        self.exception(5);
+                        return;
+                    }
+
+                    let timing = if signed {
+                        let divisor_signed = (divisor as i16) as i32;
+                        let dividend = self.regs.d[reg as usize] as i32;
+                        let quotient = dividend / divisor_signed;
+                        let remainder = dividend % divisor_signed;
+                        let timing = Self::divs_cycles(dividend, divisor as i16);
+
+                        if !(-32768..=32767).contains(&quotient) {
+                            self.regs.sr |= V;
+                            self.regs.sr &= !C;
+                            self.regs.sr |= N;
+                            self.regs.sr &= !Z;
+                        } else {
+                            let q = quotient as i16 as u16 as u32;
+                            let r = remainder as i16 as u16 as u32;
+                            self.regs.d[reg as usize] = (r << 16) | q;
+                            self.regs.sr &= !(V | C);
+                            self.regs.sr = Status::set_if(self.regs.sr, Z, quotient == 0);
+                            self.regs.sr = Status::set_if(self.regs.sr, N, quotient < 0);
+                        }
+
+                        timing
+                    } else {
+                        let dividend = self.regs.d[reg as usize];
+                        let quotient = dividend / divisor;
+                        let remainder = dividend % divisor;
+                        let timing = Self::divu_cycles(dividend, divisor as u16);
+
+                        if quotient > 0xFFFF {
+                            self.regs.sr |= V;
+                            self.regs.sr &= !C;
+                            self.regs.sr |= N;
+                            self.regs.sr &= !Z;
+                        } else {
+                            self.regs.d[reg as usize] = (remainder << 16) | quotient;
+                            self.regs.sr &= !(V | C);
+                            self.regs.sr =
+                                Status::set_if(self.regs.sr, Z, quotient == 0);
+                            self.regs.sr = Status::set_if(
+                                self.regs.sr,
+                                N,
+                                quotient & 0x8000 != 0,
+                            );
+                        }
+
+                        timing
+                    };
+
+                    let mem_src = !matches!(
+                        self.src_mode,
+                        Some(AddrMode::DataReg(_)) | Some(AddrMode::Immediate)
+                    );
+                    let timing = if mem_src {
+                        timing.saturating_sub(4)
+                    } else {
+                        timing
+                    };
+                    self.queue_internal(timing);
+                    return;
+                }
+                RecipeOp::Exg { kind, rx, ry } => {
+                    let rx = rx as usize;
+                    let ry = ry as usize;
+                    match kind {
+                        0x08 => {
+                            let tmp = self.regs.d[rx];
+                            self.regs.d[rx] = self.regs.d[ry];
+                            self.regs.d[ry] = tmp;
+                        }
+                        0x09 => {
+                            let tmp = self.regs.a(rx);
+                            self.regs.set_a(rx, self.regs.a(ry));
+                            self.regs.set_a(ry, tmp);
+                        }
+                        0x11 => {
+                            let tmp = self.regs.d[rx];
+                            self.regs.d[rx] = self.regs.a(ry);
+                            self.regs.set_a(ry, tmp);
+                        }
+                        _ => {
+                            self.recipe_reset();
+                            return;
+                        }
+                    }
+                    self.queue_internal(6);
+                    return;
+                }
+                RecipeOp::AbcdReg { src, dst } => {
+                    let src = self.regs.d[src as usize] as u8;
+                    let dst_reg = dst as usize;
+                    let dst_val = self.regs.d[dst_reg] as u8;
+                    let x = u8::from(self.regs.sr & X != 0);
+
+                    let (result, carry, overflow) = self.bcd_add(src, dst_val, x);
+
+                    self.regs.d[dst_reg] =
+                        (self.regs.d[dst_reg] & 0xFFFF_FF00) | u32::from(result);
+
+                    let mut sr = self.regs.sr;
+                    if result != 0 {
+                        sr &= !Z;
+                    }
+                    sr = Status::set_if(sr, C, carry);
+                    sr = Status::set_if(sr, X, carry);
+                    sr = Status::set_if(sr, N, result & 0x80 != 0);
+                    sr = Status::set_if(sr, V, overflow);
+                    self.regs.sr = sr;
+
+                    self.queue_internal(6);
+                    return;
+                }
+                RecipeOp::SbcdReg { src, dst } => {
+                    let src = self.regs.d[src as usize] as u8;
+                    let dst_reg = dst as usize;
+                    let dst_val = self.regs.d[dst_reg] as u8;
+                    let x = u8::from(self.regs.sr & X != 0);
+
+                    let (result, borrow, overflow) = self.bcd_sub(dst_val, src, x);
+
+                    self.regs.d[dst_reg] =
+                        (self.regs.d[dst_reg] & 0xFFFF_FF00) | u32::from(result);
+
+                    let mut sr = self.regs.sr;
+                    if result != 0 {
+                        sr &= !Z;
+                    }
+                    sr = Status::set_if(sr, C, borrow);
+                    sr = Status::set_if(sr, X, borrow);
+                    sr = Status::set_if(sr, N, result & 0x80 != 0);
+                    sr = Status::set_if(sr, V, overflow);
+                    self.regs.sr = sr;
+
+                    self.queue_internal(6);
+                    return;
+                }
+                RecipeOp::Cmpm { ax, ay } => {
+                    self.addr = self.regs.a(ay as usize);
+                    self.addr2 = self.regs.a(ax as usize);
+                    self.data = u32::from(ay);
+                    self.data2 = u32::from(ax);
+                    self.movem_long_phase = 0;
+                    self.micro_ops.push(MicroOp::CmpmExecute);
+                    self.queue_internal(4);
+                    return;
+                }
+                RecipeOp::Branch { condition, disp8 } => {
+                    let is_word = disp8 == 0;
+                    let disp = if is_word {
+                        self.next_ext_word() as i16 as i32
+                    } else {
+                        i32::from(disp8)
+                    };
+                    let base_pc = if is_word {
+                        self.regs.pc.wrapping_sub(2)
+                    } else {
+                        self.regs.pc
+                    };
+                    let target = (base_pc as i32).wrapping_add(disp) as u32;
+
+                    match condition {
+                        0 => {
+                            // BRA
+                            if target & 1 != 0 {
+                                self.trigger_branch_address_error(target);
+                                return;
+                            }
+                            self.set_jump_pc(target);
+                            self.internal_cycles = if is_word { 10 } else { 4 };
+                            self.micro_ops.push(MicroOp::Internal);
+                            return;
+                        }
+                        1 => {
+                            // BSR
+                            self.data = self.regs.pc;
+                            if target & 1 != 0 {
+                                if is_word {
+                                    let sp = self.regs.active_sp().wrapping_sub(4);
+                                    self.regs.set_active_sp(sp);
+                                    self.trigger_branch_address_error(target);
+                                } else {
+                                    self.micro_ops.push(MicroOp::PushLongHi);
+                                    self.micro_ops.push(MicroOp::PushLongLo);
+                                    self.addr2 = target;
+                                    self.data2 = 0x8000_0001;
+                                    self.internal_cycles = 0;
+                                    self.micro_ops.push(MicroOp::Internal);
+                                }
+                                return;
+                            }
+
+                            self.micro_ops.push(MicroOp::PushLongHi);
+                            self.micro_ops.push(MicroOp::PushLongLo);
+                            self.set_jump_pc(target);
+                            self.internal_cycles = if is_word { 4 } else { 10 };
+                            self.micro_ops.push(MicroOp::Internal);
+                            return;
+                        }
+                        _ => {
+                            // Bcc
+                            if !Status::condition(self.regs.sr, condition) {
+                                self.internal_cycles = 8;
+                                self.micro_ops.push(MicroOp::Internal);
+                                return;
+                            }
+                            if target & 1 != 0 {
+                                self.trigger_branch_address_error(target);
+                                return;
+                            }
+                            self.set_jump_pc(target);
+                            self.internal_cycles = 10;
+                            self.micro_ops.push(MicroOp::Internal);
+                            return;
+                        }
+                    }
+                }
+                RecipeOp::Jsr => {
+                    let Some(mode) = self.src_mode else {
+                        self.recipe_reset();
+                        return;
+                    };
+                    let target = self.recipe_src_addr;
+                    let cycles = match mode {
+                        AddrMode::AddrInd(_) => 8,
+                        AddrMode::AddrIndDisp(_) => 10,
+                        AddrMode::AddrIndIndex(_) => 14,
+                        AddrMode::AbsShort => 10,
+                        AddrMode::AbsLong => 12,
+                        AddrMode::PcDisp => 10,
+                        AddrMode::PcIndex => 14,
+                        _ => {
+                            self.recipe_reset();
+                            return;
+                        }
+                    };
+
+                    if target & 1 != 0 {
+                        self.trigger_jsr_address_error(target);
+                        return;
+                    }
+
+                    self.data = self.regs.pc;
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.set_jump_pc(target);
+                    self.internal_cycles = cycles;
+                    self.micro_ops.push(MicroOp::Internal);
+                    return;
+                }
+                RecipeOp::Jmp => {
+                    let Some(mode) = self.src_mode else {
+                        self.recipe_reset();
+                        return;
+                    };
+                    let target = self.recipe_src_addr;
+                    let cycles = match mode {
+                        AddrMode::AddrInd(_) => 8,
+                        AddrMode::AddrIndDisp(_) => 10,
+                        AddrMode::AddrIndIndex(_) => 14,
+                        AddrMode::AbsShort => 10,
+                        AddrMode::AbsLong => 12,
+                        AddrMode::PcDisp => 10,
+                        AddrMode::PcIndex => 14,
+                        _ => {
+                            self.recipe_reset();
+                            return;
+                        }
+                    };
+
+                    if target & 1 != 0 {
+                        self.trigger_jmp_address_error(target);
+                        return;
+                    }
+
+                    self.set_jump_pc(target);
+                    self.internal_cycles = cycles;
+                    self.micro_ops.push(MicroOp::Internal);
+                    return;
+                }
+                RecipeOp::RtsPop => {
+                    self.micro_ops.push(MicroOp::PopLongHi);
+                    self.micro_ops.push(MicroOp::PopLongLo);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::RtsFinish => {
+                    if self.data & 1 != 0 {
+                        self.trigger_rts_address_error(self.data);
+                        return;
+                    }
+                    self.regs.pc = self.data;
+                    self.queue_internal_no_pc(8);
+                    return;
+                }
+                RecipeOp::RtePopSr => {
+                    if !self.regs.is_supervisor() {
+                        self.exception(8);
+                        return;
+                    }
+                    self.micro_ops.push(MicroOp::PopWord);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::RtePopPc => {
+                    self.data2 = self.data;
+                    self.micro_ops.push(MicroOp::PopLongHi);
+                    self.micro_ops.push(MicroOp::PopLongLo);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::RteFinish => {
+                    self.regs.sr = (self.data2 as u16) & flags::SR_MASK;
+                    if self.data & 1 != 0 {
+                        self.trigger_rte_address_error(self.data);
+                        return;
+                    }
+                    self.regs.pc = self.data;
+                    self.queue_internal_no_pc(8);
+                    return;
+                }
+                RecipeOp::RtrPopCcr => {
+                    self.micro_ops.push(MicroOp::PopWord);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::RtrPopPc => {
+                    self.data2 = self.data;
+                    self.micro_ops.push(MicroOp::PopLongHi);
+                    self.micro_ops.push(MicroOp::PopLongLo);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::RtrFinish => {
+                    let ccr = (self.data2 & 0x1F) as u8;
+                    self.regs.set_ccr(ccr);
+                    if self.data & 1 != 0 {
+                        self.trigger_rtr_address_error(self.data);
+                        return;
+                    }
+                    self.regs.pc = self.data;
+                    self.queue_internal_no_pc(8);
+                    return;
+                }
+                RecipeOp::LinkStart { reg } => {
+                    let disp = self.next_ext_word() as i16 as i32;
+                    let reg = reg as usize;
+                    let an_value = self.regs.a(reg);
+                    self.data = an_value;
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                    self.addr2 = reg as u32;
+                    self.data2 = disp as u32;
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::LinkFinish => {
+                    let reg = self.addr2 as usize;
+                    let disp = self.data2 as i32;
+                    let sp = self.regs.active_sp();
+                    self.regs.set_a(reg, sp);
+                    let new_sp = (sp as i32).wrapping_add(disp) as u32;
+                    self.regs.set_active_sp(new_sp);
+                    self.queue_internal_no_pc(8);
+                    return;
+                }
+                RecipeOp::UnlkStart { reg } => {
+                    let reg = reg as usize;
+                    let an_value = self.regs.a(reg);
+                    if an_value & 1 != 0 {
+                        self.fault_addr = an_value;
+                        self.fault_fc = if self.regs.is_supervisor() { 5 } else { 1 };
+                        self.fault_read = true;
+                        self.fault_in_instruction = false;
+                        self.exception_pc_override = Some(self.regs.pc);
+                        self.exception(3);
+                        return;
+                    }
+                    self.regs.set_active_sp(an_value);
+                    self.micro_ops.push(MicroOp::PopLongHi);
+                    self.micro_ops.push(MicroOp::PopLongLo);
+                    self.addr2 = reg as u32;
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
+                RecipeOp::UnlkFinish => {
+                    let reg = self.addr2 as usize;
+                    self.regs.set_a(reg, self.data);
+                    self.queue_internal_no_pc(4);
+                    return;
+                }
+                RecipeOp::MoveUsp { reg, to_usp } => {
+                    if !self.regs.is_supervisor() {
+                        self.exception(8);
+                        return;
+                    }
+                    let reg = reg as usize;
+                    if to_usp {
+                        self.regs.usp = self.regs.a(reg);
+                    } else {
+                        let usp = self.regs.usp;
+                        self.regs.set_a(reg, usp);
+                    }
+                    self.queue_internal(4);
+                    return;
+                }
+                RecipeOp::Trap { vector } => {
+                    self.exception(vector);
+                    return;
+                }
+                RecipeOp::Trapv => {
+                    if self.regs.sr & V != 0 {
+                        self.exception(7);
+                    } else {
+                        self.queue_internal(4);
+                    }
+                    return;
+                }
+                RecipeOp::Reset => {
+                    if !self.regs.is_supervisor() {
+                        self.exception(8);
+                        return;
+                    }
+                    self.micro_ops.push(MicroOp::ResetBus);
+                    self.queue_internal(132);
+                    return;
+                }
+                RecipeOp::Stop => {
+                    if !self.regs.is_supervisor() {
+                        self.exception(8);
+                        return;
+                    }
+                    let imm = self.next_ext_word();
+                    self.regs.sr = imm & flags::SR_MASK;
+                    self.state = State::Stopped;
+                    return;
+                }
+                RecipeOp::WriteCcr => {
+                    let ccr = (self.data as u16) & 0x1F;
+                    self.regs.sr = (self.regs.sr & 0xFF00) | ccr;
+                }
+                RecipeOp::WriteSr => {
+                    self.regs.sr = (self.data as u16) & flags::SR_MASK;
+                }
+                RecipeOp::LogicCcr { op } => {
+                    let imm = (self.data as u8) & 0x1F;
+                    let ccr = self.regs.ccr() & 0x1F;
+                    let result = match op {
+                        RecipeAlu::And => ccr & imm,
+                        RecipeAlu::Or => ccr | imm,
+                        RecipeAlu::Eor => ccr ^ imm,
+                        _ => ccr,
+                    };
+                    self.regs.set_ccr(result);
+                    self.queue_internal(20);
+                    return;
+                }
+                RecipeOp::LogicSr { op } => {
+                    if !self.regs.is_supervisor() {
+                        self.exception(8);
+                        return;
+                    }
+                    let imm = self.data as u16;
+                    let sr = self.regs.sr;
+                    let result = match op {
+                        RecipeAlu::And => sr & imm,
+                        RecipeAlu::Or => sr | imm,
+                        RecipeAlu::Eor => sr ^ imm,
+                        _ => sr,
+                    };
+                    self.regs.sr = result & flags::SR_MASK;
+                    self.queue_internal(20);
+                    return;
                 }
                 RecipeOp::AddxReg { src, dst } => {
                     let src = self.read_data_reg(src, self.size);
@@ -3502,6 +4453,29 @@ impl M68000 {
                     };
                     self.write_data_reg(reg, result, self.size);
                 }
+                RecipeOp::SwapReg { reg } => {
+                    let value = self.regs.d[reg as usize];
+                    let swapped = (value >> 16) | (value << 16);
+                    self.regs.d[reg as usize] = swapped;
+                    self.set_flags_move(swapped, Size::Long);
+                }
+                RecipeOp::Ext { size, reg } => {
+                    let value = match size {
+                        Size::Word => {
+                            let byte = self.regs.d[reg as usize] as i8 as i16 as u16;
+                            self.regs.d[reg as usize] =
+                                (self.regs.d[reg as usize] & 0xFFFF_0000) | u32::from(byte);
+                            u32::from(byte)
+                        }
+                        Size::Long => {
+                            let word = self.regs.d[reg as usize] as i16 as i32 as u32;
+                            self.regs.d[reg as usize] = word;
+                            word
+                        }
+                        Size::Byte => 0,
+                    };
+                    self.set_flags_move(value, size);
+                }
                 RecipeOp::UnaryMem { op } => {
                     self.addr = self.recipe_dst_addr;
                     self.data2 = u32::from(op.to_alu_mem_rmw());
@@ -3535,6 +4509,18 @@ impl M68000 {
                     self.micro_ops.push(MicroOp::RecipeStep);
                     return;
                 }
+                RecipeOp::ExtendMem { op, src, dst } => {
+                    self.size = self.size;
+                    self.data = u32::from(src) | (u32::from(dst) << 8);
+                    self.data2 = u32::from(op);
+                    self.movem_long_phase = 0;
+                    self.extend_predec_done = false;
+                    self.src_mode = Some(AddrMode::AddrIndPreDec(src));
+                    self.dst_mode = Some(AddrMode::AddrIndPreDec(dst));
+                    self.micro_ops.push(MicroOp::ExtendMemOp);
+                    self.micro_ops.push(MicroOp::RecipeStep);
+                    return;
+                }
             }
         }
         self.recipe_reset();
@@ -3561,7 +4547,23 @@ impl M68000 {
         let (start_addr, ea_reg) = match addr_mode {
             AddrMode::AddrIndPreDec(r) => {
                 let dec_per_reg = if self.size == Size::Long { 4 } else { 2 };
-                let start = self.regs.a(r as usize).wrapping_sub(dec_per_reg);
+                let count = mask.count_ones();
+                let start = self
+                    .regs
+                    .a(r as usize)
+                    .wrapping_sub(count * dec_per_reg);
+                if Self::trace_movem_predec_enabled() {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    eprintln!(
+                        "[CPU] MOVEM predec @ ${op_pc:08X} A{}=${:08X} mask=${:04X} count={} size={:?} start=${:08X}",
+                        r,
+                        self.regs.a(r as usize),
+                        mask,
+                        count,
+                        self.size,
+                        start
+                    );
+                }
                 (start, r)
             }
             AddrMode::AddrInd(r) => (self.regs.a(r as usize), r),
@@ -3944,6 +4946,40 @@ impl M68000 {
             Size::Word => (*reg & 0xFFFF_0000) | (value & 0xFFFF),
             Size::Long => value,
         };
+        if r == 0 {
+            if let Some(target) = Self::trace_d0_target() {
+                let should_log = target.map_or(true, |t| *reg == t);
+                if should_log {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    let size_ch = match size {
+                        Size::Byte => 'B',
+                        Size::Word => 'W',
+                        Size::Long => 'L',
+                    };
+                    eprintln!(
+                        "[CPU] D0 <= ${:08X} size={} (pc=${:08X})",
+                        *reg, size_ch, op_pc
+                    );
+                }
+            }
+        }
+        if r == 2 {
+            if let Some(target) = Self::trace_d2_target() {
+                let should_log = target.map_or(true, |t| *reg == t);
+                if should_log {
+                    let op_pc = self.instr_start_pc.wrapping_sub(2);
+                    let size_ch = match size {
+                        Size::Byte => 'B',
+                        Size::Word => 'W',
+                        Size::Long => 'L',
+                    };
+                    eprintln!(
+                        "[CPU] D2 <= ${:08X} size={} (pc=${:08X})",
+                        *reg, size_ch, op_pc
+                    );
+                }
+            }
+        }
     }
 
     /// Count extension words needed for an addressing mode.
@@ -4229,6 +5265,14 @@ impl Cpu for M68000 {
 
     fn reset(&mut self) {
         // Reset sequence: read SSP from $0, PC from $4
+        if Self::trace_reset_enabled() {
+            eprintln!(
+                "[CPU] RESET sequence start pc=${:08X} SR=${:04X} A7=${:08X}",
+                self.regs.pc,
+                self.regs.sr,
+                self.regs.a(7)
+            );
+        }
         self.regs = Registers::new();
         self.state = State::FetchOpcode;
         self.micro_ops.clear();

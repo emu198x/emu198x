@@ -33,6 +33,17 @@ impl Default for Registers {
 }
 
 impl Registers {
+    fn trace_a7_below() -> Option<u32> {
+        use std::sync::OnceLock;
+        static THRESHOLD: OnceLock<Option<u32>> = OnceLock::new();
+        *THRESHOLD.get_or_init(|| {
+            let Ok(spec) = std::env::var("EMU68000_TRACE_A7_BELOW") else {
+                return None;
+            };
+            let spec = spec.trim().trim_start_matches("0x").trim_start_matches("0X");
+            u32::from_str_radix(spec, 16).ok()
+        })
+    }
     /// Create registers in reset state.
     ///
     /// After reset on the 68000:
@@ -89,10 +100,19 @@ impl Registers {
 
     /// Set the active stack pointer.
     pub fn set_active_sp(&mut self, value: u32) {
+        let old = self.active_sp();
         if self.is_supervisor() {
             self.ssp = value;
         } else {
             self.usp = value;
+        }
+        if let Some(threshold) = Self::trace_a7_below() {
+            if value < threshold && (old >= threshold || old == 0) {
+                eprintln!(
+                    "[CPU] A7 ${:08X} -> ${:08X} (pc=${:08X} sr=${:04X})",
+                    old, value, self.pc, self.sr
+                );
+            }
         }
     }
 

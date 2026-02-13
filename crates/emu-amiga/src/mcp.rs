@@ -15,6 +15,8 @@ use serde_json::Value as JsonValue;
 use emu_core::{Cpu, Observable, Tickable};
 
 use crate::config::AmigaConfig;
+use crate::input::AutoBootScript;
+use crate::keyboard_map;
 use crate::Amiga;
 
 // ---------------------------------------------------------------------------
@@ -154,6 +156,11 @@ impl McpServer {
             "run_frames" => self.handle_run_frames(params, id),
             "step_ticks" => self.handle_step_ticks(params, id),
             "screenshot" => self.handle_screenshot(id),
+            "press_key" => self.handle_press_key(params, id),
+            "release_key" => self.handle_release_key(params, id),
+            "tap_key" => self.handle_tap_key(params, id),
+            "type_text" => self.handle_type_text(params, id),
+            "auto_boot" => self.handle_auto_boot(params, id),
             "query" => self.handle_query(params, id),
             "poke" => self.handle_poke(params, id),
             _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
@@ -320,6 +327,152 @@ impl McpServer {
         )
     }
 
+    fn handle_press_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let (name, code) = match parse_key_param(params, &id) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+
+        amiga.queue_keycode(code, true);
+        RpcResponse::success(
+            id,
+            serde_json::json!({"key": name, "code": code, "pressed": true}),
+        )
+    }
+
+    fn handle_release_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let (name, code) = match parse_key_param(params, &id) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+
+        amiga.queue_keycode(code, false);
+        RpcResponse::success(
+            id,
+            serde_json::json!({"key": name, "code": code, "pressed": false}),
+        )
+    }
+
+    fn handle_tap_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let (name, code) = match parse_key_param(params, &id) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+
+        amiga.queue_keycode(code, true);
+        amiga.queue_keycode(code, false);
+        RpcResponse::success(
+            id,
+            serde_json::json!({"key": name, "code": code, "pressed": "tap"}),
+        )
+    }
+
+    fn handle_type_text(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let text = match params.get("text").and_then(|v| v.as_str()) {
+            Some(t) => t,
+            None => {
+                return RpcResponse::error(id, -32602, "Missing 'text' parameter".to_string())
+            }
+        };
+
+        let at_frame = params
+            .get("at_frame")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_else(|| amiga.frame_count());
+        let hold_frames = params
+            .get("hold_frames")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3);
+        let gap_frames = params
+            .get("gap_frames")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3);
+
+        let end_frame = amiga
+            .input_queue_mut()
+            .enqueue_text(text, at_frame, hold_frames, gap_frames);
+
+        RpcResponse::success(
+            id,
+            serde_json::json!({
+                "text": text,
+                "start_frame": at_frame,
+                "end_frame": end_frame,
+                "hold_frames": hold_frames,
+                "gap_frames": gap_frames,
+            }),
+        )
+    }
+
+    fn handle_auto_boot(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let script = match params.get("script").and_then(|v| v.as_str()) {
+            Some(name) => match parse_auto_boot_script(name) {
+                Some(s) => s,
+                None => {
+                    return RpcResponse::error(
+                        id,
+                        -32602,
+                        format!("Unknown script: {name}"),
+                    )
+                }
+            },
+            None => AutoBootScript::BootMenu,
+        };
+
+        let at_frame = params
+            .get("at_frame")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_else(|| amiga.frame_count());
+        let hold_frames = params
+            .get("hold_frames")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3);
+        let gap_frames = params
+            .get("gap_frames")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(30);
+
+        let end_frame = amiga
+            .input_queue_mut()
+            .enqueue_auto_boot(at_frame, hold_frames, gap_frames, script);
+
+        RpcResponse::success(
+            id,
+            serde_json::json!({
+                "script": format!("{script:?}"),
+                "start_frame": at_frame,
+                "end_frame": end_frame,
+                "hold_frames": hold_frames,
+                "gap_frames": gap_frames,
+            }),
+        )
+    }
+
     fn handle_query(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
         let amiga = match self.require_amiga(&id) {
             Ok(s) => s,
@@ -385,6 +538,45 @@ impl McpServer {
 impl Default for McpServer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn parse_key_param(params: &JsonValue, id: &JsonValue) -> Result<(String, u8), RpcResponse> {
+    if let Some(key_name) = params.get("key").and_then(|v| v.as_str()) {
+        if let Some(code) = keyboard_map::parse_key_name(key_name) {
+            return Ok((key_name.to_string(), code));
+        }
+        return Err(RpcResponse::error(
+            id.clone(),
+            -32602,
+            format!("Unknown key: {key_name}"),
+        ));
+    }
+
+    if let Some(code) = params.get("code").and_then(|v| v.as_u64()) {
+        if code <= 0x7F {
+            return Ok((format!("0x{code:02X}"), code as u8));
+        }
+        return Err(RpcResponse::error(
+            id.clone(),
+            -32602,
+            "Invalid 'code' (0-127)".to_string(),
+        ));
+    }
+
+    Err(RpcResponse::error(
+        id.clone(),
+        -32602,
+        "Missing 'key' or 'code' parameter".to_string(),
+    ))
+}
+
+fn parse_auto_boot_script(name: &str) -> Option<AutoBootScript> {
+    match name.to_lowercase().as_str() {
+        "bootmenu" | "menu" => Some(AutoBootScript::BootMenu),
+        "enter" | "return" => Some(AutoBootScript::Enter),
+        "f1" => Some(AutoBootScript::F1),
+        _ => None,
     }
 }
 

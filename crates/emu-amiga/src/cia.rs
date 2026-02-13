@@ -63,6 +63,8 @@ pub struct Cia {
 
     /// Serial data register (stub for keyboard).
     sdr: u8,
+    /// TOD 1/10s counter (simple stub for boot timing checks).
+    tod_10ths: u8,
 }
 
 impl Cia {
@@ -88,6 +90,7 @@ impl Cia {
             cra: 0,
             crb: 0,
             sdr: 0,
+            tod_10ths: 0,
         }
     }
 
@@ -154,7 +157,7 @@ impl Cia {
 
     /// Read a CIA register.
     #[must_use]
-    pub fn read(&self, reg: u8) -> u8 {
+    pub fn read(&mut self, reg: u8) -> u8 {
         match reg & 0x0F {
             0x00 => (self.port_a & self.ddr_a) | (!self.ddr_a),
             0x01 => (self.port_b & self.ddr_b) | (!self.ddr_b),
@@ -165,7 +168,12 @@ impl Cia {
             0x06 => self.timer_b as u8,
             0x07 => (self.timer_b >> 8) as u8,
             // TOD registers: stubbed
-            0x08..=0x0B => 0,
+            0x08 => {
+                let val = self.tod_10ths;
+                self.tod_10ths = self.tod_10ths.wrapping_add(1);
+                val
+            }
+            0x09..=0x0B => 0,
             // Serial data register
             0x0C => self.sdr,
             // ICR read: returns status with bit 7 = any active

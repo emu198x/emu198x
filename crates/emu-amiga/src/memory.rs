@@ -1,11 +1,11 @@
-//! Amiga memory: Chip RAM (2MB) and Kickstart ROM (256K).
+//! Amiga memory: Chip RAM (512KB) and Kickstart ROM (256K).
 //!
 //! On reset, ROM is overlaid at $000000 so the 68000 can read its reset
 //! vectors. Kickstart clears the overlay by writing CIA-A port A bit 0.
 
 #![allow(clippy::cast_possible_truncation, clippy::large_stack_arrays)]
 
-/// Chip RAM size: 2MB.
+/// Chip RAM size: 2MB (Agnus max; simplifies early boot).
 pub const CHIP_RAM_SIZE: usize = 2 * 1024 * 1024;
 
 /// Chip RAM address mask (size must be power of two).
@@ -24,9 +24,21 @@ pub const CHIP_RAM_BASE: u32 = 0x00_0000;
 /// Kickstart ROM base address.
 pub const KICKSTART_BASE: u32 = 0xF8_0000;
 
+fn patch_libvec_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("EMU_AMIGA_PATCH_LIBVEC_2BDA").is_ok())
+}
+
+fn patch_skip_reset_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("EMU_AMIGA_PATCH_SKIP_RESET").is_ok())
+}
+
 /// Amiga memory subsystem.
 pub struct Memory {
-    /// 2MB chip RAM.
+    /// 512KB chip RAM.
     pub chip_ram: Box<[u8; CHIP_RAM_SIZE]>,
     /// 256K Kickstart ROM.
     pub kickstart: Box<[u8; KICKSTART_SIZE]>,
@@ -64,13 +76,41 @@ impl Memory {
     pub fn read(&self, addr: u32) -> u8 {
         let addr = addr & 0x00FF_FFFF; // 24-bit address bus
 
+        if patch_libvec_enabled() {
+            // Patch a missing library vector at $00002BDA with:
+            // MOVEQ #0,D0; RTS  (70 00 4E 75)
+            if (0x00_2BDA..=0x00_2BDD).contains(&addr) {
+                return match addr {
+                    0x00_2BDA => 0x70,
+                    0x00_2BDB => 0x00,
+                    0x00_2BDC => 0x4E,
+                    0x00_2BDD => 0x75,
+                    _ => 0xFF,
+                };
+            }
+        }
+
+        if patch_skip_reset_enabled() {
+            // Patch ROM at $FC3078: replace `BNE.W $FC05F0` (6600 D576)
+            // with `NOP; NOP` (4E71 4E71).
+            if (0x00FC_3078..=0x00FC_307B).contains(&addr) {
+                return match addr {
+                    0x00FC_3078 => 0x4E,
+                    0x00FC_3079 => 0x71,
+                    0x00FC_307A => 0x4E,
+                    0x00FC_307B => 0x71,
+                    _ => 0xFF,
+                };
+            }
+        }
+
         // Overlay: ROM at $000000 when active
         if self.overlay && addr < KICKSTART_SIZE as u32 {
             return self.kickstart[addr as usize];
         }
 
         match addr {
-            // Chip RAM: $000000-$07FFFF
+            // Chip RAM: $000000-$1FFFFF
             0x00_0000..=CHIP_RAM_MASK => self.chip_ram[addr as usize],
             // Kickstart ROM: $F80000-$FFFFFF
             0xF8_0000..=0xFF_FFFF => {
@@ -86,7 +126,7 @@ impl Memory {
     pub fn write(&mut self, addr: u32, value: u8) {
         let addr = addr & 0x00FF_FFFF;
 
-        // Chip RAM: $000000-$07FFFF (writes always go to RAM, even with overlay)
+        // Chip RAM: $000000-$1FFFFF (writes always go to RAM, even with overlay)
         if addr < CHIP_RAM_SIZE as u32 {
             self.chip_ram[addr as usize] = value;
         }

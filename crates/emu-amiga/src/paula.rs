@@ -25,6 +25,12 @@ pub struct Paula {
     pub intena: u16,
     /// Interrupt request register (bits 0-14).
     pub intreq: u16,
+    /// Serial receive buffer (SERDATR).
+    serial_rx: Option<u8>,
+    /// Remaining reads before the serial buffer is cleared.
+    serial_rx_reads_left: u8,
+    /// Serial overrun flag (SERDATR bit 14).
+    serial_overrun: bool,
 }
 
 impl Paula {
@@ -33,6 +39,9 @@ impl Paula {
         Self {
             intena: 0,
             intreq: 0,
+            serial_rx: None,
+            serial_overrun: false,
+            serial_rx_reads_left: 0,
         }
     }
 
@@ -49,6 +58,65 @@ impl Paula {
     /// Set a specific interrupt request bit.
     pub fn request_interrupt(&mut self, bit: u16) {
         self.intreq |= 1 << bit;
+    }
+
+    /// Queue a serial byte into the receive buffer.
+    ///
+    /// Sets the RBF interrupt (bit 11) if the buffer becomes full.
+    pub fn queue_serial_rx(&mut self, value: u8) {
+        if self.serial_rx.is_some() {
+            self.serial_overrun = true;
+            return;
+        }
+        self.serial_rx = Some(value);
+        self.serial_rx_reads_left = 2;
+        // RBF interrupt
+        self.intreq |= 1 << 11;
+        if std::env::var("EMU_AMIGA_TRACE_KBD").is_ok() {
+            eprintln!("[KBD] SERDATR<= {value:02X}");
+        }
+    }
+
+    /// Read SERDATR (serial data + status).
+    ///
+    /// Bit 14: RBF (receive buffer full)
+    /// Bit 15: OVR (overrun)
+    /// Bit 13: TBE (transmit buffer empty)
+    pub fn read_serdatr(&mut self) -> u16 {
+        let mut word = 0x2000; // TBE
+        if let Some(value) = self.serial_rx {
+            word |= 0x4000; // RBF
+            if self.serial_overrun {
+                word |= 0x8000; // OVR
+            }
+            word |= u16::from(value);
+            if self.serial_rx_reads_left > 0 {
+                self.serial_rx_reads_left -= 1;
+            }
+            if self.serial_rx_reads_left == 0 {
+                self.serial_rx = None;
+                // Clear RBF interrupt once buffer is consumed
+                self.intreq &= !(1 << 11);
+                self.serial_overrun = false;
+            }
+            if std::env::var("EMU_AMIGA_TRACE_KBD").is_ok() {
+                eprintln!("[KBD] SERDATR=> {word:04X}");
+            }
+        } else {
+            // Idle line reads as all 1s in data bits.
+            if std::env::var("EMU_AMIGA_FORCE_SERDATR").is_ok() {
+                word |= 0x4000; // Force RBF
+            } else {
+                word |= 0x007F;
+            }
+        }
+        word
+    }
+
+    /// Is the serial receive buffer empty?
+    #[must_use]
+    pub fn serial_rx_empty(&self) -> bool {
+        self.serial_rx.is_none()
     }
 
     /// Compute the active IPL level (0-6).

@@ -1,0 +1,18 @@
+[package]
+name = "emu-m68k"
+description = "Unified Motorola 680x0 CPU family emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+glob = "0.3"
+
+[lints]
+workspace = true
