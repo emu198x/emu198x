@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "5b6ccbf19025",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "crates/cpu-m68k/Cargo.toml",
+    "crates/cpu-m68k/src/addressing.rs",
+    "crates/cpu-m68k/src/alu.rs",
+    "crates/cpu-m68k/src/arith.rs",
+    "crates/cpu-m68k/src/branches.rs",
+    "crates/cpu-m68k/src/bus.rs",
+    "crates/cpu-m68k/src/cpu.rs",
+    "crates/cpu-m68k/src/decode.rs",
+    "crates/cpu-m68k/src/ea.rs",
+    "crates/cpu-m68k/src/exceptions.rs",
+    "crates/cpu-m68k/src/execute.rs",
+    "crates/cpu-m68k/src/flags.rs",
+    "crates/cpu-m68k/src/immediates.rs",
+    "crates/cpu-m68k/src/lib.rs",
+    "crates/cpu-m68k/src/logic.rs",
+    "crates/cpu-m68k/src/microcode.rs",
+    "crates/cpu-m68k/src/misc.rs",
+    "crates/cpu-m68k/src/registers.rs",
+    "crates/cpu-m68k/src/shifts.rs",
+    "crates/cpu-m68k/src/timing.rs",
+    "crates/cpu-m68k/tests/single_step_tests.rs",
+    "docs/cpu-m68k-plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5b/6ccbf19025/0/metadata.json",
+      "transcript": "/5b/6ccbf19025/0/full.jsonl",
+      "context": "/5b/6ccbf19025/0/context.md",
+      "content_hash": "/5b/6ccbf19025/0/content_hash.txt",
+      "prompt": "/5b/6ccbf19025/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 35706,
+    "cache_creation_tokens": 5820613,
+    "cache_read_tokens": 224345291,
+    "output_tokens": 326435,
+    "api_call_count": 2056
+  }
+}
