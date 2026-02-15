@@ -1,18 +1,15 @@
 {
   "cli_version": "0.4.2",
   "checkpoint_id": "56751471d130",
+  "session_id": "78c714d4-2a4d-4188-bf7f-2272aa83505b",
   "strategy": "manual-commit",
+  "created_at": "2026-02-15T13:55:54.635236Z",
   "branch": "main",
-  "checkpoints_count": 3,
+  "checkpoints_count": 2,
   "files_touched": [
     ".claude/settings.local.json",
     "CLAUDE.md",
     "Cargo.toml",
-    "crates/cpu-m68k/src/bus.rs",
-    "crates/cpu-m68k/src/cpu.rs",
-    "crates/cpu-m68k/src/decode.rs",
-    "crates/cpu-m68k/src/exceptions.rs",
-    "crates/cpu-m68k/src/misc.rs",
     "crates/emu-68000/Cargo.toml",
     "crates/emu-68000/src/bin/recipe_coverage.rs",
     "crates/emu-68000/src/cpu.rs",
@@ -23,16 +20,6 @@
     "crates/emu-68000/src/registers.rs",
     "crates/emu-68000/tests/instructions.rs",
     "crates/emu-68000/tests/single_step_tests.rs",
-    "crates/emu-amiga2/Cargo.toml",
-    "crates/emu-amiga2/src/amiga.rs",
-    "crates/emu-amiga2/src/blitter.rs",
-    "crates/emu-amiga2/src/bus.rs",
-    "crates/emu-amiga2/src/cia.rs",
-    "crates/emu-amiga2/src/config.rs",
-    "crates/emu-amiga2/src/copper.rs",
-    "crates/emu-amiga2/src/custom_regs.rs",
-    "crates/emu-amiga2/src/main.rs",
-    "crates/emu-amiga2/src/memory.rs",
     "crates/emu-m68k/Cargo.toml",
     "crates/emu-m68k/src/bus.rs",
     "crates/emu-m68k/src/common/addressing.rs",
@@ -54,27 +41,22 @@
     "crates/emu-m68k/src/m68000/timing.rs",
     "crates/emu-m68k/tests/single_step_tests.rs"
   ],
-  "sessions": [
-    {
-      "metadata": "/56/751471d130/0/metadata.json",
-      "transcript": "/56/751471d130/0/full.jsonl",
-      "context": "/56/751471d130/0/context.md",
-      "content_hash": "/56/751471d130/0/content_hash.txt",
-      "prompt": "/56/751471d130/0/prompt.txt"
-    },
-    {
-      "metadata": "/56/751471d130/1/metadata.json",
-      "transcript": "/56/751471d130/1/full.jsonl",
-      "context": "/56/751471d130/1/context.md",
-      "content_hash": "/56/751471d130/1/content_hash.txt",
-      "prompt": "/56/751471d130/1/prompt.txt"
-    }
-  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "a4e8fda8-2f55-40ad-8f5c-5aba64097762",
   "token_usage": {
-    "input_tokens": 40639,
-    "cache_creation_tokens": 2894840,
-    "cache_read_tokens": 62604826,
-    "output_tokens": 119940,
-    "api_call_count": 570
+    "input_tokens": 4651,
+    "cache_creation_tokens": 219972,
+    "cache_read_tokens": 2438393,
+    "output_tokens": 5369,
+    "api_call_count": 32
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-15T13:55:54.476078Z",
+    "agent_lines": 4,
+    "human_added": 2946,
+    "human_modified": 8,
+    "human_removed": 0,
+    "total_committed": 2958,
+    "agent_percentage": 0.1352265043948614
   }
 }
