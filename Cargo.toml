@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
-exclude = ["crates/emu-68000", "crates/emu-amiga", "crates/emu-m68k", "crates/emu-amiga2"]
+exclude = ["crates/emu-amiga"]
 
 [workspace.package]
 version = "0.1.0"

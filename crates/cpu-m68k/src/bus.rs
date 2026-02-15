@@ -41,7 +41,7 @@ impl FunctionCode {
     }
 }
 
-/// Result of a bus access: data read and wait cycles inserted.
+/// Result of a bus access: data read, wait cycles, and bus error status.
 #[derive(Debug, Clone, Copy)]
 pub struct BusResult {
     /// Data read from the bus. For writes, this is 0.
@@ -49,6 +49,9 @@ pub struct BusResult {
     /// Extra wait cycles inserted by the bus (DMA contention, slow memory, etc.).
     /// The CPU burns these as idle ticks before completing the access.
     pub wait_cycles: u8,
+    /// True if this access caused a bus error (no DTACK response).
+    /// The CPU will take a Group 0 exception (vector 2).
+    pub bus_error: bool,
 }
 
 impl BusResult {
@@ -58,13 +61,18 @@ impl BusResult {
         Self {
             data,
             wait_cycles: 0,
+            bus_error: false,
         }
     }
 
     /// Create a result with data and wait cycles.
     #[must_use]
     pub const fn with_wait(data: u16, wait_cycles: u8) -> Self {
-        Self { data, wait_cycles }
+        Self {
+            data,
+            wait_cycles,
+            bus_error: false,
+        }
     }
 
     /// Create a write result (no data returned).
@@ -73,6 +81,7 @@ impl BusResult {
         Self {
             data: 0,
             wait_cycles: 0,
+            bus_error: false,
         }
     }
 
@@ -82,6 +91,17 @@ impl BusResult {
         Self {
             data: 0,
             wait_cycles,
+            bus_error: false,
+        }
+    }
+
+    /// Create a bus error result (DTACK timeout).
+    #[must_use]
+    pub const fn error() -> Self {
+        Self {
+            data: 0,
+            wait_cycles: 0,
+            bus_error: true,
         }
     }
 }

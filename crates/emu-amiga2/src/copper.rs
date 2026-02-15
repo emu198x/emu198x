@@ -31,6 +31,10 @@ pub struct Copper {
     pub cop2lc: u32,
     /// COPCON danger bit: allow writes to registers below $080.
     pub danger: bool,
+    /// COP1LC value at last vblank restart (for diagnostics).
+    pub last_restart_addr: u32,
+    /// Instruction trace log (first N instructions).
+    pub trace: Vec<(u32, u16, u16)>,
 }
 
 impl Copper {
@@ -44,11 +48,14 @@ impl Copper {
             cop1lc: 0,
             cop2lc: 0,
             danger: false,
+            last_restart_addr: 0,
+            trace: Vec::new(),
         }
     }
 
     /// Restart copper from COP1LC.
     pub fn restart_cop1(&mut self) {
+        self.last_restart_addr = self.cop1lc;
         self.pc = self.cop1lc;
         self.state = State::FetchIR1;
     }
@@ -89,7 +96,11 @@ impl Copper {
             }
             State::FetchIR2 => {
                 self.ir2 = read_word(self.pc);
+                let instr_addr = self.pc.wrapping_sub(2);
                 self.pc = self.pc.wrapping_add(2);
+                if self.trace.len() < 500 {
+                    self.trace.push((instr_addr, self.ir1, self.ir2));
+                }
                 self.execute(vpos, hpos)
             }
             State::WaitBeam => {
@@ -131,17 +142,10 @@ impl Copper {
 
     #[allow(clippy::similar_names)]
     fn tick_wait(&mut self, vpos: u16, hpos: u16) {
-        let cmp_vpos = (self.ir1 >> 8) & 0xFF;
-        let cmp_hpos = (self.ir1 >> 1) & 0x7F;
-        let mask_v = ((self.ir2 >> 8) & 0x7F) | 0x80;
-        let mask_h = (self.ir2 >> 1) & 0x7F;
-
-        let beam_v = vpos & mask_v;
-        let beam_h = (hpos >> 1) & mask_h;
-        let wait_v = cmp_vpos & mask_v;
-        let wait_h = cmp_hpos & mask_h;
-
-        let matched = beam_v > wait_v || (beam_v == wait_v && beam_h >= wait_h);
+        let wait_pos = self.ir1 & 0xFFFE;
+        let mask = self.ir2 & 0xFFFE;
+        let beam_pos = ((vpos & 0xFF) << 8) | (hpos & 0xFE);
+        let matched = (beam_pos & mask) >= (wait_pos & mask);
 
         if matched {
             if self.ir2 & 1 != 0 {

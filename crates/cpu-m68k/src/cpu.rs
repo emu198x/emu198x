@@ -142,6 +142,9 @@ pub struct Cpu68000 {
     /// True if the instruction that just completed had T set in SR at its start.
     /// Checked in start_next_instruction; if set, fires a trace exception (vector 9).
     pub(crate) trace_pending: bool,
+    /// Diagnostic: number of illegal-instruction logs emitted.
+    #[cfg(debug_assertions)]
+    illegal_trace_count: u32,
 
     // === Interrupt state ===
     int_pending: u8,
@@ -191,6 +194,8 @@ impl Cpu68000 {
             dbcc_dn_undo: None,
             processing_group0: false,
             trace_pending: false,
+            #[cfg(debug_assertions)]
+            illegal_trace_count: 0,
             int_pending: 0,
             total_cycles: Ticks::ZERO,
             wait_cycles: 0,
@@ -201,6 +206,29 @@ impl Cpu68000 {
     #[must_use]
     pub const fn total_cycles(&self) -> Ticks {
         self.total_cycles
+    }
+
+    /// Get a reference to the register set.
+    #[must_use]
+    pub fn registers(&self) -> &Registers {
+        &self.regs
+    }
+
+    /// Get a mutable reference to the register set.
+    pub fn registers_mut(&mut self) -> &mut Registers {
+        &mut self.regs
+    }
+
+    /// Check if the CPU is halted (double bus fault).
+    #[must_use]
+    pub fn is_halted(&self) -> bool {
+        matches!(self.state, State::Halted)
+    }
+
+    /// Check if the CPU is stopped (STOP instruction, waiting for interrupt).
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        matches!(self.state, State::Stopped)
     }
 
     /// Get the current Instruction Register (opcode being executed).
@@ -292,25 +320,91 @@ impl Cpu68000 {
         )
     }
 
-    /// Start executing the next instruction.
+    /// Start executing the next instruction (or handle a pending interrupt).
     ///
     /// Called when the micro-op queue is empty: IR <- IRC, queue FetchIRC + Execute.
-    fn start_next_instruction(&mut self) {
+    /// If an interrupt is pending and its priority exceeds the mask, the interrupt
+    /// exception is queued instead of the next instruction.
+    fn start_next_instruction<B: M68kBus>(&mut self, bus: &mut B) {
         // Promote IR ← IRC, start new instruction
         self.ir = self.irc;
         self.instr_start_pc = self.irc_addr;
         self.in_followup = false;
         self.followup_tag = 0;
 
-        // Clear AE undo state — the instruction completed normally
+        // Clear AE tracking state — the previous instruction completed normally
+        self.irc_consumed_count = 0;
+        self.deferred_fetch_count = 0;
         self.jsr_push_undo = None;
         self.dbcc_dn_undo = None;
         self.src_postinc_undo = None;
         self.src_predec_undo = None;
 
+        // Check for pending interrupt before executing the next instruction.
+        // On the real 68000, interrupts are sampled at instruction boundaries.
+        if self.accept_interrupt(bus) {
+            return;
+        }
+
         // Queue: FetchIRC (to refill IRC from PC), then Execute (to decode new IR)
         self.micro_ops.push(MicroOp::FetchIRC);
         self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Check for a pending interrupt and, if accepted, queue exception processing.
+    ///
+    /// Returns true if an interrupt was accepted and exception ops were queued.
+    /// The interrupt acknowledge cycle calls `bus.interrupt_ack()` to get the
+    /// vector number from the interrupting device.
+    fn accept_interrupt<B: M68kBus>(&mut self, bus: &mut B) -> bool {
+        let level = self.int_pending;
+        if level == 0 {
+            return false;
+        }
+
+        // Level 7 is NMI (always accepted), others must exceed the mask
+        let mask = self.regs.interrupt_mask();
+        if level < 7 && level <= mask {
+            return false;
+        }
+
+        // Save old SR and return PC (address of next instruction)
+        let old_sr = self.regs.sr;
+        let return_pc = self.instr_start_pc;
+
+        // Enter supervisor mode, clear trace, set interrupt mask to accepted level
+        self.regs.sr |= 0x2000;
+        self.regs.sr &= !0x8000;
+        self.regs.set_interrupt_mask(level);
+
+        // Acknowledge interrupt — get vector number from bus
+        let vector = bus.interrupt_ack(level);
+
+        self.exc = ExceptionState {
+            old_sr,
+            return_pc,
+            vector_addr: u32::from(vector) * 4,
+            is_group0: false,
+            ..Default::default()
+        };
+
+        self.micro_ops.clear();
+
+        // Interrupt processing: ~44 cycles total.
+        // Internal(10) accounts for the acknowledge cycle + internal processing.
+        self.micro_ops.push(MicroOp::Internal(10));
+
+        // Push return PC
+        self.data = return_pc;
+        self.micro_ops.push(MicroOp::PushLongHi);
+        self.micro_ops.push(MicroOp::PushLongLo);
+
+        // Continue via standard exception followup (push SR, read vector, jump)
+        self.in_followup = true;
+        self.followup_tag = 0xFE;
+        self.micro_ops.push(MicroOp::Execute);
+
+        true
     }
 
     // === Tick engine ===
@@ -353,8 +447,9 @@ impl Cpu68000 {
         self.process_instant_ops(bus);
 
         // Step 3: If queue is empty after instant ops, start next instruction
+        // (or handle a pending interrupt at the instruction boundary)
         if self.micro_ops.is_empty() {
-            self.start_next_instruction();
+            self.start_next_instruction(bus);
             // Process the instant ops that follow (Execute at the end)
             self.process_instant_ops(bus);
         }
@@ -412,8 +507,11 @@ impl Cpu68000 {
     }
 
     /// Execute an instant (0-cycle) micro-op.
-    fn execute_instant_op<B: M68kBus>(&mut self, op: MicroOp, _bus: &mut B) {
+    fn execute_instant_op<B: M68kBus>(&mut self, op: MicroOp, bus: &mut B) {
         match op {
+            MicroOp::AssertReset => {
+                bus.reset();
+            }
             MicroOp::Execute => {
                 self.decode_and_execute();
             }
@@ -432,7 +530,13 @@ impl Cpu68000 {
         match op {
             MicroOp::FetchIRC => {
                 let fc = FunctionCode::from_flags(self.regs.is_supervisor(), true);
-                let result = bus.read_word(self.regs.pc & 0x00FF_FFFE, fc);
+                let read_addr = self.regs.pc & 0x00FF_FFFE;
+                let result = bus.read_word(read_addr, fc);
+                if result.bus_error {
+                    self.program_space_access = true;
+                    self.bus_error_exception(read_addr, true);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
                 self.irc = result.data;
                 self.irc_addr = self.regs.pc;
@@ -440,100 +544,148 @@ impl Cpu68000 {
             }
             MicroOp::ReadByte => {
                 let fc = self.data_fc();
-                let result = bus.read_byte(self.addr & 0x00FF_FFFF, fc);
+                let read_addr = self.addr & 0x00FF_FFFF;
+                let result = bus.read_byte(read_addr, fc);
+                if result.bus_error {
+                    self.bus_error_exception(read_addr, true);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
                 self.data = u32::from(result.data & 0xFF);
             }
             MicroOp::ReadWord => {
                 let fc = self.data_fc();
-                let result = bus.read_word(self.addr & 0x00FF_FFFE, fc);
+                let read_addr = self.addr & 0x00FF_FFFE;
+                let result = bus.read_word(read_addr, fc);
+                if result.bus_error {
+                    self.bus_error_exception(read_addr, true);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
                 self.data = u32::from(result.data);
             }
             MicroOp::ReadLongHi => {
                 let fc = self.data_fc();
-                let result = bus.read_word(self.addr & 0x00FF_FFFE, fc);
+                let read_addr = self.addr & 0x00FF_FFFE;
+                let result = bus.read_word(read_addr, fc);
+                if result.bus_error {
+                    self.bus_error_exception(read_addr, true);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
                 self.data = u32::from(result.data) << 16;
             }
             MicroOp::ReadLongLo => {
                 let fc = self.data_fc();
                 let addr = self.addr.wrapping_add(2);
-                let result = bus.read_word(addr & 0x00FF_FFFE, fc);
+                let read_addr = addr & 0x00FF_FFFE;
+                let result = bus.read_word(read_addr, fc);
+                if result.bus_error {
+                    self.bus_error_exception(read_addr, true);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
                 self.data |= u32::from(result.data);
             }
             MicroOp::WriteByte => {
                 let fc = self.data_fc();
-                let result = bus.write_byte(
-                    self.addr & 0x00FF_FFFF,
-                    self.data as u8,
-                    fc,
-                );
+                let write_addr = self.addr & 0x00FF_FFFF;
+                let result = bus.write_byte(write_addr, self.data as u8, fc);
+                if result.bus_error {
+                    self.bus_error_exception(write_addr, false);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
             }
             MicroOp::WriteWord => {
                 let fc = self.data_fc();
-                let result = bus.write_word(
-                    self.addr & 0x00FF_FFFE,
-                    self.data as u16,
-                    fc,
-                );
+                let write_addr = self.addr & 0x00FF_FFFE;
+                let result = bus.write_word(write_addr, self.data as u16, fc);
+                if result.bus_error {
+                    self.bus_error_exception(write_addr, false);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
             }
             MicroOp::WriteLongHi => {
                 let fc = self.data_fc();
+                let write_addr = self.addr & 0x00FF_FFFE;
                 let result = bus.write_word(
-                    self.addr & 0x00FF_FFFE,
+                    write_addr,
                     (self.data >> 16) as u16,
                     fc,
                 );
+                if result.bus_error {
+                    self.bus_error_exception(write_addr, false);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
             }
             MicroOp::WriteLongLo => {
                 let fc = self.data_fc();
                 let addr = self.addr.wrapping_add(2);
+                let write_addr = addr & 0x00FF_FFFE;
                 let result = bus.write_word(
-                    addr & 0x00FF_FFFE,
+                    write_addr,
                     (self.data & 0xFFFF) as u16,
                     fc,
                 );
+                if result.bus_error {
+                    self.bus_error_exception(write_addr, false);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
             }
             MicroOp::PushWord => {
                 let sp_addr = self.regs.push_word();
                 let fc = FunctionCode::from_flags(self.regs.is_supervisor(), false);
-                let result = bus.write_word(
-                    sp_addr & 0x00FF_FFFE,
-                    self.data as u16,
-                    fc,
-                );
+                let write_addr = sp_addr & 0x00FF_FFFE;
+                let result = bus.write_word(write_addr, self.data as u16, fc);
+                if result.bus_error {
+                    self.bus_error_exception(write_addr, false);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
             }
             MicroOp::PushLongHi => {
                 let sp_addr = self.regs.push_long();
                 let fc = FunctionCode::from_flags(self.regs.is_supervisor(), false);
+                let write_addr = sp_addr & 0x00FF_FFFE;
                 let result = bus.write_word(
-                    sp_addr & 0x00FF_FFFE,
+                    write_addr,
                     (self.data >> 16) as u16,
                     fc,
                 );
+                if result.bus_error {
+                    self.bus_error_exception(write_addr, false);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
             }
             MicroOp::PushLongLo => {
                 let sp_addr = self.regs.active_sp().wrapping_add(2);
                 let fc = FunctionCode::from_flags(self.regs.is_supervisor(), false);
+                let write_addr = sp_addr & 0x00FF_FFFE;
                 let result = bus.write_word(
-                    sp_addr & 0x00FF_FFFE,
+                    write_addr,
                     (self.data & 0xFFFF) as u16,
                     fc,
                 );
+                if result.bus_error {
+                    self.bus_error_exception(write_addr, false);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
             }
             MicroOp::PopWord => {
                 let sp_addr = self.regs.active_sp();
                 let fc = FunctionCode::from_flags(self.regs.is_supervisor(), false);
-                let result = bus.read_word(sp_addr & 0x00FF_FFFE, fc);
+                let read_addr = sp_addr & 0x00FF_FFFE;
+                let result = bus.read_word(read_addr, fc);
+                if result.bus_error {
+                    self.bus_error_exception(read_addr, true);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
                 self.data = u32::from(result.data);
                 self.regs.pop_word();
@@ -541,14 +693,24 @@ impl Cpu68000 {
             MicroOp::PopLongHi => {
                 let sp_addr = self.regs.active_sp();
                 let fc = FunctionCode::from_flags(self.regs.is_supervisor(), false);
-                let result = bus.read_word(sp_addr & 0x00FF_FFFE, fc);
+                let read_addr = sp_addr & 0x00FF_FFFE;
+                let result = bus.read_word(read_addr, fc);
+                if result.bus_error {
+                    self.bus_error_exception(read_addr, true);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
                 self.data = u32::from(result.data) << 16;
             }
             MicroOp::PopLongLo => {
                 let sp_addr = self.regs.active_sp().wrapping_add(2);
                 let fc = FunctionCode::from_flags(self.regs.is_supervisor(), false);
-                let result = bus.read_word(sp_addr & 0x00FF_FFFE, fc);
+                let read_addr = sp_addr & 0x00FF_FFFE;
+                let result = bus.read_word(read_addr, fc);
+                if result.bus_error {
+                    self.bus_error_exception(read_addr, true);
+                    return;
+                }
                 self.wait_cycles = result.wait_cycles;
                 self.data |= u32::from(result.data);
                 self.regs.pop_long();
@@ -620,6 +782,17 @@ impl Cpu68000 {
 
     /// Trigger an illegal instruction exception.
     pub(crate) fn illegal_instruction(&mut self) {
+        #[cfg(debug_assertions)]
+        if self.illegal_trace_count < 128 {
+            eprintln!(
+                "  M68K ILLEGAL: opcode=${:04X} instr_start=${:08X} pc=${:08X} irc=${:04X}",
+                self.ir,
+                self.instr_start_pc,
+                self.regs.pc,
+                self.irc
+            );
+            self.illegal_trace_count += 1;
+        }
         self.exception(4, 0);
     }
 

@@ -69,7 +69,7 @@ fn allocate_variable_region(agnus: &Agnus, h: u16) -> SlotOwner {
     {
         let pos_in_group = h.wrapping_sub(ddfstrt) % 8;
         if pos_in_group < u16::from(agnus.num_bitplanes()) {
-            return SlotOwner::Bitplane;
+            return SlotOwner::Bitplane(pos_in_group as u8);
         }
     }
 

@@ -134,11 +134,11 @@ emu198x/
 │   ├── emu-core/        # Shared traits, types (library)
 │   ├── emu-6502/        # 6502 CPU core (library)
 │   ├── emu-z80/         # Z80 CPU core (library)
-│   ├── emu-68000/       # 68000 CPU core (library)
+│   ├── cpu-m68k/        # 68000 CPU core (library)
 │   ├── emu-spectrum/    # ZX Spectrum (binary)
 │   ├── emu-c64/         # Commodore 64 (binary)
 │   ├── emu-nes/         # NES/Famicom (binary)
-│   └── emu-amiga/       # Amiga (binary)
+│   └── emu-amiga/       # Amiga (binary, not yet in workspace)
 └── docs/
 ```
 
@@ -153,6 +153,6 @@ Libraries are shared:
 - `emu-spectrum` depends on `emu-core` + `emu-z80`
 - `emu-c64` depends on `emu-core` + `emu-6502`
 - `emu-nes` depends on `emu-core` + `emu-6502`
-- `emu-amiga` depends on `emu-core` + `emu-68000`
+- `emu-amiga` depends on `emu-core` + `cpu-m68k`
 
 WASM builds are per-system — embed only what you need.

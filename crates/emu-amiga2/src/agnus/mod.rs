@@ -24,7 +24,7 @@ pub enum SlotOwner {
     Disk,
     Audio(u8),
     Sprite(u8),
-    Bitplane,
+    Bitplane(u8),
     Copper,
 }
 
@@ -160,6 +160,29 @@ impl Agnus {
     /// Write DMACON using SET/CLR logic.
     pub fn write_dmacon(&mut self, val: u16) {
         custom_regs::set_clr_write(&mut self.dmacon, val);
+    }
+
+    /// Write VPOSW (beam vertical high/LOF).
+    ///
+    /// This keeps the model simple but preserves behavior ROM code expects:
+    /// - bit 15 updates LOF
+    /// - bit 0 updates VPOS bit 8
+    pub fn write_vposw(&mut self, val: u16) {
+        self.lof = val & 0x8000 != 0;
+        let vpos_hi = (val & 0x0001) << 8;
+        self.vpos = (self.vpos & 0x00FF) | vpos_hi;
+    }
+
+    /// Write VHPOSW (beam vertical low/horizontal position).
+    ///
+    /// High byte carries VPOS low 8 bits, low byte carries HPOS.
+    pub fn write_vhposw(&mut self, val: u16) {
+        let vpos_lo = (val >> 8) & 0x00FF;
+        self.vpos = (self.vpos & 0x0100) | vpos_lo;
+        self.hpos = val & 0x00FF;
+        if self.hpos >= CCKS_PER_LINE {
+            self.hpos = CCKS_PER_LINE - 1;
+        }
     }
 
     /// Chip variant.

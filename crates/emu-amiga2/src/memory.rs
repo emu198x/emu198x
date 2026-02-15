@@ -35,6 +35,8 @@ pub struct Memory {
     kickstart_writable: bool,
     /// When true, kickstart is mapped at $000000 (reset overlay).
     pub overlay: bool,
+    /// Debug: chip RAM watchpoint address. Triggers eprintln on write.
+    pub watch_addr: Option<u32>,
 }
 
 impl Memory {
@@ -74,6 +76,7 @@ impl Memory {
             kickstart,
             kickstart_writable: writable,
             overlay: true,
+            watch_addr: None,
         })
     }
 
@@ -92,18 +95,22 @@ impl Memory {
         }
 
         match addr {
-            // Chip RAM
+            // Chip RAM: wraps at Agnus addressing boundary (chip_ram_mask).
+            // Real Agnus only has N address pins, so higher bits are ignored.
+            // CPU and DMA both see the same wrapping behavior.
             0x00_0000..=0x1F_FFFF => {
                 let offset = (addr & self.chip_ram_mask) as usize;
                 self.chip_ram[offset]
             }
             // Slow (Ranger) RAM: $C00000-$D7FFFF
+            // Only respond within actual slow RAM size (no wrapping).
             0xC0_0000..=0xD7_FFFF => {
-                if self.slow_ram.is_empty() {
-                    return 0xFF;
+                let offset = (addr - 0xC0_0000) as usize;
+                if offset < self.slow_ram.len() {
+                    self.slow_ram[offset]
+                } else {
+                    0xFF // open bus
                 }
-                let offset = ((addr - 0xC0_0000) as usize) % self.slow_ram.len();
-                self.slow_ram[offset]
             }
             // Kickstart ROM/WCS: $F80000-$FFFFFF
             0xF8_0000..=0xFF_FFFF => {
@@ -120,15 +127,20 @@ impl Memory {
         let addr = addr & 0x00FF_FFFF;
 
         match addr {
-            // Chip RAM: always writable (even with overlay active)
+            // Chip RAM: wraps at Agnus addressing boundary (chip_ram_mask).
             0x00_0000..=0x1F_FFFF => {
                 let offset = (addr & self.chip_ram_mask) as usize;
+                if let Some(wa) = self.watch_addr {
+                    if addr >= wa && addr < wa + 32 {
+                        eprintln!("  WATCH: CPU write ${addr:06X} = ${value:02X}");
+                    }
+                }
                 self.chip_ram[offset] = value;
             }
-            // Slow RAM
+            // Slow RAM: only writable within actual size
             0xC0_0000..=0xD7_FFFF => {
-                if !self.slow_ram.is_empty() {
-                    let offset = ((addr - 0xC0_0000) as usize) % self.slow_ram.len();
+                let offset = (addr - 0xC0_0000) as usize;
+                if offset < self.slow_ram.len() {
                     self.slow_ram[offset] = value;
                 }
             }
@@ -155,6 +167,12 @@ impl Memory {
     /// Write a word to chip RAM (for DMA). Word-aligned.
     pub fn write_chip_word(&mut self, addr: u32, value: u16) {
         let offset = (addr & self.chip_ram_mask & !1) as usize;
+        if let Some(wa) = self.watch_addr {
+            let wa = wa as usize;
+            if offset >= wa && offset < wa + 32 {
+                eprintln!("  WATCH: DMA write_chip_word ${:06X} = ${value:04X}", offset);
+            }
+        }
         self.chip_ram[offset] = (value >> 8) as u8;
         self.chip_ram[offset + 1] = value as u8;
     }

@@ -27,6 +27,12 @@ pub struct Cia {
     ddr_a: u8,
     /// Port B data direction register (1 = output).
     ddr_b: u8,
+    /// External input state for port A pins (active when DDR bit = 0).
+    /// Undriven inputs default to 1; set specific bits to 0 for active-low
+    /// signals like /CHNG (disk changed).
+    pub external_a: u8,
+    /// External input state for port B pins.
+    pub external_b: u8,
 
     /// Timer A counter.
     timer_a: u16,
@@ -62,11 +68,18 @@ pub struct Cia {
 
     /// Serial data register.
     sdr: u8,
-    /// TOD 1/10s counter (simple stub).
-    tod_10ths: u8,
+    /// Time-of-day counter (24-bit, binary).
+    tod_counter: u32,
+    /// Time-of-day alarm value (24-bit, binary).
+    tod_alarm: u32,
+    /// Divider to approximate the TOD input clock from E-clock.
+    tod_divider: u16,
 }
 
 impl Cia {
+    /// CIA E-clock ticks per TOD increment (approx. 50 Hz on PAL systems).
+    const TOD_DIVISOR: u16 = 14_188;
+
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -74,6 +87,8 @@ impl Cia {
             port_b: 0xFF,
             ddr_a: 0,
             ddr_b: 0,
+            external_a: 0xFF,
+            external_b: 0xFF,
             timer_a: 0xFFFF,
             timer_a_latch: 0xFFFF,
             timer_a_running: false,
@@ -89,7 +104,9 @@ impl Cia {
             cra: 0,
             crb: 0,
             sdr: 0,
-            tod_10ths: 0,
+            tod_counter: 0,
+            tod_alarm: 0,
+            tod_divider: 0,
         }
     }
 
@@ -101,19 +118,23 @@ impl Cia {
     /// Queue a serial byte into the SDR and raise the serial ICR flag.
     pub fn queue_serial_byte(&mut self, value: u8) {
         self.sdr = value;
-        self.icr_status |= 0x08;
+        self.raise_interrupt_flag(3);
     }
 
     /// Tick the CIA for one E-clock cycle.
     pub fn tick(&mut self) {
+        let mut timer_a_underflow = false;
+
         if self.timer_a_force_load {
             self.timer_a = self.timer_a_latch;
             self.timer_a_force_load = false;
         }
 
-        if self.timer_a_running {
+        let timer_a_counts_eclock = self.cra & 0x20 == 0;
+        if self.timer_a_running && timer_a_counts_eclock {
             if self.timer_a == 0 {
-                self.icr_status |= 0x01;
+                self.raise_interrupt_flag(0);
+                timer_a_underflow = true;
                 self.timer_a = self.timer_a_latch;
                 if self.timer_a_oneshot {
                     self.timer_a_running = false;
@@ -129,18 +150,34 @@ impl Cia {
             self.timer_b_force_load = false;
         }
 
+        // CRB bits 6-5 select Timer B clock source:
+        //   00 = E-clock
+        //   01 = CNT (not wired in this model)
+        //   10 = Timer A underflow
+        //   11 = Timer A underflow + CNT (treated as Timer A underflow here)
         if self.timer_b_running {
-            if self.timer_b == 0 {
-                self.icr_status |= 0x02;
-                self.timer_b = self.timer_b_latch;
-                if self.timer_b_oneshot {
-                    self.timer_b_running = false;
-                    self.crb &= !0x01;
+            let timer_b_source = (self.crb >> 5) & 0x03;
+            let timer_b_should_count = match timer_b_source {
+                0x00 => true,
+                0x02 | 0x03 => timer_a_underflow,
+                _ => false,
+            };
+
+            if timer_b_should_count {
+                if self.timer_b == 0 {
+                    self.raise_interrupt_flag(1);
+                    self.timer_b = self.timer_b_latch;
+                    if self.timer_b_oneshot {
+                        self.timer_b_running = false;
+                        self.crb &= !0x01;
+                    }
+                } else {
+                    self.timer_b -= 1;
                 }
-            } else {
-                self.timer_b -= 1;
             }
         }
+
+        self.tick_tod();
     }
 
     /// Check if the CIA has an active interrupt.
@@ -153,20 +190,18 @@ impl Cia {
     #[must_use]
     pub fn read(&mut self, reg: u8) -> u8 {
         match reg & 0x0F {
-            0x00 => (self.port_a & self.ddr_a) | (!self.ddr_a),
-            0x01 => (self.port_b & self.ddr_b) | (!self.ddr_b),
+            0x00 => (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a),
+            0x01 => (self.port_b & self.ddr_b) | (self.external_b & !self.ddr_b),
             0x02 => self.ddr_a,
             0x03 => self.ddr_b,
             0x04 => self.timer_a as u8,
             0x05 => (self.timer_a >> 8) as u8,
             0x06 => self.timer_b as u8,
             0x07 => (self.timer_b >> 8) as u8,
-            0x08 => {
-                let val = self.tod_10ths;
-                self.tod_10ths = self.tod_10ths.wrapping_add(1);
-                val
-            }
-            0x09..=0x0B => 0,
+            0x08 => self.tod_counter as u8,
+            0x09 => (self.tod_counter >> 8) as u8,
+            0x0A => (self.tod_counter >> 16) as u8,
+            0x0B => 0,
             0x0C => self.sdr,
             0x0D => {
                 let any = if (self.icr_status & self.icr_mask & 0x1F) != 0 {
@@ -220,7 +255,10 @@ impl Cia {
                     self.timer_b = self.timer_b_latch;
                 }
             }
-            0x08..=0x0B => {}
+            0x08 => self.write_tod_register(0, value),
+            0x09 => self.write_tod_register(1, value),
+            0x0A => self.write_tod_register(2, value),
+            0x0B => {}
             0x0C => self.sdr = value,
             0x0D => {
                 if value & 0x80 != 0 {
@@ -249,16 +287,50 @@ impl Cia {
         }
     }
 
+    fn raise_interrupt_flag(&mut self, bit: u8) {
+        self.icr_status |= 1 << bit;
+    }
+
+    fn tick_tod(&mut self) {
+        self.tod_divider = self.tod_divider.wrapping_add(1);
+        if self.tod_divider < Self::TOD_DIVISOR {
+            return;
+        }
+
+        self.tod_divider = 0;
+        // 8520 TOD counts up (unlike 6526 BCD behavior on C64-era CIAs).
+        self.tod_counter = self.tod_counter.wrapping_add(1) & 0x00FF_FFFF;
+        if self.tod_counter == self.tod_alarm {
+            self.raise_interrupt_flag(2);
+        }
+    }
+
+    fn write_tod_register(&mut self, byte_index: u8, value: u8) {
+        let shift = u32::from(byte_index) * 8;
+        let mask = !(0xFFu32 << shift);
+
+        // CRB bit 7 selects write target:
+        //   0 = TOD counter
+        //   1 = TOD alarm
+        if self.crb & 0x80 != 0 {
+            self.tod_alarm = (self.tod_alarm & mask) | (u32::from(value) << shift);
+            self.tod_alarm &= 0x00FF_FFFF;
+        } else {
+            self.tod_counter = (self.tod_counter & mask) | (u32::from(value) << shift);
+            self.tod_counter &= 0x00FF_FFFF;
+        }
+    }
+
     /// Get port A output value.
     #[must_use]
     pub fn port_a_output(&self) -> u8 {
-        (self.port_a & self.ddr_a) | (!self.ddr_a)
+        (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)
     }
 
     /// Get port B output value.
     #[must_use]
     pub fn port_b_output(&self) -> u8 {
-        (self.port_b & self.ddr_b) | (!self.ddr_b)
+        (self.port_b & self.ddr_b) | (self.external_b & !self.ddr_b)
     }
 
     /// Debug: Timer A counter value.
@@ -283,6 +355,30 @@ impl Cia {
     #[must_use]
     pub fn icr_mask(&self) -> u8 {
         self.icr_mask
+    }
+
+    /// Debug: CIA control register A.
+    #[must_use]
+    pub fn cra(&self) -> u8 {
+        self.cra
+    }
+
+    /// Debug: CIA control register B.
+    #[must_use]
+    pub fn crb(&self) -> u8 {
+        self.crb
+    }
+
+    /// Debug: TOD counter value (24-bit).
+    #[must_use]
+    pub fn tod_counter(&self) -> u32 {
+        self.tod_counter
+    }
+
+    /// Debug: TOD alarm value (24-bit).
+    #[must_use]
+    pub fn tod_alarm(&self) -> u32 {
+        self.tod_alarm
     }
 }
 
@@ -348,5 +444,46 @@ mod tests {
         assert!(!cia.irq_active());
         cia.icr_mask = 0x01;
         assert!(cia.irq_active());
+    }
+
+    #[test]
+    fn tod_alarm_raises_interrupt() {
+        let mut cia = Cia::new();
+        cia.write(0x0F, 0x80); // CRB bit 7: alarm select
+        cia.write(0x08, 0x01);
+        cia.write(0x09, 0x00);
+        cia.write(0x0A, 0x00);
+
+        cia.write(0x0F, 0x00); // CRB bit 7: TOD select
+        cia.write(0x08, 0x02);
+        cia.write(0x09, 0x00);
+        cia.write(0x0A, 0x00);
+
+        for _ in 0..Cia::TOD_DIVISOR {
+            cia.tick();
+        }
+
+        assert_ne!(cia.icr_status() & 0x04, 0);
+    }
+
+    #[test]
+    fn timer_b_can_count_timer_a_underflows() {
+        let mut cia = Cia::new();
+
+        // Timer A underflows every 2 E-clocks.
+        cia.write(0x04, 0x01);
+        cia.write(0x05, 0x00);
+        cia.write(0x0E, 0x01);
+
+        // Timer B source = Timer A underflow (CRB bits 6-5 = 10), start.
+        cia.write(0x06, 0x01);
+        cia.write(0x07, 0x00);
+        cia.write(0x0F, 0x41);
+
+        for _ in 0..6 {
+            cia.tick();
+        }
+
+        assert_ne!(cia.icr_status() & 0x02, 0);
     }
 }

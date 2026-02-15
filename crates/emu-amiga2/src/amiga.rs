@@ -10,12 +10,13 @@
 
 #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 
-use emu_m68k::{Cpu68000, M68kBus, FunctionCode};
+use cpu_m68k::{Cpu68000, FunctionCode, M68kBus};
 
 use crate::agnus::SlotOwner;
 use crate::agnus::beam;
 use crate::bus::AmigaBus;
 use crate::config::{AmigaConfig, AmigaModel, Region};
+use crate::custom_regs;
 use crate::denise;
 use crate::input::InputQueue;
 use crate::memory::Memory;
@@ -158,7 +159,10 @@ impl Amiga {
             // VBlank at start of frame
             if self.bus.agnus.is_vblank_start() {
                 self.bus.paula.request_interrupt(5); // VERTB
-                self.bus.copper.restart_cop1();
+                // Copper only restarts when COPEN DMA is active.
+                if self.bus.agnus.channel_enabled(custom_regs::DMAF_COPEN) {
+                    self.bus.copper.restart_cop1();
+                }
             }
 
             // Apply bitplane modulo at end of data fetch
@@ -172,12 +176,13 @@ impl Amiga {
 
             // DMA at system level (avoids borrow checker conflicts)
             match self.current_slot {
-                SlotOwner::Bitplane => {
-                    self.do_bitplane_dma();
+                SlotOwner::Bitplane(plane) => {
+                    self.do_bitplane_dma(plane);
                 }
                 SlotOwner::Copper => {
                     let vpos = self.cck_vpos;
                     let hpos = self.cck_hpos;
+                    self.bus.diag_copper_pc = self.bus.copper.pc();
                     let memory = &self.bus.memory;
                     let result = self.bus.copper.tick_with_bus(
                         |addr| memory.read_chip_word(addr),
@@ -185,7 +190,7 @@ impl Amiga {
                         hpos,
                     );
                     if let Some((reg, value)) = result {
-                        self.bus.write_custom_reg(reg, value);
+                        self.bus.write_custom_reg_from(reg, value, "cop");
                     }
                 }
                 _ => {
@@ -210,6 +215,7 @@ impl Amiga {
         // === CPU clock (every 4 crystal ticks) ===
         // The CPU ALWAYS ticks. Contention is handled via wait_cycles.
         if self.master_clock % CPU_DIVISOR == 0 {
+            self.bus.diag_cpu_pc = self.cpu.registers().pc;
             let ipl = self.bus.paula.compute_ipl();
             self.cpu.set_ipl(ipl);
             self.cpu.tick(&mut self.bus);
@@ -233,18 +239,17 @@ impl Amiga {
     }
 
     /// Perform bitplane DMA for the current CCK slot.
-    fn do_bitplane_dma(&mut self) {
-        let num_bpl = self.bus.agnus.num_bitplanes() as usize;
-        if num_bpl == 0 {
+    fn do_bitplane_dma(&mut self, plane: u8) {
+        let num_bpl = self.bus.agnus.num_bitplanes();
+        if num_bpl == 0 || plane >= num_bpl {
             return;
         }
 
-        for i in 0..num_bpl {
-            let addr = self.bus.agnus.bpl_pt[i];
-            let data = self.bus.memory.read_chip_word(addr);
-            self.bus.denise.load_bitplane(i, data);
-            self.bus.agnus.bpl_pt[i] = addr.wrapping_add(2);
-        }
+        let idx = plane as usize;
+        let addr = self.bus.agnus.bpl_pt[idx];
+        let data = self.bus.memory.read_chip_word(addr);
+        self.bus.denise.load_bitplane(idx, data);
+        self.bus.agnus.bpl_pt[idx] = addr.wrapping_add(2);
     }
 
     /// Add bitplane modulo at end of display line.

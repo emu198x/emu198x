@@ -30,6 +30,8 @@ pub const INTENAR: u16 = 0x01C;
 pub const INTREQR: u16 = 0x01E;
 
 // Write registers:
+pub const VPOSW: u16 = 0x02A;
+pub const VHPOSW: u16 = 0x02C;
 pub const COPCON: u16 = 0x02E;
 pub const SERDAT: u16 = 0x030;
 pub const SERPER: u16 = 0x032;
@@ -91,6 +93,12 @@ pub const BPL5DAT: u16 = 0x118;
 pub const BPL6DAT: u16 = 0x11A;
 #[allow(dead_code)]
 pub const COLOR00: u16 = 0x180;
+
+// Disk registers
+pub const DSKBYTR: u16 = 0x01A;
+pub const DSKPTH: u16 = 0x020;
+pub const DSKPTL: u16 = 0x022;
+pub const DSKLEN: u16 = 0x024;
 
 // DMACON bits
 pub const DMAF_DMAEN: u16 = 1 << 9;

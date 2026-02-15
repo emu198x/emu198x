@@ -263,6 +263,8 @@ impl Cpu68000 {
 
     fn exec_reset(&mut self) {
         if self.check_supervisor() { return; }
+        // Assert RESET on the external bus, then burn internal reset timing.
+        self.micro_ops.push(MicroOp::AssertReset);
         // 132 total cycles: 128 internal + 4 for start_next_instruction FetchIRC.
         // The 124-cycle RESET line assertion plus 4 cycles of internal pipeline
         // recovery before the prefetch resumes.
@@ -1135,13 +1137,17 @@ impl Cpu68000 {
             self.exception(8, 0);
             return;
         }
-        // Read immediate directly from IRC — STOP doesn't refill the pipeline.
-        // The CPU halts immediately after loading SR.
-        let imm = self.irc;
+        // Consume IRC (the immediate operand) and queue FetchIRC to refill
+        // the pipeline with the next instruction word. This way, when the
+        // CPU wakes from STOP, IRC contains the correct next opcode.
+        let imm = self.consume_irc();
         self.regs.sr = imm & crate::flags::SR_MASK;
-        self.state = crate::cpu::State::Stopped;
-        // Internal(4) idle before halting
-        self.micro_ops.push(MicroOp::Internal(4));
+        // Enter Stopped state via followup after FetchIRC completes.
+        // The FetchIRC (queued by consume_irc) runs first, refilling IRC.
+        // Then the followup Execute enters the Stopped state.
+        self.in_followup = true;
+        self.followup_tag = 0xE0; // STOP completion
+        self.micro_ops.push(MicroOp::Execute);
     }
 
     // ================================================================

@@ -11,7 +11,7 @@
 use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::bus::FunctionCode;
-use crate::cpu::Cpu68000;
+use crate::cpu::{Cpu68000, State};
 use crate::microcode::MicroOp;
 
 /// Saved exception state for building the frame in stages.
@@ -75,6 +75,70 @@ impl Cpu68000 {
         self.micro_ops.push(MicroOp::PushLongLo);
 
         // Stage: push SR, then read vector
+        self.in_followup = true;
+        self.followup_tag = 0xFE;
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Trigger a bus error (group 0, vector 2).
+    ///
+    /// A bus error fires when the bus signals BERR (no DTACK response),
+    /// typically for accesses to unmapped address regions. The exception
+    /// frame is 14 bytes, identical to address error:
+    ///   PC (4) + SR (2) + IR (2) + fault addr (4) + access info (2)
+    pub(crate) fn bus_error_exception(&mut self, addr: u32, is_read: bool) {
+        // Double bus fault: a bus error during group 0 exception processing
+        // causes the CPU to halt.
+        if self.processing_group0 {
+            self.state = State::Halted;
+            self.micro_ops.clear();
+            self.cycle = 0;
+            return;
+        }
+
+        self.processing_group0 = true;
+
+        let old_sr = self.regs.sr;
+        self.regs.sr |= 0x2000; // Set S (supervisor)
+        self.regs.sr &= !0x8000; // Clear T (trace)
+
+        let frame_ir = self.ir;
+
+        // Frame PC: for bus errors the pipeline has advanced normally.
+        // Use instr_start_pc + 2 (pointing past the opcode word).
+        let return_pc = self.instr_start_pc.wrapping_add(2);
+
+        // Function code from pre-exception state
+        let fc = FunctionCode::from_flags(
+            old_sr & 0x2000 != 0,
+            self.program_space_access,
+        );
+
+        // Access info word: IR bits [15:5] + R/W + FC
+        let access_info: u16 = (frame_ir & 0xFFE0)
+            | (if is_read { 0x10 } else { 0 })
+            | u16::from(fc.bits() & 0x07);
+
+        self.exc = ExceptionState {
+            old_sr,
+            return_pc,
+            vector_addr: 2 * 4, // Vector 2 = bus error
+            frame_ir,
+            frame_fault_addr: addr,
+            frame_access_info: access_info,
+            is_group0: true,
+            stage: 0,
+        };
+
+        self.micro_ops.clear();
+        self.micro_ops.push(MicroOp::Internal(13));
+
+        // Push PC
+        self.data = return_pc;
+        self.micro_ops.push(MicroOp::PushLongHi);
+        self.micro_ops.push(MicroOp::PushLongLo);
+
+        // Continue via staged followup (shared with address error)
         self.in_followup = true;
         self.followup_tag = 0xFE;
         self.micro_ops.push(MicroOp::Execute);

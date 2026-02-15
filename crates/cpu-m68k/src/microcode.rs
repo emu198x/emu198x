@@ -59,6 +59,9 @@ pub(crate) enum MicroOp {
 
     // === Instant operations (0 cycles) ===
 
+    /// Assert RESET on the external bus.
+    AssertReset,
+
     /// Decode IR and execute instruction (or followup stage).
     Execute,
 }
@@ -66,13 +69,13 @@ pub(crate) enum MicroOp {
 impl MicroOp {
     /// Returns true if this op completes instantly (no tick consumed).
     pub(crate) fn is_instant(self) -> bool {
-        matches!(self, Self::Execute | Self::Internal(0))
+        matches!(self, Self::AssertReset | Self::Execute | Self::Internal(0))
     }
 
     /// Returns the number of cycles this op takes. 0 for instant ops.
     pub(crate) fn cycles(self) -> u8 {
         match self {
-            Self::Execute | Self::Internal(0) => 0,
+            Self::AssertReset | Self::Execute | Self::Internal(0) => 0,
             Self::Internal(n) => n,
             // All bus operations take 4 cycles
             _ => 4,

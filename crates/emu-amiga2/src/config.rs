@@ -136,7 +136,7 @@ impl AmigaConfig {
                 cpu: CpuVariant::M68000,
                 region: Region::Pal,
                 chip_ram_size: 512 * 1024,
-                slow_ram_size: 512 * 1024,
+                slow_ram_size: 0,
                 fast_ram_size: 0,
                 kickstart: KickstartSource::Rom(kickstart),
             },

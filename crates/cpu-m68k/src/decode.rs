@@ -19,6 +19,13 @@ impl Cpu68000 {
         // Handle exception continuations first
         if self.in_followup {
             match self.followup_tag {
+                0xE0 => {
+                    // STOP completion: enter Stopped state after FetchIRC refilled IRC.
+                    self.state = crate::cpu::State::Stopped;
+                    self.in_followup = false;
+                    self.followup_tag = 0;
+                    return;
+                }
                 0xFA => { self.exception_group0_vector(); return; }
                 0xFB => { self.exception_group0_finish(); return; }
                 0xFC => { self.exception_group0_continue(); return; }
