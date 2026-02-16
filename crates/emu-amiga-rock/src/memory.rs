@@ -35,12 +35,16 @@ impl Memory {
         }
 
         if addr < 0x200000 {
-            self.chip_ram[(addr & self.chip_ram_mask) as usize]
+            self.read_chip_byte(addr)
         } else if addr >= ROM_BASE {
             self.kickstart[(addr & self.kickstart_mask) as usize]
         } else {
             0xFF // Open bus
         }
+    }
+
+    pub fn read_chip_byte(&self, addr: u32) -> u8 {
+        self.chip_ram[(addr & self.chip_ram_mask) as usize]
     }
 
     pub fn write_byte(&mut self, addr: u32, val: u8) {

@@ -73,6 +73,25 @@ impl Amiga {
             let vpos = self.agnus.vpos;
             let hpos = self.agnus.hpos;
             
+            // Determine slot owner BEFORE ticking Agnus
+            let slot = self.agnus.current_slot();
+            match slot {
+                SlotOwner::Bitplane(plane) => {
+                    let idx = plane as usize;
+                    let addr = self.agnus.bpl_pt[idx];
+                    // Cycle-strict read from memory (ignoring overlay for DMA)
+                    let hi = self.memory.read_chip_byte(addr);
+                    let lo = self.memory.read_chip_byte(addr | 1);
+                    let val = (u16::from(hi) << 8) | u16::from(lo);
+                    self.denise.load_bitplane(idx, val);
+                    self.agnus.bpl_pt[idx] = addr.wrapping_add(2);
+                }
+                SlotOwner::Copper => {
+                    // self.copper.tick(&mut bus_wrapper); // To be implemented
+                }
+                _ => {}
+            }
+
             // Denise: output 2 lores pixels per CCK
             if let Some((fb_x, fb_y)) = self.beam_to_fb(vpos, hpos) {
                 self.denise.output_pixel(fb_x, fb_y);
@@ -132,6 +151,26 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             if !is_read {
                 let val = data.unwrap_or(0);
                 match offset {
+                    0x092 => self.agnus.ddfstrt = val,
+                    0x094 => self.agnus.ddfstop = val,
+                    0x096 => { // DMACON
+                        if val & 0x8000 != 0 {
+                            self.agnus.dmacon |= val & 0x7FFF;
+                        } else {
+                            self.agnus.dmacon &= !(val & 0x7FFF);
+                        }
+                    }
+                    0x100 => {
+                        self.agnus.bplcon0 = val;
+                    }
+                    0x0E0..=0x0EE => { // BPLxPT
+                        let idx = ((offset - 0x0E0) / 4) as usize;
+                        if offset & 2 == 0 { // High word
+                            self.agnus.bpl_pt[idx] = (self.agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16);
+                        } else { // Low word
+                            self.agnus.bpl_pt[idx] = (self.agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE);
+                        }
+                    }
                     0x180..=0x1BE => {
                         let idx = ((offset - 0x180) / 2) as usize;
                         self.denise.set_palette(idx, val);
