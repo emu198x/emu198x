@@ -1,0 +1,1634 @@
+Implement the following plan:
+
+# Amiga KS 1.3 Boot — Implementation Plan
+
+## Context
+
+cpu-m68k passes 317,500/317,500 single-step tests. emu-amiga2 compiles and passes 62/63 unit tests. The crate has been run against KS 1.3 with extensive diagnostic output baked into main.rs, but the "insert disk" screen doesn't appear. A COP2LC guard hack in bus.rs blocks Copper list corruption, suggesting the display pipeline has been debugged but not resolved.
+
+The goal is KS 1.3 booting to the colour gradient + hand graphic, verified with `--headless --frames 300 --screenshot`.
+
+---
+
+## Step 1: Fix the CIA TOD alarm test
+
+**File:** `crates/emu-amiga2/src/cia.rs` (test at line ~450)
+
+The test sets alarm=1, TOD=2, ticks once (TOD→3), and expects the alarm to fire. 3 != 1, so it never fires. Fix the test to set alarm=3 (matching the incremented value).
+
+---
+
+## Step 2: Return bus errors for unmapped addresses
+
+**File:** `crates/emu-amiga2/src/bus.rs`
+
+KS 1.3 probes addresses beyond chip RAM during memory sizing and expansion board detection. Currently, unmapped addresses return `0xFF` silently. On real hardware, Gary generates BERR (no DTACK) for unmapped regions. Without bus errors, KS may "find" phantom memory in unmapped regions, corrupting its memory free list.
+
+Add a helper `check_unmapped()` that returns `BusResult::error()` for addresses in the $200000-$9FFFFF range (Zorro II space, no boards present) and other truly unmapped regions. Call it early in `read_word`, `write_word`, `read_byte`, `write_byte`. The existing `is_unmapped()` method (currently dead code) provides the address classification.
+
+Addresses that should bus-error on a bare A500:
+- $200000-$9FFFFF (Zorro II expansion, nothing there)
+- $A00000-$BFCFFF (reserved/unconnected)
+- $C00000-$D7FFFF when slow_ram is empty (no trapdoor expansion)
+- $D80000-$DEFFFF (reserved)
+
+Addresses that should NOT bus-error:
+- $000000-$1FFFFF (chip RAM, wraps via Agnus mask)
+- $BFD000-$BFEFFF (CIAs)
+- $DFF000-$DFF1FF (custom regs)
+- $F80000-$FFFFFF (ROM)
+
+**Risk:** This may cause KS to take bus error exceptions. The CPU handles these (vector 2), and KS 1.3 installs a bus error handler during memory sizing. If boot hangs after this change, add a bus error trace to see where.
+
+---
+
+## Step 3: Fix Copper WAIT comparison mask
+
+**File:** `crates/emu-amiga2/src/copper.rs` (line ~146)
+
+The WAIT mask currently includes IR2 bit 15 (BFD — Blitter Finish Disable), which is not part of the beam comparison mask:
+
+```rust
+// Current (wrong):
+let mask = self.ir2 & 0xFFFE;
+// Fixed:
+let mask = self.ir2 | 0x8001;  // Force bit 15 high (ignore BFD), clear bit 0
+```
+
+Wait — that's also wrong. The mask should be `(self.ir2 & 0x7FFE) | 0x8000`. Bit 15 of beam_pos and wait_pos are the MSB of VPOS, which should always participate in the comparison. The mask bits 14-1 come from IR2, and bit 15 should be forced to 1 (always compare):
+
+```rust
+let mask = (self.ir2 & 0x7FFE) | 0x8000;
+```
+
+For standard KS 1.3 Copper lists using `$FFFE` masks, this produces the same result as before ($FFFE). The fix only matters when BFD=0 (bit 15 clear), which is uncommon in boot lists. Still correct to fix.
+
+Also add a TODO comment noting that BFD=0 should block until the blitter finishes (currently ignored; safe because our blitter executes instantly).
+
+---
+
+## Step 4: Clean up diagnostic output
+
+**Files:** `crates/emu-amiga2/src/bus.rs`, `crates/emu-amiga2/src/main.rs`
+
+The unconditional `eprintln!` calls (BLTSIZE at line ~272, CUSTOM BYTE WRITE at line ~885) produce massive output. The COP2LC guard's diagnostic dumps and `dump_cop2lc_chain` are boot-investigation artifacts.
+
+- Gate all unconditional `eprintln!` behind `#[cfg(debug_assertions)]`
+- Remove the `reg_log` unconditional collection (or gate it)
+- Keep the COP2LC guard for now with a `#[cfg(debug_assertions)]` log — removing it would cause Copper to execute ExecBase data, which is worse. The guard is a valid workaround until the root cause (transient null cprlist during LoadView) is understood
+- In main.rs: reduce per-frame output to every 50th frame; remove `watch_addr` hardcoding
+
+---
+
+## Step 5: Add a boot trace integration test
+
+**File:** `crates/emu-amiga2/tests/boot_trace.rs` (new)
+
+Create an `#[ignore]` test that:
+1. Loads KS 1.3 from `AMIGA_KS13_ROM` env var (or a default path)
+2. Runs 300 frames, logging PC/SR/DMACON/BPLCON0/INTENA/INTREQ at frame boundaries
+3. After 300 frames, asserts:
+   - DMACON has DMAEN+BPLEN+COPEN set (display DMA active)
+   - BPLCON0 has non-zero bitplane count at some point during boot
+   - COLOR00 is not zero (Copper gradient is setting colours)
+   - Framebuffer has non-black pixels
+4. Saves a screenshot for manual inspection
+
+This test replaces the ad-hoc diagnostics in main.rs and can be run in CI.
+
+---
+
+## Step 6: Config variant naming (cosmetic)
+
+**File:** `crates/emu-amiga2/src/config.rs`
+
+The A500 preset uses `AgnusVariant::Agnus8361` but the variant reference says the real A500 uses 8372 Fat Agnus. Both return OCS ID ($00), so this doesn't affect boot. Add a comment to the A500 preset explaining this. The `Agnus8372` variant returns ECS ID ($20), which is wrong for the OCS 8372 but correct for the ECS 8375. This is a naming issue only.
+
+---
+
+## Execution Order
+
+1. **Step 1** — Fix test (trivial, unblocks clean test run)
+2. **Step 2** — Bus errors (most likely to change boot behavior)
+3. **Step 3** — Copper WAIT mask (correctness)
+4. **Step 4** — Diagnostic cleanup (makes output readable)
+5. **Step 5** — Boot trace test (enables systematic debugging)
+6. **Step 6** — Config naming (cosmetic)
+
+After each step, run `cargo test -p emu-amiga2` and `cargo test -p cpu-m68k` (regression check).
+
+After steps 1-4, run headless with KS 1.3: `cargo run -p emu-amiga2 -- --kickstart <rom> --model a500 --headless --frames 300 --screenshot ks13.png`
+
+---
+
+## Verification
+
+**Pass criteria:**
+- `cargo test -p emu-amiga2` — all tests pass
+- `cargo test -p cpu-m68k` — still 317,500/317,500
+- Headless screenshot shows KS 1.3 colour gradient and/or hand graphic
+- No ALERT crash signature at $0000 in chip RAM
+
+**If colour gradient appears but hand is missing:** Bitplane DMA or Denise shift register issue. Next investigation: trace BPL1PT/BPL2PT values, verify bitplane data fetch timing, check that Denise shift registers receive correct data.
+
+**If screen is entirely black:** Copper not running. Trace DMACON (COPEN+DMAEN must be set), COP1LC, and Copper instruction execution.
+
+**If boot hangs before display setup:** Bus error exception handling issue from Step 2. Add bus error exception trace to identify the fault address.
+
+---
+
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `crates/emu-amiga2/src/cia.rs` | Fix test alarm value |
+| `crates/emu-amiga2/src/bus.rs` | Bus errors for unmapped addresses, diagnostic cleanup |
+| `crates/emu-amiga2/src/copper.rs` | WAIT mask fix, BFD comment |
+| `crates/emu-amiga2/src/main.rs` | Reduce diagnostic output |
+| `crates/emu-amiga2/src/config.rs` | Add explanatory comment |
+| `crates/emu-amiga2/tests/boot_trace.rs` | New boot trace test |
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+
+---
+
+But does it work?
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me carefully analyze the entire conversation chronologically:
+
+1. The user provided a detailed implementation plan for getting Amiga KS 1.3 to boot in their emu-amiga2 emulator crate.
+
+2. The plan had 6 steps:
+   - Step 1: Fix CIA TOD alarm test
+   - Step 2: Return bus errors for unmapped addresses
+   - Step 3: Fix Copper WAIT comparison mask
+   - Step 4: Clean up diagnostic output
+   - Step 5: Add boot trace integration test
+   - Step 6: Config variant naming comment
+
+3. I implemented all 6 steps, tests passed (63 → 66 tests).
+
+4. User asked "But does it work?" - meaning actually run the emulator with a real KS 1.3 ROM.
+
+5. First run: CPU halted at PC=$0000FFFF after frame 2. The bus error implementation was too aggressive - `is_unmapped()` returned true for many address ranges that on real hardware get DTACK from Gary (custom register mirrors, slow RAM space, autoconfig, etc.). Only Zorro II expansion ($200000-$9FFFFF) truly bus-errors.
+
+6. Fixed `is_unmapped()` to only return true for $200000-$9FFFFF.
+
+7. Second run: Huge progress! CPU runs, overlay clears, DMACON active, 96K non-black pixels. But screenshot shows white screen with black bar at bottom.
+
+8. Investigation revealed:
+   - BPLCON0=$00FC (0 bitplanes active)
+   - COP2LC=$2408 points to Exec data structures, not a valid Copper list
+   - The Copper runs through garbage data at $2408 after COPJMP2
+   - COP2LC never gets updated to a proper display list
+
+9. Found a critical bug in Paula IPL masks:
+   - IPL 3 mask was $0030 (bits 4-5) instead of $0070 (bits 4-6) - BLIT bit 6 missing
+   - IPL 4 mask was $0380 (bits 7-9) instead of $0780 (bits 7-10) - AUD3 bit 10 missing
+   - IPL 5 mask was $0C00 (bits 10-11) instead of $1800 (bits 11-12) - DSKSYN bit 12 missing
+   - IPL 6 mask was $7000 (bits 12-14) instead of $2000 (bit 13) - included DSKSYN wrongly
+
+10. Fixed IPL masks and added 3 new tests. All 66 tests pass.
+
+11. Third run: Same white screen. IPL fix didn't resolve the display list issue.
+
+12. The core unresolved problem: COP2LC=$2408 contains Exec data structures, not a Copper display list. The graphics library either failed to build the display list, or something overwrote it.
+
+Now let me enumerate all the files and changes:
+
+Files modified:
+- `crates/emu-amiga2/src/cia.rs` - Fixed TOD alarm test value (1→3)
+- `crates/emu-amiga2/src/bus.rs` - Bus errors for unmapped addresses, diagnostic cleanup
+- `crates/emu-amiga2/src/copper.rs` - WAIT mask fix, trace limit increased to 5000
+- `crates/emu-amiga2/src/main.rs` - Reduced diagnostic output, added COP2LC tracking, Copper list dumps
+- `crates/emu-amiga2/src/config.rs` - Added explanatory comment for A500 Agnus variant
+- `crates/emu-amiga2/src/paula.rs` - Fixed IPL masks, added 3 new tests
+- `crates/emu-amiga2/tests/boot_trace.rs` - New integration test (created)
+
+Current state: Still debugging why COP2LC=$2408 doesn't contain a valid Copper display list. The IPL mask fix was the most recent change but didn't resolve the display issue. The emulator boots KS 1.3 much further than before (CPU running, DMA active, overlay cleared) but the display shows white instead of the expected gradient + hand graphic.
+
+Summary:
+1. Primary Request and Intent:
+   The user provided a detailed 6-step implementation plan to get Amiga KS 1.3 booting to the colour gradient + hand graphic screen in `emu-amiga2`. The plan covered: fixing a CIA TOD alarm test, returning bus errors for unmapped addresses, fixing the Copper WAIT comparison mask, cleaning up diagnostic output, adding a boot trace integration test, and adding a config naming comment. After implementing all 6 steps, the user asked "But does it work?" — meaning actually run the emulator against a real KS 1.3 ROM and verify visual output. The pass criteria is: headless screenshot shows KS 1.3 colour gradient and/or hand graphic.
+
+2. Key Technical Concepts:
+   - Amiga memory map: Gary chip generates DTACK for most address space; only Zorro II ($200000-$9FFFFF) truly bus-errors when no expansion board responds
+   - Copper coprocessor: reads instruction pairs from chip RAM via DMA; WAIT mask bit 15 is BFD (Blitter Finish Disable), not part of beam comparison
+   - Paula interrupt priority levels (IPL): specific INTREQ bit-to-IPL mapping from Amiga HRM
+   - COP1LC/COP2LC: Copper list pointers. Copinit at COP1LC does COPJMP2 to branch to COP2LC display list
+   - KS 1.3 boot sequence: ROM init → ExecBase → graphics.library → copinit → display list → "insert disk" screen
+   - `BusResult::error()` for 68000 bus error exceptions (BERR/no DTACK)
+   - `#[cfg(debug_assertions)]` gating for diagnostic output
+
+3. Files and Code Sections:
+
+   - `crates/emu-amiga2/src/cia.rs`
+     - Fixed TOD alarm test: alarm value changed from 1 to 3 to match the incremented TOD counter value
+     - Test `tod_alarm_raises_interrupt` now correctly sets alarm=3, TOD=2, expects match after one increment
+
+   - `crates/emu-amiga2/src/bus.rs`
+     - Added `BusResult::error()` checks at top of `read_word`, `write_word`, `read_byte`, `write_byte` using `is_unmapped()`
+     - **Critical fix**: Rewrote `is_unmapped()` from aggressive (everything not explicitly mapped → BERR) to minimal (only Zorro II $200000-$9FFFFF → BERR):
+     ```rust
+     fn is_unmapped(&self, addr: u32) -> bool {
+         let addr = addr & 0x00FF_FFFF;
+         (0x20_0000..=0x9F_FFFF).contains(&addr)
+     }
+     ```
+     - Gated diagnostic `eprintln!` calls behind `#[cfg(debug_assertions)]`: BLTSIZE, CUSTOM BYTE WRITE, COP2LC guard log, COP2LC chain dump, INTENA diagnostic, reg_log collection
+     - Gated `copjmp2_dump_count` field, `dump_cop2lc_chain()`, `is_cia_region()` behind `#[cfg(debug_assertions)]`
+     - Fixed `write_custom_reg_from` signature: `source` → `_source` with `#[cfg(debug_assertions)] let source = _source;`
+
+   - `crates/emu-amiga2/src/copper.rs`
+     - Fixed WAIT mask from `self.ir2 & 0xFFFE` to `(self.ir2 & 0x7FFE) | 0x8000` (force bit 15 high, exclude BFD)
+     - Added TODO comment about BFD=0 blitter-wait behavior
+     - Increased trace limit from 500 to 5000 (for debugging)
+
+   - `crates/emu-amiga2/src/paula.rs`
+     - **Critical fix**: IPL masks were shifted by one bit. Fixed:
+     ```rust
+     if active & 0x2000 != 0 { return 6; } // EXTER (bit 13)
+     if active & 0x1800 != 0 { return 5; } // RBF, DSKSYN (bits 11-12)
+     if active & 0x0780 != 0 { return 4; } // AUD0-3 (bits 7-10)
+     if active & 0x0070 != 0 { return 3; } // COPER, VERTB, BLIT (bits 4-6)
+     if active & 0x0008 != 0 { return 2; } // PORTS (bit 3)
+     if active & 0x0007 != 0 { return 1; } // TBE, DSKBLK, SOFT (bits 0-2)
+     ```
+     - Added 3 new tests: `ipl_3_for_blit`, `ipl_4_for_aud3`, `ipl_5_for_dsksyn`
+
+   - `crates/emu-amiga2/src/main.rs`
+     - Replaced massive diagnostic dump (~300 lines) with concise summary
+     - Removed `watch_addr` hardcoding and `bus_mut()` usage
+     - Added COP2LC change tracking across frames with memory dump at first change
+     - Added Copper list dumps at COP1LC and COP2LC addresses
+     - Added Copper instruction trace dump (first 25 + restart points + last 10)
+     - Added framebuffer non-black pixel count
+     - Reduced per-frame output to frames 0-2, every 50th, and final frame
+
+   - `crates/emu-amiga2/src/config.rs`
+     - Added comment to A500 preset explaining Agnus8361 vs 8372 naming issue
+
+   - `crates/emu-amiga2/tests/boot_trace.rs` (NEW)
+     - `#[ignore]` integration test loading KS 1.3 from `AMIGA_KS13_ROM` env var
+     - Runs 300 frames, asserts DMAEN+COPEN set, non-black framebuffer
+     - Optional screenshot via `AMIGA_SCREENSHOT` env var
+
+4. Errors and fixes:
+   - **Bus error too aggressive (fatal)**: Initial `is_unmapped()` returned true for custom register mirrors ($DFF200+), slow RAM space when empty ($C00000+), autoconfig ($E80000+), etc. CPU halted at PC=$0000FFFF after frame 2 (double bus fault). Fixed by restricting bus errors to only Zorro II expansion space ($200000-$9FFFFF).
+   - **Release build warnings**: After `#[cfg(debug_assertions)]` gating, `source`, `copjmp2_dump_count`, `dump_cop2lc_chain`, `is_cia_region` became unused in release. Fixed by gating field/function definitions and using `_source` parameter rename trick.
+   - **Unused import in boot_trace.rs**: `KickstartSource` was imported but unused. Removed.
+   - **Paula IPL mask bug (found during debugging)**: Every IPL level above 2 had masks shifted by one bit. BLIT (bit 6) never triggered IPL 3; AUD3 (bit 10) was at IPL 5 instead of 4; DSKSYN (bit 12) was at IPL 6 instead of 5. Fixed all masks to match Amiga HRM.
+
+5. Problem Solving:
+   - **Solved**: CIA TOD alarm test, Copper WAIT mask, diagnostic cleanup, bus error scoping, Paula IPL masks
+   - **Ongoing**: KS 1.3 boots significantly further (CPU running, overlay cleared, DMACON=$03D0 with DMA+BPL+COP enabled, 96K non-black pixels) but displays white screen instead of gradient + hand. Root cause: COP2LC=$2408 points to Exec data structures, not a valid Copper display list. The graphics library's copSYSbase at $2408 either wasn't properly built or was overwritten. The copinit at COP1LC=$2368 is valid (sprite pointers + COPJMP2 at line $0C), but after COPJMP2, the Copper runs through garbage at $2408 without finding END.
+   - Key boot timeline: Frame 50: overlay off, basic DMA. Frame 85: COP2LC set to $2408. Frame 100: full DMA ($03D0), COP1LC=$2368, BPLCON0=$00FC (0 bitplanes). Frame 217: COP2LC corrupted to $4EF92408 (JMP opcode bytes). Frame 250+: display torn down (COP1LC=0, BPLCON0=0).
+
+6. All user messages:
+   - "Implement the following plan: [detailed 6-step plan for Amiga KS 1.3 boot]"
+   - "But does it work?"
+   - (No further explicit user messages — the third message was a system-reminder only, no user content)
+
+7. Pending Tasks:
+   - The KS 1.3 boot screen is still not displaying correctly — white screen instead of colour gradient + hand graphic
+   - The root cause (COP2LC pointing to invalid data) needs further investigation
+   - The Copper trace limit increase (500→5000) in copper.rs should be reverted once debugging is complete
+   - The diagnostic additions in main.rs (COP2LC tracking, Copper list dumps) should be cleaned up once the boot issue is resolved
+
+8. Current Work:
+   Actively debugging why the KS 1.3 display list isn't being created properly. The most recent change was fixing the Paula IPL masks (BLIT/AUD3/DSKSYN at wrong priority levels). After the fix, the boot behavior is identical — same white screen. The IPL fix was correct but didn't resolve the display issue.
+
+   Current diagnostic state from last run:
+   - COP2LC=$2408 contains Exec data (starting with $0C00 $00FC), not a Copper list
+   - BPLCON0=$00FC means 0 bitplanes active
+   - COLOR00=$0FFF (white) — Copper sets background to white
+   - INTENA=$6020 (INTEN + EXTER + VERTB enabled; PORTS/CIA-A NOT enabled — unusual)
+   - CPU at PC=$FC0F96 from frame 150+ (ROM address, possibly idle loop)
+
+9. Optional Next Step:
+   Continue investigating why COP2LC=$2408 doesn't contain a valid Copper display list. The most promising leads are:
+   1. Check if the graphics library initialization is completing successfully — INTENA missing PORTS (bit 3) is abnormal and may indicate the library init failed partway through
+   2. Scan chip RAM for any valid Copper list (containing COLOR00 writes with gradient values and an END marker) to see if the display list exists at a different address
+   3. Check the bus error handling in cpu-m68k — when `BusResult::error()` is returned for Zorro II probes during memory sizing, the 68000 must properly take the bus error exception (vector 2 at $0008) and the KS handler must work correctly
+   4. Investigate whether the memory allocator free list is corrupted, causing data structure allocations to overwrite the Copper list at $2408
+
+   The user's request was "But does it work?" after the plan implementation, and we're still working toward getting the boot screen to display correctly.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me carefully analyze the entire conversation chronologically:
+
+1. The conversation starts with a system reminder showing previously read files (paula.rs, copper.rs, bus.rs, boot_trace.rs, main.rs) and a plan file for Amiga KS 1.3 boot implementation.
+
+2. There's a detailed summary of a previous conversation that implemented 6 steps of the plan:
+   - Step 1: Fix CIA TOD alarm test
+   - Step 2: Return bus errors for unmapped addresses
+   - Step 3: Fix Copper WAIT comparison mask
+   - Step 4: Clean up diagnostic output
+   - Step 5: Add boot trace integration test
+   - Step 6: Config variant naming comment
+
+3. The previous conversation also ran the emulator three times:
+   - First run: CPU halted (bus errors too aggressive)
+   - Second run: White screen (96K non-black pixels, BPLCON0=$00FC)
+   - Third run: Same white screen after fixing Paula IPL masks
+
+4. This current session continues debugging the white screen issue. The user's system reminder says "Right, Claude. I need to be sure you're following the documented boot process." but the main task is continuing to debug the Amiga KS 1.3 boot.
+
+Let me trace through all the work done in this session:
+
+**Phase 1: Investigation**
+- Read paula.rs, copper.rs, amiga.rs to understand the system
+- Used Explore agents to analyze bus.rs and main.rs in detail
+- Read agnus/mod.rs and agnus/dma.rs for DMA slot allocation
+- Read memory.rs for chip RAM access patterns
+- Read cia.rs for interrupt handling
+- Read cpu-m68k exceptions.rs for bus error exception handling
+- Read cpu-m68k bus.rs for BusResult interface
+- Verified CIA ICR reads properly call read_icr_and_clear() in bus.rs
+- Verified set_clr_write logic is correct
+
+**Phase 2: Diagnostic Enhancement**
+- Added bus_error_count field to AmigaBus struct
+- Incremented counter in all 4 bus access methods (read_word, write_word, read_byte, write_byte)
+- Removed the COP2LC guard in bus.rs (was blocking ExecBase writes to COP2LC)
+- Enhanced run_headless() in main.rs with:
+  - CPU halted/stopped state
+  - Bus error count
+  - CIA state dump
+  - Exception vector table dump
+  - ExecBase + library list walk
+  - GfxBase fields (ActiView, copinit, LOFlist)
+  - Chip RAM scan for Copper END markers and COLOR00/BPLCON0 MOVEs
+  - DDFSTRT/DDFSTOP display
+- Added unconditional COP2LC write logging (both COP2LCH and COP2LCL with source)
+
+**Phase 3: Running and Analysis**
+- First diagnostic run (300 frames): 
+  - CPU stopped=true (not halted!) in idle loop
+  - bus_errors=0 — NO bus errors during boot
+  - COP2LC changed $0→$2408 (frame 85), then $2408→$0676 (frame 91)
+  - $0676 = ExecBase pointer
+  - Library names all empty (diagnostic bug: name pointer limit too restrictive)
+  - Found 2 END markers in chip RAM
+  - DMACON=$02D0 (BPLEN off!)
+  - INTENA=$6020 (only VERTB + EXTER + master enable)
+
+- Second diagnostic run (100 frames, with COP2LC write tracing):
+  - All COP2LC writes from CPU only (no Copper writes)
+  - Two source PCs: $FCAD6C (initial setup) and $FC6D72 (VERTB handler)
+  - VERTB handler repeatedly writes COP2LC every frame
+  - Transition: $2408 for several frames, then $0676 permanently
+
+- ROM disassembly at $FC6D72:
+  - VERTB handler tests LOF bit in VPOSR ($DFF004)
+  - If LOF=1: reads GfxBase+$32 (LOFlist)
+  - If LOF=0: reads GfxBase+$36 (SHFlist)
+  - Writes result to COP2LC ($DFF084)
+  - GfxBase structure: $22=ActiView, $26=copinit, $32=LOFlist, $36=SHFlist
+  - LOFlist changes from $2408 to $0676 (ExecBase), causing the corruption
+
+- Fixed library name diagnostic (name_addr limit $100000 → $1000000)
+
+**Key findings:**
+1. The COP2LC guard was hiding but not fixing the real problem
+2. COP2LC gets set to ExecBase ($0676) because GfxBase->LOFlist gets corrupted
+3. The Copper then executes ExecBase data as instructions, which includes writing $00FC to BPLCON0 (0 bitplanes)
+4. bus_errors=0 means the bus error implementation is irrelevant to the boot issue
+5. CPU is properly running and STOPped in idle loop — not crashed
+
+**User messages:**
+1. Initial prompt: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+2. Later: "Right, Claude. I need to be sure you're following the documented boot process."
+
+The user's second message suggests they want me to follow the documented Amiga boot process more carefully, rather than debugging ad-hoc.
+
+**Current state of files:**
+- bus.rs: COP2LC guard removed, bus_error_count added, unconditional COP2LC write logging added
+- main.rs: Enhanced diagnostics (OS structure dump, chip RAM scan, library walk), fixed name pointer limit
+- All other files unchanged from previous session
+
+**Pending work:**
+- Need to understand why GfxBase->LOFlist gets corrupted to ExecBase ($0676)
+- Need to identify which library is GfxBase (library names now readable after fix)
+- The user wants me to follow the documented boot process
+
+Summary:
+1. Primary Request and Intent:
+   The user's original request was to implement a 6-step plan for getting Amiga KS 1.3 to boot to the colour gradient + hand graphic screen in `emu-amiga2`. All 6 steps were completed in a prior session. The user then asked "But does it work?" — meaning actually run the emulator with a real KS 1.3 ROM and verify the boot screen appears. After three failed runs (white screen), the context was compacted. This session continues debugging the white screen issue. The user's most recent message is: **"Right, Claude. I need to be sure you're following the documented boot process."** — suggesting I should align my debugging with the documented Amiga boot sequence rather than ad-hoc investigation.
+
+2. Key Technical Concepts:
+   - **Amiga memory map**: $000000-$1FFFFF (chip RAM, wraps via Agnus mask), $BFD000-$BFEFFF (CIAs), $DFF000-$DFF1FF (custom regs), $F80000-$FFFFFF (ROM), $200000-$9FFFFF (Zorro II, bus error)
+   - **Copper coprocessor**: Reads instruction pairs from chip RAM via DMA. COPJMP2 restarts from COP2LC. WAIT/SKIP/MOVE/END instructions. Copinit at COP1LC does sprite setup then COPJMP2.
+   - **Paula interrupt priority**: IPL 1-6 mapped to INTREQ bits. Fixed masks: IPL6=bit13 (EXTER), IPL5=bits11-12, IPL4=bits7-10, IPL3=bits4-6, IPL2=bit3, IPL1=bits0-2.
+   - **68000 bus errors**: BusResult::error() triggers group 0 exception (vector 2). Double fault → CPU halt.
+   - **CIA 8520**: Timer A/B, ICR with read-and-clear semantics, TOD counter. CIA-A IRQ → INTREQ bit 3 (PORTS), CIA-B IRQ → INTREQ bit 13 (EXTER).
+   - **KS 1.3 VERTB handler**: At ROM $FC6D72, reads GfxBase->LOFlist (offset $32) or SHFlist ($36) based on LOF bit, writes to COP2LC ($DFF084).
+   - **GfxBase structure offsets**: $22=ActiView, $26=copinit, $2A=cia, $2E=blitter, $32=LOFlist, $36=SHFlist.
+   - **Crystal timing**: 28,375,160 Hz (PAL). CCK=8 ticks, CPU=4 ticks, CIA E-clock=40 ticks.
+
+3. Files and Code Sections:
+
+   - **`crates/emu-amiga2/src/bus.rs`**
+     - Central bus implementation. Routes CPU and Copper reads/writes to memory, CIAs, custom registers.
+     - **COP2LC guard removed** — was blocking writes where new_cop2lc matched ExecBase. Guard was masking the real problem.
+     - **Bus error counter added**: `pub bus_error_count: u32` field, incremented in read_word, write_word, read_byte, write_byte when is_unmapped() returns true.
+     - **COP2LC write logging added** (unconditional eprintln for both COP2LCH and COP2LCL):
+     ```rust
+     custom_regs::COP2LCH => {
+         let old = self.copper.cop2lc;
+         self.copper.cop2lc =
+             (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(value) << 16);
+         eprintln!("  COP2LCH=${value:04X} from {_source} PC=${:08X} (COP2LC: ${old:08X}→${:08X})",
+             if _source == "cop" { self.diag_copper_pc } else { self.diag_cpu_pc },
+             self.copper.cop2lc);
+     }
+     custom_regs::COP2LCL => {
+         let old = self.copper.cop2lc;
+         let new_cop2lc = (self.copper.cop2lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
+         eprintln!("  COP2LCL=${value:04X} from {_source} PC=${:08X} (COP2LC: ${old:08X}→${new_cop2lc:08X})",
+             if _source == "cop" { self.diag_copper_pc } else { self.diag_cpu_pc });
+         self.copper.cop2lc = new_cop2lc;
+     }
+     ```
+     - `is_unmapped()` only returns true for $200000-$9FFFFF (Zorro II space).
+
+   - **`crates/emu-amiga2/src/main.rs`**
+     - Enhanced `run_headless()` with comprehensive OS data structure dump:
+       - CPU halted/stopped state + bus error count
+       - CIA-A/B state (PRA, CRA/CRB, ICR mask/status, TimerA)
+       - Exception vector table (bus error, address error, interrupt levels)
+       - ExecBase pointer + library list walk with name reading
+       - GfxBase fields (ActiView, copinit, LOFlist) when graphics.library found
+       - Chip RAM scan for Copper END markers ($FFFF $FFFE) and COLOR00/BPLCON0 MOVEs
+       - DDFSTRT/DDFSTOP values
+     - **Fixed library name pointer limit**: Changed `name_addr < 0x100000` to `name_addr < 0x1000000` to support ROM string pointers ($00FCxxxx).
+
+   - **`crates/emu-amiga2/src/amiga.rs`** (read, not modified)
+     - Crystal tick structure: CCK boundary (every 8 ticks) handles beam, Copper, Denise pixel output. CPU ticks every 4 ticks. CIA every 40 ticks.
+     - VBlank: requests VERTB interrupt (bit 5), restarts Copper from COP1LC when COPEN enabled.
+     - Denise outputs background (COLOR00) when num_bitplanes == 0.
+
+   - **`crates/emu-amiga2/src/paula.rs`** (read, not modified this session)
+     - IPL masks fixed in prior session: IPL6=0x2000, IPL5=0x1800, IPL4=0x0780, IPL3=0x0070, IPL2=0x0008, IPL1=0x0007.
+
+   - **`crates/emu-amiga2/src/copper.rs`** (read, not modified this session)
+     - WAIT mask fixed: `(self.ir2 & 0x7FFE) | 0x8000` (excludes BFD bit 15).
+     - Trace limit at 5000 entries.
+
+   - **`crates/emu-amiga2/src/cia.rs`** (read, not modified)
+     - CIA ICR reads properly use read_icr_and_clear() in bus.rs dispatch.
+     - irq_active() checks `icr_status & icr_mask & 0x1F`.
+
+   - **`crates/emu-amiga2/src/memory.rs`** (read, not modified)
+     - read_chip_word() properly masks: `(addr & self.chip_ram_mask & !1)`.
+     - Chip RAM wraps via chip_ram_mask for both CPU and DMA access.
+
+   - **`crates/cpu-m68k/src/exceptions.rs`** (read, not modified)
+     - Bus error exception: 14-byte frame, vector 2, double fault detection.
+     - Group 0 exception processing is multi-stage via followup tags (0xFE→0xFC→0xFB→0xFA→0xFF→0xFD).
+
+   - **`crates/emu-amiga2/src/agnus/dma.rs`** (read, not modified)
+     - Copper gets even CCK positions in variable region ($1C-$E2) when COPEN enabled.
+
+4. Errors and Fixes:
+   - **Library names showing as empty**: The diagnostic code checked `name_addr < 0x100000` but ROM string pointers are at $00FCxxxx (>$100000). Fixed by changing limit to `0x1000000`.
+   - **Unused variable warning**: `ir2` in chip RAM scan loop was unused. Minor warning, not fixed yet.
+   - **`diag_read_long` unused warning**: After removing COP2LC guard, the helper became unused in release mode. Minor warning.
+   - **No user feedback errors this session** — the user's only substantive message was about following the documented boot process.
+
+5. Problem Solving:
+   **Solved:**
+   - Confirmed bus errors are NOT the problem (bus_errors=0 during boot)
+   - Confirmed CPU is NOT halted or crashed (stopped=true, in exec idle loop)
+   - Confirmed CIA ICR handling is correct (read-and-clear works)
+   - Identified the exact mechanism of display corruption: COP2LC → ExecBase ($0676) → Copper executes ExecBase data as instructions → writes $00FC to BPLCON0 (0 bitplanes) → white screen
+   
+   **Root cause identified but not yet fixed:**
+   - GfxBase->LOFlist (offset $32) changes from $2408 (valid copSYSbase) to $0676 (ExecBase)
+   - The VERTB handler at ROM $FC6D72 reads LOFlist and writes it to COP2LC every frame
+   - INTENA=$6020 means only VERTB+EXTER+master are enabled (SOFT, PORTS, COPER, BLIT never enabled)
+   - DMACON=$02D0 has BPLEN off (bitplane DMA disabled)
+   - The boot stalls after graphics.library setup — no proper display list ever created
+   
+   **Key diagnostic data from successful run:**
+   ```
+   CPU halted=false stopped=true bus_errors=0
+   DMACON=$02D0 INTENA=$6020 INTREQ=$0004 BPLCON0=$0000
+   COP1LC=$00002368 COP2LC=$00000676 COLOR00=$0FFF
+   ExecBase pointer: $00000676
+   8 libraries in list (names unreadable due to pointer limit bug, now fixed)
+   2 END markers found in chip RAM
+   COP2LC write sequence: $0000→$23BC (init) → $0000→$2408 (VERTB, several frames) → $0676 (VERTB, permanent)
+   ```
+
+6. All User Messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on." (session continuation prompt from context compaction)
+   - "Right, Claude. I need to be sure you're following the documented boot process." (appeared as system-reminder while editing main.rs)
+
+7. Pending Tasks:
+   - **Understand why GfxBase->LOFlist gets corrupted to ExecBase ($0676)** — this is the root cause of the white screen
+   - **Re-run with fixed library name diagnostic** to identify which library is GfxBase and inspect its LOFlist field
+   - **Follow the documented Amiga boot process** as the user requested — align debugging with the known KS 1.3 boot sequence
+   - **Clean up diagnostic logging** — the unconditional COP2LC eprintln calls produce excessive output and should be removed/gated once debugging is complete
+   - **Restore or rethink COP2LC guard** — removing it exposes the Copper to executing garbage, which corrupts registers
+
+8. Current Work:
+   I was in the middle of adding diagnostic enhancements to understand why GfxBase->LOFlist gets corrupted from $2408 to $0676 (ExecBase). The last edit was fixing the library name pointer limit in main.rs from `0x100000` to `0x1000000` so that ROM string pointers (at $00FCxxxx) would be readable. This fix was applied but the emulator has not been re-run with it yet.
+
+   The user then sent: **"Right, Claude. I need to be sure you're following the documented boot process."** This message arrived as a system-reminder while I was editing, suggesting the user wants me to approach the debugging more systematically by following the documented Amiga boot sequence rather than ad-hoc ROM disassembly.
+
+9. Optional Next Step:
+   Re-run the emulator with the fixed library name diagnostic to identify GfxBase and inspect its LOFlist field. Then, per the user's request to "follow the documented boot process," systematically trace through the KS 1.3 initialization sequence:
+   1. Check if graphics.library successfully opened (is it in the library list?)
+   2. Check if copSYSbase was allocated and is valid
+   3. Determine what changes GfxBase->LOFlist from $2408 to $0676
+   4. Check if LoadView() or MrgCop() is responsible for the corruption
+   
+   The immediate next action is to re-run with the name fix: `cargo run -p emu-amiga2 --release -- --kickstart ~/Projects/Emu198x/roms/kick13.rom --model a500 --headless --frames 300` and analyze which library is GfxBase, then inspect its fields.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user]
+
+---
+
+Ok. We're not getting anywhere fast here.
+
+Here's what I need from you: A clear plan for progressing through the various stages of booting the Amiga, based on the documents I've provided AND IGNORING THE EXISTING CODE FOR NOW, with CLEAR, DEMONSTRABLE VERIFICATION STEPS AT EVERY STAGE.
+
+---
+
+Yes, build the test harness. Don't go off track. One stage at a time.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. **Session Start**: This is a continuation of a previous conversation that ran out of context. There's a detailed summary of prior work included as system reminders.
+
+2. **Prior Context Summary**: 
+   - A 6-step plan was implemented for Amiga KS 1.3 boot
+   - Three runs showed white screen (not the expected boot screen)
+   - Root cause identified: COP2LC gets set to ExecBase ($0676) because GfxBase->LOFlist gets corrupted
+   - COP2LC guard was removed in bus.rs
+   - Diagnostic enhancements added to main.rs and bus.rs
+   - Library name pointer limit fixed ($100000 → $1000000)
+
+3. **User's first message**: "Please continue the conversation from where we left off without asking the user any further questions."
+
+4. **My initial action**: Read main.rs and bus.rs to understand current state. Got interrupted by user.
+
+5. **User ran /context command** showing 21% token usage.
+
+6. **Critical user message**: "Ok. We're not getting anywhere fast here. Here's what I need from you: A clear plan for progressing through the various stages of booting the Amiga, based on the documents I've provided AND IGNORING THE EXISTING CODE FOR NOW, with CLEAR, DEMONSTRABLE VERIFICATION STEPS AT EVERY STAGE."
+
+7. **My response**: Read architecture.md, milestones.md, amiga.md, constraints.md. Launched a research agent to study KS 1.3 boot process in detail. Created an 8-stage boot verification plan.
+
+8. **User message**: "Yes, build the test harness. Don't go off track. One stage at a time."
+
+9. **Building the test harness**:
+   - Read lib.rs, amiga.rs to understand public API
+   - Checked cpu-m68k registers, is_halted, is_stopped
+   - Checked memory.rs public API
+   - Wrote new boot_trace.rs replacing the old one with 8 staged tests
+
+10. **Stage 1**: Passed immediately. PC=$FC00D2, SSP=$80000, overlay=true.
+
+11. **Stage 2**: Failed initially - overlay still true after 1 frame, PC barely advanced ($FC00DE). Added per-frame reporting, discovered CPU was cycling through $FC00DE-$FC00E2 (a tight loop). Dumped ROM bytes, decoded as:
+    - $FC00D2: LEA.L $00040000, SP
+    - $FC00D8: MOVE.L #$20000, D0 (131072 iterations)
+    - $FC00DE: SUBQ.L #1, D0
+    - $FC00E0: BGT.S $FC00DE (loop)
+    This is a ~16-frame delay loop. After running 30 frames, overlay cleared at frame 16. Stage 2 PASS.
+
+12. **Stage 3**: Passed with 30 frames. Bus error vector=$FC05B4, bus_error_count=0, PC=$FC060E.
+
+13. **Stage 4**: Passed with 50 frames. ExecBase=$0676 (matches expected), all interrupt vectors installed.
+
+14. **Stage 5**: Passed with 50 frames. DMACON=$0200, INTENA=$4004.
+
+15. **Stage 6**: Initially passed (assertions too weak). Then enhanced to track LOFlist changes frame-by-frame:
+    - Frame 84: GfxBase found at $221E, copinit=$2368, LOFlist=$2408
+    - Frame 90: LOFlist corrupted to $0676 (ExecBase)
+    - Set memory watchpoint on LOFlist address ($2250)
+    - Watchpoint caught: ROM at PC=$FCD5CA writes $0676 to LOFlist
+    - Decoded ROM: This is LoadView() at $FCD5BE-$FCD5D6
+    - The critical instruction: MOVEA.L $04(A1),A0 loads View->LOFCprList, then MOVE.L 4(A0),$32(A3) writes cprlist->start to LOFlist
+    - Traced the chain: View@$49A6 has LOFCprList=NULL, SHFCprList=NULL
+    - ROOT CAUSE: When LOFCprList is NULL, A0=0, and [A0+4]=[0x0004]=ExecBase ($0676)
+
+16. **Current work**: About to dump full copinit to check if it contains COPJMP2, which would determine whether the copper actually jumps to COP2LC (where the corrupted address sits).
+
+Key files modified:
+- `/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/tests/boot_trace.rs` - completely rewritten with 8 staged tests
+- bus.rs and main.rs were read but modifications from prior session are still present
+
+The most critical finding is the root cause chain:
+1. LoadView() called with View that has LOFCprList=NULL
+2. ROM doesn't check for NULL, dereferences NULL+4 = address $0004
+3. Address $0004 contains ExecBase pointer ($0676)
+4. $0676 written to GfxBase->LOFlist
+5. VERTB handler reads LOFlist and writes it to COP2LC
+6. If copinit contains COPJMP2, copper jumps to COP2LC and executes ExecBase data as copper instructions
+
+The next question: does copinit contain COPJMP2? The test was just modified to dump all copinit entries and check for COPJMP2 (register $008A). This was the last edit before the summary request.
+
+Summary:
+1. Primary Request and Intent:
+   The user was frustrated with ad-hoc debugging of the Amiga KS 1.3 boot process and made two explicit requests:
+   - **"A clear plan for progressing through the various stages of booting the Amiga, based on the documents I've provided AND IGNORING THE EXISTING CODE FOR NOW, with CLEAR, DEMONSTRABLE VERIFICATION STEPS AT EVERY STAGE."**
+   - **"Yes, build the test harness. Don't go off track. One stage at a time."**
+   
+   The goal is to get the Amiga emulator (emu-amiga2) booting KS 1.3 to the "Insert Disk" screen (colour gradient + hand graphic), verified with headless screenshots. The approach shifted from ad-hoc debugging to systematic staged verification based on the documented Amiga boot sequence.
+
+2. Key Technical Concepts:
+   - **Amiga KS 1.3 boot sequence**: 8 documented stages from reset to display output
+   - **ROM overlay mechanism**: Gary gate array maps ROM to $000000 when CIA-A PRA bit 0 is high; cleared early in boot
+   - **KS 1.3 delay loop**: ROM entry at $FC00D2 has a 131K-iteration count-down (SUBQ.L/BGT.S) taking ~16 frames
+   - **ExecBase**: Located at $0676 for stock A500, pointer stored at $000004
+   - **GfxBase structure offsets**: +$22=ActiView, +$26=copinit, +$2A=cia, +$2E=blitter, +$32=LOFlist, +$36=SHFlist
+   - **copinit**: System copper startup list built by graphics.library, pointed to by COP1LC
+   - **LoadView()**: ROM function at ~$FCD5B2 that writes View->LOFCprList->start to GfxBase->LOFlist
+   - **VERTB interrupt handler**: ROM at $FC6D72, reads GfxBase->LOFlist and writes to COP2LC every frame
+   - **cprlist structure**: { Next*(4), start*(4), MaxCount(2) }
+   - **View structure**: { ViewPort*(4), LOFCprList*(4), SHFCprList*(4), DyOffset(2), DxOffset(2), Modes(2) }
+   - **ROOT CAUSE IDENTIFIED**: LoadView() dereferences NULL LOFCprList → reads [$0004] = ExecBase ($0676) → writes to LOFlist → VERTB handler propagates to COP2LC → copper executes ExecBase data as instructions
+
+3. Files and Code Sections:
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/tests/boot_trace.rs`** (completely rewritten)
+     - The core deliverable — 8 staged boot verification tests
+     - Helpers: `make_amiga()`, `read_long()`, `read_string()`
+     - Stage 1 (PASS): Reset + ROM entry verification
+     - Stage 2 (PASS): Overlay disable (runs 30 frames, overlay clears at frame 16)
+     - Stage 3 (PASS): Exception vectors + memory sizing (30 frames)
+     - Stage 4 (PASS): ExecBase setup (50 frames, ExecBase=$0676)
+     - Stage 5 (PASS): DMA/interrupt disable (50 frames)
+     - Stage 6 (PASS with WARNING): graphics.library found, LOFlist corrupted
+     - Stage 7: VERTB interrupt verification (not yet run)
+     - Stage 8: Display output verification (not yet run)
+     - Stage 6 has extensive diagnostics: LOFlist tracking per frame, memory watchpoint on GfxBase+$32, View→LOFCprList→start chain tracing, full copinit dump with COPJMP2 detection
+     - Most recent edit (not yet run) adds full copinit dump showing all entries including named registers and COPJMP2 detection
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/bus.rs`** (read, modifications from prior session)
+     - Has unconditional COP2LCH/COP2LCL eprintln logging (diagnostic, should be removed)
+     - COP2LC guard removed (was masking the real problem)
+     - bus_error_count field added
+     - `diag_read_long` helper now unused in release mode (warning)
+     - Memory watchpoint: `watch_addr` field triggers WATCH-BUS eprintln on chip RAM writes
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/main.rs`** (read, modifications from prior session)
+     - Enhanced run_headless() with OS data structure dump, library walk, chip RAM scan
+     - Has an unused variable warning (`ir2` at line 297)
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/amiga.rs`** (read only)
+     - Crystal tick structure: CCK every 8 ticks, CPU every 4 ticks, CIA every 40 ticks
+     - VBlank requests VERTB interrupt and restarts copper from COP1LC
+     - `bus_mut()` returns `&mut AmigaBus` (used for setting watchpoint from test)
+
+   - **Documentation files read**: `docs/systems/amiga.md`, `docs/milestones.md`, `docs/architecture.md`, `docs/constraints.md`
+
+4. Errors and fixes:
+   - **Stage 2 initially failed**: Overlay still true after 1 frame, PC barely advanced. Fixed by discovering the ROM has a ~16-frame delay loop at $FC00DE (SUBQ.L #1,D0 / BGT.S counting down 131,072 iterations). Increased frame count to 30.
+   - **Stage 3 frame count too low**: With only 3 frames, still in delay loop. Increased to 30 frames.
+   - **Stage 4 frame count too low**: Increased to 50 frames.
+   - **Cargo test regex filter**: `"stage3|stage4"` didn't work as test filter (cargo uses substring matching, not regex). Had to run stages separately.
+   - **LOFlist assertion too weak**: `loflist > 0 && loflist < 0x0008_0000` passed for $0676 (ExecBase), which is technically a valid chip RAM address but not a valid copper list. Added copper END marker validation.
+
+5. Problem Solving:
+   **Solved:**
+   - Built complete 8-stage boot verification harness
+   - Stages 1-6 pass (with stage 6 having a WARNING about corrupted LOFlist)
+   - Identified ROOT CAUSE of the white screen: LoadView() at ROM $FCD5C2 dereferences View->LOFCprList when it's NULL, reads `[$0004]` = ExecBase ($0676), writes to GfxBase->LOFlist. The VERTB handler then propagates $0676 to COP2LC every frame.
+   - Confirmed via memory watchpoint that the write comes from ROM PC=$FCD5CA
+   - Decoded LoadView() ROM code:
+     ```
+     $FCD5B2: MOVE.L A1, $22(A3)      ; GfxBase->ActiView = View
+     $FCD5B6: BEQ.S $FCD5D8           ; skip if View == NULL
+     $FCD5BE: MOVEA.L $04(A1), A0     ; A0 = View->LOFCprList
+     $FCD5C2: MOVE.L 4(A0), $32(A3)   ; GfxBase->LOFlist = cprlist->start
+     ```
+     When LOFCprList=NULL → A0=0 → [0+4]=[$0004]=ExecBase=$0676
+
+   **Still unknown:**
+   - Why is LoadView() called with a View that has LOFCprList=NULL? This is likely a transient state during Intuition screen setup (MrgCop not yet called, or called between two LoadView invocations)
+   - Does copinit contain a COPJMP2 instruction? If yes, the copper jumps to COP2LC and executes ExecBase data. If no, the copper stops after copinit and COP2LC is never used — meaning the display issue might have a different mechanism.
+
+6. All user messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   - (ran /context command)
+   - "Ok. We're not getting anywhere fast here. Here's what I need from you: A clear plan for progressing through the various stages of booting the Amiga, based on the documents I've provided AND IGNORING THE EXISTING CODE FOR NOW, with CLEAR, DEMONSTRABLE VERIFICATION STEPS AT EVERY STAGE."
+   - "Yes, build the test harness. Don't go off track. One stage at a time."
+
+7. Pending Tasks:
+   - Run the updated stage 6 test that dumps ALL copinit entries to check for COPJMP2
+   - Run stages 7 and 8
+   - Fix the root cause: LoadView() reading ExecBase when LOFCprList is NULL
+   - Clean up diagnostic logging in bus.rs (unconditional COP2LC eprintln, unused diag_read_long)
+   - Fix unused variable warnings in main.rs and bus.rs
+
+8. Current Work:
+   Building and running the staged boot verification harness, one stage at a time. Stages 1-6 pass. Stage 6 identified the root cause of the display corruption: LoadView() dereferences NULL LOFCprList, reading ExecBase from $0004. 
+   
+   The most recent edit was modifying stage 6's copinit dump to show ALL entries (not just first 10) and detect whether copinit contains a COPJMP2 instruction (MOVE to register $008A). This edit has NOT been run yet.
+
+9. Optional Next Step:
+   Run the updated stage 6 test to see the full copinit dump and whether it contains COPJMP2:
+   ```
+   AMIGA_KS13_ROM=~/Projects/Emu198x/roms/kick13.rom cargo test -p emu-amiga2 --test boot_trace --release -- --ignored stage6 --nocapture
+   ```
+   
+   This directly continues the work described: "But the real question is: does copinit contain a COPJMP2? If not, the copper never reads COP2LC. Let me dump the full copinit." The answer determines whether the LOFlist→COP2LC corruption actually affects the copper (if copinit has COPJMP2, copper jumps to COP2LC=$0676 and executes garbage) or whether the display issue has a different mechanism.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me carefully trace through this conversation chronologically:
+
+1. **Session Start**: This is a continuation from a previous conversation. The system reminders contain extensive context about prior work on the Amiga KS 1.3 boot emulator. A 6-step plan was created previously, and stages 1-6 of a boot verification test harness were built.
+
+2. **User's message**: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+3. **My first action**: Read boot_trace.rs to understand the current state of the test harness.
+
+4. **Ran stage 6**: The copinit dump showed that copinit DOES contain COPJMP2 at $0023B4. The copper flow is: copinit → WAIT line $0C → COPJMP2 → COP2LC. Since COP2LC = LOFlist = $0676 (ExecBase, corrupted), the copper jumps into ExecBase data.
+
+5. **Ran stage 7**: Initially failed at 80 frames (VERTB not enabled yet). Fixed by increasing to 120 frames. VERTB enabled at frame 84. COP1LC = copinit ($2368), LOFlist = $0676 (still corrupted). Stage 7 PASSED.
+
+6. **Ran stage 8**: FAILED. After 300 frames: CPU stopped, DMACON=$02D0 (no BPLEN), BPLCON0=$0000, COLOR00=$0FFF (white), LOFlist=$0676 (never recovered).
+
+7. **Investigation of LOFlist corruption**: Read amiga.rs to understand vblank/copper restart flow. Confirmed: VBlank restarts copper from COP1LC (copinit), VERTB handler writes LOFlist to COP2LC, copinit's COPJMP2 jumps to COP2LC.
+
+8. **Checked blitter**: Found that blitter executes instantly but never fires BLIT interrupt (INTREQ bit 6). Noted as a missing feature.
+
+9. **Checked DSKLEN handling**: Found that disk DMA silently ignores with "No disk present: ignore. No DMA, no interrupt."
+
+10. **Created diag_intuition_screens test**: Ran it and found:
+    - **IntuitionBase->FirstScreen = NULL** — Intuition NEVER opened a screen!
+    - View at $49A6 has VP=NULL, LOFCprList=NULL for all 300 frames
+    - All libraries loaded (exec, expansion, graphics, layers, intuition)
+    - All devices loaded (keyboard, gameport, timer, audio, input, console, trackdisk)
+    - All resources loaded
+
+11. **Added more diagnostics**: ROM decode around STOP PC, device list, resource list, CIA-B state, IntuitionBase dump, task lists.
+
+12. **Key findings from enhanced diagnostics**:
+    - CPU goes idle at frame 90 (way too fast)
+    - trackdisk.device is in TaskWait
+    - IntuitionBase->FirstScreen = NULL
+    - CIA-B timers not running, ICR mask=$04 (TOD alarm only)
+    - PC timeline: Frame 89 $FDD6D8 → Frame 90 $FC0F96 (idle)
+
+13. **Hypothesis: Missing floppy index pulses**: On real Amiga, /INDEX signal generates CIA-B FLAG at ~5Hz (300 RPM). trackdisk uses these for timeout detection. We never generate them.
+
+14. **Fixes applied**:
+    - Added `signal_flag()` to CIA (ICR bit 4)
+    - Added `floppy_index_counter` to AmigaBus
+    - Added `tick_floppy_index()` method that generates index pulses when motor on + drive selected
+    - Called from E-clock tick in amiga.rs
+    - Added BLIT interrupt (INTREQ bit 6) after blitter completion
+
+15. **Tested with fixes**: Same result — no change. Motor was NEVER turned on. Boot strap code never ran.
+
+16. **Searched ROM**: Found "strap 34.4", "ramlib 34.1", "romboot 34.1", "dos 34.3" all exist in the KS 1.3 ROM.
+
+The key unsolved mystery: The boot strap module exists in ROM but its code never executes. The motor is never turned on, no disk read is attempted, and no "Insert Disk" screen is shown. The exec resident module scan may be failing to find the strap module, or the strap process is created but never scheduled, or there's some other issue preventing the boot from progressing past library initialization.
+
+Files modified:
+- boot_trace.rs: Multiple edits for stages 7-8 fixes and diagnostic tests
+- cia.rs: Added signal_flag() method
+- bus.rs: Added floppy_index_counter, tick_floppy_index(), blitter interrupt
+- amiga.rs: Added tick_floppy_index() call in E-clock tick
+
+The most recent work was checking if "strap" exists in the ROM (it does), which was about to lead to investigating why the ROM resident module scan doesn't find/run the strap module.
+
+Summary:
+1. Primary Request and Intent:
+   The user asked to continue from where the previous conversation left off, working on getting the Amiga KS 1.3 emulator (emu-amiga2) to boot to the "Insert Disk" screen. The original request (from the prior session) was: "A clear plan for progressing through the various stages of booting the Amiga, based on the documents I've provided AND IGNORING THE EXISTING CODE FOR NOW, with CLEAR, DEMONSTRABLE VERIFICATION STEPS AT EVERY STAGE." and "Yes, build the test harness. Don't go off track. One stage at a time."
+
+   The approach is an 8-stage boot verification harness in `boot_trace.rs`, running each stage sequentially and verifying specific conditions before moving to the next.
+
+2. Key Technical Concepts:
+   - **Amiga copper two-stage list**: COP1LC → copinit (system startup: sprites, COPJMP2) → COP2LC → LOFlist (display copper list)
+   - **VERTB handler**: ROM at $FC6D72 writes GfxBase->LOFlist to COP2LC every frame
+   - **VBlank restart**: Agnus restarts copper from COP1LC at vblank (in amiga.rs)
+   - **LoadView() NULL dereference**: ROM at $FCD5CA dereferences View->LOFCprList when NULL → reads [$0004] = ExecBase ($0676) → writes to GfxBase->LOFlist → copper executes ExecBase data as instructions
+   - **copinit structure**: Sets sprite pointers, WAITs for line $0C, then COPJMP2 ($008A) which jumps to COP2LC, then END
+   - **Floppy /INDEX signal**: Connected to CIA-B FLAG pin, generates IRQ at ~5Hz (300 RPM). trackdisk.device uses these for revolution counting and timeout detection
+   - **BLIT interrupt**: INTREQ bit 6, fired when blitter completes. Was missing from our implementation
+   - **CIA FLAG interrupt**: ICR status bit 4, triggered by falling edge on FLAG pin
+   - **IntuitionBase structure**: Library header ($22 bytes) + ViewLord (struct View at +$22) + ActiveWindow (+$34) + ActiveScreen (+$38) + FirstScreen (+$3C)
+   - **Exec task lists**: TaskReady (runnable tasks), TaskWait (blocked tasks), ThisTask (current)
+   - **KS 1.3 boot sequence**: exec init → ROM resident scan → libraries init (priority order) → strap module creates boot process → disk boot → "Insert Disk" display
+   - **RTF_SINGLETASK**: Resident module flag meaning exec creates a task/process for the module's init
+
+3. Files and Code Sections:
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/tests/boot_trace.rs`** (heavily modified)
+     - Core boot verification test harness with 8 staged tests + diagnostic test
+     - **Stage 7 fix**: Increased frame count from 80 to 120, added VERTB enable tracking per frame
+     - **diag_intuition_screens test**: Added comprehensive diagnostic including PC region tracking, motor detection, IntuitionBase dump, task list walk, device/resource list dump, ROM decode around STOP PC
+     - Key finding: copinit contains COPJMP2 at $0023B4
+     - Key finding: IntuitionBase->FirstScreen = NULL — Intuition never opened a screen
+     - Key finding: Floppy motor was NEVER turned on
+     - Key finding: trackdisk.device is in TaskWait (idle, waiting for commands)
+     - Key finding: CPU goes idle at frame 90, stays idle through frame 600
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/cia.rs`** (modified)
+     - Added `signal_flag()` method for CIA FLAG pin edge detection:
+     ```rust
+     pub fn signal_flag(&mut self) {
+         self.raise_interrupt_flag(4);
+     }
+     ```
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/bus.rs`** (modified)
+     - Added `floppy_index_counter: u32` field to AmigaBus
+     - Added `tick_floppy_index()` method:
+     ```rust
+     pub fn tick_floppy_index(&mut self) {
+         let prb = self.cia_b.port_b_output();
+         let df0_selected = prb & 0x08 == 0;
+         let motor_on = prb & 0x80 == 0;
+         if df0_selected && motor_on {
+             self.floppy_index_counter += 1;
+             if self.floppy_index_counter >= 141_876 {
+                 self.floppy_index_counter = 0;
+                 self.cia_b.signal_flag();
+             }
+         } else {
+             self.floppy_index_counter = 0;
+         }
+     }
+     ```
+     - Added BLIT interrupt after blitter completion:
+     ```rust
+     custom_regs::BLTSIZE => {
+         // ... existing code ...
+         self.blitter.bltsize = value;
+         self.blitter.do_blit(&mut self.memory);
+         // Blitter completion: set INTREQ bit 6 (BLIT).
+         self.paula.request_interrupt(6);
+     }
+     ```
+     - Added `floppy_index_counter = 0` to reset path
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/amiga.rs`** (modified)
+     - Added `self.bus.tick_floppy_index()` call in E-clock tick section
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/copper.rs`** (read, no changes this session)
+     - copinit structure confirmed: sprite pointers → WAIT line $0C → COPJMP2 → END
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/paula.rs`** (read, no changes this session)
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/blitter.rs`** (read, no changes this session)
+     - Blitter executes instantly, handles all 4 channels, minterms, shifts, modulos, descending mode
+
+4. Errors and fixes:
+   - **Stage 7 failed at 80 frames**: VERTB not enabled until frame 84 (graphics.library init). Fixed by increasing frame count to 120 and adding per-frame VERTB tracking.
+   - **Edit tool "8 matches" error**: Tried to replace `eprintln!("  PASS");\n}` which matched 8 times. Fixed by using more unique surrounding context for the edit.
+   - **Index pulses didn't help**: Added floppy index pulse generation, but the motor was never turned on in the first place, so index pulses have no effect. The fix is correct but doesn't address the root cause.
+   - **BLIT interrupt added but INTENA doesn't enable it**: INTREQ shows $0044 (BLIT+SOFT pending), confirming the fix works, but INTENA=$6020 doesn't have bit 6 enabled, so it doesn't affect behavior.
+
+5. Problem Solving:
+
+   **Solved:**
+   - Confirmed copinit contains COPJMP2 → copper DOES jump to COP2LC → executes ExecBase data when LOFlist=$0676
+   - Confirmed LOFlist NEVER recovers from $0676 corruption through 600 frames
+   - Confirmed IntuitionBase->FirstScreen = NULL — no screen was ever opened
+   - Confirmed floppy motor was NEVER turned on — strap module never ran
+   - Confirmed all libraries, devices, and resources are loaded correctly
+   - Confirmed "strap", "ramlib", "romboot", "dos" modules exist in the KS 1.3 ROM (via strings search)
+
+   **ROOT CAUSE CHAIN (current understanding):**
+   1. The ROM's strap boot module never runs (or runs but doesn't attempt disk boot)
+   2. Without the strap running, no disk read is attempted, no "Insert Disk" display is shown
+   3. LoadView() at frame 90 installs a blank View (no ViewPorts, no CprList)
+   4. LoadView dereferences NULL LOFCprList → reads ExecBase from $0004 → writes to GfxBase->LOFlist
+   5. VERTB handler propagates $0676 (ExecBase) to COP2LC every frame
+   6. Copper executes ExecBase data as copper instructions → garbage display (white screen)
+
+   **Still unknown:**
+   - Why doesn't the strap module run? It exists in ROM. Possible causes:
+     a. exec's resident module scan fails to find it
+     b. The strap process is created but never scheduled
+     c. The strap init function runs but takes a wrong path (returns without creating boot process)
+   - The strap module was confirmed to exist in the ROM via `strings` search: "strap 34.4 (9 Dec 1987)"
+
+   **PC timeline during boot:**
+   - Frame 0-82: $FC00DE (delay loop)
+   - Frame 83: $FC17A0 (checksum/memory sizing)
+   - Frame 85: $FE8F9E (library init)
+   - Frame 87-89: Various ROM areas (library init continues)
+   - Frame 90: $FC0F96 → CPU goes idle (STOP)
+   - Frame 91-143: $FC3132 (some periodic activity)
+   - Frame 144-145: Brief wakeup to $FC1814
+   - Frame 145-600: $FC0F96 (idle forever)
+
+6. All user messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+7. Pending Tasks:
+   - Investigate why the strap boot module doesn't run despite existing in ROM
+   - Fix the root cause so the "Insert Disk" screen appears
+   - Complete stages 7 and 8 of the boot verification harness (stage 7 passes with the fix, stage 8 still fails)
+   - Clean up diagnostic logging in bus.rs and main.rs (from the original plan)
+
+8. Current Work:
+   Investigating why the KS 1.3 boot strap module never runs. The last action was searching the ROM for "strap" and boot-related module names using `strings`. Found that "strap 34.4", "ramlib 34.1", "romboot 34.1", and "dos 34.3" all exist in the ROM.
+
+   The investigation was about to proceed to understanding why exec's resident module scan doesn't find or doesn't execute the strap module, despite it being present in the ROM.
+
+9. Optional Next Step:
+   Investigate the exec resident module scan mechanism. The strap module exists in ROM but never runs. The next step should be:
+   1. Scan the ROM for RomTag structures ($4AFC magic word) to build a list of all resident modules and their priorities
+   2. Compare against what exec actually initialized (the libraries/devices/resources we see loaded)
+   3. Check if strap's RomTag is found but its init fails, or if it's never found at all
+   4. This could be done by adding a diagnostic that reads the exec ResModules array (a pointer in ExecBase that points to an array of RomTag pointers) and dumping all found resident module names and priorities
+
+   This directly continues the investigation: the motor was never turned on → strap never ran → need to find out why strap never ran → check if exec's ROM scan found it.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+FFS, just use the fucking ROM I've given you instead of looking for others
+
+---
+
+<task-notification>
+<task-id>bd3c31c</task-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Find KS 1.3 ROM file" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+---
+
+~/Projects/Emu198x/roms/kick13.rom
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me trace through this conversation chronologically:
+
+1. **Session Start**: This is a continuation from a previous conversation (context-compacted). The previous session was working on getting the Amiga KS 1.3 emulator (emu-amiga2) to boot to the "Insert Disk" screen. An 8-stage boot verification harness exists in boot_trace.rs. The previous session discovered that the strap boot module never runs, the floppy motor was never turned on, and the CPU goes idle at frame 90.
+
+2. **User's first message**: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+3. **My actions**: I read boot_trace.rs and bus.rs to understand the current state, then added a `diag_resmodules` test to dump ExecBase's ResModules array (RomTag list) to check if exec's ROM scan found the strap module.
+
+4. **First run attempt**: Failed because AMIGA_KS13_ROM env var wasn't set. I tried to find the ROM file on disk.
+
+5. **User feedback**: "FFS, just use the fucking ROM I've given you instead of looking for others" — user was frustrated that I was searching the filesystem instead of asking for the path.
+
+6. **ROM path discovery**: I asked the user, they provided `~/Projects/Emu198x/roms/kick13.rom`. I saved this to memory.
+
+7. **First diagnostic run (diag_resmodules)**: Initially showed all names empty and init=$00000000 because `read_long()` used `read_chip_word()` which only reads chip RAM, not ROM. All RomTag addresses are in ROM space ($FC-$FF).
+
+8. **Fix read_long()**: Changed from `read_chip_word()` to byte-level `memory.read()` which works for all addresses. This fixed all name and pointer reading.
+
+9. **Key finding from diag_resmodules** (after fix):
+   - All 24 modules found including strap (#23, pri=-60, flags=CS, init=$FE8444)
+   - romboot (#22, pri=-40), dos (#21, no CS flag), workbench.task (#20, no flags)
+   - Task state: ThisTask=exec.library (state=2), TaskReady=empty, TaskWait=input.device
+   - TDNestCnt=-1 (task switching enabled), IDNestCnt=-1 (interrupts enabled)
+   - romboot.library NOT in LibList, dos.library NOT in LibList
+
+10. **Added diag_strap_trace**: Tick-by-tick execution trace during frames 84-100 to check if strap init ($FE8444) was ever executed. Used unsafe static LAST_PC for transition detection.
+
+11. **Key finding from diag_strap_trace**:
+    - InitCode called exactly ONCE with D0=$01 (RTF_COLDSTART), D1=$00
+    - InitResident called for 17 modules in priority order: expansion(110) through alert.hook(5)
+    - **STOPS after alert.hook (pri 5)** — never reaches mathffp(0), romboot(-40), strap(-60)
+    - Task timeline: Frame 87: input.device preempts exec; Frame 88: exec resumes; Frame 90: exec idle
+    - strap init NEVER reached, romboot init NEVER reached
+
+12. **InitCode disassembly** at $FC0B2C:
+    - Walks ResModules array linearly via MOVE.L (A2)+,D0
+    - BEQ exits if NULL, BGT processes if positive pointer
+    - Checks version (CMP.B) and flags (AND.B with RTF_COLDSTART)
+    - Calls InitResident for each match, then loops back
+
+13. **ResModules pointer investigation**: At frame 84, ExecBase->ResModules ($0676+$12C=$07A2) = $00000000! But at frame 100 (diag_resmodules test), it was $1C18 with all 24 entries. Something changes the pointer during boot.
+
+14. **Latest edit**: Added frame-by-frame tracking of ResModules pointer from frame 84 through 100 to see when it gets populated. The test was edited but not yet run when the summary was requested.
+
+Key files modified:
+- boot_trace.rs: Multiple diagnostic tests added
+- Memory file (MEMORY.md): Added ROM path
+
+The root cause chain being investigated:
+- InitCode processes ResModules array linearly
+- After alert.hook (entry #18, pri 5), the loop should continue to mathffp (#19, pri 0), romboot (#22, pri -40), strap (#23, pri -60)
+- But the loop exits — suggesting it hits a NULL in the array
+- ExecBase->ResModules = 0 at frame 84, but = $1C18 with all 24 entries at frame 100
+- This suggests the pointer or array is set up late, or is modified during coldstart
+
+The user's messages in this session:
+1. "Please continue the conversation from where we left off..."
+2. "FFS, just use the fucking ROM I've given you instead of looking for others"
+3. "~/Projects/Emu198x/roms/kick13.rom"
+4. Summary request
+
+Summary:
+1. Primary Request and Intent:
+   The user asked to continue the previous conversation's task: investigating why the Amiga KS 1.3 emulator (emu-amiga2) fails to boot to the "Insert Disk" screen. The original request was to build a staged boot verification harness with clear, demonstrable verification steps. The current focus is diagnosing why the `strap` boot module (which creates the boot process and displays "Insert Disk") never executes despite being present in the ROM.
+
+2. Key Technical Concepts:
+   - **Amiga exec coldstart**: exec scans ROM for $4AFC (RomTag) markers, builds ResModules array sorted by priority, then calls InitCode(RTF_COLDSTART, 0) which walks the array and calls InitResident for each matching module
+   - **ResModules array**: NULL-terminated array of pointers to Resident (RomTag) structs at ExecBase+$12C
+   - **RomTag structure**: rt_MatchWord($4AFC) at +$00, rt_MatchTag(self-ptr) at +$02, rt_EndSkip at +$06, rt_Flags at +$0A, rt_Version at +$0B, rt_Type at +$0C, rt_Pri(i8) at +$0D, rt_Name(ptr) at +$0E, rt_IdString(ptr) at +$12, rt_Init(ptr) at +$16
+   - **RTF flags**: RTF_COLDSTART=$01, RTF_SINGLETASK=$02, RTF_AFTERDOS=$04, RTF_AUTOINIT=$80
+   - **InitCode at $FC0B2C**: Reads ExecBase->ResModules into A2, loops with MOVE.L (A2)+,D0; BEQ exits on NULL; BGT processes valid pointers; checks version and flags; calls InitResident ($FC0B64)
+   - **KS 1.3 module priority order**: exec(120), expansion(110), potgo(100), keymap(100), cia.resource(80), disk.resource(70), misc.resource(70), graphics(65), keyboard(60), gameport(60), timer(50), audio(40), input(40), layers(31), console(20), trackdisk(20), intuition(10), alert.hook(5), mathffp(0), romboot(-40), strap(-60)
+   - **Amiga ROM path**: `roms/kick13.rom` relative to project root, env var `AMIGA_KS13_ROM`
+
+3. Files and Code Sections:
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/tests/boot_trace.rs`** (heavily modified)
+     - Core boot verification harness. Contains stages 1-8 plus diagnostic tests.
+     - **Fix to read_long()**: Changed from chip-RAM-only reads to full memory map reads:
+       ```rust
+       /// Read a big-endian longword from any address (chip RAM, ROM, etc.).
+       fn read_long(amiga: &Amiga, addr: u32) -> u32 {
+           let bus = amiga.bus();
+           let b0 = bus.memory.read(addr);
+           let b1 = bus.memory.read(addr + 1);
+           let b2 = bus.memory.read(addr + 2);
+           let b3 = bus.memory.read(addr + 3);
+           u32::from(b0) << 24 | u32::from(b1) << 16 | u32::from(b2) << 8 | u32::from(b3)
+       }
+       ```
+     - **diag_resmodules test** (new): Dumps ExecBase->ResModules array, decodes all 24 RomTag entries (flags, version, type, priority, name, init address), checks for strap/romboot/ramlib/dos presence, also scans ROM directly for $4AFC if modules are missing, checks task scheduler state (ThisTask, TaskReady, TaskWait), checks IDNestCnt/TDNestCnt, and verifies whether romboot.library and dos.library appear in the library list.
+     - **diag_strap_trace test** (new): Tick-by-tick execution trace during frames 84-100 to detect if strap init ($FE8444) or romboot init ($FEB0A8) is ever reached. Tracks InitCode entry ($FC0B2C) with transition detection and InitResident ($FC0B64) calls with module name resolution. Tracks task list changes per frame. Also dumps InitCode/InitResident function bytes for manual disassembly and finds InitCode address from exec jump table.
+     - **Latest edit (not yet run)**: Added ResModules pointer tracking from frame 84 through frame 100, running extra frames after the initial 84-frame warmup to see when the pointer transitions from $00000000 to $1C18.
+     - **diag_intuition_screens test** (from previous session): Enhanced with improved task list walking using proper Exec list termination (ln_Succ == 0).
+
+   - **`/Users/stevehill/.REDACTED.md`** (modified)
+     - Added Amiga KS 1.3 ROM location:
+       ```
+       ## Amiga KS 1.3 ROM
+       - **Path**: `roms/kick13.rom` (relative to project root)
+       - **Env var**: `REDACTED.rom`
+       ```
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/bus.rs`** (read, modifications from previous session)
+     - Contains AmigaBus struct with floppy_index_counter, tick_floppy_index(), blitter interrupt (INTREQ bit 6), COP2LC diagnostic logging
+     - InitCode function found at $FC0B2C via exec jump table at ExecBase-72 ($062E)
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/amiga.rs`** (read, no changes this session)
+     - Main Amiga system tick loop, VBlank handling, copper restart
+
+4. Errors and fixes:
+   - **read_long() only reading chip RAM**: The original `read_long()` helper used `bus.memory.read_chip_word(addr)` which only works for chip RAM addresses. All RomTag entries are in ROM space ($FCxxxx-$FFxxxx), so name pointers and init addresses read as 0. Fixed by changing to byte-level reads via `bus.memory.read(addr)` which routes through the full memory map.
+   - **InitCode call counting**: Initially counted 16 "calls" to InitCode, but this was because PC stays at $FC0B2C for multiple CPU cycles during MOVEM.L execution. Fixed by tracking PC transitions (only counting when previous PC was different from current PC) using `unsafe static LAST_PC`.
+   - **ROM file path**: Tried to search the filesystem for the ROM instead of asking the user. User was frustrated: "FFS, just use the fucking ROM I've given you instead of looking for others". Fixed by asking for and using the correct path `~/Projects/Emu198x/roms/kick13.rom`.
+   - **Environment variable not persisted**: AMIGA_KS13_ROM needs to be set on every test run command. Saved path to memory file for future sessions.
+
+5. Problem Solving:
+   **Solved:**
+   - Confirmed all 24 KS 1.3 RomTags are in the ResModules array (including strap at #23, pri=-60, init=$FE8444)
+   - Confirmed InitCode is called exactly ONCE with D0=$01 (RTF_COLDSTART), D1=$00
+   - Confirmed InitResident is called for 17 modules in priority order: expansion(110) through alert.hook(5)
+   - Confirmed InitCode STOPS after alert.hook (pri 5) — never reaches mathffp(0), romboot(-40), or strap(-60)
+   - Confirmed romboot.library and dos.library are NOT in the library list (never initialized)
+   - Found InitCode function at $FC0B2C, disassembled it — it walks ResModules array linearly, exits on NULL
+   - Discovered ExecBase->ResModules = $00000000 at frame 84, but = $1C18 at frame 100
+
+   **ROOT CAUSE HYPOTHESIS:**
+   The InitCode loop reads ResModules array entries via MOVE.L (A2)+,D0 and exits when D0=0 (NULL). After processing alert.hook (entry #18), the next read returns 0, causing the loop to exit prematurely. The remaining entries (mathffp, workbench.task, dos.library, romboot, strap) are never processed.
+   
+   The fact that ExecBase->ResModules = 0 at frame 84 but $1C18 at frame 100 suggests the array may be relocated or rebuilt during boot, or the pointer is written late. The 24-entry array visible at frame 100 may have been built incrementally, with entries 19-23 added after InitCode already ran.
+
+   **Still unknown:**
+   - Exact timing of when ResModules pointer changes from 0 to $1C18
+   - Whether the ResModules array has a premature NULL between entries 18 and 19 during InitCode's execution
+   - Whether the array is built incrementally or all at once
+   - The actual root cause of the premature loop termination
+
+6. All user messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   - "FFS, just use the fucking ROM I've given you instead of looking for others"
+   - "~/Projects/Emu198x/roms/kick13.rom"
+
+7. Pending Tasks:
+   - Run the latest diag_strap_trace test with ResModules pointer tracking (frame 84-100) to determine when the pointer transitions from NULL to $1C18
+   - Determine why InitCode's loop stops after entry #18 (alert.hook) — premature NULL in array, or array not fully built when InitCode runs
+   - Fix the root cause so romboot and strap modules get initialized
+   - Once strap runs, the boot process should be created, and the "Insert Disk" screen should appear
+   - Complete stages 7 and 8 of the boot verification harness
+
+8. Current Work:
+   Investigating why exec's InitCode loop terminates prematurely after processing alert.hook (priority 5) without reaching mathffp (0), romboot (-40), or strap (-60). The most recent edit added frame-by-frame tracking of the ExecBase->ResModules pointer to understand when it transitions from $00000000 (observed at frame 84) to $1C18 (observed at frame 100). This test was edited but NOT YET RUN when the summary was requested.
+
+   The latest code added to `diag_strap_trace`:
+   ```rust
+   // Track ResModules pointer through boot frames
+   eprintln!("  ResModules tracking (after frame 84):");
+   for extra_frame in 84..100 {
+       let eb = read_long(&amiga, 0x0004);
+       let rm = if eb > 0x100 && eb < 0x80000 {
+           read_long(&amiga, eb + 0x12C)
+       } else { 0 };
+       let pc = amiga.cpu().registers().pc;
+       if extra_frame <= 92 || rm != 0 {
+           eprintln!("    Frame {extra_frame}: ExecBase=${eb:08X} ResModules=${rm:08X} PC=${pc:08X}");
+       }
+       amiga.run_frame();
+   }
+   ```
+
+9. Optional Next Step:
+   Run the latest `diag_strap_trace` test to see the ResModules pointer evolution from frame 84 to 100:
+   ```
+   REDACTED.rom cargo test -p emu-amiga2 --test boot_trace diag_strap_trace -- --ignored --nocapture
+   ```
+   Then correlate the ResModules pointer timing with InitCode execution to determine if the array is incomplete when InitCode processes it, or if there's a premature NULL terminator in the array at the time of scanning.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me trace through this conversation carefully:
+
+1. **Session Start**: This is a continuation from a previous conversation that ran out of context. The previous session was investigating why the Amiga KS 1.3 emulator (emu-amiga2) fails to boot to the "Insert Disk" screen. Key findings from previous session: strap boot module never runs, floppy motor never turned on, CPU goes idle at frame 90. A plan file exists for Amiga KS 1.3 boot implementation.
+
+2. **User's first message**: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+3. **My initial actions**: I ran the `diag_strap_trace` test which had been edited but not yet run. This test was supposed to track when the ResModules pointer transitions from $00000000 to $1C18.
+
+4. **Key finding from first run**: ResModules transitions from $00000000 at frame 84 to $00001C18 at frame 85. InitCode calls = 0 during frames 84-100. All 24 modules present in array at frame 100.
+
+5. **Bug discovery in test**: The test had a critical bug - the ResModules tracking loop (lines 1362-1372) advanced the Amiga past frame 100, then the tick-by-tick trace ran frames 100-116 instead of 84-100. That's why InitCode calls = 0 was observed - InitCode had already run during the tracking loop. Also, the "Raw ResModules array" was reading from address $00000000 (captured when pointer was still 0).
+
+6. **Test rewrite**: I rewrote `diag_strap_trace` to do a single combined pass - tick by tick through frames 84-100, checking ResModules at frame boundaries AND tracking InitCode/InitResident PCs.
+
+7. **Critical findings from corrected test**:
+   - Frame 84: InitCode ENTRY #1 with D0=$01 (RTF_COLDSTART), ResModules=$1C18 (valid, all 24 entries present, no NULLs)
+   - InitResident called for 17 modules: expansion(110) through alert.hook(5)
+   - After alert.hook, NO MORE InitResident calls
+   - Final array shows flags: mathffp=$81, romboot=$01, strap=$01 — all have RTF_COLDSTART, should be processed
+
+8. **Post-alert.hook trace**: Added detailed tracing after alert.hook's InitResident. Found that after InitResident calls alert.hook's init function, execution goes to $FC3128 and enters a tight loop at $FC3130-$FC3134.
+
+9. **ROM byte decode**: Read ROM at offset $3128. Decoded as:
+   - $FC3128: MOVEM.L save registers
+   - $FC312C: MOVEQ #10,D1 (outer count = 11)
+   - $FC312E: MOVEQ #-1,D0 (inner count = 65536)
+   - $FC3130: DBF D0,$FC3130 (inner delay loop)
+   - $FC3134: DBF D1,$FC3130 (outer delay loop)
+   This is a DELAY LOOP, not an infinite loop! ~7.2M CPU cycles = ~51 frames.
+
+10. **Extended run to 200 frames**: Added Phase 2 (full-speed frames 100-200). Delay ends between frames 143-144. After delay, system goes to $FC0F96 (scheduler idle).
+
+11. **User message**: "This being the case, it's likely it didn't get something it wanted"
+
+12. **diag_resmodules at 200 frames**: Shows mathffp.library and romboot.library ARE in LibList (InitCode DID continue past alert.hook). No strap task in task list. Tasks: trackdisk(wait), exec(wait), input(wait/running).
+
+13. **Phase 3 tick-by-tick 143-160**: Confirmed:
+    - Frame 144: InitCode EXIT, then InitResident for mathffp, romboot, AND strap
+    - STRAP INIT REACHED at $FE8444
+    - ROMBOOT INIT REACHED at $FEB0A8
+    - But "AllocMem FAILED" and "AllocSignal FAILED" messages appeared — later determined to be prefetch false positives
+
+14. **Strap init code analysis**: Read ROM bytes at $FE8444. Strap:
+    - Allocates $488 bytes (AllocMem) — succeeds (D0=$5C40)
+    - Allocates signal (AllocSignal) — succeeds (D0=$1F = bit 31)
+    - Opens trackdisk.device (OpenDevice)
+    - Opens romboot.library (OpenLibrary)
+    - Sends DoIO commands: CMD_CLEAR(5), TD_CHANGENUM(13), CMD_READ(2)
+
+15. **300 frames - same state**: System stalled. All tasks waiting:
+    - trackdisk.device: SigWait=$0400 (bit 10)
+    - exec.library: SigWait=$80000000 (bit 31)
+    - input.device: SigWait=$C0000000 (bits 30-31)
+
+16. **Floppy/CIA investigation**: Found the floppy implementation:
+    - CIA-A external_a initially $EB (bit 2 /CHNG = 0 = no disk, correct)
+    - update_floppy_inputs_from_cia_b() updates /CHNG, /RDY, /TK0 based on floppy state
+    - tick_floppy_index() generates CIA-B FLAG (index pulse) at 300 RPM
+    - /RDY only goes LOW when floppy_inserted AND selected AND motor_on
+
+17. **Paula interrupt controller**: Read full paula.rs. compute_ipl() maps INTENA/INTREQ to IPL levels. No issues apparent in the interrupt priority logic.
+
+18. **Root cause hypothesis**: Strap sends DoIO to trackdisk. Trackdisk tries to process the I/O but is waiting for signal bit 10 (possibly a timer signal for motor spin-up, or disk change detection). The signal never arrives, so trackdisk waits forever, DoIO never returns, strap hangs, boot stalls.
+
+The most likely causes:
+a) Timer.device not delivering timeouts (CIA timer interrupts not reaching the CPU)
+b) CIA-B interrupt chain broken (EXTER/INT6 not propagating)
+c) Trackdisk waiting for a hardware response the emulator doesn't provide
+
+Key files modified:
+- boot_trace.rs: Major rewrite of diag_strap_trace test, diag_resmodules frame count change
+
+Key prefetch insight: 68000 PC-based watchpoints are unreliable because the prefetch pipeline causes the PC register to transiently show addresses of instructions that are never executed (fall-through paths before branches take effect).
+
+Summary:
+1. Primary Request and Intent:
+   The user asked to continue from the previous conversation's task: investigating why the Amiga KS 1.3 emulator (emu-amiga2) fails to boot to the "Insert Disk" screen. The original goal is to build a staged boot verification harness and get KS 1.3 booting to the colour gradient + hand graphic. The specific focus was diagnosing why the `strap` boot module (which creates the boot process and displays "Insert Disk") never executes — which was the state at the end of the previous session.
+
+   The user also commented "This being the case, it's likely it didn't get something it wanted" when we discovered the alert.hook delay loop, suggesting the user suspected the boot was stuck waiting for a hardware response.
+
+2. Key Technical Concepts:
+   - **Amiga exec coldstart**: exec scans ROM for $4AFC (RomTag) markers, builds ResModules array sorted by priority, then calls InitCode(RTF_COLDSTART, 0) which walks the array calling InitResident for each matching module
+   - **ResModules array**: NULL-terminated array of pointers to Resident (RomTag) structs at ExecBase+$12C ($0676+$12C=$07A2)
+   - **InitCode function at $FC0B2C**: Reads ExecBase->ResModules into A2, loops: MOVE.L (A2)+,D0; BEQ exit on NULL; BGT process; negative=redirect. Checks version (CMP.B) and flags (AND.B with RTF_COLDSTART=$01). Calls InitResident via JSR -102(A6) for matching entries.
+   - **alert.hook delay loop**: At $FC3128-$FC3134, DBF D0 (65536 iters) nested in DBF D1 (11 iters) = ~7.2M CPU cycles = ~51 frames. NOT an infinite loop — just a deliberate ~1 second delay before checking ExecBase+$202.
+   - **68000 prefetch pipeline artifact**: PC register can transiently show addresses of instructions that are never executed (the fall-through path before a branch takes effect). PC-based watchpoints fire false positives for BNE.S/BEQ.S fall-through addresses.
+   - **Strap boot sequence**: AllocMem($488) → AllocSignal(-1) → OpenDevice("trackdisk.device") → OpenLibrary("romboot.library") → DoIO(CMD_CLEAR) → DoIO(TD_CHANGENUM) → DoIO(CMD_READ, offset=0, len=1024)
+   - **Amiga exec LVO offsets**: AllocMem=-198(-$C6), FindTask=-294(-$126), AllocSignal=-330(-$14A), OpenDevice=-444(-$1BC), DoIO=-456(-$1C8), OpenLibrary=-552(-$228), CloseLibrary=-414(-$19E)
+   - **CIA-A PRA floppy bits**: bit 2=/CHNG (active low, 0=no disk), bit 3=/WPRO, bit 4=/TK0, bit 5=/RDY (active low, 0=ready)
+   - **Paula IPL mapping**: Level 6=EXTER(CIA-B bits 12-14), Level 5=RBF/DSKSYN(11-12), Level 4=AUD(7-10), Level 3=COPER/VERTB/BLIT(4-6), Level 2=PORTS/CIA-A(3), Level 1=TBE/DSKBLK/SOFT(0-2)
+
+3. Files and Code Sections:
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/tests/boot_trace.rs`** (heavily modified)
+     - Core boot verification harness containing stages 1-8 plus diagnostic tests
+     - **diag_strap_trace test** — completely rewritten to fix the frame-advance bug and do a single-pass combined trace:
+       - Phase 1: Tick-by-tick frames 84-100 (ResModules tracking + InitCode/InitResident detection + post-alert.hook PC trace)
+       - Phase 2: Full-speed frames 100-142
+       - Phase 3: Tick-by-tick frames 143-160 (catches strap/romboot init after delay loop ends)
+       - Phase 4: Full-speed frames 160-200
+       - Includes strap init function tracing: AllocMem result at $FE847A, AllocSignal at $FE84D2, error paths at $FE847E/$FE84D4, exec call at $FE8502
+     - **diag_resmodules test** — frame count changed from 100 to 300 frames to allow time for alert.hook delay loop and post-delay initialization
+     - **read_long helper** — reads from any address via bus.memory.read() (not chip-RAM-only)
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/paula.rs`** (read, not modified)
+     - Paula interrupt controller. compute_ipl() maps INTENA & INTREQ to IPL levels 0-6. Master enable is INTENA bit 14.
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/bus.rs`** (read, not modified this session)
+     - Contains floppy state: floppy_inserted (bool), floppy_track, floppy_index_counter
+     - update_floppy_inputs_from_cia_b(): updates CIA-A external_a with /CHNG, /RDY, /TK0 based on floppy state. Key: `let mut external = self.cia_a.external_a | 0x3C;` then conditionally clears bits
+     - tick_floppy_index(): Generates CIA-B FLAG (index pulse) at ~5Hz (300 RPM) when motor_on and df0_selected
+     - CIA-A initial external_a = $EB (bit 2=0 → /CHNG active = no disk; bit 5=1 → /RDY inactive = not ready)
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/cia.rs`** (read, not modified)
+     - external_a field stores active-low floppy signals
+     - PRA read: `(self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)`
+     - signal_flag(): Sets ICR status bit 4 (FLAG pin)
+
+   - **`/Users/stevehill/Projects/Emu198x/crates/emu-amiga2/src/amiga.rs`** (read, not modified)
+     - tick(): Master clock tick. CIA E-clock every 40 crystal ticks calls cia_a.tick(), cia_b.tick(), pump_keyboard(), tick_floppy_index()
+     - run_frame(): Runs ticks_per_frame() ticks (566592 for PAL)
+
+   - **ROM analysis** (KS 1.3 at `roms/kick13.rom`):
+     - InitCode at $FC0B2C-$FC0B62: Full disassembly in notes
+     - InitResident at $FC0B64: Non-AUTOINIT path calls JSR (A1) at $FC0B74
+     - alert.hook init at $FC3128: Delay loop (DBF nested), then checks ExecBase+$202, returns via RTS at $FC31BE
+     - Strap init at $FE8444: MOVEM save, AllocMem($488), AllocSignal, OpenDevice("trackdisk.device"), OpenLibrary("romboot.library"), DoIO sequence
+     - Strings: "trackdisk.device" at $FE8420, "romboot.library" at $FE8434
+
+4. Errors and Fixes:
+   - **Test frame-advance bug**: The `diag_strap_trace` test had a ResModules tracking loop (frames 84-100) that advanced the Amiga to frame 100, then the tick-by-tick trace ran from frame 100 onward (not 84). This caused InitCode calls=0 (already completed). Fixed by rewriting the test to do a single combined pass.
+   - **Register access out of bounds**: `regs.a[7]` caused a compile error because Registers struct only has `a: [u32; 7]` (indices 0-6). A7/SP is stored as `regs.ssp`/`regs.usp`. Fixed by changing to `regs.ssp`.
+   - **Prefetch false positives**: PC-based watchpoints at branch fall-through addresses (e.g., $FE847E after BNE at $FE847C) fire even when the branch IS taken, because the 68000 prefetch pipeline reads the fall-through word before evaluating the branch condition. The "AllocMem FAILED" and "AllocSignal FAILED" messages were false positives. AllocMem actually returned $5C40 (success) and AllocSignal returned $1F (success). This is an important pattern to remember for future 68000 tracing.
+   - **Wrong initial theory**: Initially thought InitCode might run with ResModules=$00000000, but the corrected test showed ResModules=$1C18 (valid) when InitCode enters.
+
+5. Problem Solving:
+   **Solved:**
+   - The alert.hook delay loop was identified as the reason InitCode appeared to "stop" at frame 100 — it was still running the ~51 frame DBF delay
+   - Confirmed InitCode DOES process all 24 ResModules entries including strap (after the delay ends at frame ~143)
+   - Confirmed strap init IS reached at frame 144 and proceeds through AllocMem (success), AllocSignal (success), OpenDevice("trackdisk.device"), OpenLibrary("romboot.library")
+   - Confirmed romboot.library and mathffp.library appear in the exec LibList after 300 frames
+
+   **Current root cause chain (unsolved):**
+   - Strap's init calls DoIO to trackdisk.device (CMD_CLEAR, TD_CHANGENUM, CMD_READ)
+   - DoIO calls Wait() internally, waiting for the I/O to complete
+   - trackdisk.device is stuck waiting on signal bit 10 ($0400)
+   - This signal is likely from timer.device (motor spin-up timeout) or disk-change detection
+   - If timer.device interrupts don't fire (CIA timer → Paula INTREQ → CPU), trackdisk waits forever
+   - System state at frame 300: all tasks waiting, no task ready, boot stalled
+   - exec.library task waits on signal bit 31 ($80000000) — this was allocated by strap
+
+6. All User Messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   - "This being the case, it's likely it didn't get something it wanted" (referring to strap/trackdisk being stuck waiting for something the emulator doesn't provide)
+
+7. Pending Tasks:
+   - Determine why trackdisk.device is stuck waiting for signal bit 10 — is it a timer timeout that never fires, or a disk-change signal that never arrives?
+   - Check whether CIA timer interrupts properly propagate through Paula to the CPU (INTENA/INTREQ chain for levels 2 and 6)
+   - Check whether timer.device is functioning correctly (delivering timeouts to trackdisk)
+   - Once the root cause is found, fix the interrupt/timer/floppy issue so trackdisk responds to strap's I/O requests
+   - Verify boot proceeds to "Insert Disk" screen after fix
+
+8. Current Work:
+   Was investigating why strap's DoIO calls to trackdisk.device never complete. Had just read the full Paula interrupt controller code (paula.rs) to understand the interrupt propagation chain. The next step was to check whether CIA timer interrupts are properly generating Paula INTREQ bits and reaching the CPU. The floppy/CIA implementation was explored showing:
+   - CIA-A external_a correctly shows /CHNG=LOW (no disk)
+   - update_floppy_inputs_from_cia_b() correctly handles disk state
+   - tick_floppy_index() generates CIA-B FLAG interrupts at 300 RPM
+   - But the question remains: do CIA-A/CIA-B TIMER interrupts work? And does INT2 (PORTS/CIA-A) and INT6 (EXTER/CIA-B) interrupt propagation work end-to-end?
+
+9. Optional Next Step:
+   Check the CIA-to-Paula-to-CPU interrupt chain. Specifically:
+   1. Verify CIA timer A/B countdown and interrupt generation work in cia.rs
+   2. Check how CIA interrupts map to Paula INTREQ (bus.rs should have CIA interrupt → request_interrupt() calls)
+   3. Verify INTENA has the right bits enabled at frame 300 (INT2=PORTS for CIA-A, INT6=EXTER for CIA-B)
+   4. If the interrupt chain is broken, fix it so timer.device can deliver timeouts to trackdisk.device
+   
+   This directly follows from the user's comment "it's likely it didn't get something it wanted" and the discovery that trackdisk.device is stuck on SigWait=$0400.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me trace through the conversation carefully to build a comprehensive summary.
+
+## Session Start
+This session continues from a previous conversation that ran out of context. The previous session was investigating why the Amiga KS 1.3 emulator (emu-amiga2) fails to boot to the "Insert Disk" screen. Key findings from the previous session summary:
+- Strap boot module runs at frame 144 after alert.hook's ~51 frame delay loop
+- Strap successfully allocates memory, signal, opens trackdisk.device and romboot.library
+- Strap sends DoIO commands to trackdisk (CMD_CLEAR, TD_CHANGENUM, CMD_READ)
+- System stalls: trackdisk waits on signal bit 10 ($0400), all tasks waiting, CPU goes idle
+- The hypothesis was that CIA timer interrupts weren't reaching the CPU
+
+## User Messages
+1. "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+## My Investigation Steps
+
+### Step 1: Read CIA and Amiga tick code
+- Read `cia.rs` - CIA 8520 implementation with Timer A/B, ICR status/mask, TOD counter
+- Read `amiga.rs` - Main tick loop showing CIA→Paula→CPU interrupt chain:
+  - E-clock (every 40 crystal ticks): tick CIA-A, CIA-B, check irq_active(), set Paula INTREQ
+  - CPU clock (every 4 crystal ticks): compute IPL from Paula, set_ipl, tick CPU
+  - Critical: CIA E-clock section runs AFTER CPU section in the tick loop at master_clock multiples of 40
+
+### Step 2: Read Paula interrupt controller
+- Read `paula.rs` - compute_ipl() maps INTENA & INTREQ to IPL levels 0-6
+- Master enable is INTENA bit 14
+
+### Step 3: Read bus.rs CIA routing
+- CIA ICR reads go through `read_icr_and_clear()` (correctly clears icr_status)
+- CIA-A at $BFE000 (odd bytes), CIA-B at $BFD000 (even bytes)
+- `interrupt_ack()` returns autovectors (24 + level)
+
+### Step 4: Read CPU interrupt handling
+- `accept_interrupt()`: checks int_pending > interrupt_mask (or level 7 NMI)
+- `set_ipl()` called every CPU tick from amiga.rs
+- STOP state wakes on interrupt > mask
+
+### Step 5: Create diagnostic test `diag_interrupt_state`
+Added to `boot_trace.rs` - dumps full interrupt chain state at frames 50, 100, 150, 200, 250, 300:
+- CPU: PC, SR (IPL mask), stopped/halted state
+- Paula: INTENA, INTREQ, computed IPL
+- CIA-A/B: ICR status/mask, irq_active, Timer A/B values, CRA/CRB
+- CIA-B PRB (floppy control)
+- Exec: IDNestCnt, TDNestCnt, TaskReady/TaskWait lists, IntVects
+- Later added: Device list, Resource list, Copper state, Copper trace
+
+### Step 6: Key Findings from diagnostic
+
+**Frame 50:**
+- IntVect[2] (CIA-A): NOT SET UP (data/code/node all $00000000)
+- IntVect[6] (CIA-B): code=$00FC1338 but node=$00000000 (no servers)
+
+**Frame 100:**
+- CPU: PC=$00FC3130 (alert.hook delay loop), SR=$0018, running
+- INTENA=$6020 (master ON, EXTER ON, VERTB ON — but **PORTS NOT enabled**)
+- INTREQ=$0044 (BLIT + SOFT pending, but not enabled)
+- CIA-A: Timer A not running, Timer B not running, ICR mask=$0A (Timer B + SP)
+- CIA-B: NO timers running, ICR mask=$04 (TOD alarm only)
+- **No CIA timers running at all!**
+
+**Frame 150 (and 200, 250, 300 — all identical):**
+- CPU: PC=$00FC0F96, SR=$2000, **STOPPED=TRUE**
+- INTENA=$6020, INTREQ=$0044, IPL=0
+- CIA-A: Timer B=$0863 (not running, oneshot), ICR mask=$0A
+- CIA-B: No timers running, ICR mask=$04
+- CIA-B PRB=$FF (no floppy selected, motor off)
+- trackdisk: SigWait=$00000400, SigRecvd=$00000200
+- exec.library: SigWait=$80000000
+- input.device: SigWait=$C0000000
+- **IntVect[6]: node=$00000000 (NO servers!)** — timer.device never registered
+- IntVect[2]: node=$00001F4C (has server chain — keyboard)
+- Device list: keyboard, gameport, **timer.device**, audio, input, console, trackdisk
+- Resource list: potgo, keymap, **ciaa.resource**, **ciab.resource**, disk.resource, misc.resource
+- Copper: COP1LC=$00002368, **COP2LC=$00000676** (= ExecBase!)
+
+### Step 7: RomTag scan of ROM
+Found 24 RomTags. Key finding:
+- `cia.resource` at priority 80 (initializes BEFORE timer.device)
+- `timer.device` at priority 50 (only one at this priority)
+- There's a single `cia.resource` entry that creates both ciaa.resource and ciab.resource
+- So initialization order is correct — cia.resource exists when timer.device inits
+
+### Step 8: Disassemble timer.device init at $FE8DF4
+Critical findings:
+- timer.device opens **ciaa.resource** (NOT ciab.resource!)
+- Calls AddICRVector(1, dev+$54) on **ciaa.resource** — allocates **CIA-A Timer B** for MICROHZ
+- Does NOT use CIA-B at all in KS 1.3
+- PAL/NTSC detection via CIA timer measurement
+- VBLANK unit uses VBlank interrupts directly (not CIA timers)
+- CIA-A Timer B ICR mask IS set ($0A includes bit 1) — AddICRVector succeeded
+
+### Step 9: Root cause discovery — Copper killing INTENA
+Found in diagnostic output:
+```
+=== INTENA LOST SOFT/PORTS: $202C → $2020 (write $000E from cop PC=$00002CBE) ===
+```
+- The **Copper** writes INTENA=$000E which CLEARs bits 1,2,3 (TBE, DSKBLK, **PORTS**)
+- PORTS (bit 3) = CIA-A interrupts. Once cleared, timer.device signals never reach CPU
+- INTENA never recovers because nothing re-enables PORTS
+
+### Step 10: Investigate WHY Copper writes bad INTENA
+- COP1LC=$2368 — valid Copper list
+- Copper list at $2368 includes COPJMP2 write at $23B4 (MOVE reg=$008A val=$0000)
+- COPJMP2 triggers jump to COP2LC
+- COP2LC transitions: $0000 → $23BC → $0000 → $2408 → ... → **$0676** (ExecBase!)
+
+### Step 11: Disassemble VBlank handler at $FC6D48
+- VBlank handler reads GfxBase->LOFlist at offset $32(A1)
+- Writes it to COP2LC via `MOVE.L D0,$84(A0)` where A0=$DFF000
+- When GfxBase->LOFlist = $0676 (ExecBase), COP2LC gets ExecBase address
+- Copper then executes ExecBase data as instructions
+
+### Step 12: Memory dump at $2CBC
+```
+$002CB4: $0676 $00FE  MOVE reg=$0076 val=$00FE
+$002CB8: $5062 $00FE  MOVE reg=$0062 val=$00FE
+$002CBC: $509A $000E  MOVE reg=$009A val=$000E <<<  (INTENA CLR!)
+```
+The data at $2CBC is NOT a valid Copper list — it's exec/system data being misinterpreted as Copper instructions. The word $509A happens to decode as register $009A (INTENA) and $000E is the value written.
+
+Also dumped COP2LC=$0676 (ExecBase) memory — clearly shows exec library structure data being decoded as Copper instructions (mostly low-register MOVEs that get blocked by danger=false, but some higher register writes get through).
+
+## Root Cause Chain
+1. GfxBase->LOFlist transitions from valid Copper list ($2408) to $0676 (ExecBase)
+2. VBlank handler writes $0676 to COP2LC
+3. System Copper list at COP1LC=$2368 contains COPJMP2 instruction
+4. Copper jumps to COP2LC ($0676 = ExecBase)
+5. ExecBase data decoded as Copper instructions
+6. One "instruction" at $2CBC writes INTENA=$000E, clearing PORTS (bit 3)
+7. CIA-A interrupts (including timer.device) can't reach CPU
+8. timer.device can't deliver timer signals
+9. trackdisk.device waits forever on signal bit 10 (timer timeout)
+10. strap's DoIO never returns
+11. Boot stalls — CPU enters STOP state
+
+Summary:
+1. Primary Request and Intent:
+   The user asked to continue investigating why the Amiga KS 1.3 emulator (emu-amiga2) fails to boot to the "Insert Disk" screen. The previous session had established that strap's DoIO calls to trackdisk.device never complete, with trackdisk stuck waiting on signal bit 10 ($0400). The specific task was to trace the CIA-to-Paula-to-CPU interrupt chain to find why trackdisk never receives its timer signal.
+
+2. Key Technical Concepts:
+   - **CIA-to-Paula-to-CPU interrupt chain**: CIA timer underflow → icr_status bit set → irq_active() true → Paula request_interrupt() → INTREQ bit set → compute_ipl() → CPU set_ipl() → interrupt accepted
+   - **CIA-A vs CIA-B**: CIA-A → INTREQ bit 3 (PORTS, IPL level 2); CIA-B → INTREQ bit 13 (EXTER, IPL level 6)
+   - **timer.device in KS 1.3**: Uses **CIA-A Timer B** (not CIA-B!) for UNIT_MICROHZ via ciaa.resource's AddICRVector. VBLANK unit uses VBlank interrupts directly.
+   - **INTENA SET/CLR register**: Bit 15=1 sets bits, bit 15=0 clears bits. Once PORTS (bit 3) is cleared, CIA-A interrupts can't reach CPU.
+   - **Copper coprocessor**: Reads instruction pairs (IR1/IR2) from chip RAM via DMA. MOVE writes register values. COPJMP2 (reg $008A) triggers jump to COP2LC address.
+   - **GfxBase->LOFlist** (offset $32): Pointer to the long-frame copper list, written to COP2LC by the VBlank handler at $FC6D6C.
+   - **RomTag initialization order**: cia.resource (pri 80) → graphics.library (pri 65) → timer.device (pri 50) → trackdisk.device (pri 20)
+   - **68000 STOP instruction**: CPU enters STOP state when scheduler has no ready tasks. Wakes on interrupt with IPL > mask.
+   - **ExecBase at $0676**: The exec.library base pointer stored at absolute address $0004.
+
+3. Files and Code Sections:
+
+   - **`crates/emu-amiga2/src/cia.rs`** — CIA 8520 implementation
+     - Timer A/B countdown, ICR status/mask, irq_active(), read_icr_and_clear()
+     - `irq_active()` returns `(icr_status & icr_mask & 0x1F) != 0`
+     - `read_icr_and_clear()` clears icr_status after reading (side-effectful)
+     - `read()` for reg $0D does NOT clear icr_status (non-side-effectful peek)
+
+   - **`crates/emu-amiga2/src/amiga.rs`** — Main system tick loop
+     - CIA→Paula integration in E-clock section (lines 224-239):
+       ```rust
+       if self.master_clock % CIA_DIVISOR == 0 {
+           self.bus.cia_a.tick();
+           self.bus.cia_b.tick();
+           self.bus.pump_keyboard();
+           self.bus.tick_floppy_index();
+           if self.bus.cia_a.irq_active() {
+               self.bus.paula.request_interrupt(3);
+           }
+           if self.bus.cia_b.irq_active() {
+               self.bus.paula.request_interrupt(13);
+           }
+       }
+       ```
+     - CPU ticks BEFORE CIA E-clock in the same master_clock cycle (CPU at lines 217-222, CIA at 225-239)
+
+   - **`crates/emu-amiga2/src/paula.rs`** — Interrupt controller
+     - compute_ipl() maps INTENA & INTREQ to IPL levels 0-6
+     - Level 2: PORTS (bit 3, CIA-A); Level 6: EXTER (bit 13, CIA-B)
+
+   - **`crates/emu-amiga2/src/bus.rs`** — Bus and address decoding
+     - CIA ICR reads correctly routed to `read_icr_and_clear()` (lines 427-452)
+     - `interrupt_ack()` returns autovectors `24 + level` (line 975-978)
+     - COP2LC written via `write_custom_reg_from()` which updates `copper.cop2lc` (lines 212-225)
+     - COPJMP2 triggers `copper.restart_cop2()` (line 228-230)
+     - Copper MOVE results applied via `write_custom_reg_from(reg, value, "cop")` in amiga.rs
+
+   - **`crates/emu-amiga2/src/copper.rs`** — Copper coprocessor
+     - MOVE instruction: `reg = ir1 & 0x01FE`, blocked if `reg < 0x080 && !danger` (line 126-128)
+     - COPJMP2 (reg $008A >= $080) passes the danger check, gets written to custom reg handler
+     - End-of-list: $FFFF $FFFE sets state to Idle
+     - tick_with_bus() traces up to 5000 instructions in `self.trace`
+
+   - **`crates/cpu-m68k/src/cpu.rs`** — 68000 CPU
+     - `accept_interrupt()`: level must exceed mask (or level 7 NMI)
+     - STOP state wakes when `int_pending > interrupt_mask() || int_pending == 7`
+     - `is_stopped()` and `is_halted()` exposed for diagnostics
+
+   - **`crates/emu-amiga2/tests/boot_trace.rs`** — Boot verification test suite (heavily modified this session)
+     - Added `diag_interrupt_state` test that dumps full system state at frames 50/100/150/200/250/300
+     - Includes: CPU state, Paula INTENA/INTREQ/IPL, CIA-A/B timer/ICR state, exec task lists, IntVects with server chains, device list, resource list, Copper state (COP1LC/COP2LC/PC/danger/trace), INTENA writes from Copper, memory dumps around problematic addresses
+
+   - **ROM analysis** (KS 1.3 at `roms/kick13.rom`):
+     - **timer.device init at $FE8DF4**: Opens ciaa.resource (NOT ciab!), calls AddICRVector(1) for CIA-A Timer B, measures PAL/NTSC via CIA timer, stores detected frequency
+     - **VBlank handler at $FC6D48**: Reads GfxBase->LOFlist ($32(A1)) or SHFlist ($36(A1)), writes to COP2LC via `MOVE.L D0,$84(A0)` at $FC6D6C
+     - **24 RomTags found**: cia.resource(pri 80), graphics.library(pri 65), timer.device(pri 50), trackdisk.device(pri 20)
+
+4. Errors and Fixes:
+   - **AMIGA_KS13_ROM env var not picked up**: Test panicked with "Set AMIGA_KS13_ROM to a Kickstart 1.3 ROM path". Fixed by using absolute path `/Users/stevehill/Projects/Emu198x/roms/kick13.rom` instead of relative `roms/kick13.rom`.
+   - **No other code errors in this session** — all diagnostic test additions compiled and ran correctly.
+
+5. Problem Solving:
+   **Solved — Full root cause chain identified:**
+   1. GfxBase->LOFlist transitions from valid Copper list ($2408) to $0676 (ExecBase)
+   2. VBlank handler at $FC6D6C writes $0676 to COP2LC every frame
+   3. System Copper list at COP1LC=$2368 includes COPJMP2 instruction at $23B4
+   4. Copper jumps to COP2LC ($0676 = ExecBase data)
+   5. ExecBase data at $2CBC is accidentally decoded as Copper MOVE: word $509A decodes as reg=$009A (INTENA), word $000E as value (CLR bits 1,2,3)
+   6. **INTENA bit 3 (PORTS) cleared** — CIA-A interrupts disabled
+   7. timer.device (which uses CIA-A Timer B) can't deliver timer signals to CPU
+   8. trackdisk.device waits forever on signal bit 10 (timer timeout never arrives)
+   9. strap's DoIO to trackdisk never returns → boot stalls
+   10. CPU enters STOP state at $FC0F96 (exec scheduler idle loop)
+
+   **Key intermediate discovery**: timer.device uses CIA-A (not CIA-B as initially assumed). CIA-A Timer B ICR mask IS correctly set ($0A). The problem is that INTENA PORTS bit gets cleared by the Copper executing junk data from ExecBase.
+
+   **Unsolved — WHY GfxBase->LOFlist becomes $0676**: The VBlank handler reads from GfxBase+$32. At some point during boot, this field transitions from a valid Copper list pointer ($2408) to $0676 (ExecBase). The root cause of this corruption needs to be determined. Possible causes:
+   - LoadView(NULL) or LoadView with corrupt View sets LOFlist to ExecBase
+   - Memory corruption overwrites GfxBase+$32
+   - GfxBase+$32 was never properly initialized and $0676 is residual data
+
+6. All User Messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+7. Pending Tasks:
+   - Determine WHY GfxBase->LOFlist becomes $0676 (ExecBase) and fix it
+   - Once the Copper stops executing ExecBase data, INTENA PORTS should stay enabled
+   - With PORTS enabled, CIA-A Timer B interrupts reach CPU → timer.device works → trackdisk gets timer signals → DoIO completes → strap proceeds → boot continues to "Insert Disk" screen
+   - The plan file at `/Users/stevehill/.claude/plans/dreamy-cooking-coral.md` has additional steps (bus errors for unmapped addresses, Copper WAIT mask fix, diagnostic cleanup, boot trace test, config naming) but the immediate priority is fixing the COP2LC/GfxBase->LOFlist corruption
+
+8. Current Work:
+   Was actively investigating the memory dump at the INTENA write location ($2CBC) and the COP2LC=$0676 ExecBase data dump. The last diagnostic test run successfully showed:
+   - Memory at $2CBC: `$509A $000E` — word $509A accidentally decodes as INTENA register write
+   - COP2LC=$0676 pointing to ExecBase data that gets misinterpreted as Copper instructions
+   
+   The investigation had just confirmed the full root cause chain from COP2LC corruption through to boot stall. The next step is to determine WHY GfxBase->LOFlist becomes $0676.
+
+9. Optional Next Step:
+   Add diagnostic tracking of GfxBase->LOFlist to determine WHEN and WHY it changes from $2408 to $0676. Specifically:
+   - Find GfxBase address (from the library list or via OpenLibrary tracing)
+   - Monitor GfxBase+$32 (LOFlist) across frames to detect the transition
+   - Add a memory watch on GfxBase+$32 to catch the write that corrupts it
+   - Alternatively, check if the existing COP2LC log already reveals the frame where the transition happens (COP2LC goes from $2408 to $0676 in the diagnostic output — find the exact frame)
+   
+   This directly continues the current investigation of "why does COP2LC become $0676" which was the active work when the summary was requested.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user for tool use]
