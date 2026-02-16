@@ -159,6 +159,8 @@ pub struct Cpu68000 {
     pub src_mode: Option<AddrMode>,
     pub dst_mode: Option<AddrMode>,
     pub size: Size,
+    pub ea_reg: u8,
+    pub ea_pc: u32,
 }
 
 const FOLLOWUP_MOVE_READ_SRC_DATA: u8 = 1;
@@ -167,6 +169,10 @@ const FOLLOWUP_MOVE_WRITE_DATA: u8 = 3;
 const FOLLOWUP_MOVE_READ_SRC_EA_LONG: u8 = 4;
 const FOLLOWUP_MOVE_CALC_DST_EA_LONG: u8 = 5;
 const FOLLOWUP_MOVE_READ_SRC_DATA_LONG: u8 = 6;
+const FOLLOWUP_MOVE_READ_SRC_EA_DISP: u8 = 7;
+const FOLLOWUP_MOVE_CALC_DST_EA_DISP: u8 = 8;
+const FOLLOWUP_MOVE_READ_SRC_EA_PCDISP: u8 = 9;
+const FOLLOWUP_MOVE_CALC_DST_EA_PCDISP: u8 = 10;
 
 impl Cpu68000 {
     pub fn new() -> Self {
@@ -393,6 +399,30 @@ impl Cpu68000 {
                 self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
                 self.micro_ops.push(MicroOp::Execute);
             }
+            FOLLOWUP_MOVE_READ_SRC_EA_DISP => {
+                let disp = self.consume_irc() as i16 as i32;
+                self.addr = self.regs.a(self.ea_reg as usize).wrapping_add(disp as u32);
+                self.followup_tag = FOLLOWUP_MOVE_READ_SRC_DATA;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            FOLLOWUP_MOVE_CALC_DST_EA_DISP => {
+                let disp = self.consume_irc() as i16 as i32;
+                self.addr = self.regs.a(self.ea_reg as usize).wrapping_add(disp as u32);
+                self.followup_tag = FOLLOWUP_MOVE_WRITE_DATA;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            FOLLOWUP_MOVE_READ_SRC_EA_PCDISP => {
+                let disp = self.consume_irc() as i16 as i32;
+                self.addr = self.ea_pc.wrapping_add(disp as u32);
+                self.followup_tag = FOLLOWUP_MOVE_READ_SRC_DATA;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            FOLLOWUP_MOVE_CALC_DST_EA_PCDISP => {
+                let disp = self.consume_irc() as i16 as i32;
+                self.addr = self.ea_pc.wrapping_add(disp as u32);
+                self.followup_tag = FOLLOWUP_MOVE_WRITE_DATA;
+                self.micro_ops.push(MicroOp::Execute);
+            }
             FOLLOWUP_MOVE_READ_SRC_DATA => {
                 let src_mode = self.src_mode.unwrap();
                 match src_mode {
@@ -479,6 +509,27 @@ impl Cpu68000 {
                 self.addr = self.regs.a(reg as usize);
                 true
             }
+            AddrMode::AddrIndPostInc(reg) => {
+                self.addr = self.regs.a(reg as usize);
+                let step = if reg == 7 && self.size == Size::Byte { 2 } else { self.size.bytes() as u32 };
+                self.regs.set_a(reg as usize, self.addr.wrapping_add(step));
+                true
+            }
+            AddrMode::AddrIndPreDec(reg) => {
+                let step = if reg == 7 && self.size == Size::Byte { 2 } else { self.size.bytes() as u32 };
+                self.addr = self.regs.a(reg as usize).wrapping_sub(step);
+                self.regs.set_a(reg as usize, self.addr);
+                true
+            }
+            AddrMode::AddrIndDisp(reg) => {
+                self.ea_reg = reg;
+                self.followup_tag = if self.followup_tag == FOLLOWUP_MOVE_READ_SRC_DATA {
+                    FOLLOWUP_MOVE_READ_SRC_EA_DISP
+                } else {
+                    FOLLOWUP_MOVE_CALC_DST_EA_DISP
+                };
+                false
+            }
             AddrMode::AbsShort => {
                 let val = self.consume_irc();
                 self.addr = (val as i16 as i32) as u32;
@@ -494,6 +545,15 @@ impl Cpu68000 {
                     FOLLOWUP_MOVE_CALC_DST_EA_LONG
                 };
                 false // Not finished, pushed FetchIRC
+            }
+            AddrMode::PcDisp => {
+                self.ea_pc = self.irc_addr;
+                self.followup_tag = if self.followup_tag == FOLLOWUP_MOVE_READ_SRC_DATA {
+                    FOLLOWUP_MOVE_READ_SRC_EA_PCDISP
+                } else {
+                    FOLLOWUP_MOVE_CALC_DST_EA_PCDISP
+                };
+                false
             }
             _ => {
                 self.state = State::Halted;
