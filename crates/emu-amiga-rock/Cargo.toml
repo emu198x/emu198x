@@ -1,0 +1,13 @@
+[package]
+name = "emu-amiga-rock"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+# We'll decide later if we depend on cpu-m68k or a new CPU core
+# cpu-m68k = { path = "../cpu-m68k" }
+
+[lib]
+name = "emu_amiga_rock"
+path = "src/lib.rs"
