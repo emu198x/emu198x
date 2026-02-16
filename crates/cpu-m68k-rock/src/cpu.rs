@@ -151,7 +151,9 @@ pub struct Cpu68000 {
     pub size: Size,
 }
 
-const FOLLOWUP_MOVE_STORE: u8 = 1;
+const FOLLOWUP_MOVE_READ_SRC_DATA: u8 = 1;
+const FOLLOWUP_MOVE_CALC_DST_EA: u8 = 2;
+const FOLLOWUP_MOVE_WRITE_DATA: u8 = 3;
 
 impl Cpu68000 {
     pub fn new() -> Self {
@@ -214,14 +216,6 @@ impl Cpu68000 {
         if crystal_clock % 4 != 0 {
             return;
         }
-
-        // println!("CPU Tick: PC=${:08X} IR=${:04X} IRC=${:04X} State={:?} Queue={:?}", self.regs.pc, self.ir, self.irc, match self.state {
-        //     State::Idle => "Idle",
-        //     State::Internal { .. } => "Internal",
-        //     State::BusCycle { .. } => "BusCycle",
-        //     State::Halted => "Halted",
-        //     State::Stopped => "Stopped",
-        // }, self.micro_ops.debug_contents());
 
         // 1. If idle, try to start something
         if matches!(self.state, State::Idle) {
@@ -325,28 +319,28 @@ impl Cpu68000 {
         let opcode = self.ir;
         // println!("  DECODE: opcode=${:04X} at instr_start=${:08X}", opcode, self.instr_start_pc);
 
-        // MOVE.W (An), Dm (0011 ddd 000 010 sss)
-        if (opcode & 0xF1F8) == 0x3010 {
-            let src_reg = (opcode & 0x0007) as u8;
-            let dst_reg = ((opcode >> 9) & 0x0007) as u8;
-            
-            self.addr = self.regs.a(src_reg as usize);
-            self.size = Size::Word;
-            self.dst_mode = Some(AddrMode::DataReg(dst_reg));
-            
-            self.in_followup = true;
-            self.followup_tag = FOLLOWUP_MOVE_STORE;
-            self.micro_ops.push(MicroOp::ReadWord);
-            self.micro_ops.push(MicroOp::Execute);
-            return;
-        }
+        // MOVE.B/W/L (00ss ddd mmm sss)
+        if (opcode & 0xC000) == 0x0000 && (opcode & 0x3000) != 0 {
+            let size = match (opcode >> 12) & 0x03 {
+                1 => Size::Byte,
+                2 => Size::Long,
+                3 => Size::Word,
+                _ => unreachable!(),
+            };
+            let src_mode_bits = (opcode >> 3) & 0x07;
+            let src_reg = opcode & 0x07;
+            let dst_reg = (opcode >> 9) & 0x07;
+            let dst_mode_bits = (opcode >> 6) & 0x07;
 
-        // MOVE.W Dn, Dm (0011 ddd 000 sss)
-        if (opcode & 0xF1C0) == 0x3000 {
-            let src_reg = (opcode & 0x0007) as usize;
-            let dst_reg = ((opcode >> 9) & 0x0007) as usize;
-            let val = self.regs.d[src_reg] as u16;
-            self.regs.d[dst_reg] = (self.regs.d[dst_reg] & 0xFFFF_0000) | u32::from(val);
+            self.size = size;
+            self.src_mode = AddrMode::decode(src_mode_bits as u8, src_reg as u8);
+            self.dst_mode = AddrMode::decode(dst_mode_bits as u8, dst_reg as u8);
+            
+            // Step 1: Calculate Source EA
+            self.in_followup = true;
+            self.followup_tag = FOLLOWUP_MOVE_READ_SRC_DATA;
+            self.calc_ea(self.src_mode.unwrap(), self.size);
+            self.micro_ops.push(MicroOp::Execute);
             return;
         }
 
@@ -373,20 +367,117 @@ impl Cpu68000 {
 
     fn continue_instruction(&mut self) {
         match self.followup_tag {
-            FOLLOWUP_MOVE_STORE => {
-                if let Some(AddrMode::DataReg(reg)) = self.dst_mode {
-                    let val = self.data;
-                    let size = self.size;
-                    let reg_val = &mut self.regs.d[reg as usize];
-                    *reg_val = match size {
-                        Size::Byte => (*reg_val & 0xFFFF_FF00) | (val & 0xFF),
-                        Size::Word => (*reg_val & 0xFFFF_0000) | (val & 0xFFFF),
-                        Size::Long => val,
-                    };
+            FOLLOWUP_MOVE_READ_SRC_DATA => {
+                let src_mode = self.src_mode.unwrap();
+                match src_mode {
+                    AddrMode::DataReg(reg) => {
+                        let val = self.regs.d[reg as usize];
+                        self.data = val;
+                        self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
+                        self.continue_instruction();
+                    }
+                    AddrMode::AddrReg(reg) => {
+                        let val = self.regs.a[reg as usize];
+                        self.data = val;
+                        self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
+                        self.continue_instruction();
+                    }
+                    AddrMode::Immediate => {
+                        let val = self.consume_irc();
+                        if self.size == Size::Long {
+                            self.data = (u32::from(val) << 16) | u32::from(self.consume_irc());
+                        } else {
+                            self.data = u32::from(val);
+                        }
+                        self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
+                        self.continue_instruction();
+                    }
+                    _ => {
+                        self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
+                        self.queue_read_ops(self.size);
+                        self.micro_ops.push(MicroOp::Execute);
+                    }
                 }
+            }
+            FOLLOWUP_MOVE_CALC_DST_EA => {
+                self.followup_tag = FOLLOWUP_MOVE_WRITE_DATA;
+                self.calc_ea(self.dst_mode.unwrap(), self.size);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            FOLLOWUP_MOVE_WRITE_DATA => {
+                let dst_mode = self.dst_mode.unwrap();
+                match dst_mode {
+                    AddrMode::DataReg(reg) => {
+                        let val = self.data;
+                        let size = self.size;
+                        let reg_val = &mut self.regs.d[reg as usize];
+                        *reg_val = match size {
+                            Size::Byte => (*reg_val & 0xFFFF_FF00) | (val & 0xFF),
+                            Size::Word => (*reg_val & 0xFFFF_0000) | (val & 0xFFFF),
+                            Size::Long => val,
+                        };
+                        self.in_followup = false;
+                    }
+                    AddrMode::AddrReg(reg) => {
+                        let val = self.data;
+                        // MOVEA always sign-extends word to long and doesn't set flags.
+                        // (Wait, MOVE to AddrReg is MOVEA).
+                        self.regs.a[reg as usize] = if self.size == Size::Word {
+                            (val as i16 as i32) as u32
+                        } else {
+                            val
+                        };
+                        self.in_followup = false;
+                    }
+                    _ => {
+                        self.queue_write_ops(self.size);
+                        self.in_followup = false;
+                    }
+                }
+            }
+            _ => {
                 self.in_followup = false;
             }
-            _ => {}
+        }
+    }
+
+    fn calc_ea(&mut self, mode: AddrMode, _size: Size) {
+        match mode {
+            AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate => {
+                // Instant
+            }
+            AddrMode::AddrInd(reg) => {
+                self.addr = self.regs.a(reg as usize);
+            }
+            _ => {
+                // To be implemented as needed
+                println!("HALT: AddrMode {:?} not yet implemented in calc_ea", mode);
+                self.state = State::Halted;
+            }
+        }
+    }
+
+    fn queue_read_ops(&mut self, size: Size) {
+        match size {
+            Size::Byte | Size::Word => {
+                self.micro_ops.push(MicroOp::ReadWord); // Amiga is word-bus, but CPU handles byte
+            }
+            Size::Long => {
+                self.micro_ops.push(MicroOp::ReadLongHi);
+                self.micro_ops.push(MicroOp::ReadLongLo);
+            }
+        }
+    }
+
+    fn queue_write_ops(&mut self, size: Size) {
+        match size {
+            Size::Byte | Size::Word => {
+                self.micro_ops.push(MicroOp::WriteWord);
+            }
+            Size::Long => {
+                self.micro_ops.push(MicroOp::WriteLongHi);
+                self.micro_ops.push(MicroOp::WriteLongLo);
+            }
         }
     }
 
