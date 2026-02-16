@@ -31,8 +31,8 @@ fn test_minimal_execution() {
     // 7. MOVE.W #$00D0, $DFF094 (DDFSTOP = $D0)
     rom[34] = 0x33; rom[35] = 0xFC; rom[36] = 0x00; rom[37] = 0xD0;
     rom[38] = 0x00; rom[39] = 0xDF; rom[40] = 0xF0; rom[41] = 0x94;
-    // 8. MOVE.W #$8300, $DFF096 (DMACON = SET + DMAEN + BPLEN)
-    rom[42] = 0x33; rom[43] = 0xFC; rom[44] = 0x83; rom[45] = 0x00;
+    // 8. MOVE.W #$8380, $DFF096 (DMACON = SET + DMAEN + BPLEN + COPEN)
+    rom[42] = 0x33; rom[43] = 0xFC; rom[44] = 0x83; rom[45] = 0x80;
     rom[46] = 0x00; rom[47] = 0xDF; rom[48] = 0xF0; rom[49] = 0x96;
     // 9. MOVE.W #$1200, $DFF100 (BPLCON0 = 1 bitplane)
     rom[50] = 0x33; rom[51] = 0xFC; rom[52] = 0x12; rom[53] = 0x00;
@@ -41,8 +41,17 @@ fn test_minimal_execution() {
     rom[58] = 0x23; rom[59] = 0xFC; rom[60] = 0x00; rom[61] = 0x00;
     rom[62] = 0x20; rom[63] = 0x00; rom[64] = 0x00; rom[65] = 0xDF;
     rom[66] = 0xF0; rom[67] = 0xE0;
-    // 11. NOP
-    rom[68] = 0x4E; rom[69] = 0x71;
+    
+    // Test Copper Setup:
+    // 11. MOVE.L #$00003000, $DFF080 (COP1LC = $3000)
+    rom[68] = 0x23; rom[69] = 0xFC; rom[70] = 0x00; rom[71] = 0x00;
+    rom[72] = 0x30; rom[73] = 0x00; rom[74] = 0x00; rom[75] = 0xDF;
+    rom[76] = 0xF0; rom[77] = 0x80;
+    // 12. MOVE.W #$0000, $DFF088 (COPJMP1)
+    rom[78] = 0x33; rom[79] = 0xFC; rom[80] = 0x00; rom[81] = 0x00;
+    rom[82] = 0x00; rom[83] = 0xDF; rom[84] = 0xF0; rom[85] = 0x88;
+    // 13. NOP
+    rom[86] = 0x4E; rom[87] = 0x71;
 
     let mut amiga = Amiga::new(rom);
     
@@ -55,9 +64,20 @@ fn test_minimal_execution() {
         amiga.memory.write_byte(0x2000 + i*2, 0xAA);
         amiga.memory.write_byte(0x2001 + i*2, 0x55);
     }
+    
+    // Set Copper list at $3000
+    // 1. WAIT v=50, h=0
+    amiga.memory.write_byte(0x3000, 0x32); amiga.memory.write_byte(0x3001, 0x01); // 0x3201
+    amiga.memory.write_byte(0x3002, 0xFF); amiga.memory.write_byte(0x3003, 0xFE); // 0xFFFE
+    // 2. MOVE #$000F, COLOR00 (Blue)
+    amiga.memory.write_byte(0x3004, 0x01); amiga.memory.write_byte(0x3005, 0x80); // 0x0180
+    amiga.memory.write_byte(0x3006, 0x00); amiga.memory.write_byte(0x3007, 0x0F); // 0x000F
+    // 3. END
+    amiga.memory.write_byte(0x3008, 0xFF); amiga.memory.write_byte(0x3009, 0xFF);
+    amiga.memory.write_byte(0x300A, 0xFF); amiga.memory.write_byte(0x300B, 0xFE);
 
-    // Run for longer now (50,000 ticks) to let the beam reach DDFSTRT
-    for _ in 0..50000 {
+    // Run for longer now (100,000 ticks) to let the beam reach line 50
+    for _ in 0..100000 {
         amiga.tick();
     }
 
@@ -67,8 +87,11 @@ fn test_minimal_execution() {
     assert_eq!(amiga.cpu.regs.d[2] & 0xFFFF, 0x1234);
     assert_eq!(amiga.memory.read_byte(0x1000), 0x00);
     assert_eq!(amiga.memory.read_byte(0x1001), 0x08);
-    assert_eq!(amiga.denise.palette[0], 0x0F00);
     
     // Check DMA result
     assert_eq!(amiga.denise.bpl_data[0], 0xAA55);
+    
+    // Check Copper result
+    // Should be Blue ($000F) now, overwritten the Red ($0F00) set by CPU
+    assert_eq!(amiga.denise.palette[0], 0x000F);
 }

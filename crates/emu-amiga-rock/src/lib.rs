@@ -10,10 +10,12 @@ pub mod agnus;
 pub mod denise;
 pub mod paula;
 pub mod memory;
+pub mod copper;
 
 use crate::agnus::{Agnus, SlotOwner};
 use crate::memory::Memory;
 use crate::denise::Denise;
+use crate::copper::Copper;
 use cpu_m68k_rock::cpu::Cpu68000;
 use cpu_m68k_rock::bus::{M68kBus, FunctionCode, BusStatus};
 
@@ -37,6 +39,7 @@ pub struct Amiga {
     pub agnus: Agnus,
     pub memory: Memory,
     pub denise: Denise,
+    pub copper: Copper,
 }
 
 impl Amiga {
@@ -62,6 +65,7 @@ impl Amiga {
             agnus: Agnus::new(),
             memory,
             denise: Denise::new(),
+            copper: Copper::new(),
         }
     }
 
@@ -87,7 +91,17 @@ impl Amiga {
                     self.agnus.bpl_pt[idx] = addr.wrapping_add(2);
                 }
                 SlotOwner::Copper => {
-                    // self.copper.tick(&mut bus_wrapper); // To be implemented
+                    let res = {
+                        let memory = &self.memory;
+                        self.copper.tick(vpos, hpos, |addr| {
+                            let hi = memory.read_chip_byte(addr);
+                            let lo = memory.read_chip_byte(addr | 1);
+                            (u16::from(hi) << 8) | u16::from(lo)
+                        })
+                    };
+                    if let Some((reg, val)) = res {
+                        self.write_custom_reg(reg, val);
+                    }
                 }
                 _ => {}
             }
@@ -107,8 +121,45 @@ impl Amiga {
                 agnus: &mut self.agnus,
                 memory: &mut self.memory,
                 denise: &mut self.denise,
+                copper: &mut self.copper,
             };
             self.cpu.tick(&mut bus, self.master_clock);
+        }
+    }
+
+    pub fn write_custom_reg(&mut self, offset: u16, val: u16) {
+        match offset {
+            0x080 => self.copper.cop1lc = (self.copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
+            0x082 => self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
+            0x084 => self.copper.cop2lc = (self.copper.cop2lc & 0x0000FFFF) | (u32::from(val) << 16),
+            0x086 => self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
+            0x088 => self.copper.restart_cop1(),
+            0x08A => self.copper.restart_cop2(),
+            0x092 => self.agnus.ddfstrt = val,
+            0x094 => self.agnus.ddfstop = val,
+            0x096 => { // DMACON
+                if val & 0x8000 != 0 {
+                    self.agnus.dmacon |= val & 0x7FFF;
+                } else {
+                    self.agnus.dmacon &= !(val & 0x7FFF);
+                }
+            }
+            0x100 => {
+                self.agnus.bplcon0 = val;
+            }
+            0x0E0..=0x0EE => { // BPLxPT
+                let idx = ((offset - 0x0E0) / 4) as usize;
+                if offset & 2 == 0 { // High word
+                    self.agnus.bpl_pt[idx] = (self.agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16);
+                } else { // Low word
+                    self.agnus.bpl_pt[idx] = (self.agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE);
+                }
+            }
+            0x180..=0x1BE => {
+                let idx = ((offset - 0x180) / 2) as usize;
+                self.denise.set_palette(idx, val);
+            }
+            _ => {}
         }
     }
 
@@ -132,6 +183,7 @@ pub struct AmigaBusWrapper<'a> {
     pub agnus: &'a mut Agnus,
     pub memory: &'a mut Memory,
     pub denise: &'a mut Denise,
+    pub copper: &'a mut Copper,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -150,7 +202,16 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             let offset = (addr & 0x1FE) as u16;
             if !is_read {
                 let val = data.unwrap_or(0);
+                // We need a way to call write_custom_reg from here.
+                // Since we don't have access to Amiga, we duplicate the match or move it to a helper.
+                // For now, let's duplicate the logic or use a shared helper.
                 match offset {
+                    0x080 => self.copper.cop1lc = (self.copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
+                    0x082 => self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
+                    0x084 => self.copper.cop2lc = (self.copper.cop2lc & 0x0000FFFF) | (u32::from(val) << 16),
+                    0x086 => self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
+                    0x088 => self.copper.restart_cop1(),
+                    0x08A => self.copper.restart_cop2(),
                     0x092 => self.agnus.ddfstrt = val,
                     0x094 => self.agnus.ddfstop = val,
                     0x096 => { // DMACON
