@@ -40,6 +40,9 @@ pub trait M68kBus {
         data: Option<u16>,
     ) -> BusStatus;
 
+    /// Poll the current interrupt priority level (IPL0-IPL2).
+    fn poll_ipl(&mut self) -> u8;
+
     /// Poll for the completion of an interrupt acknowledge cycle.
     fn poll_interrupt_ack(&mut self, level: u8) -> BusStatus;
 

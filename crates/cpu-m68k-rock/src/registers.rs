@@ -94,6 +94,14 @@ impl Registers {
         self.sr & 0x2000 != 0
     }
 
+    pub fn set_supervisor(&mut self, supervisor: bool) {
+        if supervisor {
+            self.sr |= 0x2000;
+        } else {
+            self.sr &= !0x2000;
+        }
+    }
+
     /// Get the interrupt mask level (0-7).
     #[must_use]
     pub const fn interrupt_mask(&self) -> u8 {

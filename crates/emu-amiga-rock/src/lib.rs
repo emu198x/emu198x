@@ -18,6 +18,7 @@ use crate::memory::Memory;
 use crate::denise::Denise;
 use crate::copper::Copper;
 use crate::cia::Cia;
+use crate::paula::Paula;
 use cpu_m68k_rock::cpu::Cpu68000;
 use cpu_m68k_rock::bus::{M68kBus, FunctionCode, BusStatus};
 
@@ -46,6 +47,7 @@ pub struct Amiga {
     pub copper: Copper,
     pub cia_a: Cia,
     pub cia_b: Cia,
+    pub paula: Paula,
 }
 
 impl Amiga {
@@ -74,6 +76,7 @@ impl Amiga {
             copper: Copper::new(),
             cia_a: Cia::new(),
             cia_b: Cia::new(),
+            paula: Paula::new(),
         }
     }
 
@@ -85,6 +88,11 @@ impl Amiga {
             let vpos = self.agnus.vpos;
             let hpos = self.agnus.hpos;
             
+            // Trigger VERTB interrupt (bit 5) at start of VBlank (line 312)
+            if vpos == 312 && hpos == 0 {
+                self.paula.request_interrupt(5);
+            }
+
             // Determine slot owner BEFORE ticking Agnus
             let slot = self.agnus.current_slot();
             match slot {
@@ -107,6 +115,10 @@ impl Amiga {
                         })
                     };
                     if let Some((reg, val)) = res {
+                        // Copper interrupts (bit 4)
+                        if reg == 0x09C && (val & 0x0010) != 0 {
+                            self.paula.request_interrupt(4);
+                        }
                         self.write_custom_reg(reg, val);
                     }
                 }
@@ -131,14 +143,19 @@ impl Amiga {
                 copper: &mut self.copper,
                 cia_a: &mut self.cia_a,
                 cia_b: &mut self.cia_b,
+                paula: &mut self.paula,
             };
             self.cpu.tick(&mut bus, self.master_clock);
+            // In our reactive model, CPU should check IPL during tick
+            // We'll update Cpu68000 to handle IPL.
         }
 
         // 3. Tick CIA (Every 40 ticks)
         if self.master_clock % TICKS_PER_ECLOCK == 0 {
             self.cia_a.tick();
+            if self.cia_a.irq_active() { self.paula.request_interrupt(3); } // PORTS
             self.cia_b.tick();
+            if self.cia_b.irq_active() { self.paula.request_interrupt(13); } // EXTER
         }
     }
 
@@ -159,6 +176,8 @@ impl Amiga {
                     self.agnus.dmacon &= !(val & 0x7FFF);
                 }
             }
+            0x09A => self.paula.write_intena(val),
+            0x09C => self.paula.write_intreq(val),
             0x100 => {
                 self.agnus.bplcon0 = val;
             }
@@ -201,6 +220,7 @@ pub struct AmigaBusWrapper<'a> {
     pub copper: &'a mut Copper,
     pub cia_a: &'a mut Cia,
     pub cia_b: &'a mut Cia,
+    pub paula: &'a mut Paula,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -277,6 +297,8 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                             self.agnus.dmacon &= !(val & 0x7FFF);
                         }
                     }
+                    0x09A => self.paula.write_intena(val),
+                    0x09C => self.paula.write_intreq(val),
                     0x100 => {
                         self.agnus.bplcon0 = val;
                     }
@@ -292,6 +314,21 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         let idx = ((offset - 0x180) / 2) as usize;
                         self.denise.set_palette(idx, val);
                     }
+                    _ => {}
+                }
+            } else {
+                // Read custom regs
+                match offset {
+                    0x002 => return BusStatus::Ready(self.agnus.vpos & 0xFF), // VPOSR stub
+                    0x004 => return BusStatus::Ready((self.agnus.vpos >> 8) << 15 | self.agnus.hpos), // VHPOSR stub
+                    0x010 => return BusStatus::Ready(0), // ADKCONR stub
+                    0x012 => return BusStatus::Ready(0), // POTGOR stub
+                    0x014 => return BusStatus::Ready(0), // POTINP stub
+                    0x016 => return BusStatus::Ready(0), // SERDATR stub
+                    0x018 => return BusStatus::Ready(0), // DSKBYTR stub
+                    0x01A => return BusStatus::Ready(self.agnus.dmacon),
+                    0x01C => return BusStatus::Ready(self.paula.intena),
+                    0x01E => return BusStatus::Ready(self.paula.intreq),
                     _ => {}
                 }
             }
@@ -343,8 +380,13 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         }
     }
 
-    fn poll_interrupt_ack(&mut self, _level: u8) -> BusStatus {
-        BusStatus::Ready(24 + _level as u16) // Autovector stub
+    fn poll_ipl(&mut self) -> u8 {
+        self.paula.compute_ipl()
+    }
+
+    fn poll_interrupt_ack(&mut self, level: u8) -> BusStatus {
+        // Amiga uses autovectors for everything
+        BusStatus::Ready(24 + level as u16)
     }
 
     fn reset(&mut self) {
