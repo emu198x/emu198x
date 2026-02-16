@@ -136,6 +136,16 @@ pub enum State {
     Stopped,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AluOp {
+    Add,
+    Sub,
+    Cmp,
+    And,
+    Or,
+    Eor,
+}
+
 pub struct Cpu68000 {
     pub regs: Registers,
     pub state: State,
@@ -161,6 +171,7 @@ pub struct Cpu68000 {
     pub size: Size,
     pub ea_reg: u8,
     pub ea_pc: u32,
+    pub alu_op: AluOp,
 }
 
 const FOLLOWUP_MOVE_READ_SRC_DATA: u8 = 1;
@@ -173,9 +184,10 @@ const FOLLOWUP_MOVE_READ_SRC_EA_DISP: u8 = 7;
 const FOLLOWUP_MOVE_CALC_DST_EA_DISP: u8 = 8;
 const FOLLOWUP_MOVE_READ_SRC_EA_PCDISP: u8 = 9;
 const FOLLOWUP_MOVE_CALC_DST_EA_PCDISP: u8 = 10;
-const FOLLOWUP_ADD_READ_SRC: u8 = 11;
-const FOLLOWUP_ADD_CALC_DST: u8 = 12;
-const FOLLOWUP_ADD_EXECUTE: u8 = 13;
+const FOLLOWUP_ALU_READ_SRC: u8 = 11;
+const FOLLOWUP_ALU_CALC_DST: u8 = 12;
+const FOLLOWUP_ALU_EXECUTE: u8 = 13;
+const FOLLOWUP_BCC_EXECUTE: u8 = 14;
 
 impl Cpu68000 {
     pub fn new() -> Self {
@@ -196,19 +208,8 @@ impl Cpu68000 {
             size: Size::Word,
             ea_reg: 0,
             ea_pc: 0,
+            alu_op: AluOp::Add,
         }
-    }
-
-    pub fn setup_prefetch(&mut self, opcode: u16, irc: u16) {
-        self.ir = opcode;
-        self.irc = irc;
-        self.irc_addr = self.regs.pc.wrapping_sub(2);
-        self.instr_start_pc = self.regs.pc.wrapping_sub(4);
-        self.micro_ops.clear();
-        self.micro_ops.push(MicroOp::Execute);
-        self.state = State::Idle;
-        self.in_followup = false;
-        self.followup_tag = 0;
     }
 
     pub fn reset_to(&mut self, ssp: u32, pc: u32) {
@@ -223,7 +224,6 @@ impl Cpu68000 {
         self.micro_ops.push(MicroOp::PromoteIRC);
     }
 
-    /// Consume IRC as an extension word and queue FetchIRC to refill.
     pub fn consume_irc(&mut self) -> u16 {
         let val = self.irc;
         self.micro_ops.push_front(MicroOp::FetchIRC);
@@ -363,17 +363,139 @@ impl Cpu68000 {
                 let mode_bits = (opcode >> 3) & 0x07;
                 let reg_bits = opcode & 0x07;
                 let ea_mode = AddrMode::decode(mode_bits as u8, reg_bits as u8).unwrap();
-                
+                self.alu_op = AluOp::Add;
                 self.size = size;
                 self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) };
                 self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
-                
                 self.in_followup = true;
-                self.followup_tag = FOLLOWUP_ADD_READ_SRC;
+                self.followup_tag = FOLLOWUP_ALU_READ_SRC;
                 self.calc_ea(self.src_mode.unwrap(), self.size);
                 self.micro_ops.push(MicroOp::Execute);
                 return;
             }
+        }
+
+        // SUB (1001 rrr dss mmm rrr)
+        if (opcode & 0xF000) == 0x9000 {
+            let reg = ((opcode >> 9) & 0x07) as u8;
+            let opmode = (opcode >> 6) & 0x07;
+            if opmode != 3 && opmode != 7 {
+                let size = match opmode {
+                    0 | 4 => Size::Byte,
+                    1 | 5 => Size::Word,
+                    2 | 6 => Size::Long,
+                    _ => unreachable!(),
+                };
+                let to_reg = opmode < 4;
+                let mode_bits = (opcode >> 3) & 0x07;
+                let reg_bits = opcode & 0x07;
+                let ea_mode = AddrMode::decode(mode_bits as u8, reg_bits as u8).unwrap();
+                self.alu_op = AluOp::Sub;
+                self.size = size;
+                self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) };
+                self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
+                self.in_followup = true;
+                self.followup_tag = FOLLOWUP_ALU_READ_SRC;
+                self.calc_ea(self.src_mode.unwrap(), self.size);
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+        }
+
+        // CMP (1011 rrr 0ss mmm rrr)
+        if (opcode & 0xF100) == 0xB000 {
+            let reg = ((opcode >> 9) & 0x07) as u8;
+            let opmode = (opcode >> 6) & 0x07;
+            if opmode < 3 {
+                let size = match opmode {
+                    0 => Size::Byte,
+                    1 => Size::Word,
+                    2 => Size::Long,
+                    _ => unreachable!(),
+                };
+                let mode_bits = (opcode >> 3) & 0x07;
+                let reg_bits = opcode & 0x07;
+                let ea_mode = AddrMode::decode(mode_bits as u8, reg_bits as u8).unwrap();
+                self.alu_op = AluOp::Cmp;
+                self.size = size;
+                self.src_mode = Some(ea_mode);
+                self.dst_mode = Some(AddrMode::DataReg(reg));
+                self.in_followup = true;
+                self.followup_tag = FOLLOWUP_ALU_READ_SRC;
+                self.calc_ea(self.src_mode.unwrap(), self.size);
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+        }
+
+        // AND (1100 rrr dss mmm rrr)
+        if (opcode & 0xF000) == 0xC000 {
+            let reg = ((opcode >> 9) & 0x07) as u8;
+            let opmode = (opcode >> 6) & 0x07;
+            if opmode != 3 && opmode != 7 {
+                let size = match opmode {
+                    0 | 4 => Size::Byte,
+                    1 | 5 => Size::Word,
+                    2 | 6 => Size::Long,
+                    _ => unreachable!(),
+                };
+                let to_reg = opmode < 4;
+                let mode_bits = (opcode >> 3) & 0x07;
+                let reg_bits = opcode & 0x07;
+                let ea_mode = AddrMode::decode(mode_bits as u8, reg_bits as u8).unwrap();
+                self.alu_op = AluOp::And;
+                self.size = size;
+                self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) };
+                self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
+                self.in_followup = true;
+                self.followup_tag = FOLLOWUP_ALU_READ_SRC;
+                self.calc_ea(self.src_mode.unwrap(), self.size);
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+        }
+
+        // OR (1000 rrr dss mmm rrr)
+        if (opcode & 0xF000) == 0x8000 {
+            let reg = ((opcode >> 9) & 0x07) as u8;
+            let opmode = (opcode >> 6) & 0x07;
+            if opmode != 3 && opmode != 7 {
+                let size = match opmode {
+                    0 | 4 => Size::Byte,
+                    1 | 5 => Size::Word,
+                    2 | 6 => Size::Long,
+                    _ => unreachable!(),
+                };
+                let to_reg = opmode < 4;
+                let mode_bits = (opcode >> 3) & 0x07;
+                let reg_bits = opcode & 0x07;
+                let ea_mode = AddrMode::decode(mode_bits as u8, reg_bits as u8).unwrap();
+                self.alu_op = AluOp::Or;
+                self.size = size;
+                self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) };
+                self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
+                self.in_followup = true;
+                self.followup_tag = FOLLOWUP_ALU_READ_SRC;
+                self.calc_ea(self.src_mode.unwrap(), self.size);
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+        }
+
+        // BRA/Bcc (0110 cccc dddd dddd)
+        if (opcode & 0xF000) == 0x6000 {
+            let disp8 = (opcode & 0xFF) as i8;
+            self.in_followup = true;
+            self.followup_tag = FOLLOWUP_BCC_EXECUTE;
+            if disp8 == 0 {
+                self.micro_ops.push(MicroOp::FetchIRC);
+            } else if disp8 == -1 {
+                self.state = State::Halted;
+            } else {
+                self.data = disp8 as i32 as u32;
+            }
+            self.micro_ops.push(MicroOp::Execute);
+            return;
         }
 
         match opcode {
@@ -395,6 +517,19 @@ impl Cpu68000 {
 
     fn continue_instruction(&mut self) {
         match self.followup_tag {
+            FOLLOWUP_BCC_EXECUTE => {
+                let cond = ((self.ir >> 8) & 0x0F) as u8;
+                let disp8 = (self.ir & 0xFF) as i8;
+                let disp = if disp8 == 0 { self.consume_irc() as i16 as i32 } else { self.data as i32 };
+                if self.check_condition(cond) {
+                    let target = self.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
+                    self.regs.pc = target;
+                    self.micro_ops.clear();
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                    self.micro_ops.push(MicroOp::PromoteIRC);
+                }
+                self.in_followup = false;
+            }
             FOLLOWUP_MOVE_READ_SRC_EA_LONG => {
                 let lo = self.consume_irc();
                 self.addr |= u32::from(lo);
@@ -410,12 +545,11 @@ impl Cpu68000 {
             FOLLOWUP_MOVE_READ_SRC_DATA_LONG => {
                 let lo = self.consume_irc();
                 self.data |= u32::from(lo);
-                // This tag can be reached from MOVE or ADD
-                if (self.ir & 0xF000) == 0xD000 {
-                    self.followup_tag = FOLLOWUP_ADD_CALC_DST;
-                } else {
-                    self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
-                }
+                let is_alu = match self.ir & 0xF000 {
+                    0xD000 | 0x9000 | 0xB000 | 0xC000 | 0x8000 => true,
+                    _ => false,
+                };
+                if is_alu { self.followup_tag = FOLLOWUP_ALU_CALC_DST; } else { self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA; }
                 self.micro_ops.push(MicroOp::Execute);
             }
             FOLLOWUP_MOVE_READ_SRC_EA_DISP => {
@@ -484,10 +618,9 @@ impl Cpu68000 {
                 match dst_mode {
                     AddrMode::DataReg(reg) => {
                         let val = self.data;
-                        let size = self.size;
-                        self.set_flags_move(val, size);
+                        self.set_flags_move(val, self.size);
                         let reg_val = &mut self.regs.d[reg as usize];
-                        *reg_val = match size {
+                        *reg_val = match self.size {
                             Size::Byte => (*reg_val & 0xFFFF_FF00) | (val & 0xFF),
                             Size::Word => (*reg_val & 0xFFFF_0000) | (val & 0xFFFF),
                             Size::Long => val,
@@ -496,11 +629,7 @@ impl Cpu68000 {
                     }
                     AddrMode::AddrReg(reg) => {
                         let val = self.data;
-                        self.regs.a[reg as usize] = if self.size == Size::Word {
-                            (val as i16 as i32) as u32
-                        } else {
-                            val
-                        };
+                        self.regs.a[reg as usize] = if self.size == Size::Word { (val as i16 as i32) as u32 } else { val };
                         self.in_followup = false;
                     }
                     _ => {
@@ -510,17 +639,17 @@ impl Cpu68000 {
                     }
                 }
             }
-            FOLLOWUP_ADD_READ_SRC => {
+            FOLLOWUP_ALU_READ_SRC => {
                 let src_mode = self.src_mode.unwrap();
                 match src_mode {
                     AddrMode::DataReg(reg) => {
                         self.data = self.regs.d[reg as usize];
-                        self.followup_tag = FOLLOWUP_ADD_CALC_DST;
+                        self.followup_tag = FOLLOWUP_ALU_CALC_DST;
                         self.micro_ops.push(MicroOp::Execute);
                     }
                     AddrMode::AddrReg(reg) => {
                         self.data = self.regs.a[reg as usize];
-                        self.followup_tag = FOLLOWUP_ADD_CALC_DST;
+                        self.followup_tag = FOLLOWUP_ALU_CALC_DST;
                         self.micro_ops.push(MicroOp::Execute);
                     }
                     AddrMode::Immediate => {
@@ -530,47 +659,45 @@ impl Cpu68000 {
                             self.followup_tag = FOLLOWUP_MOVE_READ_SRC_DATA_LONG;
                         } else {
                             self.data = u32::from(val);
-                            self.followup_tag = FOLLOWUP_ADD_CALC_DST;
+                            self.followup_tag = FOLLOWUP_ALU_CALC_DST;
                         }
                         self.micro_ops.push(MicroOp::Execute);
                     }
                     _ => {
-                        self.followup_tag = FOLLOWUP_ADD_CALC_DST;
+                        self.followup_tag = FOLLOWUP_ALU_CALC_DST;
                         self.queue_read_ops(self.size);
                         self.micro_ops.push(MicroOp::Execute);
                     }
                 }
             }
-            FOLLOWUP_ADD_CALC_DST => {
-                self.ea_pc = self.data; // Use ea_pc as temp src_data storage
+            FOLLOWUP_ALU_CALC_DST => {
+                self.ea_pc = self.data; // Store src_data
                 if self.calc_ea(self.dst_mode.unwrap(), self.size) {
-                    self.followup_tag = FOLLOWUP_ADD_EXECUTE;
+                    self.followup_tag = FOLLOWUP_ALU_EXECUTE;
                 }
                 self.micro_ops.push(MicroOp::Execute);
             }
-            FOLLOWUP_ADD_EXECUTE => {
+            FOLLOWUP_ALU_EXECUTE => {
                 let src_val = self.ea_pc;
                 let dst_mode = self.dst_mode.unwrap();
                 match dst_mode {
                     AddrMode::DataReg(reg) => {
                         let dst_val = self.regs.d[reg as usize];
-                        let res = self.exec_add(src_val, dst_val, self.size);
-                        let reg_val = &mut self.regs.d[reg as usize];
-                        *reg_val = match self.size {
-                            Size::Byte => (*reg_val & 0xFFFF_FF00) | (res & 0xFF),
-                            Size::Word => (*reg_val & 0xFFFF_0000) | (res & 0xFFFF),
-                            Size::Long => res,
-                        };
+                        let res = self.exec_alu(self.alu_op, src_val, dst_val, self.size);
+                        if self.alu_op != AluOp::Cmp {
+                            let reg_val = &mut self.regs.d[reg as usize];
+                            *reg_val = match self.size {
+                                Size::Byte => (*reg_val & 0xFFFF_FF00) | (res & 0xFF),
+                                Size::Word => (*reg_val & 0xFFFF_0000) | (res & 0xFFFF),
+                                Size::Long => res,
+                            };
+                        }
                         self.in_followup = false;
                     }
-                    _ => {
-                        self.state = State::Halted;
-                    }
+                    _ => { self.state = State::Halted; }
                 }
             }
-            _ => {
-                self.in_followup = false;
-            }
+            _ => { self.in_followup = false; }
         }
     }
 
@@ -598,8 +725,8 @@ impl Cpu68000 {
                 self.followup_tag = match self.followup_tag {
                     FOLLOWUP_MOVE_READ_SRC_DATA => FOLLOWUP_MOVE_READ_SRC_EA_DISP,
                     FOLLOWUP_MOVE_CALC_DST_EA => FOLLOWUP_MOVE_CALC_DST_EA_DISP,
-                    FOLLOWUP_ADD_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_DISP,
-                    FOLLOWUP_ADD_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_DISP,
+                    FOLLOWUP_ALU_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_DISP,
+                    FOLLOWUP_ALU_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_DISP,
                     _ => self.followup_tag,
                 };
                 false
@@ -615,8 +742,8 @@ impl Cpu68000 {
                 self.followup_tag = match self.followup_tag {
                     FOLLOWUP_MOVE_READ_SRC_DATA => FOLLOWUP_MOVE_READ_SRC_EA_LONG,
                     FOLLOWUP_MOVE_CALC_DST_EA => FOLLOWUP_MOVE_CALC_DST_EA_LONG,
-                    FOLLOWUP_ADD_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_LONG,
-                    FOLLOWUP_ADD_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_LONG,
+                    FOLLOWUP_ALU_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_LONG,
+                    FOLLOWUP_ALU_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_LONG,
                     _ => self.followup_tag,
                 };
                 false
@@ -626,40 +753,27 @@ impl Cpu68000 {
                 self.followup_tag = match self.followup_tag {
                     FOLLOWUP_MOVE_READ_SRC_DATA => FOLLOWUP_MOVE_READ_SRC_EA_PCDISP,
                     FOLLOWUP_MOVE_CALC_DST_EA => FOLLOWUP_MOVE_CALC_DST_EA_PCDISP,
-                    FOLLOWUP_ADD_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_PCDISP,
-                    FOLLOWUP_ADD_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_PCDISP,
+                    FOLLOWUP_ALU_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_PCDISP,
+                    FOLLOWUP_ALU_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_PCDISP,
                     _ => self.followup_tag,
                 };
                 false
             }
-            _ => {
-                self.state = State::Halted;
-                true
-            }
+            _ => { self.state = State::Halted; true }
         }
     }
 
     fn queue_read_ops(&mut self, size: Size) {
         match size {
-            Size::Byte | Size::Word => {
-                self.micro_ops.push(MicroOp::ReadWord);
-            }
-            Size::Long => {
-                self.micro_ops.push(MicroOp::ReadLongHi);
-                self.micro_ops.push(MicroOp::ReadLongLo);
-            }
+            Size::Byte | Size::Word => { self.micro_ops.push(MicroOp::ReadWord); }
+            Size::Long => { self.micro_ops.push(MicroOp::ReadLongHi); self.micro_ops.push(MicroOp::ReadLongLo); }
         }
     }
 
     fn queue_write_ops(&mut self, size: Size) {
         match size {
-            Size::Byte | Size::Word => {
-                self.micro_ops.push(MicroOp::WriteWord);
-            }
-            Size::Long => {
-                self.micro_ops.push(MicroOp::WriteLongHi);
-                self.micro_ops.push(MicroOp::WriteLongLo);
-            }
+            Size::Byte | Size::Word => { self.micro_ops.push(MicroOp::WriteWord); }
+            Size::Long => { self.micro_ops.push(MicroOp::WriteLongHi); self.micro_ops.push(MicroOp::WriteLongLo); }
         }
     }
 
@@ -667,7 +781,6 @@ impl Cpu68000 {
         let is_supervisor = self.regs.is_supervisor();
         let fc_prog = if is_supervisor { FunctionCode::SupervisorProgram } else { FunctionCode::UserProgram };
         let fc_data = if is_supervisor { FunctionCode::SupervisorData } else { FunctionCode::UserData };
-        
         let (addr, fc, is_read, is_word, data) = match op {
             MicroOp::FetchIRC => (self.regs.pc, fc_prog, true, true, None),
             MicroOp::ReadByte => (self.addr, fc_data, true, false, None),
@@ -684,56 +797,70 @@ impl Cpu68000 {
             MicroOp::PopWord => (self.regs.active_sp(), fc_data, true, true, None),
             MicroOp::PopLongHi => (self.regs.active_sp(), fc_data, true, true, None),
             MicroOp::PopLongLo => (self.regs.active_sp().wrapping_add(2), fc_data, true, true, None),
-            _ => panic!("Non-bus op in initiate_bus_cycle: {:?}", op),
+            _ => panic!("Non-bus op: {:?}", op),
         };
-
-        State::BusCycle {
-            op, addr, fc, is_read, is_word, data, cycle_count: 0,
-        }
+        State::BusCycle { op, addr, fc, is_read, is_word, data, cycle_count: 0 }
     }
 
     fn finish_bus_cycle(&mut self, op: MicroOp, read_data: u16) {
         match op {
-            MicroOp::FetchIRC => {
-                self.irc = read_data;
-                self.irc_addr = self.regs.pc;
-                self.regs.pc = self.regs.pc.wrapping_add(2);
-            }
-            MicroOp::ReadWord | MicroOp::ReadByte => {
-                self.data = u32::from(read_data);
-            }
+            MicroOp::FetchIRC => { self.irc = read_data; self.irc_addr = self.regs.pc; self.regs.pc = self.regs.pc.wrapping_add(2); }
+            MicroOp::ReadWord | MicroOp::ReadByte => { self.data = u32::from(read_data); }
             _ => {}
         }
     }
 
-    fn exec_add(&mut self, src: u32, dst: u32, size: Size) -> u32 {
+    fn check_condition(&self, cond: u8) -> bool {
+        use crate::flags::{N, Z, V, C};
+        let sr = self.regs.sr;
+        let n = sr & N != 0; let z = sr & Z != 0; let v = sr & V != 0; let c = sr & C != 0;
+        match cond & 0x0F {
+            0 => true, 1 => false, 2 => !c && !z, 3 => c || z, 4 => !c, 5 => c, 6 => !z, 7 => z,
+            8 => !v, 9 => v, 10 => !n, 11 => n, 12 => (n && v) || (!n && !v), 13 => (n && !v) || (!n && v),
+            14 => (n && v && !z) || (!n && !v && !z), 15 => z || (n && !v) || (!n && v), _ => unreachable!(),
+        }
+    }
+
+    fn exec_alu(&mut self, op: AluOp, src: u32, dst: u32, size: Size) -> u32 {
         let mask = size.mask();
-        let s = src & mask;
-        let d = dst & mask;
-        let res = s.wrapping_add(d) & mask;
-        
-        self.set_flags_add(s, d, res, size);
-        res
+        let s = src & mask; let d = dst & mask;
+        match op {
+            AluOp::Add => { let res = s.wrapping_add(d) & mask; self.set_flags_add(s, d, res, size); res }
+            AluOp::Sub | AluOp::Cmp => { let res = d.wrapping_sub(s) & mask; self.set_flags_sub(s, d, res, size); res }
+            AluOp::And => { let res = s & d; self.set_flags_logic(res, size); res }
+            AluOp::Or => { let res = s | d; self.set_flags_logic(res, size); res }
+            AluOp::Eor => { let res = s ^ d; self.set_flags_logic(res, size); res }
+        }
     }
 
     fn set_flags_add(&mut self, s: u32, d: u32, r: u32, size: Size) {
         use crate::flags::{N, Z, V, C, X};
         self.regs.sr &= !(N | Z | V | C | X);
         let msb = size.msb_mask();
-        
         if r == 0 { self.regs.sr |= Z; }
         if r & msb != 0 { self.regs.sr |= N; }
-        
-        let sm = s & msb != 0;
-        let dm = d & msb != 0;
-        let rm = r & msb != 0;
-        
-        if (sm && dm) || (!rm && (sm || dm)) {
-            self.regs.sr |= C | X;
-        }
-        if (sm && dm && !rm) || (!sm && !dm && rm) {
-            self.regs.sr |= V;
-        }
+        let sm = s & msb != 0; let dm = d & msb != 0; let rm = r & msb != 0;
+        if (sm && dm) || (!rm && (sm || dm)) { self.regs.sr |= C | X; }
+        if (sm && dm && !rm) || (!sm && !dm && rm) { self.regs.sr |= V; }
+    }
+
+    fn set_flags_sub(&mut self, s: u32, d: u32, r: u32, size: Size) {
+        use crate::flags::{N, Z, V, C, X};
+        self.regs.sr &= !(N | Z | V | C | X);
+        let msb = size.msb_mask();
+        if r == 0 { self.regs.sr |= Z; }
+        if r & msb != 0 { self.regs.sr |= N; }
+        let sm = s & msb != 0; let dm = d & msb != 0; let rm = r & msb != 0;
+        if (sm && !dm) || (rm && (sm || !dm)) { self.regs.sr |= C | X; }
+        if (!sm && dm && !rm) || (sm && !dm && rm) { self.regs.sr |= V; }
+    }
+
+    fn set_flags_logic(&mut self, r: u32, size: Size) {
+        use crate::flags::{N, Z, V, C};
+        self.regs.sr &= !(N | Z | V | C);
+        let msb = size.msb_mask();
+        if r == 0 { self.regs.sr |= Z; }
+        if r & msb != 0 { self.regs.sr |= N; }
     }
 
     fn set_flags_move(&mut self, val: u32, size: Size) {
