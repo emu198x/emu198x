@@ -124,6 +124,10 @@ pub struct Cpu68000 {
     pub addr: u32,
     pub data: u32,
     pub instr_start_pc: u32,
+
+    // Multi-stage decode state
+    pub in_followup: bool,
+    pub followup_tag: u8,
 }
 
 impl Cpu68000 {
@@ -138,6 +142,8 @@ impl Cpu68000 {
             addr: 0,
             data: 0,
             instr_start_pc: 0,
+            in_followup: false,
+            followup_tag: 0,
         }
     }
 
@@ -149,6 +155,8 @@ impl Cpu68000 {
         self.micro_ops.clear();
         self.micro_ops.push(MicroOp::Execute);
         self.state = State::Idle;
+        self.in_followup = false;
+        self.followup_tag = 0;
     }
 
     pub fn reset_to(&mut self, ssp: u32, pc: u32) {
@@ -156,6 +164,8 @@ impl Cpu68000 {
         self.regs.pc = pc;
         self.regs.sr = 0x2700; // Supervisor, interrupts masked
         self.state = State::Idle;
+        self.in_followup = false;
+        self.followup_tag = 0;
         self.micro_ops.clear();
         // Standard 68k prefetch after reset
         self.micro_ops.push(MicroOp::FetchIRC); // Fetches first opcode into IRC
@@ -241,13 +251,37 @@ impl Cpu68000 {
         // IR <- IRC, queue FetchIRC + Execute
         self.ir = self.irc;
         self.instr_start_pc = self.irc_addr;
+        self.in_followup = false;
+        self.followup_tag = 0;
         
         self.micro_ops.push(MicroOp::FetchIRC);
         self.micro_ops.push(MicroOp::Execute);
     }
 
     fn decode_and_execute(&mut self) {
+        if self.in_followup {
+            self.continue_instruction();
+            return;
+        }
+
         let opcode = self.ir;
+        // ... rest of the code
+    }
+
+    fn continue_instruction(&mut self) {
+        // Multi-stage logic will go here
+    }
+
+
+        // MOVE.W Dn, Dm (0011 ddd 000 sss)
+        if (opcode & 0xF1C0) == 0x3000 {
+            let src_reg = (opcode & 0x0007) as usize;
+            let dst_reg = ((opcode >> 9) & 0x0007) as usize;
+            let val = self.regs.d[src_reg] as u16;
+            self.regs.d[dst_reg] = (self.regs.d[dst_reg] & 0xFFFF_0000) | u32::from(val);
+            // Flags update would go here
+            return;
+        }
 
         match opcode {
             0x4E71 => { // NOP
