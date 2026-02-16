@@ -50,8 +50,17 @@ fn test_minimal_execution() {
     // 12. MOVE.W #$0000, $DFF088 (COPJMP1)
     rom[78] = 0x33; rom[79] = 0xFC; rom[80] = 0x00; rom[81] = 0x00;
     rom[82] = 0x00; rom[83] = 0xDF; rom[84] = 0xF0; rom[85] = 0x88;
-    // 13. NOP
-    rom[86] = 0x4E; rom[87] = 0x71;
+
+    // Test Overlay Disable (CIA-A):
+    // 13. MOVE.B #$01, $BFE201 (CIA-A DDRA bit 0 = output)
+    rom[86] = 0x13; rom[87] = 0xFC; rom[88] = 0x00; rom[89] = 0x01;
+    rom[90] = 0x00; rom[91] = 0xBF; rom[92] = 0xE2; rom[93] = 0x01;
+    // 14. MOVE.B #$00, $BFE001 (CIA-A PRA bit 0 = 0 -> Overlay OFF)
+    rom[94] = 0x13; rom[95] = 0xFC; rom[96] = 0x00; rom[97] = 0x00;
+    rom[98] = 0x00; rom[99] = 0xBF; rom[100] = 0xE0; rom[101] = 0x01;
+    
+    // 15. NOP
+    rom[102] = 0x4E; rom[103] = 0x71;
 
     let mut amiga = Amiga::new(rom);
     
@@ -66,23 +75,22 @@ fn test_minimal_execution() {
     }
     
     // Set Copper list at $3000
-    // 1. WAIT v=50, h=0
-    amiga.memory.write_byte(0x3000, 0x32); amiga.memory.write_byte(0x3001, 0x01); // 0x3201
-    amiga.memory.write_byte(0x3002, 0xFF); amiga.memory.write_byte(0x3003, 0xFE); // 0xFFFE
-    // 2. MOVE #$000F, COLOR00 (Blue)
-    amiga.memory.write_byte(0x3004, 0x01); amiga.memory.write_byte(0x3005, 0x80); // 0x0180
-    amiga.memory.write_byte(0x3006, 0x00); amiga.memory.write_byte(0x3007, 0x0F); // 0x000F
-    // 3. END
-    amiga.memory.write_byte(0x3008, 0xFF); amiga.memory.write_byte(0x3009, 0xFF);
+    amiga.memory.write_byte(0x3000, 0x32); amiga.memory.write_byte(0x3001, 0x01); // WAIT v=50, h=0
+    amiga.memory.write_byte(0x3002, 0xFF); amiga.memory.write_byte(0x3003, 0xFE);
+    amiga.memory.write_byte(0x3004, 0x01); amiga.memory.write_byte(0x3005, 0x80); // MOVE #$000F, COLOR00
+    amiga.memory.write_byte(0x3006, 0x00); amiga.memory.write_byte(0x3007, 0x0F);
+    amiga.memory.write_byte(0x3008, 0xFF); amiga.memory.write_byte(0x3009, 0xFF); // END
     amiga.memory.write_byte(0x300A, 0xFF); amiga.memory.write_byte(0x300B, 0xFE);
 
-    // Run for longer now (100,000 ticks) to let the beam reach line 50
-    for _ in 0..100000 {
+    // Run for longer now (200,000 ticks)
+    for _ in 0..200000 {
         amiga.tick();
     }
 
     // Check basic results
-    amiga.memory.overlay = false;
+    // Overlay should have been disabled by instruction 14!
+    assert_eq!(amiga.memory.overlay, false);
+    
     assert_eq!(amiga.cpu.regs.d[1] & 0xFFFF, 8);
     assert_eq!(amiga.cpu.regs.d[2] & 0xFFFF, 0x1234);
     assert_eq!(amiga.memory.read_byte(0x1000), 0x00);
@@ -92,6 +100,5 @@ fn test_minimal_execution() {
     assert_eq!(amiga.denise.bpl_data[0], 0xAA55);
     
     // Check Copper result
-    // Should be Blue ($000F) now, overwritten the Red ($0F00) set by CPU
     assert_eq!(amiga.denise.palette[0], 0x000F);
 }

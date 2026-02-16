@@ -11,11 +11,13 @@ pub mod denise;
 pub mod paula;
 pub mod memory;
 pub mod copper;
+pub mod cia;
 
 use crate::agnus::{Agnus, SlotOwner};
 use crate::memory::Memory;
 use crate::denise::Denise;
 use crate::copper::Copper;
+use crate::cia::Cia;
 use cpu_m68k_rock::cpu::Cpu68000;
 use cpu_m68k_rock::bus::{M68kBus, FunctionCode, BusStatus};
 
@@ -28,6 +30,8 @@ pub const NTSC_CRYSTAL_HZ: u64 = 28_636_360;
 pub const TICKS_PER_CCK: u64 = 8;
 /// Number of crystal ticks per CPU Cycle
 pub const TICKS_PER_CPU: u64 = 4;
+/// Number of crystal ticks per CIA E-clock
+pub const TICKS_PER_ECLOCK: u64 = 40;
 
 /// Display window constants for framebuffer coordinate mapping.
 const DISPLAY_VSTART: u16 = 0x2C;
@@ -40,6 +44,8 @@ pub struct Amiga {
     pub memory: Memory,
     pub denise: Denise,
     pub copper: Copper,
+    pub cia_a: Cia,
+    pub cia_b: Cia,
 }
 
 impl Amiga {
@@ -66,6 +72,8 @@ impl Amiga {
             memory,
             denise: Denise::new(),
             copper: Copper::new(),
+            cia_a: Cia::new(),
+            cia_b: Cia::new(),
         }
     }
 
@@ -83,7 +91,6 @@ impl Amiga {
                 SlotOwner::Bitplane(plane) => {
                     let idx = plane as usize;
                     let addr = self.agnus.bpl_pt[idx];
-                    // Cycle-strict read from memory (ignoring overlay for DMA)
                     let hi = self.memory.read_chip_byte(addr);
                     let lo = self.memory.read_chip_byte(addr | 1);
                     let val = (u16::from(hi) << 8) | u16::from(lo);
@@ -122,8 +129,16 @@ impl Amiga {
                 memory: &mut self.memory,
                 denise: &mut self.denise,
                 copper: &mut self.copper,
+                cia_a: &mut self.cia_a,
+                cia_b: &mut self.cia_b,
             };
             self.cpu.tick(&mut bus, self.master_clock);
+        }
+
+        // 3. Tick CIA (Every 40 ticks)
+        if self.master_clock % TICKS_PER_ECLOCK == 0 {
+            self.cia_a.tick();
+            self.cia_b.tick();
         }
     }
 
@@ -184,6 +199,8 @@ pub struct AmigaBusWrapper<'a> {
     pub memory: &'a mut Memory,
     pub denise: &'a mut Denise,
     pub copper: &'a mut Copper,
+    pub cia_a: &'a mut Cia,
+    pub cia_b: &'a mut Cia,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -197,14 +214,53 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
     ) -> BusStatus {
         let addr = addr & 0xFFFFFF;
 
+        // CIA-A ($BFE001, odd bytes)
+        if (addr & 0xFFF000) == 0xBFE000 {
+            let reg = ((addr >> 8) & 0x0F) as u8;
+            if is_read {
+                if addr & 1 != 0 {
+                    return BusStatus::Ready(u16::from(self.cia_a.read(reg)));
+                }
+                return BusStatus::Ready(0xFF00);
+            } else {
+                if addr & 1 != 0 {
+                    let val = data.unwrap_or(0) as u8;
+                    self.cia_a.write(reg, val);
+                    // Overlay control: CIA-A PRA bit 0
+                    if reg == 0 {
+                        let out = self.cia_a.port_a_output();
+                        if out & 0x01 != 0 {
+                            self.memory.overlay = true;
+                        } else {
+                            self.memory.overlay = false;
+                        }
+                    }
+                }
+                return BusStatus::Ready(0);
+            }
+        }
+
+        // CIA-B ($BFD000, even bytes)
+        if (addr & 0xFFF000) == 0xBFD000 {
+            let reg = ((addr >> 8) & 0x0F) as u8;
+            if is_read {
+                if addr & 1 == 0 {
+                    return BusStatus::Ready(u16::from(self.cia_b.read(reg)) << 8 | 0x00FF);
+                }
+                return BusStatus::Ready(0x00FF);
+            } else {
+                if addr & 1 == 0 {
+                    self.cia_b.write(reg, (data.unwrap_or(0) >> 8) as u8);
+                }
+                return BusStatus::Ready(0);
+            }
+        }
+
         // Custom Registers ($DFF000)
         if (addr & 0xFFF000) == 0xDFF000 {
             let offset = (addr & 0x1FE) as u16;
             if !is_read {
                 let val = data.unwrap_or(0);
-                // We need a way to call write_custom_reg from here.
-                // Since we don't have access to Amiga, we duplicate the match or move it to a helper.
-                // For now, let's duplicate the logic or use a shared helper.
                 match offset {
                     0x080 => self.copper.cop1lc = (self.copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
                     0x082 => self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
