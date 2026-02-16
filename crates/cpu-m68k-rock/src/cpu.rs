@@ -10,36 +10,14 @@ const QUEUE_CAPACITY: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MicroOp {
-    FetchIRC,
-    ReadByte,
-    ReadWord,
-    ReadLongHi,
-    ReadLongLo,
-    WriteByte,
-    WriteWord,
-    WriteLongHi,
-    WriteLongLo,
-    PushWord,
-    PushLongHi,
-    PushLongLo,
-    PopWord,
-    PopLongHi,
-    PopLongLo,
-    InterruptAck,
-    Internal(u8),
-    AssertReset,
-    Execute,
-    PromoteIRC,
+    FetchIRC, ReadByte, ReadWord, ReadLongHi, ReadLongLo, WriteByte, WriteWord, WriteLongHi, WriteLongLo,
+    PushWord, PushLongHi, PushLongLo, PopWord, PopLongHi, PopLongLo, InterruptAck, Internal(u8),
+    AssertReset, Execute, PromoteIRC,
 }
 
 impl MicroOp {
-    pub fn is_instant(self) -> bool {
-        matches!(self, Self::AssertReset | Self::Execute | Self::PromoteIRC | Self::Internal(0))
-    }
-
-    pub fn is_bus(self) -> bool {
-        !self.is_instant() && !matches!(self, Self::Internal(_))
-    }
+    pub fn is_instant(self) -> bool { matches!(self, Self::AssertReset | Self::Execute | Self::PromoteIRC | Self::Internal(0)) }
+    pub fn is_bus(self) -> bool { !self.is_instant() && !matches!(self, Self::Internal(_)) }
 }
 
 #[derive(Clone)]
@@ -50,90 +28,31 @@ pub struct MicroOpQueue {
 }
 
 impl MicroOpQueue {
-    pub fn new() -> Self {
-        Self {
-            ops: [MicroOp::Internal(0); QUEUE_CAPACITY],
-            head: 0,
-            len: 0,
-        }
-    }
-
-    pub fn push(&mut self, op: MicroOp) {
-        let idx = (self.head as usize + self.len as usize) % QUEUE_CAPACITY;
-        self.ops[idx] = op;
-        self.len += 1;
-    }
-
-    pub fn push_front(&mut self, op: MicroOp) {
-        self.head = if self.head == 0 {
-            (QUEUE_CAPACITY - 1) as u8
-        } else {
-            self.head - 1
-        };
-        self.ops[self.head as usize] = op;
-        self.len += 1;
-    }
-
-    pub fn pop(&mut self) -> Option<MicroOp> {
-        if self.len == 0 {
-            None
-        } else {
-            let op = self.ops[self.head as usize];
-            self.head = ((self.head as usize + 1) % QUEUE_CAPACITY) as u8;
-            self.len -= 1;
-            Some(op)
-        }
-    }
-
-    pub fn front(&self) -> Option<MicroOp> {
-        if self.len == 0 {
-            None
-        } else {
-            Some(self.ops[self.head as usize])
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    pub fn clear(&mut self) {
-        self.head = 0;
-        self.len = 0;
-    }
-
+    pub fn new() -> Self { Self { ops: [MicroOp::Internal(0); QUEUE_CAPACITY], head: 0, len: 0 } }
+    pub fn push(&mut self, op: MicroOp) { let idx = (self.head as usize + self.len as usize) % QUEUE_CAPACITY; self.ops[idx] = op; self.len += 1; }
+    pub fn push_front(&mut self, op: MicroOp) { self.head = if self.head == 0 { (QUEUE_CAPACITY - 1) as u8 } else { self.head - 1 }; self.ops[self.head as usize] = op; self.len += 1; }
+    pub fn pop(&mut self) -> Option<MicroOp> { if self.len == 0 { None } else { let op = self.ops[self.head as usize]; self.head = ((self.head as usize + 1) % QUEUE_CAPACITY) as u8; self.len -= 1; Some(op) } }
+    pub fn front(&self) -> Option<MicroOp> { if self.len == 0 { None } else { Some(self.ops[self.head as usize]) } }
+    pub fn is_empty(&self) -> bool { self.len == 0 }
+    pub fn clear(&mut self) { self.head = 0; self.len = 0; }
     pub fn debug_contents(&self) -> String {
         let mut out = String::from("[");
-        for i in 0..self.len as usize {
-            let idx = (self.head as usize + i) % QUEUE_CAPACITY;
-            if i > 0 {
-                out.push_str(", ");
-            }
-            out.push_str(&format!("{:?}", self.ops[idx]));
-        }
-        out.push(']');
-        out
+        for i in 0..self.len as usize { let idx = (self.head as usize + i) % QUEUE_CAPACITY; if i > 0 { out.push_str(", "); } out.push_str(&format!("{:?}", self.ops[idx])); }
+        out.push(']'); out
     }
 }
 
 pub enum State {
-    Idle,
-    Internal { cycles: u8 },
-    BusCycle {
-        op: MicroOp,
-        addr: u32,
-        fc: FunctionCode,
-        is_read: bool,
-        is_word: bool,
-        data: Option<u16>,
-        cycle_count: u8,
-    },
-    Halted,
-    Stopped,
+    Idle, Internal { cycles: u8 },
+    BusCycle { op: MicroOp, addr: u32, fc: FunctionCode, is_read: bool, is_word: bool, data: Option<u16>, cycle_count: u8 },
+    Halted, Stopped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AluOp { Add, Sub, Cmp, And, Or, Eor }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitOp { Btst, Bset, Bclr, Bchg }
 
 pub struct Cpu68000 {
     pub regs: Registers,
@@ -153,6 +72,7 @@ pub struct Cpu68000 {
     pub ea_reg: u8,
     pub ea_pc: u32,
     pub alu_op: AluOp,
+    pub bit_op: BitOp,
     pub target_ipl: u8,
 }
 
@@ -170,60 +90,41 @@ const FOLLOWUP_ALU_READ_SRC: u8 = 11;
 const FOLLOWUP_ALU_CALC_DST: u8 = 12;
 const FOLLOWUP_ALU_EXECUTE: u8 = 13;
 const FOLLOWUP_BCC_EXECUTE: u8 = 14;
-const FOLLOWUP_EXCEPTION_STACK_PC_HI: u8 = 15;
-const FOLLOWUP_EXCEPTION_STACK_PC_LO: u8 = 16;
-const FOLLOWUP_EXCEPTION_STACK_SR: u8 = 17;
-const FOLLOWUP_EXCEPTION_FETCH_VECTOR: u8 = 18;
+const FOLLOWUP_BIT_READ_SRC: u8 = 15;
+const FOLLOWUP_BIT_CALC_DST: u8 = 16;
+const FOLLOWUP_BIT_EXECUTE: u8 = 17;
+const FOLLOWUP_EXCEPTION_STACK_PC_HI: u8 = 18;
+const FOLLOWUP_EXCEPTION_STACK_PC_LO: u8 = 19;
+const FOLLOWUP_EXCEPTION_STACK_SR: u8 = 20;
+const FOLLOWUP_EXCEPTION_FETCH_VECTOR: u8 = 21;
 
 impl Cpu68000 {
     pub fn new() -> Self {
         Self {
-            regs: Registers::new(),
-            state: State::Idle,
-            micro_ops: MicroOpQueue::new(),
+            regs: Registers::new(), state: State::Idle, micro_ops: MicroOpQueue::new(),
             ir: 0, irc: 0, irc_addr: 0, addr: 0, data: 0, instr_start_pc: 0,
             in_followup: false, followup_tag: 0, src_mode: None, dst_mode: None,
-            size: Size::Word, ea_reg: 0, ea_pc: 0, alu_op: AluOp::Add, target_ipl: 0,
+            size: Size::Word, ea_reg: 0, ea_pc: 0, alu_op: AluOp::Add, bit_op: BitOp::Btst, target_ipl: 0,
         }
     }
 
     pub fn reset_to(&mut self, ssp: u32, pc: u32) {
-        self.regs.ssp = ssp;
-        self.regs.pc = pc;
-        self.regs.sr = 0x2700;
-        self.state = State::Idle;
-        self.in_followup = false;
-        self.followup_tag = 0;
-        self.micro_ops.clear();
-        self.micro_ops.push(MicroOp::FetchIRC);
-        self.micro_ops.push(MicroOp::PromoteIRC);
+        self.regs.ssp = ssp; self.regs.pc = pc; self.regs.sr = 0x2700;
+        self.state = State::Idle; self.in_followup = false; self.followup_tag = 0; self.micro_ops.clear();
+        self.micro_ops.push(MicroOp::FetchIRC); self.micro_ops.push(MicroOp::PromoteIRC);
     }
 
-    pub fn consume_irc(&mut self) -> u16 {
-        let val = self.irc;
-        self.micro_ops.push_front(MicroOp::FetchIRC);
-        val
-    }
+    pub fn consume_irc(&mut self) -> u16 { let val = self.irc; self.micro_ops.push_front(MicroOp::FetchIRC); val }
 
     pub fn tick<B: M68kBus>(&mut self, bus: &mut B, crystal_clock: u64) {
         if crystal_clock % 4 != 0 { return; }
-
         if matches!(self.state, State::Idle) {
             self.process_instant_ops(bus);
-
-            // Poll for interrupts between instructions
             if matches!(self.state, State::Idle) && self.micro_ops.is_empty() {
                 let ipl = bus.poll_ipl();
-                if ipl > self.regs.interrupt_mask() || ipl == 7 {
-                    self.initiate_interrupt_exception(ipl);
-                }
+                if ipl > self.regs.interrupt_mask() || ipl == 7 { self.initiate_interrupt_exception(ipl); }
             }
-
-            if matches!(self.state, State::Idle) && self.micro_ops.is_empty() {
-                self.start_next_instruction();
-                self.process_instant_ops(bus);
-            }
-
+            if matches!(self.state, State::Idle) && self.micro_ops.is_empty() { self.start_next_instruction(); self.process_instant_ops(bus); }
             if matches!(self.state, State::Idle) {
                 if let Some(op) = self.micro_ops.pop() {
                     if op.is_bus() { self.state = self.initiate_bus_cycle(op); }
@@ -231,25 +132,15 @@ impl Cpu68000 {
                 }
             }
         }
-
         match &mut self.state {
             State::Idle => {}
-            State::Internal { cycles } => {
-                if *cycles > 1 { *cycles -= 1; }
-                else { self.state = State::Idle; self.process_instant_ops(bus); }
-            }
+            State::Internal { cycles } => { if *cycles > 1 { *cycles -= 1; } else { self.state = State::Idle; self.process_instant_ops(bus); } }
             State::BusCycle { op, addr, fc, is_read, is_word, data, cycle_count } => {
                 *cycle_count += 1;
                 if *cycle_count >= 4 {
                     match bus.poll_cycle(*addr, *fc, *is_read, *is_word, *data) {
-                        BusStatus::Ready(read_data) => {
-                            let completed_op = *op;
-                            self.finish_bus_cycle(completed_op, read_data);
-                            self.state = State::Idle;
-                            self.process_instant_ops(bus);
-                        }
-                        BusStatus::Wait => {}
-                        BusStatus::Error => { self.state = State::Halted; }
+                        BusStatus::Ready(read_data) => { let completed_op = *op; self.finish_bus_cycle(completed_op, read_data); self.state = State::Idle; self.process_instant_ops(bus); }
+                        BusStatus::Wait => {} BusStatus::Error => { self.state = State::Halted; }
                     }
                 }
             }
@@ -271,14 +162,7 @@ impl Cpu68000 {
         }
     }
 
-    fn start_next_instruction(&mut self) {
-        self.ir = self.irc;
-        self.instr_start_pc = self.irc_addr;
-        self.in_followup = false;
-        self.followup_tag = 0;
-        self.micro_ops.push(MicroOp::FetchIRC);
-        self.micro_ops.push(MicroOp::Execute);
-    }
+    fn start_next_instruction(&mut self) { self.ir = self.irc; self.instr_start_pc = self.irc_addr; self.in_followup = false; self.followup_tag = 0; self.micro_ops.push(MicroOp::FetchIRC); self.micro_ops.push(MicroOp::Execute); }
 
     fn decode_and_execute(&mut self) {
         if self.in_followup { self.continue_instruction(); return; }
@@ -288,117 +172,40 @@ impl Cpu68000 {
         if (opcode & 0xC000) == 0x0000 && (opcode & 0x3000) != 0 {
             let size = match (opcode >> 12) & 0x03 { 1 => Size::Byte, 2 => Size::Long, 3 => Size::Word, _ => unreachable!() };
             let (src_m, src_r, dst_r, dst_m) = ((opcode >> 3) & 7, opcode & 7, (opcode >> 9) & 7, (opcode >> 6) & 7);
-            self.size = size;
-            self.src_mode = AddrMode::decode(src_m as u8, src_r as u8);
-            self.dst_mode = AddrMode::decode(dst_m as u8, dst_r as u8);
-            self.in_followup = true; self.followup_tag = FOLLOWUP_MOVE_READ_SRC_DATA;
-            self.calc_ea(self.src_mode.unwrap(), self.size);
-            self.micro_ops.push(MicroOp::Execute);
-            return;
+            self.size = size; self.src_mode = AddrMode::decode(src_m as u8, src_r as u8); self.dst_mode = AddrMode::decode(dst_m as u8, dst_r as u8);
+            self.in_followup = true; self.followup_tag = FOLLOWUP_MOVE_READ_SRC_DATA; self.calc_ea(self.src_mode.unwrap(), self.size); self.micro_ops.push(MicroOp::Execute); return;
         }
 
-        // ADD (1101 rrr dss mmm rrr)
-        if (opcode & 0xF000) == 0xD000 {
-            let reg = ((opcode >> 9) & 0x07) as u8;
-            let opmode = (opcode >> 6) & 0x07;
+        // ADD/SUB/CMP/AND/OR (General ALU)
+        if (opcode & 0xF000) == 0xD000 || (opcode & 0xF000) == 0x9000 || (opcode & 0xF100) == 0xB000 || (opcode & 0xF000) == 0xC000 || (opcode & 0xF000) == 0x8000 {
+            let op = match opcode & 0xF000 { 0xD000 => AluOp::Add, 0x9000 => AluOp::Sub, 0xB000 => AluOp::Cmp, 0xC000 => AluOp::And, 0x8000 => AluOp::Or, _ => unreachable!() };
+            let reg = ((opcode >> 9) & 0x07) as u8; let opmode = (opcode >> 6) & 0x07;
             if opmode != 3 && opmode != 7 {
                 let size = match opmode { 0 | 4 => Size::Byte, 1 | 5 => Size::Word, 2 | 6 => Size::Long, _ => unreachable!() };
-                let to_reg = opmode < 4;
-                let (m, r) = ((opcode >> 3) & 7, opcode & 7);
-                let ea_mode = AddrMode::decode(m as u8, r as u8).unwrap();
-                self.alu_op = AluOp::Add; self.size = size;
-                self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) };
-                self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
-                self.in_followup = true; self.followup_tag = FOLLOWUP_ALU_READ_SRC;
-                self.calc_ea(self.src_mode.unwrap(), self.size);
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-        }
-
-        // SUB (1001 rrr dss mmm rrr)
-        if (opcode & 0xF000) == 0x9000 {
-            let reg = ((opcode >> 9) & 0x07) as u8;
-            let opmode = (opcode >> 6) & 0x07;
-            if opmode != 3 && opmode != 7 {
-                let size = match opmode { 0 | 4 => Size::Byte, 1 | 5 => Size::Word, 2 | 6 => Size::Long, _ => unreachable!() };
-                let to_reg = opmode < 4;
-                let (m, r) = ((opcode >> 3) & 7, opcode & 7);
-                let ea_mode = AddrMode::decode(m as u8, r as u8).unwrap();
-                self.alu_op = AluOp::Sub; self.size = size;
-                self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) };
-                self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
-                self.in_followup = true; self.followup_tag = FOLLOWUP_ALU_READ_SRC;
-                self.calc_ea(self.src_mode.unwrap(), self.size);
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-        }
-
-        // CMP (1011 rrr 0ss mmm rrr)
-        if (opcode & 0xF100) == 0xB000 {
-            let reg = ((opcode >> 9) & 0x07) as u8;
-            let opmode = (opcode >> 6) & 0x07;
-            if opmode < 3 {
-                let size = match opmode { 0 => Size::Byte, 1 => Size::Word, 2 => Size::Long, _ => unreachable!() };
-                let (m, r) = ((opcode >> 3) & 7, opcode & 7);
-                let ea_mode = AddrMode::decode(m as u8, r as u8).unwrap();
-                self.alu_op = AluOp::Cmp; self.size = size;
-                self.src_mode = Some(ea_mode); self.dst_mode = Some(AddrMode::DataReg(reg));
-                self.in_followup = true; self.followup_tag = FOLLOWUP_ALU_READ_SRC;
-                self.calc_ea(self.src_mode.unwrap(), self.size);
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-        }
-
-        // AND (1100 rrr dss mmm rrr)
-        if (opcode & 0xF000) == 0xC000 {
-            let reg = ((opcode >> 9) & 0x07) as u8;
-            let opmode = (opcode >> 6) & 0x07;
-            if opmode != 3 && opmode != 7 {
-                let size = match opmode { 0 | 4 => Size::Byte, 1 | 5 => Size::Word, 2 | 6 => Size::Long, _ => unreachable!() };
-                let to_reg = opmode < 4;
-                let (m, r) = ((opcode >> 3) & 7, opcode & 7);
-                let ea_mode = AddrMode::decode(m as u8, r as u8).unwrap();
-                self.alu_op = AluOp::And; self.size = size;
-                self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) };
-                self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
-                self.in_followup = true; self.followup_tag = FOLLOWUP_ALU_READ_SRC;
-                self.calc_ea(self.src_mode.unwrap(), self.size);
-                self.micro_ops.push(MicroOp::Execute);
-                return;
-            }
-        }
-
-        // OR (1000 rrr dss mmm rrr)
-        if (opcode & 0xF000) == 0x8000 {
-            let reg = ((opcode >> 9) & 0x07) as u8;
-            let opmode = (opcode >> 6) & 0x07;
-            if opmode != 3 && opmode != 7 {
-                let size = match opmode { 0 | 4 => Size::Byte, 1 | 5 => Size::Word, 2 | 6 => Size::Long, _ => unreachable!() };
-                let to_reg = opmode < 4;
-                let (m, r) = ((opcode >> 3) & 7, opcode & 7);
-                let ea_mode = AddrMode::decode(m as u8, r as u8).unwrap();
-                self.alu_op = AluOp::Or; self.size = size;
-                self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) };
-                self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
-                self.in_followup = true; self.followup_tag = FOLLOWUP_ALU_READ_SRC;
-                self.calc_ea(self.src_mode.unwrap(), self.size);
-                self.micro_ops.push(MicroOp::Execute);
-                return;
+                let to_reg = opmode < 4; let (m, r) = ((opcode >> 3) & 7, opcode & 7); let ea_mode = AddrMode::decode(m as u8, r as u8).unwrap();
+                self.alu_op = op; self.size = size; self.src_mode = if to_reg { Some(ea_mode) } else { Some(AddrMode::DataReg(reg)) }; self.dst_mode = if to_reg { Some(AddrMode::DataReg(reg)) } else { Some(ea_mode) };
+                self.in_followup = true; self.followup_tag = FOLLOWUP_ALU_READ_SRC; self.calc_ea(self.src_mode.unwrap(), self.size); self.micro_ops.push(MicroOp::Execute); return;
             }
         }
 
         // BRA/Bcc (0110 cccc dddd dddd)
         if (opcode & 0xF000) == 0x6000 {
-            let disp8 = (opcode & 0xFF) as i8;
-            self.in_followup = true; self.followup_tag = FOLLOWUP_BCC_EXECUTE;
-            if disp8 == 0 { self.micro_ops.push(MicroOp::FetchIRC); }
-            else if disp8 == -1 { self.state = State::Halted; }
-            else { self.data = disp8 as i32 as u32; }
-            self.micro_ops.push(MicroOp::Execute);
-            return;
+            let disp8 = (opcode & 0xFF) as i8; self.in_followup = true; self.followup_tag = FOLLOWUP_BCC_EXECUTE;
+            if disp8 == 0 { self.micro_ops.push(MicroOp::FetchIRC); } else if disp8 == -1 { self.state = State::Halted; } else { self.data = disp8 as i32 as u32; }
+            self.micro_ops.push(MicroOp::Execute); return;
+        }
+
+        // Bit Manipulation (Static: 0000 1000 00mm mrrr, Dynamic: 0000 rrr1 00mm mrrr)
+        if (opcode & 0xFF00) == 0x0800 || (opcode & 0xF100) == 0x0100 {
+            let dynamic = (opcode & 0x0100) != 0;
+            let op = match (opcode >> 6) & 0x03 { 0 => BitOp::Btst, 1 => BitOp::Bchg, 2 => BitOp::Bclr, 3 => BitOp::Bset, _ => unreachable!() };
+            let (m, r) = ((opcode >> 3) & 7, opcode & 7);
+            self.bit_op = op; self.dst_mode = AddrMode::decode(m as u8, r as u8);
+            self.size = if m == 0 { Size::Long } else { Size::Byte };
+            self.in_followup = true; self.followup_tag = FOLLOWUP_BIT_READ_SRC;
+            if dynamic { self.ea_reg = ((opcode >> 9) & 7) as u8; self.src_mode = Some(AddrMode::DataReg(self.ea_reg)); } else { self.src_mode = Some(AddrMode::Immediate); }
+            self.calc_ea(self.src_mode.unwrap(), Size::Word); // Bit # is Word in Immediate
+            self.micro_ops.push(MicroOp::Execute); return;
         }
 
         match opcode {
@@ -409,49 +216,50 @@ impl Cpu68000 {
     }
 
     fn initiate_interrupt_exception(&mut self, level: u8) {
-        self.target_ipl = level;
-        self.in_followup = true;
-        self.followup_tag = FOLLOWUP_EXCEPTION_STACK_PC_HI;
-        // Exception sequence: Stack PC high, PC low, SR, then Fetch Vector
-        self.data = self.regs.pc;
-        self.micro_ops.push(MicroOp::PushLongHi);
-        self.micro_ops.push(MicroOp::Execute);
+        self.target_ipl = level; self.in_followup = true; self.followup_tag = FOLLOWUP_EXCEPTION_STACK_PC_HI;
+        self.data = self.regs.pc; self.micro_ops.push(MicroOp::PushLongHi); self.micro_ops.push(MicroOp::Execute);
     }
 
     fn continue_instruction(&mut self) {
         match self.followup_tag {
-            FOLLOWUP_EXCEPTION_STACK_PC_HI => {
-                self.followup_tag = FOLLOWUP_EXCEPTION_STACK_PC_LO;
-                self.micro_ops.push(MicroOp::PushLongLo);
+            FOLLOWUP_BIT_READ_SRC => {
+                match self.src_mode.unwrap() {
+                    AddrMode::DataReg(reg) => { self.data = self.regs.d[reg as usize]; self.followup_tag = FOLLOWUP_BIT_CALC_DST; self.micro_ops.push(MicroOp::Execute); }
+                    AddrMode::Immediate => { self.data = u32::from(self.consume_irc()); self.followup_tag = FOLLOWUP_BIT_CALC_DST; self.micro_ops.push(MicroOp::Execute); }
+                    _ => unreachable!(),
+                }
+            }
+            FOLLOWUP_BIT_CALC_DST => {
+                self.ea_pc = self.data; // Store bit #
+                if self.calc_ea(self.dst_mode.unwrap(), self.size) { self.followup_tag = FOLLOWUP_BIT_EXECUTE; }
                 self.micro_ops.push(MicroOp::Execute);
             }
-            FOLLOWUP_EXCEPTION_STACK_PC_LO => {
-                self.data = u32::from(self.regs.sr);
-                self.followup_tag = FOLLOWUP_EXCEPTION_STACK_SR;
-                self.micro_ops.push(MicroOp::PushWord);
-                self.micro_ops.push(MicroOp::Execute);
+            FOLLOWUP_BIT_EXECUTE => {
+                let bit = (self.ea_pc % if self.size == Size::Long { 32 } else { 8 }) as u8;
+                let dst_mode = self.dst_mode.unwrap();
+                match dst_mode {
+                    AddrMode::DataReg(reg) => {
+                        let val = self.regs.d[reg as usize];
+                        if (val & (1 << bit)) == 0 { self.regs.sr |= 0x0004; } else { self.regs.sr &= !0x0004; }
+                        match self.bit_op {
+                            BitOp::Bset => self.regs.d[reg as usize] |= 1 << bit,
+                            BitOp::Bclr => self.regs.d[reg as usize] &= !(1 << bit),
+                            BitOp::Bchg => self.regs.d[reg as usize] ^= 1 << bit,
+                            BitOp::Btst => {}
+                        }
+                        self.in_followup = false;
+                    }
+                    _ => { self.state = State::Halted; } // Memory bit ops stub
+                }
             }
-            FOLLOWUP_EXCEPTION_STACK_SR => {
-                self.followup_tag = FOLLOWUP_EXCEPTION_FETCH_VECTOR;
-                self.micro_ops.push(MicroOp::InterruptAck);
-                self.micro_ops.push(MicroOp::Execute);
-            }
-            FOLLOWUP_EXCEPTION_FETCH_VECTOR => {
-                let vector = self.data as u8;
-                let addr = u32::from(vector) * 4;
-                self.addr = addr;
-                self.size = Size::Long;
-                self.followup_tag = 0; // Next execute will finish
-                self.queue_read_ops(Size::Long);
-                self.micro_ops.push(MicroOp::Execute);
-            }
+            FOLLOWUP_EXCEPTION_STACK_PC_HI => { self.followup_tag = FOLLOWUP_EXCEPTION_STACK_PC_LO; self.micro_ops.push(MicroOp::PushLongLo); self.micro_ops.push(MicroOp::Execute); }
+            FOLLOWUP_EXCEPTION_STACK_PC_LO => { self.data = u32::from(self.regs.sr); self.followup_tag = FOLLOWUP_EXCEPTION_STACK_SR; self.micro_ops.push(MicroOp::PushWord); self.micro_ops.push(MicroOp::Execute); }
+            FOLLOWUP_EXCEPTION_STACK_SR => { self.followup_tag = FOLLOWUP_EXCEPTION_FETCH_VECTOR; self.micro_ops.push(MicroOp::InterruptAck); self.micro_ops.push(MicroOp::Execute); }
+            FOLLOWUP_EXCEPTION_FETCH_VECTOR => { let vector = self.data as u8; self.addr = u32::from(vector) * 4; self.size = Size::Long; self.followup_tag = 0; self.queue_read_ops(Size::Long); self.micro_ops.push(MicroOp::Execute); }
             FOLLOWUP_BCC_EXECUTE => {
-                let cond = ((self.ir >> 8) & 0x0F) as u8;
-                let disp8 = (self.ir & 0xFF) as i8;
-                let disp = if disp8 == 0 { self.consume_irc() as i16 as i32 } else { self.data as i32 };
-                if self.check_condition(cond) {
-                    let target = self.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
-                    self.regs.pc = target;
+                let disp8 = (self.ir & 0xFF) as i8; let disp = if disp8 == 0 { self.consume_irc() as i16 as i32 } else { self.data as i32 };
+                if self.check_condition(((self.ir >> 8) & 0x0F) as u8) {
+                    self.regs.pc = self.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
                     self.micro_ops.clear(); self.micro_ops.push(MicroOp::FetchIRC); self.micro_ops.push(MicroOp::PromoteIRC);
                 }
                 self.in_followup = false;
@@ -499,32 +307,21 @@ impl Cpu68000 {
                     _ => { self.followup_tag = FOLLOWUP_ALU_CALC_DST; self.queue_read_ops(self.size); self.micro_ops.push(MicroOp::Execute); }
                 }
             }
-            FOLLOWUP_ALU_CALC_DST => {
-                self.ea_pc = self.data;
-                if self.calc_ea(self.dst_mode.unwrap(), self.size) { self.followup_tag = FOLLOWUP_ALU_EXECUTE; }
-                self.micro_ops.push(MicroOp::Execute);
-            }
+            FOLLOWUP_ALU_CALC_DST => { self.ea_pc = self.data; if self.calc_ea(self.dst_mode.unwrap(), self.size) { self.followup_tag = FOLLOWUP_ALU_EXECUTE; } self.micro_ops.push(MicroOp::Execute); }
             FOLLOWUP_ALU_EXECUTE => {
                 let src_val = self.ea_pc; let dst_mode = self.dst_mode.unwrap();
                 match dst_mode {
                     AddrMode::DataReg(reg) => {
                         let dst_val = self.regs.d[reg as usize]; let res = self.exec_alu(self.alu_op, src_val, dst_val, self.size);
-                        if self.alu_op != AluOp::Cmp {
-                            let reg_val = &mut self.regs.d[reg as usize];
-                            *reg_val = match self.size { Size::Byte => (*reg_val & 0xFFFF_FF00) | (res & 0xFF), Size::Word => (*reg_val & 0xFFFF_0000) | (res & 0xFFFF), Size::Long => res };
-                        }
+                        if self.alu_op != AluOp::Cmp { let reg_val = &mut self.regs.d[reg as usize]; *reg_val = match self.size { Size::Byte => (*reg_val & 0xFFFF_FF00) | (res & 0xFF), Size::Word => (*reg_val & 0xFFFF_0000) | (res & 0xFFFF), Size::Long => res }; }
                         self.in_followup = false;
                     }
                     _ => { self.state = State::Halted; }
                 }
             }
-            0 => { // Final stage after a read sequence
-                self.regs.pc = self.data; // Vector read result
-                self.regs.set_supervisor(true);
-                self.regs.sr &= !0x8000; // Clear T-bit
-                self.regs.sr = (self.regs.sr & !0x0700) | (u16::from(self.target_ipl) << 8);
-                self.micro_ops.clear(); self.micro_ops.push(MicroOp::FetchIRC); self.micro_ops.push(MicroOp::PromoteIRC);
-                self.in_followup = false;
+            0 => {
+                self.regs.pc = self.data; self.regs.set_supervisor(true); self.regs.sr &= !0x8000; self.regs.sr = (self.regs.sr & !0x0700) | (u16::from(self.target_ipl) << 8);
+                self.micro_ops.clear(); self.micro_ops.push(MicroOp::FetchIRC); self.micro_ops.push(MicroOp::PromoteIRC); self.in_followup = false;
             }
             _ => { self.in_followup = false; }
         }
@@ -543,6 +340,8 @@ impl Cpu68000 {
                     FOLLOWUP_MOVE_CALC_DST_EA => FOLLOWUP_MOVE_CALC_DST_EA_DISP,
                     FOLLOWUP_ALU_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_DISP,
                     FOLLOWUP_ALU_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_DISP,
+                    FOLLOWUP_BIT_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_DISP,
+                    FOLLOWUP_BIT_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_DISP,
                     _ => self.followup_tag,
                 };
                 false
@@ -555,6 +354,8 @@ impl Cpu68000 {
                     FOLLOWUP_MOVE_CALC_DST_EA => FOLLOWUP_MOVE_CALC_DST_EA_LONG,
                     FOLLOWUP_ALU_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_LONG,
                     FOLLOWUP_ALU_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_LONG,
+                    FOLLOWUP_BIT_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_LONG,
+                    FOLLOWUP_BIT_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_LONG,
                     _ => self.followup_tag,
                 };
                 false
@@ -566,6 +367,8 @@ impl Cpu68000 {
                     FOLLOWUP_MOVE_CALC_DST_EA => FOLLOWUP_MOVE_CALC_DST_EA_PCDISP,
                     FOLLOWUP_ALU_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_PCDISP,
                     FOLLOWUP_ALU_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_PCDISP,
+                    FOLLOWUP_BIT_READ_SRC => FOLLOWUP_MOVE_READ_SRC_EA_PCDISP,
+                    FOLLOWUP_BIT_CALC_DST => FOLLOWUP_MOVE_CALC_DST_EA_PCDISP,
                     _ => self.followup_tag,
                 };
                 false
@@ -574,13 +377,8 @@ impl Cpu68000 {
         }
     }
 
-    fn queue_read_ops(&mut self, size: Size) {
-        match size { Size::Byte | Size::Word => { self.micro_ops.push(MicroOp::ReadWord); } Size::Long => { self.micro_ops.push(MicroOp::ReadLongHi); self.micro_ops.push(MicroOp::ReadLongLo); } }
-    }
-
-    fn queue_write_ops(&mut self, size: Size) {
-        match size { Size::Byte | Size::Word => { self.micro_ops.push(MicroOp::WriteWord); } Size::Long => { self.micro_ops.push(MicroOp::WriteLongHi); self.micro_ops.push(MicroOp::WriteLongLo); } }
-    }
+    fn queue_read_ops(&mut self, size: Size) { match size { Size::Byte | Size::Word => { self.micro_ops.push(MicroOp::ReadWord); } Size::Long => { self.micro_ops.push(MicroOp::ReadLongHi); self.micro_ops.push(MicroOp::ReadLongLo); } } }
+    fn queue_write_ops(&mut self, size: Size) { match size { Size::Byte | Size::Word => { self.micro_ops.push(MicroOp::WriteWord); } Size::Long => { self.micro_ops.push(MicroOp::WriteLongHi); self.micro_ops.push(MicroOp::WriteLongLo); } } }
 
     fn initiate_bus_cycle(&self, op: MicroOp) -> State {
         let is_supervisor = self.regs.is_supervisor();
