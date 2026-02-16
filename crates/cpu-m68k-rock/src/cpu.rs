@@ -28,11 +28,12 @@ pub enum MicroOp {
     Internal(u8),
     AssertReset,
     Execute,
+    PromoteIRC,
 }
 
 impl MicroOp {
     pub fn is_instant(self) -> bool {
-        matches!(self, Self::AssertReset | Self::Execute | Self::Internal(0))
+        matches!(self, Self::AssertReset | Self::Execute | Self::PromoteIRC | Self::Internal(0))
     }
 
     pub fn is_bus(self) -> bool {
@@ -88,6 +89,19 @@ impl MicroOpQueue {
     pub fn clear(&mut self) {
         self.head = 0;
         self.len = 0;
+    }
+
+    pub fn debug_contents(&self) -> String {
+        let mut out = String::from("[");
+        for i in 0..self.len as usize {
+            let idx = (self.head as usize + i) % QUEUE_CAPACITY;
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&format!("{:?}", self.ops[idx]));
+        }
+        out.push(']');
+        out
     }
 }
 
@@ -179,9 +193,14 @@ impl Cpu68000 {
         self.in_followup = false;
         self.followup_tag = 0;
         self.micro_ops.clear();
-        // Standard 68k prefetch after reset
-        self.micro_ops.push(MicroOp::FetchIRC); // Fetches first opcode into IRC
-        self.micro_ops.push(MicroOp::Execute);  // Will move IRC to IR and fetch next
+        
+        // At RESET, the 68000 does:
+        // 1. Read initial SSP (handled by caller)
+        // 2. Read initial PC (handled by caller)
+        // 3. Fetch first opcode into IRC
+        // 4. Promote IRC to IR, fetch next word into IRC, Execute IR
+        self.micro_ops.push(MicroOp::FetchIRC);
+        self.micro_ops.push(MicroOp::PromoteIRC);
     }
 
     /// Consume IRC as an extension word and queue FetchIRC to refill.
@@ -196,18 +215,27 @@ impl Cpu68000 {
             return;
         }
 
-        // 1. Process all instant ops at the front of the queue
-        self.process_instant_ops(bus);
+        // println!("CPU Tick: PC=${:08X} IR=${:04X} IRC=${:04X} State={:?} Queue={:?}", self.regs.pc, self.ir, self.irc, match self.state {
+        //     State::Idle => "Idle",
+        //     State::Internal { .. } => "Internal",
+        //     State::BusCycle { .. } => "BusCycle",
+        //     State::Halted => "Halted",
+        //     State::Stopped => "Stopped",
+        // }, self.micro_ops.debug_contents());
 
-        // 2. If idle and queue is empty, start next instruction
-        if matches!(self.state, State::Idle) && self.micro_ops.is_empty() {
-            self.start_next_instruction();
+        // 1. If idle, try to start something
+        if matches!(self.state, State::Idle) {
+            // Process leading instant ops
             self.process_instant_ops(bus);
-        }
 
-        // 3. Process current state
-        match &mut self.state {
-            State::Idle => {
+            // If still idle and queue empty, start next instruction
+            if matches!(self.state, State::Idle) && self.micro_ops.is_empty() {
+                self.start_next_instruction();
+                self.process_instant_ops(bus);
+            }
+
+            // If still idle, pick up the next timed/bus op
+            if matches!(self.state, State::Idle) {
                 if let Some(op) = self.micro_ops.pop() {
                     if op.is_bus() {
                         self.state = self.initiate_bus_cycle(op);
@@ -216,11 +244,18 @@ impl Cpu68000 {
                     }
                 }
             }
+        }
+
+        // 2. Process current state
+        match &mut self.state {
+            State::Idle => {}
             State::Internal { cycles } => {
                 if *cycles > 1 {
                     *cycles -= 1;
                 } else {
                     self.state = State::Idle;
+                    // Trailing instant ops after internal delay
+                    self.process_instant_ops(bus);
                 }
             }
             State::BusCycle { op, addr, fc, is_read, is_word, data, cycle_count } => {
@@ -233,7 +268,7 @@ impl Cpu68000 {
                             let completed_op = *op;
                             self.finish_bus_cycle(completed_op, read_data);
                             self.state = State::Idle;
-                            // Process any instant ops that follow the bus cycle
+                            // 3. Process trailing instant ops (e.g. Execute after FetchIRC)
                             self.process_instant_ops(bus);
                         }
                         BusStatus::Wait => {}
@@ -255,6 +290,9 @@ impl Cpu68000 {
                     MicroOp::Execute => {
                         self.decode_and_execute();
                     }
+                    MicroOp::PromoteIRC => {
+                        self.start_next_instruction();
+                    }
                     MicroOp::AssertReset => {
                         bus.reset();
                     }
@@ -267,12 +305,13 @@ impl Cpu68000 {
     }
 
     fn start_next_instruction(&mut self) {
-        // IR <- IRC, queue FetchIRC + Execute
+        // Promote IRC to IR
         self.ir = self.irc;
         self.instr_start_pc = self.irc_addr;
         self.in_followup = false;
         self.followup_tag = 0;
         
+        // Refill IRC and then Execute the promoted instruction
         self.micro_ops.push(MicroOp::FetchIRC);
         self.micro_ops.push(MicroOp::Execute);
     }
@@ -284,13 +323,14 @@ impl Cpu68000 {
         }
 
         let opcode = self.ir;
+        // println!("  DECODE: opcode=${:04X} at instr_start=${:08X}", opcode, self.instr_start_pc);
 
         // MOVE.W (An), Dm (0011 ddd 000 010 sss)
         if (opcode & 0xF1F8) == 0x3010 {
             let src_reg = (opcode & 0x0007) as u8;
             let dst_reg = ((opcode >> 9) & 0x0007) as u8;
             
-            self.addr = self.regs.a(src_reg);
+            self.addr = self.regs.a(src_reg as usize);
             self.size = Size::Word;
             self.dst_mode = Some(AddrMode::DataReg(dst_reg));
             
@@ -312,17 +352,20 @@ impl Cpu68000 {
 
         match opcode {
             0x4E71 => { // NOP
-                // No action
+                // println!("  EXEC: NOP");
             }
             0x4E70 => { // RESET
                 if self.regs.is_supervisor() {
+                    // println!("  EXEC: RESET");
                     self.micro_ops.push(MicroOp::AssertReset);
                     self.micro_ops.push(MicroOp::Internal(124));
                 } else {
+                    // println!("  HALT: RESET in user mode");
                     self.state = State::Halted;
                 }
             }
             _ => {
+                // println!("  HALT: Unknown opcode ${:04X}", opcode);
                 self.state = State::Halted;
             }
         }
@@ -349,30 +392,26 @@ impl Cpu68000 {
 
     fn initiate_bus_cycle(&self, op: MicroOp) -> State {
         let is_supervisor = self.regs.is_supervisor();
+        let fc_prog = if is_supervisor { FunctionCode::SupervisorProgram } else { FunctionCode::UserProgram };
+        let fc_data = if is_supervisor { FunctionCode::SupervisorData } else { FunctionCode::UserData };
         
         let (addr, fc, is_read, is_word, data) = match op {
-            MicroOp::FetchIRC => (
-                self.regs.pc,
-                if is_supervisor { FunctionCode::SupervisorProgram } else { FunctionCode::UserProgram },
-                true,
-                true,
-                None
-            ),
-            MicroOp::ReadWord => (
-                self.addr,
-                if is_supervisor { FunctionCode::SupervisorData } else { FunctionCode::UserData },
-                true,
-                true,
-                None
-            ),
-            MicroOp::WriteWord => (
-                self.addr,
-                if is_supervisor { FunctionCode::SupervisorData } else { FunctionCode::UserData },
-                false,
-                true,
-                Some(self.data as u16)
-            ),
-            _ => (0, FunctionCode::UserData, true, true, None),
+            MicroOp::FetchIRC => (self.regs.pc, fc_prog, true, true, None),
+            MicroOp::ReadByte => (self.addr, fc_data, true, false, None),
+            MicroOp::ReadWord => (self.addr, fc_data, true, true, None),
+            MicroOp::ReadLongHi => (self.addr, fc_data, true, true, None),
+            MicroOp::ReadLongLo => (self.addr.wrapping_add(2), fc_data, true, true, None),
+            MicroOp::WriteByte => (self.addr, fc_data, false, false, Some(u16::from(self.data as u8))),
+            MicroOp::WriteWord => (self.addr, fc_data, false, true, Some(self.data as u16)),
+            MicroOp::WriteLongHi => (self.addr, fc_data, false, true, Some((self.data >> 16) as u16)),
+            MicroOp::WriteLongLo => (self.addr.wrapping_add(2), fc_data, false, true, Some((self.data & 0xFFFF) as u16)),
+            MicroOp::PushWord => (self.regs.active_sp().wrapping_sub(2), fc_data, false, true, Some(self.data as u16)),
+            MicroOp::PushLongHi => (self.regs.active_sp().wrapping_sub(4), fc_data, false, true, Some((self.data >> 16) as u16)),
+            MicroOp::PushLongLo => (self.regs.active_sp().wrapping_sub(2), fc_data, false, true, Some((self.data & 0xFFFF) as u16)),
+            MicroOp::PopWord => (self.regs.active_sp(), fc_data, true, true, None),
+            MicroOp::PopLongHi => (self.regs.active_sp(), fc_data, true, true, None),
+            MicroOp::PopLongLo => (self.regs.active_sp().wrapping_add(2), fc_data, true, true, None),
+            _ => panic!("Non-bus op in initiate_bus_cycle: {:?}", op),
         };
 
         State::BusCycle {
@@ -390,6 +429,7 @@ impl Cpu68000 {
         match op {
             MicroOp::FetchIRC => {
                 self.irc = read_data;
+                // IRC was fetched from current PC, which is then incremented
                 self.irc_addr = self.regs.pc;
                 self.regs.pc = self.regs.pc.wrapping_add(2);
             }
