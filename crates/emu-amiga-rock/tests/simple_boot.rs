@@ -20,8 +20,11 @@ fn test_minimal_execution() {
     rom[12] = 0x34; rom[13] = 0x3C; rom[14] = 0x12; rom[15] = 0x34;
     // 4. MOVE.W D1, (A1) ($3281)
     rom[16] = 0x32; rom[17] = 0x81;
-    // 5. RESET ($4E70)
-    rom[18] = 0x4E; rom[19] = 0x70;
+    // 5. MOVE.W #$0F00, $DFF180 ($33FC 0F00 00DF F180) -- COLOR00 = Red
+    rom[18] = 0x33; rom[19] = 0xFC; rom[20] = 0x0F; rom[21] = 0x00; 
+    rom[22] = 0x00; rom[23] = 0xDF; rom[24] = 0xF1; rom[25] = 0x80;
+    // 6. NOP ($4E71)
+    rom[26] = 0x4E; rom[27] = 0x71;
 
     let mut amiga = Amiga::new(rom);
     
@@ -29,8 +32,8 @@ fn test_minimal_execution() {
     amiga.cpu.regs.a[0] = 0x00F80000; // Points to SSP value ($0008)
     amiga.cpu.regs.a[1] = 0x00001000; // Points to Chip RAM
 
-    // Run for a bit longer now (1000 ticks)
-    for _ in 0..1000 {
+    // Run for much longer now (20,000 ticks)
+    for _ in 0..20000 {
         amiga.tick();
     }
 
@@ -48,4 +51,6 @@ fn test_minimal_execution() {
     // Chip RAM at $1000 contains $0008
     assert_eq!(m1000, 0x00);
     assert_eq!(m1001, 0x08);
+    // Palette[0] is Red ($0F00)
+    assert_eq!(amiga.denise.palette[0], 0x0F00);
 }

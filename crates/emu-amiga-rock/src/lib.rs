@@ -13,6 +13,7 @@ pub mod memory;
 
 use crate::agnus::{Agnus, SlotOwner};
 use crate::memory::Memory;
+use crate::denise::Denise;
 use cpu_m68k_rock::cpu::Cpu68000;
 use cpu_m68k_rock::bus::{M68kBus, FunctionCode, BusStatus};
 
@@ -26,13 +27,16 @@ pub const TICKS_PER_CCK: u64 = 8;
 /// Number of crystal ticks per CPU Cycle
 pub const TICKS_PER_CPU: u64 = 4;
 
+/// Display window constants for framebuffer coordinate mapping.
+const DISPLAY_VSTART: u16 = 0x2C;
+const DISPLAY_HSTART_CCK: u16 = 0x2E;
+
 pub struct Amiga {
     pub master_clock: u64,
     pub cpu: Cpu68000,
     pub agnus: Agnus,
     pub memory: Memory,
-    // pub denise: Denise,
-    // pub paula: Paula,
+    pub denise: Denise,
 }
 
 impl Amiga {
@@ -57,6 +61,7 @@ impl Amiga {
             cpu,
             agnus: Agnus::new(),
             memory,
+            denise: Denise::new(),
         }
     }
 
@@ -65,6 +70,15 @@ impl Amiga {
 
         // 1. Tick Agnus/DMA (Every 8 ticks)
         if self.master_clock % TICKS_PER_CCK == 0 {
+            let vpos = self.agnus.vpos;
+            let hpos = self.agnus.hpos;
+            
+            // Denise: output 2 lores pixels per CCK
+            if let Some((fb_x, fb_y)) = self.beam_to_fb(vpos, hpos) {
+                self.denise.output_pixel(fb_x, fb_y);
+                self.denise.output_pixel(fb_x + 1, fb_y);
+            }
+
             self.agnus.tick_cck();
         }
 
@@ -73,15 +87,32 @@ impl Amiga {
             let mut bus = AmigaBusWrapper {
                 agnus: &mut self.agnus,
                 memory: &mut self.memory,
+                denise: &mut self.denise,
             };
             self.cpu.tick(&mut bus, self.master_clock);
         }
+    }
+
+    fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
+        let fb_y = vpos.wrapping_sub(DISPLAY_VSTART);
+        if fb_y >= crate::denise::FB_HEIGHT as u16 {
+            return None;
+        }
+
+        let cck_offset = hpos_cck.wrapping_sub(DISPLAY_HSTART_CCK);
+        let fb_x = u32::from(cck_offset) * 2;
+        if fb_x + 1 >= crate::denise::FB_WIDTH {
+            return None;
+        }
+
+        Some((fb_x, u32::from(fb_y)))
     }
 }
 
 pub struct AmigaBusWrapper<'a> {
     pub agnus: &'a mut Agnus,
     pub memory: &'a mut Memory,
+    pub denise: &'a mut Denise,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -93,7 +124,24 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         is_word: bool,
         data: Option<u16>,
     ) -> BusStatus {
-        // println!("Bus Poll: addr=${:06X} read={} word={}", addr, is_read, is_word);
+        let addr = addr & 0xFFFFFF;
+
+        // Custom Registers ($DFF000)
+        if (addr & 0xFFF000) == 0xDFF000 {
+            let offset = (addr & 0x1FE) as u16;
+            if !is_read {
+                let val = data.unwrap_or(0);
+                match offset {
+                    0x180..=0x1BE => {
+                        let idx = ((offset - 0x180) / 2) as usize;
+                        self.denise.set_palette(idx, val);
+                    }
+                    _ => {}
+                }
+            }
+            return BusStatus::Ready(0);
+        }
+
         // Chip RAM contention check
         if addr < 0x200000 {
             match self.agnus.current_slot() {
@@ -107,7 +155,6 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         } else {
                             u16::from(self.memory.read_byte(addr))
                         };
-                        // println!("Bus Ready: data=${:04X}", val);
                         BusStatus::Ready(val)
                     } else {
                         let val = data.unwrap_or(0);
@@ -132,7 +179,6 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                 } else {
                     u16::from(self.memory.read_byte(addr))
                 };
-                // println!("Bus Ready (ROM): data=${:04X}", val);
                 BusStatus::Ready(val)
             } else {
                 // Ignore writes to ROM

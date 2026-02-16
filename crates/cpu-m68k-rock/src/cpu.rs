@@ -63,6 +63,16 @@ impl MicroOpQueue {
         self.len += 1;
     }
 
+    pub fn push_front(&mut self, op: MicroOp) {
+        self.head = if self.head == 0 {
+            (QUEUE_CAPACITY - 1) as u8
+        } else {
+            self.head - 1
+        };
+        self.ops[self.head as usize] = op;
+        self.len += 1;
+    }
+
     pub fn pop(&mut self) -> Option<MicroOp> {
         if self.len == 0 {
             None
@@ -154,6 +164,9 @@ pub struct Cpu68000 {
 const FOLLOWUP_MOVE_READ_SRC_DATA: u8 = 1;
 const FOLLOWUP_MOVE_CALC_DST_EA: u8 = 2;
 const FOLLOWUP_MOVE_WRITE_DATA: u8 = 3;
+const FOLLOWUP_MOVE_READ_SRC_EA_LONG: u8 = 4;
+const FOLLOWUP_MOVE_CALC_DST_EA_LONG: u8 = 5;
+const FOLLOWUP_MOVE_READ_SRC_DATA_LONG: u8 = 6;
 
 impl Cpu68000 {
     pub fn new() -> Self {
@@ -208,7 +221,7 @@ impl Cpu68000 {
     /// Consume IRC as an extension word and queue FetchIRC to refill.
     pub fn consume_irc(&mut self) -> u16 {
         let val = self.irc;
-        self.micro_ops.push(MicroOp::FetchIRC);
+        self.micro_ops.push_front(MicroOp::FetchIRC);
         val
     }
 
@@ -317,7 +330,6 @@ impl Cpu68000 {
         }
 
         let opcode = self.ir;
-        // println!("  DECODE: opcode=${:04X} at instr_start=${:08X}", opcode, self.instr_start_pc);
 
         // MOVE.B/W/L (00ss ddd mmm sss)
         if (opcode & 0xC000) == 0x0000 && (opcode & 0x3000) != 0 {
@@ -346,20 +358,16 @@ impl Cpu68000 {
 
         match opcode {
             0x4E71 => { // NOP
-                // println!("  EXEC: NOP");
             }
             0x4E70 => { // RESET
                 if self.regs.is_supervisor() {
-                    // println!("  EXEC: RESET");
                     self.micro_ops.push(MicroOp::AssertReset);
                     self.micro_ops.push(MicroOp::Internal(124));
                 } else {
-                    // println!("  HALT: RESET in user mode");
                     self.state = State::Halted;
                 }
             }
             _ => {
-                // println!("  HALT: Unknown opcode ${:04X}", opcode);
                 self.state = State::Halted;
             }
         }
@@ -367,6 +375,24 @@ impl Cpu68000 {
 
     fn continue_instruction(&mut self) {
         match self.followup_tag {
+            FOLLOWUP_MOVE_READ_SRC_EA_LONG => {
+                let lo = self.consume_irc();
+                self.addr |= u32::from(lo);
+                self.followup_tag = FOLLOWUP_MOVE_READ_SRC_DATA;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            FOLLOWUP_MOVE_CALC_DST_EA_LONG => {
+                let lo = self.consume_irc();
+                self.addr |= u32::from(lo);
+                self.followup_tag = FOLLOWUP_MOVE_WRITE_DATA;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            FOLLOWUP_MOVE_READ_SRC_DATA_LONG => {
+                let lo = self.consume_irc();
+                self.data |= u32::from(lo);
+                self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
+                self.micro_ops.push(MicroOp::Execute);
+            }
             FOLLOWUP_MOVE_READ_SRC_DATA => {
                 let src_mode = self.src_mode.unwrap();
                 match src_mode {
@@ -374,23 +400,24 @@ impl Cpu68000 {
                         let val = self.regs.d[reg as usize];
                         self.data = val;
                         self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
-                        self.continue_instruction();
+                        self.micro_ops.push(MicroOp::Execute);
                     }
                     AddrMode::AddrReg(reg) => {
                         let val = self.regs.a[reg as usize];
                         self.data = val;
                         self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
-                        self.continue_instruction();
+                        self.micro_ops.push(MicroOp::Execute);
                     }
                     AddrMode::Immediate => {
                         let val = self.consume_irc();
                         if self.size == Size::Long {
-                            self.data = (u32::from(val) << 16) | u32::from(self.consume_irc());
+                            self.data = u32::from(val) << 16;
+                            self.followup_tag = FOLLOWUP_MOVE_READ_SRC_DATA_LONG;
                         } else {
                             self.data = u32::from(val);
+                            self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
                         }
-                        self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
-                        self.continue_instruction();
+                        self.micro_ops.push(MicroOp::Execute);
                     }
                     _ => {
                         self.followup_tag = FOLLOWUP_MOVE_CALC_DST_EA;
@@ -400,8 +427,9 @@ impl Cpu68000 {
                 }
             }
             FOLLOWUP_MOVE_CALC_DST_EA => {
-                self.followup_tag = FOLLOWUP_MOVE_WRITE_DATA;
-                self.calc_ea(self.dst_mode.unwrap(), self.size);
+                if self.calc_ea(self.dst_mode.unwrap(), self.size) {
+                    self.followup_tag = FOLLOWUP_MOVE_WRITE_DATA;
+                }
                 self.micro_ops.push(MicroOp::Execute);
             }
             FOLLOWUP_MOVE_WRITE_DATA => {
@@ -410,6 +438,7 @@ impl Cpu68000 {
                     AddrMode::DataReg(reg) => {
                         let val = self.data;
                         let size = self.size;
+                        self.set_flags_move(val, size);
                         let reg_val = &mut self.regs.d[reg as usize];
                         *reg_val = match size {
                             Size::Byte => (*reg_val & 0xFFFF_FF00) | (val & 0xFF),
@@ -421,7 +450,6 @@ impl Cpu68000 {
                     AddrMode::AddrReg(reg) => {
                         let val = self.data;
                         // MOVEA always sign-extends word to long and doesn't set flags.
-                        // (Wait, MOVE to AddrReg is MOVEA).
                         self.regs.a[reg as usize] = if self.size == Size::Word {
                             (val as i16 as i32) as u32
                         } else {
@@ -430,6 +458,7 @@ impl Cpu68000 {
                         self.in_followup = false;
                     }
                     _ => {
+                        self.set_flags_move(self.data, self.size);
                         self.queue_write_ops(self.size);
                         self.in_followup = false;
                     }
@@ -441,18 +470,34 @@ impl Cpu68000 {
         }
     }
 
-    fn calc_ea(&mut self, mode: AddrMode, _size: Size) {
+    fn calc_ea(&mut self, mode: AddrMode, _size: Size) -> bool {
         match mode {
             AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate => {
-                // Instant
+                true // Instant
             }
             AddrMode::AddrInd(reg) => {
                 self.addr = self.regs.a(reg as usize);
+                true
+            }
+            AddrMode::AbsShort => {
+                let val = self.consume_irc();
+                self.addr = (val as i16 as i32) as u32;
+                true
+            }
+            AddrMode::AbsLong => {
+                let hi = self.consume_irc();
+                self.addr = u32::from(hi) << 16;
+                // We need to wait for IRC to refill with the low word
+                self.followup_tag = if self.followup_tag == FOLLOWUP_MOVE_READ_SRC_DATA {
+                    FOLLOWUP_MOVE_READ_SRC_EA_LONG
+                } else {
+                    FOLLOWUP_MOVE_CALC_DST_EA_LONG
+                };
+                false // Not finished, pushed FetchIRC
             }
             _ => {
-                // To be implemented as needed
-                println!("HALT: AddrMode {:?} not yet implemented in calc_ea", mode);
                 self.state = State::Halted;
+                true
             }
         }
     }
@@ -528,6 +573,20 @@ impl Cpu68000 {
                 self.data = u32::from(read_data);
             }
             _ => {}
+        }
+    }
+
+    fn set_flags_move(&mut self, val: u32, size: Size) {
+        use crate::flags::{N, Z, V, C};
+        self.regs.sr &= !(N | Z | V | C);
+        let mask = size.mask();
+        let msb = size.msb_mask();
+        let v = val & mask;
+        if v == 0 {
+            self.regs.sr |= Z;
+        }
+        if v & msb != 0 {
+            self.regs.sr |= N;
         }
     }
 }
