@@ -1,0 +1,12 @@
+[package]
+name = "cpu-m68k-rock"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+
+[lib]
+name = "cpu_m68k_rock"
+path = "src/lib.rs"

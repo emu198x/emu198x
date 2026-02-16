@@ -11,8 +11,9 @@ pub mod denise;
 pub mod paula;
 pub mod memory;
 
-use crate::agnus::Agnus;
-use crate::bus::{M68kBus, FunctionCode, BusStatus};
+use crate::agnus::{Agnus, SlotOwner};
+use cpu_m68k_rock::cpu::Cpu68000;
+use cpu_m68k_rock::bus::{M68kBus, FunctionCode, BusStatus};
 
 /// Standard Amiga PAL Master Crystal Frequency (Hz)
 pub const PAL_CRYSTAL_HZ: u64 = 28_375_160;
@@ -26,14 +27,17 @@ pub const TICKS_PER_CPU: u64 = 4;
 
 pub struct Amiga {
     pub master_clock: u64,
+    pub cpu: Cpu68000,
     pub agnus: Agnus,
-    // We'll add CPU, Denise, etc. as we go
+    // pub denise: Denise,
+    // pub paula: Paula,
 }
 
 impl Amiga {
     pub fn new() -> Self {
         Self {
             master_clock: 0,
+            cpu: Cpu68000::new(),
             agnus: Agnus::new(),
         }
     }
@@ -47,15 +51,17 @@ impl Amiga {
         }
 
         // 2. Tick CPU (Every 4 ticks)
-        if self.master_clock % TICKS_PER_CPU == 0 {
-            // self.cpu.tick(&mut self.bus_wrapper);
-        }
+        // Note: The CPU crate's tick() already handles the divisor internally if we pass master_clock,
+        // but doing it here is clearer.
+        let mut bus = AmigaBusWrapper {
+            agnus: &mut self.agnus,
+        };
+        self.cpu.tick(&mut bus, self.master_clock);
     }
 }
 
 pub struct AmigaBusWrapper<'a> {
     pub agnus: &'a mut Agnus,
-    // pub memory: &'a mut Memory,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -71,19 +77,27 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         // If it's a Chip RAM address, we MUST check Agnus.
         if addr < 0x200000 {
             match self.agnus.current_slot() {
-                crate::agnus::SlotOwner::Cpu => {
+                SlotOwner::Cpu => {
                     // CPU has the bus!
-                    // BusStatus::Ready(data)
+                    // In a real implementation, we would now access memory.
                     BusStatus::Ready(0) // Stub
                 }
                 _ => {
-                    // DMA is using the bus, CPU must wait.
+                    // DMA is using the bus (Refresh, Disk, etc.), CPU must wait.
                     BusStatus::Wait
                 }
             }
         } else {
-            // ROM or Fast RAM: no contention
+            // ROM or Fast RAM: no contention in this model.
             BusStatus::Ready(0) // Stub
         }
+    }
+
+    fn poll_interrupt_ack(&mut self, _level: u8) -> BusStatus {
+        BusStatus::Ready(24 + _level as u16) // Autovector stub
+    }
+
+    fn reset(&mut self) {
+        // Handle system reset
     }
 }
