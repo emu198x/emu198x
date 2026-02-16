@@ -1,5 +1,6 @@
 pub mod bus;
 pub mod cpu;
+pub mod decode;
 pub mod registers;
 pub mod flags;
 pub mod alu;

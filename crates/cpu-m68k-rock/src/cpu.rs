@@ -2,6 +2,8 @@
 
 use crate::bus::{M68kBus, BusStatus, FunctionCode};
 use crate::registers::Registers;
+use crate::addressing::AddrMode;
+use crate::alu::Size;
 
 /// Maximum number of micro-ops that can be queued for a single instruction.
 const QUEUE_CAPACITY: usize = 32;
@@ -128,7 +130,14 @@ pub struct Cpu68000 {
     // Multi-stage decode state
     pub in_followup: bool,
     pub followup_tag: u8,
+
+    // Temporary storage for staged EA calculation
+    pub src_mode: Option<AddrMode>,
+    pub dst_mode: Option<AddrMode>,
+    pub size: Size,
 }
+
+const FOLLOWUP_MOVE_STORE: u8 = 1;
 
 impl Cpu68000 {
     pub fn new() -> Self {
@@ -144,6 +153,9 @@ impl Cpu68000 {
             instr_start_pc: 0,
             in_followup: false,
             followup_tag: 0,
+            src_mode: None,
+            dst_mode: None,
+            size: Size::Word,
         }
     }
 
@@ -170,6 +182,13 @@ impl Cpu68000 {
         // Standard 68k prefetch after reset
         self.micro_ops.push(MicroOp::FetchIRC); // Fetches first opcode into IRC
         self.micro_ops.push(MicroOp::Execute);  // Will move IRC to IR and fetch next
+    }
+
+    /// Consume IRC as an extension word and queue FetchIRC to refill.
+    pub fn consume_irc(&mut self) -> u16 {
+        let val = self.irc;
+        self.micro_ops.push(MicroOp::FetchIRC);
+        val
     }
 
     pub fn tick<B: M68kBus>(&mut self, bus: &mut B, crystal_clock: u64) {
@@ -265,13 +284,22 @@ impl Cpu68000 {
         }
 
         let opcode = self.ir;
-        // ... rest of the code
-    }
 
-    fn continue_instruction(&mut self) {
-        // Multi-stage logic will go here
-    }
-
+        // MOVE.W (An), Dm (0011 ddd 000 010 sss)
+        if (opcode & 0xF1F8) == 0x3010 {
+            let src_reg = (opcode & 0x0007) as u8;
+            let dst_reg = ((opcode >> 9) & 0x0007) as u8;
+            
+            self.addr = self.regs.a(src_reg);
+            self.size = Size::Word;
+            self.dst_mode = Some(AddrMode::DataReg(dst_reg));
+            
+            self.in_followup = true;
+            self.followup_tag = FOLLOWUP_MOVE_STORE;
+            self.micro_ops.push(MicroOp::ReadWord);
+            self.micro_ops.push(MicroOp::Execute);
+            return;
+        }
 
         // MOVE.W Dn, Dm (0011 ddd 000 sss)
         if (opcode & 0xF1C0) == 0x3000 {
@@ -279,7 +307,6 @@ impl Cpu68000 {
             let dst_reg = ((opcode >> 9) & 0x0007) as usize;
             let val = self.regs.d[src_reg] as u16;
             self.regs.d[dst_reg] = (self.regs.d[dst_reg] & 0xFFFF_0000) | u32::from(val);
-            // Flags update would go here
             return;
         }
 
@@ -292,14 +319,31 @@ impl Cpu68000 {
                     self.micro_ops.push(MicroOp::AssertReset);
                     self.micro_ops.push(MicroOp::Internal(124));
                 } else {
-                    // Privilege violation stub
                     self.state = State::Halted;
                 }
             }
             _ => {
-                // Illegal instruction stub
                 self.state = State::Halted;
             }
+        }
+    }
+
+    fn continue_instruction(&mut self) {
+        match self.followup_tag {
+            FOLLOWUP_MOVE_STORE => {
+                if let Some(AddrMode::DataReg(reg)) = self.dst_mode {
+                    let val = self.data;
+                    let size = self.size;
+                    let reg_val = &mut self.regs.d[reg as usize];
+                    *reg_val = match size {
+                        Size::Byte => (*reg_val & 0xFFFF_FF00) | (val & 0xFF),
+                        Size::Word => (*reg_val & 0xFFFF_0000) | (val & 0xFFFF),
+                        Size::Long => val,
+                    };
+                }
+                self.in_followup = false;
+            }
+            _ => {}
         }
     }
 
@@ -328,7 +372,7 @@ impl Cpu68000 {
                 true,
                 Some(self.data as u16)
             ),
-            _ => (0, FunctionCode::UserData, true, true, None), // Stub for others
+            _ => (0, FunctionCode::UserData, true, true, None),
         };
 
         State::BusCycle {
