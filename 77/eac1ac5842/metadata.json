@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "77eac1ac5842",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/cpu-m68k-rock/src/bus.rs",
+    "crates/cpu-m68k-rock/src/cpu.rs",
+    "crates/cpu-m68k-rock/src/decode.rs",
+    "crates/cpu-m68k-rock/src/ea.rs",
+    "crates/cpu-m68k-rock/src/execute.rs",
+    "crates/cpu-m68k-rock/src/lib.rs",
+    "crates/cpu-m68k-rock/src/microcode.rs",
+    "crates/cpu-m68k-rock/tests/single_step_tests.rs",
+    "scripts/rock_next_instruction.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/77/eac1ac5842/0/metadata.json",
+      "transcript": "/77/eac1ac5842/0/full.jsonl",
+      "context": "/77/eac1ac5842/0/context.md",
+      "content_hash": "/77/eac1ac5842/0/content_hash.txt",
+      "prompt": "/77/eac1ac5842/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7332,
+    "cache_creation_tokens": 550934,
+    "cache_read_tokens": 19739777,
+    "output_tokens": 12539,
+    "api_call_count": 170
+  }
+}

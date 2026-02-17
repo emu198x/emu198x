@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "77eac1ac5842",
+  "session_id": "75cc734d-97c7-4ae9-a05a-c73eb1dbfd38",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-17T16:33:43.049934Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/cpu-m68k-rock/src/bus.rs",
+    "crates/cpu-m68k-rock/src/cpu.rs",
+    "crates/cpu-m68k-rock/src/decode.rs",
+    "crates/cpu-m68k-rock/src/ea.rs",
+    "crates/cpu-m68k-rock/src/execute.rs",
+    "crates/cpu-m68k-rock/src/lib.rs",
+    "crates/cpu-m68k-rock/src/microcode.rs",
+    "crates/cpu-m68k-rock/tests/single_step_tests.rs",
+    "scripts/rock_next_instruction.sh"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 7332,
+    "cache_creation_tokens": 550934,
+    "cache_read_tokens": 19739777,
+    "output_tokens": 12539,
+    "api_call_count": 170
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-17T16:33:42.714665Z",
+    "agent_lines": 2572,
+    "human_added": 267,
+    "human_modified": 146,
+    "human_removed": 0,
+    "total_committed": 2985,
+    "agent_percentage": 86.1641541038526
+  }
+}
