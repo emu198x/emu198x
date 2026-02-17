@@ -10,6 +10,14 @@ pub enum FunctionCode {
     InterruptAck = 7,
 }
 
+impl FunctionCode {
+    /// Return the 3-bit function code value.
+    #[must_use]
+    pub fn bits(self) -> u8 {
+        self as u8
+    }
+}
+
 /// The status of a bus request in the reactive polling model.
 /// Matches the 68000's /DTACK and /BERR mechanism.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
