@@ -27,7 +27,7 @@ use crate::cpu::{
     TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_PC_HI,
     TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA,
     TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE,
-    TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_WRITEBACK,
+    TAG_JSR_JUMP, TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -296,13 +296,13 @@ impl Cpu68000 {
             self.followup_tag = TAG_FETCH_SRC_EA;
 
             if is_jsr {
+                // Compute return PC and save for push AFTER EA resolution.
+                // The real 68000 computes EA first, then pushes, then jumps.
                 let ext = self.src_mode.unwrap().ext_word_count();
                 let return_pc = self.instr_start_pc
                     .wrapping_add(2)
                     .wrapping_add(u32::from(ext) * 2);
-                self.data = return_pc;
-                self.micro_ops.push(MicroOp::PushLongHi);
-                self.micro_ops.push(MicroOp::PushLongLo);
+                self.dst_val = return_pc;
             }
 
             self.continue_instruction(bus);
@@ -619,6 +619,8 @@ impl Cpu68000 {
 
                 if !self.check_condition(cond) {
                     let counter = (self.regs.d[reg] & 0xFFFF) as u16;
+                    // Save original for undo on branch AE (odd target).
+                    self.dbcc_dn_undo = Some((reg as u8, counter));
                     let decremented = counter.wrapping_sub(1);
                     self.regs.d[reg] =
                         (self.regs.d[reg] & 0xFFFF_0000) | u32::from(decremented);
@@ -641,10 +643,21 @@ impl Cpu68000 {
             // --- Subroutine handlers ---
 
             TAG_JSR_EXECUTE => {
+                let is_jsr = (self.ir & 0x40) == 0;
+                // Set PC to target and start the pipeline refill.
                 self.regs.pc = self.addr;
                 self.next_fetch_addr = self.regs.pc;
                 self.micro_ops.clear();
+                // FetchIRC at target first — triggers AE if odd address.
+                // For JSR, the push happens AFTER FetchIRC succeeds.
+                // This matches the real 68000 where the stack is not
+                // modified if the jump target is misaligned.
                 self.micro_ops.push(MicroOp::FetchIRC);
+                if is_jsr {
+                    self.data = self.dst_val; // return PC saved at decode
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                }
                 self.micro_ops.push(MicroOp::PromoteIRC);
                 self.in_followup = false;
             }

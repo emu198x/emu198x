@@ -81,6 +81,8 @@ pub const TAG_BCC_FETCH_DISP: u8 = 31;
 pub const TAG_DBCC_EXECUTE: u8 = 32;
 /// JSR: jump to target address.
 pub const TAG_JSR_EXECUTE: u8 = 33;
+/// JSR: push complete, now jump to target.
+pub const TAG_JSR_JUMP: u8 = 43;
 /// BSR: branch to subroutine.
 pub const TAG_BSR_EXECUTE: u8 = 34;
 
@@ -232,6 +234,8 @@ pub struct Cpu68000 {
     pub(crate) ae_in_progress: bool,
     /// True when the AE was caused by a FetchIRC (branch/jump to odd target).
     pub(crate) ae_from_fetch_irc: bool,
+    /// DBcc: original Dn.w value before decrement, for undo on branch AE.
+    pub(crate) dbcc_dn_undo: Option<(u8, u16)>,
     /// IR value to push in the AE frame. Usually IR, but for MOVE.w write AE
     /// with -(An) destination the real 68000 pushes IRC because the pipeline
     /// has already advanced IR → IRC before the write cycle.
@@ -296,6 +300,7 @@ impl Cpu68000 {
             ae_saved_sr: 0,
             ae_in_progress: false,
             ae_from_fetch_irc: false,
+            dbcc_dn_undo: None,
             ae_frame_ir: 0,
             pre_move_sr: None,
             pre_move_vc: None,
@@ -494,6 +499,7 @@ impl Cpu68000 {
         self.in_followup = false;
         self.followup_tag = 0;
         self.ae_undo_reg = None;
+        self.dbcc_dn_undo = None;
         self.pre_move_sr = None;
         self.pre_move_vc = None;
         self.program_space_access = false;
@@ -774,6 +780,15 @@ impl Cpu68000 {
             }
         }
 
+        // DBcc: undo the Dn.w decrement when branch target is odd.
+        if is_read {
+            if let Some((r, original_w)) = self.dbcc_dn_undo.take() {
+                self.regs.d[r as usize] =
+                    (self.regs.d[r as usize] & 0xFFFF_0000) | u32::from(original_w);
+            }
+        }
+        self.dbcc_dn_undo = None;
+
         // For MOVE write AE: restore flags to match the 68000's flag
         // evaluation timing. pre_move_sr = full restore, pre_move_vc = V,C only.
         if !is_read {
@@ -844,6 +859,13 @@ impl Cpu68000 {
 
         // FetchIRC AE: branch/jump to an odd target.
         if self.ae_from_fetch_irc {
+            // DBcc: displacement word consumed, ISP + 4.
+            if top == 0x5 {
+                let ea_mode = ((self.ir >> 3) & 7) as u8;
+                if ea_mode == 1 {
+                    return self.instr_start_pc.wrapping_add(4);
+                }
+            }
             if top == 0x6 {
                 let cond = (self.ir >> 8) & 0xF;
                 if cond == 1 {
@@ -870,18 +892,6 @@ impl Cpu68000 {
             }
             // JMP, RTS, RTE, RTR, etc.: ISP + 2
             return self.instr_start_pc.wrapping_add(2);
-        }
-
-        // DBcc FetchIRC AE (not from ae_from_fetch_irc because DBcc uses
-        // program_space_access): frame PC = ISP + 4.
-        if self.program_space_access {
-            if top == 0x5 {
-                let ea_mode = ((self.ir >> 3) & 7) as u8;
-                if ea_mode == 1 {
-                    // DBcc: displacement word consumed, ISP + 4
-                    return self.instr_start_pc.wrapping_add(4);
-                }
-            }
         }
 
         let ea_mode = ((self.ir >> 3) & 7) as u8;
