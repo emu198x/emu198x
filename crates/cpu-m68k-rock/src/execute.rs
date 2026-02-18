@@ -6,7 +6,7 @@
 
 use crate::addressing::AddrMode;
 use crate::alu::Size;
-use crate::cpu::{AluOp, Cpu68000};
+use crate::cpu::{AluOp, BitOp, Cpu68000};
 use crate::microcode::MicroOp;
 
 impl Cpu68000 {
@@ -81,10 +81,28 @@ impl Cpu68000 {
             return;
         }
 
+        // NBCD: negate BCD (0 - val - X)
+        if (opcode & 0xFFC0) == 0x4800 {
+            let val = self.dst_val as u8;
+            let x = self.x_flag();
+            let (result, carry, overflow) = self.nbcd_op(val, x);
+            self.set_bcd_flags(result, carry, overflow);
+            self.data = u32::from(result);
+            return;
+        }
+
         // CLR: result is zero, set flags
         if (opcode & 0xFF00) == 0x4200 {
             self.data = 0;
             self.set_flags_move(0, self.size);
+            return;
+        }
+
+        // TAS: test byte, set flags, then set bit 7 (must be before TST)
+        if (opcode & 0xFFC0) == 0x4AC0 {
+            let val = self.dst_val & 0xFF;
+            self.set_flags_logic(val, Size::Byte);
+            self.data = val | 0x80;
             return;
         }
 
@@ -98,6 +116,90 @@ impl Cpu68000 {
         if (opcode & 0xF0C0) == 0x50C0 && (opcode & 0x0038) != 0x0008 {
             let cond = ((opcode >> 8) & 0x0F) as u8;
             self.data = if self.check_condition(cond) { 0xFF } else { 0x00 };
+            return;
+        }
+
+        // NOT: ~dst
+        if (opcode & 0xFF00) == 0x4600 && ((opcode >> 6) & 3) != 3 {
+            let mask = self.size.mask();
+            self.data = !self.dst_val & mask;
+            self.set_flags_logic(self.data, self.size);
+            return;
+        }
+
+        // NEG: 0 - dst
+        if (opcode & 0xFF00) == 0x4400 && ((opcode >> 6) & 3) != 3 {
+            let (result, new_sr) = crate::alu::neg(self.dst_val, self.size, self.regs.sr);
+            self.regs.sr = new_sr;
+            self.data = result;
+            return;
+        }
+
+        // NEGX: 0 - dst - X
+        if (opcode & 0xFF00) == 0x4000 && ((opcode >> 6) & 3) != 3 {
+            let (result, new_sr) = crate::alu::negx(self.dst_val, self.size, self.regs.sr);
+            self.regs.sr = new_sr;
+            self.data = result;
+            return;
+        }
+
+        // MOVE from SR to memory (RMW pattern: read then write)
+        if (opcode & 0xFFC0) == 0x40C0 {
+            // dst_val has the dummy read; we write SR
+            self.data = u32::from(self.regs.sr);
+            return;
+        }
+
+        // MOVE to CCR / MOVE to SR
+        // The 68000 spends 8 internal clocks processing the SR/CCR write.
+        // Don't set in_followup=false here — let the normal TAG_WRITEBACK
+        // path complete the instruction so the instruction-end FetchIRC runs.
+        if (opcode & 0xFFC0) == 0x44C0 || (opcode & 0xFFC0) == 0x46C0 {
+            let val = self.src_val;
+            if (opcode & 0xFFC0) == 0x44C0 {
+                // MOVE to CCR: only bits 0-4
+                self.regs.sr = (self.regs.sr & 0xFF00) | (val as u16 & 0x001F);
+            } else {
+                // MOVE to SR
+                self.regs.sr = val as u16 & crate::flags::SR_MASK;
+            }
+            self.micro_ops.push(MicroOp::Internal(8));
+            return;
+        }
+
+        // Bit operations (memory destination)
+        if (opcode & 0xF000) == 0x0000 {
+            let is_dynamic = (opcode & 0x0100) != 0;
+            let is_static = (opcode & 0xFF00) == 0x0800;
+            if is_dynamic || is_static {
+                let bit = self.src_val & 7; // byte: mod 8
+                let val = self.dst_val & 0xFF;
+                self.regs.sr = if val & (1 << bit) == 0 {
+                    self.regs.sr | crate::flags::Z
+                } else {
+                    self.regs.sr & !crate::flags::Z
+                };
+                if matches!(self.bit_op, BitOp::Btst) {
+                    // BTST: no writeback needed (Z flag already set above).
+                    // Don't set in_followup=false here — let TAG_WRITEBACK
+                    // handle the clean exit so the instruction-end FetchIRC runs.
+                    return;
+                }
+                self.data = match self.bit_op {
+                    BitOp::Btst => unreachable!(),
+                    BitOp::Bchg => val ^ (1 << bit),
+                    BitOp::Bclr => val & !(1 << bit),
+                    BitOp::Bset => val | (1 << bit),
+                };
+                return;
+            }
+        }
+
+        // Shift/rotate (memory destination): shift by 1
+        if (opcode & 0xF000) == 0xE000 && ((opcode >> 6) & 3) == 3 {
+            let shift_type = self.src_val as u8 & 0x0F;
+            let direction = ((self.src_val >> 4) & 1) as u8;
+            self.perform_shift_memory(direction, shift_type);
             return;
         }
 
@@ -164,14 +266,27 @@ impl Cpu68000 {
             }
         }
 
-        // TST: no writeback (flags only)
-        if (opcode & 0xFF00) == 0x4A00 {
+        // TST: no writeback (flags only). Exclude TAS (size=3 → 0x4AC0).
+        if (opcode & 0xFF00) == 0x4A00 && ((opcode >> 6) & 3) != 3 {
+            return;
+        }
+
+        // MOVE to CCR/SR: no writeback (already applied in execute)
+        if (opcode & 0xFFC0) == 0x44C0 || (opcode & 0xFFC0) == 0x46C0 {
+            return;
+        }
+
+        // BTST memory: no writeback (only modifies Z flag)
+        let is_btst_static = (opcode & 0xFFC0) == 0x0800;
+        let is_btst_dynamic = (opcode & 0xF1C0) == 0x0100;
+        if is_btst_static || is_btst_dynamic {
             return;
         }
 
         // Everything else: write data to destination
         // Covers MOVE, ALU general (ADD/SUB/AND/OR/EOR), ALU immediate
-        // (ORI/ANDI/SUBI/ADDI/EORI), ADDQ/SUBQ, CLR, Scc
+        // (ORI/ANDI/SUBI/ADDI/EORI), ADDQ/SUBQ, CLR, Scc, NOT, NEG, NEGX,
+        // MOVE from SR (memory), BCHG/BCLR/BSET (memory), shifts (memory)
         if let Some(dst) = self.dst_mode {
             match dst {
                 AddrMode::DataReg(r) => {
@@ -308,6 +423,383 @@ impl Cpu68000 {
         }
         if v & msb != 0 {
             self.regs.sr |= N;
+        }
+    }
+
+    /// Perform a register shift/rotate operation.
+    ///
+    /// `shift_type`: 0=AS, 1=LS, 2=ROX, 3=RO
+    /// `direction`: 0=right, 1=left
+    pub(crate) fn perform_shift(
+        &mut self, reg: u8, count: u32, direction: u8, shift_type: u8, size: Size,
+    ) {
+        let mask = size.mask();
+        let msb = size.msb_mask();
+        let mut val = self.regs.d[reg as usize] & mask;
+        let x_in = self.regs.sr & crate::flags::X != 0;
+
+        use crate::flags::{C, N, V, X, Z};
+        let mut sr = self.regs.sr;
+
+        if count == 0 {
+            // No shift: clear C (and V for ASL), set N/Z
+            sr &= !(C | V);
+            if shift_type == 2 {
+                // ROXL/ROXR with count 0: C = X
+                if x_in { sr |= C; } else { sr &= !C; }
+            }
+            sr &= !(N | Z);
+            if val == 0 { sr |= Z; }
+            if val & msb != 0 { sr |= N; }
+            self.regs.sr = sr;
+            return;
+        }
+
+        match (shift_type, direction) {
+            (0, 1) => {
+                // ASL (arithmetic shift left)
+                sr &= !(C | X | V | N | Z);
+                let mut v_changed = false;
+                for _ in 0..count {
+                    let out = val & msb != 0;
+                    val = (val << 1) & mask;
+                    let new_msb = val & msb != 0;
+                    if out != new_msb { v_changed = true; }
+                    if out { sr |= C | X; } else { sr &= !(C | X); }
+                }
+                if v_changed { sr |= V; }
+                if val == 0 { sr |= Z; }
+                if val & msb != 0 { sr |= N; }
+            }
+            (0, 0) => {
+                // ASR (arithmetic shift right)
+                sr &= !(C | X | V | N | Z);
+                for _ in 0..count {
+                    let out = val & 1 != 0;
+                    let sign = val & msb;
+                    val = (val >> 1) | sign;
+                    val &= mask;
+                    if out { sr |= C | X; } else { sr &= !(C | X); }
+                }
+                if val == 0 { sr |= Z; }
+                if val & msb != 0 { sr |= N; }
+            }
+            (1, 1) => {
+                // LSL (logical shift left)
+                sr &= !(C | X | V | N | Z);
+                for _ in 0..count {
+                    let out = val & msb != 0;
+                    val = (val << 1) & mask;
+                    if out { sr |= C | X; } else { sr &= !(C | X); }
+                }
+                if val == 0 { sr |= Z; }
+                if val & msb != 0 { sr |= N; }
+            }
+            (1, 0) => {
+                // LSR (logical shift right)
+                sr &= !(C | X | V | N | Z);
+                for _ in 0..count {
+                    let out = val & 1 != 0;
+                    val >>= 1;
+                    if out { sr |= C | X; } else { sr &= !(C | X); }
+                }
+                if val == 0 { sr |= Z; }
+                if val & msb != 0 { sr |= N; }
+            }
+            (2, 1) => {
+                // ROXL (rotate left through extend)
+                sr &= !(C | V | N | Z);
+                let mut x = x_in;
+                for _ in 0..count {
+                    let out = val & msb != 0;
+                    val = ((val << 1) & mask) | u32::from(x);
+                    x = out;
+                }
+                if x { sr |= C | X; } else { sr &= !X; }
+                if val == 0 { sr |= Z; }
+                if val & msb != 0 { sr |= N; }
+            }
+            (2, 0) => {
+                // ROXR (rotate right through extend)
+                sr &= !(C | V | N | Z);
+                let mut x = x_in;
+                for _ in 0..count {
+                    let out = val & 1 != 0;
+                    val = (val >> 1) | if x { msb } else { 0 };
+                    x = out;
+                }
+                if x { sr |= C | X; } else { sr &= !X; }
+                if val == 0 { sr |= Z; }
+                if val & msb != 0 { sr |= N; }
+            }
+            (3, 1) => {
+                // ROL (rotate left)
+                sr &= !(C | V | N | Z);
+                for _ in 0..count {
+                    let out = val & msb != 0;
+                    val = ((val << 1) & mask) | u32::from(out);
+                    if out { sr |= C; } else { sr &= !C; }
+                }
+                // ROL does not affect X
+                if val == 0 { sr |= Z; }
+                if val & msb != 0 { sr |= N; }
+            }
+            (3, 0) => {
+                // ROR (rotate right)
+                sr &= !(C | V | N | Z);
+                for _ in 0..count {
+                    let out = val & 1 != 0;
+                    val = (val >> 1) | if out { msb } else { 0 };
+                    if out { sr |= C; } else { sr &= !C; }
+                }
+                // ROR does not affect X
+                if val == 0 { sr |= Z; }
+                if val & msb != 0 { sr |= N; }
+            }
+            _ => {}
+        }
+
+        self.regs.sr = sr;
+        // Write back to register
+        let reg_val = &mut self.regs.d[reg as usize];
+        *reg_val = match size {
+            Size::Byte => (*reg_val & 0xFFFF_FF00) | (val & 0xFF),
+            Size::Word => (*reg_val & 0xFFFF_0000) | (val & 0xFFFF),
+            Size::Long => val,
+        };
+    }
+
+    /// Perform a memory shift/rotate by 1.
+    ///
+    /// `direction`: 0=right, 1=left
+    /// `shift_type`: 0=AS, 1=LS, 2=ROX, 3=RO
+    pub(crate) fn perform_shift_memory(&mut self, direction: u8, shift_type: u8) {
+        let val = self.dst_val & 0xFFFF;
+        let msb: u32 = 0x8000;
+        let mask: u32 = 0xFFFF;
+        let x_in = self.regs.sr & crate::flags::X != 0;
+
+        use crate::flags::{C, N, V, X, Z};
+        let mut sr = self.regs.sr;
+        let result;
+
+        match (shift_type, direction) {
+            (0, 1) => {
+                // ASL by 1
+                let out = val & msb != 0;
+                result = (val << 1) & mask;
+                sr &= !(C | X | V | N | Z);
+                if out { sr |= C | X; }
+                if out != (result & msb != 0) { sr |= V; }
+                if result == 0 { sr |= Z; }
+                if result & msb != 0 { sr |= N; }
+            }
+            (0, 0) => {
+                // ASR by 1
+                let out = val & 1 != 0;
+                let sign = val & msb;
+                result = ((val >> 1) | sign) & mask;
+                sr &= !(C | X | V | N | Z);
+                if out { sr |= C | X; }
+                if result == 0 { sr |= Z; }
+                if result & msb != 0 { sr |= N; }
+            }
+            (1, 1) => {
+                // LSL by 1
+                let out = val & msb != 0;
+                result = (val << 1) & mask;
+                sr &= !(C | X | V | N | Z);
+                if out { sr |= C | X; }
+                if result == 0 { sr |= Z; }
+                if result & msb != 0 { sr |= N; }
+            }
+            (1, 0) => {
+                // LSR by 1
+                let out = val & 1 != 0;
+                result = val >> 1;
+                sr &= !(C | X | V | N | Z);
+                if out { sr |= C | X; }
+                if result == 0 { sr |= Z; }
+                if result & msb != 0 { sr |= N; }
+            }
+            (2, 1) => {
+                // ROXL by 1
+                let out = val & msb != 0;
+                result = ((val << 1) & mask) | u32::from(x_in);
+                sr &= !(C | V | N | Z);
+                if out { sr |= C | X; } else { sr &= !X; }
+                if result == 0 { sr |= Z; }
+                if result & msb != 0 { sr |= N; }
+            }
+            (2, 0) => {
+                // ROXR by 1
+                let out = val & 1 != 0;
+                result = (val >> 1) | if x_in { msb } else { 0 };
+                sr &= !(C | V | N | Z);
+                if out { sr |= C | X; } else { sr &= !X; }
+                if result == 0 { sr |= Z; }
+                if result & msb != 0 { sr |= N; }
+            }
+            (3, 1) => {
+                // ROL by 1
+                let out = val & msb != 0;
+                result = ((val << 1) & mask) | u32::from(out);
+                sr &= !(C | V | N | Z);
+                if out { sr |= C; }
+                if result == 0 { sr |= Z; }
+                if result & msb != 0 { sr |= N; }
+            }
+            (3, 0) => {
+                // ROR by 1
+                let out = val & 1 != 0;
+                result = (val >> 1) | if out { msb } else { 0 };
+                sr &= !(C | V | N | Z);
+                if out { sr |= C; }
+                if result == 0 { sr |= Z; }
+                if result & msb != 0 { sr |= N; }
+            }
+            _ => { result = val; }
+        }
+
+        self.regs.sr = sr;
+        self.data = result;
+    }
+
+    /// Compute exact DIVU cycle timing using Jorge Cwik's restoring
+    /// division algorithm. Returns total CPU clock cycles.
+    pub(crate) fn divu_cycles(dividend: u32, divisor: u16) -> u8 {
+        // Overflow case
+        if (dividend >> 16) >= u32::from(divisor) {
+            return 10;
+        }
+
+        let mut mcycles: u32 = 38;
+        let hdivisor = u32::from(divisor) << 16;
+        let mut dvd = dividend;
+
+        for _ in 0..15 {
+            let temp = dvd;
+            dvd <<= 1;
+
+            if temp & 0x8000_0000 != 0 {
+                dvd = dvd.wrapping_sub(hdivisor);
+            } else {
+                mcycles += 2;
+                if dvd >= hdivisor {
+                    dvd = dvd.wrapping_sub(hdivisor);
+                    mcycles -= 1;
+                }
+            }
+        }
+        (mcycles * 2) as u8
+    }
+
+    /// Compute exact DIVS cycle timing using Jorge Cwik's algorithm.
+    /// Returns total CPU clock cycles.
+    pub(crate) fn divs_cycles(dividend: i32, divisor: i16) -> u8 {
+        let mut mcycles: u32 = 6;
+        if dividend < 0 {
+            mcycles += 1;
+        }
+
+        let abs_dividend = (dividend as i64).unsigned_abs() as u32;
+        let abs_divisor = (divisor as i32).unsigned_abs() as u16;
+
+        if (abs_dividend >> 16) >= u32::from(abs_divisor) {
+            return ((mcycles + 2) * 2) as u8;
+        }
+
+        let mut aquot = abs_dividend / u32::from(abs_divisor);
+
+        mcycles += 55;
+
+        if divisor >= 0 {
+            if dividend >= 0 {
+                mcycles -= 1;
+            } else {
+                mcycles += 1;
+            }
+        }
+
+        // Each 0-bit in the top 15 bits of the absolute quotient adds 1 mcycle
+        for _ in 0..15 {
+            if (aquot as i16) >= 0 {
+                mcycles += 1;
+            }
+            aquot <<= 1;
+        }
+        (mcycles * 2) as u8
+    }
+
+    // --- BCD arithmetic ---
+
+    /// Get the current X flag as 0 or 1.
+    pub(crate) fn x_flag(&self) -> u8 {
+        u8::from(self.regs.sr & crate::flags::X != 0)
+    }
+
+    /// BCD addition: src + dst + extend. Returns (result, carry, overflow).
+    pub(crate) fn bcd_add(&self, src: u8, dst: u8, extend: u8) -> (u8, bool, bool) {
+        let low_sum = (dst & 0x0F) + (src & 0x0F) + extend;
+        let corf: u16 = if low_sum > 9 { 6 } else { 0 };
+        let uncorrected = u16::from(dst) + u16::from(src) + u16::from(extend);
+        let low_corrected = low_sum + if low_sum > 9 { 6 } else { 0 };
+        let low_carry = low_corrected >> 4;
+        let high_sum = (dst >> 4) + (src >> 4) + low_carry;
+        let carry = high_sum > 9;
+        let result = if carry {
+            uncorrected + corf + 0x60
+        } else {
+            uncorrected + corf
+        };
+        let overflow = (!uncorrected & result & 0x80) != 0;
+        (result as u8, carry, overflow)
+    }
+
+    /// BCD subtraction: dst - src - extend. Returns (result, borrow, overflow).
+    pub(crate) fn bcd_sub(&self, dst: u8, src: u8, extend: u8) -> (u8, bool, bool) {
+        let uncorrected = dst.wrapping_sub(src).wrapping_sub(extend);
+        let mut result = uncorrected;
+        let low_borrowed = (dst & 0x0F) < (src & 0x0F).saturating_add(extend);
+        if low_borrowed {
+            result = result.wrapping_sub(6);
+        }
+        let high_borrowed = (dst >> 4) < (src >> 4) + u8::from(low_borrowed);
+        if high_borrowed {
+            result = result.wrapping_sub(0x60);
+        }
+        let low_correction_wraps = low_borrowed && uncorrected < 6;
+        let borrow = high_borrowed || low_correction_wraps;
+        let overflow = (uncorrected & !result & 0x80) != 0;
+        (result, borrow, overflow)
+    }
+
+    /// NBCD: 0 - src - extend. Returns (result, borrow, overflow).
+    pub(crate) fn nbcd_op(&self, src: u8, extend: u8) -> (u8, bool, bool) {
+        self.bcd_sub(0, src, extend)
+    }
+
+    /// Set flags for ABCD/SBCD/NBCD operations.
+    /// Z is "sticky": only cleared, never set (supports multi-byte BCD).
+    pub(crate) fn set_bcd_flags(&mut self, result: u8, carry: bool, overflow: bool) {
+        use crate::flags::{C, V, X, Z};
+        self.regs.sr = if carry {
+            self.regs.sr | X | C
+        } else {
+            self.regs.sr & !(X | C)
+        };
+        if result != 0 {
+            self.regs.sr &= !Z;
+        }
+        if result & 0x80 != 0 {
+            self.regs.sr |= 0x0008; // N
+        } else {
+            self.regs.sr &= !0x0008;
+        }
+        if overflow {
+            self.regs.sr |= V;
+        } else {
+            self.regs.sr &= !V;
         }
     }
 

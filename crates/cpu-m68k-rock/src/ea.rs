@@ -103,8 +103,11 @@ impl Cpu68000 {
 
             // PC with displacement: needs one extension word, base = current PC
             AddrMode::PcDisp => {
-                // ea_pc captures PC value at the extension word location
-                self.ea_pc = self.instr_start_pc.wrapping_add(2);
+                // ea_pc captures PC value at the extension word location.
+                // Use irc_addr (where the current IRC was fetched from) rather
+                // than a hardcoded offset from instr_start_pc, because earlier
+                // extension words (e.g. BTST #imm) may have already been consumed.
+                self.ea_pc = self.irc_addr;
                 self.program_space_access = true;
                 self.followup_tag = if is_src {
                     TAG_EA_SRC_PCDISP
@@ -149,8 +152,9 @@ impl Cpu68000 {
             AddrMode::PcIndex => {
                 self.program_space_access = true;
                 let ext = self.consume_irc();
-                // PC value at the extension word location
-                let base = self.instr_start_pc.wrapping_add(2);
+                // PC value at the extension word location — use irc_addr
+                // so that prior consumed extension words are accounted for.
+                let base = self.irc_addr;
                 let disp = (ext & 0xFF) as i8 as i32;
                 let idx_reg = ((ext >> 12) & 7) as usize;
                 let idx_val = if ext & 0x8000 != 0 {

@@ -92,8 +92,46 @@ pub const TAG_RTS_PC_HI: u8 = 35;
 /// RTS: pop PC low word and jump.
 pub const TAG_RTS_PC_LO: u8 = 36;
 
-// MOVEM (placeholder)
-pub const TAG_MOVEM_EXECUTE: u8 = 37;
+// MOVEM follow-ups
+pub const TAG_MOVEM_NEXT: u8 = 37;
+pub const TAG_MOVEM_STORE: u8 = 60;
+/// MUL/DIV: execute after source operand is fetched.
+pub const TAG_MULDIV_EXECUTE: u8 = 82;
+/// MOVEP: multi-byte transfer loop (read/write one byte per iteration).
+pub const TAG_MOVEP_TRANSFER: u8 = 83;
+/// BCD -(An),-(An): source byte read complete, now predec dest and read.
+pub const TAG_BCD_SRC_READ: u8 = 84;
+/// BCD -(An),-(An): dest byte read complete, compute and write result.
+pub const TAG_BCD_DST_READ: u8 = 85;
+/// MOVEM: resolve EA after FetchIRC refills IRC with the first EA extension word.
+/// Needed because consume_irc() for the register mask leaves IRC stale until
+/// the queued FetchIRC completes; calc_ea_start can't be called until then.
+pub const TAG_MOVEM_RESOLVE_EA: u8 = 81;
+
+// LINK follow-up
+pub const TAG_LINK_DISP: u8 = 61;
+
+// UNLK follow-ups
+pub const TAG_UNLK_POP_HI: u8 = 62;
+pub const TAG_UNLK_POP_LO: u8 = 63;
+
+// RTE follow-ups
+pub const TAG_RTE_READ_SR: u8 = 64;
+pub const TAG_RTE_READ_PC_HI: u8 = 65;
+pub const TAG_RTE_READ_PC_LO: u8 = 66;
+
+// RTR follow-ups
+pub const TAG_RTR_READ_CCR: u8 = 67;
+pub const TAG_RTR_READ_PC_HI: u8 = 68;
+pub const TAG_RTR_READ_PC_LO: u8 = 69;
+
+// ADDX/SUBX memory mode follow-ups
+pub const TAG_ADDX_READ_SRC: u8 = 70;
+pub const TAG_ADDX_READ_DST: u8 = 71;
+pub const TAG_ADDX_WRITE: u8 = 72;
+
+// CHK follow-up: bounds comparison after EA read
+pub const TAG_CHK_EXECUTE: u8 = 80;
 
 // Exception follow-ups
 /// Exception: push PC onto stack.
@@ -214,10 +252,17 @@ pub struct Cpu68000 {
     pub target_ipl: u8,
     /// Enable verbose debug logging.
     pub debug_mode: bool,
-    /// MOVEM register mask.
+    /// MOVEM register mask (remaining registers to transfer).
     pub movem_mask: u16,
-    /// MOVEM current register index.
+    /// MOVEM current register index (for mem→reg store).
     pub movem_idx: u8,
+    /// MOVEM direction: true = register→memory, false = memory→register.
+    pub movem_is_write: bool,
+    /// MOVEM: address register used for predec/postinc (0-7), or 0xFF if none.
+    pub movem_an_reg: u8,
+    /// Exception vector for group 1/2 exceptions (TRAP, privilege violation, etc.).
+    /// When set, TAG_EXC_STACK_SR skips InterruptAck and uses this vector directly.
+    pub exc_vector: Option<u8>,
     /// Source operand value.
     pub src_val: u32,
     /// Destination operand value.
@@ -261,6 +306,11 @@ pub struct Cpu68000 {
     /// only the most recent (relevant) side effect gets undone.
     /// Register undo info for address error: (reg, amount, is_postinc, is_dst).
     pub(crate) ae_undo_reg: Option<(u8, u32, bool, bool)>,
+    /// UNLK: original stack pointer to restore if AE fires.
+    /// UNLK sets A7 ← An before reading from the new (potentially odd) A7.
+    /// If the read faults, the real 68000 undoes the A7 modification.
+    /// Tuple: (was_supervisor, original_sp).
+    pub(crate) sp_undo: Option<(bool, u32)>,
 }
 
 impl Cpu68000 {
@@ -293,6 +343,9 @@ impl Cpu68000 {
             debug_mode: false,
             movem_mask: 0,
             movem_idx: 0,
+            movem_is_write: false,
+            movem_an_reg: 0xFF,
+            exc_vector: None,
             src_val: 0,
             dst_val: 0,
             ae_fault_addr: 0,
@@ -306,6 +359,7 @@ impl Cpu68000 {
             pre_move_vc: None,
             program_space_access: false,
             ae_undo_reg: None,
+            sp_undo: None,
         }
     }
 
@@ -498,7 +552,10 @@ impl Cpu68000 {
         self.regs.pc = self.instr_start_pc.wrapping_add(2);
         self.in_followup = false;
         self.followup_tag = 0;
+        self.src_mode = None;
+        self.dst_mode = None;
         self.ae_undo_reg = None;
+        self.sp_undo = None;
         self.dbcc_dn_undo = None;
         self.pre_move_sr = None;
         self.pre_move_vc = None;
@@ -515,6 +572,35 @@ impl Cpu68000 {
         self.data = self.regs.pc;
         self.micro_ops.push(MicroOp::PushLongHi);
         self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Begin a group 1/2 exception (TRAP, privilege violation, etc.).
+    ///
+    /// Unlike interrupts, the vector number is known at decode time and
+    /// there is no InterruptAck bus cycle. The PC to push in the frame
+    /// is passed as a parameter (differs per instruction type).
+    pub fn begin_group1_exception(&mut self, vector: u8, pc_to_push: u32) {
+        self.ae_saved_sr = self.regs.sr;
+        self.regs.set_supervisor(true);
+        self.regs.sr &= !0x8000; // Clear trace
+        self.exc_vector = Some(vector);
+        self.data = pc_to_push;
+        self.in_followup = true;
+        self.followup_tag = TAG_EXC_STACK_PC_HI;
+        self.micro_ops.clear();
+        self.micro_ops.push(MicroOp::PushLongHi);
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Check supervisor mode. If in user mode, trigger a privilege violation
+    /// exception and return true (instruction should stop). Returns false
+    /// if in supervisor mode (instruction may proceed).
+    pub fn check_supervisor(&mut self) -> bool {
+        if self.regs.is_supervisor() {
+            return false;
+        }
+        self.begin_group1_exception(8, self.instr_start_pc);
+        true
     }
 
     /// Queue read micro-ops for the given size at the current EA address.
@@ -732,6 +818,16 @@ impl Cpu68000 {
         self.ae_fault_addr = self.adjust_ae_fault_addr(fault_addr, is_read);
         self.ae_in_progress = true;
 
+        // UNLK: undo the A7 ← An modification so the exception frame
+        // gets pushed on the original (valid) stack, not the faulting one.
+        if let Some((was_supervisor, original_sp)) = self.sp_undo.take() {
+            if was_supervisor {
+                self.regs.ssp = original_sp;
+            } else {
+                self.regs.usp = original_sp;
+            }
+        }
+
         // Undo post-increment/predecrement on AE when the transfer wasn't committed.
         if let Some((reg, amount, is_postinc, is_dst)) = self.ae_undo_reg.take() {
             // CMPM (An)+,(An)+: opcode = 1011 Ax 1 ss 001 Ay
@@ -754,10 +850,24 @@ impl Cpu68000 {
                     false
                 }
             } else {
-                // Predecrement: only undo on write AE for Long size.
-                // The real 68000 keeps the decremented value for byte/word write AE,
-                // but undoes it for long (verified by DL tests).
-                !is_read && self.size == Size::Long
+                // Predecrement undo rules:
+                // - ADDX/SUBX -(Ay),-(Ax): always undo on AE (source read
+                //   never committed, so the predecrement must be reversed).
+                // - Standard -(An) EA: only undo on write AE for Long size.
+                //   The real 68000 keeps the decremented value for byte/word
+                //   write AE, but undoes it for long (verified by DL tests).
+                // ADDX/SUBX -(Ay),-(Ax) long: the 68000 decrements by 2
+                // (word-sized step) before checking alignment. AE fires after
+                // the first -2, so the register must be fully restored.
+                // Byte/word ADDX/SUBX: natural-sized decrement sticks.
+                let is_addx_subx_long = self.size == Size::Long
+                    && matches!(self.ir & 0xF130, 0xD100 | 0x9100)
+                    && (self.ir & 0x0008) != 0;
+                if is_addx_subx_long {
+                    true
+                } else {
+                    !is_read && self.size == Size::Long
+                }
             };
             if undo {
                 let r = reg as usize;
@@ -897,12 +1007,34 @@ impl Cpu68000 {
         let ea_mode = ((self.ir >> 3) & 7) as u8;
         let ea_reg = (self.ir & 7) as u8;
 
+        // UNLK: frame PC = ISP + 4 (past opcode and prefetched IRC word).
+        if self.ir & 0xFFF8 == 0x4E58 {
+            return self.instr_start_pc.wrapping_add(4);
+        }
+
         // CMPM (An)+,(An)+ and ADDX/SUBX -(An),-(An): always ISP + 4
         if matches!(top, 0x9 | 0xB | 0xD) {
             let opmode = (self.ir >> 6) & 7;
             if opmode >= 4 && opmode <= 6 && ea_mode == 1 {
                 return self.instr_start_pc.wrapping_add(4);
             }
+        }
+
+        // MOVEM: register mask word shifts the base by +4 beyond the opcode,
+        // and EA extension words add on top. Formula: ISP + 6 + ea_ext_bytes.
+        // Detects both directions: reg→mem (0x4880) and mem→reg (0x4C80).
+        if (self.ir & 0xFB80) == 0x4880 {
+            let movem_ea_ext: u32 = match ea_mode {
+                5 | 6 => 2,  // d16(An), d8(An,Xn)
+                7 => match ea_reg {
+                    0 => 2,       // abs.w
+                    1 => 4,       // abs.l
+                    2 | 3 => 2,   // d16(PC), d8(PC,Xn)
+                    _ => 0,
+                },
+                _ => 0,
+            };
+            return self.instr_start_pc.wrapping_add(6 + movem_ea_ext);
         }
 
         // -(An) with word-size data access adds 2.
@@ -1022,9 +1154,32 @@ impl Cpu68000 {
     /// The 68000 reports the fault address as `An - 2` (word-sized initial
     /// decrement) rather than the full `An - 4` (long-sized decrement).
     fn adjust_ae_fault_addr(&self, addr: u32, is_read: bool) -> u32 {
+        // ADDX/SUBX -(Ay),-(Ax) long read AE: the 68000 decrements by 2
+        // (word-sized) first, then checks alignment. Our decode decremented
+        // by 4 at once, so the reported fault address is 2 too low.
+        if is_read && self.size == Size::Long {
+            let top = (self.ir >> 12) & 0xF;
+            let opmode = (self.ir >> 6) & 7;
+            let ea_mode = ((self.ir >> 3) & 7) as u8;
+            if matches!(top, 0x9 | 0xD) && opmode >= 4 && opmode <= 6 && ea_mode == 1 {
+                return addr.wrapping_add(2);
+            }
+        }
         if is_read {
             return addr;
         }
+
+        // MOVEM.l -(An) write AE: the real 68000 decrements by 2 first
+        // and writes the low word at An-2. Our code decrements by 4 at
+        // once, so adjust the fault address by +2 to match hardware.
+        if (self.ir & 0xFB80) == 0x4880 {
+            let ea_mode_bits = ((self.ir >> 3) & 7) as u8;
+            let is_long = (self.ir >> 6) & 1 == 1;
+            if ea_mode_bits == 4 && is_long {
+                return addr.wrapping_add(2);
+            }
+        }
+
         let top = (self.ir >> 12) & 0xF;
         if !matches!(top, 1 | 2 | 3) {
             return addr;
