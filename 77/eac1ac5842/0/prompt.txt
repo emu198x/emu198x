@@ -718,3 +718,1679 @@ Summary:
 
 If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
 Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation to capture all important details.
+
+1. This session is a continuation from a previous conversation that ran out of context. A detailed summary was provided at the start covering prior work on Steps 1-3 of a plan to fix the cpu-m68k-rock crate.
+
+2. The previous session had:
+   - Completed Steps 1 and 2 (split cpu.rs into modules, build test harness)
+   - Was partway through Step 3 (fix bugs)
+   - Test progression: 38,075 → 48,205 → 53,832 → 71,782/317,500 (12 instructions at 100%)
+   - Last work: investigating changing tick resolution from 4 to 2 crystal clocks for sub-4-clock internal delays
+   - User's last request: "Can we fix that?" about sub-4-clock internal delays
+
+3. In this session, I:
+   - Read cpu.rs, ea.rs, decode.rs, microcode.rs, single_step_tests.rs, execute.rs to refresh context
+   - Analyzed the tick resolution issue and realized Internal(2) already represents 2 CPU clocks (2 ticks)
+   - The previous session's analysis about needing finer tick granularity was wrong - Internal(2) = 2 ticks = 2 CPU clocks, which is exactly what predecrement needs
+
+4. First fix: Added Internal(2) delays for EA modes
+   - Added `use crate::microcode::MicroOp;` import to ea.rs
+   - Added `self.micro_ops.push(MicroOp::Internal(2))` for:
+     - AddrIndPreDec: 2 CPU clocks for decrement calculation
+     - AddrIndIndex: 2 CPU clocks for base+disp+index computation
+     - PcIndex: 2 CPU clocks for base+disp+index computation
+   - Updated test runner comment to remove the "can't model sub-4-clock" language
+   - TST.b: confirmed 100% (was already 100% with boundary detection)
+   - MOVE.b, ADD.b: confirmed 100%
+   - Full suite: 71,782/317,500 (same total - boundary detection was already catching the issue)
+   - The timing fix is correct at the hardware level even though test results didn't change
+
+5. Second fix: EOR misdecoded as CMP
+   - All 0xBxxx opcodes mapped to AluOp::Cmp, but opmodes 4-6 should be AluOp::Eor
+   - Fixed by checking opmode in the match: `0xB000 => if opmode >= 4 && opmode <= 6 { AluOp::Eor } else { AluOp::Cmp }`
+   - Had to move `opmode` computation before the `op` match (was after it)
+   - EOR.b: 10% → 100%
+
+6. Third fix: CMP modifies X flag
+   - CMP should NOT affect X flag, but set_flags_sub always clears and sets X
+   - Fixed by saving/restoring X in exec_alu for AluOp::Cmp:
+     ```rust
+     AluOp::Cmp => {
+         let saved_x = self.regs.sr & crate::flags::X;
+         let r = d.wrapping_sub(s) & mask;
+         self.set_flags_sub(s, d, r, size);
+         self.regs.sr = (self.regs.sr & !crate::flags::X) | saved_x;
+         r
+     }
+     ```
+   - CMP.b: 45% → improved (but still had CMPM failures)
+
+7. Fourth fix: CMPM (Compare Memory) 
+   - CMPM has opcode pattern `1011 Rx 1 ss 001 Ry` overlapping with EOR
+   - Added CMPM detection before the general EOR/CMP decode:
+     - Check 0xB000 range, opmodes 4-6, EA mode bits == 001
+     - Set up src_mode = AddrIndPostInc(ry), dst_mode = AddrIndPostInc(rx), alu_op = Cmp
+   - CMP.b: 100% after this fix
+
+8. Fifth fix: Address Error Exception handling
+   - Added new follow-up tags: TAG_AE_PUSH_SR through TAG_AE_FINISH (50-55)
+   - Added CPU fields: ae_fault_addr, ae_access_info, ae_saved_sr, ae_in_progress
+   - Added FunctionCode::bits() method to bus.rs
+   - Added check_address_error() in tick() dispatch before initiating bus cycles
+   - Added begin_address_error() to start the exception sequence
+   - Added tag handlers in decode.rs for the 14-byte frame push sequence
+   - Frame layout (from final SP):
+     - SP+0: Access info word
+     - SP+2: Fault address high
+     - SP+4: Fault address low
+     - SP+6: IR
+     - SP+8: SR (saved before supervisor mode)
+     - SP+10: PC high
+     - SP+12: PC low
+   - Then reads vector 3 (0x0C) and jumps to handler
+   - Double address error detection: halts CPU
+
+9. Frame PC calculation iterations:
+   - First attempt: used self.regs.pc → wrong, varied by addressing mode
+   - Second attempt: used instr_start_pc + 2 → better (TST.w: 1507 → 2248) but still wrong for predecrement and absolute modes
+   - Third attempt (in progress): using formula from cpu-m68k reference:
+     `frame_pc = instr_start_pc + 2 + predec_adj + abs_adj`
+     where predec_adj = 2 for -(An), abs_adj = 2 for AbsShort, 4 for AbsLong
+   - Was implementing ae_frame_pc_adjustment() method when conversation ended
+
+10. The last edit made was adding the frame PC adjustment call in begin_address_error:
+    ```rust
+    let pc_adj = self.ae_frame_pc_adjustment();
+    self.data = self.instr_start_pc.wrapping_add(2).wrapping_add(pc_adj);
+    ```
+    But the ae_frame_pc_adjustment() method itself was NOT yet written/added to cpu.rs.
+
+Let me verify the user messages in this session:
+- The session started with a continuation prompt: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+- No other user messages in this session - all work was autonomous continuation.
+
+The previous session's last user message was: "Can we fix that?" about sub-4-clock internal delays.
+
+Current state of files - let me track what's been modified:
+- ea.rs: Added MicroOp import, Internal(2) for PreDec, AddrIndIndex, PcIndex
+- decode.rs: Added CMPM decode, fixed EOR/CMP decode for 0xBxxx, added AE tag imports and handlers
+- execute.rs: Split AluOp::Sub|AluOp::Cmp into separate arms, CMP preserves X flag
+- cpu.rs: Added AE tags, AE fields, check_address_error(), begin_address_error(), frame PC adjustment call (but ae_frame_pc_adjustment not yet implemented)
+- bus.rs: Added FunctionCode::bits() method
+- single_step_tests.rs: Updated comment about boundary detection
+
+The ae_frame_pc_adjustment() method needs to be written. It should compute adjustments based on addressing modes.
+
+Summary:
+1. Primary Request and Intent:
+   This session is a continuation from a previous conversation. The user's original request (from two sessions ago) was to implement a 3-step plan to fix the `cpu-m68k-rock` crate:
+   - Step 1: Split monolithic cpu.rs into focused modules (COMPLETED in previous session)
+   - Step 2: Build single-step test harness (COMPLETED in previous session)
+   - Step 3: Fix bugs in implemented instructions (IN PROGRESS)
+   
+   The user's most recent explicit request was "Can we fix that?" in response to the explanation that "The problem is that our CPU doesn't model sub-4-clock internal delays (like the 2-clock predecrement)." The user wanted proper timing fixes, not test workarounds.
+   
+   The continuation prompt said: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+2. Key Technical Concepts:
+   - **Reactive bus architecture**: CPU polls `bus.poll_cycle()` each tick until `BusStatus::Ready`
+   - **Tick resolution**: Each tick = 4 crystal clocks = 1 CPU clock. `Internal(n)` = n CPU clocks. No tick resolution change needed.
+   - **Internal delays**: `MicroOp::Internal(2)` = 2 ticks = 2 CPU clocks for predecrement and indexed addressing modes
+   - **Address error exceptions**: 14-byte Group 0 frame pushed when word/long bus ops access odd addresses
+   - **Frame PC calculation**: `instr_start_pc + 2 + predec_adj + abs_adj` (from cpu-m68k reference)
+   - **CMPM**: Compare Memory instruction `1011 Rx 1 ss 001 Ry` overlaps with EOR encoding
+   - **CMP X flag**: CMP instruction must NOT modify the X (extend) flag, unlike SUB
+   - **EOR vs CMP in 0xBxxx**: Opmodes 0-2 = CMP, 4-6 = EOR, 3/7 = CMPA
+   - **DL test format**: Binary format with initial/final CPU state. Cycle count = full hardware cycles including opcode+IRC fetch time.
+   - **Instruction boundary detection**: Stop test when `!in_followup && is_idle() && front() == Execute`
+
+3. Files and Code Sections:
+
+   - **`crates/cpu-m68k-rock/src/ea.rs`** (MODIFIED)
+     - Added Internal(2) delays for three EA modes that have internal processing time on real 68000 hardware
+     - Added import: `use crate::microcode::MicroOp;`
+     - AddrIndPreDec: added `self.micro_ops.push(MicroOp::Internal(2));` after address computation
+     - AddrIndIndex: added `self.micro_ops.push(MicroOp::Internal(2));` after address computation  
+     - PcIndex: added `self.micro_ops.push(MicroOp::Internal(2));` after address computation
+     - These match the 68000's 2-clock internal processing time for these modes
+
+   - **`crates/cpu-m68k-rock/src/decode.rs`** (HEAVILY MODIFIED)
+     - Added CMPM decode block before general ALU decode:
+     ```rust
+     // --- CMPM (1011 Rx 1 ss 001 Ry) — must check before general EOR ---
+     if (opcode & 0xF000) == 0xB000 {
+         let opmode = (opcode >> 6) & 7;
+         let ea_mode_bits = ((opcode >> 3) & 7) as u8;
+         if opmode >= 4 && opmode <= 6 && ea_mode_bits == 1 {
+             let rx = ((opcode >> 9) & 7) as u8;
+             let ry = (opcode & 7) as u8;
+             let size = match opmode {
+                 4 => Size::Byte, 5 => Size::Word, 6 => Size::Long, _ => unreachable!(),
+             };
+             self.alu_op = AluOp::Cmp;
+             self.size = size;
+             self.src_mode = Some(AddrMode::AddrIndPostInc(ry));
+             self.dst_mode = Some(AddrMode::AddrIndPostInc(rx));
+             self.in_followup = true;
+             self.followup_tag = TAG_FETCH_SRC_EA;
+             self.continue_instruction(bus);
+             return;
+         }
+     }
+     ```
+     - Fixed EOR decode: moved `opmode` computation before `op` match, changed 0xBxxx:
+     ```rust
+     0xB000 => if opmode >= 4 && opmode <= 6 { AluOp::Eor } else { AluOp::Cmp },
+     ```
+     - Added AE tag imports and 7 new tag handlers for address error frame push sequence:
+       TAG_AE_PUSH_SR, TAG_AE_PUSH_IR, TAG_AE_PUSH_FAULT, TAG_AE_PUSH_INFO, TAG_AE_FETCH_VECTOR, TAG_AE_FINISH
+     - Each handler sets self.data to the appropriate frame value and queues push micro-ops
+
+   - **`crates/cpu-m68k-rock/src/execute.rs`** (MODIFIED)
+     - Split `AluOp::Sub | AluOp::Cmp` into separate match arms
+     - CMP now preserves X flag:
+     ```rust
+     AluOp::Cmp => {
+         let saved_x = self.regs.sr & crate::flags::X;
+         let r = d.wrapping_sub(s) & mask;
+         self.set_flags_sub(s, d, r, size);
+         self.regs.sr = (self.regs.sr & !crate::flags::X) | saved_x;
+         r
+     }
+     ```
+
+   - **`crates/cpu-m68k-rock/src/cpu.rs`** (MODIFIED)
+     - Added 6 new AE tag constants (TAG_AE_PUSH_SR through TAG_AE_FINISH, values 50-55)
+     - Added 4 new fields to Cpu68000:
+     ```rust
+     pub(crate) ae_fault_addr: u32,
+     pub(crate) ae_access_info: u16,
+     pub(crate) ae_saved_sr: u16,
+     pub(crate) ae_in_progress: bool,
+     ```
+     - Added fields to constructor (all zero/false)
+     - Modified tick() dispatch to check address error before bus cycles:
+     ```rust
+     if op.is_bus() {
+         if self.check_address_error(op) {
+             // Address error detected; exception sequence started
+         } else {
+             self.state = self.initiate_bus_cycle(op);
+         }
+     }
+     ```
+     - Added `check_address_error()` method: checks all word/long bus ops for odd addresses, handles double AE (halts), computes function code
+     - Added `begin_address_error()` method: saves SR, fault info, enters supervisor mode, clears trace, clears micro-ops, starts frame push sequence
+     - **LAST EDIT**: Changed frame PC calculation to use adjustment method:
+     ```rust
+     let pc_adj = self.ae_frame_pc_adjustment();
+     self.data = self.instr_start_pc.wrapping_add(2).wrapping_add(pc_adj);
+     ```
+     - **NOTE**: The `ae_frame_pc_adjustment()` method has NOT been implemented yet — this was the work in progress when the conversation was summarized
+
+   - **`crates/cpu-m68k-rock/src/bus.rs`** (MODIFIED)
+     - Added FunctionCode::bits() method:
+     ```rust
+     impl FunctionCode {
+         #[must_use]
+         pub fn bits(self) -> u8 { self as u8 }
+     }
+     ```
+
+   - **`crates/cpu-m68k-rock/tests/single_step_tests.rs`** (MODIFIED)
+     - Updated boundary detection comment to remove "can't model sub-4-clock" language
+
+   - **`scripts/rock_next_instruction.sh`** — Read for context (created in previous session)
+
+4. Errors and fixes:
+   - **AE fields private across modules**: Fields `ae_saved_sr`, `ae_fault_addr`, `ae_access_info`, `ae_in_progress` were private but accessed from decode.rs. Fixed by changing to `pub(crate)`.
+   - **FunctionCode::bits() missing**: cpu.rs called `fc.bits()` but FunctionCode had no such method. Fixed by adding `bits()` to FunctionCode in bus.rs.
+   - **Frame PC = self.regs.pc (first attempt)**: Wrong because PC has been advanced differently depending on addressing mode. TST.w went from 1507 to 1702 (not enough).
+   - **Frame PC = instr_start_pc + 2 (second attempt)**: Better — TST.w went from 1702 to 2248. But wrong for predecrement (off by 2) and AbsLong (off by 4).
+   - **Frame PC with adjustments (third attempt, IN PROGRESS)**: Formula from cpu-m68k reference: `instr_start_pc + 2 + predec_adj + abs_adj`. The `ae_frame_pc_adjustment()` method call was added but the method body was NOT yet written.
+   - **CMPM misidentified as EOR**: When EOR decode was added for 0xBxxx opmodes 4-6, CMPM (same range with EA mode bits = 001) was incorrectly decoded as EOR. Fixed by adding CMPM detection before the general ALU decode block.
+
+5. Problem Solving:
+   - **Solved**: Internal timing delays — Added Internal(2) for predecrement, AddrIndIndex, PcIndex. No tick resolution change needed.
+   - **Solved**: EOR misdecoded as CMP — Fixed 0xBxxx opmode 4-6 mapping (10% → 100% for EOR.b)
+   - **Solved**: CMP modifies X flag — Preserve X around set_flags_sub call (45% → much higher for CMP.b)
+   - **Solved**: CMPM vs EOR overlap — Added explicit CMPM detection (CMP.b → 100%)
+   - **Mostly solved**: Address error exceptions — 14-byte frame push implemented, frame PC formula identified
+   - **In progress**: Frame PC adjustment method not yet implemented
+
+   Test progression this session: 71,782 → 71,782 (same total with Internal delays, boundary detection already handled it) → improvements pending after full AE implementation
+
+   Per-instruction improvements confirmed:
+   - TST.b: 100% (maintained)
+   - MOVE.b: 100% (maintained)
+   - ADD.b: 100% (maintained)
+   - EOR.b: 10% → 100%
+   - CMP.b: 45% → 100%
+   - TST.w: 1507/2500 → 2248/2500 (with partial AE, before frame PC adjustment method)
+
+6. All user messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on." (continuation prompt at session start)
+   - No other user messages in this session.
+   - Previous session's last user message: "Can we fix that?" (about sub-4-clock internal delays)
+
+7. Pending Tasks:
+   - **Implement `ae_frame_pc_adjustment()` method** in cpu.rs — compute predec_adj (+2 for -(An)) and abs_adj (+2 for AbsShort, +4 for AbsLong) from src_mode/dst_mode
+   - **Test the frame PC adjustment** — run TST.w, TST.l, CLR.w, etc. to verify improvement
+   - **Run full test suite** to measure overall improvement from all fixes (EOR, CMP X flag, CMPM, address errors)
+   - **Continue fixing remaining instruction bugs** — the script recommends DBcc (74%), Bcc (72%) next. Many remaining DBcc/Bcc failures are also address-error related (branch to odd address).
+   - **Address write AE frame PC** — the frame PC for write address errors has different rules than read AEs (instruction-specific in cpu-m68k reference)
+
+8. Current Work:
+   I was implementing the address error frame PC adjustment method `ae_frame_pc_adjustment()`. The last edit added the call to this method in `begin_address_error()`:
+   ```rust
+   let pc_adj = self.ae_frame_pc_adjustment();
+   self.data = self.instr_start_pc.wrapping_add(2).wrapping_add(pc_adj);
+   ```
+   But the method itself was NOT yet written. It needs to be added to the `impl Cpu68000` block in cpu.rs. The method should compute:
+   - `predec_adj = 2` if any mode (src or dst) is `AddrIndPreDec`
+   - `abs_adj = 2` for `AbsShort`, `4` for `AbsLong`
+   
+   The code will NOT compile until this method is added.
+
+   Analysis of expected adjustments (verified against test data):
+   - (An): no adjustment → frame PC = ISP + 2 ✓
+   - (An)+: no adjustment → frame PC = ISP + 2 ✓
+   - -(An): predec_adj = 2 → frame PC = ISP + 4 ✓
+   - d16(An): no adjustment → frame PC = ISP + 2 ✓
+   - d8(An,Xn): no adjustment → frame PC = ISP + 2 ✓
+   - (xxx).W: abs_adj = 2 → frame PC = ISP + 4
+   - (xxx).L: abs_adj = 4 → frame PC = ISP + 6 ✓
+
+9. Optional Next Step:
+   Implement the `ae_frame_pc_adjustment()` method in cpu.rs to make the code compile, then test with TST.w and run the full suite. The method should iterate over src_mode and dst_mode, summing adjustments for predecrement and absolute addressing modes:
+   ```rust
+   fn ae_frame_pc_adjustment(&self) -> u32 {
+       let mut adj: u32 = 0;
+       for mode in [self.src_mode, self.dst_mode].iter().flatten() {
+           match mode {
+               AddrMode::AddrIndPreDec(_) => adj += 2,
+               AddrMode::AbsShort => adj += 2,
+               AddrMode::AbsLong => adj += 4,
+               _ => {}
+           }
+       }
+       adj
+   }
+   ```
+   This directly continues the work from the last edit in `begin_address_error()` which references this not-yet-written method.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation to capture all important details.
+
+1. This session is a continuation from TWO previous conversations. The first conversation established a 3-step plan to fix cpu-m68k-rock. The second conversation made significant progress on Steps 1-3. This third conversation continues Step 3.
+
+2. The session started with a detailed summary of the previous two conversations, establishing context about:
+   - Step 1 (COMPLETED): Split monolithic cpu.rs into focused modules
+   - Step 2 (COMPLETED): Build single-step test harness
+   - Step 3 (IN PROGRESS): Fix bugs in implemented instructions
+   - Previous session ended while implementing ae_frame_pc_adjustment() method
+
+3. In this session, I:
+
+   a. Read cpu.rs, decode.rs, ea.rs to refresh context
+   
+   b. Implemented compute_ae_frame_pc() and compute_ae_frame_pc_move() methods in cpu.rs
+      - Non-MOVE formula: ISP + 2 + predec_adj + abs_adj + imm_adj
+      - predec_adj = 2 only for -(An) with Word size (NOT Long!)
+      - abs_adj = 2 for AbsShort, 4 for AbsLong
+      - imm_adj = group 0 immediate extension words * 2
+      - MOVE read AE: different formula based on src mode (AbsShort/AbsLong, PreDec, others)
+      - MOVE write AE: depends on src_is_register and extension word counts
+      - Also added ext_word_count_for_mode() helper
+      - Changed begin_address_error to call compute_ae_frame_pc(is_read) instead of ae_frame_pc_adjustment()
+   
+   c. TST.w: 2248 → 2500 (100%) after frame PC fix
+
+   d. Full suite: 71,782 → 104,852 → 109,403 (after frame PC + SUBA fix)
+
+   e. Fixed SUBA.w/ADDA.w/CMPA.w decode bug
+      - Line 121 in decode.rs: `let to_reg = opmode < 4;` was wrong
+      - For opmode 3 (SUBA.w/ADDA.w/CMPA.w), to_reg was TRUE, causing dst_mode = DataReg(reg) instead of AddrReg(reg)
+      - Fix: `let to_reg = opmode <= 2;`
+      - SUBA.w: 834 → 2460
+
+   f. Implemented (An)+ / -(An) register undo on address errors
+      - Added ae_undo_reg field: Option<(u8, u32, bool)> = (reg, amount, is_postinc)
+      - Set in calc_ea_start for PostInc and PreDec modes
+      - Each calc_ea_start overwrites the field, so only the most recent EA's side effect gets undone
+      - Cleared in promote_pipeline (instruction start)
+      
+   g. Discovered complex undo rules through testing:
+      - PreDec: NEVER undo (address generation, sticks even on AE)
+      - PostInc + Long-size + Read AE: UNDO (two-phase transfer incomplete)
+      - PostInc + Word-size + Read AE: KEEP (single bus cycle committed EA)
+      - PostInc + Write AE: UNDO regardless of size (no prior read committed EA)
+      - Final condition: `is_postinc && (!is_read || self.size == Size::Long)`
+      - TST.l: 2321 → 2500 (100%), CLR.l: 2335 → 2500 (100%), EOR.l: 2325 → 2500 (100%)
+
+   h. Fixed MOVE/Scc skip destination read
+      - MOVE and Scc are write-only destinations - they should NOT read the destination before writing
+      - Added check in TAG_FETCH_DST_DATA: `if is_move || is_scc { skip to EXECUTE }`
+      - MOVE.w: 823 → 263 failures (then further to 193)
+
+   i. Discovered MOVE.w -(An) write AE frame IR bug
+      - The remaining ~193 MOVE.w failures all showed opcode bytes in the AE frame
+      - Used debug output to trace: frame PC was correct, but frame IR was wrong
+      - For MOVE.w write AE with -(An) destination, the real 68000 pushes IRC (not IR) as the frame IR
+      - The pipeline advance (IR ← IRC) happens before the write cycle
+      - Reference code confirms: `frame_ir = self.irc` when `!is_read && (self.ir >> 12) == 3 && ((self.ir >> 6) & 7) == 4`
+      - Also affects access_info word (uses frame_ir & 0xFFE0)
+      - Was about to implement the fix when debug code was being removed
+
+4. The user's only message in this session was the continuation prompt.
+
+5. The last edits made:
+   - Removed debug eprintln from begin_address_error (frame_pc trace)
+   - Still has debug eprintln in PushLongHi (needs removal)
+   - Still has debug_mode enable in single_step_tests.rs (needs removal)
+   - The actual frame IR fix (use IRC for MOVE.w -(An) write AE) has NOT been implemented yet
+
+6. Test progression this session: 71,782 → 104,852 → 109,403 → 111,527
+
+7. Current per-instruction status (100% passing):
+   - TST.b, TST.w, TST.l, CLR.b, CLR.w, CLR.l
+   - ADD.b, SUB.b, CMP.b, EOR.b, EOR.l, EOR.w(?)
+   - AND.b, OR.b
+   - MOVE.b, MOVE.q, MOVEQ, LEA, PEA, RTS, Scc, NOP
+
+8. Instructions with significant remaining failures:
+   - MOVE.w: 193 failures (frame IR bug for -(An) write AE)
+   - MOVE.l: 674 failures (similar frame issues + write AE)
+   - BSR: 1271 failures (JSR/BSR undo not implemented)
+   - JSR: 1205 failures (JSR/BSR undo not implemented)
+   - DBcc: 632 failures (DBcc undo not implemented)
+   - RESET: 1267 failures
+   - Unimplemented: shifts, rotates, MOVEM, EXT, SWAP, NOT, NEG, LINK, UNLK, RTE, RTR, TRAP, MUL, DIV, ADDX/SUBX, ABCD/SBCD, etc.
+
+Summary:
+1. Primary Request and Intent:
+   This session continues from two previous conversations working on a 3-step plan to fix the `cpu-m68k-rock` crate (Motorola 68000 CPU core with reactive bus architecture):
+   - Step 1: Split monolithic cpu.rs into focused modules (COMPLETED in previous sessions)
+   - Step 2: Build single-step test harness (COMPLETED in previous sessions)
+   - Step 3: Fix bugs in implemented instructions (IN PROGRESS)
+   
+   The user's only message was: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   
+   The original user request (from two sessions ago) was to fix cpu-m68k-rock and boot Kickstart 1.3. The previous session's last user message was "Can we fix that?" about sub-4-clock internal delays.
+
+2. Key Technical Concepts:
+   - **Reactive bus architecture**: CPU polls `bus.poll_cycle()` each tick until `BusStatus::Ready`
+   - **Address Error (AE) exceptions**: 14-byte Group 0 frame pushed when word/long bus ops access odd addresses
+   - **AE frame layout** (from final SP): SP+0=access_info, SP+2=fault_hi, SP+4=fault_lo, SP+6=IR, SP+8=SR, SP+10=PC_hi, SP+12=PC_lo
+   - **Frame PC calculation**: Complex formula differs for MOVE vs non-MOVE, read AE vs write AE
+   - **PostInc/PreDec undo on AE**: PreDec always sticks. PostInc undo depends on access size and read/write direction.
+   - **MOVE.w -(An) write AE frame IR**: Real 68000 uses IRC (next prefetched word) not IR for frame IR and access info
+   - **DL test format**: Binary format with initial/final CPU state. Tests check registers, SR, RAM — NOT cycle counts
+   - **Instruction boundary detection**: Stop test when `!in_followup && is_idle() && front() == Execute`
+
+3. Files and Code Sections:
+
+   - **`crates/cpu-m68k-rock/src/cpu.rs`** (HEAVILY MODIFIED)
+     - Core CPU struct, tick engine, state machine, prefetch pipeline
+     - Added `ae_undo_reg: Option<(u8, u32, bool)>` field for tracking EA side effects to undo on AE
+     - Added to constructor: `ae_undo_reg: None`
+     - Clear in promote_pipeline: `self.ae_undo_reg = None;`
+     - Implemented `compute_ae_frame_pc(is_read: bool) -> u32` — dispatches to MOVE or non-MOVE formula
+     - Implemented `compute_ae_frame_pc_move(is_read: bool) -> u32` — handles read AE (src-dependent) and write AE (src_is_register dependent)
+     - Implemented `ext_word_count_for_mode(mode: &AddrMode) -> u16` — counts extension words per addressing mode
+     - Changed `begin_address_error` to call `compute_ae_frame_pc(is_read)` for frame PC
+     - Added postinc undo logic in `begin_address_error`:
+       ```rust
+       if let Some((reg, amount, is_postinc)) = self.ae_undo_reg.take() {
+           let undo = is_postinc
+               && (!is_read || self.size == Size::Long);
+           if undo {
+               let r = reg as usize;
+               self.regs.set_a(r, self.regs.a(r).wrapping_sub(amount));
+           }
+       }
+       ```
+     - **TEMPORARY DEBUG CODE** still present: `PushLongHi` has an `if self.debug_mode { eprintln!(...) }` that needs removal
+     - Key method signatures:
+       ```rust
+       fn compute_ae_frame_pc(&self, is_read: bool) -> u32
+       fn compute_ae_frame_pc_move(&self, is_read: bool) -> u32
+       fn ext_word_count_for_mode(mode: &AddrMode) -> u16
+       ```
+
+   - **`crates/cpu-m68k-rock/src/decode.rs`** (MODIFIED)
+     - Fixed ADDA.w/SUBA.w/CMPA.w decode: `let to_reg = opmode <= 2;` (was `opmode < 4`)
+     - Added skip dst read for MOVE and Scc in TAG_FETCH_DST_DATA:
+       ```rust
+       TAG_FETCH_DST_DATA => {
+           let is_move = (self.ir & 0xC000) == 0 && (self.ir & 0x3000) != 0;
+           let is_scc = (self.ir & 0xF0C0) == 0x50C0
+               && (self.ir & 0x0038) != 0x0008;
+           if is_move || is_scc {
+               self.followup_tag = TAG_EXECUTE;
+               self.micro_ops.push(MicroOp::Execute);
+               return;
+           }
+           // ... rest of dst data fetch for read-modify-write instructions
+       }
+       ```
+
+   - **`crates/cpu-m68k-rock/src/ea.rs`** (MODIFIED)
+     - PostInc now sets ae_undo_reg: `self.ae_undo_reg = Some((r, increment, true));`
+     - PreDec now sets ae_undo_reg: `self.ae_undo_reg = Some((r, decrement, false));`
+
+   - **`crates/cpu-m68k-rock/tests/single_step_tests.rs`** (MODIFIED)
+     - **TEMPORARY DEBUG CODE**: `if test.name.contains("3706") || test.name.contains("371f") { cpu.debug_mode = true; }` needs removal
+
+   - **`crates/cpu-m68k/src/exceptions.rs`** (READ for reference, NOT modified)
+     - Reference implementation's `compute_ae_frame_pc`, `compute_ae_frame_pc_non_move`, `compute_ae_frame_pc_move`
+     - Key finding: frame IR for MOVE.w write AE with -(An) destination uses `self.irc` not `self.ir` (lines 237-244):
+       ```rust
+       let frame_ir = if !is_read
+           && (self.ir >> 12) == 3
+           && ((self.ir >> 6) & 7) == 4
+       {
+           self.irc
+       } else {
+           self.ir
+       };
+       ```
+     - Reference also shows: JSR/BSR undo, DBcc Dn undo, src_postinc_undo, src_predec_undo, dst_reg_undo, pre_move_sr/vc restore
+
+4. Errors and Fixes:
+   - **ae_frame_pc_adjustment() method missing**: Code didn't compile because begin_address_error called this non-existent method. Fixed by implementing compute_ae_frame_pc() and compute_ae_frame_pc_move() with proper formulas.
+   
+   - **SUBA.w/ADDA.w/CMPA.w writing to DataReg instead of AddrReg**: `to_reg = opmode < 4` was TRUE for opmode 3, causing dst_mode = DataReg(reg). Fixed: `to_reg = opmode <= 2`. SUBA.w: 834 → 2460.
+   
+   - **PostInc undo too aggressive (undoing PreDec)**: First implementation undid both postinc and predec. Testing showed predecrement always sticks on AE. Fixed: only undo postinc.
+   
+   - **PostInc undo wrong for word-size read AE**: Undoing all postinc broke word-size tests (CLR.w dropped from 2500 to 2301). Testing revealed word-size postinc KEEPS on read AE, only long-size undoes. Fixed: `is_postinc && self.size == Size::Long`.
+   
+   - **PostInc undo wrong for write AE**: MOVE.w (A0)+ write AE still showed wrong A0. Write AEs should ALWAYS undo postinc regardless of size. Final fix: `is_postinc && (!is_read || self.size == Size::Long)`.
+   
+   - **MOVE/Scc reading destination before writing**: MOVE and Scc are write-only but the code read the destination first (via TAG_FETCH_DST_DATA). This caused extra bus cycles and write AEs firing before execute set flags. Fixed: skip dst read for MOVE and Scc in TAG_FETCH_DST_DATA.
+   
+   - **MOVE.w -(An) write AE frame IR uses IR instead of IRC**: The remaining MOVE.w failures (193) showed opcode bytes in the AE frame. Debug tracing confirmed frame PC was correct but the IR pushed to the stack was wrong. Reference code shows MOVE.w write AE with -(An) destination should push IRC (not IR). **NOT YET FIXED** — was being implemented when session is being summarized.
+
+5. Problem Solving:
+   - **Solved**: Frame PC calculation for non-MOVE and MOVE instructions — complex formula with size, mode, and direction dependencies
+   - **Solved**: SUBA.w/ADDA.w/CMPA.w decode bug (opmode 3 treated as EA→Dn instead of EA→An)
+   - **Solved**: PostInc/PreDec register undo rules on address errors (3 iterations to get the rules right)
+   - **Solved**: MOVE/Scc spurious destination read causing wrong AE timing
+   - **In progress**: MOVE.w -(An) write AE frame IR (need to use IRC, affects both IR push and access_info)
+   - **Not started**: JSR/BSR push undo on AE, DBcc Dn undo on AE, MOVE write AE SR restoration
+   
+   Test progression: 71,782 → 104,852 → 109,403 → 111,527/317,500
+
+   Instructions at 100%: TST.b/w/l, CLR.b/w/l, ADD.b, SUB.b, CMP.b, EOR.b/l, AND.b, OR.b, MOVE.b/q, MOVEQ, LEA, PEA, RTS, Scc, NOP, EOR.w
+
+6. All user messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on." (continuation prompt at session start)
+
+7. Pending Tasks:
+   - **Implement MOVE.w -(An) write AE frame IR fix** (use IRC for frame IR and access_info when `!is_read && (ir >> 12) == 3 && ((ir >> 6) & 7) == 4`)
+   - **Remove temporary debug code** from cpu.rs (PushLongHi eprintln) and single_step_tests.rs (debug_mode enable)
+   - **Implement JSR/BSR push undo** on read AE (reference has `jsr_push_undo`)
+   - **Implement DBcc Dn undo** on read AE (reference has `dbcc_dn_undo`)
+   - **Implement MOVE write AE SR restoration** (reference has `pre_move_sr` and `pre_move_vc`)
+   - **Fix remaining near-100% instruction failures** (ADD.w 13 failures, etc. — PC-relative RAM mismatches)
+   - **Implement unimplemented instructions** (shifts, MOVEM, EXT, SWAP, NOT, NEG, etc.)
+
+8. Current Work:
+   Was implementing the fix for MOVE.w -(An) write AE frame IR. The debug investigation confirmed:
+   - Frame PC is correctly computed (e.g., 0x00F02074 for test 027)
+   - The bug is that TAG_AE_PUSH_IR pushes `self.ir` (0x3706 = current opcode) when it should push `self.irc` (the next prefetched word)
+   - The access_info word also uses `(self.ir & 0xFFE0)` when it should use `(frame_ir & 0xFFE0)`
+   - Reference code confirms: for `!is_read && (self.ir >> 12) == 3 && ((self.ir >> 6) & 7) == 4`, use `self.irc`
+   
+   The last edit removed the frame_pc debug eprintln from begin_address_error, but:
+   - PushLongHi still has debug eprintln (needs removal)
+   - single_step_tests.rs still has debug_mode enable (needs removal)
+   - The actual frame IR fix has NOT been implemented yet
+
+9. Optional Next Step:
+   Implement the MOVE.w -(An) write AE frame IR fix. This requires:
+   1. Remove remaining debug code (PushLongHi eprintln in cpu.rs, debug_mode in single_step_tests.rs)
+   2. Add an `ae_frame_ir: u16` field to Cpu68000 (or compute it in begin_address_error)
+   3. In begin_address_error: compute frame_ir = if MOVE.w write AE with -(An) dst then self.irc else self.ir
+   4. Use frame_ir for ae_access_info computation: `(frame_ir & 0xFFE0) | ...`
+   5. Store frame_ir for TAG_AE_PUSH_IR to push instead of self.ir
+   6. Run MOVE.w tests to verify improvement (expecting 193 → much fewer failures)
+   7. Run full suite to measure total impact
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation to capture all important details.
+
+1. This session is a continuation from THREE previous conversations. The first established a 3-step plan, the second made significant progress, the third continued fixing bugs. This fourth conversation continues Step 3.
+
+2. The session started with a detailed summary establishing context:
+   - Step 1 (COMPLETED): Split monolithic cpu.rs into focused modules
+   - Step 2 (COMPLETED): Build single-step test harness
+   - Step 3 (IN PROGRESS): Fix bugs in implemented instructions
+   - Previous session ended while implementing MOVE.w -(An) write AE frame IR fix
+   - Test progression from previous sessions: 71,782 → 104,852 → 109,403 → 111,527/317,500
+
+3. In this session, I:
+
+   a. Read cpu.rs, single_step_tests.rs, decode.rs, ea.rs to refresh context
+   
+   b. Implemented MOVE.w -(An) write AE frame IR fix:
+      - Added `ae_frame_ir: u16` field to Cpu68000 struct
+      - In begin_address_error: compute frame_ir = if MOVE.w write AE with -(An) dst then self.irc else self.ir
+      - Used ae_frame_ir for access_info: `(self.ae_frame_ir & 0xFFE0) | ...`
+      - Updated TAG_AE_PUSH_IR to push ae_frame_ir instead of self.ir
+      - MOVE.w: 193 → 73 failures
+
+   c. Removed debug code:
+      - PushLongHi eprintln in cpu.rs
+      - debug_mode enable in single_step_tests.rs
+
+   d. Fixed source postinc undo on write AE:
+      - Added `self.ae_undo_reg = None;` in TAG_FETCH_DST_EA to clear source side effects
+      - Also added `self.program_space_access = false;` there
+      - MOVE.w: 73 → 37 failures
+
+   e. Tried adding PcDisp/PcIndex/AddrIndDisp/AddrIndIndex to frame PC ext-word branch:
+      - This was WRONG - made MOVE.w go from 37 to 354 failures
+      - Reverted immediately
+      - The issue was that displacement/index modes DON'T advance frame PC (only AbsShort/AbsLong do)
+
+   f. Discovered the real cause of remaining 37 MOVE.w failures: function code bug
+      - PC-relative modes (PcDisp, PcIndex) should use program space FC (2/6)
+      - My code used data space FC (1/5) for all non-FetchIRC reads
+      - The 1-bit FC difference caused the exact 1-byte-off RAM mismatches
+      - Added `program_space_access: bool` field
+      - Set it in calc_ea_start for PcDisp and PcIndex
+      - Used it in initiate_bus_cycle (fc_ea = if program_space_access then fc_prog else fc_data)
+      - Used it in check_address_error
+      - Cleared in promote_pipeline, TAG_FETCH_DST_EA
+      - MOVE.w: 37 → 0 failures (100%)
+
+   g. Tackled MOVE.l failures (360):
+      - Two patterns: SR mismatches (flag restoration) and A-reg mismatches (predec undo)
+      
+   h. Fixed destination predecrement undo on write AE:
+      - Extended ae_undo_reg logic: for predecrement (!is_postinc), undo on write AE (!is_read)
+      - Also fixed the undo direction: postinc → subtract, predec → add back
+
+   i. Implemented MOVE.l write AE SR restoration (complex, multiple iterations):
+      
+      First attempt: naive pre_move_sr save/restore for ALL MOVE write AEs
+      - Saved SR before set_flags_move in perform_execute
+      - Restored in begin_address_error for write AE
+      - WRONG: made things worse (360 → 553) because ae_saved_sr was captured BEFORE restore
+      
+      Second attempt: fixed capture order (restore first, then capture ae_saved_sr)
+      - Still wrong (370 failures) - the naive approach doesn't match the reference
+      
+      Third attempt: properly match the reference implementation's nuanced behavior:
+      - Read reference code at cpu-m68k/src/exceptions.rs and cpu-m68k/src/execute.rs
+      - Discovered the reference has TWO separate fields: pre_move_sr (full restore) and pre_move_vc (V,C only)
+      - For register/immediate source MOVE.l:
+        - (An)/(An)+ dst: pre_move_sr = SR before flags (full restore)
+        - d16(An)/d8(An,Xn) dst: pre_move_vc = SR before flags (partial V,C restore)
+        - -(An)/abs.w/abs.l: no save (flags fully committed)
+      - For memory source MOVE.l:
+        - (An)/(An)+/abs.l dst: pre_move_sr = SYNTHETIC lo-word-based SR
+        - Others: no save
+      - Non-.l sizes: no save
+      - MOVE.l: 360 → 115 failures
+
+   j. Discovered MOVE.l -(An) frame PC is off by 2:
+      - All 115 remaining failures show diff of exactly 2 at odd addresses
+      - Most involve -(An) destinations
+      - The -(An) Internal(2) pre-decrement delay lets pipeline advance one more FetchIRC
+      - Added predec_adj = 2 for -(An) destinations in compute_ae_frame_pc_move write AE
+      - HAVE NOT YET RUN THE TEST to verify this fix
+
+4. The user's only message was the continuation prompt.
+
+5. Test progression this session: 
+   MOVE.w: 193 → 73 → 37 → 0 (100%)
+   MOVE.b: 0 (was already 100%)
+   MOVE.l: 360 → 115 → pending verification of predec_adj fix
+
+6. Current state of files:
+   - cpu.rs: Added ae_frame_ir, pre_move_sr, pre_move_vc, program_space_access fields. Complex begin_address_error with undo logic, SR restore, frame IR computation. compute_ae_frame_pc_move with predec_adj.
+   - decode.rs: TAG_AE_PUSH_IR uses ae_frame_ir. TAG_FETCH_DST_EA clears ae_undo_reg, program_space_access.
+   - ea.rs: PcDisp and PcIndex set program_space_access = true.
+   - execute.rs: Complex pre_move_sr/pre_move_vc save logic based on source type and destination mode.
+   - single_step_tests.rs: Debug code removed.
+
+7. The last edit added predec_adj to compute_ae_frame_pc_move for -(An) destinations but the test has NOT been run yet.
+
+Summary:
+1. Primary Request and Intent:
+   This session continues from three previous conversations working on a 3-step plan to fix the `cpu-m68k-rock` crate (Motorola 68000 CPU core with reactive bus architecture):
+   - Step 1: Split monolithic cpu.rs into focused modules (COMPLETED in previous sessions)
+   - Step 2: Build single-step test harness (COMPLETED in previous sessions)
+   - Step 3: Fix bugs in implemented instructions (IN PROGRESS)
+   
+   The user's only message was: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   
+   The original goal is to fix cpu-m68k-rock and boot Kickstart 1.3. The immediate focus is getting implemented instructions to pass single-step tests.
+
+2. Key Technical Concepts:
+   - **Reactive bus architecture**: CPU polls `bus.poll_cycle()` each tick until `BusStatus::Ready`
+   - **Address Error (AE) exceptions**: 14-byte Group 0 frame pushed when word/long bus ops access odd addresses
+   - **AE frame layout** (from final SP): SP+0=access_info, SP+2=fault_hi, SP+4=fault_lo, SP+6=IR, SP+8=SR, SP+10=PC_hi, SP+12=PC_lo
+   - **Frame PC calculation**: Complex formula differs for MOVE vs non-MOVE, read AE vs write AE
+   - **PostInc/PreDec undo on AE**: Source predec always sticks; source postinc undo depends on size/direction; dst predec undoes on write AE; dst postinc undoes on write AE
+   - **MOVE.w -(An) write AE frame IR**: Real 68000 uses IRC (not IR) for frame IR and access info
+   - **Program space access**: PC-relative modes (PcDisp, PcIndex) use FC=2/6 (program), not FC=1/5 (data)
+   - **MOVE.l write AE SR restoration**: 68000's 16-bit ALU evaluates flags in stages during write bus cycle; partial or full flag restoration on AE depending on source type and destination mode
+   - **Lo-word synthetic SR**: For memory source MOVE.l to (An)/(An)+/abs.l, AE frame gets flags computed from low word of data, not the full-long flags
+   - **DL test format**: Binary format with initial/final CPU state. Tests check registers, SR, RAM. Instruction boundary = `!in_followup && is_idle() && front() == Execute`
+
+3. Files and Code Sections:
+
+   - **`crates/cpu-m68k-rock/src/cpu.rs`** (HEAVILY MODIFIED)
+     - Core CPU struct, tick engine, state machine, prefetch pipeline
+     - Added fields: `ae_frame_ir: u16`, `pre_move_sr: Option<u16>`, `pre_move_vc: Option<u16>`, `program_space_access: bool`
+     - All new fields initialized in `new()` and cleared in `promote_pipeline()`
+     - **begin_address_error** reordered: undo regs → restore SR → capture ae_saved_sr → compute frame_ir/access_info → set supervisor:
+     ```rust
+     fn begin_address_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
+         self.ae_fault_addr = fault_addr;
+         self.ae_in_progress = true;
+
+         // Undo post-increment/predecrement
+         if let Some((reg, amount, is_postinc)) = self.ae_undo_reg.take() {
+             let undo = if is_postinc {
+                 !is_read || self.size == Size::Long
+             } else {
+                 !is_read  // predec: undo on write AE only
+             };
+             if undo {
+                 let r = reg as usize;
+                 let current = self.regs.a(r);
+                 if is_postinc {
+                     self.regs.set_a(r, current.wrapping_sub(amount));
+                 } else {
+                     self.regs.set_a(r, current.wrapping_add(amount));
+                 }
+             }
+         }
+
+         // MOVE write AE: restore flags
+         if !is_read {
+             if let Some(saved_sr) = self.pre_move_sr.take() {
+                 self.regs.sr = saved_sr;
+             } else if let Some(saved_sr) = self.pre_move_vc.take() {
+                 let pre_vc = saved_sr & 0x03;
+                 self.regs.sr = (self.regs.sr & !0x03) | pre_vc;
+             }
+         }
+         self.pre_move_sr = None;
+         self.pre_move_vc = None;
+
+         // Save SR AFTER restore
+         self.ae_saved_sr = self.regs.sr;
+
+         // Frame IR: MOVE.w write AE with -(An) dst → use IRC
+         let is_move_w = (self.ir >> 12) == 3;
+         let dst_is_predec = ((self.ir >> 6) & 7) == 4;
+         self.ae_frame_ir = if !is_read && is_move_w && dst_is_predec {
+             self.irc
+         } else {
+             self.ir
+         };
+
+         self.ae_access_info = (self.ae_frame_ir & 0xFFE0)
+             | (if is_read { 0x10 } else { 0 })
+             | u16::from(fc.bits() & 0x07);
+
+         self.regs.set_supervisor(true);
+         self.regs.sr &= !0x8000;
+         // ... queue exception frame
+     }
+     ```
+     - **initiate_bus_cycle** uses `fc_ea` (program or data space based on `program_space_access`):
+     ```rust
+     let fc_ea = if self.program_space_access { fc_prog } else { fc_data };
+     ```
+     - **check_address_error** determines FC from both FetchIRC check and program_space_access:
+     ```rust
+     let is_program = matches!(op, MicroOp::FetchIRC) || self.program_space_access;
+     ```
+     - **compute_ae_frame_pc_move** write AE now has predec_adj for -(An) destinations:
+     ```rust
+     let predec_adj: u32 = if matches!(dst, AddrMode::AddrIndPreDec(_)) { 2 } else { 0 };
+     if src_is_register {
+         let extra = u32::from(src_ext + dst_ext.saturating_sub(1));
+         self.instr_start_pc.wrapping_add(4 + extra * 2 + predec_adj)
+     } else {
+         self.instr_start_pc.wrapping_add(4 + u32::from(src_ext) * 2 + predec_adj)
+     }
+     ```
+
+   - **`crates/cpu-m68k-rock/src/decode.rs`** (MODIFIED)
+     - TAG_AE_PUSH_IR uses ae_frame_ir: `self.data = u32::from(self.ae_frame_ir);`
+     - TAG_FETCH_DST_EA clears source-phase state:
+     ```rust
+     self.ae_undo_reg = None;
+     self.program_space_access = false;
+     ```
+
+   - **`crates/cpu-m68k-rock/src/ea.rs`** (MODIFIED)
+     - PcDisp and PcIndex now set `self.program_space_access = true;`
+
+   - **`crates/cpu-m68k-rock/src/execute.rs`** (MODIFIED)
+     - perform_execute MOVE path now has complex SR save logic:
+     ```rust
+     if self.size == Size::Long {
+         if src_is_reg {
+             if matches!(dst, AddrMode::AddrInd(_) | AddrMode::AddrIndPostInc(_)) {
+                 self.pre_move_sr = Some(self.regs.sr);
+             } else if matches!(dst, AddrMode::AddrIndDisp(_) | AddrMode::AddrIndIndex(_)) {
+                 self.pre_move_vc = Some(self.regs.sr);
+             }
+         } else {
+             // Memory source: lo-word synthetic flags
+             if matches!(dst, AddrMode::AddrInd(_) | AddrMode::AddrIndPostInc(_) | AddrMode::AbsLong) {
+                 let pre_sr = self.regs.sr;
+                 self.set_flags_move(self.data, self.size);
+                 let lo = self.data as u16;
+                 let mut lo_sr = pre_sr & !0x000F;
+                 if lo == 0 { lo_sr |= 0x0004; }
+                 if lo & 0x8000 != 0 { lo_sr |= 0x0008; }
+                 self.pre_move_sr = Some(lo_sr);
+                 return;
+             }
+         }
+     }
+     self.set_flags_move(self.data, self.size);
+     ```
+
+   - **`crates/cpu-m68k-rock/tests/single_step_tests.rs`** (MODIFIED)
+     - Removed debug code (debug_mode enable for specific tests)
+
+   - **`crates/cpu-m68k/src/exceptions.rs`** (READ for reference, NOT modified)
+     - Reference implementation's address_error, compute_ae_frame_pc, ae SR restore logic
+     - Key pattern: restore first, THEN capture old_sr
+
+   - **`crates/cpu-m68k/src/execute.rs`** (READ for reference, NOT modified)
+     - Reference implementation's MOVE SR save logic with pre_move_sr and pre_move_vc
+     - Key: lo-word synthetic SR for memory source MOVE.l
+
+4. Errors and Fixes:
+   - **MOVE.w -(An) write AE frame IR pushed wrong value**: TAG_AE_PUSH_IR pushed self.ir instead of self.irc. Fixed by adding ae_frame_ir field and computing it based on `!is_read && (ir >> 12) == 3 && ((ir >> 6) & 7) == 4`. MOVE.w: 193 → 73.
+   
+   - **Source postinc wrongly undone on destination write AE**: ae_undo_reg from source calc_ea_start persisted into destination phase. Fixed by clearing ae_undo_reg in TAG_FETCH_DST_EA. MOVE.w: 73 → 37.
+   
+   - **Tried adding PcDisp/PcIndex/AddrIndDisp/AddrIndIndex to frame PC ext-word branch**: This was WRONG. Displacement/index modes don't advance frame PC (only AbsShort/AbsLong do). MOVE.w went from 37 to 354. Reverted immediately.
+   
+   - **PC-relative function code bug**: PcDisp/PcIndex should use program space FC (2/6), not data space (1/5). The 1-bit FC difference caused all 37 remaining MOVE.w failures (exactly 1-byte-off in access_info). Fixed by adding program_space_access flag. MOVE.w: 37 → 0 (100%).
+   
+   - **Destination predecrement not undone on write AE**: For MOVE/Scc write-only destinations, predecrement should be undone on write AE. Extended ae_undo_reg logic: `!is_read` for predecrement undo.
+   
+   - **Naive pre_move_sr capture order wrong**: First captured ae_saved_sr before SR restore, causing AE frame to contain MOVE-computed flags. Fixed by reordering: restore → capture → set supervisor. 553 → 370.
+   
+   - **Naive pre_move_sr for ALL MOVEs was wrong**: Reference only saves for specific source/destination combinations. For memory sources, uses lo-word synthetic SR. Implemented proper logic matching reference. MOVE.l: 370 → 115.
+   
+   - **MOVE.l -(An) frame PC off by 2**: The -(An) Internal(2) delay advances pipeline. Added predec_adj = 2 for -(An) destinations. NOT YET VERIFIED.
+
+5. Problem Solving:
+   - **Solved**: Frame IR for MOVE.w -(An) write AE (use IRC)
+   - **Solved**: Source postinc protection from destination write AE undo
+   - **Solved**: PC-relative function code (program space vs data space)
+   - **Solved**: MOVE.l write AE SR restoration matching reference implementation's nuanced behavior
+   - **Solved**: Destination predecrement undo on write AE
+   - **In progress**: MOVE.l -(An) frame PC adjustment (predec_adj added, not tested)
+   - **Not started**: JSR/BSR push undo, DBcc Dn undo, MOVE.l fault address adjustment for -(An)
+   
+   Test progression this session:
+   - MOVE.w: 193 → 0 (100%)
+   - MOVE.b: stayed at 0 (100%)  
+   - MOVE.l: 360 → 115 → pending verification
+
+6. All user messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on." (continuation prompt at session start)
+
+7. Pending Tasks:
+   - **Run MOVE.l test** to verify the predec_adj frame PC fix (just added, not yet tested)
+   - **Run full test suite** to measure overall impact of all fixes
+   - **Fix remaining MOVE.l failures** (currently 115, expecting improvement from predec_adj)
+   - **Implement JSR/BSR push undo** on read AE (reference has `jsr_push_undo`)
+   - **Implement DBcc Dn undo** on read AE (reference has `dbcc_dn_undo`)
+   - **Fix remaining instruction failures** across the test suite
+   - **Implement unimplemented instructions** (shifts, MOVEM, EXT, SWAP, NOT, NEG, etc.)
+
+8. Current Work:
+   Was fixing MOVE.l single-step test failures. The last edit added `predec_adj` to `compute_ae_frame_pc_move` for `-(An)` destinations in cpu.rs. The test has NOT been run yet. Here's exactly what was added:
+   ```rust
+   // -(An) destination: the predecrement's Internal(2) delay lets the
+   // pipeline complete one additional FetchIRC, advancing frame PC by 2.
+   let predec_adj: u32 = if matches!(dst, AddrMode::AddrIndPreDec(_)) { 2 } else { 0 };
+
+   if src_is_register {
+       let extra = u32::from(src_ext + dst_ext.saturating_sub(1));
+       self.instr_start_pc.wrapping_add(4 + extra * 2 + predec_adj)
+   } else {
+       self.instr_start_pc
+           .wrapping_add(4 + u32::from(src_ext) * 2 + predec_adj)
+   }
+   ```
+   MOVE.l was at 115 failures (down from 360) before this edit. All 115 remaining failures showed RAM diffs of exactly 2, mostly with `-(An)` destinations (plus one (A3)+ case).
+
+9. Optional Next Step:
+   Run the MOVE.l test to verify the predec_adj fix:
+   ```
+   ROCK_TEST_FILE="MOVE.l" cargo test -p cpu-m68k-rock --test single_step_tests run_single_file -- --ignored --nocapture
+   ```
+   Then if failures remain, analyze the remaining patterns (the (A3)+ case at test 063 may need separate handling). After MOVE.l is clean (or close), run the full suite to measure overall progress.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze this conversation to capture all important details.
+
+1. This session continues from FOUR previous conversations. The summary at the start establishes:
+   - Step 1 (COMPLETED): Split monolithic cpu.rs into focused modules
+   - Step 2 (COMPLETED): Build single-step test harness
+   - Step 3 (IN PROGRESS): Fix bugs in implemented instructions
+   - Previous session ended with MOVE.l predec_adj fix NOT YET VERIFIED
+   - Test progression from previous sessions: 71,782 → 104,852 → 109,403 → 111,527/317,500
+
+2. In this session, the work focused on fixing address error (AE) exception frame bugs and other instruction correctness issues:
+
+   a. Started by running MOVE.l test to verify predec_adj - still 115 failures, predec_adj didn't help
+   
+   b. Discovered TWO real bugs from reference comparison:
+      - MOVE.l -(An) fault address adjustment (reference adds +2 for MOVE.l predec write AE)
+      - Immediate ext_word count wrong (always 1, should be 2 for Long)
+   
+   c. Removed wrong predec_adj, added adjust_ae_fault_addr method, fixed ext_word_count_for_mode to take size parameter
+      - MOVE.l: 115 → 0 (100%)
+   
+   d. But MOVE.w regressed (0 → 120 failures) because dest predecrement undo was too aggressive
+      - Fixed: restrict predecrement undo to Long write AE only
+      - MOVE.w: 120 → 0 (100%)
+   
+   e. Tackled CMP.w (47 failures) - all CMPM (An)+,(An)+ destination register mismatches
+      - First tried always undoing postinc → broke more (235 failures)
+      - Then added is_dst flag to ae_undo_reg tuple → CMPI broke (11 failures)
+      - Then added CMPM opcode detection + is_dst: different rules for CMPM vs CMPI
+      - CMP.w: 47 → 0 (100%)
+   
+   f. Tackled CMP.l (115 failures) - CMPM source Long partial undo
+      - Reference undoes only 2 of 4 bytes for CMPM source Long read AE
+      - Added undo_amount calculation for CMPM source Long
+      - CMP.l: 115 → 0 (100%)
+   
+   g. Added ae_from_fetch_irc flag and revamped compute_ae_frame_pc for non-MOVE:
+      - BSR FetchIRC AE: frame PC = self.regs.pc (target address)
+      - BRA/Bcc FetchIRC AE: frame PC = ISP + 2
+      - JSR FetchIRC AE: frame PC = ISP + 2 + ea_ext * 2
+      - JMP/RTS/etc: frame PC = ISP + 2
+      - JMP: 96 → 0 (100%)
+   
+   h. Fixed Bcc -1 (disp8 = 0xFF) - was treated as "halt" instead of normal branch
+      - Bcc: 108 → 0, BSR: 1271 → 0 (both 100%)
+   
+   i. User asked to commit. Committed all cpu-m68k-rock changes.
+   
+   j. Fixed JSR (1205 failures):
+      - Root cause: push happened BEFORE EA resolution, should happen AFTER
+      - Reference does FetchIRC at target first, then push
+      - Restructured TAG_JSR_EXECUTE to: FetchIRC → PushLongHi → PushLongLo → PromoteIRC
+      - JSR: 1205 → 0 (100%)
+   
+   k. Fixed DBcc (632 failures):
+      - Added dbcc_dn_undo field to undo Dn.w decrement on branch AE
+      - Moved DBcc into ae_from_fetch_irc handler (frame PC = ISP + 4)
+      - DBcc: 632 → 0 (100%)
+   
+   l. Final test run: 116,912 passed, 200,588 failed, 46 test files at 100%
+
+3. User messages:
+   - Initial continuation prompt
+   - "We should commit soon." - prompted me to commit
+   - Final message requesting this summary
+
+4. Commit made:
+   - Hash 2b89af7: "cpu-m68k-rock: Split into modules, add test harness, fix AE frame bugs"
+   - Only cpu-m68k-rock files, not emu-amiga-rock changes
+
+5. Post-commit changes (NOT yet committed):
+   - JSR push reordering (FetchIRC before push)
+   - TAG_JSR_JUMP constant added
+   - DBcc dn_undo field and logic
+   - DBcc in ae_from_fetch_irc handler
+   - Bcc -1 fix was in the commit
+
+Let me now capture all file details and code patterns.
+
+Summary:
+1. Primary Request and Intent:
+   This session continues from four previous conversations working on a 3-step plan to fix the `cpu-m68k-rock` crate (Motorola 68000 CPU core with reactive bus architecture):
+   - Step 1: Split monolithic cpu.rs into focused modules (COMPLETED in previous sessions)
+   - Step 2: Build single-step test harness (COMPLETED in previous sessions)
+   - Step 3: Fix bugs in implemented instructions (IN PROGRESS — this session's focus)
+   
+   The user's continuation prompt was: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   
+   The user also requested a commit mid-session: "We should commit soon."
+   
+   The original goal is to fix cpu-m68k-rock and boot Kickstart 1.3. The immediate focus is getting implemented instructions to pass single-step tests.
+
+2. Key Technical Concepts:
+   - **Reactive bus architecture**: CPU polls `bus.poll_cycle()` each tick until `BusStatus::Ready`
+   - **Address Error (AE) exceptions**: 14-byte Group 0 frame pushed when word/long bus ops access odd addresses
+   - **AE frame layout** (from final SP): SP+0=access_info, SP+2=fault_hi, SP+4=fault_lo, SP+6=IR, SP+8=SR, SP+10=PC_hi, SP+12=PC_lo
+   - **FetchIRC AE**: When branch/jump instructions target an odd address, the FetchIRC at the target triggers AE. Different instructions use different frame PC formulas.
+   - **ae_from_fetch_irc flag**: Distinguishes FetchIRC AE from normal read/write AE for frame PC computation
+   - **Postinc/Predec undo rules**: Complex, instruction-dependent rules for when register modifications are reverted on AE
+   - **CMPM special handling**: Destination postinc always undone on AE (all sizes), source Long partial undo (2 of 4)
+   - **JSR push ordering**: Real 68000 does FetchIRC at target BEFORE pushing return address; if target is odd, push never happens
+   - **DBcc dn undo**: Dn.w decrement is reverted when branch to odd target triggers AE
+   - **MOVE.l fault address adjustment**: Real 68000 reports An-2 (not An-4) for MOVE.l -(An) write AE
+   - **DL test format**: Binary format with initial/final CPU state. Instruction boundary = `!in_followup && is_idle() && front() == Execute`
+
+3. Files and Code Sections:
+
+   - **`crates/cpu-m68k-rock/src/cpu.rs`** (HEAVILY MODIFIED)
+     - Core CPU struct with tick engine, state machine, prefetch pipeline, AE handling
+     - Added fields: `ae_from_fetch_irc: bool`, `dbcc_dn_undo: Option<(u8, u16)>`
+     - Changed `ae_undo_reg` to 4-tuple: `Option<(u8, u32, bool, bool)>` — (reg, amount, is_postinc, is_dst)
+     - Changed `ext_word_count_for_mode` to take `Size` parameter (Immediate Long = 2 ext words)
+     - Added `adjust_ae_fault_addr` method for MOVE.l -(An) write AE (+2 adjustment)
+     - Added TAG_JSR_JUMP constant (= 43)
+     
+     **begin_address_error** — complex undo/restore logic:
+     ```rust
+     fn begin_address_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
+         self.ae_fault_addr = self.adjust_ae_fault_addr(fault_addr, is_read);
+         self.ae_in_progress = true;
+
+         // Postinc/predec undo with CMPM detection
+         if let Some((reg, amount, is_postinc, is_dst)) = self.ae_undo_reg.take() {
+             let is_cmpm = (self.ir & 0xF138) == 0xB108;
+             let undo = if is_postinc {
+                 if !is_read { true }
+                 else if self.size == Size::Long { true }
+                 else if is_dst && is_cmpm { true }
+                 else { false }
+             } else {
+                 !is_read && self.size == Size::Long
+             };
+             if undo {
+                 let undo_amount = if is_postinc && is_read && !is_dst
+                     && is_cmpm && self.size == Size::Long { 2 } else { amount };
+                 // ... apply undo
+             }
+         }
+
+         // DBcc Dn undo
+         if is_read {
+             if let Some((r, original_w)) = self.dbcc_dn_undo.take() {
+                 self.regs.d[r as usize] =
+                     (self.regs.d[r as usize] & 0xFFFF_0000) | u32::from(original_w);
+             }
+         }
+         self.dbcc_dn_undo = None;
+
+         // MOVE write AE SR restore (pre_move_sr / pre_move_vc)
+         // ... (unchanged from previous session)
+     }
+     ```
+
+     **compute_ae_frame_pc** — revamped with ae_from_fetch_irc:
+     ```rust
+     fn compute_ae_frame_pc(&self, is_read: bool) -> u32 {
+         let top = (self.ir >> 12) & 0xF;
+         if matches!(top, 1 | 2 | 3) {
+             return self.compute_ae_frame_pc_move(is_read);
+         }
+         if self.ae_from_fetch_irc {
+             if top == 0x5 { /* DBcc: ISP + 4 */ }
+             if top == 0x6 {
+                 if cond == 1 { return self.regs.pc; } // BSR
+                 return self.instr_start_pc.wrapping_add(2); // BRA/Bcc
+             }
+             if self.ir & 0xFFC0 == 0x4E80 { /* JSR: ISP + 2 + ea_ext * 2 */ }
+             return self.instr_start_pc.wrapping_add(2); // JMP/RTS/etc
+         }
+         // ... rest of non-MOVE formula
+     }
+     ```
+
+     **adjust_ae_fault_addr** — new method:
+     ```rust
+     fn adjust_ae_fault_addr(&self, addr: u32, is_read: bool) -> u32 {
+         if is_read { return addr; }
+         let top = (self.ir >> 12) & 0xF;
+         if !matches!(top, 1 | 2 | 3) { return addr; }
+         let size = match top { 1 => Size::Byte, 2 => Size::Long, 3 => Size::Word, _ => return addr };
+         let dst = AddrMode::decode(((self.ir >> 6) & 7) as u8, ((self.ir >> 9) & 7) as u8);
+         if size == Size::Long && matches!(dst, Some(AddrMode::AddrIndPreDec(_))) {
+             addr.wrapping_add(2)
+         } else { addr }
+     }
+     ```
+
+     **ext_word_count_for_mode** — now takes size:
+     ```rust
+     fn ext_word_count_for_mode(mode: &AddrMode, size: Size) -> u16 {
+         match mode {
+             // ... same as before except:
+             AddrMode::Immediate => if size == Size::Long { 2 } else { 1 },
+             // ...
+         }
+     }
+     ```
+
+   - **`crates/cpu-m68k-rock/src/decode.rs`** (MODIFIED)
+     - Added TAG_JSR_JUMP to imports
+     - Fixed Bcc -1 (removed `disp8 == -1` halt branch)
+     - JSR decode: defers push to after EA resolution (saves return PC in dst_val)
+     - TAG_JSR_EXECUTE: FetchIRC first, then push (if JSR), then PromoteIRC
+     ```rust
+     TAG_JSR_EXECUTE => {
+         let is_jsr = (self.ir & 0x40) == 0;
+         self.regs.pc = self.addr;
+         self.next_fetch_addr = self.regs.pc;
+         self.micro_ops.clear();
+         self.micro_ops.push(MicroOp::FetchIRC);
+         if is_jsr {
+             self.data = self.dst_val;
+             self.micro_ops.push(MicroOp::PushLongHi);
+             self.micro_ops.push(MicroOp::PushLongLo);
+         }
+         self.micro_ops.push(MicroOp::PromoteIRC);
+         self.in_followup = false;
+     }
+     ```
+     - TAG_DBCC_EXECUTE: saves original Dn.w before decrement:
+     ```rust
+     self.dbcc_dn_undo = Some((reg as u8, counter));
+     ```
+
+   - **`crates/cpu-m68k-rock/src/ea.rs`** (MODIFIED)
+     - ae_undo_reg now uses 4-tuple with is_dst: `Some((r, increment, true, !is_src))`
+
+   - **`crates/cpu-m68k-rock/src/execute.rs`** (unchanged this session)
+   
+   - **`crates/cpu-m68k-rock/tests/single_step_tests.rs`** (unchanged this session)
+
+   - **Reference files read** (NOT modified):
+     - `crates/cpu-m68k/src/exceptions.rs` — reference AE handling, jsr_push_undo, dbcc_dn_undo, compute_ae_frame_pc
+     - `crates/cpu-m68k/src/arith.rs` — reference CMPM implementation (src_postinc_undo handling)
+     - `crates/cpu-m68k/src/immediates.rs` — reference CMPI (An)+ undo (Long only)
+     - `crates/cpu-m68k/src/misc.rs` — reference push_and_jump (FetchIRC before push)
+
+4. Errors and Fixes:
+
+   - **MOVE.l predec_adj wrong direction**: Added +2 to frame PC for -(An) destinations, but the diff showed values already too HIGH. Removed predec_adj entirely — the real issue was fault address adjustment and Immediate ext_word count.
+   
+   - **MOVE.l fault address not adjusted for -(An)**: Reference has `adjust_ae_fault_addr` adding +2 for MOVE.l -(An) write AE. Added this method. MOVE.l: 115 → 0.
+   
+   - **Immediate ext_word count always 1**: Should be 2 for Long size. Changed `ext_word_count_for_mode` to take `Size` parameter. Fixed callers.
+   
+   - **MOVE.w dest predecrement wrongly undone**: Initial fix undid predec on all write AE sizes. Reference only undoes for Long. Fixed: `!is_read && self.size == Size::Long`. MOVE.w: 120 → 0.
+   
+   - **CMPM destination postinc not undone on read AE**: First tried always undoing all postinc → broke source postinc for CMP.w (An)+,Dn (235 failures). Then tried is_dst flag alone → broke CMPI (11 failures). Final solution: is_dst flag + CMPM opcode detection `(self.ir & 0xF138) == 0xB108`. CMP.w: 47 → 0.
+   
+   - **CMPM source Long read AE full undo instead of partial**: Reference undoes only 2 (not 4) for CMPM source Long. Added undo_amount calculation. CMP.l: 115 → 0.
+   
+   - **No ae_from_fetch_irc handling**: JMP/JSR/Bcc/BSR jumping to odd addresses had wrong frame PC. Added ae_from_fetch_irc flag, set in check_address_error, used in compute_ae_frame_pc. JMP: 96 → 0.
+   
+   - **Bcc -1 (disp8 = 0xFF) treated as halt**: Removed the `disp8 == -1` branch that halted. Bcc: 108 → 0, BSR: 1271 → 0.
+   
+   - **JSR push before EA resolution**: Real 68000 computes EA, does FetchIRC at target, THEN pushes. Restructured TAG_JSR_EXECUTE. JSR: 1205 → 0.
+   
+   - **TAG_JSR_JUMP not defined**: Added constant `pub const TAG_JSR_JUMP: u8 = 43;` (though ultimately not used — TAG_JSR_EXECUTE handles both JMP and JSR inline).
+   
+   - **DBcc Dn.w decrement not undone on AE**: Added dbcc_dn_undo field and logic. DBcc: Dn mismatches fixed.
+   
+   - **DBcc not in ae_from_fetch_irc handler**: Was gated by program_space_access which isn't set for DBcc. Moved into ae_from_fetch_irc block. DBcc: 632 → 0.
+
+5. Problem Solving:
+   - **Solved**: MOVE.l fault address adjustment, Immediate ext_word count, MOVE.w predec undo scope, CMPM postinc undo (with is_dst + opcode detection), CMPM source Long partial undo, FetchIRC AE frame PC (JMP/JSR/Bcc/BSR/DBcc), Bcc -1 halt bug, JSR push ordering, DBcc Dn undo
+   - **Not yet addressed**: RESET (1267 failures — privilege violation exception handling issues), implementing unimplemented instructions (shifts, MOVEM, EXT, SWAP, NOT, NEG, etc.)
+   
+   Test progression this session:
+   - Start: 111,527 passed (from summary), first run: 113,438 passed
+   - After all fixes: 116,912 passed, 200,588 failed
+   - 46 test files at 100% (up from 39 at session start)
+   - New 100% files this session: MOVE.l, CMP.w, CMP.l, JMP, Bcc, BSR, JSR, DBcc (some were already at 100% but regressed/re-fixed)
+
+6. All User Messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on." (continuation prompt)
+   - "We should commit soon." (prompted mid-session commit)
+   - Summary request (final message)
+
+7. Pending Tasks:
+   - Fix remaining instruction bugs (Step 3 ongoing)
+   - RESET instruction (1267 failures — privilege violation handling)
+   - Implement unimplemented instructions (shifts, rotates, MOVEM, EXT, SWAP, NOT, NEG, LINK/UNLK, RTE, RTR, TRAP, TRAPV, MUL/DIV, ADDX/SUBX, ABCD/SBCD, MOVE SR/CCR/USP, EXG, TAS, NBCD, etc.)
+   - Commit the post-commit changes (JSR reorder, DBcc undo, etc.)
+   - Eventually: boot Kickstart 1.3
+
+8. Current Work:
+   Was fixing single-step test failures across instruction files. Just completed DBcc (0 failures) and ran a full suite showing 116,912/317,500 passing with 46 clean files. The most recent changes (JSR reordering, DBcc dn_undo, DBcc frame PC fix) are NOT yet committed. A commit was made mid-session at hash 2b89af7 covering the earlier fixes.
+
+   The last test run showed RESET as the next partially-implemented instruction with failures (1233 passed, 1267 failed), but I noted "RESET needs work — it's generating wrong exception behavior. Let me skip it for now" and moved to running the full suite.
+
+9. Optional Next Step:
+   Commit the post-commit changes (JSR push reordering, TAG_JSR_JUMP, DBcc dn_undo, DBcc ae_from_fetch_irc handling) since these represent significant progress (JSR 0→100%, DBcc 0→100%). Then either tackle RESET or begin implementing unimplemented instructions that are critical for Kickstart 1.3 boot (shifts, MOVEM, EXT, SWAP, NOT, NEG are all at 0/2500).
+
+   Run command for full suite: `cargo test -p cpu-m68k-rock --test single_step_tests run_all -- --ignored --nocapture`
+   Run command for single file: `ROCK_TEST_FILE="<name>" cargo test -p cpu-m68k-rock --test single_step_tests run_single_file -- --ignored --nocapture`
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze this conversation carefully.
+
+1. **Session Start**: This is a continuation from FOUR previous sessions. The summary at the start establishes:
+   - Step 1 (COMPLETED): Split monolithic cpu.rs into focused modules
+   - Step 2 (COMPLETED): Build single-step test harness
+   - Step 3 (IN PROGRESS): Fix bugs in implemented instructions
+   - Previous session ended with 116,912/317,500 passing, 46 test files at 100%
+   - Uncommitted changes: JSR push reordering, DBcc dn_undo
+
+2. **First Action**: Checked git state - confirmed uncommitted changes in cpu-m68k-rock and emu-amiga-rock.
+
+3. **Full Test Run**: Ran full suite confirming 116,912 passed, 200,588 failed.
+
+4. **Commit**: Committed JSR/DBcc fixes as hash 9d55643 with message "cpu-m68k-rock: Fix JSR push ordering and DBcc branch AE undo"
+
+5. **User Message**: "You're meant to be using the prioritisation script for this" — I was manually parsing test output instead of using the script at `scripts/rock_next_instruction.sh`.
+
+6. **Found and ran prioritization script**: `scripts/rock_next_instruction.sh` — first had stale cache (71,782), then ran fresh to get current 116,912/317,500 results. Script showed 46 at 100%, recommended RESET (49%).
+
+7. **Major batch implementation**: Rather than fix one instruction at a time, I implemented a massive batch of new instructions:
+
+   **cpu.rs changes**:
+   - Added new TAG constants: TAG_MOVEM_NEXT(37), TAG_MOVEM_STORE(60), TAG_LINK_DISP(61), TAG_UNLK_POP_HI/LO(62-63), TAG_RTE_READ_SR/PC_HI/PC_LO(64-66), TAG_RTR_READ_CCR/PC_HI/PC_LO(67-69), TAG_ADDX_READ_SRC/DST/WRITE(70-72)
+   - Added fields: `movem_is_write`, `movem_an_reg`, `exc_vector: Option<u8>`
+   - Added `begin_group1_exception(vector, pc)` method for non-interrupt exceptions
+   - Added `check_supervisor()` method for privilege violation detection
+   - Cleared `src_mode` and `dst_mode` in `promote_pipeline()` to fix stale state bugs
+
+   **decode.rs changes**:
+   - Updated imports for all new TAG constants and BitOp
+   - Modified exception handlers (TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXC_FINISH) to support group 1/2 exceptions vs interrupts
+   - Added ADDX/SUBX decode (register and memory modes)
+   - Added EXG decode (Dx,Dy / Ax,Ay / Dx,Ay)
+   - Added ABCD/SBCD stubs (halt)
+   - Added MULU/MULS/DIVU/DIVS stubs (halt)
+   - Added ANDI/ORI/EORI to CCR/SR
+   - Added bit operations (static and dynamic forms, register and memory)
+   - Added shifts/rotates (register and memory forms)
+   - Added SWAP, EXT.w, EXT.l (inline register ops)
+   - Added MOVEM register→memory and memory→register
+   - Added NOT/NEG/NEGX decode
+   - Added MOVE from SR, MOVE to CCR, MOVE to SR
+   - Added CLR/TST (unchanged but repositioned)
+   - Added TAS stub (halt), CHK stub (halt)
+   - Added ILLEGAL, Line A, Line F exception handling
+   - Added RTE, RTR, TRAP, TRAPV, LINK, UNLK
+   - Added MOVE to/from USP
+   - Added STOP
+   - Fixed RESET to use check_supervisor() instead of halt()
+   - Added NBCD stub (halt)
+   - Added MOVEM redirect in TAG_FETCH_SRC_DATA
+   - Added all new follow-up tag handlers: RTE, RTR, LINK, UNLK, MOVEM, ADDX memory mode
+
+   **execute.rs changes**:
+   - Added BitOp import
+   - Added NOT, NEG, NEGX execute logic
+   - Added MOVE from SR (memory RMW) execute
+   - Added MOVE to CCR/SR execute (apply to SR, add Internal(8))
+   - Added bit operations (memory) execute
+   - Added shift/rotate (memory) execute
+   - Added `perform_shift()` method for register shifts
+   - Added `perform_shift_memory()` method for memory shifts
+   - Added MOVE to CCR/SR no-writeback check in perform_writeback
+
+8. **Compilation**: First compile had 4 warnings (unused imports, unused vars, unused mut). Fixed all warnings.
+
+9. **Test Results After Batch**: 255,332/317,500 (80.4%) — up from 116,912 (36.8%). 89 instructions at 100%.
+
+10. **BCLR debugging**: Script recommended BCLR (98%, 29 failures). Analysis showed Z flag wrong and wrong bits being cleared. Root cause: `src_val` (storing bit number) was being clobbered by TAG_FETCH_DST_EA's stale `src_mode` copy logic. Fix: clear `src_mode` and `dst_mode` in `promote_pipeline()`.
+
+11. **Last action before summary**: Applied the `promote_pipeline()` fix to clear src_mode/dst_mode. Have NOT yet re-run tests to verify.
+
+Key user messages:
+1. "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+2. "You're meant to be using the prioritisation script for this"
+
+The plan file at `/Users/stevehill/.claude/plans/shimmering-swimming-summit.md` outlines the 3-step plan. Steps 1-2 are complete. Step 3 (fix bugs in implemented instructions) is in progress and has expanded to also implement new instructions.
+
+Current state of test results (89/127 test files at 100%):
+- 100%: ADD.b/w/l, ADDA.w/l, AND.b/w/l, ANDItoCCR, ASL.b/w/l, ASR.b/w/l, Bcc, BSR, CLR.b/w/l, CMP.b/w/l, CMPA.w/l, DBcc, EOR.b/w/l, EORItoCCR, EXT.l, EXT.w, JMP, JSR, LEA, LINK, LSL.b/w/l, LSR.b/w/l, MOVE.b/w/l, MOVE.q, MOVEA.l/w, NEG.b/w/l, NEGX.b/w/l, NOP, NOT.b/w/l, OR.b/w/l, ORItoCCR, PEA, ROL.b/w/l, ROR.b/w/l, ROXL.b/w/l, ROXR.b/w/l, RTS, RTR, Scc, SUB.b/w/l, SUBA.l/w, SWAP, TST.b/w/l, EXG
+- Almost done (>50%): BCLR(98%), BCHG(98%), BSET(97%), ADDX.w(72%), SUBX.w(71%), ANDItoSR(58%), MOVEtoUSP(57%), MOVEfromUSP(57%), EORItoSR(56%), TRAPV(56%), RESET(55%), UNLINK(55%), STOP(55%), ORItoSR(54%), ADDX.b(51%)
+- Partial (1-50%): SUBX.l/b, ADDX.l, MOVEtoCCR, RTE, MOVEtoSR, BTST, ILLEGAL_LINEA/F, TRAP, CHK, MOVEM.l/w
+- Not started (0%): ABCD, DIVS, DIVU, MOVEP.l/w, MULS, MULU, NBCD, SBCD, TAS
+
+Summary:
+1. Primary Request and Intent:
+   The user's ongoing task (spanning 5 sessions now) is to fix the `cpu-m68k-rock` crate and eventually boot Kickstart 1.3. The 3-step plan is:
+   - Step 1 (DONE): Split monolithic cpu.rs into focused modules
+   - Step 2 (DONE): Build single-step test harness
+   - Step 3 (IN PROGRESS): Fix bugs in implemented instructions and implement missing instructions
+   
+   The user's continuation prompt was: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   
+   The user also gave specific feedback: "You're meant to be using the prioritisation script for this" — referring to `scripts/rock_next_instruction.sh` which should be used to decide what to work on next.
+
+2. Key Technical Concepts:
+   - **Reactive bus architecture**: CPU polls `bus.poll_cycle()` each tick, micro-op queue drives bus state machine
+   - **Follow-up tag state machine**: Multi-phase instructions tracked by TAG_* constants dispatched in `continue_instruction()`
+   - **Group 1/2 exceptions**: Non-interrupt exceptions (TRAP, privilege violation, etc.) use `begin_group1_exception(vector, pc)` which saves SR, sets supervisor mode, then pushes frame via TAG_EXC_* handlers but skips InterruptAck
+   - **Privilege violation**: `check_supervisor()` returns true if user mode, triggers vector 8 exception
+   - **MOVEM register transfer loop**: TAG_MOVEM_NEXT iterates through mask bits, TAG_MOVEM_STORE stores read data to registers. Predecrement uses reversed bit order (A7..A0, D7..D0)
+   - **Shift/rotate timing**: Register: 6+2n (byte/word), 8+2n (long) where n=count. Memory: shift by 1 only, word size
+   - **Stale state bug**: src_mode/dst_mode not cleared between instructions caused TAG_FETCH_DST_EA to clobber src_val with stale data
+   - **DL test format**: Binary format, PC points past opcode+IRC, instruction boundary = `!in_followup && is_idle() && front() == Execute`
+   - **Test suite**: `test-data/m68000-dl/v1/` — 317,500 tests (127 opcode files × 2,500)
+   - **Run commands**: Full suite: `bash scripts/rock_next_instruction.sh`, Single file: `bash scripts/rock_next_instruction.sh BCLR --errors`
+
+3. Files and Code Sections:
+
+   - **`crates/cpu-m68k-rock/src/cpu.rs`** (HEAVILY MODIFIED)
+     - Core CPU struct, tick engine, state machine, prefetch pipeline, AE handling
+     - Added new TAG constants for all new instruction types (60-72 range)
+     - Added fields: `movem_is_write: bool`, `movem_an_reg: u8`, `exc_vector: Option<u8>`
+     - Added `begin_group1_exception()` and `check_supervisor()` methods
+     - Fixed `promote_pipeline()` to clear `src_mode` and `dst_mode` (prevents stale state bugs)
+     ```rust
+     pub fn begin_group1_exception(&mut self, vector: u8, pc_to_push: u32) {
+         self.ae_saved_sr = self.regs.sr;
+         self.regs.set_supervisor(true);
+         self.regs.sr &= !0x8000; // Clear trace
+         self.exc_vector = Some(vector);
+         self.data = pc_to_push;
+         self.in_followup = true;
+         self.followup_tag = TAG_EXC_STACK_PC_HI;
+         self.micro_ops.clear();
+         self.micro_ops.push(MicroOp::PushLongHi);
+         self.micro_ops.push(MicroOp::Execute);
+     }
+
+     pub fn check_supervisor(&mut self) -> bool {
+         if self.regs.is_supervisor() { return false; }
+         self.begin_group1_exception(8, self.instr_start_pc);
+         true
+     }
+     ```
+     - promote_pipeline now clears src_mode/dst_mode:
+     ```rust
+     self.src_mode = None;
+     self.dst_mode = None;
+     ```
+
+   - **`crates/cpu-m68k-rock/src/decode.rs`** (MASSIVELY MODIFIED)
+     - Added ~43 new instruction decoders and follow-up tag handlers
+     - Modified TAG_EXC_STACK_PC_LO to use `ae_saved_sr` for group 1/2 exceptions
+     - Modified TAG_EXC_STACK_SR to skip InterruptAck when `exc_vector` is set
+     - Modified TAG_EXC_FINISH to not change interrupt mask for group 1/2 exceptions
+     - Added decoders for: ADDX/SUBX, EXG, ABCD/SBCD (stubs), MUL/DIV (stubs), ANDI/ORI/EORI to CCR/SR, bit operations (static and dynamic), shifts/rotates, SWAP, EXT, MOVEM, NOT/NEG/NEGX, MOVE from/to SR/CCR, TAS/CHK/NBCD (stubs), ILLEGAL/LineA/LineF, RTE, RTR, TRAP, TRAPV, LINK, UNLK, MOVE USP, STOP
+     - Added follow-up handlers for: TAG_RTE_READ_SR/PC_HI/PC_LO, TAG_RTR_READ_CCR/PC_HI/PC_LO, TAG_LINK_DISP, TAG_UNLK_POP_HI/LO, TAG_MOVEM_NEXT, TAG_MOVEM_STORE, TAG_ADDX_READ_SRC/DST/WRITE
+     - MOVEM routing: TAG_FETCH_SRC_DATA checks for MOVEM opcode and redirects to TAG_MOVEM_NEXT
+     - Key instruction decoders are ordered to avoid conflicts: ADDX/SUBX before general ALU, EXG before general AND, bit ops before ALU immediate, etc.
+
+   - **`crates/cpu-m68k-rock/src/execute.rs`** (SIGNIFICANTLY MODIFIED)
+     - Added NOT/NEG/NEGX execute logic using `crate::alu::neg()`/`negx()`
+     - Added MOVE from SR (memory RMW), MOVE to CCR/SR execute
+     - Added bit operations (memory) execute with BitOp dispatch
+     - Added memory shift execute routing
+     - Added `perform_shift()` for register shifts (~120 lines, handles all 8 types: ASL/ASR/LSL/LSR/ROXL/ROXR/ROL/ROR with proper flag computation)
+     - Added `perform_shift_memory()` for memory shifts (shift by 1, word size)
+     - Updated `perform_writeback()` to handle MOVE to CCR/SR (no writeback needed)
+     - Key: BTST memory returns from execute with `self.in_followup = false` to skip writeback
+
+   - **`crates/cpu-m68k-rock/src/alu.rs`** (NOT MODIFIED, but used)
+     - Already had `neg()`, `negx()`, `addx()`, `subx()` functions
+
+   - **`crates/cpu-m68k-rock/src/flags.rs`** (NOT MODIFIED, but used)
+     - `SR_MASK: u16 = 0xA71F` used for MOVE to SR, STOP
+
+   - **`scripts/rock_next_instruction.sh`** (NOT MODIFIED, but critical for workflow)
+     - Prioritization script: runs tests, caches results to `test_output.log`, shows completion by category
+     - Usage: `bash scripts/rock_next_instruction.sh` (full), `--analyze` (cached), `BCLR --errors` (single file)
+
+4. Errors and Fixes:
+   - **Stale src_mode/dst_mode causing bit operation failures (BCLR 98%)**:
+     - Symptom: BCLR clearing wrong bits, Z flag wrong
+     - Root cause: TAG_FETCH_DST_EA copies `self.data` to `self.src_val` when `self.src_mode` is a memory mode — but src_mode was stale from the previous instruction. This clobbered the bit number stored in src_val.
+     - Fix: Clear `src_mode` and `dst_mode` in `promote_pipeline()` so each instruction starts clean.
+     - Status: Fix applied but NOT YET TESTED
+   
+   - **User feedback on prioritization**:
+     - User said: "You're meant to be using the prioritisation script for this"
+     - I was manually parsing test output with grep instead of using `scripts/rock_next_instruction.sh`
+     - Fixed: Started using the script for all subsequent test analysis
+
+5. Problem Solving:
+   - **Solved**: Implemented ~43 new instructions in one batch, going from 46→89 test files at 100% and 116,912→255,332 passing tests
+   - **Solved**: Exception infrastructure (begin_group1_exception) enables privilege violation, TRAP, TRAPV, ILLEGAL, Line A/F
+   - **Solved**: MOVEM routing through EA pipeline (redirect in TAG_FETCH_SRC_DATA)
+   - **In progress**: Stale state bug fix applied, needs verification
+   - **Still failing**: BCLR/BCHG/BSET (likely fixed by promote_pipeline cleanup), ADDX/SUBX (partially), RTE, TRAP, MOVEM, MOVEtoSR/CCR, USP ops, BTST, RESET, STOP, UNLINK, TRAPV, ANDItoSR/ORItoSR/EORItoSR
+   - **Not implemented**: ABCD, SBCD, NBCD, MULS, MULU, DIVS, DIVU, MOVEP, TAS (all halt)
+
+6. All User Messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   - "You're meant to be using the prioritisation script for this"
+
+7. Pending Tasks:
+   - Re-run tests to verify the promote_pipeline fix for BCLR/BCHG/BSET
+   - Fix remaining partially-passing instructions (ADDX/SUBX, RTE, TRAP, MOVEM, MOVE to/from SR/CCR/USP, BTST, RESET, STOP, UNLINK, TRAPV, Line A/F, ILLEGAL)
+   - Implement halted instructions (MULS/MULU, DIVS/DIVU, ABCD/SBCD/NBCD, TAS, MOVEP)
+   - Commit changes when appropriate
+   - Eventually: boot Kickstart 1.3
+
+8. Current Work:
+   Was implementing and debugging the massive batch of new instructions for cpu-m68k-rock Step 3 (fix bugs found by single-step tests). Just applied a fix for the stale src_mode/dst_mode bug in `promote_pipeline()` that was causing BCLR/BCHG/BSET failures. The fix adds `self.src_mode = None; self.dst_mode = None;` to the `promote_pipeline()` method in cpu.rs. Tests have NOT been re-run since this fix.
+
+   Most recent test results: 255,332/317,500 passing (80.4%), 89 instructions at 100%, with BCLR at 98% recommended as next focus.
+   
+   Commit made this session: 9d55643 "cpu-m68k-rock: Fix JSR push ordering and DBcc branch AE undo"
+   All subsequent changes (the massive instruction batch + promote_pipeline fix) are uncommitted.
+
+9. Optional Next Step:
+   Re-run the test suite using `bash scripts/rock_next_instruction.sh` to verify the promote_pipeline fix resolves BCLR/BCHG/BSET failures, then continue fixing the remaining partially-passing instructions following the script's recommendations. This directly continues the task from the user's request: "Continue with the last task that you were asked to work on" (Step 3: fix bugs found by single-step tests).
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me trace through this conversation chronologically:
+
+1. **Session Start**: This is a continuation from previous sessions. The summary establishes:
+   - Steps 1-2 (COMPLETED): Split cpu.rs, build test harness
+   - Step 3 (IN PROGRESS): Fix bugs in implemented instructions
+   - Previous session ended with 255,332/317,500 passing (80.4%), 89 test files at 100%
+   - Last change was clearing src_mode/dst_mode in promote_pipeline() (not yet tested)
+
+2. **User Message**: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+3. **First action**: Compiled (clean), ran full test suite → 255,332/317,500 (same as before, promote_pipeline fix didn't help BCLR).
+
+4. **BCLR debugging** (98%, 29 failures): 
+   - All failures in indexed (d8,An,Xn) and AbsLong modes
+   - Root cause: Static bit ops consume IRC for bit number, then immediately chain to TAG_FETCH_DST_EA via continue_instruction(). For indexed modes, calc_ea_start() calls consume_irc() again but IRC is stale (FetchIRC hasn't run).
+   - Fix: Replace `self.continue_instruction(bus)` with `self.micro_ops.push(MicroOp::Execute)` for static bit ops memory path (decode.rs ~line 398). This lets FetchIRC run before TAG_FETCH_DST_EA processes the EA.
+   - Result: BCLR, BCHG, BSET all 2500/2500
+
+5. **BTST** (14%): Investigated briefly, saw PC mismatches and register issues. Deferred to focus on higher-priority items.
+
+6. **ADDX.w debugging** (72%): 
+   - Crash with `assertion failed: n < 8` in registers.rs — trying to access address register with invalid index
+   - Root cause: TAG_ADDX_READ_SRC overwrites self.src_val (which holds Ax register index from decode) with self.data BEFORE reading rx from it
+   - Fix: Read rx from self.src_val BEFORE overwriting it in TAG_ADDX_READ_SRC
+   - Result: ADDX.b/w, SUBX.b/w all 2500/2500
+
+7. **ADDX.l debugging** (49%→67%→100%):
+   - First issue: A5 register wrong by -4 (extra decrement). Added debug traces to find the cause.
+   - Discovery: test 003 initial A5 = 0x80E4A465, after -4 = 0x80E4A461 (ODD). ReadLongHi at odd address → ADDRESS ERROR. Expected A5 restored to original. But no ae_undo_reg set.
+   - Fix 1: Set ae_undo_reg in ADDX decode for source pre-decrement, clear in TAG_ADDX_READ_SRC, set new ae_undo_reg for dest pre-decrement.
+   - Fix 2: Added ADDX/SUBX detection to AE undo logic — always undo for ADDX/SUBX long, standard behavior for byte/word.
+   - Second issue: After register fix, RAM still wrong by -2 at odd addresses.
+   - Root cause: 68000 processes ADDX.l pre-decrement as two 2-byte steps. AE fires after first -2, so fault address should be addr+2 (Ay-2, not Ay-4).
+   - Fix: adjust_ae_fault_addr returns addr+2 for ADDX/SUBX long read AE.
+   - Then ADDX.w regressed (72%→67%): undo was happening for byte/word too. Fixed by limiting ADDX undo to Long only.
+   - Final: All ADDX/SUBX sizes 2500/2500
+
+8. **Exception infrastructure fix** (~55% cluster):
+   - ANDItoSR (58%), ORItoSR (54%), EORItoSR (56%), TRAPV (56%), RESET (55%), STOP (55%), MOVEtoUSP (57%), MOVEfromUSP (57%) all failing
+   - Root cause: TAG_EXC_STACK_SR calls `.take()` on exc_vector, consuming it. TAG_EXC_FINISH then sees None and treats ALL exceptions as interrupts, incorrectly modifying the interrupt mask.
+   - Fix: Changed `.take()` to just read with `if let Some(vector) = self.exc_vector`, and clear exc_vector in TAG_EXC_FINISH instead.
+   - Result: ANDItoSR, ORItoSR, EORItoSR, TRAPV, RESET, STOP, MOVEtoUSP, MOVEfromUSP all 2500/2500
+
+9. **UNLINK investigation** (55%, still failing after exception fix):
+   - SSP/USP, PC, RAM mismatches — wildly different values
+   - Was reading the UNLINK implementation code when the summary was requested
+
+Current test state: ~260,142+additional fixes passed. 96+ instructions at 100% (the exception fix adds 8 more).
+
+Key files modified:
+- crates/cpu-m68k-rock/src/decode.rs — Static bit ops EA fix, ADDX memory fix, exception vector fix
+- crates/cpu-m68k-rock/src/cpu.rs — AE undo logic for ADDX, fault address adjustment for ADDX, removed debug traces
+
+Still have debug traces to remove (the AE frame PC trace was removed, but need to verify no others remain).
+
+UNLINK implementation was just being read when summary was requested. The decode shows:
+- SP = An (set stack from frame pointer)
+- Pop long from stack → An
+- Uses PopLongHi/PopLongLo and TAG_UNLK_POP_HI/LO handlers
+
+The UNLINK failures show wildly wrong SP and PC values, suggesting the implementation is fundamentally broken for user-mode cases or something about how PopLong works with the active stack pointer.
+
+Summary:
+1. Primary Request and Intent:
+   The user's ongoing task (spanning 6 sessions) is to fix the `cpu-m68k-rock` crate and eventually boot Kickstart 1.3. The 3-step plan is:
+   - Step 1 (DONE): Split monolithic cpu.rs into focused modules
+   - Step 2 (DONE): Build single-step test harness
+   - Step 3 (IN PROGRESS): Fix bugs in implemented instructions and implement missing instructions
+   
+   The user's continuation prompt was: "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+   
+   Previous session feedback: "You're meant to be using the prioritisation script for this" — referring to `scripts/rock_next_instruction.sh` which should be used to decide what to work on next.
+
+2. Key Technical Concepts:
+   - **Reactive bus architecture**: CPU polls `bus.poll_cycle()` each tick, micro-op queue drives bus state machine
+   - **Follow-up tag state machine**: Multi-phase instructions tracked by TAG_* constants dispatched in `continue_instruction()`
+   - **IRC consumption ordering**: `consume_irc()` reads current IRC and pushes FetchIRC to front of queue. When two consume_irc calls happen before any FetchIRC executes, the second reads stale data. Fix: push Execute between them to let FetchIRC run.
+   - **ADDX/SUBX long pre-decrement**: The real 68000 processes ADDX.l pre-decrement as two 2-byte steps (word-sized). AE fires after first -2 if odd, so fault address = An-2, not An-4. Register undo restores full original value for long only; byte/word predecrement sticks.
+   - **Group 1/2 vs interrupt exceptions**: Group 1/2 exceptions (privilege violation, TRAP, etc.) don't modify interrupt mask. exc_vector distinguishes them from interrupts. Must not be consumed (.take()) before TAG_EXC_FINISH checks it.
+   - **DL test format**: Binary format, PC points past opcode+IRC, instruction boundary = `!in_followup && is_idle() && front() == Execute`
+   - **Test suite**: `test-data/m68000-dl/v1/` — 317,500 tests (127 opcode files × 2,500)
+   - **Run commands**: Full suite: `bash scripts/rock_next_instruction.sh`, Single file: `bash scripts/rock_next_instruction.sh BCLR --errors`
+
+3. Files and Code Sections:
+
+   - **`crates/cpu-m68k-rock/src/decode.rs`** (HEAVILY MODIFIED this session)
+     - Central instruction dispatch and follow-up tag handler
+     - **Static bit ops IRC fix** (line ~385-401): Changed from `self.continue_instruction(bus)` to `self.micro_ops.push(MicroOp::Execute)` to let FetchIRC run before EA processing:
+       ```rust
+       // Don't call continue_instruction() here — we already consumed
+       // IRC for the bit number, and FetchIRC hasn't run yet.  Pushing
+       // Execute lets the FetchIRC complete first so calc_ea_start()
+       // in TAG_FETCH_DST_EA reads the correct extension word.
+       self.micro_ops.push(MicroOp::Execute);
+       ```
+     - **ADDX memory mode decode** (line ~140-156): Added ae_undo_reg for source pre-decrement:
+       ```rust
+       self.addr = self.regs.a(ry as usize).wrapping_sub(dec);
+       self.regs.set_a(ry as usize, self.addr);
+       self.ae_undo_reg = Some((ry, dec, false, false));
+       ```
+     - **TAG_ADDX_READ_SRC fix** (line ~1537): Read rx BEFORE overwriting src_val, set ae_undo_reg for dest:
+       ```rust
+       TAG_ADDX_READ_SRC => {
+           let rx = self.src_val as u8;
+           self.dst_val = self.data;
+           self.ae_undo_reg = None; // Source phase complete
+           let dec = if rx == 7 && self.size == Size::Byte { 2 } else { self.size.bytes() };
+           self.addr = self.regs.a(rx as usize).wrapping_sub(dec);
+           self.regs.set_a(rx as usize, self.addr);
+           self.ae_undo_reg = Some((rx, dec, false, true));
+           // ... queue read ops
+       }
+       ```
+     - **TAG_EXC_STACK_SR fix**: Changed `.take()` to non-consuming read:
+       ```rust
+       TAG_EXC_STACK_SR => {
+           if let Some(vector) = self.exc_vector {
+               // Don't clear exc_vector yet — TAG_EXC_FINISH needs it
+               self.data = u32::from(vector);
+               // ...
+           } else {
+               // Hardware interrupt: need InterruptAck
+               // ...
+           }
+       }
+       ```
+     - **TAG_EXC_FINISH fix**: Changed condition from `is_none()` to `is_some()`:
+       ```rust
+       TAG_EXC_FINISH => {
+           self.regs.pc = self.data;
+           self.next_fetch_addr = self.regs.pc;
+           if self.exc_vector.is_some() {
+               // Group 1/2: supervisor and trace already handled
+           } else {
+               // Hardware interrupt
+               self.regs.set_supervisor(true);
+               self.regs.sr &= !0x8000;
+               self.regs.sr = (self.regs.sr & !0x0700) | (u16::from(self.target_ipl) << 8);
+           }
+           self.exc_vector = None;
+           // ...
+       }
+       ```
+
+   - **`crates/cpu-m68k-rock/src/cpu.rs`** (MODIFIED this session)
+     - Core CPU struct, tick engine, AE handling
+     - **ADDX/SUBX AE undo logic** (line ~820): Added ADDX-specific undo for long predecrement:
+       ```rust
+       } else {
+           let is_addx_subx_long = self.size == Size::Long
+               && matches!(self.ir & 0xF130, 0xD100 | 0x9100)
+               && (self.ir & 0x0008) != 0;
+           if is_addx_subx_long {
+               true
+           } else {
+               !is_read && self.size == Size::Long
+           }
+       };
+       ```
+     - **ADDX/SUBX fault address adjustment** (in adjust_ae_fault_addr): 68000 decrements by 2 first, so fault addr is +2 from our computed address:
+       ```rust
+       if is_read && self.size == Size::Long {
+           let top = (self.ir >> 12) & 0xF;
+           let opmode = (self.ir >> 6) & 7;
+           let ea_mode = ((self.ir >> 3) & 7) as u8;
+           if matches!(top, 0x9 | 0xD) && opmode >= 4 && opmode <= 6 && ea_mode == 1 {
+               return addr.wrapping_add(2);
+           }
+       }
+       ```
+     - promote_pipeline() clears src_mode/dst_mode (from previous session, still present)
+
+   - **`crates/cpu-m68k-rock/src/ea.rs`** (NOT modified this session, but referenced for understanding calc_ea_start behavior with consume_irc)
+
+   - **`scripts/rock_next_instruction.sh`** (NOT modified, but critical for workflow — user insists on using this for prioritization)
+
+   - **`crates/cpu-m68k-rock/tests/single_step_tests.rs`** (NOT modified, but read for understanding test boundary detection)
+
+4. Errors and Fixes:
+   - **BCLR/BCHG/BSET indexed mode failures (29-69 tests)**:
+     - Symptom: Wrong Z flag, wrong bits cleared for (d8,An,Xn) and (xxx).l modes
+     - Root cause: Static bit ops consume IRC for bit number, then immediately call continue_instruction(TAG_FETCH_DST_EA). calc_ea_start for indexed modes calls consume_irc again — but IRC is stale because FetchIRC hasn't run yet.
+     - Fix: Replace `continue_instruction(bus)` with `micro_ops.push(Execute)` so FetchIRC runs before EA processing
+   
+   - **ADDX/SUBX register assertion crash**:
+     - Symptom: `assertion failed: n < 8` in registers.rs
+     - Root cause: TAG_ADDX_READ_SRC overwrites src_val (holding Ax register index) with self.data BEFORE reading rx
+     - Fix: Read rx from src_val before overwriting: `let rx = self.src_val as u8;` then `self.dst_val = self.data;`
+
+   - **ADDX.l source register wrong by -4**:
+     - Symptom: Source register decremented by 8 instead of 4
+     - Root cause: Address error at odd pre-decremented address, but no ae_undo_reg set for ADDX source predecrement → register not restored
+     - Fix: Set ae_undo_reg in ADDX decode, add ADDX detection to AE undo logic (undo for long only)
+
+   - **ADDX.l RAM wrong by -2**:
+     - Symptom: Every failing test has RAM byte exactly -2 from expected, all at odd addresses
+     - Root cause: 68000 processes long pre-decrement as two 2-byte steps. AE fires after first -2, so fault address should be An-2, not An-4
+     - Fix: adjust_ae_fault_addr adds +2 for ADDX/SUBX long read AE
+
+   - **ADDX.w regression (72%→67%)**:
+     - Symptom: After ADDX.l fix, word-size tests started failing — register +2 from expected
+     - Root cause: ADDX AE undo was set to "always undo" but byte/word predecrement should stick (like standard predecrement)
+     - Fix: Limit ADDX undo to Long size only: `is_addx_subx_long`
+
+   - **ANDItoSR/ORItoSR/EORItoSR interrupt mask zeroed (42% failures)**:
+     - Symptom: SR bits 10-8 (interrupt mask) always 0 after privilege violation exception
+     - Root cause: TAG_EXC_STACK_SR calls `.take()` on exc_vector, consuming it. TAG_EXC_FINISH sees None and treats ALL exceptions as interrupts, modifying interrupt mask to target_ipl (0)
+     - Fix: Don't consume exc_vector in TAG_EXC_STACK_SR (use `if let Some(vector) = self.exc_vector` instead of `.take()`). Clear in TAG_EXC_FINISH after check.
+
+5. Problem Solving:
+   - **Solved**: Static bit ops IRC stale data (BCLR/BCHG/BSET indexed modes)
+   - **Solved**: ADDX/SUBX memory mode — register ordering, AE undo, fault address, size-specific behavior
+   - **Solved**: Exception infrastructure — exc_vector consumption bug affecting all group 1/2 exceptions
+   - **In progress**: UNLINK (55%) — wildly wrong SP and PC values for ~45% of tests
+   - **Deferred**: BTST (14%) — multiple issues, deferred for later
+   - **Not started**: ABCD, SBCD, NBCD, MULS, MULU, DIVS, DIVU, MOVEP, TAS (all halt/0%)
+
+6. All User Messages:
+   - "Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on."
+
+7. Pending Tasks:
+   - Fix UNLINK (55% → investigating wildly wrong SP/PC values)
+   - Fix remaining partially-passing instructions: MOVEtoCCR (39%), RTE (30%), MOVEtoSR (24%), BTST (14%), ILLEGAL_LINEA/F (13%/12%), TRAP (13%), CHK (9%), MOVEM.l/w (4%)
+   - Implement halted instructions: MULS/MULU, DIVS/DIVU, ABCD/SBCD/NBCD, TAS, MOVEP
+   - Commit changes when appropriate (all changes since last commit are uncommitted)
+   - Eventually: boot Kickstart 1.3
+
+8. Current Work:
+   Was investigating UNLINK failures (55% pass rate, 1115 failures). Had just read the UNLINK decode and handler code. The implementation shows:
+   ```rust
+   // Decode (line ~946):
+   if (opcode & 0xFFF8) == 0x4E58 {
+       let r = (opcode & 7) as u8;
+       self.regs.set_active_sp(self.regs.a(r as usize));
+       self.ea_reg = r;
+       self.in_followup = true;
+       self.followup_tag = TAG_UNLK_POP_HI;
+       self.micro_ops.push(MicroOp::PopLongHi);
+       self.micro_ops.push(MicroOp::Execute);
+   }
+   // TAG_UNLK_POP_HI:
+   self.followup_tag = TAG_UNLK_POP_LO;
+   self.micro_ops.push(MicroOp::PopLongLo);
+   self.micro_ops.push(MicroOp::Execute);
+   // TAG_UNLK_POP_LO:
+   let r = self.ea_reg as usize;
+   self.regs.set_a(r, self.data);
+   self.in_followup = false;
+   ```
+   Errors show wildly wrong SSP/USP and PC values for ~45% of tests. Tests 000 and 002 fail in supervisor mode (SSP wrong), test 003 fails in user mode (USP wrong). The errors suggest the UNLINK implementation is fundamentally broken for cases where the frame pointer restoration causes a mode-dependent stack switch issue.
+   
+   Previous commit: 9d55643 "cpu-m68k-rock: Fix JSR push ordering and DBcc branch AE undo". All changes this session are uncommitted.
+
+   Test results at end of session (estimated): ~104+ instructions at 100% (96 from full run + 8 from exception fix verified individually). Full suite not re-run after exception fix.
+
+9. Optional Next Step:
+   Continue fixing UNLINK (was just reading the implementation when interrupted). The UNLINK errors show wildly different SSP/USP and PC values, suggesting the `set_active_sp()` call or the PopLong mechanism has a fundamental issue — possibly related to supervisor/user mode stack switching when An is set as the new SP. After UNLINK, run the full test suite (`bash scripts/rock_next_instruction.sh`) and continue with the script's recommendations.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.

@@ -3,7 +3,7 @@
   "checkpoint_id": "77eac1ac5842",
   "session_id": "75cc734d-97c7-4ae9-a05a-c73eb1dbfd38",
   "strategy": "manual-commit",
-  "created_at": "2026-02-17T16:33:43.049934Z",
+  "created_at": "2026-02-18T11:37:41.188453Z",
   "branch": "main",
   "checkpoints_count": 0,
   "files_touched": [
@@ -18,20 +18,22 @@
     "scripts/rock_next_instruction.sh"
   ],
   "agent": "Claude Code",
+  "checkpoint_transcript_start": 1428,
+  "transcript_lines_at_start": 1428,
   "token_usage": {
-    "input_tokens": 7332,
-    "cache_creation_tokens": 550934,
-    "cache_read_tokens": 19739777,
-    "output_tokens": 12539,
-    "api_call_count": 170
+    "input_tokens": 449,
+    "cache_creation_tokens": 908430,
+    "cache_read_tokens": 48056902,
+    "output_tokens": 64841,
+    "api_call_count": 437
   },
   "initial_attribution": {
-    "calculated_at": "2026-02-17T16:33:42.714665Z",
-    "agent_lines": 2572,
-    "human_added": 267,
-    "human_modified": 146,
+    "calculated_at": "2026-02-18T11:37:40.222468Z",
+    "agent_lines": 1390,
+    "human_added": 700,
+    "human_modified": 70,
     "human_removed": 0,
-    "total_committed": 2985,
-    "agent_percentage": 86.1641541038526
+    "total_committed": 2160,
+    "agent_percentage": 64.35185185185185
   }
 }
