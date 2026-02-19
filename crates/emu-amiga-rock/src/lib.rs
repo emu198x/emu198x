@@ -105,6 +105,9 @@ impl Amiga {
             // end of the previous frame.
             if vpos == 0 && hpos == 0 {
                 self.paula.request_interrupt(5); // bit 5 = VERTB
+                // Agnus automatically restarts the copper from COP1LC at
+                // the start of every vertical blank, regardless of DMACON.
+                self.copper.restart_cop1();
             }
 
             let slot = self.agnus.current_slot();
