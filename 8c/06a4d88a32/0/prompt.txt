@@ -1,0 +1,9 @@
+We were figuring out stuff around the Kickstart boot process, did you come to any reasonable conclusions?
+
+---
+
+Let's commit what we've got so far. Then it feels like we should add the missing peripheral responses.
+
+---
+
+[Request interrupted by user for tool use]
