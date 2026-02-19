@@ -3,9 +3,12 @@
   "checkpoint_id": "8c06a4d88a32",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
-    "crates/emu-amiga-rock/src/lib.rs"
+    "crates/emu-amiga-rock/src/agnus.rs",
+    "crates/emu-amiga-rock/src/denise.rs",
+    "crates/emu-amiga-rock/src/lib.rs",
+    "crates/emu-amiga-rock/src/paula.rs"
   ],
   "sessions": [
     {
@@ -14,13 +17,20 @@
       "context": "/8c/06a4d88a32/0/context.md",
       "content_hash": "/8c/06a4d88a32/0/content_hash.txt",
       "prompt": "/8c/06a4d88a32/0/prompt.txt"
+    },
+    {
+      "metadata": "/8c/06a4d88a32/1/metadata.json",
+      "transcript": "/8c/06a4d88a32/1/full.jsonl",
+      "context": "/8c/06a4d88a32/1/context.md",
+      "content_hash": "/8c/06a4d88a32/1/content_hash.txt",
+      "prompt": "/8c/06a4d88a32/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 2129,
-    "cache_creation_tokens": 113801,
-    "cache_read_tokens": 1592936,
-    "output_tokens": 4610,
-    "api_call_count": 22
+    "input_tokens": 2180,
+    "cache_creation_tokens": 204557,
+    "cache_read_tokens": 4417838,
+    "output_tokens": 11479,
+    "api_call_count": 65
   }
 }

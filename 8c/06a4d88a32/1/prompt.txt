@@ -1,0 +1,163 @@
+Implement the following plan:
+
+# Plan: Add Missing Peripheral Responses for KS 1.3 Boot
+
+## Context
+
+Kickstart 1.3 boots through exec init and all resident modules (serial, keyboard, graphics, layers, intuition), then enters the exec idle loop (STOP at $FC0F94). VERTB interrupts fire and wake the CPU, but the system never progresses to the "insert disk" screen because:
+
+1. Intuition calls the blitter to clear screen memory — the stub completes instantly without writing anything
+2. trackdisk.device polls floppy status — without correct drive-not-ready signals it may spin forever
+3. Paula's interrupt priority mapping has bugs — BLIT (bit 6) falls through the cracks and never triggers IPL 3
+4. Several custom register reads return wrong values (DMACONR mixed with VPOSR, DSKBYTR returns DMACON)
+
+## Phase 1: Fix Existing Bugs
+
+### 1a. Fix Paula `compute_ipl` masks
+**File**: `crates/emu-amiga-rock/src/paula.rs`
+
+Current masks are wrong — BLIT interrupt (bit 6) isn't mapped to any level:
+```
+Current:  0x7000(L6)  0x0C00(L5)  0x0380(L4)  0x0030(L3)  0x0008(L2)  0x0007(L1)
+Correct:  0x2000(L6)  0x1800(L5)  0x0780(L4)  0x0070(L3)  0x0008(L2)  0x0007(L1)
+```
+Bugs: DSKSYN at L6 not L5, AUD3 at L5 not L4, BLIT missing from L3.
+
+### 1b. Fix custom register read dispatch
+**File**: `crates/emu-amiga-rock/src/lib.rs` (poll_cycle read arm)
+
+| Offset | Current | Should be |
+|--------|---------|-----------|
+| $002 | busy \| (vpos & 0xFF) — mixes DMACONR with VPOSR | `dmacon \| blitter_busy_bit` |
+| $004 | (vpos>>8)<<15 \| hpos — wrong | LOF \| agnus_id \| V8 |
+| $006 | Not handled | (vpos & 0xFF) << 8 \| hpos |
+| $01A | Returns dmacon | 0 (DSKBYTR, nothing ready) |
+
+Add new reads:
+- $00A JOY0DAT → 0, $00C JOY1DAT → 0
+- $010 ADKCONR → 0
+- $016 POTGOR → $FF00 (no buttons)
+- $07C DENISEID → $FFFF (OCS)
+
+## Phase 2: Blitter
+
+### 2a. Add blitter fields to Agnus
+**File**: `crates/emu-amiga-rock/src/agnus.rs`
+
+Add: `bltapt/bltbpt/bltcpt/bltdpt` (u32), `bltamod/bltbmod/bltcmod/bltdmod` (i16), `bltadat/bltbdat/bltcdat` (u16), `bltafwm/bltalwm` (u16).
+
+### 2b. Add blitter register writes
+**File**: `crates/emu-amiga-rock/src/lib.rs`
+
+Wire up in both write_custom_reg and poll_cycle write arm:
+- $040/$042: BLTCON0/1 (already done)
+- $044/$046: BLTAFWM/BLTALWM
+- $048-$056: BLTxPT high/low (C, B, A, D pairs)
+- $058: BLTSIZE → triggers blit
+- $060-$066: BLTxMOD (C, B, A, D)
+- $070-$074: BLTxDAT (C, B, A)
+
+### 2c. Implement synchronous blit execution
+**File**: `crates/emu-amiga-rock/src/lib.rs` — new method `execute_blit(&mut self)`
+
+Called immediately after BLTSIZE write. Steps:
+1. Parse BLTCON0: channel enables [11:8], minterm LF [7:0], A-shift [15:12]
+2. Parse BLTCON1: DESC [1], B-shift [15:12]
+3. Parse BLTSIZE: height [15:6] (0→1024), width_words [5:0] (0→64)
+4. For each row × word: read enabled sources from chip RAM, apply masks (BLTAFWM on first word, BLTALWM on last), barrel-shift A and B channels, compute minterm per-bit, write D channel
+5. Handle DESC mode (decrement pointers, subtract modulos)
+6. Apply modulos at end of each row
+7. Clear `blitter_busy`, fire BLIT interrupt (`paula.request_interrupt(6)`)
+
+Minterm per bit: `result_bit = (lf >> (a*4 + b*2 + c)) & 1`
+
+Barrel shift: maintain 32-bit accumulator `(prev << 16) | cur`, shift right by amount, take low 16 bits. Reset prev to 0 at each row start.
+
+### 2d. Deduplicate register dispatch
+Extract shared write logic into a free function or macro that both `write_custom_reg` (copper path) and `poll_cycle` (CPU path) call, to avoid the two copies drifting apart.
+
+## Phase 3: Floppy Drive Status
+
+### 3a. Set CIA-A external_a for "no disk"
+**File**: `crates/emu-amiga-rock/src/lib.rs` (Amiga::new)
+
+Floppy status inputs are on CIA-A PRA (not CIA-B):
+- Bit 5: /DSKRDY = 1 (not ready)
+- Bit 4: /DSKTRACK0 = 0 (at track 0)
+- Bit 3: /DSKPROT = 1 (not write protected)
+- Bit 2: /DSKCHANGE = 0 (disk removed)
+- Bit 7,6: joystick fire = 1,1 (not pressed)
+- Bit 1,0: LED/OVL outputs, pull-up = 1,1
+
+Set `cia_a.external_a = 0xEB` (0b_1110_1011).
+
+### 3b. Add Paula disk register stubs
+**File**: `crates/emu-amiga-rock/src/paula.rs`
+
+Add fields: `dsklen: u16`, `dsksync: u16`, `dsklen_prev: u16`.
+Add `write_dsklen()` implementing double-write protocol (accept writes, don't start DMA since no disk).
+
+Wire in lib.rs: $024 → `paula.write_dsklen(val)`, $07E → `paula.dsksync = val`.
+
+## Phase 4: Remaining Register Stubs
+
+**File**: `crates/emu-amiga-rock/src/lib.rs`
+
+Add silent-accept writes for registers KS 1.3 touches during boot:
+- $02E COPCON → copper.danger
+- $08E/$090 DIWSTRT/DIWSTOP → agnus
+- $102/$104 BPLCON1/2 → denise
+- $108/$10A BPL1MOD/BPL2MOD → agnus
+- $120-$13E SPRxPT → agnus (store, no DMA)
+- $140-$17E SPRxPOS/CTL/DATA → denise (store)
+- $0A0-$0D4 audio channels → discard
+- $09E ADKCON → paula (store)
+- $030/$032 SERDAT/SERPER → discard
+
+Add necessary fields to Agnus (diwstrt, diwstop, bpl1mod, bpl2mod, sprpt[8]) and Denise (bplcon1, bplcon2, sprpos/ctl/data arrays).
+
+## Phase 5: Keyboard (No changes needed)
+
+CIA-A SDR never receives external data → no SP interrupt → keyboard.device times out on its own. Current behavior is correct for "no keyboard."
+
+## Verification
+
+After each phase, run:
+```
+cargo test -p emu-amiga-rock --test boot_kickstart test_boot_kick13 -- --ignored --nocapture
+```
+
+- **Phase 1**: No regressions, VPOSR/DMACONR reads correct
+- **Phase 2**: BLIT interrupts fire (bit 6 in INTREQ), screen memory written by blitter
+- **Phase 3**: trackdisk.device detects no disk, times out
+- **Phase 4**: No panics from unhandled registers
+- **Final**: After ~40s emulated time, framebuffer should contain the KS 1.3 purple/blue gradient and hand icon ("insert disk" screen)
+
+## Files Modified
+
+- `crates/emu-amiga-rock/src/paula.rs` — fix IPL masks, add disk fields
+- `crates/emu-amiga-rock/src/agnus.rs` — add blitter fields, display fields, sprite pointers
+- `crates/emu-amiga-rock/src/denise.rs` — add bplcon1/2, sprite data fields
+- `crates/emu-amiga-rock/src/lib.rs` — fix register dispatch, wire blitter, deduplicate, add stubs
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+
+---
+
+<task-notification>
+<task-id>b138a1a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run KS 1.3 boot test" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+---
+
+Does this mean we actually have a kickstart boot?
+
+---
+
+Commit this and then figure out what's next
