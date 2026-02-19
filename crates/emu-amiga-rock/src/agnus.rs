@@ -30,6 +30,28 @@ pub struct Agnus {
     pub bltcon1: u16,
     pub bltsize: u16,
     pub blitter_busy: bool,
+    pub blt_apt: u32,
+    pub blt_bpt: u32,
+    pub blt_cpt: u32,
+    pub blt_dpt: u32,
+    pub blt_amod: i16,
+    pub blt_bmod: i16,
+    pub blt_cmod: i16,
+    pub blt_dmod: i16,
+    pub blt_adat: u16,
+    pub blt_bdat: u16,
+    pub blt_cdat: u16,
+    pub blt_afwm: u16,
+    pub blt_alwm: u16,
+
+    // Display window
+    pub diwstrt: u16,
+    pub diwstop: u16,
+    pub bpl1mod: i16,
+    pub bpl2mod: i16,
+
+    // Sprite pointers
+    pub spr_pt: [u32; 8],
 }
 
 impl Agnus {
@@ -46,13 +68,25 @@ impl Agnus {
             bltcon1: 0,
             bltsize: 0,
             blitter_busy: false,
+            blt_apt: 0,
+            blt_bpt: 0,
+            blt_cpt: 0,
+            blt_dpt: 0,
+            blt_amod: 0,
+            blt_bmod: 0,
+            blt_cmod: 0,
+            blt_dmod: 0,
+            blt_adat: 0,
+            blt_bdat: 0,
+            blt_cdat: 0,
+            blt_afwm: 0xFFFF,
+            blt_alwm: 0xFFFF,
+            diwstrt: 0,
+            diwstop: 0,
+            bpl1mod: 0,
+            bpl2mod: 0,
+            spr_pt: [0; 8],
         }
-    }
-
-    pub fn start_blitter(&mut self, val: u16) {
-        self.bltsize = val;
-        // Instant stub: just don't stay busy
-        self.blitter_busy = false;
     }
 
     pub fn num_bitplanes(&self) -> u8 {

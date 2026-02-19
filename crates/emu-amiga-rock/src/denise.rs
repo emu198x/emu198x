@@ -8,6 +8,12 @@ pub struct Denise {
     pub framebuffer: Vec<u32>,
     pub bpl_data: [u16; 6],
     pub bpl_shift: [u16; 6],
+    pub bplcon1: u16,
+    pub bplcon2: u16,
+    pub spr_pos: [u16; 8],
+    pub spr_ctl: [u16; 8],
+    pub spr_data: [u16; 8],
+    pub spr_datb: [u16; 8],
 }
 
 impl Denise {
@@ -17,6 +23,12 @@ impl Denise {
             framebuffer: vec![0xFF000000; (FB_WIDTH * FB_HEIGHT) as usize],
             bpl_data: [0; 6],
             bpl_shift: [0; 6],
+            bplcon1: 0,
+            bplcon2: 0,
+            spr_pos: [0; 8],
+            spr_ctl: [0; 8],
+            spr_data: [0; 8],
+            spr_datb: [0; 8],
         }
     }
 

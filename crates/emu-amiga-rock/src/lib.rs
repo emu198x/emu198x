@@ -68,6 +68,17 @@ impl Amiga {
 
         cpu.reset_to(ssp, pc);
 
+        // CIA-A PRA external inputs (active-low accent signals):
+        //   Bit 7: /FIR1 = 1 (joystick fire not pressed)
+        //   Bit 6: /FIR0 = 1 (joystick fire not pressed)
+        //   Bit 5: /DSKRDY = 1 (drive not ready)
+        //   Bit 4: /DSKTRACK0 = 0 (at track 0)
+        //   Bit 3: /DSKPROT = 1 (not write protected)
+        //   Bit 2: /DSKCHANGE = 0 (disk removed / changed)
+        //   Bits 1,0: LED/OVL outputs, external pull-up = 1,1
+        let mut cia_a = Cia::new();
+        cia_a.external_a = 0xEB; // 0b_1110_1011
+
         Self {
             master_clock: 0,
             cpu,
@@ -75,7 +86,7 @@ impl Amiga {
             memory,
             denise: Denise::new(),
             copper: Copper::new(),
-            cia_a: Cia::new(),
+            cia_a,
             cia_b: Cia::new(),
             paula: Paula::new(),
         }
@@ -149,36 +160,10 @@ impl Amiga {
     }
 
     pub fn write_custom_reg(&mut self, offset: u16, val: u16) {
-        match offset {
-            0x040 => self.agnus.bltcon0 = val,
-            0x042 => self.agnus.bltcon1 = val,
-            0x058 => self.agnus.start_blitter(val),
-            0x080 => self.copper.cop1lc = (self.copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
-            0x082 => self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
-            0x084 => self.copper.cop2lc = (self.copper.cop2lc & 0x0000FFFF) | (u32::from(val) << 16),
-            0x086 => self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
-            0x088 => self.copper.restart_cop1(),
-            0x08A => self.copper.restart_cop2(),
-            0x092 => self.agnus.ddfstrt = val,
-            0x094 => self.agnus.ddfstop = val,
-            0x096 => {
-                if val & 0x8000 != 0 { self.agnus.dmacon |= val & 0x7FFF; }
-                else { self.agnus.dmacon &= !(val & 0x7FFF); }
-            }
-            0x09A => self.paula.write_intena(val),
-            0x09C => self.paula.write_intreq(val),
-            0x100 => self.agnus.bplcon0 = val,
-            0x0E0..=0x0EE => {
-                let idx = ((offset - 0x0E0) / 4) as usize;
-                if offset & 2 == 0 { self.agnus.bpl_pt[idx] = (self.agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16); }
-                else { self.agnus.bpl_pt[idx] = (self.agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE); }
-            }
-            0x180..=0x1BE => {
-                let idx = ((offset - 0x180) / 2) as usize;
-                self.denise.set_palette(idx, val);
-            }
-            _ => {}
-        }
+        write_custom_register(
+            &mut self.agnus, &mut self.denise, &mut self.copper,
+            &mut self.paula, &mut self.memory, offset, val,
+        );
     }
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
@@ -253,46 +238,30 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             let offset = (addr & 0x1FE) as u16;
             if !is_read {
                 let val = data.unwrap_or(0);
-                match offset {
-                    0x040 => self.agnus.bltcon0 = val,
-                    0x042 => self.agnus.bltcon1 = val,
-                    0x058 => self.agnus.start_blitter(val),
-                    0x080 => self.copper.cop1lc = (self.copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
-                    0x082 => self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
-                    0x084 => self.copper.cop2lc = (self.copper.cop2lc & 0x0000FFFF) | (u32::from(val) << 16),
-                    0x086 => self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
-                    0x088 => self.copper.restart_cop1(),
-                    0x08A => self.copper.restart_cop2(),
-                    0x092 => self.agnus.ddfstrt = val,
-                    0x094 => self.agnus.ddfstop = val,
-                    0x096 => {
-                        if val & 0x8000 != 0 { self.agnus.dmacon |= val & 0x7FFF; }
-                        else { self.agnus.dmacon &= !(val & 0x7FFF); }
-                    }
-                    0x09A => self.paula.write_intena(val),
-                    0x09C => self.paula.write_intreq(val),
-                    0x100 => self.agnus.bplcon0 = val,
-                    0x0E0..=0x0EE => {
-                        let idx = ((offset - 0x0E0) / 4) as usize;
-                        if offset & 2 == 0 { self.agnus.bpl_pt[idx] = (self.agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16); }
-                        else { self.agnus.bpl_pt[idx] = (self.agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE); }
-                    }
-                    0x180..=0x1BE => {
-                        let idx = ((offset - 0x180) / 2) as usize;
-                        self.denise.set_palette(idx, val);
-                    }
-                    _ => {}
-                }
+                write_custom_register(
+                    self.agnus, self.denise, self.copper,
+                    self.paula, self.memory, offset, val,
+                );
             } else {
                 match offset {
+                    // DMACONR: DMA control (active bits) + blitter busy/zero
                     0x002 => {
                         let busy = if self.agnus.blitter_busy { 0x4000 } else { 0 };
-                        return BusStatus::Ready(busy | (self.agnus.vpos & 0xFF));
+                        return BusStatus::Ready(self.agnus.dmacon | busy);
                     }
-                    0x004 => return BusStatus::Ready((self.agnus.vpos >> 8) << 15 | self.agnus.hpos),
-                    0x01A => return BusStatus::Ready(self.agnus.dmacon),
-                    0x01C => return BusStatus::Ready(self.paula.intena),
-                    0x01E => return BusStatus::Ready(self.paula.intreq),
+                    // VPOSR: LOF | Agnus ID | V8
+                    // Bit 15: LOF (long frame, always 1 for PAL interlace long field — set to 0 for now)
+                    // Bits 14-8: Agnus chip ID (OCS PAL = 0x00)
+                    // Bit 0: V8 (bit 8 of vpos)
+                    0x004 => return BusStatus::Ready((self.agnus.vpos >> 8) & 1),
+                    // VHPOSR: V7-V0 in high byte, H8-H1 in low byte
+                    0x006 => return BusStatus::Ready(((self.agnus.vpos & 0xFF) << 8) | (self.agnus.hpos & 0xFF)),
+                    // JOY0DAT, JOY1DAT: joystick/mouse — no input
+                    0x00A | 0x00C => return BusStatus::Ready(0),
+                    // ADKCONR: audio/disk control read
+                    0x010 => return BusStatus::Ready(self.paula.adkcon),
+                    // POTGOR: active-high button bits, active-low accent. $FF00 = no buttons pressed.
+                    0x016 => return BusStatus::Ready(0xFF00),
                     // SERDATR ($DFF018): serial port data and status.
                     // With nothing connected, the RXD pin floats high
                     // (pull-up on the A500). The shift register sees all 1s.
@@ -301,6 +270,12 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     // Bit 11: RXD (pin state = high/idle)
                     // Bits 8-0: $1FF (all 1s from idle line)
                     0x018 => return BusStatus::Ready(0x39FF),
+                    // DSKBYTR: disk byte and status — no disk, nothing ready
+                    0x01A => return BusStatus::Ready(0),
+                    0x01C => return BusStatus::Ready(self.paula.intena),
+                    0x01E => return BusStatus::Ready(self.paula.intreq),
+                    // DENISEID: OCS Denise = open bus ($FFFF)
+                    0x07C => return BusStatus::Ready(0xFFFF),
                     _ => {}
                 }
             }
@@ -337,4 +312,236 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             } else { BusStatus::Ready(0) }
         }
     }
+}
+
+/// Shared custom register write dispatch used by both CPU and copper paths.
+fn write_custom_register(
+    agnus: &mut Agnus, denise: &mut Denise, copper: &mut Copper,
+    paula: &mut Paula, memory: &mut Memory, offset: u16, val: u16,
+) {
+    match offset {
+        // Blitter registers
+        0x040 => agnus.bltcon0 = val,
+        0x042 => agnus.bltcon1 = val,
+        0x044 => agnus.blt_afwm = val,
+        0x046 => agnus.blt_alwm = val,
+        0x048 => agnus.blt_cpt = (agnus.blt_cpt & 0x0000FFFF) | (u32::from(val) << 16),
+        0x04A => agnus.blt_cpt = (agnus.blt_cpt & 0xFFFF0000) | u32::from(val & 0xFFFE),
+        0x04C => agnus.blt_bpt = (agnus.blt_bpt & 0x0000FFFF) | (u32::from(val) << 16),
+        0x04E => agnus.blt_bpt = (agnus.blt_bpt & 0xFFFF0000) | u32::from(val & 0xFFFE),
+        0x050 => agnus.blt_apt = (agnus.blt_apt & 0x0000FFFF) | (u32::from(val) << 16),
+        0x052 => agnus.blt_apt = (agnus.blt_apt & 0xFFFF0000) | u32::from(val & 0xFFFE),
+        0x054 => agnus.blt_dpt = (agnus.blt_dpt & 0x0000FFFF) | (u32::from(val) << 16),
+        0x056 => agnus.blt_dpt = (agnus.blt_dpt & 0xFFFF0000) | u32::from(val & 0xFFFE),
+        0x058 => {
+            agnus.bltsize = val;
+            agnus.blitter_busy = true;
+            execute_blit(agnus, paula, memory);
+        }
+        0x060 => agnus.blt_cmod = val as i16,
+        0x062 => agnus.blt_bmod = val as i16,
+        0x064 => agnus.blt_amod = val as i16,
+        0x066 => agnus.blt_dmod = val as i16,
+        0x070 => agnus.blt_cdat = val,
+        0x072 => agnus.blt_bdat = val,
+        0x074 => agnus.blt_adat = val,
+
+        // Copper
+        0x080 => copper.cop1lc = (copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
+        0x082 => copper.cop1lc = (copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
+        0x084 => copper.cop2lc = (copper.cop2lc & 0x0000FFFF) | (u32::from(val) << 16),
+        0x086 => copper.cop2lc = (copper.cop2lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
+        0x088 => copper.restart_cop1(),
+        0x08A => copper.restart_cop2(),
+
+        // Display
+        0x08E => agnus.diwstrt = val,
+        0x090 => agnus.diwstop = val,
+        0x092 => agnus.ddfstrt = val,
+        0x094 => agnus.ddfstop = val,
+
+        // DMA control
+        0x096 => {
+            if val & 0x8000 != 0 { agnus.dmacon |= val & 0x7FFF; }
+            else { agnus.dmacon &= !(val & 0x7FFF); }
+        }
+
+        // Interrupts
+        0x09A => paula.write_intena(val),
+        0x09C => paula.write_intreq(val),
+
+        // Audio/disk control
+        0x09E => paula.write_adkcon(val),
+
+        // Disk
+        0x024 => paula.write_dsklen(val),
+        0x07E => paula.dsksync = val,
+
+        // Serial (discard)
+        0x030 | 0x032 => {}
+
+        // Copper danger
+        0x02E => copper.danger = val & 0x02 != 0,
+
+        // Bitplane control
+        0x100 => agnus.bplcon0 = val,
+        0x102 => denise.bplcon1 = val,
+        0x104 => denise.bplcon2 = val,
+
+        // Bitplane modulos
+        0x108 => agnus.bpl1mod = val as i16,
+        0x10A => agnus.bpl2mod = val as i16,
+
+        // Bitplane pointers ($0E0-$0EE)
+        0x0E0..=0x0EE => {
+            let idx = ((offset - 0x0E0) / 4) as usize;
+            if offset & 2 == 0 { agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16); }
+            else { agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE); }
+        }
+
+        // Sprite pointers ($120-$13E)
+        0x120..=0x13E => {
+            let idx = ((offset - 0x120) / 4) as usize;
+            if idx < 8 {
+                if offset & 2 == 0 { agnus.spr_pt[idx] = (agnus.spr_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16); }
+                else { agnus.spr_pt[idx] = (agnus.spr_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE); }
+            }
+        }
+
+        // Sprite data ($140-$17E): 8 sprites x 4 regs (POS, CTL, DATA, DATB)
+        0x140..=0x17E => {
+            let sprite = ((offset - 0x140) / 8) as usize;
+            let reg = ((offset - 0x140) % 8) / 2;
+            if sprite < 8 {
+                match reg {
+                    0 => denise.spr_pos[sprite] = val,
+                    1 => denise.spr_ctl[sprite] = val,
+                    2 => denise.spr_data[sprite] = val,
+                    3 => denise.spr_datb[sprite] = val,
+                    _ => {}
+                }
+            }
+        }
+
+        // Color palette ($180-$1BE)
+        0x180..=0x1BE => {
+            let idx = ((offset - 0x180) / 2) as usize;
+            denise.set_palette(idx, val);
+        }
+
+        // Audio channels ($0A0-$0D4): accept and discard
+        0x0A0..=0x0D4 => {}
+
+        _ => {}
+    }
+}
+
+/// Execute a blitter operation synchronously.
+///
+/// On real hardware the blitter runs in DMA slots over many CCKs. For boot
+/// purposes we run the entire operation instantly when BLTSIZE is written,
+/// then clear busy and fire the BLIT interrupt.
+fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
+    let height = (agnus.bltsize >> 6) & 0x3FF;
+    let width_words = agnus.bltsize & 0x3F;
+    let height = if height == 0 { 1024 } else { height } as u32;
+    let width_words = if width_words == 0 { 64 } else { width_words } as u32;
+
+    let use_a = agnus.bltcon0 & 0x0800 != 0;
+    let use_b = agnus.bltcon0 & 0x0400 != 0;
+    let use_c = agnus.bltcon0 & 0x0200 != 0;
+    let use_d = agnus.bltcon0 & 0x0100 != 0;
+    let lf = agnus.bltcon0 as u8; // minterm function (low 8 bits)
+    let a_shift = (agnus.bltcon0 >> 12) & 0xF;
+    let b_shift = (agnus.bltcon1 >> 12) & 0xF;
+    let desc = agnus.bltcon1 & 0x0002 != 0;
+
+    let mut apt = agnus.blt_apt;
+    let mut bpt = agnus.blt_bpt;
+    let mut cpt = agnus.blt_cpt;
+    let mut dpt = agnus.blt_dpt;
+
+    let read_word = |mem: &Memory, addr: u32| -> u16 {
+        let hi = mem.read_chip_byte(addr);
+        let lo = mem.read_chip_byte(addr.wrapping_add(1));
+        (u16::from(hi) << 8) | u16::from(lo)
+    };
+
+    let write_word = |mem: &mut Memory, addr: u32, val: u16| {
+        mem.write_byte(addr, (val >> 8) as u8);
+        mem.write_byte(addr.wrapping_add(1), val as u8);
+    };
+
+    let ptr_step: i32 = if desc { -2 } else { 2 };
+
+    for _row in 0..height {
+        let mut a_prev: u16 = 0;
+        let mut b_prev: u16 = 0;
+
+        for col in 0..width_words {
+            // Read source channels
+            let a_raw = if use_a { let w = read_word(&*memory, apt); apt = (apt as i32 + ptr_step) as u32; w } else { agnus.blt_adat };
+            let b_raw = if use_b { let w = read_word(&*memory, bpt); bpt = (bpt as i32 + ptr_step) as u32; w } else { agnus.blt_bdat };
+            let c_val = if use_c { let w = read_word(&*memory, cpt); cpt = (cpt as i32 + ptr_step) as u32; w } else { agnus.blt_cdat };
+
+            // Apply first/last word masks to A channel
+            let mut a_masked = a_raw;
+            if col == 0 { a_masked &= agnus.blt_afwm; }
+            if col == width_words - 1 { a_masked &= agnus.blt_alwm; }
+
+            // Barrel shift A: combine with previous word
+            let a_combined = (u32::from(a_prev) << 16) | u32::from(a_masked);
+            let a_shifted = if desc {
+                // DESC mode: shift left
+                (a_combined >> (16 - a_shift)) as u16
+            } else {
+                (a_combined >> a_shift) as u16
+            };
+
+            // Barrel shift B: combine with previous word
+            let b_combined = (u32::from(b_prev) << 16) | u32::from(b_raw);
+            let b_shifted = if desc {
+                (b_combined >> (16 - b_shift)) as u16
+            } else {
+                (b_combined >> b_shift) as u16
+            };
+
+            a_prev = a_masked;
+            b_prev = b_raw;
+
+            // Compute minterm for each bit
+            let mut result: u16 = 0;
+            for bit in 0..16 {
+                let a_bit = (a_shifted >> bit) & 1;
+                let b_bit = (b_shifted >> bit) & 1;
+                let c_bit = (c_val >> bit) & 1;
+                let index = (a_bit << 2) | (b_bit << 1) | c_bit;
+                if (lf >> index) & 1 != 0 {
+                    result |= 1 << bit;
+                }
+            }
+
+            // Write D channel
+            if use_d {
+                write_word(memory, dpt, result);
+                dpt = (dpt as i32 + ptr_step) as u32;
+            }
+        }
+
+        // Apply modulos at end of each row
+        let mod_dir: i32 = if desc { -1 } else { 1 };
+        if use_a { apt = (apt as i32 + i32::from(agnus.blt_amod) * mod_dir) as u32; }
+        if use_b { bpt = (bpt as i32 + i32::from(agnus.blt_bmod) * mod_dir) as u32; }
+        if use_c { cpt = (cpt as i32 + i32::from(agnus.blt_cmod) * mod_dir) as u32; }
+        if use_d { dpt = (dpt as i32 + i32::from(agnus.blt_dmod) * mod_dir) as u32; }
+    }
+
+    // Update pointer registers
+    agnus.blt_apt = apt;
+    agnus.blt_bpt = bpt;
+    agnus.blt_cpt = cpt;
+    agnus.blt_dpt = dpt;
+
+    agnus.blitter_busy = false;
+    paula.request_interrupt(6); // bit 6 = BLIT
 }

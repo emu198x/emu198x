@@ -3,6 +3,10 @@
 pub struct Paula {
     pub intena: u16,
     pub intreq: u16,
+    pub adkcon: u16,
+    pub dsklen: u16,
+    pub dsklen_prev: u16,
+    pub dsksync: u16,
 }
 
 impl Paula {
@@ -10,6 +14,10 @@ impl Paula {
         Self {
             intena: 0,
             intreq: 0,
+            adkcon: 0,
+            dsklen: 0,
+            dsklen_prev: 0,
+            dsksync: 0,
         }
     }
 
@@ -33,6 +41,22 @@ impl Paula {
         self.intreq |= 1 << bit;
     }
 
+    pub fn write_adkcon(&mut self, val: u16) {
+        if val & 0x8000 != 0 {
+            self.adkcon |= val & 0x7FFF;
+        } else {
+            self.adkcon &= !(val & 0x7FFF);
+        }
+    }
+
+    /// Double-write protocol: DMA starts only when DSKLEN is written
+    /// twice in a row with bit 15 set. Without a disk inserted, this
+    /// accepts the writes but never starts DMA.
+    pub fn write_dsklen(&mut self, val: u16) {
+        self.dsklen_prev = self.dsklen;
+        self.dsklen = val;
+    }
+
     pub fn compute_ipl(&self) -> u8 {
         // Master enable: bit 14
         if self.intena & 0x4000 == 0 {
@@ -44,13 +68,19 @@ impl Paula {
             return 0;
         }
 
-        // Check from highest priority down
-        if active & 0x7000 != 0 { return 6; } // EXTER (CIA-B)
-        if active & 0x0C00 != 0 { return 5; } // RBF, DSKSYN
-        if active & 0x0380 != 0 { return 4; } // AUD0-3
-        if active & 0x0030 != 0 { return 3; } // COPER, VERTB
-        if active & 0x0008 != 0 { return 2; } // PORTS (CIA-A)
-        if active & 0x0007 != 0 { return 1; } // TBE, DSKBLK, SOFT
+        // Amiga Hardware Reference Manual interrupt priority mapping:
+        //   L6: bit 13 EXTER (CIA-B)
+        //   L5: bit 12 DSKSYN, bit 11 RBF
+        //   L4: bit 10 AUD3, bit 9 AUD2, bit 8 AUD1, bit 7 AUD0
+        //   L3: bit 6 BLIT, bit 5 VERTB, bit 4 COPER
+        //   L2: bit 3 PORTS (CIA-A)
+        //   L1: bit 2 SOFT, bit 1 DSKBLK, bit 0 TBE
+        if active & 0x2000 != 0 { return 6; } // EXTER
+        if active & 0x1800 != 0 { return 5; } // DSKSYN, RBF
+        if active & 0x0780 != 0 { return 4; } // AUD3-0
+        if active & 0x0070 != 0 { return 3; } // BLIT, VERTB, COPER
+        if active & 0x0008 != 0 { return 2; } // PORTS
+        if active & 0x0007 != 0 { return 1; } // SOFT, DSKBLK, TBE
 
         0
     }
