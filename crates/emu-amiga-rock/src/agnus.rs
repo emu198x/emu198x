@@ -24,6 +24,12 @@ pub struct Agnus {
     pub bpl_pt: [u32; 6],
     pub ddfstrt: u16,
     pub ddfstop: u16,
+
+    // Blitter Registers
+    pub bltcon0: u16,
+    pub bltcon1: u16,
+    pub bltsize: u16,
+    pub blitter_busy: bool,
 }
 
 impl Agnus {
@@ -36,7 +42,17 @@ impl Agnus {
             bpl_pt: [0; 6],
             ddfstrt: 0,
             ddfstop: 0,
+            bltcon0: 0,
+            bltcon1: 0,
+            bltsize: 0,
+            blitter_busy: false,
         }
+    }
+
+    pub fn start_blitter(&mut self, val: u16) {
+        self.bltsize = val;
+        // Instant stub: just don't stay busy
+        self.blitter_busy = false;
     }
 
     pub fn num_bitplanes(&self) -> u8 {

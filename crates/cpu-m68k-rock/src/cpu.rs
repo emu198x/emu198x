@@ -133,6 +133,9 @@ pub const TAG_ADDX_WRITE: u8 = 72;
 // CHK follow-up: bounds comparison after EA read
 pub const TAG_CHK_EXECUTE: u8 = 80;
 
+/// STOP: enter stopped state after FetchIRC completes the pipeline refill.
+pub const TAG_STOP_WAIT: u8 = 86;
+
 // Exception follow-ups
 /// Exception: push PC onto stack.
 pub const TAG_EXC_STACK_PC_HI: u8 = 38;
@@ -514,7 +517,30 @@ impl Cpu68000 {
                     }
                 }
             }
-            State::Halted | State::Stopped => {}
+            State::Halted => {}
+            State::Stopped => {
+                // The STOP instruction waits for an interrupt with a
+                // priority higher than the current mask. Poll the bus
+                // on every CPU cycle and wake up when one arrives.
+                let ipl = bus.poll_ipl();
+                if ipl > self.regs.interrupt_mask() || ipl == 7 {
+                    self.state = State::Idle;
+                    self.initiate_interrupt_exception(ipl);
+                    self.process_instant_ops(bus);
+                    // Dispatch bus cycle if needed
+                    if matches!(self.state, State::Idle) {
+                        if let Some(op) = self.micro_ops.pop() {
+                            if op.is_bus() {
+                                if !self.check_address_error(op) {
+                                    self.state = self.initiate_bus_cycle(op);
+                                }
+                            } else if let MicroOp::Internal(cycles) = op {
+                                self.state = State::Internal { cycles };
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -565,11 +591,26 @@ impl Cpu68000 {
     }
 
     /// Begin an interrupt exception sequence.
+    ///
+    /// The 68000 enters supervisor mode immediately when processing an
+    /// exception — the exception frame is always pushed to the supervisor
+    /// stack (SSP). The old SR (with the user-mode S bit) is saved first
+    /// so it can be pushed in the frame.
     fn initiate_interrupt_exception(&mut self, level: u8) {
         self.target_ipl = level;
+        // Save old SR before changing mode (for pushing in the exception frame).
+        self.ae_saved_sr = self.regs.sr;
+        // Enter supervisor mode BEFORE pushing so the frame goes onto SSP.
+        self.regs.set_supervisor(true);
+        self.regs.sr &= !0x8000; // Clear trace bit
         self.in_followup = true;
         self.followup_tag = TAG_EXC_STACK_PC_HI;
-        self.data = self.regs.pc;
+        // The PC to save is the address of the NEXT instruction — the one
+        // that would have executed if the interrupt hadn't fired. That's
+        // irc_addr (where the current IRC was fetched from), NOT regs.pc
+        // (which points 2 bytes past irc_addr due to the prefetch pipeline).
+        // RTE will restore this address and begin a fresh prefetch from it.
+        self.data = self.irc_addr as u32;
         self.micro_ops.push(MicroOp::PushLongHi);
         self.micro_ops.push(MicroOp::Execute);
     }

@@ -214,4 +214,29 @@ impl Cia {
     pub fn port_a_output(&self) -> u8 {
         (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)
     }
+
+    /// Hardware reset: clears all registers to power-on state.
+    /// Called when the 68000 RESET instruction asserts the reset line.
+    pub fn reset(&mut self) {
+        self.port_a = 0xFF;
+        self.port_b = 0xFF;
+        self.ddr_a = 0;
+        self.ddr_b = 0;
+        self.timer_a = 0xFFFF;
+        self.timer_a_latch = 0xFFFF;
+        self.timer_a_running = false;
+        self.timer_a_oneshot = false;
+        self.timer_a_force_load = false;
+        self.timer_b = 0xFFFF;
+        self.timer_b_latch = 0xFFFF;
+        self.timer_b_running = false;
+        self.timer_b_oneshot = false;
+        self.timer_b_force_load = false;
+        self.icr_status = 0;
+        self.icr_mask = 0;
+        self.cra = 0;
+        self.crb = 0;
+        self.sdr = 0;
+        // TOD is not reset by hardware reset
+    }
 }

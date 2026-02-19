@@ -28,18 +28,19 @@ impl Memory {
 
     pub fn read_byte(&self, addr: u32) -> u8 {
         let addr = addr & 0xFFFFFF;
-        
+
         if self.overlay && addr < 0x200000 {
             // Overlay maps ROM to $0
             return self.kickstart[(addr & self.kickstart_mask) as usize];
         }
 
-        if addr < 0x200000 {
-            self.read_chip_byte(addr)
+        if addr <= self.chip_ram_mask {
+            // Within installed chip RAM
+            self.chip_ram[addr as usize]
         } else if addr >= ROM_BASE {
             self.kickstart[(addr & self.kickstart_mask) as usize]
         } else {
-            0xFF // Open bus
+            0xFF // Open bus / unmapped
         }
     }
 
@@ -49,9 +50,12 @@ impl Memory {
 
     pub fn write_byte(&mut self, addr: u32, val: u8) {
         let addr = addr & 0xFFFFFF;
-        if addr < 0x200000 {
-            self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
+        // Only addresses within installed chip RAM respond.
+        // Agnus decodes A0-A18 for 512KB, A0-A19 for 1MB, etc.
+        // Addresses above the installed size are unmapped (no DTACK).
+        if addr <= self.chip_ram_mask {
+            self.chip_ram[addr as usize] = val;
         }
-        // ROM is read-only
+        // ROM is read-only; addresses above chip RAM size are open bus.
     }
 }

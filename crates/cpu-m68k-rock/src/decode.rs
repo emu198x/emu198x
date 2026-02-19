@@ -34,6 +34,7 @@ use crate::cpu::{
     TAG_RTS_PC_HI, TAG_RTS_PC_LO,
     TAG_BCD_DST_READ, TAG_BCD_SRC_READ,
     TAG_CHK_EXECUTE, TAG_MULDIV_EXECUTE, TAG_MOVEP_TRANSFER,
+    TAG_STOP_WAIT,
     TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
@@ -555,7 +556,7 @@ impl Cpu68000 {
                 6 => AluOp::Cmp,
                 _ => {
                     // Bit operations or other 0x0xxx — not handled here
-                    self.halt();
+                    self.begin_group1_exception(4, self.instr_start_pc);
                     return;
                 }
             };
@@ -563,7 +564,12 @@ impl Cpu68000 {
                 0 => Size::Byte,
                 1 => Size::Word,
                 2 => Size::Long,
-                _ => unreachable!(),
+                _ => {
+                    // Size 3 is invalid for ALU immediate ops → illegal instruction
+                    eprintln!("ILLEGAL: ALU-imm size=3 opcode=${:04X} at PC=${:08X}", opcode, self.instr_start_pc);
+                    self.begin_group1_exception(4, self.instr_start_pc);
+                    return;
+                }
             };
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
             let ea_reg = (opcode & 7) as u8;
@@ -900,7 +906,7 @@ impl Cpu68000 {
                     }
                     _ => {
                         // size=3 for CLR (sub_op=1) is invalid
-                        self.halt();
+                        self.begin_group1_exception(4, self.instr_start_pc);
                         return;
                     }
                 }
@@ -956,7 +962,7 @@ impl Cpu68000 {
                 1 => Size::Word,
                 2 => Size::Long,
                 _ => {
-                    self.halt();
+                    self.begin_group1_exception(4, self.instr_start_pc);
                     return;
                 }
             };
@@ -1102,12 +1108,23 @@ impl Cpu68000 {
         }
 
         // --- STOP (0x4E72) ---
+        // The real 68000 reads the immediate SR from IRC but does NOT
+        // complete a pipeline refill before entering the stopped state.
+        // We consume IRC for the immediate, then clear the FetchIRC it
+        // queued and enter Stopped directly.
         if opcode == 0x4E72 {
             if self.check_supervisor() {
                 return;
             }
             let new_sr = self.consume_irc();
             self.regs.sr = new_sr & crate::flags::SR_MASK;
+            // Clear the FetchIRC that consume_irc queued — STOP doesn't
+            // complete the pipeline refill.
+            self.micro_ops.clear();
+            // Fix irc_addr so that interrupt wake-up (which saves irc_addr
+            // as the return PC) pushes the address of the next instruction
+            // after STOP, not the stale address of the immediate word.
+            self.irc_addr = self.next_fetch_addr;
             self.state = State::Stopped;
             return;
         }
@@ -1124,7 +1141,8 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::Internal(124));
             }
             _ => {
-                self.halt();
+                eprintln!("ILLEGAL: unimpl opcode=${:04X} at PC=${:08X}", opcode, self.instr_start_pc);
+                self.begin_group1_exception(4, self.instr_start_pc);
             }
         }
     }
@@ -1503,15 +1521,9 @@ impl Cpu68000 {
             }
 
             TAG_EXC_STACK_PC_LO => {
-                // For group 1/2 exceptions, SR was already saved before
-                // supervisor mode was set. Use the saved value.
-                // For interrupts, push the current (unmodified) SR.
-                let sr = if self.exc_vector.is_some() {
-                    self.ae_saved_sr
-                } else {
-                    self.regs.sr
-                };
-                self.data = u32::from(sr);
+                // Both interrupts and group 1/2 exceptions save the old SR
+                // before entering supervisor mode. Push the saved value.
+                self.data = u32::from(self.ae_saved_sr);
                 self.followup_tag = TAG_EXC_STACK_SR;
                 self.micro_ops.push(MicroOp::PushWord);
                 self.micro_ops.push(MicroOp::Execute);
@@ -1549,11 +1561,11 @@ impl Cpu68000 {
                 // For group 1/2, supervisor and trace were already set in
                 // begin_group1_exception; don't change interrupt mask.
                 if self.exc_vector.is_some() {
-                    // Group 1/2: supervisor and trace already handled
+                    // Group 1/2: supervisor, trace, and mask already handled
                 } else {
-                    // Hardware interrupt
-                    self.regs.set_supervisor(true);
-                    self.regs.sr &= !0x8000; // Clear trace
+                    // Hardware interrupt: supervisor mode and trace were set in
+                    // initiate_interrupt_exception. Update the interrupt mask
+                    // to the level being acknowledged (happens after InterruptAck).
                     self.regs.sr =
                         (self.regs.sr & !0x0700) | (u16::from(self.target_ipl) << 8);
                 }
@@ -2100,6 +2112,12 @@ impl Cpu68000 {
                     }
                     _ => {}
                 }
+                self.in_followup = false;
+            }
+
+            // --- STOP: pipeline refill complete, enter stopped state ---
+            TAG_STOP_WAIT => {
+                self.state = State::Stopped;
                 self.in_followup = false;
             }
 
