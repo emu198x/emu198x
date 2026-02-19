@@ -199,7 +199,17 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         self.agnus.dmacon = 0;
     }
 
-    fn poll_cycle(&mut self, addr: u32, _fc: FunctionCode, is_read: bool, is_word: bool, data: Option<u16>) -> BusStatus {
+    fn poll_cycle(&mut self, addr: u32, fc: FunctionCode, is_read: bool, is_word: bool, data: Option<u16>) -> BusStatus {
+        // Amiga uses autovectors for all hardware interrupts.
+        // The CPU issues an IACK bus cycle with FC=InterruptAck. On real
+        // hardware the address bus carries the level in A1-A3, but the CPU
+        // core uses a fixed address ($FFFFFF). Compute the pending level
+        // from Paula's IPL state instead.
+        if fc == FunctionCode::InterruptAck {
+            let level = self.paula.compute_ipl() as u16;
+            return BusStatus::Ready(24 + level);
+        }
+
         let addr = addr & 0xFFFFFF;
 
         // CIA-A ($BFE001, odd bytes)
