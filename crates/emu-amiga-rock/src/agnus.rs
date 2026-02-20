@@ -14,6 +14,20 @@ pub enum SlotOwner {
     Copper,
 }
 
+/// Maps ddfseq position (0-7) within an 8-CCK group to bitplane index.
+/// From Minimig Verilog: plane = {~ddfseq[0], ~ddfseq[1], ~ddfseq[2]}.
+/// None = free slot (available for copper/CPU).
+const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
+    None,     // 0: free
+    Some(3),  // 1: BPL4
+    Some(5),  // 2: BPL6
+    Some(1),  // 3: BPL2
+    None,     // 4: free
+    Some(2),  // 5: BPL3
+    Some(4),  // 6: BPL5
+    Some(0),  // 7: BPL1 (triggers shift register load)
+];
+
 pub struct Agnus {
     pub vpos: u16,
     pub hpos: u16, // in CCKs
@@ -132,12 +146,19 @@ impl Agnus {
             
             // Variable slots (Bitplane, Copper, CPU)
             0x1C..=0xE2 => {
-                // Bitplane DMA
+                // Bitplane DMA: fetch window runs from DDFSTRT to DDFSTOP+7.
+                // Within each 8-CCK group, planes are fetched in the Minimig
+                // interleaved order (LOWRES_DDF_TO_PLANE), not sequentially.
                 let num_bpl = self.num_bitplanes();
-                if self.dma_enabled(0x0100) && num_bpl > 0 && self.hpos >= self.ddfstrt && self.hpos <= self.ddfstop {
-                    let pos_in_group = (self.hpos - self.ddfstrt) % 8;
-                    if pos_in_group < u16::from(num_bpl) {
-                        return SlotOwner::Bitplane(pos_in_group as u8);
+                if self.dma_enabled(0x0100) && num_bpl > 0
+                    && self.hpos >= self.ddfstrt
+                    && self.hpos <= self.ddfstop + 7
+                {
+                    let pos_in_group = ((self.hpos - self.ddfstrt) % 8) as usize;
+                    if let Some(plane) = LOWRES_DDF_TO_PLANE[pos_in_group] {
+                        if plane < num_bpl {
+                            return SlotOwner::Bitplane(plane);
+                        }
                     }
                 }
 

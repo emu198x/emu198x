@@ -6,8 +6,9 @@ pub const FB_HEIGHT: u32 = 256;
 pub struct Denise {
     pub palette: [u16; 32],
     pub framebuffer: Vec<u32>,
-    pub bpl_data: [u16; 6],
-    pub bpl_shift: [u16; 6],
+    pub bpl_data: [u16; 6],   // Holding latches: written by DMA
+    pub bpl_shift: [u16; 6],  // Shift registers: loaded from latches on BPL1DAT write
+    pub shift_count: u8,      // Pixels remaining in shift register (0 → output COLOR00)
     pub bplcon1: u16,
     pub bplcon2: u16,
     pub spr_pos: [u16; 8],
@@ -23,6 +24,7 @@ impl Denise {
             framebuffer: vec![0xFF000000; (FB_WIDTH * FB_HEIGHT) as usize],
             bpl_data: [0; 6],
             bpl_shift: [0; 6],
+            shift_count: 0,
             bplcon1: 0,
             bplcon2: 0,
             spr_pos: [0; 8],
@@ -41,34 +43,46 @@ impl Denise {
     pub fn load_bitplane(&mut self, idx: usize, val: u16) {
         if idx < 6 {
             self.bpl_data[idx] = val;
-            // On a real Amiga, the shifter is reloaded at the end of the CCK
-            // For now, we'll reload it here.
-            self.bpl_shift[idx] = val;
         }
+    }
+
+    /// Copy all bitplane holding latches into the shift registers.
+    /// On real hardware this happens when BPL1DAT (plane 0) is written,
+    /// which is always the last plane fetched in each 8-CCK DMA group.
+    pub fn trigger_shift_load(&mut self) {
+        for i in 0..6 {
+            self.bpl_shift[i] = self.bpl_data[i];
+        }
+        self.shift_count = 16;
+    }
+
+    fn rgb12_to_argb32(rgb12: u16) -> u32 {
+        let r = ((rgb12 >> 8) & 0xF) as u8;
+        let g = ((rgb12 >> 4) & 0xF) as u8;
+        let b = (rgb12 & 0xF) as u8;
+        let r8 = (r << 4) | r;
+        let g8 = (g << 4) | g;
+        let b8 = (b << 4) | b;
+        0xFF000000 | (u32::from(r8) << 16) | (u32::from(g8) << 8) | u32::from(b8)
     }
 
     pub fn output_pixel(&mut self, x: u32, y: u32) {
         if x < FB_WIDTH && y < FB_HEIGHT {
-            // Compute color index from shifter bits (MSB first)
-            let mut idx = 0;
-            for plane in 0..6 {
-                if (self.bpl_shift[plane] & 0x8000) != 0 {
-                    idx |= 1 << plane;
+            let argb32 = if self.shift_count > 0 {
+                // Compute color index from shifter bits (MSB first)
+                let mut idx = 0u8;
+                for plane in 0..6 {
+                    if (self.bpl_shift[plane] & 0x8000) != 0 {
+                        idx |= 1 << plane;
+                    }
+                    self.bpl_shift[plane] <<= 1;
                 }
-                // Shift for next pixel
-                self.bpl_shift[plane] <<= 1;
-            }
-
-            let rgb12 = self.palette[idx as usize];
-            let r = ((rgb12 >> 8) & 0xF) as u8;
-            let g = ((rgb12 >> 4) & 0xF) as u8;
-            let b = (rgb12 & 0xF) as u8;
-            
-            let r8 = (r << 4) | r;
-            let g8 = (g << 4) | g;
-            let b8 = (b << 4) | b;
-            
-            let argb32 = 0xFF000000 | (u32::from(r8) << 16) | (u32::from(g8) << 8) | u32::from(b8);
+                self.shift_count -= 1;
+                Self::rgb12_to_argb32(self.palette[idx as usize])
+            } else {
+                // Outside data fetch window or shift register exhausted: COLOR00
+                Self::rgb12_to_argb32(self.palette[0])
+            };
             self.framebuffer[(y * FB_WIDTH + x) as usize] = argb32;
         }
     }

@@ -34,9 +34,8 @@ pub const TICKS_PER_CPU: u64 = 4;
 /// Number of crystal ticks per CIA E-clock
 pub const TICKS_PER_ECLOCK: u64 = 40;
 
-/// Display window constants for framebuffer coordinate mapping.
+/// Vertical start of visible display (PAL line $2C = 44).
 const DISPLAY_VSTART: u16 = 0x2C;
-const DISPLAY_HSTART_CCK: u16 = 0x2E;
 
 pub struct Amiga {
     pub master_clock: u64,
@@ -74,9 +73,9 @@ impl Amiga {
         //   Bit 5: /DSKRDY = 1 (drive not ready)
         //   Bit 4: /DSKTRACK0 = 0 (at track 0)
         //   Bit 3: /DSKPROT = 1 (not write protected)
-        //   Bit 2: /DSKCHANGE = 0 (disk removed / changed)
+        //   Bit 2: /DSKCHANGE = 0 (disk removed — no disk in drive)
         //   Bits 1,0: LED/OVL outputs, external pull-up = 1,1
-        let mut cia_a = Cia::new();
+        let mut cia_a = Cia::new("A");
         cia_a.external_a = 0xEB; // 0b_1110_1011
 
         Self {
@@ -87,7 +86,7 @@ impl Amiga {
             denise: Denise::new(),
             copper: Copper::new(),
             cia_a,
-            cia_b: Cia::new(),
+            cia_b: Cia::new("B"),
             paula: Paula::new(),
         }
     }
@@ -103,14 +102,34 @@ impl Amiga {
             // The check runs before tick_cck(), so vpos/hpos reflect the current
             // beam position. vpos=0, hpos=0 means the beam just wrapped from the
             // end of the previous frame.
-            if vpos == 0 && hpos == 0 {
-                self.paula.request_interrupt(5); // bit 5 = VERTB
-                // Agnus automatically restarts the copper from COP1LC at
-                // the start of every vertical blank, regardless of DMACON.
-                self.copper.restart_cop1();
+            // CIA-B TOD input is HSYNC — pulse once per scanline.
+            if hpos == 0 {
+                self.cia_b.tod_pulse();
             }
 
+            if vpos == 0 && hpos == 0 {
+                self.paula.request_interrupt(5); // bit 5 = VERTB
+                // Agnus restarts the copper from COP1LC at vertical blank,
+                // but only when copper DMA is enabled (DMAEN + COPEN).
+                if self.agnus.dma_enabled(0x0080) {
+                    self.copper.restart_cop1();
+                }
+                // CIA-A TOD input is VSYNC — pulse once per frame.
+                self.cia_a.tod_pulse();
+            }
+
+            // --- Output pixels BEFORE DMA ---
+            // This creates the correct pipeline delay: shift registers hold
+            // data from the PREVIOUS fetch group. New data loaded this CCK
+            // won't appear until the next output.
+            if let Some((fb_x, fb_y)) = self.beam_to_fb(vpos, hpos) {
+                self.denise.output_pixel(fb_x, fb_y);
+                self.denise.output_pixel(fb_x + 1, fb_y);
+            }
+
+            // --- DMA slots ---
             let slot = self.agnus.current_slot();
+            let mut fetched_plane_0 = false;
             match slot {
                 SlotOwner::Bitplane(plane) => {
                     let idx = plane as usize;
@@ -120,6 +139,9 @@ impl Amiga {
                     let val = (u16::from(hi) << 8) | u16::from(lo);
                     self.denise.load_bitplane(idx, val);
                     self.agnus.bpl_pt[idx] = addr.wrapping_add(2);
+                    if plane == 0 {
+                        fetched_plane_0 = true;
+                    }
                 }
                 SlotOwner::Copper => {
                     let res = {
@@ -131,22 +153,46 @@ impl Amiga {
                         })
                     };
                     if let Some((reg, val)) = res {
-                        if reg == 0x09C && (val & 0x0010) != 0 { self.paula.request_interrupt(4); }
-                        self.write_custom_reg(reg, val);
+                        // COPCON protection (HRM Ch.2): copper cannot write
+                        // registers $000-$03E at all, and $040-$07E only
+                        // when the CDANG (danger) bit is set in COPCON.
+                        if reg >= 0x080 || (reg >= 0x040 && self.copper.danger) {
+                            if reg == 0x09C && (val & 0x0010) != 0 { self.paula.request_interrupt(4); }
+                            self.write_custom_reg(reg, val);
+                        }
                     }
                 }
                 _ => {}
             }
 
-            if let Some((fb_x, fb_y)) = self.beam_to_fb(vpos, hpos) {
-                self.denise.output_pixel(fb_x, fb_y);
-                self.denise.output_pixel(fb_x + 1, fb_y);
+            // BPL1DAT (plane 0) is always fetched last in each group.
+            // Writing it triggers parallel load of all holding latches
+            // into the shift registers.
+            if fetched_plane_0 {
+                self.denise.trigger_shift_load();
+
+                // Apply bitplane modulo after the last fetch group of the line.
+                // Plane 0 is at ddfseq position 7, so the group started at hpos-7.
+                let group_start = hpos - 7;
+                if group_start >= self.agnus.ddfstop {
+                    let num_bpl = self.agnus.num_bitplanes();
+                    for i in 0..num_bpl as usize {
+                        let modulo = if i % 2 == 0 {
+                            self.agnus.bpl1mod  // Odd planes (BPL1/3/5)
+                        } else {
+                            self.agnus.bpl2mod  // Even planes (BPL2/4/6)
+                        };
+                        self.agnus.bpl_pt[i] =
+                            (self.agnus.bpl_pt[i] as i32 + modulo as i32) as u32;
+                    }
+                }
             }
 
             self.agnus.tick_cck();
         }
 
         if self.master_clock % TICKS_PER_CPU == 0 {
+            LAST_CPU_PC.store(self.cpu.instr_start_pc, std::sync::atomic::Ordering::Relaxed);
             let mut bus = AmigaBusWrapper {
                 agnus: &mut self.agnus, memory: &mut self.memory, denise: &mut self.denise,
                 copper: &mut self.copper, cia_a: &mut self.cia_a, cia_b: &mut self.cia_b, paula: &mut self.paula,
@@ -172,7 +218,10 @@ impl Amiga {
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
         let fb_y = vpos.wrapping_sub(DISPLAY_VSTART);
         if fb_y >= crate::denise::FB_HEIGHT as u16 { return None; }
-        let cck_offset = hpos_cck.wrapping_sub(DISPLAY_HSTART_CCK);
+        // First bitplane pixel appears 8 CCKs after DDFSTRT (one full
+        // 8-CCK fetch group fills all plane latches and triggers load).
+        let first_pixel_cck = self.agnus.ddfstrt.wrapping_add(8);
+        let cck_offset = hpos_cck.wrapping_sub(first_pixel_cck);
         let fb_x = u32::from(cck_offset) * 2;
         if fb_x + 1 >= crate::denise::FB_WIDTH { return None; }
         Some((fb_x, u32::from(fb_y)))
@@ -203,6 +252,14 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
     }
 
     fn poll_cycle(&mut self, addr: u32, fc: FunctionCode, is_read: bool, is_word: bool, data: Option<u16>) -> BusStatus {
+        // DEBUG: verify reads above $C00000 reach here
+        if is_read && addr >= 0xC00000 {
+            static HIGH_READ_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let count = HIGH_READ_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if count < 5 {
+                eprintln!("HIGH READ #{}: addr=${:08X} is_word={} fc={:?}", count, addr, is_word, fc);
+            }
+        }
         // Amiga uses autovectors for all hardware interrupts.
         // The CPU issues an IACK bus cycle with FC=InterruptAck. On real
         // hardware the address bus carries the level in A1-A3, but the CPU
@@ -215,15 +272,24 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
 
         let addr = addr & 0xFFFFFF;
 
-        // CIA-A ($BFE001, odd bytes)
+        // CIA-A ($BFE001, odd bytes, accent on D0-D7)
+        // CIA-A is accent wired to the low byte of the data bus.
+        // It responds to odd byte accesses AND word accesses (both
+        // assert /LDS). A word write to an even CIA-A address still
+        // delivers data to CIA-A via D0-D7.
         if (addr & 0xFFF000) == 0xBFE000 {
             let reg = ((addr >> 8) & 0x0F) as u8;
             if is_read {
                 if addr & 1 != 0 { return BusStatus::Ready(u16::from(self.cia_a.read(reg))); }
                 return BusStatus::Ready(0xFF00);
             } else {
-                if addr & 1 != 0 {
-                    let val = data.unwrap_or(0) as u8;
+                // CIA-A receives data from D0-D7 (low byte) on:
+                //   - Byte writes to odd addresses (data in low byte)
+                //   - Word writes to any address (both UDS/LDS active)
+                let should_write = (addr & 1 != 0) || is_word;
+                let should_write = (addr & 1 != 0) || is_word;
+                if should_write {
+                    let val = data.unwrap_or(0) as u8; // low byte = D0-D7
                     self.cia_a.write(reg, val);
                     if reg == 0 {
                         let out = self.cia_a.port_a_output();
@@ -234,19 +300,40 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             }
         }
 
-        // CIA-B ($BFD000, even bytes)
+        // CIA-B ($BFD000, even bytes, accent on D8-D15)
+        // CIA-B is wired to the high byte of the data bus (D8-D15).
+        // On real hardware, byte writes to even addresses put the byte on D8-D15.
+        // However, our CPU always places byte data in the low byte of the data word
+        // (bits 0-7), regardless of address alignment. For word writes, D8-D15
+        // contains the high byte as expected.
         if (addr & 0xFFF000) == 0xBFD000 {
             let reg = ((addr >> 8) & 0x0F) as u8;
             if is_read {
                 if addr & 1 == 0 { return BusStatus::Ready(u16::from(self.cia_b.read(reg)) << 8 | 0x00FF); }
                 return BusStatus::Ready(0x00FF);
             } else {
-                if addr & 1 == 0 { self.cia_b.write(reg, (data.unwrap_or(0) >> 8) as u8); }
+                let should_write = (addr & 1 == 0) || is_word;
+                if should_write {
+                    let val = if is_word {
+                        (data.unwrap_or(0) >> 8) as u8  // word: CIA-B data from D8-D15
+                    } else {
+                        data.unwrap_or(0) as u8         // byte: CPU puts value in low byte
+                    };
+                    self.cia_b.write(reg, val);
+                }
                 return BusStatus::Ready(0);
             }
         }
 
         // Custom Registers ($DFF000)
+        if (addr & 0xFFF000) == 0xDFF000 && is_read {
+            static CUSTOM_READ_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let count = CUSTOM_READ_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if count < 5 {
+                let offset = (addr & 0x1FE) as u16;
+                eprintln!("CUSTOM READ #{}: addr=${:08X} offset=${:03X} is_word={}", count, addr, offset, is_word);
+            }
+        }
         if (addr & 0xFFF000) == 0xDFF000 {
             let offset = (addr & 0x1FE) as u16;
             if !is_read {
@@ -256,41 +343,39 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     self.paula, self.memory, offset, val,
                 );
             } else {
-                match offset {
+                // Custom register read: get the 16-bit value, then for
+                // byte reads extract the correct byte. On the 68000 bus,
+                // even-address bytes come from D8-D15 (high byte) and
+                // odd-address bytes from D0-D7 (low byte). The CPU's
+                // ReadByte stores the value as-is, so we must place the
+                // relevant byte in the position the CPU expects (low byte).
+                let word = match offset {
                     // DMACONR: DMA control (active bits) + blitter busy/zero
                     0x002 => {
                         let busy = if self.agnus.blitter_busy { 0x4000 } else { 0 };
-                        return BusStatus::Ready(self.agnus.dmacon | busy);
+                        self.agnus.dmacon | busy
                     }
-                    // VPOSR: LOF | Agnus ID | V8
-                    // Bit 15: LOF (long frame, always 1 for PAL interlace long field — set to 0 for now)
-                    // Bits 14-8: Agnus chip ID (OCS PAL = 0x00)
-                    // Bit 0: V8 (bit 8 of vpos)
-                    0x004 => return BusStatus::Ready((self.agnus.vpos >> 8) & 1),
-                    // VHPOSR: V7-V0 in high byte, H8-H1 in low byte
-                    0x006 => return BusStatus::Ready(((self.agnus.vpos & 0xFF) << 8) | (self.agnus.hpos & 0xFF)),
-                    // JOY0DAT, JOY1DAT: joystick/mouse — no input
-                    0x00A | 0x00C => return BusStatus::Ready(0),
-                    // ADKCONR: audio/disk control read
-                    0x010 => return BusStatus::Ready(self.paula.adkcon),
-                    // POTGOR: active-high button bits, active-low accent. $FF00 = no buttons pressed.
-                    0x016 => return BusStatus::Ready(0xFF00),
-                    // SERDATR ($DFF018): serial port data and status.
-                    // With nothing connected, the RXD pin floats high
-                    // (pull-up on the A500). The shift register sees all 1s.
-                    // Bit 13: TBE (transmit buffer empty)
-                    // Bit 12: TSRE (transmit shift register empty)
-                    // Bit 11: RXD (pin state = high/idle)
-                    // Bits 8-0: $1FF (all 1s from idle line)
-                    0x018 => return BusStatus::Ready(0x39FF),
-                    // DSKBYTR: disk byte and status — no disk, nothing ready
-                    0x01A => return BusStatus::Ready(0),
-                    0x01C => return BusStatus::Ready(self.paula.intena),
-                    0x01E => return BusStatus::Ready(self.paula.intreq),
-                    // DENISEID: OCS Denise = open bus ($FFFF)
-                    0x07C => return BusStatus::Ready(0xFFFF),
-                    _ => {}
+                    0x004 => (self.agnus.vpos >> 8) & 1,
+                    0x006 => ((self.agnus.vpos & 0xFF) << 8) | (self.agnus.hpos & 0xFF),
+                    0x00A | 0x00C => 0,
+                    0x010 => self.paula.adkcon,
+                    0x016 => 0xFF00,
+                    0x018 => 0x39FF,
+                    0x01A => 0,
+                    0x01C => self.paula.intena,
+                    0x01E => self.paula.intreq,
+                    0x07C => 0xFFFF,
+                    _ => 0,
+                };
+                // For byte reads, extract the correct byte from the word.
+                // 68000 bus: even addr → high byte (D8-D15), odd → low byte (D0-D7).
+                // The CPU's ReadByte stores the value as u16 and uses the low byte,
+                // so we place the relevant byte in bits 7-0.
+                if !is_word {
+                    let byte = if addr & 1 == 0 { (word >> 8) as u8 } else { word as u8 };
+                    return BusStatus::Ready(u16::from(byte));
                 }
+                return BusStatus::Ready(word);
             }
             return BusStatus::Ready(0);
         }
@@ -328,6 +413,11 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
 }
 
 /// Shared custom register write dispatch used by both CPU and copper paths.
+/// Shared blitter operation counter for diagnostics.
+pub static BLIT_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// CPU PC when last custom register write happened (for DMACON tracing).
+pub static LAST_CPU_PC: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn write_custom_register(
     agnus: &mut Agnus, denise: &mut Denise, copper: &mut Copper,
     paula: &mut Paula, memory: &mut Memory, offset: u16, val: u16,
@@ -349,6 +439,7 @@ fn write_custom_register(
         0x058 => {
             agnus.bltsize = val;
             agnus.blitter_busy = true;
+            BLIT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             execute_blit(agnus, paula, memory);
         }
         0x060 => agnus.blt_cmod = val as i16,
@@ -375,8 +466,11 @@ fn write_custom_register(
 
         // DMA control
         0x096 => {
+            let old = agnus.dmacon;
             if val & 0x8000 != 0 { agnus.dmacon |= val & 0x7FFF; }
             else { agnus.dmacon &= !(val & 0x7FFF); }
+            let pc = LAST_CPU_PC.load(std::sync::atomic::Ordering::Relaxed);
+            eprintln!("DMACON: ${:04X} -> ${:04X} (write val=${:04X}) PC=${:08X}", old, agnus.dmacon, val, pc);
         }
 
         // Interrupts
@@ -460,6 +554,30 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
     let height = if height == 0 { 1024 } else { height } as u32;
     let width_words = if width_words == 0 { 64 } else { width_words } as u32;
 
+    let count = BLIT_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+    if count <= 30 {
+        eprintln!("BLIT #{}: con0=${:04X} con1=${:04X} size={}x{} apt=${:08X} bpt=${:08X} cpt=${:08X} dpt=${:08X} afwm=${:04X} alwm=${:04X} amod={} bmod={} cmod={} dmod={}",
+            count, agnus.bltcon0, agnus.bltcon1, width_words, height,
+            agnus.blt_apt, agnus.blt_bpt, agnus.blt_cpt, agnus.blt_dpt,
+            agnus.blt_afwm, agnus.blt_alwm,
+            agnus.blt_amod, agnus.blt_bmod, agnus.blt_cmod, agnus.blt_dmod);
+    }
+
+    // LINE mode (BLTCON1 bit 0): Bresenham line drawing.
+    // Uses a completely different algorithm from area mode.
+    let line_mode = agnus.bltcon1 & 0x0001 != 0;
+    if line_mode {
+        let count = BLIT_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+        if count <= 30 {
+            eprintln!("BLIT #{} LINE: con0=${:04X} con1=${:04X} size={}x{} apt=${:08X} cpt=${:08X} dpt=${:08X} amod={} bmod={} cmod={} dmod={} bdat=${:04X}",
+                count, agnus.bltcon0, agnus.bltcon1, width_words, height,
+                agnus.blt_apt, agnus.blt_cpt, agnus.blt_dpt,
+                agnus.blt_amod, agnus.blt_bmod, agnus.blt_cmod, agnus.blt_dmod, agnus.blt_bdat);
+        }
+        execute_blit_line(agnus, paula, memory);
+        return;
+    }
+
     let use_a = agnus.bltcon0 & 0x0800 != 0;
     let use_b = agnus.bltcon0 & 0x0400 != 0;
     let use_c = agnus.bltcon0 & 0x0200 != 0;
@@ -468,6 +586,11 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
     let a_shift = (agnus.bltcon0 >> 12) & 0xF;
     let b_shift = (agnus.bltcon1 >> 12) & 0xF;
     let desc = agnus.bltcon1 & 0x0002 != 0;
+    let fci = (agnus.bltcon1 & 0x0004) != 0;  // Fill Carry Input
+    let ife = (agnus.bltcon1 & 0x0008) != 0;  // Inclusive Fill Enable
+    let efe = (agnus.bltcon1 & 0x0010) != 0;  // Exclusive Fill Enable
+    let fill_enabled = ife || efe;
+
 
     let mut apt = agnus.blt_apt;
     let mut bpt = agnus.blt_bpt;
@@ -490,6 +613,7 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
     for _row in 0..height {
         let mut a_prev: u16 = 0;
         let mut b_prev: u16 = 0;
+        let mut fill_carry: u16 = if fci { 1 } else { 0 };
 
         for col in 0..width_words {
             // Read source channels
@@ -502,17 +626,26 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
             if col == 0 { a_masked &= agnus.blt_afwm; }
             if col == width_words - 1 { a_masked &= agnus.blt_alwm; }
 
-            // Barrel shift A: combine with previous word
-            let a_combined = (u32::from(a_prev) << 16) | u32::from(a_masked);
+            // Barrel shift A: combine with previous word.
+            // In DESC mode the shift direction reverses (left instead of
+            // right), so the combined word order must be swapped.
+            let a_combined = if desc {
+                (u32::from(a_masked) << 16) | u32::from(a_prev)
+            } else {
+                (u32::from(a_prev) << 16) | u32::from(a_masked)
+            };
             let a_shifted = if desc {
-                // DESC mode: shift left
                 (a_combined >> (16 - a_shift)) as u16
             } else {
                 (a_combined >> a_shift) as u16
             };
 
-            // Barrel shift B: combine with previous word
-            let b_combined = (u32::from(b_prev) << 16) | u32::from(b_raw);
+            // Barrel shift B
+            let b_combined = if desc {
+                (u32::from(b_raw) << 16) | u32::from(b_prev)
+            } else {
+                (u32::from(b_prev) << 16) | u32::from(b_raw)
+            };
             let b_shifted = if desc {
                 (b_combined >> (16 - b_shift)) as u16
             } else {
@@ -532,6 +665,19 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
                 if (lf >> index) & 1 != 0 {
                     result |= 1 << bit;
                 }
+            }
+
+            // Area fill: process bits right-to-left (bit 0 to bit 15),
+            // toggling fill state at each '1' bit in the result.
+            if fill_enabled {
+                let mut filled: u16 = 0;
+                for bit in 0..16u16 {
+                    let d_bit = (result >> bit) & 1;
+                    fill_carry ^= d_bit;
+                    let out = if efe { fill_carry ^ d_bit } else { fill_carry };
+                    filled |= out << bit;
+                }
+                result = filled;
             }
 
             // Write D channel
@@ -557,4 +703,169 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
 
     agnus.blitter_busy = false;
     paula.request_interrupt(6); // bit 6 = BLIT
+}
+
+/// Blitter LINE mode: Bresenham line drawing.
+///
+/// In line mode the blitter draws one pixel per "row" of BLTSIZE, stepping
+/// through a Bresenham decision variable stored in BLTAPT.
+///
+/// Register usage in line mode:
+///   BLTCON0 bits 15-12: Starting pixel position within word (ASH)
+///   BLTCON0 bits 11-8:  Channel enables (must have A,C,D; B optional for texture)
+///   BLTCON0 bits 7-0:   Minterm (usually $CA for normal, $0A for XOR)
+///   BLTCON1 bits 15-12: Not used (BSH ignored in line mode)
+///   BLTCON1 bit 4:      SING (single-bit mode — only set pixel, don't clear)
+///   BLTCON1 bits 3-2:   OCTANT direction encoding:
+///                        bit 3 = SUD (sign of dY step)
+///                        bit 2 = SUL (sign of dX step)
+///                        bit 1 (AUL) combined → octant select
+///   BLTCON1 bit 1:      AUL (which axis is major)
+///   BLTCON1 bit 0:      LINE (must be 1)
+///   BLTAPT:  Initial Bresenham error accumulator (2*dy - dx, sign-extended)
+///   BLTBDAT: Line texture pattern (usually $FFFF for solid)
+///   BLTCPT/BLTDPT: Destination address (same value, points to first pixel's word)
+///   BLTAMOD: 4*(dy - dx) — Bresenham decrement (when error >= 0)
+///   BLTBMOD: 4*dy        — Bresenham increment (when error < 0)
+///   BLTCMOD/BLTDMOD: Destination row modulo (bytes per row of the bitmap)
+///   BLTAFWM: $8000 (not really used — the single-pixel mask comes from ASH)
+///   BLTSIZE: height field = line length in pixels, width field = 2 (always)
+fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
+    let length = ((agnus.bltsize >> 6) & 0x3FF) as u32;
+    let length = if length == 0 { 1024 } else { length };
+
+    let ash = (agnus.bltcon0 >> 12) & 0xF;
+    let lf = agnus.bltcon0 as u8;
+    let use_b = agnus.bltcon0 & 0x0400 != 0;
+    let sing = agnus.bltcon1 & 0x0010 != 0;
+
+    // Octant decoding: bits 3-1 of BLTCON1
+    //   bit 3 (SUD): 0 = Y moves down (+row_mod), 1 = Y moves up (-row_mod)
+    //   bit 2 (SUL): 0 = X moves right (+pixel_bit), 1 = X moves left (-pixel_bit)
+    //   bit 1 (AUL): 0 = X is major axis, 1 = Y is major axis
+    let sud = agnus.bltcon1 & 0x0008 != 0;
+    let sul = agnus.bltcon1 & 0x0004 != 0;
+    let aul = agnus.bltcon1 & 0x0002 != 0;
+
+    let mut error = agnus.blt_apt as i16;
+    let error_add = agnus.blt_bmod; // 4*dy (added when error < 0)
+    let error_sub = agnus.blt_amod; // 4*(dy-dx) (added when error >= 0, typically negative)
+
+    let mut cpt = agnus.blt_cpt;
+    let mut dpt = agnus.blt_dpt;
+    let mut pixel_bit = ash; // Current pixel position within word (0-15)
+
+    let row_mod = agnus.blt_cmod as i16; // Destination row stride in bytes
+
+    // Texture pattern from channel B (rotated each step)
+    let mut texture = agnus.blt_bdat;
+    let texture_enabled = use_b;
+
+    fn read_word(mem: &Memory, addr: u32) -> u16 {
+        let a = addr & 0x1FFFFE;
+        if (a as usize + 1) < mem.chip_ram.len() {
+            (u16::from(mem.chip_ram[a as usize]) << 8) | u16::from(mem.chip_ram[a as usize + 1])
+        } else {
+            0
+        }
+    }
+    fn write_word(mem: &mut Memory, addr: u32, val: u16) {
+        let a = addr & 0x1FFFFE;
+        if (a as usize + 1) < mem.chip_ram.len() {
+            mem.chip_ram[a as usize] = (val >> 8) as u8;
+            mem.chip_ram[a as usize + 1] = val as u8;
+        }
+    }
+
+    for _step in 0..length {
+        // Build the single-pixel mask from the current bit position
+        let pixel_mask: u16 = 0x8000 >> pixel_bit;
+
+        // Channel A = the single pixel mask
+        let a_val = pixel_mask;
+
+        // Channel B = texture bit (MSB of rotating texture register)
+        let b_val = if texture_enabled {
+            if texture & 0x8000 != 0 { 0xFFFF } else { 0x0000 }
+        } else {
+            0xFFFF
+        };
+
+        // Channel C = destination read-back
+        let c_val = read_word(&*memory, cpt);
+
+        // Compute minterm per bit
+        let mut result: u16 = 0;
+        for bit in 0..16u16 {
+            let a_bit = (a_val >> bit) & 1;
+            let b_bit = (b_val >> bit) & 1;
+            let c_bit = (c_val >> bit) & 1;
+            let index = (a_bit << 2) | (b_bit << 1) | c_bit;
+            if (lf >> index) & 1 != 0 {
+                result |= 1 << bit;
+            }
+        }
+
+        // In SING mode, only modify the single pixel — keep other bits from C
+        if sing {
+            result = (result & pixel_mask) | (c_val & !pixel_mask);
+        }
+
+        // Write result to destination
+        write_word(memory, dpt, result);
+
+        // Rotate texture pattern (shift left by 1, wrap MSB to LSB)
+        if texture_enabled {
+            texture = texture.rotate_left(1);
+        }
+
+        // Bresenham step: decide whether to step on major axis only, or both axes
+        if error >= 0 {
+            // Step on BOTH axes (diagonal move)
+            // Major axis step
+            if aul {
+                // Y is major: always step Y, also step X
+                // X step: SUL=0 → right (+pixel_bit), SUL=1 → left (-pixel_bit)
+                if sul { pixel_bit = pixel_bit.wrapping_sub(1) & 0xF; } else { pixel_bit = (pixel_bit + 1) & 0xF; }
+                // Word boundary: right wraps 15→0 = next word, left wraps 0→15 = prev word
+                if !sul && pixel_bit == 0 { cpt = cpt.wrapping_add(2); dpt = dpt.wrapping_add(2); }
+                if sul && pixel_bit == 15 { cpt = cpt.wrapping_sub(2); dpt = dpt.wrapping_sub(2); }
+                // Y step: add/subtract row modulo
+                if sud { cpt = (cpt as i32 - row_mod as i32) as u32; dpt = (dpt as i32 - row_mod as i32) as u32; }
+                else { cpt = (cpt as i32 + row_mod as i32) as u32; dpt = (dpt as i32 + row_mod as i32) as u32; }
+            } else {
+                // X is major: always step X, also step Y
+                // Y step: add/subtract row modulo
+                if sud { cpt = (cpt as i32 - row_mod as i32) as u32; dpt = (dpt as i32 - row_mod as i32) as u32; }
+                else { cpt = (cpt as i32 + row_mod as i32) as u32; dpt = (dpt as i32 + row_mod as i32) as u32; }
+                // X step
+                if sul { pixel_bit = pixel_bit.wrapping_sub(1) & 0xF; } else { pixel_bit = (pixel_bit + 1) & 0xF; }
+                if !sul && pixel_bit == 0 { cpt = cpt.wrapping_add(2); dpt = dpt.wrapping_add(2); }
+                if sul && pixel_bit == 15 { cpt = cpt.wrapping_sub(2); dpt = dpt.wrapping_sub(2); }
+            }
+            error = error.wrapping_add(error_sub as i16);
+        } else {
+            // Step on major axis ONLY
+            if aul {
+                // Y is major: step Y only
+                if sud { cpt = (cpt as i32 - row_mod as i32) as u32; dpt = (dpt as i32 - row_mod as i32) as u32; }
+                else { cpt = (cpt as i32 + row_mod as i32) as u32; dpt = (dpt as i32 + row_mod as i32) as u32; }
+            } else {
+                // X is major: step X only
+                if sul { pixel_bit = pixel_bit.wrapping_sub(1) & 0xF; } else { pixel_bit = (pixel_bit + 1) & 0xF; }
+                if !sul && pixel_bit == 0 { cpt = cpt.wrapping_add(2); dpt = dpt.wrapping_add(2); }
+                if sul && pixel_bit == 15 { cpt = cpt.wrapping_sub(2); dpt = dpt.wrapping_sub(2); }
+            }
+            error = error.wrapping_add(error_add as i16);
+        }
+    }
+
+    // Update registers
+    agnus.blt_apt = error as u16 as u32;
+    agnus.blt_cpt = cpt;
+    agnus.blt_dpt = dpt;
+    agnus.blt_bdat = texture;
+
+    agnus.blitter_busy = false;
+    paula.request_interrupt(6);
 }

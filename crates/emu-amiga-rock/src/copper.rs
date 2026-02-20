@@ -45,7 +45,7 @@ impl Copper {
         self.waiting = false;
     }
 
-    /// Perform one Copper cycle. 
+    /// Perform one Copper cycle.
     /// returns Some((reg_offset, value)) if a MOVE instruction completed.
     pub fn tick(&mut self, vpos: u16, hpos: u16, read_mem: impl Fn(u32) -> u16) -> Option<(u16, u16)> {
         match self.state {
@@ -100,19 +100,33 @@ impl Copper {
     }
 
     fn check_wait(&self, vpos: u16, hpos: u16) -> bool {
+        // End-of-list marker ($FFFF,$FFFE): never resolves.
+        if self.ir1 == 0xFFFF && self.ir2 == 0xFFFE {
+            return false;
+        }
+
         let wait_v = (self.ir1 >> 8) & 0xFF;
         let wait_h = (self.ir1 >> 1) & 0x7F;
+        let mask_v = (self.ir2 >> 8) & 0x7F;
+        let mask_h = (self.ir2 >> 1) & 0x7F;
 
         let cur_v = vpos & 0xFF;
-        let cur_h = (hpos >> 1) & 0x7F; // CCKs to "Copper HPOS" (7 bits)
+        let cur_h = (hpos >> 1) & 0x7F;
 
-        // 68000 Reference Manual: WAIT finishes when (cur_v, cur_h) >= (wait_v, wait_h)
-        if cur_v > wait_v {
-            true
-        } else if cur_v == wait_v {
-            cur_h >= wait_h
-        } else {
-            false
+        let cmp_cur = ((cur_v & mask_v) << 7) | (cur_h & mask_h);
+        let cmp_wait = ((wait_v & mask_v) << 7) | (wait_h & mask_h);
+        let result = cmp_cur >= cmp_wait;
+
+        // V7 partial fix: on real hardware V7 (bit 7 of the vertical beam
+        // counter) is always compared, even though it has no mask bit.
+        // Without this, WAIT VP=$F4 falsely triggers at line $74 because
+        // the masked comparison ignores V7. Full V7 emulation requires
+        // fixing copper list overrun issues first; for now we only block
+        // the false-early case: VP has V7=1 but current vpos has V7=0.
+        if result && (wait_v & 0x80 != 0) && (cur_v & 0x80 == 0) {
+            return false;
         }
+
+        result
     }
 }
