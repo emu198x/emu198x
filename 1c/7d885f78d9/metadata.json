@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "1c7d885f78d9",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "crates/emu-amiga-rock/Cargo.toml",
+    "crates/emu-amiga-rock/src/agnus.rs",
+    "crates/emu-amiga-rock/src/cia.rs",
+    "crates/emu-amiga-rock/src/copper.rs",
+    "crates/emu-amiga-rock/src/denise.rs",
+    "crates/emu-amiga-rock/src/lib.rs",
+    "crates/emu-amiga-rock/src/paula.rs",
+    "crates/emu-amiga-rock/tests/boot_kickstart.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1c/7d885f78d9/0/metadata.json",
+      "transcript": "/1c/7d885f78d9/0/full.jsonl",
+      "context": "/1c/7d885f78d9/0/context.md",
+      "content_hash": "/1c/7d885f78d9/0/content_hash.txt",
+      "prompt": "/1c/7d885f78d9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8395,
+    "cache_creation_tokens": 3049639,
+    "cache_read_tokens": 116387918,
+    "output_tokens": 106859,
+    "api_call_count": 939
+  }
+}

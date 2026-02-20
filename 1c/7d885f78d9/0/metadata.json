@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "1c7d885f78d9",
+  "session_id": "4a6b4c66-18f8-4f19-aca0-dea2a36bdfa5",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-20T19:58:01.602875Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "crates/emu-amiga-rock/Cargo.toml",
+    "crates/emu-amiga-rock/src/agnus.rs",
+    "crates/emu-amiga-rock/src/cia.rs",
+    "crates/emu-amiga-rock/src/copper.rs",
+    "crates/emu-amiga-rock/src/denise.rs",
+    "crates/emu-amiga-rock/src/lib.rs",
+    "crates/emu-amiga-rock/src/paula.rs",
+    "crates/emu-amiga-rock/tests/boot_kickstart.rs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "c05ad84f-246c-453c-93fa-5c263b8fb93f",
+  "checkpoint_transcript_start": 358,
+  "transcript_lines_at_start": 358,
+  "token_usage": {
+    "input_tokens": 8395,
+    "cache_creation_tokens": 3049639,
+    "cache_read_tokens": 116387918,
+    "output_tokens": 106859,
+    "api_call_count": 939
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-20T19:57:59.60109Z",
+    "agent_lines": 463,
+    "human_added": 338772,
+    "human_modified": 908,
+    "human_removed": 0,
+    "total_committed": 340143,
+    "agent_percentage": 0.1361192204455185
+  }
+}
