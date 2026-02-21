@@ -1,0 +1,131 @@
+Implement the following plan:
+
+# Plan: Fix Blitter LINE mode bit assignments
+
+## Context
+
+The insert-disk screen bitmap doesn't match FS-UAE. The display pipeline is verified correct (palette, colors, 200-line output all match). The problem is in the Blitter LINE mode — every line is drawn with the wrong octant because BLTCON1 bit assignments are shifted by one position.
+
+## Root Cause
+
+The HRM (Appendix A, line draw mode) defines BLTCON1 LINE mode as:
+
+| Bit | Name | Our code reads |
+|-----|------|---------------|
+| 4   | SUD  | SING (0x0010) |
+| 3   | SUL  | SUD (0x0008)  |
+| 2   | AUL  | SUL (0x0004)  |
+| 1   | SING | AUL (0x0002)  |
+| 0   | LINE | LINE (correct) |
+
+Every control bit is shifted one position down. All octant directions are wrong.
+
+## Fix
+
+**File**: `crates/emu-amiga-rock/src/lib.rs` — `execute_blit_line()`
+
+Change the bit masks from:
+```rust
+let sing = agnus.bltcon1 & 0x0010 != 0;  // bit 4 — WRONG
+let sud  = agnus.bltcon1 & 0x0008 != 0;  // bit 3 — WRONG
+let sul  = agnus.bltcon1 & 0x0004 != 0;  // bit 2 — WRONG
+let aul  = agnus.bltcon1 & 0x0002 != 0;  // bit 1 — WRONG
+```
+
+To:
+```rust
+let sud  = agnus.bltcon1 & 0x0010 != 0;  // bit 4
+let sul  = agnus.bltcon1 & 0x0008 != 0;  // bit 3
+let aul  = agnus.bltcon1 & 0x0004 != 0;  // bit 2
+let sing = agnus.bltcon1 & 0x0002 != 0;  // bit 1
+```
+
+Also update the docstring comment (lines ~690-696) which has the same wrong mapping.
+
+Keep the X direction fix (SUL=0 → increase pixel_bit = right, SUL=1 → decrease = left) and Y direction (SUD=0 → add row_mod = down, SUD=1 → subtract = up). These were verified correct against the HRM octant table and the graphics library's Draw() function.
+
+## Verification
+
+```
+AMIGA_KS13_ROM=roms/kick13.rom cargo test -p emu-amiga-rock --test boot_kickstart test_boot_kick13 -- --ignored --nocapture
+```
+
+Compare `test_output/amiga_boot.png` with FS-UAE reference:
+- Hand holding floppy disk, centered in display
+- Upside-down text "AMIGA Work bench" on disk label (correct per design)
+- "V 1.3" right-side-up below the hand
+- White background, black outlines, blue disk body, grey slider
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+
+---
+
+<task-notification>
+<task-id>bc24e6a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Trace fill blit parameters (direct capture)" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+---
+
+Did you actually write the new image - because the background still looks black to me
+
+---
+
+<task-notification>
+<task-id>a4d6c47</task-id>
+<tool-use-id>toolu_01G6FXq3wbHuEkbBVkEe36Ug</tool-use-id>
+<status>completed</status>
+<summary>Agent "Clean debug traces and verify" completed</summary>
+<result>Everything compiles. All warnings are pre-existing and unrelated to the debug cleanup. Here is a summary of all changes made:
+
+---
+
+## Summary of changes
+
+### `/Users/stevehill/Projects/Emu198x/crates/emu-amiga-rock/src/lib.rs`
+
+1. **Removed `MASTER_TICK` static and its store call in `tick()`** -- The `pub static MASTER_TICK: std::sync::atomic::AtomicU64` declaration was removed, along with the `MASTER_TICK.store(...)` call at the top of `Amiga::tick()`.
+
+2. **Removed COP1LCH/COP1LCL write eprintln traces** -- The `0x080` and `0x082` register handlers were changed from block expressions with `eprintln!` calls back to simple comma-terminated assignment arms.
+
+3. **Reduced BLIT trace limit from 200 back to 30** -- Both `if count <= 200` checks (one for the main blit trace, one for the LINE mode trace) were reverted to `if count <= 30`.
+
+4. **LINE mode fix preserved** -- The SUD/SUL/AUL/SING bit assignments at bits 4/3/2/1 of BLTCON1 remain intact (lines 745-748).
+
+### `/Users/stevehill/Projects/Emu198x/crates/emu-amiga-rock/src/memory.rs`
+
+5. **Removed the `// No watchpoint` comment** -- The `write_byte` function now has a plain `self.chip_ram[addr as usize] = val;` without the debug comment.
+
+### `/Users/stevehill/Projects/Emu198x/crates/emu-amiga-rock/tests/boot_kickstart.rs`
+
+6. **Removed `display_done_tick` and `early_screenshot_saved` variables** -- Both declarations removed from the variable block at the start of the test.
+
+7. **Removed the `display_done_tick` assignment** in the `0x00FE896C` match arm, simplifying it to a single `eprintln!` line.
+
+8. **Removed the early screenshot capture block** -- The entire block that saved `amiga_boot_early.png` when `display_done_tick > 0` was removed.
+
+9. **Removed the COP1LC memory dump block** -- The diagnostic section that iterated 32 entries from `cop1` was removed, along with the `cop1` variable.
+
+10. **Removed the `Agnus BPL1PT/BPL2PT` print and `RAM at $0000` print** -- Both lines removed from the diagnostic section.
+
+11. **Reverted COP2LC dump to 8 entries** -- Changed from "COP2LC full dump" with 40 entries to "COP2LC dump" with 8 entries.
+
+12. **Kept `let ram = &amiga.memory.chip_ram;`** in its current position (line 866, before the `cop2lc` usage).</result>
+<usage>total_tokens: 57680
+tool_uses: 33
+duration_ms: 158330</usage>
+</task-notification>
+Full transcript available at: REDACTED.output
+
+---
+
+Now fix the LoadView/MakeVPort issue so the display doesn't get corrupted
+
+---
+
+[Request interrupted by user for tool use]

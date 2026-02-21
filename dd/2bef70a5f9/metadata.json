@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "dd2bef70a5f9",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "crates/emu-amiga-rock/src/lib.rs",
+    "crates/emu-amiga-rock/src/memory.rs",
+    "crates/emu-amiga-rock/tests/boot_kickstart.rs",
+    "test_output/amiga_boot_early.png"
+  ],
+  "sessions": [
+    {
+      "metadata": "/dd/2bef70a5f9/0/metadata.json",
+      "transcript": "/dd/2bef70a5f9/0/full.jsonl",
+      "context": "/dd/2bef70a5f9/0/context.md",
+      "content_hash": "/dd/2bef70a5f9/0/content_hash.txt",
+      "prompt": "/dd/2bef70a5f9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 150,
+    "cache_creation_tokens": 559019,
+    "cache_read_tokens": 17293299,
+    "output_tokens": 21258,
+    "api_call_count": 138
+  }
+}
