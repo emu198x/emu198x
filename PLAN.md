@@ -1,759 +1,796 @@
-# Amiga Emulator Implementation Plan
+# emu198x: Comprehensive Multi-System Emulator Architecture
 
-## Overview
+## Vision
 
-Add a cycle-accurate Amiga 500 (OCS) emulator to the emu198x workspace, using a
-**crate-per-component** architecture where each custom chip, memory subsystem,
-peripheral device, and media format is an independent crate with well-defined
-interfaces. The user already has 68000 CPU emulation working locally -- this
-plan assumes that code will be brought in as the `cpu-m68k` crate.
+A cycle-accurate emulator framework covering 8-bit, 16-bit, and 32-bit home
+computers and consoles from the late 1970s through the mid 1990s. Every system
+is modeled from its master crystal oscillator down, with each IC as an
+independent, reusable crate.
 
-This architecture is designed to be reusable across machines and to eventually
-allow factoring out existing components (VIC-II, SID, CIA 6526, ULA, 1541 drive,
-D64/TAP formats) from the current machine crates.
+---
 
-### Architectural Principles
+## Architectural Principles
 
-1. **One crate per IC** -- each chip is independently testable and reusable
-2. **One crate per bus/memory subsystem** -- bus arbitration and memory are
-   modeled explicitly, not hidden inside machine crates
+1. **Crystal-clock-driven timing** -- every system derives all clocks from its
+   master oscillator. The emulator models this propagation explicitly: master
+   clock -> dividers -> chip clocks. No frame-based approximations.
+
+2. **One crate per IC** -- each chip is independently testable and reusable
+   across machines. Chips never depend on other chip crates.
+
 3. **One crate per media format** -- parsing ADF, D64, TAP, SNA, iNES etc. is
-   pure logic with no hardware dependencies
-4. **One crate per peripheral device** -- floppy drives, keyboards etc. are
-   separate from the chips that control them
-5. **Machine crates are thin orchestrators** -- they wire components together
-   and implement the `Machine` trait, but contain minimal logic themselves
+   pure logic with no hardware dependencies.
+
+4. **One crate per peripheral device** -- floppy drives, keyboards, controllers
+   are separate from the chips that control them.
+
+5. **Machine crates are thin orchestrators** -- they wire components together,
+   implement the `Machine` trait, own the master clock, and derive all chip
+   clocks from it. Minimal logic.
+
+6. **Variant support via configuration** -- chip crates support all variants of
+   a given IC via config enums or const generics (e.g., Agnus OCS/ECS/AGA,
+   VIC-II 6567/6569/8562/8565, SID 6581/8580, CIA 6526/8520).
 
 ---
 
-## Phase 1: Core Trait Changes
+## Part 1: Core Framework (`emu-core`)
 
-### 1.1 Widen `Cpu::pc()` to `u32`
+### 1.1 Existing Traits
 
-The existing `Cpu` trait hardcodes `pc() -> u16`, but the 68000 has a 24-bit
-address space. The `Bus` trait already uses `u32` for addresses.
+- `Bus` -- 8-bit read/write with `u32` address, tick, fetch, contention hooks
+- `IoBus` -- extends `Bus` with Z80-style I/O port read/write
+- `Cpu<B: Bus>` -- step, reset, interrupt, nmi, pc
+- `Machine` -- run_frame, render, generate_audio, key_down/up, joystick, load_file
 
-**File:** `core/src/cpu.rs`
+### 1.2 Required Changes
 
-Change `fn pc(&self) -> u16` to `fn pc(&self) -> u32`.
+**Widen `Cpu::pc()` to `u32`:**
+The 68000 has a 24-bit address space, the 65C816 has 24-bit, ARM7TDMI has
+32-bit. Change `fn pc(&self) -> u16` to `fn pc(&self) -> u32`. Update
+implementations in `cpu-z80` and `cpu-6502` (return `self.pc as u32`).
 
-Update the two existing implementations:
-- `cpu-6502/src/lib.rs` -- return `self.pc as u32`
-- `cpu-z80/src/lib.rs` -- return `self.pc as u32`
-
-Update any callers (grep for `.pc()` usage in machine crates and runners).
-
-### 1.2 Add system bus traits to `emu-core`
-
-New modules in `core/src/`:
-
-**`system_bus.rs` -- Shared data bus abstraction:**
-
+**Add `WordBus` trait:**
 ```rust
-/// A 16-bit data bus with word-aligned access, as used by the Amiga,
-/// and adaptable via wrapper for 8-bit buses (Spectrum, C64, NES).
-pub trait SystemBus {
-    /// Read a word from the bus. May stall the requestor if the bus is busy.
+/// Extension for 16-bit data bus systems (68000, SH-2).
+/// The 68000 also does byte accesses (CIA registers), so this extends Bus.
+pub trait WordBus: Bus {
     fn read_word(&mut self, address: u32) -> u16;
-
-    /// Write a word to the bus. May stall the requestor if the bus is busy.
     fn write_word(&mut self, address: u32, value: u16);
-
-    /// Read a byte (for systems with byte-wide buses or CIA access).
-    fn read_byte(&mut self, address: u32) -> u8;
-
-    /// Write a byte.
-    fn write_byte(&mut self, address: u32, value: u8);
 }
 ```
 
-**`dma.rs` -- DMA request/response types:**
-
+**Add `Clocked` trait:**
 ```rust
-/// A DMA transfer request from a chip to the bus arbiter.
-pub struct DmaRequest {
-    pub address: u32,
-    pub write: bool,
-    pub data: u16,       // for writes
-    pub priority: DmaPriority,
-}
-
-pub enum DmaPriority {
-    Disk,
-    Audio,
-    Sprite,
-    Bitplane,
-    Copper,
-    Blitter,
-    Refresh,
+/// A component driven by a clock signal.
+pub trait Clocked {
+    /// Advance by one tick of this component's clock.
+    fn tick(&mut self);
 }
 ```
 
-**`chip.rs` -- Common chip interface:**
+### 1.3 Clock Domain Model
+
+Each machine crate owns a `MasterClock` that counts oscillator ticks and
+derives all component clocks via integer dividers:
 
 ```rust
-/// Trait for memory-mapped chips with a register interface.
-pub trait Chip {
-    fn read_register(&self, reg: u16) -> u16;
-    fn write_register(&mut self, reg: u16, value: u16);
+pub struct ClockDomain {
+    pub master_freq_hz: u64,      // e.g., 28_375_160 for Amiga PAL
+    pub dividers: &'static [u32], // chain of dividers to reach this domain
 }
+```
+
+This is not a trait -- it's a design pattern. Each machine crate implements
+clock derivation in its `run_frame()` loop by counting master ticks and
+firing component ticks at the appropriate ratios.
+
+**Examples:**
+```
+Amiga PAL:   28.37516 MHz / 4 = 7.09379 MHz (color clock) / 2 = 3.54690 MHz (CPU)
+Spectrum 48K: 14.000 MHz / 4 = 3.500 MHz (CPU), / 2 = 7.000 MHz (pixel)
+C64 PAL:     17.734475 MHz * 4/9 = 7.882 MHz (dot) / 8 = 0.985 MHz (CPU)
+NES NTSC:    21.477272 MHz / 12 = 1.790 MHz (CPU), / 4 = 5.369 MHz (PPU)
+Genesis:     53.693175 MHz / 7 = 7.671 MHz (68000), / 15 = 3.580 MHz (Z80)
 ```
 
 ---
 
-## Phase 2: Memory & Bus Crates
+## Part 2: CPU Crates
 
-### 2.1 `mem-bus` -- Bus Arbitration
+### Existing
 
-A crate that models a shared bus with cycle-level arbitration. This is not
-Amiga-specific -- the concept of "multiple requestors sharing a bus with
-priority" applies to any system with DMA.
-
-```rust
-pub struct BusArbiter<const SLOTS_PER_LINE: usize> {
-    slot_owners: [Option<DmaPriority>; SLOTS_PER_LINE],
-    current_slot: usize,
-}
-
-impl BusArbiter {
-    /// Register a DMA request for the current slot.
-    /// Returns true if granted (higher priority than any existing claim).
-    pub fn request(&mut self, req: &DmaRequest) -> bool;
-
-    /// Is the CPU blocked from the bus this slot?
-    pub fn cpu_blocked(&self) -> bool;
-
-    /// Advance to the next slot.
-    pub fn advance(&mut self);
-}
-```
-
-For simpler systems (Spectrum, C64), the bus arbiter degenerates to just
-contention delay tables -- the same crate can provide a `ContentionTable`
-type that the existing machines could adopt.
-
-### 2.2 `mem-chip-ram` -- Amiga Chip RAM
-
-Models the shared memory accessible by both CPU and DMA channels.
-
-```rust
-pub struct ChipRam {
-    data: Vec<u8>,        // 512KB or 1MB depending on Agnus variant
-    size: usize,
-}
-
-impl ChipRam {
-    pub fn read_word(&self, address: u32) -> u16;
-    pub fn write_word(&mut self, address: u32, value: u16);
-    pub fn read_byte(&self, address: u32) -> u8;
-    pub fn write_byte(&mut self, address: u32, value: u8);
-}
-```
-
-This is kept separate from bus arbitration -- ChipRam is pure storage, the bus
-arbiter decides *when* it can be accessed.
-
-For other systems this pattern could yield `mem-spectrum-ram`, `mem-c64-ram`
-etc., but those are simple enough that a standalone crate may be overkill. The
-Amiga's chip RAM warrants separation because of the complex DMA interactions.
-
-### 2.3 `mem-rom` -- ROM storage (shared across systems)
-
-Generic ROM container. Multiple systems need ROM loading (Kickstart, BASIC,
-KERNAL, Spectrum ROM).
-
-```rust
-pub struct Rom {
-    data: Vec<u8>,
-    base_address: u32,
-}
-
-impl Rom {
-    pub fn load(data: &[u8], base: u32) -> Self;
-    pub fn read_byte(&self, address: u32) -> u8;
-    pub fn read_word(&self, address: u32) -> u16;
-}
-```
-
----
-
-## Phase 3: Media Format Crates
-
-Each file format parser is a standalone crate with no hardware dependencies.
-Pure data structures and parsing logic.
-
-### 3.1 `format-adf` -- Amiga Disk File
-
-```rust
-pub struct Adf {
-    tracks: [[u8; TRACK_SIZE]; 160],  // 80 cylinders × 2 heads
-}
-
-impl Adf {
-    pub fn load(data: &[u8]) -> Result<Self, FormatError>;
-    pub fn read_track(&self, cylinder: u8, head: u8) -> &[u8];
-    pub fn write_track(&mut self, cylinder: u8, head: u8, data: &[u8]);
-    pub fn encode_mfm(&self, cylinder: u8, head: u8) -> Vec<u8>;
-    pub fn decode_mfm(mfm_data: &[u8]) -> Result<Vec<u8>, FormatError>;
-}
-```
-
-### 3.2 Future format crates (refactored from existing code)
-
-| Crate | Format | Currently in |
+| Crate | CPU | Used By |
 |---|---|---|
-| `format-d64` | Commodore 1541 disk image | `machine-c64` |
-| `format-d71` | Commodore 1571 disk image | `machine-c128` |
-| `format-tap` | Spectrum/C64 tape | `machine-spectrum`, `machine-c64` |
-| `format-sna` | Spectrum snapshot | `machine-spectrum` |
-| `format-prg` | C64 program file | `machine-c64` |
-| `format-ines` | NES ROM (iNES/NES 2.0) | `machine-nes` |
-| `format-adf` | Amiga disk file | new |
+| `cpu-z80` | Z80A/B | Spectrum, CPC, MSX, SMS, Game Gear, Genesis (sound), C128 (CP/M), Neo Geo (sound) |
+| `cpu-6502` | 6502/6510/2A03 | C64, NES, Atari 8-bit, BBC Micro, Apple II, C128, 1541 drive |
 
-These are small crates (typically <500 lines each) but the separation means:
-- Format validation is testable without booting an emulator
-- Multiple machines can share formats (TAP is used by both Spectrum and C64)
-- New format support doesn't touch machine crates
+### New
 
----
+| Crate | CPU | Used By | Priority |
+|---|---|---|---|
+| `cpu-m68k` | 68000/010/020/030/040/060/EC variants | Amiga, Atari ST, Genesis, Neo Geo, X68000, Mega CD | **Immediate** |
+| `cpu-65c816` | 65C816 (16-bit 6502 extension) | SNES (Ricoh 5A22), Apple IIGS, CMD SuperCPU | High |
+| `cpu-sm83` | Sharp SM83 (GB Z80/8080 hybrid) | Game Boy, Game Boy Color, GBA (compat) | High |
+| `cpu-arm7tdmi` | ARM7TDMI (ARM + Thumb) | Game Boy Advance | Medium |
+| `cpu-spc700` | Sony SPC700 | SNES audio subsystem | Medium |
+| `cpu-sh2` | Hitachi SH-2 | Sega 32X, Saturn | Low |
+| `cpu-r800` | ASCII R800 (Z80 superset) | MSX turboR | Low |
+| `cpu-huc6280` | HuC6280 (65C02 + PSG + timer) | PC Engine | Medium |
 
-## Phase 4: Chip Crates
+### `cpu-m68k` Detail
 
-Each chip is its own crate with dependencies only on `emu-core` for shared
-traits. No chip crate depends on another chip crate.
+The user has 68000 emulation working locally. Bring it in as a workspace crate.
 
-### 4.1 `cpu-m68k` (user's existing code)
+**Requirements:**
+- Implement `Cpu<B: Bus>` with `pc() -> u32`
+- Support all 68000 instructions with cycle-accurate bus timing
+- Model the 2-word prefetch queue -- bus stalls happen mid-instruction
+- The `Bus` implementation handles DMA contention (same pattern as Spectrum ULA
+  contention), so the CPU doesn't know about DMA
 
-Bring in the user's 68000 emulation as a workspace crate.
+**Variant support via feature flags or config:**
+- `M68000` -- base 68000 (A1000, A500, A2000, Atari ST, Genesis, Neo Geo)
+- `M68010` -- minor additions (A2000 accelerators)
+- `M68EC020` -- 68020 without full MMU (A1200, CD32)
+- `M68020` -- full 68020 (accelerator cards)
+- `M68030` -- adds MMU + data cache (A3000, A4000/030, Atari TT/Falcon)
+- `M68040` -- integrated FPU + caches (A4000/040)
+- `M68060` -- superscalar (accelerator cards)
 
-Key requirements for integration:
-- Implement `Cpu<B: Bus>` trait (with the widened `pc() -> u32`)
-- Bus access must be word-aligned (68000 reads/writes 16 bits at a time)
-- The 68000 prefetch queue (2 words) must be modeled -- bus stalls happen
-  mid-instruction when a prefetched bus cycle is delayed by DMA
-- Expose per-bus-cycle granularity: the machine crate needs to interleave DMA
-  slots between individual 68000 bus cycles, not just between instructions
+Each variant adds instructions and addressing modes on top of the base 68000.
+The implementation can use a config enum to gate variant-specific behavior.
 
-**CPU-bus interaction (critical for cycle accuracy):**
+**Future: Apollo 68080 (Vampire)** -- the Vampire's custom CPU extends the
+68060 with AMMX SIMD instructions, 64-bit registers, and new addressing modes.
+This is a stretch goal that would be a separate feature within `cpu-m68k`.
 
-The `Bus` implementation (owned by the machine crate) handles DMA arbitration
-inside `read()`/`write()`. Each CPU bus access calls `bus.read()`, which
-internally advances the system by one color clock, checks if DMA needs the slot,
-stalls if needed, then returns. This matches the existing pattern used by the
-Spectrum (ULA contention in `bus.read()`).
+### `cpu-6502` Variant Support
 
-The CPU doesn't need to know about DMA -- it just sees slower bus responses when
-accessing chip RAM. Fast RAM and ROM accesses bypass arbitration entirely.
-
-### 4.2 `chip-agnus` -- DMA controller, beam counter
-
-**Responsibilities:**
-- Beam position counter (VPOS/HPOS), color clock advancement
-- DMA slot arbitration: fixed-slot table for disk/audio/sprite/refresh,
-  dynamic scheduling for bitplane DMA based on DDFSTRT/DDFSTOP/BPU
-- Bitplane pointer management (auto-increment, modulo addition)
-- Sprite DMA pointer management
-- DMACON register (master DMA enable, per-channel enables, BLTPRI)
-
-**Contains two sub-components as modules (not sub-crates):**
-
-- **Copper** -- WAIT/MOVE/SKIP instruction pipeline, beam position comparison,
-  copper danger bit, dual copper list pointers
-- **Blitter** -- channels A-D, barrel shifter, first/last word masks, minterms,
-  area fill (inclusive/exclusive), line drawing (Bresenham), ascending/descending
-
-These live inside `chip-agnus` rather than as separate crates because they are
-physically part of Agnus and share its internal state (beam position, DMA slot
-allocation). The copper and blitter don't exist as independent ICs.
-
-**Public interface:**
-
-```rust
-pub struct Agnus { /* ... */ }
-
-impl Agnus {
-    /// Advance by one color clock. Returns what happened this slot.
-    pub fn tick(&mut self, ram: &mut ChipRam) -> SlotResult;
-
-    /// Read a register (VPOSR, VHPOSR, DMACONR, etc.).
-    pub fn read_register(&self, reg: u16) -> u16;
-
-    /// Write a register (DMACON, DIWSTRT, BPLxPT, BLTSIZE, COPxLC, etc.).
-    pub fn write_register(&mut self, reg: u16, value: u16);
-
-    /// Is the CPU blocked from chip RAM this cycle?
-    pub fn cpu_blocked(&self) -> bool;
-
-    /// Is the blitter busy?
-    pub fn blitter_busy(&self) -> bool;
-}
-
-/// What happened during this DMA slot.
-pub struct SlotResult {
-    pub bitplane_data: Option<(u8, u16)>,    // (plane_idx, data) -> feed to Denise
-    pub sprite_data: Option<(u8, u16, bool)>, // (sprite, data, is_ctl) -> feed to Denise
-    pub copper_write: Option<(u16, u16)>,     // (register, value) -> dispatch to chip
-    pub interrupt: Option<u16>,               // interrupt request bits (blitter done, copper)
-}
-```
-
-**Variant support:** OCS Agnus (8370/8371, 512KB) vs Fat Agnus (8372, 1MB).
-Config enum selects chip RAM address mask.
-
-**Files:**
-- `chip-agnus/src/lib.rs` -- Agnus struct, register handling, top-level tick
-- `chip-agnus/src/dma.rs` -- DMA slot table, fixed slot assignments, bitplane scheduling
-- `chip-agnus/src/copper.rs` -- Copper state machine, IR1/IR2 pipeline, WAIT comparison
-- `chip-agnus/src/blitter.rs` -- Blitter engine, minterms, fill, line draw
-
-### 4.3 `chip-denise` -- Video output
-
-**Responsibilities:**
-- Receive bitplane data words from Agnus, load into shift registers
-- Planar-to-chunky conversion (assemble pixel color index from up to 6 bitplanes)
-- Display modes: normal, dual playfield, HAM (Hold-And-Modify), EHB (Extra Half-Brite)
-- 8 hardware sprites, attached mode for 15-color pairs
-- Playfield/sprite priority (BPLCON2)
-- Horizontal fine scroll (BPLCON1, 0-15 pixel delay per playfield)
-- Collision detection (CLXDAT/CLXCON)
-- 32-entry 12-bit color palette (COLOR00-COLOR31)
-
-Denise has **no bus access** -- all data comes from Agnus via the machine crate.
-This matches the real hardware.
-
-**Public interface:**
-
-```rust
-pub struct Denise { /* ... */ }
-
-impl Denise {
-    /// Process one color clock. Returns pixel output.
-    pub fn tick(
-        &mut self,
-        bitplane_data: Option<(u8, u16)>,
-        sprite_data: Option<(u8, u16, bool)>,
-        display_active: bool,
-    ) -> PixelOutput;
-
-    pub fn read_register(&self, reg: u16) -> u16;
-    pub fn write_register(&mut self, reg: u16, value: u16);
-}
-
-pub struct PixelOutput {
-    pub color: u16,          // 12-bit RGB (4:4:4) from palette lookup
-    pub is_blank: bool,      // in blanking period
-    pub is_border: bool,     // outside display window
-}
-```
-
-**Files:**
-- `chip-denise/src/lib.rs` -- Denise struct, register handling, palette
-- `chip-denise/src/playfield.rs` -- Bitplane shift registers, mode rendering
-- `chip-denise/src/sprites.rs` -- 8 sprite channels, attached mode, multiplexing
-- `chip-denise/src/collision.rs` -- Hardware collision detection matrix
-
-### 4.4 `chip-paula` -- Audio, disk control, interrupts
-
-**Responsibilities:**
-- 4-channel 8-bit PCM audio with period counters, volume, inter-channel modulation
-- Disk controller: MFM sync detection, DSKLEN double-write safety, read/write DMA
-- Interrupt controller: INTENA/INTREQ registers, 14 sources mapped to IPL levels 1-6
-
-**Public interface:**
-
-```rust
-pub struct Paula { /* ... */ }
-
-impl Paula {
-    /// Advance by one color clock.
-    pub fn tick(&mut self);
-
-    /// Does this slot have a fixed audio DMA assignment?
-    pub fn audio_dma_slot(&self, hpos: u16) -> Option<DmaRequest>;
-
-    /// Does this slot have a fixed disk DMA assignment?
-    pub fn disk_dma_slot(&self, hpos: u16) -> Option<DmaRequest>;
-
-    /// Provide data fetched by Agnus for audio/disk DMA.
-    pub fn dma_complete(&mut self, channel: DmaChannel, data: u16);
-
-    /// Get current audio output (left, right) as f32 samples.
-    pub fn audio_output(&self) -> (f32, f32);
-
-    /// Current 68000 interrupt priority level (0 = none, 1-6).
-    pub fn ipl(&self) -> u8;
-
-    /// Set an interrupt request (from other chips: copper, blitter, vblank).
-    pub fn set_interrupt(&mut self, bit: u16);
-
-    pub fn read_register(&self, reg: u16) -> u16;
-    pub fn write_register(&mut self, reg: u16, value: u16);
-}
-```
-
-**Files:**
-- `chip-paula/src/lib.rs` -- Paula struct, interrupt controller (INTENA/INTREQ/IPL mapping)
-- `chip-paula/src/audio.rs` -- 4 audio channels, period/volume/ADKCON modulation
-- `chip-paula/src/disk.rs` -- Disk controller, MFM sync, DSKLEN latch
-
-### 4.5 `chip-cia-8520` -- CIA timer/IO chip (×2 per Amiga)
-
-Models a single MOS 8520 CIA. The machine crate instantiates two.
-
-**Responsibilities per instance:**
-- Two 8-bit I/O ports with data direction registers (PRA/PRB/DDRA/DDRB)
-- Two 16-bit countdown timers (A/B) with continuous/one-shot/chained modes
-- 24-bit binary Time-of-Day counter (binary, unlike 6526's BCD)
-- Serial shift register (CIA-A uses this for keyboard protocol)
-- 5-source interrupt controller (ICR)
-- Clocked by E-clock (~709 kHz), not the main system clock
-
-**Public interface:**
-
-```rust
-pub struct Cia8520 { /* ... */ }
-
-impl Cia8520 {
-    pub fn tick(&mut self);                        // one E-clock tick
-    pub fn read(&mut self, reg: u8) -> u8;         // register 0x0-0xF
-    pub fn write(&mut self, reg: u8, value: u8);
-    pub fn irq(&self) -> bool;
-    pub fn set_port_a_input(&mut self, value: u8);
-    pub fn set_port_b_input(&mut self, value: u8);
-    pub fn port_a_output(&self) -> u8;             // after DDR masking
-    pub fn port_b_output(&self) -> u8;
-    pub fn set_flag_pin(&mut self, state: bool);   // active-low /FLAG input
-    pub fn set_cnt_pin(&mut self, state: bool);
-    pub fn set_sp_pin(&mut self, state: bool);     // serial port data input
-    pub fn tod_tick(&mut self);                     // 50/60Hz TOD input
-}
-```
-
-**Relationship to C64/C128 CIA 6526:** Very similar but 6526 has BCD TOD and
-slightly different timer edge cases. Start as separate `chip-cia-8520`; a
-future `chip-cia` crate with a variant generic could unify both. Not worth
-blocking on.
+The existing crate needs config for:
+- **Decimal mode** -- disabled on NES 2A03
+- **I/O port** -- 6510 (C64), 8502 (C128) have a built-in 6-bit I/O port
+- **65C02 extensions** -- extra instructions for Apple IIe/IIc, PC Engine base
+- **HALT/RDY line** -- Atari Sally (6502C) has DMA halt capability
 
 ---
 
-## Phase 5: Peripheral Device Crates
+## Part 3: Amiga -- All Variants
 
-### 5.1 `drive-amiga-floppy` -- Amiga 3.5" DD floppy drive
+### 3.1 The Amiga Family
 
-Models the physical drive mechanism, separate from Paula's disk controller.
+| Model | Year | Chipset | CPU | Chip RAM | Unique Hardware |
+|---|---|---|---|---|---|
+| A1000 | 1985 | OCS | 68000 @ 7.09 MHz | 256KB | WCS (writable control store for Kickstart) |
+| A500 | 1987 | OCS | 68000 | 512KB (1MB w/ 8372) | Trapdoor expansion, Gary |
+| A2000 | 1987 | OCS/ECS | 68000 | 512KB-1MB | Zorro II slots, CPU slot, video slot, Buster |
+| A500+ | 1991 | ECS | 68000 | 1MB | Built-in ECS, battery-backed RTC |
+| A3000 | 1990 | ECS | 68030 @ 25 MHz | 2MB | Zorro III, SCSI (DMAC+33C93), Ramsey, Super Buster, Amber flicker fixer |
+| A600 | 1992 | ECS | 68000 | 1MB (2MB) | Gayle (IDE + PCMCIA), no Zorro |
+| A1200 | 1992 | AGA | 68EC020 @ 14 MHz | 2MB | Gayle (IDE + PCMCIA), trapdoor, clock port |
+| A4000 | 1992 | AGA | 68030/040 | 2MB | Zorro III, IDE (via Gayle/A4000 IDE), Ramsey, Super Buster |
+| A4000T | 1994 | AGA | 68040 @ 25 MHz | 2MB | Tower, SCSI (NCR53C710), Zorro III |
+| CDTV | 1991 | ECS | 68000 | 1MB | CD-ROM drive, IR remote, DMAC for CD |
+| CD32 | 1993 | AGA | 68EC020 @ 14 MHz | 2MB | Akiko (chunky-to-planar + CD), gamepad |
 
-```rust
-pub struct AmigaFloppyDrive {
-    disk: Option<Adf>,       // uses format-adf crate
-    cylinder: u8,            // current head position (0-79)
-    head: u8,                // 0 or 1
-    motor_on: bool,
-    rotation_pos: u32,       // position within current track (in bits)
-    mfm_track: Vec<u8>,      // MFM-encoded track data
-}
+### 3.2 Chipset Generations
 
-impl AmigaFloppyDrive {
-    pub fn insert_disk(&mut self, disk: Adf);
-    pub fn eject_disk(&mut self) -> Option<Adf>;
-    pub fn step(&mut self, direction: bool);       // step in/out
-    pub fn select_head(&mut self, head: u8);
-    pub fn set_motor(&mut self, on: bool);
-    pub fn read_bit(&mut self) -> bool;            // next MFM bit from rotation
-    pub fn write_bit(&mut self, bit: bool);
-    pub fn is_track0(&self) -> bool;               // /TK0 signal
-    pub fn is_write_protected(&self) -> bool;
-    pub fn disk_changed(&self) -> bool;            // /DSKCHANGE signal
-    pub fn index_pulse(&self) -> bool;             // once per revolution
-}
-```
+#### OCS (Original Chip Set)
 
-The machine crate connects CIA-B port B outputs (step, direction, motor, side,
-select) to this drive's methods, and connects the drive's MFM bitstream to
-Paula's disk controller input.
-
-### 5.2 `peripheral-keyboard` -- Amiga keyboard controller
-
-Models the keyboard's internal microcontroller protocol.
-
-```rust
-pub struct AmigaKeyboard {
-    key_states: [bool; 128],
-    transmit_queue: VecDeque<u8>,
-    handshake_pending: bool,
-}
-
-impl AmigaKeyboard {
-    pub fn key_down(&mut self, amiga_keycode: u8);
-    pub fn key_up(&mut self, amiga_keycode: u8);
-    pub fn tick(&mut self);                        // advance internal state
-    pub fn serial_data_ready(&self) -> bool;       // connect to CIA-A SP/CNT
-    pub fn read_serial(&mut self) -> u8;           // keycode byte
-    pub fn handshake(&mut self);                   // CIA-A acknowledges receipt
-}
-```
-
-### 5.3 Future peripheral crates (refactored from existing code)
-
-| Crate | Device | Currently in |
+| Chip | Part Numbers | Function |
 |---|---|---|
-| `drive-1541` | Commodore 1541 floppy drive | `machine-c64` |
-| `drive-1571` | Commodore 1571 floppy drive | `machine-c128` |
-| `peripheral-datasette` | Commodore tape drive | `machine-c64` |
-| `peripheral-spectrum-tape` | Spectrum tape deck | `machine-spectrum` |
+| Agnus | 8361 (NTSC), 8367 (PAL), 8370 (NTSC Fat), 8371 (PAL Fat) | DMA controller, copper, blitter, beam counter. 8361/8367: 512KB max. 8370/8371: 1MB (Fat Agnus). |
+| Denise | 8362 | Video output, sprites, playfields, collision. 12-bit color (4096 colors), 32 palette registers, up to 6 bitplanes (HAM/EHB for more). |
+| Paula | 8364 | 4-ch 8-bit audio, disk controller, interrupt controller. Unchanged across all chipset generations. |
 
----
+#### ECS (Enhanced Chip Set)
 
-## Phase 6: `machine-amiga` -- System Integration
+| Chip | Part Number | New vs OCS |
+|---|---|---|
+| Super Agnus | 8372A | 1MB chip RAM, improved beam counter (more VHPOS bits), programmable display size |
+| Super Denise | 8373 | Productivity modes (640x480, 1280x256 super-hires), borderless display, improved sprite resolution, scan doubling support, genlock |
+| Paula | 8364 | Unchanged |
 
-The orchestrator crate that wires all components into a working Amiga 500.
-Implements the `Machine` trait. Contains minimal logic -- just plumbing.
+#### AGA (Advanced Graphics Architecture)
 
-### 6.1 Module structure
+| Chip | Name | New vs ECS |
+|---|---|---|
+| Alice | (replaces Agnus) | 32-bit chip RAM bus, 2MB chip RAM, improved blitter |
+| Lisa | (replaces Denise) | 256 palette registers from 16.7M colors (24-bit RGB), up to 8 bitplanes (256 color planar), HAM8 (262144 colors), 64-bit fetch for bitplanes, sprite improvements |
+| Paula | 8364 | Still unchanged |
 
+### 3.3 Amiga Support Chips
+
+Each of these is a separate crate:
+
+| Crate | Chip | Found In | Function |
+|---|---|---|---|
+| `chip-gary` | Gary | A500, A2000 | Address decoding glue logic, overlay control, ROM select |
+| `chip-fat-gary` | Fat Gary | A3000, A4000 | Enhanced address decode, bus timeout, power supply control |
+| `chip-gayle` | Gayle | A600, A1200, CD32 | IDE controller (active-4 ATA), PCMCIA controller (Type I/II), interrupt management |
+| `chip-ramsey` | Ramsey | A3000, A4000 | DRAM controller, refresh, configurable RAM size/type |
+| `chip-buster` | Buster | A2000 | Zorro II bus controller, autoconfig |
+| `chip-super-buster` | Super Buster | A3000, A4000 | Zorro III bus controller (32-bit DMA capable) |
+| `chip-dmac` | DMAC (390537) | A3000, CDTV | DMA controller for SCSI (WD33C93) and CD-ROM |
+| `chip-akiko` | Akiko | CD32 | Chunky-to-planar hardware converter, CD-ROM subcode controller |
+| `chip-amber` | Amber | A3000 | Flicker fixer / scan doubler (converts interlaced output to progressive) |
+
+### 3.4 Amiga Custom Chip Crates
+
+**`chip-agnus`** -- DMA controller, copper, blitter, beam counter
+
+Variant config selects OCS/ECS/AGA behavior:
+```rust
+pub enum AgnusVariant {
+    Ocs8361,     // NTSC, 512KB
+    Ocs8367,     // PAL, 512KB
+    Ocs8370,     // NTSC Fat, 1MB
+    Ocs8371,     // PAL Fat, 1MB
+    Ecs8372A,    // Super Agnus, 1MB
+    AgaAlice,    // AGA, 2MB, 32-bit bus
+}
 ```
-machine-amiga/
-  src/
-    lib.rs          -- pub type Amiga500 = Amiga<OcsChipset>;
-    amiga.rs        -- Amiga<C: Chipset> struct, Machine trait impl
-    bus.rs          -- Bus impl (address decoding, DMA contention)
-    input.rs        -- KeyCode -> Amiga keycode mapping, mouse/joystick
-    config.rs       -- Chipset trait, OcsChipset, (future: EcsChipset, AgaChipset)
+
+Sub-modules: `copper.rs`, `blitter.rs`, `dma.rs`
+
+**`chip-denise`** -- Video output, sprites, playfields
+
+Variant config:
+```rust
+pub enum DeniseVariant {
+    Ocs8362,         // OCS Denise: 12-bit color, 32 regs, 6 bitplanes
+    Ecs8373,         // Super Denise: + productivity modes, scan doubling
+    AgaLisa,         // AGA Lisa: 24-bit color, 256 regs, 8 bitplanes, HAM8
+}
 ```
 
-### 6.2 The Amiga struct
+**`chip-paula`** -- Audio, disk, interrupts (unchanged across generations)
+
+**`chip-cia-8520`** -- Two per Amiga (CIA-A: keyboard/overlay/LED, CIA-B: disk/serial)
+
+### 3.5 Amiga Peripheral & Expansion Crates
+
+| Crate | Device | Notes |
+|---|---|---|
+| `drive-amiga-floppy` | 3.5" DD 880KB floppy | MFM encoding, 80 cylinders × 2 heads × 11 sectors |
+| `drive-amiga-hd` | IDE/SCSI hard drive | Block device abstraction |
+| `drive-cdrom` | CD-ROM drive | For CDTV and CD32, ISO 9660 + CD-DA |
+| `peripheral-amiga-keyboard` | Keyboard controller | Serial protocol via CIA-A |
+| `peripheral-amiga-mouse` | Mouse | Quadrature encoding via JOYxDAT |
+| `peripheral-amiga-gamepad` | CD32 gamepad | 7-button via shift register |
+| `expansion-zorro` | Zorro II/III bus | Autoconfig protocol, slot management |
+| `expansion-pcmcia` | PCMCIA interface | Type I/II cards (via Gayle) |
+
+### 3.6 Amiga Expansion Cards (Virtual)
+
+| Crate | Card | Function |
+|---|---|---|
+| `card-rtg` | Virtual RTG graphics card | Chunky framebuffer, P96/CGX compatible, arbitrary resolution/depth |
+| `card-accelerator` | Virtual accelerator | Faster CPU + fast RAM, maps to `cpu-m68k` variant config |
+| `card-ethernet` | Virtual network card | For networking support |
+| `card-ram-expansion` | RAM expansion | Fast RAM on Zorro II/III |
+
+### 3.7 Amiga Machine Crate
 
 ```rust
-pub struct Amiga<C: Chipset> {
-    cpu: M68000,                     // cpu-m68k
-    agnus: C::Agnus,                 // chip-agnus (OCS or ECS variant)
-    denise: C::Denise,               // chip-denise
-    paula: Paula,                    // chip-paula
-    cia_a: Cia8520,                  // chip-cia-8520
-    cia_b: Cia8520,                  // chip-cia-8520
-    chip_ram: ChipRam,               // mem-chip-ram
-    fast_ram: Option<Vec<u8>>,       // optional expansion
-    kickstart: Rom,                  // mem-rom
-    floppy: [Option<AmigaFloppyDrive>; 4],  // drive-amiga-floppy
-    keyboard: AmigaKeyboard,         // peripheral-keyboard
-    framebuffer: Vec<u8>,            // RGBA output
-    audio_buffer: Vec<(f32, f32)>,   // stereo samples accumulated per frame
-    e_clock_divider: u8,             // counts to 10 for CIA E-clock
+pub struct Amiga<C: ChipsetConfig> {
+    // Master clock
+    master_clock: u64,                    // 28.37516 MHz (PAL) or 28.63636 MHz (NTSC)
+    color_clock_divider: u32,             // /4 from master
+
+    // Custom chips
+    cpu: M68k,                            // cpu-m68k (variant per model)
+    agnus: Agnus,                         // chip-agnus (variant per chipset)
+    denise: Denise,                       // chip-denise (variant per chipset)
+    paula: Paula,                         // chip-paula
+    cia_a: Cia8520,                       // chip-cia-8520
+    cia_b: Cia8520,                       // chip-cia-8520
+
+    // Support chips (model-dependent)
+    gary: Option<Gary>,                   // A500, A2000
+    gayle: Option<Gayle>,                 // A600, A1200, CD32
+    ramsey: Option<Ramsey>,               // A3000, A4000
+    akiko: Option<Akiko>,                 // CD32 only
+
+    // Memory
+    chip_ram: Vec<u8>,                    // 256KB-2MB
+    fast_ram: Vec<u8>,                    // 0-8MB+ (Zorro/trapdoor)
+    kickstart: Vec<u8>,                   // 256KB or 512KB ROM
+
+    // Peripherals
+    floppy: [Option<AmigaFloppyDrive>; 4],
+    ide: Option<IdeDrive>,
+    keyboard: AmigaKeyboard,
+
+    // Expansion
+    zorro_slots: Vec<Box<dyn ZorroCard>>,
+    pcmcia: Option<PcmciaSlot>,
+
+    // Output
+    framebuffer: Vec<u8>,
+    audio_buffer: Vec<(f32, f32)>,
 }
 ```
 
-### 6.3 The core loop: `run_frame()`
-
-Each iteration = 1 color clock = 2 CPU cycles = 1 DMA slot.
-
-```
-fn run_frame(&mut self) {
-    while !frame_complete {
-        // 1. Agnus tick: advance beam, execute DMA slot, run copper/blitter
-        let slot = self.agnus.tick(&mut self.chip_ram);
-
-        // 2. Dispatch copper register writes to target chips
-        if let Some((reg, val)) = slot.copper_write {
-            self.dispatch_register_write(reg, val);
-        }
-
-        // 3. Feed bitplane/sprite data from Agnus to Denise
-        let pixel = self.denise.tick(
-            slot.bitplane_data,
-            slot.sprite_data,
-            self.agnus.display_active(),
-        );
-
-        // 4. Write pixel to framebuffer (if not in blanking)
-        if !pixel.is_blank {
-            self.write_pixel(pixel.color);
-        }
-
-        // 5. Paula tick: audio counters, disk state
-        self.paula.tick();
-        let (left, right) = self.paula.audio_output();
-        self.audio_buffer.push((left, right));
-
-        // 6. Propagate interrupts from slot results
-        if let Some(irq_bits) = slot.interrupt {
-            self.paula.set_interrupt(irq_bits);
-        }
-
-        // 7. CPU gets 2 cycles (bus.read/write handles stalling)
-        //    Bus impl checks agnus.cpu_blocked() for chip RAM access
-        self.cpu.step(&mut self.bus);
-
-        // 8. E-clock tick (every 10 CPU cycles = every 5 color clocks)
-        self.e_clock_divider += 1;
-        if self.e_clock_divider >= 5 {
-            self.e_clock_divider = 0;
-            self.cia_a.tick();
-            self.cia_b.tick();
-            // Wire CIA outputs to peripherals
-            self.update_cia_peripherals();
-        }
-
-        // 9. Check interrupts: paula.ipl() -> CPU IPL pins
-        self.cpu.set_ipl(self.paula.ipl());
-    }
-}
+**Model presets:**
+```rust
+pub type Amiga1000 = Amiga<A1000Config>;   // OCS, 68000, 256KB, WCS
+pub type Amiga500  = Amiga<A500Config>;    // OCS, 68000, 512KB
+pub type Amiga2000 = Amiga<A2000Config>;   // OCS/ECS, 68000, Zorro II, CPU slot
+pub type Amiga500Plus = Amiga<A500PlusConfig>; // ECS, 68000, 1MB
+pub type Amiga3000 = Amiga<A3000Config>;   // ECS, 68030, Zorro III, SCSI
+pub type Amiga600  = Amiga<A600Config>;    // ECS, 68000, IDE, PCMCIA
+pub type Amiga1200 = Amiga<A1200Config>;   // AGA, 68EC020, IDE, PCMCIA
+pub type Amiga4000 = Amiga<A4000Config>;   // AGA, 68030/040, Zorro III, IDE
+pub type AmigaCdtv = Amiga<CdtvConfig>;    // ECS, 68000, CD-ROM
+pub type AmigaCd32 = Amiga<Cd32Config>;    // AGA, 68EC020, CD-ROM, Akiko
 ```
 
-### 6.4 Bus implementation
+### 3.8 Vampire / SAGA (Stretch Goal)
 
-The `Bus` impl handles address decoding:
+The Vampire is an FPGA-based accelerator with:
+- **Apollo 68080 CPU** -- 68060-compatible + AMMX (128-bit SIMD), 64-bit regs
+- **SAGA chipset** -- AGA-superset with chunky display modes, RTG-like framebuffer,
+  hardware sprite scaling, 16-bit audio
+- **Variants:** V2 (plugs into A500/A600/A1200), V4 (standalone board)
 
-| Address Range | Target | DMA Contention? |
+Modeled as:
+- `cpu-m68k` with `M68080` variant (adds AMMX instructions)
+- `chip-saga` crate (AGA superset with chunky modes)
+- `card-vampire` expansion crate
+
+This is explicitly deferred to later phases.
+
+---
+
+## Part 4: Existing Systems -- All Variants
+
+### 4.1 ZX Spectrum Family
+
+**Already implemented.** Needs variant expansion.
+
+#### Clock Trees
+
+| Variant | Crystal(s) | Pixel Clock | CPU Clock | T/Line | Lines | T/Frame |
+|---|---|---|---|---|---|---|
+| 48K | 14.000 + 4.4336 MHz | 7.000 MHz | 3.500 MHz | 224 | 312 | 69,888 |
+| 128 / +2 grey | 17.7345 MHz | 7.094 MHz | 3.547 MHz | 228 | 311 | 70,908 |
+| +2A / +2B / +3 | 17.7345 MHz | 7.094 MHz | 3.547 MHz | 228 | 311 | 70,908 |
+| Pentagon 128 | 14.000 MHz | 7.000 MHz | 3.500 MHz | 224 | 320 | 71,680 |
+
+#### ULA Variants
+
+| Chip | Models | Emulation Notes |
 |---|---|---|
-| $000000-$0FFFFF | Chip RAM (via bus arbiter) | Yes |
-| $C00000-$D7FFFF | "Slow" RAM (trapdoor) | Yes (on chip bus) |
-| $200000-$9FFFFF | Fast RAM (expansion) | No |
-| $F80000-$FFFFFF | Kickstart ROM | Yes (on chip bus, A500) |
-| $DFF000-$DFF1FF | Custom registers | Yes (synced to color clock) |
-| $BFE001 | CIA-A (even byte addresses) | E-clock sync latency |
-| $BFD000 | CIA-B (odd byte addresses) | E-clock sync latency |
+| 5C102E / 5C112E | 48K Issue 1-2 | Buggy I/O contention |
+| 6C001E-7 | 48K Issue 3-6A | Standard 48K contention model |
+| 7K010E-5 / Amstrad 40056 | 128K, +2 grey | 228 T-state line, different contention |
+| Amstrad 40077 gate array | +2A/B, +3 | Not a ULA -- different contention again |
+| Pentagon discrete logic | Pentagon | **No contention** |
+| Timex SCLD | TC2068/TC2048 | Extended video modes (512×192, 8×1 attr) |
 
-### 6.5 Video output
+#### Variants to Add
 
-- **Resolution:** 724×568 (PAL with borders) -- configurable
-- **Format:** RGBA framebuffer, same as other machines
-- Denise outputs 12-bit palette indices per color clock, machine converts to RGBA
+| Variant | New Chips Needed | Notes |
+|---|---|---|
+| +3 | `chip-fdc-765` (uPD765A) | 3" floppy drive, +3DOS, port $1FFD paging |
+| Pentagon 128/256/512 | None (discrete logic) | No contention, 320-line frame, different INT timing |
+| Scorpion ZS-256 | None | Different memory mapping, turbo modes |
+| Timex 2068 | `chip-scld` | Extended video modes, different AY ports, cartridge |
 
-### 6.6 Audio output
+#### Expansions to Add
 
-- f32 stereo at 44100 Hz
-- Paula channels 0+3 left, 1+2 right
-- Accumulated per color clock, downsampled in `generate_audio()`
+| Expansion | New Crate | Notes |
+|---|---|---|
+| Interface 1 | `peripheral-if1` | Microdrive, RS-232, ZX Net, shadow ROM |
+| Interface 2 | `peripheral-if2` | Cartridge ROM overlay, joystick ports |
+| Kempston joystick | (config in machine) | Port $1F, trivial |
+| DivIDE/DivMMC | `peripheral-divide` | IDE/SD, shadow ROM paged on M1 traps |
+| Multiface | `peripheral-multiface` | NMI button, shadow ROM/RAM |
+| Beta 128 (TR-DOS) | `peripheral-beta128` | WD1793 FDC, up to 4 drives |
+| AY board (for 48K) | (config in machine) | Add AY-3-8910 at 128-compatible ports |
 
-### 6.7 File loading
+### 4.2 NES / Famicom Family
 
-Uses format crates for parsing:
-- `.adf` via `format-adf` -- inserted into `drive-amiga-floppy`
-- `.rom` / `.kick` via `mem-rom` -- loaded as Kickstart
+**Already implemented.** Needs variant expansion.
 
----
+#### Clock Trees
 
-## Phase 7: `amiga-runner`
+| Variant | Master Crystal | CPU Divider | PPU Divider | CPU Clock | PPU:CPU | Lines |
+|---|---|---|---|---|---|---|
+| NTSC (2A03/2C02) | 21.477272 MHz | /12 | /4 | 1.790 MHz | 3:1 | 262 |
+| PAL (2A07/2C07) | 26.601712 MHz | /16 | /5 | 1.663 MHz | 3.2:1 | 312 |
 
-Minimal binary. Same pattern as `spectrum-runner` and `c64-runner`.
+#### PPU Variants
+
+| Chip | System | Notes |
+|---|---|---|
+| RP2C02 | Famicom, NES NTSC | Standard |
+| RP2C07 | NES PAL | 312 lines, 3.2:1 ratio |
+| RC2C03B/C | VS. System | RGB output, standard palette |
+| RP2C04-0001..0004 | VS. System | 4 different scrambled palettes |
+| RC2C05-01/03/04 | VS. System | Swapped $2000/$2001, ID in $2002 |
+
+#### Variants to Add
+
+| Variant | Changes Needed | Notes |
+|---|---|---|
+| PAL NES | PPU variant config | 26.6 MHz crystal, 312 lines, 3.2:1 PPU:CPU ratio |
+| Famicom | Audio expansion support | 60-pin cart with expansion audio pins |
+| Famicom Disk System | `chip-fds` (2C33 ASIC) | 32KB RAM, 8KB CHR RAM, wavetable audio, QD drive |
+| VS. System | PPU variant config | Scrambled palettes, coin-op hardware, DIP switches |
+| PlayChoice-10 | Z80 supervisor | Dual screen, timer system |
+
+#### Mapper Priority
+
+**Tier 1 (~90% of licensed library):**
+NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4), AxROM (7)
+
+**Tier 2 (expansion audio -- Famicom only):**
+VRC6 (24/26), VRC7 (85), Namco 163 (19), Sunsoft 5B (69), MMC5 (5)
+
+Each expansion audio mapper contains a sound chip that could be its own crate:
+- `chip-vrc6-audio` -- 2 pulse + 1 sawtooth
+- `chip-vrc7-audio` -- YM2413 derivative (6-ch FM)
+- `chip-namco163-audio` -- 8-ch wavetable
+- `chip-sunsoft5b-audio` -- YM2149 variant (3-ch PSG)
+
+### 4.3 Commodore 64 Family
+
+**Already implemented.** Needs variant expansion.
+
+#### Clock Trees
 
 ```
-amiga-runner/
-  src/
-    main.rs     -- load Kickstart ROM, optional ADF, create Amiga500, run()
-  Cargo.toml    -- depends on machine-amiga, runner-lib, emu-core
+PAL:  17.734475 MHz * 4/9 = 7.882 MHz (dot) / 8 = 0.985249 MHz (CPU)
+NTSC: 14.318181 MHz * 4/7 = 8.182 MHz (dot) / 8 = 1.022727 MHz (CPU)
+```
+
+VIC-II generates the CPU clock. Without VIC-II, nothing runs.
+
+#### VIC-II Variants
+
+| Chip | System | Cycles/Line | Lines | Total Cycles | Notes |
+|---|---|---|---|---|---|
+| 6567R56A | NTSC early | 64 | 262 | 16,768 | Rare |
+| 6567R8 | NTSC common | 65 | 263 | 17,095 | Standard NTSC |
+| 8562 | NTSC C64C | 65 | 263 | 17,095 | HMOS, grey dots bug |
+| 6569R1 | PAL early | 63 | 312 | 19,656 | 5 luminance levels |
+| 6569R3/R5 | PAL common | 63 | 312 | 19,656 | 9 luminance levels |
+| 8565 | PAL C64C | 63 | 312 | 19,656 | HMOS, grey dots bug |
+| 6572 | PAL-N | 65 | 312 | 20,280 | Rare |
+
+#### SID Variants
+
+| Feature | 6581 (NMOS) | 8580 (HMOS) |
+|---|---|---|
+| Filter | Beefy, inconsistent (±30%) | Clean, consistent |
+| Combined waveforms | Unique behavior (exploited by composers) | Different mixing |
+| Volume register audio | **Loud** (4-bit DAC exploit) | Nearly silent |
+| Supply | +12V | +9V |
+
+#### CIA Variants
+
+| Feature | 6526 (pre-1987) | 6526A (post-1987) |
+|---|---|---|
+| Timer IRQ | Standard timing | Fires 1 cycle later |
+| Impact | Some copy protection relies on exact CIA timing | |
+
+#### Variants to Add
+
+| Variant | Changes | Notes |
+|---|---|---|
+| SX-64 | No Datasette port, built-in 1541, 60Hz TOD | Different default colors |
+| C64 GS | Cartridge-only, no keyboard | Game console variant |
+| PAL-N (6572) | Different VIC-II timing | 65 cycles/line, 312 lines |
+
+#### Expansions to Add
+
+| Expansion | New Crate | Notes |
+|---|---|---|
+| 1541 drive | `drive-1541` (extract) | Own 6502 + 2× VIA 6522, GCR encoding |
+| 1541-II | variant of `drive-1541` | External PSU, same logic |
+| 1581 drive | `drive-1581` | 3.5" DD, WD1770 + CIA 8520 |
+| REU 1700/1750/1764 | `chip-reu-8726` | DMA engine, 128KB-2MB, I/O at $DF00 |
+| CMD SuperCPU | Uses `cpu-65c816` | 65816 @ 20 MHz, 16MB RAM |
+| EasyFlash | `cart-easyflash` | 1MB flash, bank-switched |
+| Action Replay | `cart-action-replay` | Freezer/trainer cartridge |
+| SwiftLink | `chip-acia-6551` | RS-232 up to 38.4 kbps |
+| 1351 Mouse | (config in machine) | Proportional mouse via SID pots |
+
+### 4.4 Commodore 128 Family
+
+**Already implemented.** Needs variant expansion.
+
+#### Clock Tree
+```
+Same crystal as C64 (17.734475 MHz PAL / 14.318181 MHz NTSC)
+Same 8701 clock generator
+CPU at 1 MHz or 2 MHz (software selectable)
+Z80 at ~4 MHz input, ~2 MHz effective (bus sharing)
+VDC: SEPARATE 16 MHz crystal (asynchronous to system bus!)
+```
+
+#### VDC Variants
+
+| Chip | Models | VRAM | Notes |
+|---|---|---|---|
+| 8563 | C128, C128D | 16KB (upgradeable to 64KB) | Original |
+| 8568 | C128DCR | 64KB standard | Integrated glue logic, different pinout, register-compatible |
+
+#### Variants to Add
+
+| Variant | Changes | Notes |
+|---|---|---|
+| C128D | Built-in 1571, metal case | Same electronics |
+| C128DCR | VDC 8568 with 64KB VRAM | Cost-reduced |
+
+#### Expansions to Add
+
+Same as C64 plus:
+- 1571 drive burst mode (in C128 native mode)
+- VDC RAM expansion (16KB → 64KB)
+- CP/M 3.0 support (Z80 mode)
+
+---
+
+## Part 5: Future Systems
+
+### 5.1 8-Bit Computers
+
+| System | CPU Crate | Key Chip Crates | Priority |
+|---|---|---|---|
+| Amstrad CPC | `cpu-z80` | `chip-mc6845`, `chip-ay-3-8910`, `chip-ppi-8255`, `chip-fdc-765` | High |
+| MSX (1/2/2+/turboR) | `cpu-z80` (+`cpu-r800`) | `chip-tms9918` (family), `chip-ay-3-8910`, `chip-ppi-8255`, `chip-ym2413` | High |
+| BBC Micro | `cpu-6502` | `chip-mc6845`, `chip-sn76489`, `chip-via-6522`, `chip-fdc-8271`/`chip-fdc-wd1770` | Medium |
+| Atari 8-bit | `cpu-6502` | `chip-antic`, `chip-gtia`, `chip-pokey`, `chip-pia-6520` | Medium |
+| Apple II | `cpu-6502` (+`cpu-65c816` for IIGS) | `chip-ensoniq-5503` (IIGS) | Medium |
+| ZX81 | `cpu-z80` | `chip-ula-zx81` | Low |
+
+### 5.2 16-Bit Computers
+
+| System | CPU Crate | Key Chip Crates | Priority |
+|---|---|---|---|
+| Atari ST/STE | `cpu-m68k` | `chip-ay-3-8910` (as YM2149), `chip-mc6850`, `chip-mc68901`, `chip-fdc-wd1770`, `chip-shifter` | High |
+| Atari TT | `cpu-m68k` (030) | Above + `chip-tt-shifter` | Low |
+| Atari Falcon | `cpu-m68k` (030) | `chip-videl`, `cpu-dsp56k` | Low |
+| Sharp X68000 | `cpu-m68k` | `chip-ym2151`, `chip-oki-msm6258`, `chip-x68k-video` | Low |
+
+### 5.3 Consoles
+
+| System | CPU Crate(s) | Key Chip Crates | Priority |
+|---|---|---|---|
+| Sega Master System | `cpu-z80` | `chip-sega-vdp`, `chip-sn76489` | High |
+| Game Gear | `cpu-z80` | `chip-sega-vdp` (GG variant), `chip-sn76489` | High (w/ SMS) |
+| Sega Genesis | `cpu-m68k` + `cpu-z80` | `chip-genesis-vdp`, `chip-ym2612`, `chip-sn76489` | High |
+| SNES | `cpu-65c816` + `cpu-spc700` | `chip-snes-ppu`, `chip-snes-dsp` | High |
+| Game Boy / GBC | `cpu-sm83` | `chip-gb-ppu`, `chip-gb-apu` | High |
+| PC Engine | `cpu-huc6280` | `chip-huc6270` (VDC), `chip-huc6260` (VCE) | Medium |
+| Game Boy Advance | `cpu-arm7tdmi` + `cpu-sm83` | `chip-gba-ppu` | Medium |
+| Neo Geo | `cpu-m68k` + `cpu-z80` | `chip-neogeo-lspc`, `chip-ym2610` | Medium |
+| Mega CD | `cpu-m68k` (×2) | `chip-rf5c164`, `chip-asic-mcd` | Low |
+| 32X | `cpu-sh2` (×2) | `chip-32x-vdp` | Low |
+
+---
+
+## Part 6: Shared Chip Crates -- Cross-System Reuse
+
+### 6.1 Sound Chips
+
+| Crate | Chip | Systems | Notes |
+|---|---|---|---|
+| `chip-ay-3-8910` | AY-3-8910/8912/YM2149 | Spectrum 128+, CPC, MSX, Atari ST, Sunsoft 5B mapper | Config for variant (I/O ports, envelope quirks) |
+| `chip-sn76489` | SN76489 | BBC Micro, SMS, Game Gear, Genesis | Config for noise feedback polynomial |
+| `chip-sid` | SID 6581/8580 | C64, C128 | Config for filter model, combined waveforms |
+| `chip-ym2612` | YM2612 (OPN2) | Genesis | 6-ch FM + DAC |
+| `chip-ym2610` | YM2610 (OPNB) | Neo Geo | 4 FM + 3 SSG + 7 ADPCM |
+| `chip-ym2151` | YM2151 (OPM) | X68000, arcade | 8-ch FM |
+| `chip-ym2413` | YM2413 (OPLL) | MSX2+, SMS Japan | 9-ch FM (simplified) |
+| `chip-pokey` | POKEY | Atari 8-bit | 4-ch + keyboard/serial/RNG |
+| `chip-ensoniq-5503` | Ensoniq DOC | Apple IIGS | 32-ch wavetable |
+
+**Shared internal module: `ym-fm-core`** -- common Yamaha FM operator logic
+(envelope generator, phase generator, sine table, feedback, LFO) shared by
+`chip-ym2612`, `chip-ym2610`, `chip-ym2151`, `chip-ym2413`.
+
+### 6.2 Video Chips
+
+| Crate | Chip | Systems |
+|---|---|---|
+| `chip-tms9918` | TMS9918A/V9938/V9958 | MSX1/MSX2/MSX2+ (variant config) |
+| `chip-sega-vdp` | Sega VDP (315-5124) | SMS, Game Gear (TMS9918 derivative, could share legacy modes) |
+| `chip-mc6845` | Motorola 6845 CRTC | CPC, BBC Micro (pure timing, no pixel generation) |
+| `chip-vic-ii` | VIC-II 6567/6569/8562/8565 | C64, C128 (extract from machine-c64) |
+| `chip-vdc-8563` | VDC 8563/8568 | C128 (extract from machine-c128) |
+| `chip-ula-spectrum` | Spectrum ULA | Spectrum (extract from machine-spectrum) |
+| `chip-antic` | ANTIC | Atari 8-bit (display list DMA processor) |
+| `chip-gtia` | GTIA | Atari 8-bit (color generation + sprites) |
+
+### 6.3 Support Chips
+
+| Crate | Chip | Systems |
+|---|---|---|
+| `chip-cia` | CIA 6526/8520 | C64, C128 (6526), Amiga (8520). Unified crate with variant for BCD/binary TOD. |
+| `chip-via-6522` | VIA 6522 | BBC Micro, Apple II, 1541 drive |
+| `chip-ppi-8255` | PPI 8255 | CPC, MSX, X68000 |
+| `chip-mc6850` | ACIA 6850 | Atari ST (MIDI + keyboard) |
+| `chip-mc68901` | MFP 68901 | Atari ST (interrupts, timers, serial) |
+| `chip-pia-6520` | PIA 6520/6821 | Atari 8-bit |
+| `chip-fdc-765` | NEC 765 / Intel 8272 FDC | CPC, Spectrum +3 |
+| `chip-fdc-wd1770` | WD1770/1772/1793 FDC | Atari ST, BBC Master, Beta 128 |
+
+**CIA unification:** The 6526 and 8520 differ only in TOD format and minor
+timer edge cases. A single `chip-cia` crate with a variant enum is recommended:
+```rust
+pub enum CiaVariant { Mos6526, Mos6526A, Mos8520 }
 ```
 
 ---
 
-## Phase 8: Testing Strategy
+## Part 7: Media Format Crates
 
-### 8.1 Per-chip unit tests (in each chip crate)
-
-- **chip-agnus:** Beam position wrapping (PAL/NTSC, long/short frames), DMA slot
-  table verification, copper WAIT/MOVE timing, copper danger bit, blitter
-  minterm truth tables, blitter area fill, blitter line draw octants
-- **chip-denise:** Planar-to-chunky for 1-6 bitplanes, HAM hold-and-modify
-  pixel sequence, EHB half-bright, dual playfield with independent scroll,
-  sprite priority vs playfield, attached sprite pairs, collision detection
-- **chip-paula:** Audio period countdown, volume scaling, channel modulation
-  (ADKCON), interrupt priority mapping (14 sources to 6 IPL levels), disk
-  sync detection, DSKLEN double-write safety latch
-- **chip-cia-8520:** Timer A/B countdown in continuous/one-shot mode, timer B
-  counting timer A underflows, TOD counter increment, serial shift register,
-  interrupt generation and masking
-
-### 8.2 Per-format unit tests (in each format crate)
-
-- **format-adf:** Load/save round-trip, MFM encode/decode, sector checksum
-  validation, reject truncated/corrupt files
-
-### 8.3 Integration tests (in machine-amiga)
-
-- DMA contention: CPU cycle count with 0/2/4/6 bitplanes active
-- Copper timing: MOVE to COLOR00 at exact hpos, verify pixel changes
-- Blitter + CPU interleave: cycle sharing with BLTPRI=0 vs BLTPRI=1
-- CIA timing: keyboard serial protocol, timer interrupt generation
-- Disk: ADF load, sync detection, track read via DMA
-
-### 8.4 Test ROM support
-
-- Headless `amiga-test-runner` (like `nes-test-runner`) for automated validation
-- Target: SysTest, DiagROM, and custom timing test programs
+| Crate | Format | Systems | Status |
+|---|---|---|---|
+| `format-adf` | Amiga Disk File (880KB) | Amiga | New |
+| `format-hdf` | Amiga Hard Disk File | Amiga | New |
+| `format-ipf` | Interchangeable Preservation Format | Amiga, Atari ST | New (SPS/CAPS) |
+| `format-d64` | 1541 disk image | C64, C128 | Extract |
+| `format-d71` | 1571 disk image | C128 | Extract |
+| `format-d81` | 1581 disk image | C64, C128 | New |
+| `format-tap` | Tape (Spectrum/C64) | Spectrum, C64 | Extract |
+| `format-tzx` | TZX tape format | Spectrum | New |
+| `format-sna` | SNA snapshot | Spectrum | Extract |
+| `format-z80` | Z80 snapshot | Spectrum | New |
+| `format-prg` | C64 program | C64, C128 | Extract |
+| `format-t64` | T64 tape archive | C64 | New |
+| `format-ines` | iNES/NES 2.0 ROM | NES | Extract |
+| `format-fds` | FDS disk image | Famicom Disk System | New |
+| `format-dsk` | Amstrad/+3 disk | CPC, Spectrum +3 | New |
+| `format-cas` | MSX cassette | MSX | New |
+| `format-rom-msx` | MSX ROM | MSX | New |
+| `format-sms` | SMS/GG ROM | SMS, Game Gear | New |
+| `format-md` | Genesis ROM | Genesis | New |
+| `format-sfc` | SNES ROM | SNES | New |
+| `format-gb` | Game Boy ROM | GB, GBC | New |
+| `format-gba` | GBA ROM | GBA | New |
+| `format-st` | Atari ST disk | Atari ST | New |
+| `format-atr` | Atari 8-bit disk | Atari 8-bit | New |
+| `format-ssd-dsd` | BBC disk | BBC Micro | New |
 
 ---
 
-## Phase 9: Future -- Refactor Existing Machines (stretch goal)
+## Part 8: Component Reuse Matrix
 
-Apply the crate-per-component pattern retroactively:
+How many systems benefit from each shared crate:
 
-### Chip crates to extract
-
-| Current location | New crate | Reused by |
+| Crate | System Count | Systems |
 |---|---|---|
-| `machine-spectrum/src/memory/ula.rs` | `chip-ula` | Spectrum 48K, 128K, +2/+3 |
-| `machine-c64/src/vic.rs` | `chip-vic-ii` | C64, C128 |
-| `machine-c64/src/sid.rs` | `chip-sid` | C64, C128 |
-| CIA code in `machine-c64/src/memory.rs` | `chip-cia-6526` | C64, C128 |
-| `machine-c128/src/vdc.rs` | `chip-vdc-8563` | C128 |
-
-### Format crates to extract
-
-| Current location | New crate | Reused by |
-|---|---|---|
-| TAP loading in `machine-spectrum` | `format-tap` | Spectrum, C64 |
-| SNA loading in `machine-spectrum` | `format-sna` | Spectrum |
-| D64 loading in `machine-c64` | `format-d64` | C64, C128 |
-| D71 loading in `machine-c128` | `format-d71` | C128 |
-| PRG loading in `machine-c64` | `format-prg` | C64, C128 |
-| iNES loading in `machine-nes` | `format-ines` | NES |
-
-### Peripheral crates to extract
-
-| Current location | New crate | Reused by |
-|---|---|---|
-| Disk drive in `machine-c64` | `drive-1541` | C64 |
-| Disk drive in `machine-c128` | `drive-1571` | C128 |
-| Tape in `machine-c64` | `peripheral-datasette` | C64, C128 |
-| Tape in `machine-spectrum` | `peripheral-spectrum-tape` | Spectrum |
+| `cpu-z80` | **9+** | Spectrum, ZX81, CPC, MSX, SMS, Game Gear, Genesis, C128, Neo Geo |
+| `cpu-6502` | **7+** | C64, NES, Atari 8-bit, BBC Micro, Apple II, C128, 1541 drive |
+| `cpu-m68k` | **7+** | Amiga (all), Atari ST, Genesis, Neo Geo, X68000, Mega CD |
+| `chip-ay-3-8910` | **5+** | Spectrum 128+, CPC, MSX, Atari ST, Mockingboard, Sunsoft 5B |
+| `chip-sn76489` | **4** | BBC Micro, SMS, Game Gear, Genesis |
+| `chip-cia` | **3** | C64, C128, Amiga |
+| `chip-ppi-8255` | **3** | CPC, MSX, X68000 |
+| `chip-mc6845` | **2** | CPC, BBC Micro |
+| `chip-via-6522` | **2+** | BBC Micro, Apple II, 1541/1571 drives |
+| `chip-fdc-765` | **2** | CPC, Spectrum +3 |
+| `chip-vic-ii` | **2** | C64, C128 |
+| `chip-sid` | **2** | C64, C128 |
 
 ---
 
-## Workspace Changes
+## Part 9: Implementation Roadmap
 
-New crates for Amiga support:
+### Phase 1: Core Framework (Immediate)
 
-```toml
-members = [
-    # ... existing ...
-    "cpu-m68k",
-    "mem-bus",
-    "mem-chip-ram",
-    "mem-rom",
-    "format-adf",
-    "chip-agnus",
-    "chip-denise",
-    "chip-paula",
-    "chip-cia-8520",
-    "drive-amiga-floppy",
-    "peripheral-keyboard",
-    "machine-amiga",
-    "amiga-runner",
-]
-```
+1. Widen `Cpu::pc()` to `u32`
+2. Add `WordBus` trait to `emu-core`
+3. Add `Clocked` trait to `emu-core`
+
+### Phase 2: Amiga Foundation (Immediate)
+
+1. `cpu-m68k` -- bring in user's 68000 code, implement 68000 variant
+2. `chip-cia` -- unified CIA crate (6526 + 8520 variants)
+3. `chip-paula` -- audio + disk + interrupts
+4. `chip-agnus` -- DMA + copper + blitter (OCS variant first)
+5. `chip-denise` -- video output (OCS variant first)
+6. `format-adf` -- Amiga disk format
+7. `drive-amiga-floppy` -- floppy drive mechanism
+8. `peripheral-amiga-keyboard` -- keyboard controller
+9. `machine-amiga` -- wire together as Amiga 500
+10. `amiga-runner` -- runner binary
+
+### Phase 3: Amiga Variants
+
+1. ECS support in `chip-agnus` (8372A) and `chip-denise` (8373)
+2. AGA support in `chip-agnus` (Alice) and `chip-denise` (Lisa)
+3. `chip-gayle` -- IDE + PCMCIA (A600, A1200, CD32)
+4. `chip-gary`, `chip-fat-gary` -- address decoding
+5. `chip-akiko` -- chunky-to-planar + CD (CD32)
+6. `chip-ramsey`, `chip-super-buster` -- A3000/A4000
+7. `cpu-m68k` variants: 68EC020, 68030, 68040
+8. Model configs: A1000, A2000, A500+, A600, A1200, A3000, A4000, CDTV, CD32
+9. `card-rtg` -- virtual RTG graphics card
+10. `expansion-zorro` -- Zorro II/III bus + autoconfig
+
+### Phase 4: Existing System Variants
+
+1. Spectrum +3 (add `chip-fdc-765`, +3DOS support)
+2. Spectrum Pentagon (no contention model, 320-line frame)
+3. NES PAL support (2A07/2C07 variants, 3.2:1 ratio)
+4. Famicom Disk System (`chip-fds`, wavetable audio)
+5. NES expansion audio mappers (VRC6, VRC7, Namco 163, Sunsoft 5B)
+6. C64 SID/VIC-II/CIA variant configs
+7. C128 VDC 64KB support, C128DCR model
+
+### Phase 5: Extract Shared Chips from Existing Machines
+
+1. `chip-ay-3-8910` (from Spectrum 128 code, enables CPC/MSX/Atari ST)
+2. `chip-vic-ii` (from machine-c64)
+3. `chip-sid` (from machine-c64)
+4. `chip-ula-spectrum` (from machine-spectrum)
+5. `chip-vdc-8563` (from machine-c128)
+6. Format crate extractions (TAP, SNA, D64, PRG, iNES)
+
+### Phase 6: New 8-Bit Systems
+
+1. `machine-cpc` -- Amstrad CPC (Z80 + MC6845 + AY + 8255 + FDC)
+2. `machine-msx` -- MSX family (Z80 + TMS9918 + AY + 8255)
+3. `machine-bbc` -- BBC Micro (6502 + MC6845 + SN76489 + VIA)
+4. `machine-atari8` -- Atari 800XL (6502 + ANTIC + GTIA + POKEY)
+5. `machine-zx81` -- ZX81 (Z80 + simple ULA)
+
+### Phase 7: 16-Bit Systems & Consoles
+
+1. `machine-genesis` -- Sega Genesis (68000 + Z80 + VDP + YM2612 + SN76489)
+2. `machine-sms` -- Sega Master System (Z80 + VDP + SN76489)
+3. `machine-snes` -- SNES (65C816 + PPU + SPC700/DSP)
+4. `machine-atarist` -- Atari ST (68000 + YM2149 + Shifter + MFP)
+5. `machine-gb` -- Game Boy / GBC (SM83 + PPU + APU)
+6. `machine-pce` -- PC Engine (HuC6280 + HuC6270 + HuC6260)
+
+### Phase 8: Advanced Systems
+
+1. `machine-gba` -- Game Boy Advance (ARM7TDMI)
+2. `machine-neogeo` -- Neo Geo (68000 + Z80 + LSPC + YM2610)
+3. `machine-x68000` -- Sharp X68000 (68000 + YM2151 + custom video)
+4. Genesis add-ons: Mega CD, 32X
+5. Amiga Vampire/SAGA support
 
 ---
 
-## Implementation Order
+## Part 10: Testing Strategy
 
-1. **Phase 1** -- Core trait changes (widen `pc()`, add system bus traits)
-2. **Phase 2** -- `mem-rom`, `mem-chip-ram`, `mem-bus` (foundational, small)
-3. **Phase 3** -- `format-adf` (pure parsing, independently testable)
-4. **Phase 4.1** -- Bring in `cpu-m68k` (user's existing code)
-5. **Phase 4.5** -- `chip-cia-8520` (simplest chip, good for validating the pattern)
-6. **Phase 4.4** -- `chip-paula` (interrupts needed early; audio + disk can start stubbed)
-7. **Phase 4.2** -- `chip-agnus` (the big one: DMA + copper + blitter)
-8. **Phase 4.3** -- `chip-denise` (video output)
-9. **Phase 5** -- `drive-amiga-floppy`, `peripheral-keyboard`
-10. **Phase 6** -- `machine-amiga` (wire everything together)
-11. **Phase 7** -- `amiga-runner`
-12. **Phase 8** -- Testing and validation against real hardware behavior
+### Per-chip unit tests
+
+Every chip crate has `#[cfg(test)]` modules testing its behavior in isolation
+with mock buses/inputs. Key areas:
+
+- **CPUs:** Instruction correctness (existing fuse-tests for Z80, similar suites
+  for 6502/68000), cycle counting, interrupt timing
+- **Sound:** Waveform output for known register states
+- **Video:** Pixel output for known bitplane/tile/sprite configurations
+- **Timers:** Countdown modes, interrupt generation, edge cases
+- **DMA:** Slot allocation, contention timing, priority
+
+### Per-format tests
+
+- Load/save round-trip for every format
+- Reject corrupt/truncated files gracefully
+- Validate checksums where applicable (MFM CRC, iNES header)
+
+### Integration tests
+
+- Crystal-to-frame timing: verify exact T-states/cycles per frame for each
+  system variant
+- DMA contention: CPU cycle counts under various display configurations
+- Cross-chip timing: copper writes affecting Denise at exact beam position
+
+### Test ROM/program suites
+
+- NES: existing test ROMs (nestest, blargg APU/PPU tests)
+- Amiga: SysTest, DiagROM
+- Spectrum: FUSE test suite (already used)
+- C64: Lorenz test suite, VICE test programs
+- Genesis: md-test, blastem test ROMs
