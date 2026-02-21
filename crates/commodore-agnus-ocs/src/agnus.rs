@@ -66,6 +66,9 @@ pub struct Agnus {
 
     // Sprite pointers
     pub spr_pt: [u32; 8],
+
+    // Disk pointer
+    pub dsk_pt: u32,
 }
 
 impl Agnus {
@@ -100,6 +103,7 @@ impl Agnus {
             bpl1mod: 0,
             bpl2mod: 0,
             spr_pt: [0; 8],
+            dsk_pt: 0,
         }
     }
 

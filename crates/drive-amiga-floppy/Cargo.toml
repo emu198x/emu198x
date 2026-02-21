@@ -1,0 +1,13 @@
+[package]
+name = "drive-amiga-floppy"
+description = "Amiga floppy drive mechanism emulator with MFM encoding"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+format-adf = { path = "../format-adf" }
+
+[lib]
+name = "drive_amiga_floppy"
+path = "src/lib.rs"

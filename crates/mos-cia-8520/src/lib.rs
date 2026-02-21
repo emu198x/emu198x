@@ -296,6 +296,17 @@ impl Cia8520 {
         (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)
     }
 
+    pub fn port_b_output(&self) -> u8 {
+        (self.port_b & self.ddr_b) | (self.external_b & !self.ddr_b)
+    }
+
+    /// Inject a complete serial byte (keyboard clocked 8 bits via CNT).
+    /// Sets ICR bit 3 (SP) and stores byte in SDR.
+    pub fn receive_serial_byte(&mut self, byte: u8) {
+        self.sdr = byte;
+        self.icr_status |= 0x08;
+    }
+
     /// Hardware reset: clears all registers to power-on state.
     /// Called when the 68000 RESET instruction asserts the reset line.
     pub fn reset(&mut self) {

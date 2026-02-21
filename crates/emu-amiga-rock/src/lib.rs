@@ -12,14 +12,20 @@ use crate::memory::Memory;
 use commodore_agnus_ocs::{Agnus, Copper, SlotOwner};
 use commodore_denise_ocs::DeniseOcs;
 use commodore_paula_8364::Paula8364;
+use drive_amiga_floppy::AmigaFloppyDrive;
+use format_adf::Adf;
 use mos_cia_8520::Cia8520;
 use motorola_68000::cpu::Cpu68000;
+use peripheral_amiga_keyboard::AmigaKeyboard;
 
 // Re-export chip crates so tests and downstream users can access types.
 pub use commodore_agnus_ocs;
 pub use commodore_denise_ocs;
 pub use commodore_paula_8364;
+pub use drive_amiga_floppy;
+pub use format_adf;
 pub use mos_cia_8520;
+pub use peripheral_amiga_keyboard;
 use motorola_68000::bus::{M68kBus, FunctionCode, BusStatus};
 
 /// Standard Amiga PAL Master Crystal Frequency (Hz)
@@ -47,6 +53,8 @@ pub struct Amiga {
     pub cia_a: Cia8520,
     pub cia_b: Cia8520,
     pub paula: Paula8364,
+    pub floppy: AmigaFloppyDrive,
+    pub keyboard: AmigaKeyboard,
 }
 
 impl Amiga {
@@ -88,6 +96,8 @@ impl Amiga {
             cia_a,
             cia_b: Cia8520::new("B"),
             paula: Paula8364::new(),
+            floppy: AmigaFloppyDrive::new(),
+            keyboard: AmigaKeyboard::new(),
         }
     }
 
@@ -190,6 +200,12 @@ impl Amiga {
             }
 
             self.agnus.tick_cck();
+
+            // Check for pending disk DMA after CCK tick
+            if self.paula.disk_dma_pending {
+                self.paula.disk_dma_pending = false;
+                self.perform_disk_dma();
+            }
         }
 
         if self.master_clock % TICKS_PER_CPU == 0 {
@@ -198,6 +214,7 @@ impl Amiga {
             let mut bus = AmigaBusWrapper {
                 agnus: &mut self.agnus, memory: &mut self.memory, denise: &mut self.denise,
                 copper: &mut self.copper, cia_a: &mut self.cia_a, cia_b: &mut self.cia_b, paula: &mut self.paula,
+                floppy: &mut self.floppy, keyboard: &mut self.keyboard,
             };
             self.cpu.tick(&mut bus, self.master_clock);
         }
@@ -207,6 +224,27 @@ impl Amiga {
             if self.cia_a.irq_active() { self.paula.request_interrupt(3); }
             self.cia_b.tick();
             if self.cia_b.irq_active() { self.paula.request_interrupt(13); }
+
+            // Floppy drive motor spin-up timer
+            self.floppy.tick();
+
+            // Update CIA-A PRA with floppy status (active-low signals)
+            let status = self.floppy.status();
+            let mut ext_a = self.cia_a.external_a;
+            // PA2: /DSKCHANGE — 0 when disk changed
+            if status.disk_change { ext_a &= !0x04; } else { ext_a |= 0x04; }
+            // PA3: /DSKPROT — 0 when write-protected
+            if status.write_protect { ext_a &= !0x08; } else { ext_a |= 0x08; }
+            // PA4: /DSKTRACK0 — 0 when at track 0
+            if status.track0 { ext_a &= !0x10; } else { ext_a |= 0x10; }
+            // PA5: /DSKRDY — 0 when motor at speed
+            if status.ready { ext_a &= !0x20; } else { ext_a |= 0x20; }
+            self.cia_a.external_a = ext_a;
+
+            // Keyboard: tick and inject serial byte if ready
+            if let Some(byte) = self.keyboard.tick() {
+                self.cia_a.receive_serial_byte(byte);
+            }
         }
     }
 
@@ -215,6 +253,37 @@ impl Amiga {
             &mut self.agnus, &mut self.denise, &mut self.copper,
             &mut self.paula, &mut self.memory, offset, val,
         );
+    }
+
+    /// Insert a disk image into the internal floppy drive (DF0:).
+    pub fn insert_disk(&mut self, adf: Adf) {
+        self.floppy.insert_disk(adf);
+    }
+
+    /// Perform disk DMA: read MFM track data into chip RAM at DSKPT.
+    fn perform_disk_dma(&mut self) {
+        let word_count = (self.paula.dsklen & 0x3FFF) as u32;
+        let is_write = self.paula.dsklen & 0x4000 != 0;
+
+        if is_write {
+            // Write to disk — not implemented yet, just fire the interrupt
+            self.paula.request_interrupt(1);
+            return;
+        }
+
+        if let Some(mfm_data) = self.floppy.encode_mfm_track() {
+            let byte_count = (word_count * 2) as usize;
+            let transfer_len = byte_count.min(mfm_data.len());
+            let mut addr = self.agnus.dsk_pt;
+
+            for i in 0..transfer_len {
+                self.memory.write_byte(addr, mfm_data[i]);
+                addr = addr.wrapping_add(1);
+            }
+            self.agnus.dsk_pt = addr;
+        }
+        // Fire DSKBLK interrupt whether or not data was transferred
+        self.paula.request_interrupt(1);
     }
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
@@ -233,6 +302,7 @@ impl Amiga {
 pub struct AmigaBusWrapper<'a> {
     pub agnus: &'a mut Agnus, pub memory: &'a mut Memory, pub denise: &'a mut DeniseOcs,
     pub copper: &'a mut Copper, pub cia_a: &'a mut Cia8520, pub cia_b: &'a mut Cia8520, pub paula: &'a mut Paula8364,
+    pub floppy: &'a mut AmigaFloppyDrive, pub keyboard: &'a mut AmigaKeyboard,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -289,13 +359,16 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                 //   - Byte writes to odd addresses (data in low byte)
                 //   - Word writes to any address (both UDS/LDS active)
                 let should_write = (addr & 1 != 0) || is_word;
-                let should_write = (addr & 1 != 0) || is_word;
                 if should_write {
                     let val = data.unwrap_or(0) as u8; // low byte = D0-D7
                     self.cia_a.write(reg, val);
                     if reg == 0 {
                         let out = self.cia_a.port_a_output();
                         self.memory.overlay = out & 0x01 != 0;
+                    }
+                    // CRA write with bit 6 set = SP output mode = keyboard handshake
+                    if reg == 0x0E && val & 0x40 != 0 {
+                        self.keyboard.handshake();
                     }
                 }
                 return BusStatus::Ready(0);
@@ -322,6 +395,17 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         data.unwrap_or(0) as u8         // byte: CPU puts value in low byte
                     };
                     self.cia_b.write(reg, val);
+                    // PRB write: update floppy drive control signals
+                    if reg == 0x01 {
+                        let prb = self.cia_b.port_b_output();
+                        // Active-low signals: asserted when bit is 0
+                        let step = prb & 0x01 == 0;       // PB0: /DSKSTEP
+                        let dir_inward = prb & 0x02 == 0;  // PB1: /DSKDIREC (0=inward)
+                        let side_upper = prb & 0x04 == 0;  // PB2: /DSKSIDE (0=upper/head 1)
+                        let sel = prb & 0x08 == 0;         // PB3: /DSKSEL0
+                        let motor = prb & 0x80 == 0;       // PB7: /DSKMOTOR
+                        self.floppy.update_control(step, dir_inward, side_upper, sel, motor);
+                    }
                 }
                 return BusStatus::Ready(0);
             }
@@ -517,6 +601,8 @@ fn write_custom_register(
         0x09E => paula.write_adkcon(val),
 
         // Disk
+        0x020 => agnus.dsk_pt = (agnus.dsk_pt & 0x0000FFFF) | (u32::from(val) << 16),
+        0x022 => agnus.dsk_pt = (agnus.dsk_pt & 0xFFFF0000) | u32::from(val & 0xFFFE),
         0x024 => paula.write_dsklen(val),
         0x07E => paula.dsksync = val,
 

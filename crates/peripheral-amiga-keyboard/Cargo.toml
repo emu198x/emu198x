@@ -1,0 +1,10 @@
+[package]
+name = "peripheral-amiga-keyboard"
+description = "Amiga keyboard controller microprocessor emulator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "peripheral_amiga_keyboard"
+path = "src/lib.rs"

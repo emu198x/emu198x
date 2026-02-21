@@ -11,6 +11,7 @@ pub struct Paula8364 {
     pub dsklen: u16,
     pub dsklen_prev: u16,
     pub dsksync: u16,
+    pub disk_dma_pending: bool,
 }
 
 impl Paula8364 {
@@ -22,6 +23,7 @@ impl Paula8364 {
             dsklen: 0,
             dsklen_prev: 0,
             dsksync: 0,
+            disk_dma_pending: false,
         }
     }
 
@@ -54,21 +56,16 @@ impl Paula8364 {
     }
 
     /// Double-write protocol: DMA starts only when DSKLEN is written
-    /// twice in a row with bit 15 set. With no disk media, the DMA
-    /// "completes" immediately — the buffer keeps whatever data was
-    /// there (zeros) and DSKBLK fires so the waiting task unblocks.
+    /// twice in a row with bit 15 set. Sets `disk_dma_pending` for the
+    /// machine crate to perform the actual transfer and fire DSKBLK.
     pub fn write_dsklen(&mut self, val: u16) {
         let prev = self.dsklen;
         self.dsklen = val;
         self.dsklen_prev = prev;
 
         // Detect double-write with DMA enable (bit 15 set on both writes).
-        // Bit 14 clear = read direction (disk -> memory).
         if val & 0x8000 != 0 && prev & 0x8000 != 0 {
-            // DMA "complete" — fire DSKBLK interrupt (INTREQ bit 1).
-            // The ROM's L1 interrupt handler and disk.resource will
-            // signal the trackdisk task, unblocking its Wait($0400).
-            self.request_interrupt(1);
+            self.disk_dma_pending = true;
         }
     }
 

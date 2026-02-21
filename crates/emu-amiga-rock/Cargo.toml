@@ -10,6 +10,9 @@ mos-cia-8520 = { path = "../mos-cia-8520" }
 commodore-paula-8364 = { path = "../commodore-paula-8364" }
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
 commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+format-adf = { path = "../format-adf" }
+drive-amiga-floppy = { path = "../drive-amiga-floppy" }
+peripheral-amiga-keyboard = { path = "../peripheral-amiga-keyboard" }
 
 [dev-dependencies]
 png = "0.17"

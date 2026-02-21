@@ -1,0 +1,10 @@
+[package]
+name = "format-adf"
+description = "Amiga Disk File (ADF) image parser"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "format_adf"
+path = "src/lib.rs"
