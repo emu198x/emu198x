@@ -50,11 +50,22 @@ impl Paula {
     }
 
     /// Double-write protocol: DMA starts only when DSKLEN is written
-    /// twice in a row with bit 15 set. Without a disk inserted, this
-    /// accepts the writes but never starts DMA.
+    /// twice in a row with bit 15 set. With no disk media, the DMA
+    /// "completes" immediately — the buffer keeps whatever data was
+    /// there (zeros) and DSKBLK fires so the waiting task unblocks.
     pub fn write_dsklen(&mut self, val: u16) {
-        self.dsklen_prev = self.dsklen;
+        let prev = self.dsklen;
         self.dsklen = val;
+        self.dsklen_prev = prev;
+
+        // Detect double-write with DMA enable (bit 15 set on both writes).
+        // Bit 14 clear = read direction (disk → memory).
+        if val & 0x8000 != 0 && prev & 0x8000 != 0 {
+            // DMA "complete" — fire DSKBLK interrupt (INTREQ bit 1).
+            // The ROM's L1 interrupt handler and disk.resource will
+            // signal the trackdisk task, unblocking its Wait($0400).
+            self.request_interrupt(1);
+        }
     }
 
     pub fn compute_ipl(&self) -> u8 {

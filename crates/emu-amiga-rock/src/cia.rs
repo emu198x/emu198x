@@ -1,6 +1,7 @@
 //! CIA 8520 Complex Interface Adapter.
 
 pub struct Cia {
+    label: &'static str,
     port_a: u8,
     port_b: u8,
     ddr_a: u8,
@@ -29,14 +30,23 @@ pub struct Cia {
     sdr: u8,
     tod_counter: u32,
     tod_alarm: u32,
-    tod_divider: u16,
+
+    // TOD read latch: reading the MSB (reg A) freezes a snapshot.
+    // Subsequent reads of regs 9/8 return latched values.
+    // Reading reg 8 releases the latch.
+    tod_latch: u32,
+    tod_latched: bool,
+
+    // TOD write halt: writing the MSB (reg A) stops the counter.
+    // Writing the LSB (reg 8) restarts it. This prevents the counter
+    // from advancing during a multi-byte write.
+    tod_halted: bool,
 }
 
 impl Cia {
-    pub const TOD_DIVISOR: u16 = 14_188;
-
-    pub fn new() -> Self {
+    pub fn new(label: &'static str) -> Self {
         Self {
+            label,
             port_a: 0xFF,
             port_b: 0xFF,
             ddr_a: 0,
@@ -60,7 +70,9 @@ impl Cia {
             sdr: 0,
             tod_counter: 0,
             tod_alarm: 0,
-            tod_divider: 0,
+            tod_latch: 0,
+            tod_latched: false,
+            tod_halted: false,
         }
     }
 
@@ -113,7 +125,6 @@ impl Cia {
             }
         }
 
-        self.tick_tod();
     }
 
     pub fn irq_active(&self) -> bool {
@@ -130,9 +141,25 @@ impl Cia {
             0x05 => (self.timer_a >> 8) as u8,
             0x06 => self.timer_b as u8,
             0x07 => (self.timer_b >> 8) as u8,
-            0x08 => self.tod_counter as u8,
-            0x09 => (self.tod_counter >> 8) as u8,
-            0x0A => (self.tod_counter >> 16) as u8,
+            // TOD read with latch: reading MSB freezes snapshot,
+            // reading LSB releases latch.
+            0x08 => {
+                let val = if self.tod_latched { self.tod_latch } else { self.tod_counter };
+                self.tod_latched = false;
+                val as u8
+            }
+            0x09 => {
+                let val = if self.tod_latched { self.tod_latch } else { self.tod_counter };
+                (val >> 8) as u8
+            }
+            0x0A => {
+                // Reading MSB latches the full 24-bit value
+                if !self.tod_latched {
+                    self.tod_latch = self.tod_counter;
+                    self.tod_latched = true;
+                }
+                (self.tod_latch >> 16) as u8
+            }
             0x0C => self.sdr,
             0x0D => self.read_icr_and_clear(),
             0x0E => self.cra,
@@ -157,16 +184,42 @@ impl Cia {
             0x04 => self.timer_a_latch = (self.timer_a_latch & 0xFF00) | u16::from(value),
             0x05 => {
                 self.timer_a_latch = (self.timer_a_latch & 0x00FF) | (u16::from(value) << 8);
-                if !self.timer_a_running { self.timer_a = self.timer_a_latch; }
+                if !self.timer_a_running {
+                    self.timer_a = self.timer_a_latch;
+                    // 8520: In one-shot mode, writing the timer high byte
+                    // initiates counting regardless of the start bit.
+                    if self.timer_a_oneshot {
+                        self.timer_a_running = true;
+                        self.cra |= 0x01;
+                    }
+                }
             }
             0x06 => self.timer_b_latch = (self.timer_b_latch & 0xFF00) | u16::from(value),
             0x07 => {
                 self.timer_b_latch = (self.timer_b_latch & 0x00FF) | (u16::from(value) << 8);
-                if !self.timer_b_running { self.timer_b = self.timer_b_latch; }
+                if !self.timer_b_running {
+                    self.timer_b = self.timer_b_latch;
+                    // 8520: In one-shot mode, writing the timer high byte
+                    // initiates counting regardless of the start bit.
+                    if self.timer_b_oneshot {
+                        self.timer_b_running = true;
+                        self.crb |= 0x01;
+                    }
+                }
             }
-            0x08 => self.write_tod_register(0, value),
-            0x09 => self.write_tod_register(1, value),
-            0x0A => self.write_tod_register(2, value),
+            // TOD write with halt: writing MSB stops counter,
+            // writing LSB restarts it.
+            0x08 => {
+                self.write_tod_register(0, value);
+                self.tod_halted = false; // writing LSB restarts counter
+            }
+            0x09 => {
+                self.write_tod_register(1, value);
+            }
+            0x0A => {
+                self.write_tod_register(2, value);
+                self.tod_halted = true; // writing MSB halts counter
+            }
             0x0C => self.sdr = value,
             0x0D => {
                 if value & 0x80 != 0 {
@@ -191,12 +244,16 @@ impl Cia {
         }
     }
 
-    fn tick_tod(&mut self) {
-        self.tod_divider = self.tod_divider.wrapping_add(1);
-        if self.tod_divider < Self::TOD_DIVISOR { return; }
-        self.tod_divider = 0;
+    /// Pulse the TOD counter. Call this from the system when the
+    /// appropriate external signal arrives:
+    /// - CIA-A: VSYNC (once per frame, ~50 Hz PAL)
+    /// - CIA-B: HSYNC (once per scanline, ~15,625 Hz PAL)
+    pub fn tod_pulse(&mut self) {
+        if self.tod_halted { return; }
         self.tod_counter = (self.tod_counter.wrapping_add(1)) & 0xFFFFFF;
-        if self.tod_counter == self.tod_alarm { self.icr_status |= 0x04; }
+        if self.tod_counter == self.tod_alarm {
+            self.icr_status |= 0x04;
+        }
     }
 
     fn write_tod_register(&mut self, byte_index: u8, value: u8) {
@@ -210,6 +267,24 @@ impl Cia {
             self.tod_counter &= 0xFFFFFF;
         }
     }
+
+    pub fn tod_counter(&self) -> u32 { self.tod_counter }
+    pub fn tod_alarm(&self) -> u32 { self.tod_alarm }
+    pub fn tod_halted(&self) -> bool { self.tod_halted }
+
+    /// Directly set the TOD counter. Used to simulate battclock.resource
+    /// writing the RTC time after timer.device init clears the counter.
+    pub fn set_tod_counter(&mut self, value: u32) {
+        self.tod_counter = value & 0xFFFFFF;
+    }
+
+    // Diagnostic accessors for test instrumentation
+    pub fn timer_a(&self) -> u16 { self.timer_a }
+    pub fn timer_b(&self) -> u16 { self.timer_b }
+    pub fn timer_a_running(&self) -> bool { self.timer_a_running }
+    pub fn timer_b_running(&self) -> bool { self.timer_b_running }
+    pub fn icr_status(&self) -> u8 { self.icr_status }
+    pub fn icr_mask(&self) -> u8 { self.icr_mask }
 
     pub fn port_a_output(&self) -> u8 {
         (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)
@@ -237,6 +312,8 @@ impl Cia {
         self.cra = 0;
         self.crb = 0;
         self.sdr = 0;
-        // TOD is not reset by hardware reset
+        self.tod_latched = false;
+        self.tod_halted = false;
+        // TOD counter/alarm are not reset by hardware reset
     }
 }

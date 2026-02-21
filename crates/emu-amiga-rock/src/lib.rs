@@ -93,6 +93,7 @@ impl Amiga {
 
     pub fn tick(&mut self) {
         self.master_clock += 1;
+        MASTER_TICK.store(self.master_clock, std::sync::atomic::Ordering::Relaxed);
 
         if self.master_clock % TICKS_PER_CCK == 0 {
             let vpos = self.agnus.vpos;
@@ -193,6 +194,7 @@ impl Amiga {
 
         if self.master_clock % TICKS_PER_CPU == 0 {
             LAST_CPU_PC.store(self.cpu.instr_start_pc, std::sync::atomic::Ordering::Relaxed);
+            LAST_CPU_SR.store(self.cpu.regs.sr, std::sync::atomic::Ordering::Relaxed);
             let mut bus = AmigaBusWrapper {
                 agnus: &mut self.agnus, memory: &mut self.memory, denise: &mut self.denise,
                 copper: &mut self.copper, cia_a: &mut self.cia_a, cia_b: &mut self.cia_b, paula: &mut self.paula,
@@ -417,6 +419,12 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
 pub static BLIT_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 /// CPU PC when last custom register write happened (for DMACON tracing).
 pub static LAST_CPU_PC: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// CPU SR for memory watchpoint diagnostics.
+pub static LAST_CPU_SR: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+/// Master tick counter for timing correlation.
+pub static MASTER_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// COP1LC write trace counter.
+static COP1LC_TRACE_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 fn write_custom_register(
     agnus: &mut Agnus, denise: &mut Denise, copper: &mut Copper,
@@ -448,11 +456,39 @@ fn write_custom_register(
         0x066 => agnus.blt_dmod = val as i16,
         0x070 => agnus.blt_cdat = val,
         0x072 => agnus.blt_bdat = val,
-        0x074 => agnus.blt_adat = val,
+        0x074 => {
+            let old = agnus.blt_adat;
+            agnus.blt_adat = val;
+            static ADAT_TRACE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let count = ADAT_TRACE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if count < 20 {
+                let pc = LAST_CPU_PC.load(std::sync::atomic::Ordering::Relaxed);
+                let tick = MASTER_TICK.load(std::sync::atomic::Ordering::Relaxed);
+                eprintln!("BLTADAT #{}: ${:04X} -> ${:04X} PC=${:08X} tick={}", count, old, val, pc, tick);
+            }
+        }
 
         // Copper
-        0x080 => copper.cop1lc = (copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
-        0x082 => copper.cop1lc = (copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
+        0x080 => {
+            copper.cop1lc = (copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16);
+            let count = COP1LC_TRACE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if count < 50 {
+                let pc = LAST_CPU_PC.load(std::sync::atomic::Ordering::Relaxed);
+                let sr = LAST_CPU_SR.load(std::sync::atomic::Ordering::Relaxed);
+                let tick = MASTER_TICK.load(std::sync::atomic::Ordering::Relaxed);
+                eprintln!("COP1LCH #{}: val=${:04X} -> cop1lc=${:08X} PC=${:08X} SR=${:04X} tick={}", count, val, copper.cop1lc, pc, sr, tick);
+            }
+        }
+        0x082 => {
+            copper.cop1lc = (copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE);
+            let count = COP1LC_TRACE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if count < 50 {
+                let pc = LAST_CPU_PC.load(std::sync::atomic::Ordering::Relaxed);
+                let sr = LAST_CPU_SR.load(std::sync::atomic::Ordering::Relaxed);
+                let tick = MASTER_TICK.load(std::sync::atomic::Ordering::Relaxed);
+                eprintln!("COP1LCL #{}: val=${:04X} -> cop1lc=${:08X} PC=${:08X} SR=${:04X} tick={}", count, val, copper.cop1lc, pc, sr, tick);
+            }
+        }
         0x084 => copper.cop2lc = (copper.cop2lc & 0x0000FFFF) | (u32::from(val) << 16),
         0x086 => copper.cop2lc = (copper.cop2lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
         0x088 => copper.restart_cop1(),
@@ -555,20 +591,22 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
     let width_words = if width_words == 0 { 64 } else { width_words } as u32;
 
     let count = BLIT_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-    if count <= 30 {
-        eprintln!("BLIT #{}: con0=${:04X} con1=${:04X} size={}x{} apt=${:08X} bpt=${:08X} cpt=${:08X} dpt=${:08X} afwm=${:04X} alwm=${:04X} amod={} bmod={} cmod={} dmod={}",
-            count, agnus.bltcon0, agnus.bltcon1, width_words, height,
+    let tick = MASTER_TICK.load(std::sync::atomic::Ordering::Relaxed);
+    if count <= 80 {
+        let fill_flag = if agnus.bltcon1 & 0x0008 != 0 { "IFE" } else if agnus.bltcon1 & 0x0010 != 0 { "EFE" } else { "" };
+        eprintln!("BLIT #{} (tick {}): con0=${:04X} con1=${:04X} size={}x{} apt=${:08X} bpt=${:08X} cpt=${:08X} dpt=${:08X} afwm=${:04X} alwm=${:04X} amod={} bmod={} cmod={} dmod={} lf=${:02X} adat=${:04X} bdat=${:04X} {}",
+            count, tick, agnus.bltcon0, agnus.bltcon1, width_words, height,
             agnus.blt_apt, agnus.blt_bpt, agnus.blt_cpt, agnus.blt_dpt,
             agnus.blt_afwm, agnus.blt_alwm,
-            agnus.blt_amod, agnus.blt_bmod, agnus.blt_cmod, agnus.blt_dmod);
+            agnus.blt_amod, agnus.blt_bmod, agnus.blt_cmod, agnus.blt_dmod,
+            agnus.bltcon0 as u8, agnus.blt_adat, agnus.blt_bdat, fill_flag);
     }
 
     // LINE mode (BLTCON1 bit 0): Bresenham line drawing.
     // Uses a completely different algorithm from area mode.
     let line_mode = agnus.bltcon1 & 0x0001 != 0;
     if line_mode {
-        let count = BLIT_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-        if count <= 30 {
+        if count <= 80 {
             eprintln!("BLIT #{} LINE: con0=${:04X} con1=${:04X} size={}x{} apt=${:08X} cpt=${:08X} dpt=${:08X} amod={} bmod={} cmod={} dmod={} bdat=${:04X}",
                 count, agnus.bltcon0, agnus.bltcon1, width_words, height,
                 agnus.blt_apt, agnus.blt_cpt, agnus.blt_dpt,
@@ -655,6 +693,12 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
             a_prev = a_masked;
             b_prev = b_raw;
 
+            // Debug: dump first few words of blits that touch BPL1 range
+            if count <= 10 && col == 0 {
+                eprintln!("  BLIT #{} col{}: a_raw=${:04X} a_masked=${:04X} a_shifted=${:04X} b_raw=${:04X} b_shifted=${:04X} c_val=${:04X} lf=${:02X}",
+                    count, col, a_raw, a_masked, a_shifted, b_raw, b_shifted, c_val, lf);
+            }
+
             // Compute minterm for each bit
             let mut result: u16 = 0;
             for bit in 0..16 {
@@ -678,6 +722,11 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
                     filled |= out << bit;
                 }
                 result = filled;
+            }
+
+            // Debug: dump result for early blits
+            if count <= 10 && col == 0 {
+                eprintln!("  BLIT #{} col{}: result=${:04X} -> dpt=${:08X}", count, col, result, dpt);
             }
 
             // Write D channel
@@ -715,12 +764,10 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
 ///   BLTCON0 bits 11-8:  Channel enables (must have A,C,D; B optional for texture)
 ///   BLTCON0 bits 7-0:   Minterm (usually $CA for normal, $0A for XOR)
 ///   BLTCON1 bits 15-12: Not used (BSH ignored in line mode)
-///   BLTCON1 bit 4:      SING (single-bit mode — only set pixel, don't clear)
-///   BLTCON1 bits 3-2:   OCTANT direction encoding:
-///                        bit 3 = SUD (sign of dY step)
-///                        bit 2 = SUL (sign of dX step)
-///                        bit 1 (AUL) combined → octant select
-///   BLTCON1 bit 1:      AUL (which axis is major)
+///   BLTCON1 bit 4:      SUD (sign of dY step: 0=down, 1=up)
+///   BLTCON1 bit 3:      SUL (sign of dX step: 0=right, 1=left)
+///   BLTCON1 bit 2:      AUL (which axis is major: 0=X, 1=Y)
+///   BLTCON1 bit 1:      SING (single-bit mode — only set pixel, don't clear)
 ///   BLTCON1 bit 0:      LINE (must be 1)
 ///   BLTAPT:  Initial Bresenham error accumulator (2*dy - dx, sign-extended)
 ///   BLTBDAT: Line texture pattern (usually $FFFF for solid)
@@ -737,15 +784,15 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) 
     let ash = (agnus.bltcon0 >> 12) & 0xF;
     let lf = agnus.bltcon0 as u8;
     let use_b = agnus.bltcon0 & 0x0400 != 0;
-    let sing = agnus.bltcon1 & 0x0010 != 0;
-
-    // Octant decoding: bits 3-1 of BLTCON1
-    //   bit 3 (SUD): 0 = Y moves down (+row_mod), 1 = Y moves up (-row_mod)
-    //   bit 2 (SUL): 0 = X moves right (+pixel_bit), 1 = X moves left (-pixel_bit)
-    //   bit 1 (AUL): 0 = X is major axis, 1 = Y is major axis
-    let sud = agnus.bltcon1 & 0x0008 != 0;
-    let sul = agnus.bltcon1 & 0x0004 != 0;
-    let aul = agnus.bltcon1 & 0x0002 != 0;
+    // Octant decoding: bits 4-1 of BLTCON1 (HRM Appendix A)
+    //   bit 4 (SUD): 0 = Y moves down (+row_mod), 1 = Y moves up (-row_mod)
+    //   bit 3 (SUL): 0 = X moves right (+pixel_bit), 1 = X moves left (-pixel_bit)
+    //   bit 2 (AUL): 0 = X is major axis, 1 = Y is major axis
+    //   bit 1 (SING): single-bit mode — only set pixel, don't clear
+    let sud  = agnus.bltcon1 & 0x0010 != 0;
+    let sul  = agnus.bltcon1 & 0x0008 != 0;
+    let aul  = agnus.bltcon1 & 0x0004 != 0;
+    let sing = agnus.bltcon1 & 0x0002 != 0;
 
     let mut error = agnus.blt_apt as i16;
     let error_add = agnus.blt_bmod; // 4*dy (added when error < 0)
