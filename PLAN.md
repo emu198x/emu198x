@@ -28,9 +28,11 @@ independent, reusable crate.
    implement the `Machine` trait, own the master clock, and derive all chip
    clocks from it. Minimal logic.
 
-6. **Variant support via configuration** -- chip crates support all variants of
-   a given IC via config enums or const generics (e.g., Agnus OCS/ECS/AGA,
-   VIC-II 6567/6569/8562/8565, SID 6581/8580, CIA 6526/8520).
+6. **One crate per chip variant** -- each distinct chip revision gets its own
+   crate, named with its full manufacturer prefix. Where one generation extends
+   another (OCS → ECS → AGA), the later crate wraps and composes the earlier
+   one. Config within a single crate is reserved for pin/jumper differences on
+   the same die (e.g. NTSC/PAL crystal selection, LFSR polynomial).
 
 ---
 
@@ -48,7 +50,7 @@ independent, reusable crate.
 **Widen `Cpu::pc()` to `u32`:**
 The 68000 has a 24-bit address space, the 65C816 has 24-bit, ARM7TDMI has
 32-bit. Change `fn pc(&self) -> u16` to `fn pc(&self) -> u32`. Update
-implementations in `cpu-z80` and `cpu-6502` (return `self.pc as u32`).
+implementations in `zilog-z80` and `mos-6502` (return `self.pc as u32`).
 
 **Add `WordBus` trait:**
 ```rust
@@ -98,29 +100,23 @@ Genesis:     53.693175 MHz / 7 = 7.671 MHz (68000), / 15 = 3.580 MHz (Z80)
 
 ## Part 2: CPU Crates
 
-### Existing
+### 68000 Family
 
-| Crate | CPU | Used By |
-|---|---|---|
-| `cpu-z80` | Z80A/B | Spectrum, CPC, MSX, SMS, Game Gear, Genesis (sound), C128 (CP/M), Neo Geo (sound) |
-| `cpu-6502` | 6502/6510/2A03 | C64, NES, Atari 8-bit, BBC Micro, Apple II, C128, 1541 drive |
-
-### New
-
-| Crate | CPU | Used By | Priority |
+| Crate | CPU | Extends | Used By |
 |---|---|---|---|
-| `cpu-m68k` | 68000/010/020/030/040/060/EC variants | Amiga, Atari ST, Genesis, Neo Geo, X68000, Mega CD | **Immediate** |
-| `cpu-65c816` | 65C816 (16-bit 6502 extension) | SNES (Ricoh 5A22), Apple IIGS, CMD SuperCPU | High |
-| `cpu-sm83` | Sharp SM83 (GB Z80/8080 hybrid) | Game Boy, Game Boy Color, GBA (compat) | High |
-| `cpu-arm7tdmi` | ARM7TDMI (ARM + Thumb) | Game Boy Advance | Medium |
-| `cpu-spc700` | Sony SPC700 | SNES audio subsystem | Medium |
-| `cpu-sh2` | Hitachi SH-2 | Sega 32X, Saturn | Low |
-| `cpu-r800` | ASCII R800 (Z80 superset) | MSX turboR | Low |
-| `cpu-huc6280` | HuC6280 (65C02 + PSG + timer) | PC Engine | Medium |
+| `motorola-68000` | 68000 | (base) | A1000, A500, A2000, Atari ST, Genesis, Neo Geo |
+| `motorola-68010` | 68010 | `motorola-68000` | A2000 accelerators |
+| `motorola-68020` | 68020 | `motorola-68010` | Accelerator cards |
+| `motorola-68ec020` | 68EC020 | `motorola-68020` (subset) | A1200, CD32 |
+| `motorola-68030` | 68030 | `motorola-68020` | A3000, A4000/030, Atari TT/Falcon |
+| `motorola-68040` | 68040 | `motorola-68030` | A4000/040 |
+| `motorola-68060` | 68060 | `motorola-68040` | Accelerator cards |
 
-### `cpu-m68k` Detail
+Apollo 68080 → `apollo-68080` (stretch goal).
 
-The user has 68000 emulation working locally. Bring it in as a workspace crate.
+**`motorola-68000` Detail:**
+
+68000 emulation is working locally. Bring it in as a workspace crate.
 
 **Requirements:**
 - Implement `Cpu<B: Bus>` with `pc() -> u32`
@@ -129,29 +125,36 @@ The user has 68000 emulation working locally. Bring it in as a workspace crate.
 - The `Bus` implementation handles DMA contention (same pattern as Spectrum ULA
   contention), so the CPU doesn't know about DMA
 
-**Variant support via feature flags or config:**
-- `M68000` -- base 68000 (A1000, A500, A2000, Atari ST, Genesis, Neo Geo)
-- `M68010` -- minor additions (A2000 accelerators)
-- `M68EC020` -- 68020 without full MMU (A1200, CD32)
-- `M68020` -- full 68020 (accelerator cards)
-- `M68030` -- adds MMU + data cache (A3000, A4000/030, Atari TT/Falcon)
-- `M68040` -- integrated FPU + caches (A4000/040)
-- `M68060` -- superscalar (accelerator cards)
+Each later crate composes the previous one and adds instructions, addressing
+modes, and features (MMU, FPU, caches) on top.
 
-Each variant adds instructions and addressing modes on top of the base 68000.
-The implementation can use a config enum to gate variant-specific behavior.
+### 6502 Family
 
-**Future: Apollo 68080 (Vampire)** -- the Vampire's custom CPU extends the
-68060 with AMMX SIMD instructions, 64-bit registers, and new addressing modes.
-This is a stretch goal that would be a separate feature within `cpu-m68k`.
+| Crate | CPU | Extends | Used By |
+|---|---|---|---|
+| `mos-6502` | 6502 | (base) | Atari 8-bit, BBC Micro, Apple II, 1541 |
+| `mos-6510` | 6510 | `mos-6502` + I/O port | C64 |
+| `mos-8502` | 8502 | `mos-6510` + 2 MHz | C128 |
+| `ricoh-2a03` | 2A03 | `mos-6502` − decimal mode | NES |
+| `wdc-65c02` | 65C02 | `mos-6502` + extra ops | Apple IIe/IIc, PC Engine |
+| `wdc-65c816` | 65C816 | `wdc-65c02` + 16-bit | SNES, Apple IIGS |
 
-### `cpu-6502` Variant Support
+### Z80 Family
 
-The existing crate needs config for:
-- **Decimal mode** -- disabled on NES 2A03
-- **I/O port** -- 6510 (C64), 8502 (C128) have a built-in 6-bit I/O port
-- **65C02 extensions** -- extra instructions for Apple IIe/IIc, PC Engine base
-- **HALT/RDY line** -- Atari Sally (6502C) has DMA halt capability
+| Crate | CPU | Extends | Used By |
+|---|---|---|---|
+| `zilog-z80` | Z80A/B | (base) | Spectrum, CPC, MSX, SMS, Game Gear, Genesis sound |
+| `sharp-sm83` | SM83 | (separate — Z80/8080 hybrid) | Game Boy, GBC |
+| `ascii-r800` | R800 | `zilog-z80` + extras | MSX turboR |
+
+### Other CPUs
+
+| Crate | CPU | Used By |
+|---|---|---|
+| `sony-spc700` | SPC700 | SNES audio |
+| `hitachi-sh2` | SH-2 | 32X, Saturn |
+| `arm-arm7tdmi` | ARM7TDMI | GBA |
+| `hudson-huc6280` | HuC6280 | PC Engine |
 
 ---
 
@@ -205,48 +208,43 @@ Each of these is a separate crate:
 
 | Crate | Chip | Found In | Function |
 |---|---|---|---|
-| `chip-gary` | Gary | A500, A2000 | Address decoding glue logic, overlay control, ROM select |
-| `chip-fat-gary` | Fat Gary | A3000, A4000 | Enhanced address decode, bus timeout, power supply control |
-| `chip-gayle` | Gayle | A600, A1200, CD32 | IDE controller (active-4 ATA), PCMCIA controller (Type I/II), interrupt management |
-| `chip-ramsey` | Ramsey | A3000, A4000 | DRAM controller, refresh, configurable RAM size/type |
-| `chip-buster` | Buster | A2000 | Zorro II bus controller, autoconfig |
-| `chip-super-buster` | Super Buster | A3000, A4000 | Zorro III bus controller (32-bit DMA capable) |
-| `chip-dmac` | DMAC (390537) | A3000, CDTV | DMA controller for SCSI (WD33C93) and CD-ROM |
-| `chip-akiko` | Akiko | CD32 | Chunky-to-planar hardware converter, CD-ROM subcode controller |
-| `chip-amber` | Amber | A3000 | Flicker fixer / scan doubler (converts interlaced output to progressive) |
+| `commodore-gary` | Gary | A500, A2000 | Address decoding glue logic, overlay control, ROM select |
+| `commodore-fat-gary` | Fat Gary | A3000, A4000 | Enhanced address decode, bus timeout, power supply control |
+| `commodore-gayle` | Gayle | A600, A1200, CD32 | IDE controller (active-4 ATA), PCMCIA controller (Type I/II), interrupt management |
+| `commodore-ramsey` | Ramsey | A3000, A4000 | DRAM controller, refresh, configurable RAM size/type |
+| `commodore-buster` | Buster | A2000 | Zorro II bus controller, autoconfig |
+| `commodore-super-buster` | Super Buster | A3000, A4000 | Zorro III bus controller (32-bit DMA capable) |
+| `commodore-dmac` | DMAC (390537) | A3000, CDTV | DMA controller for SCSI (WD33C93) and CD-ROM |
+| `commodore-akiko` | Akiko | CD32 | Chunky-to-planar hardware converter, CD-ROM subcode controller |
+| `commodore-amber` | Amber | A3000 | Flicker fixer / scan doubler (converts interlaced output to progressive) |
 
 ### 3.4 Amiga Custom Chip Crates
 
-**`chip-agnus`** -- DMA controller, copper, blitter, beam counter
+**Agnus** -- DMA controller, copper, blitter, beam counter. Three crates with
+layered composition:
 
-Variant config selects OCS/ECS/AGA behavior:
-```rust
-pub enum AgnusVariant {
-    Ocs8361,     // NTSC, 512KB
-    Ocs8367,     // PAL, 512KB
-    Ocs8370,     // NTSC Fat, 1MB
-    Ocs8371,     // PAL Fat, 1MB
-    Ecs8372A,    // Super Agnus, 1MB
-    AgaAlice,    // AGA, 2MB, 32-bit bus
-}
-```
+- `commodore-agnus-ocs` -- 8361/8367/8370/8371. NTSC/PAL and 512KB/1MB as
+  config (same die, pin differences). Contains copper, blitter, DMA sub-modules.
+- `commodore-agnus-ecs` -- Super Agnus 8372A. Wraps OCS, adds 1MB chip RAM,
+  improved beam counter, programmable display size.
+- `commodore-agnus-aga` -- Alice. Wraps ECS, adds 32-bit bus, 2MB chip RAM,
+  improved blitter.
 
-Sub-modules: `copper.rs`, `blitter.rs`, `dma.rs`
+**Denise** -- Video output, sprites, playfields. Three crates:
 
-**`chip-denise`** -- Video output, sprites, playfields
+- `commodore-denise-ocs` -- 8362. 12-bit color, 32 palette regs, 6 bitplanes.
+- `commodore-denise-ecs` -- Super Denise 8373. Wraps OCS, adds productivity
+  modes, scan doubling, genlock.
+- `commodore-denise-aga` -- Lisa. Wraps ECS, adds 24-bit color, 256 regs, 8
+  bitplanes, HAM8.
 
-Variant config:
-```rust
-pub enum DeniseVariant {
-    Ocs8362,         // OCS Denise: 12-bit color, 32 regs, 6 bitplanes
-    Ecs8373,         // Super Denise: + productivity modes, scan doubling
-    AgaLisa,         // AGA Lisa: 24-bit color, 256 regs, 8 bitplanes, HAM8
-}
-```
+**Paula** -- Audio, disk, interrupts (unchanged across generations):
 
-**`chip-paula`** -- Audio, disk, interrupts (unchanged across generations)
+- `commodore-paula-8364`
 
-**`chip-cia-8520`** -- Two per Amiga (CIA-A: keyboard/overlay/LED, CIA-B: disk/serial)
+**CIA** -- Two per Amiga (CIA-A: keyboard/overlay/LED, CIA-B: disk/serial):
+
+- `mos-cia-8520` -- Binary TOD, timer auto-start on high-byte write.
 
 ### 3.5 Amiga Peripheral & Expansion Crates
 
@@ -266,7 +264,7 @@ pub enum DeniseVariant {
 | Crate | Card | Function |
 |---|---|---|
 | `card-rtg` | Virtual RTG graphics card | Chunky framebuffer, P96/CGX compatible, arbitrary resolution/depth |
-| `card-accelerator` | Virtual accelerator | Faster CPU + fast RAM, maps to `cpu-m68k` variant config |
+| `card-accelerator` | Virtual accelerator | Faster CPU + fast RAM, uses appropriate `motorola-*` CPU crate |
 | `card-ethernet` | Virtual network card | For networking support |
 | `card-ram-expansion` | RAM expansion | Fast RAM on Zorro II/III |
 
@@ -279,12 +277,12 @@ pub struct Amiga<C: ChipsetConfig> {
     color_clock_divider: u32,             // /4 from master
 
     // Custom chips
-    cpu: M68k,                            // cpu-m68k (variant per model)
-    agnus: Agnus,                         // chip-agnus (variant per chipset)
-    denise: Denise,                       // chip-denise (variant per chipset)
-    paula: Paula,                         // chip-paula
-    cia_a: Cia8520,                       // chip-cia-8520
-    cia_b: Cia8520,                       // chip-cia-8520
+    cpu: M68k,                            // motorola-68000 (or -68ec020/-68030/-68040)
+    agnus: Agnus,                         // commodore-agnus-{ocs,ecs,aga}
+    denise: Denise,                       // commodore-denise-{ocs,ecs,aga}
+    paula: Paula,                         // commodore-paula-8364
+    cia_a: Cia8520,                       // mos-cia-8520
+    cia_b: Cia8520,                       // mos-cia-8520
 
     // Support chips (model-dependent)
     gary: Option<Gary>,                   // A500, A2000
@@ -335,8 +333,8 @@ The Vampire is an FPGA-based accelerator with:
 - **Variants:** V2 (plugs into A500/A600/A1200), V4 (standalone board)
 
 Modeled as:
-- `cpu-m68k` with `M68080` variant (adds AMMX instructions)
-- `chip-saga` crate (AGA superset with chunky modes)
+- `apollo-68080` CPU crate (extends `motorola-68060`, adds AMMX instructions)
+- `commodore-saga` crate (AGA superset with chunky modes)
 - `card-vampire` expansion crate
 
 This is explicitly deferred to later phases.
@@ -373,10 +371,10 @@ This is explicitly deferred to later phases.
 
 | Variant | New Chips Needed | Notes |
 |---|---|---|
-| +3 | `chip-fdc-765` (uPD765A) | 3" floppy drive, +3DOS, port $1FFD paging |
+| +3 | `nec-upd765` (uPD765A) | 3" floppy drive, +3DOS, port $1FFD paging |
 | Pentagon 128/256/512 | None (discrete logic) | No contention, 320-line frame, different INT timing |
 | Scorpion ZS-256 | None | Different memory mapping, turbo modes |
-| Timex 2068 | `chip-scld` | Extended video modes, different AY ports, cartridge |
+| Timex 2068 | `timex-scld` | Extended video modes, different AY ports, cartridge |
 
 #### Expansions to Add
 
@@ -387,7 +385,7 @@ This is explicitly deferred to later phases.
 | Kempston joystick | (config in machine) | Port $1F, trivial |
 | DivIDE/DivMMC | `peripheral-divide` | IDE/SD, shadow ROM paged on M1 traps |
 | Multiface | `peripheral-multiface` | NMI button, shadow ROM/RAM |
-| Beta 128 (TR-DOS) | `peripheral-beta128` | WD1793 FDC, up to 4 drives |
+| Beta 128 (TR-DOS) | `peripheral-beta128` | `western-digital-wd1770` (WD1793), up to 4 drives |
 | AY board (for 48K) | (config in machine) | Add AY-3-8910 at 128-compatible ports |
 
 ### 4.2 NES / Famicom Family
@@ -417,7 +415,7 @@ This is explicitly deferred to later phases.
 |---|---|---|
 | PAL NES | PPU variant config | 26.6 MHz crystal, 312 lines, 3.2:1 PPU:CPU ratio |
 | Famicom | Audio expansion support | 60-pin cart with expansion audio pins |
-| Famicom Disk System | `chip-fds` (2C33 ASIC) | 32KB RAM, 8KB CHR RAM, wavetable audio, QD drive |
+| Famicom Disk System | `nintendo-fds-2c33` | 32KB RAM, 8KB CHR RAM, wavetable audio, QD drive |
 | VS. System | PPU variant config | Scrambled palettes, coin-op hardware, DIP switches |
 | PlayChoice-10 | Z80 supervisor | Dual screen, timer system |
 
@@ -430,10 +428,10 @@ NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4), AxROM (7)
 VRC6 (24/26), VRC7 (85), Namco 163 (19), Sunsoft 5B (69), MMC5 (5)
 
 Each expansion audio mapper contains a sound chip that could be its own crate:
-- `chip-vrc6-audio` -- 2 pulse + 1 sawtooth
-- `chip-vrc7-audio` -- YM2413 derivative (6-ch FM)
-- `chip-namco163-audio` -- 8-ch wavetable
-- `chip-sunsoft5b-audio` -- YM2149 variant (3-ch PSG)
+- `konami-vrc6-audio` -- 2 pulse + 1 sawtooth
+- `konami-vrc7-audio` -- YM2413 derivative (6-ch FM)
+- `namco-163-audio` -- 8-ch wavetable
+- `sunsoft-5b-audio` -- YM2149 variant (3-ch PSG)
 
 ### 4.3 Commodore 64 Family
 
@@ -482,7 +480,7 @@ VIC-II generates the CPU clock. Without VIC-II, nothing runs.
 |---|---|---|
 | SX-64 | No Datasette port, built-in 1541, 60Hz TOD | Different default colors |
 | C64 GS | Cartridge-only, no keyboard | Game console variant |
-| PAL-N (6572) | Different VIC-II timing | 65 cycles/line, 312 lines |
+| PAL-N (6572) | `mos-vic-ii-paln` crate | 65 cycles/line, 312 lines |
 
 #### Expansions to Add
 
@@ -490,12 +488,12 @@ VIC-II generates the CPU clock. Without VIC-II, nothing runs.
 |---|---|---|
 | 1541 drive | `drive-1541` (extract) | Own 6502 + 2× VIA 6522, GCR encoding |
 | 1541-II | variant of `drive-1541` | External PSU, same logic |
-| 1581 drive | `drive-1581` | 3.5" DD, WD1770 + CIA 8520 |
-| REU 1700/1750/1764 | `chip-reu-8726` | DMA engine, 128KB-2MB, I/O at $DF00 |
-| CMD SuperCPU | Uses `cpu-65c816` | 65816 @ 20 MHz, 16MB RAM |
+| 1581 drive | `drive-1581` | 3.5" DD, `western-digital-wd1770` + `mos-cia-8520` |
+| REU 1700/1750/1764 | `mos-reu-8726` | DMA engine, 128KB-2MB, I/O at $DF00 |
+| CMD SuperCPU | Uses `wdc-65c816` | 65816 @ 20 MHz, 16MB RAM |
 | EasyFlash | `cart-easyflash` | 1MB flash, bank-switched |
 | Action Replay | `cart-action-replay` | Freezer/trainer cartridge |
-| SwiftLink | `chip-acia-6551` | RS-232 up to 38.4 kbps |
+| SwiftLink | `mos-acia-6551` | RS-232 up to 38.4 kbps |
 | 1351 Mouse | (config in machine) | Proportional mouse via SID pots |
 
 ### 4.4 Commodore 128 Family
@@ -523,7 +521,7 @@ VDC: SEPARATE 16 MHz crystal (asynchronous to system bus!)
 | Variant | Changes | Notes |
 |---|---|---|
 | C128D | Built-in 1571, metal case | Same electronics |
-| C128DCR | VDC 8568 with 64KB VRAM | Cost-reduced |
+| C128DCR | `mos-vdc-8568` with 64KB VRAM | Cost-reduced |
 
 #### Expansions to Add
 
@@ -540,36 +538,39 @@ Same as C64 plus:
 
 | System | CPU Crate | Key Chip Crates | Priority |
 |---|---|---|---|
-| Amstrad CPC | `cpu-z80` | `chip-mc6845`, `chip-ay-3-8910`, `chip-ppi-8255`, `chip-fdc-765` | High |
-| MSX (1/2/2+/turboR) | `cpu-z80` (+`cpu-r800`) | `chip-tms9918` (family), `chip-ay-3-8910`, `chip-ppi-8255`, `chip-ym2413` | High |
-| BBC Micro | `cpu-6502` | `chip-mc6845`, `chip-sn76489`, `chip-via-6522`, `chip-fdc-8271`/`chip-fdc-wd1770` | Medium |
-| Atari 8-bit | `cpu-6502` | `chip-antic`, `chip-gtia`, `chip-pokey`, `chip-pia-6520` | Medium |
-| Apple II | `cpu-6502` (+`cpu-65c816` for IIGS) | `chip-ensoniq-5503` (IIGS) | Medium |
-| ZX81 | `cpu-z80` | `chip-ula-zx81` | Low |
+| Amstrad CPC | `zilog-z80` | `motorola-mc6845`, `general-instrument-ay-3-8910`, `intel-ppi-8255`, `nec-upd765` | High |
+| MSX1 | `zilog-z80` | `texas-instruments-tms9918a`, `general-instrument-ay-3-8910`, `intel-ppi-8255` | High |
+| MSX2 | `zilog-z80` | `yamaha-v9938` (wraps `texas-instruments-tms9918a`), `general-instrument-ay-3-8910`, `intel-ppi-8255` | High |
+| MSX2+ | `zilog-z80` | `yamaha-v9958` (wraps `yamaha-v9938`), `general-instrument-ay-3-8910`, `intel-ppi-8255`, `yamaha-ym2413` | High |
+| MSX turboR | `ascii-r800` | `yamaha-v9958`, `yamaha-ym2149`, `intel-ppi-8255`, `yamaha-ym2413` | High |
+| BBC Micro | `mos-6502` | `motorola-mc6845`, `texas-instruments-sn76489`, `mos-via-6522`, `western-digital-wd1770` | Medium |
+| Atari 8-bit | `mos-6502` | `atari-antic`, `atari-gtia`, `atari-pokey`, `motorola-pia-6520` | Medium |
+| Apple II | `mos-6502` (+`wdc-65c816` for IIGS) | `ensoniq-doc-5503` (IIGS) | Medium |
+| ZX81 | `zilog-z80` | `ferranti-ula-zx81` | Low |
 
 ### 5.2 16-Bit Computers
 
 | System | CPU Crate | Key Chip Crates | Priority |
 |---|---|---|---|
-| Atari ST/STE | `cpu-m68k` | `chip-ay-3-8910` (as YM2149), `chip-mc6850`, `chip-mc68901`, `chip-fdc-wd1770`, `chip-shifter` | High |
-| Atari TT | `cpu-m68k` (030) | Above + `chip-tt-shifter` | Low |
-| Atari Falcon | `cpu-m68k` (030) | `chip-videl`, `cpu-dsp56k` | Low |
-| Sharp X68000 | `cpu-m68k` | `chip-ym2151`, `chip-oki-msm6258`, `chip-x68k-video` | Low |
+| Atari ST/STE | `motorola-68000` | `yamaha-ym2149`, `motorola-mc6850`, `motorola-mc68901`, `western-digital-wd1770`, `atari-shifter` | High |
+| Atari TT | `motorola-68030` | Above + `atari-tt-shifter` | Low |
+| Atari Falcon | `motorola-68030` | `atari-videl`, `motorola-dsp56001` | Low |
+| Sharp X68000 | `motorola-68000` | `yamaha-ym2151`, `oki-msm6258`, `sharp-x68k-video` | Low |
 
 ### 5.3 Consoles
 
 | System | CPU Crate(s) | Key Chip Crates | Priority |
 |---|---|---|---|
-| Sega Master System | `cpu-z80` | `chip-sega-vdp`, `chip-sn76489` | High |
-| Game Gear | `cpu-z80` | `chip-sega-vdp` (GG variant), `chip-sn76489` | High (w/ SMS) |
-| Sega Genesis | `cpu-m68k` + `cpu-z80` | `chip-genesis-vdp`, `chip-ym2612`, `chip-sn76489` | High |
-| SNES | `cpu-65c816` + `cpu-spc700` | `chip-snes-ppu`, `chip-snes-dsp` | High |
-| Game Boy / GBC | `cpu-sm83` | `chip-gb-ppu`, `chip-gb-apu` | High |
-| PC Engine | `cpu-huc6280` | `chip-huc6270` (VDC), `chip-huc6260` (VCE) | Medium |
-| Game Boy Advance | `cpu-arm7tdmi` + `cpu-sm83` | `chip-gba-ppu` | Medium |
-| Neo Geo | `cpu-m68k` + `cpu-z80` | `chip-neogeo-lspc`, `chip-ym2610` | Medium |
-| Mega CD | `cpu-m68k` (×2) | `chip-rf5c164`, `chip-asic-mcd` | Low |
-| 32X | `cpu-sh2` (×2) | `chip-32x-vdp` | Low |
+| Sega Master System | `zilog-z80` | `sega-315-5124`, `texas-instruments-sn76489` | High |
+| Game Gear | `zilog-z80` | `sega-315-5124` (viewport as config), `texas-instruments-sn76489` | High (w/ SMS) |
+| Sega Genesis | `motorola-68000` + `zilog-z80` | `sega-genesis-vdp`, `yamaha-ym2612`, `texas-instruments-sn76489` | High |
+| SNES | `wdc-65c816` + `sony-spc700` | `nintendo-snes-ppu`, `nintendo-snes-dsp` | High |
+| Game Boy / GBC | `sharp-sm83` | `sharp-gb-ppu`, `sharp-gb-apu` | High |
+| PC Engine | `hudson-huc6280` | `hudson-huc6270` (VDC), `hudson-huc6260` (VCE) | Medium |
+| Game Boy Advance | `arm-arm7tdmi` + `sharp-sm83` | `nintendo-gba-ppu` | Medium |
+| Neo Geo | `motorola-68000` + `zilog-z80` | `snk-lspc`, `yamaha-ym2610` | Medium |
+| Mega CD | `motorola-68000` (×2) | `ricoh-rf5c164`, `sega-asic-mcd` | Low |
+| 32X | `hitachi-sh2` (×2) | `sega-32x-vdp` | Low |
 
 ---
 
@@ -577,53 +578,55 @@ Same as C64 plus:
 
 ### 6.1 Sound Chips
 
-| Crate | Chip | Systems | Notes |
-|---|---|---|---|
-| `chip-ay-3-8910` | AY-3-8910/8912/YM2149 | Spectrum 128+, CPC, MSX, Atari ST, Sunsoft 5B mapper | Config for variant (I/O ports, envelope quirks) |
-| `chip-sn76489` | SN76489 | BBC Micro, SMS, Game Gear, Genesis | Config for noise feedback polynomial |
-| `chip-sid` | SID 6581/8580 | C64, C128 | Config for filter model, combined waveforms |
-| `chip-ym2612` | YM2612 (OPN2) | Genesis | 6-ch FM + DAC |
-| `chip-ym2610` | YM2610 (OPNB) | Neo Geo | 4 FM + 3 SSG + 7 ADPCM |
-| `chip-ym2151` | YM2151 (OPM) | X68000, arcade | 8-ch FM |
-| `chip-ym2413` | YM2413 (OPLL) | MSX2+, SMS Japan | 9-ch FM (simplified) |
-| `chip-pokey` | POKEY | Atari 8-bit | 4-ch + keyboard/serial/RNG |
-| `chip-ensoniq-5503` | Ensoniq DOC | Apple IIGS | 32-ch wavetable |
+| Crate | Chip | Systems |
+|---|---|---|
+| `general-instrument-ay-3-8910` | AY-3-8910/8912 | Spectrum 128+, CPC, Mockingboard |
+| `yamaha-ym2149` | YM2149F | MSX, Atari ST, Sunsoft 5B mapper |
+| `mos-sid-6581` | SID 6581 | C64, C128 |
+| `mos-sid-8580` | SID 8580 | C64C, C128CR |
+| `texas-instruments-sn76489` | SN76489 | BBC Micro, SMS, Game Gear, Genesis |
+| `yamaha-ym2612` | YM2612 (OPN2) | Genesis |
+| `yamaha-ym2610` | YM2610 (OPNB) | Neo Geo |
+| `yamaha-ym2151` | YM2151 (OPM) | X68000, arcade |
+| `yamaha-ym2413` | YM2413 (OPLL) | MSX2+, SMS Japan |
+| `atari-pokey` | POKEY | Atari 8-bit |
+| `ensoniq-doc-5503` | Ensoniq DOC | Apple IIGS |
 
 **Shared internal module: `ym-fm-core`** -- common Yamaha FM operator logic
 (envelope generator, phase generator, sine table, feedback, LFO) shared by
-`chip-ym2612`, `chip-ym2610`, `chip-ym2151`, `chip-ym2413`.
+`yamaha-ym2612`, `yamaha-ym2610`, `yamaha-ym2151`, `yamaha-ym2413`.
 
 ### 6.2 Video Chips
 
 | Crate | Chip | Systems |
 |---|---|---|
-| `chip-tms9918` | TMS9918A/V9938/V9958 | MSX1/MSX2/MSX2+ (variant config) |
-| `chip-sega-vdp` | Sega VDP (315-5124) | SMS, Game Gear (TMS9918 derivative, could share legacy modes) |
-| `chip-mc6845` | Motorola 6845 CRTC | CPC, BBC Micro (pure timing, no pixel generation) |
-| `chip-vic-ii` | VIC-II 6567/6569/8562/8565 | C64, C128 (extract from machine-c64) |
-| `chip-vdc-8563` | VDC 8563/8568 | C128 (extract from machine-c128) |
-| `chip-ula-spectrum` | Spectrum ULA | Spectrum (extract from machine-spectrum) |
-| `chip-antic` | ANTIC | Atari 8-bit (display list DMA processor) |
-| `chip-gtia` | GTIA | Atari 8-bit (color generation + sprites) |
+| `texas-instruments-tms9918a` | TMS9918A | MSX1, Colecovision, SG-1000 |
+| `yamaha-v9938` | V9938 | MSX2 (wraps `texas-instruments-tms9918a`) |
+| `yamaha-v9958` | V9958 | MSX2+ (wraps `yamaha-v9938`) |
+| `sega-315-5124` | Sega VDP | SMS, Game Gear (viewport as config) |
+| `motorola-mc6845` | MC6845 CRTC | CPC, BBC Micro (pure timing, no pixel generation) |
+| `mos-vic-ii-pal` | VIC-II PAL | C64 PAL, C128 PAL |
+| `mos-vic-ii-ntsc` | VIC-II NTSC | C64 NTSC, C128 NTSC |
+| `ferranti-ula-spectrum` | Spectrum ULA | Spectrum (extract from machine-spectrum) |
+| `atari-antic` | ANTIC | Atari 8-bit (display list DMA processor) |
+| `atari-gtia` | GTIA | Atari 8-bit (color generation + sprites) |
 
 ### 6.3 Support Chips
 
 | Crate | Chip | Systems |
 |---|---|---|
-| `chip-cia` | CIA 6526/8520 | C64, C128 (6526), Amiga (8520). Unified crate with variant for BCD/binary TOD. |
-| `chip-via-6522` | VIA 6522 | BBC Micro, Apple II, 1541 drive |
-| `chip-ppi-8255` | PPI 8255 | CPC, MSX, X68000 |
-| `chip-mc6850` | ACIA 6850 | Atari ST (MIDI + keyboard) |
-| `chip-mc68901` | MFP 68901 | Atari ST (interrupts, timers, serial) |
-| `chip-pia-6520` | PIA 6520/6821 | Atari 8-bit |
-| `chip-fdc-765` | NEC 765 / Intel 8272 FDC | CPC, Spectrum +3 |
-| `chip-fdc-wd1770` | WD1770/1772/1793 FDC | Atari ST, BBC Master, Beta 128 |
+| `mos-cia-6526` | CIA 6526/6526A | C64, C128 |
+| `mos-cia-8520` | CIA 8520 | Amiga |
+| `mos-via-6522` | VIA 6522 | BBC Micro, Apple II, 1541 drive |
+| `intel-ppi-8255` | PPI 8255 | CPC, MSX, X68000 |
+| `motorola-mc6850` | ACIA 6850 | Atari ST (MIDI + keyboard) |
+| `motorola-mc68901` | MFP 68901 | Atari ST (interrupts, timers, serial) |
+| `motorola-pia-6520` | PIA 6520/6821 | Atari 8-bit |
+| `nec-upd765` | NEC 765 FDC | CPC, Spectrum +3 |
+| `western-digital-wd1770` | WD1770/1772/1793 FDC | Atari ST, BBC Master, Beta 128 |
 
-**CIA unification:** The 6526 and 8520 differ only in TOD format and minor
-timer edge cases. A single `chip-cia` crate with a variant enum is recommended:
-```rust
-pub enum CiaVariant { Mos6526, Mos6526A, Mos8520 }
-```
+The 6526 and 8520 differ in TOD format (BCD vs binary) and timer auto-start.
+The 6526A is a mask revision -- config within `mos-cia-6526`.
 
 ---
 
@@ -665,18 +668,27 @@ How many systems benefit from each shared crate:
 
 | Crate | System Count | Systems |
 |---|---|---|
-| `cpu-z80` | **9+** | Spectrum, ZX81, CPC, MSX, SMS, Game Gear, Genesis, C128, Neo Geo |
-| `cpu-6502` | **7+** | C64, NES, Atari 8-bit, BBC Micro, Apple II, C128, 1541 drive |
-| `cpu-m68k` | **7+** | Amiga (all), Atari ST, Genesis, Neo Geo, X68000, Mega CD |
-| `chip-ay-3-8910` | **5+** | Spectrum 128+, CPC, MSX, Atari ST, Mockingboard, Sunsoft 5B |
-| `chip-sn76489` | **4** | BBC Micro, SMS, Game Gear, Genesis |
-| `chip-cia` | **3** | C64, C128, Amiga |
-| `chip-ppi-8255` | **3** | CPC, MSX, X68000 |
-| `chip-mc6845` | **2** | CPC, BBC Micro |
-| `chip-via-6522` | **2+** | BBC Micro, Apple II, 1541/1571 drives |
-| `chip-fdc-765` | **2** | CPC, Spectrum +3 |
-| `chip-vic-ii` | **2** | C64, C128 |
-| `chip-sid` | **2** | C64, C128 |
+| `zilog-z80` | **9+** | Spectrum, ZX81, CPC, MSX, SMS, Game Gear, Genesis, C128, Neo Geo |
+| `mos-6502` | **4** | Atari 8-bit, BBC Micro, Apple II, 1541 drive |
+| `mos-6510` | **1** | C64 |
+| `ricoh-2a03` | **1** | NES |
+| `motorola-68000` | **5+** | Amiga (OCS/ECS), Atari ST, Genesis, Neo Geo, X68000 |
+| `motorola-68ec020` | **2** | A1200, CD32 |
+| `motorola-68030` | **3** | A3000, A4000/030, Atari TT/Falcon |
+| `general-instrument-ay-3-8910` | **3** | Spectrum 128+, CPC, Mockingboard |
+| `yamaha-ym2149` | **3** | MSX, Atari ST, Sunsoft 5B |
+| `texas-instruments-sn76489` | **4** | BBC Micro, SMS, Game Gear, Genesis |
+| `mos-cia-6526` | **2** | C64, C128 |
+| `mos-cia-8520` | **1** | Amiga |
+| `intel-ppi-8255` | **3** | CPC, MSX, X68000 |
+| `motorola-mc6845` | **2** | CPC, BBC Micro |
+| `mos-via-6522` | **2+** | BBC Micro, Apple II, 1541/1571 drives |
+| `nec-upd765` | **2** | CPC, Spectrum +3 |
+| `mos-vic-ii-pal` | **2** | C64 PAL, C128 PAL |
+| `mos-vic-ii-ntsc` | **2** | C64 NTSC, C128 NTSC |
+| `mos-vic-ii-paln` | **1** | C64 PAL-N |
+| `mos-sid-6581` | **2** | C64, C128 |
+| `mos-sid-8580` | **2** | C64C, C128CR |
 
 ---
 
@@ -690,11 +702,11 @@ How many systems benefit from each shared crate:
 
 ### Phase 2: Amiga Foundation (Immediate)
 
-1. `cpu-m68k` -- bring in user's 68000 code, implement 68000 variant
-2. `chip-cia` -- unified CIA crate (6526 + 8520 variants)
-3. `chip-paula` -- audio + disk + interrupts
-4. `chip-agnus` -- DMA + copper + blitter (OCS variant first)
-5. `chip-denise` -- video output (OCS variant first)
+1. `motorola-68000` -- bring in 68000 code as workspace crate
+2. `mos-cia-8520` -- Amiga CIA
+3. `commodore-paula-8364` -- audio + disk + interrupts
+4. `commodore-agnus-ocs` -- DMA + copper + blitter (OCS)
+5. `commodore-denise-ocs` -- video output (OCS)
 6. `format-adf` -- Amiga disk format
 7. `drive-amiga-floppy` -- floppy drive mechanism
 8. `peripheral-amiga-keyboard` -- keyboard controller
@@ -703,60 +715,63 @@ How many systems benefit from each shared crate:
 
 ### Phase 3: Amiga Variants
 
-1. ECS support in `chip-agnus` (8372A) and `chip-denise` (8373)
-2. AGA support in `chip-agnus` (Alice) and `chip-denise` (Lisa)
-3. `chip-gayle` -- IDE + PCMCIA (A600, A1200, CD32)
-4. `chip-gary`, `chip-fat-gary` -- address decoding
-5. `chip-akiko` -- chunky-to-planar + CD (CD32)
-6. `chip-ramsey`, `chip-super-buster` -- A3000/A4000
-7. `cpu-m68k` variants: 68EC020, 68030, 68040
-8. Model configs: A1000, A2000, A500+, A600, A1200, A3000, A4000, CDTV, CD32
-9. `card-rtg` -- virtual RTG graphics card
-10. `expansion-zorro` -- Zorro II/III bus + autoconfig
+1. `commodore-agnus-ecs` (Super Agnus 8372A, wraps OCS)
+2. `commodore-denise-ecs` (Super Denise 8373, wraps OCS)
+3. `commodore-agnus-aga` (Alice, wraps ECS)
+4. `commodore-denise-aga` (Lisa, wraps ECS)
+5. `commodore-gayle` -- IDE + PCMCIA (A600, A1200, CD32)
+6. `commodore-gary`, `commodore-fat-gary` -- address decoding
+7. `commodore-akiko` -- chunky-to-planar + CD (CD32)
+8. `commodore-ramsey`, `commodore-super-buster` -- A3000/A4000
+9. `motorola-68ec020`, `motorola-68030`, `motorola-68040` CPU crates
+10. Model configs: A1000, A2000, A500+, A600, A1200, A3000, A4000, CDTV, CD32
+11. `card-rtg` -- virtual RTG graphics card
+12. `expansion-zorro` -- Zorro II/III bus + autoconfig
 
 ### Phase 4: Existing System Variants
 
-1. Spectrum +3 (add `chip-fdc-765`, +3DOS support)
+1. Spectrum +3 (add `nec-upd765`, +3DOS support)
 2. Spectrum Pentagon (no contention model, 320-line frame)
 3. NES PAL support (2A07/2C07 variants, 3.2:1 ratio)
-4. Famicom Disk System (`chip-fds`, wavetable audio)
+4. Famicom Disk System (`nintendo-fds-2c33`, wavetable audio)
 5. NES expansion audio mappers (VRC6, VRC7, Namco 163, Sunsoft 5B)
-6. C64 SID/VIC-II/CIA variant configs
-7. C128 VDC 64KB support, C128DCR model
+6. `mos-sid-6581`, `mos-sid-8580` -- separate SID crates
+7. `mos-vic-ii-pal`, `mos-vic-ii-ntsc` -- separate VIC-II crates
+8. `mos-cia-6526` -- C64/C128 CIA
+9. C128 VDC 64KB support, C128DCR model
 
 ### Phase 5: Extract Shared Chips from Existing Machines
 
-1. `chip-ay-3-8910` (from Spectrum 128 code, enables CPC/MSX/Atari ST)
-2. `chip-vic-ii` (from machine-c64)
-3. `chip-sid` (from machine-c64)
-4. `chip-ula-spectrum` (from machine-spectrum)
-5. `chip-vdc-8563` (from machine-c128)
-6. Format crate extractions (TAP, SNA, D64, PRG, iNES)
+1. `general-instrument-ay-3-8910` (from Spectrum 128 code, enables CPC)
+2. `yamaha-ym2149` (separate crate, enables MSX/Atari ST)
+3. `ferranti-ula-spectrum` (from machine-spectrum)
+4. `mos-vdc-8563`, `mos-vdc-8568` (from machine-c128)
+5. Format crate extractions (TAP, SNA, D64, PRG, iNES)
 
 ### Phase 6: New 8-Bit Systems
 
-1. `machine-cpc` -- Amstrad CPC (Z80 + MC6845 + AY + 8255 + FDC)
-2. `machine-msx` -- MSX family (Z80 + TMS9918 + AY + 8255)
-3. `machine-bbc` -- BBC Micro (6502 + MC6845 + SN76489 + VIA)
-4. `machine-atari8` -- Atari 800XL (6502 + ANTIC + GTIA + POKEY)
-5. `machine-zx81` -- ZX81 (Z80 + simple ULA)
+1. `machine-cpc` -- Amstrad CPC (`zilog-z80` + `motorola-mc6845` + `general-instrument-ay-3-8910` + `intel-ppi-8255` + `nec-upd765`)
+2. `machine-msx` -- MSX family (`zilog-z80` + `texas-instruments-tms9918a` / `yamaha-v9938` / `yamaha-v9958` + `general-instrument-ay-3-8910` + `intel-ppi-8255`)
+3. `machine-bbc` -- BBC Micro (`mos-6502` + `motorola-mc6845` + `texas-instruments-sn76489` + `mos-via-6522`)
+4. `machine-atari8` -- Atari 800XL (`mos-6502` + `atari-antic` + `atari-gtia` + `atari-pokey`)
+5. `machine-zx81` -- ZX81 (`zilog-z80` + `ferranti-ula-zx81`)
 
 ### Phase 7: 16-Bit Systems & Consoles
 
-1. `machine-genesis` -- Sega Genesis (68000 + Z80 + VDP + YM2612 + SN76489)
-2. `machine-sms` -- Sega Master System (Z80 + VDP + SN76489)
-3. `machine-snes` -- SNES (65C816 + PPU + SPC700/DSP)
-4. `machine-atarist` -- Atari ST (68000 + YM2149 + Shifter + MFP)
-5. `machine-gb` -- Game Boy / GBC (SM83 + PPU + APU)
-6. `machine-pce` -- PC Engine (HuC6280 + HuC6270 + HuC6260)
+1. `machine-genesis` -- Sega Genesis (`motorola-68000` + `zilog-z80` + `sega-genesis-vdp` + `yamaha-ym2612` + `texas-instruments-sn76489`)
+2. `machine-sms` -- Sega Master System (`zilog-z80` + `sega-315-5124` + `texas-instruments-sn76489`)
+3. `machine-snes` -- SNES (`wdc-65c816` + `nintendo-snes-ppu` + `sony-spc700` / `nintendo-snes-dsp`)
+4. `machine-atarist` -- Atari ST (`motorola-68000` + `yamaha-ym2149` + `atari-shifter` + `motorola-mc68901`)
+5. `machine-gb` -- Game Boy / GBC (`sharp-sm83` + `sharp-gb-ppu` + `sharp-gb-apu`)
+6. `machine-pce` -- PC Engine (`hudson-huc6280` + `hudson-huc6270` + `hudson-huc6260`)
 
 ### Phase 8: Advanced Systems
 
-1. `machine-gba` -- Game Boy Advance (ARM7TDMI)
-2. `machine-neogeo` -- Neo Geo (68000 + Z80 + LSPC + YM2610)
-3. `machine-x68000` -- Sharp X68000 (68000 + YM2151 + custom video)
+1. `machine-gba` -- Game Boy Advance (`arm-arm7tdmi`)
+2. `machine-neogeo` -- Neo Geo (`motorola-68000` + `zilog-z80` + `snk-lspc` + `yamaha-ym2610`)
+3. `machine-x68000` -- Sharp X68000 (`motorola-68000` + `yamaha-ym2151` + `sharp-x68k-video`)
 4. Genesis add-ons: Mega CD, 32X
-5. Amiga Vampire/SAGA support
+5. Amiga Vampire/SAGA support (`apollo-68080` + `commodore-saga`)
 
 ---
 
