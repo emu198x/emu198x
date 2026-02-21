@@ -17,7 +17,7 @@ pub enum SlotOwner {
 /// Maps ddfseq position (0-7) within an 8-CCK group to bitplane index.
 /// From Minimig Verilog: plane = {~ddfseq[0], ~ddfseq[1], ~ddfseq[2]}.
 /// None = free slot (available for copper/CPU).
-const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
+pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
     None,     // 0: free
     Some(3),  // 1: BPL4
     Some(5),  // 2: BPL6
@@ -31,7 +31,7 @@ const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
 pub struct Agnus {
     pub vpos: u16,
     pub hpos: u16, // in CCKs
-    
+
     // DMA Registers
     pub dmacon: u16,
     pub bplcon0: u16,
@@ -143,7 +143,7 @@ impl Agnus {
                     SlotOwner::Cpu
                 }
             }
-            
+
             // Variable slots (Bitplane, Copper, CPU)
             0x1C..=0xE2 => {
                 // Bitplane DMA: fetch window runs from DDFSTRT to DDFSTOP+7.
@@ -172,5 +172,11 @@ impl Agnus {
 
             _ => SlotOwner::Cpu,
         }
+    }
+}
+
+impl Default for Agnus {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,14 +1,17 @@
-//! Denise - Video output.
+//! Commodore Denise OCS — video output, bitplane shifter, and sprite engine.
+//!
+//! Denise receives bitplane data from Agnus DMA and shifts it out pixel by
+//! pixel, combining with the colour palette to produce the final framebuffer.
 
 pub const FB_WIDTH: u32 = 320;
 pub const FB_HEIGHT: u32 = 256;
 
-pub struct Denise {
+pub struct DeniseOcs {
     pub palette: [u16; 32],
     pub framebuffer: Vec<u32>,
     pub bpl_data: [u16; 6],   // Holding latches: written by DMA
     pub bpl_shift: [u16; 6],  // Shift registers: loaded from latches on BPL1DAT write
-    pub shift_count: u8,      // Pixels remaining in shift register (0 → output COLOR00)
+    pub shift_count: u8,      // Pixels remaining in shift register (0 -> output COLOR00)
     pub bplcon1: u16,
     pub bplcon2: u16,
     pub spr_pos: [u16; 8],
@@ -17,7 +20,7 @@ pub struct Denise {
     pub spr_datb: [u16; 8],
 }
 
-impl Denise {
+impl DeniseOcs {
     pub fn new() -> Self {
         Self {
             palette: [0; 32],
@@ -85,5 +88,11 @@ impl Denise {
             };
             self.framebuffer[(y * FB_WIDTH + x) as usize] = argb32;
         }
+    }
+}
+
+impl Default for DeniseOcs {
+    fn default() -> Self {
+        Self::new()
     }
 }

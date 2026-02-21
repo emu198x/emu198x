@@ -1,0 +1,10 @@
+[package]
+name = "mos-cia-8520"
+description = "MOS 8520 Complex Interface Adapter (CIA) emulator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "mos_cia_8520"
+path = "src/lib.rs"

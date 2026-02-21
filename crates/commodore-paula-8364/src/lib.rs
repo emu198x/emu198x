@@ -1,6 +1,10 @@
-//! Paula interrupt controller.
+//! Commodore 8364 Paula — interrupt controller, audio DMA, and disk DMA.
+//!
+//! Paula manages the Amiga's interrupt priority system, mapping 14 interrupt
+//! sources to 6 CPU interrupt levels. It also handles audio channel DMA and
+//! floppy disk DMA (currently stubbed for boot-level emulation).
 
-pub struct Paula {
+pub struct Paula8364 {
     pub intena: u16,
     pub intreq: u16,
     pub adkcon: u16,
@@ -9,7 +13,7 @@ pub struct Paula {
     pub dsksync: u16,
 }
 
-impl Paula {
+impl Paula8364 {
     pub fn new() -> Self {
         Self {
             intena: 0,
@@ -59,7 +63,7 @@ impl Paula {
         self.dsklen_prev = prev;
 
         // Detect double-write with DMA enable (bit 15 set on both writes).
-        // Bit 14 clear = read direction (disk → memory).
+        // Bit 14 clear = read direction (disk -> memory).
         if val & 0x8000 != 0 && prev & 0x8000 != 0 {
             // DMA "complete" — fire DSKBLK interrupt (INTREQ bit 1).
             // The ROM's L1 interrupt handler and disk.resource will
@@ -94,5 +98,11 @@ impl Paula {
         if active & 0x0007 != 0 { return 1; } // SOFT, DSKBLK, TBE
 
         0
+    }
+}
+
+impl Default for Paula8364 {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,7 +1,7 @@
 //! Real Kickstart 1.3 boot test for emu-amiga-rock.
 
 use emu_amiga_rock::Amiga;
-use emu_amiga_rock::denise::{FB_WIDTH, FB_HEIGHT};
+use emu_amiga_rock::commodore_denise_ocs::{FB_WIDTH, FB_HEIGHT};
 use emu_amiga_rock::memory::Memory;
 use motorola_68000::cpu::State;
 use std::fs;

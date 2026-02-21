@@ -1,0 +1,10 @@
+[package]
+name = "commodore-agnus-ocs"
+description = "Commodore Agnus OCS — beam counter, DMA controller, copper, and blitter"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "commodore_agnus_ocs"
+path = "src/lib.rs"

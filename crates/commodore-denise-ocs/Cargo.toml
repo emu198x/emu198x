@@ -1,0 +1,10 @@
+[package]
+name = "commodore-denise-ocs"
+description = "Commodore Denise OCS — video output, bitplane shifter, and sprite engine"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "commodore_denise_ocs"
+path = "src/lib.rs"

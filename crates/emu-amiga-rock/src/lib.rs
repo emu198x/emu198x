@@ -4,22 +4,22 @@
 //! Bus Model: Reactive (Request/Acknowledge), not Predictive.
 //! CPU Model: Ticks every 4 crystal cycles, polls bus until DTACK.
 
-pub mod config;
 pub mod bus;
-pub mod agnus;
-pub mod denise;
-pub mod paula;
+pub mod config;
 pub mod memory;
-pub mod copper;
-pub mod cia;
 
-use crate::agnus::{Agnus, SlotOwner};
 use crate::memory::Memory;
-use crate::denise::Denise;
-use crate::copper::Copper;
-use crate::cia::Cia;
-use crate::paula::Paula;
+use commodore_agnus_ocs::{Agnus, Copper, SlotOwner};
+use commodore_denise_ocs::DeniseOcs;
+use commodore_paula_8364::Paula8364;
+use mos_cia_8520::Cia8520;
 use motorola_68000::cpu::Cpu68000;
+
+// Re-export chip crates so tests and downstream users can access types.
+pub use commodore_agnus_ocs;
+pub use commodore_denise_ocs;
+pub use commodore_paula_8364;
+pub use mos_cia_8520;
 use motorola_68000::bus::{M68kBus, FunctionCode, BusStatus};
 
 /// Standard Amiga PAL Master Crystal Frequency (Hz)
@@ -42,11 +42,11 @@ pub struct Amiga {
     pub cpu: Cpu68000,
     pub agnus: Agnus,
     pub memory: Memory,
-    pub denise: Denise,
+    pub denise: DeniseOcs,
     pub copper: Copper,
-    pub cia_a: Cia,
-    pub cia_b: Cia,
-    pub paula: Paula,
+    pub cia_a: Cia8520,
+    pub cia_b: Cia8520,
+    pub paula: Paula8364,
 }
 
 impl Amiga {
@@ -75,7 +75,7 @@ impl Amiga {
         //   Bit 3: /DSKPROT = 1 (not write protected)
         //   Bit 2: /DSKCHANGE = 0 (disk removed — no disk in drive)
         //   Bits 1,0: LED/OVL outputs, external pull-up = 1,1
-        let mut cia_a = Cia::new("A");
+        let mut cia_a = Cia8520::new("A");
         cia_a.external_a = 0xEB; // 0b_1110_1011
 
         Self {
@@ -83,11 +83,11 @@ impl Amiga {
             cpu,
             agnus: Agnus::new(),
             memory,
-            denise: Denise::new(),
+            denise: DeniseOcs::new(),
             copper: Copper::new(),
             cia_a,
-            cia_b: Cia::new("B"),
-            paula: Paula::new(),
+            cia_b: Cia8520::new("B"),
+            paula: Paula8364::new(),
         }
     }
 
@@ -219,20 +219,20 @@ impl Amiga {
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
         let fb_y = vpos.wrapping_sub(DISPLAY_VSTART);
-        if fb_y >= crate::denise::FB_HEIGHT as u16 { return None; }
+        if fb_y >= commodore_denise_ocs::FB_HEIGHT as u16 { return None; }
         // First bitplane pixel appears 8 CCKs after DDFSTRT (one full
         // 8-CCK fetch group fills all plane latches and triggers load).
         let first_pixel_cck = self.agnus.ddfstrt.wrapping_add(8);
         let cck_offset = hpos_cck.wrapping_sub(first_pixel_cck);
         let fb_x = u32::from(cck_offset) * 2;
-        if fb_x + 1 >= crate::denise::FB_WIDTH { return None; }
+        if fb_x + 1 >= commodore_denise_ocs::FB_WIDTH { return None; }
         Some((fb_x, u32::from(fb_y)))
     }
 }
 
 pub struct AmigaBusWrapper<'a> {
-    pub agnus: &'a mut Agnus, pub memory: &'a mut Memory, pub denise: &'a mut Denise,
-    pub copper: &'a mut Copper, pub cia_a: &'a mut Cia, pub cia_b: &'a mut Cia, pub paula: &'a mut Paula,
+    pub agnus: &'a mut Agnus, pub memory: &'a mut Memory, pub denise: &'a mut DeniseOcs,
+    pub copper: &'a mut Copper, pub cia_a: &'a mut Cia8520, pub cia_b: &'a mut Cia8520, pub paula: &'a mut Paula8364,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -427,8 +427,8 @@ pub static MASTER_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 static COP1LC_TRACE_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 fn write_custom_register(
-    agnus: &mut Agnus, denise: &mut Denise, copper: &mut Copper,
-    paula: &mut Paula, memory: &mut Memory, offset: u16, val: u16,
+    agnus: &mut Agnus, denise: &mut DeniseOcs, copper: &mut Copper,
+    paula: &mut Paula8364, memory: &mut Memory, offset: u16, val: u16,
 ) {
     match offset {
         // Blitter registers
@@ -584,7 +584,7 @@ fn write_custom_register(
 /// On real hardware the blitter runs in DMA slots over many CCKs. For boot
 /// purposes we run the entire operation instantly when BLTSIZE is written,
 /// then clear busy and fire the BLIT interrupt.
-fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
+fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     let height = (agnus.bltsize >> 6) & 0x3FF;
     let width_words = agnus.bltsize & 0x3F;
     let height = if height == 0 { 1024 } else { height } as u32;
@@ -777,7 +777,7 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
 ///   BLTCMOD/BLTDMOD: Destination row modulo (bytes per row of the bitmap)
 ///   BLTAFWM: $8000 (not really used — the single-pixel mask comes from ASH)
 ///   BLTSIZE: height field = line length in pixels, width field = 2 (always)
-fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula, memory: &mut Memory) {
+fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     let length = ((agnus.bltsize >> 6) & 0x3FF) as u32;
     let length = if length == 0 { 1024 } else { length };
 

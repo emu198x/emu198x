@@ -1,6 +1,12 @@
-//! CIA 8520 Complex Interface Adapter.
+//! MOS 8520 Complex Interface Adapter (CIA).
+//!
+//! The 8520 is a general-purpose I/O and timer chip used in the Amiga (two
+//! instances: CIA-A and CIA-B). It provides two 8-bit I/O ports, two 16-bit
+//! countdown timers, a 24-bit time-of-day counter, a serial shift register,
+//! and an interrupt controller.
 
-pub struct Cia {
+/// MOS 8520 Complex Interface Adapter.
+pub struct Cia8520 {
     label: &'static str,
     port_a: u8,
     port_b: u8,
@@ -43,7 +49,7 @@ pub struct Cia {
     tod_halted: bool,
 }
 
-impl Cia {
+impl Cia8520 {
     pub fn new(label: &'static str) -> Self {
         Self {
             label,

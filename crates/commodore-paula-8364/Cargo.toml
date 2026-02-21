@@ -1,0 +1,10 @@
+[package]
+name = "commodore-paula-8364"
+description = "Commodore 8364 Paula interrupt controller and audio/disk DMA emulator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "commodore_paula_8364"
+path = "src/lib.rs"

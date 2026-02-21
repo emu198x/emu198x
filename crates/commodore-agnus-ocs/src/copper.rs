@@ -130,3 +130,9 @@ impl Copper {
         result
     }
 }
+
+impl Default for Copper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
