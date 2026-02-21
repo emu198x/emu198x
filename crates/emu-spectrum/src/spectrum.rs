@@ -15,7 +15,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use emu_core::{Cpu, Observable, Tickable, Value};
-use emu_z80::Z80;
+use zilog_z80::Z80;
 
 use crate::beeper::BeeperState;
 use crate::bus::SpectrumBus;

@@ -4,7 +4,7 @@
 //! before running comprehensive tests like ZEXDOC.
 
 use emu_core::{Cpu, SimpleBus};
-use emu_z80::Z80;
+use zilog_z80::Z80;
 
 /// Run CPU until it HALTs, return instruction count.
 fn run_until_halt(cpu: &mut Z80, bus: &mut SimpleBus) -> u64 {

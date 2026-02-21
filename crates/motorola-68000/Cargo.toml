@@ -1,5 +1,6 @@
 [package]
-name = "cpu-m68k-rock"
+name = "motorola-68000"
+description = "Cycle-accurate Motorola 68000 CPU emulator"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -8,5 +9,5 @@ license = "MIT"
 emu-core = { path = "../emu-core" }
 
 [lib]
-name = "cpu_m68k_rock"
+name = "motorola_68000"
 path = "src/lib.rs"

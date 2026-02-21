@@ -1,6 +1,6 @@
 [package]
-name = "emu-6502"
-description = "Cycle-accurate 6502 CPU emulator"
+name = "mos-6502"
+description = "Cycle-accurate MOS 6502 CPU emulator"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,7 +1,7 @@
 //! Unit tests for 6502 instruction behavior.
 
 use emu_core::{Bus, Cpu, SimpleBus};
-use emu_6502::{flags, Mos6502};
+use mos_6502::{flags, Mos6502};
 
 /// Run one complete instruction (fetch + execute cycles).
 fn run_instruction(cpu: &mut Mos6502, bus: &mut SimpleBus) {

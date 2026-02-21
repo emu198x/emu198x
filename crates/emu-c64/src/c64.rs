@@ -15,7 +15,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use emu_6502::Mos6502;
+use mos_6502::Mos6502;
 use emu_core::{Bus, Cpu, Observable, Tickable, Value};
 
 use crate::bus::C64Bus;

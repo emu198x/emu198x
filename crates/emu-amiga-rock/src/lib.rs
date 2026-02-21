@@ -19,8 +19,8 @@ use crate::denise::Denise;
 use crate::copper::Copper;
 use crate::cia::Cia;
 use crate::paula::Paula;
-use cpu_m68k_rock::cpu::Cpu68000;
-use cpu_m68k_rock::bus::{M68kBus, FunctionCode, BusStatus};
+use motorola_68000::cpu::Cpu68000;
+use motorola_68000::bus::{M68kBus, FunctionCode, BusStatus};
 
 /// Standard Amiga PAL Master Crystal Frequency (Hz)
 pub const PAL_CRYSTAL_HZ: u64 = 28_375_160;

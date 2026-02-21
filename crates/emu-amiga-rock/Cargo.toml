@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 emu-core = { path = "../emu-core" }
-cpu-m68k-rock = { path = "../cpu-m68k-rock" }
+motorola-68000 = { path = "../motorola-68000" }
 
 [dev-dependencies]
 png = "0.17"

@@ -8,7 +8,7 @@
 
 use std::io::Write;
 use emu_core::{Cpu, SimpleBus};
-use emu_z80::{MicroOp, Z80};
+use zilog_z80::{MicroOp, Z80};
 
 fn run_zex(binary: &[u8]) -> bool {
     let mut bus = SimpleBus::new();

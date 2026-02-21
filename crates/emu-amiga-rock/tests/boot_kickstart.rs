@@ -3,7 +3,7 @@
 use emu_amiga_rock::Amiga;
 use emu_amiga_rock::denise::{FB_WIDTH, FB_HEIGHT};
 use emu_amiga_rock::memory::Memory;
-use cpu_m68k_rock::cpu::State;
+use motorola_68000::cpu::State;
 use std::fs;
 
 fn reg_name(offset: u16) -> &'static str {

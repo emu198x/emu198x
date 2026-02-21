@@ -6,7 +6,7 @@
 //! Test data lives in `test-data/z80/v1/`.
 
 use emu_core::{Bus, Cpu, ReadResult};
-use emu_z80::Z80;
+use zilog_z80::Z80;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;

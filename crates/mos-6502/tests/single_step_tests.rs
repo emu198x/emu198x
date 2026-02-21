@@ -5,7 +5,7 @@
 //!
 //! Test data lives in `test-data/65x02/6502/v1/XX.json`.
 
-use emu_6502::Mos6502;
+use mos_6502::Mos6502;
 use emu_core::{Bus, Cpu, ReadResult};
 use serde::Deserialize;
 use std::fs;
@@ -82,7 +82,7 @@ fn setup(cpu: &mut Mos6502, bus: &mut TestBus, state: &CpuState) {
     cpu.regs.a = state.a;
     cpu.regs.x = state.x;
     cpu.regs.y = state.y;
-    cpu.regs.p = emu_6502::Status::from_byte(state.p);
+    cpu.regs.p = mos_6502::Status::from_byte(state.p);
 }
 
 /// Compare the CPU/bus state against expected, returning a list of mismatches.

@@ -10,7 +10,7 @@
 //! - Failure: PC reaches any other trap address
 
 use emu_core::{Cpu, SimpleBus};
-use emu_6502::Mos6502;
+use mos_6502::Mos6502;
 
 /// Run the Klaus Dormann 6502 functional test.
 fn run_dormann(binary: &[u8]) -> bool {

@@ -8,8 +8,8 @@
 //! - Crystal clock: `tick()` takes a clock counter, incremented by 4 per call
 //! - DL cycle count = full hardware cycles (including opcode+IRC fetch time)
 
-use cpu_m68k_rock::Cpu68000;
-use cpu_m68k_rock::bus::{BusStatus, FunctionCode, M68kBus};
+use motorola_68000::Cpu68000;
+use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 use std::fs;
 use std::panic;
 use std::path::Path;
@@ -423,7 +423,7 @@ fn run_test(test: &TestCase) -> Result<(), Vec<String>> {
             && !cpu.in_followup
             && cpu.is_idle()
             && cpu.micro_ops.front().map_or(false, |op| {
-                matches!(op, cpu_m68k_rock::microcode::MicroOp::Execute)
+                matches!(op, motorola_68000::microcode::MicroOp::Execute)
             })
         {
             break;
