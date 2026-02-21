@@ -1,0 +1,149 @@
+Implement the following plan:
+
+# Plan: Fix BPL1 corruption during insert-disk screen drawing
+
+## Context
+
+The Amiga KS 1.3 insert-disk screen has a black background instead of white. The LINE mode octant fix (already applied) correctly draws outlines, but the entire BPL1 bitplane at $A572 is filled with $FF by ROM code at $FC5E0C during the display drawing phase (tick 144M, while LINE blits are still running from tick 89M-368M).
+
+The copper list chain works correctly: COP1LC ($002368) → COPJMP2 → COP2LC ($010450) → sets BPL1PT=$A572. The display pipeline reads the right memory — but that memory contains $FF (all COLOR01=black) instead of the expected outline data.
+
+## Root cause hypothesis
+
+ROM code at $FC5E0C (`MOVE.W (A1), 88(A0)`) runs in a loop writing $FFFF to sequential addresses covering the entire BPL1 range ($A572-$C4B1). This is graphics library code — likely MakeVPort building copper instructions into a CopList buffer that overlaps with the bitplane memory. The overlap suggests either a buffer overflow in the copper instruction list, or the main display routine intentionally fills BPL1 before using blitter fill to clear areas (but no fill blits follow).
+
+We need a diagnostic step to determine: (a) whether the $FF write comes from the main thread or an interrupt handler, and (b) what the GfxBase copper list state looks like.
+
+## Plan
+
+### Step 1: Diagnostic — identify the corruption source
+
+Add temporary diagnostics to capture the state at the point of corruption:
+
+**File: `crates/emu-amiga-rock/src/lib.rs`**
+
+1. Add a `MASTER_TICK` atomic counter (incremented in `tick()`) for timestamp correlation
+2. Re-add COP1LC write tracing at registers $080/$082 — log PC, tick, and SR (supervisor bit) for every write, up to 50 writes
+
+**File: `crates/emu-amiga-rock/src/memory.rs`**
+
+3. Add a watchpoint at $A572: when the first $FF is written, log PC, tick, and the CPU's SR register (to distinguish main thread from interrupt handler). Access SR via a new `LAST_CPU_SR` atomic.
+
+**File: `crates/emu-amiga-rock/tests/boot_kickstart.rs`**
+
+4. After the main emulation loop, dump GfxBase ($221E) fields:
+   - +$22: ActiView (4 bytes)
+   - +$26: copinit (4 bytes)
+   - +$2E: LOFlist (4 bytes)
+   - +$32: SHFlist (4 bytes)
+
+5. Also dump the first ViewPort's CopList address (from the View structure pointed to by ActiView) to check where the copper instructions are allocated.
+
+### Step 2: Analyse and fix
+
+Based on the diagnostics:
+
+- **If SR shows supervisor mode** → the corruption is from a VBI handler. The graphics library's VERTB server is rebuilding copper lists into memory that overlaps with BPL1. The fix would be to investigate why MakeVPort's copper instruction buffer overlaps with the bitplane. Likely a timing issue causing MakeVPort to run before the View is properly set up.
+
+- **If SR shows user mode** → the corruption is from the main display routine (e.g., a SetRast/RectFill/AreaEnd operation). The fill is intentional, and the missing step is a blitter fill operation that should clear areas between outline edges. The fix would be in our blitter fill mode implementation or in how the display routine sets up the fill.
+
+- **If GfxBase->LOFlist ≠ $002368** → LoadView was called and a new copper list exists. The fix is to ensure the VERTB handler updates COP1LC, or to verify the merged list address is correct.
+
+- **If GfxBase->LOFlist = $002368** → LoadView was never called (or called with the default). The existing COP1→COPJMP2→COP2 chain is the intended mechanism, and the corruption source needs separate investigation.
+
+## Key files
+
+- `crates/emu-amiga-rock/src/lib.rs` — tick loop, custom register dispatch, VERTB handler
+- `crates/emu-amiga-rock/src/memory.rs` — chip RAM write path (watchpoint)
+- `crates/emu-amiga-rock/src/copper.rs` — copper state machine
+- `crates/emu-amiga-rock/tests/boot_kickstart.rs` — boot test with diagnostics
+
+## Verification
+
+```
+AMIGA_KS13_ROM=roms/kick13.rom cargo test -p emu-amiga-rock --test boot_kickstart test_boot_kick13 -- --ignored --nocapture
+```
+
+Check diagnostic output to determine:
+1. Is the $FF write from supervisor mode (interrupt) or user mode (main thread)?
+2. What are the GfxBase copper list fields?
+3. Are there COP1LC writes beyond the initial exec setup?
+
+Then implement the fix based on findings and verify the screenshot shows white background with correct hand/disk graphic.
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+
+---
+
+[Request interrupted by user]
+
+---
+
+<task-notification>
+<task-id>b2ff202</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the Amiga KS 1.3 boot test with diagnostics" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+---
+
+[Request interrupted by user]
+
+---
+
+<task-notification>
+<task-id>bee9cc5</task-id>
+<tool-use-id>toolu_01QDY4AkQDGqATfTwijvCi9j</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run boot test with enhanced diagnostics" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+Let's commit and push everything we've got
+
+---
+
+I thought we had a remote
+
+---
+
+Ok. Oops. This should be going to github.com/emu198x/emu198x - which has existing content
+
+---
+
+Yes please, option 2 is likely but let's try option 3
+
+---
+
+Let's keep the remote history - even if that's on a separate branch for now
+
+---
+
+Let's pull the latest main
+
+---
+
+Please read that PLAN.md file now. You will see that it charts a path forwards for this project.
+
+---
+
+I believe the plan still needs some changes; I would like a separate crate per chip variant too. I don't believe that the CIA chips in the C64 and Amiga are similar enough to warrant them being in the same crate.
+
+---
+
+Let's start with that.
+
+---
+
+[Request interrupted by user for tool use]
