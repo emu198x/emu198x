@@ -2509,8 +2509,8 @@ impl Cpu for Mos6502 {
         self.execute_cycle(bus);
     }
 
-    fn pc(&self) -> u16 {
-        self.regs.pc
+    fn pc(&self) -> u32 {
+        u32::from(self.regs.pc)
     }
 
     fn registers(&self) -> Self::Registers {

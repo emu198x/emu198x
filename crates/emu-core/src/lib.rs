@@ -10,7 +10,7 @@ mod observable;
 mod tickable;
 mod ticks;
 
-pub use bus::{Bus, ReadResult, SimpleBus};
+pub use bus::{Bus, ReadResult, SimpleBus, WordBus};
 pub use clock::MasterClock;
 pub use cpu::Cpu;
 pub use observable::{Observable, Value};

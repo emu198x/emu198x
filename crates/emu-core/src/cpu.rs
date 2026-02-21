@@ -21,7 +21,10 @@ pub trait Cpu {
     fn tick<B: Bus>(&mut self, bus: &mut B);
 
     /// Returns the current program counter.
-    fn pc(&self) -> u16;
+    ///
+    /// Returns `u32` to support all CPU address widths: 16-bit (6502, Z80),
+    /// 24-bit (68000), and 32-bit (ARM7TDMI). Narrower CPUs zero-extend.
+    fn pc(&self) -> u32;
 
     /// Returns a snapshot of all registers for inspection.
     fn registers(&self) -> Self::Registers;

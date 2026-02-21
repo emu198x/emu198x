@@ -71,6 +71,23 @@ pub trait Bus {
     fn reset(&mut self) {}
 }
 
+/// Extension for 16-bit data bus systems (68000, SH-2).
+///
+/// The 68000 also does byte accesses (e.g. CIA registers), so this extends
+/// `Bus` rather than replacing it.
+pub trait WordBus: Bus {
+    /// Read a 16-bit word from memory.
+    ///
+    /// Address must be word-aligned. Unaligned reads cause an address error
+    /// on the 68000.
+    fn read_word(&mut self, address: u32) -> u16;
+
+    /// Write a 16-bit word to memory.
+    ///
+    /// Address must be word-aligned.
+    fn write_word(&mut self, address: u32, value: u16);
+}
+
 /// Simple bus implementation for testing - 64KB, no contention.
 ///
 /// This is primarily for Z80-based systems. For 68000 systems, use a bus
