@@ -49,6 +49,59 @@ impl DeniseOcs {
         }
     }
 
+    fn sprite_hstart(pos: u16, ctl: u16) -> u16 {
+        ((pos & 0x00FF) << 1) | (ctl & 0x0001)
+    }
+
+    fn sprite_vstart(pos: u16, ctl: u16) -> u16 {
+        (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF)
+    }
+
+    fn sprite_vstop(_pos: u16, ctl: u16) -> u16 {
+        (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF)
+    }
+
+    fn sprite_pixel_palette_index(&self, beam_x: u32, beam_y: u32) -> Option<usize> {
+        // Minimal OCS sprite overlay:
+        // - non-attach sprites only (odd-sprite attach bit ignored for now)
+        // - sprites are always considered in front of playfields
+        // - lower sprite number wins on overlap
+        for sprite in 0..8usize {
+            if sprite & 1 == 0 && sprite + 1 < 8 && (self.spr_ctl[sprite + 1] & 0x0080) != 0 {
+                continue;
+            }
+            if sprite & 1 == 1 && (self.spr_ctl[sprite] & 0x0080) != 0 {
+                continue;
+            }
+            let pos = self.spr_pos[sprite];
+            let ctl = self.spr_ctl[sprite];
+            let hstart = u32::from(Self::sprite_hstart(pos, ctl));
+            let vstart = u32::from(Self::sprite_vstart(pos, ctl));
+            let vstop = u32::from(Self::sprite_vstop(pos, ctl));
+            if vstop <= vstart {
+                continue;
+            }
+            if beam_y < vstart || beam_y >= vstop {
+                continue;
+            }
+            if beam_x < hstart || beam_x >= hstart + 16 {
+                continue;
+            }
+
+            let bit = 15 - (beam_x - hstart) as u16;
+            let lo = (self.spr_data[sprite] >> bit) & 1;
+            let hi = (self.spr_datb[sprite] >> bit) & 1;
+            let code = lo | (hi << 1);
+            if code == 0 {
+                continue;
+            }
+
+            let base = 16 + (sprite / 2) * 4;
+            return Some(base + code as usize);
+        }
+        None
+    }
+
     /// Copy all bitplane holding latches into the shift registers.
     /// On real hardware this happens when BPL1DAT (plane 0) is written,
     /// which is always the last plane fetched in each 8-CCK DMA group.
@@ -70,22 +123,28 @@ impl DeniseOcs {
     }
 
     pub fn output_pixel(&mut self, x: u32, y: u32) {
+        self.output_pixel_with_beam(x, y, x, y);
+    }
+
+    pub fn output_pixel_with_beam(&mut self, x: u32, y: u32, beam_x: u32, beam_y: u32) {
         if x < FB_WIDTH && y < FB_HEIGHT {
-            let argb32 = if self.shift_count > 0 {
+            let mut color_idx = 0usize;
+            if self.shift_count > 0 {
                 // Compute color index from shifter bits (MSB first)
-                let mut idx = 0u8;
                 for plane in 0..6 {
                     if (self.bpl_shift[plane] & 0x8000) != 0 {
-                        idx |= 1 << plane;
+                        color_idx |= 1usize << plane;
                     }
                     self.bpl_shift[plane] <<= 1;
                 }
                 self.shift_count -= 1;
-                Self::rgb12_to_argb32(self.palette[idx as usize])
-            } else {
-                // Outside data fetch window or shift register exhausted: COLOR00
-                Self::rgb12_to_argb32(self.palette[0])
-            };
+            }
+
+            if let Some(sprite_idx) = self.sprite_pixel_palette_index(beam_x, beam_y) {
+                color_idx = sprite_idx;
+            }
+
+            let argb32 = Self::rgb12_to_argb32(self.palette[color_idx]);
             self.framebuffer[(y * FB_WIDTH + x) as usize] = argb32;
         }
     }
@@ -94,5 +153,95 @@ impl DeniseOcs {
 impl Default for DeniseOcs {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode_sprite_pos_ctl(x: u16, vstart: u16, vstop: u16) -> (u16, u16) {
+        let pos = ((vstart & 0x00FF) << 8) | ((x >> 1) & 0x00FF);
+        let ctl = ((vstop & 0x00FF) << 8)
+            | (((vstart >> 8) & 1) << 2)
+            | (((vstop >> 8) & 1) << 1)
+            | (x & 1);
+        (pos, ctl)
+    }
+
+    #[test]
+    fn sprite_pixel_overrides_bitplane_pixel() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(1, 0x00F);
+        denise.set_palette(17, 0xF00); // sprite 0/1 pair, color 1
+
+        denise.bpl_shift[0] = 0x8000; // playfield color index 1
+        denise.shift_count = 1;
+
+        let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 11);
+        denise.spr_pos[0] = pos;
+        denise.spr_ctl[0] = ctl;
+        denise.spr_data[0] = 0x8000; // leftmost pixel = color code 1
+        denise.spr_datb[0] = 0x0000;
+
+        denise.output_pixel(20, 10);
+
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 20) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00)
+        );
+    }
+
+    #[test]
+    fn transparent_sprite_pixel_leaves_playfield_visible() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(1, 0x0F0);
+        denise.set_palette(17, 0xF00);
+
+        denise.bpl_shift[0] = 0x8000; // playfield color index 1
+        denise.shift_count = 1;
+
+        let (pos, ctl) = encode_sprite_pos_ctl(24, 12, 13);
+        denise.spr_pos[0] = pos;
+        denise.spr_ctl[0] = ctl;
+        denise.spr_data[0] = 0x0000;
+        denise.spr_datb[0] = 0x0000; // transparent
+
+        denise.output_pixel(24, 12);
+
+        assert_eq!(
+            denise.framebuffer[(12 * FB_WIDTH + 24) as usize],
+            DeniseOcs::rgb12_to_argb32(0x0F0)
+        );
+    }
+
+    #[test]
+    fn lower_numbered_sprite_has_priority_on_overlap() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(17, 0xF00); // sprite 0 pair color 1
+        denise.set_palette(21, 0x0FF); // sprite 2 pair color 1
+
+        let (pos0, ctl0) = encode_sprite_pos_ctl(30, 8, 9);
+        denise.spr_pos[0] = pos0;
+        denise.spr_ctl[0] = ctl0;
+        denise.spr_data[0] = 0x8000;
+        denise.spr_datb[0] = 0x0000;
+
+        let (pos2, ctl2) = encode_sprite_pos_ctl(30, 8, 9);
+        denise.spr_pos[2] = pos2;
+        denise.spr_ctl[2] = ctl2;
+        denise.spr_data[2] = 0x8000;
+        denise.spr_datb[2] = 0x0000;
+
+        denise.output_pixel(30, 8);
+
+        assert_eq!(
+            denise.framebuffer[(8 * FB_WIDTH + 30) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00),
+            "sprite 0 should appear in front of sprite 2"
+        );
     }
 }

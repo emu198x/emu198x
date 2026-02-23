@@ -74,7 +74,7 @@ pub struct Amiga {
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
     disk_dma_runtime: Option<DiskDmaRuntime>,
-    sprite_dma_datb_phase: [bool; 8],
+    sprite_dma_phase: [u8; 8],
 }
 
 impl Amiga {
@@ -136,7 +136,7 @@ impl Amiga {
             audio_sample_phase: 0,
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
             disk_dma_runtime: None,
-            sprite_dma_datb_phase: [false; 8],
+            sprite_dma_phase: [0; 8],
         }
     }
 
@@ -173,8 +173,12 @@ impl Amiga {
             // data from the PREVIOUS fetch group. New data loaded this CCK
             // won't appear until the next output.
             if let Some((fb_x, fb_y)) = self.beam_to_fb(vpos, hpos) {
-                self.denise.output_pixel(fb_x, fb_y);
-                self.denise.output_pixel(fb_x + 1, fb_y);
+                let beam_x = u32::from(hpos) * 2;
+                let beam_y = u32::from(vpos);
+                self.denise
+                    .output_pixel_with_beam(fb_x, fb_y, beam_x, beam_y);
+                self.denise
+                    .output_pixel_with_beam(fb_x + 1, fb_y, beam_x + 1, beam_y);
             }
 
             // --- DMA slots ---
@@ -357,6 +361,12 @@ impl Amiga {
     }
 
     pub fn write_custom_reg(&mut self, offset: u16, val: u16) {
+        if (0x120..=0x13E).contains(&offset) {
+            let idx = ((offset - 0x120) / 4) as usize;
+            if idx < 8 {
+                self.sprite_dma_phase[idx] = 0;
+            }
+        }
         write_custom_register(
             &mut self.agnus,
             &mut self.denise,
@@ -476,24 +486,70 @@ impl Amiga {
 
     /// Service one Agnus sprite DMA slot.
     ///
-    /// Minimal OCS bring-up model: fetch one word from `SPRxPT` and alternate
-    /// writes into Denise `SPRxDATA` / `SPRxDATB`, advancing the sprite pointer
-    /// by one word per granted sprite slot. Sprite display start/stop control
-    /// word fetching is not modeled yet.
+    /// Minimal OCS bring-up model: fetch one word from `SPRxPT` and advance a
+    /// coarse sprite DMA phase machine:
+    /// - first two slots after pointer reload fetch `SPRxPOS` / `SPRxCTL`
+    /// - subsequent slots fetch `SPRxDATA` / `SPRxDATB` pairs
+    ///
+    /// This is still not a full hardware sprite DMA state machine, but it
+    /// keeps Denise sprite registers coherent enough for basic rendering.
     fn service_sprite_dma_slot(&mut self, sprite: usize) {
         if sprite >= 8 {
             return;
         }
+        let vpos = self.agnus.vpos;
+        if self.sprite_dma_phase[sprite] == 4 {
+            let pos = self.denise.spr_pos[sprite];
+            let ctl = self.denise.spr_ctl[sprite];
+            let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
+            let vstop = (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF);
+            if !(vstop > vstart && vpos >= vstart && vpos < vstop) {
+                return;
+            }
+            self.sprite_dma_phase[sprite] = 2;
+        }
+
         let addr = self.agnus.spr_pt[sprite];
         let hi = self.memory.read_chip_byte(addr);
         let lo = self.memory.read_chip_byte(addr | 1);
         let word = (u16::from(hi) << 8) | u16::from(lo);
-        if self.sprite_dma_datb_phase[sprite] {
-            self.denise.spr_datb[sprite] = word;
-        } else {
-            self.denise.spr_data[sprite] = word;
+        match self.sprite_dma_phase[sprite] {
+            0 => {
+                self.denise.spr_pos[sprite] = word;
+                self.sprite_dma_phase[sprite] = 1;
+            }
+            1 => {
+                self.denise.spr_ctl[sprite] = word;
+                let pos = self.denise.spr_pos[sprite];
+                let ctl = self.denise.spr_ctl[sprite];
+                let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
+                let vstop = (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF);
+                self.sprite_dma_phase[sprite] = if vstop > vstart && vpos >= vstart && vpos < vstop
+                {
+                    2
+                } else {
+                    4
+                };
+            }
+            2 => {
+                self.denise.spr_data[sprite] = word;
+                self.sprite_dma_phase[sprite] = 3;
+            }
+            _ => {
+                self.denise.spr_datb[sprite] = word;
+                let pos = self.denise.spr_pos[sprite];
+                let ctl = self.denise.spr_ctl[sprite];
+                let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
+                let vstop = (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF);
+                let next_vpos = vpos.wrapping_add(1);
+                self.sprite_dma_phase[sprite] =
+                    if vstop > vstart && next_vpos >= vstart && next_vpos < vstop {
+                        2
+                    } else {
+                        0
+                    };
+            }
         }
-        self.sprite_dma_datb_phase[sprite] = !self.sprite_dma_datb_phase[sprite];
         self.agnus.spr_pt[sprite] = addr.wrapping_add(2);
     }
 

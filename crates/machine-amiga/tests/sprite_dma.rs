@@ -40,17 +40,24 @@ fn tick_ccks(amiga: &mut Amiga, ccks: u32) {
 }
 
 #[test]
-fn sprite_dma_slots_fetch_sprxdata_then_sprxdatb() {
+fn sprite_dma_slots_fetch_sprxpos_ctl_then_data_datb() {
     let mut amiga = make_test_amiga();
     let spr0_addr = 0x0000_3000u32;
 
-    amiga.memory.write_byte(spr0_addr, 0x12);
-    amiga.memory.write_byte(spr0_addr + 1, 0x34);
-    amiga.memory.write_byte(spr0_addr + 2, 0x56);
-    amiga.memory.write_byte(spr0_addr + 3, 0x78);
+    // POS=$0000, CTL=$0200 => vstart=0, vstop=2, x=0
+    amiga.memory.write_byte(spr0_addr, 0x00);
+    amiga.memory.write_byte(spr0_addr + 1, 0x00);
+    amiga.memory.write_byte(spr0_addr + 2, 0x02);
+    amiga.memory.write_byte(spr0_addr + 3, 0x00);
+    amiga.memory.write_byte(spr0_addr + 4, 0x9A);
+    amiga.memory.write_byte(spr0_addr + 5, 0xBC);
+    amiga.memory.write_byte(spr0_addr + 6, 0xDE);
+    amiga.memory.write_byte(spr0_addr + 7, 0xF0);
 
     amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr >> 16) as u16);
     amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr & 0xFFFF) as u16);
+    amiga.denise.spr_pos[0] = 0x1111;
+    amiga.denise.spr_ctl[0] = 0x2222;
     amiga.denise.spr_data[0] = 0xAAAA;
     amiga.denise.spr_datb[0] = 0xBBBB;
 
@@ -66,6 +73,8 @@ fn sprite_dma_slots_fetch_sprxdata_then_sprxdatb() {
         amiga.agnus.spr_pt[0], spr0_addr,
         "sprite pointer must not advance before the first sprite slot"
     );
+    assert_eq!(amiga.denise.spr_pos[0], 0x1111);
+    assert_eq!(amiga.denise.spr_ctl[0], 0x2222);
     assert_eq!(amiga.denise.spr_data[0], 0xAAAA);
     assert_eq!(amiga.denise.spr_datb[0], 0xBBBB);
 
@@ -74,16 +83,18 @@ fn sprite_dma_slots_fetch_sprxdata_then_sprxdatb() {
         amiga.agnus.cck_bus_plan().sprite_dma_service_channel,
         Some(0)
     );
-    tick_ccks(&mut amiga, 1); // sprite-0 first slot => DATA
+    tick_ccks(&mut amiga, 1); // sprite-0 first slot => POS
 
     assert_eq!(
-        amiga.denise.spr_data[0], 0x1234,
-        "first sprite slot should fetch into SPR0DATA"
+        amiga.denise.spr_pos[0], 0x0000,
+        "first sprite slot should fetch into SPR0POS"
     );
     assert_eq!(
-        amiga.denise.spr_datb[0], 0xBBBB,
-        "first sprite slot should not overwrite SPR0DATB"
+        amiga.denise.spr_ctl[0], 0x2222,
+        "first sprite slot should not overwrite SPR0CTL"
     );
+    assert_eq!(amiga.denise.spr_data[0], 0xAAAA);
+    assert_eq!(amiga.denise.spr_datb[0], 0xBBBB);
     assert_eq!(
         amiga.agnus.spr_pt[0],
         spr0_addr + 2,
@@ -95,12 +106,29 @@ fn sprite_dma_slots_fetch_sprxdata_then_sprxdatb() {
         amiga.agnus.cck_bus_plan().sprite_dma_service_channel,
         Some(0)
     );
-    tick_ccks(&mut amiga, 1); // sprite-0 second slot => DATB
+    tick_ccks(&mut amiga, 1); // sprite-0 second slot => CTL
 
-    assert_eq!(amiga.denise.spr_data[0], 0x1234);
+    assert_eq!(amiga.denise.spr_pos[0], 0x0000);
     assert_eq!(
-        amiga.denise.spr_datb[0], 0x5678,
-        "second sprite slot should fetch into SPR0DATB"
+        amiga.denise.spr_ctl[0], 0x0200,
+        "second sprite slot should fetch into SPR0CTL"
     );
     assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 4);
+
+    // Wait for the next sprite-0 slot pair (following scanline) to fetch DATA/DATB.
+    while amiga.agnus.cck_bus_plan().sprite_dma_service_channel != Some(0) {
+        tick_ccks(&mut amiga, 1);
+    }
+    tick_ccks(&mut amiga, 1); // sprite-0 next first slot => DATA
+    assert_eq!(amiga.denise.spr_data[0], 0x9ABC);
+    assert_eq!(amiga.denise.spr_datb[0], 0xBBBB);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 6);
+
+    while amiga.agnus.cck_bus_plan().sprite_dma_service_channel != Some(0) {
+        tick_ccks(&mut amiga, 1);
+    }
+    tick_ccks(&mut amiga, 1); // sprite-0 next second slot => DATB
+    assert_eq!(amiga.denise.spr_data[0], 0x9ABC);
+    assert_eq!(amiga.denise.spr_datb[0], 0xDEF0);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 8);
 }
