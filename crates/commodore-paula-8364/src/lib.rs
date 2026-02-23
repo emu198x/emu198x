@@ -44,6 +44,7 @@ struct AudioChannel {
     output_sample: i8,
     dma_active: bool,
     dma_enabled_prev: bool,
+    dma_requests_pending: u8,
 }
 
 impl Default for AudioChannel {
@@ -63,6 +64,7 @@ impl Default for AudioChannel {
             output_sample: 0,
             dma_active: false,
             dma_enabled_prev: false,
+            dma_requests_pending: 0,
         }
     }
 }
@@ -88,6 +90,9 @@ impl AudioChannel {
         self.next_byte_is_hi = true;
         self.period_counter = self.effective_period();
         self.dma_active = true;
+        // Seed two requests to bootstrap current+next word fill in the simplified
+        // model, while still routing all actual fetches through audio DMA slots.
+        self.dma_requests_pending = 2;
     }
 
     fn stop_dma(&mut self) {
@@ -95,6 +100,7 @@ impl AudioChannel {
         self.current_word = None;
         self.next_word = None;
         self.next_byte_is_hi = true;
+        self.dma_requests_pending = 0;
     }
 
     fn sync_dma_enable(&mut self, enabled: bool) -> bool {
@@ -131,17 +137,17 @@ impl AudioChannel {
         self.vol = (val & 0x7F).min(64) as u8;
     }
 
-    fn fetch_dma_word<F>(&mut self, mut read_chip_byte: F) -> bool
+    fn fetch_dma_word<F>(&mut self, mut read_chip_byte: F) -> Option<bool>
     where
         F: FnMut(u32) -> u8,
     {
         if !self.dma_active {
-            return false;
+            return None;
         }
 
         // Keep one word actively playing and one word prefetched.
         if self.current_word.is_some() && self.next_word.is_some() {
-            return false;
+            return None;
         }
 
         // End of block: raise audio IRQ and loop from LC while DMA remains enabled.
@@ -150,7 +156,7 @@ impl AudioChannel {
             self.ptr = self.lc & 0x00FF_FFFE;
             self.words_remaining = self.programmed_length_words();
             if self.words_remaining == 0 {
-                return false;
+                return None;
             }
             wrapped = true;
         }
@@ -170,7 +176,26 @@ impl AudioChannel {
             self.next_word = Some(word);
         }
 
-        wrapped
+        Some(wrapped)
+    }
+
+    fn queue_dma_request(&mut self) {
+        if self.dma_active {
+            self.dma_requests_pending = self.dma_requests_pending.saturating_add(1);
+        }
+    }
+
+    fn service_dma_slot<F>(&mut self, read_chip_byte: F) -> Option<bool>
+    where
+        F: FnMut(u32) -> u8,
+    {
+        if self.dma_requests_pending == 0 {
+            return None;
+        }
+
+        let fetched = self.fetch_dma_word(read_chip_byte)?;
+        self.dma_requests_pending = self.dma_requests_pending.saturating_sub(1);
+        Some(fetched)
     }
 
     fn tick_output(&mut self, consume_word_each_transition: bool) -> Option<AudioOutputEvent> {
@@ -289,6 +314,21 @@ impl Paula8364 {
         let use_volume = (self.adkcon & ADKCON_USE_VOLUME_BITS[index]) != 0;
         let use_period = (self.adkcon & ADKCON_USE_PERIOD_BITS[index]) != 0;
         use_volume || use_period
+    }
+
+    fn audio_dma_request_on_event(&self, index: usize, event: AudioOutputEvent) -> bool {
+        let use_volume = (self.adkcon & ADKCON_USE_VOLUME_BITS[index]) != 0;
+        let use_period = (self.adkcon & ADKCON_USE_PERIOD_BITS[index]) != 0;
+
+        match (use_period, use_volume, event) {
+            (false, false, AudioOutputEvent::LowByte(_)) => true, // normal mode
+            (false, false, AudioOutputEvent::HighByte(_)) => false,
+            (false, true, AudioOutputEvent::LowByte(_)) => true, // attach volume == normal
+            (false, true, AudioOutputEvent::HighByte(_)) => false,
+            (true, false, AudioOutputEvent::HighByte(_)) => true, // attach period
+            (true, false, AudioOutputEvent::LowByte(_)) => false,
+            (true, true, _) => true, // combined attach on both transitions
+        }
     }
 
     fn apply_audio_modulation_event(&mut self, source: usize, event: AudioOutputEvent) {
@@ -424,8 +464,8 @@ impl Paula8364 {
         if let Some(index_u8) = audio_dma_slot {
             let index = usize::from(index_u8);
             if index < self.audio.len() {
-                let block_reloaded = self.audio[index].fetch_dma_word(&mut read_chip_byte);
-                if block_reloaded {
+                let block_reloaded = self.audio[index].service_dma_slot(&mut read_chip_byte);
+                if block_reloaded == Some(true) {
                     irq_mask |= 1 << (7 + index);
                 }
             }
@@ -444,6 +484,9 @@ impl Paula8364 {
 
         for (index, output_event) in output_events.into_iter().enumerate() {
             if let Some(event) = output_event {
+                if self.audio_dma_request_on_event(index, event) {
+                    self.audio[index].queue_dma_request();
+                }
                 self.apply_audio_modulation_event(index, event);
             }
         }
