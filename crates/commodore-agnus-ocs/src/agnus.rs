@@ -126,6 +126,43 @@ struct BlitterLineRuntime {
     have_c_word: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BlitterAreaRuntime {
+    rows_remaining: u32,
+    width_words: u32,
+    words_remaining_in_row: u32,
+    use_a: bool,
+    use_b: bool,
+    use_c: bool,
+    use_d: bool,
+    ops_per_word: u8,
+    ops_done_in_word: u8,
+    lf: u8,
+    a_shift: u16,
+    b_shift: u16,
+    desc: bool,
+    ptr_step: i32,
+    mod_dir: i32,
+    fill_enabled: bool,
+    ife: bool,
+    efe: bool,
+    fill_carry_init: u16,
+    fill_carry: u16,
+    apt: u32,
+    bpt: u32,
+    cpt: u32,
+    dpt: u32,
+    amod: i16,
+    bmod: i16,
+    cmod: i16,
+    dmod: i16,
+    a_prev: u16,
+    b_prev: u16,
+    a_raw: u16,
+    b_raw: u16,
+    c_val: u16,
+}
+
 pub struct Agnus {
     pub vpos: u16,
     pub hpos: u16, // in CCKs
@@ -146,6 +183,7 @@ pub struct Agnus {
     pub blitter_ccks_remaining: u32,
     blitter_dma_ops: VecDeque<BlitterDmaOp>,
     blitter_line_runtime: Option<BlitterLineRuntime>,
+    blitter_area_runtime: Option<BlitterAreaRuntime>,
     pub blt_apt: u32,
     pub blt_bpt: u32,
     pub blt_cpt: u32,
@@ -191,6 +229,7 @@ impl Agnus {
             blitter_ccks_remaining: 0,
             blitter_dma_ops: VecDeque::new(),
             blitter_line_runtime: None,
+            blitter_area_runtime: None,
             blt_apt: 0,
             blt_bpt: 0,
             blt_cpt: 0,
@@ -276,16 +315,20 @@ impl Agnus {
         self.blitter_exec_pending = false;
         self.blitter_ccks_remaining = 0;
         self.blitter_line_runtime = None;
+        self.blitter_area_runtime = None;
     }
 
     #[must_use]
     pub fn blitter_exec_ready(&self) -> bool {
-        self.blitter_busy && !self.blitter_exec_pending
+        self.blitter_busy
+            && !self.blitter_exec_pending
+            && self.blitter_line_runtime.is_none()
+            && self.blitter_area_runtime.is_none()
     }
 
     #[must_use]
     pub fn has_incremental_blitter_runtime(&self) -> bool {
-        self.blitter_line_runtime.is_some()
+        self.blitter_line_runtime.is_some() || self.blitter_area_runtime.is_some()
     }
 
     /// Execute one queued blitter DMA timing op against the incremental runtime.
@@ -301,122 +344,258 @@ impl Agnus {
         FRead: FnOnce(u32) -> u16,
         FWrite: FnOnce(u32, u16),
     {
-        let Some(mut line) = self.blitter_line_runtime else {
-            return false;
-        };
-
-        match op {
-            BlitterDmaOp::ReadC => {
-                let c_val = read_word(line.cpt);
-                self.blt_cdat = c_val;
-                line.last_c_word = c_val;
-                line.have_c_word = true;
-                self.blitter_line_runtime = Some(line);
-                false
-            }
-            BlitterDmaOp::WriteD => {
-                let c_val = if line.have_c_word {
-                    line.last_c_word
-                } else {
-                    // Defensive fallback; queue should always present ReadC first.
+        if let Some(mut line) = self.blitter_line_runtime {
+            return match op {
+                BlitterDmaOp::ReadC => {
                     let c_val = read_word(line.cpt);
                     self.blt_cdat = c_val;
-                    c_val
-                };
-
-                let pixel_mask: u16 = 0x8000 >> line.pixel_bit;
-                let a_val = pixel_mask;
-                let b_val = if line.texture_enabled {
-                    if line.texture & 0x8000 != 0 {
-                        0xFFFF
-                    } else {
-                        0x0000
-                    }
-                } else {
-                    0xFFFF
-                };
-
-                let mut result: u16 = 0;
-                for bit in 0..16u16 {
-                    let a_bit = (a_val >> bit) & 1;
-                    let b_bit = (b_val >> bit) & 1;
-                    let c_bit = (c_val >> bit) & 1;
-                    let index = (a_bit << 2) | (b_bit << 1) | c_bit;
-                    if (line.lf >> index) & 1 != 0 {
-                        result |= 1 << bit;
-                    }
-                }
-                if line.sing {
-                    result = (result & pixel_mask) | (c_val & !pixel_mask);
-                }
-                write_word(line.dpt, result);
-
-                if line.texture_enabled {
-                    line.texture = line.texture.rotate_left(1);
-                }
-
-                let step_x = |line: &mut BlitterLineRuntime| {
-                    if line.x_neg {
-                        line.pixel_bit = line.pixel_bit.wrapping_sub(1) & 0xF;
-                        if line.pixel_bit == 15 {
-                            line.cpt = line.cpt.wrapping_sub(2);
-                            line.dpt = line.dpt.wrapping_sub(2);
-                        }
-                    } else {
-                        line.pixel_bit = (line.pixel_bit + 1) & 0xF;
-                        if line.pixel_bit == 0 {
-                            line.cpt = line.cpt.wrapping_add(2);
-                            line.dpt = line.dpt.wrapping_add(2);
-                        }
-                    }
-                };
-                let step_y = |line: &mut BlitterLineRuntime| {
-                    if line.y_neg {
-                        line.cpt = (line.cpt as i32 + line.row_mod as i32) as u32;
-                        line.dpt = (line.dpt as i32 + line.row_mod as i32) as u32;
-                    } else {
-                        line.cpt = (line.cpt as i32 - line.row_mod as i32) as u32;
-                        line.dpt = (line.dpt as i32 - line.row_mod as i32) as u32;
-                    }
-                };
-
-                if line.error >= 0 {
-                    if line.major_is_y {
-                        step_y(&mut line);
-                        step_x(&mut line);
-                    } else {
-                        step_x(&mut line);
-                        step_y(&mut line);
-                    }
-                    line.error = line.error.wrapping_add(line.error_sub);
-                } else {
-                    if line.major_is_y {
-                        step_y(&mut line);
-                    } else {
-                        step_x(&mut line);
-                    }
-                    line.error = line.error.wrapping_add(line.error_add);
-                }
-
-                line.have_c_word = false;
-                line.steps_remaining = line.steps_remaining.saturating_sub(1);
-                if line.steps_remaining == 0 {
-                    self.blt_apt = line.error as u16 as u32;
-                    self.blt_cpt = line.cpt;
-                    self.blt_dpt = line.dpt;
-                    self.blt_bdat = line.texture;
-                    self.blitter_line_runtime = None;
-                    true
-                } else {
+                    line.last_c_word = c_val;
+                    line.have_c_word = true;
                     self.blitter_line_runtime = Some(line);
                     false
                 }
+                BlitterDmaOp::WriteD => {
+                    let c_val = if line.have_c_word {
+                        line.last_c_word
+                    } else {
+                        // Defensive fallback; queue should always present ReadC first.
+                        let c_val = read_word(line.cpt);
+                        self.blt_cdat = c_val;
+                        c_val
+                    };
+
+                    let pixel_mask: u16 = 0x8000 >> line.pixel_bit;
+                    let a_val = pixel_mask;
+                    let b_val = if line.texture_enabled {
+                        if line.texture & 0x8000 != 0 {
+                            0xFFFF
+                        } else {
+                            0x0000
+                        }
+                    } else {
+                        0xFFFF
+                    };
+
+                    let mut result: u16 = 0;
+                    for bit in 0..16u16 {
+                        let a_bit = (a_val >> bit) & 1;
+                        let b_bit = (b_val >> bit) & 1;
+                        let c_bit = (c_val >> bit) & 1;
+                        let index = (a_bit << 2) | (b_bit << 1) | c_bit;
+                        if (line.lf >> index) & 1 != 0 {
+                            result |= 1 << bit;
+                        }
+                    }
+                    if line.sing {
+                        result = (result & pixel_mask) | (c_val & !pixel_mask);
+                    }
+                    write_word(line.dpt, result);
+
+                    if line.texture_enabled {
+                        line.texture = line.texture.rotate_left(1);
+                    }
+
+                    let step_x = |line: &mut BlitterLineRuntime| {
+                        if line.x_neg {
+                            line.pixel_bit = line.pixel_bit.wrapping_sub(1) & 0xF;
+                            if line.pixel_bit == 15 {
+                                line.cpt = line.cpt.wrapping_sub(2);
+                                line.dpt = line.dpt.wrapping_sub(2);
+                            }
+                        } else {
+                            line.pixel_bit = (line.pixel_bit + 1) & 0xF;
+                            if line.pixel_bit == 0 {
+                                line.cpt = line.cpt.wrapping_add(2);
+                                line.dpt = line.dpt.wrapping_add(2);
+                            }
+                        }
+                    };
+                    let step_y = |line: &mut BlitterLineRuntime| {
+                        if line.y_neg {
+                            line.cpt = (line.cpt as i32 + line.row_mod as i32) as u32;
+                            line.dpt = (line.dpt as i32 + line.row_mod as i32) as u32;
+                        } else {
+                            line.cpt = (line.cpt as i32 - line.row_mod as i32) as u32;
+                            line.dpt = (line.dpt as i32 - line.row_mod as i32) as u32;
+                        }
+                    };
+
+                    if line.error >= 0 {
+                        if line.major_is_y {
+                            step_y(&mut line);
+                            step_x(&mut line);
+                        } else {
+                            step_x(&mut line);
+                            step_y(&mut line);
+                        }
+                        line.error = line.error.wrapping_add(line.error_sub);
+                    } else {
+                        if line.major_is_y {
+                            step_y(&mut line);
+                        } else {
+                            step_x(&mut line);
+                        }
+                        line.error = line.error.wrapping_add(line.error_add);
+                    }
+
+                    line.have_c_word = false;
+                    line.steps_remaining = line.steps_remaining.saturating_sub(1);
+                    if line.steps_remaining == 0 {
+                        self.blt_apt = line.error as u16 as u32;
+                        self.blt_cpt = line.cpt;
+                        self.blt_dpt = line.dpt;
+                        self.blt_bdat = line.texture;
+                        self.blitter_line_runtime = None;
+                        true
+                    } else {
+                        self.blitter_line_runtime = Some(line);
+                        false
+                    }
+                }
+                BlitterDmaOp::ReadA | BlitterDmaOp::ReadB | BlitterDmaOp::Internal => {
+                    self.blitter_line_runtime = Some(line);
+                    false
+                }
+            };
+        }
+
+        let Some(mut area) = self.blitter_area_runtime else {
+            return false;
+        };
+
+        if area.ops_done_in_word == 0 {
+            area.a_raw = self.blt_adat;
+            area.b_raw = self.blt_bdat;
+            area.c_val = self.blt_cdat;
+        }
+
+        match op {
+            BlitterDmaOp::ReadA => {
+                let w = read_word(area.apt);
+                area.apt = (area.apt as i32 + area.ptr_step) as u32;
+                self.blt_adat = w;
+                area.a_raw = w;
             }
-            BlitterDmaOp::ReadA | BlitterDmaOp::ReadB | BlitterDmaOp::Internal => {
-                self.blitter_line_runtime = Some(line);
-                false
+            BlitterDmaOp::ReadB => {
+                let w = read_word(area.bpt);
+                area.bpt = (area.bpt as i32 + area.ptr_step) as u32;
+                self.blt_bdat = w;
+                area.b_raw = w;
+            }
+            BlitterDmaOp::ReadC => {
+                let w = read_word(area.cpt);
+                area.cpt = (area.cpt as i32 + area.ptr_step) as u32;
+                self.blt_cdat = w;
+                area.c_val = w;
+            }
+            BlitterDmaOp::WriteD | BlitterDmaOp::Internal => {}
+        }
+
+        area.ops_done_in_word = area.ops_done_in_word.saturating_add(1);
+        if area.ops_done_in_word < area.ops_per_word {
+            self.blitter_area_runtime = Some(area);
+            return false;
+        }
+        area.ops_done_in_word = 0;
+
+        let current_col = area.width_words - area.words_remaining_in_row;
+        let mut a_masked = area.a_raw;
+        if current_col == 0 {
+            a_masked &= self.blt_afwm;
+        }
+        if area.words_remaining_in_row == 1 {
+            a_masked &= self.blt_alwm;
+        }
+
+        let a_combined = if area.desc {
+            (u32::from(a_masked) << 16) | u32::from(area.a_prev)
+        } else {
+            (u32::from(area.a_prev) << 16) | u32::from(a_masked)
+        };
+        let a_shifted = if area.desc {
+            (a_combined >> (16 - area.a_shift)) as u16
+        } else {
+            (a_combined >> area.a_shift) as u16
+        };
+
+        let b_combined = if area.desc {
+            (u32::from(area.b_raw) << 16) | u32::from(area.b_prev)
+        } else {
+            (u32::from(area.b_prev) << 16) | u32::from(area.b_raw)
+        };
+        let b_shifted = if area.desc {
+            (b_combined >> (16 - area.b_shift)) as u16
+        } else {
+            (b_combined >> area.b_shift) as u16
+        };
+
+        area.a_prev = a_masked;
+        area.b_prev = area.b_raw;
+
+        let mut result: u16 = 0;
+        for bit in 0..16u16 {
+            let a_bit = (a_shifted >> bit) & 1;
+            let b_bit = (b_shifted >> bit) & 1;
+            let c_bit = (area.c_val >> bit) & 1;
+            let index = (a_bit << 2) | (b_bit << 1) | c_bit;
+            if (area.lf >> index) & 1 != 0 {
+                result |= 1 << bit;
             }
         }
+
+        if area.fill_enabled {
+            let mut filled: u16 = 0;
+            for bit in 0..16u16 {
+                let d_bit = (result >> bit) & 1;
+                area.fill_carry ^= d_bit;
+                let out = if area.efe {
+                    area.fill_carry ^ d_bit
+                } else if area.ife {
+                    area.fill_carry
+                } else {
+                    d_bit
+                };
+                filled |= out << bit;
+            }
+            result = filled;
+        }
+
+        if area.use_d {
+            write_word(area.dpt, result);
+            area.dpt = (area.dpt as i32 + area.ptr_step) as u32;
+        }
+
+        area.words_remaining_in_row = area.words_remaining_in_row.saturating_sub(1);
+        if area.words_remaining_in_row == 0 {
+            if area.use_a {
+                area.apt = (area.apt as i32 + i32::from(area.amod) * area.mod_dir) as u32;
+            }
+            if area.use_b {
+                area.bpt = (area.bpt as i32 + i32::from(area.bmod) * area.mod_dir) as u32;
+            }
+            if area.use_c {
+                area.cpt = (area.cpt as i32 + i32::from(area.cmod) * area.mod_dir) as u32;
+            }
+            if area.use_d {
+                area.dpt = (area.dpt as i32 + i32::from(area.dmod) * area.mod_dir) as u32;
+            }
+
+            area.rows_remaining = area.rows_remaining.saturating_sub(1);
+            if area.rows_remaining == 0 {
+                self.blt_apt = area.apt;
+                self.blt_bpt = area.bpt;
+                self.blt_cpt = area.cpt;
+                self.blt_dpt = area.dpt;
+                self.blitter_area_runtime = None;
+                return true;
+            }
+
+            area.words_remaining_in_row = area.width_words;
+            area.fill_carry = area.fill_carry_init;
+        }
+
+        self.blitter_area_runtime = Some(area);
+        false
     }
 
     fn rebuild_blitter_dma_ops(&mut self) {
@@ -465,7 +644,11 @@ impl Agnus {
         // Keep BUSY observable across at least one granted slot for unusual
         // cases with no external DMA channels enabled.
         if self.blitter_dma_ops.is_empty() {
-            self.blitter_dma_ops.push_back(BlitterDmaOp::Internal);
+            for _row in 0..height {
+                for _col in 0..width_words {
+                    self.blitter_dma_ops.push_back(BlitterDmaOp::Internal);
+                }
+            }
         }
     }
 
@@ -476,7 +659,58 @@ impl Agnus {
 
     fn init_incremental_blitter_runtime(&mut self) {
         self.blitter_line_runtime = None;
+        self.blitter_area_runtime = None;
         if (self.bltcon1 & 0x0001) == 0 {
+            let height = u32::from((self.bltsize >> 6) & 0x03FF);
+            let width_words = u32::from(self.bltsize & 0x003F);
+            let height = if height == 0 { 1024 } else { height };
+            let width_words = if width_words == 0 { 64 } else { width_words };
+            let use_a = (self.bltcon0 & 0x0800) != 0;
+            let use_b = (self.bltcon0 & 0x0400) != 0;
+            let use_c = (self.bltcon0 & 0x0200) != 0;
+            let use_d = (self.bltcon0 & 0x0100) != 0;
+            let desc = (self.bltcon1 & 0x0002) != 0;
+            let fci = (self.bltcon1 & 0x0004) != 0;
+            let ife = (self.bltcon1 & 0x0008) != 0;
+            let efe = (self.bltcon1 & 0x0010) != 0;
+            let fill_enabled = ife || efe;
+            let ops_per_word =
+                (u8::from(use_a) + u8::from(use_b) + u8::from(use_c) + u8::from(use_d)).max(1);
+            self.blitter_area_runtime = Some(BlitterAreaRuntime {
+                rows_remaining: height,
+                width_words,
+                words_remaining_in_row: width_words,
+                use_a,
+                use_b,
+                use_c,
+                use_d,
+                ops_per_word,
+                ops_done_in_word: 0,
+                lf: self.bltcon0 as u8,
+                a_shift: (self.bltcon0 >> 12) & 0xF,
+                b_shift: (self.bltcon1 >> 12) & 0xF,
+                desc,
+                ptr_step: if desc { -2 } else { 2 },
+                mod_dir: if desc { -1 } else { 1 },
+                fill_enabled,
+                ife,
+                efe,
+                fill_carry_init: if fci { 1 } else { 0 },
+                fill_carry: if fci { 1 } else { 0 },
+                apt: self.blt_apt,
+                bpt: self.blt_bpt,
+                cpt: self.blt_cpt,
+                dpt: self.blt_dpt,
+                amod: self.blt_amod,
+                bmod: self.blt_bmod,
+                cmod: self.blt_cmod,
+                dmod: self.blt_dmod,
+                a_prev: 0,
+                b_prev: 0,
+                a_raw: self.blt_adat,
+                b_raw: self.blt_bdat,
+                c_val: self.blt_cdat,
+            });
             return;
         }
 
