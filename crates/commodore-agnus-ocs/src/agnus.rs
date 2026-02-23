@@ -40,6 +40,8 @@ pub struct CckBusPlan {
     /// Raw slot owner for debugging/inspection. Prefer the explicit grant fields
     /// below for machine behavior.
     pub slot_owner: SlotOwner,
+    /// Disk DMA slot service grant for this CCK.
+    pub disk_dma_slot_granted: bool,
     /// Paula audio DMA slot service grant for this CCK.
     pub audio_dma_service_channel: Option<u8>,
     /// Bitplane DMA fetch grant for this CCK.
@@ -862,6 +864,7 @@ impl Agnus {
     /// Compute the machine-facing Agnus bus-arbitration plan for this CCK.
     pub fn cck_bus_plan(&self) -> CckBusPlan {
         let slot_owner = self.current_slot();
+        let disk_dma_slot_granted = matches!(slot_owner, SlotOwner::Disk);
         let audio_dma_service_channel = match slot_owner {
             SlotOwner::Audio(channel) => Some(channel),
             _ => None,
@@ -887,6 +890,7 @@ impl Agnus {
         };
         CckBusPlan {
             slot_owner,
+            disk_dma_slot_granted,
             audio_dma_service_channel,
             bitplane_dma_fetch_plane,
             copper_dma_slot_granted,
@@ -923,6 +927,7 @@ mod tests {
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Audio(0));
+        assert!(!plan.disk_dma_slot_granted);
         assert_eq!(plan.audio_dma_service_channel, Some(0));
         assert_eq!(plan.bitplane_dma_fetch_plane, None);
         assert!(!plan.copper_dma_slot_granted);
@@ -943,6 +948,7 @@ mod tests {
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Copper);
+        assert!(!plan.disk_dma_slot_granted);
         assert_eq!(plan.audio_dma_service_channel, None);
         assert_eq!(plan.bitplane_dma_fetch_plane, None);
         assert!(plan.copper_dma_slot_granted);
@@ -966,6 +972,7 @@ mod tests {
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
+        assert!(!plan.disk_dma_slot_granted);
         assert_eq!(plan.audio_dma_service_channel, None);
         assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
         assert!(!plan.copper_dma_slot_granted);
@@ -990,6 +997,7 @@ mod tests {
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert!(!plan.disk_dma_slot_granted);
         assert_eq!(plan.audio_dma_service_channel, None);
         assert_eq!(plan.bitplane_dma_fetch_plane, None);
         assert!(!plan.copper_dma_slot_granted);
@@ -1109,6 +1117,22 @@ mod tests {
                 BlitterDmaOp::ReadC,
                 BlitterDmaOp::WriteD
             ]
+        );
+    }
+
+    #[test]
+    fn cck_bus_plan_reports_disk_service_grant() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x04;
+        agnus.dmacon = DMACON_DMAEN | 0x0010; // DSKEN
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Disk);
+        assert!(plan.disk_dma_slot_granted);
+        assert_eq!(plan.audio_dma_service_channel, None);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Stall
         );
     }
 }

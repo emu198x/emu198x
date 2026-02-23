@@ -51,6 +51,14 @@ const PAL_CCK_HZ: u64 = PAL_CRYSTAL_HZ / TICKS_PER_CCK;
 /// Vertical start of visible display (PAL line $2C = 44).
 const DISPLAY_VSTART: u16 = 0x2C;
 
+#[derive(Debug, Clone)]
+struct DiskDmaRuntime {
+    data: Vec<u8>,
+    byte_index: usize,
+    words_remaining: u32,
+    is_write: bool,
+}
+
 pub struct Amiga {
     pub master_clock: u64,
     pub cpu: Cpu68000,
@@ -65,6 +73,7 @@ pub struct Amiga {
     pub keyboard: AmigaKeyboard,
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
+    disk_dma_runtime: Option<DiskDmaRuntime>,
 }
 
 impl Amiga {
@@ -125,6 +134,7 @@ impl Amiga {
             keyboard: AmigaKeyboard::new(),
             audio_sample_phase: 0,
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
+            disk_dma_runtime: None,
         }
     }
 
@@ -168,6 +178,9 @@ impl Amiga {
             // --- DMA slots ---
             let bus_plan = self.agnus.cck_bus_plan();
             let audio_dma_slot = bus_plan.audio_dma_service_channel;
+            if bus_plan.disk_dma_slot_granted {
+                self.service_disk_dma_slot();
+            }
             let mut copper_used_chip_bus = false;
             let mut fetched_plane_0 = false;
             if let Some(plane) = bus_plan.bitplane_dma_fetch_plane {
@@ -270,7 +283,7 @@ impl Amiga {
             // Check for pending disk DMA after CCK tick
             if self.paula.disk_dma_pending {
                 self.paula.disk_dma_pending = false;
-                self.perform_disk_dma();
+                self.start_disk_dma_transfer();
             }
         }
 
@@ -392,30 +405,68 @@ impl Amiga {
         self.keyboard.handshake();
     }
 
-    /// Perform disk DMA: read MFM track data into chip RAM at DSKPT.
-    fn perform_disk_dma(&mut self) {
+    /// Start a disk DMA transfer (DSKLEN double-write protocol).
+    ///
+    /// Data movement is performed incrementally on Agnus disk DMA slots.
+    fn start_disk_dma_transfer(&mut self) {
         let word_count = (self.paula.dsklen & 0x3FFF) as u32;
         let is_write = self.paula.dsklen & 0x4000 != 0;
 
-        if is_write {
-            // Write to disk — not implemented yet, just fire the interrupt
+        if word_count == 0 {
+            // Keep existing boot-level behavior: completion interrupt even with a
+            // zero transfer count.
             self.paula.request_interrupt(1);
+            self.disk_dma_runtime = None;
             return;
         }
 
-        if let Some(mfm_data) = self.floppy.encode_mfm_track() {
-            let byte_count = (word_count * 2) as usize;
-            let transfer_len = byte_count.min(mfm_data.len());
-            let mut addr = self.agnus.dsk_pt;
+        let data = if is_write {
+            Vec::new()
+        } else {
+            self.floppy.encode_mfm_track().unwrap_or_default()
+        };
+        self.disk_dma_runtime = Some(DiskDmaRuntime {
+            data,
+            byte_index: 0,
+            words_remaining: word_count,
+            is_write,
+        });
+    }
 
-            for i in 0..transfer_len {
-                self.memory.write_byte(addr, mfm_data[i]);
+    /// Service one Agnus disk DMA slot.
+    fn service_disk_dma_slot(&mut self) {
+        let Some(runtime) = self.disk_dma_runtime.as_mut() else {
+            return;
+        };
+
+        if runtime.words_remaining == 0 {
+            self.disk_dma_runtime = None;
+            return;
+        }
+
+        if !runtime.is_write {
+            let mut addr = self.agnus.dsk_pt;
+            if runtime.byte_index < runtime.data.len() {
+                self.memory
+                    .write_byte(addr, runtime.data[runtime.byte_index]);
+                runtime.byte_index += 1;
+                addr = addr.wrapping_add(1);
+            }
+            if runtime.byte_index < runtime.data.len() {
+                self.memory
+                    .write_byte(addr, runtime.data[runtime.byte_index]);
+                runtime.byte_index += 1;
                 addr = addr.wrapping_add(1);
             }
             self.agnus.dsk_pt = addr;
         }
-        // Fire DSKBLK interrupt whether or not data was transferred
-        self.paula.request_interrupt(1);
+
+        runtime.words_remaining = runtime.words_remaining.saturating_sub(1);
+        if runtime.words_remaining == 0 {
+            self.disk_dma_runtime = None;
+            // DSKBLK interrupt on transfer completion.
+            self.paula.request_interrupt(1);
+        }
     }
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
