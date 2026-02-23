@@ -145,7 +145,8 @@ impl Amiga {
             }
 
             if vpos == 0 && hpos == 0 {
-                self.paula.request_interrupt(5); // bit 5 = VERTB
+                // bit 5 = VERTB
+                self.paula.request_interrupt(5);
                 // Agnus restarts the copper from COP1LC at vertical blank,
                 // but only when copper DMA is enabled (DMAEN + COPEN).
                 if self.agnus.dma_enabled(0x0080) {
@@ -168,7 +169,7 @@ impl Amiga {
             let bus_plan = self.agnus.cck_bus_plan();
             let slot = bus_plan.slot_owner;
             let audio_dma_slot = bus_plan.audio_dma_slot;
-            let mut audio_return_progress_this_cck = bus_plan.paula_return_progress_default;
+            let mut copper_used_chip_bus = false;
             let mut fetched_plane_0 = false;
             match slot {
                 SlotOwner::Audio(_) => {}
@@ -185,19 +186,17 @@ impl Amiga {
                     }
                 }
                 SlotOwner::Copper => {
-                    let copper_used_chip_bus = std::cell::Cell::new(false);
+                    let copper_used_chip_bus_cell = std::cell::Cell::new(false);
                     let res = {
                         let memory = &self.memory;
                         self.copper.tick(vpos, hpos, |addr| {
-                            copper_used_chip_bus.set(true);
+                            copper_used_chip_bus_cell.set(true);
                             let hi = memory.read_chip_byte(addr);
                             let lo = memory.read_chip_byte(addr | 1);
                             (u16::from(hi) << 8) | u16::from(lo)
                         })
                     };
-                    if copper_used_chip_bus.get() {
-                        audio_return_progress_this_cck = false;
-                    }
+                    copper_used_chip_bus = copper_used_chip_bus_cell.get();
                     if let Some((reg, val)) = res {
                         // COPCON protection (HRM Ch.2): copper cannot write
                         // registers $000-$03E at all, and $040-$07E only
@@ -212,6 +211,8 @@ impl Amiga {
                 }
                 _ => {}
             }
+            let audio_return_progress_this_cck =
+                bus_plan.paula_return_progress(copper_used_chip_bus);
 
             // BPL1DAT (plane 0) is always fetched last in each group.
             // Writing it triggers parallel load of all holding latches

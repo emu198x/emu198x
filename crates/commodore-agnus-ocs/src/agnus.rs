@@ -14,6 +14,20 @@ pub enum SlotOwner {
     Copper,
 }
 
+/// How Paula audio DMA return-latency timing should behave for this CCK slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaulaReturnProgressPolicy {
+    /// Return latency advances normally this CCK.
+    Advance,
+    /// Return latency is stalled by an Agnus-reserved DMA slot.
+    Stall,
+    /// Return latency advances unless copper actually performs a chip fetch.
+    ///
+    /// Agnus grants the slot to copper, but the machine must observe whether
+    /// copper is in a fetch state or waiting.
+    CopperFetchConditional,
+}
+
 /// Agnus-owned summary of one CCK bus decision.
 ///
 /// This is the machine-facing API for consumers that need to react to Agnus DMA
@@ -23,13 +37,23 @@ pub enum SlotOwner {
 pub struct CckBusPlan {
     pub slot_owner: SlotOwner,
     pub audio_dma_slot: Option<u8>,
-    /// Default assumption for Paula audio DMA return-latency progress this CCK.
+    /// Paula audio DMA return-latency policy for this slot.
+    pub paula_return_progress_policy: PaulaReturnProgressPolicy,
+}
+
+impl CckBusPlan {
+    /// Resolve Paula return-latency progress for this CCK.
     ///
-    /// `false` means the slot is reserved by Agnus DMA (refresh/disk/sprite/
-    /// bitplane) and Paula should not advance return timing. `true` means the
-    /// slot is not reserved by those classes. The machine may further refine
-    /// this (e.g. copper `WAIT` vs actual copper fetch).
-    pub paula_return_progress_default: bool,
+    /// `copper_used_chip_bus` is only relevant when
+    /// [`PaulaReturnProgressPolicy::CopperFetchConditional`] is selected.
+    #[must_use]
+    pub fn paula_return_progress(self, copper_used_chip_bus: bool) -> bool {
+        match self.paula_return_progress_policy {
+            PaulaReturnProgressPolicy::Advance => true,
+            PaulaReturnProgressPolicy::Stall => false,
+            PaulaReturnProgressPolicy::CopperFetchConditional => !copper_used_chip_bus,
+        }
+    }
 }
 
 /// Maps ddfseq position (0-7) within an 8-CCK group to bitplane index.
@@ -232,14 +256,18 @@ impl Agnus {
             SlotOwner::Audio(channel) => Some(channel),
             _ => None,
         };
-        let paula_return_progress_default = !matches!(
-            slot_owner,
-            SlotOwner::Refresh | SlotOwner::Disk | SlotOwner::Sprite(_) | SlotOwner::Bitplane(_)
-        );
+        let paula_return_progress_policy = match slot_owner {
+            SlotOwner::Refresh
+            | SlotOwner::Disk
+            | SlotOwner::Sprite(_)
+            | SlotOwner::Bitplane(_) => PaulaReturnProgressPolicy::Stall,
+            SlotOwner::Copper => PaulaReturnProgressPolicy::CopperFetchConditional,
+            SlotOwner::Cpu | SlotOwner::Audio(_) => PaulaReturnProgressPolicy::Advance,
+        };
         CckBusPlan {
             slot_owner,
             audio_dma_slot,
-            paula_return_progress_default,
+            paula_return_progress_policy,
         }
     }
 }
