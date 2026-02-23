@@ -167,49 +167,43 @@ impl Amiga {
 
             // --- DMA slots ---
             let bus_plan = self.agnus.cck_bus_plan();
-            let slot = bus_plan.slot_owner;
-            let audio_dma_slot = bus_plan.audio_dma_slot;
+            let audio_dma_slot = bus_plan.audio_dma_service_channel;
             let mut copper_used_chip_bus = false;
             let mut fetched_plane_0 = false;
-            match slot {
-                SlotOwner::Audio(_) => {}
-                SlotOwner::Bitplane(plane) => {
-                    let idx = plane as usize;
-                    let addr = self.agnus.bpl_pt[idx];
-                    let hi = self.memory.read_chip_byte(addr);
-                    let lo = self.memory.read_chip_byte(addr | 1);
-                    let val = (u16::from(hi) << 8) | u16::from(lo);
-                    self.denise.load_bitplane(idx, val);
-                    self.agnus.bpl_pt[idx] = addr.wrapping_add(2);
-                    if plane == 0 {
-                        fetched_plane_0 = true;
-                    }
+            if let Some(plane) = bus_plan.bitplane_dma_fetch_plane {
+                let idx = plane as usize;
+                let addr = self.agnus.bpl_pt[idx];
+                let hi = self.memory.read_chip_byte(addr);
+                let lo = self.memory.read_chip_byte(addr | 1);
+                let val = (u16::from(hi) << 8) | u16::from(lo);
+                self.denise.load_bitplane(idx, val);
+                self.agnus.bpl_pt[idx] = addr.wrapping_add(2);
+                if plane == 0 {
+                    fetched_plane_0 = true;
                 }
-                SlotOwner::Copper => {
-                    let copper_used_chip_bus_cell = std::cell::Cell::new(false);
-                    let res = {
-                        let memory = &self.memory;
-                        self.copper.tick(vpos, hpos, |addr| {
-                            copper_used_chip_bus_cell.set(true);
-                            let hi = memory.read_chip_byte(addr);
-                            let lo = memory.read_chip_byte(addr | 1);
-                            (u16::from(hi) << 8) | u16::from(lo)
-                        })
-                    };
-                    copper_used_chip_bus = copper_used_chip_bus_cell.get();
-                    if let Some((reg, val)) = res {
-                        // COPCON protection (HRM Ch.2): copper cannot write
-                        // registers $000-$03E at all, and $040-$07E only
-                        // when the CDANG (danger) bit is set in COPCON.
-                        if reg >= 0x080 || (reg >= 0x040 && self.copper.danger) {
-                            if reg == 0x09C && (val & 0x0010) != 0 {
-                                self.paula.request_interrupt(4);
-                            }
-                            self.write_custom_reg(reg, val);
+            } else if bus_plan.copper_dma_slot_granted {
+                let copper_used_chip_bus_cell = std::cell::Cell::new(false);
+                let res = {
+                    let memory = &self.memory;
+                    self.copper.tick(vpos, hpos, |addr| {
+                        copper_used_chip_bus_cell.set(true);
+                        let hi = memory.read_chip_byte(addr);
+                        let lo = memory.read_chip_byte(addr | 1);
+                        (u16::from(hi) << 8) | u16::from(lo)
+                    })
+                };
+                copper_used_chip_bus = copper_used_chip_bus_cell.get();
+                if let Some((reg, val)) = res {
+                    // COPCON protection (HRM Ch.2): copper cannot write
+                    // registers $000-$03E at all, and $040-$07E only
+                    // when the CDANG (danger) bit is set in COPCON.
+                    if reg >= 0x080 || (reg >= 0x040 && self.copper.danger) {
+                        if reg == 0x09C && (val & 0x0010) != 0 {
+                            self.paula.request_interrupt(4);
                         }
+                        self.write_custom_reg(reg, val);
                     }
                 }
-                _ => {}
             }
             let audio_return_progress_this_cck =
                 bus_plan.paula_return_progress(copper_used_chip_bus);

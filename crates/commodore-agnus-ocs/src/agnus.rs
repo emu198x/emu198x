@@ -35,8 +35,15 @@ pub enum PaulaReturnProgressPolicy {
 /// slot decoding rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CckBusPlan {
+    /// Raw slot owner for debugging/inspection. Prefer the explicit grant fields
+    /// below for machine behavior.
     pub slot_owner: SlotOwner,
-    pub audio_dma_slot: Option<u8>,
+    /// Paula audio DMA slot service grant for this CCK.
+    pub audio_dma_service_channel: Option<u8>,
+    /// Bitplane DMA fetch grant for this CCK.
+    pub bitplane_dma_fetch_plane: Option<u8>,
+    /// Copper is granted this slot (it may still be in WAIT and not fetch).
+    pub copper_dma_slot_granted: bool,
     /// Paula audio DMA return-latency policy for this slot.
     pub paula_return_progress_policy: PaulaReturnProgressPolicy,
 }
@@ -252,10 +259,15 @@ impl Agnus {
     /// Compute the machine-facing Agnus bus-arbitration plan for this CCK.
     pub fn cck_bus_plan(&self) -> CckBusPlan {
         let slot_owner = self.current_slot();
-        let audio_dma_slot = match slot_owner {
+        let audio_dma_service_channel = match slot_owner {
             SlotOwner::Audio(channel) => Some(channel),
             _ => None,
         };
+        let bitplane_dma_fetch_plane = match slot_owner {
+            SlotOwner::Bitplane(plane) => Some(plane),
+            _ => None,
+        };
+        let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
         let paula_return_progress_policy = match slot_owner {
             SlotOwner::Refresh
             | SlotOwner::Disk
@@ -266,7 +278,9 @@ impl Agnus {
         };
         CckBusPlan {
             slot_owner,
-            audio_dma_slot,
+            audio_dma_service_channel,
+            bitplane_dma_fetch_plane,
+            copper_dma_slot_granted,
             paula_return_progress_policy,
         }
     }
@@ -275,5 +289,69 @@ impl Agnus {
 impl Default for Agnus {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DMACON_DMAEN: u16 = 0x0200;
+    const DMACON_AUD0EN: u16 = 0x0001;
+    const DMACON_COPEN: u16 = 0x0080;
+    const DMACON_BPLEN: u16 = 0x0100;
+
+    #[test]
+    fn cck_bus_plan_reports_audio_service_grant() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x07;
+        agnus.dmacon = DMACON_DMAEN | DMACON_AUD0EN;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Audio(0));
+        assert_eq!(plan.audio_dma_service_channel, Some(0));
+        assert_eq!(plan.bitplane_dma_fetch_plane, None);
+        assert!(!plan.copper_dma_slot_granted);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Advance
+        );
+    }
+
+    #[test]
+    fn cck_bus_plan_reports_copper_grant_and_conditional_return_policy() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x1C; // even, variable-slot region
+        agnus.dmacon = DMACON_DMAEN | DMACON_COPEN;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Copper);
+        assert_eq!(plan.audio_dma_service_channel, None);
+        assert_eq!(plan.bitplane_dma_fetch_plane, None);
+        assert!(plan.copper_dma_slot_granted);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::CopperFetchConditional
+        );
+    }
+
+    #[test]
+    fn cck_bus_plan_reports_bitplane_grant_and_stall_policy() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x23; // ddfstrt + 7 => BPL1 slot in lowres fetch group
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN | DMACON_COPEN;
+        agnus.bplcon0 = 1 << 12; // 1 bitplane enabled
+        agnus.ddfstrt = 0x1C;
+        agnus.ddfstop = 0x1C;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
+        assert_eq!(plan.audio_dma_service_channel, None);
+        assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
+        assert!(!plan.copper_dma_slot_granted);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Stall
+        );
     }
 }
