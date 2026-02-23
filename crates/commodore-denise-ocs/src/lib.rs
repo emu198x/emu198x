@@ -20,6 +20,12 @@ pub struct DeniseOcs {
     pub spr_datb: [u16; 8],
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SpritePixel {
+    palette_idx: usize,
+    sprite_group: usize,
+}
+
 impl DeniseOcs {
     pub fn new() -> Self {
         Self {
@@ -61,45 +67,82 @@ impl DeniseOcs {
         (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF)
     }
 
-    fn sprite_pixel_palette_index(&self, beam_x: u32, beam_y: u32) -> Option<usize> {
+    fn sprite_code_at(&self, sprite: usize, beam_x: u32, beam_y: u32) -> Option<u8> {
+        if sprite >= 8 {
+            return None;
+        }
+        let pos = self.spr_pos[sprite];
+        let ctl = self.spr_ctl[sprite];
+        let hstart = u32::from(Self::sprite_hstart(pos, ctl));
+        let vstart = u32::from(Self::sprite_vstart(pos, ctl));
+        let vstop = u32::from(Self::sprite_vstop(pos, ctl));
+        if vstop <= vstart {
+            return None;
+        }
+        if beam_y < vstart || beam_y >= vstop {
+            return None;
+        }
+        if beam_x < hstart || beam_x >= hstart + 16 {
+            return None;
+        }
+
+        let bit = 15 - (beam_x - hstart) as u16;
+        let lo = (self.spr_data[sprite] >> bit) & 1;
+        let hi = (self.spr_datb[sprite] >> bit) & 1;
+        Some((lo | (hi << 1)) as u8)
+    }
+
+    fn sprite_pixel(&self, beam_x: u32, beam_y: u32) -> Option<SpritePixel> {
         // Minimal OCS sprite overlay:
-        // - non-attach sprites only (odd-sprite attach bit ignored for now)
-        // - sprites are always considered in front of playfields
-        // - lower sprite number wins on overlap
+        // - attached pairs (1->0, 3->2, 5->4, 7->6) produce 4-bit colors from
+        //   the full sprite palette range (COLOR17..COLOR31, 0 => transparent)
+        // - dual-playfield interactions/collision are handled elsewhere
+        // - lower sprite number wins on overlap (pair priority by lower sprite)
         for sprite in 0..8usize {
-            if sprite & 1 == 0 && sprite + 1 < 8 && (self.spr_ctl[sprite + 1] & 0x0080) != 0 {
-                continue;
-            }
-            if sprite & 1 == 1 && (self.spr_ctl[sprite] & 0x0080) != 0 {
-                continue;
-            }
-            let pos = self.spr_pos[sprite];
-            let ctl = self.spr_ctl[sprite];
-            let hstart = u32::from(Self::sprite_hstart(pos, ctl));
-            let vstart = u32::from(Self::sprite_vstart(pos, ctl));
-            let vstop = u32::from(Self::sprite_vstop(pos, ctl));
-            if vstop <= vstart {
-                continue;
-            }
-            if beam_y < vstart || beam_y >= vstop {
-                continue;
-            }
-            if beam_x < hstart || beam_x >= hstart + 16 {
-                continue;
+            if sprite & 1 == 1 {
+                // Odd sprite is handled by the preceding even sprite when its
+                // ATTACH bit is set.
+                if (self.spr_ctl[sprite] & 0x0080) != 0 {
+                    continue;
+                }
             }
 
-            let bit = 15 - (beam_x - hstart) as u16;
-            let lo = (self.spr_data[sprite] >> bit) & 1;
-            let hi = (self.spr_datb[sprite] >> bit) & 1;
-            let code = lo | (hi << 1);
+            let pair = sprite & !1;
+            let odd = pair + 1;
+            let odd_attached = odd < 8 && (self.spr_ctl[odd] & 0x0080) != 0;
+            if sprite == pair && odd_attached {
+                let even_code = self.sprite_code_at(pair, beam_x, beam_y).unwrap_or(0);
+                let odd_code = self.sprite_code_at(odd, beam_x, beam_y).unwrap_or(0);
+                let code = ((odd_code as usize) << 2) | (even_code as usize);
+                if code == 0 {
+                    continue;
+                }
+                return Some(SpritePixel {
+                    palette_idx: 16 + code,
+                    sprite_group: pair / 2,
+                });
+            }
+
+            let Some(code) = self.sprite_code_at(sprite, beam_x, beam_y) else {
+                continue;
+            };
             if code == 0 {
                 continue;
             }
-
             let base = 16 + (sprite / 2) * 4;
-            return Some(base + code as usize);
+            return Some(SpritePixel {
+                palette_idx: base + usize::from(code),
+                sprite_group: sprite / 2,
+            });
         }
         None
+    }
+
+    fn sprite_has_priority_over_playfield1(&self, sprite_group: usize) -> bool {
+        // Single-playfield mode only: PF1P2..PF1P0 select PF1 placement among
+        // the four sprite priority groups. Values >4 are invalid; clamp.
+        let pf1_pos = usize::from(self.bplcon2 & 0x0007).min(4);
+        sprite_group < pf1_pos
     }
 
     /// Copy all bitplane holding latches into the shift registers.
@@ -140,8 +183,16 @@ impl DeniseOcs {
                 self.shift_count -= 1;
             }
 
-            if let Some(sprite_idx) = self.sprite_pixel_palette_index(beam_x, beam_y) {
-                color_idx = sprite_idx;
+            if let Some(sprite_pixel) = self.sprite_pixel(beam_x, beam_y) {
+                // In single-playfield mode, COLOR00 behaves as background and
+                // does not occlude sprites. Dual-playfield priority (`PF2*`) is
+                // not modeled yet.
+                let playfield_nonzero = color_idx != 0;
+                if !playfield_nonzero
+                    || self.sprite_has_priority_over_playfield1(sprite_pixel.sprite_group)
+                {
+                    color_idx = sprite_pixel.palette_idx;
+                }
             }
 
             let argb32 = Self::rgb12_to_argb32(self.palette[color_idx]);
@@ -175,6 +226,7 @@ mod tests {
         denise.set_palette(0, 0x000);
         denise.set_palette(1, 0x00F);
         denise.set_palette(17, 0xF00); // sprite 0/1 pair, color 1
+        denise.bplcon2 = 0x0001; // PF1P=1 => sprite group 0 in front of PF1
 
         denise.bpl_shift[0] = 0x8000; // playfield color index 1
         denise.shift_count = 1;
@@ -242,6 +294,83 @@ mod tests {
             denise.framebuffer[(8 * FB_WIDTH + 30) as usize],
             DeniseOcs::rgb12_to_argb32(0xF00),
             "sprite 0 should appear in front of sprite 2"
+        );
+    }
+
+    #[test]
+    fn attached_sprite_pair_uses_full_sprite_palette_range() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(25, 0x0F0); // attached color value 1001 => COLOR25
+
+        let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
+        denise.spr_pos[0] = pos;
+        denise.spr_ctl[0] = ctl;
+        denise.spr_data[0] = 0x8000; // even sprite code = 01
+        denise.spr_datb[0] = 0x0000;
+
+        denise.spr_pos[1] = pos;
+        denise.spr_ctl[1] = ctl | 0x0080; // ATTACH on odd sprite
+        denise.spr_data[1] = 0x0000;
+        denise.spr_datb[1] = 0x8000; // odd sprite code = 10 (high two bits)
+
+        denise.output_pixel(32, 14);
+
+        assert_eq!(
+            denise.framebuffer[(14 * FB_WIDTH + 32) as usize],
+            DeniseOcs::rgb12_to_argb32(0x0F0)
+        );
+    }
+
+    #[test]
+    fn bplcon2_pf1_priority_can_hide_sprite_group_0() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(1, 0x00F); // playfield color
+        denise.set_palette(17, 0xF00); // sprite 0 color
+        denise.bplcon2 = 0x0000; // PF1P = 0 => PF1 in front of all sprite groups
+
+        denise.bpl_shift[0] = 0x8000; // playfield color index 1
+        denise.shift_count = 1;
+
+        let (pos, ctl) = encode_sprite_pos_ctl(18, 6, 7);
+        denise.spr_pos[0] = pos;
+        denise.spr_ctl[0] = ctl;
+        denise.spr_data[0] = 0x8000;
+        denise.spr_datb[0] = 0x0000;
+
+        denise.output_pixel(18, 6);
+
+        assert_eq!(
+            denise.framebuffer[(6 * FB_WIDTH + 18) as usize],
+            DeniseOcs::rgb12_to_argb32(0x00F),
+            "PF1 priority should place sprite 0 behind a nonzero playfield pixel"
+        );
+    }
+
+    #[test]
+    fn bplcon2_pf1_priority_can_place_sprite_group_0_in_front() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(1, 0x00F); // playfield color
+        denise.set_palette(17, 0xF00); // sprite 0 color
+        denise.bplcon2 = 0x0001; // PF1P = 1 => SP01 in front of PF1
+
+        denise.bpl_shift[0] = 0x8000; // playfield color index 1
+        denise.shift_count = 1;
+
+        let (pos, ctl) = encode_sprite_pos_ctl(19, 7, 8);
+        denise.spr_pos[0] = pos;
+        denise.spr_ctl[0] = ctl;
+        denise.spr_data[0] = 0x8000;
+        denise.spr_datb[0] = 0x0000;
+
+        denise.output_pixel(19, 7);
+
+        assert_eq!(
+            denise.framebuffer[(7 * FB_WIDTH + 19) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00),
+            "PF1 priority should allow sprite 0 in front when PF1P=1"
         );
     }
 }
