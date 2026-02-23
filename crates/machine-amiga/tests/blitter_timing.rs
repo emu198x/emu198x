@@ -30,6 +30,7 @@ const DMACON_SPREN: u16 = 0x0020;
 const DMACON_BPLEN: u16 = 0x0100;
 const DMACON_DMAEN: u16 = 0x0200;
 const DMACON_BLTPRI: u16 = 0x0400;
+const INTREQ_BLIT: u16 = 0x0040;
 
 const VISIBLE_LINE_START: u16 = 0x2C;
 
@@ -215,6 +216,22 @@ fn run_blit_to_completion(amiga: &mut Amiga, max_ccks: u32) -> Option<(u32, u32)
     }
 
     None
+}
+
+fn wait_until_pre_final_blitter_op_on_granted_cck(amiga: &mut Amiga, max_ccks: u32) -> bool {
+    for _ in 0..=max_ccks {
+        if amiga.agnus.blitter_busy && amiga.agnus.blitter_ccks_remaining == 1 {
+            let plan = amiga.agnus.cck_bus_plan();
+            if plan.blitter_dma_progress_granted {
+                return true;
+            }
+        }
+        if (amiga.paula.intreq & INTREQ_BLIT) != 0 {
+            return false;
+        }
+        tick_ccks(amiga, 1);
+    }
+    false
 }
 
 fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
@@ -480,5 +497,97 @@ fn line_blitter_nasty_mode_blocks_cpu_chip_bus_reads_on_cpu_slots() {
     assert!(
         nasty.iter().all(|s| matches!(s, BusStatus::Wait)),
         "with BLTPRI, line blitter should steal CPU slots and force waits: {nasty:?}"
+    );
+}
+
+#[test]
+fn area_blit_blit_irq_fires_when_final_queued_op_clears_busy() {
+    let mut amiga = make_test_amiga();
+    amiga.agnus.vpos = VISIBLE_LINE_START;
+    amiga.agnus.hpos = 0;
+    amiga.paula.intreq &= !INTREQ_BLIT;
+
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_BLTEN);
+    let expected_ops = start_area_blit_copy_c(
+        &mut amiga,
+        4,
+        2,
+        true,
+        true,
+        true,
+        true,
+        0x0000_4000,
+        0x0000_5000,
+        0x0000_6000,
+        0x0000_7000,
+    );
+    assert_eq!(amiga.agnus.blitter_ccks_remaining, expected_ops);
+    assert!(amiga.agnus.blitter_busy);
+    assert_eq!(amiga.paula.intreq & INTREQ_BLIT, 0);
+
+    let found = wait_until_pre_final_blitter_op_on_granted_cck(&mut amiga, 2_000);
+    assert!(
+        found,
+        "expected to reach the final queued area-blit op without early BLIT IRQ"
+    );
+    assert!(amiga.agnus.blitter_busy);
+    assert_eq!(amiga.agnus.blitter_ccks_remaining, 1);
+    assert_eq!(
+        amiga.paula.intreq & INTREQ_BLIT,
+        0,
+        "BLIT IRQ should not assert before the final queued op"
+    );
+
+    tick_ccks(&mut amiga, 1);
+
+    assert!(
+        !amiga.agnus.blitter_busy,
+        "BLTBUSY should clear on the CCK that executes the final queued op"
+    );
+    assert_eq!(amiga.agnus.blitter_ccks_remaining, 0);
+    assert_ne!(
+        amiga.paula.intreq & INTREQ_BLIT,
+        0,
+        "BLIT IRQ should assert when the final queued op completes"
+    );
+}
+
+#[test]
+fn line_blit_blit_irq_fires_when_final_queued_op_clears_busy() {
+    let mut amiga = make_test_amiga();
+    amiga.agnus.vpos = VISIBLE_LINE_START;
+    amiga.agnus.hpos = 0;
+    amiga.paula.intreq &= !INTREQ_BLIT;
+
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_BLTEN);
+    let expected_ops = start_line_blit_horizontal(&mut amiga, 0x0000_4400, 48, 0);
+    assert_eq!(amiga.agnus.blitter_ccks_remaining, expected_ops);
+    assert!(amiga.agnus.blitter_busy);
+    assert_eq!(amiga.paula.intreq & INTREQ_BLIT, 0);
+
+    let found = wait_until_pre_final_blitter_op_on_granted_cck(&mut amiga, 2_000);
+    assert!(
+        found,
+        "expected to reach the final queued line-blit op without early BLIT IRQ"
+    );
+    assert!(amiga.agnus.blitter_busy);
+    assert_eq!(amiga.agnus.blitter_ccks_remaining, 1);
+    assert_eq!(
+        amiga.paula.intreq & INTREQ_BLIT,
+        0,
+        "BLIT IRQ should not assert before the final queued op"
+    );
+
+    tick_ccks(&mut amiga, 1);
+
+    assert!(
+        !amiga.agnus.blitter_busy,
+        "BLTBUSY should clear on the CCK that executes the final queued op"
+    );
+    assert_eq!(amiga.agnus.blitter_ccks_remaining, 0);
+    assert_ne!(
+        amiga.paula.intreq & INTREQ_BLIT,
+        0,
+        "BLIT IRQ should assert when the final queued op completes"
     );
 }
