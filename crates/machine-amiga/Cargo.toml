@@ -1,5 +1,5 @@
 [package]
-name = "emu-amiga-rock"
+name = "machine-amiga"
 version = "0.1.0"
 edition = "2021"
 
@@ -18,5 +18,5 @@ peripheral-amiga-keyboard = { path = "../peripheral-amiga-keyboard" }
 png = "0.17"
 
 [lib]
-name = "emu_amiga_rock"
+name = "machine_amiga"
 path = "src/lib.rs"

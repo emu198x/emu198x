@@ -721,7 +721,7 @@ How many systems benefit from each shared crate:
 6. `format-adf` -- Amiga disk format
 7. `drive-amiga-floppy` -- floppy drive mechanism
 8. `peripheral-amiga-keyboard` -- keyboard controller
-9. `machine-amiga` -- wire together as Amiga 500 (currently implemented as `emu-amiga-rock`)
+9. `machine-amiga` -- wire together as Amiga 500
 10. `amiga-runner` -- runner binary
 
 Current status note: thin `motorola-68010` and `motorola-68020` wrapper crates

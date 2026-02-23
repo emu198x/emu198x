@@ -1,6 +1,6 @@
-//! Simple boot test for emu-amiga-rock.
+//! Simple boot test for machine-amiga.
 
-use emu_amiga_rock::Amiga;
+use machine_amiga::Amiga;
 
 #[test]
 fn test_minimal_execution() {
