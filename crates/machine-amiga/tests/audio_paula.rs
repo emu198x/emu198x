@@ -8,6 +8,10 @@ const REG_AUD0LEN: u16 = 0x0A4;
 const REG_AUD0PER: u16 = 0x0A6;
 const REG_AUD0VOL: u16 = 0x0A8;
 const REG_AUD0DAT: u16 = 0x0AA;
+const AUD_STRIDE: u16 = 0x10;
+const AUD_REG_PER_OFFSET: u16 = 0x06;
+const AUD_REG_VOL_OFFSET: u16 = 0x08;
+const AUD_REG_DAT_OFFSET: u16 = 0x0A;
 
 const DMACON_DMAEN: u16 = 0x0200;
 const DMACON_AUD0EN: u16 = 0x0001;
@@ -63,6 +67,19 @@ fn configure_aud0_dma(amiga: &mut Amiga, sample_addr: u32, len_words: u16, perio
     amiga.write_custom_reg(REG_AUD0LEN, len_words);
     amiga.write_custom_reg(REG_AUD0PER, period);
     amiga.write_custom_reg(REG_AUD0VOL, vol);
+}
+
+fn aud_reg(channel: u8, offset: u16) -> u16 {
+    REG_AUD0LCH + u16::from(channel) * AUD_STRIDE + offset
+}
+
+fn write_aud_direct(amiga: &mut Amiga, channel: u8, period: u16, vol: u16, hi: u8, lo: u8) {
+    amiga.write_custom_reg(aud_reg(channel, AUD_REG_PER_OFFSET), period);
+    amiga.write_custom_reg(aud_reg(channel, AUD_REG_VOL_OFFSET), vol);
+    amiga.write_custom_reg(
+        aud_reg(channel, AUD_REG_DAT_OFFSET),
+        (u16::from(hi) << 8) | u16::from(lo),
+    );
 }
 
 #[test]
@@ -169,5 +186,65 @@ fn aud0_direct_mode_period_clamp_affects_irq_timing() {
     assert!(
         aud0_irq_pending(&amiga),
         "direct-mode IRQ should fire after 248 CCKs with clamped period"
+    );
+}
+
+#[test]
+fn aud1_and_aud2_route_to_right_channel() {
+    let mut amiga = make_test_amiga();
+
+    write_aud_direct(&mut amiga, 1, 124, 64, 0x7F, 0x00);
+    write_aud_direct(&mut amiga, 2, 124, 64, 0x7F, 0x00);
+
+    tick_ccks(&mut amiga, 124);
+    let (left, right) = amiga.paula.mix_audio_stereo();
+
+    assert!(
+        left.abs() < 0.01,
+        "AUD1/AUD2 should not drive left (left={left})"
+    );
+    assert!(
+        right > 0.9,
+        "AUD1+AUD2 should strongly drive right (right={right})"
+    );
+}
+
+#[test]
+fn aud3_routes_to_left_channel_like_aud0() {
+    let mut amiga = make_test_amiga();
+
+    write_aud_direct(&mut amiga, 3, 124, 64, 0x7F, 0x00);
+
+    tick_ccks(&mut amiga, 124);
+    let (left, right) = amiga.paula.mix_audio_stereo();
+
+    assert!(left > 0.45, "AUD3 should drive left (left={left})");
+    assert!(
+        right.abs() < 0.01,
+        "AUD3 should not drive right (right={right})"
+    );
+}
+
+#[test]
+fn same_side_channels_average_and_can_cancel() {
+    let mut amiga = make_test_amiga();
+
+    // Left side = AUD0 + AUD3. Equal and opposite values should cancel.
+    write_aud_direct(&mut amiga, 0, 124, 64, 0x40, 0x00); // +64
+    write_aud_direct(&mut amiga, 3, 124, 64, 0xC0, 0x00); // -64
+    // Right side = AUD1 + AUD2. Two equal positives should sum before averaging.
+    write_aud_direct(&mut amiga, 1, 124, 64, 0x40, 0x00); // +64
+    write_aud_direct(&mut amiga, 2, 124, 64, 0x40, 0x00); // +64
+
+    tick_ccks(&mut amiga, 124);
+    let (left, right) = amiga.paula.mix_audio_stereo();
+
+    assert!(
+        left.abs() < 0.02,
+        "AUD0/AUD3 equal-opposite values should cancel on left (left={left})"
+    );
+    assert!(
+        (right - 0.5).abs() < 0.05,
+        "AUD1/AUD2 averaging should produce ~0.5 on right (right={right})"
     );
 }
