@@ -14,6 +14,24 @@ pub enum SlotOwner {
     Copper,
 }
 
+/// Agnus-owned summary of one CCK bus decision.
+///
+/// This is the machine-facing API for consumers that need to react to Agnus DMA
+/// arbitration (e.g. Paula DMA service/return progress) without duplicating the
+/// slot decoding rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CckBusPlan {
+    pub slot_owner: SlotOwner,
+    pub audio_dma_slot: Option<u8>,
+    /// Default assumption for Paula audio DMA return-latency progress this CCK.
+    ///
+    /// `false` means the slot is reserved by Agnus DMA (refresh/disk/sprite/
+    /// bitplane) and Paula should not advance return timing. `true` means the
+    /// slot is not reserved by those classes. The machine may further refine
+    /// this (e.g. copper `WAIT` vs actual copper fetch).
+    pub paula_return_progress_default: bool,
+}
+
 /// Maps ddfseq position (0-7) within an 8-CCK group to bitplane index.
 /// From Minimig Verilog: plane = {~ddfseq[0], ~ddfseq[1], ~ddfseq[2]}.
 /// None = free slot (available for copper/CPU).
@@ -204,6 +222,24 @@ impl Agnus {
             }
 
             _ => SlotOwner::Cpu,
+        }
+    }
+
+    /// Compute the machine-facing Agnus bus-arbitration plan for this CCK.
+    pub fn cck_bus_plan(&self) -> CckBusPlan {
+        let slot_owner = self.current_slot();
+        let audio_dma_slot = match slot_owner {
+            SlotOwner::Audio(channel) => Some(channel),
+            _ => None,
+        };
+        let paula_return_progress_default = !matches!(
+            slot_owner,
+            SlotOwner::Refresh | SlotOwner::Disk | SlotOwner::Sprite(_) | SlotOwner::Bitplane(_)
+        );
+        CckBusPlan {
+            slot_owner,
+            audio_dma_slot,
+            paula_return_progress_default,
         }
     }
 }

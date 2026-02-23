@@ -165,23 +165,10 @@ impl Amiga {
             }
 
             // --- DMA slots ---
-            let slot = self.agnus.current_slot();
-            let audio_dma_slot = match slot {
-                SlotOwner::Audio(channel) => Some(channel),
-                _ => None,
-            };
-            // Conservative Agnus-bus contention model for Paula DMA returns:
-            // - `Refresh`, `Disk`, `Sprite`, and `Bitplane` slots always stall
-            //   return progress when they own the slot (reserved bus time).
-            // - `Copper` stalls only when it actually performs a memory fetch
-            //   (Fetch1/Fetch2), not while sitting in WAIT.
-            let mut audio_return_progress_this_cck = !matches!(
-                slot,
-                SlotOwner::Refresh
-                    | SlotOwner::Disk
-                    | SlotOwner::Sprite(_)
-                    | SlotOwner::Bitplane(_)
-            );
+            let bus_plan = self.agnus.cck_bus_plan();
+            let slot = bus_plan.slot_owner;
+            let audio_dma_slot = bus_plan.audio_dma_slot;
+            let mut audio_return_progress_this_cck = bus_plan.paula_return_progress_default;
             let mut fetched_plane_0 = false;
             match slot {
                 SlotOwner::Audio(_) => {}

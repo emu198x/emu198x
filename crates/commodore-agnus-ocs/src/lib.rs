@@ -7,5 +7,7 @@
 mod agnus;
 mod copper;
 
-pub use agnus::{Agnus, LOWRES_DDF_TO_PLANE, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner};
+pub use agnus::{
+    Agnus, CckBusPlan, LOWRES_DDF_TO_PLANE, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner,
+};
 pub use copper::{Copper, State as CopperState};
