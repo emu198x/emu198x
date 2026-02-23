@@ -26,6 +26,7 @@ pub use drive_amiga_floppy;
 pub use format_adf;
 pub use mos_cia_8520;
 pub use peripheral_amiga_keyboard;
+pub use crate::config::{AmigaConfig, AmigaModel};
 use motorola_68000::bus::{M68kBus, FunctionCode, BusStatus};
 
 /// Standard Amiga PAL Master Crystal Frequency (Hz)
@@ -39,6 +40,10 @@ pub const TICKS_PER_CCK: u64 = 8;
 pub const TICKS_PER_CPU: u64 = 4;
 /// Number of crystal ticks per CIA E-clock
 pub const TICKS_PER_ECLOCK: u64 = 40;
+/// Number of crystal ticks per PAL frame (A500/OCS timing).
+pub const PAL_FRAME_TICKS: u64 = (commodore_agnus_ocs::PAL_CCKS_PER_LINE as u64)
+    * (commodore_agnus_ocs::PAL_LINES_PER_FRAME as u64)
+    * TICKS_PER_CCK;
 
 /// Vertical start of visible display (PAL line $2C = 44).
 const DISPLAY_VSTART: u16 = 0x2C;
@@ -59,6 +64,21 @@ pub struct Amiga {
 
 impl Amiga {
     pub fn new(kickstart: Vec<u8>) -> Self {
+        Self::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            kickstart,
+        })
+    }
+
+    /// Construct a machine instance from a config object.
+    ///
+    /// Only A500/OCS is implemented today; later models will branch here.
+    pub fn new_with_config(config: AmigaConfig) -> Self {
+        let AmigaConfig { model, kickstart } = config;
+        match model {
+            AmigaModel::A500 => {}
+        }
+
         let mut cpu = Cpu68000::new();
         let memory = Memory::new(512 * 1024, kickstart);
         
@@ -252,9 +272,41 @@ impl Amiga {
         );
     }
 
+    /// Advance the machine by one PAL video frame (A500/OCS timing).
+    pub fn run_frame(&mut self) {
+        for _ in 0..PAL_FRAME_TICKS {
+            self.tick();
+        }
+    }
+
+    /// Borrow the current raw ARGB framebuffer (320x256).
+    pub fn framebuffer(&self) -> &[u32] {
+        &self.denise.framebuffer
+    }
+
     /// Insert a disk image into the internal floppy drive (DF0:).
     pub fn insert_disk(&mut self, adf: Adf) {
         self.floppy.insert_disk(adf);
+    }
+
+    /// Eject the current DF0: disk, if any.
+    pub fn eject_disk(&mut self) {
+        self.floppy.eject_disk();
+    }
+
+    /// Return whether DF0: currently has a disk inserted.
+    pub fn has_disk(&self) -> bool {
+        self.floppy.has_disk()
+    }
+
+    /// Queue an Amiga keyboard event (raw Amiga keycode).
+    pub fn key_event(&mut self, keycode: u8, pressed: bool) {
+        self.keyboard.key_event(keycode, pressed);
+    }
+
+    /// Inject a keyboard handshake pulse from the host side.
+    pub fn keyboard_handshake(&mut self) {
+        self.keyboard.handshake();
     }
 
     /// Perform disk DMA: read MFM track data into chip RAM at DSKPT.

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use machine_amiga::format_adf::Adf;
 use machine_amiga::{
-    Amiga, TICKS_PER_CCK, commodore_agnus_ocs, commodore_denise_ocs,
+    Amiga, AmigaConfig, AmigaModel, commodore_denise_ocs,
 };
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -25,9 +25,6 @@ const FB_WIDTH: u32 = commodore_denise_ocs::FB_WIDTH;
 const FB_HEIGHT: u32 = commodore_denise_ocs::FB_HEIGHT;
 const SCALE: u32 = 3;
 const FRAME_DURATION: Duration = Duration::from_millis(20); // PAL ~50 Hz
-const PAL_FRAME_TICKS: u64 = (commodore_agnus_ocs::PAL_CCKS_PER_LINE as u64)
-    * (commodore_agnus_ocs::PAL_LINES_PER_FRAME as u64)
-    * TICKS_PER_CCK;
 
 struct CliArgs {
     rom_path: PathBuf,
@@ -91,7 +88,10 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
         }
     };
 
-    let mut amiga = Amiga::new(kickstart);
+    let mut amiga = Amiga::new_with_config(AmigaConfig {
+        model: AmigaModel::A500,
+        kickstart,
+    });
 
     if let Some(adf_path) = &cli.adf_path {
         let adf_bytes = match std::fs::read(adf_path) {
@@ -114,12 +114,6 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
 
     eprintln!("Loaded Kickstart ROM: {}", cli.rom_path.display());
     amiga
-}
-
-fn run_one_pal_frame(amiga: &mut Amiga) {
-    for _ in 0..PAL_FRAME_TICKS {
-        amiga.tick();
-    }
 }
 
 struct App {
@@ -145,7 +139,7 @@ impl App {
         };
 
         let frame = pixels.frame_mut();
-        let fb = &self.amiga.denise.framebuffer;
+        let fb = self.amiga.framebuffer();
 
         for (i, &argb) in fb.iter().enumerate() {
             let o = i * 4;
@@ -212,7 +206,7 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 let now = Instant::now();
                 if now.duration_since(self.last_frame_time) >= FRAME_DURATION {
-                    run_one_pal_frame(&mut self.amiga);
+                    self.amiga.run_frame();
                     self.update_pixels();
                     self.last_frame_time = now;
                 }
