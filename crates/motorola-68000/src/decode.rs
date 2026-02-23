@@ -1141,7 +1141,8 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::Internal(124));
             }
             _ => {
-                eprintln!("ILLEGAL: unimpl opcode=${:04X} at PC=${:08X}", opcode, self.instr_start_pc);
+                // Treat unknown opcodes as illegal for this CPU core model and
+                // vector through the normal illegal-instruction exception.
                 self.begin_group1_exception(4, self.instr_start_pc);
             }
         }

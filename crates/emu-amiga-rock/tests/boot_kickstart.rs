@@ -2311,10 +2311,10 @@ fn test_intuition_init_trace() {
                     ms, trap_num, ipc, sr, amiga.cpu.regs.a(7), amiga.cpu.regs.d[0]);
             }
 
-            // --- Unimplemented opcode detection ---
-            // The decode.rs logs unimpl opcodes via eprintln, but let's also
-            // detect it here by watching for the illegal instruction vector ($10)
-            // being fetched immediately after a new opcode.
+            // --- Illegal opcode detection ---
+            // Watch for the illegal-instruction vector ($10) path after a new
+            // opcode fetch. This catches CPU feature probes (e.g. MOVEC on 68000)
+            // without relying on decoder logging.
 
             // --- Page transitions (4KB pages) ---
             let page = ipc >> 12;
