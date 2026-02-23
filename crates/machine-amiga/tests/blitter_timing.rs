@@ -60,6 +60,52 @@ fn make_test_amiga() -> Amiga {
     Amiga::new(rom)
 }
 
+fn write_rom_word(rom: &mut [u8], offset: usize, word: u16) {
+    rom[offset] = (word >> 8) as u8;
+    rom[offset + 1] = word as u8;
+}
+
+fn write_rom_long(rom: &mut [u8], offset: usize, value: u32) {
+    rom[offset] = (value >> 24) as u8;
+    rom[offset + 1] = (value >> 16) as u8;
+    rom[offset + 2] = (value >> 8) as u8;
+    rom[offset + 3] = value as u8;
+}
+
+fn make_blit_irq_wait_rom_amiga() -> (Amiga, u32) {
+    let mut rom = vec![0u8; 256 * 1024];
+
+    let ssp = 0x0007FFF0u32;
+    let reset_pc = ROM_BASE + 0x0100;
+    let handler_pc = ROM_BASE + 0x0120;
+    let handler_loop_pc = handler_pc + 2;
+
+    // Reset vectors
+    write_rom_long(&mut rom, 0x0000, ssp);
+    write_rom_long(&mut rom, 0x0004, reset_pc);
+    // Vector 27 = level 3 autovector (BLIT/VERTB/COPER priority level)
+    write_rom_long(&mut rom, 27 * 4, handler_pc);
+
+    // Reset code @ $0100:
+    //   MOVE.W #$2000,SR   ; supervisor, interrupt mask = 0
+    //   STOP   #$2000      ; wait for interrupt
+    //   BRA.S  *           ; fallback loop if STOP returns
+    write_rom_word(&mut rom, 0x0100, 0x46FC);
+    write_rom_word(&mut rom, 0x0102, 0x2000);
+    write_rom_word(&mut rom, 0x0104, 0x4E72);
+    write_rom_word(&mut rom, 0x0106, 0x2000);
+    write_rom_word(&mut rom, 0x0108, 0x60FE);
+
+    // Level-3 handler @ $0120:
+    //   MOVEQ   #$42,D0    ; marker that handler ran
+    // hloop:
+    //   BRA.S   hloop
+    write_rom_word(&mut rom, 0x0120, 0x7042);
+    write_rom_word(&mut rom, 0x0122, 0x60FE);
+
+    (Amiga::new(rom), handler_loop_pc)
+}
+
 fn tick_ccks(amiga: &mut Amiga, ccks: u32) {
     for _ in 0..ccks {
         for _ in 0..TICKS_PER_CCK {
@@ -687,5 +733,86 @@ fn blit_irq_reaches_cpu_via_intena_ipl_and_iack_cycle() {
         poll_ipl_via_cpu_bus(&mut amiga),
         0,
         "clearing BLIT request should drop IPL back to 0"
+    );
+}
+
+#[test]
+fn cpu_services_blit_interrupt_and_enters_handler_loop() {
+    let (mut amiga, handler_loop_pc) = make_blit_irq_wait_rom_amiga();
+    amiga.agnus.vpos = VISIBLE_LINE_START;
+    amiga.agnus.hpos = 0;
+
+    // Ensure no stale BLIT request is pending and enable BLIT+master interrupts.
+    amiga.write_custom_reg(REG_INTREQ, INTREQ_BLIT);
+    amiga.write_custom_reg(REG_INTENA, INTENA_SETCLR | INTENA_INTEN | INTREQ_BLIT);
+
+    // Let the reset ROM execute MOVE #$2000,SR and reach the STOP wait state.
+    let mut unmasked = false;
+    for _ in 0..2_000u32 {
+        if amiga.cpu.regs.interrupt_mask() == 0 {
+            unmasked = true;
+            break;
+        }
+        tick_ccks(&mut amiga, 1);
+    }
+    assert!(
+        unmasked,
+        "CPU should clear the interrupt mask before BLIT starts \
+         (pc=${:08X}, sr=${:04X})",
+        amiga.cpu.regs.pc, amiga.cpu.regs.sr
+    );
+    // Give the CPU time to execute STOP and settle before triggering BLIT.
+    tick_ccks(&mut amiga, 64);
+
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_BLTEN);
+    start_area_blit_copy_c(
+        &mut amiga,
+        4,
+        2,
+        true,
+        true,
+        true,
+        true,
+        0x0000_4000,
+        0x0000_5000,
+        0x0000_6000,
+        0x0000_7000,
+    );
+
+    let mut entered_handler = false;
+    for _ in 0..5_000u32 {
+        if (amiga.cpu.regs.d[0] & 0xFF) == 0x42 {
+            entered_handler = true;
+            break;
+        }
+        tick_ccks(&mut amiga, 1);
+    }
+    assert!(
+        entered_handler,
+        "CPU should service BLIT IRQ and execute the handler marker instruction \
+         (ipl={}, intreq=${:04X}, intena=${:04X}, \
+         pc=${:08X}, sr=${:04X}, d0=${:08X}, halted={})",
+        poll_ipl_via_cpu_bus(&mut amiga),
+        amiga.paula.intreq,
+        amiga.paula.intena,
+        amiga.cpu.regs.pc,
+        amiga.cpu.regs.sr,
+        amiga.cpu.regs.d[0],
+        amiga.cpu.is_halted()
+    );
+
+    assert_eq!(
+        amiga.cpu.regs.interrupt_mask(),
+        3,
+        "interrupt service should raise the CPU interrupt mask to level 3"
+    );
+    assert!(
+        amiga.cpu.regs.pc == handler_loop_pc
+            || amiga.cpu.regs.pc == handler_loop_pc.wrapping_add(2),
+        "CPU PC should be in the handler spin loop after servicing BLIT IRQ \
+         (pc=${:08X}, expected ${:08X} or ${:08X})",
+        amiga.cpu.regs.pc,
+        handler_loop_pc,
+        handler_loop_pc.wrapping_add(2)
     );
 }
