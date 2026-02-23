@@ -55,6 +55,12 @@ pub struct CckBusPlan {
     /// slots when blitter DMA is enabled. The blitter operation itself is still
     /// executed synchronously elsewhere, so this only models bus arbitration.
     pub blitter_chip_bus_granted: bool,
+    /// Blitter work-progress grant for this CCK.
+    ///
+    /// This is the coarse scheduler's "blitter may make progress now" signal.
+    /// In the current model, progress is granted on Agnus CPU/free slots while
+    /// blitter DMA is enabled and the blitter is busy.
+    pub blitter_dma_progress_granted: bool,
     /// Paula audio DMA return-latency policy for this slot.
     pub paula_return_progress_policy: PaulaReturnProgressPolicy,
 }
@@ -336,8 +342,10 @@ impl Agnus {
             _ => None,
         };
         let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
+        let blitter_dma_progress_granted =
+            matches!(slot_owner, SlotOwner::Cpu) && self.blitter_busy && self.dma_enabled(0x0040);
         let blitter_nasty_active = self.blitter_nasty_active();
-        let blitter_chip_bus_granted = matches!(slot_owner, SlotOwner::Cpu) && blitter_nasty_active;
+        let blitter_chip_bus_granted = blitter_dma_progress_granted && blitter_nasty_active;
         let cpu_chip_bus_granted =
             matches!(slot_owner, SlotOwner::Cpu) && !blitter_chip_bus_granted;
         let paula_return_progress_policy = match slot_owner {
@@ -355,6 +363,7 @@ impl Agnus {
             copper_dma_slot_granted,
             cpu_chip_bus_granted,
             blitter_chip_bus_granted,
+            blitter_dma_progress_granted,
             paula_return_progress_policy,
         }
     }
@@ -390,6 +399,7 @@ mod tests {
         assert!(!plan.copper_dma_slot_granted);
         assert!(!plan.cpu_chip_bus_granted);
         assert!(!plan.blitter_chip_bus_granted);
+        assert!(!plan.blitter_dma_progress_granted);
         assert_eq!(
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Advance
@@ -409,6 +419,7 @@ mod tests {
         assert!(plan.copper_dma_slot_granted);
         assert!(!plan.cpu_chip_bus_granted);
         assert!(!plan.blitter_chip_bus_granted);
+        assert!(!plan.blitter_dma_progress_granted);
         assert_eq!(
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::CopperFetchConditional
@@ -431,6 +442,7 @@ mod tests {
         assert!(!plan.copper_dma_slot_granted);
         assert!(!plan.cpu_chip_bus_granted);
         assert!(!plan.blitter_chip_bus_granted);
+        assert!(!plan.blitter_dma_progress_granted);
         assert_eq!(
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Stall
@@ -457,6 +469,7 @@ mod tests {
             !plan.blitter_chip_bus_granted,
             "blitter per-CCK slot grants are not modeled yet"
         );
+        assert!(!plan.blitter_dma_progress_granted);
         assert_eq!(
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Advance
@@ -480,6 +493,7 @@ mod tests {
             plan.blitter_chip_bus_granted,
             "blitter should claim free slot in nasty mode"
         );
+        assert!(plan.blitter_dma_progress_granted);
     }
 
     #[test]
@@ -492,6 +506,10 @@ mod tests {
         let plan = agnus.cck_bus_plan();
         assert!(plan.cpu_chip_bus_granted);
         assert!(!plan.blitter_chip_bus_granted);
+        assert!(
+            plan.blitter_dma_progress_granted,
+            "non-nasty blitter should still progress on free slots"
+        );
     }
 
     #[test]

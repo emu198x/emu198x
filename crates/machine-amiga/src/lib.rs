@@ -240,12 +240,11 @@ impl Amiga {
             // Coarse blitter scheduler: preserve BUSY across CCKs so Agnus bus
             // arbitration (including nasty-mode CPU steals) affects machine
             // timing before the existing synchronous blit implementation runs.
-            let blitter_progress_this_cck = if self.agnus.blitter_nasty_active() {
-                bus_plan.blitter_chip_bus_granted
-            } else {
-                true
-            };
-            if self.agnus.tick_blitter_scheduler(blitter_progress_this_cck) {
+            // Progress now advances only on explicit Agnus free-slot grants.
+            if self
+                .agnus
+                .tick_blitter_scheduler(bus_plan.blitter_dma_progress_granted)
+            {
                 execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
             }
 
