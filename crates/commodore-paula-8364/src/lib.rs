@@ -6,6 +6,7 @@
 
 const AUDIO_DMA_MASTER: u16 = 0x0200;
 const AUDIO_DMA_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
+const MIN_AUDIO_PERIOD_CCK: u16 = 124;
 
 #[derive(Debug, Clone, Copy)]
 struct AudioChannel {
@@ -48,7 +49,7 @@ impl Default for AudioChannel {
 
 impl AudioChannel {
     fn effective_period(&self) -> u16 {
-        self.per.max(1)
+        self.per.max(MIN_AUDIO_PERIOD_CCK)
     }
 
     fn programmed_length_words(&self) -> u32 {
@@ -76,13 +77,16 @@ impl AudioChannel {
         self.next_byte_is_hi = true;
     }
 
-    fn sync_dma_enable(&mut self, enabled: bool) {
+    fn sync_dma_enable(&mut self, enabled: bool) -> bool {
+        let mut block_started = false;
         if enabled && !self.dma_enabled_prev {
             self.start_dma();
+            block_started = true;
         } else if !enabled && self.dma_enabled_prev {
             self.stop_dma();
         }
         self.dma_enabled_prev = enabled;
+        block_started
     }
 
     fn write_dat(&mut self, val: u16) {
@@ -271,7 +275,7 @@ impl Paula8364 {
                 true
             }
             3 => {
-                ch.per = val.max(1);
+                ch.per = val;
                 if ch.period_counter == 0 {
                     ch.period_counter = ch.effective_period();
                 }
@@ -325,24 +329,31 @@ impl Paula8364 {
     ) where
         F: FnMut(u32) -> u8,
     {
+        let mut irq_mask = 0u16;
         for (index, channel) in self.audio.iter_mut().enumerate() {
             let dma_enabled =
                 (dmacon & AUDIO_DMA_MASTER) != 0 && (dmacon & AUDIO_DMA_BITS[index]) != 0;
-            channel.sync_dma_enable(dma_enabled);
+            if channel.sync_dma_enable(dma_enabled) {
+                irq_mask |= 1 << (7 + index);
+            }
         }
 
         if let Some(index_u8) = audio_dma_slot {
             let index = usize::from(index_u8);
             if index < self.audio.len() {
-                let _wrapped = self.audio[index].fetch_dma_word(&mut read_chip_byte);
-                // TODO: raise AUDx interrupts with accurate Paula timing/semantics.
-                // A naive "interrupt on DMA loop wrap" implementation causes
-                // Kickstart/runtime regressions.
+                let block_reloaded = self.audio[index].fetch_dma_word(&mut read_chip_byte);
+                if block_reloaded {
+                    irq_mask |= 1 << (7 + index);
+                }
             }
         }
 
         for channel in &mut self.audio {
             channel.tick_output();
+        }
+
+        if irq_mask != 0 {
+            self.intreq |= irq_mask;
         }
     }
 
@@ -445,7 +456,7 @@ mod tests {
         assert!(paula.write_audio_register(0x0A0, 0x0000));
         assert!(paula.write_audio_register(0x0A2, 0x1000));
         assert!(paula.write_audio_register(0x0A4, 0x0001));
-        assert!(paula.write_audio_register(0x0A6, 0x0001));
+        assert!(paula.write_audio_register(0x0A6, 124));
         assert!(paula.write_audio_register(0x0A8, 64));
 
         let read = |addr: u32| -> u8 {
@@ -456,10 +467,67 @@ mod tests {
             }
         };
 
-        paula.tick_audio_cck(dmacon, Some(0), read);
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+        }
         let (left, right) = paula.mix_audio_stereo();
 
         assert!(left > 0.4, "left={left}");
         assert!(right.abs() < 0.01, "right={right}");
+    }
+
+    #[test]
+    fn audio_period_write_is_clamped_for_playback_but_readback_preserves_value() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
+
+        assert!(paula.write_audio_register(0x0A0, 0x0000));
+        assert!(paula.write_audio_register(0x0A2, 0x1000));
+        assert!(paula.write_audio_register(0x0A4, 0x0001));
+        assert!(paula.write_audio_register(0x0A6, 1)); // below hardware minimum
+        assert!(paula.write_audio_register(0x0A8, 64));
+        assert_eq!(paula.read_audio_register(0x0A6), Some(1));
+
+        let read = |addr: u32| -> u8 {
+            match addr {
+                0x0000_1000 => 0x7F,
+                0x0000_1001 => 0x80,
+                _ => 0,
+            }
+        };
+
+        for _ in 0..123 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+        }
+        let (left_before, _) = paula.mix_audio_stereo();
+        assert!(left_before.abs() < 0.01, "left_before={left_before}");
+
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        let (left_after, _) = paula.mix_audio_stereo();
+        assert!(left_after > 0.4, "left_after={left_after}");
+    }
+
+    #[test]
+    fn audio_dma_interrupt_occurs_on_block_start_and_reload() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
+
+        assert!(paula.write_audio_register(0x0A0, 0x0000));
+        assert!(paula.write_audio_register(0x0A2, 0x1000));
+        assert!(paula.write_audio_register(0x0A4, 0x0001)); // one word block
+        assert!(paula.write_audio_register(0x0A6, 124));
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        assert_ne!(paula.intreq & 0x0080, 0, "AUD0 IRQ should fire on DMA start");
+
+        paula.intreq = 0;
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        assert_ne!(
+            paula.intreq & 0x0080,
+            0,
+            "AUD0 IRQ should fire when the one-word block reloads"
+        );
     }
 }
