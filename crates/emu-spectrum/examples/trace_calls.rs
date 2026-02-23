@@ -16,8 +16,11 @@ fn main() {
         spectrum.run_frame();
     }
 
-    println!("After 81 frames: PC={:04X} SP={:04X}",
-        spectrum.cpu().regs.pc, spectrum.cpu().regs.sp);
+    println!(
+        "After 81 frames: PC={:04X} SP={:04X}",
+        spectrum.cpu().regs.pc,
+        spectrum.cpu().regs.sp
+    );
 
     // Trace execution with a rolling buffer of the last 500 instruction records
     let mut history: Vec<String> = Vec::new();
@@ -68,10 +71,16 @@ fn main() {
                     format!("→ ${:04X}", pc)
                 };
 
-                let entry = format!("t={:8} PC={:04X} {} SP={:04X} A={:02X} HL={:02X}{:02X}",
-                    tick_count, prev_pc, desc, sp,
+                let entry = format!(
+                    "t={:8} PC={:04X} {} SP={:04X} A={:02X} HL={:02X}{:02X}",
+                    tick_count,
+                    prev_pc,
+                    desc,
+                    sp,
                     spectrum.cpu().regs.a,
-                    spectrum.cpu().regs.h, spectrum.cpu().regs.l);
+                    spectrum.cpu().regs.h,
+                    spectrum.cpu().regs.l
+                );
                 history.push(entry);
                 if history.len() > 500 {
                     history.remove(0);
@@ -96,8 +105,10 @@ fn main() {
                 }
 
                 // Also dump the byte at $4000 (which will be the "error code")
-                println!("\nByte at $4000 (supposed error code): 0x{:02X}",
-                    spectrum.bus().memory.peek(0x4000));
+                println!(
+                    "\nByte at $4000 (supposed error code): 0x{:02X}",
+                    spectrum.bus().memory.peek(0x4000)
+                );
 
                 break;
             }

@@ -1,7 +1,7 @@
 //! Unit tests for 6502 instruction behavior.
 
 use emu_core::{Bus, Cpu, SimpleBus};
-use mos_6502::{flags, Mos6502};
+use mos_6502::{Mos6502, flags};
 
 /// Run one complete instruction (fetch + execute cycles).
 fn run_instruction(cpu: &mut Mos6502, bus: &mut SimpleBus) {
@@ -33,10 +33,10 @@ fn test_stack_pha_pla() {
     let program = [
         0xA9, 0x42, // LDA #$42
         0xA2, 0xFF, // LDX #$FF
-        0x9A,       // TXS
-        0x48,       // PHA
+        0x9A, // TXS
+        0x48, // PHA
         0xA9, 0x00, // LDA #$00
-        0x68,       // PLA
+        0x68, // PLA
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -56,11 +56,11 @@ fn test_stack_php_plp() {
     // Set up: LDX #$FF; TXS; SEC; PHP; CLC; PLP
     let program = [
         0xA2, 0xFF, // LDX #$FF
-        0x9A,       // TXS
-        0x38,       // SEC (set carry)
-        0x08,       // PHP
-        0x18,       // CLC (clear carry)
-        0x28,       // PLP
+        0x9A, // TXS
+        0x38, // SEC (set carry)
+        0x08, // PHP
+        0x18, // CLC (clear carry)
+        0x28, // PLP
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -85,10 +85,10 @@ fn test_brk_stack_layout() {
     // Start at $0200
     let program = [
         0xA2, 0xFF, // LDX #$FF    @ $0200
-        0x9A,       // TXS         @ $0202
-        0x58,       // CLI         @ $0203 (clear I flag)
-        0x00,       // BRK         @ $0204
-        0xEA,       // NOP padding @ $0205 (this byte is skipped)
+        0x9A, // TXS         @ $0202
+        0x58, // CLI         @ $0203 (clear I flag)
+        0x00, // BRK         @ $0204
+        0xEA, // NOP padding @ $0205 (this byte is skipped)
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -103,8 +103,14 @@ fn test_brk_stack_layout() {
     // - SP should be $FC
 
     assert_eq!(cpu.pc(), 0x0300, "PC should be at BRK vector target");
-    assert_eq!(cpu.regs.s, 0xFC, "SP should be $FC after BRK (3 pushes from $FF)");
-    assert!(cpu.regs.p.is_set(flags::I), "I flag should be set after BRK");
+    assert_eq!(
+        cpu.regs.s, 0xFC,
+        "SP should be $FC after BRK (3 pushes from $FF)"
+    );
+    assert!(
+        cpu.regs.p.is_set(flags::I),
+        "I flag should be set after BRK"
+    );
 
     // Check stack contents
     let pushed_pch = bus.peek(0x01FF);
@@ -119,10 +125,17 @@ fn test_brk_stack_layout() {
     // Pushed P should have B and U set, but NOT I (since we did CLI before BRK)
     // B=0x10, U=0x20, so expect $30
     assert_eq!(pushed_p & 0x30, 0x30, "Pushed P should have B and U set");
-    assert_eq!(pushed_p & 0x04, 0x00, "Pushed P should NOT have I set (we did CLI)");
+    assert_eq!(
+        pushed_p & 0x04,
+        0x00,
+        "Pushed P should NOT have I set (we did CLI)"
+    );
 
     eprintln!("BRK test: PC=${:04X}, SP=${:02X}", cpu.pc(), cpu.regs.s);
-    eprintln!("Stack: PCH=${:02X}, PCL=${:02X}, P=${:02X}", pushed_pch, pushed_pcl, pushed_p);
+    eprintln!(
+        "Stack: PCH=${:02X}, PCL=${:02X}, P=${:02X}",
+        pushed_pch, pushed_pcl, pushed_p
+    );
 }
 
 #[test]
@@ -142,30 +155,43 @@ fn test_brk_dormann_sequence() {
     // Main program that mimics Dormann's setup
     let program = [
         0xA2, 0xFF, // LDX #$FF    @ $0200 - set SP to $FF
-        0x9A,       // TXS         @ $0202
+        0x9A, // TXS         @ $0202
         0xA9, 0x00, // LDA #$00    @ $0203 - load 0 for PHA
-        0x48,       // PHA         @ $0205 - push 0 to $01FF, SP=$FE
+        0x48, // PHA         @ $0205 - push 0 to $01FF, SP=$FE
         0xA9, 0x42, // LDA #$42    @ $0206 - destroy A
-        0x28,       // PLP         @ $0208 - pull status (clears flags), SP=$FF
-        0x00,       // BRK         @ $0209
-        0xEA,       // NOP padding @ $020A
+        0x28, // PLP         @ $0208 - pull status (clears flags), SP=$FF
+        0x00, // BRK         @ $0209
+        0xEA, // NOP padding @ $020A
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
     // Run up through BRK
     eprintln!("\n=== Running Dormann-like BRK sequence ===");
-    let names = ["LDX #$FF", "TXS", "LDA #$00", "PHA", "LDA #$42", "PLP", "BRK"];
+    let names = [
+        "LDX #$FF", "TXS", "LDA #$00", "PHA", "LDA #$42", "PLP", "BRK",
+    ];
     for name in &names {
         let pc_before = cpu.pc();
         run_instruction(&mut cpu, &mut bus);
-        eprintln!("{}: PC ${:04X}->${:04X}, SP=${:02X}, P=${:02X}",
-                 name, pc_before, cpu.pc(), cpu.regs.s, cpu.regs.p.0);
+        eprintln!(
+            "{}: PC ${:04X}->${:04X}, SP=${:02X}, P=${:02X}",
+            name,
+            pc_before,
+            cpu.pc(),
+            cpu.regs.s,
+            cpu.regs.p.0
+        );
     }
 
     // Now at BRK handler ($0300), run PHP
     let pc_before = cpu.pc();
     run_instruction(&mut cpu, &mut bus);
-    eprintln!("PHP: PC ${:04X}->${:04X}, SP=${:02X}", pc_before, cpu.pc(), cpu.regs.s);
+    eprintln!(
+        "PHP: PC ${:04X}->${:04X}, SP=${:02X}",
+        pc_before,
+        cpu.pc(),
+        cpu.regs.s
+    );
 
     // After sequence:
     // LDX #$FF; TXS -> SP=$FF
@@ -224,8 +250,8 @@ fn test_brk_after_absolute_addressing() {
 
     let program = [
         0xAD, 0x34, 0x12, // LDA $1234  (sets internal addr to $1234)
-        0x00,             // BRK        (must use $FFFE, not $1234)
-        0xEA,             // NOP padding
+        0x00, // BRK        (must use $FFFE, not $1234)
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -250,10 +276,10 @@ fn test_brk_after_absolute_x_addressing() {
     bus.write(0x1034, 0x42); // $1000 + $34
 
     let program = [
-        0xA2, 0x34,       // LDX #$34
+        0xA2, 0x34, // LDX #$34
         0xBD, 0x00, 0x10, // LDA $1000,X (effective = $1034)
-        0x00,             // BRK
-        0xEA,             // NOP padding
+        0x00, // BRK
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -278,10 +304,10 @@ fn test_brk_after_absolute_y_addressing() {
     bus.write(0x1056, 0x42);
 
     let program = [
-        0xA0, 0x56,       // LDY #$56
+        0xA0, 0x56, // LDY #$56
         0xB9, 0x00, 0x10, // LDA $1000,Y (effective = $1056)
-        0x00,             // BRK
-        0xEA,             // NOP padding
+        0x00, // BRK
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -310,10 +336,10 @@ fn test_brk_after_indirect_indexed() {
     bus.write(0x2010, 0x42);
 
     let program = [
-        0xA0, 0x10,   // LDY #$10
-        0xB1, 0x80,   // LDA ($80),Y (effective = $2010)
-        0x00,         // BRK
-        0xEA,         // NOP padding
+        0xA0, 0x10, // LDY #$10
+        0xB1, 0x80, // LDA ($80),Y (effective = $2010)
+        0x00, // BRK
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -342,10 +368,10 @@ fn test_brk_after_indexed_indirect() {
     bus.write(0x3000, 0x42);
 
     let program = [
-        0xA2, 0x10,   // LDX #$10
-        0xA1, 0x80,   // LDA ($80,X) (pointer at $90, effective = $3000)
-        0x00,         // BRK
-        0xEA,         // NOP padding
+        0xA2, 0x10, // LDX #$10
+        0xA1, 0x80, // LDA ($80,X) (pointer at $90, effective = $3000)
+        0x00, // BRK
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -371,8 +397,8 @@ fn test_brk_after_rmw_absolute() {
 
     let program = [
         0xEE, 0x34, 0x12, // INC $1234
-        0x00,             // BRK
-        0xEA,             // NOP padding
+        0x00, // BRK
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -430,10 +456,10 @@ fn test_brk_after_page_crossing_read() {
     bus.write(0x1100, 0x42); // Correct address after page fix
 
     let program = [
-        0xA2, 0x01,       // LDX #$01
+        0xA2, 0x01, // LDX #$01
         0xBD, 0xFF, 0x10, // LDA $10FF,X (page cross: $10FF + 1 = $1100)
-        0x00,             // BRK
-        0xEA,             // NOP padding
+        0x00, // BRK
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -457,10 +483,10 @@ fn test_brk_after_sta_absolute() {
     setup_brk_test(&mut bus, &mut cpu);
 
     let program = [
-        0xA9, 0x42,       // LDA #$42
+        0xA9, 0x42, // LDA #$42
         0x8D, 0x34, 0x12, // STA $1234
-        0x00,             // BRK
-        0xEA,             // NOP padding
+        0x00, // BRK
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -492,8 +518,8 @@ fn test_brk_after_jsr_rts_sequence() {
 
     let program = [
         0x20, 0x20, 0x02, // JSR $0220
-        0x00,             // BRK (at $0203)
-        0xEA,             // NOP padding
+        0x00, // BRK (at $0203)
+        0xEA, // NOP padding
     ];
     setup_program(&mut bus, &mut cpu, &program);
 
@@ -537,7 +563,10 @@ fn test_illegal_lax_zeropage() {
 
     assert_eq!(cpu.regs.a, 0x42, "LAX should load A");
     assert_eq!(cpu.regs.x, 0x42, "LAX should load X with same value");
-    assert!(!cpu.regs.p.is_set(flags::Z), "Z should be clear for non-zero");
+    assert!(
+        !cpu.regs.p.is_set(flags::Z),
+        "Z should be clear for non-zero"
+    );
     assert!(!cpu.regs.p.is_set(flags::N), "N should be clear for $42");
 }
 
@@ -583,7 +612,10 @@ fn test_illegal_slo_zeropage() {
     // $40 << 1 = $80, then A = $01 | $80 = $81
     assert_eq!(bus.peek(0x0010), 0x80, "SLO should shift memory left");
     assert_eq!(cpu.regs.a, 0x81, "SLO should OR result with A");
-    assert!(!cpu.regs.p.is_set(flags::C), "C should be clear (bit 7 of $40 is 0)");
+    assert!(
+        !cpu.regs.p.is_set(flags::C),
+        "C should be clear (bit 7 of $40 is 0)"
+    );
     assert!(cpu.regs.p.is_set(flags::N), "N should be set for $81");
 }
 
@@ -597,7 +629,7 @@ fn test_illegal_rla_zeropage() {
 
     // SEC; LDA #$FF; RLA $10
     let program = [
-        0x38,       // SEC
+        0x38, // SEC
         0xA9, 0xFF, // LDA #$FF
         0x27, 0x10, // RLA $10
     ];
@@ -611,7 +643,10 @@ fn test_illegal_rla_zeropage() {
     // A = $FF AND $01 = $01
     assert_eq!(bus.peek(0x0010), 0x01, "RLA should rotate memory left");
     assert_eq!(cpu.regs.a, 0x01, "RLA should AND result with A");
-    assert!(cpu.regs.p.is_set(flags::C), "C should be set from bit 7 of $80");
+    assert!(
+        cpu.regs.p.is_set(flags::C),
+        "C should be set from bit 7 of $80"
+    );
 }
 
 #[test]
@@ -648,7 +683,7 @@ fn test_illegal_isc_zeropage() {
 
     // SEC; LDA #$43; ISC $10
     let program = [
-        0x38,       // SEC (no borrow)
+        0x38, // SEC (no borrow)
         0xA9, 0x43, // LDA #$43
         0xE7, 0x10, // ISC $10
     ];
@@ -702,7 +737,10 @@ fn test_illegal_alr_immediate() {
 
     // A = ($FF AND $0F) >> 1 = $0F >> 1 = $07
     assert_eq!(cpu.regs.a, 0x07, "ALR should AND then LSR");
-    assert!(cpu.regs.p.is_set(flags::C), "C should be set (bit 0 of $0F)");
+    assert!(
+        cpu.regs.p.is_set(flags::C),
+        "C should be set (bit 0 of $0F)"
+    );
     assert!(!cpu.regs.p.is_set(flags::N), "N should be clear");
 }
 
@@ -741,7 +779,11 @@ fn test_illegal_nop_single_byte() {
     let start_pc = cpu.pc();
     run_instruction(&mut cpu, &mut bus); // NOP
 
-    assert_eq!(cpu.pc(), start_pc + 1, "Single-byte NOP should advance PC by 1");
+    assert_eq!(
+        cpu.pc(),
+        start_pc + 1,
+        "Single-byte NOP should advance PC by 1"
+    );
 
     run_instruction(&mut cpu, &mut bus); // LDA
     assert_eq!(cpu.regs.a, 0x42, "Next instruction should execute normally");
@@ -759,7 +801,11 @@ fn test_illegal_nop_two_byte() {
     let start_pc = cpu.pc();
     run_instruction(&mut cpu, &mut bus); // NOP
 
-    assert_eq!(cpu.pc(), start_pc + 2, "Two-byte NOP should advance PC by 2");
+    assert_eq!(
+        cpu.pc(),
+        start_pc + 2,
+        "Two-byte NOP should advance PC by 2"
+    );
 
     run_instruction(&mut cpu, &mut bus); // LDA
     assert_eq!(cpu.regs.a, 0x42, "Next instruction should execute normally");
@@ -777,7 +823,11 @@ fn test_illegal_nop_three_byte() {
     let start_pc = cpu.pc();
     run_instruction(&mut cpu, &mut bus); // NOP
 
-    assert_eq!(cpu.pc(), start_pc + 3, "Three-byte NOP should advance PC by 3");
+    assert_eq!(
+        cpu.pc(),
+        start_pc + 3,
+        "Three-byte NOP should advance PC by 3"
+    );
 
     run_instruction(&mut cpu, &mut bus); // LDA
     assert_eq!(cpu.regs.a, 0x42, "Next instruction should execute normally");

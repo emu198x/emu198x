@@ -1,7 +1,7 @@
 //! 6502 CPU registers.
 
-use crate::flags::{I, U};
 use crate::Status;
+use crate::flags::{I, U};
 
 /// 6502 CPU register set.
 ///

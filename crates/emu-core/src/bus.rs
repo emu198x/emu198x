@@ -106,9 +106,7 @@ impl SimpleBus {
     #[must_use]
     #[allow(clippy::large_stack_arrays)] // Intentional: 64KB is the full Z80 address space
     pub fn new() -> Self {
-        Self {
-            memory: [0; 65536],
-        }
+        Self { memory: [0; 65536] }
     }
 
     /// Load data into memory at the given address.

@@ -336,8 +336,10 @@ impl Z80 {
         ticks += 1;
 
         // Continue until queue has only FetchOpcode waiting (ready for next instruction)
-        while !(self.micro_ops.is_empty() ||
-                (self.t_state == 0 && matches!(self.micro_ops.current(), Some(MicroOp::FetchOpcode)))) {
+        while !(self.micro_ops.is_empty()
+            || (self.t_state == 0
+                && matches!(self.micro_ops.current(), Some(MicroOp::FetchOpcode))))
+        {
             self.tick(bus);
             ticks += 1;
             if ticks >= max_ticks {
@@ -822,7 +824,7 @@ impl Z80 {
             3 => self.regs.e,
             4 => (self.get_index_reg() >> 8) as u8, // IXH/IYH
             5 => self.get_index_reg() as u8,        // IXL/IYL
-            6 => 0, // (IX+d)/(IY+d) - handled specially
+            6 => 0,                                 // (IX+d)/(IY+d) - handled specially
             7 => self.regs.a,
             _ => unreachable!(),
         }
@@ -1084,24 +1086,16 @@ impl Cpu for Z80 {
 /// All query paths supported by the Z80.
 const Z80_QUERY_PATHS: &[&str] = &[
     // Main registers
-    "a", "f", "b", "c", "d", "e", "h", "l",
-    // Register pairs
-    "af", "bc", "de", "hl",
-    // Alternate registers
-    "a'", "f'", "b'", "c'", "d'", "e'", "h'", "l'",
-    "af'", "bc'", "de'", "hl'",
+    "a", "f", "b", "c", "d", "e", "h", "l", // Register pairs
+    "af", "bc", "de", "hl", // Alternate registers
+    "a'", "f'", "b'", "c'", "d'", "e'", "h'", "l'", "af'", "bc'", "de'", "hl'",
     // Index registers
-    "ix", "iy", "ixh", "ixl", "iyh", "iyl",
-    // Other registers
-    "sp", "pc", "i", "r",
-    // Flags (individual)
-    "flags.s", "flags.z", "flags.y", "flags.h",
-    "flags.x", "flags.p", "flags.n", "flags.c",
+    "ix", "iy", "ixh", "ixl", "iyh", "iyl", // Other registers
+    "sp", "pc", "i", "r", // Flags (individual)
+    "flags.s", "flags.z", "flags.y", "flags.h", "flags.x", "flags.p", "flags.n", "flags.c",
     // Interrupt state
-    "iff1", "iff2", "im",
-    // CPU state
-    "halted", "ticks",
-    // Current instruction state
+    "iff1", "iff2", "im", // CPU state
+    "halted", "ticks", // Current instruction state
     "opcode", "prefix", "t_state",
 ];
 

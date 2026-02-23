@@ -38,7 +38,10 @@ impl Cpu68000 {
                         // when write starts for simple destinations.
                         if matches!(dst, AddrMode::AddrInd(_) | AddrMode::AddrIndPostInc(_)) {
                             self.pre_move_sr = Some(self.regs.sr);
-                        } else if matches!(dst, AddrMode::AddrIndDisp(_) | AddrMode::AddrIndIndex(_)) {
+                        } else if matches!(
+                            dst,
+                            AddrMode::AddrIndDisp(_) | AddrMode::AddrIndIndex(_)
+                        ) {
                             self.pre_move_vc = Some(self.regs.sr);
                         }
                         // -(An), abs.w, abs.l: flags fully committed, no save
@@ -56,8 +59,12 @@ impl Cpu68000 {
                             // Build synthetic SR with lo-word N,Z and cleared V,C
                             let lo = self.data as u16;
                             let mut lo_sr = pre_sr & !0x000F;
-                            if lo == 0 { lo_sr |= 0x0004; } // Z from lo word
-                            if lo & 0x8000 != 0 { lo_sr |= 0x0008; } // N from lo word
+                            if lo == 0 {
+                                lo_sr |= 0x0004;
+                            } // Z from lo word
+                            if lo & 0x8000 != 0 {
+                                lo_sr |= 0x0008;
+                            } // N from lo word
                             self.pre_move_sr = Some(lo_sr);
                             return;
                         }
@@ -115,7 +122,11 @@ impl Cpu68000 {
         // Scc: set byte to 0xFF if condition true, 0x00 if false
         if (opcode & 0xF0C0) == 0x50C0 && (opcode & 0x0038) != 0x0008 {
             let cond = ((opcode >> 8) & 0x0F) as u8;
-            self.data = if self.check_condition(cond) { 0xFF } else { 0x00 };
+            self.data = if self.check_condition(cond) {
+                0xFF
+            } else {
+                0x00
+            };
             return;
         }
 
@@ -259,8 +270,7 @@ impl Cpu68000 {
 
         // CMP/CMPI/CMPA: no writeback (flags only)
         if matches!(self.alu_op, AluOp::Cmp) {
-            let is_cmp = (opcode & 0xF000) == 0xB000
-                || (opcode & 0xFF00) == 0x0C00;
+            let is_cmp = (opcode & 0xF000) == 0xB000 || (opcode & 0xFF00) == 0x0C00;
             if is_cmp {
                 return;
             }
@@ -431,7 +441,12 @@ impl Cpu68000 {
     /// `shift_type`: 0=AS, 1=LS, 2=ROX, 3=RO
     /// `direction`: 0=right, 1=left
     pub(crate) fn perform_shift(
-        &mut self, reg: u8, count: u32, direction: u8, shift_type: u8, size: Size,
+        &mut self,
+        reg: u8,
+        count: u32,
+        direction: u8,
+        shift_type: u8,
+        size: Size,
     ) {
         let mask = size.mask();
         let msb = size.msb_mask();
@@ -446,11 +461,19 @@ impl Cpu68000 {
             sr &= !(C | V);
             if shift_type == 2 {
                 // ROXL/ROXR with count 0: C = X
-                if x_in { sr |= C; } else { sr &= !C; }
+                if x_in {
+                    sr |= C;
+                } else {
+                    sr &= !C;
+                }
             }
             sr &= !(N | Z);
-            if val == 0 { sr |= Z; }
-            if val & msb != 0 { sr |= N; }
+            if val == 0 {
+                sr |= Z;
+            }
+            if val & msb != 0 {
+                sr |= N;
+            }
             self.regs.sr = sr;
             return;
         }
@@ -464,12 +487,24 @@ impl Cpu68000 {
                     let out = val & msb != 0;
                     val = (val << 1) & mask;
                     let new_msb = val & msb != 0;
-                    if out != new_msb { v_changed = true; }
-                    if out { sr |= C | X; } else { sr &= !(C | X); }
+                    if out != new_msb {
+                        v_changed = true;
+                    }
+                    if out {
+                        sr |= C | X;
+                    } else {
+                        sr &= !(C | X);
+                    }
                 }
-                if v_changed { sr |= V; }
-                if val == 0 { sr |= Z; }
-                if val & msb != 0 { sr |= N; }
+                if v_changed {
+                    sr |= V;
+                }
+                if val == 0 {
+                    sr |= Z;
+                }
+                if val & msb != 0 {
+                    sr |= N;
+                }
             }
             (0, 0) => {
                 // ASR (arithmetic shift right)
@@ -479,10 +514,18 @@ impl Cpu68000 {
                     let sign = val & msb;
                     val = (val >> 1) | sign;
                     val &= mask;
-                    if out { sr |= C | X; } else { sr &= !(C | X); }
+                    if out {
+                        sr |= C | X;
+                    } else {
+                        sr &= !(C | X);
+                    }
                 }
-                if val == 0 { sr |= Z; }
-                if val & msb != 0 { sr |= N; }
+                if val == 0 {
+                    sr |= Z;
+                }
+                if val & msb != 0 {
+                    sr |= N;
+                }
             }
             (1, 1) => {
                 // LSL (logical shift left)
@@ -490,10 +533,18 @@ impl Cpu68000 {
                 for _ in 0..count {
                     let out = val & msb != 0;
                     val = (val << 1) & mask;
-                    if out { sr |= C | X; } else { sr &= !(C | X); }
+                    if out {
+                        sr |= C | X;
+                    } else {
+                        sr &= !(C | X);
+                    }
                 }
-                if val == 0 { sr |= Z; }
-                if val & msb != 0 { sr |= N; }
+                if val == 0 {
+                    sr |= Z;
+                }
+                if val & msb != 0 {
+                    sr |= N;
+                }
             }
             (1, 0) => {
                 // LSR (logical shift right)
@@ -501,10 +552,18 @@ impl Cpu68000 {
                 for _ in 0..count {
                     let out = val & 1 != 0;
                     val >>= 1;
-                    if out { sr |= C | X; } else { sr &= !(C | X); }
+                    if out {
+                        sr |= C | X;
+                    } else {
+                        sr &= !(C | X);
+                    }
                 }
-                if val == 0 { sr |= Z; }
-                if val & msb != 0 { sr |= N; }
+                if val == 0 {
+                    sr |= Z;
+                }
+                if val & msb != 0 {
+                    sr |= N;
+                }
             }
             (2, 1) => {
                 // ROXL (rotate left through extend)
@@ -515,9 +574,17 @@ impl Cpu68000 {
                     val = ((val << 1) & mask) | u32::from(x);
                     x = out;
                 }
-                if x { sr |= C | X; } else { sr &= !X; }
-                if val == 0 { sr |= Z; }
-                if val & msb != 0 { sr |= N; }
+                if x {
+                    sr |= C | X;
+                } else {
+                    sr &= !X;
+                }
+                if val == 0 {
+                    sr |= Z;
+                }
+                if val & msb != 0 {
+                    sr |= N;
+                }
             }
             (2, 0) => {
                 // ROXR (rotate right through extend)
@@ -528,9 +595,17 @@ impl Cpu68000 {
                     val = (val >> 1) | if x { msb } else { 0 };
                     x = out;
                 }
-                if x { sr |= C | X; } else { sr &= !X; }
-                if val == 0 { sr |= Z; }
-                if val & msb != 0 { sr |= N; }
+                if x {
+                    sr |= C | X;
+                } else {
+                    sr &= !X;
+                }
+                if val == 0 {
+                    sr |= Z;
+                }
+                if val & msb != 0 {
+                    sr |= N;
+                }
             }
             (3, 1) => {
                 // ROL (rotate left)
@@ -538,11 +613,19 @@ impl Cpu68000 {
                 for _ in 0..count {
                     let out = val & msb != 0;
                     val = ((val << 1) & mask) | u32::from(out);
-                    if out { sr |= C; } else { sr &= !C; }
+                    if out {
+                        sr |= C;
+                    } else {
+                        sr &= !C;
+                    }
                 }
                 // ROL does not affect X
-                if val == 0 { sr |= Z; }
-                if val & msb != 0 { sr |= N; }
+                if val == 0 {
+                    sr |= Z;
+                }
+                if val & msb != 0 {
+                    sr |= N;
+                }
             }
             (3, 0) => {
                 // ROR (rotate right)
@@ -550,11 +633,19 @@ impl Cpu68000 {
                 for _ in 0..count {
                     let out = val & 1 != 0;
                     val = (val >> 1) | if out { msb } else { 0 };
-                    if out { sr |= C; } else { sr &= !C; }
+                    if out {
+                        sr |= C;
+                    } else {
+                        sr &= !C;
+                    }
                 }
                 // ROR does not affect X
-                if val == 0 { sr |= Z; }
-                if val & msb != 0 { sr |= N; }
+                if val == 0 {
+                    sr |= Z;
+                }
+                if val & msb != 0 {
+                    sr |= N;
+                }
             }
             _ => {}
         }
@@ -589,10 +680,18 @@ impl Cpu68000 {
                 let out = val & msb != 0;
                 result = (val << 1) & mask;
                 sr &= !(C | X | V | N | Z);
-                if out { sr |= C | X; }
-                if out != (result & msb != 0) { sr |= V; }
-                if result == 0 { sr |= Z; }
-                if result & msb != 0 { sr |= N; }
+                if out {
+                    sr |= C | X;
+                }
+                if out != (result & msb != 0) {
+                    sr |= V;
+                }
+                if result == 0 {
+                    sr |= Z;
+                }
+                if result & msb != 0 {
+                    sr |= N;
+                }
             }
             (0, 0) => {
                 // ASR by 1
@@ -600,65 +699,113 @@ impl Cpu68000 {
                 let sign = val & msb;
                 result = ((val >> 1) | sign) & mask;
                 sr &= !(C | X | V | N | Z);
-                if out { sr |= C | X; }
-                if result == 0 { sr |= Z; }
-                if result & msb != 0 { sr |= N; }
+                if out {
+                    sr |= C | X;
+                }
+                if result == 0 {
+                    sr |= Z;
+                }
+                if result & msb != 0 {
+                    sr |= N;
+                }
             }
             (1, 1) => {
                 // LSL by 1
                 let out = val & msb != 0;
                 result = (val << 1) & mask;
                 sr &= !(C | X | V | N | Z);
-                if out { sr |= C | X; }
-                if result == 0 { sr |= Z; }
-                if result & msb != 0 { sr |= N; }
+                if out {
+                    sr |= C | X;
+                }
+                if result == 0 {
+                    sr |= Z;
+                }
+                if result & msb != 0 {
+                    sr |= N;
+                }
             }
             (1, 0) => {
                 // LSR by 1
                 let out = val & 1 != 0;
                 result = val >> 1;
                 sr &= !(C | X | V | N | Z);
-                if out { sr |= C | X; }
-                if result == 0 { sr |= Z; }
-                if result & msb != 0 { sr |= N; }
+                if out {
+                    sr |= C | X;
+                }
+                if result == 0 {
+                    sr |= Z;
+                }
+                if result & msb != 0 {
+                    sr |= N;
+                }
             }
             (2, 1) => {
                 // ROXL by 1
                 let out = val & msb != 0;
                 result = ((val << 1) & mask) | u32::from(x_in);
                 sr &= !(C | V | N | Z);
-                if out { sr |= C | X; } else { sr &= !X; }
-                if result == 0 { sr |= Z; }
-                if result & msb != 0 { sr |= N; }
+                if out {
+                    sr |= C | X;
+                } else {
+                    sr &= !X;
+                }
+                if result == 0 {
+                    sr |= Z;
+                }
+                if result & msb != 0 {
+                    sr |= N;
+                }
             }
             (2, 0) => {
                 // ROXR by 1
                 let out = val & 1 != 0;
                 result = (val >> 1) | if x_in { msb } else { 0 };
                 sr &= !(C | V | N | Z);
-                if out { sr |= C | X; } else { sr &= !X; }
-                if result == 0 { sr |= Z; }
-                if result & msb != 0 { sr |= N; }
+                if out {
+                    sr |= C | X;
+                } else {
+                    sr &= !X;
+                }
+                if result == 0 {
+                    sr |= Z;
+                }
+                if result & msb != 0 {
+                    sr |= N;
+                }
             }
             (3, 1) => {
                 // ROL by 1
                 let out = val & msb != 0;
                 result = ((val << 1) & mask) | u32::from(out);
                 sr &= !(C | V | N | Z);
-                if out { sr |= C; }
-                if result == 0 { sr |= Z; }
-                if result & msb != 0 { sr |= N; }
+                if out {
+                    sr |= C;
+                }
+                if result == 0 {
+                    sr |= Z;
+                }
+                if result & msb != 0 {
+                    sr |= N;
+                }
             }
             (3, 0) => {
                 // ROR by 1
                 let out = val & 1 != 0;
                 result = (val >> 1) | if out { msb } else { 0 };
                 sr &= !(C | V | N | Z);
-                if out { sr |= C; }
-                if result == 0 { sr |= Z; }
-                if result & msb != 0 { sr |= N; }
+                if out {
+                    sr |= C;
+                }
+                if result == 0 {
+                    sr |= Z;
+                }
+                if result & msb != 0 {
+                    sr |= N;
+                }
             }
-            _ => { result = val; }
+            _ => {
+                result = val;
+            }
         }
 
         self.regs.sr = sr;
@@ -812,22 +959,22 @@ impl Cpu68000 {
         let v = sr & V != 0;
         let c = sr & C != 0;
         match cond {
-            0 => true,                                          // T
-            1 => false,                                         // F
-            2 => !c && !z,                                      // HI
-            3 => c || z,                                        // LS
-            4 => !c,                                            // CC
-            5 => c,                                             // CS
-            6 => !z,                                            // NE
-            7 => z,                                             // EQ
-            8 => !v,                                            // VC
-            9 => v,                                             // VS
-            10 => !n,                                           // PL
-            11 => n,                                            // MI
-            12 => n == v,                                       // GE
-            13 => n != v,                                       // LT
-            14 => !z && (n == v),                               // GT
-            15 => z || (n != v),                                // LE
+            0 => true,            // T
+            1 => false,           // F
+            2 => !c && !z,        // HI
+            3 => c || z,          // LS
+            4 => !c,              // CC
+            5 => c,               // CS
+            6 => !z,              // NE
+            7 => z,               // EQ
+            8 => !v,              // VC
+            9 => v,               // VS
+            10 => !n,             // PL
+            11 => n,              // MI
+            12 => n == v,         // GE
+            13 => n != v,         // LT
+            14 => !z && (n == v), // GT
+            15 => z || (n != v),  // LE
             _ => unreachable!(),
         }
     }

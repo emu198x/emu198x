@@ -770,12 +770,9 @@ impl Mos6502 {
             // ====================================================================
             // JAM/KIL - halt the CPU
             // ====================================================================
-            0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2
-            | 0xF2 => {
+            0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
                 self.state = State::Stopped;
-            }
-
-            // All 256 opcodes are explicitly handled above
+            } // All 256 opcodes are explicitly handled above
         }
     }
 
@@ -998,8 +995,10 @@ impl Mos6502 {
             }
             4 => {
                 // Read high byte of address (wraps in zero page)
-                self.addr |=
-                    u16::from(self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data) << 8;
+                self.addr |= u16::from(
+                    self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1)))
+                        .data,
+                ) << 8;
                 self.cycle = 5;
             }
             5 => {
@@ -1027,7 +1026,9 @@ impl Mos6502 {
             }
             3 => {
                 // Read high byte of base address
-                let hi = self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data;
+                let hi = self
+                    .read_mem_result(bus, u16::from(self.pointer.wrapping_add(1)))
+                    .data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
                 self.data = if lo < self.regs.y { 1 } else { 0 };
@@ -1218,8 +1219,10 @@ impl Mos6502 {
                 self.cycle = 4;
             }
             4 => {
-                self.addr |=
-                    u16::from(self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data) << 8;
+                self.addr |= u16::from(
+                    self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1)))
+                        .data,
+                ) << 8;
                 self.cycle = 5;
             }
             5 => {
@@ -1243,7 +1246,9 @@ impl Mos6502 {
                 self.cycle = 3;
             }
             3 => {
-                let hi = self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data;
+                let hi = self
+                    .read_mem_result(bus, u16::from(self.pointer.wrapping_add(1)))
+                    .data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
                 self.data = if lo < self.regs.y { 1 } else { 0 };
@@ -1453,8 +1458,10 @@ impl Mos6502 {
                 self.cycle = 4;
             }
             4 => {
-                self.addr |=
-                    u16::from(self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data) << 8;
+                self.addr |= u16::from(
+                    self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1)))
+                        .data,
+                ) << 8;
                 self.cycle = 5;
             }
             5 => {
@@ -1487,7 +1494,9 @@ impl Mos6502 {
                 self.cycle = 3;
             }
             3 => {
-                let hi = self.read_mem_result(bus, u16::from(self.pointer.wrapping_add(1))).data;
+                let hi = self
+                    .read_mem_result(bus, u16::from(self.pointer.wrapping_add(1)))
+                    .data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
                 self.data = if lo < self.regs.y { 1 } else { 0 };
@@ -1566,7 +1575,8 @@ impl Mos6502 {
         let result = sum as u8;
 
         self.regs.p.set_if(C, sum > 0xFF);
-        self.regs.p
+        self.regs
+            .p
             .set_if(V, (a ^ result) & (val ^ result) & 0x80 != 0);
         self.regs.a = result;
         self.regs.p.update_nz(result);
@@ -1591,10 +1601,9 @@ impl Mos6502 {
 
         // N and V flags are based on this intermediate (NMOS 6502 behavior)
         self.regs.p.set_if(N, s & 0x80 != 0);
-        self.regs.p.set_if(
-            V,
-            ((u16::from(a) ^ s) & (u16::from(val) ^ s) & 0x80) != 0,
-        );
+        self.regs
+            .p
+            .set_if(V, ((u16::from(a) ^ s) & (u16::from(val) ^ s) & 0x80) != 0);
 
         // Final decimal correction of high nibble
         if s >= 0xA0 {
@@ -1812,9 +1821,7 @@ impl Mos6502 {
             // ROR
             result = (result >> 1) | if old_carry { 0x80 } else { 0 };
             self.regs.p.update_nz(result);
-            self.regs
-                .p
-                .set_if(V, (result ^ tmp) & 0x40 != 0);
+            self.regs.p.set_if(V, (result ^ tmp) & 0x40 != 0);
 
             // Decimal fixup on low nibble
             if u16::from(tmp & 0x0F) + u16::from(tmp & 0x01) > 5 {
@@ -1836,10 +1843,9 @@ impl Mos6502 {
             self.regs.a = (tmp >> 1) | if old_carry { 0x80 } else { 0 };
             self.regs.p.update_nz(self.regs.a);
             self.regs.p.set_if(C, self.regs.a & 0x40 != 0);
-            self.regs.p.set_if(
-                V,
-                (self.regs.a & 0x40) ^ ((self.regs.a & 0x20) << 1) != 0,
-            );
+            self.regs
+                .p
+                .set_if(V, (self.regs.a & 0x40) ^ ((self.regs.a & 0x20) << 1) != 0);
         }
     }
 
@@ -2670,7 +2676,11 @@ mod tests {
         assert_eq!(bus.peek(0x01FF), 0x02, "PCH should be $02 at $01FF");
         assert_eq!(bus.peek(0x01FE), 0x02, "PCL should be $02 at $01FE");
         // Status should have B and U flags set: $30
-        assert_eq!(bus.peek(0x01FD), 0x30, "Status (with B flag) should be $30 at $01FD");
+        assert_eq!(
+            bus.peek(0x01FD),
+            0x30,
+            "Status (with B flag) should be $30 at $01FD"
+        );
     }
 
     #[test]
@@ -2687,15 +2697,18 @@ mod tests {
         let mut bus = SimpleBus::new();
 
         // Load test program
-        bus.load(0x0400, &[
-            0xD8,             // CLD
-            0xA2, 0xFF,       // LDX #$FF
-            0x9A,             // TXS
-            0xA9, 0x00,       // LDA #$00
-            0x8D, 0x00, 0x02, // STA $0200
-            0xA2, 0x05,       // LDX #$05
-            0x4C, 0x33, 0x04, // JMP $0433
-        ]);
+        bus.load(
+            0x0400,
+            &[
+                0xD8, // CLD
+                0xA2, 0xFF, // LDX #$FF
+                0x9A, // TXS
+                0xA9, 0x00, // LDA #$00
+                0x8D, 0x00, 0x02, // STA $0200
+                0xA2, 0x05, // LDX #$05
+                0x4C, 0x33, 0x04, // JMP $0433
+            ],
+        );
         cpu.regs.pc = 0x0400;
 
         // CLD - 2 cycles

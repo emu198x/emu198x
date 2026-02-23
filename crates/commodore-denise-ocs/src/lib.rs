@@ -9,9 +9,9 @@ pub const FB_HEIGHT: u32 = 256;
 pub struct DeniseOcs {
     pub palette: [u16; 32],
     pub framebuffer: Vec<u32>,
-    pub bpl_data: [u16; 6],   // Holding latches: written by DMA
-    pub bpl_shift: [u16; 6],  // Shift registers: loaded from latches on BPL1DAT write
-    pub shift_count: u8,      // Pixels remaining in shift register (0 -> output COLOR00)
+    pub bpl_data: [u16; 6],  // Holding latches: written by DMA
+    pub bpl_shift: [u16; 6], // Shift registers: loaded from latches on BPL1DAT write
+    pub shift_count: u8,     // Pixels remaining in shift register (0 -> output COLOR00)
     pub bplcon1: u16,
     pub bplcon2: u16,
     pub spr_pos: [u16; 8],

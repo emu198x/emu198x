@@ -83,11 +83,7 @@ pub fn save_frame_sequence(
 /// Record video + audio: dump frames as PNGs + combined WAV.
 ///
 /// Prints an ffmpeg command to stdout for combining them.
-pub fn record(
-    spectrum: &mut Spectrum,
-    dir: &Path,
-    num_frames: u32,
-) -> Result<(), Box<dyn Error>> {
+pub fn record(spectrum: &mut Spectrum, dir: &Path, num_frames: u32) -> Result<(), Box<dyn Error>> {
     let frames_dir = dir.join("frames");
     fs::create_dir_all(&frames_dir)?;
 

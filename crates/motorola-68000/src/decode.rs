@@ -18,24 +18,17 @@ use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::bus::M68kBus;
 use crate::cpu::{
-    AluOp, BitOp, Cpu68000, State,
-    TAG_ADDX_READ_DST, TAG_ADDX_READ_SRC, TAG_ADDX_WRITE,
-    TAG_AE_FETCH_VECTOR, TAG_AE_FINISH, TAG_AE_PUSH_FAULT, TAG_AE_PUSH_INFO,
-    TAG_AE_PUSH_IR, TAG_AE_PUSH_SR,
-    TAG_BCC_EXECUTE, TAG_BSR_EXECUTE, TAG_DATA_DST_LONG,
-    TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE, TAG_EA_DST_DISP, TAG_EA_DST_LONG,
-    TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
-    TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_PC_HI,
-    TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA,
-    TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE,
-    TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE,
-    TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR,
-    TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
-    TAG_RTS_PC_HI, TAG_RTS_PC_LO,
-    TAG_BCD_DST_READ, TAG_BCD_SRC_READ,
-    TAG_CHK_EXECUTE, TAG_MULDIV_EXECUTE, TAG_MOVEP_TRANSFER,
-    TAG_STOP_WAIT,
-    TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    AluOp, BitOp, Cpu68000, State, TAG_ADDX_READ_DST, TAG_ADDX_READ_SRC, TAG_ADDX_WRITE,
+    TAG_AE_FETCH_VECTOR, TAG_AE_FINISH, TAG_AE_PUSH_FAULT, TAG_AE_PUSH_INFO, TAG_AE_PUSH_IR,
+    TAG_AE_PUSH_SR, TAG_BCC_EXECUTE, TAG_BCD_DST_READ, TAG_BCD_SRC_READ, TAG_BSR_EXECUTE,
+    TAG_CHK_EXECUTE, TAG_DATA_DST_LONG, TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE, TAG_EA_DST_DISP,
+    TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
+    TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_PC_HI, TAG_EXC_STACK_PC_LO,
+    TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA,
+    TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
+    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_PC_HI,
+    TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
+    TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -147,7 +140,11 @@ impl Cpu68000 {
                     self.alu_op = if is_add { AluOp::Add } else { AluOp::Sub };
                     self.in_followup = true;
                     // Pre-decrement source (Ay)
-                    let dec = if ry == 7 && size == Size::Byte { 2 } else { size.bytes() };
+                    let dec = if ry == 7 && size == Size::Byte {
+                        2
+                    } else {
+                        size.bytes()
+                    };
                     self.addr = self.regs.a(ry as usize).wrapping_sub(dec);
                     self.regs.set_a(ry as usize, self.addr);
                     self.ae_undo_reg = Some((ry, dec, false, false));
@@ -260,7 +257,13 @@ impl Cpu68000 {
             let op = match opcode & 0xF000 {
                 0xD000 => AluOp::Add,
                 0x9000 => AluOp::Sub,
-                0xB000 => if opmode >= 4 && opmode <= 6 { AluOp::Eor } else { AluOp::Cmp },
+                0xB000 => {
+                    if opmode >= 4 && opmode <= 6 {
+                        AluOp::Eor
+                    } else {
+                        AluOp::Cmp
+                    }
+                }
                 0xC000 => AluOp::And,
                 0x8000 => AluOp::Or,
                 _ => unreachable!(),
@@ -280,8 +283,8 @@ impl Cpu68000 {
                 let ea_mode = AddrMode::decode(ea_mode_bits, ea_reg).unwrap();
 
                 // ADDA/SUBA/CMPA: source is EA, destination is An
-                let is_addr = matches!(opmode, 3 | 7)
-                    && matches!(opcode & 0xF000, 0xD000 | 0x9000 | 0xB000);
+                let is_addr =
+                    matches!(opmode, 3 | 7) && matches!(opcode & 0xF000, 0xD000 | 0x9000 | 0xB000);
 
                 self.alu_op = op;
                 self.size = size;
@@ -370,18 +373,18 @@ impl Cpu68000 {
             if is_sr {
                 let sr32 = u32::from(self.regs.sr);
                 let result = match op_type {
-                    0 => sr32 | imm,         // ORI
-                    1 => sr32 & imm,         // ANDI
-                    5 => sr32 ^ imm,         // EORI
+                    0 => sr32 | imm, // ORI
+                    1 => sr32 & imm, // ANDI
+                    5 => sr32 ^ imm, // EORI
                     _ => sr32,
                 };
                 self.regs.sr = (result as u16) & crate::flags::SR_MASK;
             } else {
                 let ccr = u32::from(self.regs.sr & 0xFF);
                 let result = match op_type {
-                    0 => ccr | (imm & 0x1F),   // ORI to CCR
-                    1 => ccr & imm,             // ANDI to CCR
-                    5 => ccr ^ (imm & 0x1F),   // EORI to CCR
+                    0 => ccr | (imm & 0x1F), // ORI to CCR
+                    1 => ccr & imm,          // ANDI to CCR
+                    5 => ccr ^ (imm & 0x1F), // EORI to CCR
                     _ => ccr,
                 };
                 self.regs.sr = (self.regs.sr & 0xFF00) | (result as u16 & 0xFF);
@@ -408,10 +411,10 @@ impl Cpu68000 {
                     self.regs.sr & !crate::flags::Z
                 };
                 let result = match bit_type {
-                    0 => val,                   // BTST
-                    1 => val ^ (1 << bit),      // BCHG
-                    2 => val & !(1 << bit),     // BCLR
-                    3 => val | (1 << bit),      // BSET
+                    0 => val,               // BTST
+                    1 => val ^ (1 << bit),  // BCHG
+                    2 => val & !(1 << bit), // BCLR
+                    3 => val | (1 << bit),  // BSET
                     _ => val,
                 };
                 if bit_type != 0 {
@@ -419,8 +422,20 @@ impl Cpu68000 {
                 }
                 let extra = match bit_type {
                     0 => 2,
-                    2 => if bit >= 16 { 6 } else { 4 },
-                    _ => if bit >= 16 { 4 } else { 2 },
+                    2 => {
+                        if bit >= 16 {
+                            6
+                        } else {
+                            4
+                        }
+                    }
+                    _ => {
+                        if bit >= 16 {
+                            4
+                        } else {
+                            2
+                        }
+                    }
                 };
                 self.micro_ops.push(MicroOp::Internal(extra));
             } else {
@@ -478,8 +493,20 @@ impl Cpu68000 {
                     }
                     let extra = match bit_type {
                         0 => 2,
-                        2 => if bit >= 16 { 6 } else { 4 },
-                        _ => if bit >= 16 { 4 } else { 2 },
+                        2 => {
+                            if bit >= 16 {
+                                6
+                            } else {
+                                4
+                            }
+                        }
+                        _ => {
+                            if bit >= 16 {
+                                4
+                            } else {
+                                2
+                            }
+                        }
                     };
                     self.micro_ops.push(MicroOp::Internal(extra));
                 } else {
@@ -566,7 +593,10 @@ impl Cpu68000 {
                 2 => Size::Long,
                 _ => {
                     // Size 3 is invalid for ALU immediate ops → illegal instruction
-                    eprintln!("ILLEGAL: ALU-imm size=3 opcode=${:04X} at PC=${:08X}", opcode, self.instr_start_pc);
+                    eprintln!(
+                        "ILLEGAL: ALU-imm size=3 opcode=${:04X} at PC=${:08X}",
+                        opcode, self.instr_start_pc
+                    );
                     self.begin_group1_exception(4, self.instr_start_pc);
                     return;
                 }
@@ -693,7 +723,8 @@ impl Cpu68000 {
                 // Compute return PC and save for push AFTER EA resolution.
                 // The real 68000 computes EA first, then pushes, then jumps.
                 let ext = self.src_mode.unwrap().ext_word_count();
-                let return_pc = self.instr_start_pc
+                let return_pc = self
+                    .instr_start_pc
                     .wrapping_add(2)
                     .wrapping_add(u32::from(ext) * 2);
                 self.dst_val = return_pc;
@@ -766,7 +797,11 @@ impl Cpu68000 {
 
         // --- MOVEM register→memory (0x4880/0x48C0 with ea_mode >= 2) ---
         if (opcode & 0xFF80) == 0x4880 {
-            let size = if (opcode & 0x0040) != 0 { Size::Long } else { Size::Word };
+            let size = if (opcode & 0x0040) != 0 {
+                Size::Long
+            } else {
+                Size::Word
+            };
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
             let ea_reg = (opcode & 7) as u8;
             let mask = self.consume_irc();
@@ -797,7 +832,11 @@ impl Cpu68000 {
 
         // --- MOVEM memory→register (0x4C80/0x4CC0) ---
         if (opcode & 0xFF80) == 0x4C80 {
-            let size = if (opcode & 0x0040) != 0 { Size::Long } else { Size::Word };
+            let size = if (opcode & 0x0040) != 0 {
+                Size::Long
+            } else {
+                Size::Word
+            };
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
             let ea_reg = (opcode & 7) as u8;
             let mask = self.consume_irc();
@@ -871,7 +910,8 @@ impl Cpu68000 {
                         self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
                         if ea_mode_bits == 0 {
                             // Dn: 6 cycles (Internal(2))
-                            self.regs.d[ea_reg as usize] = (self.regs.d[ea_reg as usize] & 0xFFFF_0000) | (self.data & 0xFFFF);
+                            self.regs.d[ea_reg as usize] =
+                                (self.regs.d[ea_reg as usize] & 0xFFFF_0000) | (self.data & 0xFFFF);
                             self.micro_ops.push(MicroOp::Internal(2));
                         } else {
                             // Memory: dummy read then write
@@ -1173,7 +1213,6 @@ impl Cpu68000 {
     pub fn continue_instruction<B: M68kBus>(&mut self, _bus: &mut B) {
         match self.followup_tag {
             // --- Operand fetch pipeline ---
-
             TAG_FETCH_SRC_EA => {
                 if self.calc_ea_start(self.src_mode.unwrap(), true) {
                     self.followup_tag = TAG_FETCH_SRC_DATA;
@@ -1322,8 +1361,7 @@ impl Cpu68000 {
                 // MOVE and Scc are write-only: skip the destination read.
                 // Read-modify-write instructions (ALU ops, CLR) need the read.
                 let is_move = (self.ir & 0xC000) == 0 && (self.ir & 0x3000) != 0;
-                let is_scc = (self.ir & 0xF0C0) == 0x50C0
-                    && (self.ir & 0x0038) != 0x0008;
+                let is_scc = (self.ir & 0xF0C0) == 0x50C0 && (self.ir & 0x0038) != 0x0008;
                 if is_move || is_scc {
                     self.followup_tag = TAG_EXECUTE;
                     self.micro_ops.push(MicroOp::Execute);
@@ -1356,7 +1394,6 @@ impl Cpu68000 {
             }
 
             // --- Execute and writeback ---
-
             TAG_EXECUTE => {
                 // If destination was a memory read, the result is in self.data.
                 // Copy to dst_val before execute uses it. Skip for registers
@@ -1382,7 +1419,6 @@ impl Cpu68000 {
             }
 
             // --- EA extension word handlers ---
-
             TAG_EA_SRC_LONG => {
                 self.addr |= u32::from(self.consume_irc());
                 self.followup_tag = TAG_FETCH_SRC_DATA;
@@ -1424,7 +1460,6 @@ impl Cpu68000 {
             }
 
             // --- Immediate long lo-word handlers ---
-
             TAG_DATA_SRC_LONG => {
                 self.src_val |= u32::from(self.consume_irc());
                 self.followup_tag = TAG_FETCH_DST_EA;
@@ -1438,12 +1473,14 @@ impl Cpu68000 {
             }
 
             // --- Branch handlers ---
-
             TAG_BCC_EXECUTE => {
                 let cond = ((self.ir >> 8) & 0x0F) as u8;
                 if self.check_condition(cond) {
                     let disp = self.src_val as i16 as i32;
-                    self.regs.pc = self.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
+                    self.regs.pc = self
+                        .instr_start_pc
+                        .wrapping_add(2)
+                        .wrapping_add(disp as u32);
                     self.next_fetch_addr = self.regs.pc;
                     self.micro_ops.clear();
                     self.micro_ops.push(MicroOp::FetchIRC);
@@ -1462,8 +1499,7 @@ impl Cpu68000 {
                     // Save original for undo on branch AE (odd target).
                     self.dbcc_dn_undo = Some((reg as u8, counter));
                     let decremented = counter.wrapping_sub(1);
-                    self.regs.d[reg] =
-                        (self.regs.d[reg] & 0xFFFF_0000) | u32::from(decremented);
+                    self.regs.d[reg] = (self.regs.d[reg] & 0xFFFF_0000) | u32::from(decremented);
 
                     if decremented != 0xFFFF {
                         // Branch taken: reload prefetch from branch target
@@ -1481,7 +1517,6 @@ impl Cpu68000 {
             }
 
             // --- Subroutine handlers ---
-
             TAG_JSR_EXECUTE => {
                 let is_jsr = (self.ir & 0x40) == 0;
                 // Set PC to target and start the pipeline refill.
@@ -1504,7 +1539,10 @@ impl Cpu68000 {
 
             TAG_BSR_EXECUTE => {
                 let disp = self.src_val as i16 as i32;
-                self.regs.pc = self.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
+                self.regs.pc = self
+                    .instr_start_pc
+                    .wrapping_add(2)
+                    .wrapping_add(disp as u32);
                 self.next_fetch_addr = self.regs.pc;
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);
@@ -1531,7 +1569,6 @@ impl Cpu68000 {
             }
 
             // --- Exception handlers ---
-
             TAG_EXC_STACK_PC_HI => {
                 self.followup_tag = TAG_EXC_STACK_PC_LO;
                 self.micro_ops.push(MicroOp::PushLongLo);
@@ -1584,8 +1621,7 @@ impl Cpu68000 {
                     // Hardware interrupt: supervisor mode and trace were set in
                     // initiate_interrupt_exception. Update the interrupt mask
                     // to the level being acknowledged (happens after InterruptAck).
-                    self.regs.sr =
-                        (self.regs.sr & !0x0700) | (u16::from(self.target_ipl) << 8);
+                    self.regs.sr = (self.regs.sr & !0x0700) | (u16::from(self.target_ipl) << 8);
                 }
                 self.exc_vector = None;
                 self.micro_ops.clear();
@@ -1810,7 +1846,11 @@ impl Cpu68000 {
                 self.ae_undo_reg = None;
 
                 // Pre-decrement destination (Ax)
-                let dec = if rx == 7 && self.size == Size::Byte { 2 } else { self.size.bytes() };
+                let dec = if rx == 7 && self.size == Size::Byte {
+                    2
+                } else {
+                    self.size.bytes()
+                };
                 self.addr = self.regs.a(rx as usize).wrapping_sub(dec);
                 self.regs.set_a(rx as usize, self.addr);
                 self.ae_undo_reg = Some((rx, dec, false, true));
@@ -1869,8 +1909,7 @@ impl Cpu68000 {
                 let sub_result = dn_val.wrapping_sub(bound);
                 let sub_n = sub_result & 0x8000 != 0;
                 let sub_z = sub_result == 0;
-                let sub_v =
-                    ((dn_val ^ bound) & (dn_val ^ sub_result)) & 0x8000 != 0;
+                let sub_v = ((dn_val ^ bound) & (dn_val ^ sub_result)) & 0x8000 != 0;
 
                 if dn_signed < 0 {
                     // Dn < 0: set N, clear ZVC, preserve X, trap vector 6
@@ -1894,7 +1933,6 @@ impl Cpu68000 {
             // --- Address error exception frame ---
             // Frame pushed in order: PC, SR, IR, fault addr, access info
             // Then read vector 3 (0x0C) and jump.
-
             TAG_AE_PUSH_SR => {
                 // PC already pushed by begin_address_error.
                 // Now push the saved SR.
@@ -1992,8 +2030,7 @@ impl Cpu68000 {
                     // Store the byte just read into the correct position in Dn
                     let shift = (u32::from(total) - 1 - u32::from(byte_idx)) * 8;
                     let mask = 0xFFu32 << shift;
-                    self.regs.d[dn] = (self.regs.d[dn] & !mask)
-                        | ((self.data & 0xFF) << shift);
+                    self.regs.d[dn] = (self.regs.d[dn] & !mask) | ((self.data & 0xFF) << shift);
                 }
 
                 let next_idx = byte_idx + 1;
@@ -2041,8 +2078,12 @@ impl Cpu68000 {
 
                         // Flags: N bit 31, Z if zero, V=0, C=0, X unchanged
                         let mut sr = self.regs.sr & !0x000F;
-                        if result & 0x8000_0000 != 0 { sr |= 0x0008; }
-                        if result == 0 { sr |= 0x0004; }
+                        if result & 0x8000_0000 != 0 {
+                            sr |= 0x0008;
+                        }
+                        if result == 0 {
+                            sr |= 0x0004;
+                        }
                         self.regs.sr = sr;
 
                         // Timing: 38 + 2 * (set bits in source word)
@@ -2058,8 +2099,12 @@ impl Cpu68000 {
                         self.regs.d[dn] = result;
 
                         let mut sr = self.regs.sr & !0x000F;
-                        if result & 0x8000_0000 != 0 { sr |= 0x0008; }
-                        if result == 0 { sr |= 0x0004; }
+                        if result & 0x8000_0000 != 0 {
+                            sr |= 0x0008;
+                        }
+                        if result == 0 {
+                            sr |= 0x0004;
+                        }
                         self.regs.sr = sr;
 
                         // Timing: Booth encoding transitions in source word
@@ -2088,8 +2133,12 @@ impl Cpu68000 {
                         } else {
                             self.regs.d[dn] = (remainder << 16) | (quotient & 0xFFFF);
                             let mut sr = self.regs.sr & !0x000F;
-                            if quotient & 0x8000 != 0 { sr |= 0x0008; }
-                            if quotient & 0xFFFF == 0 { sr |= 0x0004; }
+                            if quotient & 0x8000 != 0 {
+                                sr |= 0x0008;
+                            }
+                            if quotient & 0xFFFF == 0 {
+                                sr |= 0x0004;
+                            }
                             self.regs.sr = sr;
                         }
                         let internal = total_cycles.saturating_sub(4);
@@ -2119,8 +2168,12 @@ impl Cpu68000 {
                             let r16 = remainder as u16;
                             self.regs.d[dn] = (u32::from(r16) << 16) | u32::from(q16);
                             let mut sr = self.regs.sr & !0x000F;
-                            if q16 & 0x8000 != 0 { sr |= 0x0008; }
-                            if q16 == 0 { sr |= 0x0004; }
+                            if q16 & 0x8000 != 0 {
+                                sr |= 0x0008;
+                            }
+                            if q16 == 0 {
+                                sr |= 0x0004;
+                            }
                             self.regs.sr = sr;
                         }
                         let internal = total_cycles.saturating_sub(4);

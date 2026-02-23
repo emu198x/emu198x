@@ -9,7 +9,10 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu_spectrum::{capture, keyboard_map, load_sna, mcp::McpServer, Spectrum, SpectrumConfig, SpectrumModel, TapFile};
+use emu_spectrum::{
+    Spectrum, SpectrumConfig, SpectrumModel, TapFile, capture, keyboard_map, load_sna,
+    mcp::McpServer,
+};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -115,7 +118,9 @@ fn parse_args() -> CliArgs {
                 eprintln!("  --tap <file>         Insert a TAP file into the tape deck");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
-                eprintln!("  --frames <n>         Number of frames in headless mode [default: 200]");
+                eprintln!(
+                    "  --frames <n>         Number of frames in headless mode [default: 200]"
+                );
                 eprintln!("  --screenshot <file>  Save a PNG screenshot (headless)");
                 eprintln!("  --audio <file>       Save a WAV audio dump (headless)");
                 eprintln!("  --record <dir>       Record frames + audio to directory (headless)");

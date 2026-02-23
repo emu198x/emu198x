@@ -189,8 +189,6 @@ mod tests {
 
         let result = load_sna(&mut spec, &sna);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("points into ROM"));
+        assert!(result.unwrap_err().contains("points into ROM"));
     }
 }

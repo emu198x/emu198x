@@ -22,12 +22,12 @@ pub enum BusStatus {
 }
 
 /// The reactive bus trait.
-/// 
+///
 /// Instead of "Read this now", the CPU says "I am starting a cycle at this address".
 /// The bus returns whether it's ready or needs to wait.
 pub trait M68kBus {
     /// Start or continue a bus cycle.
-    /// 
+    ///
     /// - `addr`: The 24-bit address.
     /// - `fc`: The function code.
     /// - `is_read`: True for read, false for write.

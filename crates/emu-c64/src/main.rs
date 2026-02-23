@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu_c64::{capture, keyboard_map, mcp::McpServer, C64, C64Config, C64Model};
+use emu_c64::{C64, C64Config, C64Model, capture, keyboard_map, mcp::McpServer};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -99,7 +99,9 @@ fn parse_args() -> CliArgs {
                 eprintln!("  --prg <file>         Load a PRG file into memory");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
-                eprintln!("  --frames <n>         Number of frames in headless mode [default: 200]");
+                eprintln!(
+                    "  --frames <n>         Number of frames in headless mode [default: 200]"
+                );
                 eprintln!("  --screenshot <file>  Save a PNG screenshot (headless)");
                 eprintln!("  --record <dir>       Record frames to directory (headless)");
                 eprintln!("  --type <text>        Type text into the C64 (use \\n for Return)");

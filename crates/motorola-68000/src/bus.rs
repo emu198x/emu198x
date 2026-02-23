@@ -33,7 +33,7 @@ pub enum BusStatus {
 /// The reactive bus trait.
 pub trait M68kBus {
     /// Poll for the completion of a bus cycle.
-    /// 
+    ///
     /// - `addr`: The 24-bit address.
     /// - `fc`: The function code.
     /// - `is_read`: True for read, false for write.

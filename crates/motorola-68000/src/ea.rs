@@ -11,7 +11,10 @@
 
 use crate::addressing::AddrMode;
 use crate::alu::Size;
-use crate::cpu::{Cpu68000, TAG_EA_DST_DISP, TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP};
+use crate::cpu::{
+    Cpu68000, TAG_EA_DST_DISP, TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP,
+    TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
+};
 use crate::microcode::MicroOp;
 
 impl Cpu68000 {
@@ -52,7 +55,8 @@ impl Cpu68000 {
                 } else {
                     self.size.bytes()
                 };
-                self.regs.set_a(r as usize, self.addr.wrapping_add(increment));
+                self.regs
+                    .set_a(r as usize, self.addr.wrapping_add(increment));
                 self.ae_undo_reg = Some((r, increment, true, !is_src));
                 true
             }
@@ -170,10 +174,8 @@ impl Cpu68000 {
                 self.addr = base.wrapping_add(disp as u32).wrapping_add(idx);
                 self.micro_ops.push(MicroOp::Internal(2));
                 true
-            }
-
-            // All modes handled — DataReg/AddrReg/Immediate are instant,
-            // all memory modes compute an address above.
+            } // All modes handled — DataReg/AddrReg/Immediate are instant,
+              // all memory modes compute an address above.
         }
     }
 }

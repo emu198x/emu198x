@@ -96,7 +96,7 @@ impl MicroOp {
             Self::IoRead => 4,
             Self::IoWrite => 4,
             Self::Internal(n) => n,
-            Self::Execute => 0,  // Instant
+            Self::Execute => 0, // Instant
         }
     }
 }
@@ -134,7 +134,10 @@ impl MicroOpQueue {
 
     /// Push a micro-op onto the queue.
     pub fn push(&mut self, op: MicroOp) {
-        debug_assert!((self.len as usize) < self.ops.len(), "MicroOp queue overflow");
+        debug_assert!(
+            (self.len as usize) < self.ops.len(),
+            "MicroOp queue overflow"
+        );
         self.ops[self.len as usize] = op;
         self.len += 1;
     }

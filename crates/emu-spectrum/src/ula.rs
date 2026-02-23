@@ -354,7 +354,8 @@ impl SpectrumVideo for Ula {
                 let d0 = Self::contention_delay_at(base_offset);
                 let d1 = Self::contention_delay_at(base_offset + 1 + d0 as i16);
                 let d2 = Self::contention_delay_at(base_offset + 2 + d0 as i16 + d1 as i16);
-                let d3 = Self::contention_delay_at(base_offset + 3 + d0 as i16 + d1 as i16 + d2 as i16);
+                let d3 =
+                    Self::contention_delay_at(base_offset + 3 + d0 as i16 + d1 as i16 + d2 as i16);
                 d0 + d1 + d2 + d3
             }
         }
@@ -444,8 +445,7 @@ impl SpectrumVideo for Ula {
                 if col >= 32 {
                     return 0xFF;
                 }
-                Self::bitmap_addr(screen_y, col as u8)
-                    .map_or(0xFF, |addr| memory.peek(addr))
+                Self::bitmap_addr(screen_y, col as u8).map_or(0xFF, |addr| memory.peek(addr))
             }
             3 => {
                 // Attribute byte for next column
@@ -453,8 +453,7 @@ impl SpectrumVideo for Ula {
                 if col >= 32 {
                     return 0xFF;
                 }
-                Self::attr_addr(screen_y, col as u8)
-                    .map_or(0xFF, |addr| memory.peek(addr))
+                Self::attr_addr(screen_y, col as u8).map_or(0xFF, |addr| memory.peek(addr))
             }
             _ => 0xFF,
         }
@@ -483,7 +482,10 @@ mod tests {
             ula.tick(&memory);
         }
         assert!(ula.take_frame_complete());
-        assert!(!ula.take_frame_complete(), "take_frame_complete should auto-clear");
+        assert!(
+            !ula.take_frame_complete(),
+            "take_frame_complete should auto-clear"
+        );
     }
 
     #[test]

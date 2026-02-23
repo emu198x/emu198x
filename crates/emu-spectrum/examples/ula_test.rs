@@ -70,7 +70,10 @@ fn main() {
     if p2 == expected_paper {
         println!("PASS: bitmap $00 + attr $38 → all paper (white)");
     } else {
-        println!("FAIL: expected paper 0x{:08X}, got 0x{:08X}", expected_paper, p2);
+        println!(
+            "FAIL: expected paper 0x{:08X}, got 0x{:08X}",
+            expected_paper, p2
+        );
     }
 
     // === Test 3: Checkerboard bitmap ($AA), check alternating pixels ===
@@ -174,7 +177,10 @@ fn main() {
     let iff1 = spectrum2.cpu().regs.iff1;
 
     println!("After 100 frames:");
-    println!("  PC={:04X} SP={:04X} IM={} IY={:04X} IFF1={}", pc, sp, im, iy, iff1);
+    println!(
+        "  PC={:04X} SP={:04X} IM={} IY={:04X} IFF1={}",
+        pc, sp, im, iy, iff1
+    );
     println!("  ERR_NR=0x{:02X}", err_nr);
 
     // Check some RAM contents
@@ -208,17 +214,18 @@ fn main() {
         let y7y6 = (row >> 6) & 0x03;
         let y5y4y3 = (row >> 3) & 0x07;
         let y2y1y0 = row & 0x07;
-        let base: u16 = 0x4000
-            | (u16::from(y7y6) << 11)
-            | (u16::from(y2y1y0) << 8)
-            | (u16::from(y5y4y3) << 5);
+        let base: u16 =
+            0x4000 | (u16::from(y7y6) << 11) | (u16::from(y2y1y0) << 8) | (u16::from(y5y4y3) << 5);
         let mut nonzero = 0;
         for col in 0..32u16 {
             if spectrum2.bus().memory.peek(base + col) != 0 {
                 nonzero += 1;
             }
         }
-        println!("    Line {}: base=${:04X}, non-zero bytes: {}/32", row, base, nonzero);
+        println!(
+            "    Line {}: base=${:04X}, non-zero bytes: {}/32",
+            row, base, nonzero
+        );
     }
 
     // Check top screen row too
@@ -227,16 +234,17 @@ fn main() {
         let y7y6 = (row >> 6) & 0x03;
         let y5y4y3 = (row >> 3) & 0x07;
         let y2y1y0 = row & 0x07;
-        let base: u16 = 0x4000
-            | (u16::from(y7y6) << 11)
-            | (u16::from(y2y1y0) << 8)
-            | (u16::from(y5y4y3) << 5);
+        let base: u16 =
+            0x4000 | (u16::from(y7y6) << 11) | (u16::from(y2y1y0) << 8) | (u16::from(y5y4y3) << 5);
         let mut nonzero = 0;
         for col in 0..32u16 {
             if spectrum2.bus().memory.peek(base + col) != 0 {
                 nonzero += 1;
             }
         }
-        println!("    Line {}: base=${:04X}, non-zero bytes: {}/32", row, base, nonzero);
+        println!(
+            "    Line {}: base=${:04X}, non-zero bytes: {}/32",
+            row, base, nonzero
+        );
     }
 }

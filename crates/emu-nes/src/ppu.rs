@@ -9,8 +9,16 @@
 //! - 241-260: `VBlank`
 //! - 261: pre-render
 
-#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::unused_self)]
-#![allow(clippy::struct_excessive_bools, clippy::too_many_lines, clippy::manual_range_contains)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::unused_self
+)]
+#![allow(
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::manual_range_contains
+)]
 
 use crate::cartridge::{Mapper, Mirroring};
 use crate::palette::PALETTE;
@@ -220,8 +228,7 @@ impl Ppu {
             let x = (self.dot - 1) as usize;
             let y = self.scanline as usize;
             if y < FB_HEIGHT as usize && x < FB_WIDTH as usize {
-                self.framebuffer[y * FB_WIDTH as usize + x] =
-                    PALETTE[bg_colour as usize];
+                self.framebuffer[y * FB_WIDTH as usize + x] = PALETTE[bg_colour as usize];
             }
         }
     }
@@ -246,10 +253,8 @@ impl Ppu {
             }
             2 => {
                 // Fetch attribute byte
-                let attr_addr = 0x23C0
-                    | (self.v & 0x0C00)
-                    | ((self.v >> 4) & 0x38)
-                    | ((self.v >> 2) & 0x07);
+                let attr_addr =
+                    0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07);
                 let attr_byte = self.ppu_read(attr_addr, mapper);
                 // Select the 2-bit palette for this quadrant
                 let shift = ((self.v >> 4) & 0x04) | (self.v & 0x02);
@@ -565,7 +570,9 @@ impl Ppu {
                     self.read_buffer = self.ppu_read(addr & 0x2FFF, mapper);
                 }
                 // Increment v
-                self.v = self.v.wrapping_add(if self.ctrl & 0x04 != 0 { 32 } else { 1 });
+                self.v = self
+                    .v
+                    .wrapping_add(if self.ctrl & 0x04 != 0 { 32 } else { 1 });
                 self.v &= 0x7FFF;
                 result
             }
@@ -623,7 +630,9 @@ impl Ppu {
             7 => {
                 let addr = self.v & 0x3FFF;
                 self.ppu_write(addr, val, mapper);
-                self.v = self.v.wrapping_add(if self.ctrl & 0x04 != 0 { 32 } else { 1 });
+                self.v = self
+                    .v
+                    .wrapping_add(if self.ctrl & 0x04 != 0 { 32 } else { 1 });
                 self.v &= 0x7FFF;
             }
             _ => {}

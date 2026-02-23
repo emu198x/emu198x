@@ -38,8 +38,10 @@ fn run_dormann(binary: &[u8]) -> bool {
         if start_pc == prev_pc {
             same_pc_count += 1;
             if same_pc_count > 2 {
-                eprintln!("\nTrapped at ${:04X} after {} instructions ({} cycles)",
-                         start_pc, instructions, cycles);
+                eprintln!(
+                    "\nTrapped at ${:04X} after {} instructions ({} cycles)",
+                    start_pc, instructions, cycles
+                );
                 // Success address for the standard test
                 return start_pc == 0x3469;
             }
@@ -50,8 +52,10 @@ fn run_dormann(binary: &[u8]) -> bool {
 
         // Detect if we've jumped to $FF00+ region (usually indicates bad vector read)
         if start_pc >= 0xFF00 && last_good_pc < 0xFF00 {
-            eprintln!("\n!!! Jumped to ${:04X} from ${:04X} after {} instructions",
-                     start_pc, last_good_pc, instructions);
+            eprintln!(
+                "\n!!! Jumped to ${:04X} from ${:04X} after {} instructions",
+                start_pc, last_good_pc, instructions
+            );
             return false;
         }
 
@@ -116,8 +120,10 @@ fn run_decimal_test(binary: &[u8]) -> bool {
         if start_pc == prev_pc {
             same_pc_count += 1;
             if same_pc_count > 2 {
-                eprintln!("\nTrapped at ${:04X} after {} instructions ({} cycles)",
-                         start_pc, instructions, cycles);
+                eprintln!(
+                    "\nTrapped at ${:04X} after {} instructions ({} cycles)",
+                    start_pc, instructions, cycles
+                );
                 // Check error flag location
                 let error = bus.peek(0x000B);
                 eprintln!("Error flag at $000B: ${:02X}", error);
@@ -126,11 +132,11 @@ fn run_decimal_test(binary: &[u8]) -> bool {
                 if error != 0 {
                     let n1 = bus.peek(0x00);
                     let n2 = bus.peek(0x01);
-                    let da = bus.peek(0x04);    // Actual decimal result
+                    let da = bus.peek(0x04); // Actual decimal result
                     let dnvzc = bus.peek(0x05); // Actual flags
-                    let ar = bus.peek(0x06);    // Predicted accumulator
-                    let cf = bus.peek(0x0A);    // Predicted carry
-                    let y_reg = cpu.regs.y;     // Carry input (Y=1 means carry set)
+                    let ar = bus.peek(0x06); // Predicted accumulator
+                    let cf = bus.peek(0x0A); // Predicted carry
+                    let y_reg = cpu.regs.y; // Carry input (Y=1 means carry set)
 
                     eprintln!("Test state at failure:");
                     eprintln!("  N1=${:02X}, N2=${:02X}, Y(carry_in)={}", n1, n2, y_reg);
@@ -188,9 +194,13 @@ fn run_decimal_test(binary: &[u8]) -> bool {
 #[test]
 #[ignore]
 fn dormann_functional() {
-    let binary = std::fs::read("tests/data/6502_functional_test.bin")
-        .expect("tests/data/6502_functional_test.bin not found - download from Klaus Dormann's repository");
-    assert!(run_dormann(&binary), "Klaus Dormann 6502 functional test failed");
+    let binary = std::fs::read("tests/data/6502_functional_test.bin").expect(
+        "tests/data/6502_functional_test.bin not found - download from Klaus Dormann's repository",
+    );
+    assert!(
+        run_dormann(&binary),
+        "Klaus Dormann 6502 functional test failed"
+    );
 }
 
 #[test]
@@ -198,5 +208,8 @@ fn dormann_functional() {
 fn dormann_decimal() {
     let binary = std::fs::read("tests/data/6502_decimal_test.bin")
         .expect("tests/data/6502_decimal_test.bin not found");
-    assert!(run_decimal_test(&binary), "Klaus Dormann decimal test failed");
+    assert!(
+        run_decimal_test(&binary),
+        "Klaus Dormann decimal test failed"
+    );
 }

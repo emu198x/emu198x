@@ -10,8 +10,8 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use mos_6502::Mos6502;
 use emu_core::{Bus, Cpu, Observable, Tickable, Value};
+use mos_6502::Mos6502;
 
 use crate::bus::NesBus;
 use crate::cartridge::{self, Mapper};
@@ -191,7 +191,10 @@ impl Nes {
         if self.dma_odd_cycle {
             // Odd cycle: write to OAM
             self.bus.ppu.write_oam(
-                self.bus.ppu.oam_addr().wrapping_add((self.dma_addr & 0xFF) as u8),
+                self.bus
+                    .ppu
+                    .oam_addr()
+                    .wrapping_add((self.dma_addr & 0xFF) as u8),
                 self.dma_read_data,
             );
             self.dma_addr = self.dma_addr.wrapping_add(1);
@@ -251,15 +254,14 @@ impl Observable for Nes {
                 _ => None,
             }
         } else if let Some(rest) = path.strip_prefix("memory.") {
-            let addr = if let Some(hex) =
-                rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))
-            {
-                u16::from_str_radix(hex, 16).ok()
-            } else if let Some(hex) = rest.strip_prefix('$') {
-                u16::from_str_radix(hex, 16).ok()
-            } else {
-                rest.parse().ok()
-            };
+            let addr =
+                if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+                    u16::from_str_radix(hex, 16).ok()
+                } else if let Some(hex) = rest.strip_prefix('$') {
+                    u16::from_str_radix(hex, 16).ok()
+                } else {
+                    rest.parse().ok()
+                };
             addr.map(|a| Value::U8(self.bus.peek_ram(a)))
         } else {
             match path {

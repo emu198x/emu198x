@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu_nes::{capture, controller_map, mcp::McpServer, Nes, NesConfig};
 use emu_nes::ppu;
+use emu_nes::{Nes, NesConfig, capture, controller_map, mcp::McpServer};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -86,7 +86,9 @@ fn parse_args() -> CliArgs {
                 eprintln!("  --rom <file>         iNES ROM file (.nes)");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
-                eprintln!("  --frames <n>         Number of frames in headless mode [default: 200]");
+                eprintln!(
+                    "  --frames <n>         Number of frames in headless mode [default: 200]"
+                );
                 eprintln!("  --screenshot <file>  Save a PNG screenshot (headless)");
                 eprintln!("  --record <dir>       Record frames to directory (headless)");
                 process::exit(0);

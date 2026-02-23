@@ -6,8 +6,8 @@
 //! - 0x0006-0x0007: Top of TPA (programs read this for stack init)
 //! - 0x0100: Program load address (TPA start)
 
-use std::io::Write;
 use emu_core::{Cpu, SimpleBus};
+use std::io::Write;
 use zilog_z80::{MicroOp, Z80};
 
 fn run_zex(binary: &[u8]) -> bool {
@@ -36,8 +36,8 @@ fn run_zex(binary: &[u8]) -> bool {
         let pc = cpu.pc();
 
         // Check for instruction boundary
-        let at_instruction_start = cpu.current_micro_op() == Some(MicroOp::FetchOpcode)
-            && cpu.t_state() == 0;
+        let at_instruction_start =
+            cpu.current_micro_op() == Some(MicroOp::FetchOpcode) && cpu.t_state() == 0;
 
         if at_instruction_start {
             instructions += 1;
@@ -107,15 +107,13 @@ fn run_zex(binary: &[u8]) -> bool {
 #[test]
 #[ignore]
 fn zexdoc() {
-    let binary = std::fs::read("tests/data/zexdoc.com")
-        .expect("tests/data/zexdoc.com not found");
+    let binary = std::fs::read("tests/data/zexdoc.com").expect("tests/data/zexdoc.com not found");
     assert!(run_zex(&binary), "ZEXDOC failed");
 }
 
 #[test]
 #[ignore]
 fn zexall() {
-    let binary = std::fs::read("tests/data/zexall.com")
-        .expect("tests/data/zexall.com not found");
+    let binary = std::fs::read("tests/data/zexall.com").expect("tests/data/zexall.com not found");
     assert!(run_zex(&binary), "ZEXALL failed");
 }

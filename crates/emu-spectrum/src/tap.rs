@@ -42,8 +42,7 @@ impl TapFile {
                 ));
             }
 
-            let block_len =
-                u16::from(data[offset]) | (u16::from(data[offset + 1]) << 8);
+            let block_len = u16::from(data[offset]) | (u16::from(data[offset + 1]) << 8);
             offset += 2;
 
             let block_len = block_len as usize;

@@ -64,7 +64,14 @@ impl AmigaFloppyDrive {
     /// Update control signals from CIA-B PRB.
     /// All active-low: the boolean parameters are true when the signal
     /// is asserted (pin driven low).
-    pub fn update_control(&mut self, step: bool, dir_inward: bool, side_upper: bool, sel: bool, motor: bool) {
+    pub fn update_control(
+        &mut self,
+        step: bool,
+        dir_inward: bool,
+        side_upper: bool,
+        sel: bool,
+        motor: bool,
+    ) {
         // Drive select latches motor state (active-low select)
         if sel {
             self.selected = true;
@@ -90,7 +97,9 @@ impl AmigaFloppyDrive {
 
         if step_edge {
             if dir_inward {
-                if self.cylinder < 79 { self.cylinder += 1; }
+                if self.cylinder < 79 {
+                    self.cylinder += 1;
+                }
             } else if self.cylinder > 0 {
                 self.cylinder -= 1;
             }
@@ -127,7 +136,11 @@ impl AmigaFloppyDrive {
         let adf = self.disk.as_ref()?;
         let track_num = (self.cylinder * 2 + self.head) as u8;
         let sectors = adf.read_track_sectors(self.cylinder, self.head);
-        Some(encode_mfm_track(sectors, track_num, adf.sectors_per_track()))
+        Some(encode_mfm_track(
+            sectors,
+            track_num,
+            adf.sectors_per_track(),
+        ))
     }
 
     pub fn has_disk(&self) -> bool {

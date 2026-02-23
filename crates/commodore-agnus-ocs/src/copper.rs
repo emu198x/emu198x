@@ -47,7 +47,12 @@ impl Copper {
 
     /// Perform one Copper cycle.
     /// returns Some((reg_offset, value)) if a MOVE instruction completed.
-    pub fn tick(&mut self, vpos: u16, hpos: u16, read_mem: impl Fn(u32) -> u16) -> Option<(u16, u16)> {
+    pub fn tick(
+        &mut self,
+        vpos: u16,
+        hpos: u16,
+        read_mem: impl Fn(u32) -> u16,
+    ) -> Option<(u16, u16)> {
         match self.state {
             State::Idle => None,
             State::Fetch1 => {

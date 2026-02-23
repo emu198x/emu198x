@@ -6,12 +6,12 @@
 //! Test data lives in `test-data/z80/v1/`.
 
 use emu_core::{Bus, Cpu, ReadResult};
-use zilog_z80::Z80;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::panic;
 use std::path::Path;
+use zilog_z80::Z80;
 
 /// Flat 64KB RAM bus with I/O port support for testing.
 struct TestBus {
@@ -203,17 +203,11 @@ fn compare(cpu: &Z80, bus: &TestBus, expected: &CpuState) -> Vec<String> {
     // Interrupt state
     let actual_iff1 = u8::from(cpu.regs.iff1);
     if actual_iff1 != expected.iff1 {
-        errors.push(format!(
-            "IFF1: got {actual_iff1}, want {}",
-            expected.iff1
-        ));
+        errors.push(format!("IFF1: got {actual_iff1}, want {}", expected.iff1));
     }
     let actual_iff2 = u8::from(cpu.regs.iff2);
     if actual_iff2 != expected.iff2 {
-        errors.push(format!(
-            "IFF2: got {actual_iff2}, want {}",
-            expected.iff2
-        ));
+        errors.push(format!("IFF2: got {actual_iff2}, want {}", expected.iff2));
     }
     check_u8(&mut errors, "IM", cpu.regs.im, expected.im);
 
@@ -245,17 +239,13 @@ fn compare(cpu: &Z80, bus: &TestBus, expected: &CpuState) -> Vec<String> {
 
 fn check_u8(errors: &mut Vec<String>, name: &str, actual: u8, expected: u8) {
     if actual != expected {
-        errors.push(format!(
-            "{name}: got ${actual:02X}, want ${expected:02X}"
-        ));
+        errors.push(format!("{name}: got ${actual:02X}, want ${expected:02X}"));
     }
 }
 
 fn check_u16(errors: &mut Vec<String>, name: &str, actual: u16, expected: u16) {
     if actual != expected {
-        errors.push(format!(
-            "{name}: got ${actual:04X}, want ${expected:04X}"
-        ));
+        errors.push(format!("{name}: got ${actual:04X}, want ${expected:04X}"));
     }
 }
 
@@ -372,10 +362,8 @@ fn run_all() {
                 Err(_) => {
                     file_fail += 1;
                     if first_failures.len() < 5 {
-                        first_failures.push(format!(
-                            "  PANIC [{}]: unimplemented or crash",
-                            test.name,
-                        ));
+                        first_failures
+                            .push(format!("  PANIC [{}]: unimplemented or crash", test.name,));
                     }
                 }
             }

@@ -132,7 +132,11 @@ impl AmigaKeyboard {
     /// Queue a key event. The raw keycode has bit 7 clear for key-down,
     /// bit 7 set for key-up.
     pub fn key_event(&mut self, keycode: u8, pressed: bool) {
-        let byte = if pressed { keycode & 0x7F } else { keycode | 0x80 };
+        let byte = if pressed {
+            keycode & 0x7F
+        } else {
+            keycode | 0x80
+        };
         self.key_queue.push_back(byte);
     }
 }
@@ -165,7 +169,7 @@ mod tests {
         // The tick that hits the delay threshold transitions state;
         // the NEXT tick sends $FD
         assert_eq!(kb.tick(), None); // transitions to SendInitPowerUp
-        let byte = kb.tick();       // sends $FD
+        let byte = kb.tick(); // sends $FD
         assert_eq!(byte, Some(rotate_byte(0xFD)));
 
         // Now waiting for handshake — no output

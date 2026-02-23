@@ -146,8 +146,8 @@ impl Amiga {
 
             if vpos == 0 && hpos == 0 {
                 self.paula.request_interrupt(5); // bit 5 = VERTB
-                // Agnus restarts the copper from COP1LC at vertical blank,
-                // but only when copper DMA is enabled (DMAEN + COPEN).
+                                                 // Agnus restarts the copper from COP1LC at vertical blank,
+                                                 // but only when copper DMA is enabled (DMAEN + COPEN).
                 if self.agnus.dma_enabled(0x0080) {
                     self.copper.restart_cop1();
                 }

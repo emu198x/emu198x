@@ -96,29 +96,25 @@ impl Status {
     /// Set a flag if condition is true, clear if false.
     #[must_use]
     pub fn set_if(sr: u16, flag: u16, condition: bool) -> u16 {
-        if condition {
-            sr | flag
-        } else {
-            sr & !flag
-        }
+        if condition { sr | flag } else { sr & !flag }
     }
 
     /// Evaluate a condition code (0-15).
     #[must_use]
     pub fn condition(sr: u16, cc: u8) -> bool {
         match cc & 0x0F {
-            0x0 => true,                                    // T (true)
-            0x1 => false,                                   // F (false)
-            0x2 => (sr & C) == 0 && (sr & Z) == 0,          // HI (high)
-            0x3 => (sr & C) != 0 || (sr & Z) != 0,          // LS (low or same)
-            0x4 => (sr & C) == 0,                           // CC/HS (carry clear)
-            0x5 => (sr & C) != 0,                           // CS/LO (carry set)
-            0x6 => (sr & Z) == 0,                           // NE (not equal)
-            0x7 => (sr & Z) != 0,                           // EQ (equal)
-            0x8 => (sr & V) == 0,                           // VC (overflow clear)
-            0x9 => (sr & V) != 0,                           // VS (overflow set)
-            0xA => (sr & N) == 0,                           // PL (plus)
-            0xB => (sr & N) != 0,                           // MI (minus)
+            0x0 => true,                           // T (true)
+            0x1 => false,                          // F (false)
+            0x2 => (sr & C) == 0 && (sr & Z) == 0, // HI (high)
+            0x3 => (sr & C) != 0 || (sr & Z) != 0, // LS (low or same)
+            0x4 => (sr & C) == 0,                  // CC/HS (carry clear)
+            0x5 => (sr & C) != 0,                  // CS/LO (carry set)
+            0x6 => (sr & Z) == 0,                  // NE (not equal)
+            0x7 => (sr & Z) != 0,                  // EQ (equal)
+            0x8 => (sr & V) == 0,                  // VC (overflow clear)
+            0x9 => (sr & V) != 0,                  // VS (overflow set)
+            0xA => (sr & N) == 0,                  // PL (plus)
+            0xB => (sr & N) != 0,                  // MI (minus)
             0xC => {
                 // GE: N and V same
                 let n = (sr & N) != 0;

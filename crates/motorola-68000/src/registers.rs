@@ -51,11 +51,7 @@ impl Registers {
     #[must_use]
     pub fn a(&self, n: usize) -> u32 {
         debug_assert!(n < 8);
-        if n < 7 {
-            self.a[n]
-        } else {
-            self.active_sp()
-        }
+        if n < 7 { self.a[n] } else { self.active_sp() }
     }
 
     /// Set address register by index (0-7).

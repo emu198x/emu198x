@@ -44,7 +44,10 @@ impl Adf {
             ADF_SIZE_HD => SECTORS_PER_TRACK_HD,
             other => return Err(AdfError::InvalidSize(other)),
         };
-        Ok(Self { data, sectors_per_track })
+        Ok(Self {
+            data,
+            sectors_per_track,
+        })
     }
 
     pub fn sectors_per_track(&self) -> u32 {
@@ -85,14 +88,20 @@ mod tests {
     fn accept_dd_size() {
         let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]);
         assert!(adf.is_ok());
-        assert_eq!(adf.expect("valid").sectors_per_track(), SECTORS_PER_TRACK_DD);
+        assert_eq!(
+            adf.expect("valid").sectors_per_track(),
+            SECTORS_PER_TRACK_DD
+        );
     }
 
     #[test]
     fn accept_hd_size() {
         let adf = Adf::from_bytes(vec![0; ADF_SIZE_HD]);
         assert!(adf.is_ok());
-        assert_eq!(adf.expect("valid").sectors_per_track(), SECTORS_PER_TRACK_HD);
+        assert_eq!(
+            adf.expect("valid").sectors_per_track(),
+            SECTORS_PER_TRACK_HD
+        );
     }
 
     #[test]

@@ -19,11 +19,11 @@ use serde_json::Value as JsonValue;
 
 use emu_core::{Observable, Tickable};
 
+use crate::Spectrum;
 use crate::config::{SpectrumConfig, SpectrumModel};
 use crate::input::SpectrumKey;
 use crate::sna::load_sna;
 use crate::tap::TapFile;
-use crate::Spectrum;
 
 /// Embedded 48K ROM.
 const ROM_48K: &[u8] = include_bytes!("../../../roms/48.rom");
@@ -112,30 +112,36 @@ impl McpServer {
             let request: RpcRequest = match serde_json::from_str(&line) {
                 Ok(r) => r,
                 Err(e) => {
-                    let resp = RpcResponse::error(
-                        JsonValue::Null,
-                        -32700,
-                        format!("Parse error: {e}"),
+                    let resp =
+                        RpcResponse::error(JsonValue::Null, -32700, format!("Parse error: {e}"));
+                    let _ = writeln!(
+                        stdout,
+                        "{}",
+                        serde_json::to_string(&resp).unwrap_or_default()
                     );
-                    let _ = writeln!(stdout, "{}", serde_json::to_string(&resp).unwrap_or_default());
                     let _ = stdout.flush();
                     continue;
                 }
             };
 
             if request.jsonrpc != "2.0" {
-                let resp = RpcResponse::error(
-                    request.id,
-                    -32600,
-                    "Invalid JSON-RPC version".to_string(),
+                let resp =
+                    RpcResponse::error(request.id, -32600, "Invalid JSON-RPC version".to_string());
+                let _ = writeln!(
+                    stdout,
+                    "{}",
+                    serde_json::to_string(&resp).unwrap_or_default()
                 );
-                let _ = writeln!(stdout, "{}", serde_json::to_string(&resp).unwrap_or_default());
                 let _ = stdout.flush();
                 continue;
             }
 
             let response = self.dispatch(&request.method, &request.params, request.id.clone());
-            let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap_or_default());
+            let _ = writeln!(
+                stdout,
+                "{}",
+                serde_json::to_string(&response).unwrap_or_default()
+            );
             let _ = stdout.flush();
         }
     }
@@ -212,16 +218,10 @@ impl McpServer {
         } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
             match std::fs::read(path) {
                 Ok(d) => d,
-                Err(e) => {
-                    return RpcResponse::error(id, -32602, format!("Cannot read file: {e}"))
-                }
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
             }
         } else {
-            return RpcResponse::error(
-                id,
-                -32602,
-                "Provide 'data' (base64) or 'path'".to_string(),
-            );
+            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
         };
 
         match load_sna(spec, &data) {
@@ -244,26 +244,17 @@ impl McpServer {
         } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
             match std::fs::read(path) {
                 Ok(d) => d,
-                Err(e) => {
-                    return RpcResponse::error(id, -32602, format!("Cannot read file: {e}"))
-                }
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
             }
         } else {
-            return RpcResponse::error(
-                id,
-                -32602,
-                "Provide 'data' (base64) or 'path'".to_string(),
-            );
+            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
         };
 
         match TapFile::parse(&data) {
             Ok(tap) => {
                 let blocks = tap.blocks.len();
                 spec.insert_tap(tap);
-                RpcResponse::success(
-                    id,
-                    serde_json::json!({"status": "ok", "blocks": blocks}),
-                )
+                RpcResponse::success(id, serde_json::json!({"status": "ok", "blocks": blocks}))
             }
             Err(e) => RpcResponse::error(id, -32000, format!("TAP parse failed: {e}")),
         }
@@ -275,10 +266,7 @@ impl McpServer {
             Err(e) => return e,
         };
 
-        let count = params
-            .get("count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1);
+        let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
 
         let mut total_tstates = 0u64;
         for _ in 0..count {
@@ -332,10 +320,7 @@ impl McpServer {
             Err(e) => return e,
         };
 
-        let count = params
-            .get("count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1);
+        let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
 
         // Each CPU T-state = 4 master clock ticks
         for _ in 0..(count * 4) {
@@ -368,9 +353,7 @@ impl McpServer {
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = match encoder.write_header() {
                 Ok(w) => w,
-                Err(e) => {
-                    return RpcResponse::error(id, -32000, format!("PNG encode error: {e}"))
-                }
+                Err(e) => return RpcResponse::error(id, -32000, format!("PNG encode error: {e}")),
             };
 
             let mut rgba = Vec::with_capacity((width * height * 4) as usize);
@@ -404,10 +387,7 @@ impl McpServer {
             Err(e) => return e,
         };
 
-        let frames = params
-            .get("frames")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50);
+        let frames = params.get("frames").and_then(|v| v.as_u64()).unwrap_or(50);
 
         let mut all_audio = Vec::new();
         for _ in 0..frames {
@@ -428,9 +408,7 @@ impl McpServer {
             let cursor = io::Cursor::new(&mut wav_buf);
             let mut writer = match hound::WavWriter::new(cursor, spec_wav) {
                 Ok(w) => w,
-                Err(e) => {
-                    return RpcResponse::error(id, -32000, format!("WAV encode error: {e}"))
-                }
+                Err(e) => return RpcResponse::error(id, -32000, format!("WAV encode error: {e}")),
             };
             for &sample in &all_audio {
                 let clamped = sample.clamp(-1.0, 1.0);
@@ -464,9 +442,7 @@ impl McpServer {
 
         let path = match params.get("path").and_then(|v| v.as_str()) {
             Some(p) => p,
-            None => {
-                return RpcResponse::error(id, -32602, "Missing 'path' parameter".to_string())
-            }
+            None => return RpcResponse::error(id, -32602, "Missing 'path' parameter".to_string()),
         };
 
         match spec.query(path) {
@@ -482,16 +458,9 @@ impl McpServer {
                     emu_core::Value::Array(v) => serde_json::json!(format!("{v:?}")),
                     emu_core::Value::Map(v) => serde_json::json!(format!("{v:?}")),
                 };
-                RpcResponse::success(
-                    id,
-                    serde_json::json!({"path": path, "value": json_val}),
-                )
+                RpcResponse::success(id, serde_json::json!({"path": path, "value": json_val}))
             }
-            None => RpcResponse::error(
-                id,
-                -32000,
-                format!("Unknown query path: {path}"),
-            ),
+            None => RpcResponse::error(id, -32000, format!("Unknown query path: {path}")),
         }
     }
 
@@ -508,7 +477,7 @@ impl McpServer {
                     id,
                     -32602,
                     "Missing or invalid 'address' (0-65535)".to_string(),
-                )
+                );
             }
         };
 
@@ -519,15 +488,12 @@ impl McpServer {
                     id,
                     -32602,
                     "Missing or invalid 'value' (0-255)".to_string(),
-                )
+                );
             }
         };
 
         spec.bus_mut().memory.write(addr, value);
-        RpcResponse::success(
-            id,
-            serde_json::json!({"address": addr, "value": value}),
-        )
+        RpcResponse::success(id, serde_json::json!({"address": addr, "value": value}))
     }
 
     fn handle_press_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
@@ -538,9 +504,7 @@ impl McpServer {
 
         let key_name = match params.get("key").and_then(|v| v.as_str()) {
             Some(k) => k,
-            None => {
-                return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string())
-            }
+            None => return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string()),
         };
 
         match parse_key_name(key_name) {
@@ -548,11 +512,7 @@ impl McpServer {
                 spec.press_key(key);
                 RpcResponse::success(id, serde_json::json!({"key": key_name, "pressed": true}))
             }
-            None => RpcResponse::error(
-                id,
-                -32602,
-                format!("Unknown key: {key_name}"),
-            ),
+            None => RpcResponse::error(id, -32602, format!("Unknown key: {key_name}")),
         }
     }
 
@@ -564,24 +524,15 @@ impl McpServer {
 
         let key_name = match params.get("key").and_then(|v| v.as_str()) {
             Some(k) => k,
-            None => {
-                return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string())
-            }
+            None => return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string()),
         };
 
         match parse_key_name(key_name) {
             Some(key) => {
                 spec.release_key(key);
-                RpcResponse::success(
-                    id,
-                    serde_json::json!({"key": key_name, "pressed": false}),
-                )
+                RpcResponse::success(id, serde_json::json!({"key": key_name, "pressed": false}))
             }
-            None => RpcResponse::error(
-                id,
-                -32602,
-                format!("Unknown key: {key_name}"),
-            ),
+            None => RpcResponse::error(id, -32602, format!("Unknown key: {key_name}")),
         }
     }
 
@@ -593,9 +544,7 @@ impl McpServer {
 
         let text = match params.get("text").and_then(|v| v.as_str()) {
             Some(t) => t.to_string(),
-            None => {
-                return RpcResponse::error(id, -32602, "Missing 'text' parameter".to_string())
-            }
+            None => return RpcResponse::error(id, -32602, "Missing 'text' parameter".to_string()),
         };
 
         let at_frame = params
@@ -627,7 +576,7 @@ impl McpServer {
                     id,
                     -32602,
                     "Missing or invalid 'address' (0-65535)".to_string(),
-                )
+                );
             }
         };
 
@@ -818,11 +767,7 @@ fn read_screen_char(spectrum: &Spectrum, row: u8, col: u8) -> char {
     }
 
     // Only return a match if it's reasonably confident (>75% bits match)
-    if best_match >= 48 {
-        best_char
-    } else {
-        ' '
-    }
+    if best_match >= 48 { best_char } else { ' ' }
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@
 #![allow(clippy::cast_lossless)]
 
 use crate::alu;
-use crate::flags::{sz53p, CF, HF, NF, PF, SF, XF, YF, ZF};
+use crate::flags::{CF, HF, NF, PF, SF, XF, YF, ZF, sz53p};
 use crate::microcode::MicroOp;
 
 use super::Z80;
@@ -247,10 +247,7 @@ impl Z80 {
             0x2F => {
                 self.regs.a = !self.regs.a;
                 self.set_f(
-                    (self.regs.f & (SF | ZF | PF | CF))
-                        | HF
-                        | NF
-                        | (self.regs.a & (XF | YF)),
+                    (self.regs.f & (SF | ZF | PF | CF)) | HF | NF | (self.regs.a & (XF | YF)),
                 );
             }
 
@@ -286,9 +283,7 @@ impl Z80 {
                 // Undocumented: X/Y flags from (prev_Q XOR F) OR A
                 let q_xor_f = self.prev_q ^ self.regs.f;
                 self.set_f(
-                    (self.regs.f & (SF | ZF | PF))
-                        | CF
-                        | ((q_xor_f | self.regs.a) & (XF | YF)),
+                    (self.regs.f & (SF | ZF | PF)) | CF | ((q_xor_f | self.regs.a) & (XF | YF)),
                 );
             }
 
@@ -691,10 +686,10 @@ impl Z80 {
             0x20 | 0x28 | 0x30 | 0x38 => {
                 let cc = (op >> 3) & 3; // Map: 20→0(NZ), 28→1(Z), 30→2(NC), 38→3(C)
                 let taken = match cc {
-                    0 => self.regs.f & ZF == 0,  // NZ
-                    1 => self.regs.f & ZF != 0,  // Z
-                    2 => self.regs.f & CF == 0,  // NC
-                    3 => self.regs.f & CF != 0,  // C
+                    0 => self.regs.f & ZF == 0, // NZ
+                    1 => self.regs.f & ZF != 0, // Z
+                    2 => self.regs.f & CF == 0, // NC
+                    3 => self.regs.f & CF != 0, // C
                     _ => unreachable!(),
                 };
                 if taken {
@@ -866,7 +861,8 @@ impl Z80 {
             // OUT (n), A — follow-up: port address = (A << 8) | n
             0xD3 => {
                 let port = (u16::from(self.regs.a) << 8) | u16::from(self.data_lo);
-                self.regs.wz = ((self.regs.a as u16) << 8) | ((self.data_lo.wrapping_add(1)) as u16);
+                self.regs.wz =
+                    ((self.regs.a as u16) << 8) | ((self.data_lo.wrapping_add(1)) as u16);
                 self.addr = port;
                 self.data_lo = self.regs.a;
                 self.micro_ops.push(MicroOp::IoWrite);
@@ -1178,8 +1174,8 @@ impl Z80 {
             }
 
             // ALU A, IXH/IXL/IYH/IYL (undocumented)
-            0x84 | 0x85 | 0x8C | 0x8D | 0x94 | 0x95 | 0x9C | 0x9D | 0xA4
-            | 0xA5 | 0xAC | 0xAD | 0xB4 | 0xB5 | 0xBC | 0xBD => {
+            0x84 | 0x85 | 0x8C | 0x8D | 0x94 | 0x95 | 0x9C | 0x9D | 0xA4 | 0xA5 | 0xAC | 0xAD
+            | 0xB4 | 0xB5 | 0xBC | 0xBD => {
                 let value = self.get_reg8_indexed(op & 7);
                 self.alu_a(op, value);
             }
@@ -1380,9 +1376,7 @@ impl Z80 {
             }
 
             // ALU (IX+d)/(IY+d) — stage 2
-            0x86 | 0x8E | 0x96 | 0x9E | 0xA6 | 0xAE | 0xB6 | 0xBE
-                if self.followup_stage >= 2 =>
-            {
+            0x86 | 0x8E | 0x96 | 0x9E | 0xA6 | 0xAE | 0xB6 | 0xBE if self.followup_stage >= 2 => {
                 self.alu_a(op, self.data_lo);
             }
 
@@ -1825,7 +1819,11 @@ impl Z80 {
                     if self.regs.b == 0 { ZF } else { 0 }
                         | (self.regs.b & (SF | YF | XF))
                         | if value & 0x80 != 0 { NF } else { 0 }
-                        | if (k & 0xFF) < value as u16 { HF | CF } else { 0 }
+                        | if (k & 0xFF) < value as u16 {
+                            HF | CF
+                        } else {
+                            0
+                        }
                         | sz53p((k as u8) & 7 ^ self.regs.b) & PF,
                 );
             }
@@ -1844,7 +1842,11 @@ impl Z80 {
                     if self.regs.b == 0 { ZF } else { 0 }
                         | (self.regs.b & (SF | YF | XF))
                         | if value & 0x80 != 0 { NF } else { 0 }
-                        | if (k & 0xFF) < value as u16 { HF | CF } else { 0 }
+                        | if (k & 0xFF) < value as u16 {
+                            HF | CF
+                        } else {
+                            0
+                        }
                         | sz53p((k as u8) & 7 ^ self.regs.b) & PF,
                 );
             }
@@ -1903,7 +1905,11 @@ impl Z80 {
                     if self.regs.b == 0 { ZF } else { 0 }
                         | (self.regs.b & (SF | YF | XF))
                         | if value & 0x80 != 0 { NF } else { 0 }
-                        | if (k & 0xFF) < value as u16 { HF | CF } else { 0 }
+                        | if (k & 0xFF) < value as u16 {
+                            HF | CF
+                        } else {
+                            0
+                        }
                         | sz53p((k as u8) & 7 ^ self.regs.b) & PF,
                 );
             }
@@ -1922,7 +1928,11 @@ impl Z80 {
                     if self.regs.b == 0 { ZF } else { 0 }
                         | (self.regs.b & (SF | YF | XF))
                         | if value & 0x80 != 0 { NF } else { 0 }
-                        | if (k & 0xFF) < value as u16 { HF | CF } else { 0 }
+                        | if (k & 0xFF) < value as u16 {
+                            HF | CF
+                        } else {
+                            0
+                        }
                         | sz53p((k as u8) & 7 ^ self.regs.b) & PF,
                 );
             }
@@ -1944,11 +1954,7 @@ impl Z80 {
                     self.regs.pc = self.regs.pc.wrapping_sub(2);
                     self.regs.wz = self.regs.pc.wrapping_add(1);
                     let pch = (self.regs.pc >> 8) as u8;
-                    self.set_f(
-                        (self.regs.f & (SF | ZF | CF))
-                            | PF
-                            | (pch & (XF | YF)),
-                    );
+                    self.set_f((self.regs.f & (SF | ZF | CF)) | PF | (pch & (XF | YF)));
                 } else {
                     self.set_f(
                         (self.regs.f & (SF | ZF | CF))
@@ -1982,9 +1988,7 @@ impl Z80 {
                     let pch = (self.regs.pc >> 8) as u8;
                     self.set_f(base_f | (pch & (XF | YF)));
                 } else {
-                    self.set_f(
-                        base_f | (n & XF) | if n & 0x02 != 0 { YF } else { 0 },
-                    );
+                    self.set_f(base_f | (n & XF) | if n & 0x02 != 0 { YF } else { 0 });
                 }
             }
 
@@ -2031,8 +2035,7 @@ impl Z80 {
                     );
                 } else {
                     self.set_f(
-                        ZF
-                            | if nf { NF } else { 0 }
+                        ZF | if nf { NF } else { 0 }
                             | if hcf { HF | CF } else { 0 }
                             | sz53p(p) & PF,
                     );
@@ -2083,8 +2086,7 @@ impl Z80 {
                     );
                 } else {
                     self.set_f(
-                        ZF
-                            | if nf { NF } else { 0 }
+                        ZF | if nf { NF } else { 0 }
                             | if hcf { HF | CF } else { 0 }
                             | sz53p(p) & PF,
                     );
@@ -2108,11 +2110,7 @@ impl Z80 {
                     self.regs.pc = self.regs.pc.wrapping_sub(2);
                     self.regs.wz = self.regs.pc.wrapping_add(1);
                     let pch = (self.regs.pc >> 8) as u8;
-                    self.set_f(
-                        (self.regs.f & (SF | ZF | CF))
-                            | PF
-                            | (pch & (XF | YF)),
-                    );
+                    self.set_f((self.regs.f & (SF | ZF | CF)) | PF | (pch & (XF | YF)));
                 } else {
                     self.set_f(
                         (self.regs.f & (SF | ZF | CF))
@@ -2146,9 +2144,7 @@ impl Z80 {
                     let pch = (self.regs.pc >> 8) as u8;
                     self.set_f(base_f | (pch & (XF | YF)));
                 } else {
-                    self.set_f(
-                        base_f | (n & XF) | if n & 0x02 != 0 { YF } else { 0 },
-                    );
+                    self.set_f(base_f | (n & XF) | if n & 0x02 != 0 { YF } else { 0 });
                 }
             }
 
@@ -2195,8 +2191,7 @@ impl Z80 {
                     );
                 } else {
                     self.set_f(
-                        ZF
-                            | if nf { NF } else { 0 }
+                        ZF | if nf { NF } else { 0 }
                             | if hcf { HF | CF } else { 0 }
                             | sz53p(p) & PF,
                     );
@@ -2247,8 +2242,7 @@ impl Z80 {
                     );
                 } else {
                     self.set_f(
-                        ZF
-                            | if nf { NF } else { 0 }
+                        ZF | if nf { NF } else { 0 }
                             | if hcf { HF | CF } else { 0 }
                             | sz53p(p) & PF,
                     );

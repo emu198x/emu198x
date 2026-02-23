@@ -4,7 +4,10 @@
 //! Tools allow AI agents and scripts to boot, control, observe, and
 //! capture the emulator programmatically.
 
-#![allow(clippy::cast_possible_truncation, clippy::redundant_closure_for_method_calls)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::redundant_closure_for_method_calls
+)]
 #![allow(clippy::too_many_lines, clippy::match_same_arms)]
 
 use std::io::{self, BufRead, Write};
@@ -16,9 +19,9 @@ use serde_json::Value as JsonValue;
 
 use emu_core::{Cpu, Observable, Tickable};
 
+use crate::Nes;
 use crate::config::NesConfig;
 use crate::input::NesButton;
-use crate::Nes;
 
 // ---------------------------------------------------------------------------
 // JSON-RPC types
@@ -113,11 +116,8 @@ impl McpServer {
             let request: RpcRequest = match serde_json::from_str(&line) {
                 Ok(r) => r,
                 Err(e) => {
-                    let resp = RpcResponse::error(
-                        JsonValue::Null,
-                        -32700,
-                        format!("Parse error: {e}"),
-                    );
+                    let resp =
+                        RpcResponse::error(JsonValue::Null, -32700, format!("Parse error: {e}"));
                     let _ = writeln!(
                         stdout,
                         "{}",
@@ -129,11 +129,8 @@ impl McpServer {
             };
 
             if request.jsonrpc != "2.0" {
-                let resp = RpcResponse::error(
-                    request.id,
-                    -32600,
-                    "Invalid JSON-RPC version".to_string(),
-                );
+                let resp =
+                    RpcResponse::error(request.id, -32600, "Invalid JSON-RPC version".to_string());
                 let _ = writeln!(
                     stdout,
                     "{}",
@@ -201,9 +198,7 @@ impl McpServer {
         {
             match std::fs::read(&path) {
                 Ok(d) => d,
-                Err(e) => {
-                    return RpcResponse::error(id, -32000, format!("Cannot read ROM: {e}"))
-                }
+                Err(e) => return RpcResponse::error(id, -32000, format!("Cannot read ROM: {e}")),
             }
         } else {
             return RpcResponse::error(
@@ -242,16 +237,10 @@ impl McpServer {
         } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
             match std::fs::read(path) {
                 Ok(d) => d,
-                Err(e) => {
-                    return RpcResponse::error(id, -32602, format!("Cannot read file: {e}"))
-                }
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
             }
         } else {
-            return RpcResponse::error(
-                id,
-                -32602,
-                "Provide 'data' (base64) or 'path'".to_string(),
-            );
+            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
         };
 
         let config = NesConfig { rom_data };
@@ -333,10 +322,7 @@ impl McpServer {
             Err(e) => return e,
         };
 
-        let count = params
-            .get("count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1);
+        let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
 
         for _ in 0..count {
             nes.tick();
@@ -367,9 +353,7 @@ impl McpServer {
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = match encoder.write_header() {
                 Ok(w) => w,
-                Err(e) => {
-                    return RpcResponse::error(id, -32000, format!("PNG encode error: {e}"))
-                }
+                Err(e) => return RpcResponse::error(id, -32000, format!("PNG encode error: {e}")),
             };
 
             let mut rgba = Vec::with_capacity((width * height * 4) as usize);
@@ -405,24 +389,15 @@ impl McpServer {
 
         let path = match params.get("path").and_then(|v| v.as_str()) {
             Some(p) => p,
-            None => {
-                return RpcResponse::error(id, -32602, "Missing 'path' parameter".to_string())
-            }
+            None => return RpcResponse::error(id, -32602, "Missing 'path' parameter".to_string()),
         };
 
         match nes.query(path) {
             Some(value) => {
                 let json_val = observable_to_json(&value);
-                RpcResponse::success(
-                    id,
-                    serde_json::json!({"path": path, "value": json_val}),
-                )
+                RpcResponse::success(id, serde_json::json!({"path": path, "value": json_val}))
             }
-            None => RpcResponse::error(
-                id,
-                -32000,
-                format!("Unknown query path: {path}"),
-            ),
+            None => RpcResponse::error(id, -32000, format!("Unknown query path: {path}")),
         }
     }
 
@@ -439,7 +414,7 @@ impl McpServer {
                     id,
                     -32602,
                     "Missing or invalid 'address' (0-2047, RAM only)".to_string(),
-                )
+                );
             }
         };
 
@@ -450,15 +425,12 @@ impl McpServer {
                     id,
                     -32602,
                     "Missing or invalid 'value' (0-255)".to_string(),
-                )
+                );
             }
         };
 
         nes.bus_mut().ram[addr as usize] = value;
-        RpcResponse::success(
-            id,
-            serde_json::json!({"address": addr, "value": value}),
-        )
+        RpcResponse::success(id, serde_json::json!({"address": addr, "value": value}))
     }
 
     fn handle_press_button(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
@@ -470,7 +442,7 @@ impl McpServer {
         let name = match params.get("button").and_then(|v| v.as_str()) {
             Some(n) => n,
             None => {
-                return RpcResponse::error(id, -32602, "Missing 'button' parameter".to_string())
+                return RpcResponse::error(id, -32602, "Missing 'button' parameter".to_string());
             }
         };
 
@@ -492,17 +464,14 @@ impl McpServer {
         let name = match params.get("button").and_then(|v| v.as_str()) {
             Some(n) => n,
             None => {
-                return RpcResponse::error(id, -32602, "Missing 'button' parameter".to_string())
+                return RpcResponse::error(id, -32602, "Missing 'button' parameter".to_string());
             }
         };
 
         match parse_button_name(name) {
             Some(button) => {
                 nes.release_button(button);
-                RpcResponse::success(
-                    id,
-                    serde_json::json!({"button": name, "pressed": false}),
-                )
+                RpcResponse::success(id, serde_json::json!({"button": name, "pressed": false}))
             }
             None => RpcResponse::error(id, -32602, format!("Unknown button: {name}")),
         }
@@ -521,7 +490,7 @@ impl McpServer {
                     id,
                     -32602,
                     "Missing 'sequence' array parameter".to_string(),
-                )
+                );
             }
         };
 
@@ -549,8 +518,7 @@ impl McpServer {
                 None => continue,
             };
             if let Some(button) = parse_button_name(name) {
-                nes.input_queue()
-                    .enqueue_button(button, frame, hold_frames);
+                nes.input_queue().enqueue_button(button, frame, hold_frames);
                 frame += hold_frames + gap_frames;
                 count += 1;
             }
@@ -579,7 +547,7 @@ impl McpServer {
                     id,
                     -32602,
                     "Missing or invalid 'address' (0-65535)".to_string(),
-                )
+                );
             }
         };
 

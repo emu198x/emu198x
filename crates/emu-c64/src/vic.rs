@@ -297,7 +297,11 @@ impl Vic {
         match reg & 0x3F {
             0x11 => {
                 // $D011: Control reg 1 with current raster bit 8
-                let raster_hi = if self.raster_line & 0x100 != 0 { 0x80 } else { 0x00 };
+                let raster_hi = if self.raster_line & 0x100 != 0 {
+                    0x80
+                } else {
+                    0x00
+                };
                 (self.regs[0x11] & 0x7F) | raster_hi
             }
             0x12 => {

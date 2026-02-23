@@ -41,16 +41,18 @@ pub const MFM_TRACK_BYTES: usize = 13_630;
 ///
 /// `track_sectors` must be exactly `sectors_per_track * 512` bytes.
 /// `track_num` is `cyl * 2 + head`.
-pub fn encode_mfm_track(
-    track_sectors: &[u8],
-    track_num: u8,
-    sectors_per_track: u32,
-) -> Vec<u8> {
+pub fn encode_mfm_track(track_sectors: &[u8], track_num: u8, sectors_per_track: u32) -> Vec<u8> {
     let mut buf = Vec::with_capacity(MFM_TRACK_BYTES);
 
     for sector in 0..sectors_per_track {
         let sector_data = &track_sectors[sector as usize * 512..(sector as usize + 1) * 512];
-        encode_sector(&mut buf, track_num, sector as u8, sectors_per_track as u8, sector_data);
+        encode_sector(
+            &mut buf,
+            track_num,
+            sector as u8,
+            sectors_per_track as u8,
+            sector_data,
+        );
     }
 
     // Pad remaining space with MFM gap bytes ($AA = clock bits only)
@@ -62,13 +64,7 @@ pub fn encode_mfm_track(
     buf
 }
 
-fn encode_sector(
-    buf: &mut Vec<u8>,
-    track: u8,
-    sector: u8,
-    sectors_per_track: u8,
-    data: &[u8],
-) {
+fn encode_sector(buf: &mut Vec<u8>, track: u8, sector: u8, sectors_per_track: u8, data: &[u8]) {
     // 1. Gap: 2 words $AAAA
     buf.extend_from_slice(&[0xAA, 0xAA, 0xAA, 0xAA]);
 
@@ -97,8 +93,12 @@ fn encode_sector(
         label_mfm_odd[i] = mfm_encode_long(odd_bits(label_zeros[i]));
         label_mfm_even[i] = mfm_encode_long(even_bits(label_zeros[i]));
     }
-    for &l in &label_mfm_odd { buf.extend_from_slice(&l.to_be_bytes()); }
-    for &l in &label_mfm_even { buf.extend_from_slice(&l.to_be_bytes()); }
+    for &l in &label_mfm_odd {
+        buf.extend_from_slice(&l.to_be_bytes());
+    }
+    for &l in &label_mfm_even {
+        buf.extend_from_slice(&l.to_be_bytes());
+    }
 
     // 5. Header checksum: XOR of all MFM header longs (info + label)
     let mut hdr_cksum: u32 = 0;
@@ -119,7 +119,10 @@ fn encode_sector(
     for i in 0..128 {
         let offset = i * 4;
         data_longs[i] = u32::from_be_bytes([
-            data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
         ]);
     }
 
@@ -141,8 +144,12 @@ fn encode_sector(
     buf.extend_from_slice(&data_cksum_even.to_be_bytes());
 
     // Data odd words first, then even words
-    for &l in &data_mfm_odd { buf.extend_from_slice(&l.to_be_bytes()); }
-    for &l in &data_mfm_even { buf.extend_from_slice(&l.to_be_bytes()); }
+    for &l in &data_mfm_odd {
+        buf.extend_from_slice(&l.to_be_bytes());
+    }
+    for &l in &data_mfm_even {
+        buf.extend_from_slice(&l.to_be_bytes());
+    }
 }
 
 /// Extract odd-position bits from a longword (bits 31,29,27,...,1).
@@ -177,11 +184,17 @@ fn mfm_encode_long(data: u32) -> u32 {
         let data_bit = (data >> i) & 1;
         let bit_pos = (15 - i) * 2; // MSB-first positioning
         // Clock bit: set if both previous data and current data are 0
-        let prev_data = if i < 15 { (data >> (i + 1)) & 1 } else {
+        let prev_data = if i < 15 {
+            (data >> (i + 1)) & 1
+        } else {
             // For the very first bit, use 0 as previous (conservative)
             0
         };
-        let clock = if prev_data == 0 && data_bit == 0 { 1 } else { 0 };
+        let clock = if prev_data == 0 && data_bit == 0 {
+            1
+        } else {
+            0
+        };
         mfm |= clock << (31 - bit_pos);
         mfm |= data_bit << (30 - bit_pos);
     }

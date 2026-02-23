@@ -18,14 +18,14 @@ pub enum SlotOwner {
 /// From Minimig Verilog: plane = {~ddfseq[0], ~ddfseq[1], ~ddfseq[2]}.
 /// None = free slot (available for copper/CPU).
 pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
-    None,     // 0: free
-    Some(3),  // 1: BPL4
-    Some(5),  // 2: BPL6
-    Some(1),  // 3: BPL2
-    None,     // 4: free
-    Some(2),  // 5: BPL3
-    Some(4),  // 6: BPL5
-    Some(0),  // 7: BPL1 (triggers shift register load)
+    None,    // 0: free
+    Some(3), // 1: BPL4
+    Some(5), // 2: BPL6
+    Some(1), // 3: BPL2
+    None,    // 4: free
+    Some(2), // 5: BPL3
+    Some(4), // 6: BPL5
+    Some(0), // 7: BPL1 (triggers shift register load)
 ];
 
 pub struct Agnus {
@@ -134,12 +134,40 @@ impl Agnus {
             // Fixed slots
             0x01..=0x03 | 0x1B => SlotOwner::Refresh,
             0x04..=0x06 => {
-                if self.dma_enabled(0x0010) { SlotOwner::Disk } else { SlotOwner::Cpu }
+                if self.dma_enabled(0x0010) {
+                    SlotOwner::Disk
+                } else {
+                    SlotOwner::Cpu
+                }
             }
-            0x07 => if self.dma_enabled(0x0001) { SlotOwner::Audio(0) } else { SlotOwner::Cpu },
-            0x08 => if self.dma_enabled(0x0002) { SlotOwner::Audio(1) } else { SlotOwner::Cpu },
-            0x09 => if self.dma_enabled(0x0004) { SlotOwner::Audio(2) } else { SlotOwner::Cpu },
-            0x0A => if self.dma_enabled(0x0008) { SlotOwner::Audio(3) } else { SlotOwner::Cpu },
+            0x07 => {
+                if self.dma_enabled(0x0001) {
+                    SlotOwner::Audio(0)
+                } else {
+                    SlotOwner::Cpu
+                }
+            }
+            0x08 => {
+                if self.dma_enabled(0x0002) {
+                    SlotOwner::Audio(1)
+                } else {
+                    SlotOwner::Cpu
+                }
+            }
+            0x09 => {
+                if self.dma_enabled(0x0004) {
+                    SlotOwner::Audio(2)
+                } else {
+                    SlotOwner::Cpu
+                }
+            }
+            0x0A => {
+                if self.dma_enabled(0x0008) {
+                    SlotOwner::Audio(3)
+                } else {
+                    SlotOwner::Cpu
+                }
+            }
             0x0B..=0x1A => {
                 if self.dma_enabled(0x0020) {
                     SlotOwner::Sprite(((self.hpos - 0x0B) / 2) as u8)
@@ -154,7 +182,8 @@ impl Agnus {
                 // Within each 8-CCK group, planes are fetched in the Minimig
                 // interleaved order (LOWRES_DDF_TO_PLANE), not sequentially.
                 let num_bpl = self.num_bitplanes();
-                if self.dma_enabled(0x0100) && num_bpl > 0
+                if self.dma_enabled(0x0100)
+                    && num_bpl > 0
                     && self.hpos >= self.ddfstrt
                     && self.hpos <= self.ddfstop + 7
                 {

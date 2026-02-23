@@ -15,8 +15,8 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use mos_6502::Mos6502;
 use emu_core::{Bus, Cpu, Observable, Tickable, Value};
+use mos_6502::Mos6502;
 
 use crate::bus::C64Bus;
 use crate::config::{C64Config, C64Model};
@@ -244,15 +244,14 @@ impl Observable for C64 {
                 _ => None,
             }
         } else if let Some(rest) = path.strip_prefix("memory.") {
-            let addr = if let Some(hex) =
-                rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))
-            {
-                u16::from_str_radix(hex, 16).ok()
-            } else if let Some(hex) = rest.strip_prefix('$') {
-                u16::from_str_radix(hex, 16).ok()
-            } else {
-                rest.parse().ok()
-            };
+            let addr =
+                if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+                    u16::from_str_radix(hex, 16).ok()
+                } else if let Some(hex) = rest.strip_prefix('$') {
+                    u16::from_str_radix(hex, 16).ok()
+                } else {
+                    rest.parse().ok()
+                };
             addr.map(|a| Value::U8(self.bus.memory.peek(a)))
         } else {
             match path {

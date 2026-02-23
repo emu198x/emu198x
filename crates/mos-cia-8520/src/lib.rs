@@ -130,7 +130,6 @@ impl Cia8520 {
                 }
             }
         }
-
     }
 
     pub fn irq_active(&self) -> bool {
@@ -150,12 +149,20 @@ impl Cia8520 {
             // TOD read with latch: reading MSB freezes snapshot,
             // reading LSB releases latch.
             0x08 => {
-                let val = if self.tod_latched { self.tod_latch } else { self.tod_counter };
+                let val = if self.tod_latched {
+                    self.tod_latch
+                } else {
+                    self.tod_counter
+                };
                 self.tod_latched = false;
                 val as u8
             }
             0x09 => {
-                let val = if self.tod_latched { self.tod_latch } else { self.tod_counter };
+                let val = if self.tod_latched {
+                    self.tod_latch
+                } else {
+                    self.tod_counter
+                };
                 (val >> 8) as u8
             }
             0x0A => {
@@ -238,13 +245,17 @@ impl Cia8520 {
                 self.cra = value;
                 self.timer_a_running = value & 0x01 != 0;
                 self.timer_a_oneshot = value & 0x08 != 0;
-                if value & 0x10 != 0 { self.timer_a_force_load = true; }
+                if value & 0x10 != 0 {
+                    self.timer_a_force_load = true;
+                }
             }
             0x0F => {
                 self.crb = value;
                 self.timer_b_running = value & 0x01 != 0;
                 self.timer_b_oneshot = value & 0x08 != 0;
-                if value & 0x10 != 0 { self.timer_b_force_load = true; }
+                if value & 0x10 != 0 {
+                    self.timer_b_force_load = true;
+                }
             }
             _ => {}
         }
@@ -255,7 +266,9 @@ impl Cia8520 {
     /// - CIA-A: VSYNC (once per frame, ~50 Hz PAL)
     /// - CIA-B: HSYNC (once per scanline, ~15,625 Hz PAL)
     pub fn tod_pulse(&mut self) {
-        if self.tod_halted { return; }
+        if self.tod_halted {
+            return;
+        }
         self.tod_counter = (self.tod_counter.wrapping_add(1)) & 0xFFFFFF;
         if self.tod_counter == self.tod_alarm {
             self.icr_status |= 0x04;
@@ -274,9 +287,15 @@ impl Cia8520 {
         }
     }
 
-    pub fn tod_counter(&self) -> u32 { self.tod_counter }
-    pub fn tod_alarm(&self) -> u32 { self.tod_alarm }
-    pub fn tod_halted(&self) -> bool { self.tod_halted }
+    pub fn tod_counter(&self) -> u32 {
+        self.tod_counter
+    }
+    pub fn tod_alarm(&self) -> u32 {
+        self.tod_alarm
+    }
+    pub fn tod_halted(&self) -> bool {
+        self.tod_halted
+    }
 
     /// Directly set the TOD counter. Used to simulate battclock.resource
     /// writing the RTC time after timer.device init clears the counter.
@@ -285,12 +304,24 @@ impl Cia8520 {
     }
 
     // Diagnostic accessors for test instrumentation
-    pub fn timer_a(&self) -> u16 { self.timer_a }
-    pub fn timer_b(&self) -> u16 { self.timer_b }
-    pub fn timer_a_running(&self) -> bool { self.timer_a_running }
-    pub fn timer_b_running(&self) -> bool { self.timer_b_running }
-    pub fn icr_status(&self) -> u8 { self.icr_status }
-    pub fn icr_mask(&self) -> u8 { self.icr_mask }
+    pub fn timer_a(&self) -> u16 {
+        self.timer_a
+    }
+    pub fn timer_b(&self) -> u16 {
+        self.timer_b
+    }
+    pub fn timer_a_running(&self) -> bool {
+        self.timer_a_running
+    }
+    pub fn timer_b_running(&self) -> bool {
+        self.timer_b_running
+    }
+    pub fn icr_status(&self) -> u8 {
+        self.icr_status
+    }
+    pub fn icr_mask(&self) -> u8 {
+        self.icr_mask
+    }
 
     pub fn port_a_output(&self) -> u8 {
         (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)

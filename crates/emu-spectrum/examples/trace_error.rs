@@ -16,9 +16,13 @@ fn main() {
         spectrum.run_frame();
     }
 
-    println!("After 81 frames: PC={:04X} SP={:04X} IM={} IFF1={}",
-        spectrum.cpu().regs.pc, spectrum.cpu().regs.sp,
-        spectrum.cpu().regs.im, spectrum.cpu().regs.iff1);
+    println!(
+        "After 81 frames: PC={:04X} SP={:04X} IM={} IFF1={}",
+        spectrum.cpu().regs.pc,
+        spectrum.cpu().regs.sp,
+        spectrum.cpu().regs.im,
+        spectrum.cpu().regs.iff1
+    );
     println!("ERR_NR=0x{:02X}", spectrum.bus().memory.peek(0x5C3A));
 
     // Now tick the master clock one tick at a time, watching for:
@@ -53,13 +57,26 @@ fn main() {
 
             // Log if PC enters the error handler
             if pc == 0x0053 {
-                println!("\n*** PC reached $0053 (error handler) at tick {} ***", tick_count);
-                println!("Registers: A={:02X} F={:02X} B={:02X} C={:02X} D={:02X} E={:02X} H={:02X} L={:02X}",
-                    spectrum.cpu().regs.a, spectrum.cpu().regs.f,
-                    spectrum.cpu().regs.b, spectrum.cpu().regs.c,
-                    spectrum.cpu().regs.d, spectrum.cpu().regs.e,
-                    spectrum.cpu().regs.h, spectrum.cpu().regs.l);
-                println!("SP={:04X} PC={:04X}", spectrum.cpu().regs.sp, spectrum.cpu().regs.pc);
+                println!(
+                    "\n*** PC reached $0053 (error handler) at tick {} ***",
+                    tick_count
+                );
+                println!(
+                    "Registers: A={:02X} F={:02X} B={:02X} C={:02X} D={:02X} E={:02X} H={:02X} L={:02X}",
+                    spectrum.cpu().regs.a,
+                    spectrum.cpu().regs.f,
+                    spectrum.cpu().regs.b,
+                    spectrum.cpu().regs.c,
+                    spectrum.cpu().regs.d,
+                    spectrum.cpu().regs.e,
+                    spectrum.cpu().regs.h,
+                    spectrum.cpu().regs.l
+                );
+                println!(
+                    "SP={:04X} PC={:04X}",
+                    spectrum.cpu().regs.sp,
+                    spectrum.cpu().regs.pc
+                );
 
                 // Dump stack
                 let sp = spectrum.cpu().regs.sp;
@@ -75,7 +92,9 @@ fn main() {
                 println!("\nLast 50 instruction PCs:");
                 for (i, &p) in last_pcs.iter().enumerate() {
                     print!("{:04X} ", p);
-                    if (i + 1) % 10 == 0 { println!(); }
+                    if (i + 1) % 10 == 0 {
+                        println!();
+                    }
                 }
                 println!();
                 found = true;
@@ -84,12 +103,18 @@ fn main() {
 
             // Log if PC reaches RST 8 locations with error $0B
             if pc == 0x1C8A || pc == 0x21CE {
-                println!("*** PC at ${:04X} (RST 8 + $0B site) at tick {} ***", pc, tick_count);
+                println!(
+                    "*** PC at ${:04X} (RST 8 + $0B site) at tick {} ***",
+                    pc, tick_count
+                );
             }
 
             // Log if PC reaches RST 8 handler
             if pc == 0x0008 {
-                println!("*** RST 8 called at tick {} (from PC={:04X}) ***", tick_count, prev_pc);
+                println!(
+                    "*** RST 8 called at tick {} (from PC={:04X}) ***",
+                    tick_count, prev_pc
+                );
                 let sp = spectrum.cpu().regs.sp;
                 let lo = spectrum.bus().memory.peek(sp);
                 let hi = spectrum.bus().memory.peek(sp.wrapping_add(1));
@@ -102,13 +127,20 @@ fn main() {
                 if log_count == 0 {
                     println!("\n--- IM=1 detected, logging instructions ---");
                 }
-                println!("[{:4}] PC={:04X} A={:02X} F={:02X} BC={:02X}{:02X} DE={:02X}{:02X} HL={:02X}{:02X} SP={:04X}",
-                    log_count, pc,
-                    spectrum.cpu().regs.a, spectrum.cpu().regs.f,
-                    spectrum.cpu().regs.b, spectrum.cpu().regs.c,
-                    spectrum.cpu().regs.d, spectrum.cpu().regs.e,
-                    spectrum.cpu().regs.h, spectrum.cpu().regs.l,
-                    spectrum.cpu().regs.sp);
+                println!(
+                    "[{:4}] PC={:04X} A={:02X} F={:02X} BC={:02X}{:02X} DE={:02X}{:02X} HL={:02X}{:02X} SP={:04X}",
+                    log_count,
+                    pc,
+                    spectrum.cpu().regs.a,
+                    spectrum.cpu().regs.f,
+                    spectrum.cpu().regs.b,
+                    spectrum.cpu().regs.c,
+                    spectrum.cpu().regs.d,
+                    spectrum.cpu().regs.e,
+                    spectrum.cpu().regs.h,
+                    spectrum.cpu().regs.l,
+                    spectrum.cpu().regs.sp
+                );
                 log_count += 1;
             }
 
@@ -117,15 +149,19 @@ fn main() {
 
         // Check ERR_NR change
         if err != prev_err {
-            println!("\n*** ERR_NR changed from ${:02X} to ${:02X} at tick {} ***",
-                prev_err, err, tick_count);
+            println!(
+                "\n*** ERR_NR changed from ${:02X} to ${:02X} at tick {} ***",
+                prev_err, err, tick_count
+            );
             println!("PC={:04X}", pc);
             if !found {
                 // Show last 50 PCs
                 println!("Last 50 instruction PCs:");
                 for (i, &p) in last_pcs.iter().enumerate() {
                     print!("{:04X} ", p);
-                    if (i + 1) % 10 == 0 { println!(); }
+                    if (i + 1) % 10 == 0 {
+                        println!();
+                    }
                 }
                 println!();
             }

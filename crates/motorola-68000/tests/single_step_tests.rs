@@ -118,8 +118,7 @@ fn decode_file(path: &Path) -> Result<Vec<TestCase>, String> {
         return Err(format!("Invalid magic: 0x{magic:08X}"));
     }
 
-    let num_tests =
-        u32::from_le_bytes([content[4], content[5], content[6], content[7]]) as usize;
+    let num_tests = u32::from_le_bytes([content[4], content[5], content[6], content[7]]) as usize;
     let mut tests = Vec::with_capacity(num_tests);
     let mut ptr = 8;
 
@@ -185,9 +184,12 @@ fn read_name(content: &[u8], mut ptr: usize) -> Result<(usize, String), String> 
     if ptr + 4 > content.len() {
         return Err("Unexpected EOF at string length".into());
     }
-    let strlen =
-        u32::from_le_bytes([content[ptr], content[ptr + 1], content[ptr + 2], content[ptr + 3]])
-            as usize;
+    let strlen = u32::from_le_bytes([
+        content[ptr],
+        content[ptr + 1],
+        content[ptr + 2],
+        content[ptr + 3],
+    ]) as usize;
     ptr += 4;
 
     if ptr + strlen > content.len() {
@@ -295,11 +297,18 @@ fn read_transactions(content: &[u8], mut ptr: usize) -> Result<(usize, u32), Str
     if ptr + 8 > content.len() {
         return Err("Unexpected EOF at cycle/transaction count".into());
     }
-    let num_cycles =
-        u32::from_le_bytes([content[ptr], content[ptr + 1], content[ptr + 2], content[ptr + 3]]);
-    let num_transactions =
-        u32::from_le_bytes([content[ptr + 4], content[ptr + 5], content[ptr + 6], content[ptr + 7]])
-            as usize;
+    let num_cycles = u32::from_le_bytes([
+        content[ptr],
+        content[ptr + 1],
+        content[ptr + 2],
+        content[ptr + 3],
+    ]);
+    let num_transactions = u32::from_le_bytes([
+        content[ptr + 4],
+        content[ptr + 5],
+        content[ptr + 6],
+        content[ptr + 7],
+    ]) as usize;
     ptr += 8;
 
     for _ in 0..num_transactions {
@@ -443,14 +452,23 @@ fn run_test_safe(test: &TestCase) -> Result<(), Vec<String>> {
     let result = panic::catch_unwind(panic::AssertUnwindSafe(|| run_test(test)));
     match result {
         Ok(r) => r,
-        Err(_) => Err(vec![format!("{}: PANIC (unimplemented instruction)", test.name)]),
+        Err(_) => Err(vec![format!(
+            "{}: PANIC (unimplemented instruction)",
+            test.name
+        )]),
     }
 }
 
 fn run_test_file_inner(path: &Path, safe: bool) -> (usize, usize, Vec<String>) {
     let tests = match decode_file(path) {
         Ok(t) => t,
-        Err(e) => return (0, 0, vec![format!("Failed to decode {}: {e}", path.display())]),
+        Err(e) => {
+            return (
+                0,
+                0,
+                vec![format!("Failed to decode {}: {e}", path.display())],
+            );
+        }
     };
 
     let mut passed = 0;
@@ -458,7 +476,11 @@ fn run_test_file_inner(path: &Path, safe: bool) -> (usize, usize, Vec<String>) {
     let mut all_errors = Vec::new();
 
     for test in &tests {
-        let result = if safe { run_test_safe(test) } else { run_test(test) };
+        let result = if safe {
+            run_test_safe(test)
+        } else {
+            run_test(test)
+        };
         match result {
             Ok(()) => passed += 1,
             Err(errors) => {
@@ -525,7 +547,6 @@ fn run_single_file() {
     };
     run_named_test(&name);
 }
-
 
 // --- Full suite (run manually) ---
 

@@ -51,7 +51,10 @@ pub fn add8(a: u8, b: u8, carry: bool) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Subtract two bytes with optional borrow, returning result and flags.
@@ -91,7 +94,10 @@ pub fn sub8(a: u8, b: u8, carry: bool) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// AND operation.
@@ -112,7 +118,10 @@ pub fn and8(a: u8, b: u8) -> AluResult {
         flags |= PF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// OR operation.
@@ -133,7 +142,10 @@ pub fn or8(a: u8, b: u8) -> AluResult {
         flags |= PF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// XOR operation.
@@ -154,7 +166,10 @@ pub fn xor8(a: u8, b: u8) -> AluResult {
         flags |= PF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Compare (subtract without storing result).
@@ -187,7 +202,10 @@ pub fn inc8(a: u8) -> AluResult {
         flags |= PF; // Overflow
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Decrement byte.
@@ -211,7 +229,10 @@ pub fn dec8(a: u8) -> AluResult {
         flags |= PF; // Overflow
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Rotate left circular (bit 7 -> carry and bit 0).
@@ -235,7 +256,10 @@ pub fn rlc8(a: u8) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Rotate right circular (bit 0 -> carry and bit 7).
@@ -259,7 +283,10 @@ pub fn rrc8(a: u8) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Rotate left through carry.
@@ -283,7 +310,10 @@ pub fn rl8(a: u8, old_carry: bool) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Rotate right through carry.
@@ -307,7 +337,10 @@ pub fn rr8(a: u8, old_carry: bool) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Shift left arithmetic (bit 0 = 0).
@@ -331,7 +364,10 @@ pub fn sla8(a: u8) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Shift right arithmetic (bit 7 preserved).
@@ -355,7 +391,10 @@ pub fn sra8(a: u8) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Shift left logical (undocumented SLL - bit 0 = 1).
@@ -379,7 +418,10 @@ pub fn sll8(a: u8) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// Shift right logical (bit 7 = 0).
@@ -400,7 +442,10 @@ pub fn srl8(a: u8) -> AluResult {
         flags |= CF;
     }
 
-    AluResult { value: result, flags }
+    AluResult {
+        value: result,
+        flags,
+    }
 }
 
 /// 16-bit add for HL/IX/IY.

@@ -711,7 +711,11 @@ impl Cpu68000 {
         };
 
         // PC-relative modes (PcDisp, PcIndex) use program space FC.
-        let fc_ea = if self.program_space_access { fc_prog } else { fc_data };
+        let fc_ea = if self.program_space_access {
+            fc_prog
+        } else {
+            fc_data
+        };
 
         let (addr, fc, is_read, is_word, data) = match op {
             MicroOp::FetchIRC => (self.next_fetch_addr, fc_prog, true, true, None),
@@ -719,13 +723,21 @@ impl Cpu68000 {
             MicroOp::ReadWord => (self.addr, fc_ea, true, true, None),
             MicroOp::ReadLongHi => (self.addr, fc_ea, true, true, None),
             MicroOp::ReadLongLo => (self.addr.wrapping_add(2), fc_ea, true, true, None),
-            MicroOp::WriteByte => {
-                (self.addr, fc_data, false, false, Some(self.data as u8 as u16))
-            }
+            MicroOp::WriteByte => (
+                self.addr,
+                fc_data,
+                false,
+                false,
+                Some(self.data as u8 as u16),
+            ),
             MicroOp::WriteWord => (self.addr, fc_data, false, true, Some(self.data as u16)),
-            MicroOp::WriteLongHi => {
-                (self.addr, fc_data, false, true, Some((self.data >> 16) as u16))
-            }
+            MicroOp::WriteLongHi => (
+                self.addr,
+                fc_data,
+                false,
+                true,
+                Some((self.data >> 16) as u16),
+            ),
             MicroOp::WriteLongLo => (
                 self.addr.wrapping_add(2),
                 fc_data,
@@ -748,7 +760,13 @@ impl Cpu68000 {
             MicroOp::PushLongLo => {
                 // Write lo word at SP + 2 (SP already decremented by PushLongHi)
                 let sp = self.regs.active_sp();
-                (sp.wrapping_add(2), fc_data, false, true, Some((self.data & 0xFFFF) as u16))
+                (
+                    sp.wrapping_add(2),
+                    fc_data,
+                    false,
+                    true,
+                    Some((self.data & 0xFFFF) as u16),
+                )
             }
             MicroOp::PopWord => {
                 // Read from SP, then SP += 2
@@ -941,13 +959,12 @@ impl Cpu68000 {
                 // CMPM source Long read AE: partial undo. The 68000 reads long
                 // values word-by-word, incrementing by 2 each time. On AE at
                 // ReadLongHi, only 2 of the 4-byte increment is reverted.
-                let undo_amount = if is_postinc && is_read && !is_dst
-                    && is_cmpm && self.size == Size::Long
-                {
-                    2
-                } else {
-                    amount
-                };
+                let undo_amount =
+                    if is_postinc && is_read && !is_dst && is_cmpm && self.size == Size::Long {
+                        2
+                    } else {
+                        amount
+                    };
                 if is_postinc {
                     self.regs.set_a(r, current.wrapping_sub(undo_amount));
                 } else {
@@ -1056,13 +1073,13 @@ impl Cpu68000 {
                 let ea_mode = ((self.ir >> 3) & 7) as u8;
                 let ea_reg = (self.ir & 7) as u8;
                 let ea_ext: u32 = match ea_mode {
-                    5 | 6 => 1,  // d16(An), d8(An,Xn)
+                    5 | 6 => 1, // d16(An), d8(An,Xn)
                     7 => match ea_reg {
-                        0 | 2 | 3 => 1,  // abs.w, d16(PC), d8(PC,Xn)
-                        1 => 2,           // abs.l
+                        0 | 2 | 3 => 1, // abs.w, d16(PC), d8(PC,Xn)
+                        1 => 2,         // abs.l
                         _ => 0,
                     },
-                    _ => 0,  // (An): no ext words
+                    _ => 0, // (An): no ext words
                 };
                 return self.instr_start_pc.wrapping_add(2 + ea_ext * 2);
             }
@@ -1091,11 +1108,11 @@ impl Cpu68000 {
         // Detects both directions: reg→mem (0x4880) and mem→reg (0x4C80).
         if (self.ir & 0xFB80) == 0x4880 {
             let movem_ea_ext: u32 = match ea_mode {
-                5 | 6 => 2,  // d16(An), d8(An,Xn)
+                5 | 6 => 2, // d16(An), d8(An,Xn)
                 7 => match ea_reg {
-                    0 => 2,       // abs.w
-                    1 => 4,       // abs.l
-                    2 | 3 => 2,   // d16(PC), d8(PC,Xn)
+                    0 => 2,     // abs.w
+                    1 => 4,     // abs.l
+                    2 | 3 => 2, // d16(PC), d8(PC,Xn)
                     _ => 0,
                 },
                 _ => 0,
@@ -1156,8 +1173,7 @@ impl Cpu68000 {
 
         let src_mode_bits = ((self.ir >> 3) & 7) as u8;
         let src_reg = (self.ir & 7) as u8;
-        let src = AddrMode::decode(src_mode_bits, src_reg)
-            .unwrap_or(AddrMode::DataReg(0));
+        let src = AddrMode::decode(src_mode_bits, src_reg).unwrap_or(AddrMode::DataReg(0));
         let src_ext = Self::ext_word_count_for_mode(&src, size);
 
         if is_read {
@@ -1165,8 +1181,7 @@ impl Cpu68000 {
             match src {
                 AddrMode::AbsShort | AddrMode::AbsLong => {
                     // Absolute sources: PC advanced past consumed ext words
-                    self.instr_start_pc
-                        .wrapping_add(2 + u32::from(src_ext) * 2)
+                    self.instr_start_pc.wrapping_add(2 + u32::from(src_ext) * 2)
                 }
                 AddrMode::AddrIndPreDec(_) => {
                     if size == Size::Long {
@@ -1181,8 +1196,7 @@ impl Cpu68000 {
             // Write AE: fault during destination write
             let dst_mode_bits = ((self.ir >> 6) & 7) as u8;
             let dst_reg = ((self.ir >> 9) & 7) as u8;
-            let dst = AddrMode::decode(dst_mode_bits, dst_reg)
-                .unwrap_or(AddrMode::DataReg(0));
+            let dst = AddrMode::decode(dst_mode_bits, dst_reg).unwrap_or(AddrMode::DataReg(0));
             let dst_ext = Self::ext_word_count_for_mode(&dst, size);
 
             let src_is_register = matches!(
@@ -1194,8 +1208,7 @@ impl Cpu68000 {
                 let extra = u32::from(src_ext + dst_ext.saturating_sub(1));
                 self.instr_start_pc.wrapping_add(4 + extra * 2)
             } else {
-                self.instr_start_pc
-                    .wrapping_add(4 + u32::from(src_ext) * 2)
+                self.instr_start_pc.wrapping_add(4 + u32::from(src_ext) * 2)
             }
         }
     }
@@ -1209,7 +1222,13 @@ impl Cpu68000 {
             AddrMode::AddrIndIndex(_) => 1,
             AddrMode::AbsShort => 1,
             AddrMode::AbsLong => 2,
-            AddrMode::Immediate => if size == Size::Long { 2 } else { 1 },
+            AddrMode::Immediate => {
+                if size == Size::Long {
+                    2
+                } else {
+                    1
+                }
+            }
             AddrMode::PcDisp => 1,
             AddrMode::PcIndex => 1,
         }

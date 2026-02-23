@@ -5,8 +5,8 @@
 //!
 //! Test data lives in `test-data/65x02/6502/v1/XX.json`.
 
-use mos_6502::Mos6502;
 use emu_core::{Bus, Cpu, ReadResult};
+use mos_6502::Mos6502;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -198,11 +198,7 @@ fn run_all() {
             } else {
                 file_fail += 1;
                 if first_failures.len() < 5 {
-                    first_failures.push(format!(
-                        "  FAIL [{}]: {}",
-                        test.name,
-                        errors.join(", ")
-                    ));
+                    first_failures.push(format!("  FAIL [{}]: {}", test.name, errors.join(", ")));
                 }
             }
         }

@@ -190,7 +190,9 @@ mod tests {
     fn io_expansion_returns_ff() {
         let bus = make_bus();
         // $DE00-$DFFF returns $FF
-        let val = bus.memory.io_read(0xDE00, &Vic::new(), &Sid::new(), &Cia::new(), &Cia::new());
+        let val = bus
+            .memory
+            .io_read(0xDE00, &Vic::new(), &Sid::new(), &Cia::new(), &Cia::new());
         assert_eq!(val, 0xFF);
     }
 }
