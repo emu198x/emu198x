@@ -10,6 +10,24 @@ const MIN_AUDIO_PERIOD_CCK: u16 = 124;
 const ADKCON_USE_VOLUME_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
 const ADKCON_USE_PERIOD_BITS: [u16; 4] = [0x0010, 0x0020, 0x0040, 0x0080];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioOutputEvent {
+    HighByte(u16),
+    LowByte(u16),
+}
+
+impl AudioOutputEvent {
+    fn word(self) -> u16 {
+        match self {
+            Self::HighByte(word) | Self::LowByte(word) => word,
+        }
+    }
+
+    fn is_word_complete(self) -> bool {
+        matches!(self, Self::LowByte(_))
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct AudioChannel {
     lc: u32,
@@ -159,7 +177,7 @@ impl AudioChannel {
         wrapped
     }
 
-    fn tick_output(&mut self) -> Option<u16> {
+    fn tick_output(&mut self) -> Option<AudioOutputEvent> {
         if self.period_counter == 0 {
             self.period_counter = self.effective_period();
         }
@@ -190,7 +208,7 @@ impl AudioChannel {
 
         if self.next_byte_is_hi {
             self.next_byte_is_hi = false;
-            return None;
+            return Some(AudioOutputEvent::HighByte(word));
         }
 
         self.next_byte_is_hi = true;
@@ -199,7 +217,7 @@ impl AudioChannel {
         } else {
             self.current_word = None;
         }
-        Some(word)
+        Some(AudioOutputEvent::LowByte(word))
     }
 
     fn mix_sample(&self) -> f32 {
@@ -272,12 +290,30 @@ impl Paula8364 {
         use_volume || use_period
     }
 
-    fn apply_audio_modulation_word(&mut self, source: usize, word: u16) {
+    fn apply_audio_modulation_event(&mut self, source: usize, event: AudioOutputEvent) {
         let use_volume = (self.adkcon & ADKCON_USE_VOLUME_BITS[source]) != 0;
         let use_period = (self.adkcon & ADKCON_USE_PERIOD_BITS[source]) != 0;
         if !use_volume && !use_period {
             return;
         }
+
+        // HRM: attach-period updates occur on 010->011 (upper-byte output),
+        // attach-volume on 011->010 (word completion). Combined mode timing is
+        // still simplified to word-boundary alternation for now.
+        let should_apply = match (use_period, use_volume, event) {
+            (true, false, AudioOutputEvent::HighByte(_)) => true,
+            (true, false, AudioOutputEvent::LowByte(_)) => false,
+            (false, true, AudioOutputEvent::HighByte(_)) => false,
+            (false, true, AudioOutputEvent::LowByte(_)) => true,
+            (true, true, AudioOutputEvent::HighByte(_)) => false,
+            (true, true, AudioOutputEvent::LowByte(_)) => true,
+            (false, false, _) => false,
+        };
+        if !should_apply {
+            return;
+        }
+
+        let word = event.word();
 
         if source + 1 >= self.audio.len() {
             if use_volume && use_period {
@@ -403,18 +439,18 @@ impl Paula8364 {
             }
         }
 
-        let mut completed_words = [None; 4];
+        let mut output_events = [None; 4];
         for (index, channel) in self.audio.iter_mut().enumerate() {
-            let word_completed = channel.tick_output();
-            if word_completed.is_some() && !channel.dma_active {
+            let output_event = channel.tick_output();
+            if output_event.is_some_and(AudioOutputEvent::is_word_complete) && !channel.dma_active {
                 irq_mask |= 1 << (7 + index);
             }
-            completed_words[index] = word_completed;
+            output_events[index] = output_event;
         }
 
-        for (index, completed_word) in completed_words.into_iter().enumerate() {
-            if let Some(word) = completed_word {
-                self.apply_audio_modulation_word(index, word);
+        for (index, output_event) in output_events.into_iter().enumerate() {
+            if let Some(event) = output_event {
+                self.apply_audio_modulation_event(index, event);
             }
         }
 
@@ -711,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn adkcon_period_modulation_updates_successor_period_on_word_completion() {
+    fn adkcon_period_modulation_updates_successor_period_on_first_byte_transition() {
         let mut paula = Paula8364::new();
         let dmacon = 0x0000; // direct mode
 
@@ -726,14 +762,18 @@ mod tests {
         }
         assert_eq!(
             paula.read_audio_register(0x0B6),
-            Some(400),
-            "period modulation should not apply after only one byte"
+            Some(1),
+            "attach-period modulation should apply on the 010->011 transition"
         );
 
         for _ in 0..124 {
             paula.tick_audio_cck(dmacon, None, read);
         }
-        assert_eq!(paula.read_audio_register(0x0B6), Some(1));
+        assert_eq!(
+            paula.read_audio_register(0x0B6),
+            Some(1),
+            "period modulation should remain latched after the lower-byte transition"
+        );
     }
 
     #[test]
