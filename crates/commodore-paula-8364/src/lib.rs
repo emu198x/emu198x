@@ -207,8 +207,6 @@ impl AudioChannel {
             if consume_word_each_transition {
                 if let Some(next) = self.next_word.take() {
                     self.current_word = Some(next);
-                } else {
-                    self.current_word = None;
                 }
             }
             return Some(AudioOutputEvent::HighByte(word));
@@ -217,7 +215,7 @@ impl AudioChannel {
         self.next_byte_is_hi = true;
         if let Some(next) = self.next_word.take() {
             self.current_word = Some(next);
-        } else {
+        } else if !consume_word_each_transition {
             self.current_word = None;
         }
         Some(AudioOutputEvent::LowByte(word))

@@ -415,6 +415,66 @@ fn aud0_dma_combined_modulation_uses_both_transitions_for_cadence() {
 }
 
 #[test]
+fn aud0_dma_combined_modulation_high_rate_degrades_but_preserves_order() {
+    let mut amiga = make_test_amiga();
+    let sample_addr = 0x0000_2E00u32;
+
+    // Four modulation words: period, volume, period, volume.
+    let words = [0x0123u16, 0x0040u16, 0x0002u16, 0x0020u16];
+    for (i, word) in words.into_iter().enumerate() {
+        let addr = sample_addr + (i as u32) * 2;
+        amiga.memory.write_byte(addr, (word >> 8) as u8);
+        amiga.memory.write_byte(addr + 1, word as u8);
+    }
+
+    // Fastest practical source period. Combined attach wants one word per 124 CCK,
+    // which exceeds per-line DMA slot throughput, so we expect delayed (but ordered)
+    // modulation updates.
+    configure_aud0_dma(&mut amiga, sample_addr, 4, 124, 64);
+    amiga.write_custom_reg(aud_reg(1, AUD_REG_PER_OFFSET), 700);
+    amiga.write_custom_reg(aud_reg(1, AUD_REG_VOL_OFFSET), 7);
+    amiga.write_custom_reg(REG_ADKCON, ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_AUD0EN);
+
+    let first_period = tick_until(&mut amiga, 20_000, |a| {
+        a.paula.read_audio_register(aud_reg(1, AUD_REG_PER_OFFSET)) == Some(0x0123)
+    });
+    assert!(
+        first_period.is_some(),
+        "high-rate combined attach should still produce the first period modulation"
+    );
+
+    let volume_delta = tick_until(&mut amiga, 20_000, |a| {
+        a.paula.read_audio_register(aud_reg(1, AUD_REG_VOL_OFFSET)) == Some(64)
+    });
+    assert!(
+        volume_delta.is_some(),
+        "high-rate combined attach should eventually produce the matching volume modulation"
+    );
+    let volume_delta = volume_delta.unwrap();
+    assert!(
+        volume_delta > 124,
+        "volume modulation should be delayed beyond one source period under DMA slot pressure (delta={volume_delta})"
+    );
+
+    let period_delta = tick_until(&mut amiga, 20_000, |a| {
+        a.paula.read_audio_register(aud_reg(1, AUD_REG_PER_OFFSET)) == Some(2)
+    });
+    assert!(
+        period_delta.is_some(),
+        "high-rate combined attach should eventually reach the next period word"
+    );
+
+    let volume2_delta = tick_until(&mut amiga, 20_000, |a| {
+        a.paula.read_audio_register(aud_reg(1, AUD_REG_VOL_OFFSET)) == Some(32)
+    });
+    assert!(
+        volume2_delta.is_some(),
+        "high-rate combined attach should preserve period/volume order across repeated starvation"
+    );
+}
+
+#[test]
 fn aud0dat_write_is_ignored_for_playback_when_dma_enabled_before_first_tick() {
     let mut amiga = make_test_amiga();
     let sample_addr = 0x0000_2800u32;
