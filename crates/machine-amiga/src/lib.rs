@@ -968,8 +968,7 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     agnus.blt_cpt = cpt;
     agnus.blt_dpt = dpt;
 
-    agnus.blitter_exec_pending = false;
-    agnus.blitter_ccks_remaining = 0;
+    agnus.clear_blitter_scheduler();
     agnus.blitter_busy = false;
     paula.request_interrupt(6); // bit 6 = BLIT
 }
@@ -1171,8 +1170,7 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
     agnus.blt_dpt = dpt;
     agnus.blt_bdat = texture;
 
-    agnus.blitter_exec_pending = false;
-    agnus.blitter_ccks_remaining = 0;
+    agnus.clear_blitter_scheduler();
     agnus.blitter_busy = false;
     paula.request_interrupt(6);
 }

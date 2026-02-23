@@ -1,5 +1,7 @@
 //! Agnus - Beam counter and DMA slot allocation.
 
+use std::collections::VecDeque;
+
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
 
@@ -94,6 +96,15 @@ pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
     Some(0), // 7: BPL1 (triggers shift register load)
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlitterDmaOp {
+    ReadA,
+    ReadB,
+    ReadC,
+    WriteD,
+    Internal,
+}
+
 pub struct Agnus {
     pub vpos: u16,
     pub hpos: u16, // in CCKs
@@ -112,6 +123,7 @@ pub struct Agnus {
     pub blitter_busy: bool,
     pub blitter_exec_pending: bool,
     pub blitter_ccks_remaining: u32,
+    blitter_dma_ops: VecDeque<BlitterDmaOp>,
     pub blt_apt: u32,
     pub blt_bpt: u32,
     pub blt_cpt: u32,
@@ -155,6 +167,7 @@ impl Agnus {
             blitter_busy: false,
             blitter_exec_pending: false,
             blitter_ccks_remaining: 0,
+            blitter_dma_ops: VecDeque::new(),
             blt_apt: 0,
             blt_bpt: 0,
             blt_cpt: 0,
@@ -179,7 +192,11 @@ impl Agnus {
 
     pub fn num_bitplanes(&self) -> u8 {
         let bpl_bits = (self.bplcon0 >> 12) & 0x07;
-        if bpl_bits > 6 { 6 } else { bpl_bits as u8 }
+        if bpl_bits > 6 {
+            6
+        } else {
+            bpl_bits as u8
+        }
     }
 
     pub fn dma_enabled(&self, bit: u16) -> bool {
@@ -202,7 +219,8 @@ impl Agnus {
     pub fn start_blit(&mut self) {
         self.blitter_busy = true;
         self.blitter_exec_pending = true;
-        self.blitter_ccks_remaining = self.coarse_blit_cck_budget();
+        self.rebuild_blitter_dma_ops();
+        self.blitter_ccks_remaining = self.blitter_dma_ops.len() as u32;
     }
 
     /// Advance the coarse blitter scheduler by one CCK.
@@ -213,54 +231,77 @@ impl Agnus {
             return false;
         }
 
-        if self.blitter_ccks_remaining > 0 {
-            self.blitter_ccks_remaining -= 1;
+        if self.blitter_dma_ops.pop_front().is_some() {
+            self.blitter_ccks_remaining = self.blitter_dma_ops.len() as u32;
         }
-        if self.blitter_ccks_remaining == 0 {
+        if self.blitter_dma_ops.is_empty() {
             self.blitter_exec_pending = false;
+            self.blitter_ccks_remaining = 0;
             return true;
         }
         false
     }
 
-    fn coarse_blit_cck_budget(&self) -> u32 {
-        // Coarse placeholder until per-slot blitter DMA is modeled.
-        // Estimate work in DMA word operations and map that directly onto
-        // Agnus free-slot progress grants. Keep a cap so boot/test runtime
-        // stays bounded until the blitter is fully slot-driven.
+    /// Clear the queued blitter DMA timing model after the blit core executes.
+    pub fn clear_blitter_scheduler(&mut self) {
+        self.blitter_dma_ops.clear();
+        self.blitter_exec_pending = false;
+        self.blitter_ccks_remaining = 0;
+    }
+
+    fn rebuild_blitter_dma_ops(&mut self) {
+        self.blitter_dma_ops.clear();
+
+        // Timing-only queue until the blitter itself is executed incrementally.
         let height = u32::from((self.bltsize >> 6) & 0x03FF);
         let width_words = u32::from(self.bltsize & 0x003F);
         let height = if height == 0 { 1024 } else { height };
         let width_words = if width_words == 0 { 64 } else { width_words };
-        let estimated_dma_ops = if (self.bltcon1 & 0x0001) != 0 {
+
+        if (self.bltcon1 & 0x0001) != 0 {
             // LINE mode:
-            // - Channel A pixel mask is generated internally (no DMA)
-            // - Channel B uses BLTBDAT texture register (no DMA)
-            // - Channel C is destination readback (DMA read)
-            // - Channel D is destination write (DMA write)
-            height.saturating_mul(2)
-        } else {
-            let mut dma_ops_per_word = 0u32;
-            if (self.bltcon0 & 0x0800) != 0 {
-                dma_ops_per_word += 1; // A read
+            // - A pixel mask generated internally
+            // - B texture from BLTBDAT register
+            // - C read + D write per plotted step
+            for _ in 0..height {
+                self.blitter_dma_ops.push_back(BlitterDmaOp::ReadC);
+                self.blitter_dma_ops.push_back(BlitterDmaOp::WriteD);
             }
-            if (self.bltcon0 & 0x0400) != 0 {
-                dma_ops_per_word += 1; // B read
+            return;
+        }
+
+        let use_a = (self.bltcon0 & 0x0800) != 0;
+        let use_b = (self.bltcon0 & 0x0400) != 0;
+        let use_c = (self.bltcon0 & 0x0200) != 0;
+        let use_d = (self.bltcon0 & 0x0100) != 0;
+
+        for _row in 0..height {
+            for _col in 0..width_words {
+                if use_a {
+                    self.blitter_dma_ops.push_back(BlitterDmaOp::ReadA);
+                }
+                if use_b {
+                    self.blitter_dma_ops.push_back(BlitterDmaOp::ReadB);
+                }
+                if use_c {
+                    self.blitter_dma_ops.push_back(BlitterDmaOp::ReadC);
+                }
+                if use_d {
+                    self.blitter_dma_ops.push_back(BlitterDmaOp::WriteD);
+                }
             }
-            if (self.bltcon0 & 0x0200) != 0 {
-                dma_ops_per_word += 1; // C read
-            }
-            if (self.bltcon0 & 0x0100) != 0 {
-                dma_ops_per_word += 1; // D write
-            }
-            // Keep non-zero latency even for unusual/no-channel blits so BUSY is
-            // observable across at least one granted slot.
-            let dma_ops_per_word = dma_ops_per_word.max(1);
-            height
-                .saturating_mul(width_words)
-                .saturating_mul(dma_ops_per_word)
-        };
-        estimated_dma_ops.clamp(1, 2048)
+        }
+
+        // Keep BUSY observable across at least one granted slot for unusual
+        // cases with no external DMA channels enabled.
+        if self.blitter_dma_ops.is_empty() {
+            self.blitter_dma_ops.push_back(BlitterDmaOp::Internal);
+        }
+    }
+
+    #[cfg(test)]
+    fn blitter_dma_ops_snapshot(&self) -> Vec<BlitterDmaOp> {
+        self.blitter_dma_ops.iter().copied().collect()
     }
 
     /// Tick one CCK (8 crystal ticks).
@@ -562,28 +603,48 @@ mod tests {
     }
 
     #[test]
-    fn coarse_area_blit_budget_scales_with_enabled_dma_channels() {
+    fn blitter_dma_op_queue_scales_with_enabled_area_channels() {
         let mut agnus = Agnus::new();
         agnus.bltcon0 = 0x0800 | 0x0200 | 0x0100; // A read + C read + D write
         agnus.bltsize = (1 << 6) | 3; // height=1, width=3 words
         agnus.start_blit();
 
+        let ops = agnus.blitter_dma_ops_snapshot();
         assert_eq!(
             agnus.blitter_ccks_remaining, 9,
             "3 words * (A+C+D) => 9 DMA-op grants"
         );
+        assert_eq!(ops.len(), 9);
+        assert_eq!(
+            &ops[0..3],
+            &[
+                BlitterDmaOp::ReadA,
+                BlitterDmaOp::ReadC,
+                BlitterDmaOp::WriteD
+            ]
+        );
     }
 
     #[test]
-    fn coarse_line_blit_budget_counts_c_and_d_dma_ops_per_step() {
+    fn blitter_dma_op_queue_uses_c_then_d_per_line_step() {
         let mut agnus = Agnus::new();
         agnus.bltcon1 = 0x0001; // LINE mode
         agnus.bltsize = (4 << 6) | 2; // length=4, width field ignored in line mode
         agnus.start_blit();
 
+        let ops = agnus.blitter_dma_ops_snapshot();
         assert_eq!(
             agnus.blitter_ccks_remaining, 8,
             "4 line steps * (C read + D write) => 8 DMA-op grants"
+        );
+        assert_eq!(
+            &ops[0..4],
+            &[
+                BlitterDmaOp::ReadC,
+                BlitterDmaOp::WriteD,
+                BlitterDmaOp::ReadC,
+                BlitterDmaOp::WriteD
+            ]
         );
     }
 }
