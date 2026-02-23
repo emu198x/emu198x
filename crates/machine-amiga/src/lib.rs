@@ -74,6 +74,7 @@ pub struct Amiga {
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
     disk_dma_runtime: Option<DiskDmaRuntime>,
+    sprite_dma_datb_phase: [bool; 8],
 }
 
 impl Amiga {
@@ -135,6 +136,7 @@ impl Amiga {
             audio_sample_phase: 0,
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
             disk_dma_runtime: None,
+            sprite_dma_datb_phase: [false; 8],
         }
     }
 
@@ -180,6 +182,9 @@ impl Amiga {
             let audio_dma_slot = bus_plan.audio_dma_service_channel;
             if bus_plan.disk_dma_slot_granted {
                 self.service_disk_dma_slot();
+            }
+            if let Some(sprite) = bus_plan.sprite_dma_service_channel {
+                self.service_sprite_dma_slot(sprite as usize);
             }
             let mut copper_used_chip_bus = false;
             let mut fetched_plane_0 = false;
@@ -467,6 +472,29 @@ impl Amiga {
             // DSKBLK interrupt on transfer completion.
             self.paula.request_interrupt(1);
         }
+    }
+
+    /// Service one Agnus sprite DMA slot.
+    ///
+    /// Minimal OCS bring-up model: fetch one word from `SPRxPT` and alternate
+    /// writes into Denise `SPRxDATA` / `SPRxDATB`, advancing the sprite pointer
+    /// by one word per granted sprite slot. Sprite display start/stop control
+    /// word fetching is not modeled yet.
+    fn service_sprite_dma_slot(&mut self, sprite: usize) {
+        if sprite >= 8 {
+            return;
+        }
+        let addr = self.agnus.spr_pt[sprite];
+        let hi = self.memory.read_chip_byte(addr);
+        let lo = self.memory.read_chip_byte(addr | 1);
+        let word = (u16::from(hi) << 8) | u16::from(lo);
+        if self.sprite_dma_datb_phase[sprite] {
+            self.denise.spr_datb[sprite] = word;
+        } else {
+            self.denise.spr_data[sprite] = word;
+        }
+        self.sprite_dma_datb_phase[sprite] = !self.sprite_dma_datb_phase[sprite];
+        self.agnus.spr_pt[sprite] = addr.wrapping_add(2);
     }
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
