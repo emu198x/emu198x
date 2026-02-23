@@ -1,0 +1,15 @@
+[package]
+name = "amiga-runner"
+description = "Minimal windowed runner for machine-amiga"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+machine-amiga = { path = "../machine-amiga" }
+pixels = "0.15"
+winit = "0.30"
+
+[lints]
+workspace = true
