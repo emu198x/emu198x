@@ -44,7 +44,6 @@ struct AudioChannel {
     output_sample: i8,
     dma_active: bool,
     dma_enabled_prev: bool,
-    modulation_next_is_period: bool,
 }
 
 impl Default for AudioChannel {
@@ -64,7 +63,6 @@ impl Default for AudioChannel {
             output_sample: 0,
             dma_active: false,
             dma_enabled_prev: false,
-            modulation_next_is_period: true,
         }
     }
 }
@@ -90,7 +88,6 @@ impl AudioChannel {
         self.next_byte_is_hi = true;
         self.period_counter = self.effective_period();
         self.dma_active = true;
-        self.modulation_next_is_period = true;
     }
 
     fn stop_dma(&mut self) {
@@ -98,7 +95,6 @@ impl AudioChannel {
         self.current_word = None;
         self.next_word = None;
         self.next_byte_is_hi = true;
-        self.modulation_next_is_period = true;
     }
 
     fn sync_dma_enable(&mut self, enabled: bool) -> bool {
@@ -177,7 +173,7 @@ impl AudioChannel {
         wrapped
     }
 
-    fn tick_output(&mut self) -> Option<AudioOutputEvent> {
+    fn tick_output(&mut self, consume_word_each_transition: bool) -> Option<AudioOutputEvent> {
         if self.period_counter == 0 {
             self.period_counter = self.effective_period();
         }
@@ -208,6 +204,13 @@ impl AudioChannel {
 
         if self.next_byte_is_hi {
             self.next_byte_is_hi = false;
+            if consume_word_each_transition {
+                if let Some(next) = self.next_word.take() {
+                    self.current_word = Some(next);
+                } else {
+                    self.current_word = None;
+                }
+            }
             return Some(AudioOutputEvent::HighByte(word));
         }
 
@@ -298,15 +301,15 @@ impl Paula8364 {
         }
 
         // HRM: attach-period updates occur on 010->011 (upper-byte output),
-        // attach-volume on 011->010 (word completion). Combined mode timing is
-        // still simplified to word-boundary alternation for now.
+        // attach-volume on 011->010 (word completion). When both are set,
+        // modulation uses both transitions: period on the upper-byte transition,
+        // volume on the lower-byte transition.
         let should_apply = match (use_period, use_volume, event) {
             (true, false, AudioOutputEvent::HighByte(_)) => true,
             (true, false, AudioOutputEvent::LowByte(_)) => false,
             (false, true, AudioOutputEvent::HighByte(_)) => false,
             (false, true, AudioOutputEvent::LowByte(_)) => true,
-            (true, true, AudioOutputEvent::HighByte(_)) => false,
-            (true, true, AudioOutputEvent::LowByte(_)) => true,
+            (true, true, _) => true,
             (false, false, _) => false,
         };
         if !should_apply {
@@ -316,26 +319,17 @@ impl Paula8364 {
         let word = event.word();
 
         if source + 1 >= self.audio.len() {
-            if use_volume && use_period {
-                let src = &mut self.audio[source];
-                src.modulation_next_is_period = !src.modulation_next_is_period;
-            }
             return;
         }
 
-        let (left, right) = self.audio.split_at_mut(source + 1);
-        let src = &mut left[source];
+        let (_left, right) = self.audio.split_at_mut(source + 1);
         let target = &mut right[0];
 
         match (use_period, use_volume) {
-            (true, true) => {
-                if src.modulation_next_is_period {
-                    target.write_period(word);
-                } else {
-                    target.write_volume(word);
-                }
-                src.modulation_next_is_period = !src.modulation_next_is_period;
-            }
+            (true, true) => match event {
+                AudioOutputEvent::HighByte(_) => target.write_period(word),
+                AudioOutputEvent::LowByte(_) => target.write_volume(word),
+            },
             (true, false) => target.write_period(word),
             (false, true) => target.write_volume(word),
             (false, false) => {}
@@ -441,7 +435,9 @@ impl Paula8364 {
 
         let mut output_events = [None; 4];
         for (index, channel) in self.audio.iter_mut().enumerate() {
-            let output_event = channel.tick_output();
+            let combined_attach = (self.adkcon & ADKCON_USE_PERIOD_BITS[index]) != 0
+                && (self.adkcon & ADKCON_USE_VOLUME_BITS[index]) != 0;
+            let output_event = channel.tick_output(combined_attach);
             if output_event.is_some_and(AudioOutputEvent::is_word_complete) && !channel.dma_active {
                 irq_mask |= 1 << (7 + index);
             }
@@ -777,47 +773,72 @@ mod tests {
     }
 
     #[test]
-    fn adkcon_combined_period_and_volume_modulation_alternates_words() {
+    fn adkcon_combined_period_and_volume_modulation_uses_both_transitions_in_dma_mode() {
         let mut paula = Paula8364::new();
-        let dmacon = 0x0000; // direct mode
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
 
         assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0A0, 0x0000)); // AUD0LCH
+        assert!(paula.write_audio_register(0x0A2, 0x1000)); // AUD0LCL
+        assert!(paula.write_audio_register(0x0A4, 4)); // AUD0LEN
         assert!(paula.write_audio_register(0x0B6, 500)); // AUD1PER
         assert!(paula.write_audio_register(0x0B8, 7)); // AUD1VOL
         paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
 
-        let read = |_addr: u32| -> u8 { 0 };
+        let read = |addr: u32| -> u8 {
+            match addr {
+                0x0000_1000 => 0x01,
+                0x0000_1001 => 0x23, // period
+                0x0000_1002 => 0x00,
+                0x0000_1003 => 0x40, // volume
+                0x0000_1004 => 0x00,
+                0x0000_1005 => 0x02, // period
+                0x0000_1006 => 0x00,
+                0x0000_1007 => 0x20, // volume
+                _ => 0,
+            }
+        };
 
-        assert!(paula.write_audio_register(0x0AA, 0x0123));
-        for _ in 0..248 {
-            paula.tick_audio_cck(dmacon, None, read);
+        // Start DMA and fetch the first words. The first tick also decrements the
+        // period counter once, so the first transition is 123 more CCKs away.
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        for _ in 0..122 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
         }
+        assert_eq!(paula.read_audio_register(0x0B6), Some(500));
+        assert_eq!(paula.read_audio_register(0x0B8), Some(7));
+
+        paula.tick_audio_cck(dmacon, Some(0), read); // 010->011: period attach
         assert_eq!(paula.read_audio_register(0x0B6), Some(0x0123));
         assert_eq!(
             paula.read_audio_register(0x0B8),
             Some(7),
-            "first combined modulation word should target period"
+            "first combined modulation transition should target period"
         );
 
-        assert!(paula.write_audio_register(0x0AA, 0x0040));
-        for _ in 0..248 {
-            paula.tick_audio_cck(dmacon, None, read);
+        for _ in 0..123 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
         }
+        assert_eq!(paula.read_audio_register(0x0B8), Some(7));
+
+        paula.tick_audio_cck(dmacon, Some(0), read); // 011->010: volume attach
         assert_eq!(paula.read_audio_register(0x0B6), Some(0x0123));
         assert_eq!(
             paula.read_audio_register(0x0B8),
             Some(64),
-            "second combined modulation word should target volume"
+            "second combined modulation transition should target volume"
         );
 
-        assert!(paula.write_audio_register(0x0AA, 0x0002));
-        for _ in 0..248 {
-            paula.tick_audio_cck(dmacon, None, read);
+        for _ in 0..123 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
         }
+        assert_eq!(paula.read_audio_register(0x0B6), Some(0x0123));
+
+        paula.tick_audio_cck(dmacon, Some(0), read); // 010->011: next period attach
         assert_eq!(
             paula.read_audio_register(0x0B6),
             Some(2),
-            "combined mode should alternate back to period"
+            "combined mode should use both transitions and return to period on the next 010->011"
         );
     }
 }

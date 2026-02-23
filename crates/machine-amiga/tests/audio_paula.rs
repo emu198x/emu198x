@@ -326,7 +326,9 @@ fn aud0_dma_combined_modulation_alternates_aud1_period_then_volume() {
         amiga.memory.write_byte(addr + 1, word as u8);
     }
 
-    configure_aud0_dma(&mut amiga, sample_addr, 3, 124, 64);
+    // Use a slower source period so this test checks ordering only, not DMA-slot
+    // throughput limits of the current simplified machine model.
+    configure_aud0_dma(&mut amiga, sample_addr, 3, 500, 64);
     amiga.write_custom_reg(aud_reg(1, AUD_REG_PER_OFFSET), 500);
     amiga.write_custom_reg(aud_reg(1, AUD_REG_VOL_OFFSET), 7);
     amiga.write_custom_reg(REG_ADKCON, ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
@@ -361,6 +363,54 @@ fn aud0_dma_combined_modulation_alternates_aud1_period_then_volume() {
     assert!(
         period2_at.is_some(),
         "combined modulation should alternate back to AUD1PER"
+    );
+}
+
+#[test]
+fn aud0_dma_combined_modulation_uses_both_transitions_for_cadence() {
+    let mut amiga = make_test_amiga();
+    let sample_addr = 0x0000_2C00u32;
+
+    // Three modulation words: period, volume, period.
+    let words = [0x0123u16, 0x0040u16, 0x0002u16];
+    for (i, word) in words.into_iter().enumerate() {
+        let addr = sample_addr + (i as u32) * 2;
+        amiga.memory.write_byte(addr, (word >> 8) as u8);
+        amiga.memory.write_byte(addr + 1, word as u8);
+    }
+
+    // Slower period avoids DMA-slot starvation in this simplified machine model
+    // and lets us assert transition-to-transition cadence deterministically.
+    configure_aud0_dma(&mut amiga, sample_addr, 3, 500, 64);
+    amiga.write_custom_reg(aud_reg(1, AUD_REG_PER_OFFSET), 700);
+    amiga.write_custom_reg(aud_reg(1, AUD_REG_VOL_OFFSET), 7);
+    amiga.write_custom_reg(REG_ADKCON, ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_AUD0EN);
+
+    let first_period = tick_until(&mut amiga, 20_000, |a| {
+        a.paula.read_audio_register(aud_reg(1, AUD_REG_PER_OFFSET)) == Some(0x0123)
+    });
+    assert!(
+        first_period.is_some(),
+        "combined modulation should first update AUD1PER"
+    );
+
+    let volume_delta = tick_until(&mut amiga, 2_000, |a| {
+        a.paula.read_audio_register(aud_reg(1, AUD_REG_VOL_OFFSET)) == Some(64)
+    });
+    assert_eq!(
+        volume_delta,
+        Some(500),
+        "combined attach should update volume one source transition later (500 CCK)"
+    );
+
+    let period_delta = tick_until(&mut amiga, 2_000, |a| {
+        a.paula.read_audio_register(aud_reg(1, AUD_REG_PER_OFFSET)) == Some(2)
+    });
+    assert_eq!(
+        period_delta,
+        Some(500),
+        "combined attach should return to period on the next source transition (500 CCK)"
     );
 }
 
