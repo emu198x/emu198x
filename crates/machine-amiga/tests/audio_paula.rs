@@ -363,3 +363,56 @@ fn aud0_dma_combined_modulation_alternates_aud1_period_then_volume() {
         "combined modulation should alternate back to AUD1PER"
     );
 }
+
+#[test]
+fn aud0dat_write_is_ignored_for_playback_when_dma_enabled_before_first_tick() {
+    let mut amiga = make_test_amiga();
+    let sample_addr = 0x0000_2800u32;
+
+    // DMA sample word is positive. CPU tries to inject a strongly negative word
+    // after enabling DMA but before Paula has synchronized the channel enable.
+    amiga.memory.write_byte(sample_addr, 0x40);
+    amiga.memory.write_byte(sample_addr + 1, 0x40);
+    configure_aud0_dma(&mut amiga, sample_addr, 1, 124, 64);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_AUD0EN);
+    amiga.write_custom_reg(REG_AUD0DAT, 0xC0C0);
+
+    tick_ccks(&mut amiga, 124);
+    let (left, right) = amiga.paula.mix_audio_stereo();
+
+    assert!(
+        left > 0.2,
+        "AUD0DAT CPU write should not override DMA-owned playback before first tick (left={left})"
+    );
+    assert!(
+        right.abs() < 0.01,
+        "AUD0 should not drive right (right={right})"
+    );
+}
+
+#[test]
+fn aud0dat_write_does_not_override_active_dma_playback() {
+    let mut amiga = make_test_amiga();
+    let sample_addr = 0x0000_2A00u32;
+
+    amiga.memory.write_byte(sample_addr, 0x40);
+    amiga.memory.write_byte(sample_addr + 1, 0x40);
+    configure_aud0_dma(&mut amiga, sample_addr, 1, 124, 64);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_AUD0EN);
+
+    // Let DMA start and produce an audible sample.
+    tick_ccks(&mut amiga, 124);
+    let (left_before, right_before) = amiga.paula.mix_audio_stereo();
+    assert!(left_before > 0.2, "expected DMA-driven AUD0 output");
+    assert!(right_before.abs() < 0.01);
+
+    amiga.write_custom_reg(REG_AUD0DAT, 0xC0C0);
+    tick_ccks(&mut amiga, 124);
+    let (left_after, right_after) = amiga.paula.mix_audio_stereo();
+
+    assert!(
+        left_after > 0.2,
+        "AUD0DAT CPU write should not override active DMA playback (left={left_after})"
+    );
+    assert!(right_after.abs() < 0.01);
+}
