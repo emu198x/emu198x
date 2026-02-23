@@ -1107,6 +1107,23 @@ impl Cpu68000 {
             return;
         }
 
+        // --- MOVEC (0x4E7A/0x4E7B, 68010+) ---
+        //
+        // 68000 treats this opcode family as illegal. Later models support it,
+        // but execution is not implemented in this core yet.
+        if opcode == 0x4E7A || opcode == 0x4E7B {
+            if !self.capabilities().movec {
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
+            if self.check_supervisor() {
+                return;
+            }
+            // TODO: Decode extension word and execute MOVEC on 68010+ models.
+            self.begin_group1_exception(4, self.instr_start_pc);
+            return;
+        }
+
         // --- STOP (0x4E72) ---
         // The real 68000 reads the immediate SR from IRC but does NOT
         // complete a pipeline refill before entering the stopped state.

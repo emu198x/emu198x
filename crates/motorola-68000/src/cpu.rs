@@ -32,6 +32,7 @@ use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::bus::{BusStatus, FunctionCode, M68kBus};
 use crate::microcode::{MicroOp, MicroOpQueue};
+use crate::model::{CpuCapabilities, CpuModel};
 use crate::registers::Registers;
 
 // --- Follow-up tag constants ---
@@ -209,6 +210,8 @@ pub enum BitOp {
 /// Call [`tick`](Cpu68000::tick) every crystal clock cycle. The CPU only
 /// acts on 4-clock boundaries (matching the 68000's minimum bus cycle).
 pub struct Cpu68000 {
+    /// Configured CPU model/capability profile.
+    pub model: CpuModel,
     /// CPU register file (D0-D7, A0-A7, USP, SSP, PC, SR).
     pub regs: Registers,
     /// Current state machine state.
@@ -322,7 +325,17 @@ impl Cpu68000 {
     /// Supervisor mode, interrupt mask level 7, all registers zero.
     #[must_use]
     pub fn new() -> Self {
+        Self::new_with_model(CpuModel::M68000)
+    }
+
+    /// Create a new CPU with an explicit 68k model profile.
+    ///
+    /// Execution semantics are still 68000-based today; this records the model
+    /// for staged decode/execute feature gating.
+    #[must_use]
+    pub fn new_with_model(model: CpuModel) -> Self {
         Self {
+            model,
             regs: Registers::new(),
             state: State::Idle,
             micro_ops: MicroOpQueue::new(),
@@ -364,6 +377,18 @@ impl Cpu68000 {
             ae_undo_reg: None,
             sp_undo: None,
         }
+    }
+
+    /// Return the configured CPU model.
+    #[must_use]
+    pub const fn model(&self) -> CpuModel {
+        self.model
+    }
+
+    /// Return capability flags for the configured CPU model.
+    #[must_use]
+    pub const fn capabilities(&self) -> CpuCapabilities {
+        self.model.capabilities()
     }
 
     /// Reset the CPU to begin executing from a given SSP and PC.
@@ -1237,5 +1262,27 @@ impl Cpu68000 {
         } else {
             addr
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cpu68000;
+    use crate::model::CpuModel;
+
+    #[test]
+    fn new_defaults_to_68000_model() {
+        let cpu = Cpu68000::new();
+        assert_eq!(cpu.model(), CpuModel::M68000);
+        assert!(!cpu.capabilities().movec);
+    }
+
+    #[test]
+    fn new_with_model_records_requested_model() {
+        let cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        assert_eq!(cpu.model(), CpuModel::M68020);
+        assert!(cpu.capabilities().movec);
+        assert!(cpu.capabilities().vbr);
+        assert!(cpu.capabilities().cacr);
     }
 }
