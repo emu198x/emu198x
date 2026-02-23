@@ -1,12 +1,14 @@
-//! Minimal windowed runner for the Amiga machine core.
+//! Minimal runner for the Amiga machine core.
 //!
 //! Scope: video output only (no host audio yet). Loads a Kickstart ROM and
-//! optionally inserts an ADF into DF0:, then continuously runs the machine and
-//! displays the raw 320x256 framebuffer.
+//! optionally inserts an ADF into DF0:, then either runs a windowed frontend
+//! or captures a framebuffer screenshot in headless mode.
 
 #![allow(clippy::cast_possible_truncation)]
 
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::PathBuf;
 use std::process;
 use std::time::{Duration, Instant};
@@ -56,6 +58,9 @@ struct ActiveKeyMapping {
 struct CliArgs {
     rom_path: PathBuf,
     adf_path: Option<PathBuf>,
+    headless: bool,
+    frames: u32,
+    screenshot_path: Option<PathBuf>,
 }
 
 fn print_usage_and_exit(code: i32) -> ! {
@@ -64,6 +69,9 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("Options:");
     eprintln!("  --rom <file>   Kickstart ROM file (or use AMIGA_KS13_ROM env var)");
     eprintln!("  --adf <file>   Optional ADF disk image to insert into DF0:");
+    eprintln!("  --headless     Run without a window");
+    eprintln!("  --frames <n>   Frames to run in headless mode [default: 300]");
+    eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
     eprintln!("  -h, --help     Show this help");
     process::exit(code);
 }
@@ -72,6 +80,9 @@ fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut rom_path: Option<PathBuf> = None;
     let mut adf_path: Option<PathBuf> = None;
+    let mut headless = false;
+    let mut frames = 300;
+    let mut screenshot_path: Option<PathBuf> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -83,6 +94,19 @@ fn parse_args() -> CliArgs {
             "--adf" => {
                 i += 1;
                 adf_path = args.get(i).map(PathBuf::from);
+            }
+            "--headless" => {
+                headless = true;
+            }
+            "--frames" => {
+                i += 1;
+                if let Some(value) = args.get(i) {
+                    frames = value.parse().unwrap_or(300);
+                }
+            }
+            "--screenshot" => {
+                i += 1;
+                screenshot_path = args.get(i).map(PathBuf::from);
             }
             "-h" | "--help" => print_usage_and_exit(0),
             other => {
@@ -100,7 +124,17 @@ fn parse_args() -> CliArgs {
             print_usage_and_exit(1);
         });
 
-    CliArgs { rom_path, adf_path }
+    if screenshot_path.is_some() {
+        headless = true;
+    }
+
+    CliArgs {
+        rom_path,
+        adf_path,
+        headless,
+        frames,
+        screenshot_path,
+    }
 }
 
 fn make_amiga(cli: &CliArgs) -> Amiga {
@@ -141,6 +175,49 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
 
     eprintln!("Loaded Kickstart ROM: {}", cli.rom_path.display());
     amiga
+}
+
+fn save_screenshot(amiga: &Amiga, path: &PathBuf) -> Result<(), String> {
+    let file = File::create(path)
+        .map_err(|e| format!("failed to create screenshot {}: {e}", path.display()))?;
+    let writer = BufWriter::new(file);
+
+    let mut encoder = png::Encoder::new(writer, FB_WIDTH, FB_HEIGHT);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+
+    let mut png_writer = encoder
+        .write_header()
+        .map_err(|e| format!("failed to write PNG header {}: {e}", path.display()))?;
+
+    let mut bytes = vec![0u8; (FB_WIDTH * FB_HEIGHT * 4) as usize];
+    for (i, &argb) in amiga.framebuffer().iter().enumerate() {
+        let o = i * 4;
+        bytes[o] = ((argb >> 16) & 0xFF) as u8;
+        bytes[o + 1] = ((argb >> 8) & 0xFF) as u8;
+        bytes[o + 2] = (argb & 0xFF) as u8;
+        bytes[o + 3] = ((argb >> 24) & 0xFF) as u8;
+    }
+
+    png_writer
+        .write_image_data(&bytes)
+        .map_err(|e| format!("failed to write PNG data {}: {e}", path.display()))
+}
+
+fn run_headless(cli: &CliArgs) {
+    let mut amiga = make_amiga(cli);
+
+    for _ in 0..cli.frames {
+        amiga.run_frame();
+    }
+
+    if let Some(path) = &cli.screenshot_path {
+        if let Err(e) = save_screenshot(&amiga, path) {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+        eprintln!("Screenshot saved to {}", path.display());
+    }
 }
 
 struct App {
@@ -566,6 +643,12 @@ mod tests {
 
 fn main() {
     let cli = parse_args();
+
+    if cli.headless {
+        run_headless(&cli);
+        return;
+    }
+
     let amiga = make_amiga(&cli);
     let mut app = App::new(amiga);
 

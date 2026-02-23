@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 machine-amiga = { path = "../machine-amiga" }
 pixels = "0.15"
+png = "0.17"
 winit = "0.30"
 
 [lints]
