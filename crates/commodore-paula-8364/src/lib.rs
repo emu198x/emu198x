@@ -142,14 +142,14 @@ impl AudioChannel {
         wrapped
     }
 
-    fn tick_output(&mut self) {
+    fn tick_output(&mut self) -> bool {
         if self.period_counter == 0 {
             self.period_counter = self.effective_period();
         }
 
         self.period_counter = self.period_counter.saturating_sub(1);
         if self.period_counter != 0 {
-            return;
+            return false;
         }
         self.period_counter = self.effective_period();
 
@@ -161,7 +161,7 @@ impl AudioChannel {
         }
 
         let Some(word) = self.current_word else {
-            return;
+            return false;
         };
 
         let sample_byte = if self.next_byte_is_hi {
@@ -173,7 +173,7 @@ impl AudioChannel {
 
         if self.next_byte_is_hi {
             self.next_byte_is_hi = false;
-            return;
+            return false;
         }
 
         self.next_byte_is_hi = true;
@@ -182,6 +182,7 @@ impl AudioChannel {
         } else {
             self.current_word = None;
         }
+        true
     }
 
     fn mix_sample(&self) -> f32 {
@@ -348,8 +349,11 @@ impl Paula8364 {
             }
         }
 
-        for channel in &mut self.audio {
-            channel.tick_output();
+        for (index, channel) in self.audio.iter_mut().enumerate() {
+            let word_completed = channel.tick_output();
+            if word_completed && !channel.dma_active {
+                irq_mask |= 1 << (7 + index);
+            }
         }
 
         if irq_mask != 0 {
@@ -529,5 +533,53 @@ mod tests {
             0,
             "AUD0 IRQ should fire when the one-word block reloads"
         );
+    }
+
+    #[test]
+    fn direct_mode_interrupt_occurs_after_two_samples_from_audxdat() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // DMA disabled -> direct AUDxDAT mode
+
+        assert!(paula.write_audio_register(0x0A6, 124));
+        assert!(paula.write_audio_register(0x0AA, 0x7F80));
+        assert_eq!(paula.intreq & 0x0080, 0, "no IRQ on AUD0DAT write");
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.intreq & 0x0080,
+            0,
+            "no IRQ after first sample (upper byte) output"
+        );
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_ne!(
+            paula.intreq & 0x0080,
+            0,
+            "IRQ after second sample (lower byte) output"
+        );
+    }
+
+    #[test]
+    fn direct_mode_interrupt_respects_period_clamp() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // direct mode
+
+        assert!(paula.write_audio_register(0x0A6, 1)); // below hardware min
+        assert!(paula.write_audio_register(0x0AA, 0x7F80));
+        let read = |_addr: u32| -> u8 { 0 };
+
+        for _ in 0..247 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(paula.intreq & 0x0080, 0);
+
+        paula.tick_audio_cck(dmacon, None, read);
+        assert_ne!(paula.intreq & 0x0080, 0);
     }
 }
