@@ -97,12 +97,33 @@ pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BlitterDmaOp {
+pub enum BlitterDmaOp {
     ReadA,
     ReadB,
     ReadC,
     WriteD,
     Internal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BlitterLineRuntime {
+    steps_remaining: u32,
+    error: i16,
+    error_add: i16,
+    error_sub: i16,
+    cpt: u32,
+    dpt: u32,
+    pixel_bit: u16,
+    row_mod: i16,
+    texture: u16,
+    lf: u8,
+    sing: bool,
+    texture_enabled: bool,
+    major_is_y: bool,
+    x_neg: bool,
+    y_neg: bool,
+    last_c_word: u16,
+    have_c_word: bool,
 }
 
 pub struct Agnus {
@@ -124,6 +145,7 @@ pub struct Agnus {
     pub blitter_exec_pending: bool,
     pub blitter_ccks_remaining: u32,
     blitter_dma_ops: VecDeque<BlitterDmaOp>,
+    blitter_line_runtime: Option<BlitterLineRuntime>,
     pub blt_apt: u32,
     pub blt_bpt: u32,
     pub blt_cpt: u32,
@@ -168,6 +190,7 @@ impl Agnus {
             blitter_exec_pending: false,
             blitter_ccks_remaining: 0,
             blitter_dma_ops: VecDeque::new(),
+            blitter_line_runtime: None,
             blt_apt: 0,
             blt_bpt: 0,
             blt_cpt: 0,
@@ -219,27 +242,32 @@ impl Agnus {
     pub fn start_blit(&mut self) {
         self.blitter_busy = true;
         self.blitter_exec_pending = true;
+        self.init_incremental_blitter_runtime();
         self.rebuild_blitter_dma_ops();
         self.blitter_ccks_remaining = self.blitter_dma_ops.len() as u32;
     }
 
-    /// Advance the coarse blitter scheduler by one CCK.
-    ///
-    /// Returns `true` when the pending blit should execute now.
-    pub fn tick_blitter_scheduler(&mut self, progress_this_cck: bool) -> bool {
+    /// Consume one queued blitter DMA timing op if progress is granted.
+    pub fn tick_blitter_scheduler_op(&mut self, progress_this_cck: bool) -> Option<BlitterDmaOp> {
         if !self.blitter_exec_pending || !self.blitter_busy || !progress_this_cck {
-            return false;
+            return None;
         }
 
-        if self.blitter_dma_ops.pop_front().is_some() {
-            self.blitter_ccks_remaining = self.blitter_dma_ops.len() as u32;
-        }
+        let op = self.blitter_dma_ops.pop_front()?;
+        self.blitter_ccks_remaining = self.blitter_dma_ops.len() as u32;
         if self.blitter_dma_ops.is_empty() {
             self.blitter_exec_pending = false;
             self.blitter_ccks_remaining = 0;
-            return true;
         }
-        false
+        Some(op)
+    }
+
+    /// Advance the blitter scheduler by one CCK and report queue drain.
+    ///
+    /// Compatibility wrapper used by tests. Returns `true` when the queued
+    /// timing model drains and the blit body should execute.
+    pub fn tick_blitter_scheduler(&mut self, progress_this_cck: bool) -> bool {
+        self.tick_blitter_scheduler_op(progress_this_cck).is_some() && !self.blitter_exec_pending
     }
 
     /// Clear the queued blitter DMA timing model after the blit core executes.
@@ -247,6 +275,148 @@ impl Agnus {
         self.blitter_dma_ops.clear();
         self.blitter_exec_pending = false;
         self.blitter_ccks_remaining = 0;
+        self.blitter_line_runtime = None;
+    }
+
+    #[must_use]
+    pub fn blitter_exec_ready(&self) -> bool {
+        self.blitter_busy && !self.blitter_exec_pending
+    }
+
+    #[must_use]
+    pub fn has_incremental_blitter_runtime(&self) -> bool {
+        self.blitter_line_runtime.is_some()
+    }
+
+    /// Execute one queued blitter DMA timing op against the incremental runtime.
+    ///
+    /// Returns `true` when the incremental blit completed on this op.
+    pub fn execute_incremental_blitter_op<FRead, FWrite>(
+        &mut self,
+        op: BlitterDmaOp,
+        read_word: FRead,
+        write_word: FWrite,
+    ) -> bool
+    where
+        FRead: FnOnce(u32) -> u16,
+        FWrite: FnOnce(u32, u16),
+    {
+        let Some(mut line) = self.blitter_line_runtime else {
+            return false;
+        };
+
+        match op {
+            BlitterDmaOp::ReadC => {
+                let c_val = read_word(line.cpt);
+                self.blt_cdat = c_val;
+                line.last_c_word = c_val;
+                line.have_c_word = true;
+                self.blitter_line_runtime = Some(line);
+                false
+            }
+            BlitterDmaOp::WriteD => {
+                let c_val = if line.have_c_word {
+                    line.last_c_word
+                } else {
+                    // Defensive fallback; queue should always present ReadC first.
+                    let c_val = read_word(line.cpt);
+                    self.blt_cdat = c_val;
+                    c_val
+                };
+
+                let pixel_mask: u16 = 0x8000 >> line.pixel_bit;
+                let a_val = pixel_mask;
+                let b_val = if line.texture_enabled {
+                    if line.texture & 0x8000 != 0 {
+                        0xFFFF
+                    } else {
+                        0x0000
+                    }
+                } else {
+                    0xFFFF
+                };
+
+                let mut result: u16 = 0;
+                for bit in 0..16u16 {
+                    let a_bit = (a_val >> bit) & 1;
+                    let b_bit = (b_val >> bit) & 1;
+                    let c_bit = (c_val >> bit) & 1;
+                    let index = (a_bit << 2) | (b_bit << 1) | c_bit;
+                    if (line.lf >> index) & 1 != 0 {
+                        result |= 1 << bit;
+                    }
+                }
+                if line.sing {
+                    result = (result & pixel_mask) | (c_val & !pixel_mask);
+                }
+                write_word(line.dpt, result);
+
+                if line.texture_enabled {
+                    line.texture = line.texture.rotate_left(1);
+                }
+
+                let step_x = |line: &mut BlitterLineRuntime| {
+                    if line.x_neg {
+                        line.pixel_bit = line.pixel_bit.wrapping_sub(1) & 0xF;
+                        if line.pixel_bit == 15 {
+                            line.cpt = line.cpt.wrapping_sub(2);
+                            line.dpt = line.dpt.wrapping_sub(2);
+                        }
+                    } else {
+                        line.pixel_bit = (line.pixel_bit + 1) & 0xF;
+                        if line.pixel_bit == 0 {
+                            line.cpt = line.cpt.wrapping_add(2);
+                            line.dpt = line.dpt.wrapping_add(2);
+                        }
+                    }
+                };
+                let step_y = |line: &mut BlitterLineRuntime| {
+                    if line.y_neg {
+                        line.cpt = (line.cpt as i32 + line.row_mod as i32) as u32;
+                        line.dpt = (line.dpt as i32 + line.row_mod as i32) as u32;
+                    } else {
+                        line.cpt = (line.cpt as i32 - line.row_mod as i32) as u32;
+                        line.dpt = (line.dpt as i32 - line.row_mod as i32) as u32;
+                    }
+                };
+
+                if line.error >= 0 {
+                    if line.major_is_y {
+                        step_y(&mut line);
+                        step_x(&mut line);
+                    } else {
+                        step_x(&mut line);
+                        step_y(&mut line);
+                    }
+                    line.error = line.error.wrapping_add(line.error_sub);
+                } else {
+                    if line.major_is_y {
+                        step_y(&mut line);
+                    } else {
+                        step_x(&mut line);
+                    }
+                    line.error = line.error.wrapping_add(line.error_add);
+                }
+
+                line.have_c_word = false;
+                line.steps_remaining = line.steps_remaining.saturating_sub(1);
+                if line.steps_remaining == 0 {
+                    self.blt_apt = line.error as u16 as u32;
+                    self.blt_cpt = line.cpt;
+                    self.blt_dpt = line.dpt;
+                    self.blt_bdat = line.texture;
+                    self.blitter_line_runtime = None;
+                    true
+                } else {
+                    self.blitter_line_runtime = Some(line);
+                    false
+                }
+            }
+            BlitterDmaOp::ReadA | BlitterDmaOp::ReadB | BlitterDmaOp::Internal => {
+                self.blitter_line_runtime = Some(line);
+                false
+            }
+        }
     }
 
     fn rebuild_blitter_dma_ops(&mut self) {
@@ -302,6 +472,66 @@ impl Agnus {
     #[cfg(test)]
     fn blitter_dma_ops_snapshot(&self) -> Vec<BlitterDmaOp> {
         self.blitter_dma_ops.iter().copied().collect()
+    }
+
+    fn init_incremental_blitter_runtime(&mut self) {
+        self.blitter_line_runtime = None;
+        if (self.bltcon1 & 0x0001) == 0 {
+            return;
+        }
+
+        let length = u32::from((self.bltsize >> 6) & 0x03FF);
+        let length = if length == 0 { 1024 } else { length };
+        let ash = (self.bltcon0 >> 12) & 0xF;
+        let lf = self.bltcon0 as u8;
+        let texture_enabled = (self.bltcon0 & 0x0400) != 0;
+        let sud = self.bltcon1 & 0x0010 != 0;
+        let sul = self.bltcon1 & 0x0008 != 0;
+        let aul = self.bltcon1 & 0x0004 != 0;
+        let sing = self.bltcon1 & 0x0002 != 0;
+        let oct_code = ((sud as u8) << 2) | ((sul as u8) << 1) | (aul as u8);
+        let octant = match oct_code {
+            0b000 => 6,
+            0b001 => 1,
+            0b010 => 5,
+            0b011 => 2,
+            0b100 => 7,
+            0b101 => 4,
+            0b110 => 0,
+            0b111 => 3,
+            _ => unreachable!(),
+        };
+        let (major_is_y, x_neg, y_neg) = match octant {
+            0 => (false, false, false),
+            1 => (true, false, false),
+            2 => (true, true, false),
+            3 => (false, true, false),
+            4 => (false, true, true),
+            5 => (true, true, true),
+            6 => (true, false, true),
+            7 => (false, false, true),
+            _ => unreachable!(),
+        };
+
+        self.blitter_line_runtime = Some(BlitterLineRuntime {
+            steps_remaining: length,
+            error: self.blt_apt as i16,
+            error_add: self.blt_bmod,
+            error_sub: self.blt_amod,
+            cpt: self.blt_cpt,
+            dpt: self.blt_dpt,
+            pixel_bit: ash,
+            row_mod: self.blt_cmod,
+            texture: self.blt_bdat,
+            lf,
+            sing,
+            texture_enabled,
+            major_is_y,
+            x_neg,
+            y_neg,
+            last_c_word: 0,
+            have_c_word: false,
+        });
     }
 
     /// Tick one CCK (8 crystal ticks).

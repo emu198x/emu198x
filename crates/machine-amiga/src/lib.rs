@@ -9,7 +9,7 @@ pub mod config;
 pub mod memory;
 
 use crate::memory::Memory;
-use commodore_agnus_ocs::{Agnus, Copper};
+use commodore_agnus_ocs::{Agnus, BlitterDmaOp, Copper};
 use commodore_denise_ocs::DeniseOcs;
 use commodore_paula_8364::Paula8364;
 use drive_amiga_floppy::AmigaFloppyDrive;
@@ -241,10 +241,19 @@ impl Amiga {
             // arbitration (including nasty-mode CPU steals) affects machine
             // timing before the existing synchronous blit implementation runs.
             // Progress now advances only on explicit Agnus free-slot grants.
-            if self
+            if let Some(blit_op) = self
                 .agnus
-                .tick_blitter_scheduler(bus_plan.blitter_dma_progress_granted)
+                .tick_blitter_scheduler_op(bus_plan.blitter_dma_progress_granted)
             {
+                let incremental_completed =
+                    execute_incremental_blitter_op(&mut self.agnus, &mut self.memory, blit_op);
+                if incremental_completed {
+                    self.agnus.clear_blitter_scheduler();
+                    self.agnus.blitter_busy = false;
+                    self.paula.request_interrupt(6);
+                }
+            }
+            if self.agnus.blitter_exec_ready() {
                 execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
             }
 
@@ -787,6 +796,44 @@ fn write_custom_register(
 
         _ => {}
     }
+}
+
+/// Execute one queued blitter DMA timing op against any incremental blitter
+/// runtime currently active in Agnus (today: line mode only).
+fn execute_incremental_blitter_op(
+    agnus: &mut Agnus,
+    memory: &mut Memory,
+    op: BlitterDmaOp,
+) -> bool {
+    let chip_len = memory.chip_ram.len();
+    let chip_ptr = memory.chip_ram.as_mut_ptr();
+    agnus.execute_incremental_blitter_op(
+        op,
+        |addr| {
+            let a = addr & 0x1FFFFE;
+            if (a as usize + 1) < chip_len {
+                // SAFETY: `chip_ptr` points to `memory.chip_ram` for this
+                // function call, and bounds are checked before access.
+                unsafe {
+                    (u16::from(*chip_ptr.add(a as usize)) << 8)
+                        | u16::from(*chip_ptr.add(a as usize + 1))
+                }
+            } else {
+                0
+            }
+        },
+        |addr, val| {
+            let a = addr & 0x1FFFFE;
+            if (a as usize + 1) < chip_len {
+                // SAFETY: `chip_ptr` points to `memory.chip_ram` for this
+                // function call, and bounds are checked before access.
+                unsafe {
+                    *chip_ptr.add(a as usize) = (val >> 8) as u8;
+                    *chip_ptr.add(a as usize + 1) = val as u8;
+                }
+            }
+        },
+    )
 }
 
 /// Execute a blitter operation synchronously when the coarse scheduler matures.
