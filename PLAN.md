@@ -62,12 +62,19 @@ pub trait WordBus: Bus {
 }
 ```
 
-**Add `Clocked` trait:**
+**Add `Tickable` trait (formerly `Clocked` in this plan draft):**
 ```rust
-/// A component driven by a clock signal.
-pub trait Clocked {
-    /// Advance by one tick of this component's clock.
+/// A component that can be advanced by clock ticks.
+pub trait Tickable {
+    /// Advance by one master clock tick.
     fn tick(&mut self);
+
+    /// Advance by multiple ticks.
+    fn tick_n(&mut self, count: Ticks) {
+        for _ in 0..count.get() {
+            self.tick();
+        }
+    }
 }
 ```
 
@@ -105,8 +112,8 @@ Genesis:     53.693175 MHz / 7 = 7.671 MHz (68000), / 15 = 3.580 MHz (Z80)
 | Crate | CPU | Extends | Used By |
 |---|---|---|---|
 | `motorola-68000` | 68000 | (base) | A1000, A500, A2000, Atari ST, Genesis, Neo Geo |
-| `motorola-68010` | 68010 | `motorola-68000` | A2000 accelerators |
-| `motorola-68020` | 68020 | `motorola-68010` | Accelerator cards |
+| `motorola-68010` | 68010 | `motorola-68000` (thin wrapper today) | A2000 accelerators |
+| `motorola-68020` | 68020 | `motorola-68000` (thin wrapper today) | Accelerator cards |
 | `motorola-68ec020` | 68EC020 | `motorola-68020` (subset) | A1200, CD32 |
 | `motorola-68030` | 68030 | `motorola-68020` | A3000, A4000/030, Atari TT/Falcon |
 | `motorola-68040` | 68040 | `motorola-68030` | A4000/040 |
@@ -117,6 +124,10 @@ Apollo 68080 → `apollo-68080` (stretch goal).
 **`motorola-68000` Detail:**
 
 68000 emulation is working locally. Bring it in as a workspace crate.
+
+Current status: `CpuModel`/capability scaffolding exists in `motorola-68000`,
+and `motorola-68010` / `motorola-68020` exist as thin wrapper crates that pin
+the shared core to a later model while model-specific semantics are added.
 
 **Requirements:**
 - Implement `Cpu<B: Bus>` with `pc() -> u32`
@@ -698,11 +709,11 @@ How many systems benefit from each shared crate:
 
 1. Widen `Cpu::pc()` to `u32`
 2. Add `WordBus` trait to `emu-core`
-3. Add `Clocked` trait to `emu-core`
+3. Add `Tickable` trait to `emu-core` (this replaced the earlier `Clocked` wording)
 
 ### Phase 2: Amiga Foundation (Immediate)
 
-1. `motorola-68000` -- bring in 68000 code as workspace crate
+1. `motorola-68000` -- bring in 68000 code as workspace crate (done, with `CpuModel` scaffolding)
 2. `mos-cia-8520` -- Amiga CIA
 3. `commodore-paula-8364` -- audio + disk + interrupts
 4. `commodore-agnus-ocs` -- DMA + copper + blitter (OCS)
@@ -710,8 +721,12 @@ How many systems benefit from each shared crate:
 6. `format-adf` -- Amiga disk format
 7. `drive-amiga-floppy` -- floppy drive mechanism
 8. `peripheral-amiga-keyboard` -- keyboard controller
-9. `machine-amiga` -- wire together as Amiga 500
+9. `machine-amiga` -- wire together as Amiga 500 (currently implemented as `emu-amiga-rock`)
 10. `amiga-runner` -- runner binary
+
+Current status note: thin `motorola-68010` and `motorola-68020` wrapper crates
+already exist to support staged 68k family expansion, and KS1.3 boot-screen
+regression assertions are in place for the Amiga baseline.
 
 ### Phase 3: Amiga Variants
 
