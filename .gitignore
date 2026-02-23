@@ -14,6 +14,7 @@ Cargo.lock
 
 # SingleStepTests data (multi-GB, download separately)
 /test-data/
+/docs/Reference/
 
 # Test ROMs (not for distribution)
 /roms/

@@ -1013,13 +1013,97 @@ fn test_boot_kick13() {
     println!("  BPL1 at ${:06X}: {} non-zero bytes in first 8000", bpl1_base, bpl1_nonzero);
     println!("  BPL2 at ${:06X}: {} non-zero bytes in first 8000", bpl2_base, bpl2_nonzero);
 
-    // Dump first 64 bytes of each bitplane
-    print!("  BPL1 data: ");
-    for i in 0..64 { if bpl1_base + i < ram.len() { print!("{:02X}", ram[bpl1_base + i]); } }
+    // Dump first and last scanlines of BPL1 (40 bytes each)
+    print!("  BPL1 first scanline ($A572): ");
+    for i in 0..40 { print!("{:02X}", ram[bpl1_base + i]); }
     println!();
-    print!("  BPL2 data: ");
-    for i in 0..64 { if bpl2_base + i < ram.len() { print!("{:02X}", ram[bpl2_base + i]); } }
+    print!("  BPL1 last  scanline ($C47A): ");
+    for i in 0..40 { print!("{:02X}", ram[bpl1_base + 199 * 40 + i]); }
     println!();
+
+    // Find first all-zero scanline from top and bottom
+    let mut first_zero_from_top: Option<usize> = None;
+    let mut first_zero_from_bot: Option<usize> = None;
+    for row in 0..200 {
+        let start = bpl1_base + row * 40;
+        if ram[start..start + 40].iter().all(|&b| b == 0) && first_zero_from_top.is_none() {
+            first_zero_from_top = Some(row);
+        }
+        let bot_row = 199 - row;
+        let start_bot = bpl1_base + bot_row * 40;
+        if ram[start_bot..start_bot + 40].iter().all(|&b| b == 0) && first_zero_from_bot.is_none() {
+            first_zero_from_bot = Some(bot_row);
+        }
+    }
+    println!("  First all-$00 scanline from top: {:?}", first_zero_from_top);
+    println!("  First all-$00 scanline from bottom: {:?}", first_zero_from_bot);
+
+    // Count all-$00 and all-$FF scanlines
+    let mut zero_lines = 0;
+    let mut ff_lines = 0;
+    for row in 0..200 {
+        let start = bpl1_base + row * 40;
+        if ram[start..start + 40].iter().all(|&b| b == 0) { zero_lines += 1; }
+        if ram[start..start + 40].iter().all(|&b| b == 0xFF) { ff_lines += 1; }
+    }
+    println!("  All-$00 scanlines: {}, All-$FF scanlines: {}", zero_lines, ff_lines);
+
+    // Dump key scanlines of BPL1 (hex, 40 bytes each)
+    for &row in &[0, 10, 50, 100, 150, 190, 199] {
+        let start = bpl1_base + row * 40;
+        print!("  BPL1 row {:3}: ", row);
+        let mut set_bits = 0u32;
+        for i in 0..40 {
+            let b = ram[start + i];
+            set_bits += b.count_ones() as u32;
+            print!("{:02X}", b);
+        }
+        println!("  [{}/320 bits set]", set_bits);
+    }
+
+    // Check if image is vertically flipped by comparing set-bit density
+    let mut top_bits = 0u64;
+    let mut bot_bits = 0u64;
+    for row in 0..100 {
+        for i in 0..40 {
+            top_bits += ram[bpl1_base + row * 40 + i].count_ones() as u64;
+            bot_bits += ram[bpl1_base + (199 - row) * 40 + i].count_ones() as u64;
+        }
+    }
+    println!("  BPL1 set bits: top half={}, bottom half={} (of 16000 each)", top_bits, bot_bits);
+
+    // Search chip RAM for ALL BitMap-like structures (BytesPerRow=40, Rows=200, Depth=2)
+    println!("\n  Searching for all BitMap structures (bpr=40, rows=200, depth=2)...");
+    for addr in (0..ram.len().saturating_sub(24)).step_by(2) {
+        let bpr = ((ram[addr] as u16) << 8) | ram[addr + 1] as u16;
+        let rows = ((ram[addr + 2] as u16) << 8) | ram[addr + 3] as u16;
+        let depth = ram[addr + 5];
+        let plane0 = ((ram[addr + 8] as u32) << 24) | ((ram[addr + 9] as u32) << 16)
+            | ((ram[addr + 10] as u32) << 8) | ram[addr + 11] as u32;
+        let plane1 = ((ram[addr + 12] as u32) << 24) | ((ram[addr + 13] as u32) << 16)
+            | ((ram[addr + 14] as u32) << 8) | ram[addr + 15] as u32;
+        if bpr == 40 && rows == 200 && depth == 2 && plane0 > 0 && plane0 < 0x80000 {
+            println!("    BitMap at ${:06X}: BytesPerRow={} Rows={} Depth={} Planes[0]=${:08X} Planes[1]=${:08X}",
+                addr, bpr, rows, depth, plane0, plane1);
+        }
+    }
+
+    // Also search for RastPort-like structures that reference our BitMap
+    // RastPort has BitMap pointer at offset 4, cp_x at offset 36, cp_y at offset 38
+    println!("  Searching for RastPort-like structures referencing BitMap $001752...");
+    for addr in (0..ram.len().saturating_sub(44)).step_by(2) {
+        let bm_ptr = ((ram[addr + 4] as u32) << 24) | ((ram[addr + 5] as u32) << 16)
+            | ((ram[addr + 6] as u32) << 8) | ram[addr + 7] as u32;
+        if bm_ptr == 0x001752 || bm_ptr == 0x00A54A {
+            let cp_x = ((ram[addr + 36] as i16) << 8) | ram[addr + 37] as i16;
+            let cp_y = ((ram[addr + 38] as i16) << 8) | ram[addr + 39] as i16;
+            let fg = ram[addr + 25];
+            let bg = ram[addr + 26];
+            let draw_mode = ram[addr + 28];
+            println!("    RastPort? at ${:06X}: BitMap=${:08X} cp_x={} cp_y={} FgPen={} BgPen={} DrawMode={}",
+                addr, bm_ptr, cp_x, cp_y, fg, bg, draw_mode);
+        }
+    }
 
     // COP2LC dump (up to 8 instructions or end-of-list)
     if cop2lc + 4 < ram.len() {

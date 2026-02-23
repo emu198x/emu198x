@@ -103,7 +103,6 @@ impl Amiga {
 
     pub fn tick(&mut self) {
         self.master_clock += 1;
-        MASTER_TICK.store(self.master_clock, std::sync::atomic::Ordering::Relaxed);
 
         if self.master_clock % TICKS_PER_CCK == 0 {
             let vpos = self.agnus.vpos;
@@ -209,8 +208,6 @@ impl Amiga {
         }
 
         if self.master_clock % TICKS_PER_CPU == 0 {
-            LAST_CPU_PC.store(self.cpu.instr_start_pc, std::sync::atomic::Ordering::Relaxed);
-            LAST_CPU_SR.store(self.cpu.regs.sr, std::sync::atomic::Ordering::Relaxed);
             let mut bus = AmigaBusWrapper {
                 agnus: &mut self.agnus, memory: &mut self.memory, denise: &mut self.denise,
                 copper: &mut self.copper, cia_a: &mut self.cia_a, cia_b: &mut self.cia_b, paula: &mut self.paula,
@@ -324,14 +321,6 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
     }
 
     fn poll_cycle(&mut self, addr: u32, fc: FunctionCode, is_read: bool, is_word: bool, data: Option<u16>) -> BusStatus {
-        // DEBUG: verify reads above $C00000 reach here
-        if is_read && addr >= 0xC00000 {
-            static HIGH_READ_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            let count = HIGH_READ_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count < 5 {
-                eprintln!("HIGH READ #{}: addr=${:08X} is_word={} fc={:?}", count, addr, is_word, fc);
-            }
-        }
         // Amiga uses autovectors for all hardware interrupts.
         // The CPU issues an IACK bus cycle with FC=InterruptAck. On real
         // hardware the address bus carries the level in A1-A3, but the CPU
@@ -412,14 +401,6 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         }
 
         // Custom Registers ($DFF000)
-        if (addr & 0xFFF000) == 0xDFF000 && is_read {
-            static CUSTOM_READ_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            let count = CUSTOM_READ_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count < 5 {
-                let offset = (addr & 0x1FE) as u16;
-                eprintln!("CUSTOM READ #{}: addr=${:08X} offset=${:03X} is_word={}", count, addr, offset, is_word);
-            }
-        }
         if (addr & 0xFFF000) == 0xDFF000 {
             let offset = (addr & 0x1FE) as u16;
             if !is_read {
@@ -499,17 +480,6 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
 }
 
 /// Shared custom register write dispatch used by both CPU and copper paths.
-/// Shared blitter operation counter for diagnostics.
-pub static BLIT_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-/// CPU PC when last custom register write happened (for DMACON tracing).
-pub static LAST_CPU_PC: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-/// CPU SR for memory watchpoint diagnostics.
-pub static LAST_CPU_SR: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-/// Master tick counter for timing correlation.
-pub static MASTER_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-/// COP1LC write trace counter.
-static COP1LC_TRACE_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
 fn write_custom_register(
     agnus: &mut Agnus, denise: &mut DeniseOcs, copper: &mut Copper,
     paula: &mut Paula8364, memory: &mut Memory, offset: u16, val: u16,
@@ -531,7 +501,6 @@ fn write_custom_register(
         0x058 => {
             agnus.bltsize = val;
             agnus.blitter_busy = true;
-            BLIT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             execute_blit(agnus, paula, memory);
         }
         0x060 => agnus.blt_cmod = val as i16,
@@ -540,39 +509,11 @@ fn write_custom_register(
         0x066 => agnus.blt_dmod = val as i16,
         0x070 => agnus.blt_cdat = val,
         0x072 => agnus.blt_bdat = val,
-        0x074 => {
-            let old = agnus.blt_adat;
-            agnus.blt_adat = val;
-            static ADAT_TRACE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            let count = ADAT_TRACE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count < 20 {
-                let pc = LAST_CPU_PC.load(std::sync::atomic::Ordering::Relaxed);
-                let tick = MASTER_TICK.load(std::sync::atomic::Ordering::Relaxed);
-                eprintln!("BLTADAT #{}: ${:04X} -> ${:04X} PC=${:08X} tick={}", count, old, val, pc, tick);
-            }
-        }
+        0x074 => agnus.blt_adat = val,
 
         // Copper
-        0x080 => {
-            copper.cop1lc = (copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16);
-            let count = COP1LC_TRACE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count < 50 {
-                let pc = LAST_CPU_PC.load(std::sync::atomic::Ordering::Relaxed);
-                let sr = LAST_CPU_SR.load(std::sync::atomic::Ordering::Relaxed);
-                let tick = MASTER_TICK.load(std::sync::atomic::Ordering::Relaxed);
-                eprintln!("COP1LCH #{}: val=${:04X} -> cop1lc=${:08X} PC=${:08X} SR=${:04X} tick={}", count, val, copper.cop1lc, pc, sr, tick);
-            }
-        }
-        0x082 => {
-            copper.cop1lc = (copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE);
-            let count = COP1LC_TRACE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count < 50 {
-                let pc = LAST_CPU_PC.load(std::sync::atomic::Ordering::Relaxed);
-                let sr = LAST_CPU_SR.load(std::sync::atomic::Ordering::Relaxed);
-                let tick = MASTER_TICK.load(std::sync::atomic::Ordering::Relaxed);
-                eprintln!("COP1LCL #{}: val=${:04X} -> cop1lc=${:08X} PC=${:08X} SR=${:04X} tick={}", count, val, copper.cop1lc, pc, sr, tick);
-            }
-        }
+        0x080 => copper.cop1lc = (copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
+        0x082 => copper.cop1lc = (copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
         0x084 => copper.cop2lc = (copper.cop2lc & 0x0000FFFF) | (u32::from(val) << 16),
         0x086 => copper.cop2lc = (copper.cop2lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
         0x088 => copper.restart_cop1(),
@@ -586,11 +527,8 @@ fn write_custom_register(
 
         // DMA control
         0x096 => {
-            let old = agnus.dmacon;
             if val & 0x8000 != 0 { agnus.dmacon |= val & 0x7FFF; }
             else { agnus.dmacon &= !(val & 0x7FFF); }
-            let pc = LAST_CPU_PC.load(std::sync::atomic::Ordering::Relaxed);
-            eprintln!("DMACON: ${:04X} -> ${:04X} (write val=${:04X}) PC=${:08X}", old, agnus.dmacon, val, pc);
         }
 
         // Interrupts
@@ -676,28 +614,9 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     let height = if height == 0 { 1024 } else { height } as u32;
     let width_words = if width_words == 0 { 64 } else { width_words } as u32;
 
-    let count = BLIT_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-    let tick = MASTER_TICK.load(std::sync::atomic::Ordering::Relaxed);
-    if count <= 80 {
-        let fill_flag = if agnus.bltcon1 & 0x0008 != 0 { "IFE" } else if agnus.bltcon1 & 0x0010 != 0 { "EFE" } else { "" };
-        eprintln!("BLIT #{} (tick {}): con0=${:04X} con1=${:04X} size={}x{} apt=${:08X} bpt=${:08X} cpt=${:08X} dpt=${:08X} afwm=${:04X} alwm=${:04X} amod={} bmod={} cmod={} dmod={} lf=${:02X} adat=${:04X} bdat=${:04X} {}",
-            count, tick, agnus.bltcon0, agnus.bltcon1, width_words, height,
-            agnus.blt_apt, agnus.blt_bpt, agnus.blt_cpt, agnus.blt_dpt,
-            agnus.blt_afwm, agnus.blt_alwm,
-            agnus.blt_amod, agnus.blt_bmod, agnus.blt_cmod, agnus.blt_dmod,
-            agnus.bltcon0 as u8, agnus.blt_adat, agnus.blt_bdat, fill_flag);
-    }
-
     // LINE mode (BLTCON1 bit 0): Bresenham line drawing.
     // Uses a completely different algorithm from area mode.
-    let line_mode = agnus.bltcon1 & 0x0001 != 0;
-    if line_mode {
-        if count <= 80 {
-            eprintln!("BLIT #{} LINE: con0=${:04X} con1=${:04X} size={}x{} apt=${:08X} cpt=${:08X} dpt=${:08X} amod={} bmod={} cmod={} dmod={} bdat=${:04X}",
-                count, agnus.bltcon0, agnus.bltcon1, width_words, height,
-                agnus.blt_apt, agnus.blt_cpt, agnus.blt_dpt,
-                agnus.blt_amod, agnus.blt_bmod, agnus.blt_cmod, agnus.blt_dmod, agnus.blt_bdat);
-        }
+    if agnus.bltcon1 & 0x0001 != 0 {
         execute_blit_line(agnus, paula, memory);
         return;
     }
@@ -714,7 +633,6 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     let ife = (agnus.bltcon1 & 0x0008) != 0;  // Inclusive Fill Enable
     let efe = (agnus.bltcon1 & 0x0010) != 0;  // Exclusive Fill Enable
     let fill_enabled = ife || efe;
-
 
     let mut apt = agnus.blt_apt;
     let mut bpt = agnus.blt_bpt;
@@ -734,16 +652,21 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
 
     let ptr_step: i32 = if desc { -2 } else { 2 };
 
+    // The barrel shifter carries bits across rows — a_prev/b_prev are only
+    // zeroed once before the entire blit, NOT per-row (HRM p. 179-180).
+    let mut a_prev: u16 = 0;
+    let mut b_prev: u16 = 0;
+
     for _row in 0..height {
-        let mut a_prev: u16 = 0;
-        let mut b_prev: u16 = 0;
         let mut fill_carry: u16 = if fci { 1 } else { 0 };
 
         for col in 0..width_words {
-            // Read source channels
-            let a_raw = if use_a { let w = read_word(&*memory, apt); apt = (apt as i32 + ptr_step) as u32; w } else { agnus.blt_adat };
-            let b_raw = if use_b { let w = read_word(&*memory, bpt); bpt = (bpt as i32 + ptr_step) as u32; w } else { agnus.blt_bdat };
-            let c_val = if use_c { let w = read_word(&*memory, cpt); cpt = (cpt as i32 + ptr_step) as u32; w } else { agnus.blt_cdat };
+            // Read source channels.
+            // DMA reads update the holding registers (BLTADAT/BLTBDAT/BLTCDAT)
+            // so subsequent blits with the channel disabled see the last DMA value.
+            let a_raw = if use_a { let w = read_word(&*memory, apt); apt = (apt as i32 + ptr_step) as u32; agnus.blt_adat = w; w } else { agnus.blt_adat };
+            let b_raw = if use_b { let w = read_word(&*memory, bpt); bpt = (bpt as i32 + ptr_step) as u32; agnus.blt_bdat = w; w } else { agnus.blt_bdat };
+            let c_val = if use_c { let w = read_word(&*memory, cpt); cpt = (cpt as i32 + ptr_step) as u32; agnus.blt_cdat = w; w } else { agnus.blt_cdat };
 
             // Apply first/last word masks to A channel
             let mut a_masked = a_raw;
@@ -779,12 +702,6 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
             a_prev = a_masked;
             b_prev = b_raw;
 
-            // Debug: dump first few words of blits that touch BPL1 range
-            if count <= 10 && col == 0 {
-                eprintln!("  BLIT #{} col{}: a_raw=${:04X} a_masked=${:04X} a_shifted=${:04X} b_raw=${:04X} b_shifted=${:04X} c_val=${:04X} lf=${:02X}",
-                    count, col, a_raw, a_masked, a_shifted, b_raw, b_shifted, c_val, lf);
-            }
-
             // Compute minterm for each bit
             let mut result: u16 = 0;
             for bit in 0..16 {
@@ -810,11 +727,6 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
                 result = filled;
             }
 
-            // Debug: dump result for early blits
-            if count <= 10 && col == 0 {
-                eprintln!("  BLIT #{} col{}: result=${:04X} -> dpt=${:08X}", count, col, result, dpt);
-            }
-
             // Write D channel
             if use_d {
                 write_word(memory, dpt, result);
@@ -822,7 +734,8 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
             }
         }
 
-        // Apply modulos at end of each row
+        // Apply modulos at end of each row.
+        // HRM p. 182/199: In descending mode the blitter subtracts modulos.
         let mod_dir: i32 = if desc { -1 } else { 1 };
         if use_a { apt = (apt as i32 + i32::from(agnus.blt_amod) * mod_dir) as u32; }
         if use_b { bpt = (bpt as i32 + i32::from(agnus.blt_bmod) * mod_dir) as u32; }
