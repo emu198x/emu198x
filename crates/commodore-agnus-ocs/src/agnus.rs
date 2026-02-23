@@ -44,6 +44,17 @@ pub struct CckBusPlan {
     pub bitplane_dma_fetch_plane: Option<u8>,
     /// Copper is granted this slot (it may still be in WAIT and not fetch).
     pub copper_dma_slot_granted: bool,
+    /// CPU chip-bus grant for this CCK in the current arbitration model.
+    ///
+    /// Today this is equivalent to "Agnus did not reserve the slot for DMA"
+    /// (i.e. `slot_owner == Cpu`). Future refinements may clear this when a
+    /// slot-arbitrated blitter model is introduced.
+    pub cpu_chip_bus_granted: bool,
+    /// Blitter chip-bus grant for this CCK.
+    ///
+    /// The blitter is currently executed synchronously and not yet modeled as a
+    /// per-CCK DMA client, so this remains `false` for now.
+    pub blitter_chip_bus_granted: bool,
     /// Paula audio DMA return-latency policy for this slot.
     pub paula_return_progress_policy: PaulaReturnProgressPolicy,
 }
@@ -268,6 +279,8 @@ impl Agnus {
             _ => None,
         };
         let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
+        let cpu_chip_bus_granted = matches!(slot_owner, SlotOwner::Cpu);
+        let blitter_chip_bus_granted = false;
         let paula_return_progress_policy = match slot_owner {
             SlotOwner::Refresh
             | SlotOwner::Disk
@@ -281,6 +294,8 @@ impl Agnus {
             audio_dma_service_channel,
             bitplane_dma_fetch_plane,
             copper_dma_slot_granted,
+            cpu_chip_bus_granted,
+            blitter_chip_bus_granted,
             paula_return_progress_policy,
         }
     }
@@ -312,6 +327,8 @@ mod tests {
         assert_eq!(plan.audio_dma_service_channel, Some(0));
         assert_eq!(plan.bitplane_dma_fetch_plane, None);
         assert!(!plan.copper_dma_slot_granted);
+        assert!(!plan.cpu_chip_bus_granted);
+        assert!(!plan.blitter_chip_bus_granted);
         assert_eq!(
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Advance
@@ -329,6 +346,8 @@ mod tests {
         assert_eq!(plan.audio_dma_service_channel, None);
         assert_eq!(plan.bitplane_dma_fetch_plane, None);
         assert!(plan.copper_dma_slot_granted);
+        assert!(!plan.cpu_chip_bus_granted);
+        assert!(!plan.blitter_chip_bus_granted);
         assert_eq!(
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::CopperFetchConditional
@@ -349,9 +368,37 @@ mod tests {
         assert_eq!(plan.audio_dma_service_channel, None);
         assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
         assert!(!plan.copper_dma_slot_granted);
+        assert!(!plan.cpu_chip_bus_granted);
+        assert!(!plan.blitter_chip_bus_granted);
         assert_eq!(
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Stall
+        );
+    }
+
+    #[test]
+    fn cck_bus_plan_reports_cpu_chip_bus_grant_on_free_slot() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x00; // free slot outside fixed/variable DMA windows
+        agnus.dmacon = DMACON_DMAEN | DMACON_COPEN | DMACON_BPLEN;
+        agnus.bplcon0 = 1 << 12;
+        agnus.ddfstrt = 0x1C;
+        agnus.ddfstop = 0xD8;
+        agnus.blitter_busy = true;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert_eq!(plan.audio_dma_service_channel, None);
+        assert_eq!(plan.bitplane_dma_fetch_plane, None);
+        assert!(!plan.copper_dma_slot_granted);
+        assert!(plan.cpu_chip_bus_granted);
+        assert!(
+            !plan.blitter_chip_bus_granted,
+            "blitter per-CCK slot grants are not modeled yet"
+        );
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Advance
         );
     }
 }

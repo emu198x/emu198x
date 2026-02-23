@@ -9,7 +9,7 @@ pub mod config;
 pub mod memory;
 
 use crate::memory::Memory;
-use commodore_agnus_ocs::{Agnus, Copper, SlotOwner};
+use commodore_agnus_ocs::{Agnus, Copper};
 use commodore_denise_ocs::DeniseOcs;
 use commodore_paula_8364::Paula8364;
 use drive_amiga_floppy::AmigaFloppyDrive;
@@ -598,29 +598,29 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         }
 
         if addr < 0x200000 {
-            match self.agnus.current_slot() {
-                SlotOwner::Cpu => {
-                    if is_read {
-                        let val = if is_word {
-                            let hi = self.memory.read_byte(addr);
-                            let lo = self.memory.read_byte(addr | 1);
-                            (u16::from(hi) << 8) | u16::from(lo)
-                        } else {
-                            u16::from(self.memory.read_byte(addr))
-                        };
-                        BusStatus::Ready(val)
+            let bus_plan = self.agnus.cck_bus_plan();
+            if bus_plan.cpu_chip_bus_granted {
+                if is_read {
+                    let val = if is_word {
+                        let hi = self.memory.read_byte(addr);
+                        let lo = self.memory.read_byte(addr | 1);
+                        (u16::from(hi) << 8) | u16::from(lo)
                     } else {
-                        let val = data.unwrap_or(0);
-                        if is_word {
-                            self.memory.write_byte(addr, (val >> 8) as u8);
-                            self.memory.write_byte(addr | 1, val as u8);
-                        } else {
-                            self.memory.write_byte(addr, val as u8);
-                        }
-                        BusStatus::Ready(0)
+                        u16::from(self.memory.read_byte(addr))
+                    };
+                    BusStatus::Ready(val)
+                } else {
+                    let val = data.unwrap_or(0);
+                    if is_word {
+                        self.memory.write_byte(addr, (val >> 8) as u8);
+                        self.memory.write_byte(addr | 1, val as u8);
+                    } else {
+                        self.memory.write_byte(addr, val as u8);
                     }
+                    BusStatus::Ready(0)
                 }
-                _ => BusStatus::Wait,
+            } else {
+                BusStatus::Wait
             }
         } else {
             if is_read {
