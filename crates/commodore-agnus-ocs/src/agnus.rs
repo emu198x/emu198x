@@ -46,14 +46,14 @@ pub struct CckBusPlan {
     pub copper_dma_slot_granted: bool,
     /// CPU chip-bus grant for this CCK in the current arbitration model.
     ///
-    /// Today this is equivalent to "Agnus did not reserve the slot for DMA"
-    /// (i.e. `slot_owner == Cpu`). Future refinements may clear this when a
-    /// slot-arbitrated blitter model is introduced.
+    /// This is true on CPU/free slots unless another modeled chip-bus client
+    /// (currently blitter nasty mode) takes the grant.
     pub cpu_chip_bus_granted: bool,
     /// Blitter chip-bus grant for this CCK.
     ///
-    /// The blitter is currently executed synchronously and not yet modeled as a
-    /// per-CCK DMA client, so this remains `false` for now.
+    /// Minimal model: a busy blitter in nasty mode (BLTPRI) takes CPU/free
+    /// slots when blitter DMA is enabled. The blitter operation itself is still
+    /// executed synchronously elsewhere, so this only models bus arbitration.
     pub blitter_chip_bus_granted: bool,
     /// Paula audio DMA return-latency policy for this slot.
     pub paula_return_progress_policy: PaulaReturnProgressPolicy,
@@ -269,6 +269,9 @@ impl Agnus {
 
     /// Compute the machine-facing Agnus bus-arbitration plan for this CCK.
     pub fn cck_bus_plan(&self) -> CckBusPlan {
+        const DMACON_BLTEN: u16 = 0x0040;
+        const DMACON_BLTPRI: u16 = 0x0400;
+
         let slot_owner = self.current_slot();
         let audio_dma_service_channel = match slot_owner {
             SlotOwner::Audio(channel) => Some(channel),
@@ -279,8 +282,12 @@ impl Agnus {
             _ => None,
         };
         let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
-        let cpu_chip_bus_granted = matches!(slot_owner, SlotOwner::Cpu);
-        let blitter_chip_bus_granted = false;
+        let blitter_nasty_active = self.blitter_busy
+            && self.dma_enabled(DMACON_BLTEN)
+            && (self.dmacon & DMACON_BLTPRI) != 0;
+        let blitter_chip_bus_granted = matches!(slot_owner, SlotOwner::Cpu) && blitter_nasty_active;
+        let cpu_chip_bus_granted =
+            matches!(slot_owner, SlotOwner::Cpu) && !blitter_chip_bus_granted;
         let paula_return_progress_policy = match slot_owner {
             SlotOwner::Refresh
             | SlotOwner::Disk
@@ -313,8 +320,10 @@ mod tests {
 
     const DMACON_DMAEN: u16 = 0x0200;
     const DMACON_AUD0EN: u16 = 0x0001;
+    const DMACON_BLTEN: u16 = 0x0040;
     const DMACON_COPEN: u16 = 0x0080;
     const DMACON_BPLEN: u16 = 0x0100;
+    const DMACON_BLTPRI: u16 = 0x0400;
 
     #[test]
     fn cck_bus_plan_reports_audio_service_grant() {
@@ -384,7 +393,7 @@ mod tests {
         agnus.bplcon0 = 1 << 12;
         agnus.ddfstrt = 0x1C;
         agnus.ddfstop = 0xD8;
-        agnus.blitter_busy = true;
+        agnus.blitter_busy = false;
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Cpu);
@@ -400,5 +409,36 @@ mod tests {
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Advance
         );
+    }
+
+    #[test]
+    fn cck_bus_plan_reports_blitter_nasty_grant_on_cpu_slot() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x00; // free slot
+        agnus.blitter_busy = true;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BLTEN | DMACON_BLTPRI;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert!(
+            !plan.cpu_chip_bus_granted,
+            "CPU should lose free slot to blitter in nasty mode"
+        );
+        assert!(
+            plan.blitter_chip_bus_granted,
+            "blitter should claim free slot in nasty mode"
+        );
+    }
+
+    #[test]
+    fn cck_bus_plan_blitter_busy_without_nasty_does_not_take_cpu_slot() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x00; // free slot
+        agnus.blitter_busy = true;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BLTEN; // BLTPRI clear
+
+        let plan = agnus.cck_bus_plan();
+        assert!(plan.cpu_chip_bus_granted);
+        assert!(!plan.blitter_chip_bus_granted);
     }
 }
