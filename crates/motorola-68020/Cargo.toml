@@ -1,0 +1,13 @@
+[package]
+name = "motorola-68020"
+description = "Thin Motorola 68020 wrapper over the shared 68k core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+motorola-68000 = { path = "../motorola-68000" }
+
+[lints]
+workspace = true
