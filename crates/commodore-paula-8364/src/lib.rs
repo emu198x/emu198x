@@ -6,6 +6,7 @@
 
 const AUDIO_DMA_MASTER: u16 = 0x0200;
 const AUDIO_DMA_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
+const AUDIO_DMA_RETURN_LATENCY_CCK: u8 = 14;
 const MIN_AUDIO_PERIOD_CCK: u16 = 124;
 const ADKCON_USE_VOLUME_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
 const ADKCON_USE_PERIOD_BITS: [u16; 4] = [0x0010, 0x0020, 0x0040, 0x0080];
@@ -45,6 +46,8 @@ struct AudioChannel {
     dma_active: bool,
     dma_enabled_prev: bool,
     dma_requests_pending: u8,
+    dma_return_countdown: u8,
+    dma_return_word: Option<u16>,
 }
 
 impl Default for AudioChannel {
@@ -65,6 +68,8 @@ impl Default for AudioChannel {
             dma_active: false,
             dma_enabled_prev: false,
             dma_requests_pending: 0,
+            dma_return_countdown: 0,
+            dma_return_word: None,
         }
     }
 }
@@ -93,6 +98,8 @@ impl AudioChannel {
         // Seed two requests to bootstrap current+next word fill in the simplified
         // model, while still routing all actual fetches through audio DMA slots.
         self.dma_requests_pending = 2;
+        self.dma_return_countdown = 0;
+        self.dma_return_word = None;
     }
 
     fn stop_dma(&mut self) {
@@ -101,6 +108,8 @@ impl AudioChannel {
         self.next_word = None;
         self.next_byte_is_hi = true;
         self.dma_requests_pending = 0;
+        self.dma_return_countdown = 0;
+        self.dma_return_word = None;
     }
 
     fn sync_dma_enable(&mut self, enabled: bool) -> bool {
@@ -137,7 +146,18 @@ impl AudioChannel {
         self.vol = (val & 0x7F).min(64) as u8;
     }
 
-    fn fetch_dma_word<F>(&mut self, mut read_chip_byte: F) -> Option<bool>
+    fn push_dma_word(&mut self, word: u16) {
+        self.dat = word;
+
+        if self.current_word.is_none() {
+            self.current_word = Some(word);
+            self.next_byte_is_hi = true;
+        } else if self.next_word.is_none() {
+            self.next_word = Some(word);
+        }
+    }
+
+    fn fetch_dma_word<F>(&mut self, mut read_chip_byte: F) -> Option<(u16, bool)>
     where
         F: FnMut(u32) -> u8,
     {
@@ -167,16 +187,7 @@ impl AudioChannel {
         self.words_remaining = self.words_remaining.saturating_sub(1);
 
         let word = (u16::from(hi) << 8) | u16::from(lo);
-        self.dat = word;
-
-        if self.current_word.is_none() {
-            self.current_word = Some(word);
-            self.next_byte_is_hi = true;
-        } else if self.next_word.is_none() {
-            self.next_word = Some(word);
-        }
-
-        Some(wrapped)
+        Some((word, wrapped))
     }
 
     fn queue_dma_request(&mut self) {
@@ -192,10 +203,29 @@ impl AudioChannel {
         if self.dma_requests_pending == 0 {
             return None;
         }
+        if self.dma_return_word.is_some() {
+            return None;
+        }
 
-        let fetched = self.fetch_dma_word(read_chip_byte)?;
+        let (word, wrapped) = self.fetch_dma_word(read_chip_byte)?;
         self.dma_requests_pending = self.dma_requests_pending.saturating_sub(1);
-        Some(fetched)
+        self.dma_return_word = Some(word);
+        self.dma_return_countdown = AUDIO_DMA_RETURN_LATENCY_CCK;
+        Some(wrapped)
+    }
+
+    fn tick_dma_return(&mut self) {
+        if self.dma_return_word.is_none() {
+            return;
+        }
+        if self.dma_return_countdown > 0 {
+            self.dma_return_countdown -= 1;
+        }
+        if self.dma_return_countdown == 0
+            && let Some(word) = self.dma_return_word.take()
+        {
+            self.push_dma_word(word);
+        }
     }
 
     fn tick_output(&mut self, consume_word_each_transition: bool) -> Option<AudioOutputEvent> {
@@ -459,6 +489,7 @@ impl Paula8364 {
             if channel.sync_dma_enable(dma_enabled) {
                 irq_mask |= 1 << (7 + index);
             }
+            channel.tick_dma_return();
         }
 
         if let Some(index_u8) = audio_dma_slot {
@@ -587,7 +618,7 @@ impl Default for Paula8364 {
 
 #[cfg(test)]
 mod tests {
-    use super::Paula8364;
+    use super::{AUDIO_DMA_RETURN_LATENCY_CCK, Paula8364};
 
     const ADKCON_SETCLR: u16 = 0x8000;
     const ADKCON_USE0V1: u16 = 0x0001;
@@ -637,6 +668,40 @@ mod tests {
 
         assert!(left > 0.4, "left={left}");
         assert!(right.abs() < 0.01, "right={right}");
+    }
+
+    #[test]
+    fn audio_dma_word_arrival_is_delayed_after_slot_service() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
+
+        assert!(paula.write_audio_register(0x0A0, 0x0000));
+        assert!(paula.write_audio_register(0x0A2, 0x1000));
+        assert!(paula.write_audio_register(0x0A4, 0x0001));
+        assert!(paula.write_audio_register(0x0A6, 500));
+
+        let read = |_addr: u32| -> u8 { 0x55 };
+
+        // First tick: DMA starts and the audio slot services a request, but the
+        // fetched word should return later (not immediately visible to playback).
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        assert_eq!(paula.audio[0].current_word, None);
+        assert!(paula.audio[0].dma_return_word.is_some());
+
+        for _ in 0..(AUDIO_DMA_RETURN_LATENCY_CCK - 1) {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.audio[0].current_word, None,
+            "word should not arrive before the configured DMA return latency"
+        );
+
+        paula.tick_audio_cck(dmacon, None, read);
+        assert_eq!(
+            paula.audio[0].current_word,
+            Some(0x5555),
+            "word should become visible after the DMA return latency elapses"
+        );
     }
 
     #[test]
@@ -690,11 +755,20 @@ mod tests {
         );
 
         paula.intreq = 0;
+        for _ in 0..(AUDIO_DMA_RETURN_LATENCY_CCK - 1) {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+            assert_eq!(
+                paula.intreq & 0x0080,
+                0,
+                "reload IRQ should not fire before DMA data return latency elapses"
+            );
+        }
+
         paula.tick_audio_cck(dmacon, Some(0), read);
         assert_ne!(
             paula.intreq & 0x0080,
             0,
-            "AUD0 IRQ should fire when the one-word block reloads"
+            "AUD0 IRQ should fire when the one-word block reload is serviced after return latency"
         );
     }
 
