@@ -1051,6 +1051,65 @@ fn test_boot_kick13() {
         let b = c & 0xFF;
         println!("    #{:02X}{:02X}{:02X}", r, g, b);
     }
+
+    // Regression guard for the KS1.3 insert-disk screen in the raw 320x256
+    // framebuffer (not an upscaled window capture).
+    const WHITE: u32 = 0xFFFF_FFFF;
+    const BLACK: u32 = 0xFF00_0000;
+    const FLOPPY_BLUE: u32 = 0xFF77_77CC;
+    const METAL_GRAY: u32 = 0xFFBB_BBBB;
+
+    let expected_colors = std::collections::HashSet::from([
+        WHITE, BLACK, FLOPPY_BLUE, METAL_GRAY,
+    ]);
+    assert_eq!(colors, expected_colors, "unexpected framebuffer color set");
+
+    let fb = &amiga.denise.framebuffer;
+    let px = |x: u32, y: u32| -> u32 { fb[(y * FB_WIDTH + x) as usize] };
+
+    // Stable anchors sampled from the known-good boot screen.
+    assert_eq!(px(0, 0), WHITE, "top-left background should be white");
+    assert_eq!(px(103, 50), BLACK, "top outline anchor changed");
+    assert_eq!(px(106, 52), FLOPPY_BLUE, "floppy body anchor changed");
+    assert_eq!(px(131, 52), METAL_GRAY, "floppy shutter anchor changed");
+
+    let mut counts: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut min_x = FB_WIDTH;
+    let mut min_y = FB_HEIGHT;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+    let mut non_white_pixels = 0u32;
+
+    for y in 0..FB_HEIGHT {
+        for x in 0..FB_WIDTH {
+            let p = px(x, y);
+            *counts.entry(p).or_insert(0) += 1;
+            if p != WHITE {
+                non_white_pixels += 1;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+
+    // Tolerant ranges: catches Gurus / major render regressions while allowing
+    // small timing/layout shifts during ongoing work.
+    let white_count = *counts.get(&WHITE).unwrap_or(&0);
+    let black_count = *counts.get(&BLACK).unwrap_or(&0);
+    let blue_count = *counts.get(&FLOPPY_BLUE).unwrap_or(&0);
+    let gray_count = *counts.get(&METAL_GRAY).unwrap_or(&0);
+    assert!((70_000..=78_000).contains(&white_count), "white count out of range: {white_count}");
+    assert!((2_000..=4_000).contains(&black_count), "black count out of range: {black_count}");
+    assert!((3_000..=5_000).contains(&blue_count), "blue count out of range: {blue_count}");
+    assert!((700..=1_300).contains(&gray_count), "gray count out of range: {gray_count}");
+
+    assert!((6_000..=9_000).contains(&non_white_pixels), "non-white pixel count out of range: {non_white_pixels}");
+    assert!((75..=90).contains(&min_x), "min_x out of range: {min_x}");
+    assert!((45..=60).contains(&min_y), "min_y out of range: {min_y}");
+    assert!((200..=215).contains(&max_x), "max_x out of range: {max_x}");
+    assert!((170..=185).contains(&max_y), "max_y out of range: {max_y}");
 }
 
 /// Short trace test: log key addresses hit during the first ~5 seconds.
