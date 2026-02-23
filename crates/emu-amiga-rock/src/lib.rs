@@ -870,15 +870,37 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
     let ash = (agnus.bltcon0 >> 12) & 0xF;
     let lf = agnus.bltcon0 as u8;
     let use_b = agnus.bltcon0 & 0x0400 != 0;
-    // Octant decoding: bits 4-1 of BLTCON1 (HRM Appendix A)
-    //   bit 4 (SUD): 0 = Y moves down (+row_mod), 1 = Y moves up (-row_mod)
-    //   bit 3 (SUL): 0 = X moves right (+pixel_bit), 1 = X moves left (-pixel_bit)
-    //   bit 2 (AUL): 0 = X is major axis, 1 = Y is major axis
-    //   bit 1 (SING): single-bit mode — only set pixel, don't clear
+    // Octant control bits (HRM Appendix A):
+    // SUD/SUL/AUL are not simple X/Y sign + major-axis flags. They form a
+    // hardware-specific octant code and must be decoded via the HRM table.
     let sud  = agnus.bltcon1 & 0x0010 != 0;
     let sul  = agnus.bltcon1 & 0x0008 != 0;
     let aul  = agnus.bltcon1 & 0x0004 != 0;
     let sing = agnus.bltcon1 & 0x0002 != 0;
+    let oct_code = ((sud as u8) << 2) | ((sul as u8) << 1) | (aul as u8);
+    // Code (SUD:SUL:AUL) -> octant index, per HRM table.
+    let octant = match oct_code {
+        0b000 => 6,
+        0b001 => 1,
+        0b010 => 5,
+        0b011 => 2,
+        0b100 => 7,
+        0b101 => 4,
+        0b110 => 0,
+        0b111 => 3,
+        _ => unreachable!(),
+    };
+    let (major_is_y, x_neg, y_neg) = match octant {
+        0 => (false, false, false), // +X, +Y, X-major
+        1 => (true,  false, false), // +X, +Y, Y-major
+        2 => (true,  true,  false), // -X, +Y, Y-major
+        3 => (false, true,  false), // -X, +Y, X-major
+        4 => (false, true,  true),  // -X, -Y, X-major
+        5 => (true,  true,  true),  // -X, -Y, Y-major
+        6 => (true,  false, true),  // +X, -Y, Y-major
+        7 => (false, false, true),  // +X, -Y, X-major
+        _ => unreachable!(),
+    };
 
     let mut error = agnus.blt_apt as i16;
     let error_add = agnus.blt_bmod; // 4*dy (added when error < 0)
@@ -924,8 +946,9 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
             0xFFFF
         };
 
-        // Channel C = destination read-back
+        // Channel C = destination read-back (DMA updates the holding register)
         let c_val = read_word(&*memory, cpt);
+        agnus.blt_cdat = c_val;
 
         // Compute minterm per bit
         let mut result: u16 = 0;
@@ -952,42 +975,53 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
             texture = texture.rotate_left(1);
         }
 
-        // Bresenham step: decide whether to step on major axis only, or both axes
+        // Bresenham step: decide whether to step on major axis only, or both axes.
+        // Address updates are decoded from the HRM octant table above.
+        let step_x = |cpt: &mut u32, dpt: &mut u32, pixel_bit: &mut u16| {
+            if x_neg {
+                *pixel_bit = pixel_bit.wrapping_sub(1) & 0xF;
+                if *pixel_bit == 15 {
+                    *cpt = cpt.wrapping_sub(2);
+                    *dpt = dpt.wrapping_sub(2);
+                }
+            } else {
+                *pixel_bit = (*pixel_bit + 1) & 0xF;
+                if *pixel_bit == 0 {
+                    *cpt = cpt.wrapping_add(2);
+                    *dpt = dpt.wrapping_add(2);
+                }
+            }
+        };
+        let step_y = |cpt: &mut u32, dpt: &mut u32| {
+            // In Amiga blitter line mode, BLTCPT/BLTDPT use a bottom-up raster
+            // address convention (HRM/SPG examples compute the start row as
+            // (rows - y - 1)). Therefore screen Y+ ("down") moves to a LOWER
+            // memory address, and screen Y- ("up") moves to a HIGHER address.
+            if y_neg {
+                *cpt = (*cpt as i32 + row_mod as i32) as u32;
+                *dpt = (*dpt as i32 + row_mod as i32) as u32;
+            } else {
+                *cpt = (*cpt as i32 - row_mod as i32) as u32;
+                *dpt = (*dpt as i32 - row_mod as i32) as u32;
+            }
+        };
+
         if error >= 0 {
             // Step on BOTH axes (diagonal move)
-            // Major axis step
-            if aul {
-                // Y is major: always step Y, also step X
-                // X step: SUL=0 → right (+pixel_bit), SUL=1 → left (-pixel_bit)
-                if sul { pixel_bit = pixel_bit.wrapping_sub(1) & 0xF; } else { pixel_bit = (pixel_bit + 1) & 0xF; }
-                // Word boundary: right wraps 15→0 = next word, left wraps 0→15 = prev word
-                if !sul && pixel_bit == 0 { cpt = cpt.wrapping_add(2); dpt = dpt.wrapping_add(2); }
-                if sul && pixel_bit == 15 { cpt = cpt.wrapping_sub(2); dpt = dpt.wrapping_sub(2); }
-                // Y step: add/subtract row modulo
-                if sud { cpt = (cpt as i32 - row_mod as i32) as u32; dpt = (dpt as i32 - row_mod as i32) as u32; }
-                else { cpt = (cpt as i32 + row_mod as i32) as u32; dpt = (dpt as i32 + row_mod as i32) as u32; }
+            if major_is_y {
+                step_y(&mut cpt, &mut dpt);
+                step_x(&mut cpt, &mut dpt, &mut pixel_bit);
             } else {
-                // X is major: always step X, also step Y
-                // Y step: add/subtract row modulo
-                if sud { cpt = (cpt as i32 - row_mod as i32) as u32; dpt = (dpt as i32 - row_mod as i32) as u32; }
-                else { cpt = (cpt as i32 + row_mod as i32) as u32; dpt = (dpt as i32 + row_mod as i32) as u32; }
-                // X step
-                if sul { pixel_bit = pixel_bit.wrapping_sub(1) & 0xF; } else { pixel_bit = (pixel_bit + 1) & 0xF; }
-                if !sul && pixel_bit == 0 { cpt = cpt.wrapping_add(2); dpt = dpt.wrapping_add(2); }
-                if sul && pixel_bit == 15 { cpt = cpt.wrapping_sub(2); dpt = dpt.wrapping_sub(2); }
+                step_x(&mut cpt, &mut dpt, &mut pixel_bit);
+                step_y(&mut cpt, &mut dpt);
             }
             error = error.wrapping_add(error_sub as i16);
         } else {
             // Step on major axis ONLY
-            if aul {
-                // Y is major: step Y only
-                if sud { cpt = (cpt as i32 - row_mod as i32) as u32; dpt = (dpt as i32 - row_mod as i32) as u32; }
-                else { cpt = (cpt as i32 + row_mod as i32) as u32; dpt = (dpt as i32 + row_mod as i32) as u32; }
+            if major_is_y {
+                step_y(&mut cpt, &mut dpt);
             } else {
-                // X is major: step X only
-                if sul { pixel_bit = pixel_bit.wrapping_sub(1) & 0xF; } else { pixel_bit = (pixel_bit + 1) & 0xF; }
-                if !sul && pixel_bit == 0 { cpt = cpt.wrapping_add(2); dpt = dpt.wrapping_add(2); }
-                if sul && pixel_bit == 15 { cpt = cpt.wrapping_sub(2); dpt = dpt.wrapping_sub(2); }
+                step_x(&mut cpt, &mut dpt, &mut pixel_bit);
             }
             error = error.wrapping_add(error_add as i16);
         }
