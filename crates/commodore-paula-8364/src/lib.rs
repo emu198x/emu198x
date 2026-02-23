@@ -7,6 +7,8 @@
 const AUDIO_DMA_MASTER: u16 = 0x0200;
 const AUDIO_DMA_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
 const MIN_AUDIO_PERIOD_CCK: u16 = 124;
+const ADKCON_USE_VOLUME_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
+const ADKCON_USE_PERIOD_BITS: [u16; 4] = [0x0010, 0x0020, 0x0040, 0x0080];
 
 #[derive(Debug, Clone, Copy)]
 struct AudioChannel {
@@ -24,6 +26,7 @@ struct AudioChannel {
     output_sample: i8,
     dma_active: bool,
     dma_enabled_prev: bool,
+    modulation_next_is_period: bool,
 }
 
 impl Default for AudioChannel {
@@ -43,6 +46,7 @@ impl Default for AudioChannel {
             output_sample: 0,
             dma_active: false,
             dma_enabled_prev: false,
+            modulation_next_is_period: true,
         }
     }
 }
@@ -68,6 +72,7 @@ impl AudioChannel {
         self.next_byte_is_hi = true;
         self.period_counter = self.effective_period();
         self.dma_active = true;
+        self.modulation_next_is_period = true;
     }
 
     fn stop_dma(&mut self) {
@@ -75,6 +80,7 @@ impl AudioChannel {
         self.current_word = None;
         self.next_word = None;
         self.next_byte_is_hi = true;
+        self.modulation_next_is_period = true;
     }
 
     fn sync_dma_enable(&mut self, enabled: bool) -> bool {
@@ -98,6 +104,17 @@ impl AudioChannel {
             self.next_byte_is_hi = true;
             self.period_counter = self.effective_period();
         }
+    }
+
+    fn write_period(&mut self, val: u16) {
+        self.per = val;
+        if self.period_counter == 0 {
+            self.period_counter = self.effective_period();
+        }
+    }
+
+    fn write_volume(&mut self, val: u16) {
+        self.vol = (val & 0x7F).min(64) as u8;
     }
 
     fn fetch_dma_word<F>(&mut self, mut read_chip_byte: F) -> bool
@@ -142,14 +159,14 @@ impl AudioChannel {
         wrapped
     }
 
-    fn tick_output(&mut self) -> bool {
+    fn tick_output(&mut self) -> Option<u16> {
         if self.period_counter == 0 {
             self.period_counter = self.effective_period();
         }
 
         self.period_counter = self.period_counter.saturating_sub(1);
         if self.period_counter != 0 {
-            return false;
+            return None;
         }
         self.period_counter = self.effective_period();
 
@@ -161,7 +178,7 @@ impl AudioChannel {
         }
 
         let Some(word) = self.current_word else {
-            return false;
+            return None;
         };
 
         let sample_byte = if self.next_byte_is_hi {
@@ -173,7 +190,7 @@ impl AudioChannel {
 
         if self.next_byte_is_hi {
             self.next_byte_is_hi = false;
-            return false;
+            return None;
         }
 
         self.next_byte_is_hi = true;
@@ -182,7 +199,7 @@ impl AudioChannel {
         } else {
             self.current_word = None;
         }
-        true
+        Some(word)
     }
 
     fn mix_sample(&self) -> f32 {
@@ -249,6 +266,46 @@ impl Paula8364 {
         }
     }
 
+    fn audio_channel_is_modulator(&self, index: usize) -> bool {
+        let use_volume = (self.adkcon & ADKCON_USE_VOLUME_BITS[index]) != 0;
+        let use_period = (self.adkcon & ADKCON_USE_PERIOD_BITS[index]) != 0;
+        use_volume || use_period
+    }
+
+    fn apply_audio_modulation_word(&mut self, source: usize, word: u16) {
+        let use_volume = (self.adkcon & ADKCON_USE_VOLUME_BITS[source]) != 0;
+        let use_period = (self.adkcon & ADKCON_USE_PERIOD_BITS[source]) != 0;
+        if !use_volume && !use_period {
+            return;
+        }
+
+        if source + 1 >= self.audio.len() {
+            if use_volume && use_period {
+                let src = &mut self.audio[source];
+                src.modulation_next_is_period = !src.modulation_next_is_period;
+            }
+            return;
+        }
+
+        let (left, right) = self.audio.split_at_mut(source + 1);
+        let src = &mut left[source];
+        let target = &mut right[0];
+
+        match (use_period, use_volume) {
+            (true, true) => {
+                if src.modulation_next_is_period {
+                    target.write_period(word);
+                } else {
+                    target.write_volume(word);
+                }
+                src.modulation_next_is_period = !src.modulation_next_is_period;
+            }
+            (true, false) => target.write_period(word),
+            (false, true) => target.write_volume(word),
+            (false, false) => {}
+        }
+    }
+
     /// Write one Paula audio register (AUDx*), returning true if handled.
     pub fn write_audio_register(&mut self, offset: u16, val: u16) -> bool {
         if !(0x0A0..=0x0DA).contains(&offset) {
@@ -276,14 +333,11 @@ impl Paula8364 {
                 true
             }
             3 => {
-                ch.per = val;
-                if ch.period_counter == 0 {
-                    ch.period_counter = ch.effective_period();
-                }
+                ch.write_period(val);
                 true
             }
             4 => {
-                ch.vol = (val & 0x7F).min(64) as u8;
+                ch.write_volume(val);
                 true
             }
             5 => {
@@ -349,10 +403,18 @@ impl Paula8364 {
             }
         }
 
+        let mut completed_words = [None; 4];
         for (index, channel) in self.audio.iter_mut().enumerate() {
             let word_completed = channel.tick_output();
-            if word_completed && !channel.dma_active {
+            if word_completed.is_some() && !channel.dma_active {
                 irq_mask |= 1 << (7 + index);
+            }
+            completed_words[index] = word_completed;
+        }
+
+        for (index, completed_word) in completed_words.into_iter().enumerate() {
+            if let Some(word) = completed_word {
+                self.apply_audio_modulation_word(index, word);
             }
         }
 
@@ -364,8 +426,28 @@ impl Paula8364 {
     /// Mixed stereo output in the range `[-1.0, 1.0]`.
     pub fn mix_audio_stereo(&self) -> (f32, f32) {
         // OCS stereo routing: channels 0+3 left, 1+2 right.
-        let left = (self.audio[0].mix_sample() + self.audio[3].mix_sample()) * 0.5;
-        let right = (self.audio[1].mix_sample() + self.audio[2].mix_sample()) * 0.5;
+        let ch0 = if self.audio_channel_is_modulator(0) {
+            0.0
+        } else {
+            self.audio[0].mix_sample()
+        };
+        let ch1 = if self.audio_channel_is_modulator(1) {
+            0.0
+        } else {
+            self.audio[1].mix_sample()
+        };
+        let ch2 = if self.audio_channel_is_modulator(2) {
+            0.0
+        } else {
+            self.audio[2].mix_sample()
+        };
+        let ch3 = if self.audio_channel_is_modulator(3) {
+            0.0
+        } else {
+            self.audio[3].mix_sample()
+        };
+        let left = (ch0 + ch3) * 0.5;
+        let right = (ch1 + ch2) * 0.5;
         (left.clamp(-1.0, 1.0), right.clamp(-1.0, 1.0))
     }
 
@@ -433,6 +515,10 @@ impl Default for Paula8364 {
 #[cfg(test)]
 mod tests {
     use super::Paula8364;
+
+    const ADKCON_SETCLR: u16 = 0x8000;
+    const ADKCON_USE0V1: u16 = 0x0001;
+    const ADKCON_USE0P1: u16 = 0x0010;
 
     #[test]
     fn writes_and_reads_audio_registers() {
@@ -524,7 +610,11 @@ mod tests {
         let read = |_addr: u32| -> u8 { 0 };
 
         paula.tick_audio_cck(dmacon, Some(0), read);
-        assert_ne!(paula.intreq & 0x0080, 0, "AUD0 IRQ should fire on DMA start");
+        assert_ne!(
+            paula.intreq & 0x0080,
+            0,
+            "AUD0 IRQ should fire on DMA start"
+        );
 
         paula.intreq = 0;
         paula.tick_audio_cck(dmacon, Some(0), read);
@@ -581,5 +671,113 @@ mod tests {
 
         paula.tick_audio_cck(dmacon, None, read);
         assert_ne!(paula.intreq & 0x0080, 0);
+    }
+
+    #[test]
+    fn adkcon_volume_modulation_mutes_source_and_updates_successor_on_word_completion() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // direct mode
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0A8, 64)); // AUD0VOL
+        assert!(paula.write_audio_register(0x0B8, 5)); // AUD1VOL
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0V1);
+        assert!(paula.write_audio_register(0x0AA, 0x7F32)); // hi byte would be audible if not muted
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        let (left, _) = paula.mix_audio_stereo();
+        assert!(
+            left.abs() < 0.01,
+            "modulator output should be muted (left={left})"
+        );
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(5),
+            "volume modulation should not apply until the full word completes"
+        );
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(0x32),
+            "AUD0 data word low 7 bits should modulate AUD1VOL"
+        );
+    }
+
+    #[test]
+    fn adkcon_period_modulation_updates_successor_period_on_word_completion() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // direct mode
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0B6, 400)); // AUD1PER
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1);
+        assert!(paula.write_audio_register(0x0AA, 0x0001));
+
+        let read = |_addr: u32| -> u8 { 0 };
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B6),
+            Some(400),
+            "period modulation should not apply after only one byte"
+        );
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(paula.read_audio_register(0x0B6), Some(1));
+    }
+
+    #[test]
+    fn adkcon_combined_period_and_volume_modulation_alternates_words() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // direct mode
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0B6, 500)); // AUD1PER
+        assert!(paula.write_audio_register(0x0B8, 7)); // AUD1VOL
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        assert!(paula.write_audio_register(0x0AA, 0x0123));
+        for _ in 0..248 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(paula.read_audio_register(0x0B6), Some(0x0123));
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(7),
+            "first combined modulation word should target period"
+        );
+
+        assert!(paula.write_audio_register(0x0AA, 0x0040));
+        for _ in 0..248 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(paula.read_audio_register(0x0B6), Some(0x0123));
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(64),
+            "second combined modulation word should target volume"
+        );
+
+        assert!(paula.write_audio_register(0x0AA, 0x0002));
+        for _ in 0..248 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B6),
+            Some(2),
+            "combined mode should alternate back to period"
+        );
     }
 }
