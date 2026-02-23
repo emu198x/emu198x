@@ -19,6 +19,7 @@ const AUD_REG_DAT_OFFSET: u16 = 0x0A;
 
 const DMACON_DMAEN: u16 = 0x0200;
 const DMACON_AUD0EN: u16 = 0x0001;
+const DMACON_SPREN: u16 = 0x0020;
 const DMACON_BPLEN: u16 = 0x0100;
 const INTREQ_AUD0: u16 = 0x0080;
 const ADKCON_SETCLR: u16 = 0x8000;
@@ -479,64 +480,101 @@ fn aud0_dma_combined_modulation_high_rate_degrades_but_preserves_order() {
 }
 
 #[test]
-fn aud0_dma_combined_modulation_high_rate_with_bitplane_dma_still_preserves_order() {
-    let mut amiga = make_test_amiga();
-    let sample_addr = 0x0000_3000u32;
+fn aud0_dma_combined_modulation_high_rate_with_agnus_dma_contention_preserves_order() {
+    fn run_case(enable_agnus_contention: bool) {
+        let mut amiga = make_test_amiga();
+        let sample_addr = 0x0000_3000u32;
 
-    let words = [0x0123u16, 0x0040u16, 0x0002u16, 0x0020u16];
-    for (i, word) in words.into_iter().enumerate() {
-        let addr = sample_addr + (i as u32) * 2;
-        amiga.memory.write_byte(addr, (word >> 8) as u8);
-        amiga.memory.write_byte(addr + 1, word as u8);
+        let words = [0x0123u16, 0x0040u16, 0x0002u16, 0x0020u16];
+        for (i, word) in words.into_iter().enumerate() {
+            let addr = sample_addr + (i as u32) * 2;
+            amiga.memory.write_byte(addr, (word >> 8) as u8);
+            amiga.memory.write_byte(addr + 1, word as u8);
+        }
+
+        configure_aud0_dma(&mut amiga, sample_addr, 4, 124, 64);
+        amiga.write_custom_reg(aud_reg(1, AUD_REG_PER_OFFSET), 700);
+        amiga.write_custom_reg(aud_reg(1, AUD_REG_VOL_OFFSET), 7);
+        amiga.write_custom_reg(REG_ADKCON, ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
+
+        let mut dmacon = 0x8000 | DMACON_DMAEN | DMACON_AUD0EN;
+        if enable_agnus_contention {
+            amiga.write_custom_reg(REG_DDFSTRT, 0x001C);
+            amiga.write_custom_reg(REG_DDFSTOP, 0x00D8);
+            amiga.write_custom_reg(REG_BPLCON0, 6 << 12); // 6 bitplanes
+            // Channel 0 audio return (~14 CCK after the AUD0 slot) lands in the
+            // early-scanline sprite DMA region, so enable sprite DMA to create a
+            // deterministic contention signal for return-latency progress. We
+            // also enable bitplane DMA to keep display-load coexistence covered.
+            dmacon |= DMACON_BPLEN | DMACON_SPREN;
+        }
+        amiga.write_custom_reg(REG_DMACON, dmacon);
+
+        let first_period = tick_until(&mut amiga, 20_000, |a| {
+            a.paula.read_audio_register(aud_reg(1, AUD_REG_PER_OFFSET)) == Some(0x0123)
+        });
+        assert!(
+            first_period.is_some(),
+            "combined attach should produce first period modulation"
+        );
+
+        let volume_delta = tick_until(&mut amiga, 20_000, |a| {
+            a.paula.read_audio_register(aud_reg(1, AUD_REG_VOL_OFFSET)) == Some(64)
+        });
+        assert!(
+            volume_delta.is_some(),
+            "combined attach should produce matching volume modulation"
+        );
+        let _volume_delta = volume_delta.unwrap();
+
+        let period_delta = tick_until(&mut amiga, 20_000, |a| {
+            a.paula.read_audio_register(aud_reg(1, AUD_REG_PER_OFFSET)) == Some(2)
+        });
+        assert!(
+            period_delta.is_some(),
+            "combined attach should preserve period/volume order"
+        );
+
+        let volume2_delta = tick_until(&mut amiga, 20_000, |a| {
+            a.paula.read_audio_register(aud_reg(1, AUD_REG_VOL_OFFSET)) == Some(32)
+        });
+        assert!(
+            volume2_delta.is_some(),
+            "combined attach should continue ordered updates"
+        );
     }
 
-    configure_aud0_dma(&mut amiga, sample_addr, 4, 124, 64);
-    amiga.write_custom_reg(aud_reg(1, AUD_REG_PER_OFFSET), 700);
-    amiga.write_custom_reg(aud_reg(1, AUD_REG_VOL_OFFSET), 7);
-    amiga.write_custom_reg(REG_ADKCON, ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
+    run_case(false);
+    run_case(true);
+}
 
-    // Exercise coexistence under heavy bitplane DMA activity. In the current
-    // machine model audio slots remain dedicated, so this is a regression guard
-    // for interaction correctness rather than an expected extra slowdown.
-    amiga.write_custom_reg(REG_DDFSTRT, 0x001C);
-    amiga.write_custom_reg(REG_DDFSTOP, 0x00D8);
-    amiga.write_custom_reg(REG_BPLCON0, 6 << 12); // 6 bitplanes
+#[test]
+fn aud0_dma_first_word_arrival_delay_increases_with_sprite_dma_contention() {
+    fn first_word_arrival_cck(enable_sprite_dma: bool) -> u32 {
+        let mut amiga = make_test_amiga();
+        let sample_addr = 0x0000_3200u32;
+        amiga.memory.write_byte(sample_addr, 0x7F);
+        amiga.memory.write_byte(sample_addr + 1, 0x80);
 
-    amiga.write_custom_reg(
-        REG_DMACON,
-        0x8000 | DMACON_DMAEN | DMACON_AUD0EN | DMACON_BPLEN,
-    );
+        configure_aud0_dma(&mut amiga, sample_addr, 1, 124, 64);
+        let mut dmacon = 0x8000 | DMACON_DMAEN | DMACON_AUD0EN;
+        if enable_sprite_dma {
+            dmacon |= DMACON_SPREN;
+        }
+        amiga.write_custom_reg(REG_DMACON, dmacon);
 
-    let first_period = tick_until(&mut amiga, 20_000, |a| {
-        a.paula.read_audio_register(aud_reg(1, AUD_REG_PER_OFFSET)) == Some(0x0123)
-    });
+        tick_until(&mut amiga, 2_000, |a| {
+            a.paula.read_audio_register(REG_AUD0DAT) == Some(0x7F80)
+        })
+        .expect("AUD0 DMA word should arrive")
+    }
+
+    let baseline = first_word_arrival_cck(false);
+    let contended = first_word_arrival_cck(true);
     assert!(
-        first_period.is_some(),
-        "combined attach should produce period modulation with bitplane DMA active"
-    );
-
-    let volume_delta = tick_until(&mut amiga, 20_000, |a| {
-        a.paula.read_audio_register(aud_reg(1, AUD_REG_VOL_OFFSET)) == Some(64)
-    });
-    assert!(
-        volume_delta.is_some(),
-        "combined attach should produce matching volume modulation with bitplane DMA active"
-    );
-
-    let period_delta = tick_until(&mut amiga, 20_000, |a| {
-        a.paula.read_audio_register(aud_reg(1, AUD_REG_PER_OFFSET)) == Some(2)
-    });
-    assert!(
-        period_delta.is_some(),
-        "combined attach should preserve period/volume order under bitplane DMA load"
-    );
-
-    let volume2_delta = tick_until(&mut amiga, 20_000, |a| {
-        a.paula.read_audio_register(aud_reg(1, AUD_REG_VOL_OFFSET)) == Some(32)
-    });
-    assert!(
-        volume2_delta.is_some(),
-        "combined attach should continue ordered updates under bitplane DMA load"
+        contended > baseline,
+        "sprite DMA contention should delay Paula DMA word return \
+         (baseline={baseline}, contended={contended})"
     );
 }
 

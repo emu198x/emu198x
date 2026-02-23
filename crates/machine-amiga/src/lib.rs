@@ -146,8 +146,8 @@ impl Amiga {
 
             if vpos == 0 && hpos == 0 {
                 self.paula.request_interrupt(5); // bit 5 = VERTB
-                                                 // Agnus restarts the copper from COP1LC at vertical blank,
-                                                 // but only when copper DMA is enabled (DMAEN + COPEN).
+                // Agnus restarts the copper from COP1LC at vertical blank,
+                // but only when copper DMA is enabled (DMAEN + COPEN).
                 if self.agnus.dma_enabled(0x0080) {
                     self.copper.restart_cop1();
                 }
@@ -170,6 +170,10 @@ impl Amiga {
                 SlotOwner::Audio(channel) => Some(channel),
                 _ => None,
             };
+            let audio_return_progress_this_cck = !matches!(
+                slot,
+                SlotOwner::Disk | SlotOwner::Sprite(_) | SlotOwner::Bitplane(_) | SlotOwner::Copper
+            );
             let mut fetched_plane_0 = false;
             match slot {
                 SlotOwner::Audio(_) => {}
@@ -231,10 +235,12 @@ impl Amiga {
                 }
             }
 
-            self.paula
-                .tick_audio_cck(self.agnus.dmacon, audio_dma_slot, |addr| {
-                    self.memory.read_chip_byte(addr)
-                });
+            self.paula.tick_audio_cck_with_bus(
+                self.agnus.dmacon,
+                audio_dma_slot,
+                audio_return_progress_this_cck,
+                |addr| self.memory.read_chip_byte(addr),
+            );
 
             self.audio_sample_phase += u64::from(AUDIO_SAMPLE_RATE);
             while self.audio_sample_phase >= PAL_CCK_HZ {

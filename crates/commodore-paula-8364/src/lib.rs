@@ -214,11 +214,11 @@ impl AudioChannel {
         Some(wrapped)
     }
 
-    fn tick_dma_return(&mut self) {
+    fn tick_dma_return(&mut self, return_progress_this_cck: bool) {
         if self.dma_return_word.is_none() {
             return;
         }
-        if self.dma_return_countdown > 0 {
+        if return_progress_this_cck && self.dma_return_countdown > 0 {
             self.dma_return_countdown -= 1;
         }
         if self.dma_return_countdown == 0
@@ -474,10 +474,21 @@ impl Paula8364 {
     ///
     /// `dmacon` is the current Agnus DMACON value. `audio_dma_slot` indicates
     /// whether this CCK is the dedicated DMA slot for a specific audio channel.
-    pub fn tick_audio_cck<F>(
+    pub fn tick_audio_cck<F>(&mut self, dmacon: u16, audio_dma_slot: Option<u8>, read_chip_byte: F)
+    where
+        F: FnMut(u32) -> u8,
+    {
+        self.tick_audio_cck_with_bus(dmacon, audio_dma_slot, true, read_chip_byte);
+    }
+
+    /// Tick Paula audio one color clock (CCK), with a machine-provided hint
+    /// indicating whether Agnus bus progress is available for pending DMA
+    /// return data this CCK.
+    pub fn tick_audio_cck_with_bus<F>(
         &mut self,
         dmacon: u16,
         audio_dma_slot: Option<u8>,
+        return_progress_this_cck: bool,
         mut read_chip_byte: F,
     ) where
         F: FnMut(u32) -> u8,
@@ -489,7 +500,7 @@ impl Paula8364 {
             if channel.sync_dma_enable(dma_enabled) {
                 irq_mask |= 1 << (7 + index);
             }
-            channel.tick_dma_return();
+            channel.tick_dma_return(return_progress_this_cck);
         }
 
         if let Some(index_u8) = audio_dma_slot {
