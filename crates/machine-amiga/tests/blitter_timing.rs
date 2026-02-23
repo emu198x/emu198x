@@ -5,6 +5,8 @@ use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 const REG_DDFSTRT: u16 = 0x092;
 const REG_DDFSTOP: u16 = 0x094;
 const REG_DMACON: u16 = 0x096;
+const REG_INTENA: u16 = 0x09A;
+const REG_INTREQ: u16 = 0x09C;
 const REG_BLTCON0: u16 = 0x040;
 const REG_BLTCON1: u16 = 0x042;
 const REG_BLTAFWM: u16 = 0x044;
@@ -30,6 +32,8 @@ const DMACON_SPREN: u16 = 0x0020;
 const DMACON_BPLEN: u16 = 0x0100;
 const DMACON_DMAEN: u16 = 0x0200;
 const DMACON_BLTPRI: u16 = 0x0400;
+const INTENA_SETCLR: u16 = 0x8000;
+const INTENA_INTEN: u16 = 0x4000;
 const INTREQ_BLIT: u16 = 0x0040;
 
 const VISIBLE_LINE_START: u16 = 0x2C;
@@ -250,6 +254,43 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
         &mut bus,
         addr,
         FunctionCode::SupervisorData,
+        true,
+        true,
+        None,
+    )
+}
+
+fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
+    let mut bus = AmigaBusWrapper {
+        agnus: &mut amiga.agnus,
+        memory: &mut amiga.memory,
+        denise: &mut amiga.denise,
+        copper: &mut amiga.copper,
+        cia_a: &mut amiga.cia_a,
+        cia_b: &mut amiga.cia_b,
+        paula: &mut amiga.paula,
+        floppy: &mut amiga.floppy,
+        keyboard: &mut amiga.keyboard,
+    };
+    M68kBus::poll_ipl(&mut bus)
+}
+
+fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
+    let mut bus = AmigaBusWrapper {
+        agnus: &mut amiga.agnus,
+        memory: &mut amiga.memory,
+        denise: &mut amiga.denise,
+        copper: &mut amiga.copper,
+        cia_a: &mut amiga.cia_a,
+        cia_b: &mut amiga.cia_b,
+        paula: &mut amiga.paula,
+        floppy: &mut amiga.floppy,
+        keyboard: &mut amiga.keyboard,
+    };
+    M68kBus::poll_cycle(
+        &mut bus,
+        0x00FF_FFFF,
+        FunctionCode::InterruptAck,
         true,
         true,
         None,
@@ -589,5 +630,62 @@ fn line_blit_blit_irq_fires_when_final_queued_op_clears_busy() {
         amiga.paula.intreq & INTREQ_BLIT,
         0,
         "BLIT IRQ should assert when the final queued op completes"
+    );
+}
+
+#[test]
+fn blit_irq_reaches_cpu_via_intena_ipl_and_iack_cycle() {
+    let mut amiga = make_test_amiga();
+    amiga.agnus.vpos = VISIBLE_LINE_START;
+    amiga.agnus.hpos = 0;
+
+    amiga.write_custom_reg(REG_INTENA, INTENA_INTEN | INTREQ_BLIT); // clear (bit15=0)
+    amiga.write_custom_reg(REG_INTREQ, INTREQ_BLIT); // clear pending BLIT request
+    assert_eq!(poll_ipl_via_cpu_bus(&mut amiga), 0);
+
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_BLTEN);
+    start_area_blit_copy_c(
+        &mut amiga,
+        4,
+        2,
+        true,
+        true,
+        true,
+        true,
+        0x0000_4000,
+        0x0000_5000,
+        0x0000_6000,
+        0x0000_7000,
+    );
+    run_blit_to_completion(&mut amiga, 2_000).expect("blit should complete");
+
+    assert_ne!(
+        amiga.paula.intreq & INTREQ_BLIT,
+        0,
+        "BLIT request bit should be set when the blit completes"
+    );
+    assert_eq!(
+        poll_ipl_via_cpu_bus(&mut amiga),
+        0,
+        "without INTENA master+BLIT enabled, CPU should not see a BLIT interrupt"
+    );
+
+    amiga.write_custom_reg(REG_INTENA, INTENA_SETCLR | INTENA_INTEN | INTREQ_BLIT);
+    assert_eq!(
+        poll_ipl_via_cpu_bus(&mut amiga),
+        3,
+        "BLIT interrupt should present IPL3 when enabled"
+    );
+    assert_eq!(
+        poll_iack_cycle_via_cpu_bus(&mut amiga),
+        BusStatus::Ready(27),
+        "CPU interrupt-ack cycle should receive the level-3 autovector"
+    );
+
+    amiga.write_custom_reg(REG_INTREQ, INTREQ_BLIT); // clear request
+    assert_eq!(
+        poll_ipl_via_cpu_bus(&mut amiga),
+        0,
+        "clearing BLIT request should drop IPL back to 0"
     );
 }
