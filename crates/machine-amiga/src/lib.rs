@@ -170,9 +170,17 @@ impl Amiga {
                 SlotOwner::Audio(channel) => Some(channel),
                 _ => None,
             };
-            let audio_return_progress_this_cck = !matches!(
+            // Conservative Agnus-bus contention model for Paula DMA returns:
+            // - `Refresh`, `Disk`, `Sprite`, and `Bitplane` slots always stall
+            //   return progress when they own the slot (reserved bus time).
+            // - `Copper` stalls only when it actually performs a memory fetch
+            //   (Fetch1/Fetch2), not while sitting in WAIT.
+            let mut audio_return_progress_this_cck = !matches!(
                 slot,
-                SlotOwner::Disk | SlotOwner::Sprite(_) | SlotOwner::Bitplane(_) | SlotOwner::Copper
+                SlotOwner::Refresh
+                    | SlotOwner::Disk
+                    | SlotOwner::Sprite(_)
+                    | SlotOwner::Bitplane(_)
             );
             let mut fetched_plane_0 = false;
             match slot {
@@ -190,14 +198,19 @@ impl Amiga {
                     }
                 }
                 SlotOwner::Copper => {
+                    let copper_used_chip_bus = std::cell::Cell::new(false);
                     let res = {
                         let memory = &self.memory;
                         self.copper.tick(vpos, hpos, |addr| {
+                            copper_used_chip_bus.set(true);
                             let hi = memory.read_chip_byte(addr);
                             let lo = memory.read_chip_byte(addr | 1);
                             (u16::from(hi) << 8) | u16::from(lo)
                         })
                     };
+                    if copper_used_chip_bus.get() {
+                        audio_return_progress_this_cck = false;
+                    }
                     if let Some((reg, val)) = res {
                         // COPCON protection (HRM Ch.2): copper cannot write
                         // registers $000-$03E at all, and $040-$07E only

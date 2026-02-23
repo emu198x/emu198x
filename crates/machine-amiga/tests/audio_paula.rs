@@ -5,6 +5,8 @@ const REG_DMACON: u16 = 0x096;
 const REG_DDFSTRT: u16 = 0x092;
 const REG_DDFSTOP: u16 = 0x094;
 const REG_ADKCON: u16 = 0x09E;
+const REG_COP1LCH: u16 = 0x080;
+const REG_COP1LCL: u16 = 0x082;
 const REG_AUD0LCH: u16 = 0x0A0;
 const REG_AUD0LCL: u16 = 0x0A2;
 const REG_AUD0LEN: u16 = 0x0A4;
@@ -19,6 +21,7 @@ const AUD_REG_DAT_OFFSET: u16 = 0x0A;
 
 const DMACON_DMAEN: u16 = 0x0200;
 const DMACON_AUD0EN: u16 = 0x0001;
+const DMACON_COPEN: u16 = 0x0080;
 const DMACON_SPREN: u16 = 0x0020;
 const DMACON_BPLEN: u16 = 0x0100;
 const INTREQ_AUD0: u16 = 0x0080;
@@ -84,6 +87,11 @@ fn clear_aud0_irq(amiga: &mut Amiga) {
 fn write_aud0_lc(amiga: &mut Amiga, addr: u32) {
     amiga.write_custom_reg(REG_AUD0LCH, (addr >> 16) as u16);
     amiga.write_custom_reg(REG_AUD0LCL, (addr & 0xFFFF) as u16);
+}
+
+fn write_cop1_lc(amiga: &mut Amiga, addr: u32) {
+    amiga.write_custom_reg(REG_COP1LCH, (addr >> 16) as u16);
+    amiga.write_custom_reg(REG_COP1LCL, (addr & 0xFFFF) as u16);
 }
 
 fn configure_aud0_dma(amiga: &mut Amiga, sample_addr: u32, len_words: u16, period: u16, vol: u16) {
@@ -575,6 +583,59 @@ fn aud0_dma_first_word_arrival_delay_increases_with_sprite_dma_contention() {
         contended > baseline,
         "sprite DMA contention should delay Paula DMA word return \
          (baseline={baseline}, contended={contended})"
+    );
+}
+
+#[test]
+fn aud0_dma_first_word_arrival_delay_increases_with_busy_copper_vs_waiting_copper() {
+    fn write_chip_word(amiga: &mut Amiga, addr: u32, word: u16) {
+        amiga.memory.write_byte(addr, (word >> 8) as u8);
+        amiga.memory.write_byte(addr + 1, word as u8);
+    }
+
+    fn first_word_arrival_cck(copper_busy: bool) -> u32 {
+        let mut amiga = make_test_amiga();
+        let sample_addr = 0x0000_3400u32;
+        let copper_addr = 0x0000_3800u32;
+
+        amiga.memory.write_byte(sample_addr, 0x7F);
+        amiga.memory.write_byte(sample_addr + 1, 0x80);
+        configure_aud0_dma(&mut amiga, sample_addr, 1, 124, 64);
+
+        if copper_busy {
+            // Repeated MOVE COLOR00,<val> keeps the copper in Fetch1/Fetch2,
+            // causing real chip-memory reads on copper slots.
+            for i in 0..16u32 {
+                let base = copper_addr + i * 4;
+                write_chip_word(&mut amiga, base, 0x0180);
+                write_chip_word(&mut amiga, base + 2, i as u16);
+            }
+        } else {
+            // End-of-list marker -> copper fetches the pair, then sits in WAIT
+            // without further chip-memory reads.
+            write_chip_word(&mut amiga, copper_addr, 0xFFFF);
+            write_chip_word(&mut amiga, copper_addr + 2, 0xFFFE);
+        }
+        write_cop1_lc(&mut amiga, copper_addr);
+
+        amiga.write_custom_reg(
+            REG_DMACON,
+            0x8000 | DMACON_DMAEN | DMACON_AUD0EN | DMACON_SPREN | DMACON_COPEN,
+        );
+
+        tick_until(&mut amiga, 4_000, |a| {
+            a.paula.read_audio_register(REG_AUD0DAT) == Some(0x7F80)
+        })
+        .expect("AUD0 DMA word should arrive")
+    }
+
+    let waiting = first_word_arrival_cck(false);
+    let busy = first_word_arrival_cck(true);
+
+    assert!(
+        busy > waiting,
+        "busy copper fetches should delay Paula DMA word return more than copper WAIT \
+         (waiting={waiting}, busy={busy})"
     );
 }
 
