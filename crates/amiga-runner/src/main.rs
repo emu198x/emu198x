@@ -1,22 +1,24 @@
 //! Minimal runner for the Amiga machine core.
 //!
-//! Scope: video output only (no host audio yet). Loads a Kickstart ROM and
-//! optionally inserts an ADF into DF0:, then either runs a windowed frontend
-//! or captures a framebuffer screenshot in headless mode.
+//! Scope: video output and basic Paula audio playback/capture. Loads a
+//! Kickstart ROM and optionally inserts an ADF into DF0:, then either runs a
+//! windowed frontend or captures a framebuffer screenshot/audio in headless
+//! mode.
 
 #![allow(clippy::cast_possible_truncation)]
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 use std::process;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use machine_amiga::format_adf::Adf;
-use machine_amiga::{
-    Amiga, AmigaConfig, AmigaModel, commodore_denise_ocs,
-};
+use machine_amiga::{Amiga, AmigaConfig, AmigaModel, commodore_denise_ocs};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -28,6 +30,8 @@ const FB_WIDTH: u32 = commodore_denise_ocs::FB_WIDTH;
 const FB_HEIGHT: u32 = commodore_denise_ocs::FB_HEIGHT;
 const SCALE: u32 = 3;
 const FRAME_DURATION: Duration = Duration::from_millis(20); // PAL ~50 Hz
+const AUDIO_CHANNELS: usize = 2;
+const AUDIO_QUEUE_SECONDS: usize = 2;
 
 // Amiga raw keycodes (US keyboard positional defaults)
 const AK_SPACE: u8 = 0x40;
@@ -61,6 +65,8 @@ struct CliArgs {
     headless: bool,
     frames: u32,
     screenshot_path: Option<PathBuf>,
+    audio_path: Option<PathBuf>,
+    mute: bool,
 }
 
 fn print_usage_and_exit(code: i32) -> ! {
@@ -72,6 +78,8 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --headless     Run without a window");
     eprintln!("  --frames <n>   Frames to run in headless mode [default: 300]");
     eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
+    eprintln!("  --audio <file.wav>  Save a WAV audio dump (headless)");
+    eprintln!("  --mute         Disable host audio playback (windowed)");
     eprintln!("  -h, --help     Show this help");
     process::exit(code);
 }
@@ -83,6 +91,8 @@ fn parse_args() -> CliArgs {
     let mut headless = false;
     let mut frames = 300;
     let mut screenshot_path: Option<PathBuf> = None;
+    let mut audio_path: Option<PathBuf> = None;
+    let mut mute = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -108,6 +118,13 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 screenshot_path = args.get(i).map(PathBuf::from);
             }
+            "--audio" => {
+                i += 1;
+                audio_path = args.get(i).map(PathBuf::from);
+            }
+            "--mute" => {
+                mute = true;
+            }
             "-h" | "--help" => print_usage_and_exit(0),
             other => {
                 eprintln!("Unknown argument: {other}");
@@ -124,7 +141,7 @@ fn parse_args() -> CliArgs {
             print_usage_and_exit(1);
         });
 
-    if screenshot_path.is_some() {
+    if screenshot_path.is_some() || audio_path.is_some() {
         headless = true;
     }
 
@@ -134,6 +151,8 @@ fn parse_args() -> CliArgs {
         headless,
         frames,
         screenshot_path,
+        audio_path,
+        mute,
     }
 }
 
@@ -204,11 +223,197 @@ fn save_screenshot(amiga: &Amiga, path: &PathBuf) -> Result<(), String> {
         .map_err(|e| format!("failed to write PNG data {}: {e}", path.display()))
 }
 
+fn save_audio_wav(samples: &[f32], path: &PathBuf) -> Result<(), String> {
+    let spec = hound::WavSpec {
+        channels: AUDIO_CHANNELS as u16,
+        sample_rate: machine_amiga::AUDIO_SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(path, spec)
+        .map_err(|e| format!("failed to create WAV {}: {e}", path.display()))?;
+
+    for &sample in samples {
+        let scaled = (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
+        writer
+            .write_sample(scaled)
+            .map_err(|e| format!("failed to write WAV sample {}: {e}", path.display()))?;
+    }
+
+    writer
+        .finalize()
+        .map_err(|e| format!("failed to finalize WAV {}: {e}", path.display()))
+}
+
+struct AudioOutput {
+    _stream: cpal::Stream,
+    queue: Arc<Mutex<VecDeque<f32>>>,
+    max_samples: usize,
+}
+
+impl AudioOutput {
+    fn new() -> Result<Self, String> {
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| String::from("no default audio output device"))?;
+
+        let supported_configs = device
+            .supported_output_configs()
+            .map_err(|e| format!("failed to query output configs: {e}"))?;
+
+        let desired = supported_configs
+            .filter(|cfg| cfg.channels() == AUDIO_CHANNELS as u16)
+            .find(|cfg| {
+                let min = cfg.min_sample_rate().0;
+                let max = cfg.max_sample_rate().0;
+                min <= machine_amiga::AUDIO_SAMPLE_RATE && machine_amiga::AUDIO_SAMPLE_RATE <= max
+            })
+            .ok_or_else(|| {
+                format!(
+                    "no {}-channel output config supports {} Hz",
+                    AUDIO_CHANNELS,
+                    machine_amiga::AUDIO_SAMPLE_RATE
+                )
+            })?;
+
+        let sample_format = desired.sample_format();
+        let config = desired
+            .with_sample_rate(cpal::SampleRate(machine_amiga::AUDIO_SAMPLE_RATE))
+            .config();
+
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let max_samples =
+            (machine_amiga::AUDIO_SAMPLE_RATE as usize) * AUDIO_CHANNELS * AUDIO_QUEUE_SECONDS;
+        let stream = match sample_format {
+            cpal::SampleFormat::F32 => {
+                let callback_queue = Arc::clone(&queue);
+                device
+                    .build_output_stream(
+                        &config,
+                        move |data: &mut [f32], _| write_audio_data_f32(data, &callback_queue),
+                        |err| eprintln!("Audio stream error: {err}"),
+                        None,
+                    )
+                    .map_err(|e| format!("failed to build f32 audio stream: {e}"))?
+            }
+            cpal::SampleFormat::I16 => {
+                let callback_queue = Arc::clone(&queue);
+                device
+                    .build_output_stream(
+                        &config,
+                        move |data: &mut [i16], _| write_audio_data_i16(data, &callback_queue),
+                        |err| eprintln!("Audio stream error: {err}"),
+                        None,
+                    )
+                    .map_err(|e| format!("failed to build i16 audio stream: {e}"))?
+            }
+            cpal::SampleFormat::U16 => {
+                let callback_queue = Arc::clone(&queue);
+                device
+                    .build_output_stream(
+                        &config,
+                        move |data: &mut [u16], _| write_audio_data_u16(data, &callback_queue),
+                        |err| eprintln!("Audio stream error: {err}"),
+                        None,
+                    )
+                    .map_err(|e| format!("failed to build u16 audio stream: {e}"))?
+            }
+            other => {
+                return Err(format!("unsupported audio sample format: {other:?}"));
+            }
+        };
+
+        stream
+            .play()
+            .map_err(|e| format!("failed to start audio stream: {e}"))?;
+
+        Ok(Self {
+            _stream: stream,
+            queue,
+            max_samples,
+        })
+    }
+
+    fn push_samples(&self, samples: &[f32]) {
+        if samples.is_empty() {
+            return;
+        }
+
+        let mut queue = match self.queue.lock() {
+            Ok(queue) => queue,
+            Err(_) => return,
+        };
+
+        for &sample in samples {
+            queue.push_back(sample);
+        }
+
+        while queue.len() > self.max_samples {
+            let _ = queue.pop_front();
+        }
+    }
+}
+
+fn write_audio_data_f32(data: &mut [f32], queue: &Arc<Mutex<VecDeque<f32>>>) {
+    let mut guard = match queue.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            data.fill(0.0);
+            return;
+        }
+    };
+
+    for sample in data {
+        *sample = guard.pop_front().unwrap_or(0.0);
+    }
+}
+
+fn write_audio_data_i16(data: &mut [i16], queue: &Arc<Mutex<VecDeque<f32>>>) {
+    let mut guard = match queue.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            data.fill(0);
+            return;
+        }
+    };
+
+    for sample in data {
+        let value = guard.pop_front().unwrap_or(0.0).clamp(-1.0, 1.0);
+        *sample = (value * f32::from(i16::MAX)) as i16;
+    }
+}
+
+fn write_audio_data_u16(data: &mut [u16], queue: &Arc<Mutex<VecDeque<f32>>>) {
+    let mut guard = match queue.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            data.fill(u16::MAX / 2);
+            return;
+        }
+    };
+
+    for sample in data {
+        let value = guard.pop_front().unwrap_or(0.0).clamp(-1.0, 1.0);
+        let scaled = ((value * 0.5) + 0.5) * f32::from(u16::MAX);
+        *sample = scaled as u16;
+    }
+}
+
 fn run_headless(cli: &CliArgs) {
     let mut amiga = make_amiga(cli);
+    let mut all_audio = if cli.audio_path.is_some() {
+        Some(Vec::new())
+    } else {
+        None
+    };
 
     for _ in 0..cli.frames {
         amiga.run_frame();
+        let audio = amiga.take_audio_buffer();
+        if let Some(buffer) = all_audio.as_mut() {
+            buffer.extend_from_slice(&audio);
+        }
     }
 
     if let Some(path) = &cli.screenshot_path {
@@ -218,10 +423,20 @@ fn run_headless(cli: &CliArgs) {
         }
         eprintln!("Screenshot saved to {}", path.display());
     }
+
+    if let Some(path) = &cli.audio_path {
+        let samples = all_audio.as_deref().unwrap_or(&[]);
+        if let Err(e) = save_audio_wav(samples, path) {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+        eprintln!("Audio saved to {}", path.display());
+    }
 }
 
 struct App {
     amiga: Amiga,
+    audio: Option<AudioOutput>,
     window: Option<&'static Window>,
     pixels: Option<Pixels<'static>>,
     last_frame_time: Instant,
@@ -231,9 +446,10 @@ struct App {
 }
 
 impl App {
-    fn new(amiga: Amiga) -> Self {
+    fn new(amiga: Amiga, audio: Option<AudioOutput>) -> Self {
         Self {
             amiga,
+            audio,
             window: None,
             pixels: None,
             last_frame_time: Instant::now(),
@@ -389,6 +605,12 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 if now.duration_since(self.last_frame_time) >= FRAME_DURATION {
                     self.amiga.run_frame();
+                    if let Some(audio) = &self.audio {
+                        let samples = self.amiga.take_audio_buffer();
+                        audio.push_samples(&samples);
+                    } else {
+                        let _ = self.amiga.take_audio_buffer();
+                    }
                     self.update_pixels();
                     self.last_frame_time = now;
                 }
@@ -650,7 +872,18 @@ fn main() {
     }
 
     let amiga = make_amiga(&cli);
-    let mut app = App::new(amiga);
+    let audio = if cli.mute {
+        None
+    } else {
+        match AudioOutput::new() {
+            Ok(output) => Some(output),
+            Err(e) => {
+                eprintln!("Audio disabled: {e}");
+                None
+            }
+        }
+    };
+    let mut app = App::new(amiga, audio);
 
     let event_loop = match EventLoop::new() {
         Ok(loop_) => loop_,

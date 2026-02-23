@@ -19,15 +19,15 @@ use motorola_68000::cpu::Cpu68000;
 use peripheral_amiga_keyboard::AmigaKeyboard;
 
 // Re-export chip crates so tests and downstream users can access types.
+pub use crate::config::{AmigaConfig, AmigaModel};
 pub use commodore_agnus_ocs;
 pub use commodore_denise_ocs;
 pub use commodore_paula_8364;
 pub use drive_amiga_floppy;
 pub use format_adf;
 pub use mos_cia_8520;
+use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 pub use peripheral_amiga_keyboard;
-pub use crate::config::{AmigaConfig, AmigaModel};
-use motorola_68000::bus::{M68kBus, FunctionCode, BusStatus};
 
 /// Standard Amiga PAL Master Crystal Frequency (Hz)
 pub const PAL_CRYSTAL_HZ: u64 = 28_375_160;
@@ -44,6 +44,9 @@ pub const TICKS_PER_ECLOCK: u64 = 40;
 pub const PAL_FRAME_TICKS: u64 = (commodore_agnus_ocs::PAL_CCKS_PER_LINE as u64)
     * (commodore_agnus_ocs::PAL_LINES_PER_FRAME as u64)
     * TICKS_PER_CCK;
+/// Paula audio sample rate exposed to host runners.
+pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
+const PAL_CCK_HZ: u64 = PAL_CRYSTAL_HZ / TICKS_PER_CCK;
 
 /// Vertical start of visible display (PAL line $2C = 44).
 const DISPLAY_VSTART: u16 = 0x2C;
@@ -60,6 +63,8 @@ pub struct Amiga {
     pub paula: Paula8364,
     pub floppy: AmigaFloppyDrive,
     pub keyboard: AmigaKeyboard,
+    audio_sample_phase: u64,
+    audio_buffer: Vec<f32>,
 }
 
 impl Amiga {
@@ -81,17 +86,17 @@ impl Amiga {
 
         let mut cpu = Cpu68000::new();
         let memory = Memory::new(512 * 1024, kickstart);
-        
+
         // Initial reset vectors come from ROM (overlay is ON at power-on,
         // mapping Kickstart to $000000).
-        let ssp = (u32::from(memory.kickstart[0]) << 24) |
-                  (u32::from(memory.kickstart[1]) << 16) |
-                  (u32::from(memory.kickstart[2]) << 8)  |
-                   u32::from(memory.kickstart[3]);
-        let pc  = (u32::from(memory.kickstart[4]) << 24) |
-                  (u32::from(memory.kickstart[5]) << 16) |
-                  (u32::from(memory.kickstart[6]) << 8)  |
-                   u32::from(memory.kickstart[7]);
+        let ssp = (u32::from(memory.kickstart[0]) << 24)
+            | (u32::from(memory.kickstart[1]) << 16)
+            | (u32::from(memory.kickstart[2]) << 8)
+            | u32::from(memory.kickstart[3]);
+        let pc = (u32::from(memory.kickstart[4]) << 24)
+            | (u32::from(memory.kickstart[5]) << 16)
+            | (u32::from(memory.kickstart[6]) << 8)
+            | u32::from(memory.kickstart[7]);
 
         cpu.reset_to(ssp, pc);
 
@@ -118,6 +123,8 @@ impl Amiga {
             paula: Paula8364::new(),
             floppy: AmigaFloppyDrive::new(),
             keyboard: AmigaKeyboard::new(),
+            audio_sample_phase: 0,
+            audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
         }
     }
 
@@ -127,7 +134,7 @@ impl Amiga {
         if self.master_clock % TICKS_PER_CCK == 0 {
             let vpos = self.agnus.vpos;
             let hpos = self.agnus.hpos;
-            
+
             // VERTB fires at the start of vblank (beam at line 0, start of frame).
             // The check runs before tick_cck(), so vpos/hpos reflect the current
             // beam position. vpos=0, hpos=0 means the beam just wrapped from the
@@ -159,8 +166,13 @@ impl Amiga {
 
             // --- DMA slots ---
             let slot = self.agnus.current_slot();
+            let audio_dma_slot = match slot {
+                SlotOwner::Audio(channel) => Some(channel),
+                _ => None,
+            };
             let mut fetched_plane_0 = false;
             match slot {
+                SlotOwner::Audio(_) => {}
                 SlotOwner::Bitplane(plane) => {
                     let idx = plane as usize;
                     let addr = self.agnus.bpl_pt[idx];
@@ -187,7 +199,9 @@ impl Amiga {
                         // registers $000-$03E at all, and $040-$07E only
                         // when the CDANG (danger) bit is set in COPCON.
                         if reg >= 0x080 || (reg >= 0x040 && self.copper.danger) {
-                            if reg == 0x09C && (val & 0x0010) != 0 { self.paula.request_interrupt(4); }
+                            if reg == 0x09C && (val & 0x0010) != 0 {
+                                self.paula.request_interrupt(4);
+                            }
                             self.write_custom_reg(reg, val);
                         }
                     }
@@ -208,14 +222,26 @@ impl Amiga {
                     let num_bpl = self.agnus.num_bitplanes();
                     for i in 0..num_bpl as usize {
                         let modulo = if i % 2 == 0 {
-                            self.agnus.bpl1mod  // Odd planes (BPL1/3/5)
+                            self.agnus.bpl1mod // Odd planes (BPL1/3/5)
                         } else {
-                            self.agnus.bpl2mod  // Even planes (BPL2/4/6)
+                            self.agnus.bpl2mod // Even planes (BPL2/4/6)
                         };
-                        self.agnus.bpl_pt[i] =
-                            (self.agnus.bpl_pt[i] as i32 + modulo as i32) as u32;
+                        self.agnus.bpl_pt[i] = (self.agnus.bpl_pt[i] as i32 + modulo as i32) as u32;
                     }
                 }
+            }
+
+            self.paula
+                .tick_audio_cck(self.agnus.dmacon, audio_dma_slot, |addr| {
+                    self.memory.read_chip_byte(addr)
+                });
+
+            self.audio_sample_phase += u64::from(AUDIO_SAMPLE_RATE);
+            while self.audio_sample_phase >= PAL_CCK_HZ {
+                self.audio_sample_phase -= PAL_CCK_HZ;
+                let (left, right) = self.paula.mix_audio_stereo();
+                self.audio_buffer.push(left);
+                self.audio_buffer.push(right);
             }
 
             self.agnus.tick_cck();
@@ -229,18 +255,28 @@ impl Amiga {
 
         if self.master_clock % TICKS_PER_CPU == 0 {
             let mut bus = AmigaBusWrapper {
-                agnus: &mut self.agnus, memory: &mut self.memory, denise: &mut self.denise,
-                copper: &mut self.copper, cia_a: &mut self.cia_a, cia_b: &mut self.cia_b, paula: &mut self.paula,
-                floppy: &mut self.floppy, keyboard: &mut self.keyboard,
+                agnus: &mut self.agnus,
+                memory: &mut self.memory,
+                denise: &mut self.denise,
+                copper: &mut self.copper,
+                cia_a: &mut self.cia_a,
+                cia_b: &mut self.cia_b,
+                paula: &mut self.paula,
+                floppy: &mut self.floppy,
+                keyboard: &mut self.keyboard,
             };
             self.cpu.tick(&mut bus, self.master_clock);
         }
 
         if self.master_clock % TICKS_PER_ECLOCK == 0 {
             self.cia_a.tick();
-            if self.cia_a.irq_active() { self.paula.request_interrupt(3); }
+            if self.cia_a.irq_active() {
+                self.paula.request_interrupt(3);
+            }
             self.cia_b.tick();
-            if self.cia_b.irq_active() { self.paula.request_interrupt(13); }
+            if self.cia_b.irq_active() {
+                self.paula.request_interrupt(13);
+            }
 
             // Floppy drive motor spin-up timer
             self.floppy.tick();
@@ -249,13 +285,29 @@ impl Amiga {
             let status = self.floppy.status();
             let mut ext_a = self.cia_a.external_a;
             // PA2: /DSKCHANGE — 0 when disk changed
-            if status.disk_change { ext_a &= !0x04; } else { ext_a |= 0x04; }
+            if status.disk_change {
+                ext_a &= !0x04;
+            } else {
+                ext_a |= 0x04;
+            }
             // PA3: /DSKPROT — 0 when write-protected
-            if status.write_protect { ext_a &= !0x08; } else { ext_a |= 0x08; }
+            if status.write_protect {
+                ext_a &= !0x08;
+            } else {
+                ext_a |= 0x08;
+            }
             // PA4: /DSKTRACK0 — 0 when at track 0
-            if status.track0 { ext_a &= !0x10; } else { ext_a |= 0x10; }
+            if status.track0 {
+                ext_a &= !0x10;
+            } else {
+                ext_a |= 0x10;
+            }
             // PA5: /DSKRDY — 0 when motor at speed
-            if status.ready { ext_a &= !0x20; } else { ext_a |= 0x20; }
+            if status.ready {
+                ext_a &= !0x20;
+            } else {
+                ext_a |= 0x20;
+            }
             self.cia_a.external_a = ext_a;
 
             // Keyboard: tick and inject serial byte if ready
@@ -267,8 +319,13 @@ impl Amiga {
 
     pub fn write_custom_reg(&mut self, offset: u16, val: u16) {
         write_custom_register(
-            &mut self.agnus, &mut self.denise, &mut self.copper,
-            &mut self.paula, &mut self.memory, offset, val,
+            &mut self.agnus,
+            &mut self.denise,
+            &mut self.copper,
+            &mut self.paula,
+            &mut self.memory,
+            offset,
+            val,
         );
     }
 
@@ -282,6 +339,11 @@ impl Amiga {
     /// Borrow the current raw ARGB framebuffer (320x256).
     pub fn framebuffer(&self) -> &[u32] {
         &self.denise.framebuffer
+    }
+
+    /// Drain interleaved stereo audio samples (`f32`, `L,R,...`).
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        std::mem::take(&mut self.audio_buffer)
     }
 
     /// Insert a disk image into the internal floppy drive (DF0:).
@@ -337,26 +399,40 @@ impl Amiga {
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
         let fb_y = vpos.wrapping_sub(DISPLAY_VSTART);
-        if fb_y >= commodore_denise_ocs::FB_HEIGHT as u16 { return None; }
+        if fb_y >= commodore_denise_ocs::FB_HEIGHT as u16 {
+            return None;
+        }
         // First bitplane pixel appears 8 CCKs after DDFSTRT (one full
         // 8-CCK fetch group fills all plane latches and triggers load).
         let first_pixel_cck = self.agnus.ddfstrt.wrapping_add(8);
         let cck_offset = hpos_cck.wrapping_sub(first_pixel_cck);
         let fb_x = u32::from(cck_offset) * 2;
-        if fb_x + 1 >= commodore_denise_ocs::FB_WIDTH { return None; }
+        if fb_x + 1 >= commodore_denise_ocs::FB_WIDTH {
+            return None;
+        }
         Some((fb_x, u32::from(fb_y)))
     }
 }
 
 pub struct AmigaBusWrapper<'a> {
-    pub agnus: &'a mut Agnus, pub memory: &'a mut Memory, pub denise: &'a mut DeniseOcs,
-    pub copper: &'a mut Copper, pub cia_a: &'a mut Cia8520, pub cia_b: &'a mut Cia8520, pub paula: &'a mut Paula8364,
-    pub floppy: &'a mut AmigaFloppyDrive, pub keyboard: &'a mut AmigaKeyboard,
+    pub agnus: &'a mut Agnus,
+    pub memory: &'a mut Memory,
+    pub denise: &'a mut DeniseOcs,
+    pub copper: &'a mut Copper,
+    pub cia_a: &'a mut Cia8520,
+    pub cia_b: &'a mut Cia8520,
+    pub paula: &'a mut Paula8364,
+    pub floppy: &'a mut AmigaFloppyDrive,
+    pub keyboard: &'a mut AmigaKeyboard,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
-    fn poll_ipl(&mut self) -> u8 { self.paula.compute_ipl() }
-    fn poll_interrupt_ack(&mut self, level: u8) -> BusStatus { BusStatus::Ready(24 + level as u16) }
+    fn poll_ipl(&mut self) -> u8 {
+        self.paula.compute_ipl()
+    }
+    fn poll_interrupt_ack(&mut self, level: u8) -> BusStatus {
+        BusStatus::Ready(24 + level as u16)
+    }
     fn reset(&mut self) {
         // RESET instruction asserts the hardware reset line for 124 CPU cycles.
         // This resets all peripherals to their power-on state.
@@ -367,12 +443,18 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         // defaults to ON — ROM mapped at $0.
         self.memory.overlay = true;
         // Reset custom chip state
-        self.paula.intreq = 0;
-        self.paula.intena = 0;
+        self.paula.reset();
         self.agnus.dmacon = 0;
     }
 
-    fn poll_cycle(&mut self, addr: u32, fc: FunctionCode, is_read: bool, is_word: bool, data: Option<u16>) -> BusStatus {
+    fn poll_cycle(
+        &mut self,
+        addr: u32,
+        fc: FunctionCode,
+        is_read: bool,
+        is_word: bool,
+        data: Option<u16>,
+    ) -> BusStatus {
         // Amiga uses autovectors for all hardware interrupts.
         // The CPU issues an IACK bus cycle with FC=InterruptAck. On real
         // hardware the address bus carries the level in A1-A3, but the CPU
@@ -393,7 +475,9 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         if (addr & 0xFFF000) == 0xBFE000 {
             let reg = ((addr >> 8) & 0x0F) as u8;
             if is_read {
-                if addr & 1 != 0 { return BusStatus::Ready(u16::from(self.cia_a.read(reg))); }
+                if addr & 1 != 0 {
+                    return BusStatus::Ready(u16::from(self.cia_a.read(reg)));
+                }
                 return BusStatus::Ready(0xFF00);
             } else {
                 // CIA-A receives data from D0-D7 (low byte) on:
@@ -425,27 +509,30 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         if (addr & 0xFFF000) == 0xBFD000 {
             let reg = ((addr >> 8) & 0x0F) as u8;
             if is_read {
-                if addr & 1 == 0 { return BusStatus::Ready(u16::from(self.cia_b.read(reg)) << 8 | 0x00FF); }
+                if addr & 1 == 0 {
+                    return BusStatus::Ready(u16::from(self.cia_b.read(reg)) << 8 | 0x00FF);
+                }
                 return BusStatus::Ready(0x00FF);
             } else {
                 let should_write = (addr & 1 == 0) || is_word;
                 if should_write {
                     let val = if is_word {
-                        (data.unwrap_or(0) >> 8) as u8  // word: CIA-B data from D8-D15
+                        (data.unwrap_or(0) >> 8) as u8 // word: CIA-B data from D8-D15
                     } else {
-                        data.unwrap_or(0) as u8         // byte: CPU puts value in low byte
+                        data.unwrap_or(0) as u8 // byte: CPU puts value in low byte
                     };
                     self.cia_b.write(reg, val);
                     // PRB write: update floppy drive control signals
                     if reg == 0x01 {
                         let prb = self.cia_b.port_b_output();
                         // Active-low signals: asserted when bit is 0
-                        let step = prb & 0x01 == 0;       // PB0: /DSKSTEP
-                        let dir_inward = prb & 0x02 == 0;  // PB1: /DSKDIREC (0=inward)
-                        let side_upper = prb & 0x04 == 0;  // PB2: /DSKSIDE (0=upper/head 1)
-                        let sel = prb & 0x08 == 0;         // PB3: /DSKSEL0
-                        let motor = prb & 0x80 == 0;       // PB7: /DSKMOTOR
-                        self.floppy.update_control(step, dir_inward, side_upper, sel, motor);
+                        let step = prb & 0x01 == 0; // PB0: /DSKSTEP
+                        let dir_inward = prb & 0x02 == 0; // PB1: /DSKDIREC (0=inward)
+                        let side_upper = prb & 0x04 == 0; // PB2: /DSKSIDE (0=upper/head 1)
+                        let sel = prb & 0x08 == 0; // PB3: /DSKSEL0
+                        let motor = prb & 0x80 == 0; // PB7: /DSKMOTOR
+                        self.floppy
+                            .update_control(step, dir_inward, side_upper, sel, motor);
                     }
                 }
                 return BusStatus::Ready(0);
@@ -458,8 +545,13 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             if !is_read {
                 let val = data.unwrap_or(0);
                 write_custom_register(
-                    self.agnus, self.denise, self.copper,
-                    self.paula, self.memory, offset, val,
+                    self.agnus,
+                    self.denise,
+                    self.copper,
+                    self.paula,
+                    self.memory,
+                    offset,
+                    val,
                 );
             } else {
                 // Custom register read: get the 16-bit value, then for
@@ -483,6 +575,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x01A => 0,
                     0x01C => self.paula.intena,
                     0x01E => self.paula.intreq,
+                    0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),
                     0x07C => 0xFFFF,
                     _ => 0,
                 };
@@ -491,7 +584,11 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                 // The CPU's ReadByte stores the value as u16 and uses the low byte,
                 // so we place the relevant byte in bits 7-0.
                 if !is_word {
-                    let byte = if addr & 1 == 0 { (word >> 8) as u8 } else { word as u8 };
+                    let byte = if addr & 1 == 0 {
+                        (word >> 8) as u8
+                    } else {
+                        word as u8
+                    };
                     return BusStatus::Ready(u16::from(byte));
                 }
                 return BusStatus::Ready(word);
@@ -507,12 +604,18 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                             let hi = self.memory.read_byte(addr);
                             let lo = self.memory.read_byte(addr | 1);
                             (u16::from(hi) << 8) | u16::from(lo)
-                        } else { u16::from(self.memory.read_byte(addr)) };
+                        } else {
+                            u16::from(self.memory.read_byte(addr))
+                        };
                         BusStatus::Ready(val)
                     } else {
                         let val = data.unwrap_or(0);
-                        if is_word { self.memory.write_byte(addr, (val >> 8) as u8); self.memory.write_byte(addr | 1, val as u8); }
-                        else { self.memory.write_byte(addr, val as u8); }
+                        if is_word {
+                            self.memory.write_byte(addr, (val >> 8) as u8);
+                            self.memory.write_byte(addr | 1, val as u8);
+                        } else {
+                            self.memory.write_byte(addr, val as u8);
+                        }
                         BusStatus::Ready(0)
                     }
                 }
@@ -524,17 +627,26 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     let hi = self.memory.read_byte(addr);
                     let lo = self.memory.read_byte(addr | 1);
                     (u16::from(hi) << 8) | u16::from(lo)
-                } else { u16::from(self.memory.read_byte(addr)) };
+                } else {
+                    u16::from(self.memory.read_byte(addr))
+                };
                 BusStatus::Ready(val)
-            } else { BusStatus::Ready(0) }
+            } else {
+                BusStatus::Ready(0)
+            }
         }
     }
 }
 
 /// Shared custom register write dispatch used by both CPU and copper paths.
 fn write_custom_register(
-    agnus: &mut Agnus, denise: &mut DeniseOcs, copper: &mut Copper,
-    paula: &mut Paula8364, memory: &mut Memory, offset: u16, val: u16,
+    agnus: &mut Agnus,
+    denise: &mut DeniseOcs,
+    copper: &mut Copper,
+    paula: &mut Paula8364,
+    memory: &mut Memory,
+    offset: u16,
+    val: u16,
 ) {
     match offset {
         // Blitter registers
@@ -579,8 +691,11 @@ fn write_custom_register(
 
         // DMA control
         0x096 => {
-            if val & 0x8000 != 0 { agnus.dmacon |= val & 0x7FFF; }
-            else { agnus.dmacon &= !(val & 0x7FFF); }
+            if val & 0x8000 != 0 {
+                agnus.dmacon |= val & 0x7FFF;
+            } else {
+                agnus.dmacon &= !(val & 0x7FFF);
+            }
         }
 
         // Interrupts
@@ -614,16 +729,22 @@ fn write_custom_register(
         // Bitplane pointers ($0E0-$0EE)
         0x0E0..=0x0EE => {
             let idx = ((offset - 0x0E0) / 4) as usize;
-            if offset & 2 == 0 { agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16); }
-            else { agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE); }
+            if offset & 2 == 0 {
+                agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16);
+            } else {
+                agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE);
+            }
         }
 
         // Sprite pointers ($120-$13E)
         0x120..=0x13E => {
             let idx = ((offset - 0x120) / 4) as usize;
             if idx < 8 {
-                if offset & 2 == 0 { agnus.spr_pt[idx] = (agnus.spr_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16); }
-                else { agnus.spr_pt[idx] = (agnus.spr_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE); }
+                if offset & 2 == 0 {
+                    agnus.spr_pt[idx] = (agnus.spr_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16);
+                } else {
+                    agnus.spr_pt[idx] = (agnus.spr_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE);
+                }
             }
         }
 
@@ -648,8 +769,10 @@ fn write_custom_register(
             denise.set_palette(idx, val);
         }
 
-        // Audio channels ($0A0-$0D4): accept and discard
-        0x0A0..=0x0D4 => {}
+        // Paula audio channels (AUD0-AUD3)
+        0x0A0..=0x0DA => {
+            let _ = paula.write_audio_register(offset, val);
+        }
 
         _ => {}
     }
@@ -681,9 +804,9 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     let a_shift = (agnus.bltcon0 >> 12) & 0xF;
     let b_shift = (agnus.bltcon1 >> 12) & 0xF;
     let desc = agnus.bltcon1 & 0x0002 != 0;
-    let fci = (agnus.bltcon1 & 0x0004) != 0;  // Fill Carry Input
-    let ife = (agnus.bltcon1 & 0x0008) != 0;  // Inclusive Fill Enable
-    let efe = (agnus.bltcon1 & 0x0010) != 0;  // Exclusive Fill Enable
+    let fci = (agnus.bltcon1 & 0x0004) != 0; // Fill Carry Input
+    let ife = (agnus.bltcon1 & 0x0008) != 0; // Inclusive Fill Enable
+    let efe = (agnus.bltcon1 & 0x0010) != 0; // Exclusive Fill Enable
     let fill_enabled = ife || efe;
 
     let mut apt = agnus.blt_apt;
@@ -716,14 +839,39 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
             // Read source channels.
             // DMA reads update the holding registers (BLTADAT/BLTBDAT/BLTCDAT)
             // so subsequent blits with the channel disabled see the last DMA value.
-            let a_raw = if use_a { let w = read_word(&*memory, apt); apt = (apt as i32 + ptr_step) as u32; agnus.blt_adat = w; w } else { agnus.blt_adat };
-            let b_raw = if use_b { let w = read_word(&*memory, bpt); bpt = (bpt as i32 + ptr_step) as u32; agnus.blt_bdat = w; w } else { agnus.blt_bdat };
-            let c_val = if use_c { let w = read_word(&*memory, cpt); cpt = (cpt as i32 + ptr_step) as u32; agnus.blt_cdat = w; w } else { agnus.blt_cdat };
+            let a_raw = if use_a {
+                let w = read_word(&*memory, apt);
+                apt = (apt as i32 + ptr_step) as u32;
+                agnus.blt_adat = w;
+                w
+            } else {
+                agnus.blt_adat
+            };
+            let b_raw = if use_b {
+                let w = read_word(&*memory, bpt);
+                bpt = (bpt as i32 + ptr_step) as u32;
+                agnus.blt_bdat = w;
+                w
+            } else {
+                agnus.blt_bdat
+            };
+            let c_val = if use_c {
+                let w = read_word(&*memory, cpt);
+                cpt = (cpt as i32 + ptr_step) as u32;
+                agnus.blt_cdat = w;
+                w
+            } else {
+                agnus.blt_cdat
+            };
 
             // Apply first/last word masks to A channel
             let mut a_masked = a_raw;
-            if col == 0 { a_masked &= agnus.blt_afwm; }
-            if col == width_words - 1 { a_masked &= agnus.blt_alwm; }
+            if col == 0 {
+                a_masked &= agnus.blt_afwm;
+            }
+            if col == width_words - 1 {
+                a_masked &= agnus.blt_alwm;
+            }
 
             // Barrel shift A: combine with previous word.
             // In DESC mode the shift direction reverses (left instead of
@@ -789,10 +937,18 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
         // Apply modulos at end of each row.
         // HRM p. 182/199: In descending mode the blitter subtracts modulos.
         let mod_dir: i32 = if desc { -1 } else { 1 };
-        if use_a { apt = (apt as i32 + i32::from(agnus.blt_amod) * mod_dir) as u32; }
-        if use_b { bpt = (bpt as i32 + i32::from(agnus.blt_bmod) * mod_dir) as u32; }
-        if use_c { cpt = (cpt as i32 + i32::from(agnus.blt_cmod) * mod_dir) as u32; }
-        if use_d { dpt = (dpt as i32 + i32::from(agnus.blt_dmod) * mod_dir) as u32; }
+        if use_a {
+            apt = (apt as i32 + i32::from(agnus.blt_amod) * mod_dir) as u32;
+        }
+        if use_b {
+            bpt = (bpt as i32 + i32::from(agnus.blt_bmod) * mod_dir) as u32;
+        }
+        if use_c {
+            cpt = (cpt as i32 + i32::from(agnus.blt_cmod) * mod_dir) as u32;
+        }
+        if use_d {
+            dpt = (dpt as i32 + i32::from(agnus.blt_dmod) * mod_dir) as u32;
+        }
     }
 
     // Update pointer registers
@@ -838,9 +994,9 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
     // Octant control bits (HRM Appendix A):
     // SUD/SUL/AUL are not simple X/Y sign + major-axis flags. They form a
     // hardware-specific octant code and must be decoded via the HRM table.
-    let sud  = agnus.bltcon1 & 0x0010 != 0;
-    let sul  = agnus.bltcon1 & 0x0008 != 0;
-    let aul  = agnus.bltcon1 & 0x0004 != 0;
+    let sud = agnus.bltcon1 & 0x0010 != 0;
+    let sul = agnus.bltcon1 & 0x0008 != 0;
+    let aul = agnus.bltcon1 & 0x0004 != 0;
     let sing = agnus.bltcon1 & 0x0002 != 0;
     let oct_code = ((sud as u8) << 2) | ((sul as u8) << 1) | (aul as u8);
     // Code (SUD:SUL:AUL) -> octant index, per HRM table.
@@ -857,12 +1013,12 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
     };
     let (major_is_y, x_neg, y_neg) = match octant {
         0 => (false, false, false), // +X, +Y, X-major
-        1 => (true,  false, false), // +X, +Y, Y-major
-        2 => (true,  true,  false), // -X, +Y, Y-major
-        3 => (false, true,  false), // -X, +Y, X-major
-        4 => (false, true,  true),  // -X, -Y, X-major
-        5 => (true,  true,  true),  // -X, -Y, Y-major
-        6 => (true,  false, true),  // +X, -Y, Y-major
+        1 => (true, false, false),  // +X, +Y, Y-major
+        2 => (true, true, false),   // -X, +Y, Y-major
+        3 => (false, true, false),  // -X, +Y, X-major
+        4 => (false, true, true),   // -X, -Y, X-major
+        5 => (true, true, true),    // -X, -Y, Y-major
+        6 => (true, false, true),   // +X, -Y, Y-major
         7 => (false, false, true),  // +X, -Y, X-major
         _ => unreachable!(),
     };
@@ -906,7 +1062,11 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 
         // Channel B = texture bit (MSB of rotating texture register)
         let b_val = if texture_enabled {
-            if texture & 0x8000 != 0 { 0xFFFF } else { 0x0000 }
+            if texture & 0x8000 != 0 {
+                0xFFFF
+            } else {
+                0x0000
+            }
         } else {
             0xFFFF
         };
