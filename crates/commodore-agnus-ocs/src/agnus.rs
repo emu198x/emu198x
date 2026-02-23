@@ -104,6 +104,8 @@ pub struct Agnus {
     pub bltcon1: u16,
     pub bltsize: u16,
     pub blitter_busy: bool,
+    pub blitter_exec_pending: bool,
+    pub blitter_ccks_remaining: u32,
     pub blt_apt: u32,
     pub blt_bpt: u32,
     pub blt_cpt: u32,
@@ -145,6 +147,8 @@ impl Agnus {
             bltcon1: 0,
             bltsize: 0,
             blitter_busy: false,
+            blitter_exec_pending: false,
+            blitter_ccks_remaining: 0,
             blt_apt: 0,
             blt_bpt: 0,
             blt_cpt: 0,
@@ -174,6 +178,59 @@ impl Agnus {
 
     pub fn dma_enabled(&self, bit: u16) -> bool {
         (self.dmacon & 0x0200) != 0 && (self.dmacon & bit) != 0
+    }
+
+    /// `true` when a busy blitter is in nasty mode and may steal CPU/free slots.
+    #[must_use]
+    pub fn blitter_nasty_active(&self) -> bool {
+        const DMACON_BLTEN: u16 = 0x0040;
+        const DMACON_BLTPRI: u16 = 0x0400;
+
+        self.blitter_busy && self.dma_enabled(DMACON_BLTEN) && (self.dmacon & DMACON_BLTPRI) != 0
+    }
+
+    /// Start a coarse per-CCK blitter completion timer.
+    ///
+    /// This preserves `blitter_busy` across CCKs so bus arbitration can react
+    /// to the blitter before the existing synchronous blit implementation runs.
+    pub fn start_blit(&mut self) {
+        self.blitter_busy = true;
+        self.blitter_exec_pending = true;
+        self.blitter_ccks_remaining = self.coarse_blit_cck_budget();
+    }
+
+    /// Advance the coarse blitter scheduler by one CCK.
+    ///
+    /// Returns `true` when the pending blit should execute now.
+    pub fn tick_blitter_scheduler(&mut self, progress_this_cck: bool) -> bool {
+        if !self.blitter_exec_pending || !self.blitter_busy || !progress_this_cck {
+            return false;
+        }
+
+        if self.blitter_ccks_remaining > 0 {
+            self.blitter_ccks_remaining -= 1;
+        }
+        if self.blitter_ccks_remaining == 0 {
+            self.blitter_exec_pending = false;
+            return true;
+        }
+        false
+    }
+
+    fn coarse_blit_cck_budget(&self) -> u32 {
+        // Coarse placeholder until per-slot blitter DMA is modeled.
+        // Keep delays non-zero (to expose `blitter_busy` timing) but capped so
+        // boot/test runtime does not explode on large blits.
+        let height = u32::from((self.bltsize >> 6) & 0x03FF);
+        let width_words = u32::from(self.bltsize & 0x003F);
+        let height = if height == 0 { 1024 } else { height };
+        let width_words = if width_words == 0 { 64 } else { width_words };
+        let work_units = if (self.bltcon1 & 0x0001) != 0 {
+            height // line mode: one plotted step per BLTSIZE row
+        } else {
+            height.saturating_mul(width_words)
+        };
+        work_units.clamp(1, 512)
     }
 
     /// Tick one CCK (8 crystal ticks).
@@ -269,9 +326,6 @@ impl Agnus {
 
     /// Compute the machine-facing Agnus bus-arbitration plan for this CCK.
     pub fn cck_bus_plan(&self) -> CckBusPlan {
-        const DMACON_BLTEN: u16 = 0x0040;
-        const DMACON_BLTPRI: u16 = 0x0400;
-
         let slot_owner = self.current_slot();
         let audio_dma_service_channel = match slot_owner {
             SlotOwner::Audio(channel) => Some(channel),
@@ -282,9 +336,7 @@ impl Agnus {
             _ => None,
         };
         let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
-        let blitter_nasty_active = self.blitter_busy
-            && self.dma_enabled(DMACON_BLTEN)
-            && (self.dmacon & DMACON_BLTPRI) != 0;
+        let blitter_nasty_active = self.blitter_nasty_active();
         let blitter_chip_bus_granted = matches!(slot_owner, SlotOwner::Cpu) && blitter_nasty_active;
         let cpu_chip_bus_granted =
             matches!(slot_owner, SlotOwner::Cpu) && !blitter_chip_bus_granted;
@@ -440,5 +492,29 @@ mod tests {
         let plan = agnus.cck_bus_plan();
         assert!(plan.cpu_chip_bus_granted);
         assert!(!plan.blitter_chip_bus_granted);
+    }
+
+    #[test]
+    fn blitter_scheduler_counts_down_and_requires_progress() {
+        let mut agnus = Agnus::new();
+        agnus.bltsize = (1 << 6) | 2; // height=1, width=2 => budget=2
+        agnus.start_blit();
+
+        assert!(agnus.blitter_busy);
+        assert!(agnus.blitter_exec_pending);
+        assert_eq!(agnus.blitter_ccks_remaining, 2);
+
+        assert!(
+            !agnus.tick_blitter_scheduler(false),
+            "no progress when bus grant is withheld"
+        );
+        assert_eq!(agnus.blitter_ccks_remaining, 2);
+
+        assert!(!agnus.tick_blitter_scheduler(true));
+        assert_eq!(agnus.blitter_ccks_remaining, 1);
+
+        assert!(agnus.tick_blitter_scheduler(true));
+        assert!(!agnus.blitter_exec_pending);
+        assert_eq!(agnus.blitter_ccks_remaining, 0);
     }
 }

@@ -237,6 +237,18 @@ impl Amiga {
                 |addr| self.memory.read_chip_byte(addr),
             );
 
+            // Coarse blitter scheduler: preserve BUSY across CCKs so Agnus bus
+            // arbitration (including nasty-mode CPU steals) affects machine
+            // timing before the existing synchronous blit implementation runs.
+            let blitter_progress_this_cck = if self.agnus.blitter_nasty_active() {
+                bus_plan.blitter_chip_bus_granted
+            } else {
+                true
+            };
+            if self.agnus.tick_blitter_scheduler(blitter_progress_this_cck) {
+                execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
+            }
+
             self.audio_sample_phase += u64::from(AUDIO_SAMPLE_RATE);
             while self.audio_sample_phase >= PAL_CCK_HZ {
                 self.audio_sample_phase -= PAL_CCK_HZ;
@@ -645,7 +657,7 @@ fn write_custom_register(
     denise: &mut DeniseOcs,
     copper: &mut Copper,
     paula: &mut Paula8364,
-    memory: &mut Memory,
+    _memory: &mut Memory,
     offset: u16,
     val: u16,
 ) {
@@ -665,8 +677,7 @@ fn write_custom_register(
         0x056 => agnus.blt_dpt = (agnus.blt_dpt & 0xFFFF0000) | u32::from(val & 0xFFFE),
         0x058 => {
             agnus.bltsize = val;
-            agnus.blitter_busy = true;
-            execute_blit(agnus, paula, memory);
+            agnus.start_blit();
         }
         0x060 => agnus.blt_cmod = val as i16,
         0x062 => agnus.blt_bmod = val as i16,
@@ -779,11 +790,11 @@ fn write_custom_register(
     }
 }
 
-/// Execute a blitter operation synchronously.
+/// Execute a blitter operation synchronously when the coarse scheduler matures.
 ///
-/// On real hardware the blitter runs in DMA slots over many CCKs. For boot
-/// purposes we run the entire operation instantly when BLTSIZE is written,
-/// then clear busy and fire the BLIT interrupt.
+/// On real hardware the blitter runs in DMA slots over many CCKs. We still run
+/// the whole operation instantly here, but only after a coarse per-CCK delay so
+/// `BLTBUSY` and nasty-mode arbitration persist across CCKs.
 fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     let height = (agnus.bltsize >> 6) & 0x3FF;
     let width_words = agnus.bltsize & 0x3F;
@@ -958,6 +969,8 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     agnus.blt_cpt = cpt;
     agnus.blt_dpt = dpt;
 
+    agnus.blitter_exec_pending = false;
+    agnus.blitter_ccks_remaining = 0;
     agnus.blitter_busy = false;
     paula.request_interrupt(6); // bit 6 = BLIT
 }
@@ -1159,6 +1172,8 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
     agnus.blt_dpt = dpt;
     agnus.blt_bdat = texture;
 
+    agnus.blitter_exec_pending = false;
+    agnus.blitter_ccks_remaining = 0;
     agnus.blitter_busy = false;
     paula.request_interrupt(6);
 }
