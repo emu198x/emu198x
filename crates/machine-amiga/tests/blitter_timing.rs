@@ -69,7 +69,8 @@ fn write_chip_word(amiga: &mut Amiga, addr: u32, val: u16) {
 }
 
 fn read_chip_word(amiga: &Amiga, addr: u32) -> u16 {
-    (u16::from(amiga.memory.read_byte(addr)) << 8) | u16::from(amiga.memory.read_byte(addr + 1))
+    (u16::from(amiga.memory.read_chip_byte(addr)) << 8)
+        | u16::from(amiga.memory.read_chip_byte(addr + 1))
 }
 
 fn write_ptr(amiga: &mut Amiga, reg_hi: u16, reg_lo: u16, addr: u32) {
@@ -151,6 +152,47 @@ fn start_area_blit_copy_c(
     let ops_per_word =
         u32::from(enable_a) + u32::from(enable_b) + u32::from(enable_c) + u32::from(enable_d);
     words * ops_per_word.max(1)
+}
+
+fn start_line_blit_horizontal(
+    amiga: &mut Amiga,
+    start_word_addr: u32,
+    length_pixels: u16,
+    start_pixel_bit: u16,
+) -> u32 {
+    let words_touched = u32::from(length_pixels.div_ceil(16));
+    for i in 0..words_touched {
+        write_chip_word(amiga, start_word_addr + i * 2, 0x0000);
+    }
+
+    // LINE mode, SING mode, octant code 110 -> octant 0 (+X, X-major).
+    // See Agnus line-runtime octant decode.
+    amiga.write_custom_reg(REG_BLTCON1, 0x001B);
+    // ASH = start bit, A/C/D enabled, LF = A (0xF0) to set the plotted pixel.
+    amiga.write_custom_reg(
+        REG_BLTCON0,
+        ((start_pixel_bit & 0xF) << 12) | 0x0800 | 0x0200 | 0x0100 | 0x00F0,
+    );
+    amiga.write_custom_reg(REG_BLTAFWM, 0x8000);
+    amiga.write_custom_reg(REG_BLTALWM, 0xFFFF);
+    amiga.write_custom_reg(REG_BLTAMOD, -4i16 as u16);
+    amiga.write_custom_reg(REG_BLTBMOD, 0);
+    amiga.write_custom_reg(REG_BLTCMOD, 40);
+    amiga.write_custom_reg(REG_BLTDMOD, 40);
+    amiga.write_custom_reg(REG_BLTBPTH, 0);
+    amiga.write_custom_reg(REG_BLTBPTL, 0);
+    amiga.write_custom_reg(REG_BLTAPTH, 0);
+    amiga.write_custom_reg(REG_BLTAPTL, 0xFFFF); // error accumulator = -1
+    amiga.write_custom_reg(REG_BLTCPTH, (start_word_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_BLTCPTL, (start_word_addr & 0xFFFF) as u16);
+    amiga.write_custom_reg(REG_BLTDPTH, (start_word_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_BLTDPTL, (start_word_addr & 0xFFFF) as u16);
+
+    // In line mode, BLTSIZE height field is line length in pixels; width is ignored
+    // (commonly programmed as 2).
+    amiga.write_custom_reg(REG_BLTSIZE, (length_pixels << 6) | 2);
+
+    u32::from(length_pixels) * 2 // one ReadC + one WriteD per step
 }
 
 fn run_blit_to_completion(amiga: &mut Amiga, max_ccks: u32) -> Option<(u32, u32)> {
@@ -344,5 +386,99 @@ fn blitter_nasty_mode_blocks_cpu_chip_bus_reads_on_cpu_slots() {
     assert!(
         nasty.iter().all(|s| matches!(s, BusStatus::Wait)),
         "with BLTPRI, blitter should steal CPU slots and force waits: {nasty:?}"
+    );
+}
+
+#[test]
+fn line_blit_display_dma_contention_increases_elapsed_ccks_but_not_progress_grants() {
+    fn run_case(enable_display_contention: bool) -> (u32, u32, u32) {
+        let mut amiga = make_test_amiga();
+        let line_base = 0x0000_4400u32;
+        let length_pixels = 64u16;
+
+        amiga.agnus.vpos = VISIBLE_LINE_START;
+        amiga.agnus.hpos = 0;
+
+        if enable_display_contention {
+            enable_display_dma_contention(&mut amiga);
+        }
+
+        let mut dmacon = 0x8000 | DMACON_DMAEN | DMACON_BLTEN;
+        if enable_display_contention {
+            dmacon |= DMACON_BPLEN | DMACON_SPREN;
+        }
+        amiga.write_custom_reg(REG_DMACON, dmacon);
+
+        let expected_ops = start_line_blit_horizontal(&mut amiga, line_base, length_pixels, 0);
+        assert_eq!(amiga.agnus.blitter_ccks_remaining, expected_ops);
+
+        let (elapsed_ccks, progress_grants) =
+            run_blit_to_completion(&mut amiga, 20_000).expect("line blit should complete");
+        assert_eq!(progress_grants, expected_ops);
+
+        // 64 horizontal pixels starting at bit 0 should fill 4 words.
+        for i in 0..4u32 {
+            assert_eq!(
+                read_chip_word(&amiga, line_base + i * 2),
+                0xFFFF,
+                "line blit should set all pixels in word {i}"
+            );
+        }
+
+        (elapsed_ccks, progress_grants, expected_ops)
+    }
+
+    let (baseline_elapsed, baseline_grants, expected_ops) = run_case(false);
+    let (contended_elapsed, contended_grants, contended_expected_ops) = run_case(true);
+
+    assert_eq!(baseline_grants, expected_ops);
+    assert_eq!(contended_grants, contended_expected_ops);
+    assert_eq!(contended_expected_ops, expected_ops);
+    assert!(
+        contended_elapsed > baseline_elapsed,
+        "display DMA contention should delay line blit completion \
+         (baseline={baseline_elapsed}, contended={contended_elapsed}, ops={expected_ops})"
+    );
+}
+
+#[test]
+fn line_blitter_nasty_mode_blocks_cpu_chip_bus_reads_on_cpu_slots() {
+    fn sample_statuses(nasty: bool) -> Vec<BusStatus> {
+        let mut amiga = make_test_amiga();
+        let probe_addr = 0x0000_1200u32;
+        write_chip_word(&mut amiga, probe_addr, 0xA55A);
+
+        amiga.agnus.vpos = VISIBLE_LINE_START;
+        amiga.agnus.hpos = 0;
+
+        let mut dmacon = 0x8000 | DMACON_DMAEN | DMACON_BLTEN;
+        if nasty {
+            dmacon |= DMACON_BLTPRI;
+        }
+        amiga.write_custom_reg(REG_DMACON, dmacon);
+
+        let _expected_ops = start_line_blit_horizontal(&mut amiga, 0x0000_4400, 192, 0);
+        assert!(amiga.agnus.blitter_busy, "line blitter should be active");
+
+        let statuses =
+            sample_cpu_slot_chip_reads_while_blitter_busy(&mut amiga, 8, 5_000, probe_addr);
+        assert_eq!(
+            statuses.len(),
+            8,
+            "expected enough CPU slots while line blit remained busy"
+        );
+        statuses
+    }
+
+    let non_nasty = sample_statuses(false);
+    let nasty = sample_statuses(true);
+
+    assert!(
+        non_nasty.iter().all(|s| matches!(s, BusStatus::Ready(_))),
+        "without BLTPRI, CPU chip-bus reads on CPU slots should be granted during line blit: {non_nasty:?}"
+    );
+    assert!(
+        nasty.iter().all(|s| matches!(s, BusStatus::Wait)),
+        "with BLTPRI, line blitter should steal CPU slots and force waits: {nasty:?}"
     );
 }
