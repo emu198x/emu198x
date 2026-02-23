@@ -225,18 +225,42 @@ impl Agnus {
 
     fn coarse_blit_cck_budget(&self) -> u32 {
         // Coarse placeholder until per-slot blitter DMA is modeled.
-        // Keep delays non-zero (to expose `blitter_busy` timing) but capped so
-        // boot/test runtime does not explode on large blits.
+        // Estimate work in DMA word operations and map that directly onto
+        // Agnus free-slot progress grants. Keep a cap so boot/test runtime
+        // stays bounded until the blitter is fully slot-driven.
         let height = u32::from((self.bltsize >> 6) & 0x03FF);
         let width_words = u32::from(self.bltsize & 0x003F);
         let height = if height == 0 { 1024 } else { height };
         let width_words = if width_words == 0 { 64 } else { width_words };
-        let work_units = if (self.bltcon1 & 0x0001) != 0 {
-            height // line mode: one plotted step per BLTSIZE row
+        let estimated_dma_ops = if (self.bltcon1 & 0x0001) != 0 {
+            // LINE mode:
+            // - Channel A pixel mask is generated internally (no DMA)
+            // - Channel B uses BLTBDAT texture register (no DMA)
+            // - Channel C is destination readback (DMA read)
+            // - Channel D is destination write (DMA write)
+            height.saturating_mul(2)
         } else {
-            height.saturating_mul(width_words)
+            let mut dma_ops_per_word = 0u32;
+            if (self.bltcon0 & 0x0800) != 0 {
+                dma_ops_per_word += 1; // A read
+            }
+            if (self.bltcon0 & 0x0400) != 0 {
+                dma_ops_per_word += 1; // B read
+            }
+            if (self.bltcon0 & 0x0200) != 0 {
+                dma_ops_per_word += 1; // C read
+            }
+            if (self.bltcon0 & 0x0100) != 0 {
+                dma_ops_per_word += 1; // D write
+            }
+            // Keep non-zero latency even for unusual/no-channel blits so BUSY is
+            // observable across at least one granted slot.
+            let dma_ops_per_word = dma_ops_per_word.max(1);
+            height
+                .saturating_mul(width_words)
+                .saturating_mul(dma_ops_per_word)
         };
-        work_units.clamp(1, 512)
+        estimated_dma_ops.clamp(1, 2048)
     }
 
     /// Tick one CCK (8 crystal ticks).
@@ -515,6 +539,7 @@ mod tests {
     #[test]
     fn blitter_scheduler_counts_down_and_requires_progress() {
         let mut agnus = Agnus::new();
+        agnus.bltcon0 = 0x0100; // D write only => 1 DMA op/word
         agnus.bltsize = (1 << 6) | 2; // height=1, width=2 => budget=2
         agnus.start_blit();
 
@@ -534,5 +559,31 @@ mod tests {
         assert!(agnus.tick_blitter_scheduler(true));
         assert!(!agnus.blitter_exec_pending);
         assert_eq!(agnus.blitter_ccks_remaining, 0);
+    }
+
+    #[test]
+    fn coarse_area_blit_budget_scales_with_enabled_dma_channels() {
+        let mut agnus = Agnus::new();
+        agnus.bltcon0 = 0x0800 | 0x0200 | 0x0100; // A read + C read + D write
+        agnus.bltsize = (1 << 6) | 3; // height=1, width=3 words
+        agnus.start_blit();
+
+        assert_eq!(
+            agnus.blitter_ccks_remaining, 9,
+            "3 words * (A+C+D) => 9 DMA-op grants"
+        );
+    }
+
+    #[test]
+    fn coarse_line_blit_budget_counts_c_and_d_dma_ops_per_step() {
+        let mut agnus = Agnus::new();
+        agnus.bltcon1 = 0x0001; // LINE mode
+        agnus.bltsize = (4 << 6) | 2; // length=4, width field ignored in line mode
+        agnus.start_blit();
+
+        assert_eq!(
+            agnus.blitter_ccks_remaining, 8,
+            "4 line steps * (C read + D write) => 8 DMA-op grants"
+        );
     }
 }
