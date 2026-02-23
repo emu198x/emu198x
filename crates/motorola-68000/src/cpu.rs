@@ -578,7 +578,18 @@ impl Cpu68000 {
             let op = self.micro_ops.pop().unwrap();
             match op {
                 MicroOp::Execute => self.decode_and_execute(bus),
-                MicroOp::PromoteIRC => self.promote_pipeline(),
+                MicroOp::PromoteIRC => {
+                    // The 68000 samples interrupts at instruction boundaries.
+                    // `PromoteIRC` is exactly the "start next instruction"
+                    // boundary in this core, including tight branch loops that
+                    // can keep the micro-op queue non-empty between iterations.
+                    let ipl = bus.poll_ipl();
+                    if ipl > self.regs.interrupt_mask() || ipl == 7 {
+                        self.initiate_interrupt_exception(ipl);
+                    } else {
+                        self.promote_pipeline();
+                    }
+                }
                 MicroOp::AssertReset => bus.reset(),
                 _ => {}
             }
@@ -1148,7 +1159,11 @@ impl Cpu68000 {
             } else {
                 // ALU immediate: byte/word = 1, long = 2 ext words
                 let size_bits = (self.ir >> 6) & 3;
-                if size_bits == 2 { 4 } else { 2 }
+                if size_bits == 2 {
+                    4
+                } else {
+                    2
+                }
             }
         } else {
             0
@@ -1287,7 +1302,125 @@ impl Cpu68000 {
 #[cfg(test)]
 mod tests {
     use super::Cpu68000;
+    use crate::bus::{BusStatus, FunctionCode, M68kBus};
     use crate::model::CpuModel;
+
+    struct InterruptLoopTestBus {
+        mem: Vec<u8>,
+        ipl: u8,
+    }
+
+    impl InterruptLoopTestBus {
+        fn new() -> Self {
+            let mut mem = vec![0u8; 0x2000];
+
+            let write_word = |mem: &mut [u8], addr: usize, word: u16| {
+                mem[addr] = (word >> 8) as u8;
+                mem[addr + 1] = word as u8;
+            };
+            let write_long = |mem: &mut [u8], addr: usize, value: u32| {
+                mem[addr] = (value >> 24) as u8;
+                mem[addr + 1] = (value >> 16) as u8;
+                mem[addr + 2] = (value >> 8) as u8;
+                mem[addr + 3] = value as u8;
+            };
+
+            // Level-3 autovector (vector 27) -> handler at $0120.
+            write_long(&mut mem, 27 * 4, 0x0000_0120);
+
+            // $0100: MOVE.W #$2000,SR ; clear interrupt mask in supervisor mode
+            // $0104: BRA.S *          ; tight loop
+            write_word(&mut mem, 0x0100, 0x46FC);
+            write_word(&mut mem, 0x0102, 0x2000);
+            write_word(&mut mem, 0x0104, 0x60FE);
+
+            // $0120: MOVEQ #$42,D0
+            // $0122: BRA.S *
+            write_word(&mut mem, 0x0120, 0x7042);
+            write_word(&mut mem, 0x0122, 0x60FE);
+
+            Self { mem, ipl: 0 }
+        }
+
+        fn read_word(&self, addr: u32) -> u16 {
+            let a = (addr as usize) & !1;
+            if a + 1 >= self.mem.len() {
+                return 0;
+            }
+            (u16::from(self.mem[a]) << 8) | u16::from(self.mem[a + 1])
+        }
+
+        fn write_word(&mut self, addr: u32, val: u16) {
+            let a = (addr as usize) & !1;
+            if a + 1 >= self.mem.len() {
+                return;
+            }
+            self.mem[a] = (val >> 8) as u8;
+            self.mem[a + 1] = val as u8;
+        }
+    }
+
+    impl M68kBus for InterruptLoopTestBus {
+        fn poll_cycle(
+            &mut self,
+            addr: u32,
+            fc: FunctionCode,
+            is_read: bool,
+            is_word: bool,
+            data: Option<u16>,
+        ) -> BusStatus {
+            if fc == FunctionCode::InterruptAck {
+                return BusStatus::Ready(27);
+            }
+
+            if is_read {
+                if is_word {
+                    BusStatus::Ready(self.read_word(addr))
+                } else {
+                    let word = self.read_word(addr);
+                    let byte = if (addr & 1) == 0 {
+                        (word >> 8) as u8
+                    } else {
+                        word as u8
+                    };
+                    BusStatus::Ready(u16::from(byte))
+                }
+            } else {
+                let val = data.unwrap_or(0);
+                if is_word {
+                    self.write_word(addr, val);
+                } else {
+                    let a = addr as usize;
+                    if a < self.mem.len() {
+                        self.mem[a] = val as u8;
+                    }
+                }
+                BusStatus::Ready(0)
+            }
+        }
+
+        fn poll_ipl(&mut self) -> u8 {
+            self.ipl
+        }
+
+        fn poll_interrupt_ack(&mut self, level: u8) -> BusStatus {
+            BusStatus::Ready(24 + u16::from(level))
+        }
+
+        fn reset(&mut self) {}
+    }
+
+    fn tick_cpu(
+        cpu: &mut Cpu68000,
+        bus: &mut InterruptLoopTestBus,
+        clock: &mut u64,
+        cpu_ticks: u32,
+    ) {
+        for _ in 0..cpu_ticks {
+            *clock += 4;
+            cpu.tick(bus, *clock);
+        }
+    }
 
     #[test]
     fn new_defaults_to_68000_model() {
@@ -1303,5 +1436,57 @@ mod tests {
         assert!(cpu.capabilities().movec);
         assert!(cpu.capabilities().vbr);
         assert!(cpu.capabilities().cacr);
+    }
+
+    #[test]
+    fn interrupt_is_taken_from_tight_branch_loop_at_instruction_boundary() {
+        let mut cpu = Cpu68000::new();
+        let mut bus = InterruptLoopTestBus::new();
+        let mut clock = 0u64;
+
+        cpu.reset_to(0x0000_0800, 0x0000_0100);
+
+        // Run until the program has executed MOVE #$2000,SR and entered the
+        // tight BRA.S * loop with interrupt mask 0.
+        let mut in_wait_loop = false;
+        for _ in 0..2_000u32 {
+            if cpu.regs.interrupt_mask() == 0
+                && (cpu.regs.pc == 0x0000_0104 || cpu.regs.pc == 0x0000_0106)
+            {
+                in_wait_loop = true;
+                break;
+            }
+            tick_cpu(&mut cpu, &mut bus, &mut clock, 1);
+        }
+        assert!(
+            in_wait_loop,
+            "CPU should reach the tight BRA loop with interrupt mask 0 before IRQ (pc=${:08X}, sr=${:04X})",
+            cpu.regs.pc,
+            cpu.regs.sr
+        );
+
+        bus.ipl = 3;
+
+        let mut entered_handler = false;
+        for _ in 0..10_000u32 {
+            if (cpu.regs.d[0] & 0xFF) == 0x42 {
+                entered_handler = true;
+                break;
+            }
+            tick_cpu(&mut cpu, &mut bus, &mut clock, 1);
+        }
+        assert!(
+            entered_handler,
+            "CPU should service level-3 interrupt from a tight branch loop (pc=${:08X}, sr=${:04X}, d0=${:08X})",
+            cpu.regs.pc,
+            cpu.regs.sr,
+            cpu.regs.d[0]
+        );
+        assert_eq!(cpu.regs.interrupt_mask(), 3);
+        assert!(
+            cpu.regs.pc == 0x0000_0122 || cpu.regs.pc == 0x0000_0124,
+            "CPU should be in handler spin loop after interrupt service (pc=${:08X})",
+            cpu.regs.pc
+        );
     }
 }
