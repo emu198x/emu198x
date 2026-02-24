@@ -18,9 +18,7 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use machine_amiga::format_adf::Adf;
-use machine_amiga::{
-    Amiga, AmigaChipset, AmigaConfig, AmigaModel, BeamDebugSnapshot, commodore_denise_ocs,
-};
+use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, commodore_denise_ocs};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -69,10 +67,42 @@ struct CliArgs {
     headless: bool,
     frames: u32,
     beam_debug: bool,
+    beam_debug_filter: BeamDebugFilter,
     bench_insert_screen: bool,
     screenshot_path: Option<PathBuf>,
     audio_path: Option<PathBuf>,
     mute: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BeamDebugFilter {
+    hsync: bool,
+    vsync: bool,
+    hblank: bool,
+    vblank: bool,
+    visible: bool,
+}
+
+impl BeamDebugFilter {
+    const fn all() -> Self {
+        Self {
+            hsync: true,
+            vsync: true,
+            hblank: true,
+            vblank: true,
+            visible: true,
+        }
+    }
+
+    const fn none() -> Self {
+        Self {
+            hsync: false,
+            vsync: false,
+            hblank: false,
+            vblank: false,
+            visible: false,
+        }
+    }
 }
 
 fn print_usage_and_exit(code: i32) -> ! {
@@ -85,6 +115,9 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --headless     Run without a window");
     eprintln!("  --frames <n>   Frames to run in headless mode [default: 300]");
     eprintln!("  --beam-debug   Print beam sync/blank/visibility edge transitions (headless)");
+    eprintln!(
+        "  --beam-debug-filter <classes>  Edge classes: all,sync,blank,visible or comma list"
+    );
     eprintln!("  --bench-insert-screen  Stop on first KS1.3 insert-screen match and print speed");
     eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
     eprintln!("  --audio <file.wav>  Save a WAV audio dump (headless)");
@@ -101,6 +134,7 @@ fn parse_args() -> CliArgs {
     let mut headless = false;
     let mut frames = 300;
     let mut beam_debug = false;
+    let mut beam_debug_filter = BeamDebugFilter::all();
     let mut bench_insert_screen = false;
     let mut screenshot_path: Option<PathBuf> = None;
     let mut audio_path: Option<PathBuf> = None;
@@ -138,6 +172,18 @@ fn parse_args() -> CliArgs {
                 }
             }
             "--beam-debug" => {
+                beam_debug = true;
+            }
+            "--beam-debug-filter" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("Missing value for --beam-debug-filter");
+                    print_usage_and_exit(1);
+                };
+                beam_debug_filter = parse_beam_debug_filter_arg(value).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    print_usage_and_exit(1);
+                });
                 beam_debug = true;
             }
             "--bench-insert-screen" => {
@@ -181,6 +227,7 @@ fn parse_args() -> CliArgs {
         headless,
         frames,
         beam_debug,
+        beam_debug_filter,
         bench_insert_screen,
         screenshot_path,
         audio_path,
@@ -196,6 +243,42 @@ fn parse_chipset_arg(value: &str) -> Result<AmigaChipset, String> {
             "Invalid --chipset value '{other}' (expected 'ocs' or 'ecs')"
         )),
     }
+}
+
+fn parse_beam_debug_filter_arg(value: &str) -> Result<BeamDebugFilter, String> {
+    let mut filter = BeamDebugFilter::none();
+    for raw_token in value.split(',') {
+        let token = raw_token.trim().to_ascii_lowercase();
+        if token.is_empty() {
+            return Err(String::from(
+                "Invalid --beam-debug-filter value (empty filter token)",
+            ));
+        }
+        match token.as_str() {
+            "all" => filter = BeamDebugFilter::all(),
+            "sync" => {
+                filter.hsync = true;
+                filter.vsync = true;
+            }
+            "blank" => {
+                filter.hblank = true;
+                filter.vblank = true;
+            }
+            "visible" => {
+                filter.visible = true;
+            }
+            "hsync" => filter.hsync = true,
+            "vsync" => filter.vsync = true,
+            "hblank" => filter.hblank = true,
+            "vblank" => filter.vblank = true,
+            other => {
+                return Err(format!(
+                    "Invalid --beam-debug-filter token '{other}' (use all,sync,blank,visible or hsync/vsync/hblank/vblank)"
+                ));
+            }
+        }
+    }
+    Ok(filter)
 }
 
 fn chipset_name(chipset: AmigaChipset) -> &'static str {
@@ -356,19 +439,28 @@ fn matches_ks13_insert_screen(framebuffer: &[u32]) -> bool {
         && (170..=185).contains(&max_y)
 }
 
-#[derive(Default)]
 struct BeamEdgeLogger {
-    last: Option<BeamDebugSnapshot>,
+    initialized: bool,
+    filter: BeamDebugFilter,
     edge_count: u64,
 }
 
 impl BeamEdgeLogger {
+    fn new(filter: BeamDebugFilter) -> Self {
+        Self {
+            initialized: false,
+            filter,
+            edge_count: 0,
+        }
+    }
+
     fn observe(&mut self, amiga: &Amiga) {
         let snapshot = amiga.current_beam_debug_snapshot();
+        let edges = amiga.current_beam_edge_flags();
         let visible = snapshot.fb_coords.is_some();
 
-        let Some(prev) = self.last else {
-            self.last = Some(snapshot);
+        if !self.initialized {
+            self.initialized = true;
             eprintln!(
                 "[beam] init mc={} v={} h={} hsync={} vsync={} hblank={} vblank={} visible={}",
                 amiga.master_clock,
@@ -381,23 +473,22 @@ impl BeamEdgeLogger {
                 visible
             );
             return;
-        };
+        }
 
-        let prev_visible = prev.fb_coords.is_some();
         let mut changes = Vec::with_capacity(5);
-        if prev.sync.hsync != snapshot.sync.hsync {
+        if self.filter.hsync && edges.hsync_changed {
             changes.push(format!("hsync={}", snapshot.sync.hsync));
         }
-        if prev.sync.vsync != snapshot.sync.vsync {
+        if self.filter.vsync && edges.vsync_changed {
             changes.push(format!("vsync={}", snapshot.sync.vsync));
         }
-        if prev.hblank != snapshot.hblank {
+        if self.filter.hblank && edges.hblank_changed {
             changes.push(format!("hblank={}", snapshot.hblank));
         }
-        if prev.vblank != snapshot.vblank {
+        if self.filter.vblank && edges.vblank_changed {
             changes.push(format!("vblank={}", snapshot.vblank));
         }
-        if prev_visible != visible {
+        if self.filter.visible && edges.visible_changed {
             changes.push(format!("visible={visible}"));
         }
 
@@ -413,8 +504,6 @@ impl BeamEdgeLogger {
                 snapshot.fb_coords
             );
         }
-
-        self.last = Some(snapshot);
     }
 }
 
@@ -589,7 +678,9 @@ fn write_audio_data_u16(data: &mut [u16], queue: &Arc<Mutex<VecDeque<f32>>>) {
 
 fn run_headless(cli: &CliArgs) {
     let mut amiga = make_amiga(cli);
-    let mut beam_debug = cli.beam_debug.then(BeamEdgeLogger::default);
+    let mut beam_debug = cli
+        .beam_debug
+        .then(|| BeamEdgeLogger::new(cli.beam_debug_filter));
     let mut all_audio = if cli.audio_path.is_some() {
         Some(Vec::new())
     } else {
@@ -1083,7 +1174,10 @@ fn map_printable_physical_key(code: KeyCode) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{map_char_to_amiga_key, map_printable_physical_key, parse_chipset_arg};
+    use super::{
+        BeamDebugFilter, map_char_to_amiga_key, map_printable_physical_key,
+        parse_beam_debug_filter_arg, parse_chipset_arg,
+    };
     use machine_amiga::AmigaChipset;
     use winit::keyboard::KeyCode;
 
@@ -1112,6 +1206,40 @@ mod tests {
     #[test]
     fn chipset_arg_parser_rejects_invalid_values() {
         assert!(parse_chipset_arg("aga").is_err());
+    }
+
+    #[test]
+    fn beam_debug_filter_parser_accepts_group_aliases_and_individuals() {
+        assert_eq!(
+            parse_beam_debug_filter_arg("sync,visible"),
+            Ok(BeamDebugFilter {
+                hsync: true,
+                vsync: true,
+                hblank: false,
+                vblank: false,
+                visible: true,
+            })
+        );
+        assert_eq!(
+            parse_beam_debug_filter_arg("hblank,vblank"),
+            Ok(BeamDebugFilter {
+                hsync: false,
+                vsync: false,
+                hblank: true,
+                vblank: true,
+                visible: false,
+            })
+        );
+    }
+
+    #[test]
+    fn beam_debug_filter_parser_accepts_all_and_rejects_invalid_tokens() {
+        assert_eq!(
+            parse_beam_debug_filter_arg("all"),
+            Ok(BeamDebugFilter::all())
+        );
+        assert!(parse_beam_debug_filter_arg("sync,foo").is_err());
+        assert!(parse_beam_debug_filter_arg("sync,").is_err());
     }
 }
 

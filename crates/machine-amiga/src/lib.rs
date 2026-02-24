@@ -74,6 +74,27 @@ pub struct BeamSyncState {
     pub vsync: bool,
 }
 
+/// Latched beam-edge class changes for the current CCK.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BeamEdgeFlags {
+    pub hsync_changed: bool,
+    pub vsync_changed: bool,
+    pub hblank_changed: bool,
+    pub vblank_changed: bool,
+    pub visible_changed: bool,
+}
+
+impl BeamEdgeFlags {
+    #[must_use]
+    pub const fn any(self) -> bool {
+        self.hsync_changed
+            || self.vsync_changed
+            || self.hblank_changed
+            || self.vblank_changed
+            || self.visible_changed
+    }
+}
+
 /// Debug/test-facing beam snapshot in the emulator's current beam units.
 ///
 /// This is intended as a stable machine-level inspection API while ECS sync
@@ -106,6 +127,7 @@ pub struct Amiga {
     disk_dma_runtime: Option<DiskDmaRuntime>,
     sprite_dma_phase: [u8; 8],
     beam_debug_snapshot: BeamDebugSnapshot,
+    beam_edge_flags: BeamEdgeFlags,
 }
 
 impl Amiga {
@@ -188,6 +210,7 @@ impl Amiga {
             disk_dma_runtime: None,
             sprite_dma_phase: [0; 8],
             beam_debug_snapshot: BeamDebugSnapshot::default(),
+            beam_edge_flags: BeamEdgeFlags::default(),
         }
     }
 
@@ -198,9 +221,18 @@ impl Amiga {
             let vpos = self.agnus.vpos;
             let hpos = self.agnus.hpos;
             let prev_sync = self.beam_debug_snapshot.sync;
+            let prev_snapshot = self.beam_debug_snapshot;
             let current_snapshot = self.beam_debug_snapshot_at(vpos, hpos);
             let current_sync = current_snapshot.sync;
             self.beam_debug_snapshot = current_snapshot;
+            self.beam_edge_flags = BeamEdgeFlags {
+                hsync_changed: prev_snapshot.sync.hsync != current_snapshot.sync.hsync,
+                vsync_changed: prev_snapshot.sync.vsync != current_snapshot.sync.vsync,
+                hblank_changed: prev_snapshot.hblank != current_snapshot.hblank,
+                vblank_changed: prev_snapshot.vblank != current_snapshot.vblank,
+                visible_changed: prev_snapshot.fb_coords.is_some()
+                    != current_snapshot.fb_coords.is_some(),
+            };
 
             let hsync_tod_pulse =
                 if self.chipset == AmigaChipset::Ecs && self.agnus.varhsyen_enabled() {
@@ -863,6 +895,15 @@ impl Amiga {
     #[must_use]
     pub const fn current_beam_debug_snapshot(&self) -> BeamDebugSnapshot {
         self.beam_debug_snapshot
+    }
+
+    /// Latched beam-edge class changes for the current CCK.
+    ///
+    /// These flags compare the previous and current latched
+    /// [`BeamDebugSnapshot`] values at each colour-clock boundary.
+    #[must_use]
+    pub const fn current_beam_edge_flags(&self) -> BeamEdgeFlags {
+        self.beam_edge_flags
     }
 }
 
@@ -1689,7 +1730,7 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 mod tests {
     use super::{
         Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, BeamDebugSnapshot,
-        BeamSyncState, TICKS_PER_CCK,
+        BeamEdgeFlags, BeamSyncState, TICKS_PER_CCK,
     };
     use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
@@ -2256,6 +2297,53 @@ mod tests {
             }
         );
         assert_eq!(amiga.agnus.hpos, 36); // Beam advanced after the sampled CCK.
+    }
+
+    #[test]
+    fn latched_beam_edge_flags_report_class_changes_for_current_cck() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
+        amiga.write_custom_reg(0x090, 0x90FF); // DIWSTOP
+        amiga.agnus.ddfstrt = 0;
+        amiga.write_custom_reg(0x1C2, 40); // HSSTOP
+        amiga.write_custom_reg(0x1DE, 30); // HSSTRT
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARHSYEN);
+
+        amiga.agnus.vpos = 100;
+        amiga.agnus.hpos = 29;
+        tick_one_cck(&mut amiga);
+        assert_eq!(
+            amiga.current_beam_edge_flags(),
+            BeamEdgeFlags {
+                hsync_changed: false,
+                vsync_changed: false,
+                hblank_changed: false,
+                vblank_changed: false,
+                visible_changed: true,
+            }
+        );
+
+        tick_one_cck(&mut amiga); // hpos=30 enters HSYNC, remains visible
+        assert_eq!(
+            amiga.current_beam_edge_flags(),
+            BeamEdgeFlags {
+                hsync_changed: true,
+                vsync_changed: false,
+                hblank_changed: false,
+                vblank_changed: false,
+                visible_changed: false,
+            }
+        );
+        assert!(amiga.current_beam_edge_flags().any());
+
+        tick_one_cck(&mut amiga); // still inside HSYNC, no new edge
+        assert_eq!(amiga.current_beam_edge_flags(), BeamEdgeFlags::default());
+        assert!(!amiga.current_beam_edge_flags().any());
     }
 
     #[test]
