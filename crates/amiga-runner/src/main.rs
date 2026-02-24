@@ -65,6 +65,7 @@ struct ActiveKeyMapping {
 struct CliArgs {
     rom_path: PathBuf,
     adf_path: Option<PathBuf>,
+    chipset: AmigaChipset,
     headless: bool,
     frames: u32,
     beam_debug: bool,
@@ -80,6 +81,7 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("Options:");
     eprintln!("  --rom <file>   Kickstart ROM file (or use AMIGA_KS13_ROM env var)");
     eprintln!("  --adf <file>   Optional ADF disk image to insert into DF0:");
+    eprintln!("  --chipset <ocs|ecs>  Select chipset [default: ocs]");
     eprintln!("  --headless     Run without a window");
     eprintln!("  --frames <n>   Frames to run in headless mode [default: 300]");
     eprintln!("  --beam-debug   Print beam sync/blank/visibility edge transitions (headless)");
@@ -95,6 +97,7 @@ fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut rom_path: Option<PathBuf> = None;
     let mut adf_path: Option<PathBuf> = None;
+    let mut chipset = AmigaChipset::Ocs;
     let mut headless = false;
     let mut frames = 300;
     let mut beam_debug = false;
@@ -113,6 +116,17 @@ fn parse_args() -> CliArgs {
             "--adf" => {
                 i += 1;
                 adf_path = args.get(i).map(PathBuf::from);
+            }
+            "--chipset" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("Missing value for --chipset (expected ocs or ecs)");
+                    print_usage_and_exit(1);
+                };
+                chipset = parse_chipset_arg(value).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    print_usage_and_exit(1);
+                });
             }
             "--headless" => {
                 headless = true;
@@ -163,6 +177,7 @@ fn parse_args() -> CliArgs {
     CliArgs {
         rom_path,
         adf_path,
+        chipset,
         headless,
         frames,
         beam_debug,
@@ -170,6 +185,23 @@ fn parse_args() -> CliArgs {
         screenshot_path,
         audio_path,
         mute,
+    }
+}
+
+fn parse_chipset_arg(value: &str) -> Result<AmigaChipset, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "ocs" => Ok(AmigaChipset::Ocs),
+        "ecs" => Ok(AmigaChipset::Ecs),
+        other => Err(format!(
+            "Invalid --chipset value '{other}' (expected 'ocs' or 'ecs')"
+        )),
+    }
+}
+
+fn chipset_name(chipset: AmigaChipset) -> &'static str {
+    match chipset {
+        AmigaChipset::Ocs => "OCS",
+        AmigaChipset::Ecs => "ECS",
     }
 }
 
@@ -187,7 +219,7 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
 
     let mut amiga = Amiga::new_with_config(AmigaConfig {
         model: AmigaModel::A500,
-        chipset: AmigaChipset::Ocs,
+        chipset: cli.chipset,
         kickstart,
     });
 
@@ -210,7 +242,11 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
         eprintln!("Inserted disk: {}", adf_path.display());
     }
 
-    eprintln!("Loaded Kickstart ROM: {}", cli.rom_path.display());
+    eprintln!(
+        "Loaded Kickstart ROM: {} (chipset {})",
+        cli.rom_path.display(),
+        chipset_name(cli.chipset)
+    );
     amiga
 }
 
@@ -763,7 +799,10 @@ impl ApplicationHandler for App {
 
         let size = winit::dpi::LogicalSize::new(FB_WIDTH * SCALE, FB_HEIGHT * SCALE);
         let attrs = WindowAttributes::default()
-            .with_title("Amiga Runner (A500/OCS)")
+            .with_title(format!(
+                "Amiga Runner (A500/{})",
+                chipset_name(self.amiga.chipset)
+            ))
             .with_inner_size(size)
             .with_resizable(false);
 
@@ -1044,7 +1083,8 @@ fn map_printable_physical_key(code: KeyCode) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{map_char_to_amiga_key, map_printable_physical_key};
+    use super::{map_char_to_amiga_key, map_printable_physical_key, parse_chipset_arg};
+    use machine_amiga::AmigaChipset;
     use winit::keyboard::KeyCode;
 
     #[test]
@@ -1061,6 +1101,17 @@ mod tests {
     #[test]
     fn physical_fallback_keeps_position_for_digit_two() {
         assert_eq!(map_printable_physical_key(KeyCode::Digit2), Some(0x02));
+    }
+
+    #[test]
+    fn chipset_arg_parser_accepts_ocs_and_ecs_case_insensitively() {
+        assert_eq!(parse_chipset_arg("ocs"), Ok(AmigaChipset::Ocs));
+        assert_eq!(parse_chipset_arg("ECS"), Ok(AmigaChipset::Ecs));
+    }
+
+    #[test]
+    fn chipset_arg_parser_rejects_invalid_values() {
+        assert!(parse_chipset_arg("aga").is_err());
     }
 }
 
