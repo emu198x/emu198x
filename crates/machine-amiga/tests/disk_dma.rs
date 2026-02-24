@@ -1,3 +1,4 @@
+use machine_amiga::drive_amiga_floppy::mfm::MFM_TRACK_BYTES;
 use machine_amiga::format_adf::{Adf, ADF_SIZE_DD, SECTOR_SIZE};
 use machine_amiga::memory::ROM_BASE;
 use machine_amiga::{Amiga, AmigaBusWrapper, TICKS_PER_CCK};
@@ -441,4 +442,51 @@ fn disk_dma_read_wordsync_starts_after_sync_and_resyncs_on_second_sync_word() {
         first_word, 0x4489,
         "sync word must not be DMA-transferred under WORDSYNC"
     );
+}
+
+#[test]
+fn disk_dma_read_stream_wraps_at_end_of_mfm_track() {
+    let mut amiga = make_test_amiga();
+    amiga.insert_disk(make_test_adf());
+    let expected_mfm = amiga
+        .floppy
+        .encode_mfm_track()
+        .expect("inserted disk should encode to MFM track data");
+
+    let dst = 0x0000_3800u32;
+    let track_words = (MFM_TRACK_BYTES / 2) as u16;
+    let word_count = track_words + 2;
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0;
+    write_dsk_ptr(&mut amiga, dst);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
+    amiga.paula.intreq &= !INTREQ_DSKBLK;
+
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | word_count);
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | word_count);
+
+    let mut elapsed_ccks = 0u32;
+    while (amiga.paula.intreq & INTREQ_DSKBLK) == 0 && elapsed_ccks < 2_000_000 {
+        tick_ccks(&mut amiga, 1);
+        elapsed_ccks += 1;
+    }
+
+    assert_ne!(
+        amiga.paula.intreq & INTREQ_DSKBLK,
+        0,
+        "disk DMA should complete after wrapping the stream, not stall at end-of-track"
+    );
+
+    let wrap_base = dst + MFM_TRACK_BYTES as u32;
+    let wrapped0 = [
+        amiga.memory.read_chip_byte(wrap_base),
+        amiga.memory.read_chip_byte(wrap_base + 1),
+    ];
+    let wrapped1 = [
+        amiga.memory.read_chip_byte(wrap_base + 2),
+        amiga.memory.read_chip_byte(wrap_base + 3),
+    ];
+    assert_eq!(wrapped0, [expected_mfm[0], expected_mfm[1]]);
+    assert_eq!(wrapped1, [expected_mfm[2], expected_mfm[3]]);
 }

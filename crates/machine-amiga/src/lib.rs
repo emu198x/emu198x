@@ -478,10 +478,11 @@ impl Amiga {
         let mut dma_word_completed = false;
         if !runtime.is_write {
             let mut stream_word: Option<(u8, u8, u16)> = None;
-            if runtime.byte_index + 1 < runtime.data.len() {
-                let hi = runtime.data[runtime.byte_index];
-                let lo = runtime.data[runtime.byte_index + 1];
-                runtime.byte_index += 2;
+            if runtime.data.len() >= 2 {
+                let len = runtime.data.len();
+                let hi = runtime.data[runtime.byte_index % len];
+                let lo = runtime.data[(runtime.byte_index + 1) % len];
+                runtime.byte_index = (runtime.byte_index + 2) % len;
                 let word = (u16::from(hi) << 8) | u16::from(lo);
                 stream_word = Some((hi, lo, word));
             }
