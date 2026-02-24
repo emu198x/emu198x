@@ -5,6 +5,8 @@ use machine_amiga::TICKS_PER_CCK;
 const REG_DMACON: u16 = 0x096;
 const REG_SPR0PTH: u16 = 0x120;
 const REG_SPR0PTL: u16 = 0x122;
+const REG_SPR0POS: u16 = 0x140;
+const REG_SPR0CTL: u16 = 0x142;
 
 const DMACON_SPREN: u16 = 0x0020;
 const DMACON_DMAEN: u16 = 0x0200;
@@ -374,4 +376,148 @@ fn sprite_pointer_high_word_value_is_staged_until_low_commit() {
     tick_ccks(&mut amiga, 1); // POS from stream B
     assert_eq!(amiga.denise.spr_pos[0], 0x1357);
     assert_eq!(amiga.agnus.spr_pt[0], spr0_addr_b + 2);
+}
+
+#[test]
+fn zero_height_sprite_reloads_next_pair_as_control_words_at_vstart() {
+    let mut amiga = make_test_amiga();
+    let spr0_addr = 0x0000_3A00u32;
+
+    // First control pair: VSTART=2, VSTOP=2 (zero-height sprite).
+    // Next pair in memory should be consumed as the next SPR0POS/SPR0CTL, not DATA/DATB.
+    write_sprite_words(
+        &mut amiga,
+        spr0_addr,
+        &[
+            0x0200, // POS0
+            0x0200, // CTL0 (VSTOP=2)
+            0x1357, // should become next POS
+            0x2468, // should become next CTL
+            0x9ABC, // subsequent data for next sprite
+            0xDEF0,
+        ],
+    );
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr & 0xFFFF) as u16);
+    amiga.denise.spr_data[0] = 0xAAAA;
+    amiga.denise.spr_datb[0] = 0xBBBB;
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0x0A;
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_SPREN);
+
+    tick_ccks(&mut amiga, 1); // -> hpos 0x0B
+    tick_ccks(&mut amiga, 1); // POS0
+    tick_ccks(&mut amiga, 1); // CTL0 (zero-height)
+    assert_eq!(amiga.denise.spr_pos[0], 0x0200);
+    assert_eq!(amiga.denise.spr_ctl[0], 0x0200);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 4);
+
+    // Before VSTART=2, the channel must stay disarmed and not consume the next pair.
+    wait_for_sprite_slot(&mut amiga, 0); // line 1, first slot
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(amiga.agnus.vpos, 1);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 4);
+    assert_eq!(amiga.denise.spr_pos[0], 0x0200);
+    assert_eq!(amiga.denise.spr_ctl[0], 0x0200);
+    assert_eq!(amiga.denise.spr_data[0], 0xAAAA);
+    assert_eq!(amiga.denise.spr_datb[0], 0xBBBB);
+
+    // At VSTART=2, the next pair is fetched as POS/CTL, not DATA/DATB.
+    while amiga.agnus.vpos != 2 {
+        tick_ccks(&mut amiga, 1);
+    }
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1); // consumes next POS
+    assert_eq!(amiga.denise.spr_pos[0], 0x1357);
+    assert_eq!(amiga.denise.spr_ctl[0], 0x0200);
+    assert_eq!(amiga.denise.spr_data[0], 0xAAAA);
+    assert_eq!(amiga.denise.spr_datb[0], 0xBBBB);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 6);
+
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1); // consumes next CTL
+    assert_eq!(amiga.denise.spr_pos[0], 0x1357);
+    assert_eq!(amiga.denise.spr_ctl[0], 0x2468);
+    assert_eq!(amiga.denise.spr_data[0], 0xAAAA);
+    assert_eq!(amiga.denise.spr_datb[0], 0xBBBB);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 8);
+}
+
+#[test]
+fn sprite_ctl_write_disarms_dma_until_new_vstart_line() {
+    let mut amiga = make_test_amiga();
+    let spr0_addr = 0x0000_3C00u32;
+
+    // Initial sprite active from vstart=0 through line before vstop=4.
+    write_sprite_words(
+        &mut amiga,
+        spr0_addr,
+        &[
+            0x0000, // POS
+            0x0400, // CTL (VSTOP=4)
+            0x1111, 0x2222, // line 1 data
+            0x3333, 0x4444, // line 2 data
+            0x5555, 0x6666, // line 3 data
+        ],
+    );
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr & 0xFFFF) as u16);
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0x0A;
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_SPREN);
+
+    tick_ccks(&mut amiga, 1); // -> hpos 0x0B
+    tick_ccks(&mut amiga, 1); // POS
+    tick_ccks(&mut amiga, 1); // CTL
+
+    // First active line fetch (vpos=1): DATA/DATB line 1.
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(amiga.agnus.vpos, 1);
+    assert_eq!(amiga.denise.spr_data[0], 0x1111);
+    assert_eq!(amiga.denise.spr_datb[0], 0x2222);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 8);
+
+    // CPU/Copper-style write to SPR0CTL disarms the sprite DMA channel.
+    // New control words define VSTART=3, VSTOP=5. DMA should not fetch on line 2.
+    amiga.write_custom_reg(REG_SPR0POS, 0x0300);
+    amiga.write_custom_reg(REG_SPR0CTL, 0x0500);
+
+    // Next sprite-0 slot pair occurs on vpos=2; channel should be disarmed.
+    while amiga.agnus.vpos != 2 {
+        tick_ccks(&mut amiga, 1);
+    }
+    wait_for_sprite_slot(&mut amiga, 0);
+    let ptr_before = amiga.agnus.spr_pt[0];
+    let data_before = amiga.denise.spr_data[0];
+    let datb_before = amiga.denise.spr_datb[0];
+    tick_ccks(&mut amiga, 1);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+
+    assert_eq!(
+        amiga.agnus.spr_pt[0], ptr_before,
+        "SPRxCTL write should disarm sprite DMA and prevent line-2 data fetch"
+    );
+    assert_eq!(amiga.denise.spr_data[0], data_before);
+    assert_eq!(amiga.denise.spr_datb[0], datb_before);
+
+    // On the new VSTART line (vpos=3), DMA should re-arm and fetch the next data pair.
+    while amiga.agnus.vpos != 3 {
+        tick_ccks(&mut amiga, 1);
+    }
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+
+    assert_eq!(amiga.denise.spr_data[0], 0x3333);
+    assert_eq!(amiga.denise.spr_datb[0], 0x4444);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 12);
 }

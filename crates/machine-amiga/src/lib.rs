@@ -369,6 +369,15 @@ impl Amiga {
                 self.sprite_dma_phase[idx] = 0;
             }
         }
+        if (0x140..=0x17E).contains(&offset) {
+            let sprite = ((offset - 0x140) / 8) as usize;
+            let reg = ((offset - 0x140) % 8) / 2;
+            if sprite < 8 && reg == 1 {
+                // HRM: writing SPRxCTL disables the sprite DMA channel until the
+                // vertical beam counter matches VSTART again.
+                self.sprite_dma_phase[sprite] = 4;
+            }
+        }
         write_custom_register(
             &mut self.agnus,
             &mut self.denise,
@@ -505,10 +514,13 @@ impl Amiga {
             let ctl = self.denise.spr_ctl[sprite];
             let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
             let vstop = (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF);
-            if !(vstop > vstart && vpos >= vstart && vpos < vstop) {
+            // HRM: sprite DMA remains disabled until the beam equals VSTART.
+            if vpos != vstart {
                 return;
             }
-            self.sprite_dma_phase[sprite] = 2;
+            // If VSTOP==VSTART, no sprite lines are output; the next fetched
+            // word pair becomes the next SPRxPOS/SPRxCTL instead of DATA/DATB.
+            self.sprite_dma_phase[sprite] = if vstop == vstart { 0 } else { 2 };
         }
 
         let addr = self.agnus.spr_pt[sprite];
@@ -526,8 +538,7 @@ impl Amiga {
                 let ctl = self.denise.spr_ctl[sprite];
                 let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
                 let vstop = (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF);
-                self.sprite_dma_phase[sprite] = if vstop > vstart && vpos >= vstart && vpos < vstop
-                {
+                self.sprite_dma_phase[sprite] = if vstop != vstart && vpos == vstart {
                     2
                 } else {
                     4
