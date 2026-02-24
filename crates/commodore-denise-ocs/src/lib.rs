@@ -22,6 +22,13 @@ pub struct DeniseOcs {
     pub spr_data: [u16; 8],
     pub spr_datb: [u16; 8],
     spr_armed: [bool; 8],
+    spr_shift_data: [u16; 8],
+    spr_shift_datb: [u16; 8],
+    spr_shift_count: [u8; 8],
+    spr_current_code: [u8; 8],
+    sprite_runtime_line_valid: bool,
+    sprite_runtime_beam_x: u32,
+    sprite_runtime_beam_y: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +70,13 @@ impl DeniseOcs {
             // Precise arm/disarm semantics are applied when register writes go
             // through the `write_sprite_*` helpers used by machine-amiga.
             spr_armed: [true; 8],
+            spr_shift_data: [0; 8],
+            spr_shift_datb: [0; 8],
+            spr_shift_count: [0; 8],
+            spr_current_code: [0; 8],
+            sprite_runtime_line_valid: false,
+            sprite_runtime_beam_x: 0,
+            sprite_runtime_beam_y: 0,
         }
     }
 
@@ -95,6 +109,8 @@ impl DeniseOcs {
             self.spr_ctl[sprite] = val;
             // Writing SPRxCTL disables the horizontal comparator (HRM Fig. 4-13).
             self.spr_armed[sprite] = false;
+            self.spr_shift_count[sprite] = 0;
+            self.spr_current_code[sprite] = 0;
         }
     }
 
@@ -125,35 +141,86 @@ impl DeniseOcs {
         (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF)
     }
 
-    fn sprite_code_at(&self, sprite: usize, beam_x: u32, beam_y: u32) -> Option<u8> {
-        if sprite >= 8 {
-            return None;
+    fn sprite_line_active(beam_y: u32, vstart: u32, vstop: u32) -> bool {
+        if vstart == vstop {
+            return false;
         }
-        if !self.spr_armed[sprite] {
-            return None;
+        if vstart < vstop {
+            beam_y >= vstart && beam_y < vstop
+        } else {
+            beam_y >= vstart || beam_y < vstop
         }
-        let pos = self.spr_pos[sprite];
-        let ctl = self.spr_ctl[sprite];
-        let hstart = u32::from(Self::sprite_hstart(pos, ctl));
-        let vstart = u32::from(Self::sprite_vstart(pos, ctl));
-        let vstop = u32::from(Self::sprite_vstop(pos, ctl));
-        if vstop <= vstart {
-            return None;
-        }
-        if beam_y < vstart || beam_y >= vstop {
-            return None;
-        }
-        if beam_x < hstart || beam_x >= hstart + 16 {
-            return None;
-        }
-
-        let bit = 15 - (beam_x - hstart) as u16;
-        let lo = (self.spr_data[sprite] >> bit) & 1;
-        let hi = (self.spr_datb[sprite] >> bit) & 1;
-        Some((lo | (hi << 1)) as u8)
     }
 
-    fn sprite_pixel(&self, beam_x: u32, beam_y: u32) -> Option<SpritePixel> {
+    fn reset_sprite_line_runtime(&mut self, beam_y: u32) {
+        self.spr_shift_count = [0; 8];
+        self.spr_current_code = [0; 8];
+        self.sprite_runtime_line_valid = true;
+        self.sprite_runtime_beam_x = 0;
+        self.sprite_runtime_beam_y = beam_y;
+    }
+
+    fn step_sprite_runtime_one_pixel(&mut self, beam_x: u32, beam_y: u32) {
+        self.spr_current_code = [0; 8];
+        for sprite in 0..8usize {
+            if !self.spr_armed[sprite] {
+                self.spr_shift_count[sprite] = 0;
+                continue;
+            }
+
+            let pos = self.spr_pos[sprite];
+            let ctl = self.spr_ctl[sprite];
+            let hstart = u32::from(Self::sprite_hstart(pos, ctl));
+            let vstart = u32::from(Self::sprite_vstart(pos, ctl));
+            let vstop = u32::from(Self::sprite_vstop(pos, ctl));
+
+            if Self::sprite_line_active(beam_y, vstart, vstop) && beam_x == hstart {
+                // Comparator hit: load serial converters from sprite data regs.
+                self.spr_shift_data[sprite] = self.spr_data[sprite];
+                self.spr_shift_datb[sprite] = self.spr_datb[sprite];
+                self.spr_shift_count[sprite] = 16;
+            }
+
+            if self.spr_shift_count[sprite] == 0 {
+                continue;
+            }
+
+            let lo = (self.spr_shift_data[sprite] >> 15) & 1;
+            let hi = (self.spr_shift_datb[sprite] >> 15) & 1;
+            self.spr_current_code[sprite] = (lo | (hi << 1)) as u8;
+            self.spr_shift_data[sprite] <<= 1;
+            self.spr_shift_datb[sprite] <<= 1;
+            self.spr_shift_count[sprite] -= 1;
+        }
+    }
+
+    fn sync_sprite_runtime_to_beam(&mut self, beam_x: u32, beam_y: u32) {
+        if !self.sprite_runtime_line_valid || self.sprite_runtime_beam_y != beam_y {
+            self.reset_sprite_line_runtime(beam_y);
+            // Fast-forward from the line start to the requested beam pixel.
+            for x in 0..=beam_x {
+                self.step_sprite_runtime_one_pixel(x, beam_y);
+            }
+            self.sprite_runtime_beam_x = beam_x;
+            return;
+        }
+
+        if beam_x <= self.sprite_runtime_beam_x {
+            self.reset_sprite_line_runtime(beam_y);
+            for x in 0..=beam_x {
+                self.step_sprite_runtime_one_pixel(x, beam_y);
+            }
+            self.sprite_runtime_beam_x = beam_x;
+            return;
+        }
+
+        for x in (self.sprite_runtime_beam_x + 1)..=beam_x {
+            self.step_sprite_runtime_one_pixel(x, beam_y);
+        }
+        self.sprite_runtime_beam_x = beam_x;
+    }
+
+    fn sprite_pixel(&self, _beam_x: u32, _beam_y: u32) -> Option<SpritePixel> {
         // Minimal OCS sprite overlay:
         // - attached pairs (1->0, 3->2, 5->4, 7->6) produce 4-bit colors from
         //   the full sprite palette range (COLOR17..COLOR31, 0 => transparent)
@@ -176,8 +243,8 @@ impl DeniseOcs {
                 // codes at this beam position. This matches the HRM behavior
                 // where attached pairs can move independently and, when
                 // misaligned, pixels "revert" to shifted color subsets.
-                let even_code = self.sprite_code_at(pair, beam_x, beam_y).unwrap_or(0);
-                let odd_code = self.sprite_code_at(odd, beam_x, beam_y).unwrap_or(0);
+                let even_code = self.spr_current_code[pair];
+                let odd_code = self.spr_current_code[odd];
                 let code = ((odd_code as usize) << 2) | (even_code as usize);
                 if code == 0 {
                     continue;
@@ -188,9 +255,7 @@ impl DeniseOcs {
                 });
             }
 
-            let Some(code) = self.sprite_code_at(sprite, beam_x, beam_y) else {
-                continue;
-            };
+            let code = self.spr_current_code[sprite];
             if code == 0 {
                 continue;
             }
@@ -203,12 +268,10 @@ impl DeniseOcs {
         None
     }
 
-    fn collision_group_mask(&self, beam_x: u32, beam_y: u32) -> u8 {
+    fn collision_group_mask(&self, _beam_x: u32, _beam_y: u32) -> u8 {
         let mut mask = 0u8;
         for sprite in 0..8usize {
-            let Some(code) = self.sprite_code_at(sprite, beam_x, beam_y) else {
-                continue;
-            };
+            let code = self.spr_current_code[sprite];
             if code == 0 {
                 continue;
             }
@@ -386,6 +449,7 @@ impl DeniseOcs {
 
     pub fn output_pixel_with_beam(&mut self, x: u32, y: u32, beam_x: u32, beam_y: u32) {
         if x < FB_WIDTH && y < FB_HEIGHT {
+            self.sync_sprite_runtime_to_beam(beam_x, beam_y);
             let mut raw_color_idx = 0usize;
             let mut pf1_code = 0u8;
             let mut pf2_code = 0u8;
