@@ -25,6 +25,10 @@ pub const BEAMCON0_VARVBEN: u16 = 0x2000;
 pub const BEAMCON0_VARVSYEN: u16 = 0x0400;
 /// `BEAMCON0` bit enabling programmable horizontal sync (`HSSTRT/HSSTOP`).
 pub const BEAMCON0_VARHSYEN: u16 = 0x0200;
+/// `BEAMCON0` bit redirecting composite sync output path.
+pub const BEAMCON0_CSCBEN: u16 = 0x0800;
+/// `BEAMCON0` bit enabling programmable composite sync (coarse modeled).
+pub const BEAMCON0_VARCSYEN: u16 = 0x0020;
 /// `BEAMCON0` bit redirecting composite blank to the external blank output.
 pub const BEAMCON0_BLANKEN: u16 = 0x0010;
 /// `BEAMCON0` bit selecting "true" polarity for composite sync output.
@@ -267,6 +271,16 @@ impl AgnusEcs {
     }
 
     #[must_use]
+    pub const fn cscben_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_CSCBEN) != 0
+    }
+
+    #[must_use]
+    pub const fn varcsyen_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_VARCSYEN) != 0
+    }
+
+    #[must_use]
     pub const fn harddis_enabled(&self) -> bool {
         (self.beamcon0 & BEAMCON0_HARDDIS) != 0
     }
@@ -426,9 +440,9 @@ impl From<AgnusEcs> for InnerAgnusOcs {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgnusEcs, BEAMCON0_BLANKEN, BEAMCON0_CSYTRUE, BEAMCON0_HARDDIS, BEAMCON0_HSYTRUE,
-        BEAMCON0_VARBEAMEN, BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN,
-        BEAMCON0_VSYTRUE,
+        AgnusEcs, BEAMCON0_BLANKEN, BEAMCON0_CSCBEN, BEAMCON0_CSYTRUE, BEAMCON0_HARDDIS,
+        BEAMCON0_HSYTRUE, BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN, BEAMCON0_VARHSYEN,
+        BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE,
     };
 
     #[test]
@@ -492,16 +506,25 @@ mod tests {
     fn beamcon0_blanken_and_polarity_helpers_reflect_latched_bits() {
         let mut agnus = AgnusEcs::new();
         assert!(!agnus.blanken_enabled());
+        assert!(!agnus.cscben_enabled());
         assert!(!agnus.csytrue_enabled());
+        assert!(!agnus.varcsyen_enabled());
         assert!(!agnus.vsytrue_enabled());
         assert!(!agnus.hsytrue_enabled());
 
         agnus.write_beamcon0(
-            BEAMCON0_BLANKEN | BEAMCON0_CSYTRUE | BEAMCON0_VSYTRUE | BEAMCON0_HSYTRUE,
+            BEAMCON0_CSCBEN
+                | BEAMCON0_VARCSYEN
+                | BEAMCON0_BLANKEN
+                | BEAMCON0_CSYTRUE
+                | BEAMCON0_VSYTRUE
+                | BEAMCON0_HSYTRUE,
         );
 
         assert!(agnus.blanken_enabled());
+        assert!(agnus.cscben_enabled());
         assert!(agnus.csytrue_enabled());
+        assert!(agnus.varcsyen_enabled());
         assert!(agnus.vsytrue_enabled());
         assert!(agnus.hsytrue_enabled());
     }
