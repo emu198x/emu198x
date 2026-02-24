@@ -675,11 +675,15 @@ impl Amiga {
     }
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
+        let beam_x = hpos_cck.wrapping_mul(2);
         let fb_y = if self.chipset == AmigaChipset::Ecs {
             let diwhigh = self.agnus.diwhigh();
-            let vstart = (((diwhigh & 0x0007) as u16) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
+            let vstart =
+                (((diwhigh & 0x0007) as u16) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
             let vstop =
                 ((((diwhigh >> 8) & 0x0007) as u16) << 8) | ((self.agnus.diwstop >> 8) & 0x00FF);
+            let hstart = (((diwhigh >> 5) & 0x0001) << 8) | (self.agnus.diwstrt & 0x00FF);
+            let hstop = (((diwhigh >> 13) & 0x0001) << 8) | (self.agnus.diwstop & 0x00FF);
 
             if vstart == vstop {
                 return None;
@@ -703,6 +707,17 @@ impl Amiga {
             };
 
             if rel >= commodore_denise_ocs::FB_HEIGHT as u16 {
+                return None;
+            }
+
+            let h_active = if hstart == hstop {
+                false
+            } else if hstart < hstop {
+                beam_x >= hstart && beam_x < hstop
+            } else {
+                beam_x >= hstart || beam_x < hstop
+            };
+            if !h_active {
                 return None;
             }
             rel
@@ -1577,14 +1592,21 @@ mod tests {
             kickstart: dummy_kickstart(),
         });
 
-        // ECS display window vertical range 300..320 (DIWHIGH supplies V8=1).
-        amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT: V7..V0 = $2C
-        amiga.write_custom_reg(0x090, 0x4000); // DIWSTOP: V7..V0 = $40
-        amiga.write_custom_reg(0x1E4, 0x0101); // stop V8 (bit8), start V8 (bit0)
-        amiga.agnus.ddfstrt = 0;
+        // ECS display window vertical range 300..320 and horizontal range
+        // 0x110..0x150 (DIWHIGH supplies V8 and H8 bits).
+        amiga.write_custom_reg(0x08E, 0x2C10); // VSTART=$2C, HSTART=$10
+        amiga.write_custom_reg(0x090, 0x4050); // VSTOP =$40, HSTOP =$50
+        amiga.write_custom_reg(0x1E4, 0x2121); // stop H8/V8 + start H8/V8
+        amiga.agnus.ddfstrt = 100;
 
-        assert_eq!(amiga.beam_to_fb(300, 8), Some((0, 0)));
-        assert_eq!(amiga.beam_to_fb(319, 8), Some((0, 19)));
+        // hpos 136 => beam_x 272 (=0x110), inside ECS horizontal window
+        assert_eq!(amiga.beam_to_fb(300, 136), Some((56, 0)));
+        // Last visible CCK before HSTOP (beam_x=334)
+        assert_eq!(amiga.beam_to_fb(319, 167), Some((118, 19)));
+        // Horizontal clipping via DIWHIGH.H8 (would otherwise be in framebuffer range)
+        assert_eq!(amiga.beam_to_fb(300, 120), None); // beam_x=240 < HSTART
+        assert_eq!(amiga.beam_to_fb(300, 180), None); // beam_x=360 >= HSTOP
+        // Vertical clipping still applies
         assert_eq!(amiga.beam_to_fb(320, 8), None);
         assert_eq!(amiga.beam_to_fb(299, 8), None);
     }
