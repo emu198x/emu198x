@@ -463,4 +463,92 @@ mod tests {
         assert_eq!(cia.timer_b, 0x5678);
         assert!(!cia.timer_b_force_load);
     }
+
+    #[test]
+    fn timer_a_oneshot_high_byte_write_autostarts_and_stops_on_underflow() {
+        let mut cia = Cia8520::new("T");
+
+        // One-shot selected, start bit clear.
+        cia.write(0x0E, 0x08);
+        assert!(!cia.timer_a_running());
+
+        cia.write(0x04, 0x02);
+        cia.write(0x05, 0x00);
+
+        // 8520 one-shot auto-starts on timer high-byte write.
+        assert!(cia.timer_a_running());
+        assert_ne!(cia.read(0x0E) & 0x01, 0);
+        assert_eq!(cia.timer_a(), 0x0002);
+
+        cia.tick(); // 2 -> 1
+        cia.tick(); // 1 -> 0
+        cia.tick(); // underflow, reload, stop (one-shot)
+
+        assert_eq!(cia.timer_a(), 0x0002);
+        assert!(!cia.timer_a_running());
+        assert_eq!(cia.read(0x0E) & 0x01, 0);
+        assert_ne!(cia.icr_status() & 0x01, 0);
+    }
+
+    #[test]
+    fn timer_b_chained_mode_counts_only_timer_a_underflows() {
+        let mut cia = Cia8520::new("T");
+
+        // Timer A: free-run, underflow every 2 ticks from initial value 1.
+        cia.timer_a = 0x0001;
+        cia.timer_a_latch = 0x0001;
+        cia.timer_a_running = true;
+        cia.cra = 0x01;
+
+        // Timer B: count Timer A underflows (CRB bits 6:5 = 10b), start.
+        cia.timer_b = 0x0002;
+        cia.timer_b_latch = 0x0002;
+        cia.timer_b_running = true;
+        cia.crb = 0x41;
+
+        cia.tick(); // TA: 1 -> 0, no underflow yet
+        assert_eq!(cia.timer_b(), 0x0002);
+
+        cia.tick(); // TA underflow -> TB: 2 -> 1
+        assert_eq!(cia.timer_b(), 0x0001);
+
+        cia.tick(); // TA: 1 -> 0, no TB count
+        assert_eq!(cia.timer_b(), 0x0001);
+
+        cia.tick(); // TA underflow -> TB: 1 -> 0
+        assert_eq!(cia.timer_b(), 0x0000);
+
+        cia.tick(); // TA: 1 -> 0, still no TB count
+        assert_eq!(cia.timer_b(), 0x0000);
+
+        cia.tick(); // TA underflow -> TB underflow/reload
+        assert_eq!(cia.timer_b(), 0x0002);
+        assert_ne!(cia.icr_status() & 0x03, 0);
+    }
+
+    #[test]
+    fn icr_read_sets_master_bit_only_when_masked_and_clears_status() {
+        let mut cia = Cia8520::new("T");
+
+        cia.receive_serial_byte(0xA5); // ICR bit 3 (SP)
+        assert_eq!(cia.icr_status() & 0x08, 0x08);
+        assert!(!cia.irq_active());
+
+        // Status bit visible without master bit when masked off.
+        let masked_off = cia.read_icr_and_clear();
+        assert_eq!(masked_off & 0x08, 0x08);
+        assert_eq!(masked_off & 0x80, 0x00);
+        assert_eq!(cia.icr_status(), 0);
+
+        // Enable SP mask, trigger again, then read with master bit set.
+        cia.write(0x0D, 0x88); // set mask bit 3
+        cia.receive_serial_byte(0x5A);
+        assert!(cia.irq_active());
+
+        let masked_on = cia.read_icr_and_clear();
+        assert_eq!(masked_on & 0x08, 0x08);
+        assert_eq!(masked_on & 0x80, 0x80);
+        assert_eq!(cia.icr_status(), 0);
+        assert!(!cia.irq_active());
+    }
 }
