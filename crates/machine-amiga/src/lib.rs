@@ -197,14 +197,29 @@ impl Amiga {
         if self.master_clock % TICKS_PER_CCK == 0 {
             let vpos = self.agnus.vpos;
             let hpos = self.agnus.hpos;
-            self.beam_sync_state = self.beam_sync_state_at(vpos, hpos);
+            let prev_sync = self.beam_sync_state;
+            let current_sync = self.beam_sync_state_at(vpos, hpos);
+            self.beam_sync_state = current_sync;
+
+            let hsync_tod_pulse =
+                if self.chipset == AmigaChipset::Ecs && self.agnus.varhsyen_enabled() {
+                    !prev_sync.hsync && current_sync.hsync
+                } else {
+                    hpos == 0
+                };
+            let vsync_tod_pulse =
+                if self.chipset == AmigaChipset::Ecs && self.agnus.varvsyen_enabled() {
+                    !prev_sync.vsync && current_sync.vsync
+                } else {
+                    vpos == 0 && hpos == 0
+                };
 
             // VERTB fires at the start of vblank (beam at line 0, start of frame).
             // The check runs before tick_cck(), so vpos/hpos reflect the current
             // beam position. vpos=0, hpos=0 means the beam just wrapped from the
             // end of the previous frame.
             // CIA-B TOD input is HSYNC — pulse once per scanline.
-            if hpos == 0 {
+            if hsync_tod_pulse {
                 self.cia_b.tod_pulse();
             }
 
@@ -216,7 +231,12 @@ impl Amiga {
                 if self.agnus.dma_enabled(0x0080) {
                     self.copper.restart_cop1();
                 }
-                // CIA-A TOD input is VSYNC — pulse once per frame.
+            }
+
+            // CIA-A TOD input is VSYNC. On OCS we pulse at frame wrap; on ECS
+            // with variable VSYNC enabled we pulse on the programmable sync
+            // window rising edge instead.
+            if vsync_tod_pulse {
                 self.cia_a.tod_pulse();
             }
 
@@ -2190,5 +2210,137 @@ mod tests {
                 vsync: true
             }
         );
+    }
+
+    #[test]
+    fn ecs_hsync_rising_edge_drives_cia_b_tod_pulse() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x1C2, 40); // HSSTOP
+        amiga.write_custom_reg(0x1DE, 30); // HSSTRT
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARHSYEN);
+
+        amiga.agnus.vpos = 50;
+        amiga.agnus.hpos = 29;
+        tick_one_cck(&mut amiga);
+        assert_eq!(amiga.cia_b.tod_counter(), 0);
+
+        tick_one_cck(&mut amiga); // sample hpos=30 => HSYNC rising edge
+        assert_eq!(amiga.cia_b.tod_counter(), 1);
+
+        tick_one_cck(&mut amiga); // still inside sync window => no extra pulse
+        assert_eq!(amiga.cia_b.tod_counter(), 1);
+    }
+
+    #[test]
+    fn ecs_vsync_rising_edge_drives_cia_a_tod_pulse() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x1CA, 110); // VSSTOP
+        amiga.write_custom_reg(0x1E0, 100); // VSSTRT
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARVSYEN);
+
+        amiga.agnus.vpos = 99;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga);
+        assert_eq!(amiga.cia_a.tod_counter(), 0);
+
+        amiga.agnus.vpos = 100;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga); // sample vpos=100 => VSYNC rising edge
+        assert_eq!(amiga.cia_a.tod_counter(), 1);
+
+        amiga.agnus.vpos = 101;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga); // still inside sync window => no extra pulse
+        assert_eq!(amiga.cia_a.tod_counter(), 1);
+    }
+
+    #[test]
+    fn ecs_sync_tod_pulses_follow_wrapped_sync_windows_without_double_pulsing() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        let last_line = commodore_agnus_ocs::PAL_LINES_PER_FRAME - 1;
+
+        amiga.write_custom_reg(0x1C2, 5); // HSSTOP (wrap)
+        amiga.write_custom_reg(0x1DE, 220); // HSSTRT (wrap)
+        amiga.write_custom_reg(0x1CA, 2); // VSSTOP (wrap)
+        amiga.write_custom_reg(0x1E0, last_line); // VSSTRT (wrap)
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_VARHSYEN | commodore_agnus_ecs::BEAMCON0_VARVSYEN,
+        );
+
+        // HSYNC wrap: pulse on entry at 220, no pulse while continuing through 0.
+        amiga.agnus.vpos = 50;
+        amiga.agnus.hpos = 219;
+        tick_one_cck(&mut amiga);
+        assert_eq!(amiga.cia_b.tod_counter(), 0);
+
+        tick_one_cck(&mut amiga); // 220 => rising edge
+        assert_eq!(amiga.cia_b.tod_counter(), 1);
+
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga); // wrapped segment continuation
+        assert_eq!(amiga.cia_b.tod_counter(), 1);
+
+        amiga.agnus.hpos = 5;
+        tick_one_cck(&mut amiga); // leave window
+        assert_eq!(amiga.cia_b.tod_counter(), 1);
+
+        amiga.agnus.hpos = 220;
+        tick_one_cck(&mut amiga); // re-enter => another rising edge
+        assert_eq!(amiga.cia_b.tod_counter(), 2);
+
+        // VSYNC wrap: pulse on entry at last_line, no pulse while continuing at line 0.
+        amiga.agnus.vpos = last_line - 1;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga);
+        let before_vsync = amiga.cia_a.tod_counter();
+
+        amiga.agnus.vpos = last_line;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga); // rising edge
+        assert_eq!(amiga.cia_a.tod_counter(), before_vsync + 1);
+
+        amiga.agnus.vpos = 0;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga); // wrapped segment continuation
+        assert_eq!(amiga.cia_a.tod_counter(), before_vsync + 1);
+    }
+
+    #[test]
+    fn ocs_cia_tod_pulses_still_follow_frame_and_line_wrap_points() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+
+        amiga.agnus.vpos = 10;
+        amiga.agnus.hpos = 1;
+        tick_one_cck(&mut amiga);
+        assert_eq!(amiga.cia_a.tod_counter(), 0);
+        assert_eq!(amiga.cia_b.tod_counter(), 0);
+
+        amiga.agnus.vpos = 10;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga); // HSYNC pulse on line start
+        assert_eq!(amiga.cia_a.tod_counter(), 0);
+        assert_eq!(amiga.cia_b.tod_counter(), 1);
+
+        amiga.agnus.vpos = 0;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga); // frame wrap pulses both TOD inputs
+        assert_eq!(amiga.cia_a.tod_counter(), 1);
+        assert_eq!(amiga.cia_b.tod_counter(), 2);
     }
 }
