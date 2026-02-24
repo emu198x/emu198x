@@ -724,6 +724,21 @@ impl Amiga {
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
         let beam_x = hpos_cck.wrapping_mul(2);
         let fb_y = if self.chipset == AmigaChipset::Ecs {
+            // Coarse ECS hard-stop scaffolding: when programmable beam/sync/blank
+            // control is active but neither HARDDIS nor VARVBEN disables the
+            // legacy vertical hard stop, clamp visibility to the legacy OCS
+            // vertical display span. This is intentionally narrower than a full
+            // ECS signal-generator model and avoids changing DIWHIGH-only paths.
+            let legacy_vertical_hard_stop_active = self.agnus.beamcon0() != 0
+                && !self.agnus.harddis_enabled()
+                && !self.agnus.varvben_enabled();
+            if legacy_vertical_hard_stop_active {
+                let legacy_end = DISPLAY_VSTART + commodore_denise_ocs::FB_HEIGHT as u16;
+                if vpos < DISPLAY_VSTART || vpos >= legacy_end {
+                    return None;
+                }
+            }
+
             if self.agnus.hblank_window_active(hpos_cck) {
                 return None;
             }
@@ -1945,6 +1960,42 @@ mod tests {
 
         assert_eq!(amiga.beam_to_fb(60, 10), None);
         assert!(amiga.beam_to_fb(60, 20).is_some());
+    }
+
+    #[test]
+    fn ecs_harddis_and_varvben_disable_coarse_legacy_vertical_hard_stop() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        // ECS display window vertical range 300..320 and horizontal range
+        // 0x110..0x150 (DIWHIGH supplies V8 and H8 bits).
+        amiga.write_custom_reg(0x08E, 0x2C10); // VSTART=$2C, HSTART=$10
+        amiga.write_custom_reg(0x090, 0x4050); // VSTOP =$40, HSTOP =$50
+        amiga.write_custom_reg(0x1E4, 0x2121); // stop H8/V8 + start H8/V8
+        amiga.agnus.ddfstrt = 100;
+
+        // DIWHIGH-only ECS path remains visible.
+        assert_eq!(amiga.beam_to_fb(300, 136), Some((56, 0)));
+
+        // Once programmable BEAMCON0 controls are active, a coarse legacy
+        // vertical hard-stop clamp applies unless HARDDIS or VARVBEN disables it.
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARHSYEN);
+        assert_eq!(amiga.beam_to_fb(300, 136), None);
+
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_VARHSYEN | commodore_agnus_ecs::BEAMCON0_HARDDIS,
+        );
+        assert_eq!(amiga.beam_to_fb(300, 136), Some((56, 0)));
+
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_VARHSYEN | commodore_agnus_ecs::BEAMCON0_VARVBEN,
+        );
+        assert_eq!(amiga.beam_to_fb(300, 136), Some((56, 0)));
     }
 
     #[test]
