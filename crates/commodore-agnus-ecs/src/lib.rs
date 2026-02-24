@@ -21,17 +21,25 @@ pub const BEAMCON0_VARBEAMEN: u16 = 0x0100;
 pub const BEAMCON0_HARDDIS: u16 = 0x8000;
 /// `BEAMCON0` bit enabling programmable vertical blanking window (`VBSTRT/VBSTOP`).
 pub const BEAMCON0_VARVBEN: u16 = 0x2000;
+/// `BEAMCON0` bit enabling programmable vertical sync (`VSSTRT/VSSTOP`).
+pub const BEAMCON0_VARVSYEN: u16 = 0x0400;
+/// `BEAMCON0` bit enabling programmable horizontal sync (`HSSTRT/HSSTOP`).
+pub const BEAMCON0_VARHSYEN: u16 = 0x0200;
 
 /// Thin ECS wrapper that currently reuses the OCS Agnus implementation.
 pub struct AgnusEcs {
     inner: InnerAgnusOcs,
     beamcon0: u16,
     htotal: u16,
+    hsstop: u16,
     vtotal: u16,
+    vsstop: u16,
     hbstrt: u16,
     hbstop: u16,
     vbstrt: u16,
     vbstop: u16,
+    hsstrt: u16,
+    vsstrt: u16,
     diwhigh: u16,
 }
 
@@ -43,11 +51,15 @@ impl AgnusEcs {
             inner: InnerAgnusOcs::new(),
             beamcon0: 0,
             htotal: 0,
+            hsstop: 0,
             vtotal: 0,
+            vsstop: 0,
             hbstrt: 0,
             hbstop: 0,
             vbstrt: 0,
             vbstop: 0,
+            hsstrt: 0,
+            vsstrt: 0,
             diwhigh: 0,
         }
     }
@@ -61,11 +73,15 @@ impl AgnusEcs {
             inner,
             beamcon0: 0,
             htotal: 0,
+            hsstop: 0,
             vtotal: 0,
+            vsstop: 0,
             hbstrt: 0,
             hbstop: 0,
             vbstrt: 0,
             vbstop: 0,
+            hsstrt: 0,
+            vsstrt: 0,
             diwhigh: 0,
         }
     }
@@ -131,12 +147,30 @@ impl AgnusEcs {
     }
 
     #[must_use]
+    pub const fn hsstop(&self) -> u16 {
+        self.hsstop
+    }
+
+    pub fn write_hsstop(&mut self, val: u16) {
+        self.hsstop = val;
+    }
+
+    #[must_use]
     pub const fn vtotal(&self) -> u16 {
         self.vtotal
     }
 
     pub fn write_vtotal(&mut self, val: u16) {
         self.vtotal = val;
+    }
+
+    #[must_use]
+    pub const fn vsstop(&self) -> u16 {
+        self.vsstop
+    }
+
+    pub fn write_vsstop(&mut self, val: u16) {
+        self.vsstop = val;
     }
 
     #[must_use]
@@ -175,6 +209,24 @@ impl AgnusEcs {
         self.vbstop = val;
     }
 
+    #[must_use]
+    pub const fn hsstrt(&self) -> u16 {
+        self.hsstrt
+    }
+
+    pub fn write_hsstrt(&mut self, val: u16) {
+        self.hsstrt = val;
+    }
+
+    #[must_use]
+    pub const fn vsstrt(&self) -> u16 {
+        self.vsstrt
+    }
+
+    pub fn write_vsstrt(&mut self, val: u16) {
+        self.vsstrt = val;
+    }
+
     /// ECS `DIWHIGH` latch (used by ECS display window extensions).
     #[must_use]
     pub const fn diwhigh(&self) -> u16 {
@@ -194,6 +246,16 @@ impl AgnusEcs {
     #[must_use]
     pub const fn varvben_enabled(&self) -> bool {
         (self.beamcon0 & BEAMCON0_VARVBEN) != 0
+    }
+
+    #[must_use]
+    pub const fn varvsyen_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_VARVSYEN) != 0
+    }
+
+    #[must_use]
+    pub const fn varhsyen_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_VARHSYEN) != 0
     }
 
     #[must_use]
@@ -293,7 +355,10 @@ impl From<AgnusEcs> for InnerAgnusOcs {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgnusEcs, BEAMCON0_HARDDIS, BEAMCON0_VARBEAMEN, BEAMCON0_VARVBEN};
+    use super::{
+        AgnusEcs, BEAMCON0_HARDDIS, BEAMCON0_VARBEAMEN, BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN,
+        BEAMCON0_VARVSYEN,
+    };
 
     #[test]
     fn wrapper_uses_ocs_baseline_state_for_now() {
@@ -312,32 +377,56 @@ mod tests {
         let mut agnus = AgnusEcs::new();
         assert_eq!(agnus.beamcon0(), 0);
         assert_eq!(agnus.htotal(), 0);
+        assert_eq!(agnus.hsstop(), 0);
         assert_eq!(agnus.vtotal(), 0);
+        assert_eq!(agnus.vsstop(), 0);
         assert_eq!(agnus.hbstrt(), 0);
         assert_eq!(agnus.hbstop(), 0);
         assert_eq!(agnus.vbstrt(), 0);
         assert_eq!(agnus.vbstop(), 0);
+        assert_eq!(agnus.hsstrt(), 0);
+        assert_eq!(agnus.vsstrt(), 0);
         assert_eq!(agnus.diwhigh(), 0);
 
         agnus.write_beamcon0(0x0020);
         agnus.write_htotal(0x0033);
+        agnus.write_hsstop(0x0044);
         agnus.write_vtotal(0x0123);
+        agnus.write_vsstop(0x0234);
         agnus.write_hbstrt(0x0010);
         agnus.write_hbstop(0x0020);
         agnus.write_vbstrt(0x0040);
         agnus.write_vbstop(0x0060);
+        agnus.write_hsstrt(0x0070);
+        agnus.write_vsstrt(0x0178);
         agnus.write_diwhigh(0xA5A5);
 
         assert_eq!(agnus.beamcon0(), 0x0020);
         assert_eq!(agnus.htotal(), 0x0033);
+        assert_eq!(agnus.hsstop(), 0x0044);
         assert_eq!(agnus.vtotal(), 0x0123);
+        assert_eq!(agnus.vsstop(), 0x0234);
         assert_eq!(agnus.hbstrt(), 0x0010);
         assert_eq!(agnus.hbstop(), 0x0020);
         assert_eq!(agnus.vbstrt(), 0x0040);
         assert_eq!(agnus.vbstop(), 0x0060);
+        assert_eq!(agnus.hsstrt(), 0x0070);
+        assert_eq!(agnus.vsstrt(), 0x0178);
         assert_eq!(agnus.diwhigh(), 0xA5A5);
         assert_eq!(agnus.diwstrt, 0);
         assert_eq!(agnus.diwstop, 0);
+    }
+
+    #[test]
+    fn varhsyen_and_varvsyen_bits_are_reported_from_beamcon0() {
+        let mut agnus = AgnusEcs::new();
+        assert!(!agnus.varhsyen_enabled());
+        assert!(!agnus.varvsyen_enabled());
+
+        agnus.write_beamcon0(BEAMCON0_VARHSYEN | BEAMCON0_VARVSYEN);
+
+        assert!(agnus.varhsyen_enabled());
+        assert!(agnus.varvsyen_enabled());
     }
 
     #[test]

@@ -913,12 +913,16 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x01E => self.paula.intreq,
                     0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),
                     0x1C0 if self.chipset == AmigaChipset::Ecs => self.agnus.htotal(),
+                    0x1C2 if self.chipset == AmigaChipset::Ecs => self.agnus.hsstop(),
                     0x1C4 if self.chipset == AmigaChipset::Ecs => self.agnus.hbstrt(),
                     0x1C6 if self.chipset == AmigaChipset::Ecs => self.agnus.hbstop(),
                     0x1C8 if self.chipset == AmigaChipset::Ecs => self.agnus.vtotal(),
+                    0x1CA if self.chipset == AmigaChipset::Ecs => self.agnus.vsstop(),
                     0x1CC if self.chipset == AmigaChipset::Ecs => self.agnus.vbstrt(),
                     0x1CE if self.chipset == AmigaChipset::Ecs => self.agnus.vbstop(),
                     0x1DC if self.chipset == AmigaChipset::Ecs => self.agnus.beamcon0(),
+                    0x1DE if self.chipset == AmigaChipset::Ecs => self.agnus.hsstrt(),
+                    0x1E0 if self.chipset == AmigaChipset::Ecs => self.agnus.vsstrt(),
                     0x1E4 if self.chipset == AmigaChipset::Ecs => self.agnus.diwhigh(),
                     0x07C => 0xFFFF,
                     _ => 0,
@@ -1065,12 +1069,16 @@ fn write_custom_register(
 
         // ECS display/beam extensions (latch-only for now, gated off on OCS)
         0x1C0 if chipset == AmigaChipset::Ecs => agnus.write_htotal(val),
+        0x1C2 if chipset == AmigaChipset::Ecs => agnus.write_hsstop(val),
         0x1C4 if chipset == AmigaChipset::Ecs => agnus.write_hbstrt(val),
         0x1C6 if chipset == AmigaChipset::Ecs => agnus.write_hbstop(val),
         0x1C8 if chipset == AmigaChipset::Ecs => agnus.write_vtotal(val),
+        0x1CA if chipset == AmigaChipset::Ecs => agnus.write_vsstop(val),
         0x1CC if chipset == AmigaChipset::Ecs => agnus.write_vbstrt(val),
         0x1CE if chipset == AmigaChipset::Ecs => agnus.write_vbstop(val),
         0x1DC if chipset == AmigaChipset::Ecs => agnus.write_beamcon0(val),
+        0x1DE if chipset == AmigaChipset::Ecs => agnus.write_hsstrt(val),
+        0x1E0 if chipset == AmigaChipset::Ecs => agnus.write_vsstrt(val),
         0x1E4 if chipset == AmigaChipset::Ecs => agnus.write_diwhigh(val),
 
         // Bitplane control
@@ -1677,21 +1685,29 @@ mod tests {
     fn ocs_custom_reads_for_ecs_beam_registers_return_zero() {
         let mut amiga = Amiga::new(dummy_kickstart());
         amiga.write_custom_reg(0x1C0, 0x0033);
+        amiga.write_custom_reg(0x1C2, 0x0044);
         amiga.write_custom_reg(0x1C4, 0x0011);
         amiga.write_custom_reg(0x1C6, 0x0022);
         amiga.write_custom_reg(0x1C8, 0x0123);
+        amiga.write_custom_reg(0x1CA, 0x0234);
         amiga.write_custom_reg(0x1CC, 0x0044);
         amiga.write_custom_reg(0x1CE, 0x0055);
         amiga.write_custom_reg(0x1DC, 0x4567);
+        amiga.write_custom_reg(0x1DE, 0x0066);
+        amiga.write_custom_reg(0x1E0, 0x0177);
         amiga.write_custom_reg(0x1E4, 0x89AB);
 
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C2), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C4), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C6), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C8), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CA), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CC), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CE), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DC), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DE), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E0), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E4), 0);
     }
 
@@ -1703,21 +1719,29 @@ mod tests {
             kickstart: dummy_kickstart(),
         });
         amiga.write_custom_reg(0x1C0, 0x0033);
+        amiga.write_custom_reg(0x1C2, 0x0044);
         amiga.write_custom_reg(0x1C4, 0x0011);
         amiga.write_custom_reg(0x1C6, 0x0022);
         amiga.write_custom_reg(0x1C8, 0x0123);
+        amiga.write_custom_reg(0x1CA, 0x0234);
         amiga.write_custom_reg(0x1CC, 0x0044);
         amiga.write_custom_reg(0x1CE, 0x0055);
         amiga.write_custom_reg(0x1DC, 0x4567);
+        amiga.write_custom_reg(0x1DE, 0x0066);
+        amiga.write_custom_reg(0x1E0, 0x0177);
         amiga.write_custom_reg(0x1E4, 0x89AB);
 
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0x0033);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C2), 0x0044);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C4), 0x0011);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C6), 0x0022);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C8), 0x0123);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CA), 0x0234);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CC), 0x0044);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CE), 0x0055);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DC), 0x4567);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DE), 0x0066);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E0), 0x0177);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E4), 0x89AB);
     }
 
