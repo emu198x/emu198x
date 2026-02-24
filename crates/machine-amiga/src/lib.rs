@@ -495,6 +495,27 @@ impl Amiga {
         }
     }
 
+    fn sprite_line_active(vpos: u16, vstart: u16, vstop: u16) -> bool {
+        if vstart == vstop {
+            return false;
+        }
+        if vstart < vstop {
+            vpos >= vstart && vpos < vstop
+        } else {
+            // Wrapped sprite: active from VSTART..end_of_frame and 0..VSTOP-1.
+            vpos >= vstart || vpos < vstop
+        }
+    }
+
+    fn next_sprite_dma_vpos(vpos: u16) -> u16 {
+        let next = vpos.wrapping_add(1);
+        if next >= commodore_agnus_ocs::PAL_LINES_PER_FRAME {
+            0
+        } else {
+            next
+        }
+    }
+
     /// Service one Agnus sprite DMA slot.
     ///
     /// Minimal OCS bring-up model: fetch one word from `SPRxPT` and advance a
@@ -554,13 +575,13 @@ impl Amiga {
                 let ctl = self.denise.spr_ctl[sprite];
                 let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
                 let vstop = (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF);
-                let next_vpos = vpos.wrapping_add(1);
-                self.sprite_dma_phase[sprite] =
-                    if vstop > vstart && next_vpos >= vstart && next_vpos < vstop {
-                        2
-                    } else {
-                        0
-                    };
+                let next_vpos = Self::next_sprite_dma_vpos(vpos);
+                self.sprite_dma_phase[sprite] = if Self::sprite_line_active(next_vpos, vstart, vstop)
+                {
+                    2
+                } else {
+                    0
+                };
             }
         }
         self.agnus.spr_pt[sprite] = addr.wrapping_add(2);

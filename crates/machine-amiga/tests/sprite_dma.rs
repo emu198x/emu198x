@@ -61,6 +61,15 @@ fn wait_for_beam(amiga: &mut Amiga, vpos: u16, hpos: u16) {
     }
 }
 
+fn sprite_pos_ctl_words(vstart: u16, vstop: u16, hstart: u16) -> (u16, u16) {
+    let pos = ((vstart & 0x00FF) << 8) | ((hstart >> 1) & 0x00FF);
+    let ctl = ((vstop & 0x00FF) << 8)
+        | (((vstart >> 8) & 1) << 2)
+        | (((vstop >> 8) & 1) << 1)
+        | (hstart & 1);
+    (pos, ctl)
+}
+
 #[test]
 fn sprite_dma_slots_fetch_sprxpos_ctl_then_data_datb() {
     let mut amiga = make_test_amiga();
@@ -520,4 +529,109 @@ fn sprite_ctl_write_disarms_dma_until_new_vstart_line() {
     assert_eq!(amiga.denise.spr_data[0], 0x3333);
     assert_eq!(amiga.denise.spr_datb[0], 0x4444);
     assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 12);
+}
+
+#[test]
+fn wrapped_sprite_fetches_across_frame_end_and_reloads_at_vstop() {
+    let mut amiga = make_test_amiga();
+    let spr0_addr = 0x0000_3E00u32;
+    let (pos0, ctl0) = sprite_pos_ctl_words(310, 2, 0); // Active on 310,311,0,1 then stop at 2.
+
+    write_sprite_words(
+        &mut amiga,
+        spr0_addr,
+        &[
+            pos0, ctl0, 0x1111, 0x2222, // line 310
+            0x3333, 0x4444, // line 311
+            0x5555, 0x6666, // line 0
+            0x7777, 0x8888, // line 1
+            0x1357, 0x2468, // next POS/CTL after VSTOP
+        ],
+    );
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr & 0xFFFF) as u16);
+    amiga.denise.spr_data[0] = 0xAAAA;
+    amiga.denise.spr_datb[0] = 0xBBBB;
+
+    // Start just before the sprite-0 slot pair on line 309 so the control pair
+    // is fetched while disarmed, then data starts on VSTART=310.
+    amiga.agnus.vpos = 309;
+    amiga.agnus.hpos = 0x0A;
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_SPREN);
+
+    tick_ccks(&mut amiga, 1); // -> 0x0B
+    tick_ccks(&mut amiga, 1); // POS
+    tick_ccks(&mut amiga, 1); // CTL
+    assert_eq!(amiga.denise.spr_pos[0], pos0);
+    assert_eq!(amiga.denise.spr_ctl[0], ctl0);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 4);
+
+    // VSTART line 310
+    while amiga.agnus.vpos != 310 {
+        tick_ccks(&mut amiga, 1);
+    }
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(amiga.denise.spr_data[0], 0x1111);
+    assert_eq!(amiga.denise.spr_datb[0], 0x2222);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 8);
+
+    // Line 311
+    while amiga.agnus.vpos != 311 {
+        tick_ccks(&mut amiga, 1);
+    }
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(amiga.denise.spr_data[0], 0x3333);
+    assert_eq!(amiga.denise.spr_datb[0], 0x4444);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 12);
+
+    // Wrapped top-of-frame lines 0 and 1
+    while amiga.agnus.vpos != 0 {
+        tick_ccks(&mut amiga, 1);
+    }
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(amiga.denise.spr_data[0], 0x5555);
+    assert_eq!(amiga.denise.spr_datb[0], 0x6666);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 16);
+
+    while amiga.agnus.vpos != 1 {
+        tick_ccks(&mut amiga, 1);
+    }
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(amiga.denise.spr_data[0], 0x7777);
+    assert_eq!(amiga.denise.spr_datb[0], 0x8888);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 20);
+
+    // At VSTOP=2, the sprite stops and the next pair is reloaded into POS/CTL.
+    while amiga.agnus.vpos != 2 {
+        tick_ccks(&mut amiga, 1);
+    }
+    let data_before_stop = amiga.denise.spr_data[0];
+    let datb_before_stop = amiga.denise.spr_datb[0];
+
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1); // next POS
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1); // next CTL
+
+    assert_eq!(amiga.denise.spr_pos[0], 0x1357);
+    assert_eq!(amiga.denise.spr_ctl[0], 0x2468);
+    assert_eq!(
+        amiga.denise.spr_data[0], data_before_stop,
+        "VSTOP transition should reload control words, not overwrite sprite data registers"
+    );
+    assert_eq!(amiga.denise.spr_datb[0], datb_before_stop);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 24);
 }
