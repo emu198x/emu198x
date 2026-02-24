@@ -1,0 +1,13 @@
+[package]
+name = "commodore-agnus-ecs"
+description = "Thin Commodore Super Agnus (ECS) wrapper over commodore-agnus-ocs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+
+[lints]
+workspace = true

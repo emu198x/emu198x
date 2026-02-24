@@ -1,0 +1,13 @@
+[package]
+name = "commodore-denise-ecs"
+description = "Thin Commodore Super Denise (ECS) wrapper over commodore-denise-ocs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+
+[lints]
+workspace = true
