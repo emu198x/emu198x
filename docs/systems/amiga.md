@@ -331,3 +331,26 @@ Commodore Amiga/Demos/Desert Dream (1993)(Kefrens).adf
 5. **CIA timer accuracy** — Games use for timing and protection.
 6. **Sprite DMA slots** — Limited positions per line.
 7. **Interlace** — PAL is actually 312.5 lines, alternating fields.
+
+## Emu198x Status (A500/OCS Baseline)
+
+The current implementation status and known accuracy gaps for the Emu198x Amiga
+baseline are tracked in:
+
+- `docs/systems/amiga-accuracy-status.md`
+
+Useful local commands:
+
+```sh
+# KS1.3 screenshot regression (requires Kickstart ROM)
+AMIGA_KS13_ROM=roms/kick13.rom \
+  cargo test -p machine-amiga --test boot_kickstart test_boot_kick13 -- --ignored
+
+# Headless insert-screen timing benchmark
+cargo run --release -p amiga-runner -- \
+  --rom roms/kick13.rom \
+  --headless \
+  --frames 300 \
+  --bench-insert-screen \
+  --mute
+```
