@@ -314,43 +314,60 @@ fn disk_dma_read_updates_dskbytr_flags_and_data() {
         let ptr_after = amiga.agnus.dsk_pt;
         if ptr_after.wrapping_sub(ptr_before) == 2 {
             transferred_words += 1;
-            let dskbytr = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
+            let first = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
+            assert_ne!(first & 0x8000, 0, "DSKBYT should be set on first byte");
+            assert_ne!(first & 0x4000, 0, "DMAON should reflect active disk DMA");
+            assert_eq!(first & 0x2000, 0, "DISKWRITE should be clear for read DMA");
+
+            let second = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
             assert_ne!(
-                dskbytr & 0x8000,
+                second & 0x8000,
                 0,
-                "DSKBYT should be set after a received byte/word"
+                "DSKBYT should be set again for the second byte of the same word"
             );
-            assert_ne!(dskbytr & 0x4000, 0, "DMAON should reflect active disk DMA");
-            assert_eq!(
-                dskbytr & 0x2000,
+            assert_ne!(
+                second & 0x4000,
                 0,
-                "DISKWRITE should be clear for read DMA"
+                "DMAON should remain set during disk DMA"
             );
+
             match transferred_words {
                 1 | 2 => {
-                    assert_eq!(dskbytr & 0x00FF, 0x00AA, "gap low byte should be visible");
                     assert_eq!(
-                        dskbytr & 0x1000,
-                        0,
-                        "WORDEQUAL should be clear on gap words"
+                        first & 0x00FF,
+                        0x00AA,
+                        "gap high byte should be visible first"
                     );
+                    assert_eq!(second & 0x00FF, 0x00AA, "gap low byte should follow");
+                    assert_eq!(first & 0x1000, 0, "WORDEQUAL should be clear on gap words");
+                    assert_eq!(second & 0x1000, 0, "WORDEQUAL should be clear on gap words");
                 }
                 3 => {
-                    assert_eq!(dskbytr & 0x00FF, 0x0089, "sync low byte should be visible");
+                    assert_eq!(
+                        first & 0x00FF,
+                        0x0044,
+                        "sync high byte should be visible first"
+                    );
+                    assert_eq!(second & 0x00FF, 0x0089, "sync low byte should follow");
                     assert_ne!(
-                        dskbytr & 0x1000,
+                        first & 0x1000,
                         0,
                         "WORDEQUAL should be set on DSKSYNC match"
+                    );
+                    assert_ne!(
+                        second & 0x1000,
+                        0,
+                        "WORDEQUAL should persist across the matched word bytes"
                     );
                 }
                 _ => unreachable!(),
             }
 
-            let dskbytr_second_read = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
+            let third = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
             assert_eq!(
-                dskbytr_second_read & 0x8000,
+                third & 0x8000,
                 0,
-                "DSKBYT must clear on DSKBYTR read"
+                "DSKBYT must clear once both bytes are consumed"
             );
         }
     }

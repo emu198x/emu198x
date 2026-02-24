@@ -292,6 +292,7 @@ pub struct Paula8364 {
     pub dsksync: u16,
     pub dskdatr: u16,
     dskbytr_data: u8,
+    dskbytr_next_data: Option<u8>,
     dskbytr_valid: bool,
     dskbytr_wordequal: bool,
     pub disk_dma_pending: bool,
@@ -309,6 +310,7 @@ impl Paula8364 {
             dsksync: 0,
             dskdatr: 0,
             dskbytr_data: 0,
+            dskbytr_next_data: None,
             dskbytr_valid: false,
             dskbytr_wordequal: false,
             disk_dma_pending: false,
@@ -590,7 +592,8 @@ impl Paula8364 {
 
     pub fn note_disk_read_word(&mut self, word: u16) -> bool {
         self.dskdatr = word;
-        self.dskbytr_data = word as u8;
+        self.dskbytr_data = (word >> 8) as u8;
+        self.dskbytr_next_data = Some(word as u8);
         self.dskbytr_valid = true;
         let wordequal = word == self.dsksync;
         self.dskbytr_wordequal = wordequal;
@@ -617,8 +620,16 @@ impl Paula8364 {
             value |= 1 << 12;
         }
 
-        // DSKBYT clears on DSKBYTR read; other status bits are independent.
-        self.dskbytr_valid = false;
+        // DSKBYT clears on read, but in this simplified model we immediately
+        // promote the second byte of the same received word if it is pending.
+        if let Some(next) = self.dskbytr_next_data.take() {
+            self.dskbytr_data = next;
+            self.dskbytr_valid = true;
+        } else {
+            self.dskbytr_valid = false;
+            // The match indication is a transient view of the current stream word.
+            self.dskbytr_wordequal = false;
+        }
         value
     }
 
