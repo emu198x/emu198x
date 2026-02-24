@@ -469,3 +469,80 @@ fn clxcon_enbp2_mvbp2_filters_even_bitplane_sprite_collision() {
         "even bitplane collision should be filtered out when BPL2 bit mismatches MVBP2"
     );
 }
+
+fn clxdat_for_misaligned_attached_odd_only_pixel(
+    clxcon: u16,
+    with_group1_sprite: bool,
+    with_odd_bitplane: bool,
+) -> u16 {
+    let mut amiga = make_test_amiga();
+    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let (pos_odd, ctl_odd) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+    let (pos_even_misaligned, ctl_even_misaligned) =
+        encode_sprite_pos_ctl(beam_x + 2, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+
+    // Misaligned attached pair: odd sprite 1 has a pixel at the sampled beam_x,
+    // even sprite 0 is shifted right by 2 pixels, so this CCK sees an odd-only
+    // attached-pair contribution.
+    amiga.denise.spr_pos[0] = pos_even_misaligned;
+    amiga.denise.spr_ctl[0] = ctl_even_misaligned;
+    amiga.denise.spr_data[0] = 0x8000;
+    amiga.denise.spr_datb[0] = 0x0000;
+
+    amiga.denise.spr_pos[1] = pos_odd;
+    amiga.denise.spr_ctl[1] = ctl_odd | 0x0080; // ATTACH on odd sprite
+    amiga.denise.spr_data[1] = 0x8000;
+    amiga.denise.spr_datb[1] = 0x0000;
+
+    if with_group1_sprite {
+        amiga.denise.spr_pos[2] = pos_odd;
+        amiga.denise.spr_ctl[2] = ctl_odd;
+        amiga.denise.spr_data[2] = 0x8000;
+        amiga.denise.spr_datb[2] = 0x0000;
+    }
+
+    amiga.write_custom_reg(REG_CLXCON, clxcon);
+    position_beam_for_single_render_cck(&mut amiga);
+
+    if with_odd_bitplane {
+        amiga.denise.bpl_shift[0] = 0x8000; // BPL1 bit set at sampled pixel
+        amiga.denise.shift_count = 1;
+    }
+
+    tick_ccks(&mut amiga, 1);
+    read_custom_word_via_cpu_bus(&mut amiga, CLXDAT_ADDR)
+}
+
+#[test]
+fn clxdat_attached_misaligned_odd_sprite_group_collision_respects_ensp1() {
+    let disabled = clxdat_for_misaligned_attached_odd_only_pixel(0, true, false);
+    let enabled = clxdat_for_misaligned_attached_odd_only_pixel(CLXCON_ENSP1, true, false);
+
+    assert_eq!(
+        disabled & (1 << 9),
+        0,
+        "odd-only pixel from attached pair should not contribute to SP01 group collisions without ENSP1"
+    );
+    assert_eq!(
+        enabled & (1 << 9),
+        1 << 9,
+        "ENSP1 should include odd-only attached-pair pixels in SP01 group collisions"
+    );
+}
+
+#[test]
+fn clxdat_attached_misaligned_odd_pf_collision_respects_ensp1() {
+    let disabled = clxdat_for_misaligned_attached_odd_only_pixel(0, false, true);
+    let enabled = clxdat_for_misaligned_attached_odd_only_pixel(CLXCON_ENSP1, false, true);
+
+    assert_eq!(
+        disabled & (1 << 1),
+        0,
+        "odd-only attached-pair pixel should not collide with odd bitplanes without ENSP1"
+    );
+    assert_eq!(
+        enabled & (1 << 1),
+        1 << 1,
+        "ENSP1 should include odd-only attached-pair pixels in odd-bitplane collisions"
+    );
+}
