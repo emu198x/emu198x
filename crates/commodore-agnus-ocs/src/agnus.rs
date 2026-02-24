@@ -258,11 +258,7 @@ impl Agnus {
 
     pub fn num_bitplanes(&self) -> u8 {
         let bpl_bits = (self.bplcon0 >> 12) & 0x07;
-        if bpl_bits > 6 {
-            6
-        } else {
-            bpl_bits as u8
-        }
+        if bpl_bits > 6 { 6 } else { bpl_bits as u8 }
     }
 
     pub fn dma_enabled(&self, bit: u16) -> bool {

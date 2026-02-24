@@ -1159,11 +1159,7 @@ impl Cpu68000 {
             } else {
                 // ALU immediate: byte/word = 1, long = 2 ext words
                 let size_bits = (self.ir >> 6) & 3;
-                if size_bits == 2 {
-                    4
-                } else {
-                    2
-                }
+                if size_bits == 2 { 4 } else { 2 }
             }
         } else {
             0
@@ -1461,8 +1457,7 @@ mod tests {
         assert!(
             in_wait_loop,
             "CPU should reach the tight BRA loop with interrupt mask 0 before IRQ (pc=${:08X}, sr=${:04X})",
-            cpu.regs.pc,
-            cpu.regs.sr
+            cpu.regs.pc, cpu.regs.sr
         );
 
         bus.ipl = 3;
@@ -1478,9 +1473,7 @@ mod tests {
         assert!(
             entered_handler,
             "CPU should service level-3 interrupt from a tight branch loop (pc=${:08X}, sr=${:04X}, d0=${:08X})",
-            cpu.regs.pc,
-            cpu.regs.sr,
-            cpu.regs.d[0]
+            cpu.regs.pc, cpu.regs.sr, cpu.regs.d[0]
         );
         assert_eq!(cpu.regs.interrupt_mask(), 3);
         assert!(

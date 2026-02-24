@@ -264,7 +264,7 @@ fn same_side_channels_average_and_can_cancel() {
     // Left side = AUD0 + AUD3. Equal and opposite values should cancel.
     write_aud_direct(&mut amiga, 0, 124, 64, 0x40, 0x00); // +64
     write_aud_direct(&mut amiga, 3, 124, 64, 0xC0, 0x00); // -64
-    // Right side = AUD1 + AUD2. Two equal positives should sum before averaging.
+                                                          // Right side = AUD1 + AUD2. Two equal positives should sum before averaging.
     write_aud_direct(&mut amiga, 1, 124, 64, 0x40, 0x00); // +64
     write_aud_direct(&mut amiga, 2, 124, 64, 0x40, 0x00); // +64
 
@@ -510,10 +510,10 @@ fn aud0_dma_combined_modulation_high_rate_with_agnus_dma_contention_preserves_or
             amiga.write_custom_reg(REG_DDFSTRT, 0x001C);
             amiga.write_custom_reg(REG_DDFSTOP, 0x00D8);
             amiga.write_custom_reg(REG_BPLCON0, 6 << 12); // 6 bitplanes
-            // Channel 0 audio return (~14 CCK after the AUD0 slot) lands in the
-            // early-scanline sprite DMA region, so enable sprite DMA to create a
-            // deterministic contention signal for return-latency progress. We
-            // also enable bitplane DMA to keep display-load coexistence covered.
+                                                          // Channel 0 audio return (~14 CCK after the AUD0 slot) lands in the
+                                                          // early-scanline sprite DMA region, so enable sprite DMA to create a
+                                                          // deterministic contention signal for return-latency progress. We
+                                                          // also enable bitplane DMA to keep display-load coexistence covered.
             dmacon |= DMACON_BPLEN | DMACON_SPREN;
         }
         amiga.write_custom_reg(REG_DMACON, dmacon);
