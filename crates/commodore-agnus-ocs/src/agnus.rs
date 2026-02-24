@@ -210,6 +210,8 @@ pub struct Agnus {
 
     // Sprite pointers
     pub spr_pt: [u32; 8],
+    spr_pt_hi_latch: [u16; 8],
+    spr_pt_hi_pending: [bool; 8],
 
     // Disk pointer
     pub dsk_pt: u32,
@@ -252,6 +254,8 @@ impl Agnus {
             bpl1mod: 0,
             bpl2mod: 0,
             spr_pt: [0; 8],
+            spr_pt_hi_latch: [0; 8],
+            spr_pt_hi_pending: [false; 8],
             dsk_pt: 0,
         }
     }
@@ -263,6 +267,29 @@ impl Agnus {
 
     pub fn dma_enabled(&self, bit: u16) -> bool {
         (self.dmacon & 0x0200) != 0 && (self.dmacon & bit) != 0
+    }
+
+    /// Sprite pointer register write semantics: `SPRxPTH` stages the high word,
+    /// `SPRxPTL` commits the effective pointer used by DMA.
+    pub fn write_sprite_pointer_reg(&mut self, sprite: usize, high_word: bool, val: u16) {
+        if sprite >= 8 {
+            return;
+        }
+
+        if high_word {
+            self.spr_pt_hi_latch[sprite] = val;
+            self.spr_pt_hi_pending[sprite] = true;
+            return;
+        }
+
+        let hi = if self.spr_pt_hi_pending[sprite] {
+            self.spr_pt_hi_latch[sprite]
+        } else {
+            (self.spr_pt[sprite] >> 16) as u16
+        };
+        self.spr_pt[sprite] = (u32::from(hi) << 16) | u32::from(val & 0xFFFE);
+        self.spr_pt_hi_latch[sprite] = hi;
+        self.spr_pt_hi_pending[sprite] = false;
     }
 
     /// `true` when a busy blitter is in nasty mode and may steal CPU/free slots.

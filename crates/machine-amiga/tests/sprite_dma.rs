@@ -323,3 +323,55 @@ fn sprite_pointer_phase_reset_happens_on_low_write_not_high_write() {
     );
     assert_eq!(amiga.agnus.spr_pt[0], spr0_addr_b + 2);
 }
+
+#[test]
+fn sprite_pointer_high_word_value_is_staged_until_low_commit() {
+    let mut amiga = make_test_amiga();
+    let spr0_addr_a = 0x0000_3800u32;
+    let spr0_addr_b = 0x0001_3840u32; // different high word to prove address latch timing
+
+    write_sprite_words(&mut amiga, spr0_addr_a, &[0x0000, 0x0200, 0x9ABC, 0xDEF0]);
+    write_sprite_words(&mut amiga, spr0_addr_b, &[0x1357, 0x2468, 0xAAAA, 0xBBBB]);
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr_a >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr_a & 0xFFFF) as u16);
+    amiga.denise.spr_data[0] = 0x3333;
+    amiga.denise.spr_datb[0] = 0x4444;
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0x0A;
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_SPREN);
+
+    tick_ccks(&mut amiga, 1); // -> hpos 0x0B
+    tick_ccks(&mut amiga, 1); // POS
+    tick_ccks(&mut amiga, 1); // CTL
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr_a + 4);
+
+    // Stage only the high word for stream B; effective DMA pointer must stay on stream A.
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr_b >> 16) as u16);
+    assert_eq!(
+        amiga.agnus.spr_pt[0],
+        spr0_addr_a + 4,
+        "SPRxPTH should stage the new high word without changing the active DMA pointer"
+    );
+
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1); // DATA from stream A
+    assert_eq!(amiga.denise.spr_data[0], 0x9ABC);
+    assert_eq!(
+        amiga.agnus.spr_pt[0],
+        spr0_addr_a + 6,
+        "staged high word must not redirect the next sprite DMA fetch"
+    );
+
+    // Commit stream B pointer on PTL; next slot restarts at B control words.
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr_b & 0xFFFF) as u16);
+    assert_eq!(
+        amiga.agnus.spr_pt[0], spr0_addr_b,
+        "SPRxPTL should commit the staged high word and low word into the active pointer"
+    );
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1); // POS from stream B
+    assert_eq!(amiga.denise.spr_pos[0], 0x1357);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr_b + 2);
+}

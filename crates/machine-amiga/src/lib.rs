@@ -902,11 +902,7 @@ fn write_custom_register(
         0x120..=0x13E => {
             let idx = ((offset - 0x120) / 4) as usize;
             if idx < 8 {
-                if offset & 2 == 0 {
-                    agnus.spr_pt[idx] = (agnus.spr_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16);
-                } else {
-                    agnus.spr_pt[idx] = (agnus.spr_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE);
-                }
+                agnus.write_sprite_pointer_reg(idx, (offset & 2) == 0, val);
             }
         }
 
