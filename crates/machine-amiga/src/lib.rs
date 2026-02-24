@@ -74,6 +74,20 @@ pub struct BeamSyncState {
     pub vsync: bool,
 }
 
+/// Debug/test-facing beam snapshot in the emulator's current beam units.
+///
+/// This is intended as a stable machine-level inspection API while ECS sync
+/// and blanking behavior is still being brought up incrementally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BeamDebugSnapshot {
+    pub vpos: u16,
+    pub hpos_cck: u16,
+    pub sync: BeamSyncState,
+    pub hblank: bool,
+    pub vblank: bool,
+    pub fb_coords: Option<(u32, u32)>,
+}
+
 pub struct Amiga {
     pub master_clock: u64,
     pub chipset: AmigaChipset,
@@ -783,6 +797,53 @@ impl Amiga {
     #[must_use]
     pub const fn current_beam_sync_state(&self) -> BeamSyncState {
         self.beam_sync_state
+    }
+
+    /// Build a debug beam snapshot at an explicit beam position.
+    #[must_use]
+    pub fn beam_debug_snapshot_at(&self, vpos: u16, hpos_cck: u16) -> BeamDebugSnapshot {
+        let (hblank, vblank) = if self.chipset == AmigaChipset::Ecs {
+            (
+                self.agnus.hblank_window_active(hpos_cck),
+                self.agnus.vblank_window_active(vpos),
+            )
+        } else {
+            (false, false)
+        };
+        BeamDebugSnapshot {
+            vpos,
+            hpos_cck,
+            sync: self.beam_sync_state_at(vpos, hpos_cck),
+            hblank,
+            vblank,
+            fb_coords: self.beam_to_fb(vpos, hpos_cck),
+        }
+    }
+
+    /// Latched debug beam snapshot for the current CCK.
+    ///
+    /// The `sync` field uses the per-CCK latched sync state captured in
+    /// [`Self::tick`]. Other fields are derived from the current beam position.
+    #[must_use]
+    pub fn current_beam_debug_snapshot(&self) -> BeamDebugSnapshot {
+        let vpos = self.agnus.vpos;
+        let hpos_cck = self.agnus.hpos;
+        let (hblank, vblank) = if self.chipset == AmigaChipset::Ecs {
+            (
+                self.agnus.hblank_window_active(hpos_cck),
+                self.agnus.vblank_window_active(vpos),
+            )
+        } else {
+            (false, false)
+        };
+        BeamDebugSnapshot {
+            vpos,
+            hpos_cck,
+            sync: self.beam_sync_state,
+            hblank,
+            vblank,
+            fb_coords: self.beam_to_fb(vpos, hpos_cck),
+        }
     }
 }
 
@@ -1608,7 +1669,8 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 #[cfg(test)]
 mod tests {
     use super::{
-        Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, BeamSyncState, TICKS_PER_CCK,
+        Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, BeamDebugSnapshot,
+        BeamSyncState, TICKS_PER_CCK,
     };
     use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
@@ -2032,6 +2094,100 @@ mod tests {
             BeamSyncState {
                 hsync: false,
                 vsync: false
+            }
+        );
+    }
+
+    #[test]
+    fn ecs_beam_debug_snapshot_reports_sync_blanking_and_visibility() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
+        amiga.write_custom_reg(0x090, 0x90FF); // DIWSTOP (keep line 105 visible)
+        amiga.agnus.ddfstrt = 0;
+
+        amiga.write_custom_reg(0x1C4, 8); // HBSTRT
+        amiga.write_custom_reg(0x1C6, 12); // HBSTOP
+        amiga.write_custom_reg(0x1CC, 55); // VBSTRT
+        amiga.write_custom_reg(0x1CE, 65); // VBSTOP
+        amiga.write_custom_reg(0x1C2, 40); // HSSTOP
+        amiga.write_custom_reg(0x1CA, 110); // VSSTOP
+        amiga.write_custom_reg(0x1DE, 30); // HSSTRT
+        amiga.write_custom_reg(0x1E0, 100); // VSSTRT
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_HARDDIS
+                | commodore_agnus_ecs::BEAMCON0_VARVBEN
+                | commodore_agnus_ecs::BEAMCON0_VARHSYEN
+                | commodore_agnus_ecs::BEAMCON0_VARVSYEN,
+        );
+
+        let active = amiga.beam_debug_snapshot_at(105, 35);
+        assert_eq!(
+            active,
+            BeamDebugSnapshot {
+                vpos: 105,
+                hpos_cck: 35,
+                sync: BeamSyncState {
+                    hsync: true,
+                    vsync: true
+                },
+                hblank: false,
+                vblank: false,
+                fb_coords: Some((54, 61)),
+            }
+        );
+
+        let blanked = amiga.beam_debug_snapshot_at(60, 10);
+        assert_eq!(
+            blanked,
+            BeamDebugSnapshot {
+                vpos: 60,
+                hpos_cck: 10,
+                sync: BeamSyncState {
+                    hsync: false,
+                    vsync: false
+                },
+                hblank: true,
+                vblank: true,
+                fb_coords: None,
+            }
+        );
+    }
+
+    #[test]
+    fn ecs_current_beam_debug_snapshot_uses_latched_sync_state() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x1C2, 40); // HSSTOP
+        amiga.write_custom_reg(0x1CA, 110); // VSSTOP
+        amiga.write_custom_reg(0x1DE, 30); // HSSTRT
+        amiga.write_custom_reg(0x1E0, 100); // VSSTRT
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_VARHSYEN | commodore_agnus_ecs::BEAMCON0_VARVSYEN,
+        );
+
+        amiga.agnus.vpos = 105;
+        amiga.agnus.hpos = 35;
+        tick_one_cck(&mut amiga);
+
+        let snapshot = amiga.current_beam_debug_snapshot();
+        assert_eq!(snapshot.vpos, 105);
+        assert_eq!(snapshot.hpos_cck, 36);
+        assert_eq!(
+            snapshot.sync,
+            BeamSyncState {
+                hsync: true,
+                vsync: true
             }
         );
     }
