@@ -60,6 +60,7 @@ fn write_dsk_ptr(amiga: &mut Amiga, addr: u32) {
 
 fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
     let mut bus = AmigaBusWrapper {
+        chipset: amiga.chipset,
         agnus: &mut amiga.agnus,
         memory: &mut amiga.memory,
         denise: &mut amiga.denise,

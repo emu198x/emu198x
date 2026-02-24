@@ -286,6 +286,7 @@ fn wait_until_pre_final_blitter_op_on_granted_cck(amiga: &mut Amiga, max_ccks: u
 
 fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
     let mut bus = AmigaBusWrapper {
+        chipset: amiga.chipset,
         agnus: &mut amiga.agnus,
         memory: &mut amiga.memory,
         denise: &mut amiga.denise,
@@ -308,6 +309,7 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
 
 fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
     let mut bus = AmigaBusWrapper {
+        chipset: amiga.chipset,
         agnus: &mut amiga.agnus,
         memory: &mut amiga.memory,
         denise: &mut amiga.denise,
@@ -323,6 +325,7 @@ fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
 
 fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
     let mut bus = AmigaBusWrapper {
+        chipset: amiga.chipset,
         agnus: &mut amiga.agnus,
         memory: &mut amiga.memory,
         denise: &mut amiga.denise,

@@ -9,8 +9,9 @@ pub mod config;
 pub mod memory;
 
 use crate::memory::Memory;
-use commodore_agnus_ocs::{Agnus, BlitterDmaOp, Copper};
-use commodore_denise_ocs::DeniseOcs;
+use commodore_agnus_ecs::AgnusEcs as Agnus;
+use commodore_agnus_ocs::{BlitterDmaOp, Copper};
+use commodore_denise_ecs::DeniseEcs as DeniseOcs;
 use commodore_paula_8364::Paula8364;
 use drive_amiga_floppy::AmigaFloppyDrive;
 use format_adf::Adf;
@@ -107,16 +108,14 @@ impl Amiga {
         let agnus = match chipset {
             AmigaChipset::Ocs => {
                 commodore_agnus_ecs::AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new())
-                    .into_inner()
             }
-            AmigaChipset::Ecs => commodore_agnus_ecs::AgnusEcs::new().into_inner(),
+            AmigaChipset::Ecs => commodore_agnus_ecs::AgnusEcs::new(),
         };
         let denise = match chipset {
             AmigaChipset::Ocs => {
                 commodore_denise_ecs::DeniseEcs::from_ocs(commodore_denise_ocs::DeniseOcs::new())
-                    .into_inner()
             }
-            AmigaChipset::Ecs => commodore_denise_ecs::DeniseEcs::new().into_inner(),
+            AmigaChipset::Ecs => commodore_denise_ecs::DeniseEcs::new(),
         };
 
         let mut cpu = Cpu68000::new();
@@ -325,6 +324,7 @@ impl Amiga {
 
         if self.master_clock % TICKS_PER_CPU == 0 {
             let mut bus = AmigaBusWrapper {
+                chipset: self.chipset,
                 agnus: &mut self.agnus,
                 memory: &mut self.memory,
                 denise: &mut self.denise,
@@ -406,6 +406,7 @@ impl Amiga {
             }
         }
         write_custom_register(
+            self.chipset,
             &mut self.agnus,
             &mut self.denise,
             &mut self.copper,
@@ -674,10 +675,44 @@ impl Amiga {
     }
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
-        let fb_y = vpos.wrapping_sub(DISPLAY_VSTART);
-        if fb_y >= commodore_denise_ocs::FB_HEIGHT as u16 {
-            return None;
-        }
+        let fb_y = if self.chipset == AmigaChipset::Ecs {
+            let diwhigh = self.agnus.diwhigh();
+            let vstart = (((diwhigh & 0x0007) as u16) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
+            let vstop =
+                ((((diwhigh >> 8) & 0x0007) as u16) << 8) | ((self.agnus.diwstop >> 8) & 0x00FF);
+
+            if vstart == vstop {
+                return None;
+            }
+
+            let rel = if vstart < vstop {
+                if vpos < vstart || vpos >= vstop {
+                    return None;
+                }
+                vpos - vstart
+            } else {
+                let lines_per_frame = commodore_agnus_ocs::PAL_LINES_PER_FRAME;
+                if !(vpos >= vstart || vpos < vstop) {
+                    return None;
+                }
+                if vpos >= vstart {
+                    vpos - vstart
+                } else {
+                    (lines_per_frame - vstart) + vpos
+                }
+            };
+
+            if rel >= commodore_denise_ocs::FB_HEIGHT as u16 {
+                return None;
+            }
+            rel
+        } else {
+            let rel = vpos.wrapping_sub(DISPLAY_VSTART);
+            if rel >= commodore_denise_ocs::FB_HEIGHT as u16 {
+                return None;
+            }
+            rel
+        };
         // First bitplane pixel appears 8 CCKs after DDFSTRT (one full
         // 8-CCK fetch group fills all plane latches and triggers load).
         let first_pixel_cck = self.agnus.ddfstrt.wrapping_add(8);
@@ -691,6 +726,7 @@ impl Amiga {
 }
 
 pub struct AmigaBusWrapper<'a> {
+    pub chipset: AmigaChipset,
     pub agnus: &'a mut Agnus,
     pub memory: &'a mut Memory,
     pub denise: &'a mut DeniseOcs,
@@ -821,6 +857,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             if !is_read {
                 let val = data.unwrap_or(0);
                 write_custom_register(
+                    self.chipset,
                     self.agnus,
                     self.denise,
                     self.copper,
@@ -918,6 +955,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
 
 /// Shared custom register write dispatch used by both CPU and copper paths.
 fn write_custom_register(
+    chipset: AmigaChipset,
     agnus: &mut Agnus,
     denise: &mut DeniseOcs,
     copper: &mut Copper,
@@ -995,6 +1033,10 @@ fn write_custom_register(
 
         // Copper danger
         0x02E => copper.danger = val & 0x02 != 0,
+
+        // ECS display/beam extensions (latch-only for now, gated off on OCS)
+        0x1DC if chipset == AmigaChipset::Ecs => agnus.write_beamcon0(val),
+        0x1E4 if chipset == AmigaChipset::Ecs => agnus.write_diwhigh(val),
 
         // Bitplane control
         0x100 => {
@@ -1503,5 +1545,47 @@ mod tests {
             kickstart: dummy_kickstart(),
         });
         assert_eq!(amiga.chipset, AmigaChipset::Ecs);
+    }
+
+    #[test]
+    fn ocs_ignores_ecs_beamcon0_and_diwhigh_writes() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.write_custom_reg(0x1DC, 0x1234);
+        amiga.write_custom_reg(0x1E4, 0x5678);
+        assert_eq!(amiga.agnus.beamcon0(), 0);
+        assert_eq!(amiga.agnus.diwhigh(), 0);
+    }
+
+    #[test]
+    fn ecs_latches_beamcon0_and_diwhigh_writes() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+        amiga.write_custom_reg(0x1DC, 0x0020);
+        amiga.write_custom_reg(0x1E4, 0xA5A5);
+        assert_eq!(amiga.agnus.beamcon0(), 0x0020);
+        assert_eq!(amiga.agnus.diwhigh(), 0xA5A5);
+    }
+
+    #[test]
+    fn ecs_beam_to_fb_uses_diwhigh_vertical_start_stop_bits() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        // ECS display window vertical range 300..320 (DIWHIGH supplies V8=1).
+        amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT: V7..V0 = $2C
+        amiga.write_custom_reg(0x090, 0x4000); // DIWSTOP: V7..V0 = $40
+        amiga.write_custom_reg(0x1E4, 0x0101); // stop V8 (bit8), start V8 (bit0)
+        amiga.agnus.ddfstrt = 0;
+
+        assert_eq!(amiga.beam_to_fb(300, 8), Some((0, 0)));
+        assert_eq!(amiga.beam_to_fb(319, 8), Some((0, 19)));
+        assert_eq!(amiga.beam_to_fb(320, 8), None);
+        assert_eq!(amiga.beam_to_fb(299, 8), None);
     }
 }
