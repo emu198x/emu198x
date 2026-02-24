@@ -174,13 +174,17 @@ impl DeniseOcs {
             let vstart = u32::from(Self::sprite_vstart(pos, ctl));
             let vstop = u32::from(Self::sprite_vstop(pos, ctl));
 
-            if Self::sprite_line_active(beam_y, vstart, vstop) && beam_x == hstart {
-                // Comparator hit: load serial converters from sprite data regs.
+            // Comparator phase: detect the horizontal match for this pixel.
+            let load_pulse = Self::sprite_line_active(beam_y, vstart, vstop) && beam_x == hstart;
+
+            // Load phase: copy sprite data regs into the serial shifters.
+            if load_pulse {
                 self.spr_shift_data[sprite] = self.spr_data[sprite];
                 self.spr_shift_datb[sprite] = self.spr_datb[sprite];
                 self.spr_shift_count[sprite] = 16;
             }
 
+            // Shift/output phase: emit one low-res sprite pixel.
             if self.spr_shift_count[sprite] == 0 {
                 continue;
             }
@@ -608,6 +612,101 @@ mod tests {
             denise.framebuffer[(12 * FB_WIDTH + 42) as usize],
             DeniseOcs::rgb12_to_argb32(0x0F0),
             "writing SPRxPOS should move an armed sprite horizontally"
+        );
+    }
+
+    #[test]
+    fn mid_line_sprite_data_write_affects_next_line_not_current_line() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(17, 0xF00);
+
+        let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 12); // active on lines 10 and 11
+        denise.write_sprite_pos(0, pos);
+        denise.write_sprite_ctl(0, ctl);
+        denise.write_sprite_datb(0, 0x0000);
+        denise.write_sprite_data(0, 0xC000); // first two pixels set
+
+        // First pixel of line 10 loads and begins shifting.
+        denise.output_pixel(20, 10);
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 20) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00)
+        );
+
+        // Mid-line data rewrite should not affect the already-loaded serial data
+        // for this line, but should be visible on the next line.
+        denise.write_sprite_data(0, 0x0000);
+        denise.output_pixel(21, 10);
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 21) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00),
+            "mid-line SPRxDATA write must not alter the current line after load"
+        );
+
+        denise.output_pixel(20, 11);
+        assert_eq!(
+            denise.framebuffer[(11 * FB_WIDTH + 20) as usize],
+            DeniseOcs::rgb12_to_argb32(0x000),
+            "next line should use the newly written sprite data"
+        );
+    }
+
+    #[test]
+    fn mid_line_sprite_pos_write_before_hstart_moves_same_line_trigger() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(17, 0x0FF);
+
+        let (pos_a, ctl) = encode_sprite_pos_ctl(26, 9, 10);
+        let (pos_b, _) = encode_sprite_pos_ctl(24, 9, 10);
+        denise.write_sprite_pos(0, pos_a);
+        denise.write_sprite_ctl(0, ctl);
+        denise.write_sprite_datb(0, 0x0000);
+        denise.write_sprite_data(0, 0x8000);
+
+        denise.output_pixel(23, 9); // before either HSTART
+        denise.write_sprite_pos(0, pos_b); // move before comparator hit
+        denise.output_pixel(24, 9);
+        denise.output_pixel(26, 9);
+
+        assert_eq!(
+            denise.framebuffer[(9 * FB_WIDTH + 24) as usize],
+            DeniseOcs::rgb12_to_argb32(0x0FF),
+            "SPRxPOS write before HSTART should affect the current line comparator hit"
+        );
+        assert_eq!(
+            denise.framebuffer[(9 * FB_WIDTH + 26) as usize],
+            DeniseOcs::rgb12_to_argb32(0x000),
+            "sprite should not also trigger again at the old HSTART"
+        );
+    }
+
+    #[test]
+    fn spritedata_rearm_after_hstart_waits_until_next_line() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(17, 0xF0F);
+
+        let (pos, ctl) = encode_sprite_pos_ctl(28, 11, 13); // active on lines 11 and 12
+        denise.write_sprite_pos(0, pos);
+        denise.write_sprite_ctl(0, ctl); // disarm
+        denise.write_sprite_datb(0, 0x0000);
+
+        denise.output_pixel(29, 11); // HSTART already passed on line 11
+        denise.write_sprite_data(0, 0x8000); // arm after HSTART
+        denise.output_pixel(30, 11);
+        assert_eq!(
+            denise.framebuffer[(11 * FB_WIDTH + 30) as usize],
+            DeniseOcs::rgb12_to_argb32(0x000),
+            "arming after HSTART should wait for the next line's comparison"
+        );
+
+        denise.output_pixel(28, 12);
+        assert_eq!(
+            denise.framebuffer[(12 * FB_WIDTH + 28) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF0F),
+            "next line should trigger output after late-line SPRxDATA arm"
         );
     }
 
