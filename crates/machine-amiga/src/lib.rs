@@ -95,6 +95,22 @@ impl BeamEdgeFlags {
     }
 }
 
+/// Coarse ECS beam output pin state derived from the latched sync/blank model.
+///
+/// This is debug/test-facing and intentionally approximate while fuller ECS
+/// signal-generator behavior is still being implemented.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BeamPinState {
+    /// Horizontal sync pin level (`true` = high) after `HSYTRUE` polarity.
+    pub hsync_high: bool,
+    /// Vertical sync pin level (`true` = high) after `VSYTRUE` polarity.
+    pub vsync_high: bool,
+    /// Composite sync pin level (`true` = high) after `CSYTRUE` polarity.
+    pub csync_high: bool,
+    /// Coarse composite blank activity (`BLANKEN` gated).
+    pub blank_active: bool,
+}
+
 /// Debug/test-facing beam snapshot in the emulator's current beam units.
 ///
 /// This is intended as a stable machine-level inspection API while ECS sync
@@ -106,6 +122,7 @@ pub struct BeamDebugSnapshot {
     pub sync: BeamSyncState,
     pub hblank: bool,
     pub vblank: bool,
+    pub pins: BeamPinState,
     pub fb_coords: Option<(u32, u32)>,
 }
 
@@ -858,6 +875,41 @@ impl Amiga {
         }
     }
 
+    fn beam_pin_state_from_components(
+        &self,
+        sync: BeamSyncState,
+        hblank: bool,
+        vblank: bool,
+    ) -> BeamPinState {
+        if self.chipset != AmigaChipset::Ecs {
+            return BeamPinState::default();
+        }
+
+        let hsync_high = if self.agnus.hsytrue_enabled() {
+            sync.hsync
+        } else {
+            !sync.hsync
+        };
+        let vsync_high = if self.agnus.vsytrue_enabled() {
+            sync.vsync
+        } else {
+            !sync.vsync
+        };
+        let csync_active = sync.hsync || sync.vsync;
+        let csync_high = if self.agnus.csytrue_enabled() {
+            csync_active
+        } else {
+            !csync_active
+        };
+
+        BeamPinState {
+            hsync_high,
+            vsync_high,
+            csync_high,
+            blank_active: self.agnus.blanken_enabled() && (hblank || vblank),
+        }
+    }
+
     /// Latched coarse ECS sync-window state for the current CCK.
     ///
     /// This value updates once per colour clock in [`Self::tick`], using the
@@ -878,12 +930,14 @@ impl Amiga {
         } else {
             (false, false)
         };
+        let sync = self.beam_sync_state_at(vpos, hpos_cck);
         BeamDebugSnapshot {
             vpos,
             hpos_cck,
-            sync: self.beam_sync_state_at(vpos, hpos_cck),
+            sync,
             hblank,
             vblank,
+            pins: self.beam_pin_state_from_components(sync, hblank, vblank),
             fb_coords: self.beam_to_fb(vpos, hpos_cck),
         }
     }
@@ -895,6 +949,12 @@ impl Amiga {
     #[must_use]
     pub const fn current_beam_debug_snapshot(&self) -> BeamDebugSnapshot {
         self.beam_debug_snapshot
+    }
+
+    /// Latched coarse ECS beam pin state for the current CCK.
+    #[must_use]
+    pub const fn current_beam_pin_state(&self) -> BeamPinState {
+        self.beam_debug_snapshot.pins
     }
 
     /// Latched beam-edge class changes for the current CCK.
@@ -1730,7 +1790,7 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 mod tests {
     use super::{
         Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, BeamDebugSnapshot,
-        BeamEdgeFlags, BeamSyncState, TICKS_PER_CCK,
+        BeamEdgeFlags, BeamPinState, BeamSyncState, TICKS_PER_CCK,
     };
     use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
@@ -2234,6 +2294,12 @@ mod tests {
                 },
                 hblank: false,
                 vblank: false,
+                pins: BeamPinState {
+                    hsync_high: false,
+                    vsync_high: false,
+                    csync_high: false,
+                    blank_active: false,
+                },
                 fb_coords: Some((54, 61)),
             }
         );
@@ -2250,6 +2316,12 @@ mod tests {
                 },
                 hblank: true,
                 vblank: true,
+                pins: BeamPinState {
+                    hsync_high: true,
+                    vsync_high: true,
+                    csync_high: true,
+                    blank_active: false,
+                },
                 fb_coords: None,
             }
         );
@@ -2293,10 +2365,97 @@ mod tests {
                 },
                 hblank: false,
                 vblank: false,
+                pins: BeamPinState {
+                    hsync_high: false,
+                    vsync_high: false,
+                    csync_high: false,
+                    blank_active: false,
+                },
                 fb_coords: Some((54, 61)),
             }
         );
         assert_eq!(amiga.agnus.hpos, 36); // Beam advanced after the sampled CCK.
+    }
+
+    #[test]
+    fn ecs_beam_debug_snapshot_reports_blanken_and_sync_polarity_pin_states() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x1C4, 8); // HBSTRT
+        amiga.write_custom_reg(0x1C6, 12); // HBSTOP
+        amiga.write_custom_reg(0x1CC, 55); // VBSTRT
+        amiga.write_custom_reg(0x1CE, 65); // VBSTOP
+        amiga.write_custom_reg(0x1C2, 40); // HSSTOP
+        amiga.write_custom_reg(0x1CA, 110); // VSSTOP
+        amiga.write_custom_reg(0x1DE, 30); // HSSTRT
+        amiga.write_custom_reg(0x1E0, 100); // VSSTRT
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_HARDDIS
+                | commodore_agnus_ecs::BEAMCON0_VARVBEN
+                | commodore_agnus_ecs::BEAMCON0_VARHSYEN
+                | commodore_agnus_ecs::BEAMCON0_VARVSYEN,
+        );
+
+        let active_low_sync = amiga.beam_debug_snapshot_at(105, 35);
+        assert_eq!(
+            active_low_sync.pins,
+            BeamPinState {
+                hsync_high: false,
+                vsync_high: false,
+                csync_high: false,
+                blank_active: false,
+            }
+        );
+
+        let blank_no_redirect = amiga.beam_debug_snapshot_at(60, 10);
+        assert_eq!(
+            blank_no_redirect.pins,
+            BeamPinState {
+                hsync_high: true,
+                vsync_high: true,
+                csync_high: true,
+                blank_active: false,
+            }
+        );
+
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_HARDDIS
+                | commodore_agnus_ecs::BEAMCON0_VARVBEN
+                | commodore_agnus_ecs::BEAMCON0_VARHSYEN
+                | commodore_agnus_ecs::BEAMCON0_VARVSYEN
+                | commodore_agnus_ecs::BEAMCON0_BLANKEN
+                | commodore_agnus_ecs::BEAMCON0_CSYTRUE
+                | commodore_agnus_ecs::BEAMCON0_VSYTRUE
+                | commodore_agnus_ecs::BEAMCON0_HSYTRUE,
+        );
+
+        let true_polarity_sync = amiga.beam_debug_snapshot_at(105, 35);
+        assert_eq!(
+            true_polarity_sync.pins,
+            BeamPinState {
+                hsync_high: true,
+                vsync_high: true,
+                csync_high: true,
+                blank_active: false,
+            }
+        );
+
+        let blank_redirected = amiga.beam_debug_snapshot_at(60, 10);
+        assert_eq!(
+            blank_redirected.pins,
+            BeamPinState {
+                hsync_high: false,
+                vsync_high: false,
+                csync_high: false,
+                blank_active: true,
+            }
+        );
     }
 
     #[test]
@@ -2383,6 +2542,40 @@ mod tests {
         amiga.agnus.hpos = 136;
         tick_one_cck(&mut amiga);
         assert_eq!(amiga.current_beam_debug_snapshot().fb_coords, Some((56, 0)));
+    }
+
+    #[test]
+    fn ecs_current_beam_pin_state_uses_latched_snapshot_pins() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x1C4, 8); // HBSTRT
+        amiga.write_custom_reg(0x1C6, 12); // HBSTOP
+        amiga.write_custom_reg(0x1CC, 55); // VBSTRT
+        amiga.write_custom_reg(0x1CE, 65); // VBSTOP
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_HARDDIS
+                | commodore_agnus_ecs::BEAMCON0_VARVBEN
+                | commodore_agnus_ecs::BEAMCON0_BLANKEN,
+        );
+
+        amiga.agnus.vpos = 60;
+        amiga.agnus.hpos = 10;
+        tick_one_cck(&mut amiga);
+
+        assert_eq!(
+            amiga.current_beam_pin_state(),
+            BeamPinState {
+                hsync_high: true,
+                vsync_high: true,
+                csync_high: true,
+                blank_active: true,
+            }
+        );
     }
 
     #[test]

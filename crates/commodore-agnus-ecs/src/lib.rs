@@ -25,6 +25,14 @@ pub const BEAMCON0_VARVBEN: u16 = 0x2000;
 pub const BEAMCON0_VARVSYEN: u16 = 0x0400;
 /// `BEAMCON0` bit enabling programmable horizontal sync (`HSSTRT/HSSTOP`).
 pub const BEAMCON0_VARHSYEN: u16 = 0x0200;
+/// `BEAMCON0` bit redirecting composite blank to the external blank output.
+pub const BEAMCON0_BLANKEN: u16 = 0x0010;
+/// `BEAMCON0` bit selecting "true" polarity for composite sync output.
+pub const BEAMCON0_CSYTRUE: u16 = 0x0008;
+/// `BEAMCON0` bit selecting "true" polarity for vertical sync output.
+pub const BEAMCON0_VSYTRUE: u16 = 0x0004;
+/// `BEAMCON0` bit selecting "true" polarity for horizontal sync output.
+pub const BEAMCON0_HSYTRUE: u16 = 0x0002;
 
 /// Thin ECS wrapper that currently reuses the OCS Agnus implementation.
 pub struct AgnusEcs {
@@ -263,6 +271,26 @@ impl AgnusEcs {
         (self.beamcon0 & BEAMCON0_HARDDIS) != 0
     }
 
+    #[must_use]
+    pub const fn blanken_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_BLANKEN) != 0
+    }
+
+    #[must_use]
+    pub const fn csytrue_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_CSYTRUE) != 0
+    }
+
+    #[must_use]
+    pub const fn vsytrue_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_VSYTRUE) != 0
+    }
+
+    #[must_use]
+    pub const fn hsytrue_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_HSYTRUE) != 0
+    }
+
     /// Coarse ECS vertical blanking window check used by `machine-amiga` display
     /// output gating while fuller sync/blank generator behavior is pending.
     #[must_use]
@@ -398,8 +426,9 @@ impl From<AgnusEcs> for InnerAgnusOcs {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgnusEcs, BEAMCON0_HARDDIS, BEAMCON0_VARBEAMEN, BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN,
-        BEAMCON0_VARVSYEN,
+        AgnusEcs, BEAMCON0_BLANKEN, BEAMCON0_CSYTRUE, BEAMCON0_HARDDIS, BEAMCON0_HSYTRUE,
+        BEAMCON0_VARBEAMEN, BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN,
+        BEAMCON0_VSYTRUE,
     };
 
     #[test]
@@ -457,6 +486,24 @@ mod tests {
         assert_eq!(agnus.diwhigh(), 0xA5A5);
         assert_eq!(agnus.diwstrt, 0);
         assert_eq!(agnus.diwstop, 0);
+    }
+
+    #[test]
+    fn beamcon0_blanken_and_polarity_helpers_reflect_latched_bits() {
+        let mut agnus = AgnusEcs::new();
+        assert!(!agnus.blanken_enabled());
+        assert!(!agnus.csytrue_enabled());
+        assert!(!agnus.vsytrue_enabled());
+        assert!(!agnus.hsytrue_enabled());
+
+        agnus.write_beamcon0(
+            BEAMCON0_BLANKEN | BEAMCON0_CSYTRUE | BEAMCON0_VSYTRUE | BEAMCON0_HSYTRUE,
+        );
+
+        assert!(agnus.blanken_enabled());
+        assert!(agnus.csytrue_enabled());
+        assert!(agnus.vsytrue_enabled());
+        assert!(agnus.hsytrue_enabled());
     }
 
     #[test]
