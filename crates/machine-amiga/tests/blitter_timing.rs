@@ -1,5 +1,5 @@
 use machine_amiga::memory::ROM_BASE;
-use machine_amiga::{commodore_agnus_ocs::SlotOwner, Amiga, AmigaBusWrapper, TICKS_PER_CCK};
+use machine_amiga::{Amiga, AmigaBusWrapper, TICKS_PER_CCK, commodore_agnus_ocs::SlotOwner};
 use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
 const REG_DDFSTRT: u16 = 0x092;

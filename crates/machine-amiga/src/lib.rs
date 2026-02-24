@@ -466,6 +466,18 @@ impl Amiga {
 
     /// Service one Agnus disk DMA slot.
     fn service_disk_dma_slot(&mut self) {
+        if self.disk_dma_runtime.is_none() {
+            // Simplified programmed-I/O disk write path: consume queued DSKDAT
+            // words on disk slots when write mode is selected and no DMA
+            // transfer is active.
+            if (self.paula.dsklen & 0x4000) != 0
+                && let Some(word) = self.paula.take_dskdat_queued_word()
+            {
+                self.paula.note_disk_write_pio_word(word);
+            }
+            return;
+        }
+
         let Some(runtime) = self.disk_dma_runtime.as_mut() else {
             return;
         };

@@ -1,6 +1,6 @@
-use machine_amiga::memory::ROM_BASE;
 use machine_amiga::Amiga;
 use machine_amiga::TICKS_PER_CCK;
+use machine_amiga::memory::ROM_BASE;
 
 const REG_DMACON: u16 = 0x096;
 const REG_SPR0PTH: u16 = 0x120;

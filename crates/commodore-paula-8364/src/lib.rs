@@ -300,6 +300,7 @@ pub struct Paula8364 {
     dskbytr_wordequal: bool,
     dskdat_queue: VecDeque<u16>,
     disk_write_dma_log: Vec<u16>,
+    disk_write_pio_log: Vec<u16>,
     pub disk_dma_pending: bool,
     audio: [AudioChannel; 4],
 }
@@ -321,6 +322,7 @@ impl Paula8364 {
             dskbytr_wordequal: false,
             dskdat_queue: VecDeque::new(),
             disk_write_dma_log: Vec::new(),
+            disk_write_pio_log: Vec::new(),
             disk_dma_pending: false,
             audio: [AudioChannel::default(); 4],
         }
@@ -641,6 +643,9 @@ impl Paula8364 {
             value |= 1 << 12;
         }
 
+        // WORDEQUAL is a transient sync-match indication; clear it once observed.
+        self.dskbytr_wordequal = false;
+
         // DSKBYT clears on read, but in this simplified model we immediately
         // promote the second byte of the same received word if it is pending.
         if let Some(next) = self.dskbytr_next_data.take() {
@@ -648,8 +653,6 @@ impl Paula8364 {
             self.dskbytr_valid = true;
         } else {
             self.dskbytr_valid = false;
-            // The match indication is a transient view of the current stream word.
-            self.dskbytr_wordequal = false;
         }
         value
     }
@@ -664,6 +667,18 @@ impl Paula8364 {
 
     pub fn clear_disk_write_dma_log(&mut self) {
         self.disk_write_dma_log.clear();
+    }
+
+    pub fn note_disk_write_pio_word(&mut self, word: u16) {
+        self.disk_write_pio_log.push(word);
+    }
+
+    pub fn disk_write_pio_log(&self) -> &[u16] {
+        &self.disk_write_pio_log
+    }
+
+    pub fn clear_disk_write_pio_log(&mut self) {
+        self.disk_write_pio_log.clear();
     }
 
     pub fn compute_ipl(&self) -> u8 {
@@ -1073,10 +1088,10 @@ mod tests {
         let second = paula.read_dskbytr(dmacon);
         assert_ne!(second & 0x8000, 0, "DSKBYT should be set for second byte");
         assert_eq!(second & 0x00FF, 0x0089, "second byte should be low byte");
-        assert_ne!(
+        assert_eq!(
             second & 0x1000,
             0,
-            "WORDEQUAL should persist while bytes of the matched word are pending"
+            "WORDEQUAL should be a narrow pulse and need not persist to the second byte"
         );
 
         let third = paula.read_dskbytr(dmacon);
@@ -1104,5 +1119,17 @@ mod tests {
         assert_eq!(paula.take_dskdat_queued_word(), Some(0x1234));
         assert_eq!(paula.take_dskdat_queued_word(), Some(0xABCD));
         assert_eq!(paula.take_dskdat_queued_word(), None);
+    }
+
+    #[test]
+    fn disk_write_dma_and_programmed_logs_are_separate() {
+        let mut paula = Paula8364::new();
+
+        paula.note_disk_write_pio_word(0x1111);
+        paula.note_disk_write_dma_word(0x2222);
+        paula.note_disk_write_pio_word(0x3333);
+
+        assert_eq!(paula.disk_write_pio_log(), &[0x1111, 0x3333]);
+        assert_eq!(paula.disk_write_dma_log(), &[0x2222]);
     }
 }

@@ -1,5 +1,5 @@
-use machine_amiga::memory::ROM_BASE;
 use machine_amiga::TICKS_PER_CCK;
+use machine_amiga::memory::ROM_BASE;
 use machine_amiga::{Amiga, AmigaBusWrapper};
 use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 

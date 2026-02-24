@@ -1,5 +1,5 @@
 use machine_amiga::drive_amiga_floppy::mfm::MFM_TRACK_BYTES;
-use machine_amiga::format_adf::{Adf, ADF_SIZE_DD, SECTOR_SIZE};
+use machine_amiga::format_adf::{ADF_SIZE_DD, Adf, SECTOR_SIZE};
 use machine_amiga::memory::ROM_BASE;
 use machine_amiga::{Amiga, AmigaBusWrapper, TICKS_PER_CCK};
 use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
@@ -359,10 +359,10 @@ fn disk_dma_read_updates_dskbytr_flags_and_data() {
                         0,
                         "WORDEQUAL should be set on DSKSYNC match"
                     );
-                    assert_ne!(
+                    assert_eq!(
                         second & 0x1000,
                         0,
-                        "WORDEQUAL should persist across the matched word bytes"
+                        "WORDEQUAL should be a narrow pulse and need not persist to the second byte"
                     );
                 }
                 _ => unreachable!(),
@@ -564,4 +564,51 @@ fn dskdat_custom_writes_queue_in_paula() {
     assert_eq!(amiga.paula.take_dskdat_queued_word(), Some(0x1234));
     assert_eq!(amiga.paula.take_dskdat_queued_word(), Some(0xABCD));
     assert_eq!(amiga.paula.take_dskdat_queued_word(), None);
+}
+
+#[test]
+fn disk_programmed_write_dskdat_queue_is_slot_timed_and_separate_from_dma() {
+    let mut amiga = make_test_amiga();
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0;
+    amiga.paula.clear_disk_write_pio_log();
+    amiga.paula.clear_disk_write_dma_log();
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
+
+    // Enable disk write mode without arming DMA and queue programmed-I/O words.
+    amiga.write_custom_reg(REG_DSKLEN, 0x4000);
+    amiga.write_custom_reg(REG_DSKDAT, 0x1111);
+    amiga.write_custom_reg(REG_DSKDAT, 0x2222);
+
+    tick_ccks(&mut amiga, 4);
+    assert_eq!(amiga.paula.disk_write_pio_log(), &[] as &[u16]);
+    assert_eq!(amiga.paula.dskdat_queue_len(), 2);
+
+    let mut elapsed_ccks = 4u32;
+    while amiga.paula.disk_write_pio_log().len() < 2 && elapsed_ccks < 5_000 {
+        tick_ccks(&mut amiga, 1);
+        elapsed_ccks += 1;
+    }
+    assert_eq!(amiga.paula.disk_write_pio_log(), &[0x1111, 0x2222]);
+    assert_eq!(amiga.paula.dskdat_queue_len(), 0);
+    assert_eq!(amiga.paula.disk_write_dma_log(), &[] as &[u16]);
+
+    // DMA write path should remain distinct and source words from chip RAM.
+    let src = 0x0000_3E00u32;
+    amiga.memory.write_byte(src, 0xAA);
+    amiga.memory.write_byte(src + 1, 0x55);
+    write_dsk_ptr(&mut amiga, src);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
+    amiga.write_custom_reg(REG_DSKLEN, 0xC000 | 1);
+    amiga.write_custom_reg(REG_DSKLEN, 0xC000 | 1);
+
+    elapsed_ccks = 0;
+    while amiga.paula.disk_write_dma_log().is_empty() && elapsed_ccks < 5_000 {
+        tick_ccks(&mut amiga, 1);
+        elapsed_ccks += 1;
+    }
+
+    assert_eq!(amiga.paula.disk_write_dma_log(), &[0xAA55]);
+    assert_eq!(amiga.paula.disk_write_pio_log(), &[0x1111, 0x2222]);
 }

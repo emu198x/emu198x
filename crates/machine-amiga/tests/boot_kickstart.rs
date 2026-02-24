@@ -1,8 +1,8 @@
 //! Real Kickstart 1.3 boot test for machine-amiga.
 
+use machine_amiga::Amiga;
 use machine_amiga::commodore_denise_ocs::{FB_HEIGHT, FB_WIDTH};
 use machine_amiga::memory::Memory;
-use machine_amiga::Amiga;
 use motorola_68000::cpu::State;
 use std::fs;
 
@@ -109,9 +109,17 @@ fn test_boot_kick13() {
 
         // Snapshot PC after Draw() should have returned
         if (i >= 90_061_000 && i <= 90_065_000 && i % 200 == 0) || i == 90_100_000 {
-            eprintln!("[tick {}] SNAPSHOT: PC=${:08X} ipc=${:08X} SR=${:04X} SP=${:08X} D0=${:08X} D1=${:08X} A6=${:08X}",
-                i, amiga.cpu.regs.pc, amiga.cpu.instr_start_pc, amiga.cpu.regs.sr, amiga.cpu.regs.a(7),
-                amiga.cpu.regs.d[0], amiga.cpu.regs.d[1], amiga.cpu.regs.a(6));
+            eprintln!(
+                "[tick {}] SNAPSHOT: PC=${:08X} ipc=${:08X} SR=${:04X} SP=${:08X} D0=${:08X} D1=${:08X} A6=${:08X}",
+                i,
+                amiga.cpu.regs.pc,
+                amiga.cpu.instr_start_pc,
+                amiga.cpu.regs.sr,
+                amiga.cpu.regs.a(7),
+                amiga.cpu.regs.d[0],
+                amiga.cpu.regs.d[1],
+                amiga.cpu.regs.a(6)
+            );
         }
 
         // Count specific addresses (every CPU tick = every 4 master ticks)
@@ -133,31 +141,80 @@ fn test_boot_kick13() {
             // Trace ciab.resource LVO calls (from jump table)
             let ipc = amiga.cpu.instr_start_pc;
             match ipc {
-                0x00FC46F8 => eprintln!("[tick {}] ciab.resource AddICRVector entry (D0=${:08X} A1=${:08X} A6=${:08X})", i, amiga.cpu.regs.d[0], amiga.cpu.regs.a(1), amiga.cpu.regs.a(6)),
+                0x00FC46F8 => eprintln!(
+                    "[tick {}] ciab.resource AddICRVector entry (D0=${:08X} A1=${:08X} A6=${:08X})",
+                    i,
+                    amiga.cpu.regs.d[0],
+                    amiga.cpu.regs.a(1),
+                    amiga.cpu.regs.a(6)
+                ),
                 0x00FC474E => eprintln!("[tick {}] ciab.resource RemICRVector entry", i),
-                0x00FC4772 => eprintln!("[tick {}] ciab.resource AbleICR entry (D0=${:08X})", i, amiga.cpu.regs.d[0]),
-                0x00FC4790 => eprintln!("[tick {}] ciab.resource SetICR entry (D0=${:08X})", i, amiga.cpu.regs.d[0]),
+                0x00FC4772 => eprintln!(
+                    "[tick {}] ciab.resource AbleICR entry (D0=${:08X})",
+                    i, amiga.cpu.regs.d[0]
+                ),
+                0x00FC4790 => eprintln!(
+                    "[tick {}] ciab.resource SetICR entry (D0=${:08X})",
+                    i, amiga.cpu.regs.d[0]
+                ),
                 // Display routine milestones (using instr_start_pc for accuracy)
                 // Display subroutine entry and key steps
-                0x00FE8732 => eprintln!("[tick {}] DISP: $FE8732 entry (open gfx.lib) A6=${:08X}", i, amiga.cpu.regs.a(6)),
-                0x00FE8738 => eprintln!("[tick {}] DISP: OpenLibrary JSR A6=${:08X}", i, amiga.cpu.regs.a(6)),
-                0x00FE873C => eprintln!("[tick {}] DISP: OpenLibrary returned D0=${:08X}", i, amiga.cpu.regs.d[0]),
-                0x00FE8740 => eprintln!("[tick {}] DISP: BNE check D0=${:08X} (0=fail)", i, amiga.cpu.regs.d[0]),
+                0x00FE8732 => eprintln!(
+                    "[tick {}] DISP: $FE8732 entry (open gfx.lib) A6=${:08X}",
+                    i,
+                    amiga.cpu.regs.a(6)
+                ),
+                0x00FE8738 => eprintln!(
+                    "[tick {}] DISP: OpenLibrary JSR A6=${:08X}",
+                    i,
+                    amiga.cpu.regs.a(6)
+                ),
+                0x00FE873C => eprintln!(
+                    "[tick {}] DISP: OpenLibrary returned D0=${:08X}",
+                    i, amiga.cpu.regs.d[0]
+                ),
+                0x00FE8740 => eprintln!(
+                    "[tick {}] DISP: BNE check D0=${:08X} (0=fail)",
+                    i, amiga.cpu.regs.d[0]
+                ),
                 0x00FE875A => eprintln!("[tick {}] DISP: display setup entry", i),
                 0x00FE875E => {
                     let a5 = amiga.cpu.regs.a(5) as usize;
                     let val = if a5 + 3 < amiga.memory.chip_ram.len() {
                         let r = &amiga.memory.chip_ram;
-                        (r[a5] as u32) << 24 | (r[a5+1] as u32) << 16 | (r[a5+2] as u32) << 8 | r[a5+3] as u32
-                    } else { 0xDEADBEEF };
-                    eprintln!("[tick {}] DISP: load A6 from $0(A5) A5=${:08X} val=${:08X}", i, a5, val);
+                        (r[a5] as u32) << 24
+                            | (r[a5 + 1] as u32) << 16
+                            | (r[a5 + 2] as u32) << 8
+                            | r[a5 + 3] as u32
+                    } else {
+                        0xDEADBEEF
+                    };
+                    eprintln!(
+                        "[tick {}] DISP: load A6 from $0(A5) A5=${:08X} val=${:08X}",
+                        i, a5, val
+                    );
                 }
-                0x00FE876E => eprintln!("[tick {}] DISP: AllocMem JSR (A6=${:08X})", i, amiga.cpu.regs.a(6)),
-                0x00FE8794 => eprintln!("[tick {}] DISP: AllocMem success mem=${:08X}", i, amiga.cpu.regs.d[0]),
-                0x00FE887C => eprintln!("[tick {}] DISP: MakeVPort (A6=${:08X})", i, amiga.cpu.regs.a(6)),
+                0x00FE876E => eprintln!(
+                    "[tick {}] DISP: AllocMem JSR (A6=${:08X})",
+                    i,
+                    amiga.cpu.regs.a(6)
+                ),
+                0x00FE8794 => eprintln!(
+                    "[tick {}] DISP: AllocMem success mem=${:08X}",
+                    i, amiga.cpu.regs.d[0]
+                ),
+                0x00FE887C => eprintln!(
+                    "[tick {}] DISP: MakeVPort (A6=${:08X})",
+                    i,
+                    amiga.cpu.regs.a(6)
+                ),
                 0x00FE8882 => eprintln!("[tick {}] DISP: MrgCop", i),
                 0x00FE8888 => {
-                    eprintln!("[tick {}] DISP: LoadView (A6=${:08X})", i, amiga.cpu.regs.a(6));
+                    eprintln!(
+                        "[tick {}] DISP: LoadView (A6=${:08X})",
+                        i,
+                        amiga.cpu.regs.a(6)
+                    );
                     loadview_trace = true;
                 }
                 0x00FE8896 => {
@@ -177,14 +234,31 @@ fn test_boot_kick13() {
                 0x00FE88DC => eprintln!("[tick {}] DRAW: Move ($FF path)", i),
                 0x00FE88F4 => eprintln!("[tick {}] DRAW: SetAPen ($FE path)", i),
                 0x00FE8904 => eprintln!("[tick {}] DRAW: PolyDraw ($FE path)", i),
-                0x00FE8918 => eprintln!("[tick {}] DRAW: Draw (default path) A6=${:08X} D0=${:08X} D1=${:08X} A1=${:08X}", i, amiga.cpu.regs.a(6), amiga.cpu.regs.d[0], amiga.cpu.regs.d[1], amiga.cpu.regs.a(1)),
+                0x00FE8918 => eprintln!(
+                    "[tick {}] DRAW: Draw (default path) A6=${:08X} D0=${:08X} D1=${:08X} A1=${:08X}",
+                    i,
+                    amiga.cpu.regs.a(6),
+                    amiga.cpu.regs.d[0],
+                    amiga.cpu.regs.d[1],
+                    amiga.cpu.regs.a(1)
+                ),
                 // Address error / Bus error exception handlers
-                0x00FC05B4 => eprintln!("[tick {}] EXCEPTION: default handler at $FC05B4 (SR=${:04X} PC=${:08X})", i, amiga.cpu.regs.sr, amiga.cpu.regs.pc),
+                0x00FC05B4 => eprintln!(
+                    "[tick {}] EXCEPTION: default handler at $FC05B4 (SR=${:04X} PC=${:08X})",
+                    i, amiga.cpu.regs.sr, amiga.cpu.regs.pc
+                ),
                 // Exec Alert function (called on task crash)
-                0x00FC0582 => eprintln!("[tick {}] EXEC: Alert entry D7=${:08X} SP=${:08X}", i, amiga.cpu.regs.d[7], amiga.cpu.regs.a(7)),
-                0x00FE88AC => {}, // loop top — too noisy, skip
+                0x00FC0582 => eprintln!(
+                    "[tick {}] EXEC: Alert entry D7=${:08X} SP=${:08X}",
+                    i,
+                    amiga.cpu.regs.d[7],
+                    amiga.cpu.regs.a(7)
+                ),
+                0x00FE88AC => {} // loop top — too noisy, skip
                 0x00FE88BE => eprintln!("[tick {}] DRAW: $FF,$FF terminator → exit loop", i),
-                0x00FE891C => eprintln!("[tick {}] DISP: Vector drawing done → BltTemplate next", i),
+                0x00FE891C => {
+                    eprintln!("[tick {}] DISP: Vector drawing done → BltTemplate next", i)
+                }
                 // BltTemplate loop milestones
                 0x00FE891E => eprintln!("[tick {}] DISP: BltTemplate loop entry", i),
                 0x00FE8966 => eprintln!("[tick {}] DISP: BltTemplate JSR -$24(a6)", i),
@@ -291,7 +365,10 @@ fn test_boot_kick13() {
                         } else {
                             0
                         };
-                        eprintln!("[tick {}] timer.device BeginIO entry (A1=${:08X} cmd={} io_Unit=${:08X} tv_secs={} tv_micro={})", i, a1, cmd, io_unit, tv_secs, tv_micro);
+                        eprintln!(
+                            "[tick {}] timer.device BeginIO entry (A1=${:08X} cmd={} io_Unit=${:08X} tv_secs={} tv_micro={})",
+                            i, a1, cmd, io_unit, tv_secs, tv_micro
+                        );
                     }
                     _ => {}
                 }
@@ -304,8 +381,10 @@ fn test_boot_kick13() {
                     let sw_hi = ((r[0x6234] as u16) << 8) | r[0x6235] as u16;
                     let sr_hi = ((r[0x6238] as u16) << 8) | r[0x6239] as u16;
                     let sr_lo = ((r[0x623A] as u16) << 8) | r[0x623B] as u16;
-                    eprintln!("[tick {}] td SigWait changed: ${:04X}{:04X} (was xxxx{:04X}) SigRecvd=${:04X}{:04X} PC=${:08X} SR=${:04X}",
-                        i, sw_hi, sw_lo, prev_sig_wait_lo, sr_hi, sr_lo, pc, amiga.cpu.regs.sr);
+                    eprintln!(
+                        "[tick {}] td SigWait changed: ${:04X}{:04X} (was xxxx{:04X}) SigRecvd=${:04X}{:04X} PC=${:08X} SR=${:04X}",
+                        i, sw_hi, sw_lo, prev_sig_wait_lo, sr_hi, sr_lo, pc, amiga.cpu.regs.sr
+                    );
                     prev_sig_wait_lo = sw_lo;
                 }
             }
@@ -435,11 +514,7 @@ fn test_boot_kick13() {
                     let io_error = {
                         let r = &amiga.memory.chip_ram;
                         let addr = (a5 as usize).wrapping_add(0x2C + 0x1F);
-                        if addr < r.len() {
-                            r[addr]
-                        } else {
-                            0xFF
-                        }
+                        if addr < r.len() { r[addr] } else { 0xFF }
                     };
                     eprintln!(
                         "[tick {}] STRAP: Error handler, io_Error=${:02X}",
@@ -499,8 +574,10 @@ fn test_boot_kick13() {
                             | (r[pa + 0x15] as u32) << 16
                             | (r[pa + 0x16] as u32) << 8
                             | r[pa + 0x17] as u32;
-                        eprintln!("  Port candidate at +${:02X} (${}): flags={} sigBit={} sigTask=${:08X} listHead=${:08X}",
-                            port_off, pa, flags, sig_bit, sig_task, list_head);
+                        eprintln!(
+                            "  Port candidate at +${:02X} (${}): flags={} sigBit={} sigTask=${:08X} listHead=${:08X}",
+                            port_off, pa, flags, sig_bit, sig_task, list_head
+                        );
                     }
                 }
             }
@@ -565,21 +642,51 @@ fn test_boot_kick13() {
             let ipl = (sr >> 8) & 7;
             println!(
                 "[{:2}s] PC=${:08X} SR=${:04X}(IPL{}) D0=${:08X} D1=${:08X} A7=${:08X} DMACON=${:04X} INTENA=${:04X} INTREQ=${:04X} CIA-A:TA={:04X}({}) TB={:04X}({}) ICR={:02X}/{:02X}",
-                seconds, pc, sr, ipl, amiga.cpu.regs.d[0], amiga.cpu.regs.d[1],
+                seconds,
+                pc,
+                sr,
+                ipl,
+                amiga.cpu.regs.d[0],
+                amiga.cpu.regs.d[1],
                 amiga.cpu.regs.a(7),
                 amiga.agnus.dmacon,
-                amiga.paula.intena, amiga.paula.intreq,
-                amiga.cia_a.timer_a(), if amiga.cia_a.timer_a_running() { "RUN" } else { "STOP" },
-                amiga.cia_a.timer_b(), if amiga.cia_a.timer_b_running() { "RUN" } else { "STOP" },
-                amiga.cia_a.icr_status(), amiga.cia_a.icr_mask(),
+                amiga.paula.intena,
+                amiga.paula.intreq,
+                amiga.cia_a.timer_a(),
+                if amiga.cia_a.timer_a_running() {
+                    "RUN"
+                } else {
+                    "STOP"
+                },
+                amiga.cia_a.timer_b(),
+                if amiga.cia_a.timer_b_running() {
+                    "RUN"
+                } else {
+                    "STOP"
+                },
+                amiga.cia_a.icr_status(),
+                amiga.cia_a.icr_mask(),
             );
             println!(
                 "      CIA-B:TA={:04X}({}) TB={:04X}({}) ICR={:02X}/{:02X} COP1LC=${:08X} copper={:?} CIA-A:TOD=${:06X}(halted={}) CIA-B:TOD=${:06X}",
-                amiga.cia_b.timer_a(), if amiga.cia_b.timer_a_running() { "RUN" } else { "STOP" },
-                amiga.cia_b.timer_b(), if amiga.cia_b.timer_b_running() { "RUN" } else { "STOP" },
-                amiga.cia_b.icr_status(), amiga.cia_b.icr_mask(),
-                amiga.copper.cop1lc, amiga.copper.state,
-                amiga.cia_a.tod_counter(), amiga.cia_a.tod_halted(),
+                amiga.cia_b.timer_a(),
+                if amiga.cia_b.timer_a_running() {
+                    "RUN"
+                } else {
+                    "STOP"
+                },
+                amiga.cia_b.timer_b(),
+                if amiga.cia_b.timer_b_running() {
+                    "RUN"
+                } else {
+                    "STOP"
+                },
+                amiga.cia_b.icr_status(),
+                amiga.cia_b.icr_mask(),
+                amiga.copper.cop1lc,
+                amiga.copper.state,
+                amiga.cia_a.tod_counter(),
+                amiga.cia_a.tod_halted(),
                 amiga.cia_b.tod_counter(),
             );
 
@@ -754,8 +861,10 @@ fn test_boot_kick13() {
             let sig_alloc = read_long(&amiga.memory.chip_ram, node + 0x12);
             let sig_wait = read_long(&amiga.memory.chip_ram, node + 0x16);
             let sig_recvd = read_long(&amiga.memory.chip_ram, node + 0x1A);
-            println!("    ${:08X}: \"{}\" pri={} state={} SigAlloc=${:08X} SigWait=${:08X} SigRecvd=${:08X}",
-                node, name, pri, state, sig_alloc, sig_wait, sig_recvd);
+            println!(
+                "    ${:08X}: \"{}\" pri={} state={} SigAlloc=${:08X} SigWait=${:08X} SigRecvd=${:08X}",
+                node, name, pri, state, sig_alloc, sig_wait, sig_recvd
+            );
             if next == 0 || next == node {
                 break;
             }
@@ -1248,8 +1357,10 @@ fn test_boot_kick13() {
                 let dy_off = read_word(ram, view + 16); // View->DyOffset
                 let dx_off = read_word(ram, view + 18); // View->DxOffset
                 let modes = read_word(ram, view + 2); // View->Modes
-                println!("  View at ${:08X}: ViewPort=${:08X} LOFCprList=${:08X} SHFCprList=${:08X} Modes=${:04X} DyOff={} DxOff={}",
-                    acti_view, vp_ptr, lof_cpr, shf_cpr, modes, dy_off, dx_off);
+                println!(
+                    "  View at ${:08X}: ViewPort=${:08X} LOFCprList=${:08X} SHFCprList=${:08X} Modes=${:04X} DyOff={} DxOff={}",
+                    acti_view, vp_ptr, lof_cpr, shf_cpr, modes, dy_off, dx_off
+                );
 
                 // If LOFCprList exists, dump the cprlist (start, maxCount)
                 if lof_cpr > 0 && (lof_cpr as usize) + 8 < ram.len() {
@@ -1493,8 +1604,10 @@ fn test_boot_kick13() {
             | ((ram[addr + 14] as u32) << 8)
             | ram[addr + 15] as u32;
         if bpr == 40 && rows == 200 && depth == 2 && plane0 > 0 && plane0 < 0x80000 {
-            println!("    BitMap at ${:06X}: BytesPerRow={} Rows={} Depth={} Planes[0]=${:08X} Planes[1]=${:08X}",
-                addr, bpr, rows, depth, plane0, plane1);
+            println!(
+                "    BitMap at ${:06X}: BytesPerRow={} Rows={} Depth={} Planes[0]=${:08X} Planes[1]=${:08X}",
+                addr, bpr, rows, depth, plane0, plane1
+            );
         }
     }
 
@@ -1512,8 +1625,10 @@ fn test_boot_kick13() {
             let fg = ram[addr + 25];
             let bg = ram[addr + 26];
             let draw_mode = ram[addr + 28];
-            println!("    RastPort? at ${:06X}: BitMap=${:08X} cp_x={} cp_y={} FgPen={} BgPen={} DrawMode={}",
-                addr, bm_ptr, cp_x, cp_y, fg, bg, draw_mode);
+            println!(
+                "    RastPort? at ${:06X}: BitMap=${:08X} cp_x={} cp_y={} FgPen={} BgPen={} DrawMode={}",
+                addr, bm_ptr, cp_x, cp_y, fg, bg, draw_mode
+            );
         }
     }
 
@@ -1747,9 +1862,15 @@ fn test_boot_trace() {
                     };
                 println!(
                     "[{:4}ms] {} PC=${:08X} SR=${:04X} D0=${:08X} D1=${:08X} A7=${:08X} *$4={:08X} ChkBase={:08X}",
-                    ms, name, pc, amiga.cpu.regs.sr,
-                    amiga.cpu.regs.d[0], amiga.cpu.regs.d[1],
-                    amiga.cpu.regs.a(7), exec_base, chkbase,
+                    ms,
+                    name,
+                    pc,
+                    amiga.cpu.regs.sr,
+                    amiga.cpu.regs.d[0],
+                    amiga.cpu.regs.d[1],
+                    amiga.cpu.regs.a(7),
+                    exec_base,
+                    chkbase,
                 );
                 // Dump exception frame when default handler is entered
                 if pc == DEFAULT_EXC {
@@ -1770,8 +1891,10 @@ fn test_boot_trace() {
                             | (amiga.memory.chip_ram[sp + 11] as u32) << 16
                             | (amiga.memory.chip_ram[sp + 12] as u32) << 8
                             | amiga.memory.chip_ram[sp + 13] as u32;
-                        println!("  Exception frame (group 0): fn_code=${:04X} access_addr=${:08X} IR=${:04X} SR=${:04X} PC=${:08X}",
-                            fn_code, acc_hi, ir, sr_stk, pc_hi);
+                        println!(
+                            "  Exception frame (group 0): fn_code=${:04X} access_addr=${:08X} IR=${:04X} SR=${:04X} PC=${:08X}",
+                            fn_code, acc_hi, ir, sr_stk, pc_hi
+                        );
                         // Also try group 1/2 frame: [sr:16][pc:32]
                         let sr_g1 = fn_code;
                         let pc_g1 = acc_hi;
@@ -1864,9 +1987,17 @@ fn test_warm_restart_path() {
         if page != last_page {
             let ms = i / (PAL_CRYSTAL_HZ / 1000);
             if ms > 660 && ms < 3000 {
-                println!("[{:4}ms] Page ${:05X}xxx  PC=${:08X} IR=${:04X} SR=${:04X} D0=${:08X} D1=${:08X} A7=${:08X}",
-                    ms, page, pc, amiga.cpu.ir, amiga.cpu.regs.sr,
-                    amiga.cpu.regs.d[0], amiga.cpu.regs.d[1], amiga.cpu.regs.a(7));
+                println!(
+                    "[{:4}ms] Page ${:05X}xxx  PC=${:08X} IR=${:04X} SR=${:04X} D0=${:08X} D1=${:08X} A7=${:08X}",
+                    ms,
+                    page,
+                    pc,
+                    amiga.cpu.ir,
+                    amiga.cpu.regs.sr,
+                    amiga.cpu.regs.d[0],
+                    amiga.cpu.regs.d[1],
+                    amiga.cpu.regs.a(7)
+                );
             }
             last_page = page;
         }
@@ -1874,9 +2005,17 @@ fn test_warm_restart_path() {
         // Capture state at Guru alert code points (BEFORE prev_pc update)
         if pc >= 0xFC3040 && pc <= 0xFC3070 && pc != prev_pc {
             let ms = i / (PAL_CRYSTAL_HZ / 1000);
-            println!("[{:4}ms] ALERT PC=${:08X} IR=${:04X} D7=${:08X} D0=${:08X} A5=${:08X} A6=${:08X} SR=${:04X}",
-                ms, pc, amiga.cpu.ir, amiga.cpu.regs.d[7], amiga.cpu.regs.d[0],
-                amiga.cpu.regs.a(5), amiga.cpu.regs.a(6), amiga.cpu.regs.sr);
+            println!(
+                "[{:4}ms] ALERT PC=${:08X} IR=${:04X} D7=${:08X} D0=${:08X} A5=${:08X} A6=${:08X} SR=${:04X}",
+                ms,
+                pc,
+                amiga.cpu.ir,
+                amiga.cpu.regs.d[7],
+                amiga.cpu.regs.d[0],
+                amiga.cpu.regs.a(5),
+                amiga.cpu.regs.a(6),
+                amiga.cpu.regs.sr
+            );
         }
 
         // Record unique PCs in ring buffer
@@ -1971,9 +2110,18 @@ fn test_alert_trigger_trace() {
         // Log when D7 changes (the alert code register) — no pc!=prev_pc
         // requirement so we catch changes during bus waits
         if d7 != prev_d7 && ms > 600 {
-            println!("[{:4}ms] D7 changed: ${:08X} -> ${:08X}  PC=${:08X} IR=${:04X} SR=${:04X} A5=${:08X} A6=${:08X} A7=${:08X}",
-                ms, prev_d7, d7, pc, amiga.cpu.ir, amiga.cpu.regs.sr,
-                amiga.cpu.regs.a(5), amiga.cpu.regs.a(6), amiga.cpu.regs.a(7));
+            println!(
+                "[{:4}ms] D7 changed: ${:08X} -> ${:08X}  PC=${:08X} IR=${:04X} SR=${:04X} A5=${:08X} A6=${:08X} A7=${:08X}",
+                ms,
+                prev_d7,
+                d7,
+                pc,
+                amiga.cpu.ir,
+                amiga.cpu.regs.sr,
+                amiga.cpu.regs.a(5),
+                amiga.cpu.regs.a(6),
+                amiga.cpu.regs.a(7)
+            );
             // Dump stack at the moment D7 changes to find caller chain
             if d7 == 3 {
                 let sp = amiga.cpu.regs.a(7) as usize;
@@ -2069,17 +2217,32 @@ fn test_alert_trigger_trace() {
             let rom_offset = pc - 0xFC0000;
             // Skip if we're in the alert handler area (logged separately)
             if rom_offset < 0x3020 || rom_offset > 0x3200 {
-                println!("[{:4}ms] ROM PC=${:08X} IR=${:04X} D0=${:08X} D7=${:08X} A6=${:08X} A7=${:08X}",
-                    ms, pc, amiga.cpu.ir, d0, d7,
-                    amiga.cpu.regs.a(6), amiga.cpu.regs.a(7));
+                println!(
+                    "[{:4}ms] ROM PC=${:08X} IR=${:04X} D0=${:08X} D7=${:08X} A6=${:08X} A7=${:08X}",
+                    ms,
+                    pc,
+                    amiga.cpu.ir,
+                    d0,
+                    d7,
+                    amiga.cpu.regs.a(6),
+                    amiga.cpu.regs.a(7)
+                );
             }
         }
 
         // Capture entry to alert handler area
         if pc >= 0xFC3020 && pc <= 0xFC3070 && pc != prev_pc {
-            println!("[{:4}ms] ALERT HANDLER PC=${:08X} IR=${:04X} D0=${:08X} D7=${:08X} A5=${:08X} A6=${:08X} A7=${:08X}",
-                ms, pc, amiga.cpu.ir, d0, d7,
-                amiga.cpu.regs.a(5), amiga.cpu.regs.a(6), amiga.cpu.regs.a(7));
+            println!(
+                "[{:4}ms] ALERT HANDLER PC=${:08X} IR=${:04X} D0=${:08X} D7=${:08X} A5=${:08X} A6=${:08X} A7=${:08X}",
+                ms,
+                pc,
+                amiga.cpu.ir,
+                d0,
+                d7,
+                amiga.cpu.regs.a(5),
+                amiga.cpu.regs.a(6),
+                amiga.cpu.regs.a(7)
+            );
         }
 
         // Capture Guru handler entry ($FC3128)
@@ -2243,10 +2406,15 @@ fn test_reinit_path() {
                     } else {
                         println!(
                             "  PC=${:06X} IR=${:04X} D0=${:08X} D1=${:08X} A0=${:08X} A1=${:08X} A2=${:08X} A3=${:08X} A5=${:08X}",
-                            pc, amiga.cpu.ir,
-                            amiga.cpu.regs.d[0], amiga.cpu.regs.d[1],
-                            amiga.cpu.regs.a(0), amiga.cpu.regs.a(1),
-                            amiga.cpu.regs.a(2), amiga.cpu.regs.a(3), amiga.cpu.regs.a(5),
+                            pc,
+                            amiga.cpu.ir,
+                            amiga.cpu.regs.d[0],
+                            amiga.cpu.regs.d[1],
+                            amiga.cpu.regs.a(0),
+                            amiga.cpu.regs.a(1),
+                            amiga.cpu.regs.a(2),
+                            amiga.cpu.regs.a(3),
+                            amiga.cpu.regs.a(5),
                         );
                     }
                     log_count += 1;
@@ -2572,8 +2740,10 @@ fn test_idle_loop_diagnosis() {
                 let a1 = amiga.cpu.regs.a(1);
                 let a2 = amiga.cpu.regs.a(2);
                 let sp = amiga.cpu.regs.a(7);
-                println!("  [{:4}ms] ipc=${:08X} IR=${:04X} SR=${:04X} D0=${:08X} A1=${:08X} A2=${:08X} SP=${:08X}",
-                    ms, ipc, ir, sr, d0, a1, a2, sp);
+                println!(
+                    "  [{:4}ms] ipc=${:08X} IR=${:04X} SR=${:04X} D0=${:08X} A1=${:08X} A2=${:08X} SP=${:08X}",
+                    ms, ipc, ir, sr, d0, a1, a2, sp
+                );
             }
         }
 
@@ -2606,9 +2776,16 @@ fn test_idle_loop_diagnosis() {
             let page = pc >> 12;
             let prev_page = prev_pc >> 12;
             if page != prev_page && pc != prev_pc {
-                println!("[{:4}ms] GAP PC=${:08X} IR=${:04X} SR=${:04X} D0=${:08X} A6=${:08X} A7=${:08X}",
-                    ms, pc, amiga.cpu.ir, amiga.cpu.regs.sr,
-                    amiga.cpu.regs.d[0], amiga.cpu.regs.a(6), amiga.cpu.regs.a(7));
+                println!(
+                    "[{:4}ms] GAP PC=${:08X} IR=${:04X} SR=${:04X} D0=${:08X} A6=${:08X} A7=${:08X}",
+                    ms,
+                    pc,
+                    amiga.cpu.ir,
+                    amiga.cpu.regs.sr,
+                    amiga.cpu.regs.d[0],
+                    amiga.cpu.regs.a(6),
+                    amiga.cpu.regs.a(7)
+                );
             }
         }
 
@@ -2802,7 +2979,7 @@ fn walk_task_list(ram: &[u8], rom: &[u8], head: usize) {
         if succ == 0 {
             break;
         } // reached tail
-          // Task name: Task.tc_Node.ln_Name at offset $0A (within Node)
+        // Task name: Task.tc_Node.ln_Name at offset $0A (within Node)
         let name_ptr = read_chip_long(ram, node + 0x0A);
         let name = read_string(ram, rom, name_ptr);
         let state = ram.get(node + 0x0F).copied().unwrap_or(0);
@@ -3011,8 +3188,14 @@ fn test_triple_init_trace() {
             // Detect when execution leaves intuition code ($FD3xxx-$FDFxxx)
             // and enters exec idle area ($FC0Fxx)
             if ipc >= 0xFC0F70 && ipc <= 0xFC0FA0 && prev_ipc >= 0xFD0000 {
-                println!("[{:4}ms] !! Intuition -> Idle loop: ipc=${:08X} prev=${:08X} SR=${:04X} SP=${:08X}",
-                    ms, ipc, prev_ipc, amiga.cpu.regs.sr, amiga.cpu.regs.a(7));
+                println!(
+                    "[{:4}ms] !! Intuition -> Idle loop: ipc=${:08X} prev=${:08X} SR=${:04X} SP=${:08X}",
+                    ms,
+                    ipc,
+                    prev_ipc,
+                    amiga.cpu.regs.sr,
+                    amiga.cpu.regs.a(7)
+                );
             }
         }
 
