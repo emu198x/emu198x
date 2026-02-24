@@ -4,6 +4,7 @@ use machine_amiga::TICKS_PER_CCK;
 
 const REG_DMACON: u16 = 0x096;
 const REG_DDFSTRT: u16 = 0x092;
+const REG_BPLCON0: u16 = 0x100;
 const REG_BPLCON2: u16 = 0x104;
 const REG_SPR0PTH: u16 = 0x120;
 const REG_SPR0PTL: u16 = 0x122;
@@ -201,5 +202,46 @@ fn bplcon2_priority_affects_sprite_visibility_at_machine_level() {
     let shown = render_sprite_vs_playfield_pixel(0x0001); // PF1P=1 => SP01 in front of PF1
 
     assert_eq!(hidden, rgb12_to_argb32(0x00F));
+    assert_eq!(shown, rgb12_to_argb32(0xF00));
+}
+
+fn render_dual_playfield_sprite_priority_pixel(bplcon2: u16) -> u32 {
+    let mut amiga = make_test_amiga();
+    let spr0_addr = 0x0000_3000u32;
+    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+
+    write_word(&mut amiga, spr0_addr, pos);
+    write_word(&mut amiga, spr0_addr + 2, ctl);
+    write_word(&mut amiga, spr0_addr + 4, 0x8000);
+    write_word(&mut amiga, spr0_addr + 6, 0x0000);
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr & 0xFFFF) as u16);
+    amiga.write_custom_reg(REG_BPLCON0, 0x0400); // DBLPF
+    amiga.write_custom_reg(REG_BPLCON2, bplcon2);
+    amiga.denise.set_palette(1, 0x00F); // PF1 color
+    amiga.denise.set_palette(9, 0x0F0); // PF2 color
+    amiga.denise.set_palette(17, 0xF00); // sprite color
+
+    setup_sprite_render_baseline(&mut amiga);
+    run_to_render_cck(&mut amiga);
+
+    // Dual playfields active on this pixel: PF1 code 1 (plane 1) and PF2 code 1 (plane 2).
+    amiga.denise.bpl_shift[0] = 0x8000; // BPL1 -> PF1 color 1
+    amiga.denise.bpl_shift[1] = 0x8000; // BPL2 -> PF2 color 9
+    amiga.denise.shift_count = 1;
+    tick_ccks(&mut amiga, 1);
+
+    let (fb_x, fb_y) = sprite_target_fb_coords();
+    amiga.framebuffer()[fb_y * 320 + fb_x]
+}
+
+#[test]
+fn dual_playfield_pf2pri_and_pf2p_priority_affect_sprite_visibility() {
+    let hidden = render_dual_playfield_sprite_priority_pixel(0x0044);
+    let shown = render_dual_playfield_sprite_priority_pixel(0x004C);
+
+    assert_eq!(hidden, rgb12_to_argb32(0x0F0));
     assert_eq!(shown, rgb12_to_argb32(0xF00));
 }

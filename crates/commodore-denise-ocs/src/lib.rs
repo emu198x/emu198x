@@ -12,6 +12,7 @@ pub struct DeniseOcs {
     pub bpl_data: [u16; 6],  // Holding latches: written by DMA
     pub bpl_shift: [u16; 6], // Shift registers: loaded from latches on BPL1DAT write
     pub shift_count: u8,     // Pixels remaining in shift register (0 -> output COLOR00)
+    pub bplcon0: u16,
     pub bplcon1: u16,
     pub bplcon2: u16,
     pub spr_pos: [u16; 8],
@@ -26,6 +27,18 @@ struct SpritePixel {
     sprite_group: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlayfieldId {
+    Pf1,
+    Pf2,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PlayfieldPixel {
+    visible_color_idx: usize,
+    front_playfield: Option<PlayfieldId>,
+}
+
 impl DeniseOcs {
     pub fn new() -> Self {
         Self {
@@ -34,6 +47,7 @@ impl DeniseOcs {
             bpl_data: [0; 6],
             bpl_shift: [0; 6],
             shift_count: 0,
+            bplcon0: 0,
             bplcon1: 0,
             bplcon2: 0,
             spr_pos: [0; 8],
@@ -138,11 +152,69 @@ impl DeniseOcs {
         None
     }
 
-    fn sprite_has_priority_over_playfield1(&self, sprite_group: usize) -> bool {
-        // Single-playfield mode only: PF1P2..PF1P0 select PF1 placement among
-        // the four sprite priority groups. Values >4 are invalid; clamp.
-        let pf1_pos = usize::from(self.bplcon2 & 0x0007).min(4);
-        sprite_group < pf1_pos
+    fn sprite_has_priority_over_playfield(
+        &self,
+        sprite_group: usize,
+        playfield: PlayfieldId,
+    ) -> bool {
+        // PFxP2..PFxP0 select playfield placement among the four sprite
+        // priority groups. Values >4 are invalid; clamp.
+        let pf_pos = match playfield {
+            PlayfieldId::Pf1 => usize::from(self.bplcon2 & 0x0007),
+            PlayfieldId::Pf2 => usize::from((self.bplcon2 >> 3) & 0x0007),
+        }
+        .min(4);
+        sprite_group < pf_pos
+    }
+
+    fn compose_playfield_pixel(
+        &self,
+        raw_color_idx: usize,
+        pf1_code: u8,
+        pf2_code: u8,
+    ) -> PlayfieldPixel {
+        let dual_playfield = (self.bplcon0 & 0x0400) != 0; // DBLPF
+        if !dual_playfield {
+            return PlayfieldPixel {
+                visible_color_idx: raw_color_idx,
+                front_playfield: if raw_color_idx != 0 {
+                    Some(PlayfieldId::Pf1)
+                } else {
+                    None
+                },
+            };
+        }
+
+        let pf1_nonzero = pf1_code != 0;
+        let pf2_nonzero = pf2_code != 0;
+        match (pf1_nonzero, pf2_nonzero) {
+            (false, false) => PlayfieldPixel {
+                visible_color_idx: 0,
+                front_playfield: None,
+            },
+            (true, false) => PlayfieldPixel {
+                visible_color_idx: usize::from(pf1_code),
+                front_playfield: Some(PlayfieldId::Pf1),
+            },
+            (false, true) => PlayfieldPixel {
+                visible_color_idx: 8 + usize::from(pf2_code),
+                front_playfield: Some(PlayfieldId::Pf2),
+            },
+            (true, true) => {
+                let pf2_front = (self.bplcon2 & 0x0040) != 0; // PF2PRI
+                if pf2_front {
+                    PlayfieldPixel {
+                        visible_color_idx: 8 + usize::from(pf2_code),
+                        front_playfield: Some(PlayfieldId::Pf2),
+                    }
+                } else {
+                    PlayfieldPixel {
+                        visible_color_idx: usize::from(pf1_code),
+                        front_playfield: Some(PlayfieldId::Pf1),
+                    }
+                }
+            }
+        }
     }
 
     /// Copy all bitplane holding latches into the shift registers.
@@ -171,26 +243,36 @@ impl DeniseOcs {
 
     pub fn output_pixel_with_beam(&mut self, x: u32, y: u32, beam_x: u32, beam_y: u32) {
         if x < FB_WIDTH && y < FB_HEIGHT {
-            let mut color_idx = 0usize;
+            let mut raw_color_idx = 0usize;
+            let mut pf1_code = 0u8;
+            let mut pf2_code = 0u8;
             if self.shift_count > 0 {
                 // Compute color index from shifter bits (MSB first)
                 for plane in 0..6 {
-                    if (self.bpl_shift[plane] & 0x8000) != 0 {
-                        color_idx |= 1usize << plane;
+                    let bit_set = (self.bpl_shift[plane] & 0x8000) != 0;
+                    if bit_set {
+                        raw_color_idx |= 1usize << plane;
+                        if plane & 1 == 0 {
+                            pf1_code |= 1u8 << (plane / 2);
+                        } else {
+                            pf2_code |= 1u8 << (plane / 2);
+                        }
                     }
                     self.bpl_shift[plane] <<= 1;
                 }
                 self.shift_count -= 1;
             }
 
+            let playfield = self.compose_playfield_pixel(raw_color_idx, pf1_code, pf2_code);
+            let mut color_idx = playfield.visible_color_idx;
             if let Some(sprite_pixel) = self.sprite_pixel(beam_x, beam_y) {
-                // In single-playfield mode, COLOR00 behaves as background and
-                // does not occlude sprites. Dual-playfield priority (`PF2*`) is
-                // not modeled yet.
-                let playfield_nonzero = color_idx != 0;
-                if !playfield_nonzero
-                    || self.sprite_has_priority_over_playfield1(sprite_pixel.sprite_group)
-                {
+                if let Some(front_pf) = playfield.front_playfield {
+                    if self.sprite_has_priority_over_playfield(sprite_pixel.sprite_group, front_pf)
+                    {
+                        color_idx = sprite_pixel.palette_idx;
+                    }
+                } else {
+                    // Background/COLOR00 only; sprite is visible.
                     color_idx = sprite_pixel.palette_idx;
                 }
             }
@@ -371,6 +453,45 @@ mod tests {
             denise.framebuffer[(7 * FB_WIDTH + 19) as usize],
             DeniseOcs::rgb12_to_argb32(0xF00),
             "PF1 priority should allow sprite 0 in front when PF1P=1"
+        );
+    }
+
+    #[test]
+    fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x0400; // DBLPF
+        denise.set_palette(1, 0x00F); // PF1 color
+        denise.set_palette(9, 0x0F0); // PF2 color
+        denise.set_palette(17, 0xF00); // sprite 0 color
+
+        let (pos, ctl) = encode_sprite_pos_ctl(22, 9, 10);
+        denise.spr_pos[0] = pos;
+        denise.spr_ctl[0] = ctl;
+        denise.spr_data[0] = 0x8000;
+        denise.spr_datb[0] = 0x0000;
+
+        // Both playfields active on this pixel: PF1 code=1 (plane 1), PF2 code=1 (plane 2).
+        // PF2PRI=1 puts PF2 in front of PF1.
+        denise.bpl_shift[0] = 0x8000;
+        denise.bpl_shift[1] = 0x8000;
+        denise.shift_count = 1;
+        denise.bplcon2 = 0x0044; // PF2PRI=1, PF1P=4 (sprite beats PF1), PF2P=0 (PF2 beats sprite)
+        denise.output_pixel(22, 9);
+        assert_eq!(
+            denise.framebuffer[(9 * FB_WIDTH + 22) as usize],
+            DeniseOcs::rgb12_to_argb32(0x0F0),
+            "front PF2 should hide sprite when PF2P places PF2 ahead of SP01"
+        );
+
+        denise.bpl_shift[0] = 0x8000;
+        denise.bpl_shift[1] = 0x8000;
+        denise.shift_count = 1;
+        denise.bplcon2 = 0x004C; // PF2PRI=1, PF2P=1 => SP01 in front of PF2
+        denise.output_pixel(22, 9);
+        assert_eq!(
+            denise.framebuffer[(9 * FB_WIDTH + 22) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00),
+            "sprite should appear when PF2P places SP01 ahead of front PF2"
         );
     }
 }

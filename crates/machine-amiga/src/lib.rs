@@ -873,7 +873,10 @@ fn write_custom_register(
         0x02E => copper.danger = val & 0x02 != 0,
 
         // Bitplane control
-        0x100 => agnus.bplcon0 = val,
+        0x100 => {
+            agnus.bplcon0 = val;
+            denise.bplcon0 = val;
+        }
         0x102 => denise.bplcon1 = val,
         0x104 => denise.bplcon2 = val,
 
