@@ -10,6 +10,10 @@ const REG_BPLCON0: u16 = 0x100;
 const REG_BPLCON2: u16 = 0x104;
 const REG_SPR0PTH: u16 = 0x120;
 const REG_SPR0PTL: u16 = 0x122;
+const REG_SPR0POS: u16 = 0x140;
+const REG_SPR0CTL: u16 = 0x142;
+const REG_SPR0DATA: u16 = 0x144;
+const REG_SPR0DATB: u16 = 0x146;
 const REG_SPR1PTH: u16 = 0x124;
 const REG_SPR1PTL: u16 = 0x126;
 
@@ -165,6 +169,57 @@ fn sprite0_dma_renders_pixel_into_framebuffer() {
         amiga.framebuffer()[fb_y * 320 + fb_x],
         rgb12_to_argb32(0xF00),
         "sprite pixel should appear at the expected framebuffer location"
+    );
+}
+
+#[test]
+fn manual_sprite_ctl_disarms_and_data_rearms_output() {
+    let mut amiga = make_test_amiga();
+    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART + 1, DISPLAY_VSTART + 2);
+
+    amiga.denise.set_palette(0, 0x000);
+    amiga.denise.set_palette(17, 0xF00);
+
+    amiga.write_custom_reg(REG_SPR0POS, pos);
+    amiga.write_custom_reg(REG_SPR0CTL, ctl); // disarm
+    amiga.write_custom_reg(REG_SPR0DATB, 0x0000);
+    amiga.write_custom_reg(REG_SPR0DATA, 0x8000); // arm
+
+    position_beam_for_single_render_cck(&mut amiga);
+    tick_ccks(&mut amiga, 1);
+    let (fb_x, fb_y) = sprite_target_fb_coords();
+    assert_eq!(
+        amiga.framebuffer()[fb_y * 320 + fb_x],
+        rgb12_to_argb32(0xF00),
+        "manual SPRxDATA write should arm sprite output"
+    );
+
+    amiga.write_custom_reg(REG_SPR0CTL, ctl); // disarm
+    position_beam_for_single_render_cck(&mut amiga);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(
+        amiga.framebuffer()[fb_y * 320 + fb_x],
+        rgb12_to_argb32(0x000),
+        "writing SPRxCTL should disarm sprite output"
+    );
+
+    amiga.write_custom_reg(REG_SPR0DATB, 0x0000); // DATB alone must not arm
+    position_beam_for_single_render_cck(&mut amiga);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(
+        amiga.framebuffer()[fb_y * 320 + fb_x],
+        rgb12_to_argb32(0x000),
+        "SPRxDATB alone should not re-arm output"
+    );
+
+    amiga.write_custom_reg(REG_SPR0DATA, 0x8000); // DATA re-arms
+    position_beam_for_single_render_cck(&mut amiga);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(
+        amiga.framebuffer()[fb_y * 320 + fb_x],
+        rgb12_to_argb32(0xF00),
+        "SPRxDATA should re-arm sprite output after disarm"
     );
 }
 

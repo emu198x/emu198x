@@ -21,6 +21,7 @@ pub struct DeniseOcs {
     pub spr_ctl: [u16; 8],
     pub spr_data: [u16; 8],
     pub spr_datb: [u16; 8],
+    spr_armed: [bool; 8],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +59,10 @@ impl DeniseOcs {
             spr_ctl: [0; 8],
             spr_data: [0; 8],
             spr_datb: [0; 8],
+            // Start armed for compatibility with existing direct-field tests.
+            // Precise arm/disarm semantics are applied when register writes go
+            // through the `write_sprite_*` helpers used by machine-amiga.
+            spr_armed: [true; 8],
         }
     }
 
@@ -79,6 +84,35 @@ impl DeniseOcs {
         value
     }
 
+    pub fn write_sprite_pos(&mut self, sprite: usize, val: u16) {
+        if sprite < 8 {
+            self.spr_pos[sprite] = val;
+        }
+    }
+
+    pub fn write_sprite_ctl(&mut self, sprite: usize, val: u16) {
+        if sprite < 8 {
+            self.spr_ctl[sprite] = val;
+            // Writing SPRxCTL disables the horizontal comparator (HRM Fig. 4-13).
+            self.spr_armed[sprite] = false;
+        }
+    }
+
+    pub fn write_sprite_data(&mut self, sprite: usize, val: u16) {
+        if sprite < 8 {
+            self.spr_data[sprite] = val;
+            // Writing SPRxDATA arms the sprite comparator (manual mode) and is
+            // also how DMA refreshes sprite line data before display.
+            self.spr_armed[sprite] = true;
+        }
+    }
+
+    pub fn write_sprite_datb(&mut self, sprite: usize, val: u16) {
+        if sprite < 8 {
+            self.spr_datb[sprite] = val;
+        }
+    }
+
     fn sprite_hstart(pos: u16, ctl: u16) -> u16 {
         ((pos & 0x00FF) << 1) | (ctl & 0x0001)
     }
@@ -93,6 +127,9 @@ impl DeniseOcs {
 
     fn sprite_code_at(&self, sprite: usize, beam_x: u32, beam_y: u32) -> Option<u8> {
         if sprite >= 8 {
+            return None;
+        }
+        if !self.spr_armed[sprite] {
             return None;
         }
         let pos = self.spr_pos[sprite];
@@ -434,6 +471,79 @@ mod tests {
         assert_eq!(
             denise.framebuffer[(10 * FB_WIDTH + 20) as usize],
             DeniseOcs::rgb12_to_argb32(0xF00)
+        );
+    }
+
+    #[test]
+    fn sprite_ctl_disarms_and_sprite_data_rearms_comparator() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(17, 0xF00);
+
+        let (pos, ctl) = encode_sprite_pos_ctl(26, 10, 11);
+        denise.write_sprite_pos(0, pos);
+        denise.write_sprite_ctl(0, ctl); // disarm
+        denise.write_sprite_datb(0, 0x0000);
+        denise.write_sprite_data(0, 0x8000); // arm
+
+        denise.output_pixel(26, 10);
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 26) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00)
+        );
+
+        denise.write_sprite_ctl(0, ctl); // disarm again
+        denise.output_pixel(26, 10);
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 26) as usize],
+            DeniseOcs::rgb12_to_argb32(0x000),
+            "writing SPRxCTL should disable sprite output until re-armed"
+        );
+
+        denise.write_sprite_datb(0, 0x0000); // DATB alone must not arm
+        denise.output_pixel(26, 10);
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 26) as usize],
+            DeniseOcs::rgb12_to_argb32(0x000),
+            "writing SPRxDATB alone should not arm the comparator"
+        );
+
+        denise.write_sprite_data(0, 0x8000); // DATA arms
+        denise.output_pixel(26, 10);
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 26) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00),
+            "writing SPRxDATA should arm the comparator"
+        );
+    }
+
+    #[test]
+    fn sprite_pos_write_moves_armed_sprite_horizontally() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(17, 0x0F0);
+
+        let (pos_a, ctl) = encode_sprite_pos_ctl(40, 12, 13);
+        let (pos_b, _) = encode_sprite_pos_ctl(42, 12, 13);
+        denise.write_sprite_pos(0, pos_a);
+        denise.write_sprite_ctl(0, ctl);
+        denise.write_sprite_datb(0, 0x0000);
+        denise.write_sprite_data(0, 0x8000); // arm
+
+        denise.write_sprite_pos(0, pos_b); // move while armed
+
+        denise.output_pixel(40, 12);
+        denise.output_pixel(42, 12);
+
+        assert_eq!(
+            denise.framebuffer[(12 * FB_WIDTH + 40) as usize],
+            DeniseOcs::rgb12_to_argb32(0x000),
+            "sprite should no longer appear at the old horizontal position"
+        );
+        assert_eq!(
+            denise.framebuffer[(12 * FB_WIDTH + 42) as usize],
+            DeniseOcs::rgb12_to_argb32(0x0F0),
+            "writing SPRxPOS should move an armed sprite horizontally"
         );
     }
 

@@ -550,11 +550,11 @@ impl Amiga {
         let word = (u16::from(hi) << 8) | u16::from(lo);
         match self.sprite_dma_phase[sprite] {
             0 => {
-                self.denise.spr_pos[sprite] = word;
+                self.denise.write_sprite_pos(sprite, word);
                 self.sprite_dma_phase[sprite] = 1;
             }
             1 => {
-                self.denise.spr_ctl[sprite] = word;
+                self.denise.write_sprite_ctl(sprite, word);
                 let pos = self.denise.spr_pos[sprite];
                 let ctl = self.denise.spr_ctl[sprite];
                 let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
@@ -566,22 +566,22 @@ impl Amiga {
                 };
             }
             2 => {
-                self.denise.spr_data[sprite] = word;
+                self.denise.write_sprite_data(sprite, word);
                 self.sprite_dma_phase[sprite] = 3;
             }
             _ => {
-                self.denise.spr_datb[sprite] = word;
+                self.denise.write_sprite_datb(sprite, word);
                 let pos = self.denise.spr_pos[sprite];
                 let ctl = self.denise.spr_ctl[sprite];
                 let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
                 let vstop = (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF);
                 let next_vpos = Self::next_sprite_dma_vpos(vpos);
-                self.sprite_dma_phase[sprite] = if Self::sprite_line_active(next_vpos, vstart, vstop)
-                {
-                    2
-                } else {
-                    0
-                };
+                self.sprite_dma_phase[sprite] =
+                    if Self::sprite_line_active(next_vpos, vstart, vstop) {
+                        2
+                    } else {
+                        0
+                    };
             }
         }
         self.agnus.spr_pt[sprite] = addr.wrapping_add(2);
@@ -944,10 +944,10 @@ fn write_custom_register(
             let reg = ((offset - 0x140) % 8) / 2;
             if sprite < 8 {
                 match reg {
-                    0 => denise.spr_pos[sprite] = val,
-                    1 => denise.spr_ctl[sprite] = val,
-                    2 => denise.spr_data[sprite] = val,
-                    3 => denise.spr_datb[sprite] = val,
+                    0 => denise.write_sprite_pos(sprite, val),
+                    1 => denise.write_sprite_ctl(sprite, val),
+                    2 => denise.write_sprite_data(sprite, val),
+                    3 => denise.write_sprite_datb(sprite, val),
                     _ => {}
                 }
             }
