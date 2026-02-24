@@ -18,7 +18,9 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use machine_amiga::format_adf::Adf;
-use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, commodore_denise_ocs};
+use machine_amiga::{
+    Amiga, AmigaChipset, AmigaConfig, AmigaModel, BeamDebugSnapshot, commodore_denise_ocs,
+};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -81,6 +83,10 @@ struct BeamDebugFilter {
     hblank: bool,
     vblank: bool,
     visible: bool,
+    hsync_pin: bool,
+    vsync_pin: bool,
+    csync_pin: bool,
+    blank_pin: bool,
 }
 
 impl BeamDebugFilter {
@@ -91,6 +97,10 @@ impl BeamDebugFilter {
             hblank: true,
             vblank: true,
             visible: true,
+            hsync_pin: true,
+            vsync_pin: true,
+            csync_pin: true,
+            blank_pin: true,
         }
     }
 
@@ -101,6 +111,10 @@ impl BeamDebugFilter {
             hblank: false,
             vblank: false,
             visible: false,
+            hsync_pin: false,
+            vsync_pin: false,
+            csync_pin: false,
+            blank_pin: false,
         }
     }
 }
@@ -116,7 +130,7 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --frames <n>   Frames to run in headless mode [default: 300]");
     eprintln!("  --beam-debug   Print beam sync/blank/visibility edge transitions (headless)");
     eprintln!(
-        "  --beam-debug-filter <classes>  Edge classes: all,sync,blank,visible or comma list"
+        "  --beam-debug-filter <classes>  Edge classes: all,sync,blank,visible,pins or comma list"
     );
     eprintln!("  --bench-insert-screen  Stop on first KS1.3 insert-screen match and print speed");
     eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
@@ -267,13 +281,23 @@ fn parse_beam_debug_filter_arg(value: &str) -> Result<BeamDebugFilter, String> {
             "visible" => {
                 filter.visible = true;
             }
+            "pins" => {
+                filter.hsync_pin = true;
+                filter.vsync_pin = true;
+                filter.csync_pin = true;
+                filter.blank_pin = true;
+            }
             "hsync" => filter.hsync = true,
             "vsync" => filter.vsync = true,
             "hblank" => filter.hblank = true,
             "vblank" => filter.vblank = true,
+            "hsync-pin" | "pin-hsync" => filter.hsync_pin = true,
+            "vsync-pin" | "pin-vsync" => filter.vsync_pin = true,
+            "csync-pin" | "pin-csync" => filter.csync_pin = true,
+            "blank-pin" | "pin-blank" => filter.blank_pin = true,
             other => {
                 return Err(format!(
-                    "Invalid --beam-debug-filter token '{other}' (use all,sync,blank,visible or hsync/vsync/hblank/vblank)"
+                    "Invalid --beam-debug-filter token '{other}' (use all,sync,blank,visible,pins or hsync/vsync/hblank/vblank and *-pin)"
                 ));
             }
         }
@@ -441,6 +465,7 @@ fn matches_ks13_insert_screen(framebuffer: &[u32]) -> bool {
 
 struct BeamEdgeLogger {
     initialized: bool,
+    last_snapshot: Option<BeamDebugSnapshot>,
     filter: BeamDebugFilter,
     edge_count: u64,
 }
@@ -449,6 +474,7 @@ impl BeamEdgeLogger {
     fn new(filter: BeamDebugFilter) -> Self {
         Self {
             initialized: false,
+            last_snapshot: None,
             filter,
             edge_count: 0,
         }
@@ -461,8 +487,9 @@ impl BeamEdgeLogger {
 
         if !self.initialized {
             self.initialized = true;
+            self.last_snapshot = Some(snapshot);
             eprintln!(
-                "[beam] init mc={} v={} h={} hsync={} vsync={} hblank={} vblank={} visible={}",
+                "[beam] init mc={} v={} h={} hsync={} vsync={} hblank={} vblank={} visible={} hpin={} vpin={} cpin={} blank_pin={}",
                 amiga.master_clock,
                 snapshot.vpos,
                 snapshot.hpos_cck,
@@ -470,11 +497,16 @@ impl BeamEdgeLogger {
                 snapshot.sync.vsync,
                 snapshot.hblank,
                 snapshot.vblank,
-                visible
+                visible,
+                snapshot.pins.hsync_high,
+                snapshot.pins.vsync_high,
+                snapshot.pins.csync_high,
+                snapshot.pins.blank_active,
             );
             return;
         }
 
+        let prev = self.last_snapshot.unwrap_or(snapshot);
         let mut changes = Vec::with_capacity(5);
         if self.filter.hsync && edges.hsync_changed {
             changes.push(format!("hsync={}", snapshot.sync.hsync));
@@ -491,6 +523,18 @@ impl BeamEdgeLogger {
         if self.filter.visible && edges.visible_changed {
             changes.push(format!("visible={visible}"));
         }
+        if self.filter.hsync_pin && prev.pins.hsync_high != snapshot.pins.hsync_high {
+            changes.push(format!("hpin={}", snapshot.pins.hsync_high));
+        }
+        if self.filter.vsync_pin && prev.pins.vsync_high != snapshot.pins.vsync_high {
+            changes.push(format!("vpin={}", snapshot.pins.vsync_high));
+        }
+        if self.filter.csync_pin && prev.pins.csync_high != snapshot.pins.csync_high {
+            changes.push(format!("cpin={}", snapshot.pins.csync_high));
+        }
+        if self.filter.blank_pin && prev.pins.blank_active != snapshot.pins.blank_active {
+            changes.push(format!("blank_pin={}", snapshot.pins.blank_active));
+        }
 
         if !changes.is_empty() {
             self.edge_count += 1;
@@ -504,6 +548,8 @@ impl BeamEdgeLogger {
                 snapshot.fb_coords
             );
         }
+
+        self.last_snapshot = Some(snapshot);
     }
 }
 
@@ -1218,6 +1264,10 @@ mod tests {
                 hblank: false,
                 vblank: false,
                 visible: true,
+                hsync_pin: false,
+                vsync_pin: false,
+                csync_pin: false,
+                blank_pin: false,
             })
         );
         assert_eq!(
@@ -1228,6 +1278,10 @@ mod tests {
                 hblank: true,
                 vblank: true,
                 visible: false,
+                hsync_pin: false,
+                vsync_pin: false,
+                csync_pin: false,
+                blank_pin: false,
             })
         );
     }
@@ -1240,6 +1294,38 @@ mod tests {
         );
         assert!(parse_beam_debug_filter_arg("sync,foo").is_err());
         assert!(parse_beam_debug_filter_arg("sync,").is_err());
+    }
+
+    #[test]
+    fn beam_debug_filter_parser_accepts_pin_group_and_pin_tokens() {
+        assert_eq!(
+            parse_beam_debug_filter_arg("pins"),
+            Ok(BeamDebugFilter {
+                hsync: false,
+                vsync: false,
+                hblank: false,
+                vblank: false,
+                visible: false,
+                hsync_pin: true,
+                vsync_pin: true,
+                csync_pin: true,
+                blank_pin: true,
+            })
+        );
+        assert_eq!(
+            parse_beam_debug_filter_arg("pin-hsync,csync-pin"),
+            Ok(BeamDebugFilter {
+                hsync: false,
+                vsync: false,
+                hblank: false,
+                vblank: false,
+                visible: false,
+                hsync_pin: true,
+                vsync_pin: false,
+                csync_pin: true,
+                blank_pin: false,
+            })
+        );
     }
 }
 
