@@ -17,6 +17,8 @@ pub use commodore_agnus_ocs::{
 /// This mask is derived from the HRM `BEAMCON0` bit ordering (HARDDIS..HSYTRUE)
 /// where `VARBEAMEN` appears after `VARHSYEN`.
 pub const BEAMCON0_VARBEAMEN: u16 = 0x0100;
+/// `BEAMCON0` bit enabling programmable vertical blanking window (`VBSTRT/VBSTOP`).
+pub const BEAMCON0_VARVBEN: u16 = 0x2000;
 
 /// Thin ECS wrapper that currently reuses the OCS Agnus implementation.
 pub struct AgnusEcs {
@@ -24,6 +26,8 @@ pub struct AgnusEcs {
     beamcon0: u16,
     htotal: u16,
     vtotal: u16,
+    vbstrt: u16,
+    vbstop: u16,
     diwhigh: u16,
 }
 
@@ -36,6 +40,8 @@ impl AgnusEcs {
             beamcon0: 0,
             htotal: 0,
             vtotal: 0,
+            vbstrt: 0,
+            vbstop: 0,
             diwhigh: 0,
         }
     }
@@ -50,6 +56,8 @@ impl AgnusEcs {
             beamcon0: 0,
             htotal: 0,
             vtotal: 0,
+            vbstrt: 0,
+            vbstop: 0,
             diwhigh: 0,
         }
     }
@@ -123,6 +131,24 @@ impl AgnusEcs {
         self.vtotal = val;
     }
 
+    #[must_use]
+    pub const fn vbstrt(&self) -> u16 {
+        self.vbstrt
+    }
+
+    pub fn write_vbstrt(&mut self, val: u16) {
+        self.vbstrt = val;
+    }
+
+    #[must_use]
+    pub const fn vbstop(&self) -> u16 {
+        self.vbstop
+    }
+
+    pub fn write_vbstop(&mut self, val: u16) {
+        self.vbstop = val;
+    }
+
     /// ECS `DIWHIGH` latch (used by ECS display window extensions).
     #[must_use]
     pub const fn diwhigh(&self) -> u16 {
@@ -137,6 +163,31 @@ impl AgnusEcs {
     #[must_use]
     pub const fn varbeamen_enabled(&self) -> bool {
         (self.beamcon0 & BEAMCON0_VARBEAMEN) != 0
+    }
+
+    #[must_use]
+    pub const fn varvben_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_VARVBEN) != 0
+    }
+
+    /// Coarse ECS vertical blanking window check used by `machine-amiga` display
+    /// output gating while fuller sync/blank generator behavior is pending.
+    #[must_use]
+    pub fn vblank_window_active(&self, vpos: u16) -> bool {
+        if !self.varvben_enabled() {
+            return false;
+        }
+
+        let start = self.vbstrt & 0x07FF;
+        let stop = self.vbstop & 0x07FF;
+        if start == stop {
+            return false;
+        }
+        if start < stop {
+            vpos >= start && vpos < stop
+        } else {
+            vpos >= start || vpos < stop
+        }
     }
 
     fn htotal_highest_count(&self) -> u16 {
@@ -186,7 +237,7 @@ impl From<AgnusEcs> for InnerAgnusOcs {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgnusEcs, BEAMCON0_VARBEAMEN};
+    use super::{AgnusEcs, BEAMCON0_VARBEAMEN, BEAMCON0_VARVBEN};
 
     #[test]
     fn wrapper_uses_ocs_baseline_state_for_now() {
@@ -206,16 +257,22 @@ mod tests {
         assert_eq!(agnus.beamcon0(), 0);
         assert_eq!(agnus.htotal(), 0);
         assert_eq!(agnus.vtotal(), 0);
+        assert_eq!(agnus.vbstrt(), 0);
+        assert_eq!(agnus.vbstop(), 0);
         assert_eq!(agnus.diwhigh(), 0);
 
         agnus.write_beamcon0(0x0020);
         agnus.write_htotal(0x0033);
         agnus.write_vtotal(0x0123);
+        agnus.write_vbstrt(0x0040);
+        agnus.write_vbstop(0x0060);
         agnus.write_diwhigh(0xA5A5);
 
         assert_eq!(agnus.beamcon0(), 0x0020);
         assert_eq!(agnus.htotal(), 0x0033);
         assert_eq!(agnus.vtotal(), 0x0123);
+        assert_eq!(agnus.vbstrt(), 0x0040);
+        assert_eq!(agnus.vbstop(), 0x0060);
         assert_eq!(agnus.diwhigh(), 0xA5A5);
         assert_eq!(agnus.diwstrt, 0);
         assert_eq!(agnus.diwstop, 0);
@@ -244,5 +301,28 @@ mod tests {
         }
         assert_eq!(agnus.hpos, 0);
         assert_eq!(agnus.vpos, 0);
+    }
+
+    #[test]
+    fn varvben_uses_programmed_vertical_blank_window() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_vbstrt(10);
+        agnus.write_vbstop(20);
+        agnus.write_beamcon0(BEAMCON0_VARVBEN);
+        assert!(!agnus.vblank_window_active(9));
+        assert!(agnus.vblank_window_active(10));
+        assert!(agnus.vblank_window_active(19));
+        assert!(!agnus.vblank_window_active(20));
+    }
+
+    #[test]
+    fn varvben_blank_window_wraps_across_frame_zero() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_vbstrt(300);
+        agnus.write_vbstop(20);
+        agnus.write_beamcon0(BEAMCON0_VARVBEN);
+        assert!(agnus.vblank_window_active(301));
+        assert!(agnus.vblank_window_active(10));
+        assert!(!agnus.vblank_window_active(200));
     }
 }

@@ -684,6 +684,10 @@ impl Amiga {
             let hstart = (((diwhigh >> 5) & 0x0001) << 8) | (self.agnus.diwstrt & 0x00FF);
             let hstop = (((diwhigh >> 13) & 0x0001) << 8) | (self.agnus.diwstop & 0x00FF);
 
+            if self.agnus.vblank_window_active(vpos) {
+                return None;
+            }
+
             if vstart == vstop {
                 return None;
             }
@@ -907,6 +911,8 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),
                     0x1C0 if self.chipset == AmigaChipset::Ecs => self.agnus.htotal(),
                     0x1C8 if self.chipset == AmigaChipset::Ecs => self.agnus.vtotal(),
+                    0x1CC if self.chipset == AmigaChipset::Ecs => self.agnus.vbstrt(),
+                    0x1CE if self.chipset == AmigaChipset::Ecs => self.agnus.vbstop(),
                     0x1DC if self.chipset == AmigaChipset::Ecs => self.agnus.beamcon0(),
                     0x1E4 if self.chipset == AmigaChipset::Ecs => self.agnus.diwhigh(),
                     0x07C => 0xFFFF,
@@ -1055,6 +1061,8 @@ fn write_custom_register(
         // ECS display/beam extensions (latch-only for now, gated off on OCS)
         0x1C0 if chipset == AmigaChipset::Ecs => agnus.write_htotal(val),
         0x1C8 if chipset == AmigaChipset::Ecs => agnus.write_vtotal(val),
+        0x1CC if chipset == AmigaChipset::Ecs => agnus.write_vbstrt(val),
+        0x1CE if chipset == AmigaChipset::Ecs => agnus.write_vbstop(val),
         0x1DC if chipset == AmigaChipset::Ecs => agnus.write_beamcon0(val),
         0x1E4 if chipset == AmigaChipset::Ecs => agnus.write_diwhigh(val),
 
@@ -1663,11 +1671,15 @@ mod tests {
         let mut amiga = Amiga::new(dummy_kickstart());
         amiga.write_custom_reg(0x1C0, 0x0033);
         amiga.write_custom_reg(0x1C8, 0x0123);
+        amiga.write_custom_reg(0x1CC, 0x0044);
+        amiga.write_custom_reg(0x1CE, 0x0055);
         amiga.write_custom_reg(0x1DC, 0x4567);
         amiga.write_custom_reg(0x1E4, 0x89AB);
 
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C8), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CC), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CE), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DC), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E4), 0);
     }
@@ -1681,11 +1693,15 @@ mod tests {
         });
         amiga.write_custom_reg(0x1C0, 0x0033);
         amiga.write_custom_reg(0x1C8, 0x0123);
+        amiga.write_custom_reg(0x1CC, 0x0044);
+        amiga.write_custom_reg(0x1CE, 0x0055);
         amiga.write_custom_reg(0x1DC, 0x4567);
         amiga.write_custom_reg(0x1E4, 0x89AB);
 
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0x0033);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C8), 0x0123);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CC), 0x0044);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CE), 0x0055);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DC), 0x4567);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E4), 0x89AB);
     }
@@ -1716,5 +1732,27 @@ mod tests {
         }
         assert_eq!(amiga.agnus.hpos, 0);
         assert_eq!(amiga.agnus.vpos, 0);
+    }
+
+    #[test]
+    fn ecs_varvben_blanks_beam_to_fb_inside_programmed_vertical_window() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x08E, 0x2C00); // VSTART=$2C, HSTART=$00
+        amiga.write_custom_reg(0x090, 0x64FF); // VSTOP =$64, HSTOP =$FF
+        amiga.agnus.ddfstrt = 0;
+
+        assert!(amiga.beam_to_fb(60, 8).is_some());
+
+        amiga.write_custom_reg(0x1CC, 55);
+        amiga.write_custom_reg(0x1CE, 65);
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARVBEN);
+
+        assert_eq!(amiga.beam_to_fb(60, 8), None);
+        assert!(amiga.beam_to_fb(70, 8).is_some());
     }
 }
