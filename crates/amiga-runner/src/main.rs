@@ -32,6 +32,7 @@ const SCALE: u32 = 3;
 const FRAME_DURATION: Duration = Duration::from_millis(20); // PAL ~50 Hz
 const AUDIO_CHANNELS: usize = 2;
 const AUDIO_QUEUE_SECONDS: usize = 2;
+const PAL_CRYSTAL_HZ: u64 = 28_375_160;
 
 // Amiga raw keycodes (US keyboard positional defaults)
 const AK_SPACE: u8 = 0x40;
@@ -64,6 +65,7 @@ struct CliArgs {
     adf_path: Option<PathBuf>,
     headless: bool,
     frames: u32,
+    bench_insert_screen: bool,
     screenshot_path: Option<PathBuf>,
     audio_path: Option<PathBuf>,
     mute: bool,
@@ -77,6 +79,7 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --adf <file>   Optional ADF disk image to insert into DF0:");
     eprintln!("  --headless     Run without a window");
     eprintln!("  --frames <n>   Frames to run in headless mode [default: 300]");
+    eprintln!("  --bench-insert-screen  Stop on first KS1.3 insert-screen match and print speed");
     eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
     eprintln!("  --audio <file.wav>  Save a WAV audio dump (headless)");
     eprintln!("  --mute         Disable host audio playback (windowed)");
@@ -90,6 +93,7 @@ fn parse_args() -> CliArgs {
     let mut adf_path: Option<PathBuf> = None;
     let mut headless = false;
     let mut frames = 300;
+    let mut bench_insert_screen = false;
     let mut screenshot_path: Option<PathBuf> = None;
     let mut audio_path: Option<PathBuf> = None;
     let mut mute = false;
@@ -113,6 +117,9 @@ fn parse_args() -> CliArgs {
                 if let Some(value) = args.get(i) {
                     frames = value.parse().unwrap_or(300);
                 }
+            }
+            "--bench-insert-screen" => {
+                bench_insert_screen = true;
             }
             "--screenshot" => {
                 i += 1;
@@ -141,7 +148,7 @@ fn parse_args() -> CliArgs {
             print_usage_and_exit(1);
         });
 
-    if screenshot_path.is_some() || audio_path.is_some() {
+    if screenshot_path.is_some() || audio_path.is_some() || bench_insert_screen {
         headless = true;
     }
 
@@ -150,6 +157,7 @@ fn parse_args() -> CliArgs {
         adf_path,
         headless,
         frames,
+        bench_insert_screen,
         screenshot_path,
         audio_path,
         mute,
@@ -243,6 +251,63 @@ fn save_audio_wav(samples: &[f32], path: &PathBuf) -> Result<(), String> {
     writer
         .finalize()
         .map_err(|e| format!("failed to finalize WAV {}: {e}", path.display()))
+}
+
+fn matches_ks13_insert_screen(framebuffer: &[u32]) -> bool {
+    const WHITE: u32 = 0xFFFF_FFFF;
+    const BLACK: u32 = 0xFF00_0000;
+    const FLOPPY_BLUE: u32 = 0xFF77_77CC;
+    const METAL_GRAY: u32 = 0xFFBB_BBBB;
+
+    let px = |x: u32, y: u32| -> u32 { framebuffer[(y * FB_WIDTH + x) as usize] };
+    if px(0, 0) != WHITE
+        || px(103, 50) != BLACK
+        || px(106, 52) != FLOPPY_BLUE
+        || px(131, 52) != METAL_GRAY
+    {
+        return false;
+    }
+
+    let mut white_count = 0u32;
+    let mut black_count = 0u32;
+    let mut blue_count = 0u32;
+    let mut gray_count = 0u32;
+    let mut non_white_pixels = 0u32;
+    let mut min_x = FB_WIDTH;
+    let mut min_y = FB_HEIGHT;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+
+    for y in 0..FB_HEIGHT {
+        for x in 0..FB_WIDTH {
+            let p = px(x, y);
+            match p {
+                WHITE => white_count += 1,
+                BLACK => black_count += 1,
+                FLOPPY_BLUE => blue_count += 1,
+                METAL_GRAY => gray_count += 1,
+                _ => return false,
+            }
+
+            if p != WHITE {
+                non_white_pixels += 1;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+
+    (70_000..=78_000).contains(&white_count)
+        && (2_000..=4_000).contains(&black_count)
+        && (3_000..=5_000).contains(&blue_count)
+        && (700..=1_300).contains(&gray_count)
+        && (6_000..=9_000).contains(&non_white_pixels)
+        && (75..=90).contains(&min_x)
+        && (45..=60).contains(&min_y)
+        && (200..=215).contains(&max_x)
+        && (170..=185).contains(&max_y)
 }
 
 struct AudioOutput {
@@ -407,12 +472,21 @@ fn run_headless(cli: &CliArgs) {
     } else {
         None
     };
+    let bench_start = cli.bench_insert_screen.then(Instant::now);
+    let mut bench_hit_frame: Option<u32> = None;
+    let mut frames_executed = 0u32;
 
-    for _ in 0..cli.frames {
+    for frame_idx in 0..cli.frames {
         amiga.run_frame();
+        frames_executed = frame_idx + 1;
         let audio = amiga.take_audio_buffer();
         if let Some(buffer) = all_audio.as_mut() {
             buffer.extend_from_slice(&audio);
+        }
+
+        if cli.bench_insert_screen && matches_ks13_insert_screen(amiga.framebuffer()) {
+            bench_hit_frame = Some(frames_executed);
+            break;
         }
     }
 
@@ -431,6 +505,42 @@ fn run_headless(cli: &CliArgs) {
             process::exit(1);
         }
         eprintln!("Audio saved to {}", path.display());
+    }
+
+    if cli.bench_insert_screen {
+        let wall_seconds = bench_start
+            .map(|start| start.elapsed().as_secs_f64())
+            .unwrap_or_default();
+        let measured_frames = bench_hit_frame.unwrap_or(frames_executed);
+        let emu_seconds = (f64::from(measured_frames) * machine_amiga::PAL_FRAME_TICKS as f64)
+            / PAL_CRYSTAL_HZ as f64;
+        let ratio = if wall_seconds > 0.0 {
+            emu_seconds / wall_seconds
+        } else {
+            0.0
+        };
+
+        if bench_hit_frame.is_some() {
+            eprintln!("KS1.3 insert-screen detected.");
+        } else {
+            eprintln!(
+                "KS1.3 insert-screen not detected within {} frames.",
+                cli.frames
+            );
+        }
+        eprintln!("  Frames run: {measured_frames}");
+        eprintln!("  Emulated time: {emu_seconds:.3}s");
+        eprintln!("  Wall time: {wall_seconds:.3}s");
+        eprintln!("  Realtime ratio: {ratio:.3}x");
+        if ratio >= 1.0 {
+            eprintln!("  Speed: {:.2}x faster than real time", ratio);
+        } else if ratio > 0.0 {
+            eprintln!("  Speed: {:.2}x slower than real time", 1.0 / ratio);
+        }
+
+        if bench_hit_frame.is_none() {
+            process::exit(2);
+        }
     }
 }
 
