@@ -135,6 +135,10 @@ impl DeniseOcs {
             let odd = pair + 1;
             let odd_attached = odd < 8 && (self.spr_ctl[odd] & 0x0080) != 0;
             if sprite == pair && odd_attached {
+                // Intentionally combine independently-evaluated odd/even sprite
+                // codes at this beam position. This matches the HRM behavior
+                // where attached pairs can move independently and, when
+                // misaligned, pixels "revert" to shifted color subsets.
                 let even_code = self.sprite_code_at(pair, beam_x, beam_y).unwrap_or(0);
                 let odd_code = self.sprite_code_at(odd, beam_x, beam_y).unwrap_or(0);
                 let code = ((odd_code as usize) << 2) | (even_code as usize);
@@ -507,6 +511,62 @@ mod tests {
         assert_eq!(
             denise.framebuffer[(14 * FB_WIDTH + 32) as usize],
             DeniseOcs::rgb12_to_argb32(0x0F0)
+        );
+    }
+
+    #[test]
+    fn misaligned_attached_pair_reverts_to_shifted_color_subsets() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(17, 0xF00); // even-only attached fallback color (code 0001)
+        denise.set_palette(20, 0x0F0); // odd-only attached fallback color (code 0100)
+
+        let (pos0, ctl0) = encode_sprite_pos_ctl(40, 10, 11);
+        denise.spr_pos[0] = pos0;
+        denise.spr_ctl[0] = ctl0;
+        denise.spr_data[0] = 0x8000; // pixel at x=40 only
+        denise.spr_datb[0] = 0x0000;
+
+        let (pos1, ctl1) = encode_sprite_pos_ctl(41, 10, 11); // shifted right by 1 pixel
+        denise.spr_pos[1] = pos1;
+        denise.spr_ctl[1] = ctl1 | 0x0080; // ATTACH on odd sprite
+        denise.spr_data[1] = 0x8000; // odd-only pixel at x=41
+        denise.spr_datb[1] = 0x0000;
+
+        denise.output_pixel(40, 10);
+        denise.output_pixel(41, 10);
+
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 40) as usize],
+            DeniseOcs::rgb12_to_argb32(0xF00),
+            "even-only pixel in misaligned attached pair should use COLOR17..19 subset"
+        );
+        assert_eq!(
+            denise.framebuffer[(10 * FB_WIDTH + 41) as usize],
+            DeniseOcs::rgb12_to_argb32(0x0F0),
+            "odd-only pixel in misaligned attached pair should use shifted COLOR20/24/28 subset"
+        );
+    }
+
+    #[test]
+    fn attach_bit_on_even_sprite_is_ignored() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(17, 0xF00); // would appear if sprite 2 were incorrectly treated as attached
+        denise.set_palette(21, 0x00F); // normal sprite-2 color code 1 (group 1 base)
+
+        let (pos, ctl) = encode_sprite_pos_ctl(44, 12, 13);
+        denise.spr_pos[2] = pos;
+        denise.spr_ctl[2] = ctl | 0x0080; // ATTACH bit on even sprite must be ignored
+        denise.spr_data[2] = 0x8000;
+        denise.spr_datb[2] = 0x0000;
+
+        denise.output_pixel(44, 12);
+
+        assert_eq!(
+            denise.framebuffer[(12 * FB_WIDTH + 44) as usize],
+            DeniseOcs::rgb12_to_argb32(0x00F),
+            "ATTACH is only valid on odd sprites; even sprite 2 should render as normal group-1 sprite"
         );
     }
 

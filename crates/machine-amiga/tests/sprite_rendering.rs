@@ -204,6 +204,52 @@ fn attached_sprite_pair_renders_4bit_color_at_machine_level() {
     );
 }
 
+#[test]
+fn misaligned_attached_sprite_pair_uses_shifted_colors_at_machine_level() {
+    let mut amiga = make_test_amiga();
+    let spr0_addr = 0x0000_3000u32;
+    let spr1_addr = 0x0000_3040u32;
+    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let (pos0, ctl0) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+    let (pos1, ctl1) = encode_sprite_pos_ctl(beam_x + 1, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+
+    // Sprite 0 contributes a pixel at the left pixel of the target CCK.
+    write_word(&mut amiga, spr0_addr, pos0);
+    write_word(&mut amiga, spr0_addr + 2, ctl0);
+    write_word(&mut amiga, spr0_addr + 4, 0x8000);
+    write_word(&mut amiga, spr0_addr + 6, 0x0000);
+
+    // Sprite 1 is attached but shifted right by one pixel, so the same CCK
+    // shows an even-only pixel followed by an odd-only pixel.
+    write_word(&mut amiga, spr1_addr, pos1);
+    write_word(&mut amiga, spr1_addr + 2, ctl1 | 0x0080); // ATTACH on odd sprite
+    write_word(&mut amiga, spr1_addr + 4, 0x8000);
+    write_word(&mut amiga, spr1_addr + 6, 0x0000);
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr & 0xFFFF) as u16);
+    amiga.write_custom_reg(REG_SPR1PTH, (spr1_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR1PTL, (spr1_addr & 0xFFFF) as u16);
+    amiga.denise.set_palette(17, 0xF00); // even-only attached fallback
+    amiga.denise.set_palette(20, 0x0F0); // odd-only attached fallback
+
+    setup_sprite_render_baseline(&mut amiga);
+    run_to_render_cck(&mut amiga);
+    tick_ccks(&mut amiga, 1);
+
+    let (fb_x, fb_y) = sprite_target_fb_coords();
+    assert_eq!(
+        amiga.framebuffer()[fb_y * 320 + fb_x],
+        rgb12_to_argb32(0xF00),
+        "misaligned attached pair even-only pixel should use COLOR17..19 subset"
+    );
+    assert_eq!(
+        amiga.framebuffer()[fb_y * 320 + fb_x + 1],
+        rgb12_to_argb32(0x0F0),
+        "misaligned attached pair odd-only pixel should use shifted COLOR20/24/28 subset"
+    );
+}
+
 fn render_sprite_vs_playfield_pixel(pf1_priority_pos: u16) -> u32 {
     let mut amiga = make_test_amiga();
     let spr0_addr = 0x0000_3000u32;
