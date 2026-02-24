@@ -9,10 +9,13 @@ const REG_DSKPTH: u16 = 0x020;
 const REG_DSKPTL: u16 = 0x022;
 const REG_DSKLEN: u16 = 0x024;
 const REG_DMACON: u16 = 0x096;
+const REG_ADKCON: u16 = 0x09E;
 const REG_DSKSYNC: u16 = 0x07E;
 
 const DMACON_DSKEN: u16 = 0x0010;
 const DMACON_DMAEN: u16 = 0x0200;
+const ADKCON_SETCLR: u16 = 0x8000;
+const ADKCON_WORDSYNC: u16 = 0x0400;
 const INTREQ_DSKBLK: u16 = 0x0002;
 const INTREQ_DSKSYN: u16 = 0x1000;
 
@@ -373,4 +376,69 @@ fn disk_dma_read_updates_dskbytr_flags_and_data() {
     }
 
     assert_eq!(transferred_words, 3);
+}
+
+#[test]
+fn disk_dma_read_wordsync_starts_after_sync_and_resyncs_on_second_sync_word() {
+    let mut amiga = make_test_amiga();
+    amiga.insert_disk(make_test_adf());
+    let expected_mfm = amiga
+        .floppy
+        .encode_mfm_track()
+        .expect("inserted disk should encode to MFM track data");
+
+    let dst = 0x0000_3400u32;
+    for i in 0..16u32 {
+        amiga.memory.write_byte(dst + i, 0xEE);
+    }
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0;
+    write_dsk_ptr(&mut amiga, dst);
+    amiga.write_custom_reg(REG_DSKSYNC, 0x4489);
+    amiga.write_custom_reg(REG_ADKCON, ADKCON_SETCLR | ADKCON_WORDSYNC);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
+    amiga.paula.intreq &= !INTREQ_DSKSYN;
+
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 2);
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 2);
+
+    let mut first_ptr_advance_cck: Option<u32> = None;
+    let mut dsksyn_seen_cck: Option<u32> = None;
+    let mut elapsed_ccks = 0u32;
+    while first_ptr_advance_cck.is_none() && elapsed_ccks < 5_000 {
+        let ptr_before = amiga.agnus.dsk_pt;
+        tick_ccks(&mut amiga, 1);
+        elapsed_ccks += 1;
+        if dsksyn_seen_cck.is_none() && (amiga.paula.intreq & INTREQ_DSKSYN) != 0 {
+            dsksyn_seen_cck = Some(elapsed_ccks);
+            assert_eq!(
+                amiga.agnus.dsk_pt, dst,
+                "WORDSYNC should prevent DMA transfer at the first sync match"
+            );
+        }
+        let ptr_after = amiga.agnus.dsk_pt;
+        if ptr_after.wrapping_sub(ptr_before) == 2 {
+            first_ptr_advance_cck = Some(elapsed_ccks);
+        }
+    }
+
+    let dsksyn_seen_cck = dsksyn_seen_cck.expect("expected DSKSYN before first DMA transfer");
+    let first_ptr_advance_cck = first_ptr_advance_cck.expect("expected DMA transfer after sync");
+    assert!(
+        first_ptr_advance_cck > dsksyn_seen_cck,
+        "DMA transfer must begin after (not on) the matched sync word"
+    );
+
+    let first_word = ((amiga.memory.read_chip_byte(dst) as u16) << 8)
+        | (amiga.memory.read_chip_byte(dst + 1) as u16);
+    let expected_after_two_sync_words = ((expected_mfm[8] as u16) << 8) | (expected_mfm[9] as u16);
+    assert_eq!(
+        first_word, expected_after_two_sync_words,
+        "WORDSYNC + resync should skip the two leading sync words and start DMA on the following word"
+    );
+    assert_ne!(
+        first_word, 0x4489,
+        "sync word must not be DMA-transferred under WORDSYNC"
+    );
 }

@@ -1020,4 +1020,42 @@ mod tests {
             "combined mode should use both transitions and return to period on the next 010->011"
         );
     }
+
+    #[test]
+    fn dskbytr_returns_high_then_low_byte_for_received_disk_word() {
+        let mut paula = Paula8364::new();
+        paula.dsklen = 0x8002; // DMA enable in DSKLEN (read mode)
+        let dmacon = 0x0200 | 0x0010; // DMAEN + DSKEN
+        paula.dsksync = 0x4489;
+
+        assert!(paula.note_disk_read_word(0x4489));
+
+        let first = paula.read_dskbytr(dmacon);
+        assert_ne!(first & 0x8000, 0, "DSKBYT should be set for first byte");
+        assert_ne!(first & 0x4000, 0, "DMAON should reflect active disk DMA");
+        assert_eq!(first & 0x2000, 0, "DISKWRITE should be clear in read mode");
+        assert_ne!(first & 0x1000, 0, "WORDEQUAL should be set on sync match");
+        assert_eq!(first & 0x00FF, 0x0044, "first byte should be high byte");
+
+        let second = paula.read_dskbytr(dmacon);
+        assert_ne!(second & 0x8000, 0, "DSKBYT should be set for second byte");
+        assert_eq!(second & 0x00FF, 0x0089, "second byte should be low byte");
+        assert_ne!(
+            second & 0x1000,
+            0,
+            "WORDEQUAL should persist while bytes of the matched word are pending"
+        );
+
+        let third = paula.read_dskbytr(dmacon);
+        assert_eq!(
+            third & 0x8000,
+            0,
+            "DSKBYT should clear after both bytes are consumed"
+        );
+        assert_eq!(
+            third & 0x1000,
+            0,
+            "WORDEQUAL should clear after the matched word is consumed"
+        );
+    }
 }

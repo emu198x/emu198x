@@ -57,6 +57,8 @@ struct DiskDmaRuntime {
     byte_index: usize,
     words_remaining: u32,
     is_write: bool,
+    wordsync_enabled: bool,
+    wordsync_waiting: bool,
 }
 
 pub struct Amiga {
@@ -451,11 +453,14 @@ impl Amiga {
         } else {
             self.floppy.encode_mfm_track().unwrap_or_default()
         };
+        let wordsync_enabled = !is_write && (self.paula.adkcon & 0x0400 != 0);
         self.disk_dma_runtime = Some(DiskDmaRuntime {
             data,
             byte_index: 0,
             words_remaining: word_count,
             is_write,
+            wordsync_enabled,
+            wordsync_waiting: wordsync_enabled,
         });
     }
 
@@ -470,37 +475,63 @@ impl Amiga {
             return;
         }
 
+        let mut dma_word_completed = false;
         if !runtime.is_write {
-            let mut addr = self.agnus.dsk_pt;
-            let mut transferred_word: Option<u16> = None;
-            if runtime.byte_index < runtime.data.len() {
+            let mut stream_word: Option<(u8, u8, u16)> = None;
+            if runtime.byte_index + 1 < runtime.data.len() {
                 let hi = runtime.data[runtime.byte_index];
-                self.memory.write_byte(addr, hi);
-                runtime.byte_index += 1;
-                addr = addr.wrapping_add(1);
-                if runtime.byte_index < runtime.data.len() {
-                    let lo = runtime.data[runtime.byte_index];
-                    self.memory.write_byte(addr, lo);
-                    runtime.byte_index += 1;
-                    addr = addr.wrapping_add(1);
-                    transferred_word = Some((u16::from(hi) << 8) | u16::from(lo));
-                }
+                let lo = runtime.data[runtime.byte_index + 1];
+                runtime.byte_index += 2;
+                let word = (u16::from(hi) << 8) | u16::from(lo);
+                stream_word = Some((hi, lo, word));
             }
-            if let Some(word) = transferred_word {
+
+            if let Some((hi, lo, word)) = stream_word {
                 // Simplified disk path: surface Paula disk read state from the
                 // DMA stream even though the full serial disk decoder is not modeled.
-                if self.paula.note_disk_read_word(word) {
+                let matched_sync = self.paula.note_disk_read_word(word);
+                if matched_sync {
                     self.paula.request_interrupt(12); // DSKSYN
                 }
+
+                let suppress_dma_write = if runtime.wordsync_enabled {
+                    if runtime.wordsync_waiting {
+                        if matched_sync {
+                            // HRM: DMA starts with the following word after a DSKSYNC match.
+                            runtime.wordsync_waiting = false;
+                        }
+                        true
+                    } else {
+                        // HRM: during read DMA, resync every time the match word is found.
+                        matched_sync
+                    }
+                } else {
+                    false
+                };
+
+                if !suppress_dma_write {
+                    let mut addr = self.agnus.dsk_pt;
+                    self.memory.write_byte(addr, hi);
+                    addr = addr.wrapping_add(1);
+                    self.memory.write_byte(addr, lo);
+                    addr = addr.wrapping_add(1);
+                    self.agnus.dsk_pt = addr;
+                    dma_word_completed = true;
+                }
             }
-            self.agnus.dsk_pt = addr;
+        } else {
+            // Write-side disk DMA is still a placeholder path; preserve the
+            // previous completion behavior until the write data path exists.
+            dma_word_completed = true;
         }
 
-        runtime.words_remaining = runtime.words_remaining.saturating_sub(1);
-        if runtime.words_remaining == 0 {
-            self.disk_dma_runtime = None;
-            // DSKBLK interrupt on transfer completion.
-            self.paula.request_interrupt(1);
+        if dma_word_completed {
+            runtime.words_remaining = runtime.words_remaining.saturating_sub(1);
+            if runtime.words_remaining == 0 {
+                self.disk_dma_runtime = None;
+                // DSKBLK interrupt on transfer completion.
+                self.paula.request_interrupt(1);
+            }
         }
     }
 
