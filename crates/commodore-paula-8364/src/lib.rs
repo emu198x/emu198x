@@ -290,6 +290,10 @@ pub struct Paula8364 {
     pub dsklen: u16,
     pub dsklen_prev: u16,
     pub dsksync: u16,
+    pub dskdatr: u16,
+    dskbytr_data: u8,
+    dskbytr_valid: bool,
+    dskbytr_wordequal: bool,
     pub disk_dma_pending: bool,
     audio: [AudioChannel; 4],
 }
@@ -303,6 +307,10 @@ impl Paula8364 {
             dsklen: 0,
             dsklen_prev: 0,
             dsksync: 0,
+            dskdatr: 0,
+            dskbytr_data: 0,
+            dskbytr_valid: false,
+            dskbytr_wordequal: false,
             disk_dma_pending: false,
             audio: [AudioChannel::default(); 4],
         }
@@ -578,6 +586,40 @@ impl Paula8364 {
         if val & 0x8000 != 0 && prev & 0x8000 != 0 {
             self.disk_dma_pending = true;
         }
+    }
+
+    pub fn note_disk_read_word(&mut self, word: u16) -> bool {
+        self.dskdatr = word;
+        self.dskbytr_data = word as u8;
+        self.dskbytr_valid = true;
+        let wordequal = word == self.dsksync;
+        self.dskbytr_wordequal = wordequal;
+        wordequal
+    }
+
+    pub fn read_dskbytr(&mut self, dmacon: u16) -> u16 {
+        // HRM DSKBYTR:
+        //   bit15 DSKBYT, bit14 DMAON, bit13 DISKWRITE, bit12 WORDEQUAL, bits7..0 DATA.
+        let dmaon = (self.dsklen & 0x8000 != 0) && (dmacon & 0x0210 == 0x0210);
+        let diskwrite = self.dsklen & 0x4000 != 0;
+
+        let mut value = u16::from(self.dskbytr_data);
+        if self.dskbytr_valid {
+            value |= 1 << 15;
+        }
+        if dmaon {
+            value |= 1 << 14;
+        }
+        if diskwrite {
+            value |= 1 << 13;
+        }
+        if self.dskbytr_wordequal {
+            value |= 1 << 12;
+        }
+
+        // DSKBYT clears on DSKBYTR read; other status bits are independent.
+        self.dskbytr_valid = false;
+        value
     }
 
     pub fn compute_ipl(&self) -> u8 {

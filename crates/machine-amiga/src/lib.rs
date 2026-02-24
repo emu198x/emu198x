@@ -486,10 +486,12 @@ impl Amiga {
                     transferred_word = Some((u16::from(hi) << 8) | u16::from(lo));
                 }
             }
-            if transferred_word.is_some_and(|word| word == self.paula.dsksync) {
-                // Simplified disk path: surface DSKSYNC word matches on the DMA
-                // stream even though Paula serial/RBF state is not fully modeled.
-                self.paula.request_interrupt(12);
+            if let Some(word) = transferred_word {
+                // Simplified disk path: surface Paula disk read state from the
+                // DMA stream even though the full serial disk decoder is not modeled.
+                if self.paula.note_disk_read_word(word) {
+                    self.paula.request_interrupt(12); // DSKSYN
+                }
             }
             self.agnus.dsk_pt = addr;
         }
@@ -765,12 +767,13 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     }
                     0x004 => (self.agnus.vpos >> 8) & 1,
                     0x006 => ((self.agnus.vpos & 0xFF) << 8) | (self.agnus.hpos & 0xFF),
+                    0x008 => self.paula.dskdatr,
                     0x00A | 0x00C => 0,
                     0x00E => self.denise.read_clxdat(),
                     0x010 => self.paula.adkcon,
                     0x016 => 0xFF00,
                     0x018 => 0x39FF,
-                    0x01A => 0,
+                    0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x01C => self.paula.intena,
                     0x01E => self.paula.intreq,
                     0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),

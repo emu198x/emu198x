@@ -1,7 +1,10 @@
 use machine_amiga::format_adf::{Adf, ADF_SIZE_DD, SECTOR_SIZE};
 use machine_amiga::memory::ROM_BASE;
-use machine_amiga::{Amiga, TICKS_PER_CCK};
+use machine_amiga::{Amiga, AmigaBusWrapper, TICKS_PER_CCK};
+use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
+const CUSTOM_DSKDATR_ADDR: u32 = 0x00DFF008;
+const CUSTOM_DSKBYTR_ADDR: u32 = 0x00DFF01A;
 const REG_DSKPTH: u16 = 0x020;
 const REG_DSKPTL: u16 = 0x022;
 const REG_DSKLEN: u16 = 0x024;
@@ -46,6 +49,31 @@ fn tick_ccks(amiga: &mut Amiga, ccks: u32) {
 fn write_dsk_ptr(amiga: &mut Amiga, addr: u32) {
     amiga.write_custom_reg(REG_DSKPTH, (addr >> 16) as u16);
     amiga.write_custom_reg(REG_DSKPTL, (addr & 0xFFFF) as u16);
+}
+
+fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
+    let mut bus = AmigaBusWrapper {
+        agnus: &mut amiga.agnus,
+        memory: &mut amiga.memory,
+        denise: &mut amiga.denise,
+        copper: &mut amiga.copper,
+        cia_a: &mut amiga.cia_a,
+        cia_b: &mut amiga.cia_b,
+        paula: &mut amiga.paula,
+        floppy: &mut amiga.floppy,
+        keyboard: &mut amiga.keyboard,
+    };
+    match M68kBus::poll_cycle(
+        &mut bus,
+        addr,
+        FunctionCode::SupervisorData,
+        true,
+        true,
+        None,
+    ) {
+        BusStatus::Ready(v) => v,
+        other => panic!("expected ready custom register read, got {other:?}"),
+    }
 }
 
 fn make_test_adf() -> Adf {
@@ -224,4 +252,108 @@ fn disk_dma_read_raises_dsksyn_on_matching_stream_word() {
         0x4489,
         "test assumes the third DMA word is the first MFM sync word"
     );
+}
+
+#[test]
+fn disk_dma_read_updates_dskdatr_with_last_transferred_word() {
+    let mut amiga = make_test_amiga();
+    amiga.insert_disk(make_test_adf());
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0;
+    write_dsk_ptr(&mut amiga, 0x0000_2C00);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
+
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 3);
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 3);
+
+    let mut transferred_words = 0u32;
+    let mut last_word = 0u16;
+    let mut elapsed_ccks = 0u32;
+    while transferred_words < 3 && elapsed_ccks < 2_000 {
+        let ptr_before = amiga.agnus.dsk_pt;
+        tick_ccks(&mut amiga, 1);
+        elapsed_ccks += 1;
+        let ptr_after = amiga.agnus.dsk_pt;
+        if ptr_after.wrapping_sub(ptr_before) == 2 {
+            transferred_words += 1;
+            let word = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKDATR_ADDR);
+            last_word = word;
+            match transferred_words {
+                1 | 2 => assert_eq!(word, 0xAAAA, "gap words should read back via DSKDATR"),
+                3 => assert_eq!(word, 0x4489, "first sync word should read back via DSKDATR"),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    assert_eq!(transferred_words, 3);
+    assert_eq!(last_word, 0x4489);
+}
+
+#[test]
+fn disk_dma_read_updates_dskbytr_flags_and_data() {
+    let mut amiga = make_test_amiga();
+    amiga.insert_disk(make_test_adf());
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0;
+    write_dsk_ptr(&mut amiga, 0x0000_3000);
+    amiga.write_custom_reg(REG_DSKSYNC, 0x4489);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
+
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 3);
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 3);
+
+    let mut transferred_words = 0u32;
+    let mut elapsed_ccks = 0u32;
+    while transferred_words < 3 && elapsed_ccks < 2_000 {
+        let ptr_before = amiga.agnus.dsk_pt;
+        tick_ccks(&mut amiga, 1);
+        elapsed_ccks += 1;
+        let ptr_after = amiga.agnus.dsk_pt;
+        if ptr_after.wrapping_sub(ptr_before) == 2 {
+            transferred_words += 1;
+            let dskbytr = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
+            assert_ne!(
+                dskbytr & 0x8000,
+                0,
+                "DSKBYT should be set after a received byte/word"
+            );
+            assert_ne!(dskbytr & 0x4000, 0, "DMAON should reflect active disk DMA");
+            assert_eq!(
+                dskbytr & 0x2000,
+                0,
+                "DISKWRITE should be clear for read DMA"
+            );
+            match transferred_words {
+                1 | 2 => {
+                    assert_eq!(dskbytr & 0x00FF, 0x00AA, "gap low byte should be visible");
+                    assert_eq!(
+                        dskbytr & 0x1000,
+                        0,
+                        "WORDEQUAL should be clear on gap words"
+                    );
+                }
+                3 => {
+                    assert_eq!(dskbytr & 0x00FF, 0x0089, "sync low byte should be visible");
+                    assert_ne!(
+                        dskbytr & 0x1000,
+                        0,
+                        "WORDEQUAL should be set on DSKSYNC match"
+                    );
+                }
+                _ => unreachable!(),
+            }
+
+            let dskbytr_second_read = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
+            assert_eq!(
+                dskbytr_second_read & 0x8000,
+                0,
+                "DSKBYT must clear on DSKBYTR read"
+            );
+        }
+    }
+
+    assert_eq!(transferred_words, 3);
 }
