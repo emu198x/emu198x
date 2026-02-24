@@ -678,8 +678,7 @@ impl Amiga {
         let beam_x = hpos_cck.wrapping_mul(2);
         let fb_y = if self.chipset == AmigaChipset::Ecs {
             let diwhigh = self.agnus.diwhigh();
-            let vstart =
-                (((diwhigh & 0x0007) as u16) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
+            let vstart = (((diwhigh & 0x0007) as u16) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
             let vstop =
                 ((((diwhigh >> 8) & 0x0007) as u16) << 8) | ((self.agnus.diwstop >> 8) & 0x00FF);
             let hstart = (((diwhigh >> 5) & 0x0001) << 8) | (self.agnus.diwstrt & 0x00FF);
@@ -1050,6 +1049,8 @@ fn write_custom_register(
         0x02E => copper.danger = val & 0x02 != 0,
 
         // ECS display/beam extensions (latch-only for now, gated off on OCS)
+        0x1C0 if chipset == AmigaChipset::Ecs => agnus.write_htotal(val),
+        0x1C8 if chipset == AmigaChipset::Ecs => agnus.write_vtotal(val),
         0x1DC if chipset == AmigaChipset::Ecs => agnus.write_beamcon0(val),
         0x1E4 if chipset == AmigaChipset::Ecs => agnus.write_diwhigh(val),
 
@@ -1609,5 +1610,48 @@ mod tests {
         // Vertical clipping still applies
         assert_eq!(amiga.beam_to_fb(320, 8), None);
         assert_eq!(amiga.beam_to_fb(299, 8), None);
+    }
+
+    #[test]
+    fn ecs_latches_htotal_and_vtotal_writes() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x1C0, 0x0033);
+        amiga.write_custom_reg(0x1C8, 0x0123);
+
+        assert_eq!(amiga.agnus.htotal(), 0x0033);
+        assert_eq!(amiga.agnus.vtotal(), 0x0123);
+    }
+
+    #[test]
+    fn ecs_varbeamen_applies_programmed_beam_wrap_limits() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x1C0, 3); // HTOTAL highest hpos count
+        amiga.write_custom_reg(0x1C8, 1); // VTOTAL highest line number
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARBEAMEN);
+
+        for expected_h in [1u16, 2, 3] {
+            amiga.agnus.tick_cck();
+            assert_eq!(amiga.agnus.hpos, expected_h);
+            assert_eq!(amiga.agnus.vpos, 0);
+        }
+        amiga.agnus.tick_cck();
+        assert_eq!(amiga.agnus.hpos, 0);
+        assert_eq!(amiga.agnus.vpos, 1);
+
+        for _ in 0..4 {
+            amiga.agnus.tick_cck();
+        }
+        assert_eq!(amiga.agnus.hpos, 0);
+        assert_eq!(amiga.agnus.vpos, 0);
     }
 }

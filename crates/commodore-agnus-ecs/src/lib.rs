@@ -12,10 +12,18 @@ pub use commodore_agnus_ocs::{
     PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
 };
 
+/// `BEAMCON0` bit enabling programmable beam counter comparator limits.
+///
+/// This mask is derived from the HRM `BEAMCON0` bit ordering (HARDDIS..HSYTRUE)
+/// where `VARBEAMEN` appears after `VARHSYEN`.
+pub const BEAMCON0_VARBEAMEN: u16 = 0x0100;
+
 /// Thin ECS wrapper that currently reuses the OCS Agnus implementation.
 pub struct AgnusEcs {
     inner: InnerAgnusOcs,
     beamcon0: u16,
+    htotal: u16,
+    vtotal: u16,
     diwhigh: u16,
 }
 
@@ -26,6 +34,8 @@ impl AgnusEcs {
         Self {
             inner: InnerAgnusOcs::new(),
             beamcon0: 0,
+            htotal: 0,
+            vtotal: 0,
             diwhigh: 0,
         }
     }
@@ -38,6 +48,8 @@ impl AgnusEcs {
         Self {
             inner,
             beamcon0: 0,
+            htotal: 0,
+            vtotal: 0,
             diwhigh: 0,
         }
     }
@@ -60,6 +72,28 @@ impl AgnusEcs {
         self.inner
     }
 
+    /// Tick one CCK, applying ECS programmable beam wrap limits when
+    /// `BEAMCON0.VARBEAMEN` is enabled.
+    ///
+    /// This is currently a coarse compatibility model in the emulator's
+    /// existing beam units (CCKs and raster lines), not a full ECS sync/blank
+    /// generator implementation.
+    pub fn tick_cck(&mut self) {
+        if !self.varbeamen_enabled() {
+            self.inner.tick_cck();
+            return;
+        }
+
+        self.inner.hpos = self.inner.hpos.wrapping_add(1);
+        if self.inner.hpos > self.htotal_highest_count() {
+            self.inner.hpos = 0;
+            self.inner.vpos = self.inner.vpos.wrapping_add(1);
+            if self.inner.vpos > self.vtotal_highest_line() {
+                self.inner.vpos = 0;
+            }
+        }
+    }
+
     /// ECS `BEAMCON0` latch (register semantics are not fully modeled yet).
     #[must_use]
     pub const fn beamcon0(&self) -> u16 {
@@ -71,6 +105,24 @@ impl AgnusEcs {
         self.beamcon0 = val;
     }
 
+    #[must_use]
+    pub const fn htotal(&self) -> u16 {
+        self.htotal
+    }
+
+    pub fn write_htotal(&mut self, val: u16) {
+        self.htotal = val;
+    }
+
+    #[must_use]
+    pub const fn vtotal(&self) -> u16 {
+        self.vtotal
+    }
+
+    pub fn write_vtotal(&mut self, val: u16) {
+        self.vtotal = val;
+    }
+
     /// ECS `DIWHIGH` latch (used by ECS display window extensions).
     #[must_use]
     pub const fn diwhigh(&self) -> u16 {
@@ -80,6 +132,29 @@ impl AgnusEcs {
     /// Store ECS `DIWHIGH` for later extended DIW timing/composition work.
     pub fn write_diwhigh(&mut self, val: u16) {
         self.diwhigh = val;
+    }
+
+    #[must_use]
+    pub const fn varbeamen_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_VARBEAMEN) != 0
+    }
+
+    fn htotal_highest_count(&self) -> u16 {
+        if self.htotal == 0 {
+            PAL_CCKS_PER_LINE - 1
+        } else {
+            // Coarse ECS model: treat the low 9 bits as the highest hpos count
+            // in the emulator's current CCK-based beam units.
+            self.htotal & 0x01FF
+        }
+    }
+
+    fn vtotal_highest_line(&self) -> u16 {
+        if self.vtotal == 0 {
+            PAL_LINES_PER_FRAME - 1
+        } else {
+            self.vtotal & 0x07FF
+        }
     }
 }
 
@@ -111,7 +186,7 @@ impl From<AgnusEcs> for InnerAgnusOcs {
 
 #[cfg(test)]
 mod tests {
-    use super::AgnusEcs;
+    use super::{AgnusEcs, BEAMCON0_VARBEAMEN};
 
     #[test]
     fn wrapper_uses_ocs_baseline_state_for_now() {
@@ -129,14 +204,45 @@ mod tests {
     fn ecs_register_latches_are_independent_of_ocs_core_state() {
         let mut agnus = AgnusEcs::new();
         assert_eq!(agnus.beamcon0(), 0);
+        assert_eq!(agnus.htotal(), 0);
+        assert_eq!(agnus.vtotal(), 0);
         assert_eq!(agnus.diwhigh(), 0);
 
         agnus.write_beamcon0(0x0020);
+        agnus.write_htotal(0x0033);
+        agnus.write_vtotal(0x0123);
         agnus.write_diwhigh(0xA5A5);
 
         assert_eq!(agnus.beamcon0(), 0x0020);
+        assert_eq!(agnus.htotal(), 0x0033);
+        assert_eq!(agnus.vtotal(), 0x0123);
         assert_eq!(agnus.diwhigh(), 0xA5A5);
         assert_eq!(agnus.diwstrt, 0);
         assert_eq!(agnus.diwstop, 0);
+    }
+
+    #[test]
+    fn varbeamen_uses_programmed_htotal_and_vtotal_for_wrap() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(3);
+        agnus.write_vtotal(1);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+
+        // hpos counts 0..3 then wraps and advances vpos.
+        for expected_h in [1u16, 2, 3] {
+            agnus.tick_cck();
+            assert_eq!(agnus.hpos, expected_h);
+            assert_eq!(agnus.vpos, 0);
+        }
+        agnus.tick_cck();
+        assert_eq!(agnus.hpos, 0);
+        assert_eq!(agnus.vpos, 1);
+
+        // One more 4-CCK line wraps vpos back to 0 because VTOTAL=1.
+        for _ in 0..4 {
+            agnus.tick_cck();
+        }
+        assert_eq!(agnus.hpos, 0);
+        assert_eq!(agnus.vpos, 0);
     }
 }
