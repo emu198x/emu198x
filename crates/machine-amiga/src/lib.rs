@@ -64,6 +64,16 @@ struct DiskDmaRuntime {
     wordsync_waiting: bool,
 }
 
+/// Coarse ECS sync-window state in the emulator's current beam units.
+///
+/// This is intended for debug/test visibility while fuller ECS sync generation
+/// behavior is still being introduced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BeamSyncState {
+    pub hsync: bool,
+    pub vsync: bool,
+}
+
 pub struct Amiga {
     pub master_clock: u64,
     pub chipset: AmigaChipset,
@@ -743,6 +753,24 @@ impl Amiga {
             return None;
         }
         Some((fb_x, u32::from(fb_y)))
+    }
+
+    /// Report coarse ECS sync-window state at a specific beam position.
+    ///
+    /// On OCS, or before ECS sync-window behavior is enabled, both fields are
+    /// `false`.
+    #[must_use]
+    pub fn beam_sync_state_at(&self, vpos: u16, hpos_cck: u16) -> BeamSyncState {
+        if self.chipset != AmigaChipset::Ecs {
+            return BeamSyncState {
+                hsync: false,
+                vsync: false,
+            };
+        }
+        BeamSyncState {
+            hsync: self.agnus.hsync_window_active(hpos_cck),
+            vsync: self.agnus.vsync_window_active(vpos),
+        }
     }
 }
 
@@ -1567,7 +1595,7 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 
 #[cfg(test)]
 mod tests {
-    use super::{Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel};
+    use super::{Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, BeamSyncState};
     use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
     fn dummy_kickstart() -> Vec<u8> {
@@ -1815,5 +1843,54 @@ mod tests {
 
         assert_eq!(amiga.beam_to_fb(60, 10), None);
         assert!(amiga.beam_to_fb(60, 20).is_some());
+    }
+
+    #[test]
+    fn ecs_beam_sync_state_reports_programmed_sync_windows() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        // Before enabling ECS variable sync windows, state is inactive.
+        assert_eq!(
+            amiga.beam_sync_state_at(105, 35),
+            BeamSyncState {
+                hsync: false,
+                vsync: false
+            }
+        );
+
+        amiga.write_custom_reg(0x1C2, 40); // HSSTOP
+        amiga.write_custom_reg(0x1CA, 110); // VSSTOP
+        amiga.write_custom_reg(0x1DE, 30); // HSSTRT
+        amiga.write_custom_reg(0x1E0, 100); // VSSTRT
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_VARHSYEN | commodore_agnus_ecs::BEAMCON0_VARVSYEN,
+        );
+
+        assert_eq!(
+            amiga.beam_sync_state_at(105, 35),
+            BeamSyncState {
+                hsync: true,
+                vsync: true
+            }
+        );
+        assert_eq!(
+            amiga.beam_sync_state_at(105, 20),
+            BeamSyncState {
+                hsync: false,
+                vsync: true
+            }
+        );
+        assert_eq!(
+            amiga.beam_sync_state_at(95, 35),
+            BeamSyncState {
+                hsync: true,
+                vsync: false
+            }
+        );
     }
 }

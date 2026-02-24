@@ -308,6 +308,48 @@ impl AgnusEcs {
         }
     }
 
+    /// Coarse ECS horizontal sync window check used by `machine-amiga`
+    /// debug/test-visible sync-state reporting while fuller sync generation is
+    /// pending.
+    #[must_use]
+    pub fn hsync_window_active(&self, hpos: u16) -> bool {
+        if !self.varhsyen_enabled() {
+            return false;
+        }
+
+        let start = self.hsstrt & 0x01FF;
+        let stop = self.hsstop & 0x01FF;
+        if start == stop {
+            return false;
+        }
+        if start < stop {
+            hpos >= start && hpos < stop
+        } else {
+            hpos >= start || hpos < stop
+        }
+    }
+
+    /// Coarse ECS vertical sync window check used by `machine-amiga`
+    /// debug/test-visible sync-state reporting while fuller sync generation is
+    /// pending.
+    #[must_use]
+    pub fn vsync_window_active(&self, vpos: u16) -> bool {
+        if !self.varvsyen_enabled() {
+            return false;
+        }
+
+        let start = self.vsstrt & 0x07FF;
+        let stop = self.vsstop & 0x07FF;
+        if start == stop {
+            return false;
+        }
+        if start < stop {
+            vpos >= start && vpos < stop
+        } else {
+            vpos >= start || vpos < stop
+        }
+    }
+
     fn htotal_highest_count(&self) -> u16 {
         if self.htotal == 0 {
             PAL_CCKS_PER_LINE - 1
@@ -498,5 +540,51 @@ mod tests {
         assert!(agnus.hblank_window_active(221));
         assert!(agnus.hblank_window_active(5));
         assert!(!agnus.hblank_window_active(100));
+    }
+
+    #[test]
+    fn varhsyen_uses_programmed_horizontal_sync_window() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hsstrt(30);
+        agnus.write_hsstop(40);
+        agnus.write_beamcon0(BEAMCON0_VARHSYEN);
+        assert!(!agnus.hsync_window_active(29));
+        assert!(agnus.hsync_window_active(30));
+        assert!(agnus.hsync_window_active(39));
+        assert!(!agnus.hsync_window_active(40));
+    }
+
+    #[test]
+    fn varhsyen_sync_window_wraps_across_line_zero() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hsstrt(220);
+        agnus.write_hsstop(12);
+        agnus.write_beamcon0(BEAMCON0_VARHSYEN);
+        assert!(agnus.hsync_window_active(223));
+        assert!(agnus.hsync_window_active(5));
+        assert!(!agnus.hsync_window_active(100));
+    }
+
+    #[test]
+    fn varvsyen_uses_programmed_vertical_sync_window() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_vsstrt(100);
+        agnus.write_vsstop(110);
+        agnus.write_beamcon0(BEAMCON0_VARVSYEN);
+        assert!(!agnus.vsync_window_active(99));
+        assert!(agnus.vsync_window_active(100));
+        assert!(agnus.vsync_window_active(109));
+        assert!(!agnus.vsync_window_active(110));
+    }
+
+    #[test]
+    fn varvsyen_sync_window_wraps_across_frame_zero() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_vsstrt(300);
+        agnus.write_vsstop(12);
+        agnus.write_beamcon0(BEAMCON0_VARVSYEN);
+        assert!(agnus.vsync_window_active(301));
+        assert!(agnus.vsync_window_active(5));
+        assert!(!agnus.vsync_window_active(200));
     }
 }
