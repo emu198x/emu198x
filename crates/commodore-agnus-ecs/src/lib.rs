@@ -15,6 +15,8 @@ pub use commodore_agnus_ocs::{
 /// Thin ECS wrapper that currently reuses the OCS Agnus implementation.
 pub struct AgnusEcs {
     inner: InnerAgnusOcs,
+    beamcon0: u16,
+    diwhigh: u16,
 }
 
 impl AgnusEcs {
@@ -23,6 +25,20 @@ impl AgnusEcs {
     pub fn new() -> Self {
         Self {
             inner: InnerAgnusOcs::new(),
+            beamcon0: 0,
+            diwhigh: 0,
+        }
+    }
+
+    /// Wrap an existing OCS Agnus core while starting ECS extension registers
+    /// from reset state. Useful for behavior-identical OCS paths that route
+    /// through the ECS wrapper constructor during Phase 3 bring-up.
+    #[must_use]
+    pub fn from_ocs(inner: InnerAgnusOcs) -> Self {
+        Self {
+            inner,
+            beamcon0: 0,
+            diwhigh: 0,
         }
     }
 
@@ -42,6 +58,28 @@ impl AgnusEcs {
     #[must_use]
     pub fn into_inner(self) -> InnerAgnusOcs {
         self.inner
+    }
+
+    /// ECS `BEAMCON0` latch (register semantics are not fully modeled yet).
+    #[must_use]
+    pub const fn beamcon0(&self) -> u16 {
+        self.beamcon0
+    }
+
+    /// Store ECS `BEAMCON0` for later timing/beam model work.
+    pub fn write_beamcon0(&mut self, val: u16) {
+        self.beamcon0 = val;
+    }
+
+    /// ECS `DIWHIGH` latch (used by ECS display window extensions).
+    #[must_use]
+    pub const fn diwhigh(&self) -> u16 {
+        self.diwhigh
+    }
+
+    /// Store ECS `DIWHIGH` for later extended DIW timing/composition work.
+    pub fn write_diwhigh(&mut self, val: u16) {
+        self.diwhigh = val;
     }
 }
 
@@ -85,5 +123,20 @@ mod tests {
         agnus.tick_cck();
         assert_eq!(agnus.vpos, 0);
         assert_eq!(agnus.hpos, 1);
+    }
+
+    #[test]
+    fn ecs_register_latches_are_independent_of_ocs_core_state() {
+        let mut agnus = AgnusEcs::new();
+        assert_eq!(agnus.beamcon0(), 0);
+        assert_eq!(agnus.diwhigh(), 0);
+
+        agnus.write_beamcon0(0x0020);
+        agnus.write_diwhigh(0xA5A5);
+
+        assert_eq!(agnus.beamcon0(), 0x0020);
+        assert_eq!(agnus.diwhigh(), 0xA5A5);
+        assert_eq!(agnus.diwstrt, 0);
+        assert_eq!(agnus.diwstop, 0);
     }
 }

@@ -23,6 +23,13 @@ impl DeniseEcs {
         }
     }
 
+    /// Wrap an existing OCS Denise core for behavior-identical OCS/ECS
+    /// constructor routing during the early ECS bring-up phase.
+    #[must_use]
+    pub fn from_ocs(inner: InnerDeniseOcs) -> Self {
+        Self { inner }
+    }
+
     /// Borrow the wrapped OCS Denise core.
     #[must_use]
     pub const fn as_inner(&self) -> &InnerDeniseOcs {
@@ -70,7 +77,7 @@ impl From<DeniseEcs> for InnerDeniseOcs {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeniseEcs, FB_HEIGHT, FB_WIDTH};
+    use super::{DeniseEcs, FB_HEIGHT, FB_WIDTH, InnerDeniseOcs};
 
     #[test]
     fn wrapper_uses_ocs_framebuffer_and_palette_baseline_for_now() {
@@ -80,5 +87,14 @@ mod tests {
 
         denise.set_palette(0, 0x0FFF);
         assert_eq!(denise.palette[0], 0x0FFF);
+    }
+
+    #[test]
+    fn from_ocs_preserves_wrapped_core_state() {
+        let mut inner = InnerDeniseOcs::new();
+        inner.set_palette(1, 0x0123);
+
+        let denise = DeniseEcs::from_ocs(inner);
+        assert_eq!(denise.palette[1], 0x0123);
     }
 }

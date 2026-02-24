@@ -19,8 +19,10 @@ use motorola_68000::cpu::Cpu68000;
 use peripheral_amiga_keyboard::AmigaKeyboard;
 
 // Re-export chip crates so tests and downstream users can access types.
-pub use crate::config::{AmigaConfig, AmigaModel};
+pub use crate::config::{AmigaChipset, AmigaConfig, AmigaModel};
+pub use commodore_agnus_ecs;
 pub use commodore_agnus_ocs;
+pub use commodore_denise_ecs;
 pub use commodore_denise_ocs;
 pub use commodore_paula_8364;
 pub use drive_amiga_floppy;
@@ -63,6 +65,7 @@ struct DiskDmaRuntime {
 
 pub struct Amiga {
     pub master_clock: u64,
+    pub chipset: AmigaChipset,
     pub cpu: Cpu68000,
     pub agnus: Agnus,
     pub memory: Memory,
@@ -83,6 +86,7 @@ impl Amiga {
     pub fn new(kickstart: Vec<u8>) -> Self {
         Self::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
+            chipset: AmigaChipset::Ocs,
             kickstart,
         })
     }
@@ -91,10 +95,29 @@ impl Amiga {
     ///
     /// Only A500/OCS is implemented today; later models will branch here.
     pub fn new_with_config(config: AmigaConfig) -> Self {
-        let AmigaConfig { model, kickstart } = config;
+        let AmigaConfig {
+            model,
+            chipset,
+            kickstart,
+        } = config;
         match model {
             AmigaModel::A500 => {}
         }
+
+        let agnus = match chipset {
+            AmigaChipset::Ocs => {
+                commodore_agnus_ecs::AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new())
+                    .into_inner()
+            }
+            AmigaChipset::Ecs => commodore_agnus_ecs::AgnusEcs::new().into_inner(),
+        };
+        let denise = match chipset {
+            AmigaChipset::Ocs => {
+                commodore_denise_ecs::DeniseEcs::from_ocs(commodore_denise_ocs::DeniseOcs::new())
+                    .into_inner()
+            }
+            AmigaChipset::Ecs => commodore_denise_ecs::DeniseEcs::new().into_inner(),
+        };
 
         let mut cpu = Cpu68000::new();
         let memory = Memory::new(512 * 1024, kickstart);
@@ -125,10 +148,11 @@ impl Amiga {
 
         Self {
             master_clock: 0,
+            chipset,
             cpu,
-            agnus: Agnus::new(),
+            agnus,
             memory,
-            denise: DeniseOcs::new(),
+            denise,
             copper: Copper::new(),
             cia_a,
             cia_b: Cia8520::new("B"),
@@ -1454,4 +1478,30 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
     agnus.clear_blitter_scheduler();
     agnus.blitter_busy = false;
     paula.request_interrupt(6);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Amiga, AmigaChipset, AmigaConfig, AmigaModel};
+
+    fn dummy_kickstart() -> Vec<u8> {
+        // Minimal reset vectors (SSP=0, PC=0) are enough for constructor tests.
+        vec![0; 8]
+    }
+
+    #[test]
+    fn amiga_new_defaults_to_ocs_chipset() {
+        let amiga = Amiga::new(dummy_kickstart());
+        assert_eq!(amiga.chipset, AmigaChipset::Ocs);
+    }
+
+    #[test]
+    fn amiga_config_accepts_ecs_chipset_selection() {
+        let amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+        assert_eq!(amiga.chipset, AmigaChipset::Ecs);
+    }
 }

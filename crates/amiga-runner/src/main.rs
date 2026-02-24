@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use machine_amiga::format_adf::Adf;
-use machine_amiga::{Amiga, AmigaConfig, AmigaModel, commodore_denise_ocs};
+use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, commodore_denise_ocs};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -178,6 +178,7 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
 
     let mut amiga = Amiga::new_with_config(AmigaConfig {
         model: AmigaModel::A500,
+        chipset: AmigaChipset::Ocs,
         kickstart,
     });
 
