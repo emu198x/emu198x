@@ -711,6 +711,122 @@ mod tests {
     }
 
     #[test]
+    fn clxdat_follows_loaded_sprite_serial_data_under_mid_line_data_write() {
+        let mut denise = DeniseOcs::new();
+        let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 12); // active on lines 10 and 11
+        denise.write_sprite_pos(0, pos);
+        denise.write_sprite_ctl(0, ctl);
+        denise.write_sprite_datb(0, 0x0000);
+        denise.write_sprite_data(0, 0xC000); // two sprite pixels on each active line
+
+        // First pixel on line 10 collides with odd bitplane.
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(20, 10);
+        assert_eq!(denise.read_clxdat() & (1 << 1), 1 << 1);
+
+        // Mid-line data rewrite should not affect the already-loaded serial data
+        // for line 10, so the second pixel still collides.
+        denise.write_sprite_data(0, 0x0000);
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(21, 10);
+        assert_eq!(denise.read_clxdat() & (1 << 1), 1 << 1);
+
+        // Next line uses the rewritten data, so no collision occurs.
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(20, 11);
+        assert_eq!(denise.read_clxdat() & (1 << 1), 0);
+    }
+
+    #[test]
+    fn clxdat_stops_latching_after_mid_line_ctl_disarm() {
+        let mut denise = DeniseOcs::new();
+        let (pos, ctl) = encode_sprite_pos_ctl(24, 8, 9);
+        denise.write_sprite_pos(0, pos);
+        denise.write_sprite_ctl(0, ctl);
+        denise.write_sprite_datb(0, 0x0000);
+        denise.write_sprite_data(0, 0xC000); // two sprite pixels
+
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(24, 8);
+        assert_eq!(denise.read_clxdat() & (1 << 1), 1 << 1);
+
+        // Disarm mid-line before the second sprite pixel.
+        denise.write_sprite_ctl(0, ctl);
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(25, 8);
+        assert_eq!(
+            denise.read_clxdat() & (1 << 1),
+            0,
+            "SPRxCTL disarm should stop further same-line sprite collisions"
+        );
+    }
+
+    #[test]
+    fn clxdat_pos_write_before_hstart_moves_same_line_collision_point() {
+        let mut denise = DeniseOcs::new();
+        let (pos_a, ctl) = encode_sprite_pos_ctl(26, 9, 10);
+        let (pos_b, _) = encode_sprite_pos_ctl(24, 9, 10);
+        denise.write_sprite_pos(0, pos_a);
+        denise.write_sprite_ctl(0, ctl);
+        denise.write_sprite_datb(0, 0x0000);
+        denise.write_sprite_data(0, 0x8000);
+
+        denise.output_pixel(23, 9); // establish runtime before comparator hit
+        let _ = denise.read_clxdat();
+
+        denise.write_sprite_pos(0, pos_b); // move before HSTART
+
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(24, 9);
+        assert_eq!(denise.read_clxdat() & (1 << 1), 1 << 1);
+
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(26, 9);
+        assert_eq!(
+            denise.read_clxdat() & (1 << 1),
+            0,
+            "collision should not also occur at the old HSTART after a pre-hit SPRxPOS move"
+        );
+    }
+
+    #[test]
+    fn clxdat_arm_after_hstart_waits_until_next_line() {
+        let mut denise = DeniseOcs::new();
+        let (pos, ctl) = encode_sprite_pos_ctl(28, 11, 13); // active on lines 11 and 12
+        denise.write_sprite_pos(0, pos);
+        denise.write_sprite_ctl(0, ctl); // disarm
+        denise.write_sprite_datb(0, 0x0000);
+
+        denise.output_pixel(29, 11); // HSTART has passed on line 11
+        denise.write_sprite_data(0, 0x8000); // arm late
+
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(30, 11);
+        assert_eq!(
+            denise.read_clxdat() & (1 << 1),
+            0,
+            "late-line arm must not cause a same-line collision after HSTART has passed"
+        );
+
+        denise.bpl_shift[0] = 0x8000;
+        denise.shift_count = 1;
+        denise.output_pixel(28, 12);
+        assert_eq!(
+            denise.read_clxdat() & (1 << 1),
+            1 << 1,
+            "next line should latch collision after late-line SPRxDATA arm"
+        );
+    }
+
+    #[test]
     fn transparent_sprite_pixel_leaves_playfield_visible() {
         let mut denise = DeniseOcs::new();
         denise.set_palette(0, 0x000);
