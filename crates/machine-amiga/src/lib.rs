@@ -472,17 +472,24 @@ impl Amiga {
 
         if !runtime.is_write {
             let mut addr = self.agnus.dsk_pt;
+            let mut transferred_word: Option<u16> = None;
             if runtime.byte_index < runtime.data.len() {
-                self.memory
-                    .write_byte(addr, runtime.data[runtime.byte_index]);
+                let hi = runtime.data[runtime.byte_index];
+                self.memory.write_byte(addr, hi);
                 runtime.byte_index += 1;
                 addr = addr.wrapping_add(1);
+                if runtime.byte_index < runtime.data.len() {
+                    let lo = runtime.data[runtime.byte_index];
+                    self.memory.write_byte(addr, lo);
+                    runtime.byte_index += 1;
+                    addr = addr.wrapping_add(1);
+                    transferred_word = Some((u16::from(hi) << 8) | u16::from(lo));
+                }
             }
-            if runtime.byte_index < runtime.data.len() {
-                self.memory
-                    .write_byte(addr, runtime.data[runtime.byte_index]);
-                runtime.byte_index += 1;
-                addr = addr.wrapping_add(1);
+            if transferred_word.is_some_and(|word| word == self.paula.dsksync) {
+                // Simplified disk path: surface DSKSYNC word matches on the DMA
+                // stream even though Paula serial/RBF state is not fully modeled.
+                self.paula.request_interrupt(12);
             }
             self.agnus.dsk_pt = addr;
         }

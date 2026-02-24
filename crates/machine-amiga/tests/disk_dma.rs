@@ -6,10 +6,12 @@ const REG_DSKPTH: u16 = 0x020;
 const REG_DSKPTL: u16 = 0x022;
 const REG_DSKLEN: u16 = 0x024;
 const REG_DMACON: u16 = 0x096;
+const REG_DSKSYNC: u16 = 0x07E;
 
 const DMACON_DSKEN: u16 = 0x0010;
 const DMACON_DMAEN: u16 = 0x0200;
 const INTREQ_DSKBLK: u16 = 0x0002;
+const INTREQ_DSKSYN: u16 = 0x1000;
 
 fn make_test_amiga() -> Amiga {
     let mut rom = vec![0u8; 256 * 1024];
@@ -167,4 +169,59 @@ fn disk_dma_read_is_slot_timed_and_fires_dskblk_on_completion() {
         let got = amiga.memory.read_chip_byte(dst + i as u32);
         assert_eq!(got, expected, "disk DMA byte mismatch at offset {i}");
     }
+}
+
+#[test]
+fn disk_dma_read_raises_dsksyn_on_matching_stream_word() {
+    let mut amiga = make_test_amiga();
+    amiga.insert_disk(make_test_adf());
+
+    let dst = 0x0000_2400u32;
+
+    // Start from the beginning of an Amiga MFM sector stream:
+    // first two words are $AAAA gap, then sync words $4489.
+    let word_count = 4u16;
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0;
+    write_dsk_ptr(&mut amiga, dst);
+    amiga.write_custom_reg(REG_DSKSYNC, 0x4489);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
+    amiga.paula.intreq &= !INTREQ_DSKSYN;
+
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | word_count);
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | word_count);
+
+    let mut transferred_words = 0u32;
+    let mut elapsed_ccks = 0u32;
+    while transferred_words < u32::from(word_count) && elapsed_ccks < 2_000 {
+        let ptr_before = amiga.agnus.dsk_pt;
+        tick_ccks(&mut amiga, 1);
+        elapsed_ccks += 1;
+        let ptr_after = amiga.agnus.dsk_pt;
+        if ptr_after.wrapping_sub(ptr_before) == 2 {
+            transferred_words += 1;
+            if transferred_words <= 2 {
+                assert_eq!(
+                    amiga.paula.intreq & INTREQ_DSKSYN,
+                    0,
+                    "DSKSYN should not fire on the leading gap words"
+                );
+            }
+        }
+    }
+
+    assert_eq!(transferred_words, u32::from(word_count));
+    assert_ne!(
+        amiga.paula.intreq & INTREQ_DSKSYN,
+        0,
+        "DSKSYN should fire once a transferred disk DMA word matches DSKSYNC"
+    );
+
+    let sync_word_hi = amiga.memory.read_chip_byte(dst + 4);
+    let sync_word_lo = amiga.memory.read_chip_byte(dst + 5);
+    assert_eq!(
+        (u16::from(sync_word_hi) << 8) | u16::from(sync_word_lo),
+        0x4489,
+        "test assumes the third DMA word is the first MFM sync word"
+    );
 }
