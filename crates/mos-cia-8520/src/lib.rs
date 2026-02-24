@@ -94,30 +94,11 @@ impl Cia8520 {
     }
 
     pub fn tick(&mut self) {
+        self.apply_timer_force_loads();
+
         let mut timer_a_underflow = false;
-
-        if self.timer_a_force_load {
-            self.timer_a = self.timer_a_latch;
-            self.timer_a_force_load = false;
-        }
-
         if self.timer_a_running && (self.cra & 0x20 == 0) {
-            if self.timer_a == 0 {
-                self.icr_status |= 0x01;
-                timer_a_underflow = true;
-                self.timer_a = self.timer_a_latch;
-                if self.timer_a_oneshot {
-                    self.timer_a_running = false;
-                    self.cra &= !0x01;
-                }
-            } else {
-                self.timer_a -= 1;
-            }
-        }
-
-        if self.timer_b_force_load {
-            self.timer_b = self.timer_b_latch;
-            self.timer_b_force_load = false;
+            timer_a_underflow = self.step_timer_a_count();
         }
 
         if self.timer_b_running {
@@ -129,17 +110,25 @@ impl Cia8520 {
             };
 
             if timer_b_should_count {
-                if self.timer_b == 0 {
-                    self.icr_status |= 0x02;
-                    self.timer_b = self.timer_b_latch;
-                    if self.timer_b_oneshot {
-                        self.timer_b_running = false;
-                        self.crb &= !0x01;
-                    }
-                } else {
-                    self.timer_b -= 1;
-                }
+                self.step_timer_b_count();
             }
+        }
+    }
+
+    /// Pulse the CNT input (external clock edge) for timer counting modes.
+    ///
+    /// This advances:
+    /// - Timer A when `CRA[5] = 1`
+    /// - Timer B when `CRB[6:5] = 01`
+    pub fn cnt_pulse(&mut self) {
+        self.apply_timer_force_loads();
+
+        if self.timer_a_running && (self.cra & 0x20 != 0) {
+            self.step_timer_a_count();
+        }
+
+        if self.timer_b_running && ((self.crb >> 5) & 0x03) == 0x01 {
+            self.step_timer_b_count();
         }
     }
 
@@ -403,6 +392,47 @@ impl Cia8520 {
         self.tod_halted = false;
         // TOD counter/alarm are not reset by hardware reset
     }
+
+    fn apply_timer_force_loads(&mut self) {
+        if self.timer_a_force_load {
+            self.timer_a = self.timer_a_latch;
+            self.timer_a_force_load = false;
+        }
+        if self.timer_b_force_load {
+            self.timer_b = self.timer_b_latch;
+            self.timer_b_force_load = false;
+        }
+    }
+
+    fn step_timer_a_count(&mut self) -> bool {
+        if self.timer_a == 0 {
+            self.icr_status |= 0x01;
+            self.timer_a = self.timer_a_latch;
+            if self.timer_a_oneshot {
+                self.timer_a_running = false;
+                self.cra &= !0x01;
+            }
+            true
+        } else {
+            self.timer_a -= 1;
+            false
+        }
+    }
+
+    fn step_timer_b_count(&mut self) -> bool {
+        if self.timer_b == 0 {
+            self.icr_status |= 0x02;
+            self.timer_b = self.timer_b_latch;
+            if self.timer_b_oneshot {
+                self.timer_b_running = false;
+                self.crb &= !0x01;
+            }
+            true
+        } else {
+            self.timer_b -= 1;
+            false
+        }
+    }
 }
 
 #[cfg(test)]
@@ -550,5 +580,43 @@ mod tests {
         assert_eq!(masked_on & 0x80, 0x80);
         assert_eq!(cia.icr_status(), 0);
         assert!(!cia.irq_active());
+    }
+
+    #[test]
+    fn timer_a_cnt_mode_counts_on_cnt_pulses_not_tick() {
+        let mut cia = Cia8520::new("T");
+        cia.timer_a = 0x0002;
+        cia.timer_a_latch = 0x0002;
+        cia.timer_a_running = true;
+        cia.cra = 0x21; // START + CNT source
+
+        cia.tick();
+        assert_eq!(cia.timer_a(), 0x0002);
+
+        cia.cnt_pulse();
+        assert_eq!(cia.timer_a(), 0x0001);
+        cia.cnt_pulse();
+        assert_eq!(cia.timer_a(), 0x0000);
+        cia.cnt_pulse();
+        assert_eq!(cia.timer_a(), 0x0002);
+        assert_ne!(cia.icr_status() & 0x01, 0);
+    }
+
+    #[test]
+    fn timer_b_cnt_mode_counts_on_cnt_pulses_not_tick() {
+        let mut cia = Cia8520::new("T");
+        cia.timer_b = 0x0001;
+        cia.timer_b_latch = 0x0001;
+        cia.timer_b_running = true;
+        cia.crb = 0x21; // START + CNT source for timer B
+
+        cia.tick();
+        assert_eq!(cia.timer_b(), 0x0001);
+
+        cia.cnt_pulse();
+        assert_eq!(cia.timer_b(), 0x0000);
+        cia.cnt_pulse();
+        assert_eq!(cia.timer_b(), 0x0001);
+        assert_ne!(cia.icr_status() & 0x02, 0);
     }
 }
