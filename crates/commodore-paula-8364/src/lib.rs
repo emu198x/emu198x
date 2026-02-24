@@ -12,6 +12,9 @@ const AUDIO_DMA_RETURN_LATENCY_CCK: u8 = 14;
 const MIN_AUDIO_PERIOD_CCK: u16 = 124;
 const ADKCON_USE_VOLUME_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
 const ADKCON_USE_PERIOD_BITS: [u16; 4] = [0x0010, 0x0020, 0x0040, 0x0080];
+const ADKCON_FAST_DISK: u16 = 0x0100;
+const DISK_BYTE_CCK_FAST: u8 = 14;
+const DISK_BYTE_CCK_SLOW: u8 = 28;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AudioOutputEvent {
@@ -296,8 +299,10 @@ pub struct Paula8364 {
     pub dskdat: u16,
     dskbytr_data: u8,
     dskbytr_next_data: Option<u8>,
+    dskbytr_next_delay_cck: u8,
     dskbytr_valid: bool,
     dskbytr_wordequal: bool,
+    dskbytr_wordequal_delay_cck: u8,
     dskdat_queue: VecDeque<u16>,
     disk_write_dma_log: Vec<u16>,
     disk_write_pio_log: Vec<u16>,
@@ -318,8 +323,10 @@ impl Paula8364 {
             dskdat: 0,
             dskbytr_data: 0,
             dskbytr_next_data: None,
+            dskbytr_next_delay_cck: 0,
             dskbytr_valid: false,
             dskbytr_wordequal: false,
+            dskbytr_wordequal_delay_cck: 0,
             dskdat_queue: VecDeque::new(),
             disk_write_dma_log: Vec::new(),
             disk_write_pio_log: Vec::new(),
@@ -617,9 +624,15 @@ impl Paula8364 {
         self.dskdatr = word;
         self.dskbytr_data = (word >> 8) as u8;
         self.dskbytr_next_data = Some(word as u8);
+        self.dskbytr_next_delay_cck = self.disk_byte_cck_delay();
         self.dskbytr_valid = true;
         let wordequal = word == self.dsksync;
         self.dskbytr_wordequal = wordequal;
+        self.dskbytr_wordequal_delay_cck = if wordequal {
+            self.disk_byte_cck_delay()
+        } else {
+            0
+        };
         wordequal
     }
 
@@ -643,18 +656,32 @@ impl Paula8364 {
             value |= 1 << 12;
         }
 
-        // WORDEQUAL is a transient sync-match indication; clear it once observed.
-        self.dskbytr_wordequal = false;
+        // DSKBYT clears on DSKBYTR read (HRM).
+        self.dskbytr_valid = false;
+        value
+    }
 
-        // DSKBYT clears on read, but in this simplified model we immediately
-        // promote the second byte of the same received word if it is pending.
-        if let Some(next) = self.dskbytr_next_data.take() {
+    pub fn tick_disk_cck(&mut self) {
+        if self.dskbytr_wordequal && self.dskbytr_wordequal_delay_cck != 0 {
+            self.dskbytr_wordequal_delay_cck -= 1;
+            if self.dskbytr_wordequal_delay_cck == 0 {
+                self.dskbytr_wordequal = false;
+            }
+        }
+
+        if self.dskbytr_next_data.is_some() && self.dskbytr_next_delay_cck != 0 {
+            self.dskbytr_next_delay_cck -= 1;
+        }
+
+        if self.dskbytr_next_data.is_some()
+            && self.dskbytr_next_delay_cck == 0
+            && let Some(next) = self.dskbytr_next_data.take()
+        {
+            // Single-byte receive register semantics: a later byte can replace an
+            // unread earlier byte in this simplified model (overrun not modeled).
             self.dskbytr_data = next;
             self.dskbytr_valid = true;
-        } else {
-            self.dskbytr_valid = false;
         }
-        value
     }
 
     pub fn note_disk_write_dma_word(&mut self, word: u16) {
@@ -679,6 +706,14 @@ impl Paula8364 {
 
     pub fn clear_disk_write_pio_log(&mut self) {
         self.disk_write_pio_log.clear();
+    }
+
+    fn disk_byte_cck_delay(&self) -> u8 {
+        if (self.adkcon & ADKCON_FAST_DISK) != 0 {
+            DISK_BYTE_CCK_FAST
+        } else {
+            DISK_BYTE_CCK_SLOW
+        }
     }
 
     pub fn compute_ipl(&self) -> u8 {
@@ -730,7 +765,7 @@ impl Default for Paula8364 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AUDIO_DMA_RETURN_LATENCY_CCK, Paula8364};
+    use super::{ADKCON_FAST_DISK, AUDIO_DMA_RETURN_LATENCY_CCK, DISK_BYTE_CCK_FAST, Paula8364};
 
     const ADKCON_SETCLR: u16 = 0x8000;
     const ADKCON_USE0V1: u16 = 0x0001;
@@ -1074,6 +1109,7 @@ mod tests {
         let mut paula = Paula8364::new();
         paula.dsklen = 0x8002; // DMA enable in DSKLEN (read mode)
         let dmacon = 0x0200 | 0x0010; // DMAEN + DSKEN
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_FAST_DISK);
         paula.dsksync = 0x4489;
 
         assert!(paula.note_disk_read_word(0x4489));
@@ -1085,25 +1121,48 @@ mod tests {
         assert_ne!(first & 0x1000, 0, "WORDEQUAL should be set on sync match");
         assert_eq!(first & 0x00FF, 0x0044, "first byte should be high byte");
 
+        // Second byte should not arrive until the configured disk-byte cadence.
         let second = paula.read_dskbytr(dmacon);
-        assert_ne!(second & 0x8000, 0, "DSKBYT should be set for second byte");
-        assert_eq!(second & 0x00FF, 0x0089, "second byte should be low byte");
         assert_eq!(
+            second & 0x8000,
+            0,
+            "DSKBYT should clear immediately after the first read until the next byte arrives"
+        );
+        assert_ne!(
             second & 0x1000,
             0,
-            "WORDEQUAL should be a narrow pulse and need not persist to the second byte"
+            "WORDEQUAL may still be visible until the sync-match pulse times out"
         );
 
-        let third = paula.read_dskbytr(dmacon);
+        for _ in 0..(DISK_BYTE_CCK_FAST - 1) {
+            paula.tick_disk_cck();
+        }
+        let too_early = paula.read_dskbytr(dmacon);
         assert_eq!(
+            too_early & 0x8000,
+            0,
+            "second byte should still be pending before full delay"
+        );
+
+        paula.tick_disk_cck();
+        let third = paula.read_dskbytr(dmacon);
+        assert_ne!(
             third & 0x8000,
             0,
-            "DSKBYT should clear after both bytes are consumed"
+            "DSKBYT should be set once the delayed second byte arrives"
         );
+        assert_eq!(third & 0x00FF, 0x0089, "second byte should be low byte");
         assert_eq!(
             third & 0x1000,
             0,
-            "WORDEQUAL should clear after the matched word is consumed"
+            "WORDEQUAL pulse should expire before the delayed second byte"
+        );
+
+        let fourth = paula.read_dskbytr(dmacon);
+        assert_eq!(
+            fourth & 0x8000,
+            0,
+            "DSKBYT should clear after both bytes are consumed"
         );
     }
 

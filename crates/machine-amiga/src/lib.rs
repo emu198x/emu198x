@@ -260,6 +260,7 @@ impl Amiga {
                 audio_return_progress_this_cck,
                 |addr| self.memory.read_chip_byte(addr),
             );
+            self.paula.tick_disk_cck();
 
             // Coarse blitter scheduler: preserve BUSY across CCKs so Agnus bus
             // arbitration (including nasty-mode CPU steals) affects machine
@@ -473,6 +474,7 @@ impl Amiga {
             if (self.paula.dsklen & 0x4000) != 0
                 && let Some(word) = self.paula.take_dskdat_queued_word()
             {
+                self.floppy.note_write_mfm_word(word);
                 self.paula.note_disk_write_pio_word(word);
             }
             return;
@@ -539,6 +541,7 @@ impl Amiga {
             let lo = self.memory.read_chip_byte(addr);
             addr = addr.wrapping_add(1);
             let word = (u16::from(hi) << 8) | u16::from(lo);
+            self.floppy.note_write_mfm_word(word);
             self.paula.note_disk_write_dma_word(word);
             self.agnus.dsk_pt = addr;
             dma_word_completed = true;

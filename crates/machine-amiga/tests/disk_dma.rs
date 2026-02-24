@@ -18,6 +18,8 @@ const DMACON_DSKEN: u16 = 0x0010;
 const DMACON_DMAEN: u16 = 0x0200;
 const ADKCON_SETCLR: u16 = 0x8000;
 const ADKCON_WORDSYNC: u16 = 0x0400;
+const ADKCON_FAST: u16 = 0x0100;
+const DISK_BYTE_FAST_CCKS: u32 = 14;
 const INTREQ_DSKBLK: u16 = 0x0002;
 const INTREQ_DSKSYN: u16 = 0x1000;
 
@@ -304,69 +306,66 @@ fn disk_dma_read_updates_dskbytr_flags_and_data() {
     amiga.agnus.vpos = 0;
     amiga.agnus.hpos = 0;
     write_dsk_ptr(&mut amiga, 0x0000_3000);
-    amiga.write_custom_reg(REG_DSKSYNC, 0x4489);
+    amiga.write_custom_reg(REG_DSKSYNC, 0xAAAA); // first word of stream = gap word
+    amiga.write_custom_reg(REG_ADKCON, ADKCON_SETCLR | ADKCON_FAST);
     amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
 
-    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 3);
-    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 3);
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 1);
+    amiga.write_custom_reg(REG_DSKLEN, 0x8000 | 1);
 
-    let mut transferred_words = 0u32;
     let mut elapsed_ccks = 0u32;
-    while transferred_words < 3 && elapsed_ccks < 2_000 {
+    let mut saw_transfer = false;
+    while !saw_transfer && elapsed_ccks < 2_000 {
         let ptr_before = amiga.agnus.dsk_pt;
         tick_ccks(&mut amiga, 1);
         elapsed_ccks += 1;
         let ptr_after = amiga.agnus.dsk_pt;
         if ptr_after.wrapping_sub(ptr_before) == 2 {
-            transferred_words += 1;
+            saw_transfer = true;
             let first = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
             assert_ne!(first & 0x8000, 0, "DSKBYT should be set on first byte");
             assert_ne!(first & 0x4000, 0, "DMAON should reflect active disk DMA");
             assert_eq!(first & 0x2000, 0, "DISKWRITE should be clear for read DMA");
+            assert_eq!(
+                first & 0x00FF,
+                0x00AA,
+                "gap high byte should be visible first"
+            );
+            assert_ne!(
+                first & 0x1000,
+                0,
+                "WORDEQUAL should pulse on the matched sync word"
+            );
 
+            let immediate_second = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
+            assert_eq!(
+                immediate_second & 0x8000,
+                0,
+                "second byte should not be visible until the disk-byte cadence elapses"
+            );
+            assert_ne!(
+                immediate_second & 0x1000,
+                0,
+                "WORDEQUAL may still be visible until the sync-match pulse times out"
+            );
+
+            tick_ccks(&mut amiga, DISK_BYTE_FAST_CCKS - 2);
+            let too_early = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
+            assert_eq!(too_early & 0x8000, 0, "second byte should still be pending");
+
+            tick_ccks(&mut amiga, 1);
             let second = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
             assert_ne!(
                 second & 0x8000,
                 0,
-                "DSKBYT should be set again for the second byte of the same word"
+                "second byte should become visible after delay"
             );
-            assert_ne!(
-                second & 0x4000,
+            assert_eq!(second & 0x00FF, 0x00AA, "gap low byte should follow");
+            assert_eq!(
+                second & 0x1000,
                 0,
-                "DMAON should remain set during disk DMA"
+                "WORDEQUAL should not persist to the second byte"
             );
-
-            match transferred_words {
-                1 | 2 => {
-                    assert_eq!(
-                        first & 0x00FF,
-                        0x00AA,
-                        "gap high byte should be visible first"
-                    );
-                    assert_eq!(second & 0x00FF, 0x00AA, "gap low byte should follow");
-                    assert_eq!(first & 0x1000, 0, "WORDEQUAL should be clear on gap words");
-                    assert_eq!(second & 0x1000, 0, "WORDEQUAL should be clear on gap words");
-                }
-                3 => {
-                    assert_eq!(
-                        first & 0x00FF,
-                        0x0044,
-                        "sync high byte should be visible first"
-                    );
-                    assert_eq!(second & 0x00FF, 0x0089, "sync low byte should follow");
-                    assert_ne!(
-                        first & 0x1000,
-                        0,
-                        "WORDEQUAL should be set on DSKSYNC match"
-                    );
-                    assert_eq!(
-                        second & 0x1000,
-                        0,
-                        "WORDEQUAL should be a narrow pulse and need not persist to the second byte"
-                    );
-                }
-                _ => unreachable!(),
-            }
 
             let third = read_custom_word_via_cpu_bus(&mut amiga, CUSTOM_DSKBYTR_ADDR);
             assert_eq!(
@@ -377,7 +376,7 @@ fn disk_dma_read_updates_dskbytr_flags_and_data() {
         }
     }
 
-    assert_eq!(transferred_words, 3);
+    assert!(saw_transfer, "expected a single disk DMA word transfer");
 }
 
 #[test]
@@ -509,6 +508,7 @@ fn disk_dma_write_is_slot_timed_and_captures_memory_words() {
     write_dsk_ptr(&mut amiga, src);
     amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
     amiga.paula.clear_disk_write_dma_log();
+    amiga.floppy.clear_write_mfm_capture();
     amiga.paula.intreq &= !INTREQ_DSKBLK;
 
     let word_count = words.len() as u16;
@@ -547,6 +547,7 @@ fn disk_dma_write_is_slot_timed_and_captures_memory_words() {
     }
 
     assert_ne!(amiga.paula.intreq & INTREQ_DSKBLK, 0);
+    assert_eq!(amiga.floppy.write_mfm_capture(), &words);
     assert_eq!(amiga.paula.disk_write_dma_log(), &words);
     assert_eq!(disk_slot_grants, words.len() as u32);
     assert_eq!(amiga.agnus.dsk_pt, src + (words.len() as u32) * 2);
@@ -574,6 +575,7 @@ fn disk_programmed_write_dskdat_queue_is_slot_timed_and_separate_from_dma() {
     amiga.agnus.hpos = 0;
     amiga.paula.clear_disk_write_pio_log();
     amiga.paula.clear_disk_write_dma_log();
+    amiga.floppy.clear_write_mfm_capture();
     amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
 
     // Enable disk write mode without arming DMA and queue programmed-I/O words.
@@ -593,6 +595,7 @@ fn disk_programmed_write_dskdat_queue_is_slot_timed_and_separate_from_dma() {
     assert_eq!(amiga.paula.disk_write_pio_log(), &[0x1111, 0x2222]);
     assert_eq!(amiga.paula.dskdat_queue_len(), 0);
     assert_eq!(amiga.paula.disk_write_dma_log(), &[] as &[u16]);
+    assert_eq!(amiga.floppy.write_mfm_capture(), &[0x1111, 0x2222]);
 
     // DMA write path should remain distinct and source words from chip RAM.
     let src = 0x0000_3E00u32;
@@ -611,4 +614,5 @@ fn disk_programmed_write_dskdat_queue_is_slot_timed_and_separate_from_dma() {
 
     assert_eq!(amiga.paula.disk_write_dma_log(), &[0xAA55]);
     assert_eq!(amiga.paula.disk_write_pio_log(), &[0x1111, 0x2222]);
+    assert_eq!(amiga.floppy.write_mfm_capture(), &[0x1111, 0x2222, 0xAA55]);
 }

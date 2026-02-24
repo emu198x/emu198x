@@ -34,6 +34,7 @@ pub struct AmigaFloppyDrive {
     selected: bool,
     disk_changed: bool,
     prev_step: bool,
+    write_mfm_capture: Vec<u16>,
 }
 
 impl AmigaFloppyDrive {
@@ -48,6 +49,7 @@ impl AmigaFloppyDrive {
             selected: false,
             disk_changed: true, // No disk at power-on
             prev_step: true,    // Active-low: idle = high
+            write_mfm_capture: Vec::new(),
         }
     }
 
@@ -157,6 +159,22 @@ impl AmigaFloppyDrive {
 
     pub fn motor_on(&self) -> bool {
         self.motor_on
+    }
+
+    /// Record one raw MFM word presented to the drive write path.
+    ///
+    /// This is a simplified capture buffer until full magnetic write
+    /// persistence is modeled.
+    pub fn note_write_mfm_word(&mut self, word: u16) {
+        self.write_mfm_capture.push(word);
+    }
+
+    pub fn write_mfm_capture(&self) -> &[u16] {
+        &self.write_mfm_capture
+    }
+
+    pub fn clear_write_mfm_capture(&mut self) {
+        self.write_mfm_capture.clear();
     }
 }
 
@@ -281,5 +299,15 @@ mod tests {
         // side_upper = false means lower head (head 0)
         drive.update_control(false, false, false, true, true);
         assert_eq!(drive.head(), 0);
+    }
+
+    #[test]
+    fn write_mfm_capture_records_and_clears_words() {
+        let mut drive = AmigaFloppyDrive::new();
+        drive.note_write_mfm_word(0x1234);
+        drive.note_write_mfm_word(0xABCD);
+        assert_eq!(drive.write_mfm_capture(), &[0x1234, 0xABCD]);
+        drive.clear_write_mfm_capture();
+        assert!(drive.write_mfm_capture().is_empty());
     }
 }
