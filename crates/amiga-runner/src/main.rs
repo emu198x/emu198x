@@ -18,7 +18,9 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use machine_amiga::format_adf::Adf;
-use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, commodore_denise_ocs};
+use machine_amiga::{
+    Amiga, AmigaChipset, AmigaConfig, AmigaModel, BeamDebugSnapshot, commodore_denise_ocs,
+};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -65,6 +67,7 @@ struct CliArgs {
     adf_path: Option<PathBuf>,
     headless: bool,
     frames: u32,
+    beam_debug: bool,
     bench_insert_screen: bool,
     screenshot_path: Option<PathBuf>,
     audio_path: Option<PathBuf>,
@@ -79,6 +82,7 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --adf <file>   Optional ADF disk image to insert into DF0:");
     eprintln!("  --headless     Run without a window");
     eprintln!("  --frames <n>   Frames to run in headless mode [default: 300]");
+    eprintln!("  --beam-debug   Print beam sync/blank/visibility edge transitions (headless)");
     eprintln!("  --bench-insert-screen  Stop on first KS1.3 insert-screen match and print speed");
     eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
     eprintln!("  --audio <file.wav>  Save a WAV audio dump (headless)");
@@ -93,6 +97,7 @@ fn parse_args() -> CliArgs {
     let mut adf_path: Option<PathBuf> = None;
     let mut headless = false;
     let mut frames = 300;
+    let mut beam_debug = false;
     let mut bench_insert_screen = false;
     let mut screenshot_path: Option<PathBuf> = None;
     let mut audio_path: Option<PathBuf> = None;
@@ -117,6 +122,9 @@ fn parse_args() -> CliArgs {
                 if let Some(value) = args.get(i) {
                     frames = value.parse().unwrap_or(300);
                 }
+            }
+            "--beam-debug" => {
+                beam_debug = true;
             }
             "--bench-insert-screen" => {
                 bench_insert_screen = true;
@@ -148,7 +156,7 @@ fn parse_args() -> CliArgs {
             print_usage_and_exit(1);
         });
 
-    if screenshot_path.is_some() || audio_path.is_some() || bench_insert_screen {
+    if screenshot_path.is_some() || audio_path.is_some() || bench_insert_screen || beam_debug {
         headless = true;
     }
 
@@ -157,6 +165,7 @@ fn parse_args() -> CliArgs {
         adf_path,
         headless,
         frames,
+        beam_debug,
         bench_insert_screen,
         screenshot_path,
         audio_path,
@@ -309,6 +318,82 @@ fn matches_ks13_insert_screen(framebuffer: &[u32]) -> bool {
         && (45..=60).contains(&min_y)
         && (200..=215).contains(&max_x)
         && (170..=185).contains(&max_y)
+}
+
+#[derive(Default)]
+struct BeamEdgeLogger {
+    last: Option<BeamDebugSnapshot>,
+    edge_count: u64,
+}
+
+impl BeamEdgeLogger {
+    fn observe(&mut self, amiga: &Amiga) {
+        let snapshot = amiga.current_beam_debug_snapshot();
+        let visible = snapshot.fb_coords.is_some();
+
+        let Some(prev) = self.last else {
+            self.last = Some(snapshot);
+            eprintln!(
+                "[beam] init mc={} v={} h={} hsync={} vsync={} hblank={} vblank={} visible={}",
+                amiga.master_clock,
+                snapshot.vpos,
+                snapshot.hpos_cck,
+                snapshot.sync.hsync,
+                snapshot.sync.vsync,
+                snapshot.hblank,
+                snapshot.vblank,
+                visible
+            );
+            return;
+        };
+
+        let prev_visible = prev.fb_coords.is_some();
+        let mut changes = Vec::with_capacity(5);
+        if prev.sync.hsync != snapshot.sync.hsync {
+            changes.push(format!("hsync={}", snapshot.sync.hsync));
+        }
+        if prev.sync.vsync != snapshot.sync.vsync {
+            changes.push(format!("vsync={}", snapshot.sync.vsync));
+        }
+        if prev.hblank != snapshot.hblank {
+            changes.push(format!("hblank={}", snapshot.hblank));
+        }
+        if prev.vblank != snapshot.vblank {
+            changes.push(format!("vblank={}", snapshot.vblank));
+        }
+        if prev_visible != visible {
+            changes.push(format!("visible={visible}"));
+        }
+
+        if !changes.is_empty() {
+            self.edge_count += 1;
+            eprintln!(
+                "[beam] edge#{:06} mc={} v={} h={} {} fb={:?}",
+                self.edge_count,
+                amiga.master_clock,
+                snapshot.vpos,
+                snapshot.hpos_cck,
+                changes.join(" "),
+                snapshot.fb_coords
+            );
+        }
+
+        self.last = Some(snapshot);
+    }
+}
+
+fn run_frame_with_optional_beam_debug(amiga: &mut Amiga, beam_debug: Option<&mut BeamEdgeLogger>) {
+    let Some(logger) = beam_debug else {
+        amiga.run_frame();
+        return;
+    };
+
+    for _ in 0..machine_amiga::PAL_FRAME_TICKS {
+        amiga.tick();
+        if amiga.master_clock % machine_amiga::TICKS_PER_CCK == 0 {
+            logger.observe(amiga);
+        }
+    }
 }
 
 struct AudioOutput {
@@ -468,6 +553,7 @@ fn write_audio_data_u16(data: &mut [u16], queue: &Arc<Mutex<VecDeque<f32>>>) {
 
 fn run_headless(cli: &CliArgs) {
     let mut amiga = make_amiga(cli);
+    let mut beam_debug = cli.beam_debug.then(BeamEdgeLogger::default);
     let mut all_audio = if cli.audio_path.is_some() {
         Some(Vec::new())
     } else {
@@ -478,7 +564,7 @@ fn run_headless(cli: &CliArgs) {
     let mut frames_executed = 0u32;
 
     for frame_idx in 0..cli.frames {
-        amiga.run_frame();
+        run_frame_with_optional_beam_debug(&mut amiga, beam_debug.as_mut());
         frames_executed = frame_idx + 1;
         let audio = amiga.take_audio_buffer();
         if let Some(buffer) = all_audio.as_mut() {
@@ -489,6 +575,10 @@ fn run_headless(cli: &CliArgs) {
             bench_hit_frame = Some(frames_executed);
             break;
         }
+    }
+
+    if let Some(logger) = &beam_debug {
+        eprintln!("[beam] total edge transitions: {}", logger.edge_count);
     }
 
     if let Some(path) = &cli.screenshot_path {
