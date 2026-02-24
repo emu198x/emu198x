@@ -189,14 +189,33 @@ impl DeniseOcs {
         }
     }
 
-    fn latch_collisions(
-        &mut self,
-        odd_bitplanes_active: bool,
-        even_bitplanes_active: bool,
-        sprite_groups: u8,
-    ) {
+    fn clxcon_bitplane_match(&self, plane_bits_mask: u8, even_planes: bool) -> bool {
+        // CLXCON bit layout:
+        //   ENBP1..ENBP6 = bits 6..11
+        //   MVBP1..MVBP6 = bits 0..5
+        //
+        // Plane numbering is 1-based in the docs, while `plane_bits_mask`
+        // stores bitplane 1 in bit 0, bitplane 6 in bit 5.
+        let plane_indices: [u8; 3] = if even_planes { [1, 3, 5] } else { [0, 2, 4] };
+        for plane_idx in plane_indices {
+            let enabled = (self.clxcon & (1u16 << (6 + plane_idx))) != 0;
+            if !enabled {
+                continue;
+            }
+            let expected = (self.clxcon & (1u16 << plane_idx)) != 0;
+            let actual = (plane_bits_mask & (1u8 << plane_idx)) != 0;
+            if actual != expected {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn latch_collisions(&mut self, plane_bits_mask: u8, sprite_groups: u8) {
+        let odd_bitplanes_match = self.clxcon_bitplane_match(plane_bits_mask, false);
+        let even_bitplanes_match = self.clxcon_bitplane_match(plane_bits_mask, true);
         let mut bits = 0u16;
-        if odd_bitplanes_active && even_bitplanes_active {
+        if odd_bitplanes_match && even_bitplanes_match {
             bits |= 1 << 0;
         }
 
@@ -204,10 +223,10 @@ impl DeniseOcs {
             if (sprite_groups & (1u8 << group)) == 0 {
                 continue;
             }
-            if odd_bitplanes_active {
+            if odd_bitplanes_match {
                 bits |= 1u16 << (1 + group);
             }
-            if even_bitplanes_active {
+            if even_bitplanes_match {
                 bits |= 1u16 << (5 + group);
             }
         }
@@ -329,12 +348,14 @@ impl DeniseOcs {
             let mut raw_color_idx = 0usize;
             let mut pf1_code = 0u8;
             let mut pf2_code = 0u8;
+            let mut plane_bits_mask = 0u8;
             if self.shift_count > 0 {
                 // Compute color index from shifter bits (MSB first)
                 for plane in 0..6 {
                     let bit_set = (self.bpl_shift[plane] & 0x8000) != 0;
                     if bit_set {
                         raw_color_idx |= 1usize << plane;
+                        plane_bits_mask |= 1u8 << plane;
                         if plane & 1 == 0 {
                             pf1_code |= 1u8 << (plane / 2);
                         } else {
@@ -348,7 +369,7 @@ impl DeniseOcs {
 
             let playfield = self.compose_playfield_pixel(raw_color_idx, pf1_code, pf2_code);
             let sprite_group_mask = self.collision_group_mask(beam_x, beam_y);
-            self.latch_collisions(pf1_code != 0, pf2_code != 0, sprite_group_mask);
+            self.latch_collisions(plane_bits_mask, sprite_group_mask);
             let mut color_idx = playfield.visible_color_idx;
             if let Some(sprite_pixel) = self.sprite_pixel(beam_x, beam_y) {
                 if let Some(front_pf) = playfield.front_playfield {

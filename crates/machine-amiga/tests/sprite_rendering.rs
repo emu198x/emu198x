@@ -19,6 +19,11 @@ const DMACON_DMAEN: u16 = 0x0200;
 const DISPLAY_VSTART: u16 = 0x2C;
 const TARGET_HPOS: u16 = 0x14; // Beam X = 40 pixels
 const CLXDAT_ADDR: u32 = 0x00DFF00E;
+const CLXCON_ENSP1: u16 = 0x1000;
+const CLXCON_ENBP1: u16 = 0x0040;
+const CLXCON_ENBP2: u16 = 0x0080;
+const CLXCON_MVBP1: u16 = 0x0001;
+const CLXCON_MVBP2: u16 = 0x0002;
 
 fn rgb12_to_argb32(rgb12: u16) -> u32 {
     let r = ((rgb12 >> 8) & 0xF) as u8;
@@ -329,7 +334,7 @@ fn sprite_group_collision_bit_with_odd_sprite_enabled(enable_ensp1: bool) -> u16
     amiga.denise.spr_datb[2] = 0x0000;
 
     if enable_ensp1 {
-        amiga.write_custom_reg(REG_CLXCON, 0x1000); // ENSP1
+        amiga.write_custom_reg(REG_CLXCON, CLXCON_ENSP1);
     }
 
     position_beam_for_single_render_cck(&mut amiga);
@@ -352,5 +357,69 @@ fn clxcon_ensp1_controls_odd_sprite_group_collisions() {
         enabled & (1 << 9),
         1 << 9,
         "ENSP1 should allow sprite 1 to register group collision with SP23"
+    );
+}
+
+fn clxdat_for_sprite0_with_playfield_bits(
+    clxcon: u16,
+    odd_plane1_set: bool,
+    even_plane2_set: bool,
+) -> u16 {
+    let mut amiga = make_test_amiga();
+    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+
+    amiga.denise.spr_pos[0] = pos;
+    amiga.denise.spr_ctl[0] = ctl;
+    amiga.denise.spr_data[0] = 0x8000;
+    amiga.denise.spr_datb[0] = 0x0000;
+    amiga.write_custom_reg(REG_CLXCON, clxcon);
+    position_beam_for_single_render_cck(&mut amiga);
+
+    if odd_plane1_set {
+        amiga.denise.bpl_shift[0] = 0x8000; // BPL1
+    }
+    if even_plane2_set {
+        amiga.denise.bpl_shift[1] = 0x8000; // BPL2
+    }
+    amiga.denise.shift_count = 1;
+    tick_ccks(&mut amiga, 1);
+
+    read_custom_word_via_cpu_bus(&mut amiga, CLXDAT_ADDR)
+}
+
+#[test]
+fn clxcon_enbp1_mvbp1_filters_odd_bitplane_sprite_collision() {
+    let match_one =
+        clxdat_for_sprite0_with_playfield_bits(CLXCON_ENBP1 | CLXCON_MVBP1, true, false);
+    let mismatch_zero = clxdat_for_sprite0_with_playfield_bits(CLXCON_ENBP1, true, false);
+
+    assert_eq!(
+        match_one & (1 << 1),
+        1 << 1,
+        "odd bitplane collision should register when ENBP1 matches MVBP1"
+    );
+    assert_eq!(
+        mismatch_zero & (1 << 1),
+        0,
+        "odd bitplane collision should be filtered out when BPL1 bit mismatches MVBP1"
+    );
+}
+
+#[test]
+fn clxcon_enbp2_mvbp2_filters_even_bitplane_sprite_collision() {
+    let match_one =
+        clxdat_for_sprite0_with_playfield_bits(CLXCON_ENBP2 | CLXCON_MVBP2, false, true);
+    let mismatch_zero = clxdat_for_sprite0_with_playfield_bits(CLXCON_ENBP2, false, true);
+
+    assert_eq!(
+        match_one & (1 << 5),
+        1 << 5,
+        "even bitplane collision should register when ENBP2 matches MVBP2"
+    );
+    assert_eq!(
+        mismatch_zero & (1 << 5),
+        0,
+        "even bitplane collision should be filtered out when BPL2 bit mismatches MVBP2"
     );
 }
