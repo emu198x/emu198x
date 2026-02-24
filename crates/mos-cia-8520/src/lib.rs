@@ -43,6 +43,13 @@ pub struct Cia8520 {
     tod_latch: u32,
     tod_latched: bool,
 
+    // Timer read latch: reading low byte latches the corresponding high byte
+    // until the high byte register is read.
+    timer_a_read_hi_latch: u8,
+    timer_a_read_hi_latched: bool,
+    timer_b_read_hi_latch: u8,
+    timer_b_read_hi_latched: bool,
+
     // TOD write halt: writing the MSB (reg A) stops the counter.
     // Writing the LSB (reg 8) restarts it. This prevents the counter
     // from advancing during a multi-byte write.
@@ -78,6 +85,10 @@ impl Cia8520 {
             tod_alarm: 0,
             tod_latch: 0,
             tod_latched: false,
+            timer_a_read_hi_latch: 0xFF,
+            timer_a_read_hi_latched: false,
+            timer_b_read_hi_latch: 0xFF,
+            timer_b_read_hi_latched: false,
             tod_halted: false,
         }
     }
@@ -142,10 +153,34 @@ impl Cia8520 {
             0x01 => (self.port_b & self.ddr_b) | (self.external_b & !self.ddr_b),
             0x02 => self.ddr_a,
             0x03 => self.ddr_b,
-            0x04 => self.timer_a as u8,
-            0x05 => (self.timer_a >> 8) as u8,
-            0x06 => self.timer_b as u8,
-            0x07 => (self.timer_b >> 8) as u8,
+            0x04 => {
+                self.timer_a_read_hi_latch = (self.timer_a >> 8) as u8;
+                self.timer_a_read_hi_latched = true;
+                self.timer_a as u8
+            }
+            0x05 => {
+                let hi = if self.timer_a_read_hi_latched {
+                    self.timer_a_read_hi_latch
+                } else {
+                    (self.timer_a >> 8) as u8
+                };
+                self.timer_a_read_hi_latched = false;
+                hi
+            }
+            0x06 => {
+                self.timer_b_read_hi_latch = (self.timer_b >> 8) as u8;
+                self.timer_b_read_hi_latched = true;
+                self.timer_b as u8
+            }
+            0x07 => {
+                let hi = if self.timer_b_read_hi_latched {
+                    self.timer_b_read_hi_latch
+                } else {
+                    (self.timer_b >> 8) as u8
+                };
+                self.timer_b_read_hi_latched = false;
+                hi
+            }
             // TOD read with latch: reading MSB freezes snapshot,
             // reading LSB releases latch.
             0x08 => {
@@ -242,7 +277,8 @@ impl Cia8520 {
                 }
             }
             0x0E => {
-                self.cra = value;
+                // LOAD (bit 4) is a strobe and does not read back as a latched bit.
+                self.cra = value & !0x10;
                 self.timer_a_running = value & 0x01 != 0;
                 self.timer_a_oneshot = value & 0x08 != 0;
                 if value & 0x10 != 0 {
@@ -250,7 +286,8 @@ impl Cia8520 {
                 }
             }
             0x0F => {
-                self.crb = value;
+                // LOAD (bit 4) is a strobe and does not read back as a latched bit.
+                self.crb = value & !0x10;
                 self.timer_b_running = value & 0x01 != 0;
                 self.timer_b_oneshot = value & 0x08 != 0;
                 if value & 0x10 != 0 {
@@ -361,7 +398,69 @@ impl Cia8520 {
         self.crb = 0;
         self.sdr = 0;
         self.tod_latched = false;
+        self.timer_a_read_hi_latched = false;
+        self.timer_b_read_hi_latched = false;
         self.tod_halted = false;
         // TOD counter/alarm are not reset by hardware reset
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timer_low_read_latches_high_until_high_read() {
+        let mut cia = Cia8520::new("T");
+        cia.timer_a = 0x1234;
+        cia.timer_a_running = true;
+        cia.cra = 0x01;
+
+        assert_eq!(cia.read(0x04), 0x34);
+        cia.tick();
+        assert_eq!(cia.timer_a, 0x1233);
+
+        // High byte returns the value latched by the earlier low-byte read.
+        assert_eq!(cia.read(0x05), 0x12);
+
+        // After the latch is consumed, reads return the live high byte.
+        cia.timer_a = 0xABCD;
+        assert_eq!(cia.read(0x05), 0xAB);
+    }
+
+    #[test]
+    fn timer_b_low_read_latches_high_until_high_read() {
+        let mut cia = Cia8520::new("T");
+        cia.timer_b = 0x5678;
+        cia.timer_b_running = true;
+        cia.crb = 0x01;
+
+        assert_eq!(cia.read(0x06), 0x78);
+        cia.tick();
+        assert_eq!(cia.timer_b, 0x5677);
+        assert_eq!(cia.read(0x07), 0x56);
+    }
+
+    #[test]
+    fn cra_crb_load_bit_is_strobe_and_reads_back_clear() {
+        let mut cia = Cia8520::new("T");
+
+        cia.write(0x04, 0x34);
+        cia.write(0x05, 0x12);
+        cia.write(0x0E, 0x10); // LOAD strobe only
+        assert_eq!(cia.read(0x0E) & 0x10, 0);
+        assert!(cia.timer_a_force_load);
+        cia.tick();
+        assert_eq!(cia.timer_a, 0x1234);
+        assert!(!cia.timer_a_force_load);
+
+        cia.write(0x06, 0x78);
+        cia.write(0x07, 0x56);
+        cia.write(0x0F, 0x10); // LOAD strobe only
+        assert_eq!(cia.read(0x0F) & 0x10, 0);
+        assert!(cia.timer_b_force_load);
+        cia.tick();
+        assert_eq!(cia.timer_b, 0x5678);
+        assert!(!cia.timer_b_force_load);
     }
 }
