@@ -4,6 +4,8 @@
 //! sources to 6 CPU interrupt levels. It also handles audio channel DMA and
 //! floppy disk DMA (currently stubbed for boot-level emulation).
 
+use std::collections::VecDeque;
+
 const AUDIO_DMA_MASTER: u16 = 0x0200;
 const AUDIO_DMA_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
 const AUDIO_DMA_RETURN_LATENCY_CCK: u8 = 14;
@@ -291,10 +293,13 @@ pub struct Paula8364 {
     pub dsklen_prev: u16,
     pub dsksync: u16,
     pub dskdatr: u16,
+    pub dskdat: u16,
     dskbytr_data: u8,
     dskbytr_next_data: Option<u8>,
     dskbytr_valid: bool,
     dskbytr_wordequal: bool,
+    dskdat_queue: VecDeque<u16>,
+    disk_write_dma_log: Vec<u16>,
     pub disk_dma_pending: bool,
     audio: [AudioChannel; 4],
 }
@@ -309,10 +314,13 @@ impl Paula8364 {
             dsklen_prev: 0,
             dsksync: 0,
             dskdatr: 0,
+            dskdat: 0,
             dskbytr_data: 0,
             dskbytr_next_data: None,
             dskbytr_valid: false,
             dskbytr_wordequal: false,
+            dskdat_queue: VecDeque::new(),
+            disk_write_dma_log: Vec::new(),
             disk_dma_pending: false,
             audio: [AudioChannel::default(); 4],
         }
@@ -590,6 +598,19 @@ impl Paula8364 {
         }
     }
 
+    pub fn write_dskdat(&mut self, val: u16) {
+        self.dskdat = val;
+        self.dskdat_queue.push_back(val);
+    }
+
+    pub fn take_dskdat_queued_word(&mut self) -> Option<u16> {
+        self.dskdat_queue.pop_front()
+    }
+
+    pub fn dskdat_queue_len(&self) -> usize {
+        self.dskdat_queue.len()
+    }
+
     pub fn note_disk_read_word(&mut self, word: u16) -> bool {
         self.dskdatr = word;
         self.dskbytr_data = (word >> 8) as u8;
@@ -631,6 +652,18 @@ impl Paula8364 {
             self.dskbytr_wordequal = false;
         }
         value
+    }
+
+    pub fn note_disk_write_dma_word(&mut self, word: u16) {
+        self.disk_write_dma_log.push(word);
+    }
+
+    pub fn disk_write_dma_log(&self) -> &[u16] {
+        &self.disk_write_dma_log
+    }
+
+    pub fn clear_disk_write_dma_log(&mut self) {
+        self.disk_write_dma_log.clear();
     }
 
     pub fn compute_ipl(&self) -> u8 {
@@ -1057,5 +1090,19 @@ mod tests {
             0,
             "WORDEQUAL should clear after the matched word is consumed"
         );
+    }
+
+    #[test]
+    fn dskdat_writes_queue_in_program_order() {
+        let mut paula = Paula8364::new();
+
+        paula.write_dskdat(0x1234);
+        paula.write_dskdat(0xABCD);
+
+        assert_eq!(paula.dskdat, 0xABCD);
+        assert_eq!(paula.dskdat_queue_len(), 2);
+        assert_eq!(paula.take_dskdat_queued_word(), Some(0x1234));
+        assert_eq!(paula.take_dskdat_queued_word(), Some(0xABCD));
+        assert_eq!(paula.take_dskdat_queued_word(), None);
     }
 }

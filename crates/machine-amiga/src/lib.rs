@@ -521,8 +521,14 @@ impl Amiga {
                 }
             }
         } else {
-            // Write-side disk DMA is still a placeholder path; preserve the
-            // previous completion behavior until the write data path exists.
+            let mut addr = self.agnus.dsk_pt;
+            let hi = self.memory.read_chip_byte(addr);
+            addr = addr.wrapping_add(1);
+            let lo = self.memory.read_chip_byte(addr);
+            addr = addr.wrapping_add(1);
+            let word = (u16::from(hi) << 8) | u16::from(lo);
+            self.paula.note_disk_write_dma_word(word);
+            self.agnus.dsk_pt = addr;
             dma_word_completed = true;
         }
 
@@ -942,6 +948,7 @@ fn write_custom_register(
         0x020 => agnus.dsk_pt = (agnus.dsk_pt & 0x0000FFFF) | (u32::from(val) << 16),
         0x022 => agnus.dsk_pt = (agnus.dsk_pt & 0xFFFF0000) | u32::from(val & 0xFFFE),
         0x024 => paula.write_dsklen(val),
+        0x026 => paula.write_dskdat(val),
         0x07E => paula.dsksync = val,
 
         // Serial (discard)

@@ -9,6 +9,7 @@ const CUSTOM_DSKBYTR_ADDR: u32 = 0x00DFF01A;
 const REG_DSKPTH: u16 = 0x020;
 const REG_DSKPTL: u16 = 0x022;
 const REG_DSKLEN: u16 = 0x024;
+const REG_DSKDAT: u16 = 0x026;
 const REG_DMACON: u16 = 0x096;
 const REG_ADKCON: u16 = 0x09E;
 const REG_DSKSYNC: u16 = 0x07E;
@@ -489,4 +490,78 @@ fn disk_dma_read_stream_wraps_at_end_of_mfm_track() {
     ];
     assert_eq!(wrapped0, [expected_mfm[0], expected_mfm[1]]);
     assert_eq!(wrapped1, [expected_mfm[2], expected_mfm[3]]);
+}
+
+#[test]
+fn disk_dma_write_is_slot_timed_and_captures_memory_words() {
+    let mut amiga = make_test_amiga();
+
+    let src = 0x0000_3C00u32;
+    let words = [0x1122u16, 0x3344u16, 0x5566u16, 0x7788u16];
+    for (i, word) in words.iter().copied().enumerate() {
+        let base = src + (i as u32) * 2;
+        amiga.memory.write_byte(base, (word >> 8) as u8);
+        amiga.memory.write_byte(base + 1, word as u8);
+    }
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0;
+    write_dsk_ptr(&mut amiga, src);
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_DSKEN);
+    amiga.paula.clear_disk_write_dma_log();
+    amiga.paula.intreq &= !INTREQ_DSKBLK;
+
+    let word_count = words.len() as u16;
+    amiga.write_custom_reg(REG_DSKLEN, 0xC000 | word_count); // DMA enable + write
+    amiga.write_custom_reg(REG_DSKLEN, 0xC000 | word_count);
+
+    // Still slot-timed: no progress before first disk DMA slot.
+    tick_ccks(&mut amiga, 4);
+    assert_eq!(amiga.agnus.dsk_pt, src);
+    assert!(amiga.paula.disk_write_dma_log().is_empty());
+
+    let mut elapsed_ccks = 4u32;
+    let mut disk_slot_grants = 0u32;
+    while (amiga.paula.intreq & INTREQ_DSKBLK) == 0 && elapsed_ccks < 5_000 {
+        let plan = amiga.agnus.cck_bus_plan();
+        if plan.disk_dma_slot_granted {
+            disk_slot_grants += 1;
+        }
+
+        let ptr_before = amiga.agnus.dsk_pt;
+        tick_ccks(&mut amiga, 1);
+        elapsed_ccks += 1;
+        let ptr_after = amiga.agnus.dsk_pt;
+
+        let delta = ptr_after.wrapping_sub(ptr_before);
+        if delta != 0 {
+            assert_eq!(
+                delta, 2,
+                "write DMA should move exactly one word per disk slot"
+            );
+            assert!(
+                plan.disk_dma_slot_granted,
+                "write DMA advanced DSKPT outside an Agnus disk slot"
+            );
+        }
+    }
+
+    assert_ne!(amiga.paula.intreq & INTREQ_DSKBLK, 0);
+    assert_eq!(amiga.paula.disk_write_dma_log(), &words);
+    assert_eq!(disk_slot_grants, words.len() as u32);
+    assert_eq!(amiga.agnus.dsk_pt, src + (words.len() as u32) * 2);
+}
+
+#[test]
+fn dskdat_custom_writes_queue_in_paula() {
+    let mut amiga = make_test_amiga();
+
+    amiga.write_custom_reg(REG_DSKDAT, 0x1234);
+    amiga.write_custom_reg(REG_DSKDAT, 0xABCD);
+
+    assert_eq!(amiga.paula.dskdat, 0xABCD);
+    assert_eq!(amiga.paula.dskdat_queue_len(), 2);
+    assert_eq!(amiga.paula.take_dskdat_queued_word(), Some(0x1234));
+    assert_eq!(amiga.paula.take_dskdat_queued_word(), Some(0xABCD));
+    assert_eq!(amiga.paula.take_dskdat_queued_word(), None);
 }
