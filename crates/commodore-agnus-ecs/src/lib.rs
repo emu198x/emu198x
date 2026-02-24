@@ -17,6 +17,8 @@ pub use commodore_agnus_ocs::{
 /// This mask is derived from the HRM `BEAMCON0` bit ordering (HARDDIS..HSYTRUE)
 /// where `VARBEAMEN` appears after `VARHSYEN`.
 pub const BEAMCON0_VARBEAMEN: u16 = 0x0100;
+/// `BEAMCON0` bit disabling hardwired horizontal/vertical blanking.
+pub const BEAMCON0_HARDDIS: u16 = 0x8000;
 /// `BEAMCON0` bit enabling programmable vertical blanking window (`VBSTRT/VBSTOP`).
 pub const BEAMCON0_VARVBEN: u16 = 0x2000;
 
@@ -26,6 +28,8 @@ pub struct AgnusEcs {
     beamcon0: u16,
     htotal: u16,
     vtotal: u16,
+    hbstrt: u16,
+    hbstop: u16,
     vbstrt: u16,
     vbstop: u16,
     diwhigh: u16,
@@ -40,6 +44,8 @@ impl AgnusEcs {
             beamcon0: 0,
             htotal: 0,
             vtotal: 0,
+            hbstrt: 0,
+            hbstop: 0,
             vbstrt: 0,
             vbstop: 0,
             diwhigh: 0,
@@ -56,6 +62,8 @@ impl AgnusEcs {
             beamcon0: 0,
             htotal: 0,
             vtotal: 0,
+            hbstrt: 0,
+            hbstop: 0,
             vbstrt: 0,
             vbstop: 0,
             diwhigh: 0,
@@ -132,6 +140,24 @@ impl AgnusEcs {
     }
 
     #[must_use]
+    pub const fn hbstrt(&self) -> u16 {
+        self.hbstrt
+    }
+
+    pub fn write_hbstrt(&mut self, val: u16) {
+        self.hbstrt = val;
+    }
+
+    #[must_use]
+    pub const fn hbstop(&self) -> u16 {
+        self.hbstop
+    }
+
+    pub fn write_hbstop(&mut self, val: u16) {
+        self.hbstop = val;
+    }
+
+    #[must_use]
     pub const fn vbstrt(&self) -> u16 {
         self.vbstrt
     }
@@ -170,6 +196,11 @@ impl AgnusEcs {
         (self.beamcon0 & BEAMCON0_VARVBEN) != 0
     }
 
+    #[must_use]
+    pub const fn harddis_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_HARDDIS) != 0
+    }
+
     /// Coarse ECS vertical blanking window check used by `machine-amiga` display
     /// output gating while fuller sync/blank generator behavior is pending.
     #[must_use]
@@ -187,6 +218,31 @@ impl AgnusEcs {
             vpos >= start && vpos < stop
         } else {
             vpos >= start || vpos < stop
+        }
+    }
+
+    /// Coarse ECS horizontal blanking window check used by `machine-amiga`
+    /// display output gating while fuller sync/blank generator behavior is
+    /// pending.
+    ///
+    /// HRM exposes `HBSTRT/HBSTOP` without a dedicated "VARHBEN" bit; this
+    /// helper uses `BEAMCON0.HARDDIS` as the coarse gate for programmable
+    /// blank-window behavior in the current emulator beam model.
+    #[must_use]
+    pub fn hblank_window_active(&self, hpos: u16) -> bool {
+        if !self.harddis_enabled() {
+            return false;
+        }
+
+        let start = self.hbstrt & 0x01FF;
+        let stop = self.hbstop & 0x01FF;
+        if start == stop {
+            return false;
+        }
+        if start < stop {
+            hpos >= start && hpos < stop
+        } else {
+            hpos >= start || hpos < stop
         }
     }
 
@@ -237,7 +293,7 @@ impl From<AgnusEcs> for InnerAgnusOcs {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgnusEcs, BEAMCON0_VARBEAMEN, BEAMCON0_VARVBEN};
+    use super::{AgnusEcs, BEAMCON0_HARDDIS, BEAMCON0_VARBEAMEN, BEAMCON0_VARVBEN};
 
     #[test]
     fn wrapper_uses_ocs_baseline_state_for_now() {
@@ -257,6 +313,8 @@ mod tests {
         assert_eq!(agnus.beamcon0(), 0);
         assert_eq!(agnus.htotal(), 0);
         assert_eq!(agnus.vtotal(), 0);
+        assert_eq!(agnus.hbstrt(), 0);
+        assert_eq!(agnus.hbstop(), 0);
         assert_eq!(agnus.vbstrt(), 0);
         assert_eq!(agnus.vbstop(), 0);
         assert_eq!(agnus.diwhigh(), 0);
@@ -264,6 +322,8 @@ mod tests {
         agnus.write_beamcon0(0x0020);
         agnus.write_htotal(0x0033);
         agnus.write_vtotal(0x0123);
+        agnus.write_hbstrt(0x0010);
+        agnus.write_hbstop(0x0020);
         agnus.write_vbstrt(0x0040);
         agnus.write_vbstop(0x0060);
         agnus.write_diwhigh(0xA5A5);
@@ -271,6 +331,8 @@ mod tests {
         assert_eq!(agnus.beamcon0(), 0x0020);
         assert_eq!(agnus.htotal(), 0x0033);
         assert_eq!(agnus.vtotal(), 0x0123);
+        assert_eq!(agnus.hbstrt(), 0x0010);
+        assert_eq!(agnus.hbstop(), 0x0020);
         assert_eq!(agnus.vbstrt(), 0x0040);
         assert_eq!(agnus.vbstop(), 0x0060);
         assert_eq!(agnus.diwhigh(), 0xA5A5);
@@ -324,5 +386,28 @@ mod tests {
         assert!(agnus.vblank_window_active(301));
         assert!(agnus.vblank_window_active(10));
         assert!(!agnus.vblank_window_active(200));
+    }
+
+    #[test]
+    fn harddis_uses_programmed_horizontal_blank_window() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(10);
+        agnus.write_hbstop(20);
+        agnus.write_beamcon0(BEAMCON0_HARDDIS);
+        assert!(!agnus.hblank_window_active(9));
+        assert!(agnus.hblank_window_active(10));
+        assert!(agnus.hblank_window_active(19));
+        assert!(!agnus.hblank_window_active(20));
+    }
+
+    #[test]
+    fn harddis_hblank_window_wraps_across_line_zero() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(220);
+        agnus.write_hbstop(10);
+        agnus.write_beamcon0(BEAMCON0_HARDDIS);
+        assert!(agnus.hblank_window_active(221));
+        assert!(agnus.hblank_window_active(5));
+        assert!(!agnus.hblank_window_active(100));
     }
 }

@@ -677,6 +677,9 @@ impl Amiga {
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
         let beam_x = hpos_cck.wrapping_mul(2);
         let fb_y = if self.chipset == AmigaChipset::Ecs {
+            if self.agnus.hblank_window_active(hpos_cck) {
+                return None;
+            }
             let diwhigh = self.agnus.diwhigh();
             let vstart = (((diwhigh & 0x0007) as u16) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
             let vstop =
@@ -910,6 +913,8 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x01E => self.paula.intreq,
                     0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),
                     0x1C0 if self.chipset == AmigaChipset::Ecs => self.agnus.htotal(),
+                    0x1C4 if self.chipset == AmigaChipset::Ecs => self.agnus.hbstrt(),
+                    0x1C6 if self.chipset == AmigaChipset::Ecs => self.agnus.hbstop(),
                     0x1C8 if self.chipset == AmigaChipset::Ecs => self.agnus.vtotal(),
                     0x1CC if self.chipset == AmigaChipset::Ecs => self.agnus.vbstrt(),
                     0x1CE if self.chipset == AmigaChipset::Ecs => self.agnus.vbstop(),
@@ -1060,6 +1065,8 @@ fn write_custom_register(
 
         // ECS display/beam extensions (latch-only for now, gated off on OCS)
         0x1C0 if chipset == AmigaChipset::Ecs => agnus.write_htotal(val),
+        0x1C4 if chipset == AmigaChipset::Ecs => agnus.write_hbstrt(val),
+        0x1C6 if chipset == AmigaChipset::Ecs => agnus.write_hbstop(val),
         0x1C8 if chipset == AmigaChipset::Ecs => agnus.write_vtotal(val),
         0x1CC if chipset == AmigaChipset::Ecs => agnus.write_vbstrt(val),
         0x1CE if chipset == AmigaChipset::Ecs => agnus.write_vbstop(val),
@@ -1670,6 +1677,8 @@ mod tests {
     fn ocs_custom_reads_for_ecs_beam_registers_return_zero() {
         let mut amiga = Amiga::new(dummy_kickstart());
         amiga.write_custom_reg(0x1C0, 0x0033);
+        amiga.write_custom_reg(0x1C4, 0x0011);
+        amiga.write_custom_reg(0x1C6, 0x0022);
         amiga.write_custom_reg(0x1C8, 0x0123);
         amiga.write_custom_reg(0x1CC, 0x0044);
         amiga.write_custom_reg(0x1CE, 0x0055);
@@ -1677,6 +1686,8 @@ mod tests {
         amiga.write_custom_reg(0x1E4, 0x89AB);
 
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C4), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C6), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C8), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CC), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CE), 0);
@@ -1692,6 +1703,8 @@ mod tests {
             kickstart: dummy_kickstart(),
         });
         amiga.write_custom_reg(0x1C0, 0x0033);
+        amiga.write_custom_reg(0x1C4, 0x0011);
+        amiga.write_custom_reg(0x1C6, 0x0022);
         amiga.write_custom_reg(0x1C8, 0x0123);
         amiga.write_custom_reg(0x1CC, 0x0044);
         amiga.write_custom_reg(0x1CE, 0x0055);
@@ -1699,6 +1712,8 @@ mod tests {
         amiga.write_custom_reg(0x1E4, 0x89AB);
 
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0x0033);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C4), 0x0011);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C6), 0x0022);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C8), 0x0123);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CC), 0x0044);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1CE), 0x0055);
@@ -1754,5 +1769,27 @@ mod tests {
 
         assert_eq!(amiga.beam_to_fb(60, 8), None);
         assert!(amiga.beam_to_fb(70, 8).is_some());
+    }
+
+    #[test]
+    fn ecs_harddis_hbstrt_hbstop_blank_beam_to_fb_inside_programmed_horizontal_window() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x08E, 0x2C00); // VSTART=$2C, HSTART=$00
+        amiga.write_custom_reg(0x090, 0x64FF); // VSTOP =$64, HSTOP =$FF
+        amiga.agnus.ddfstrt = 0;
+
+        assert!(amiga.beam_to_fb(60, 10).is_some());
+
+        amiga.write_custom_reg(0x1C4, 8); // HBSTRT
+        amiga.write_custom_reg(0x1C6, 12); // HBSTOP
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_HARDDIS);
+
+        assert_eq!(amiga.beam_to_fb(60, 10), None);
+        assert!(amiga.beam_to_fb(60, 20).is_some());
     }
 }
