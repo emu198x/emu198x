@@ -15,6 +15,8 @@ pub struct DeniseOcs {
     pub bplcon0: u16,
     pub bplcon1: u16,
     pub bplcon2: u16,
+    pub clxcon: u16,
+    pub clxdat: u16,
     pub spr_pos: [u16; 8],
     pub spr_ctl: [u16; 8],
     pub spr_data: [u16; 8],
@@ -50,6 +52,8 @@ impl DeniseOcs {
             bplcon0: 0,
             bplcon1: 0,
             bplcon2: 0,
+            clxcon: 0,
+            clxdat: 0,
             spr_pos: [0; 8],
             spr_ctl: [0; 8],
             spr_data: [0; 8],
@@ -67,6 +71,12 @@ impl DeniseOcs {
         if idx < 6 {
             self.bpl_data[idx] = val;
         }
+    }
+
+    pub fn read_clxdat(&mut self) -> u16 {
+        let value = self.clxdat;
+        self.clxdat = 0;
+        value
     }
 
     fn sprite_hstart(pos: u16, ctl: u16) -> u16 {
@@ -110,7 +120,7 @@ impl DeniseOcs {
         // Minimal OCS sprite overlay:
         // - attached pairs (1->0, 3->2, 5->4, 7->6) produce 4-bit colors from
         //   the full sprite palette range (COLOR17..COLOR31, 0 => transparent)
-        // - dual-playfield interactions/collision are handled elsewhere
+        // - collision detection is handled separately from display priority
         // - lower sprite number wins on overlap (pair priority by lower sprite)
         for sprite in 0..8usize {
             if sprite & 1 == 1 {
@@ -150,6 +160,79 @@ impl DeniseOcs {
             });
         }
         None
+    }
+
+    fn collision_group_mask(&self, beam_x: u32, beam_y: u32) -> u8 {
+        let mut mask = 0u8;
+        for sprite in 0..8usize {
+            let Some(code) = self.sprite_code_at(sprite, beam_x, beam_y) else {
+                continue;
+            };
+            if code == 0 {
+                continue;
+            }
+            let group = sprite / 2;
+            if (sprite & 1) == 0 || self.clxcon_odd_sprite_enabled(sprite) {
+                mask |= 1u8 << group;
+            }
+        }
+        mask
+    }
+
+    fn clxcon_odd_sprite_enabled(&self, sprite: usize) -> bool {
+        match sprite {
+            1 => (self.clxcon & 0x1000) != 0, // ENSP1
+            3 => (self.clxcon & 0x2000) != 0, // ENSP3
+            5 => (self.clxcon & 0x4000) != 0, // ENSP5
+            7 => (self.clxcon & 0x8000) != 0, // ENSP7
+            _ => true,
+        }
+    }
+
+    fn latch_collisions(
+        &mut self,
+        odd_bitplanes_active: bool,
+        even_bitplanes_active: bool,
+        sprite_groups: u8,
+    ) {
+        let mut bits = 0u16;
+        if odd_bitplanes_active && even_bitplanes_active {
+            bits |= 1 << 0;
+        }
+
+        for group in 0..4u8 {
+            if (sprite_groups & (1u8 << group)) == 0 {
+                continue;
+            }
+            if odd_bitplanes_active {
+                bits |= 1u16 << (1 + group);
+            }
+            if even_bitplanes_active {
+                bits |= 1u16 << (5 + group);
+            }
+        }
+
+        // Sprite pair-group collisions: SP01/SP23/SP45/SP67
+        if (sprite_groups & 0b0011) == 0b0011 {
+            bits |= 1 << 9;
+        }
+        if (sprite_groups & 0b0101) == 0b0101 {
+            bits |= 1 << 10;
+        }
+        if (sprite_groups & 0b1001) == 0b1001 {
+            bits |= 1 << 11;
+        }
+        if (sprite_groups & 0b0110) == 0b0110 {
+            bits |= 1 << 12;
+        }
+        if (sprite_groups & 0b1010) == 0b1010 {
+            bits |= 1 << 13;
+        }
+        if (sprite_groups & 0b1100) == 0b1100 {
+            bits |= 1 << 14;
+        }
+
+        self.clxdat |= bits;
     }
 
     fn sprite_has_priority_over_playfield(
@@ -264,6 +347,8 @@ impl DeniseOcs {
             }
 
             let playfield = self.compose_playfield_pixel(raw_color_idx, pf1_code, pf2_code);
+            let sprite_group_mask = self.collision_group_mask(beam_x, beam_y);
+            self.latch_collisions(pf1_code != 0, pf2_code != 0, sprite_group_mask);
             let mut color_idx = playfield.visible_color_idx;
             if let Some(sprite_pixel) = self.sprite_pixel(beam_x, beam_y) {
                 if let Some(front_pf) = playfield.front_playfield {

@@ -1,9 +1,11 @@
 use machine_amiga::memory::ROM_BASE;
-use machine_amiga::Amiga;
 use machine_amiga::TICKS_PER_CCK;
+use machine_amiga::{Amiga, AmigaBusWrapper};
+use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
 const REG_DMACON: u16 = 0x096;
 const REG_DDFSTRT: u16 = 0x092;
+const REG_CLXCON: u16 = 0x098;
 const REG_BPLCON0: u16 = 0x100;
 const REG_BPLCON2: u16 = 0x104;
 const REG_SPR0PTH: u16 = 0x120;
@@ -16,6 +18,7 @@ const DMACON_DMAEN: u16 = 0x0200;
 
 const DISPLAY_VSTART: u16 = 0x2C;
 const TARGET_HPOS: u16 = 0x14; // Beam X = 40 pixels
+const CLXDAT_ADDR: u32 = 0x00DFF00E;
 
 fn rgb12_to_argb32(rgb12: u16) -> u32 {
     let r = ((rgb12 >> 8) & 0xF) as u8;
@@ -99,6 +102,37 @@ fn setup_sprite_render_baseline(amiga: &mut Amiga) {
 
 fn run_to_render_cck(amiga: &mut Amiga) {
     tick_until_vh(amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 1024);
+}
+
+fn position_beam_for_single_render_cck(amiga: &mut Amiga) {
+    amiga.write_custom_reg(REG_DDFSTRT, 0);
+    amiga.agnus.vpos = DISPLAY_VSTART + 1;
+    amiga.agnus.hpos = TARGET_HPOS;
+}
+
+fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
+    let mut bus = AmigaBusWrapper {
+        agnus: &mut amiga.agnus,
+        memory: &mut amiga.memory,
+        denise: &mut amiga.denise,
+        copper: &mut amiga.copper,
+        cia_a: &mut amiga.cia_a,
+        cia_b: &mut amiga.cia_b,
+        paula: &mut amiga.paula,
+        floppy: &mut amiga.floppy,
+        keyboard: &mut amiga.keyboard,
+    };
+    match M68kBus::poll_cycle(
+        &mut bus,
+        addr,
+        FunctionCode::SupervisorData,
+        true,
+        true,
+        None,
+    ) {
+        BusStatus::Ready(v) => v,
+        other => panic!("expected ready custom register read, got {other:?}"),
+    }
 }
 
 #[test]
@@ -244,4 +278,79 @@ fn dual_playfield_pf2pri_and_pf2p_priority_affect_sprite_visibility() {
 
     assert_eq!(hidden, rgb12_to_argb32(0x0F0));
     assert_eq!(shown, rgb12_to_argb32(0xF00));
+}
+
+#[test]
+fn clxdat_latches_pf_and_sprite_collisions_and_clears_on_read() {
+    let mut amiga = make_test_amiga();
+    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+
+    amiga.denise.spr_pos[0] = pos;
+    amiga.denise.spr_ctl[0] = ctl;
+    amiga.denise.spr_data[0] = 0x8000;
+    amiga.denise.spr_datb[0] = 0x0000;
+    amiga.write_custom_reg(REG_BPLCON0, 0x0400); // DBLPF
+
+    position_beam_for_single_render_cck(&mut amiga);
+
+    // Both odd/even bitplane groups active on this pixel.
+    amiga.denise.bpl_shift[0] = 0x8000; // odd bitplanes active
+    amiga.denise.bpl_shift[1] = 0x8000; // even bitplanes active
+    amiga.denise.shift_count = 1;
+    tick_ccks(&mut amiga, 1);
+
+    let clxdat = read_custom_word_via_cpu_bus(&mut amiga, CLXDAT_ADDR);
+    assert_eq!(
+        clxdat & ((1 << 0) | (1 << 1) | (1 << 5)),
+        (1 << 0) | (1 << 1) | (1 << 5),
+        "CLXDAT should latch PF1<->PF2 and PF1/PF2 vs SP01 collisions"
+    );
+
+    let cleared = read_custom_word_via_cpu_bus(&mut amiga, CLXDAT_ADDR);
+    assert_eq!(cleared, 0, "CLXDAT should clear after read");
+}
+
+fn sprite_group_collision_bit_with_odd_sprite_enabled(enable_ensp1: bool) -> u16 {
+    let mut amiga = make_test_amiga();
+    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+
+    // Group 0 collision source: sprite 1 only (odd sprite)
+    amiga.denise.spr_pos[1] = pos;
+    amiga.denise.spr_ctl[1] = ctl;
+    amiga.denise.spr_data[1] = 0x8000;
+    amiga.denise.spr_datb[1] = 0x0000;
+
+    // Group 1 collision source: sprite 2 (even sprite)
+    amiga.denise.spr_pos[2] = pos;
+    amiga.denise.spr_ctl[2] = ctl;
+    amiga.denise.spr_data[2] = 0x8000;
+    amiga.denise.spr_datb[2] = 0x0000;
+
+    if enable_ensp1 {
+        amiga.write_custom_reg(REG_CLXCON, 0x1000); // ENSP1
+    }
+
+    position_beam_for_single_render_cck(&mut amiga);
+    tick_ccks(&mut amiga, 1);
+
+    read_custom_word_via_cpu_bus(&mut amiga, CLXDAT_ADDR)
+}
+
+#[test]
+fn clxcon_ensp1_controls_odd_sprite_group_collisions() {
+    let disabled = sprite_group_collision_bit_with_odd_sprite_enabled(false);
+    let enabled = sprite_group_collision_bit_with_odd_sprite_enabled(true);
+
+    assert_eq!(
+        disabled & (1 << 9),
+        0,
+        "sprite 1 should be ignored without ENSP1"
+    );
+    assert_eq!(
+        enabled & (1 << 9),
+        1 << 9,
+        "ENSP1 should allow sprite 1 to register group collision with SP23"
+    );
 }

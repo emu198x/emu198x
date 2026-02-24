@@ -725,6 +725,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x004 => (self.agnus.vpos >> 8) & 1,
                     0x006 => ((self.agnus.vpos & 0xFF) << 8) | (self.agnus.hpos & 0xFF),
                     0x00A | 0x00C => 0,
+                    0x00E => self.denise.read_clxdat(),
                     0x010 => self.paula.adkcon,
                     0x016 => 0xFF00,
                     0x018 => 0x39FF,
@@ -852,6 +853,7 @@ fn write_custom_register(
                 agnus.dmacon &= !(val & 0x7FFF);
             }
         }
+        0x098 => denise.clxcon = val,
 
         // Interrupts
         0x09A => paula.write_intena(val),
