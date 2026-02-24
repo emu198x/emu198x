@@ -68,7 +68,7 @@ struct DiskDmaRuntime {
 ///
 /// This is intended for debug/test visibility while fuller ECS sync generation
 /// behavior is still being introduced.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BeamSyncState {
     pub hsync: bool,
     pub vsync: bool,
@@ -91,6 +91,7 @@ pub struct Amiga {
     audio_buffer: Vec<f32>,
     disk_dma_runtime: Option<DiskDmaRuntime>,
     sprite_dma_phase: [u8; 8],
+    beam_sync_state: BeamSyncState,
 }
 
 impl Amiga {
@@ -172,6 +173,7 @@ impl Amiga {
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
             disk_dma_runtime: None,
             sprite_dma_phase: [0; 8],
+            beam_sync_state: BeamSyncState::default(),
         }
     }
 
@@ -181,6 +183,7 @@ impl Amiga {
         if self.master_clock % TICKS_PER_CCK == 0 {
             let vpos = self.agnus.vpos;
             let hpos = self.agnus.hpos;
+            self.beam_sync_state = self.beam_sync_state_at(vpos, hpos);
 
             // VERTB fires at the start of vblank (beam at line 0, start of frame).
             // The check runs before tick_cck(), so vpos/hpos reflect the current
@@ -771,6 +774,15 @@ impl Amiga {
             hsync: self.agnus.hsync_window_active(hpos_cck),
             vsync: self.agnus.vsync_window_active(vpos),
         }
+    }
+
+    /// Latched coarse ECS sync-window state for the current CCK.
+    ///
+    /// This value updates once per colour clock in [`Self::tick`], using the
+    /// beam position sampled at the start of the CCK.
+    #[must_use]
+    pub const fn current_beam_sync_state(&self) -> BeamSyncState {
+        self.beam_sync_state
     }
 }
 
@@ -1595,12 +1607,20 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 
 #[cfg(test)]
 mod tests {
-    use super::{Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, BeamSyncState};
+    use super::{
+        Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, BeamSyncState, TICKS_PER_CCK,
+    };
     use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
     fn dummy_kickstart() -> Vec<u8> {
         // Minimal reset vectors (SSP=0, PC=0) are enough for constructor tests.
         vec![0; 8]
+    }
+
+    fn tick_one_cck(amiga: &mut Amiga) {
+        for _ in 0..TICKS_PER_CCK {
+            amiga.tick();
+        }
     }
 
     fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, offset: u16) -> u16 {
@@ -1889,6 +1909,128 @@ mod tests {
             amiga.beam_sync_state_at(95, 35),
             BeamSyncState {
                 hsync: true,
+                vsync: false
+            }
+        );
+    }
+
+    #[test]
+    fn ecs_latched_sync_state_tracks_hsync_wrap_across_line_zero() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        amiga.write_custom_reg(0x1C2, 5); // HSSTOP
+        amiga.write_custom_reg(0x1DE, 220); // HSSTRT
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARHSYEN);
+
+        amiga.agnus.vpos = 50;
+        amiga.agnus.hpos = 219;
+        tick_one_cck(&mut amiga);
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: false,
+                vsync: false
+            }
+        );
+
+        tick_one_cck(&mut amiga); // hpos=220
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: true,
+                vsync: false
+            }
+        );
+
+        amiga.agnus.hpos = commodore_agnus_ocs::PAL_CCKS_PER_LINE - 1;
+        tick_one_cck(&mut amiga); // hpos=last -> still inside wrapped window
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: true,
+                vsync: false
+            }
+        );
+        assert_eq!(amiga.agnus.hpos, 0);
+
+        tick_one_cck(&mut amiga); // hpos=0 -> inside wrapped window
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: true,
+                vsync: false
+            }
+        );
+
+        amiga.agnus.hpos = 5;
+        tick_one_cck(&mut amiga); // stop boundary is exclusive
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: false,
+                vsync: false
+            }
+        );
+    }
+
+    #[test]
+    fn ecs_latched_sync_state_tracks_vsync_wrap_across_frame_zero() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        let last_line = commodore_agnus_ocs::PAL_LINES_PER_FRAME - 1;
+        let last_hpos = commodore_agnus_ocs::PAL_CCKS_PER_LINE - 1;
+
+        amiga.write_custom_reg(0x1CA, 2); // VSSTOP
+        amiga.write_custom_reg(0x1E0, last_line); // VSSTRT
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARVSYEN);
+
+        amiga.agnus.vpos = last_line;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga);
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: false,
+                vsync: true
+            }
+        );
+
+        amiga.agnus.hpos = last_hpos;
+        tick_one_cck(&mut amiga); // line wrap to frame 0
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: false,
+                vsync: true
+            }
+        );
+        assert_eq!(amiga.agnus.vpos, 0);
+        assert_eq!(amiga.agnus.hpos, 0);
+
+        tick_one_cck(&mut amiga); // vpos=0 still inside wrapped VSYNC window
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: false,
+                vsync: true
+            }
+        );
+
+        amiga.agnus.vpos = 2;
+        amiga.agnus.hpos = 0;
+        tick_one_cck(&mut amiga); // stop boundary is exclusive
+        assert_eq!(
+            amiga.current_beam_sync_state(),
+            BeamSyncState {
+                hsync: false,
                 vsync: false
             }
         );
