@@ -905,6 +905,10 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x01C => self.paula.intena,
                     0x01E => self.paula.intreq,
                     0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),
+                    0x1C0 if self.chipset == AmigaChipset::Ecs => self.agnus.htotal(),
+                    0x1C8 if self.chipset == AmigaChipset::Ecs => self.agnus.vtotal(),
+                    0x1DC if self.chipset == AmigaChipset::Ecs => self.agnus.beamcon0(),
+                    0x1E4 if self.chipset == AmigaChipset::Ecs => self.agnus.diwhigh(),
                     0x07C => 0xFFFF,
                     _ => 0,
                 };
@@ -1540,11 +1544,38 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 
 #[cfg(test)]
 mod tests {
-    use super::{Amiga, AmigaChipset, AmigaConfig, AmigaModel};
+    use super::{Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel};
+    use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
     fn dummy_kickstart() -> Vec<u8> {
         // Minimal reset vectors (SSP=0, PC=0) are enough for constructor tests.
         vec![0; 8]
+    }
+
+    fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, offset: u16) -> u16 {
+        let mut bus = AmigaBusWrapper {
+            chipset: amiga.chipset,
+            agnus: &mut amiga.agnus,
+            memory: &mut amiga.memory,
+            denise: &mut amiga.denise,
+            copper: &mut amiga.copper,
+            cia_a: &mut amiga.cia_a,
+            cia_b: &mut amiga.cia_b,
+            paula: &mut amiga.paula,
+            floppy: &mut amiga.floppy,
+            keyboard: &mut amiga.keyboard,
+        };
+        match M68kBus::poll_cycle(
+            &mut bus,
+            0x00DFF000 | u32::from(offset),
+            FunctionCode::SupervisorData,
+            true,
+            true,
+            None,
+        ) {
+            BusStatus::Ready(v) => v,
+            other => panic!("expected ready custom register read, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1625,6 +1656,38 @@ mod tests {
 
         assert_eq!(amiga.agnus.htotal(), 0x0033);
         assert_eq!(amiga.agnus.vtotal(), 0x0123);
+    }
+
+    #[test]
+    fn ocs_custom_reads_for_ecs_beam_registers_return_zero() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.write_custom_reg(0x1C0, 0x0033);
+        amiga.write_custom_reg(0x1C8, 0x0123);
+        amiga.write_custom_reg(0x1DC, 0x4567);
+        amiga.write_custom_reg(0x1E4, 0x89AB);
+
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C8), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DC), 0);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E4), 0);
+    }
+
+    #[test]
+    fn ecs_custom_reads_return_latched_beam_registers() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+        amiga.write_custom_reg(0x1C0, 0x0033);
+        amiga.write_custom_reg(0x1C8, 0x0123);
+        amiga.write_custom_reg(0x1DC, 0x4567);
+        amiga.write_custom_reg(0x1E4, 0x89AB);
+
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0x0033);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C8), 0x0123);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DC), 0x4567);
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E4), 0x89AB);
     }
 
     #[test]
