@@ -39,6 +39,26 @@ fn tick_ccks(amiga: &mut Amiga, ccks: u32) {
     }
 }
 
+fn write_sprite_words(amiga: &mut Amiga, base: u32, words: &[u16]) {
+    for (i, &word) in words.iter().enumerate() {
+        let addr = base + (i as u32) * 2;
+        amiga.memory.write_byte(addr, (word >> 8) as u8);
+        amiga.memory.write_byte(addr + 1, word as u8);
+    }
+}
+
+fn wait_for_sprite_slot(amiga: &mut Amiga, sprite: u8) {
+    while amiga.agnus.cck_bus_plan().sprite_dma_service_channel != Some(sprite) {
+        tick_ccks(amiga, 1);
+    }
+}
+
+fn wait_for_beam(amiga: &mut Amiga, vpos: u16, hpos: u16) {
+    while amiga.agnus.vpos != vpos || amiga.agnus.hpos != hpos {
+        tick_ccks(amiga, 1);
+    }
+}
+
 #[test]
 fn sprite_dma_slots_fetch_sprxpos_ctl_then_data_datb() {
     let mut amiga = make_test_amiga();
@@ -131,4 +151,175 @@ fn sprite_dma_slots_fetch_sprxpos_ctl_then_data_datb() {
     assert_eq!(amiga.denise.spr_data[0], 0x9ABC);
     assert_eq!(amiga.denise.spr_datb[0], 0xDEF0);
     assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 8);
+}
+
+#[test]
+fn sprite_dma_control_words_wait_for_vstart_without_consuming_data_slots() {
+    let mut amiga = make_test_amiga();
+    let spr0_addr = 0x0000_3200u32;
+
+    // POS=$0200, CTL=$0400 => vstart=2, vstop=4, x=0
+    write_sprite_words(&mut amiga, spr0_addr, &[0x0200, 0x0400, 0x9ABC, 0xDEF0]);
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr & 0xFFFF) as u16);
+    amiga.denise.spr_data[0] = 0xAAAA;
+    amiga.denise.spr_datb[0] = 0xBBBB;
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0x0A;
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_SPREN);
+
+    tick_ccks(&mut amiga, 1); // -> hpos 0x0B
+    tick_ccks(&mut amiga, 1); // fetch POS
+    tick_ccks(&mut amiga, 1); // fetch CTL
+
+    assert_eq!(amiga.denise.spr_pos[0], 0x0200);
+    assert_eq!(amiga.denise.spr_ctl[0], 0x0400);
+    assert_eq!(
+        amiga.agnus.spr_pt[0],
+        spr0_addr + 4,
+        "pointer should advance past control words"
+    );
+
+    // Next scanline sprite slots should not consume data yet (vstart=2).
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(
+        amiga.agnus.spr_pt[0],
+        spr0_addr + 4,
+        "inactive-window first slot must not advance pointer"
+    );
+    assert_eq!(amiga.denise.spr_data[0], 0xAAAA);
+    assert_eq!(amiga.denise.spr_datb[0], 0xBBBB);
+
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(
+        amiga.agnus.spr_pt[0],
+        spr0_addr + 4,
+        "inactive-window second slot must not advance pointer"
+    );
+    assert_eq!(amiga.denise.spr_data[0], 0xAAAA);
+    assert_eq!(amiga.denise.spr_datb[0], 0xBBBB);
+
+    // At vstart=2, sprite DMA should begin consuming DATA/DATB.
+    while amiga.agnus.vpos != 2 {
+        tick_ccks(&mut amiga, 1);
+    }
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(amiga.denise.spr_data[0], 0x9ABC);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 6);
+
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1);
+    assert_eq!(amiga.denise.spr_datb[0], 0xDEF0);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 8);
+}
+
+#[test]
+fn sprite_dma_disable_stops_slot_fetches_immediately() {
+    let mut amiga = make_test_amiga();
+    let spr0_addr = 0x0000_3400u32;
+    write_sprite_words(&mut amiga, spr0_addr, &[0x0000, 0x0200, 0x9ABC, 0xDEF0]);
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr & 0xFFFF) as u16);
+    amiga.denise.spr_data[0] = 0xAAAA;
+    amiga.denise.spr_datb[0] = 0xBBBB;
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0x0A;
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_SPREN);
+
+    tick_ccks(&mut amiga, 1); // -> 0x0B
+    tick_ccks(&mut amiga, 1); // POS
+    tick_ccks(&mut amiga, 1); // CTL
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr + 4);
+
+    // Disable sprite DMA before the next sprite-0 slot pair.
+    amiga.write_custom_reg(REG_DMACON, DMACON_SPREN);
+
+    wait_for_beam(&mut amiga, 1, 0x0B);
+    assert_eq!(
+        amiga.agnus.cck_bus_plan().sprite_dma_service_channel,
+        None,
+        "with SPREN clear, sprite0 slots should not be granted"
+    );
+    let ptr_before = amiga.agnus.spr_pt[0];
+    let data_before = amiga.denise.spr_data[0];
+    let datb_before = amiga.denise.spr_datb[0];
+
+    tick_ccks(&mut amiga, 1); // sprite0 first slot time (disabled)
+    assert_eq!(amiga.agnus.vpos, 1);
+    assert_eq!(amiga.agnus.hpos, 0x0C);
+    assert_eq!(amiga.agnus.cck_bus_plan().sprite_dma_service_channel, None);
+
+    tick_ccks(&mut amiga, 1); // sprite0 second slot time (disabled)
+    assert_eq!(amiga.agnus.vpos, 1);
+    assert_eq!(amiga.agnus.hpos, 0x0D);
+
+    assert_eq!(amiga.agnus.spr_pt[0], ptr_before);
+    assert_eq!(amiga.denise.spr_data[0], data_before);
+    assert_eq!(amiga.denise.spr_datb[0], datb_before);
+}
+
+#[test]
+fn sprite_pointer_phase_reset_happens_on_low_write_not_high_write() {
+    let mut amiga = make_test_amiga();
+    let spr0_addr_a = 0x0000_3600u32;
+    let spr0_addr_b = 0x0000_3640u32; // same high word; low write should be the commit point
+
+    write_sprite_words(&mut amiga, spr0_addr_a, &[0x0000, 0x0200, 0x9ABC, 0xDEF0]);
+    write_sprite_words(&mut amiga, spr0_addr_b, &[0x1357, 0x2468, 0xAAAA, 0xBBBB]);
+
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr_a >> 16) as u16);
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr_a & 0xFFFF) as u16);
+    amiga.denise.spr_pos[0] = 0x1111;
+    amiga.denise.spr_ctl[0] = 0x2222;
+    amiga.denise.spr_data[0] = 0x3333;
+    amiga.denise.spr_datb[0] = 0x4444;
+
+    amiga.agnus.vpos = 0;
+    amiga.agnus.hpos = 0x0A;
+    amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_SPREN);
+
+    tick_ccks(&mut amiga, 1); // -> hpos 0x0B
+    tick_ccks(&mut amiga, 1); // POS
+    tick_ccks(&mut amiga, 1); // CTL
+
+    assert_eq!(amiga.denise.spr_pos[0], 0x0000);
+    assert_eq!(amiga.denise.spr_ctl[0], 0x0200);
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr_a + 4);
+
+    // Pointer high write alone should not restart the sprite phase machine.
+    amiga.write_custom_reg(REG_SPR0PTH, (spr0_addr_b >> 16) as u16);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1); // next DATA slot from stream A
+
+    assert_eq!(
+        amiga.denise.spr_pos[0], 0x0000,
+        "PTH write alone must not restart fetch at SPR0POS"
+    );
+    assert_eq!(
+        amiga.denise.spr_data[0], 0x9ABC,
+        "PTH write alone must preserve DATA phase"
+    );
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr_a + 6);
+
+    // Pointer low write commits the new pointer and re-arms control-word fetch.
+    amiga.write_custom_reg(REG_SPR0PTL, (spr0_addr_b & 0xFFFF) as u16);
+    wait_for_sprite_slot(&mut amiga, 0);
+    tick_ccks(&mut amiga, 1); // should fetch SPR0POS from stream B
+
+    assert_eq!(
+        amiga.denise.spr_pos[0], 0x1357,
+        "PTL write should restart sprite DMA from new control words"
+    );
+    assert_eq!(
+        amiga.denise.spr_datb[0], 0x4444,
+        "PTL-triggered restart should not consume DATB from old stream"
+    );
+    assert_eq!(amiga.agnus.spr_pt[0], spr0_addr_b + 2);
 }

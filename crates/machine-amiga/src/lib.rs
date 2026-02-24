@@ -361,9 +361,11 @@ impl Amiga {
     }
 
     pub fn write_custom_reg(&mut self, offset: u16, val: u16) {
-        if (0x120..=0x13E).contains(&offset) {
+        if (0x120..=0x13E).contains(&offset) && (offset & 2) != 0 {
             let idx = ((offset - 0x120) / 4) as usize;
             if idx < 8 {
+                // Treat the low-word pointer write as the commit point for
+                // restarting sprite DMA control-word fetch sequencing.
                 self.sprite_dma_phase[idx] = 0;
             }
         }
