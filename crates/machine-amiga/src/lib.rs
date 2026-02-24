@@ -78,7 +78,7 @@ pub struct BeamSyncState {
 ///
 /// This is intended as a stable machine-level inspection API while ECS sync
 /// and blanking behavior is still being brought up incrementally.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BeamDebugSnapshot {
     pub vpos: u16,
     pub hpos_cck: u16,
@@ -105,7 +105,7 @@ pub struct Amiga {
     audio_buffer: Vec<f32>,
     disk_dma_runtime: Option<DiskDmaRuntime>,
     sprite_dma_phase: [u8; 8],
-    beam_sync_state: BeamSyncState,
+    beam_debug_snapshot: BeamDebugSnapshot,
 }
 
 impl Amiga {
@@ -187,7 +187,7 @@ impl Amiga {
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
             disk_dma_runtime: None,
             sprite_dma_phase: [0; 8],
-            beam_sync_state: BeamSyncState::default(),
+            beam_debug_snapshot: BeamDebugSnapshot::default(),
         }
     }
 
@@ -197,9 +197,10 @@ impl Amiga {
         if self.master_clock % TICKS_PER_CCK == 0 {
             let vpos = self.agnus.vpos;
             let hpos = self.agnus.hpos;
-            let prev_sync = self.beam_sync_state;
-            let current_sync = self.beam_sync_state_at(vpos, hpos);
-            self.beam_sync_state = current_sync;
+            let prev_sync = self.beam_debug_snapshot.sync;
+            let current_snapshot = self.beam_debug_snapshot_at(vpos, hpos);
+            let current_sync = current_snapshot.sync;
+            self.beam_debug_snapshot = current_snapshot;
 
             let hsync_tod_pulse =
                 if self.chipset == AmigaChipset::Ecs && self.agnus.varhsyen_enabled() {
@@ -831,7 +832,7 @@ impl Amiga {
     /// beam position sampled at the start of the CCK.
     #[must_use]
     pub const fn current_beam_sync_state(&self) -> BeamSyncState {
-        self.beam_sync_state
+        self.beam_debug_snapshot.sync
     }
 
     /// Build a debug beam snapshot at an explicit beam position.
@@ -857,28 +858,11 @@ impl Amiga {
 
     /// Latched debug beam snapshot for the current CCK.
     ///
-    /// The `sync` field uses the per-CCK latched sync state captured in
-    /// [`Self::tick`]. Other fields are derived from the current beam position.
+    /// This value updates once per colour clock in [`Self::tick`], using the
+    /// beam position sampled at the start of the CCK.
     #[must_use]
-    pub fn current_beam_debug_snapshot(&self) -> BeamDebugSnapshot {
-        let vpos = self.agnus.vpos;
-        let hpos_cck = self.agnus.hpos;
-        let (hblank, vblank) = if self.chipset == AmigaChipset::Ecs {
-            (
-                self.agnus.hblank_window_active(hpos_cck),
-                self.agnus.vblank_window_active(vpos),
-            )
-        } else {
-            (false, false)
-        };
-        BeamDebugSnapshot {
-            vpos,
-            hpos_cck,
-            sync: self.beam_sync_state,
-            hblank,
-            vblank,
-            fb_coords: self.beam_to_fb(vpos, hpos_cck),
-        }
+    pub const fn current_beam_debug_snapshot(&self) -> BeamDebugSnapshot {
+        self.beam_debug_snapshot
     }
 }
 
@@ -2238,6 +2222,9 @@ mod tests {
             kickstart: dummy_kickstart(),
         });
 
+        amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
+        amiga.write_custom_reg(0x090, 0x90FF); // DIWSTOP (keep line 105 visible)
+        amiga.agnus.ddfstrt = 0;
         amiga.write_custom_reg(0x1C2, 40); // HSSTOP
         amiga.write_custom_reg(0x1CA, 110); // VSSTOP
         amiga.write_custom_reg(0x1DE, 30); // HSSTRT
@@ -2253,14 +2240,61 @@ mod tests {
 
         let snapshot = amiga.current_beam_debug_snapshot();
         assert_eq!(snapshot.vpos, 105);
-        assert_eq!(snapshot.hpos_cck, 36);
+        assert_eq!(snapshot.hpos_cck, 35);
         assert_eq!(
-            snapshot.sync,
-            BeamSyncState {
-                hsync: true,
-                vsync: true
+            snapshot,
+            BeamDebugSnapshot {
+                vpos: 105,
+                hpos_cck: 35,
+                sync: BeamSyncState {
+                    hsync: true,
+                    vsync: true
+                },
+                hblank: false,
+                vblank: false,
+                fb_coords: Some((54, 61)),
             }
         );
+        assert_eq!(amiga.agnus.hpos, 36); // Beam advanced after the sampled CCK.
+    }
+
+    #[test]
+    fn ecs_latched_beam_snapshot_visibility_tracks_coarse_hard_stop_and_harddis() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            kickstart: dummy_kickstart(),
+        });
+
+        // ECS display window vertical range 300..320 and horizontal range
+        // 0x110..0x150 (DIWHIGH supplies V8 and H8 bits).
+        amiga.write_custom_reg(0x08E, 0x2C10); // VSTART=$2C, HSTART=$10
+        amiga.write_custom_reg(0x090, 0x4050); // VSTOP =$40, HSTOP =$50
+        amiga.write_custom_reg(0x1E4, 0x2121); // stop H8/V8 + start H8/V8
+        amiga.agnus.ddfstrt = 100;
+
+        amiga.agnus.vpos = 300;
+        amiga.agnus.hpos = 136;
+        tick_one_cck(&mut amiga);
+        assert_eq!(amiga.current_beam_debug_snapshot().fb_coords, Some((56, 0)));
+
+        amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARHSYEN);
+        amiga.agnus.vpos = 300;
+        amiga.agnus.hpos = 136;
+        tick_one_cck(&mut amiga);
+        let hard_stopped = amiga.current_beam_debug_snapshot();
+        assert_eq!(hard_stopped.vpos, 300);
+        assert_eq!(hard_stopped.hpos_cck, 136);
+        assert_eq!(hard_stopped.fb_coords, None);
+
+        amiga.write_custom_reg(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_VARHSYEN | commodore_agnus_ecs::BEAMCON0_HARDDIS,
+        );
+        amiga.agnus.vpos = 300;
+        amiga.agnus.hpos = 136;
+        tick_one_cck(&mut amiga);
+        assert_eq!(amiga.current_beam_debug_snapshot().fb_coords, Some((56, 0)));
     }
 
     #[test]
