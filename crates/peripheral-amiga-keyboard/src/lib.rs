@@ -139,6 +139,29 @@ impl AmigaKeyboard {
         };
         self.key_queue.push_back(byte);
     }
+
+    #[must_use]
+    pub fn debug_state_name(&self) -> &'static str {
+        match self.state {
+            State::PowerUpDelay => "PowerUpDelay",
+            State::SendInitPowerUp => "SendInitPowerUp",
+            State::WaitHandshakeInit => "WaitHandshakeInit",
+            State::SendTermPowerUp => "SendTermPowerUp",
+            State::WaitHandshakeTerm => "WaitHandshakeTerm",
+            State::Idle => "Idle",
+            State::WaitHandshakeKey => "WaitHandshakeKey",
+        }
+    }
+
+    #[must_use]
+    pub fn debug_timer(&self) -> u32 {
+        self.timer
+    }
+
+    #[must_use]
+    pub fn queued_key_count(&self) -> usize {
+        self.key_queue.len()
+    }
 }
 
 impl Default for AmigaKeyboard {

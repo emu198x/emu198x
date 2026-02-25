@@ -30,6 +30,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 const FB_WIDTH: u32 = commodore_denise_ocs::FB_WIDTH;
 const FB_HEIGHT: u32 = commodore_denise_ocs::FB_HEIGHT;
+const HIRES_FB_WIDTH: u32 = commodore_denise_ocs::HIRES_FB_WIDTH;
 const SCALE: u32 = 3;
 const FRAME_DURATION: Duration = Duration::from_millis(20); // PAL ~50 Hz
 const AUDIO_CHANNELS: usize = 2;
@@ -65,15 +66,32 @@ struct ActiveKeyMapping {
 struct CliArgs {
     rom_path: PathBuf,
     adf_path: Option<PathBuf>,
+    model: AmigaModel,
     chipset: AmigaChipset,
     headless: bool,
     frames: u32,
     beam_debug: bool,
     beam_debug_filter: BeamDebugFilter,
+    trace_hires_bpl_lines: Option<LineRange>,
+    trace_hires_compare_line: Option<u16>,
+    trace_hpos_range: Option<LineRange>,
+    dump_display_state: bool,
     bench_insert_screen: bool,
     screenshot_path: Option<PathBuf>,
     audio_path: Option<PathBuf>,
     mute: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LineRange {
+    start: u16,
+    end_inclusive: u16,
+}
+
+impl LineRange {
+    const fn contains(self, vpos: u16) -> bool {
+        vpos >= self.start && vpos <= self.end_inclusive
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +143,7 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("Options:");
     eprintln!("  --rom <file>   Kickstart ROM file (or use AMIGA_KS13_ROM env var)");
     eprintln!("  --adf <file>   Optional ADF disk image to insert into DF0:");
+    eprintln!("  --model <a500|a500plus>  Select machine model [default: a500]");
     eprintln!("  --chipset <ocs|ecs>  Select chipset [default: ocs]");
     eprintln!("  --headless     Run without a window");
     eprintln!("  --frames <n>   Frames to run in headless mode [default: 300]");
@@ -132,6 +151,14 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!(
         "  --beam-debug-filter <classes>  Edge classes: all,sync,blank,visible,pins or comma list"
     );
+    eprintln!(
+        "  --trace-hires-bpl-lines <v0[:v1]>  Trace hires bitplane fetches on final frame (headless)"
+    );
+    eprintln!(
+        "  --trace-hires-compare-line <v>  Compact per-CCK hires trace for one final-frame scanline"
+    );
+    eprintln!("  --trace-hpos-range <h0[:h1]>  Filter compare-line CCKs (decimal or 0xhex)");
+    eprintln!("  --dump-display-state  Print final custom display register state (headless)");
     eprintln!("  --bench-insert-screen  Stop on first KS1.3 insert-screen match and print speed");
     eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
     eprintln!("  --audio <file.wav>  Save a WAV audio dump (headless)");
@@ -144,11 +171,16 @@ fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut rom_path: Option<PathBuf> = None;
     let mut adf_path: Option<PathBuf> = None;
-    let mut chipset = AmigaChipset::Ocs;
+    let mut model = AmigaModel::A500;
+    let mut chipset: Option<AmigaChipset> = None;
     let mut headless = false;
     let mut frames = 300;
     let mut beam_debug = false;
     let mut beam_debug_filter = BeamDebugFilter::all();
+    let mut trace_hires_bpl_lines: Option<LineRange> = None;
+    let mut trace_hires_compare_line: Option<u16> = None;
+    let mut trace_hpos_range: Option<LineRange> = None;
+    let mut dump_display_state = false;
     let mut bench_insert_screen = false;
     let mut screenshot_path: Option<PathBuf> = None;
     let mut audio_path: Option<PathBuf> = None;
@@ -165,16 +197,27 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 adf_path = args.get(i).map(PathBuf::from);
             }
+            "--model" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("Missing value for --model (expected a500 or a500plus)");
+                    print_usage_and_exit(1);
+                };
+                model = parse_model_arg(value).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    print_usage_and_exit(1);
+                });
+            }
             "--chipset" => {
                 i += 1;
                 let Some(value) = args.get(i) else {
                     eprintln!("Missing value for --chipset (expected ocs or ecs)");
                     print_usage_and_exit(1);
                 };
-                chipset = parse_chipset_arg(value).unwrap_or_else(|e| {
+                chipset = Some(parse_chipset_arg(value).unwrap_or_else(|e| {
                     eprintln!("{e}");
                     print_usage_and_exit(1);
-                });
+                }));
             }
             "--headless" => {
                 headless = true;
@@ -199,6 +242,47 @@ fn parse_args() -> CliArgs {
                     print_usage_and_exit(1);
                 });
                 beam_debug = true;
+            }
+            "--trace-hires-bpl-lines" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("Missing value for --trace-hires-bpl-lines");
+                    print_usage_and_exit(1);
+                };
+                trace_hires_bpl_lines = Some(parse_line_range_arg(value).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    print_usage_and_exit(1);
+                }));
+                headless = true;
+            }
+            "--trace-hires-compare-line" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("Missing value for --trace-hires-compare-line");
+                    print_usage_and_exit(1);
+                };
+                trace_hires_compare_line = Some(parse_u16_arg(value).unwrap_or_else(|e| {
+                    eprintln!("{e} (for --trace-hires-compare-line)");
+                    print_usage_and_exit(1);
+                }));
+                headless = true;
+            }
+            "--trace-hpos-range" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("Missing value for --trace-hpos-range");
+                    print_usage_and_exit(1);
+                };
+                trace_hpos_range = Some(parse_u16_range_arg(value, "hpos range").unwrap_or_else(
+                    |e| {
+                        eprintln!("{e}");
+                        print_usage_and_exit(1);
+                    },
+                ));
+                headless = true;
+            }
+            "--dump-display-state" => {
+                dump_display_state = true;
             }
             "--bench-insert-screen" => {
                 bench_insert_screen = true;
@@ -233,19 +317,234 @@ fn parse_args() -> CliArgs {
     if screenshot_path.is_some() || audio_path.is_some() || bench_insert_screen || beam_debug {
         headless = true;
     }
+    if trace_hires_bpl_lines.is_some() && trace_hires_compare_line.is_some() {
+        eprintln!("Use only one of --trace-hires-bpl-lines or --trace-hires-compare-line");
+        print_usage_and_exit(1);
+    }
+    if trace_hpos_range.is_some() && trace_hires_compare_line.is_none() {
+        eprintln!("--trace-hpos-range requires --trace-hires-compare-line");
+        print_usage_and_exit(1);
+    }
+    let chipset = resolve_model_chipset(model, chipset).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        print_usage_and_exit(1);
+    });
 
     CliArgs {
         rom_path,
         adf_path,
+        model,
         chipset,
         headless,
         frames,
         beam_debug,
         beam_debug_filter,
+        trace_hires_bpl_lines,
+        trace_hires_compare_line,
+        trace_hpos_range,
+        dump_display_state,
         bench_insert_screen,
         screenshot_path,
         audio_path,
         mute,
+    }
+}
+
+fn parse_line_range_arg(value: &str) -> Result<LineRange, String> {
+    parse_u16_range_arg(value, "line range")
+}
+
+fn parse_u16_arg(value: &str) -> Result<u16, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(String::from("invalid u16 value (empty)"));
+    }
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        return u16::from_str_radix(hex, 16).map_err(|_| format!("invalid hex value '{trimmed}'"));
+    }
+    trimmed
+        .parse()
+        .map_err(|_| format!("invalid decimal value '{trimmed}'"))
+}
+
+fn parse_u16_range_arg(value: &str, label: &str) -> Result<LineRange, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(format!("Invalid {label} (empty)"));
+    }
+    let (start_s, end_s) = if let Some((a, b)) = trimmed.split_once(':') {
+        (a.trim(), b.trim())
+    } else {
+        (trimmed, trimmed)
+    };
+    let start = parse_u16_arg(start_s).map_err(|_| format!("Invalid {label} start '{start_s}'"))?;
+    let end = parse_u16_arg(end_s).map_err(|_| format!("Invalid {label} end '{end_s}'"))?;
+    if start > end {
+        return Err(format!("Invalid {label} '{trimmed}' (start > end)"));
+    }
+    Ok(LineRange {
+        start,
+        end_inclusive: end,
+    })
+}
+
+fn dump_display_state(amiga: &Amiga) {
+    fn dump_words(amiga: &Amiga, start: u32, words: usize) {
+        eprint!("[mem] code {:06X}:", start & 0x00FF_FFFF);
+        for i in 0..words {
+            let addr = start.wrapping_add((i as u32) * 2);
+            let hi = amiga.memory.read_byte(addr);
+            let lo = amiga.memory.read_byte(addr.wrapping_add(1));
+            let word = (u16::from(hi) << 8) | u16::from(lo);
+            eprint!(" {:04X}", word);
+        }
+        eprintln!();
+    }
+
+    eprintln!(
+        "[cpu] halted={} idle={} pc={:08X} sr={:04X} ssp={:08X} usp={:08X} ir={:04X} irc={:04X} d0={:08X} d1={:08X}",
+        amiga.cpu.is_halted(),
+        amiga.cpu.is_idle(),
+        amiga.cpu.regs.pc,
+        amiga.cpu.regs.sr,
+        amiga.cpu.regs.ssp,
+        amiga.cpu.regs.usp,
+        amiga.cpu.ir,
+        amiga.cpu.irc,
+        amiga.cpu.regs.d[0],
+        amiga.cpu.regs.d[1]
+    );
+    eprintln!(
+        "[mem] overlay={} chip_ram={}KB",
+        amiga.memory.overlay,
+        amiga.memory.chip_ram.len() / 1024
+    );
+    let pc = amiga.cpu.regs.pc & 0x00FF_FFFF;
+    dump_words(amiga, pc.wrapping_sub(0x10), 24);
+    let bplcon0 = amiga.agnus.bplcon0;
+    let num_bpl = (bplcon0 >> 12) & 0x7;
+    let hires = (bplcon0 & 0x8000) != 0;
+    let laced = (bplcon0 & 0x0004) != 0;
+    let dmacon = amiga.agnus.dmacon;
+    let dmaen = (dmacon & 0x0200) != 0;
+    let bplen = (dmacon & 0x0100) != 0;
+
+    eprintln!(
+        "[display] model={} chipset={}",
+        model_name(amiga.model),
+        chipset_name(amiga.chipset)
+    );
+    eprintln!(
+        "[display] DMACON={:#06X} (DMAEN={} BPLEN={}) BPLCON0={:#06X} (num_bpl={} hires={} laced={}) BPLCON1={:#06X} BPLCON2={:#06X} BPLCON3={:#06X}",
+        dmacon,
+        dmaen,
+        bplen,
+        bplcon0,
+        num_bpl,
+        hires,
+        laced,
+        amiga.denise.bplcon1,
+        amiga.denise.bplcon2,
+        amiga.denise.bplcon3
+    );
+    eprintln!(
+        "[irq] INTENA={:#06X} INTREQ={:#06X} BLTBUSY={}",
+        amiga.paula.intena, amiga.paula.intreq, amiga.agnus.blitter_busy
+    );
+    let blit = amiga.blitter_progress_debug_stats();
+    eprintln!(
+        "[blit] busy_ccks={} granted_ops={} cpu_grant_ccks={} copper_idle_ccks={} copper_busy_ccks={} bpl_ccks={} spr_ccks={} disk_ccks={} aud_ccks={} refresh_ccks={} max_queue={}",
+        blit.busy_ccks,
+        blit.granted_ops,
+        blit.cpu_slot_grant_ccks,
+        blit.copper_slot_idle_ccks,
+        blit.copper_slot_busy_ccks,
+        blit.bitplane_slot_ccks,
+        blit.sprite_slot_ccks,
+        blit.disk_slot_ccks,
+        blit.audio_slot_ccks,
+        blit.refresh_slot_ccks,
+        blit.max_queue_len_seen
+    );
+    eprintln!(
+        "[ciaa] ICR={:#04X} MASK={:#04X} TA={:#06X} TB={:#06X} CRA={:#04X} CRB={:#04X} PRA_OUT={:#04X} SDR={:#04X}",
+        amiga.cia_a.icr_status(),
+        amiga.cia_a.icr_mask(),
+        amiga.cia_a.timer_a(),
+        amiga.cia_a.timer_b(),
+        amiga.cia_a.cra(),
+        amiga.cia_a.crb(),
+        amiga.cia_a.port_a_output(),
+        amiga.cia_a.sdr()
+    );
+    eprintln!(
+        "[kbd] state={} timer={} queued_keys={}",
+        amiga.keyboard.debug_state_name(),
+        amiga.keyboard.debug_timer(),
+        amiga.keyboard.queued_key_count()
+    );
+    eprintln!(
+        "[display] DDFSTRT={:#06X} DDFSTOP={:#06X} DIWSTRT={:#06X} DIWSTOP={:#06X}",
+        amiga.agnus.ddfstrt, amiga.agnus.ddfstop, amiga.agnus.diwstrt, amiga.agnus.diwstop
+    );
+    eprintln!(
+        "[display] ECS BEAMCON0={:#06X} DIWHIGH={:#06X} (written={}) HTOTAL={:#06X} VTOTAL={:#06X}",
+        amiga.agnus.beamcon0(),
+        amiga.agnus.diwhigh(),
+        amiga.agnus.diwhigh_written(),
+        amiga.agnus.htotal(),
+        amiga.agnus.vtotal()
+    );
+    eprintln!(
+        "[display] BPLMOD odd={:#06X} even={:#06X}",
+        amiga.agnus.bpl1mod, amiga.agnus.bpl2mod
+    );
+    eprintln!(
+        "[display] BPLPT {:08X} {:08X} {:08X} {:08X} {:08X} {:08X}",
+        amiga.agnus.bpl_pt[0],
+        amiga.agnus.bpl_pt[1],
+        amiga.agnus.bpl_pt[2],
+        amiga.agnus.bpl_pt[3],
+        amiga.agnus.bpl_pt[4],
+        amiga.agnus.bpl_pt[5],
+    );
+    eprintln!(
+        "[sprite] SPRPT0..3 {:08X} {:08X} {:08X} {:08X}",
+        amiga.agnus.spr_pt[0], amiga.agnus.spr_pt[1], amiga.agnus.spr_pt[2], amiga.agnus.spr_pt[3]
+    );
+    eprintln!(
+        "[sprite] SPR0 POS={:04X} CTL={:04X} DATA={:04X} DATB={:04X}",
+        amiga.denise.spr_pos[0],
+        amiga.denise.spr_ctl[0],
+        amiga.denise.spr_data[0],
+        amiga.denise.spr_datb[0]
+    );
+    eprintln!(
+        "[sprite] SPR1 POS={:04X} CTL={:04X} DATA={:04X} DATB={:04X}",
+        amiga.denise.spr_pos[1],
+        amiga.denise.spr_ctl[1],
+        amiga.denise.spr_data[1],
+        amiga.denise.spr_datb[1]
+    );
+    eprintln!(
+        "[display] COLOR00..03 {:03X} {:03X} {:03X} {:03X}",
+        amiga.denise.palette[0],
+        amiga.denise.palette[1],
+        amiga.denise.palette[2],
+        amiga.denise.palette[3]
+    );
+}
+
+fn parse_model_arg(value: &str) -> Result<AmigaModel, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "a500" => Ok(AmigaModel::A500),
+        "a500+" | "a500plus" => Ok(AmigaModel::A500Plus),
+        other => Err(format!(
+            "Invalid --model value '{other}' (expected 'a500' or 'a500plus')"
+        )),
     }
 }
 
@@ -305,6 +604,27 @@ fn parse_beam_debug_filter_arg(value: &str) -> Result<BeamDebugFilter, String> {
     Ok(filter)
 }
 
+fn resolve_model_chipset(
+    model: AmigaModel,
+    requested_chipset: Option<AmigaChipset>,
+) -> Result<AmigaChipset, String> {
+    match (model, requested_chipset) {
+        (AmigaModel::A500Plus, None) => Ok(AmigaChipset::Ecs),
+        (AmigaModel::A500Plus, Some(AmigaChipset::Ocs)) => Err(String::from(
+            "A500+ requires ECS; use --chipset ecs or omit --chipset",
+        )),
+        (_, Some(chipset)) => Ok(chipset),
+        (_, None) => Ok(AmigaChipset::Ocs),
+    }
+}
+
+fn model_name(model: AmigaModel) -> &'static str {
+    match model {
+        AmigaModel::A500 => "A500",
+        AmigaModel::A500Plus => "A500+",
+    }
+}
+
 fn chipset_name(chipset: AmigaChipset) -> &'static str {
     match chipset {
         AmigaChipset::Ocs => "OCS",
@@ -325,7 +645,7 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
     };
 
     let mut amiga = Amiga::new_with_config(AmigaConfig {
-        model: AmigaModel::A500,
+        model: cli.model,
         chipset: cli.chipset,
         kickstart,
     });
@@ -350,8 +670,9 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
     }
 
     eprintln!(
-        "Loaded Kickstart ROM: {} (chipset {})",
+        "Loaded Kickstart ROM: {} (model {}, chipset {})",
         cli.rom_path.display(),
+        model_name(cli.model),
         chipset_name(cli.chipset)
     );
     amiga
@@ -362,7 +683,15 @@ fn save_screenshot(amiga: &Amiga, path: &PathBuf) -> Result<(), String> {
         .map_err(|e| format!("failed to create screenshot {}: {e}", path.display()))?;
     let writer = BufWriter::new(file);
 
-    let mut encoder = png::Encoder::new(writer, FB_WIDTH, FB_HEIGHT);
+    let force_lowres = std::env::var_os("AMIGA_FORCE_LOWRES_SCREENSHOT").is_some();
+    let hires = (amiga.agnus.bplcon0 & 0x8000) != 0 && !force_lowres;
+    let (width, framebuffer): (u32, &[u32]) = if hires {
+        (HIRES_FB_WIDTH, amiga.framebuffer_hires())
+    } else {
+        (FB_WIDTH, amiga.framebuffer())
+    };
+
+    let mut encoder = png::Encoder::new(writer, width, FB_HEIGHT);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
 
@@ -370,8 +699,8 @@ fn save_screenshot(amiga: &Amiga, path: &PathBuf) -> Result<(), String> {
         .write_header()
         .map_err(|e| format!("failed to write PNG header {}: {e}", path.display()))?;
 
-    let mut bytes = vec![0u8; (FB_WIDTH * FB_HEIGHT * 4) as usize];
-    for (i, &argb) in amiga.framebuffer().iter().enumerate() {
+    let mut bytes = vec![0u8; (width * FB_HEIGHT * 4) as usize];
+    for (i, &argb) in framebuffer.iter().enumerate() {
         let o = i * 4;
         bytes[o] = ((argb >> 16) & 0xFF) as u8;
         bytes[o + 1] = ((argb >> 8) & 0xFF) as u8;
@@ -559,12 +888,393 @@ fn run_frame_with_optional_beam_debug(amiga: &mut Amiga, beam_debug: Option<&mut
         return;
     };
 
-    for _ in 0..machine_amiga::PAL_FRAME_TICKS {
+    let ccks_per_frame = machine_amiga::PAL_FRAME_TICKS / machine_amiga::TICKS_PER_CCK;
+    for _ in 0..ccks_per_frame {
         amiga.tick();
         if amiga.master_clock % machine_amiga::TICKS_PER_CCK == 0 {
             logger.observe(amiga);
         }
     }
+}
+
+fn run_one_cck(amiga: &mut Amiga, beam_debug: Option<&mut BeamEdgeLogger>) {
+    for _ in 0..machine_amiga::TICKS_PER_CCK {
+        amiga.tick();
+    }
+    if let Some(logger) = beam_debug {
+        logger.observe(amiga);
+    }
+}
+
+fn trace_hires_bitplanes_final_frame(
+    amiga: &mut Amiga,
+    mut beam_debug: Option<&mut BeamEdgeLogger>,
+    lines: LineRange,
+) {
+    eprintln!(
+        "[bpltrace] tracing final frame hires bitplane fetches for vpos {}..={}",
+        lines.start, lines.end_inclusive
+    );
+
+    let ccks_per_frame = machine_amiga::PAL_FRAME_TICKS / machine_amiga::TICKS_PER_CCK;
+    for _ in 0..ccks_per_frame {
+        let vpos = amiga.agnus.vpos;
+        let hpos = amiga.agnus.hpos;
+        let hires = (amiga.agnus.bplcon0 & 0x8000) != 0;
+        let in_lines = lines.contains(vpos);
+        let bus_plan = amiga.agnus.cck_bus_plan();
+        let pre_ptrs = amiga.agnus.bpl_pt;
+
+        if in_lines && hpos == 0 {
+            eprintln!(
+                "[bpltrace] line v={} BPLCON0={:#06X} BPLCON1={:#06X} DDF={:#06X}..{:#06X} ptrs={:08X},{:08X},{:08X}",
+                vpos,
+                amiga.agnus.bplcon0,
+                amiga.denise.bplcon1,
+                amiga.agnus.ddfstrt,
+                amiga.agnus.ddfstop,
+                pre_ptrs[0],
+                pre_ptrs[1],
+                pre_ptrs[2]
+            );
+        }
+
+        let mut fetch_word = None;
+        if hires
+            && in_lines
+            && let Some(plane) = bus_plan.bitplane_dma_fetch_plane
+        {
+            let idx = plane as usize;
+            let addr = pre_ptrs[idx];
+            let hi = amiga.memory.read_chip_byte(addr);
+            let lo = amiga.memory.read_chip_byte(addr.wrapping_add(1));
+            let word = (u16::from(hi) << 8) | u16::from(lo);
+            fetch_word = Some((plane, addr, word));
+        }
+
+        run_one_cck(amiga, beam_debug.as_deref_mut());
+
+        if hires && in_lines {
+            let pix = amiga.current_beam_pixel_outputs_debug();
+            let any_called = pix.pixel0.called || pix.pixel1.called;
+            let near_left_edge = hpos >= amiga.agnus.ddfstrt.wrapping_sub(4)
+                && hpos <= amiga.agnus.ddfstrt.wrapping_add(0x24);
+            let mixed_visibility = pix.pixel0.called
+                && pix.pixel1.called
+                && (pix.pixel0.write_visible != pix.pixel1.write_visible);
+            let any_nonzero = [pix.pixel0, pix.pixel1].iter().any(|p| {
+                p.called
+                    && (p.pair_samples[0].raw_color_idx != 0
+                        || p.pair_samples[1].raw_color_idx != 0)
+            });
+            if any_called && (near_left_edge || mixed_visibility || any_nonzero) {
+                eprintln!(
+                    "[pixtrace] v={} h={:#04X} p0 vis={} bx={} x={} s=[{:02X},{:02X}] f={:02X} | p1 vis={} bx={} x={} s=[{:02X},{:02X}] f={:02X}",
+                    vpos,
+                    hpos,
+                    pix.pixel0.write_visible,
+                    pix.pixel0.beam_x,
+                    pix.pixel0.requested_x,
+                    pix.pixel0.pair_samples[0].raw_color_idx,
+                    pix.pixel0.pair_samples[1].raw_color_idx,
+                    pix.pixel0.final_color_idx,
+                    pix.pixel1.write_visible,
+                    pix.pixel1.beam_x,
+                    pix.pixel1.requested_x,
+                    pix.pixel1.pair_samples[0].raw_color_idx,
+                    pix.pixel1.pair_samples[1].raw_color_idx,
+                    pix.pixel1.final_color_idx,
+                );
+            }
+        }
+
+        if let Some((plane, addr, word)) = fetch_word {
+            let idx = plane as usize;
+            let post = amiga.agnus.bpl_pt[idx];
+            let delta = post.wrapping_sub(pre_ptrs[idx]);
+            let group_len = if (amiga.agnus.bplcon0 & 0x8000) != 0 {
+                4
+            } else {
+                8
+            };
+            let pos_in_group = ((hpos.wrapping_sub(amiga.agnus.ddfstrt)) % group_len) as u8;
+            eprintln!(
+                "[bpltrace] v={} h={:#04X} plane={} slot={} addr={:08X} word={:04X} ptr->{:08X} d={:#010X}{}",
+                vpos,
+                hpos,
+                plane + 1,
+                pos_in_group,
+                addr,
+                word,
+                post,
+                delta,
+                if plane == 0 { " load" } else { "" }
+            );
+            if plane == 0 {
+                let sdbg = amiga.denise.last_shift_load_debug();
+                eprintln!(
+                    "[bpltrace]   denise load bpl_data={:04X},{:04X},{:04X} shift={:04X},{:04X},{:04X} shift_count={}",
+                    amiga.denise.bpl_data[0],
+                    amiga.denise.bpl_data[1],
+                    amiga.denise.bpl_data[2],
+                    amiga.denise.bpl_shift[0],
+                    amiga.denise.bpl_shift[1],
+                    amiga.denise.bpl_shift[2],
+                    amiga.denise.shift_count
+                );
+                eprintln!(
+                    "[bpltrace]   shiftdbg hires={} scroll(o/e)={}/{} num_bpl={} p1 prev={:04X} raw={:04X} sc={} comb={:04X}:{:04X} out={:04X} | p2 prev={:04X} raw={:04X} sc={} comb={:04X}:{:04X} out={:04X} | p3 prev={:04X} raw={:04X} sc={} comb={:04X}:{:04X} out={:04X}",
+                    sdbg.hires,
+                    sdbg.odd_scroll,
+                    sdbg.even_scroll,
+                    sdbg.num_bitplanes,
+                    sdbg.planes[0].prev,
+                    sdbg.planes[0].raw,
+                    sdbg.planes[0].scroll,
+                    sdbg.planes[0].combined_hi,
+                    sdbg.planes[0].combined_lo,
+                    sdbg.planes[0].shift_loaded,
+                    sdbg.planes[1].prev,
+                    sdbg.planes[1].raw,
+                    sdbg.planes[1].scroll,
+                    sdbg.planes[1].combined_hi,
+                    sdbg.planes[1].combined_lo,
+                    sdbg.planes[1].shift_loaded,
+                    sdbg.planes[2].prev,
+                    sdbg.planes[2].raw,
+                    sdbg.planes[2].scroll,
+                    sdbg.planes[2].combined_hi,
+                    sdbg.planes[2].combined_lo,
+                    sdbg.planes[2].shift_loaded,
+                );
+            }
+        }
+
+        if in_lines && amiga.agnus.hpos == 0 {
+            eprintln!(
+                "[bpltrace] line-end next_v={} ptrs={:08X},{:08X},{:08X}",
+                amiga.agnus.vpos,
+                amiga.agnus.bpl_pt[0],
+                amiga.agnus.bpl_pt[1],
+                amiga.agnus.bpl_pt[2]
+            );
+        }
+    }
+}
+
+fn trace_hires_compare_line_final_frame(
+    amiga: &mut Amiga,
+    mut beam_debug: Option<&mut BeamEdgeLogger>,
+    target_vpos: u16,
+    hpos_range: Option<LineRange>,
+) {
+    eprintln!(
+        "[uaecmp] begin target_v={} (final frame, structured per-CCK trace)",
+        target_vpos
+    );
+
+    let ccks_per_frame = machine_amiga::PAL_FRAME_TICKS / machine_amiga::TICKS_PER_CCK;
+    let mut saw_line = false;
+    for _ in 0..ccks_per_frame {
+        let vpos = amiga.agnus.vpos;
+        let hpos = amiga.agnus.hpos;
+        let in_target = vpos == target_vpos;
+        let hires = (amiga.agnus.bplcon0 & 0x8000) != 0;
+        let bus_plan = if in_target {
+            Some(amiga.agnus.cck_bus_plan())
+        } else {
+            None
+        };
+        let pre_ptrs = if in_target {
+            Some(amiga.agnus.bpl_pt)
+        } else {
+            None
+        };
+
+        let mut fetch_word = None;
+        if in_target
+            && hires
+            && let Some(bus_plan) = bus_plan
+            && let Some(plane) = bus_plan.bitplane_dma_fetch_plane
+        {
+            let idx = plane as usize;
+            let addr = amiga.agnus.bpl_pt[idx];
+            let hi = amiga.memory.read_chip_byte(addr);
+            let lo = amiga.memory.read_chip_byte(addr.wrapping_add(1));
+            let word = (u16::from(hi) << 8) | u16::from(lo);
+            fetch_word = Some((plane, addr, word));
+        }
+
+        if in_target && hpos == 0 {
+            saw_line = true;
+            eprintln!(
+                "[uaecmp] line v={} hires={} BPLCON0={:#06X} BPLCON1={:#06X} BPLCON2={:#06X} BPLCON3={:#06X} DDF={:#06X}..{:#06X} DIW={:#06X}/{:#06X} DIWHIGH={:#06X} MOD={}/{} PTRS={:08X},{:08X},{:08X}",
+                vpos,
+                hires,
+                amiga.agnus.bplcon0,
+                amiga.denise.bplcon1,
+                amiga.denise.bplcon2,
+                amiga.denise.bplcon3,
+                amiga.agnus.ddfstrt,
+                amiga.agnus.ddfstop,
+                amiga.agnus.diwstrt,
+                amiga.agnus.diwstop,
+                amiga.agnus.diwhigh(),
+                amiga.agnus.bpl1mod,
+                amiga.agnus.bpl2mod,
+                amiga.agnus.bpl_pt[0],
+                amiga.agnus.bpl_pt[1],
+                amiga.agnus.bpl_pt[2]
+            );
+        }
+
+        run_one_cck(amiga, beam_debug.as_deref_mut());
+
+        if in_target {
+            let pix = amiga.current_beam_pixel_outputs_debug();
+            let post_ptrs = amiga.agnus.bpl_pt;
+            let sdbg = amiga.denise.last_shift_load_debug();
+            let in_hpos_range = hpos_range.is_none_or(|range| range.contains(hpos));
+
+            let (
+                slot_owner,
+                bitplane_plane,
+                audio_slot,
+                sprite_slot,
+                disk_slot,
+                copper_slot,
+                blit_grant,
+            ) = if let Some(bus_plan) = bus_plan {
+                (
+                    format!("{:?}", bus_plan.slot_owner),
+                    bus_plan
+                        .bitplane_dma_fetch_plane
+                        .map(|n| (n + 1).to_string())
+                        .unwrap_or_else(|| String::from("-")),
+                    bus_plan
+                        .audio_dma_service_channel
+                        .map(|n| (n + 1).to_string())
+                        .unwrap_or_else(|| String::from("-")),
+                    bus_plan
+                        .sprite_dma_service_channel
+                        .map(|n| (n + 1).to_string())
+                        .unwrap_or_else(|| String::from("-")),
+                    if bus_plan.disk_dma_slot_granted {
+                        '1'
+                    } else {
+                        '0'
+                    },
+                    if bus_plan.copper_dma_slot_granted {
+                        '1'
+                    } else {
+                        '0'
+                    },
+                    if bus_plan.blitter_dma_progress_granted {
+                        '1'
+                    } else {
+                        '0'
+                    },
+                )
+            } else {
+                (
+                    String::from("-"),
+                    String::from("-"),
+                    String::from("-"),
+                    String::from("-"),
+                    '0',
+                    '0',
+                    '0',
+                )
+            };
+
+            let fetch_fields =
+                if let (Some((plane, addr, word)), Some(pre_ptrs)) = (fetch_word, pre_ptrs) {
+                    let idx = plane as usize;
+                    let group_len = if hires { 4 } else { 8 };
+                    let pos_in_group = ((hpos.wrapping_sub(amiga.agnus.ddfstrt)) % group_len) as u8;
+                    format!(
+                        " fetch=p{}:{}:{:08X}:{:04X}:{:08X}:{:#010X}",
+                        plane + 1,
+                        pos_in_group,
+                        addr,
+                        word,
+                        post_ptrs[idx],
+                        post_ptrs[idx].wrapping_sub(pre_ptrs[idx]),
+                    )
+                } else {
+                    String::from(" fetch=-")
+                };
+
+            if in_hpos_range {
+                eprintln!(
+                    "[uaecmp] cck v={} h={:#04X} slot={} bp={} au={} sp={} d={} c={} bg={} sw={:#04X}+{}:{} trig={:#04X} dh={}/{} p0={}:{}:{}:[{:02X},{:02X}]:{:02X} p1={}:{}:{}:[{:02X},{:02X}]:{:02X} sh={} bpl={:04X},{:04X},{:04X} dat={:04X},{:04X},{:04X} ptr={:08X},{:08X},{:08X} load={} oe={}/{} nb={}{}",
+                    vpos,
+                    hpos,
+                    slot_owner,
+                    bitplane_plane,
+                    audio_slot,
+                    sprite_slot,
+                    disk_slot,
+                    copper_slot,
+                    blit_grant,
+                    pix.serial_window_start_cck,
+                    pix.serial_window_len_cck,
+                    if pix.serial_window_active { 1 } else { 0 },
+                    pix.bpl1dat_trigger_cck,
+                    pix.diw_hstart_beam_x
+                        .map(|v| format!("{:#04X}", v))
+                        .unwrap_or_else(|| String::from("-")),
+                    pix.diw_hstop_beam_x
+                        .map(|v| format!("{:#04X}", v))
+                        .unwrap_or_else(|| String::from("-")),
+                    if pix.pixel0.write_visible { 1 } else { 0 },
+                    pix.pixel0.beam_x,
+                    pix.pixel0.requested_x,
+                    pix.pixel0.pair_samples[0].raw_color_idx,
+                    pix.pixel0.pair_samples[1].raw_color_idx,
+                    pix.pixel0.final_color_idx,
+                    if pix.pixel1.write_visible { 1 } else { 0 },
+                    pix.pixel1.beam_x,
+                    pix.pixel1.requested_x,
+                    pix.pixel1.pair_samples[0].raw_color_idx,
+                    pix.pixel1.pair_samples[1].raw_color_idx,
+                    pix.pixel1.final_color_idx,
+                    amiga.denise.shift_count,
+                    amiga.denise.bpl_shift[0],
+                    amiga.denise.bpl_shift[1],
+                    amiga.denise.bpl_shift[2],
+                    amiga.denise.bpl_data[0],
+                    amiga.denise.bpl_data[1],
+                    amiga.denise.bpl_data[2],
+                    post_ptrs[0],
+                    post_ptrs[1],
+                    post_ptrs[2],
+                    if sdbg.hires { 1 } else { 0 },
+                    sdbg.odd_scroll,
+                    sdbg.even_scroll,
+                    sdbg.num_bitplanes,
+                    fetch_fields,
+                );
+            }
+        }
+
+        if saw_line && amiga.agnus.vpos != target_vpos {
+            eprintln!(
+                "[uaecmp] end target_v={} next_v={} ptrs={:08X},{:08X},{:08X}",
+                target_vpos,
+                amiga.agnus.vpos,
+                amiga.agnus.bpl_pt[0],
+                amiga.agnus.bpl_pt[1],
+                amiga.agnus.bpl_pt[2]
+            );
+            return;
+        }
+    }
+
+    eprintln!(
+        "[uaecmp] warning target_v={} not fully observed within one PAL frame",
+        target_vpos
+    );
 }
 
 struct AudioOutput {
@@ -735,10 +1445,58 @@ fn run_headless(cli: &CliArgs) {
     let bench_start = cli.bench_insert_screen.then(Instant::now);
     let mut bench_hit_frame: Option<u32> = None;
     let mut frames_executed = 0u32;
+    let mut sampled_bplcon0_values: Vec<u16> = Vec::new();
+    let mut sampled_bplcon1_values: Vec<u16> = Vec::new();
+    let mut sampled_bplcon3_values: Vec<u16> = Vec::new();
 
     for frame_idx in 0..cli.frames {
-        run_frame_with_optional_beam_debug(&mut amiga, beam_debug.as_mut());
+        let is_final_requested_frame = frame_idx + 1 == cli.frames;
+        if let Some(target_vpos) = cli
+            .trace_hires_compare_line
+            .filter(|_| is_final_requested_frame)
+        {
+            trace_hires_compare_line_final_frame(
+                &mut amiga,
+                beam_debug
+                    .as_mut()
+                    .map(|logger| logger as &mut BeamEdgeLogger),
+                target_vpos,
+                cli.trace_hpos_range,
+            );
+        } else if let Some(lines) = cli
+            .trace_hires_bpl_lines
+            .filter(|_| is_final_requested_frame)
+        {
+            trace_hires_bitplanes_final_frame(
+                &mut amiga,
+                beam_debug
+                    .as_mut()
+                    .map(|logger| logger as &mut BeamEdgeLogger),
+                lines,
+            );
+        } else {
+            run_frame_with_optional_beam_debug(
+                &mut amiga,
+                beam_debug
+                    .as_mut()
+                    .map(|logger| logger as &mut BeamEdgeLogger),
+            );
+        }
         frames_executed = frame_idx + 1;
+        if cli.dump_display_state {
+            let bplcon0 = amiga.agnus.bplcon0;
+            let bplcon1 = amiga.denise.bplcon1;
+            let bplcon3 = amiga.denise.bplcon3;
+            if !sampled_bplcon0_values.contains(&bplcon0) && sampled_bplcon0_values.len() < 16 {
+                sampled_bplcon0_values.push(bplcon0);
+            }
+            if !sampled_bplcon1_values.contains(&bplcon1) && sampled_bplcon1_values.len() < 16 {
+                sampled_bplcon1_values.push(bplcon1);
+            }
+            if !sampled_bplcon3_values.contains(&bplcon3) && sampled_bplcon3_values.len() < 16 {
+                sampled_bplcon3_values.push(bplcon3);
+            }
+        }
         let audio = amiga.take_audio_buffer();
         if let Some(buffer) = all_audio.as_mut() {
             buffer.extend_from_slice(&audio);
@@ -752,6 +1510,30 @@ fn run_headless(cli: &CliArgs) {
 
     if let Some(logger) = &beam_debug {
         eprintln!("[beam] total edge transitions: {}", logger.edge_count);
+    }
+    if cli.dump_display_state {
+        if !sampled_bplcon0_values.is_empty() {
+            eprint!("[display] sampled BPLCON0 per-frame:");
+            for value in &sampled_bplcon0_values {
+                eprint!(" {value:#06X}");
+            }
+            eprintln!();
+        }
+        if !sampled_bplcon1_values.is_empty() {
+            eprint!("[display] sampled BPLCON1 per-frame:");
+            for value in &sampled_bplcon1_values {
+                eprint!(" {value:#06X}");
+            }
+            eprintln!();
+        }
+        if !sampled_bplcon3_values.is_empty() {
+            eprint!("[display] sampled BPLCON3 per-frame:");
+            for value in &sampled_bplcon3_values {
+                eprint!(" {value:#06X}");
+            }
+            eprintln!();
+        }
+        dump_display_state(&amiga);
     }
 
     if let Some(path) = &cli.screenshot_path {
@@ -937,7 +1719,8 @@ impl ApplicationHandler for App {
         let size = winit::dpi::LogicalSize::new(FB_WIDTH * SCALE, FB_HEIGHT * SCALE);
         let attrs = WindowAttributes::default()
             .with_title(format!(
-                "Amiga Runner (A500/{})",
+                "Amiga Runner ({}/{})",
+                model_name(self.amiga.model),
                 chipset_name(self.amiga.chipset)
             ))
             .with_inner_size(size)
@@ -1222,9 +2005,9 @@ fn map_printable_physical_key(code: KeyCode) -> Option<u8> {
 mod tests {
     use super::{
         BeamDebugFilter, map_char_to_amiga_key, map_printable_physical_key,
-        parse_beam_debug_filter_arg, parse_chipset_arg,
+        parse_beam_debug_filter_arg, parse_chipset_arg, parse_model_arg, resolve_model_chipset,
     };
-    use machine_amiga::AmigaChipset;
+    use machine_amiga::{AmigaChipset, AmigaModel};
     use winit::keyboard::KeyCode;
 
     #[test]
@@ -1252,6 +2035,35 @@ mod tests {
     #[test]
     fn chipset_arg_parser_rejects_invalid_values() {
         assert!(parse_chipset_arg("aga").is_err());
+    }
+
+    #[test]
+    fn model_arg_parser_accepts_a500_and_a500plus() {
+        assert_eq!(parse_model_arg("a500"), Ok(AmigaModel::A500));
+        assert_eq!(parse_model_arg("A500+"), Ok(AmigaModel::A500Plus));
+        assert_eq!(parse_model_arg("a500plus"), Ok(AmigaModel::A500Plus));
+    }
+
+    #[test]
+    fn model_arg_parser_rejects_invalid_values() {
+        assert!(parse_model_arg("a1200").is_err());
+    }
+
+    #[test]
+    fn a500plus_defaults_to_ecs_and_rejects_ocs() {
+        assert_eq!(
+            resolve_model_chipset(AmigaModel::A500Plus, None),
+            Ok(AmigaChipset::Ecs)
+        );
+        assert_eq!(
+            resolve_model_chipset(AmigaModel::A500, None),
+            Ok(AmigaChipset::Ocs)
+        );
+        assert!(resolve_model_chipset(AmigaModel::A500Plus, Some(AmigaChipset::Ocs)).is_err());
+        assert_eq!(
+            resolve_model_chipset(AmigaModel::A500Plus, Some(AmigaChipset::Ecs)),
+            Ok(AmigaChipset::Ecs)
+        );
     }
 
     #[test]

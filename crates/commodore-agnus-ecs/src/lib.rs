@@ -39,6 +39,7 @@ pub const BEAMCON0_VSYTRUE: u16 = 0x0004;
 pub const BEAMCON0_HSYTRUE: u16 = 0x0002;
 
 /// Thin ECS wrapper that currently reuses the OCS Agnus implementation.
+#[derive(Clone)]
 pub struct AgnusEcs {
     inner: InnerAgnusOcs,
     beamcon0: u16,
@@ -53,6 +54,7 @@ pub struct AgnusEcs {
     hsstrt: u16,
     vsstrt: u16,
     diwhigh: u16,
+    diwhigh_written: bool,
 }
 
 impl AgnusEcs {
@@ -73,6 +75,7 @@ impl AgnusEcs {
             hsstrt: 0,
             vsstrt: 0,
             diwhigh: 0,
+            diwhigh_written: false,
         }
     }
 
@@ -95,6 +98,7 @@ impl AgnusEcs {
             hsstrt: 0,
             vsstrt: 0,
             diwhigh: 0,
+            diwhigh_written: false,
         }
     }
 
@@ -136,6 +140,73 @@ impl AgnusEcs {
                 self.inner.vpos = 0;
             }
         }
+    }
+
+    fn bitplane_dma_vertical_active(&self) -> bool {
+        let (vstart, vstop) = if self.diwhigh_written {
+            // WinUAE models ECS Agnus with an undocumented extra DIWHIGH
+            // vertical bit (V11), so ECS uses 4 high bits for VSTART/VSTOP.
+            let vstart =
+                (((self.diwhigh & 0x000F) as u16) << 8) | ((self.inner.diwstrt >> 8) & 0x00FF);
+            let vstop =
+                ((((self.diwhigh >> 8) & 0x000F) as u16) << 8) | ((self.inner.diwstop >> 8) & 0x00FF);
+            (vstart, vstop)
+        } else {
+            // Legacy OCS-style implicit V8 behavior until DIWHIGH is written.
+            let vstart = (self.inner.diwstrt >> 8) & 0x00FF; // V8 = 0
+            let stop_low = (self.inner.diwstop >> 8) & 0x00FF;
+            let stop_v8 = ((!((stop_low >> 7) & 0x1)) & 0x1) << 8; // V8 != V7
+            let vstop = stop_v8 | stop_low;
+            (vstart, vstop)
+        };
+        if vstart == vstop {
+            return false;
+        }
+        let vpos = self.inner.vpos;
+        if vstart < vstop {
+            vpos >= vstart && vpos < vstop
+        } else {
+            vpos >= vstart || vpos < vstop
+        }
+    }
+
+    /// ECS-aware bus plan that applies vertical bitplane DMA gating from the
+    /// display window timing (DIWSTRT/DIWSTOP[/DIWHIGH]) before exposing the
+    /// Agnus slot grant decisions to the machine.
+    #[must_use]
+    pub fn cck_bus_plan(&self) -> CckBusPlan {
+        let mut plan = self.inner.cck_bus_plan();
+        if plan.bitplane_dma_fetch_plane.is_none() || self.bitplane_dma_vertical_active() {
+            return plan;
+        }
+
+        // Outside the vertical display window, bitplane DMA does not consume
+        // the variable slot. Re-run the post-bitplane fallback for this slot:
+        // copper on even CCKs when enabled, otherwise CPU.
+        let slot_owner = if self.inner.dma_enabled(0x0080) && (self.inner.hpos % 2 == 0) {
+            SlotOwner::Copper
+        } else {
+            SlotOwner::Cpu
+        };
+        let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
+        let blitter_dma_progress_granted =
+            matches!(slot_owner, SlotOwner::Cpu) && self.inner.blitter_busy && self.inner.dma_enabled(0x0040);
+        let blitter_chip_bus_granted = blitter_dma_progress_granted && self.inner.blitter_nasty_active();
+        let cpu_chip_bus_granted = matches!(slot_owner, SlotOwner::Cpu) && !blitter_chip_bus_granted;
+        let paula_return_progress_policy = match slot_owner {
+            SlotOwner::Copper => PaulaReturnProgressPolicy::CopperFetchConditional,
+            SlotOwner::Cpu => PaulaReturnProgressPolicy::Advance,
+            _ => unreachable!("bitplane vertical gating only rewrites variable slots to Copper/CPU"),
+        };
+
+        plan.slot_owner = slot_owner;
+        plan.bitplane_dma_fetch_plane = None;
+        plan.copper_dma_slot_granted = copper_dma_slot_granted;
+        plan.cpu_chip_bus_granted = cpu_chip_bus_granted;
+        plan.blitter_chip_bus_granted = blitter_chip_bus_granted;
+        plan.blitter_dma_progress_granted = blitter_dma_progress_granted;
+        plan.paula_return_progress_policy = paula_return_progress_policy;
+        plan
     }
 
     /// ECS `BEAMCON0` latch (register semantics are not fully modeled yet).
@@ -245,9 +316,16 @@ impl AgnusEcs {
         self.diwhigh
     }
 
+    /// Whether `DIWHIGH` has been explicitly written since reset.
+    #[must_use]
+    pub const fn diwhigh_written(&self) -> bool {
+        self.diwhigh_written
+    }
+
     /// Store ECS `DIWHIGH` for later extended DIW timing/composition work.
     pub fn write_diwhigh(&mut self, val: u16) {
         self.diwhigh = val;
+        self.diwhigh_written = true;
     }
 
     #[must_use]
@@ -472,6 +550,7 @@ mod tests {
         assert_eq!(agnus.hsstrt(), 0);
         assert_eq!(agnus.vsstrt(), 0);
         assert_eq!(agnus.diwhigh(), 0);
+        assert!(!agnus.diwhigh_written());
 
         agnus.write_beamcon0(0x0020);
         agnus.write_htotal(0x0033);
@@ -498,6 +577,7 @@ mod tests {
         assert_eq!(agnus.hsstrt(), 0x0070);
         assert_eq!(agnus.vsstrt(), 0x0178);
         assert_eq!(agnus.diwhigh(), 0xA5A5);
+        assert!(agnus.diwhigh_written());
         assert_eq!(agnus.diwstrt, 0);
         assert_eq!(agnus.diwstop, 0);
     }

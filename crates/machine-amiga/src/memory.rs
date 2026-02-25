@@ -6,6 +6,7 @@ pub const CIA_B_BASE: u32 = 0xBFD000;
 pub const CUSTOM_REGS_BASE: u32 = 0xDFF000;
 pub const ROM_BASE: u32 = 0xF80000;
 
+#[derive(Clone)]
 pub struct Memory {
     pub chip_ram: Vec<u8>,
     pub chip_ram_mask: u32,

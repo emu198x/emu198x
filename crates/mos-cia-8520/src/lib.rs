@@ -357,6 +357,18 @@ impl Cia8520 {
         (self.port_b & self.ddr_b) | (self.external_b & !self.ddr_b)
     }
 
+    pub fn cra(&self) -> u8 {
+        self.cra
+    }
+
+    pub fn crb(&self) -> u8 {
+        self.crb
+    }
+
+    pub fn sdr(&self) -> u8 {
+        self.sdr
+    }
+
     /// Inject a complete serial byte (keyboard clocked 8 bits via CNT).
     /// Sets ICR bit 3 (SP) and stores byte in SDR.
     pub fn receive_serial_byte(&mut self, byte: u8) {

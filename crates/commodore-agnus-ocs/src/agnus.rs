@@ -1,6 +1,8 @@
 //! Agnus - Beam counter and DMA slot allocation.
 
 use std::collections::VecDeque;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
@@ -100,6 +102,17 @@ pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
     Some(0), // 7: BPL1 (triggers shift register load)
 ];
 
+/// Simplified hires bitplane fetch order within a 4-CCK group.
+///
+/// Plane 0 (BPL1) remains last so Denise can trigger a shift-load on the
+/// final fetch of the group. Slots for planes >= current depth are free.
+pub const HIRES_DDF_TO_PLANE: [Option<u8>; 4] = [
+    Some(3), // BPL4
+    Some(1), // BPL2
+    Some(2), // BPL3
+    Some(0), // BPL1 (triggers shift register load)
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlitterDmaOp {
     ReadA,
@@ -167,6 +180,7 @@ struct BlitterAreaRuntime {
     c_val: u16,
 }
 
+#[derive(Clone)]
 pub struct Agnus {
     pub vpos: u16,
     pub hpos: u16, // in CCKs
@@ -182,6 +196,8 @@ pub struct Agnus {
     pub bltcon0: u16,
     pub bltcon1: u16,
     pub bltsize: u16,
+    pub bltsizv_ecs: u16,
+    pub bltsizh_ecs: u16,
     pub blitter_busy: bool,
     pub blitter_exec_pending: bool,
     pub blitter_ccks_remaining: u32,
@@ -230,6 +246,8 @@ impl Agnus {
             bltcon0: 0,
             bltcon1: 0,
             bltsize: 0,
+            bltsizv_ecs: 0,
+            bltsizh_ecs: 0,
             blitter_busy: false,
             blitter_exec_pending: false,
             blitter_ccks_remaining: 0,
@@ -306,6 +324,7 @@ impl Agnus {
     /// This preserves `blitter_busy` across CCKs so bus arbitration can react
     /// to the blitter before the existing synchronous blit implementation runs.
     pub fn start_blit(&mut self) {
+        maybe_trace_blit_start(self);
         self.blitter_busy = true;
         self.blitter_exec_pending = true;
         self.init_incremental_blitter_runtime();
@@ -857,17 +876,34 @@ impl Agnus {
 
             // Variable slots (Bitplane, Copper, CPU)
             0x1C..=0xE2 => {
-                // Bitplane DMA: fetch window runs from DDFSTRT to DDFSTOP+7.
-                // Within each 8-CCK group, planes are fetched in the Minimig
-                // interleaved order (LOWRES_DDF_TO_PLANE), not sequentially.
+                // Bitplane DMA: fetch window runs from DDFSTRT through the
+                // final fetch slot of the last group. In hires mode, the
+                // simplified fetch group width is 4 CCKs instead of 8.
                 let num_bpl = self.num_bitplanes();
+                let hires = (self.bplcon0 & 0x8000) != 0;
+                let group_len = if hires { 4 } else { 8 };
+                // HRM: hires fetch timing effectively spans one additional
+                // 4-CCK fetch group relative to the simple lowres mapping.
+                // Using +7 here yields the expected word count:
+                //   lowres: ((stop-start)/8) + 1
+                //   hires:  ((stop-start)/4) + 2
+                let fetch_end_extra = if hires {
+                    agnus_experiment_hires_fetch_end_extra().unwrap_or(7)
+                } else {
+                    7
+                };
                 if self.dma_enabled(0x0100)
                     && num_bpl > 0
                     && self.hpos >= self.ddfstrt
-                    && self.hpos <= self.ddfstop + 7
+                    && self.hpos <= self.ddfstop + fetch_end_extra
                 {
-                    let pos_in_group = ((self.hpos - self.ddfstrt) % 8) as usize;
-                    if let Some(plane) = LOWRES_DDF_TO_PLANE[pos_in_group] {
+                    let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
+                    let plane_slot = if hires {
+                        HIRES_DDF_TO_PLANE[pos_in_group]
+                    } else {
+                        LOWRES_DDF_TO_PLANE[pos_in_group]
+                    };
+                    if let Some(plane) = plane_slot {
                         if plane < num_bpl {
                             return SlotOwner::Bitplane(plane);
                         }
@@ -930,6 +966,86 @@ impl Agnus {
             paula_return_progress_policy,
         }
     }
+}
+
+fn maybe_trace_blit_start(agnus: &Agnus) {
+    static TRACE_LIMIT: OnceLock<Option<usize>> = OnceLock::new();
+    static TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    let Some(limit) = *TRACE_LIMIT.get_or_init(|| {
+        std::env::var("AMIGA_TRACE_BLITS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+    }) else {
+        return;
+    };
+
+    let idx = TRACE_COUNT.fetch_add(1, Ordering::Relaxed);
+    if idx >= limit {
+        return;
+    }
+
+    let line_mode = (agnus.bltcon1 & 0x0001) != 0;
+    let desc = (agnus.bltcon1 & 0x0002) != 0;
+    let fci = (agnus.bltcon1 & 0x0004) != 0;
+    let ife = (agnus.bltcon1 & 0x0008) != 0;
+    let efe = (agnus.bltcon1 & 0x0010) != 0;
+    let height = u32::from((agnus.bltsize >> 6) & 0x03FF);
+    let width_words = u32::from(agnus.bltsize & 0x003F);
+    let height = if height == 0 { 1024 } else { height };
+    let width_words = if width_words == 0 { 64 } else { width_words };
+    let use_a = (agnus.bltcon0 & 0x0800) != 0;
+    let use_b = (agnus.bltcon0 & 0x0400) != 0;
+    let use_c = (agnus.bltcon0 & 0x0200) != 0;
+    let use_d = (agnus.bltcon0 & 0x0100) != 0;
+    let a_shift = (agnus.bltcon0 >> 12) & 0xF;
+    let b_shift = (agnus.bltcon1 >> 12) & 0xF;
+    let lf = (agnus.bltcon0 & 0x00FF) as u8;
+
+    eprintln!(
+        "[blittrace #{idx}] mode={} size={}x{} use={}{}{}{} desc={} fill=({},{},{}) ash={} bsh={} lf={:02X} bltcon0={:04X} bltcon1={:04X} bltsize={:04X} bltsizv={:04X} bltsizh={:04X} adat={:04X} bdat={:04X} cdat={:04X} afwm={:04X} alwm={:04X} apt={:06X} bpt={:06X} cpt={:06X} dpt={:06X} amod={} bmod={} cmod={} dmod={}",
+        if line_mode { "line" } else { "area" },
+        width_words,
+        height,
+        if use_a { "A" } else { "" },
+        if use_b { "B" } else { "" },
+        if use_c { "C" } else { "" },
+        if use_d { "D" } else { "" },
+        desc,
+        fci,
+        ife,
+        efe,
+        a_shift,
+        b_shift,
+        lf,
+        agnus.bltcon0,
+        agnus.bltcon1,
+        agnus.bltsize,
+        agnus.bltsizv_ecs,
+        agnus.bltsizh_ecs,
+        agnus.blt_adat,
+        agnus.blt_bdat,
+        agnus.blt_cdat,
+        agnus.blt_afwm,
+        agnus.blt_alwm,
+        agnus.blt_apt,
+        agnus.blt_bpt,
+        agnus.blt_cpt,
+        agnus.blt_dpt,
+        agnus.blt_amod,
+        agnus.blt_bmod,
+        agnus.blt_cmod,
+        agnus.blt_dmod,
+    );
+}
+
+fn agnus_experiment_hires_fetch_end_extra() -> Option<u16> {
+    static OVERRIDE: OnceLock<Option<u16>> = OnceLock::new();
+    *OVERRIDE.get_or_init(|| {
+        std::env::var("AMIGA_EXPERIMENT_HIRES_FETCH_END_EXTRA")
+            .ok()
+            .and_then(|s| s.parse::<u16>().ok())
+    })
 }
 
 impl Default for Agnus {
@@ -1012,6 +1128,24 @@ mod tests {
         assert!(!plan.cpu_chip_bus_granted);
         assert!(!plan.blitter_chip_bus_granted);
         assert!(!plan.blitter_dma_progress_granted);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Stall
+        );
+    }
+
+    #[test]
+    fn cck_bus_plan_reports_hires_bitplane_grant_at_group_end() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x43; // ddfstrt + 3 => BPL1 slot in hires fetch group
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN | DMACON_COPEN;
+        agnus.bplcon0 = 0x8000 | (1 << 12); // HIRES + 1 bitplane
+        agnus.ddfstrt = 0x40;
+        agnus.ddfstop = 0x40;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
+        assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
         assert_eq!(
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Stall
