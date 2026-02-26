@@ -94,12 +94,11 @@ fn write_word(amiga: &mut Amiga, addr: u32, val: u16) {
     amiga.memory.write_byte(addr + 1, val as u8);
 }
 
-fn sprite_target_fb_coords() -> (usize, usize) {
-    // ddfstrt is set to 0 in these tests, and machine-amiga maps fb_x from
-    // hpos using first_pixel_cck = ddfstrt + 8.
-    let fb_x = usize::from((TARGET_HPOS - 8) * 2);
-    let fb_y = 1usize; // We render on line DISPLAY_VSTART + 1
-    (fb_x, fb_y)
+fn raster_pixel(amiga: &Amiga, vpos: u16, hpos: u16, sub: u8) -> u32 {
+    let w = machine_amiga::RASTER_FB_WIDTH as usize;
+    let y = usize::from(vpos) * 2;
+    let x = usize::from(hpos) * 4 + usize::from(sub);
+    amiga.denise.framebuffer_raster[y * w + x]
 }
 
 fn setup_sprite_render_baseline(amiga: &mut Amiga) {
@@ -169,9 +168,8 @@ fn sprite0_dma_renders_pixel_into_framebuffer() {
     run_to_render_cck(&mut amiga);
     tick_ccks(&mut amiga, 1);
 
-    let (fb_x, fb_y) = sprite_target_fb_coords();
     assert_eq!(
-        amiga.framebuffer()[fb_y * 320 + fb_x],
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
         rgb12_to_argb32(0xF00),
         "sprite pixel should appear at the expected framebuffer location"
     );
@@ -193,9 +191,8 @@ fn manual_sprite_ctl_disarms_and_data_rearms_output() {
 
     position_beam_for_single_render_cck(&mut amiga);
     tick_ccks(&mut amiga, 1);
-    let (fb_x, fb_y) = sprite_target_fb_coords();
     assert_eq!(
-        amiga.framebuffer()[fb_y * 320 + fb_x],
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
         rgb12_to_argb32(0xF00),
         "manual SPRxDATA write should arm sprite output"
     );
@@ -204,7 +201,7 @@ fn manual_sprite_ctl_disarms_and_data_rearms_output() {
     position_beam_for_single_render_cck(&mut amiga);
     tick_ccks(&mut amiga, 1);
     assert_eq!(
-        amiga.framebuffer()[fb_y * 320 + fb_x],
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
         rgb12_to_argb32(0x000),
         "writing SPRxCTL should disarm sprite output"
     );
@@ -213,7 +210,7 @@ fn manual_sprite_ctl_disarms_and_data_rearms_output() {
     position_beam_for_single_render_cck(&mut amiga);
     tick_ccks(&mut amiga, 1);
     assert_eq!(
-        amiga.framebuffer()[fb_y * 320 + fb_x],
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
         rgb12_to_argb32(0x000),
         "SPRxDATB alone should not re-arm output"
     );
@@ -222,7 +219,7 @@ fn manual_sprite_ctl_disarms_and_data_rearms_output() {
     position_beam_for_single_render_cck(&mut amiga);
     tick_ccks(&mut amiga, 1);
     assert_eq!(
-        amiga.framebuffer()[fb_y * 320 + fb_x],
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
         rgb12_to_argb32(0xF00),
         "SPRxDATA should re-arm sprite output after disarm"
     );
@@ -256,9 +253,8 @@ fn attached_sprite_pair_renders_4bit_color_at_machine_level() {
     run_to_render_cck(&mut amiga);
     tick_ccks(&mut amiga, 1);
 
-    let (fb_x, fb_y) = sprite_target_fb_coords();
     assert_eq!(
-        amiga.framebuffer()[fb_y * 320 + fb_x],
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
         rgb12_to_argb32(0x0F0),
         "attached sprite pair should use the 4-bit combined sprite color"
     );
@@ -297,14 +293,13 @@ fn misaligned_attached_sprite_pair_uses_shifted_colors_at_machine_level() {
     run_to_render_cck(&mut amiga);
     tick_ccks(&mut amiga, 1);
 
-    let (fb_x, fb_y) = sprite_target_fb_coords();
     assert_eq!(
-        amiga.framebuffer()[fb_y * 320 + fb_x],
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
         rgb12_to_argb32(0xF00),
         "misaligned attached pair even-only pixel should use COLOR17..19 subset"
     );
     assert_eq!(
-        amiga.framebuffer()[fb_y * 320 + fb_x + 1],
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 2),
         rgb12_to_argb32(0x0F0),
         "misaligned attached pair odd-only pixel should use shifted COLOR20/24/28 subset"
     );
@@ -337,8 +332,7 @@ fn render_sprite_vs_playfield_pixel(pf1_priority_pos: u16) -> u32 {
     amiga.denise.shift_count = 1;
     tick_ccks(&mut amiga, 1);
 
-    let (fb_x, fb_y) = sprite_target_fb_coords();
-    amiga.framebuffer()[fb_y * 320 + fb_x]
+    raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0)
 }
 
 #[test]
@@ -378,8 +372,7 @@ fn render_dual_playfield_sprite_priority_pixel(bplcon2: u16) -> u32 {
     amiga.denise.shift_count = 1;
     tick_ccks(&mut amiga, 1);
 
-    let (fb_x, fb_y) = sprite_target_fb_coords();
-    amiga.framebuffer()[fb_y * 320 + fb_x]
+    raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0)
 }
 
 #[test]

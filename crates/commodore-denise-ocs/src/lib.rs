@@ -5,18 +5,12 @@
 
 use std::sync::OnceLock;
 
-pub const FB_WIDTH: u32 = 320;
-pub const FB_HEIGHT: u32 = 256;
-pub const HIRES_FB_WIDTH: u32 = 640;
-const HIRES_LINEBUF_LEN: usize = 2048;
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct DeniseHiresLinebufOffsets {
-    pub sample_offset: i32,
-    pub bpl1dat_trigger_offset: i32,
-    pub hstart_offset: Option<i32>,
-    pub hstop_offset: Option<i32>,
-}
+/// Raster framebuffer width: 227 CCKs x 4 hires pixels.
+pub const RASTER_FB_WIDTH: u32 = 908;
+/// PAL raster framebuffer height: 312 lines x 2 (interlace double-height).
+pub const PAL_RASTER_FB_HEIGHT: u32 = 624;
+/// NTSC raster framebuffer height: 262 lines x 2 (interlace double-height).
+pub const NTSC_RASTER_FB_HEIGHT: u32 = 524;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct DeniseSourcePixelDebug {
@@ -32,7 +26,6 @@ pub struct DeniseOutputPixelDebug {
     pub beam_y: u32,
     pub requested_x: u32,
     pub requested_y: u32,
-    pub write_visible: bool,
     pub hires: bool,
     pub source_pixels_per_fb_pixel: u8,
     pub pair_samples: [DeniseSourcePixelDebug; 2],
@@ -62,8 +55,15 @@ pub struct DeniseShiftLoadDebug {
 
 pub struct DeniseOcs {
     pub palette: [u16; 32],
-    pub framebuffer: Vec<u32>,
-    pub framebuffer_hires: Vec<u32>,
+    /// Full-raster framebuffer at hires resolution, double-height for interlace.
+    /// Indexed as `[vpos * 2 + field_row] * RASTER_FB_WIDTH + hpos * 4 + sub`.
+    pub framebuffer_raster: Vec<u32>,
+    pub raster_fb_width: u32,
+    pub raster_fb_height: u32,
+    /// Whether interlace mode (BPLCON0 LACE) is active.
+    pub interlace_active: bool,
+    /// Long frame flag — toggles each frame when interlace is active.
+    pub lof: bool,
     pub bpl_data: [u16; 6],  // Holding latches: written by DMA
     pub bpl_shift: [u16; 6], // Shift registers: loaded from latches on BPL1DAT write
     pub shift_count: u8,     // Pixels remaining in shift register (0 -> output COLOR00)
@@ -74,9 +74,6 @@ pub struct DeniseOcs {
     // Pending parallel-load flags for odd/even numbered bitplanes (BPL1/3/5 and BPL2/4/6).
     bpl_pending_copy_odd_planes: bool,
     bpl_pending_copy_even_planes: bool,
-    bplcon1_phase_bias: u8,
-    serial_phase_bias: u16,
-    hires_linebuf_offsets: DeniseHiresLinebufOffsets,
     bpl_scroll_pending_line: bool,
     pub bplcon0: u16,
     pub bplcon1: u16,
@@ -98,16 +95,6 @@ pub struct DeniseOcs {
     sprite_runtime_beam_y: u32,
     last_shift_load_debug: DeniseShiftLoadDebug,
     deferred_shift_load_after_source_pixels: Option<u8>,
-    hires_cached_sample: (usize, u8, u8, u8),
-    hires_cached_sample_valid: bool,
-    hires_sample_pair_phase: u8,
-    hires_linebuf_color_idx: Vec<u8>,
-    hires_linebuf_beam_y: u32,
-    hires_linebuf_line_valid: bool,
-    hires_linebuf_serial_cursor: u32,
-    hires_linebuf_serial_cursor_seeded: bool,
-    hires_linebuf_serial_beam_origin: u32,
-    hires_linebuf_bpl1dat_trigger_recorded: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,11 +120,20 @@ impl DeniseOcs {
         (((self.bplcon0 >> 12) & 0x7) as usize).min(6)
     }
 
+    /// Create a new Denise with PAL raster dimensions (default).
     pub fn new() -> Self {
+        Self::new_with_raster_height(PAL_RASTER_FB_HEIGHT)
+    }
+
+    /// Create a new Denise with explicit raster buffer height.
+    pub fn new_with_raster_height(raster_fb_height: u32) -> Self {
         Self {
             palette: [0; 32],
-            framebuffer: vec![0xFF000000; (FB_WIDTH * FB_HEIGHT) as usize],
-            framebuffer_hires: vec![0xFF000000; (HIRES_FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer_raster: vec![0xFF000000; (RASTER_FB_WIDTH * raster_fb_height) as usize],
+            raster_fb_width: RASTER_FB_WIDTH,
+            raster_fb_height,
+            interlace_active: false,
+            lof: true,
             bpl_data: [0; 6],
             bpl_shift: [0; 6],
             shift_count: 0,
@@ -147,9 +143,6 @@ impl DeniseOcs {
             bpl_pending_data: [0; 6],
             bpl_pending_copy_odd_planes: false,
             bpl_pending_copy_even_planes: false,
-            bplcon1_phase_bias: 0,
-            serial_phase_bias: 0,
-            hires_linebuf_offsets: DeniseHiresLinebufOffsets::default(),
             bpl_scroll_pending_line: true,
             bplcon0: 0,
             bplcon1: 0,
@@ -174,16 +167,6 @@ impl DeniseOcs {
             sprite_runtime_beam_y: 0,
             last_shift_load_debug: DeniseShiftLoadDebug::default(),
             deferred_shift_load_after_source_pixels: None,
-            hires_cached_sample: (0, 0, 0, 0),
-            hires_cached_sample_valid: false,
-            hires_sample_pair_phase: 0,
-            hires_linebuf_color_idx: vec![0xFF; HIRES_LINEBUF_LEN],
-            hires_linebuf_beam_y: 0,
-            hires_linebuf_line_valid: false,
-            hires_linebuf_serial_cursor: 0,
-            hires_linebuf_serial_cursor_seeded: false,
-            hires_linebuf_serial_beam_origin: 0,
-            hires_linebuf_bpl1dat_trigger_recorded: false,
         }
     }
 
@@ -197,37 +180,6 @@ impl DeniseOcs {
         if idx < 6 {
             self.bpl_data[idx] = val;
         }
-    }
-
-    pub fn set_bplcon1_phase_bias(&mut self, phase_bias: u8) {
-        self.bplcon1_phase_bias = phase_bias;
-    }
-
-    pub fn set_serial_phase_bias(&mut self, phase_bias: u16) {
-        self.serial_phase_bias = phase_bias;
-    }
-
-    pub fn set_hires_linebuf_display_offset(&mut self, offset: i32) {
-        self.hires_linebuf_offsets.sample_offset = offset;
-    }
-
-    pub fn set_hires_linebuf_offsets(&mut self, offsets: DeniseHiresLinebufOffsets) {
-        self.hires_linebuf_offsets = offsets;
-        self.hires_linebuf_bpl1dat_trigger_recorded = false;
-    }
-
-    /// Record the line-buffer output-domain offset where the first `BPL1DAT`
-    /// trigger occurs on the current line.
-    ///
-    /// This mirrors WinUAE's per-line `bpl1dat_trigger_offset` capture and
-    /// allows the hires preview line flush to use the actual DMA trigger timing
-    /// instead of a heuristic estimate.
-    pub fn note_hires_linebuf_bpl1dat_trigger_offset(&mut self, output_pos: i32) {
-        if self.hires_linebuf_bpl1dat_trigger_recorded {
-            return;
-        }
-        self.hires_linebuf_offsets.bpl1dat_trigger_offset = output_pos;
-        self.hires_linebuf_bpl1dat_trigger_recorded = true;
     }
 
     pub fn read_clxdat(&mut self) -> u16 {
@@ -272,36 +224,48 @@ impl DeniseOcs {
     /// In this simplified Denise model, `BPLCON1` horizontal scroll delay is
     /// applied to the first bitplane shift-load on each line.
     pub fn begin_beam_line(&mut self) {
-        self.flush_hires_line_buffer_to_preview();
         self.bpl_scroll_pending_line = true;
         self.bpl_prev_data = [0; 6];
-        self.hires_cached_sample_valid = false;
-        self.hires_sample_pair_phase = 0;
-        self.hires_linebuf_line_valid = false;
-        self.hires_linebuf_serial_cursor = 0;
-        self.hires_linebuf_serial_cursor_seeded = false;
-        self.hires_linebuf_serial_beam_origin = 0;
-        self.hires_linebuf_bpl1dat_trigger_recorded = false;
     }
 
-    /// Clear a lores framebuffer line to the current COLOR00.
+    /// Write a pixel to the full-raster framebuffer.
     ///
-    /// On real hardware, undriven output shows COLOR00 (border). Call this
-    /// at the start of each line so that pixels beyond the DDF/DIW window
-    /// that the render path doesn't reach still show the correct border
-    /// instead of stale data from a previous frame.
-    pub fn clear_fb_line_to_background(&mut self, fb_y: u32) {
-        if fb_y >= FB_HEIGHT {
+    /// Coordinates map directly from beam position:
+    /// - `hpos`: Agnus horizontal position (CCK, 0..226)
+    /// - `vpos`: Agnus vertical position (line, 0..311 PAL)
+    /// - `sub`: sub-CCK hires pixel offset (0..3)
+    /// - `argb32`: pre-composed ARGB32 color
+    ///
+    /// Non-interlaced mode writes the same pixel to both rows of the
+    /// double-height pair. Interlaced mode writes to one row per field.
+    pub fn write_raster_pixel(&mut self, hpos: u16, vpos: u16, sub: u8, argb32: u32) {
+        let fb_x = u32::from(hpos) * 4 + u32::from(sub);
+        if fb_x >= self.raster_fb_width {
             return;
         }
-        let bg = Self::rgb12_to_argb32(self.palette[0]);
-        let row_start = (fb_y * FB_WIDTH) as usize;
-        let row_end = row_start + FB_WIDTH as usize;
-        self.framebuffer[row_start..row_end].fill(bg);
-        // Also clear the corresponding hires line
-        let hrow_start = (fb_y * HIRES_FB_WIDTH) as usize;
-        let hrow_end = hrow_start + HIRES_FB_WIDTH as usize;
-        self.framebuffer_hires[hrow_start..hrow_end].fill(bg);
+        let row_base = u32::from(vpos) * 2;
+        if self.interlace_active {
+            let fb_y = if self.lof { row_base } else { row_base + 1 };
+            if fb_y >= self.raster_fb_height {
+                return;
+            }
+            let idx = (fb_y * self.raster_fb_width + fb_x) as usize;
+            if idx < self.framebuffer_raster.len() {
+                self.framebuffer_raster[idx] = argb32;
+            }
+        } else {
+            // Non-interlaced: write both rows of the double-height pair.
+            for offset in 0..2u32 {
+                let fb_y = row_base + offset;
+                if fb_y >= self.raster_fb_height {
+                    break;
+                }
+                let idx = (fb_y * self.raster_fb_width + fb_x) as usize;
+                if idx < self.framebuffer_raster.len() {
+                    self.framebuffer_raster[idx] = argb32;
+                }
+            }
+        }
     }
 
     #[must_use]
@@ -636,7 +600,7 @@ impl DeniseOcs {
         self.deferred_shift_load_after_source_pixels = None;
         self.bpl_pending_copy_odd_planes = false;
         self.bpl_pending_copy_even_planes = false;
-        self.hires_cached_sample_valid = false;
+
         // BPLCON1 fine-scroll is a continuous barrel shift across fetched
         // bitplane words. Model this by combining the previous and current
         // DMA words per plane when loading the serial shift registers.
@@ -742,7 +706,6 @@ impl DeniseOcs {
             self.bpl_shift_count[plane] = 16;
             self.bpl_shift_delay[plane] = 0;
         }
-        self.hires_cached_sample_valid = false;
     }
 
     fn update_shift_count_from_planes(&mut self) {
@@ -761,7 +724,7 @@ impl DeniseOcs {
         }
         let (odd_scroll, even_scroll, hires) = self.bplcon1_scrolls_for_current_mode();
         let phase_mask = if hires { 0x07 } else { 0x0F };
-        let phase = ((phase_counter as u8).wrapping_add(self.bplcon1_phase_bias)) & phase_mask;
+        let phase = (phase_counter as u8) & phase_mask;
 
         if self.bpl_pending_copy_odd_planes && phase == odd_scroll {
             self.commit_pending_shift_load_group(true);
@@ -801,7 +764,7 @@ impl DeniseOcs {
         self.update_shift_count_from_planes();
     }
 
-    fn rgb12_to_argb32(rgb12: u16) -> u32 {
+    pub fn rgb12_to_argb32(rgb12: u16) -> u32 {
         let r = ((rgb12 >> 8) & 0xF) as u8;
         let g = ((rgb12 >> 4) & 0xF) as u8;
         let b = (rgb12 & 0xF) as u8;
@@ -817,131 +780,12 @@ impl DeniseOcs {
         if self.shift_count == 0 {
             return;
         }
-        if self.bpl_shift_count.iter().any(|&c| c != 0) || self.bpl_shift_delay.iter().any(|&d| d != 0) {
+        if self.bpl_shift_count.iter().any(|&c| c != 0)
+            || self.bpl_shift_delay.iter().any(|&d| d != 0)
+        {
             return;
         }
         self.bpl_shift_count = [self.shift_count; 6];
-    }
-
-    fn ensure_hires_line_buffer_line(&mut self, beam_y: u32) {
-        if self.hires_linebuf_line_valid && self.hires_linebuf_beam_y == beam_y {
-            return;
-        }
-        self.hires_linebuf_color_idx.fill(0xFF);
-        self.hires_linebuf_beam_y = beam_y;
-        self.hires_linebuf_line_valid = true;
-        self.hires_linebuf_serial_cursor = 0;
-        self.hires_linebuf_serial_cursor_seeded = false;
-        self.hires_linebuf_serial_beam_origin = 0;
-        self.hires_linebuf_bpl1dat_trigger_recorded = false;
-    }
-
-    fn flush_hires_line_buffer_to_preview(&mut self) {
-        if !self.hires_linebuf_line_valid {
-            return;
-        }
-        let y = self.hires_linebuf_beam_y;
-        if y >= FB_HEIGHT {
-            return;
-        }
-        let row_base = (y * HIRES_FB_WIDTH) as usize;
-        for x in 0..HIRES_FB_WIDTH {
-            let color_idx = self.sample_hires_line_buffer_color_for_window(x, 0, true) as usize;
-            let argb = Self::rgb12_to_argb32(self.palette[color_idx]);
-            let idx = row_base + x as usize;
-            if idx < self.framebuffer_hires.len() {
-                self.framebuffer_hires[idx] = argb;
-            }
-        }
-    }
-
-    fn record_hires_line_buffer_pair(&mut self, beam_x: u32, beam_y: u32, color_pair: [u8; 2]) {
-        self.ensure_hires_line_buffer_line(beam_y);
-        if !self.hires_linebuf_serial_cursor_seeded {
-            self.hires_linebuf_serial_beam_origin = beam_x.saturating_mul(2);
-            self.hires_linebuf_serial_cursor = 0;
-            self.hires_linebuf_serial_cursor_seeded = true;
-        }
-        let base = self.hires_linebuf_serial_cursor;
-        for (sub, color_idx) in color_pair.into_iter().enumerate() {
-            let idx = base.saturating_add(sub as u32) as usize;
-            if idx < self.hires_linebuf_color_idx.len() {
-                self.hires_linebuf_color_idx[idx] = color_idx;
-            }
-        }
-        self.hires_linebuf_serial_cursor = self.hires_linebuf_serial_cursor.saturating_add(2);
-    }
-
-    fn sample_hires_line_buffer_color(&self, linebuf_x: u32, fallback: u8) -> u8 {
-        let sample_offset =
-            self.hires_linebuf_offsets.sample_offset + denise_experiment_hires_linebuf_sample_offset();
-        let serial_x = linebuf_x as i32 + sample_offset;
-        if serial_x < 0 {
-            return fallback;
-        }
-        if serial_x < self.hires_linebuf_offsets.bpl1dat_trigger_offset {
-            return 0;
-        }
-        if let Some(hstart) = self.hires_linebuf_offsets.hstart_offset
-            && serial_x < hstart
-        {
-            return 0;
-        }
-        if let Some(hstop) = self.hires_linebuf_offsets.hstop_offset
-            && serial_x >= hstop
-        {
-            return 0;
-        }
-        let idx = serial_x as usize;
-        self.hires_linebuf_color_idx
-            .get(idx)
-            .copied()
-            .filter(|&v| v != 0xFF)
-            .unwrap_or(fallback)
-    }
-
-    fn sample_hires_line_buffer_color_for_window(
-        &self,
-        linebuf_x: u32,
-        fallback: u8,
-        playfield_visible_gate: bool,
-    ) -> u8 {
-        let sample_offset =
-            self.hires_linebuf_offsets.sample_offset + denise_experiment_hires_linebuf_sample_offset();
-        // `linebuf_x` is the output-pixel counter in the hires preview
-        // framebuffer (cnt-like domain). `sample_offset` maps that output
-        // counter to the serialized playfield sample buffer (cp-like domain).
-        // HDIW/BPL1DAT trigger offsets are output-domain gates and must not be
-        // folded into source sampling.
-        let output_pos = linebuf_x as i32 + sample_offset;
-        let serial_x = output_pos;
-
-        if !playfield_visible_gate {
-            return 0;
-        }
-        if serial_x < 0 {
-            return fallback;
-        }
-        if output_pos < self.hires_linebuf_offsets.bpl1dat_trigger_offset {
-            return 0;
-        }
-        if let Some(hstart) = self.hires_linebuf_offsets.hstart_offset
-            && output_pos < hstart
-        {
-            return 0;
-        }
-        if let Some(hstop) = self.hires_linebuf_offsets.hstop_offset
-            && output_pos >= hstop
-        {
-            return 0;
-        }
-
-        let idx = serial_x as usize;
-        self.hires_linebuf_color_idx
-            .get(idx)
-            .copied()
-            .filter(|&v| v != 0xFF)
-            .unwrap_or(fallback)
     }
 
     fn shift_one_playfield_source_pixel(&mut self) -> (usize, u8, u8, u8) {
@@ -965,7 +809,12 @@ impl DeniseOcs {
                     .iter()
                     .rposition(|&c| c != 0)
                     .map(|idx| idx + 1)
-                    .or_else(|| self.bpl_shift.iter().rposition(|&w| w != 0).map(|idx| idx + 1))
+                    .or_else(|| {
+                        self.bpl_shift
+                            .iter()
+                            .rposition(|&w| w != 0)
+                            .map(|idx| idx + 1)
+                    })
                     .unwrap_or(0);
             }
             for plane in 0..num_bpl {
@@ -1010,7 +859,7 @@ impl DeniseOcs {
         (raw_color_idx, pf1_code, pf2_code, plane_bits_mask)
     }
 
-    fn shift_one_playfield_render_sample(&mut self, hires: bool) -> (usize, u8, u8, u8) {
+    fn shift_one_playfield_render_sample(&mut self, _hires: bool) -> (usize, u8, u8, u8) {
         // Hires outputs 4 source pixels per CCK (2 per output call × 2 calls).
         // Each call shifts one actual source pixel — no caching. The 16-bit
         // shift register drains in 4 CCK, matching the BPL1DAT fetch rate.
@@ -1023,6 +872,19 @@ impl DeniseOcs {
         self.output_pixel_with_beam(x, y, x, y);
     }
 
+    /// Output a pixel and return its ARGB32 color.
+    ///
+    /// Convenience wrapper for unit tests: calls the output pipeline and
+    /// returns the composited color (playfield + sprites + priority).
+    pub fn output_pixel_color(&mut self, x: u32, y: u32) -> u32 {
+        let debug = self.output_pixel_with_beam(x, y, x, y);
+        if debug.called {
+            Self::rgb12_to_argb32(self.palette[debug.final_color_idx as usize])
+        } else {
+            0xFF00_0000
+        }
+    }
+
     fn output_pixel_with_beam_n_source_samples(
         &mut self,
         x: u32,
@@ -1032,7 +894,6 @@ impl DeniseOcs {
         source_pixels_per_output_call: u8,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
-        let write_visible = x < FB_WIDTH && y < FB_HEIGHT;
         self.sync_sprite_runtime_to_beam(beam_x, beam_y);
         let hires = (self.bplcon0 & 0x8000) != 0;
         let source_pixels_per_fb_pixel = source_pixels_per_output_call.clamp(1, 2);
@@ -1041,14 +902,13 @@ impl DeniseOcs {
         let mut raw_color_idx = 0usize;
         let mut pf1_code = 0u8;
         let mut pf2_code = 0u8;
-        let mut pair_playfield_colors = [0u8; 2];
         let mut plane_bits_mask = 0u8;
         // Denise's horizontal comparator (`denise_hcounter_cmp` in WinUAE) is
         // a CCK-rate counter, not a half-CCK/subpixel counter. In this model
         // `beam_x` advances twice per CCK, so use `beam_x >> 1` for BPLCON1
         // pending-load comparator phase.
         let comparator_phase = if hires {
-            ((beam_x >> 1) as u16).wrapping_sub(self.serial_phase_bias)
+            (beam_x >> 1) as u16
         } else {
             beam_x as u16
         };
@@ -1076,10 +936,6 @@ impl DeniseOcs {
             pf1_code = pf1;
             pf2_code = pf2;
             plane_bits_mask |= mask;
-            if hires && sample_idx < 2 {
-                let playfield_sub = self.compose_playfield_pixel(raw, pf1, pf2);
-                pair_playfield_colors[sample_idx as usize] = playfield_sub.visible_color_idx as u8;
-            }
         }
 
         // Denise's BPLCON1 scroll comparator uses a horizontal counter phase,
@@ -1099,16 +955,14 @@ impl DeniseOcs {
             }
         };
         let sprite_group_mask = self.collision_group_mask(beam_x, beam_y);
-        if write_visible {
-            self.latch_collisions(
-                if playfield_visible_gate {
-                    plane_bits_mask
-                } else {
-                    0
-                },
-                sprite_group_mask,
-            );
-        }
+        self.latch_collisions(
+            if playfield_visible_gate {
+                plane_bits_mask
+            } else {
+                0
+            },
+            sprite_group_mask,
+        );
         let mut color_idx = playfield.visible_color_idx;
         if let Some(sprite_pixel) = self.sprite_pixel(beam_x, beam_y) {
             if let Some(front_pf) = playfield.front_playfield {
@@ -1121,53 +975,12 @@ impl DeniseOcs {
             }
         }
 
-        if hires {
-            // Stage playfield serial samples into a per-line hires buffer even
-            // when the current host pixel is clipped. This preserves hidden
-            // pre-window scroll pixels and decouples Denise serial generation
-            // from host framebuffer visibility.
-            self.record_hires_line_buffer_pair(beam_x, beam_y, pair_playfield_colors);
-        }
-
-        if write_visible {
-            let argb32 = Self::rgb12_to_argb32(self.palette[color_idx]);
-            self.framebuffer[(y * FB_WIDTH + x) as usize] = argb32;
-
-            // Maintain a hires-resolution playfield preview buffer for ECS/KS2.x
-            // debugging and screenshots. This intentionally omits per-subpixel
-            // sprite composition; lowres pixels are replicated.
-            let hx = x * 2;
-            let hy = y;
-            if hires {
-                for sub in 0..2usize {
-                    let linebuf_x = hx.saturating_add(sub as u32);
-                    let color_idx_sub = self.sample_hires_line_buffer_color_for_window(
-                        linebuf_x,
-                        pair_playfield_colors[sub],
-                        playfield_visible_gate,
-                    ) as usize;
-                    let argb_sub = Self::rgb12_to_argb32(self.palette[color_idx_sub]);
-                    let hidx = (hy * HIRES_FB_WIDTH + hx + sub as u32) as usize;
-                    if hidx < self.framebuffer_hires.len() {
-                        self.framebuffer_hires[hidx] = argb_sub;
-                    }
-                }
-            } else {
-                let hidx = (hy * HIRES_FB_WIDTH + hx) as usize;
-                if hidx + 1 < self.framebuffer_hires.len() {
-                    self.framebuffer_hires[hidx] = argb32;
-                    self.framebuffer_hires[hidx + 1] = argb32;
-                }
-            }
-        }
-
         DeniseOutputPixelDebug {
             called: true,
             beam_x,
             beam_y,
             requested_x: x,
             requested_y: y,
-            write_visible,
             hires,
             source_pixels_per_fb_pixel,
             pair_samples: pair_samples_debug,
@@ -1226,23 +1039,149 @@ fn denise_experiment_bplcon1_line_delay_only() -> bool {
 
 fn denise_experiment_hires_copy_before_shift() -> bool {
     static COPY_BEFORE: OnceLock<bool> = OnceLock::new();
-    *COPY_BEFORE.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_HIRES_COPY_BEFORE_SHIFT").is_some())
+    *COPY_BEFORE
+        .get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_HIRES_COPY_BEFORE_SHIFT").is_some())
 }
 
-fn denise_experiment_hires_full_rate_shift() -> bool {
-    static FULL_RATE: OnceLock<bool> = OnceLock::new();
-    *FULL_RATE.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_HIRES_FULL_RATE_SHIFT").is_some())
+/// Viewport presets for cropping the raster framebuffer to displayable area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewportPreset {
+    /// Standard display window (PAL: CCK $40-$D8, lines $2C-$12C).
+    Standard,
+    /// Full overscan area with borders.
+    Overscan,
+    /// Entire raster including blanking — for debug/educational use.
+    Full,
 }
 
-fn denise_experiment_hires_linebuf_sample_offset() -> i32 {
-    static OFFSET: OnceLock<i32> = OnceLock::new();
-    *OFFSET.get_or_init(|| {
-        let Some(raw) = std::env::var_os("AMIGA_EXPERIMENT_HIRES_LINEBUF_SAMPLE_OFFSET") else {
-            return 0;
+/// Region-specific viewport bounds in CCK and line units.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewportBounds {
+    pub h_start_cck: u16,
+    pub h_end_cck: u16,
+    pub v_start_line: u16,
+    pub v_end_line: u16,
+}
+
+impl ViewportPreset {
+    /// Viewport bounds for PAL.
+    #[must_use]
+    pub const fn pal_bounds(self) -> ViewportBounds {
+        match self {
+            Self::Standard => ViewportBounds {
+                h_start_cck: 0x40,
+                h_end_cck: 0xD8,
+                v_start_line: 0x2C,
+                v_end_line: 0x12C,
+            },
+            Self::Overscan => ViewportBounds {
+                h_start_cck: 0x1C,
+                h_end_cck: 0xDC,
+                v_start_line: 0x1A,
+                v_end_line: 0x138,
+            },
+            Self::Full => ViewportBounds {
+                h_start_cck: 0x00,
+                h_end_cck: 0xE3,
+                v_start_line: 0x00,
+                v_end_line: 312,
+            },
+        }
+    }
+
+    /// Viewport bounds for NTSC.
+    #[must_use]
+    pub const fn ntsc_bounds(self) -> ViewportBounds {
+        match self {
+            Self::Standard => ViewportBounds {
+                h_start_cck: 0x40,
+                h_end_cck: 0xD8,
+                v_start_line: 0x2C,
+                v_end_line: 0x10A,
+            },
+            Self::Overscan => ViewportBounds {
+                h_start_cck: 0x1C,
+                h_end_cck: 0xDC,
+                v_start_line: 0x1A,
+                v_end_line: 0x118,
+            },
+            Self::Full => ViewportBounds {
+                h_start_cck: 0x00,
+                h_end_cck: 0xE3,
+                v_start_line: 0x00,
+                v_end_line: 262,
+            },
+        }
+    }
+}
+
+/// Extracted viewport image from the raster framebuffer.
+pub struct ViewportImage {
+    pub pixels: Vec<u32>,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl DeniseOcs {
+    /// Extract a viewport from the raster framebuffer.
+    ///
+    /// Returns the cropped region at hires resolution. For non-interlaced
+    /// content, adjacent row pairs are identical; pass `deinterlace=true`
+    /// to take every other row (halving the height).
+    pub fn extract_viewport(
+        &self,
+        preset: ViewportPreset,
+        pal: bool,
+        deinterlace: bool,
+    ) -> ViewportImage {
+        let bounds = if pal {
+            preset.pal_bounds()
+        } else {
+            preset.ntsc_bounds()
         };
-        let s = raw.to_string_lossy();
-        s.parse::<i32>().unwrap_or(0)
-    })
+
+        let h_pixels = u32::from(bounds.h_end_cck - bounds.h_start_cck) * 4;
+        let v_lines = u32::from(bounds.v_end_line - bounds.v_start_line);
+        let raster_rows = v_lines * 2; // double-height buffer
+
+        let out_height = if deinterlace { v_lines } else { raster_rows };
+        let mut pixels = Vec::with_capacity((h_pixels * out_height) as usize);
+
+        let row_step = if deinterlace { 2u32 } else { 1u32 };
+        let fb_w = self.raster_fb_width;
+
+        for row_idx in 0..out_height {
+            let raster_row = u32::from(bounds.v_start_line) * 2 + row_idx * row_step;
+            let raster_x_start = u32::from(bounds.h_start_cck) * 4;
+
+            for px in 0..h_pixels {
+                let fb_x = raster_x_start + px;
+                let idx = (raster_row * fb_w + fb_x) as usize;
+                let color = self
+                    .framebuffer_raster
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(0xFF000000);
+                pixels.push(color);
+            }
+        }
+
+        ViewportImage {
+            pixels,
+            width: h_pixels,
+            height: out_height,
+        }
+    }
+}
+
+/// Pixel aspect ratio for correct display on square-pixel screens.
+#[must_use]
+pub fn pixel_aspect_ratio(pal: bool, hires: bool, interlaced: bool) -> f64 {
+    // PAL lores non-interlaced is the reference: ~1.067 (pixels slightly taller than wide)
+    let base = if pal { 1.067 } else { 0.833 };
+    let h_factor = if hires { 0.5 } else { 1.0 };
+    let v_factor = if interlaced { 0.5 } else { 1.0 };
+    base * h_factor * v_factor
 }
 
 impl Default for DeniseOcs {
@@ -1400,12 +1339,18 @@ mod tests {
         // Full-rate shift: each output call consumes 2 distinct source pixels.
         // 0xA000 = 1010_0000... so pixels are: 1, 0, 1, 0, ...
         assert_eq!(
-            [dbg0.pair_samples[0].raw_color_idx, dbg0.pair_samples[1].raw_color_idx],
+            [
+                dbg0.pair_samples[0].raw_color_idx,
+                dbg0.pair_samples[1].raw_color_idx
+            ],
             [1, 0],
             "first output call shifts source pixels 0 (=1) and 1 (=0)"
         );
         assert_eq!(
-            [dbg1.pair_samples[0].raw_color_idx, dbg1.pair_samples[1].raw_color_idx],
+            [
+                dbg1.pair_samples[0].raw_color_idx,
+                dbg1.pair_samples[1].raw_color_idx
+            ],
             [1, 0],
             "second output call shifts source pixels 2 (=1) and 3 (=0)"
         );
@@ -1427,7 +1372,10 @@ mod tests {
         // second source pixel is bit 15 of the new word (1).
         let dbg = invisible_output_pixel(&mut denise, 0);
         assert_eq!(
-            [dbg.pair_samples[0].raw_color_idx, dbg.pair_samples[1].raw_color_idx],
+            [
+                dbg.pair_samples[0].raw_color_idx,
+                dbg.pair_samples[1].raw_color_idx
+            ],
             [0, 1],
             "deferred load fires after first shift, second shift sees new data"
         );
@@ -1450,10 +1398,8 @@ mod tests {
         denise.spr_data[0] = 0x8000; // leftmost pixel = color code 1
         denise.spr_datb[0] = 0x0000;
 
-        denise.output_pixel(20, 10);
-
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 20) as usize],
+            denise.output_pixel_color(20, 10),
             DeniseOcs::rgb12_to_argb32(0xF00)
         );
     }
@@ -1470,32 +1416,28 @@ mod tests {
         denise.write_sprite_datb(0, 0x0000);
         denise.write_sprite_data(0, 0x8000); // arm
 
-        denise.output_pixel(26, 10);
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 26) as usize],
+            denise.output_pixel_color(26, 10),
             DeniseOcs::rgb12_to_argb32(0xF00)
         );
 
         denise.write_sprite_ctl(0, ctl); // disarm again
-        denise.output_pixel(26, 10);
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 26) as usize],
+            denise.output_pixel_color(26, 10),
             DeniseOcs::rgb12_to_argb32(0x000),
             "writing SPRxCTL should disable sprite output until re-armed"
         );
 
         denise.write_sprite_datb(0, 0x0000); // DATB alone must not arm
-        denise.output_pixel(26, 10);
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 26) as usize],
+            denise.output_pixel_color(26, 10),
             DeniseOcs::rgb12_to_argb32(0x000),
             "writing SPRxDATB alone should not arm the comparator"
         );
 
         denise.write_sprite_data(0, 0x8000); // DATA arms
-        denise.output_pixel(26, 10);
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 26) as usize],
+            denise.output_pixel_color(26, 10),
             DeniseOcs::rgb12_to_argb32(0xF00),
             "writing SPRxDATA should arm the comparator"
         );
@@ -1516,16 +1458,16 @@ mod tests {
 
         denise.write_sprite_pos(0, pos_b); // move while armed
 
-        denise.output_pixel(40, 12);
-        denise.output_pixel(42, 12);
+        let c40 = denise.output_pixel_color(40, 12);
+        let c42 = denise.output_pixel_color(42, 12);
 
         assert_eq!(
-            denise.framebuffer[(12 * FB_WIDTH + 40) as usize],
+            c40,
             DeniseOcs::rgb12_to_argb32(0x000),
             "sprite should no longer appear at the old horizontal position"
         );
         assert_eq!(
-            denise.framebuffer[(12 * FB_WIDTH + 42) as usize],
+            c42,
             DeniseOcs::rgb12_to_argb32(0x0F0),
             "writing SPRxPOS should move an armed sprite horizontally"
         );
@@ -1544,25 +1486,22 @@ mod tests {
         denise.write_sprite_data(0, 0xC000); // first two pixels set
 
         // First pixel of line 10 loads and begins shifting.
-        denise.output_pixel(20, 10);
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 20) as usize],
+            denise.output_pixel_color(20, 10),
             DeniseOcs::rgb12_to_argb32(0xF00)
         );
 
         // Mid-line data rewrite should not affect the already-loaded serial data
         // for this line, but should be visible on the next line.
         denise.write_sprite_data(0, 0x0000);
-        denise.output_pixel(21, 10);
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 21) as usize],
+            denise.output_pixel_color(21, 10),
             DeniseOcs::rgb12_to_argb32(0xF00),
             "mid-line SPRxDATA write must not alter the current line after load"
         );
 
-        denise.output_pixel(20, 11);
         assert_eq!(
-            denise.framebuffer[(11 * FB_WIDTH + 20) as usize],
+            denise.output_pixel_color(20, 11),
             DeniseOcs::rgb12_to_argb32(0x000),
             "next line should use the newly written sprite data"
         );
@@ -1583,16 +1522,16 @@ mod tests {
 
         denise.output_pixel(23, 9); // before either HSTART
         denise.write_sprite_pos(0, pos_b); // move before comparator hit
-        denise.output_pixel(24, 9);
-        denise.output_pixel(26, 9);
+        let c24 = denise.output_pixel_color(24, 9);
+        let c26 = denise.output_pixel_color(26, 9);
 
         assert_eq!(
-            denise.framebuffer[(9 * FB_WIDTH + 24) as usize],
+            c24,
             DeniseOcs::rgb12_to_argb32(0x0FF),
             "SPRxPOS write before HSTART should affect the current line comparator hit"
         );
         assert_eq!(
-            denise.framebuffer[(9 * FB_WIDTH + 26) as usize],
+            c26,
             DeniseOcs::rgb12_to_argb32(0x000),
             "sprite should not also trigger again at the old HSTART"
         );
@@ -1611,16 +1550,14 @@ mod tests {
 
         denise.output_pixel(29, 11); // HSTART already passed on line 11
         denise.write_sprite_data(0, 0x8000); // arm after HSTART
-        denise.output_pixel(30, 11);
         assert_eq!(
-            denise.framebuffer[(11 * FB_WIDTH + 30) as usize],
+            denise.output_pixel_color(30, 11),
             DeniseOcs::rgb12_to_argb32(0x000),
             "arming after HSTART should wait for the next line's comparison"
         );
 
-        denise.output_pixel(28, 12);
         assert_eq!(
-            denise.framebuffer[(12 * FB_WIDTH + 28) as usize],
+            denise.output_pixel_color(28, 12),
             DeniseOcs::rgb12_to_argb32(0xF0F),
             "next line should trigger output after late-line SPRxDATA arm"
         );
@@ -1758,10 +1695,8 @@ mod tests {
         denise.spr_data[0] = 0x0000;
         denise.spr_datb[0] = 0x0000; // transparent
 
-        denise.output_pixel(24, 12);
-
         assert_eq!(
-            denise.framebuffer[(12 * FB_WIDTH + 24) as usize],
+            denise.output_pixel_color(24, 12),
             DeniseOcs::rgb12_to_argb32(0x0F0)
         );
     }
@@ -1785,10 +1720,8 @@ mod tests {
         denise.spr_data[2] = 0x8000;
         denise.spr_datb[2] = 0x0000;
 
-        denise.output_pixel(30, 8);
-
         assert_eq!(
-            denise.framebuffer[(8 * FB_WIDTH + 30) as usize],
+            denise.output_pixel_color(30, 8),
             DeniseOcs::rgb12_to_argb32(0xF00),
             "sprite 0 should appear in front of sprite 2"
         );
@@ -1811,10 +1744,8 @@ mod tests {
         denise.spr_data[1] = 0x0000;
         denise.spr_datb[1] = 0x8000; // odd sprite code = 10 (high two bits)
 
-        denise.output_pixel(32, 14);
-
         assert_eq!(
-            denise.framebuffer[(14 * FB_WIDTH + 32) as usize],
+            denise.output_pixel_color(32, 14),
             DeniseOcs::rgb12_to_argb32(0x0F0)
         );
     }
@@ -1838,16 +1769,16 @@ mod tests {
         denise.spr_data[1] = 0x8000; // odd-only pixel at x=41
         denise.spr_datb[1] = 0x0000;
 
-        denise.output_pixel(40, 10);
-        denise.output_pixel(41, 10);
+        let c40 = denise.output_pixel_color(40, 10);
+        let c41 = denise.output_pixel_color(41, 10);
 
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 40) as usize],
+            c40,
             DeniseOcs::rgb12_to_argb32(0xF00),
             "even-only pixel in misaligned attached pair should use COLOR17..19 subset"
         );
         assert_eq!(
-            denise.framebuffer[(10 * FB_WIDTH + 41) as usize],
+            c41,
             DeniseOcs::rgb12_to_argb32(0x0F0),
             "odd-only pixel in misaligned attached pair should use shifted COLOR20/24/28 subset"
         );
@@ -1866,10 +1797,8 @@ mod tests {
         denise.spr_data[2] = 0x8000;
         denise.spr_datb[2] = 0x0000;
 
-        denise.output_pixel(44, 12);
-
         assert_eq!(
-            denise.framebuffer[(12 * FB_WIDTH + 44) as usize],
+            denise.output_pixel_color(44, 12),
             DeniseOcs::rgb12_to_argb32(0x00F),
             "ATTACH is only valid on odd sprites; even sprite 2 should render as normal group-1 sprite"
         );
@@ -1892,10 +1821,8 @@ mod tests {
         denise.spr_data[0] = 0x8000;
         denise.spr_datb[0] = 0x0000;
 
-        denise.output_pixel(18, 6);
-
         assert_eq!(
-            denise.framebuffer[(6 * FB_WIDTH + 18) as usize],
+            denise.output_pixel_color(18, 6),
             DeniseOcs::rgb12_to_argb32(0x00F),
             "PF1 priority should place sprite 0 behind a nonzero playfield pixel"
         );
@@ -1918,10 +1845,8 @@ mod tests {
         denise.spr_data[0] = 0x8000;
         denise.spr_datb[0] = 0x0000;
 
-        denise.output_pixel(19, 7);
-
         assert_eq!(
-            denise.framebuffer[(7 * FB_WIDTH + 19) as usize],
+            denise.output_pixel_color(19, 7),
             DeniseOcs::rgb12_to_argb32(0xF00),
             "PF1 priority should allow sprite 0 in front when PF1P=1"
         );
@@ -1947,9 +1872,8 @@ mod tests {
         denise.bpl_shift[1] = 0x8000;
         denise.shift_count = 1;
         denise.bplcon2 = 0x0044; // PF2PRI=1, PF1P=4 (sprite beats PF1), PF2P=0 (PF2 beats sprite)
-        denise.output_pixel(22, 9);
         assert_eq!(
-            denise.framebuffer[(9 * FB_WIDTH + 22) as usize],
+            denise.output_pixel_color(22, 9),
             DeniseOcs::rgb12_to_argb32(0x0F0),
             "front PF2 should hide sprite when PF2P places PF2 ahead of SP01"
         );
@@ -1958,9 +1882,8 @@ mod tests {
         denise.bpl_shift[1] = 0x8000;
         denise.shift_count = 1;
         denise.bplcon2 = 0x004C; // PF2PRI=1, PF2P=1 => SP01 in front of PF2
-        denise.output_pixel(22, 9);
         assert_eq!(
-            denise.framebuffer[(9 * FB_WIDTH + 22) as usize],
+            denise.output_pixel_color(22, 9),
             DeniseOcs::rgb12_to_argb32(0xF00),
             "sprite should appear when PF2P places SP01 ahead of front PF2"
         );

@@ -21,7 +21,10 @@ use peripheral_amiga_keyboard::AmigaKeyboard;
 use std::sync::OnceLock;
 
 // Re-export chip crates so tests and downstream users can access types.
-pub use crate::config::{AmigaChipset, AmigaConfig, AmigaModel};
+pub use crate::config::{
+    AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion, NTSC_RASTER_FB_HEIGHT,
+    PAL_RASTER_FB_HEIGHT, RASTER_FB_WIDTH,
+};
 pub use commodore_agnus_ecs;
 pub use commodore_agnus_ocs;
 pub use commodore_denise_ecs;
@@ -51,9 +54,6 @@ pub const PAL_FRAME_TICKS: u64 = (commodore_agnus_ocs::PAL_CCKS_PER_LINE as u64)
 /// Paula audio sample rate exposed to host runners.
 pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
 const PAL_CCK_HZ: u64 = PAL_CRYSTAL_HZ / TICKS_PER_CCK;
-
-/// Vertical start of visible display (PAL line $2C = 44).
-const DISPLAY_VSTART: u16 = 0x2C;
 
 #[derive(Debug, Clone)]
 struct DiskDmaRuntime {
@@ -154,10 +154,6 @@ pub struct BeamDebugSnapshot {
 pub struct BeamPixelOutputDebug {
     pub vpos: u16,
     pub hpos_cck: u16,
-    pub bpl1dat_trigger_cck: u16,
-    pub serial_window_start_cck: u16,
-    pub serial_window_len_cck: u16,
-    pub serial_window_active: bool,
     pub diw_hstart_beam_x: Option<u16>,
     pub diw_hstop_beam_x: Option<u16>,
     pub pixel0: commodore_denise_ocs::DeniseOutputPixelDebug,
@@ -201,6 +197,7 @@ pub struct Amiga {
     pub master_clock: u64,
     pub model: AmigaModel,
     pub chipset: AmigaChipset,
+    pub region: AmigaRegion,
     pub cpu: Cpu68000,
     pub agnus: Agnus,
     pub memory: Memory,
@@ -246,6 +243,7 @@ impl Amiga {
         Self::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ocs,
+            region: AmigaRegion::Pal,
             kickstart,
         })
     }
@@ -258,6 +256,7 @@ impl Amiga {
         let AmigaConfig {
             model,
             chipset,
+            region,
             kickstart,
         } = config;
         let chip_ram_size = match model {
@@ -266,17 +265,30 @@ impl Amiga {
             AmigaModel::A500Plus => 1024 * 1024,
         };
 
+        let region_lines = region.lines_per_frame();
+        let raster_fb_height = match region {
+            AmigaRegion::Pal => PAL_RASTER_FB_HEIGHT,
+            AmigaRegion::Ntsc => NTSC_RASTER_FB_HEIGHT,
+        };
+
         let agnus = match chipset {
-            AmigaChipset::Ocs => {
-                commodore_agnus_ecs::AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new())
+            AmigaChipset::Ocs => commodore_agnus_ecs::AgnusEcs::from_ocs(
+                commodore_agnus_ocs::Agnus::new_with_region_lines(region_lines),
+            ),
+            AmigaChipset::Ecs => {
+                let mut a = commodore_agnus_ecs::AgnusEcs::new();
+                a.as_inner_mut().lines_per_frame = region_lines;
+                a
             }
-            AmigaChipset::Ecs => commodore_agnus_ecs::AgnusEcs::new(),
         };
         let denise = match chipset {
-            AmigaChipset::Ocs => {
-                commodore_denise_ecs::DeniseEcs::from_ocs(commodore_denise_ocs::DeniseOcs::new())
+            AmigaChipset::Ocs => commodore_denise_ecs::DeniseEcs::from_ocs(
+                commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height),
+            ),
+            AmigaChipset::Ecs => {
+                let d = commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height);
+                commodore_denise_ecs::DeniseEcs::from_ocs(d)
             }
-            AmigaChipset::Ecs => commodore_denise_ecs::DeniseEcs::new(),
         };
 
         let mut cpu = Cpu68000::new();
@@ -310,6 +322,7 @@ impl Amiga {
             master_clock: 0,
             model,
             chipset,
+            region,
             cpu,
             agnus,
             memory,
@@ -342,20 +355,11 @@ impl Amiga {
     pub fn tick(&mut self) {
         self.master_clock += 1;
 
-        if self.master_clock % TICKS_PER_CCK == 0 {
+        if self.master_clock.is_multiple_of(TICKS_PER_CCK) {
             let vpos = self.agnus.vpos;
             let hpos = self.agnus.hpos;
             if hpos == 0 {
                 self.denise.begin_beam_line();
-                // Clear this line's framebuffer to COLOR00 (border color).
-                // The render path may not write every pixel in the line —
-                // e.g. when DDFSTRT is high enough that fewer than 160 CCKs
-                // remain before line end. Without this clear, unwritten
-                // tail pixels would retain stale data from previous frames.
-                let fb_y = vpos.wrapping_sub(DISPLAY_VSTART);
-                if (fb_y as u32) < commodore_denise_ocs::FB_HEIGHT as u32 {
-                    self.denise.clear_fb_line_to_background(fb_y as u32);
-                }
                 // Update vertical bitplane DMA flip-flop at line start.
                 // On real hardware Agnus uses a flip-flop that is SET when the
                 // beam reaches VSTART and CLEARED when it reaches VSTOP. It is
@@ -410,6 +414,10 @@ impl Amiga {
                 if self.agnus.dma_enabled(0x0080) {
                     self.copper.restart_cop1();
                 }
+                // Sync interlace state from Agnus to Denise at frame start.
+                let interlace = (self.agnus.bplcon0 & 0x0004) != 0;
+                self.denise.interlace_active = interlace;
+                self.denise.lof = self.agnus.lof;
             }
 
             // CIA-A TOD input is VSYNC. On OCS we pulse at frame wrap; on ECS
@@ -459,17 +467,6 @@ impl Amiga {
             // This creates the current pipeline delay model: shift registers
             // hold data from the PREVIOUS fetch group. New data loaded this
             // CCK won't appear until the next output.
-            let hires = (self.agnus.bplcon0 & 0x8000) != 0;
-            if hires {
-                // WinUAE folds DDFSTRT fetch-start phase into effective BPLCON1
-                // alignment. Mirror the OCS/ECS hires fetch-start contribution
-                // as a small comparator phase bias (mask width = 3 bits).
-                let ddf_phase_term =
-                    (((self.agnus.ddfstrt.wrapping_sub(0x0018)) & 0x0003) << 1) as u8;
-                self.denise.set_bplcon1_phase_bias(ddf_phase_term & 0x07);
-            } else {
-                self.denise.set_bplcon1_phase_bias(0);
-            }
             let beam_x0_u16 = hpos.wrapping_mul(2);
             let beam_x1_u16 = beam_x0_u16.wrapping_add(1);
             let beam_x0 = u32::from(beam_x0_u16);
@@ -477,125 +474,46 @@ impl Amiga {
             let beam_y = u32::from(vpos);
             let playfield_gate0 = self.playfield_window_active_beam_x(vpos, hpos, beam_x0_u16);
             let playfield_gate1 = self.playfield_window_active_beam_x(vpos, hpos, beam_x1_u16);
-            let first_pixel_cck = self.agnus.ddfstrt.wrapping_add(if hires { 4 } else { 8 });
-            let mut visible_ccks = (commodore_denise_ocs::FB_WIDTH / 2) as u16;
             let mut diw_hstart_beam_x = None;
             let mut diw_hstop_beam_x = None;
-            if hires
-                && let Some((ecs_hspan_cck, hstart, hstop)) =
+            if (self.agnus.bplcon0 & 0x8000) != 0
+                && let Some((_ecs_hspan_cck, hstart, hstop)) =
                     self.ecs_display_h_span_cck_and_bounds()
             {
-                visible_ccks = ecs_hspan_cck;
                 diw_hstart_beam_x = Some(hstart);
                 diw_hstop_beam_x = Some(hstop);
             }
-            let mut odd_scroll = ((self.denise.bplcon1 >> 4) & 0x000F) as u16;
-            let mut even_scroll = (self.denise.bplcon1 & 0x000F) as u16;
-            if hires {
-                // HRM: hires horizontal scrolling is in 2-pixel increments,
-                // so the low bit of each delay nibble is effectively ignored.
-                odd_scroll &= !1;
-                even_scroll &= !1;
-            }
-            let max_scroll = odd_scroll.max(even_scroll);
-            let hidden_margin_ccks = if hires {
-                (max_scroll + 3) / 4
-            } else {
-                (max_scroll + 1) / 2
-            };
-            let serial_window_start = first_pixel_cck.wrapping_sub(hidden_margin_ccks);
-            let serial_window_ccks = visible_ccks.wrapping_add(hidden_margin_ccks);
-            let cck_rel = hpos.wrapping_sub(serial_window_start);
-            let in_serial_window = cck_rel < serial_window_ccks;
-            // Denise BPL1DAT copy comparator is keyed to Denise's horizontal
-            // counter domain (WinUAE's `denise_hcounter_cmp`), not the host
-            // render serial-window origin. Keep this un-biased for now; line
-            // buffer/display placement can be adjusted separately.
-            self.denise.set_serial_phase_bias(0);
-            let hires_linebuf_offsets = if hires {
-                // Host hires preview X maps directly to our serial-window
-                // origin in this model: first visible host pixel corresponds
-                // to the first visible beam sample (`first_pixel_cck`), while
-                // the line-buffer cursor starts at `serial_window_start`.
-                //
-                // Keep placement exact to that relation and let the explicit
-                // BPL1DAT/HDIW offsets below handle the rest. The earlier
-                // WinUAE-inspired `delayoffset` approximation was useful as a
-                // probe, but it also mixed concerns and distorted placement.
-                let sample_offset = i32::from(hidden_margin_ccks.saturating_mul(4));
-                let bpl1dat_trigger_offset = i32::from(first_pixel_cck.wrapping_sub(serial_window_start)) * 4;
-                let serial_origin_beam_x = serial_window_start.wrapping_mul(2);
-                let line_beam_len = (commodore_agnus_ocs::PAL_CCKS_PER_LINE as u16) * 2;
-                let serial_idx_from_beam_x = |beam_x: u16| -> i32 {
-                    let delta_beam = if beam_x >= serial_origin_beam_x {
-                        beam_x - serial_origin_beam_x
-                    } else {
-                        line_beam_len - serial_origin_beam_x + beam_x
-                    };
-                    i32::from(delta_beam) * 2
-                };
-                let (hstart_offset, hstop_offset) = match (diw_hstart_beam_x, diw_hstop_beam_x) {
-                    (Some(hstart), Some(hstop)) if hstart != hstop => {
-                        // Wrap-around HDIW windows are possible on ECS, but
-                        // the current line-buffer preview path only models a
-                        // single contiguous playfield span. Defer wrap support
-                        // until the full line renderer is in place.
-                        if hstart < hstop {
-                            (
-                                Some(serial_idx_from_beam_x(hstart)),
-                                Some(serial_idx_from_beam_x(hstop)),
-                            )
-                        } else {
-                            (None, None)
-                        }
-                    }
-                    _ => (None, None),
-                };
-                commodore_denise_ocs::DeniseHiresLinebufOffsets {
-                    sample_offset,
-                    bpl1dat_trigger_offset,
-                    hstart_offset,
-                    hstop_offset,
-                }
-            } else {
-                commodore_denise_ocs::DeniseHiresLinebufOffsets::default()
-            };
-            if hpos == 0 {
-                self.denise.set_hires_linebuf_offsets(hires_linebuf_offsets);
-            }
-            let pixel0_debug = if let Some((fb_x, fb_y)) =
-                self.beam_to_fb_render_beam_x(vpos, hpos, beam_x0_u16)
+            // Output two half-CCK pixels. Beam position IS the coordinate —
+            // every position writes to the raster buffer directly.
+            let pixel0_debug = self.denise.output_pixel_with_beam_and_playfield_gate(
+                beam_x0,
+                beam_y,
+                beam_x0,
+                beam_y,
+                playfield_gate0,
+            );
+            let pixel1_debug = self.denise.output_pixel_with_beam_and_playfield_gate(
+                beam_x1,
+                beam_y,
+                beam_x1,
+                beam_y,
+                playfield_gate1,
+            );
+
+            // --- Raster framebuffer writes ---
             {
-                    self.denise
-                        .output_pixel_with_beam_and_playfield_gate(
-                            fb_x, fb_y, beam_x0, beam_y, playfield_gate0,
-                        )
-                } else if in_serial_window {
-                    // Denise keeps shifting through pre-window scroll pixels (and
-                    // clipped pixels generally) even when the framebuffer output is
-                    // not visible. Otherwise BPLCON1 alignment drifts in hires modes.
-                    self.denise
-                        .output_pixel_with_beam_and_playfield_gate(
-                            u32::MAX, u32::MAX, beam_x0, beam_y, playfield_gate0,
-                        )
-                } else {
-                    commodore_denise_ocs::DeniseOutputPixelDebug::default()
-                };
-            let pixel1_debug = if let Some((fb_x, fb_y)) =
-                self.beam_to_fb_render_beam_x(vpos, hpos, beam_x1_u16)
-            {
-                self.denise
-                    .output_pixel_with_beam_and_playfield_gate(
-                        fb_x, fb_y, beam_x1, beam_y, playfield_gate1,
-                    )
-            } else if in_serial_window {
-                self.denise
-                    .output_pixel_with_beam_and_playfield_gate(
-                        u32::MAX, u32::MAX, beam_x1, beam_y, playfield_gate1,
-                    )
-            } else {
-                commodore_denise_ocs::DeniseOutputPixelDebug::default()
-            };
+                let raster_color0 = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
+                    self.denise.palette[pixel0_debug.final_color_idx as usize],
+                );
+                self.denise.write_raster_pixel(hpos, vpos, 0, raster_color0);
+                self.denise.write_raster_pixel(hpos, vpos, 1, raster_color0);
+
+                let raster_color1 = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
+                    self.denise.palette[pixel1_debug.final_color_idx as usize],
+                );
+                self.denise.write_raster_pixel(hpos, vpos, 2, raster_color1);
+                self.denise.write_raster_pixel(hpos, vpos, 3, raster_color1);
+            }
 
             // --- DMA slots ---
             let bus_plan = self.agnus.cck_bus_plan();
@@ -622,17 +540,7 @@ impl Amiga {
                 self.agnus.bpl_pt[idx] = addr.wrapping_add(2);
                 if plane == 0 {
                     fetched_plane_0 = true;
-                    if hires {
-                        // WinUAE records BPL1DAT trigger timing in the line
-                        // renderer's internal output-counter domain and later
-                        // adds one RES_MAX unit (`+4` at ECS hires).
-                        let output_pos =
-                            i32::from(hpos.wrapping_sub(serial_window_start)) * 4 + 4;
-                        self.denise.note_hires_linebuf_bpl1dat_trigger_offset(output_pos);
-                        self.denise.trigger_shift_load();
-                    } else {
-                        self.denise.trigger_shift_load();
-                    }
+                    self.denise.trigger_shift_load();
                 }
             } else if bus_plan.copper_dma_slot_granted {
                 let copper_used_chip_bus_cell = std::cell::Cell::new(false);
@@ -690,10 +598,9 @@ impl Amiga {
             // Apply bitplane modulo after the last fetch group of the line.
             if fetched_plane_0 {
                 // Bitplane shift-load is already triggered above in the DMA
-                // dispatch block (trigger_shift_load for lowres,
-                // queue_shift_load_from_bpl1dat for hires). Do NOT repeat it
-                // here — a second trigger_shift_load corrupts the BPLCON1
-                // barrel-shift carry by overwriting bpl_prev_data.
+                // dispatch block. Do NOT repeat it here — a second
+                // trigger_shift_load corrupts the BPLCON1 barrel-shift carry
+                // by overwriting bpl_prev_data.
                 // Plane 0 is fetched at the end of the current DDF group:
                 // ddfseq position 7 in lowres, 3 in hires (simplified model).
                 let group_end_offset = if (self.agnus.bplcon0 & 0x8000) != 0 {
@@ -724,10 +631,6 @@ impl Amiga {
             self.beam_pixel_outputs_debug = BeamPixelOutputDebug {
                 vpos,
                 hpos_cck: hpos,
-                bpl1dat_trigger_cck: first_pixel_cck,
-                serial_window_start_cck: serial_window_start,
-                serial_window_len_cck: serial_window_ccks,
-                serial_window_active: in_serial_window,
                 diw_hstart_beam_x,
                 diw_hstop_beam_x,
                 pixel0: pixel0_debug,
@@ -766,12 +669,9 @@ impl Amiga {
                 .tick_blitter_scheduler_op(blitter_progress_this_cck)
             {
                 let line_mode = (self.agnus.bltcon1 & 0x0001) != 0;
-                if line_mode && machine_experiment_sync_line_blitter() {
-                    self.agnus.clear_blitter_scheduler();
-                    execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
-                } else if (self.agnus.bltcon1 & 0x0001) == 0
-                    && machine_experiment_sync_area_blitter()
-                {
+                let sync_now = (line_mode && machine_experiment_sync_line_blitter())
+                    || (!line_mode && machine_experiment_sync_area_blitter());
+                if sync_now {
                     self.agnus.clear_blitter_scheduler();
                     execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
                 } else {
@@ -868,7 +768,7 @@ impl Amiga {
         };
         self.cpu.tick(&mut bus, self.master_clock);
 
-        if self.master_clock % TICKS_PER_ECLOCK == 0 {
+        if self.master_clock.is_multiple_of(TICKS_PER_ECLOCK) {
             self.cia_a.tick();
             if self.cia_a.irq_active() {
                 self.paula.request_interrupt(3);
@@ -960,19 +860,6 @@ impl Amiga {
         for _ in 0..PAL_FRAME_TICKS {
             self.tick();
         }
-    }
-
-    /// Borrow the current raw ARGB framebuffer (320x256).
-    pub fn framebuffer(&self) -> &[u32] {
-        &self.denise.framebuffer
-    }
-
-    /// Borrow the hires preview framebuffer (640x256).
-    ///
-    /// This is primarily a debug/screenshot aid for ECS/KS2.x hires screens.
-    #[must_use]
-    pub fn framebuffer_hires(&self) -> &[u32] {
-        &self.denise.framebuffer_hires
     }
 
     /// Drain interleaved stereo audio samples (`f32`, `L,R,...`).
@@ -1140,13 +1027,9 @@ impl Amiga {
         }
     }
 
-    fn next_sprite_dma_vpos(vpos: u16) -> u16 {
+    fn next_sprite_dma_vpos(vpos: u16, lines_per_frame: u16) -> u16 {
         let next = vpos.wrapping_add(1);
-        if next >= commodore_agnus_ocs::PAL_LINES_PER_FRAME {
-            0
-        } else {
-            next
-        }
+        if next >= lines_per_frame { 0 } else { next }
     }
 
     /// Service one Agnus sprite DMA slot.
@@ -1208,7 +1091,7 @@ impl Amiga {
                 let ctl = self.denise.spr_ctl[sprite];
                 let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
                 let vstop = (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF);
-                let next_vpos = Self::next_sprite_dma_vpos(vpos);
+                let next_vpos = Self::next_sprite_dma_vpos(vpos, self.agnus.lines_per_frame);
                 self.sprite_dma_phase[sprite] =
                     if Self::sprite_line_active(next_vpos, vstart, vstop) {
                         2
@@ -1220,87 +1103,32 @@ impl Amiga {
         self.agnus.spr_pt[sprite] = addr.wrapping_add(2);
     }
 
+    /// Map a beam position to raster framebuffer coordinates.
+    ///
+    /// Returns `Some((fb_x, fb_y))` in raster-buffer space when the position
+    /// is in the visible (non-blanked, in-window) area. Returns `None` when
+    /// blanked by ECS programmable blank windows or outside the ECS display
+    /// window. OCS has no programmable blanking, so all positions are visible.
     fn beam_to_fb_beam_x(&self, vpos: u16, hpos_cck: u16, beam_x: u16) -> Option<(u32, u32)> {
-        let fb_y = if self.chipset == AmigaChipset::Ecs {
-            // Coarse ECS hard-stop scaffolding: when programmable beam/sync/blank
-            // control is active but neither HARDDIS nor VARVBEN disables the
-            // legacy vertical hard stop, clamp visibility to the legacy OCS
-            // vertical display span. This is intentionally narrower than a full
-            // ECS signal-generator model and avoids changing DIWHIGH-only paths.
-            let legacy_vertical_hard_stop_active = self.agnus.varbeamen_enabled()
-                && !self.agnus.harddis_enabled()
-                && !self.agnus.varvben_enabled();
-            if legacy_vertical_hard_stop_active {
-                let legacy_end = DISPLAY_VSTART + commodore_denise_ocs::FB_HEIGHT as u16;
-                if vpos < DISPLAY_VSTART || vpos >= legacy_end {
-                    return None;
-                }
-            }
-
+        if self.chipset == AmigaChipset::Ecs {
             if self.agnus.hblank_window_active(hpos_cck) {
                 return None;
             }
-            let (vstart, vstop, hstart, hstop) = if self.agnus.diwhigh_written() {
-                let diwhigh = self.agnus.diwhigh();
-                let vstart =
-                    (((diwhigh & 0x000F) as u16) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
-                let vstop = ((((diwhigh >> 8) & 0x000F) as u16) << 8)
-                    | ((self.agnus.diwstop >> 8) & 0x00FF);
-                let hstart = (((diwhigh >> 5) & 0x0001) << 8) | (self.agnus.diwstrt & 0x00FF);
-                let hstop = (((diwhigh >> 13) & 0x0001) << 8) | (self.agnus.diwstop & 0x00FF);
-                (vstart, vstop, hstart, hstop)
-            } else {
-                // HRM legacy ECS behavior: if DIWHIGH is not written, the
-                // old OCS implicit H8/V8 scheme still applies.
-                let vstart = (self.agnus.diwstrt >> 8) & 0x00FF; // V8=0
-                let stop_low = (self.agnus.diwstop >> 8) & 0x00FF;
-                let stop_v8 = ((!((stop_low >> 7) & 0x1)) & 0x1) << 8; // V8 != V7
-                let vstop = stop_v8 | stop_low;
-                let hstart = self.agnus.diwstrt & 0x00FF; // H8=0
-                let hstop = 0x0100 | (self.agnus.diwstop & 0x00FF); // H8=1
-                (vstart, vstop, hstart, hstop)
-            };
-
             if self.agnus.vblank_window_active(vpos) {
                 return None;
             }
-
+            let (vstart, vstop, hstart, hstop) = self.ecs_decoded_diw_window();
             if vstart == vstop {
                 return None;
             }
-
-            let rel = if vstart < vstop {
-                if vpos < vstart || vpos >= vstop {
-                    return None;
-                }
-                vpos - vstart
+            let v_active = if vstart < vstop {
+                vpos >= vstart && vpos < vstop
             } else {
-                let lines_per_frame = commodore_agnus_ocs::PAL_LINES_PER_FRAME;
-                if vstart > lines_per_frame {
-                    return None;
-                }
-                if !(vpos >= vstart || vpos < vstop) {
-                    return None;
-                }
-                if vpos >= vstart {
-                    vpos - vstart
-                } else {
-                    (lines_per_frame - vstart) + vpos
-                }
+                vpos >= vstart || vpos < vstop
             };
-
-            if rel >= commodore_denise_ocs::FB_HEIGHT as u16 {
+            if !v_active {
                 return None;
             }
-            // DIWSTRT/DIWSTOP define visibility, but the machine framebuffer
-            // remains anchored to the fixed PAL display raster origin (as in
-            // the OCS path). Using DIWSTRT as the framebuffer origin shifts
-            // ECS/KS2.x content to the top-left and clips the lower layout.
-            let physical_rel = vpos.wrapping_sub(DISPLAY_VSTART);
-            if physical_rel >= commodore_denise_ocs::FB_HEIGHT as u16 {
-                return None;
-            }
-
             let h_active = if hstart == hstop {
                 false
             } else if hstart < hstop {
@@ -1311,35 +1139,14 @@ impl Amiga {
             if !h_active {
                 return None;
             }
-            physical_rel
-        } else {
-            let rel = vpos.wrapping_sub(DISPLAY_VSTART);
-            if rel >= commodore_denise_ocs::FB_HEIGHT as u16 {
-                return None;
-            }
-            rel
-        };
-        let hires = (self.agnus.bplcon0 & 0x8000) != 0;
-        // First bitplane pixel appears one CCK after the final BPL1 fetch in a
-        // fetch group. In this simplified model the group width is 8 CCKs in
-        // lowres and 4 CCKs in hires.
-        let first_pixel_cck = self.agnus.ddfstrt.wrapping_add(if hires { 4 } else { 8 });
-        let cck_offset = hpos_cck.wrapping_sub(first_pixel_cck);
-        let mut fb_x = (u32::from(cck_offset) * 2) + u32::from(beam_x & 1);
-        if hires {
-            let phase = machine_experiment_hires_fb_x_offset();
-            if phase != 0 {
-                let shifted = fb_x as i32 + phase;
-                if shifted < 0 || shifted >= commodore_denise_ocs::FB_WIDTH as i32 {
-                    return None;
-                }
-                fb_x = shifted as u32;
-            }
         }
-        if fb_x >= commodore_denise_ocs::FB_WIDTH {
+        // Raster coordinates: beam position maps directly.
+        let fb_x = u32::from(beam_x) * 2;
+        let fb_y = u32::from(vpos) * 2;
+        if fb_x >= RASTER_FB_WIDTH || fb_y >= self.denise.raster_fb_height {
             return None;
         }
-        Some((fb_x, u32::from(fb_y)))
+        Some((fb_x, fb_y))
     }
 
     fn beam_to_fb(&self, vpos: u16, hpos_cck: u16) -> Option<(u32, u32)> {
@@ -1370,65 +1177,11 @@ impl Amiga {
         v_active && h_active
     }
 
-    /// Render-path beam mapping in the fixed host framebuffer raster.
-    ///
-    /// Unlike `beam_to_fb_beam_x()`, this intentionally does not clip to
-    /// `DIWSTRT/DIWSTOP`; DIW controls playfield visibility, but Denise still
-    /// outputs border color outside the display window. ECS blank/sync/hard-stop
-    /// scaffolding is still honored here.
-    fn beam_to_fb_render_beam_x(&self, vpos: u16, hpos_cck: u16, beam_x: u16) -> Option<(u32, u32)> {
-        let fb_y = if self.chipset == AmigaChipset::Ecs {
-            let legacy_vertical_hard_stop_active = self.agnus.varbeamen_enabled()
-                && !self.agnus.harddis_enabled()
-                && !self.agnus.varvben_enabled();
-            if legacy_vertical_hard_stop_active {
-                let legacy_end = DISPLAY_VSTART + commodore_denise_ocs::FB_HEIGHT as u16;
-                if vpos < DISPLAY_VSTART || vpos >= legacy_end {
-                    return None;
-                }
-            }
-            if self.agnus.hblank_window_active(hpos_cck) || self.agnus.vblank_window_active(vpos) {
-                return None;
-            }
-            let physical_rel = vpos.wrapping_sub(DISPLAY_VSTART);
-            if physical_rel >= commodore_denise_ocs::FB_HEIGHT as u16 {
-                return None;
-            }
-            physical_rel
-        } else {
-            let rel = vpos.wrapping_sub(DISPLAY_VSTART);
-            if rel >= commodore_denise_ocs::FB_HEIGHT as u16 {
-                return None;
-            }
-            rel
-        };
-
-        let hires = (self.agnus.bplcon0 & 0x8000) != 0;
-        let first_pixel_cck = self.agnus.ddfstrt.wrapping_add(if hires { 4 } else { 8 });
-        let cck_offset = hpos_cck.wrapping_sub(first_pixel_cck);
-        let mut fb_x = (u32::from(cck_offset) * 2) + u32::from(beam_x & 1);
-        if hires {
-            let phase = machine_experiment_hires_fb_x_offset();
-            if phase != 0 {
-                let shifted = fb_x as i32 + phase;
-                if shifted < 0 || shifted >= commodore_denise_ocs::FB_WIDTH as i32 {
-                    return None;
-                }
-                fb_x = shifted as u32;
-            }
-        }
-        if fb_x >= commodore_denise_ocs::FB_WIDTH {
-            return None;
-        }
-        Some((fb_x, u32::from(fb_y)))
-    }
-
     fn ecs_decoded_diw_window(&self) -> (u16, u16, u16, u16) {
         if self.agnus.diwhigh_written() {
             let diwhigh = self.agnus.diwhigh();
-            let vstart = (((diwhigh & 0x000F) as u16) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
-            let vstop =
-                ((((diwhigh >> 8) & 0x000F) as u16) << 8) | ((self.agnus.diwstop >> 8) & 0x00FF);
+            let vstart = ((diwhigh & 0x000F) << 8) | ((self.agnus.diwstrt >> 8) & 0x00FF);
+            let vstop = (((diwhigh >> 8) & 0x000F) << 8) | ((self.agnus.diwstop >> 8) & 0x00FF);
             let hstart = (((diwhigh >> 5) & 0x0001) << 8) | (self.agnus.diwstrt & 0x00FF);
             let hstop = (((diwhigh >> 13) & 0x0001) << 8) | (self.agnus.diwstop & 0x00FF);
             (vstart, vstop, hstart, hstop)
@@ -1489,9 +1242,9 @@ impl Amiga {
             }
             // Otherwise the latch retains its previous value.
         } else {
-            // OCS: simple fixed window, no flip-flop needed.
-            let rel = vpos.wrapping_sub(DISPLAY_VSTART);
-            self.bpl_dma_vactive_latch = rel < commodore_denise_ocs::FB_HEIGHT as u16;
+            // OCS: fixed display window, lines $2C..$12C (44..300).
+            let rel = vpos.wrapping_sub(0x2C);
+            self.bpl_dma_vactive_latch = rel < 256;
         }
     }
 
@@ -1890,16 +1643,6 @@ impl Amiga {
     }
 }
 
-fn machine_experiment_hires_fb_x_offset() -> i32 {
-    static OFFSET: OnceLock<i32> = OnceLock::new();
-    *OFFSET.get_or_init(|| {
-        std::env::var("AMIGA_EXPERIMENT_HIRES_FB_X_OFFSET")
-            .ok()
-            .and_then(|s| s.parse::<i32>().ok())
-            .unwrap_or(0)
-    })
-}
-
 fn machine_experiment_sync_line_blitter() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_SYNC_LINE_BLITTER").is_some())
@@ -1912,8 +1655,9 @@ fn machine_experiment_sync_area_blitter() -> bool {
 
 fn machine_experiment_drain_incremental_area_blitter() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED
-        .get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_DRAIN_INCREMENTAL_AREA_BLITTER").is_some())
+    *ENABLED.get_or_init(|| {
+        std::env::var_os("AMIGA_EXPERIMENT_DRAIN_INCREMENTAL_AREA_BLITTER").is_some()
+    })
 }
 
 fn machine_experiment_burst_incremental_area_blitter_ops() -> u32 {
@@ -2151,8 +1895,8 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         self.agnus.dmacon | busy
                     }
                     0x004 => {
-                        // VPOSR: expose PAL Agnus ID bits and beam MSBs.
-                        // LOF is currently not modeled, so bit 15 stays 0.
+                        // VPOSR: bit 15 = LOF, bits 14-8 = Agnus ID, bits 2-0 = V10..V8.
+                        let lof_bit = if self.agnus.lof { 0x8000u16 } else { 0 };
                         let agnus_id = match self.chipset {
                             AmigaChipset::Ocs => 0x00u16, // PAL OCS Agnus
                             AmigaChipset::Ecs => 0x20u16, // PAL ECS (HR) Agnus
@@ -2160,7 +1904,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         let v8 = (self.agnus.vpos >> 8) & 1;
                         let v9 = (self.agnus.vpos >> 9) & 1;
                         let v10 = (self.agnus.vpos >> 10) & 1;
-                        (agnus_id << 8) | (v10 << 2) | (v9 << 1) | v8
+                        lof_bit | (agnus_id << 8) | (v10 << 2) | (v9 << 1) | v8
                     }
                     0x006 => {
                         // VHPOSR: V7..V0 in high byte, H8..H1 (CCK units) in low byte.
@@ -2243,19 +1987,17 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             } else {
                 BusStatus::Wait
             }
-        } else {
-            if is_read {
-                let val = if is_word {
-                    let hi = self.memory.read_byte(addr);
-                    let lo = self.memory.read_byte(addr | 1);
-                    (u16::from(hi) << 8) | u16::from(lo)
-                } else {
-                    u16::from(self.memory.read_byte(addr))
-                };
-                BusStatus::Ready(val)
+        } else if is_read {
+            let val = if is_word {
+                let hi = self.memory.read_byte(addr);
+                let lo = self.memory.read_byte(addr | 1);
+                (u16::from(hi) << 8) | u16::from(lo)
             } else {
-                BusStatus::Ready(0)
-            }
+                u16::from(self.memory.read_byte(addr))
+            };
+            BusStatus::Ready(val)
+        } else {
+            BusStatus::Ready(0)
         }
     }
 }
@@ -2344,6 +2086,7 @@ fn queue_pipelined_write(
 }
 
 /// Shared custom register write dispatch used by both CPU and copper paths.
+#[allow(clippy::too_many_arguments)]
 fn write_custom_register(
     chipset: AmigaChipset,
     agnus: &mut Agnus,
@@ -2412,7 +2155,6 @@ fn write_custom_register(
         // DDFSTRT/DDFSTOP writes are pipelined (2-CCK delay) — handled
         // by queue_pipelined_write() at the call site.
         0x092 | 0x094 => {}
-
 
         // DMA control
         0x096 => {
@@ -2619,7 +2361,7 @@ fn line_blit_expected_d_words(agnus: &Agnus) -> Vec<u32> {
     let error_sub = agnus.blt_amod;
     let mut dpt = agnus.blt_dpt;
     let mut pixel_bit = ash;
-    let row_mod = agnus.blt_cmod as i16;
+    let row_mod = agnus.blt_cmod;
     let mut out = Vec::with_capacity(length as usize);
 
     for _ in 0..length {
@@ -2929,7 +2671,7 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
     let mut dpt = agnus.blt_dpt;
     let mut pixel_bit = ash; // Current pixel position within word (0-15)
 
-    let row_mod = agnus.blt_cmod as i16; // Destination row stride in bytes
+    let row_mod = agnus.blt_cmod; // Destination row stride in bytes
 
     // Texture pattern from channel B (rotated each step)
     let mut texture = agnus.blt_bdat;
@@ -3038,7 +2780,7 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
                 step_x(&mut cpt, &mut dpt, &mut pixel_bit);
                 step_y(&mut cpt, &mut dpt);
             }
-            error = error.wrapping_add(error_sub as i16);
+            error = error.wrapping_add(error_sub);
         } else {
             // Step on major axis ONLY
             if major_is_y {
@@ -3046,7 +2788,7 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
             } else {
                 step_x(&mut cpt, &mut dpt, &mut pixel_bit);
             }
-            error = error.wrapping_add(error_add as i16);
+            error = error.wrapping_add(error_add);
         }
     }
 
@@ -3064,9 +2806,9 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 #[cfg(test)]
 mod tests {
     use super::{
-        Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, BeamCompositeSyncDebug,
-        BeamCompositeSyncMode, BeamDebugSnapshot, BeamEdgeFlags, BeamPinState, BeamSyncState,
-        TICKS_PER_CCK,
+        Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion,
+        BeamCompositeSyncDebug, BeamCompositeSyncMode, BeamDebugSnapshot, BeamEdgeFlags,
+        BeamPinState, BeamSyncState, TICKS_PER_CCK,
     };
     use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
@@ -3123,6 +2865,7 @@ mod tests {
         let amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
         assert_eq!(amiga.chipset, AmigaChipset::Ecs);
@@ -3133,6 +2876,7 @@ mod tests {
         let amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500Plus,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
         assert_eq!(amiga.model, AmigaModel::A500Plus);
@@ -3154,6 +2898,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
         amiga.write_custom_reg(0x1DC, 0x0020);
@@ -3167,6 +2912,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3178,10 +2924,12 @@ mod tests {
         amiga.agnus.ddfstrt = 100;
 
         // hpos 136 => beam_x 272 (=0x110), inside ECS horizontal window
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((56, 212)));
+        // Raster coords: fb_x = 272*2 = 544, fb_y = 256*2 = 512
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
         // Last visible CCK before HSTOP (beam_x=334)
-        assert_eq!(amiga.beam_to_fb(287, 167), Some((118, 243)));
-        // Horizontal clipping via DIWHIGH.H8 (would otherwise be in framebuffer range)
+        // Raster coords: fb_x = 334*2 = 668, fb_y = 287*2 = 574
+        assert_eq!(amiga.beam_to_fb(287, 167), Some((668, 574)));
+        // Horizontal clipping via DIWHIGH.H8
         assert_eq!(amiga.beam_to_fb(256, 120), None); // beam_x=240 < HSTART
         assert_eq!(amiga.beam_to_fb(256, 180), None); // beam_x=360 >= HSTOP
         // Vertical clipping still applies
@@ -3194,6 +2942,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3214,6 +2963,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3259,6 +3009,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
         amiga.write_custom_reg(0x1C0, 0x0033);
@@ -3289,10 +3040,58 @@ mod tests {
     }
 
     #[test]
+    fn ntsc_region_wraps_beam_at_262_lines() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ocs,
+            region: AmigaRegion::Ntsc,
+            kickstart: dummy_kickstart(),
+        });
+
+        // Verify NTSC frame timing: 262 lines x 227 CCKs.
+        assert_eq!(amiga.agnus.lines_per_frame, 262);
+
+        // Advance to line 261 (last NTSC line).
+        amiga.agnus.vpos = 261;
+        amiga.agnus.hpos = 226; // last CCK of the line
+        amiga.agnus.tick_cck();
+        // Should wrap to line 0 (frame boundary).
+        assert_eq!(amiga.agnus.vpos, 0);
+        assert_eq!(amiga.agnus.hpos, 0);
+
+        // Verify raster buffer is NTSC-sized (524 rows).
+        assert_eq!(amiga.denise.framebuffer_raster.len(), (908 * 524) as usize);
+    }
+
+    #[test]
+    fn pal_region_wraps_beam_at_312_lines() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+
+        assert_eq!(amiga.agnus.lines_per_frame, 312);
+
+        amiga.agnus.vpos = 311;
+        amiga.agnus.hpos = 226;
+        amiga.agnus.tick_cck();
+        assert_eq!(amiga.agnus.vpos, 0);
+        assert_eq!(amiga.agnus.hpos, 0);
+
+        // PAL line 261 should NOT wrap (it's mid-frame for PAL).
+        amiga.agnus.vpos = 261;
+        amiga.agnus.hpos = 226;
+        amiga.agnus.tick_cck();
+        assert_eq!(amiga.agnus.vpos, 262);
+        assert_eq!(amiga.agnus.hpos, 0);
+
+        // Verify raster buffer is PAL-sized (624 rows).
+        assert_eq!(amiga.denise.framebuffer_raster.len(), (908 * 624) as usize);
+    }
+
+    #[test]
     fn ecs_varbeamen_applies_programmed_beam_wrap_limits() {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3321,6 +3120,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3343,6 +3143,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3361,10 +3162,11 @@ mod tests {
     }
 
     #[test]
-    fn ecs_harddis_and_varvben_disable_coarse_legacy_vertical_hard_stop() {
+    fn ecs_beam_to_fb_visible_with_diwhigh_and_varbeamen_flags() {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3373,29 +3175,26 @@ mod tests {
         amiga.write_custom_reg(0x08E, 0x0010); // VSTART=$00, HSTART=$10
         amiga.write_custom_reg(0x090, 0x2050); // VSTOP =$20, HSTOP =$50
         amiga.write_custom_reg(0x1E4, 0x2121); // stop H8/V8 + start H8/V8
-        amiga.agnus.ddfstrt = 100;
 
-        // DIWHIGH-only ECS path remains visible.
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((56, 212)));
+        // Raster coords: beam_x=272, fb_x=544, fb_y=512
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
 
-        // With framebuffer Y anchored to the physical PAL display origin,
-        // this sample line (v=0x100) remains visible even when VARBEAMEN is
-        // enabled. The coarse legacy hard-stop clamp only affects positions
-        // outside the physical 256-line framebuffer span.
+        // With raster framebuffer, all visible (non-blanked) positions have
+        // coordinates regardless of VARBEAMEN/HARDDIS/VARVBEN flags.
         amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARBEAMEN);
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((56, 212)));
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
 
         amiga.write_custom_reg(
             0x1DC,
             commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_HARDDIS,
         );
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((56, 212)));
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
 
         amiga.write_custom_reg(
             0x1DC,
             commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_VARVBEN,
         );
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((56, 212)));
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
     }
 
     #[test]
@@ -3403,6 +3202,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3452,6 +3252,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3515,6 +3316,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3574,6 +3376,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3620,7 +3423,7 @@ mod tests {
                     csync_high: false,
                     blank_active: false,
                 },
-                fb_coords: Some((54, 61)),
+                fb_coords: Some((140, 210)),
             }
         );
 
@@ -3657,6 +3460,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3701,7 +3505,7 @@ mod tests {
                     csync_high: false,
                     blank_active: false,
                 },
-                fb_coords: Some((54, 61)),
+                fb_coords: Some((140, 210)),
             }
         );
         assert_eq!(amiga.agnus.hpos, 36); // Beam advanced after the sampled CCK.
@@ -3712,6 +3516,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3827,6 +3632,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3874,6 +3680,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3889,7 +3696,7 @@ mod tests {
         tick_one_cck(&mut amiga);
         assert_eq!(
             amiga.current_beam_debug_snapshot().fb_coords,
-            Some((56, 212))
+            Some((544, 512))
         );
 
         amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARBEAMEN);
@@ -3899,7 +3706,7 @@ mod tests {
         let hard_stopped = amiga.current_beam_debug_snapshot();
         assert_eq!(hard_stopped.vpos, 256);
         assert_eq!(hard_stopped.hpos_cck, 136);
-        assert_eq!(hard_stopped.fb_coords, Some((56, 212)));
+        assert_eq!(hard_stopped.fb_coords, Some((544, 512)));
 
         amiga.write_custom_reg(
             0x1DC,
@@ -3910,7 +3717,7 @@ mod tests {
         tick_one_cck(&mut amiga);
         assert_eq!(
             amiga.current_beam_debug_snapshot().fb_coords,
-            Some((56, 212))
+            Some((544, 512))
         );
     }
 
@@ -3919,6 +3726,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3953,6 +3761,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -3977,6 +3786,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 
@@ -4005,6 +3815,7 @@ mod tests {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500,
             chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
         });
 

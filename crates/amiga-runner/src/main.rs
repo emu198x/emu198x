@@ -5,7 +5,13 @@
 //! windowed frontend or captures a framebuffer screenshot/audio in headless
 //! mode.
 
-#![allow(clippy::cast_possible_truncation)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines
+)]
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -16,10 +22,12 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use commodore_denise_ocs::ViewportPreset;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use machine_amiga::format_adf::Adf;
 use machine_amiga::{
-    Amiga, AmigaChipset, AmigaConfig, AmigaModel, BeamDebugSnapshot, commodore_denise_ocs,
+    Amiga, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion, BeamDebugSnapshot, RASTER_FB_WIDTH,
+    commodore_denise_ocs,
 };
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -28,10 +36,10 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-const FB_WIDTH: u32 = commodore_denise_ocs::FB_WIDTH;
-const FB_HEIGHT: u32 = commodore_denise_ocs::FB_HEIGHT;
-const HIRES_FB_WIDTH: u32 = commodore_denise_ocs::HIRES_FB_WIDTH;
-const SCALE: u32 = 3;
+/// Standard PAL viewport dimensions (hires resolution, deinterlaced).
+const VIEWPORT_WIDTH: u32 = 608; // (0xD8 - 0x40) * 4 = 152 CCKs * 4
+const VIEWPORT_HEIGHT: u32 = 256; // (0x12C - 0x2C) = 256 lines
+const SCALE: u32 = 2;
 const FRAME_DURATION: Duration = Duration::from_millis(20); // PAL ~50 Hz
 const AUDIO_CHANNELS: usize = 2;
 const AUDIO_QUEUE_SECONDS: usize = 2;
@@ -399,7 +407,7 @@ fn dump_display_state(amiga: &Amiga) {
             let hi = amiga.memory.read_byte(addr);
             let lo = amiga.memory.read_byte(addr.wrapping_add(1));
             let word = (u16::from(hi) << 8) | u16::from(lo);
-            eprint!(" {:04X}", word);
+            eprint!(" {word:04X}");
         }
         eprintln!();
     }
@@ -647,6 +655,7 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
     let mut amiga = Amiga::new_with_config(AmigaConfig {
         model: cli.model,
         chipset: cli.chipset,
+        region: AmigaRegion::Pal,
         kickstart,
     });
 
@@ -683,15 +692,12 @@ fn save_screenshot(amiga: &Amiga, path: &PathBuf) -> Result<(), String> {
         .map_err(|e| format!("failed to create screenshot {}: {e}", path.display()))?;
     let writer = BufWriter::new(file);
 
-    let force_lowres = std::env::var_os("AMIGA_FORCE_LOWRES_SCREENSHOT").is_some();
-    let hires = (amiga.agnus.bplcon0 & 0x8000) != 0 && !force_lowres;
-    let (width, framebuffer): (u32, &[u32]) = if hires {
-        (HIRES_FB_WIDTH, amiga.framebuffer_hires())
-    } else {
-        (FB_WIDTH, amiga.framebuffer())
-    };
+    let pal = amiga.region == AmigaRegion::Pal;
+    let viewport = amiga
+        .denise
+        .extract_viewport(ViewportPreset::Standard, pal, true);
 
-    let mut encoder = png::Encoder::new(writer, width, FB_HEIGHT);
+    let mut encoder = png::Encoder::new(writer, viewport.width, viewport.height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
 
@@ -699,8 +705,8 @@ fn save_screenshot(amiga: &Amiga, path: &PathBuf) -> Result<(), String> {
         .write_header()
         .map_err(|e| format!("failed to write PNG header {}: {e}", path.display()))?;
 
-    let mut bytes = vec![0u8; (width * FB_HEIGHT * 4) as usize];
-    for (i, &argb) in framebuffer.iter().enumerate() {
+    let mut bytes = vec![0u8; (viewport.width * viewport.height * 4) as usize];
+    for (i, &argb) in viewport.pixels.iter().enumerate() {
         let o = i * 4;
         bytes[o] = ((argb >> 16) & 0xFF) as u8;
         bytes[o + 1] = ((argb >> 8) & 0xFF) as u8;
@@ -735,13 +741,33 @@ fn save_audio_wav(samples: &[f32], path: &PathBuf) -> Result<(), String> {
         .map_err(|e| format!("failed to finalize WAV {}: {e}", path.display()))
 }
 
-fn matches_ks13_insert_screen(framebuffer: &[u32]) -> bool {
+/// Check the raster framebuffer for the KS 1.3 insert-disk screen.
+///
+/// Samples the raster buffer at lores resolution (every 2nd hires pixel, every
+/// 2nd raster row) over the old 320x256 display area, matching the original
+/// pixel-count thresholds. Raster mapping: old lores (x, y) → raster
+/// (240 + x*2, 88 + y*2) where 240 = `first_pixel_cck(60)` * 4 and 88 =
+/// `DISPLAY_VSTART(44)` * 2.
+fn matches_ks13_insert_screen(raster_fb: &[u32]) -> bool {
     const WHITE: u32 = 0xFFFF_FFFF;
     const BLACK: u32 = 0xFF00_0000;
     const FLOPPY_BLUE: u32 = 0xFF77_77CC;
     const METAL_GRAY: u32 = 0xFFBB_BBBB;
 
-    let px = |x: u32, y: u32| -> u32 { framebuffer[(y * FB_WIDTH + x) as usize] };
+    // Old lores FB dimensions for scanning.
+    const LO_W: u32 = 320;
+    const LO_H: u32 = 256;
+    // Raster origin of the old lores FB area.
+    const RX0: u32 = 240; // first_pixel_cck(60) * 4
+    const RY0: u32 = 88; // DISPLAY_VSTART(44) * 2
+    let rw = RASTER_FB_WIDTH;
+
+    let px = |x: u32, y: u32| -> u32 {
+        let rx = RX0 + x * 2;
+        let ry = RY0 + y * 2;
+        raster_fb[(ry * rw + rx) as usize]
+    };
+
     if px(0, 0) != WHITE
         || px(103, 50) != BLACK
         || px(106, 52) != FLOPPY_BLUE
@@ -755,13 +781,13 @@ fn matches_ks13_insert_screen(framebuffer: &[u32]) -> bool {
     let mut blue_count = 0u32;
     let mut gray_count = 0u32;
     let mut non_white_pixels = 0u32;
-    let mut min_x = FB_WIDTH;
-    let mut min_y = FB_HEIGHT;
+    let mut min_x = LO_W;
+    let mut min_y = LO_H;
     let mut max_x = 0u32;
     let mut max_y = 0u32;
 
-    for y in 0..FB_HEIGHT {
-        for x in 0..FB_WIDTH {
+    for y in 0..LO_H {
+        for x in 0..LO_W {
             let p = px(x, y);
             match p {
                 WHITE => white_count += 1,
@@ -891,7 +917,10 @@ fn run_frame_with_optional_beam_debug(amiga: &mut Amiga, beam_debug: Option<&mut
     let ccks_per_frame = machine_amiga::PAL_FRAME_TICKS / machine_amiga::TICKS_PER_CCK;
     for _ in 0..ccks_per_frame {
         amiga.tick();
-        if amiga.master_clock % machine_amiga::TICKS_PER_CCK == 0 {
+        if amiga
+            .master_clock
+            .is_multiple_of(machine_amiga::TICKS_PER_CCK)
+        {
             logger.observe(amiga);
         }
     }
@@ -959,9 +988,7 @@ fn trace_hires_bitplanes_final_frame(
             let any_called = pix.pixel0.called || pix.pixel1.called;
             let near_left_edge = hpos >= amiga.agnus.ddfstrt.wrapping_sub(4)
                 && hpos <= amiga.agnus.ddfstrt.wrapping_add(0x24);
-            let mixed_visibility = pix.pixel0.called
-                && pix.pixel1.called
-                && (pix.pixel0.write_visible != pix.pixel1.write_visible);
+            let mixed_visibility = false; // all raster positions write now
             let any_nonzero = [pix.pixel0, pix.pixel1].iter().any(|p| {
                 p.called
                     && (p.pair_samples[0].raw_color_idx != 0
@@ -969,16 +996,14 @@ fn trace_hires_bitplanes_final_frame(
             });
             if any_called && (near_left_edge || mixed_visibility || any_nonzero) {
                 eprintln!(
-                    "[pixtrace] v={} h={:#04X} p0 vis={} bx={} x={} s=[{:02X},{:02X}] f={:02X} | p1 vis={} bx={} x={} s=[{:02X},{:02X}] f={:02X}",
+                    "[pixtrace] v={} h={:#04X} p0 bx={} x={} s=[{:02X},{:02X}] f={:02X} | p1 bx={} x={} s=[{:02X},{:02X}] f={:02X}",
                     vpos,
                     hpos,
-                    pix.pixel0.write_visible,
                     pix.pixel0.beam_x,
                     pix.pixel0.requested_x,
                     pix.pixel0.pair_samples[0].raw_color_idx,
                     pix.pixel0.pair_samples[1].raw_color_idx,
                     pix.pixel0.final_color_idx,
-                    pix.pixel1.write_visible,
                     pix.pixel1.beam_x,
                     pix.pixel1.requested_x,
                     pix.pixel1.pair_samples[0].raw_color_idx,
@@ -1068,10 +1093,7 @@ fn trace_hires_compare_line_final_frame(
     target_vpos: u16,
     hpos_range: Option<LineRange>,
 ) {
-    eprintln!(
-        "[uaecmp] begin target_v={} (final frame, structured per-CCK trace)",
-        target_vpos
-    );
+    eprintln!("[uaecmp] begin target_v={target_vpos} (final frame, structured per-CCK trace)");
 
     let ccks_per_frame = machine_amiga::PAL_FRAME_TICKS / machine_amiga::TICKS_PER_CCK;
     let mut saw_line = false;
@@ -1149,16 +1171,13 @@ fn trace_hires_compare_line_final_frame(
                     format!("{:?}", bus_plan.slot_owner),
                     bus_plan
                         .bitplane_dma_fetch_plane
-                        .map(|n| (n + 1).to_string())
-                        .unwrap_or_else(|| String::from("-")),
+                        .map_or_else(|| String::from("-"), |n| (n + 1).to_string()),
                     bus_plan
                         .audio_dma_service_channel
-                        .map(|n| (n + 1).to_string())
-                        .unwrap_or_else(|| String::from("-")),
+                        .map_or_else(|| String::from("-"), |n| (n + 1).to_string()),
                     bus_plan
                         .sprite_dma_service_channel
-                        .map(|n| (n + 1).to_string())
-                        .unwrap_or_else(|| String::from("-")),
+                        .map_or_else(|| String::from("-"), |n| (n + 1).to_string()),
                     if bus_plan.disk_dma_slot_granted {
                         '1'
                     } else {
@@ -1207,7 +1226,7 @@ fn trace_hires_compare_line_final_frame(
 
             if in_hpos_range {
                 eprintln!(
-                    "[uaecmp] cck v={} h={:#04X} slot={} bp={} au={} sp={} d={} c={} bg={} sw={:#04X}+{}:{} trig={:#04X} dh={}/{} p0={}:{}:{}:[{:02X},{:02X}]:{:02X} p1={}:{}:{}:[{:02X},{:02X}]:{:02X} sh={} bpl={:04X},{:04X},{:04X} dat={:04X},{:04X},{:04X} ptr={:08X},{:08X},{:08X} load={} oe={}/{} nb={}{}",
+                    "[uaecmp] cck v={} h={:#04X} slot={} bp={} au={} sp={} d={} c={} bg={} dh={}/{} p0={}:{}:[{:02X},{:02X}]:{:02X} p1={}:{}:[{:02X},{:02X}]:{:02X} sh={} bpl={:04X},{:04X},{:04X} dat={:04X},{:04X},{:04X} ptr={:08X},{:08X},{:08X} load={} oe={}/{} nb={}{}",
                     vpos,
                     hpos,
                     slot_owner,
@@ -1217,23 +1236,15 @@ fn trace_hires_compare_line_final_frame(
                     disk_slot,
                     copper_slot,
                     blit_grant,
-                    pix.serial_window_start_cck,
-                    pix.serial_window_len_cck,
-                    if pix.serial_window_active { 1 } else { 0 },
-                    pix.bpl1dat_trigger_cck,
                     pix.diw_hstart_beam_x
-                        .map(|v| format!("{:#04X}", v))
-                        .unwrap_or_else(|| String::from("-")),
+                        .map_or_else(|| String::from("-"), |v| format!("{v:#04X}")),
                     pix.diw_hstop_beam_x
-                        .map(|v| format!("{:#04X}", v))
-                        .unwrap_or_else(|| String::from("-")),
-                    if pix.pixel0.write_visible { 1 } else { 0 },
+                        .map_or_else(|| String::from("-"), |v| format!("{v:#04X}")),
                     pix.pixel0.beam_x,
                     pix.pixel0.requested_x,
                     pix.pixel0.pair_samples[0].raw_color_idx,
                     pix.pixel0.pair_samples[1].raw_color_idx,
                     pix.pixel0.final_color_idx,
-                    if pix.pixel1.write_visible { 1 } else { 0 },
                     pix.pixel1.beam_x,
                     pix.pixel1.requested_x,
                     pix.pixel1.pair_samples[0].raw_color_idx,
@@ -1249,7 +1260,7 @@ fn trace_hires_compare_line_final_frame(
                     post_ptrs[0],
                     post_ptrs[1],
                     post_ptrs[2],
-                    if sdbg.hires { 1 } else { 0 },
+                    i32::from(sdbg.hires),
                     sdbg.odd_scroll,
                     sdbg.even_scroll,
                     sdbg.num_bitplanes,
@@ -1271,10 +1282,7 @@ fn trace_hires_compare_line_final_frame(
         }
     }
 
-    eprintln!(
-        "[uaecmp] warning target_v={} not fully observed within one PAL frame",
-        target_vpos
-    );
+    eprintln!("[uaecmp] warning target_v={target_vpos} not fully observed within one PAL frame");
 }
 
 struct AudioOutput {
@@ -1372,9 +1380,8 @@ impl AudioOutput {
             return;
         }
 
-        let mut queue = match self.queue.lock() {
-            Ok(queue) => queue,
-            Err(_) => return,
+        let Ok(mut queue) = self.queue.lock() else {
+            return;
         };
 
         for &sample in samples {
@@ -1388,12 +1395,9 @@ impl AudioOutput {
 }
 
 fn write_audio_data_f32(data: &mut [f32], queue: &Arc<Mutex<VecDeque<f32>>>) {
-    let mut guard = match queue.lock() {
-        Ok(guard) => guard,
-        Err(_) => {
-            data.fill(0.0);
-            return;
-        }
+    let Ok(mut guard) = queue.lock() else {
+        data.fill(0.0);
+        return;
     };
 
     for sample in data {
@@ -1402,12 +1406,9 @@ fn write_audio_data_f32(data: &mut [f32], queue: &Arc<Mutex<VecDeque<f32>>>) {
 }
 
 fn write_audio_data_i16(data: &mut [i16], queue: &Arc<Mutex<VecDeque<f32>>>) {
-    let mut guard = match queue.lock() {
-        Ok(guard) => guard,
-        Err(_) => {
-            data.fill(0);
-            return;
-        }
+    let Ok(mut guard) = queue.lock() else {
+        data.fill(0);
+        return;
     };
 
     for sample in data {
@@ -1417,12 +1418,9 @@ fn write_audio_data_i16(data: &mut [i16], queue: &Arc<Mutex<VecDeque<f32>>>) {
 }
 
 fn write_audio_data_u16(data: &mut [u16], queue: &Arc<Mutex<VecDeque<f32>>>) {
-    let mut guard = match queue.lock() {
-        Ok(guard) => guard,
-        Err(_) => {
-            data.fill(u16::MAX / 2);
-            return;
-        }
+    let Ok(mut guard) = queue.lock() else {
+        data.fill(u16::MAX / 2);
+        return;
     };
 
     for sample in data {
@@ -1502,7 +1500,7 @@ fn run_headless(cli: &CliArgs) {
             buffer.extend_from_slice(&audio);
         }
 
-        if cli.bench_insert_screen && matches_ks13_insert_screen(amiga.framebuffer()) {
+        if cli.bench_insert_screen && matches_ks13_insert_screen(&amiga.denise.framebuffer_raster) {
             bench_hit_frame = Some(frames_executed);
             break;
         }
@@ -1579,7 +1577,7 @@ fn run_headless(cli: &CliArgs) {
         eprintln!("  Wall time: {wall_seconds:.3}s");
         eprintln!("  Realtime ratio: {ratio:.3}x");
         if ratio >= 1.0 {
-            eprintln!("  Speed: {:.2}x faster than real time", ratio);
+            eprintln!("  Speed: {ratio:.2}x faster than real time");
         } else if ratio > 0.0 {
             eprintln!("  Speed: {:.2}x slower than real time", 1.0 / ratio);
         }
@@ -1652,7 +1650,7 @@ impl App {
         })
     }
 
-    fn handle_keyboard_input(&mut self, event_loop: &ActiveEventLoop, event: KeyEvent) {
+    fn handle_keyboard_input(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
         let PhysicalKey::Code(code) = event.physical_key else {
             return;
         };
@@ -1697,10 +1695,14 @@ impl App {
             return;
         };
 
-        let frame = pixels.frame_mut();
-        let fb = self.amiga.framebuffer();
+        let viewport = self.amiga.denise.extract_viewport(
+            ViewportPreset::Standard,
+            self.amiga.region == AmigaRegion::Pal,
+            true,
+        );
 
-        for (i, &argb) in fb.iter().enumerate() {
+        let frame = pixels.frame_mut();
+        for (i, &argb) in viewport.pixels.iter().enumerate() {
             let o = i * 4;
             frame[o] = ((argb >> 16) & 0xFF) as u8; // R
             frame[o + 1] = ((argb >> 8) & 0xFF) as u8; // G
@@ -1716,7 +1718,7 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let size = winit::dpi::LogicalSize::new(FB_WIDTH * SCALE, FB_HEIGHT * SCALE);
+        let size = winit::dpi::LogicalSize::new(VIEWPORT_WIDTH * SCALE, VIEWPORT_HEIGHT * SCALE);
         let attrs = WindowAttributes::default()
             .with_title(format!(
                 "Amiga Runner ({}/{})",
@@ -1731,7 +1733,7 @@ impl ApplicationHandler for App {
                 let window: &'static Window = Box::leak(Box::new(window));
                 let inner = window.inner_size();
                 let surface = SurfaceTexture::new(inner.width, inner.height, window);
-                let pixels = match Pixels::new(FB_WIDTH, FB_HEIGHT, surface) {
+                let pixels = match Pixels::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT, surface) {
                     Ok(pixels) => pixels,
                     Err(e) => {
                         eprintln!("Failed to create pixels surface: {e}");
@@ -1759,7 +1761,7 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
-                self.handle_keyboard_input(event_loop, event);
+                self.handle_keyboard_input(event_loop, &event);
             }
             WindowEvent::RedrawRequested => {
                 let now = Instant::now();

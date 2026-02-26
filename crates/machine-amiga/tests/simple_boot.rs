@@ -108,11 +108,15 @@ fn test_minimal_execution() {
     // Check Copper result
     assert_eq!(amiga.denise.palette[0], 0x000F);
 
-    // Check DMA and Pixel Shifter
-    let px0 = amiga.denise.framebuffer[(6 * 320 + 20) as usize];
-    let px1 = amiga.denise.framebuffer[(6 * 320 + 21) as usize];
-    assert_eq!(px0, 0xFFFFFFFF); // White
-    assert_eq!(px1, 0xFF0000FF); // Blue
+    // Check DMA and Pixel Shifter via raster framebuffer.
+    // Old lores FB (20, 6) → vpos=50 (44+6), hpos=74 (DDFSTRT $38 + 8 + 10).
+    // Raster: row 50*2=100, col 74*4=296 (first half-CCK output).
+    // Old lores FB (21, 6) → same vpos/hpos, second half-CCK: col 74*4+2=298.
+    let w = machine_amiga::RASTER_FB_WIDTH as usize;
+    let px0 = amiga.denise.framebuffer_raster[100 * w + 296];
+    let px1 = amiga.denise.framebuffer_raster[100 * w + 298];
+    assert_eq!(px0, 0xFFFFFFFF); // White (COLOR01)
+    assert_eq!(px1, 0xFF0000FF); // Blue (COLOR00)
 
     // Check CIA-A Result (Overlay off)
     assert_eq!(amiga.memory.overlay, false);

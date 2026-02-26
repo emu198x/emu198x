@@ -146,10 +146,9 @@ impl AgnusEcs {
         let (vstart, vstop) = if self.diwhigh_written {
             // WinUAE models ECS Agnus with an undocumented extra DIWHIGH
             // vertical bit (V11), so ECS uses 4 high bits for VSTART/VSTOP.
-            let vstart =
-                (((self.diwhigh & 0x000F) as u16) << 8) | ((self.inner.diwstrt >> 8) & 0x00FF);
+            let vstart = ((self.diwhigh & 0x000F) << 8) | ((self.inner.diwstrt >> 8) & 0x00FF);
             let vstop =
-                ((((self.diwhigh >> 8) & 0x000F) as u16) << 8) | ((self.inner.diwstop >> 8) & 0x00FF);
+                (((self.diwhigh >> 8) & 0x000F) << 8) | ((self.inner.diwstop >> 8) & 0x00FF);
             (vstart, vstop)
         } else {
             // Legacy OCS-style implicit V8 behavior until DIWHIGH is written.
@@ -183,20 +182,25 @@ impl AgnusEcs {
         // Outside the vertical display window, bitplane DMA does not consume
         // the variable slot. Re-run the post-bitplane fallback for this slot:
         // copper on even CCKs when enabled, otherwise CPU.
-        let slot_owner = if self.inner.dma_enabled(0x0080) && (self.inner.hpos % 2 == 0) {
+        let slot_owner = if self.inner.dma_enabled(0x0080) && self.inner.hpos.is_multiple_of(2) {
             SlotOwner::Copper
         } else {
             SlotOwner::Cpu
         };
         let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
-        let blitter_dma_progress_granted =
-            matches!(slot_owner, SlotOwner::Cpu) && self.inner.blitter_busy && self.inner.dma_enabled(0x0040);
-        let blitter_chip_bus_granted = blitter_dma_progress_granted && self.inner.blitter_nasty_active();
-        let cpu_chip_bus_granted = matches!(slot_owner, SlotOwner::Cpu) && !blitter_chip_bus_granted;
+        let blitter_dma_progress_granted = matches!(slot_owner, SlotOwner::Cpu)
+            && self.inner.blitter_busy
+            && self.inner.dma_enabled(0x0040);
+        let blitter_chip_bus_granted =
+            blitter_dma_progress_granted && self.inner.blitter_nasty_active();
+        let cpu_chip_bus_granted =
+            matches!(slot_owner, SlotOwner::Cpu) && !blitter_chip_bus_granted;
         let paula_return_progress_policy = match slot_owner {
             SlotOwner::Copper => PaulaReturnProgressPolicy::CopperFetchConditional,
             SlotOwner::Cpu => PaulaReturnProgressPolicy::Advance,
-            _ => unreachable!("bitplane vertical gating only rewrites variable slots to Copper/CPU"),
+            _ => {
+                unreachable!("bitplane vertical gating only rewrites variable slots to Copper/CPU")
+            }
         };
 
         plan.slot_owner = slot_owner;
@@ -482,7 +486,7 @@ impl AgnusEcs {
 
     fn vtotal_highest_line(&self) -> u16 {
         if self.vtotal == 0 {
-            PAL_LINES_PER_FRAME - 1
+            self.inner.lines_per_frame - 1
         } else {
             self.vtotal & 0x07FF
         }

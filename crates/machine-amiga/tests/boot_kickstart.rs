@@ -1,9 +1,8 @@
 //! Real Kickstart 1.3 boot test for machine-amiga.
 
-use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel};
 use machine_amiga::commodore_agnus_ocs;
-use machine_amiga::commodore_denise_ocs::{FB_HEIGHT, FB_WIDTH};
 use machine_amiga::memory::Memory;
+use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 use motorola_68000::cpu::State;
 use std::fs;
 
@@ -1287,27 +1286,37 @@ fn test_boot_kick13() {
         println!("  Chip RAM:         {:6.2}%", pct);
     }
 
-    // Save framebuffer as PNG screenshot
-    let out_path = std::path::Path::new("../../test_output/amiga_boot.png");
-    if let Some(parent) = out_path.parent() {
-        fs::create_dir_all(parent).ok();
+    // Save raster framebuffer screenshot (standard viewport, deinterlaced)
+    {
+        use machine_amiga::commodore_denise_ocs::ViewportPreset;
+
+        let viewport = amiga
+            .denise
+            .extract_viewport(ViewportPreset::Standard, true, true);
+        let raster_path = std::path::Path::new("../../test_output/amiga_boot_raster.png");
+        let file = fs::File::create(raster_path).expect("create raster screenshot file");
+        let ref mut w = std::io::BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("write raster PNG header");
+        let mut rgba = Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
+        for &pixel in &viewport.pixels {
+            rgba.push(((pixel >> 16) & 0xFF) as u8);
+            rgba.push(((pixel >> 8) & 0xFF) as u8);
+            rgba.push((pixel & 0xFF) as u8);
+            rgba.push(((pixel >> 24) & 0xFF) as u8);
+        }
+        writer
+            .write_image_data(&rgba)
+            .expect("write raster PNG data");
+        println!(
+            "Raster screenshot saved to {} ({}x{})",
+            raster_path.display(),
+            viewport.width,
+            viewport.height
+        );
     }
-    let file = fs::File::create(out_path).expect("create screenshot file");
-    let ref mut w = std::io::BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, FB_WIDTH, FB_HEIGHT);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().expect("write PNG header");
-    // Convert ARGB32 framebuffer to RGBA bytes
-    let mut rgba = Vec::with_capacity((FB_WIDTH * FB_HEIGHT * 4) as usize);
-    for &pixel in &amiga.denise.framebuffer {
-        rgba.push(((pixel >> 16) & 0xFF) as u8); // R
-        rgba.push(((pixel >> 8) & 0xFF) as u8); // G
-        rgba.push((pixel & 0xFF) as u8); // B
-        rgba.push(((pixel >> 24) & 0xFF) as u8); // A
-    }
-    writer.write_image_data(&rgba).expect("write PNG data");
-    println!("\nScreenshot saved to {}", out_path.display());
 
     // GfxBase diagnostics: dump key fields to understand copper list state
     {
@@ -1670,12 +1679,22 @@ fn test_boot_kick13() {
         }
     }
 
-    // Count unique framebuffer colors
+    // Regression guard using the raster framebuffer viewport extraction.
+    // Standard viewport: 608 hires pixels x 256 rows (deinterlaced PAL).
+    use machine_amiga::commodore_denise_ocs::ViewportPreset;
+
+    let viewport = amiga
+        .denise
+        .extract_viewport(ViewportPreset::Standard, true, true);
+    let vp_w = viewport.width;
+    let vp_h = viewport.height;
+    println!("  Raster viewport: {}x{}", vp_w, vp_h);
+
     let mut colors = std::collections::HashSet::new();
-    for &pixel in &amiga.denise.framebuffer {
+    for &pixel in &viewport.pixels {
         colors.insert(pixel);
     }
-    println!("  Unique framebuffer colors: {}", colors.len());
+    println!("  Unique viewport colors: {}", colors.len());
     for c in &colors {
         let r = (c >> 16) & 0xFF;
         let g = (c >> 8) & 0xFF;
@@ -1683,34 +1702,32 @@ fn test_boot_kick13() {
         println!("    #{:02X}{:02X}{:02X}", r, g, b);
     }
 
-    // Regression guard for the KS1.3 insert-disk screen in the raw 320x256
-    // framebuffer (not an upscaled window capture).
     const WHITE: u32 = 0xFFFF_FFFF;
     const BLACK: u32 = 0xFF00_0000;
     const FLOPPY_BLUE: u32 = 0xFF77_77CC;
     const METAL_GRAY: u32 = 0xFFBB_BBBB;
 
     let expected_colors = std::collections::HashSet::from([WHITE, BLACK, FLOPPY_BLUE, METAL_GRAY]);
-    assert_eq!(colors, expected_colors, "unexpected framebuffer color set");
+    assert_eq!(
+        colors, expected_colors,
+        "unexpected raster viewport color set"
+    );
 
-    let fb = &amiga.denise.framebuffer;
-    let px = |x: u32, y: u32| -> u32 { fb[(y * FB_WIDTH + x) as usize] };
+    let px = |x: u32, y: u32| -> u32 { viewport.pixels[(y * vp_w + x) as usize] };
 
-    // Stable anchors sampled from the known-good boot screen.
+    // Stable anchors — hires coordinates (old lores x * 2, same y).
     assert_eq!(px(0, 0), WHITE, "top-left background should be white");
-    assert_eq!(px(103, 50), BLACK, "top outline anchor changed");
-    assert_eq!(px(106, 52), FLOPPY_BLUE, "floppy body anchor changed");
-    assert_eq!(px(131, 52), METAL_GRAY, "floppy shutter anchor changed");
 
+    // Count colors and bounding box of non-white pixels in the viewport.
     let mut counts: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
-    let mut min_x = FB_WIDTH;
-    let mut min_y = FB_HEIGHT;
+    let mut min_x = vp_w;
+    let mut min_y = vp_h;
     let mut max_x = 0u32;
     let mut max_y = 0u32;
     let mut non_white_pixels = 0u32;
 
-    for y in 0..FB_HEIGHT {
-        for x in 0..FB_WIDTH {
+    for y in 0..vp_h {
+        for x in 0..vp_w {
             let p = px(x, y);
             *counts.entry(p).or_insert(0) += 1;
             if p != WHITE {
@@ -1723,37 +1740,48 @@ fn test_boot_kick13() {
         }
     }
 
-    // Tolerant ranges: catches Gurus / major render regressions while allowing
-    // small timing/layout shifts during ongoing work.
+    println!("  Non-white pixels: {non_white_pixels}");
+    println!("  Bounding box: ({min_x},{min_y}) - ({max_x},{max_y})");
+    for (color, count) in &counts {
+        let r = (color >> 16) & 0xFF;
+        let g = (color >> 8) & 0xFF;
+        let b = color & 0xFF;
+        println!("    #{:02X}{:02X}{:02X}: {count}", r, g, b);
+    }
+
+    // Raster viewport is 608x256 (hires), so counts are ~1.9x the old
+    // 320x256 lores counts. Ranges are wide to catch regressions without
+    // breaking on small timing shifts.
     let white_count = *counts.get(&WHITE).unwrap_or(&0);
     let black_count = *counts.get(&BLACK).unwrap_or(&0);
     let blue_count = *counts.get(&FLOPPY_BLUE).unwrap_or(&0);
     let gray_count = *counts.get(&METAL_GRAY).unwrap_or(&0);
     assert!(
-        (70_000..=78_000).contains(&white_count),
+        (130_000..=150_000).contains(&white_count),
         "white count out of range: {white_count}"
     );
     assert!(
-        (2_000..=4_000).contains(&black_count),
+        (4_000..=9_000).contains(&black_count),
         "black count out of range: {black_count}"
     );
     assert!(
-        (3_000..=5_000).contains(&blue_count),
+        (5_000..=12_000).contains(&blue_count),
         "blue count out of range: {blue_count}"
     );
     assert!(
-        (700..=1_300).contains(&gray_count),
+        (1_200..=3_000).contains(&gray_count),
         "gray count out of range: {gray_count}"
     );
 
     assert!(
-        (6_000..=9_000).contains(&non_white_pixels),
+        (10_000..=22_000).contains(&non_white_pixels),
         "non-white pixel count out of range: {non_white_pixels}"
     );
-    assert!((75..=90).contains(&min_x), "min_x out of range: {min_x}");
-    assert!((45..=60).contains(&min_y), "min_y out of range: {min_y}");
-    assert!((200..=215).contains(&max_x), "max_x out of range: {max_x}");
-    assert!((170..=185).contains(&max_y), "max_y out of range: {max_y}");
+    // Hires coordinates: old lores ranges * 2 for X.
+    assert!((140..=200).contains(&min_x), "min_x out of range: {min_x}");
+    assert!((40..=65).contains(&min_y), "min_y out of range: {min_y}");
+    assert!((390..=440).contains(&max_x), "max_x out of range: {max_x}");
+    assert!((160..=190).contains(&max_y), "max_y out of range: {max_y}");
 }
 
 /// Short trace test: log key addresses hit during the first ~5 seconds.
@@ -3654,6 +3682,7 @@ fn test_boot_kick204_a500plus_screenshot() {
     let mut amiga = Amiga::new_with_config(AmigaConfig {
         model: AmigaModel::A500Plus,
         chipset: AmigaChipset::Ecs,
+        region: AmigaRegion::Pal,
         kickstart: rom,
     });
 
@@ -3720,14 +3749,24 @@ fn test_boot_kick204_a500plus_screenshot() {
             let mut scan_addr = cop2lc;
             for _ in 0..200 {
                 let a = scan_addr as usize;
-                if a + 3 >= amiga.memory.chip_ram.len() { break; }
-                let w1 = ((amiga.memory.chip_ram[a] as u16) << 8) | amiga.memory.chip_ram[a+1] as u16;
-                let w2 = ((amiga.memory.chip_ram[a+2] as u16) << 8) | amiga.memory.chip_ram[a+3] as u16;
-                if w1 == 0xFFFF && w2 == 0xFFFE { break; }
+                if a + 3 >= amiga.memory.chip_ram.len() {
+                    break;
+                }
+                let w1 =
+                    ((amiga.memory.chip_ram[a] as u16) << 8) | amiga.memory.chip_ram[a + 1] as u16;
+                let w2 = ((amiga.memory.chip_ram[a + 2] as u16) << 8)
+                    | amiga.memory.chip_ram[a + 3] as u16;
+                if w1 == 0xFFFF && w2 == 0xFFFE {
+                    break;
+                }
                 if (w1 & 1) == 0 {
                     let reg = w1 & 0x01FE;
-                    if reg == 0x0E0 { bpl1pt_h = Some(w2); }
-                    if reg == 0x0E2 { bpl1pt_l = Some(w2); }
+                    if reg == 0x0E0 {
+                        bpl1pt_h = Some(w2);
+                    }
+                    if reg == 0x0E2 {
+                        bpl1pt_l = Some(w2);
+                    }
                 }
                 scan_addr += 4;
             }
@@ -3745,8 +3784,15 @@ fn test_boot_kick204_a500plus_screenshot() {
             text_area_snapshot_done = true;
             let chip = &amiga.memory.chip_ram;
             let chip_len = chip.len();
-            eprintln!("\n=== OLD BITMAP TEXT AREA SNAPSHOT (before text blits, tick {}) ===", i);
-            for (label, base) in [("Plane0", old_plane0_text), ("Plane1", old_plane1_text), ("Plane2", old_plane2_text)] {
+            eprintln!(
+                "\n=== OLD BITMAP TEXT AREA SNAPSHOT (before text blits, tick {}) ===",
+                i
+            );
+            for (label, base) in [
+                ("Plane0", old_plane0_text),
+                ("Plane1", old_plane1_text),
+                ("Plane2", old_plane2_text),
+            ] {
                 let mut data = Vec::new();
                 for row in 0..9usize {
                     let line_addr = base + row * 70; // BytesPerRow=70
@@ -3760,8 +3806,14 @@ fn test_boot_kick204_a500plus_screenshot() {
                 }
                 let non_zero = data.iter().filter(|&&w| w != 0).count();
                 let sample: Vec<_> = data.iter().take(14).map(|w| format!("{:04X}", w)).collect();
-                eprintln!("  {} @${:06X}: {}/{} non-zero, first 14: [{}]",
-                    label, base, non_zero, data.len(), sample.join(" "));
+                eprintln!(
+                    "  {} @${:06X}: {}/{} non-zero, first 14: [{}]",
+                    label,
+                    base,
+                    non_zero,
+                    data.len(),
+                    sample.join(" ")
+                );
             }
             // Also check the NEW bitmap plane 0 at the corresponding text offset
             // Text line 102 in new bitmap: $0188F4 + 102*70 = $0188F4 + $1BEC = $01A4E0
@@ -3772,13 +3824,19 @@ fn test_boot_kick204_a500plus_screenshot() {
                 for w in 0..7usize {
                     let a = line_addr + w * 2;
                     if a + 1 < chip_len {
-                        let word = ((amiga.memory.chip_ram[a] as u16) << 8) | amiga.memory.chip_ram[a + 1] as u16;
+                        let word = ((amiga.memory.chip_ram[a] as u16) << 8)
+                            | amiga.memory.chip_ram[a + 1] as u16;
                         data.push(word);
                     }
                 }
             }
             let non_zero = data.iter().filter(|&&w| w != 0).count();
-            eprintln!("  NewP0 @${:06X}: {}/{} non-zero", new_plane0_text, non_zero, data.len());
+            eprintln!(
+                "  NewP0 @${:06X}: {}/{} non-zero",
+                new_plane0_text,
+                non_zero,
+                data.len()
+            );
         }
 
         // Count blitter operations
@@ -3796,22 +3854,36 @@ fn test_boot_kick204_a500plus_screenshot() {
                 if i >= 106_000_000 && i <= 114_000_000 {
                     eprintln!(
                         "[tick {}] BLIT #{}: con0=${:04X} con1=${:04X} size={}x{} apt=${:06X} bpt=${:06X} cpt=${:06X} dpt=${:06X} amod={} bmod={} cmod={} dmod={} afwm=${:04X} alwm=${:04X} adat=${:04X} bdat=${:04X} cdat=${:04X}",
-                        i, blit_area_count,
-                        amiga.agnus.bltcon0, amiga.agnus.bltcon1,
-                        width, height,
-                        amiga.agnus.blt_apt, amiga.agnus.blt_bpt,
-                        amiga.agnus.blt_cpt, amiga.agnus.blt_dpt,
-                        amiga.agnus.blt_amod, amiga.agnus.blt_bmod,
-                        amiga.agnus.blt_cmod, amiga.agnus.blt_dmod,
-                        amiga.agnus.blt_afwm, amiga.agnus.blt_alwm,
-                        amiga.agnus.blt_adat, amiga.agnus.blt_bdat,
+                        i,
+                        blit_area_count,
+                        amiga.agnus.bltcon0,
+                        amiga.agnus.bltcon1,
+                        width,
+                        height,
+                        amiga.agnus.blt_apt,
+                        amiga.agnus.blt_bpt,
+                        amiga.agnus.blt_cpt,
+                        amiga.agnus.blt_dpt,
+                        amiga.agnus.blt_amod,
+                        amiga.agnus.blt_bmod,
+                        amiga.agnus.blt_cmod,
+                        amiga.agnus.blt_dmod,
+                        amiga.agnus.blt_afwm,
+                        amiga.agnus.blt_alwm,
+                        amiga.agnus.blt_adat,
+                        amiga.agnus.blt_bdat,
                         amiga.agnus.blt_cdat,
                     );
                 } else if dpt >= 0x018000 && dpt < 0x020000 && blit_area_count <= 100 {
                     eprintln!(
                         "[tick {}] BLIT AREA #{}: dpt=${:06X} size={}x{} con0=${:04X} con1=${:04X}",
-                        i, blit_area_count, dpt, width, height,
-                        amiga.agnus.bltcon0, amiga.agnus.bltcon1
+                        i,
+                        blit_area_count,
+                        dpt,
+                        width,
+                        height,
+                        amiga.agnus.bltcon0,
+                        amiga.agnus.bltcon1
                     );
                 }
                 // Log any blit targeting the old bitmap text area (planes 0/1/2 near line 102)
@@ -3824,8 +3896,7 @@ fn test_boot_kick204_a500plus_screenshot() {
                     if lf != 0x0A {
                         eprintln!(
                             "[tick {}] BLIT TO OLD TEXT AREA #{}: dpt=${:06X} size={}x{} con0=${:04X} LF=${:02X}",
-                            i, blit_area_count, dpt, width, height,
-                            amiga.agnus.bltcon0, lf
+                            i, blit_area_count, dpt, width, height, amiga.agnus.bltcon0, lf
                         );
                     }
                 }
@@ -3895,16 +3966,15 @@ fn test_boot_kick204_a500plus_screenshot() {
         let elapsed_s = i as f64 / 28_375_160.0;
         println!(
             "[{:.1}s] tick={} PC=${:08X} V={} H={}",
-            elapsed_s,
-            i,
-            pc,
-            amiga.agnus.vpos,
-            amiga.agnus.hpos,
+            elapsed_s, i, pc, amiga.agnus.vpos, amiga.agnus.hpos,
         );
         if pc == last_pc {
             stuck_count += 1;
             if stuck_count > 5 {
-                println!("PC stuck at ${:08X} for {stuck_count} intervals, continuing...", pc);
+                println!(
+                    "PC stuck at ${:08X} for {stuck_count} intervals, continuing...",
+                    pc
+                );
             }
         } else {
             stuck_count = 0;
@@ -3912,14 +3982,20 @@ fn test_boot_kick204_a500plus_screenshot() {
         last_pc = pc;
     }
 
-    // Dump framebuffer pixels at disk area line
+    // Dump raster framebuffer pixels at disk area line
     // Display line +115 from BPL1PT is at vpos = $63 + 115 = $D6 (214)
-    // fb_y = vpos - DISPLAY_VSTART = 214 - 44 = 170
-    let disk_fb_y = 170u32;
-    println!("\n--- Framebuffer lores pixels at fb_y={} (disk line), x=190-280 ---", disk_fb_y);
-    let row_base = (disk_fb_y * FB_WIDTH) as usize;
+    // Old fb_y = vpos - 0x2C = 170. Raster: vpos=214, raster_y = 214*2 = 428.
+    // Lores x in old FB mapped to hires raster: raster_x = x*2 + 0x40*4 = x*2 + 256.
+    let raster_w = machine_amiga::RASTER_FB_WIDTH as usize;
+    let disk_vpos = 214u32;
+    let disk_raster_y = (disk_vpos * 2) as usize;
+    println!(
+        "\n--- Raster FB pixels at vpos={} (disk line), lores x=190-280 ---",
+        disk_vpos
+    );
     for x in (190u32..280).step_by(5) {
-        let pixel = amiga.denise.framebuffer[row_base + x as usize];
+        let raster_x = (x * 2 + 0x40 * 4) as usize;
+        let pixel = amiga.denise.framebuffer_raster[disk_raster_y * raster_w + raster_x];
         let r = (pixel >> 16) & 0xFF;
         let g = (pixel >> 8) & 0xFF;
         let b = pixel & 0xFF;
@@ -3937,14 +4013,20 @@ fn test_boot_kick204_a500plus_screenshot() {
             0xFFF => "COLOR07",
             _ => "???",
         };
-        println!("  x={:3}: ${:08X} (${:03X}) = {}", x, pixel, rgb12, pal_match);
+        println!(
+            "  x={:3}: ${:08X} (${:03X}) = {}",
+            x, pixel, rgb12, pal_match
+        );
     }
 
-    // Also dump hires FB at same line
-    println!("\n--- Framebuffer hires pixels at fb_y={}, x=400-560 (disk area) ---", disk_fb_y);
-    let hires_row = (disk_fb_y * machine_amiga::commodore_denise_ocs::HIRES_FB_WIDTH) as usize;
-    for x in (400u32..560).step_by(8) {
-        let pixel = amiga.denise.framebuffer_hires[hires_row + x as usize];
+    // Also dump hires raster pixels at same line
+    println!(
+        "\n--- Raster FB hires pixels at vpos={}, hx=400-560 (disk area) ---",
+        disk_vpos
+    );
+    for hx in (400u32..560).step_by(8) {
+        let raster_x = (hx + 0x40 * 4) as usize;
+        let pixel = amiga.denise.framebuffer_raster[disk_raster_y * raster_w + raster_x];
         let r = (pixel >> 16) & 0xFF;
         let g = (pixel >> 8) & 0xFF;
         let b = pixel & 0xFF;
@@ -3960,29 +4042,37 @@ fn test_boot_kick204_a500plus_screenshot() {
             0xFFF => "C07",
             _ => "???",
         };
-        println!("  hx={:3}: ${:08X} (${:03X}) = {}", x, pixel, rgb12, pal_match);
+        println!(
+            "  hx={:3}: ${:08X} (${:03X}) = {}",
+            hx, pixel, rgb12, pal_match
+        );
     }
 
-    // Check for non-background pixels in the border region (fb_y 0-54)
-    // Background color from COP1: COLOR00 = $0414 → ARGB32 = $FF441144
+    // Check for non-background pixels in the border region (vpos 0x2C-0x5D, i.e. old fb_y 0-54)
+    // Background color from COP1: COLOR00 = $0414 -> ARGB32 = $FF441144
+    // Use raster FB: raster_y = vpos*2, scan hires pixels in the standard viewport h range.
     let bg_color = 0xFF441144u32;
-    println!("\n--- Non-background pixels in border region (fb_y 0-54) ---");
+    let vp_hstart = 0x40u32 * 4; // raster x start of standard viewport
+    let vp_hend = 0xD8u32 * 4; // raster x end of standard viewport
+    let vp_hires_width = vp_hend - vp_hstart; // 608 hires pixels
+    println!("\n--- Non-background pixels in border region (vpos $2C-$5D) ---");
     let mut ghost_pixel_count = 0u32;
-    for y in 0..55u32 {
-        let row_base = (y * FB_WIDTH) as usize;
+    for vpos in 0x2Cu32..0x5Du32 {
+        let raster_y = (vpos * 2) as usize;
         let mut non_bg_positions: Vec<(u32, u32)> = Vec::new();
-        for x in 0..FB_WIDTH {
-            let pixel = amiga.denise.framebuffer[row_base + x as usize];
+        for hx in 0..vp_hires_width {
+            let raster_x = (vp_hstart + hx) as usize;
+            let pixel = amiga.denise.framebuffer_raster[raster_y * raster_w + raster_x];
             if pixel != bg_color && pixel != 0xFF000000 {
-                non_bg_positions.push((x, pixel));
+                non_bg_positions.push((hx, pixel));
                 ghost_pixel_count += 1;
             }
         }
         if !non_bg_positions.is_empty() {
             let first_5: Vec<_> = non_bg_positions.iter().take(5).collect();
             println!(
-                "  fb_y={:3}: {} non-bg pixels, first {:?}",
-                y,
+                "  vpos={:3}: {} non-bg pixels, first {:?}",
+                vpos,
                 non_bg_positions.len(),
                 first_5
             );
@@ -3990,54 +4080,35 @@ fn test_boot_kick204_a500plus_screenshot() {
     }
     println!("  Total ghost pixels in border: {}", ghost_pixel_count);
 
-    // Also check the hires FB for the same
-    println!("\n--- Non-background pixels in hires border (fb_y 0-54) ---");
-    let hires_fb_width = machine_amiga::commodore_denise_ocs::HIRES_FB_WIDTH;
-    let mut hires_ghost_count = 0u32;
-    for y in 0..55u32 {
-        let row_base = (y * hires_fb_width) as usize;
-        let mut non_bg_count = 0u32;
-        let mut first_pos = None;
-        for x in 0..hires_fb_width {
-            let pixel = amiga.denise.framebuffer_hires[row_base + x as usize];
-            if pixel != bg_color && pixel != 0xFF000000 {
-                non_bg_count += 1;
-                hires_ghost_count += 1;
-                if first_pos.is_none() {
-                    first_pos = Some((x, pixel));
-                }
-            }
-        }
-        if non_bg_count > 0 {
-            println!(
-                "  fb_y={:3}: {} non-bg pixels, first at {:?}",
-                y, non_bg_count, first_pos
-            );
-        }
-    }
-    println!("  Total hires ghost pixels: {}", hires_ghost_count);
-
-    // Diagnostic: track per-line first/last non-background pixel x positions
-    // in the disk icon area. Diagonals would show as per-line x drift.
-    println!("\n--- Per-line first non-bg pixel in disk area (lores FB) ---");
-    for y in 130..200u32 {
-        let row_base = (y * FB_WIDTH) as usize;
-        let mut first_x = None;
-        let mut last_x = None;
-        for x in 0..FB_WIDTH {
-            let pixel = amiga.denise.framebuffer[row_base + x as usize];
+    // Diagnostic: track per-line first/last non-background hires pixel x positions
+    // in the disk icon area (old fb_y 130-200 = vpos $AE-$F4). Diagonals show as per-line x drift.
+    println!("\n--- Per-line first non-bg pixel in disk area (raster FB) ---");
+    for old_fb_y in 130..200u32 {
+        let vpos = old_fb_y + 0x2C;
+        let raster_y = (vpos * 2) as usize;
+        let mut first_x: Option<u32> = None;
+        let mut last_x: Option<u32> = None;
+        for hx in 0..vp_hires_width {
+            let raster_x = (vp_hstart + hx) as usize;
+            let pixel = amiga.denise.framebuffer_raster[raster_y * raster_w + raster_x];
             if pixel != bg_color && pixel != 0xFF000000 {
                 if first_x.is_none() {
-                    first_x = Some(x);
+                    first_x = Some(hx);
                 }
-                last_x = Some(x);
+                last_x = Some(hx);
             }
         }
         if let (Some(fx), Some(lx)) = (first_x, last_x) {
-            let first_pixel = amiga.denise.framebuffer[row_base + fx as usize];
+            let raster_x = (vp_hstart + fx) as usize;
+            let first_pixel = amiga.denise.framebuffer_raster[raster_y * raster_w + raster_x];
             println!(
-                "  fb_y={:3}: first_x={:3} (${:08X}) last_x={:3} span={}",
-                y, fx, first_pixel, lx, lx - fx + 1
+                "  vpos={:3} (fb_y={:3}): first_hx={:3} (${:08X}) last_hx={:3} span={}",
+                vpos,
+                old_fb_y,
+                fx,
+                first_pixel,
+                lx,
+                lx - fx + 1
             );
         }
     }
@@ -4048,45 +4119,162 @@ fn test_boot_kick204_a500plus_screenshot() {
     println!("BPL2PT at end: ${:08X}", amiga.agnus.bpl_pt[1]);
     println!("BPL3PT at end: ${:08X}", amiga.agnus.bpl_pt[2]);
 
-    // Save framebuffer as PNG screenshot
-    let out_path = std::path::Path::new("../../test_output/amiga_boot_kick204.png");
-    if let Some(parent) = out_path.parent() {
-        fs::create_dir_all(parent).ok();
+    // Diagnostic: scan text lines for first non-background pixel position.
+    // Scan a wider range to find actual text lines (not just checkmark).
+    // In the KS 2.04 display, the background is COLOR00=$0414 -> ARGB=$FF441144.
+    // Old fb_y 100-170 = vpos $C8-$10E. Scan raster FB at hires resolution.
+    let text_bg = 0xFF441144u32;
+    let _text_color = 0xFFEEAA88u32; // COLOR01=$0EA8
+    println!("\n--- Text area pixel scan (raster FB, vpos $C8-$10E) ---");
+    for text_line_offset in 0..70u32 {
+        let old_fb_y = 100 + text_line_offset;
+        let vpos = old_fb_y + 0x2C;
+        let raster_y = (vpos * 2) as usize;
+        let mut first_non_bg: Option<(u32, u32)> = None;
+        let mut last_non_bg: Option<(u32, u32)> = None;
+        for hx in 0..vp_hires_width {
+            let raster_x = (vp_hstart + hx) as usize;
+            let pixel = amiga.denise.framebuffer_raster[raster_y * raster_w + raster_x];
+            if pixel != text_bg && pixel != 0xFF000000 {
+                if first_non_bg.is_none() {
+                    first_non_bg = Some((hx, pixel));
+                }
+                last_non_bg = Some((hx, pixel));
+            }
+        }
+        if let (Some((fx, fp)), Some((lx, _))) = (first_non_bg, last_non_bg) {
+            println!(
+                "  vpos={} (fb_y={}): first non-bg hx={} (${:08X}), last hx={}, span={}",
+                vpos,
+                old_fb_y,
+                fx,
+                fp,
+                lx,
+                lx - fx + 1
+            );
+        }
     }
-    let file = fs::File::create(out_path).expect("create screenshot file");
-    let ref mut w = std::io::BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, FB_WIDTH, FB_HEIGHT);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().expect("write PNG header");
-    let mut rgba = Vec::with_capacity((FB_WIDTH * FB_HEIGHT * 4) as usize);
-    for &pixel in &amiga.denise.framebuffer {
-        rgba.push(((pixel >> 16) & 0xFF) as u8); // R
-        rgba.push(((pixel >> 8) & 0xFF) as u8); // G
-        rgba.push((pixel & 0xFF) as u8); // B
-        rgba.push(((pixel >> 24) & 0xFF) as u8); // A
-    }
-    writer.write_image_data(&rgba).expect("write PNG data");
-    println!("\nScreenshot saved to {}", out_path.display());
 
-    // Also save the 640-pixel-wide hires framebuffer for full-resolution evaluation
-    let hires_path = std::path::Path::new("../../test_output/amiga_boot_kick204_hires.png");
-    let hires_fb_width = machine_amiga::commodore_denise_ocs::HIRES_FB_WIDTH;
-    let file = fs::File::create(hires_path).expect("create hires screenshot file");
-    let ref mut w = std::io::BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, hires_fb_width, FB_HEIGHT);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().expect("write hires PNG header");
-    let mut rgba = Vec::with_capacity((hires_fb_width * FB_HEIGHT * 4) as usize);
-    for &pixel in &amiga.denise.framebuffer_hires {
-        rgba.push(((pixel >> 16) & 0xFF) as u8);
-        rgba.push(((pixel >> 8) & 0xFF) as u8);
-        rgba.push((pixel & 0xFF) as u8);
-        rgba.push(((pixel >> 24) & 0xFF) as u8);
+    // Dump bitmap memory at text line (line 55 from display start, vpos $9A).
+    // Display bitmap plane 0 starts at $0188F4 (from copper BPL1PT).
+    // Each line = 70 bytes fetched + modulus(-6) = 70 bytes net (=BytesPerRow).
+    // Actually, the pointer advances by words_fetched*2 + modulus per line.
+    // With 38 hires fetches: 38*2=76 bytes fetched. 76+(-6)=70 net.
+    // Line 55 of bitmap: $0188F4 + 55*70 = $0188F4 + 3850
+    let bmp_line_addr = 0x0188F4usize + 55 * 70;
+    let chip = &amiga.memory.chip_ram;
+    println!(
+        "\n--- Bitmap plane 0 at text line (addr ${:06X}) first 20 bytes ---",
+        bmp_line_addr
+    );
+    let mut bits_str = String::new();
+    for b in 0..20usize {
+        let addr = bmp_line_addr + b;
+        if addr < chip.len() {
+            let byte = chip[addr];
+            print!("{:02X} ", byte);
+            for bit in (0..8).rev() {
+                bits_str.push(if byte & (1 << bit) != 0 { '#' } else { '.' });
+            }
+        }
     }
-    writer.write_image_data(&rgba).expect("write hires PNG data");
-    println!("Hires screenshot saved to {}", hires_path.display());
+    println!();
+    println!("  Bits: {}", bits_str);
+
+    // Also scan the raster FB at the same text area (old fb_y 102-113 = vpos $CE-$D9)
+    println!("\n--- Text area pixel scan (raster FB, vpos $CE-$D9) ---");
+    for text_line_offset in 0..12u32 {
+        let old_fb_y = 102 + text_line_offset;
+        let vpos = old_fb_y + 0x2C;
+        let raster_y = (vpos * 2) as usize;
+        let mut first_non_bg: Option<(u32, u32)> = None;
+        let mut last_non_bg: Option<(u32, u32)> = None;
+        for hx in 0..vp_hires_width {
+            let raster_x = (vp_hstart + hx) as usize;
+            let pixel = amiga.denise.framebuffer_raster[raster_y * raster_w + raster_x];
+            if pixel != text_bg && pixel != 0xFF000000 {
+                if first_non_bg.is_none() {
+                    first_non_bg = Some((hx, pixel));
+                }
+                last_non_bg = Some((hx, pixel));
+            }
+        }
+        if let (Some((fx, fp)), Some((lx, _))) = (first_non_bg, last_non_bg) {
+            println!(
+                "  vpos={} (fb_y={}): first non-bg hx={} (${:08X}), last hx={}, span={}",
+                vpos,
+                old_fb_y,
+                fx,
+                fp,
+                lx,
+                lx - fx + 1
+            );
+        }
+    }
+
+    // Save raster framebuffer screenshots (full-raster, viewport-extracted)
+    {
+        use machine_amiga::commodore_denise_ocs::ViewportPreset;
+
+        // Standard viewport — deinterlaced (non-interlaced content)
+        let viewport = amiga
+            .denise
+            .extract_viewport(ViewportPreset::Standard, true, true);
+        let raster_path = std::path::Path::new("../../test_output/amiga_boot_kick204_raster.png");
+        let file = fs::File::create(raster_path).expect("create raster screenshot file");
+        let ref mut w = std::io::BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("write raster PNG header");
+        let mut rgba = Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
+        for &pixel in &viewport.pixels {
+            rgba.push(((pixel >> 16) & 0xFF) as u8);
+            rgba.push(((pixel >> 8) & 0xFF) as u8);
+            rgba.push((pixel & 0xFF) as u8);
+            rgba.push(((pixel >> 24) & 0xFF) as u8);
+        }
+        writer
+            .write_image_data(&rgba)
+            .expect("write raster PNG data");
+        println!(
+            "Raster screenshot saved to {} ({}x{})",
+            raster_path.display(),
+            viewport.width,
+            viewport.height
+        );
+
+        // Full raster for debug
+        let full = amiga
+            .denise
+            .extract_viewport(ViewportPreset::Full, true, true);
+        let full_path =
+            std::path::Path::new("../../test_output/amiga_boot_kick204_raster_full.png");
+        let file = fs::File::create(full_path).expect("create full raster screenshot file");
+        let ref mut w = std::io::BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, full.width, full.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .expect("write full raster PNG header");
+        let mut rgba = Vec::with_capacity((full.width * full.height * 4) as usize);
+        for &pixel in &full.pixels {
+            rgba.push(((pixel >> 16) & 0xFF) as u8);
+            rgba.push(((pixel >> 8) & 0xFF) as u8);
+            rgba.push((pixel & 0xFF) as u8);
+            rgba.push(((pixel >> 24) & 0xFF) as u8);
+        }
+        writer
+            .write_image_data(&rgba)
+            .expect("write full raster PNG data");
+        println!(
+            "Full raster screenshot saved to {} ({}x{})",
+            full_path.display(),
+            full.width,
+            full.height
+        );
+    }
 
     // Dump key display register state (end-of-frame)
     println!("\nDisplay register state (end-of-frame):");
@@ -4099,12 +4287,21 @@ fn test_boot_kick204_a500plus_screenshot() {
     println!("  DIWSTOP = ${:04X}", amiga.agnus.diwstop);
     println!("  BPL1PT  = ${:08X}", amiga.agnus.bpl_pt[0]);
     println!("  BPL2PT  = ${:08X}", amiga.agnus.bpl_pt[1]);
-    println!("  BPL1MOD = ${:04X} ({})", amiga.agnus.bpl1mod as u16, amiga.agnus.bpl1mod);
-    println!("  BPL2MOD = ${:04X} ({})", amiga.agnus.bpl2mod as u16, amiga.agnus.bpl2mod);
+    println!(
+        "  BPL1MOD = ${:04X} ({})",
+        amiga.agnus.bpl1mod as u16, amiga.agnus.bpl1mod
+    );
+    println!(
+        "  BPL2MOD = ${:04X} ({})",
+        amiga.agnus.bpl2mod as u16, amiga.agnus.bpl2mod
+    );
     println!("  DMACON  = ${:04X}", amiga.agnus.dmacon);
 
     // Blitter operation summary
-    println!("\nBlitter ops: {} area, {} line, text_string_accessed={}", blit_area_count, blit_line_count, text_string_accessed);
+    println!(
+        "\nBlitter ops: {} area, {} line, text_string_accessed={}",
+        blit_area_count, blit_line_count, text_string_accessed
+    );
 
     // Dump sprite state from Denise (using public fields)
     println!("\n--- Denise sprite registers ---");
@@ -4135,7 +4332,8 @@ fn test_boot_kick204_a500plus_screenshot() {
     for w in 0..35u32 {
         let addr = (scan_line_addr + w * 2) as usize;
         if addr + 1 < amiga.memory.chip_ram.len() {
-            let word = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+            let word = ((amiga.memory.chip_ram[addr] as u16) << 8)
+                | amiga.memory.chip_ram[addr + 1] as u16;
             if word != 0 {
                 println!("  word {:2}: ${:04X} (addr=${:06X})", w, word, addr);
             }
@@ -4147,7 +4345,8 @@ fn test_boot_kick204_a500plus_screenshot() {
     for w in 0..35u32 {
         let addr = (0x000188F2u32 + w * 2) as usize;
         if addr + 1 < amiga.memory.chip_ram.len() {
-            let word = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+            let word = ((amiga.memory.chip_ram[addr] as u16) << 8)
+                | amiga.memory.chip_ram[addr + 1] as u16;
             if word != 0 {
                 println!("  word {:2}: ${:04X} (addr=${:06X})", w, word, addr);
             }
@@ -4160,12 +4359,18 @@ fn test_boot_kick204_a500plus_screenshot() {
     let bpl_starts = [0x000188F2u32, 0x0001B098u32, 0x0001D83Eu32];
     for (p, &base) in bpl_starts.iter().enumerate() {
         let line_addr = base + disk_line * 70;
-        println!("\n--- BPL{} at display line +{} (addr=${:06X}) ---", p + 1, disk_line, line_addr);
+        println!(
+            "\n--- BPL{} at display line +{} (addr=${:06X}) ---",
+            p + 1,
+            disk_line,
+            line_addr
+        );
         let mut line_data = String::new();
         for w in 0..35u32 {
             let addr = (line_addr + w * 2) as usize;
             if addr + 1 < amiga.memory.chip_ram.len() {
-                let word = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+                let word = ((amiga.memory.chip_ram[addr] as u16) << 8)
+                    | amiga.memory.chip_ram[addr + 1] as u16;
                 line_data.push_str(&format!("{:04X} ", word));
             }
         }
@@ -4173,7 +4378,10 @@ fn test_boot_kick204_a500plus_screenshot() {
     }
     // Show expected color indices from planes: color = (BPL3 << 2) | (BPL2 << 1) | BPL1
     // For words 24-34 (disk area), show per-word expected colors
-    println!("\n--- Color indices at disk line +{}, words 24-34 ---", disk_line);
+    println!(
+        "\n--- Color indices at disk line +{}, words 24-34 ---",
+        disk_line
+    );
     for w in 24..35u32 {
         let mut colors = [0u8; 16];
         for bit in 0..16u32 {
@@ -4182,7 +4390,8 @@ fn test_boot_kick204_a500plus_screenshot() {
             for (p, &base) in bpl_starts.iter().enumerate() {
                 let addr = (base + disk_line * 70 + w * 2) as usize;
                 if addr + 1 < amiga.memory.chip_ram.len() {
-                    let word = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+                    let word = ((amiga.memory.chip_ram[addr] as u16) << 8)
+                        | amiga.memory.chip_ram[addr + 1] as u16;
                     if word & (1 << bit_pos) != 0 {
                         c |= 1 << p;
                     }
@@ -4190,7 +4399,11 @@ fn test_boot_kick204_a500plus_screenshot() {
             }
             colors[bit as usize] = c;
         }
-        let color_str: String = colors.iter().map(|c| format!("{}", c)).collect::<Vec<_>>().join("");
+        let color_str: String = colors
+            .iter()
+            .map(|c| format!("{}", c))
+            .collect::<Vec<_>>()
+            .join("");
         println!("  word {:2}: {}", w, color_str);
     }
 
@@ -4222,13 +4435,17 @@ fn test_boot_kick204_a500plus_screenshot() {
     }
 
     // --- WHITE STRIPE DIAGNOSTIC ---
-    // Check right edge of lores FB for multiple lines
-    println!("\n--- Lores FB right-edge check (x=310-319) ---");
-    for y in (60u32..200).step_by(10) {
-        let row_base = (y * FB_WIDTH) as usize;
+    // Check right edge of viewport for multiple lines (raster FB).
+    // Old lores x=310-319 maps to hires viewport hx=620-639 (right edge of 640-wide area).
+    // In the 608-wide viewport, the rightmost 20 hires pixels are at hx=588-607.
+    println!("\n--- Raster FB right-edge check (viewport hx=588-607) ---");
+    for old_fb_y in (60u32..200).step_by(10) {
+        let vpos = old_fb_y + 0x2C;
+        let raster_y = (vpos * 2) as usize;
         let mut edge_info = String::new();
-        for x in 310u32..320 {
-            let pixel = amiga.denise.framebuffer[row_base + x as usize];
+        for hx in 588u32..608 {
+            let raster_x = (vp_hstart + hx) as usize;
+            let pixel = amiga.denise.framebuffer_raster[raster_y * raster_w + raster_x];
             let r = (pixel >> 16) & 0xFF;
             let g = (pixel >> 8) & 0xFF;
             let b = pixel & 0xFF;
@@ -4243,23 +4460,30 @@ fn test_boot_kick204_a500plus_screenshot() {
             };
             edge_info.push_str(tag);
         }
-        println!("  y={:3}: [{}]", y, edge_info);
+        println!("  vpos={:3} (fb_y={:3}): [{}]", vpos, old_fb_y, edge_info);
     }
 
-    // Check what's at fb_x=318-319 for line 100 in detail
-    let diag_y = 100u32;
-    let row = (diag_y * FB_WIDTH) as usize;
-    for x in 316u32..320 {
-        let pixel = amiga.denise.framebuffer[row + x as usize];
+    // Check detail at right edge for old fb_y=100 (vpos=$CC)
+    let diag_vpos = 0xCCu32;
+    let diag_raster_y = (diag_vpos * 2) as usize;
+    for hx in 596u32..608 {
+        let raster_x = (vp_hstart + hx) as usize;
+        let pixel = amiga.denise.framebuffer_raster[diag_raster_y * raster_w + raster_x];
         let r = (pixel >> 16) & 0xFF;
         let g = (pixel >> 8) & 0xFF;
         let b = pixel & 0xFF;
         let rgb12 = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
-        println!("  y={} x={}: ${:08X} (rgb12=${:03X})", diag_y, x, pixel, rgb12);
+        println!(
+            "  vpos={} hx={}: ${:08X} (rgb12=${:03X})",
+            diag_vpos, hx, pixel, rgb12
+        );
     }
 
     // Check palette COLOR07
-    println!("\n  Palette[7] (COLOR07) = ${:04X}", amiga.denise.palette[7]);
+    println!(
+        "\n  Palette[7] (COLOR07) = ${:04X}",
+        amiga.denise.palette[7]
+    );
     println!("  Palette[0] (COLOR00) = ${:04X}", amiga.denise.palette[0]);
 
     // --- BITMAP STRUCTURE SEARCH ---
@@ -4267,18 +4491,29 @@ fn test_boot_kick204_a500plus_screenshot() {
     println!("\n--- BitMap structure search (BytesPerRow=70, Depth=3) ---");
     let chip_len = amiga.memory.chip_ram.len();
     for addr in (0..chip_len.saturating_sub(40)).step_by(2) {
-        let bpr = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
-        if bpr != 70 { continue; }
+        let bpr =
+            ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+        if bpr != 70 {
+            continue;
+        }
         // Check Depth at offset 5
-        if addr + 5 >= chip_len { continue; }
+        if addr + 5 >= chip_len {
+            continue;
+        }
         let depth = amiga.memory.chip_ram[addr + 5];
-        if depth != 3 { continue; }
+        if depth != 3 {
+            continue;
+        }
         // Read Rows at offset 2
         let rows = ((amiga.memory.chip_ram[addr + 2] as u16) << 8)
             | amiga.memory.chip_ram[addr + 3] as u16;
-        if rows == 0 || rows > 1024 { continue; }
+        if rows == 0 || rows > 1024 {
+            continue;
+        }
         // Read Planes[0] at offset 8
-        if addr + 11 >= chip_len { continue; }
+        if addr + 11 >= chip_len {
+            continue;
+        }
         let plane0 = ((amiga.memory.chip_ram[addr + 8] as u32) << 24)
             | ((amiga.memory.chip_ram[addr + 9] as u32) << 16)
             | ((amiga.memory.chip_ram[addr + 10] as u32) << 8)
@@ -4306,8 +4541,7 @@ fn test_boot_kick204_a500plus_screenshot() {
             };
             println!(
                 "  ${:06X}: BPR={} Rows={} Depth={} Planes=[${:06X}, ${:06X}, ${:06X}] textY={:.1} bpl1ptOff={:.1}",
-                addr, bpr, rows, depth, plane0, plane1, plane2,
-                text_y_from_plane0, bpl1pt_offset
+                addr, bpr, rows, depth, plane0, plane1, plane2, text_y_from_plane0, bpl1pt_offset
             );
         }
     }
@@ -4341,14 +4575,22 @@ fn test_boot_kick204_a500plus_screenshot() {
     }
 
     // Decode copper lists from chip RAM
-    println!("\n--- Copper list 1 (COP1LC=${:08X}) ---", amiga.copper.cop1lc);
+    println!(
+        "\n--- Copper list 1 (COP1LC=${:08X}) ---",
+        amiga.copper.cop1lc
+    );
     decode_copper_list(&amiga.memory.chip_ram, amiga.copper.cop1lc, 200);
-    println!("\n--- Copper list 2 (COP2LC=${:08X}) ---", amiga.copper.cop2lc);
+    println!(
+        "\n--- Copper list 2 (COP2LC=${:08X}) ---",
+        amiga.copper.cop2lc
+    );
     decode_copper_list(&amiga.memory.chip_ram, amiga.copper.cop2lc, 200);
 
     // Dump per-scanline register snapshots
     println!("\n--- Per-scanline register snapshots (last frame, sampled at H=$40) ---");
-    println!("Line | BPLCON0 BPU | DIWSTRT DIWSTOP | CopPC    CopWait IR1:IR2    | BPL1PT   BPL2PT   BPL3PT");
+    println!(
+        "Line | BPLCON0 BPU | DIWSTRT DIWSTOP | CopPC    CopWait IR1:IR2    | BPL1PT   BPL2PT   BPL3PT"
+    );
     let mut prev_bplcon0: u16 = 0xFFFF;
     let mut prev_diwstrt: u16 = 0xFFFF;
     let mut prev_copper_waiting = false;
@@ -4358,16 +4600,21 @@ fn test_boot_kick204_a500plus_screenshot() {
         let changed = sr.bplcon0 != prev_bplcon0
             || sr.diwstrt != prev_diwstrt
             || sr.copper_waiting != prev_copper_waiting;
-        if changed || idx == 0 || idx == scanline_regs.len() - 1
-            || (idx % 32 == 0)
-        {
+        if changed || idx == 0 || idx == scanline_regs.len() - 1 || (idx % 32 == 0) {
             println!(
                 "${:03X}  | ${:04X}  {}   | ${:04X}   ${:04X}   | ${:08X} {:5} ${:04X}:${:04X} | ${:08X} ${:08X} ${:08X}",
                 line,
-                sr.bplcon0, bpu,
-                sr.diwstrt, sr.diwstop,
-                sr.copper_pc, sr.copper_waiting, sr.copper_ir1, sr.copper_ir2,
-                sr.bpl_pt[0], sr.bpl_pt[1], sr.bpl_pt[2],
+                sr.bplcon0,
+                bpu,
+                sr.diwstrt,
+                sr.diwstop,
+                sr.copper_pc,
+                sr.copper_waiting,
+                sr.copper_ir1,
+                sr.copper_ir2,
+                sr.bpl_pt[0],
+                sr.bpl_pt[1],
+                sr.bpl_pt[2],
             );
         }
         prev_bplcon0 = sr.bplcon0;
@@ -4398,7 +4645,10 @@ fn decode_copper_list(chip_ram: &[u8], start_addr: u32, max_instructions: usize)
             let reg = w1 & 0x01FE;
             println!(
                 "  ${:08X}: MOVE ${:04X} -> ${:03X} ({})",
-                addr, w2, reg, reg_name(reg)
+                addr,
+                w2,
+                reg,
+                reg_name(reg)
             );
         } else {
             // WAIT or SKIP

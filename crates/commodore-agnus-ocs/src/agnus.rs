@@ -6,6 +6,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
+/// Same as PAL — both use 227 CCKs per line.
+#[allow(dead_code)]
+pub const NTSC_CCKS_PER_LINE: u16 = 227;
+/// NTSC uses 262 lines per frame (vs PAL's 312).
+#[allow(dead_code)]
+pub const NTSC_LINES_PER_FRAME: u16 = 262;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlotOwner {
@@ -231,6 +237,16 @@ pub struct Agnus {
 
     // Disk pointer
     pub dsk_pt: u32,
+
+    /// Long frame flag (LOF). Toggled at frame start when BPLCON0 LACE is set.
+    /// LOF=true means long/odd frame (313 lines PAL, 263 NTSC).
+    /// LOF=false means short/even frame (312 lines PAL, 262 NTSC).
+    /// Starts true (first frame is long).
+    pub lof: bool,
+
+    /// Lines per frame for this region (312 PAL, 262 NTSC). Set at
+    /// construction time and used by `tick_cck()` for frame wrapping.
+    pub lines_per_frame: u16,
 }
 
 impl Agnus {
@@ -275,7 +291,17 @@ impl Agnus {
             spr_pt_hi_latch: [0; 8],
             spr_pt_hi_pending: [false; 8],
             dsk_pt: 0,
+            lof: true,
+            lines_per_frame: PAL_LINES_PER_FRAME,
         }
+    }
+
+    /// Create a new Agnus with the specified lines-per-frame count.
+    #[must_use]
+    pub fn new_with_region_lines(lines_per_frame: u16) -> Self {
+        let mut agnus = Self::new();
+        agnus.lines_per_frame = lines_per_frame;
+        agnus
     }
 
     pub fn num_bitplanes(&self) -> u8 {
@@ -820,8 +846,18 @@ impl Agnus {
         if self.hpos >= PAL_CCKS_PER_LINE {
             self.hpos = 0;
             self.vpos += 1;
-            if self.vpos >= PAL_LINES_PER_FRAME {
+            // Interlace: long frame has one extra line (313 PAL, 263 NTSC).
+            let interlace = (self.bplcon0 & 0x0004) != 0;
+            let frame_lines = if interlace && self.lof {
+                self.lines_per_frame + 1
+            } else {
+                self.lines_per_frame
+            };
+            if self.vpos >= frame_lines {
                 self.vpos = 0;
+                if interlace {
+                    self.lof = !self.lof;
+                }
             }
         }
     }
@@ -903,15 +939,13 @@ impl Agnus {
                     } else {
                         LOWRES_DDF_TO_PLANE[pos_in_group]
                     };
-                    if let Some(plane) = plane_slot {
-                        if plane < num_bpl {
-                            return SlotOwner::Bitplane(plane);
-                        }
+                    if let Some(plane) = plane_slot.filter(|&p| p < num_bpl) {
+                        return SlotOwner::Bitplane(plane);
                     }
                 }
 
                 // Copper
-                if self.dma_enabled(0x0080) && (self.hpos % 2 == 0) {
+                if self.dma_enabled(0x0080) && self.hpos.is_multiple_of(2) {
                     return SlotOwner::Copper;
                 }
 

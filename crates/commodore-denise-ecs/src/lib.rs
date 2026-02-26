@@ -7,7 +7,6 @@
 use std::ops::{Deref, DerefMut};
 
 pub use commodore_denise_ocs::DeniseOcs as InnerDeniseOcs;
-pub use commodore_denise_ocs::{FB_HEIGHT, FB_WIDTH};
 
 /// Thin ECS wrapper that currently reuses the OCS Denise implementation.
 pub struct DeniseEcs {
@@ -77,12 +76,16 @@ impl From<DeniseEcs> for InnerDeniseOcs {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeniseEcs, FB_HEIGHT, FB_WIDTH, InnerDeniseOcs};
+    use super::{DeniseEcs, InnerDeniseOcs};
+    use commodore_denise_ocs::{PAL_RASTER_FB_HEIGHT, RASTER_FB_WIDTH};
 
     #[test]
-    fn wrapper_uses_ocs_framebuffer_and_palette_baseline_for_now() {
+    fn wrapper_uses_ocs_raster_framebuffer_and_palette_baseline() {
         let mut denise = DeniseEcs::new();
-        assert_eq!(denise.framebuffer.len(), (FB_WIDTH * FB_HEIGHT) as usize);
+        assert_eq!(
+            denise.framebuffer_raster.len(),
+            (RASTER_FB_WIDTH * PAL_RASTER_FB_HEIGHT) as usize
+        );
         assert_eq!(denise.palette[0], 0);
 
         denise.set_palette(0, 0x0FFF);
