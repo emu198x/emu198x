@@ -179,6 +179,19 @@ impl C64 {
         self.bus.keyboard.release_all();
     }
 
+    /// Take the SID audio output buffer (drains it).
+    ///
+    /// Returns mono f32 samples in the range -1.0 to 1.0, at 48 kHz.
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        self.bus.sid.take_buffer()
+    }
+
+    /// Number of audio samples pending in the SID buffer.
+    #[must_use]
+    pub fn audio_buffer_len(&self) -> usize {
+        self.bus.sid.buffer_len()
+    }
+
     /// Load a PRG file into memory.
     pub fn load_prg(&mut self, data: &[u8]) -> Result<u16, String> {
         crate::prg::load_prg(&mut self.bus.memory, data)
@@ -210,6 +223,9 @@ impl Tickable for C64 {
 
         // 5. CIA2: tick timer (NMI stubbed for v1)
         self.bus.cia2.tick();
+
+        // 6. SID: tick oscillators, envelopes, filter, and downsample
+        self.bus.sid.tick();
     }
 }
 
@@ -243,6 +259,28 @@ impl Observable for C64 {
                 "crb" => Some(self.bus.cia2.crb().into()),
                 _ => None,
             }
+        } else if let Some(rest) = path.strip_prefix("sid.") {
+            match rest {
+                "volume" => Some(Value::U8(self.bus.sid.volume)),
+                "voice3_off" => Some(Value::Bool(self.bus.sid.voice3_off)),
+                "voice0.freq" => Some(self.bus.sid.voices[0].frequency.into()),
+                "voice0.pw" => Some(self.bus.sid.voices[0].pulse_width.into()),
+                "voice0.control" => Some(Value::U8(self.bus.sid.voices[0].control)),
+                "voice0.envelope" => Some(Value::U8(self.bus.sid.envelopes[0].level)),
+                "voice1.freq" => Some(self.bus.sid.voices[1].frequency.into()),
+                "voice1.pw" => Some(self.bus.sid.voices[1].pulse_width.into()),
+                "voice1.control" => Some(Value::U8(self.bus.sid.voices[1].control)),
+                "voice1.envelope" => Some(Value::U8(self.bus.sid.envelopes[1].level)),
+                "voice2.freq" => Some(self.bus.sid.voices[2].frequency.into()),
+                "voice2.pw" => Some(self.bus.sid.voices[2].pulse_width.into()),
+                "voice2.control" => Some(Value::U8(self.bus.sid.voices[2].control)),
+                "voice2.envelope" => Some(Value::U8(self.bus.sid.envelopes[2].level)),
+                "filter.cutoff" => Some(self.bus.sid.filter.cutoff.into()),
+                "filter.resonance" => Some(Value::U8(self.bus.sid.filter.resonance)),
+                "filter.mode" => Some(Value::U8(self.bus.sid.filter.mode)),
+                "filter.routing" => Some(Value::U8(self.bus.sid.filter.routing)),
+                _ => None,
+            }
         } else if let Some(rest) = path.strip_prefix("memory.") {
             let addr =
                 if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
@@ -265,6 +303,16 @@ impl Observable for C64 {
     fn query_paths(&self) -> &'static [&'static str] {
         &[
             "cpu.<6502_paths>",
+            "sid.volume",
+            "sid.voice3_off",
+            "sid.voice{0,1,2}.freq",
+            "sid.voice{0,1,2}.pw",
+            "sid.voice{0,1,2}.control",
+            "sid.voice{0,1,2}.envelope",
+            "sid.filter.cutoff",
+            "sid.filter.resonance",
+            "sid.filter.mode",
+            "sid.filter.routing",
             "vic.line",
             "vic.cycle",
             "cia1.timer_a",

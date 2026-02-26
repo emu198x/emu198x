@@ -136,6 +136,7 @@ fn run_headless(cli: &CliArgs) {
 
     for _ in 0..cli.frames {
         c64.run_frame();
+        let _ = c64.take_audio_buffer();
     }
 
     if let Some(ref path) = cli.screenshot_path {
@@ -281,6 +282,9 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 if now.duration_since(self.last_frame_time) >= FRAME_DURATION {
                     self.c64.run_frame();
+                    // Drain SID audio buffer (prevent unbounded growth).
+                    // Future: feed to audio output device.
+                    let _ = self.c64.take_audio_buffer();
                     self.update_pixels();
                     self.last_frame_time = now;
                 }

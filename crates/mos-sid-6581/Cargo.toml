@@ -1,0 +1,13 @@
+[package]
+name = "mos-sid-6581"
+description = "MOS 6581 SID sound chip emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mos_sid_6581"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

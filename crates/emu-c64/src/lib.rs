@@ -16,7 +16,6 @@ pub mod mcp;
 mod memory;
 mod palette;
 pub mod prg;
-mod sid;
 pub mod vic;
 
 pub use bus::C64Bus;

@@ -66,13 +66,13 @@ pub fn record(c64: &mut C64, dir: &Path, num_frames: u32) -> Result<(), Box<dyn 
     let frames_dir = dir.join("frames");
     fs::create_dir_all(&frames_dir)?;
 
-    let all_audio: Vec<f32> = Vec::new();
+    let mut all_audio: Vec<f32> = Vec::new();
 
     for i in 1..=num_frames {
         c64.run_frame();
         let filename = frames_dir.join(format!("{i:06}.png"));
         save_screenshot(c64, &filename)?;
-        // SID audio is stubbed — no samples to collect
+        all_audio.extend_from_slice(&c64.take_audio_buffer());
     }
 
     if !all_audio.is_empty() {

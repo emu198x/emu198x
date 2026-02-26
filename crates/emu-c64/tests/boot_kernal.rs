@@ -1,5 +1,6 @@
 //! C64 Kernal boot test — verify the machine boots to BASIC READY. prompt.
 
+use emu_core::Bus;
 use emu_c64::{C64, C64Config, C64Model};
 use std::fs;
 use std::path::Path;
@@ -67,6 +68,63 @@ fn test_boot_kernal() {
     }
 
     assert!(found_ready, "C64 did not reach READY. prompt within {max_frames} frames");
+}
+
+#[test]
+#[ignore] // Requires real C64 ROMs at roms/
+fn test_sid_produces_audio() {
+    let kernal =
+        fs::read("../../roms/kernal.rom").expect("kernal.rom not found at roms/kernal.rom");
+    let basic = fs::read("../../roms/basic.rom").expect("basic.rom not found at roms/basic.rom");
+    let chargen =
+        fs::read("../../roms/chargen.rom").expect("chargen.rom not found at roms/chargen.rom");
+
+    let mut c64 = C64::new(&C64Config {
+        model: C64Model::C64Pal,
+        kernal_rom: kernal,
+        basic_rom: basic,
+        char_rom: chargen,
+    });
+
+    // Boot past READY.
+    for _ in 0..120 {
+        c64.run_frame();
+        let _ = c64.take_audio_buffer();
+    }
+
+    // Poke SID registers for a sawtooth tone via the bus (like a program would).
+    // Voice 1: ~440 Hz sawtooth, instant attack, max sustain, volume 15.
+    let sid_base = 0xD400u32;
+    let freq: u16 = 7479; // 440 Hz
+    c64.bus_mut().write(sid_base, (freq & 0xFF) as u8);       // Freq lo
+    c64.bus_mut().write(sid_base + 1, (freq >> 8) as u8);     // Freq hi
+    c64.bus_mut().write(sid_base + 5, 0x00);                  // AD: attack=0, decay=0
+    c64.bus_mut().write(sid_base + 6, 0xF0);                  // SR: sustain=F, release=0
+    c64.bus_mut().write(sid_base + 4, 0x21);                  // Sawtooth + gate on
+    c64.bus_mut().write(sid_base + 0x18, 0x0F);               // Volume = 15
+
+    // Run one frame to produce audio
+    c64.run_frame();
+    let audio = c64.take_audio_buffer();
+
+    println!("SID audio buffer: {} samples", audio.len());
+
+    assert!(!audio.is_empty(), "SID should produce audio samples");
+
+    // Verify non-silent: at least some samples above noise floor
+    let max_abs = audio.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+    println!("Max absolute sample: {max_abs}");
+    assert!(
+        max_abs > 0.01,
+        "SID audio should be non-silent with sawtooth playing, max={max_abs}"
+    );
+
+    // Save as WAV for manual verification
+    let out_dir = Path::new("../../test_output");
+    fs::create_dir_all(out_dir).ok();
+    let audio_path = out_dir.join("c64_sid_tone.wav");
+    emu_c64::capture::save_audio(&audio, &audio_path).expect("Failed to save audio");
+    println!("Audio saved to {}", audio_path.display());
 }
 
 /// Scan screen memory for the PETSCII sequence "READY."

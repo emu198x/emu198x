@@ -10,10 +10,11 @@
 
 use emu_core::{Bus, ReadResult};
 
+use mos_sid_6581::Sid6581;
+
 use crate::cia::Cia;
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::C64Memory;
-use crate::sid::Sid;
 use crate::vic::Vic;
 
 /// The C64 bus, implementing `emu_core::Bus`.
@@ -22,7 +23,7 @@ use crate::vic::Vic;
 pub struct C64Bus {
     pub memory: C64Memory,
     pub vic: Vic,
-    pub sid: Sid,
+    pub sid: Sid6581,
     pub cia1: Cia,
     pub cia2: Cia,
     pub keyboard: KeyboardMatrix,
@@ -34,7 +35,7 @@ impl C64Bus {
         Self {
             memory,
             vic: Vic::new(),
-            sid: Sid::new(),
+            sid: Sid6581::new(985_248, 48_000),
             cia1: Cia::new(),
             cia2: Cia::new(),
             keyboard: KeyboardMatrix::new(),
@@ -192,7 +193,7 @@ mod tests {
         // $DE00-$DFFF returns $FF
         let val = bus
             .memory
-            .io_read(0xDE00, &Vic::new(), &Sid::new(), &Cia::new(), &Cia::new());
+            .io_read(0xDE00, &Vic::new(), &Sid6581::new(985_248, 48_000), &Cia::new(), &Cia::new());
         assert_eq!(val, 0xFF);
     }
 }

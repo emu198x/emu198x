@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 emu-core = { path = "../emu-core" }
 mos-6502 = { path = "../mos-6502" }
+mos-sid-6581 = { path = "../mos-sid-6581" }
 winit = "0.30"
 pixels = "0.15"
 png = "0.17"
