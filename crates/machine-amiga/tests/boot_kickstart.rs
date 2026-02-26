@@ -4622,6 +4622,164 @@ fn test_boot_kick204_a500plus_screenshot() {
     }
 }
 
+#[test]
+#[ignore] // Requires real KS 2.05 ROM
+fn test_boot_kick205_a600hd_screenshot() {
+    let ks_path = "../../roms/kick205_37_300_a600hd.rom";
+    let rom = match fs::read(ks_path) {
+        Ok(r) => r,
+        Err(_) => {
+            eprintln!("KS 2.05 ROM not found at {ks_path}, skipping");
+            return;
+        }
+    };
+
+    let mut amiga = Amiga::new_with_config(AmigaConfig {
+        model: AmigaModel::A500Plus,
+        chipset: AmigaChipset::Ecs,
+        region: AmigaRegion::Pal,
+        kickstart: rom,
+    });
+
+    println!(
+        "Reset: SSP=${:08X} PC=${:08X} SR=${:04X}",
+        amiga.cpu.regs.ssp, amiga.cpu.regs.pc, amiga.cpu.regs.sr
+    );
+
+    let total_ticks: u64 = 850_000_000;
+    let report_interval: u64 = 28_375_160;
+    let mut last_report = 0u64;
+
+    for i in 0..total_ticks {
+        amiga.tick();
+
+        if i % 4 != 0 || i - last_report < report_interval {
+            continue;
+        }
+        last_report = i;
+        let elapsed_s = i as f64 / 28_375_160.0;
+        println!(
+            "[{:.1}s] tick={} PC=${:08X} V={} H={}",
+            elapsed_s, i, amiga.cpu.regs.pc, amiga.agnus.vpos, amiga.agnus.hpos,
+        );
+    }
+
+    // Save raster framebuffer screenshot
+    {
+        use machine_amiga::commodore_denise_ocs::ViewportPreset;
+
+        let viewport = amiga
+            .denise
+            .extract_viewport(ViewportPreset::Standard, true, true);
+        let raster_path = std::path::Path::new("../../test_output/amiga_boot_kick205_raster.png");
+        let file = fs::File::create(raster_path).expect("create raster screenshot file");
+        let ref mut w = std::io::BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("write raster PNG header");
+        let mut rgba = Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
+        for &pixel in &viewport.pixels {
+            rgba.push(((pixel >> 16) & 0xFF) as u8);
+            rgba.push(((pixel >> 8) & 0xFF) as u8);
+            rgba.push((pixel & 0xFF) as u8);
+            rgba.push(((pixel >> 24) & 0xFF) as u8);
+        }
+        writer
+            .write_image_data(&rgba)
+            .expect("write raster PNG data");
+        println!(
+            "Raster screenshot saved to {} ({}x{})",
+            raster_path.display(),
+            viewport.width,
+            viewport.height
+        );
+    }
+
+    // Sanity: display should be active (BPLEN set in DMACON)
+    println!("DMACON = ${:04X}", amiga.agnus.dmacon);
+    println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
+}
+
+#[test]
+#[ignore] // Requires real KS 3.1 ROM
+fn test_boot_kick31_a500_screenshot() {
+    let ks_path = "../../roms/kick31_40_063_a500_a600_a2000.rom";
+    let rom = match fs::read(ks_path) {
+        Ok(r) => r,
+        Err(_) => {
+            eprintln!("KS 3.1 ROM not found at {ks_path}, skipping");
+            return;
+        }
+    };
+
+    let mut amiga = Amiga::new_with_config(AmigaConfig {
+        model: AmigaModel::A500Plus,
+        chipset: AmigaChipset::Ecs,
+        region: AmigaRegion::Pal,
+        kickstart: rom,
+    });
+
+    println!(
+        "Reset: SSP=${:08X} PC=${:08X} SR=${:04X}",
+        amiga.cpu.regs.ssp, amiga.cpu.regs.pc, amiga.cpu.regs.sr
+    );
+
+    let total_ticks: u64 = 850_000_000;
+    let report_interval: u64 = 28_375_160;
+    let mut last_report = 0u64;
+
+    for i in 0..total_ticks {
+        amiga.tick();
+
+        if i % 4 != 0 || i - last_report < report_interval {
+            continue;
+        }
+        last_report = i;
+        let elapsed_s = i as f64 / 28_375_160.0;
+        println!(
+            "[{:.1}s] tick={} PC=${:08X} V={} H={}",
+            elapsed_s, i, amiga.cpu.regs.pc, amiga.agnus.vpos, amiga.agnus.hpos,
+        );
+    }
+
+    // Save raster framebuffer screenshot
+    {
+        use machine_amiga::commodore_denise_ocs::ViewportPreset;
+
+        let viewport = amiga
+            .denise
+            .extract_viewport(ViewportPreset::Standard, true, true);
+        let raster_path = std::path::Path::new("../../test_output/amiga_boot_kick31_raster.png");
+        let file = fs::File::create(raster_path).expect("create raster screenshot file");
+        let ref mut w = std::io::BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("write raster PNG header");
+        let mut rgba = Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
+        for &pixel in &viewport.pixels {
+            rgba.push(((pixel >> 16) & 0xFF) as u8);
+            rgba.push(((pixel >> 8) & 0xFF) as u8);
+            rgba.push((pixel & 0xFF) as u8);
+            rgba.push(((pixel >> 24) & 0xFF) as u8);
+        }
+        writer
+            .write_image_data(&rgba)
+            .expect("write raster PNG data");
+        println!(
+            "Raster screenshot saved to {} ({}x{})",
+            raster_path.display(),
+            viewport.width,
+            viewport.height
+        );
+    }
+
+    // Sanity: display should be active (BPLEN set in DMACON)
+    println!("DMACON = ${:04X}", amiga.agnus.dmacon);
+    println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
+}
+
 /// Decode and print a copper list from chip RAM.
 fn decode_copper_list(chip_ram: &[u8], start_addr: u32, max_instructions: usize) {
     let mut addr = start_addr;

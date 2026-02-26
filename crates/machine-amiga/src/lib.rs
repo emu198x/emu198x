@@ -501,18 +501,29 @@ impl Amiga {
             );
 
             // --- Raster framebuffer writes ---
+            // Each output call produces two independently-composed hires
+            // sub-pixels via `hires_pair_color_idx`. Write all 4 distinct
+            // hires pixels per CCK (2 per output call × 2 calls).
             {
-                let raster_color0 = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
-                    self.denise.palette[pixel0_debug.final_color_idx as usize],
+                let pair0 = pixel0_debug.hires_pair_color_idx;
+                let rc0a = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
+                    self.denise.palette[pair0[0] as usize],
                 );
-                self.denise.write_raster_pixel(hpos, vpos, 0, raster_color0);
-                self.denise.write_raster_pixel(hpos, vpos, 1, raster_color0);
+                let rc0b = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
+                    self.denise.palette[pair0[1] as usize],
+                );
+                self.denise.write_raster_pixel(hpos, vpos, 0, rc0a);
+                self.denise.write_raster_pixel(hpos, vpos, 1, rc0b);
 
-                let raster_color1 = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
-                    self.denise.palette[pixel1_debug.final_color_idx as usize],
+                let pair1 = pixel1_debug.hires_pair_color_idx;
+                let rc1a = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
+                    self.denise.palette[pair1[0] as usize],
                 );
-                self.denise.write_raster_pixel(hpos, vpos, 2, raster_color1);
-                self.denise.write_raster_pixel(hpos, vpos, 3, raster_color1);
+                let rc1b = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
+                    self.denise.palette[pair1[1] as usize],
+                );
+                self.denise.write_raster_pixel(hpos, vpos, 2, rc1a);
+                self.denise.write_raster_pixel(hpos, vpos, 3, rc1b);
             }
 
             // --- DMA slots ---
@@ -540,7 +551,7 @@ impl Amiga {
                 self.agnus.bpl_pt[idx] = addr.wrapping_add(2);
                 if plane == 0 {
                     fetched_plane_0 = true;
-                    self.denise.trigger_shift_load();
+                    self.denise.queue_shift_load_from_bpl1dat();
                 }
             } else if bus_plan.copper_dma_slot_granted {
                 let copper_used_chip_bus_cell = std::cell::Cell::new(false);

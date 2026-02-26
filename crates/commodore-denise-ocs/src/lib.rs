@@ -31,6 +31,10 @@ pub struct DeniseOutputPixelDebug {
     pub pair_samples: [DeniseSourcePixelDebug; 2],
     pub plane_bits_mask: u8,
     pub final_color_idx: u8,
+    /// In hires mode, the two independently-composed color indices for the
+    /// pair of source pixels shifted out during this output call. In lores
+    /// mode, both entries are set to `final_color_idx`.
+    pub hires_pair_color_idx: [u8; 2],
     pub playfield_visible_gate: bool,
 }
 
@@ -528,21 +532,6 @@ impl DeniseOcs {
         self.clxdat |= bits;
     }
 
-    fn sprite_has_priority_over_playfield(
-        &self,
-        sprite_group: usize,
-        playfield: PlayfieldId,
-    ) -> bool {
-        // PFxP2..PFxP0 select playfield placement among the four sprite
-        // priority groups. Values >4 are invalid; clamp.
-        let pf_pos = match playfield {
-            PlayfieldId::Pf1 => usize::from(self.bplcon2 & 0x0007),
-            PlayfieldId::Pf2 => usize::from((self.bplcon2 >> 3) & 0x0007),
-        }
-        .min(4);
-        sprite_group < pf_pos
-    }
-
     fn compose_playfield_pixel(
         &self,
         raw_color_idx: usize,
@@ -903,18 +892,14 @@ impl DeniseOcs {
         let mut pf1_code = 0u8;
         let mut pf2_code = 0u8;
         let mut plane_bits_mask = 0u8;
-        // Denise's horizontal comparator (`denise_hcounter_cmp` in WinUAE) is
-        // a CCK-rate counter, not a half-CCK/subpixel counter. In this model
-        // `beam_x` advances twice per CCK, so use `beam_x >> 1` for BPLCON1
+        // Denise's horizontal comparator (`denise_hcounter_cmp` in WinUAE)
+        // increments once per hcycle. In our model `beam_x` advances once per
+        // output call (= once per hcycle), so use it directly as the BPLCON1
         // pending-load comparator phase.
-        let comparator_phase = if hires {
-            (beam_x >> 1) as u16
-        } else {
-            beam_x as u16
-        };
+        let comparator_phase = beam_x as u16;
 
         let copy_before_shift = hires && denise_experiment_hires_copy_before_shift();
-        let comparator_tick_this_call = !hires || (beam_x & 1) != 0;
+        let comparator_tick_this_call = true;
         if copy_before_shift && comparator_tick_this_call {
             self.apply_pending_shift_load_if_due(comparator_phase);
         }
@@ -946,6 +931,9 @@ impl DeniseOcs {
             self.apply_pending_shift_load_if_due(comparator_phase);
         }
 
+        // Compose playfield pixel for the "last" sample (used for final_color_idx
+        // and lores output). In hires mode we also compose the first sample
+        // independently for the per-pixel hires_pair_color_idx.
         let playfield = if playfield_visible_gate {
             self.compose_playfield_pixel(raw_color_idx, pf1_code, pf2_code)
         } else {
@@ -963,17 +951,45 @@ impl DeniseOcs {
             },
             sprite_group_mask,
         );
-        let mut color_idx = playfield.visible_color_idx;
-        if let Some(sprite_pixel) = self.sprite_pixel(beam_x, beam_y) {
-            if let Some(front_pf) = playfield.front_playfield {
-                if self.sprite_has_priority_over_playfield(sprite_pixel.sprite_group, front_pf) {
-                    color_idx = sprite_pixel.palette_idx;
+
+        // Sprite lookup (lores resolution — same sprite for both hires sub-pixels).
+        let sprite_pixel = self.sprite_pixel(beam_x, beam_y);
+
+        // Cache BPLCON2 priority positions for sprite resolution (avoids
+        // re-borrowing &self through a closure while &mut self is live).
+        let bplcon2 = self.bplcon2;
+
+        let resolve_sprite_priority = |pf: &PlayfieldPixel, sp: &Option<SpritePixel>| -> usize {
+            let mut c = pf.visible_color_idx;
+            if let Some(s) = sp {
+                if let Some(front_pf) = pf.front_playfield {
+                    let pf_pos = match front_pf {
+                        PlayfieldId::Pf1 => usize::from(bplcon2 & 0x0007),
+                        PlayfieldId::Pf2 => usize::from((bplcon2 >> 3) & 0x0007),
+                    }
+                    .min(4);
+                    if s.sprite_group < pf_pos {
+                        c = s.palette_idx;
+                    }
+                } else {
+                    c = s.palette_idx;
                 }
-            } else {
-                // Background/COLOR00 only; sprite is visible.
-                color_idx = sprite_pixel.palette_idx;
             }
-        }
+            c
+        };
+
+        let color_idx = resolve_sprite_priority(&playfield, &sprite_pixel);
+
+        // In hires, compose both source pixels independently for full-res output.
+        let hires_pair_color_idx = if hires && playfield_visible_gate {
+            let (raw0, pf1_0, pf2_0) = pair_samples[0];
+            let pf0 = self.compose_playfield_pixel(raw0, pf1_0, pf2_0);
+            let c0 = resolve_sprite_priority(&pf0, &sprite_pixel);
+            let c1 = resolve_sprite_priority(&playfield, &sprite_pixel);
+            [c0 as u8, c1 as u8]
+        } else {
+            [color_idx as u8, color_idx as u8]
+        };
 
         DeniseOutputPixelDebug {
             called: true,
@@ -986,6 +1002,7 @@ impl DeniseOcs {
             pair_samples: pair_samples_debug,
             plane_bits_mask,
             final_color_idx: color_idx as u8,
+            hires_pair_color_idx,
             playfield_visible_gate,
         }
     }
