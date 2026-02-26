@@ -340,7 +340,7 @@ fn aud0_dma_combined_modulation_alternates_aud1_period_then_volume() {
     }
 
     // Use a slower source period so this test checks ordering only, not DMA-slot
-    // throughput limits of the current simplified machine model.
+    // throughput limits of the current machine model.
     configure_aud0_dma(&mut amiga, sample_addr, 3, 500, 64);
     amiga.write_custom_reg(aud_reg(1, AUD_REG_PER_OFFSET), 500);
     amiga.write_custom_reg(aud_reg(1, AUD_REG_VOL_OFFSET), 7);
@@ -392,7 +392,7 @@ fn aud0_dma_combined_modulation_uses_both_transitions_for_cadence() {
         amiga.memory.write_byte(addr + 1, word as u8);
     }
 
-    // Slower period avoids DMA-slot starvation in this simplified machine model
+    // Slower period avoids DMA-slot starvation in this machine model
     // and lets us assert transition-to-transition cadence deterministically.
     configure_aud0_dma(&mut amiga, sample_addr, 3, 500, 64);
     amiga.write_custom_reg(aud_reg(1, AUD_REG_PER_OFFSET), 700);

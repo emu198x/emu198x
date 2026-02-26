@@ -223,10 +223,11 @@ impl DeniseOcs {
         }
     }
 
-    /// Mark the start of a new beam line for bitplane fine-scroll timing.
+    /// Reset per-line state for bitplane shift-load timing.
     ///
-    /// In this simplified Denise model, `BPLCON1` horizontal scroll delay is
-    /// applied to the first bitplane shift-load on each line.
+    /// Clears `bpl_prev_data` so the BPLCON1 barrel-shift carry does not
+    /// leak across scanlines. Sets `bpl_scroll_pending_line` for the
+    /// legacy `trigger_shift_load()` path used by unit tests.
     pub fn begin_beam_line(&mut self) {
         self.bpl_scroll_pending_line = true;
         self.bpl_prev_data = [0; 6];

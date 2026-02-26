@@ -613,7 +613,7 @@ impl Amiga {
                 // trigger_shift_load corrupts the BPLCON1 barrel-shift carry
                 // by overwriting bpl_prev_data.
                 // Plane 0 is fetched at the end of the current DDF group:
-                // ddfseq position 7 in lowres, 3 in hires (simplified model).
+                // ddfseq position 7 in lowres, 3 in hires.
                 let group_end_offset = if (self.agnus.bplcon0 & 0x8000) != 0 {
                     3
                 } else {

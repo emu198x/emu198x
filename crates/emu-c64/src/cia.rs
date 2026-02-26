@@ -61,6 +61,8 @@ pub struct Cia {
     timer_b_oneshot: bool,
     /// Timer B force-load strobe pending.
     timer_b_force_load: bool,
+    /// Timer B counts Timer A underflows instead of CPU cycles (CRB bit 6).
+    timer_b_count_ta_underflow: bool,
 
     /// Interrupt control: status flags (bits 0-4).
     icr_status: u8,
@@ -91,6 +93,7 @@ impl Cia {
             timer_b_running: false,
             timer_b_oneshot: false,
             timer_b_force_load: false,
+            timer_b_count_ta_underflow: false,
             icr_status: 0,
             icr_mask: 0,
             cra: 0,
@@ -109,9 +112,11 @@ impl Cia {
         }
 
         // Timer A countdown
+        let mut ta_underflowed = false;
         if self.timer_a_running {
             if self.timer_a == 0 {
                 // Underflow
+                ta_underflowed = true;
                 self.icr_status |= 0x01; // Timer A underflow flag
                 self.timer_a = self.timer_a_latch; // Reload
                 if self.timer_a_oneshot {
@@ -129,9 +134,14 @@ impl Cia {
             self.timer_b_force_load = false;
         }
 
-        // Timer B countdown (simplified: always counts CPU cycles, ignoring
-        // Timer A underflow mode for v1)
-        if self.timer_b_running {
+        // Timer B countdown. CRB bit 6 selects input source:
+        //   0 = CPU cycles (phi2), 1 = Timer A underflows.
+        let timer_b_tick = if self.timer_b_count_ta_underflow {
+            ta_underflowed
+        } else {
+            true
+        };
+        if self.timer_b_running && timer_b_tick {
             if self.timer_b == 0 {
                 self.icr_status |= 0x02; // Timer B underflow flag
                 self.timer_b = self.timer_b_latch;
@@ -277,6 +287,9 @@ impl Cia {
                 self.crb = value;
                 self.timer_b_running = value & 0x01 != 0;
                 self.timer_b_oneshot = value & 0x08 != 0;
+                // CRB bits 6-5: Timer B input source.
+                // 00/10 = count CPU cycles, 01/11 = count Timer A underflows.
+                self.timer_b_count_ta_underflow = value & 0x40 != 0;
                 if value & 0x10 != 0 {
                     self.timer_b_force_load = true;
                 }
@@ -409,6 +422,59 @@ mod tests {
         cia.write(0x02, 0xFF); // DDR: all output
         cia.write(0x00, 0x42); // Port A data
         assert_eq!(cia.port_a_output(), 0x42);
+    }
+
+    #[test]
+    fn timer_b_cascade_counts_ta_underflows() {
+        let mut cia = Cia::new();
+
+        // Timer A: latch = 3 (underflows every 4 ticks: 3→2→1→0)
+        cia.write(0x04, 3);
+        cia.write(0x05, 0);
+
+        // Timer B: latch = 2, cascade mode (CRB bit 6 = 1, start)
+        cia.write(0x06, 2);
+        cia.write(0x07, 0);
+        cia.write(0x0F, 0x41); // Start + count Timer A underflows
+
+        // Start Timer A
+        cia.write(0x0E, 0x01);
+
+        // Timer A period = 4 ticks (counts 3,2,1,0 then underflows).
+        // Timer B should only decrement on Timer A underflows.
+        // After 4 ticks: first TA underflow → TB: 2→1
+        for _ in 0..4 {
+            cia.tick();
+        }
+        assert_eq!(cia.timer_b(), 1);
+
+        // After 8 ticks: second TA underflow → TB: 1→0
+        for _ in 0..4 {
+            cia.tick();
+        }
+        assert_eq!(cia.timer_b(), 0);
+
+        // After 12 ticks: third TA underflow → TB underflows (was 0)
+        for _ in 0..4 {
+            cia.tick();
+        }
+        assert!(cia.icr_status() & 0x02 != 0); // Timer B underflow flag set
+    }
+
+    #[test]
+    fn timer_b_phi2_mode_ignores_ta() {
+        let mut cia = Cia::new();
+
+        // Timer B in normal phi2 mode (CRB bit 6 = 0)
+        cia.write(0x06, 5);
+        cia.write(0x07, 0);
+        cia.write(0x0F, 0x01); // Start, phi2 mode
+
+        // Timer B should count every CPU cycle regardless of Timer A
+        for _ in 0..3 {
+            cia.tick();
+        }
+        assert_eq!(cia.timer_b(), 2); // 5→4→3→2 after 3 ticks
     }
 
     #[test]

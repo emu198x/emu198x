@@ -431,8 +431,23 @@ impl Ppu {
 
                     self.sprite_count += 1;
                 } else {
-                    // Sprite overflow (simplified — set flag)
-                    self.status |= 0x20;
+                    // 2C02 hardware bug: after finding 8 sprites, the PPU
+                    // continues scanning but increments the OAM byte offset
+                    // (m) alongside the sprite index (n) on each miss. This
+                    // causes it to compare tile, attribute, or X bytes as
+                    // if they were Y coordinates — missing real overflows
+                    // and producing false positives.
+                    let mut n = (i + 1) as usize;
+                    let mut m: usize = 0;
+                    while n < 64 {
+                        let byte = self.oam[(n * 4 + m) & 0xFF] as u16;
+                        if next_scanline.wrapping_sub(byte) < sprite_height {
+                            self.status |= 0x20;
+                            break;
+                        }
+                        n += 1;
+                        m = (m + 1) & 3;
+                    }
                     break;
                 }
             }
@@ -818,6 +833,105 @@ mod tests {
         let a3 = ppu.mirror_nametable_addr(0x2C00, Mirroring::Horizontal);
         assert_eq!(a2, 0x0400);
         assert_eq!(a3, 0x0400);
+    }
+
+    fn dummy_mapper() -> crate::cartridge::Nrom {
+        crate::cartridge::Nrom::new(vec![0u8; 32768], vec![0u8; 8192], Mirroring::Horizontal)
+    }
+
+    #[test]
+    fn sprite_overflow_bug_skips_real_overflow() {
+        // The 2C02 bug: after 8 sprites, the byte offset `m` increments
+        // alongside `n` on each miss. The buggy loop starts at m=0 for the
+        // first sprite checked. If that sprite's Y is out of range, m
+        // becomes 1 — now the PPU reads tile bytes as Y. Real overflows
+        // get missed when the non-Y bytes are out of range.
+        let mapper = dummy_mapper();
+        let mut ppu = Ppu::new();
+        ppu.scanline = 50;
+        ppu.ctrl = 0; // 8x8 sprites
+
+        // First 8 sprites: Y=50 (in range)
+        for i in 0..8 {
+            ppu.oam[i * 4] = 50;
+        }
+        // 9th sprite (index 8): Y=50 (triggers overflow evaluation)
+        ppu.oam[8 * 4] = 50;
+
+        // The buggy loop starts at n=9, m=0. After each miss, both n and m
+        // increment. m wraps every 4 entries, so the hardware reads the
+        // actual Y byte at n=9,13,17,... (m=0) and non-Y bytes elsewhere.
+        //
+        // Place out-of-range Y at m=0 positions (9,13,17,...) so those
+        // miss. Place in-range Y=50 at all other positions — these sprites
+        // are genuinely on the scanline but the bug reads their non-Y
+        // bytes (tile/attr/X = 200) instead of Y.
+        for i in 9..64 {
+            let m_at_i = (i - 9) & 3;
+            if m_at_i == 0 {
+                // m=0: hardware reads actual Y byte
+                ppu.oam[i * 4] = 200; // out of range → miss
+            } else {
+                // m!=0: hardware reads non-Y byte as "Y"
+                ppu.oam[i * 4] = 50; // genuinely in range (but never read)
+            }
+            ppu.oam[i * 4 + 1] = 200; // tile
+            ppu.oam[i * 4 + 2] = 200; // attr
+            ppu.oam[i * 4 + 3] = 200; // X
+        }
+
+        ppu.evaluate_sprites(&mapper);
+        assert_eq!(ppu.sprite_count, 8);
+        // Overflow flag NOT set: real sprites at Y=50 are missed because
+        // the buggy m offset reads 200 instead of 50.
+        assert_eq!(ppu.status & 0x20, 0, "overflow flag set despite bug");
+    }
+
+    #[test]
+    fn sprite_overflow_bug_false_positive() {
+        // When the buggy m offset happens to read a byte that looks like
+        // a Y in range, the PPU sets the overflow flag — a false positive.
+        let mapper = dummy_mapper();
+        let mut ppu = Ppu::new();
+        ppu.scanline = 50;
+        ppu.ctrl = 0; // 8x8 sprites
+
+        // First 8 sprites on scanline 50
+        for i in 0..8 {
+            ppu.oam[i * 4] = 50;
+        }
+        // 9th sprite triggers overflow evaluation
+        ppu.oam[8 * 4] = 50;
+
+        // Sprite 9: Y=200 (m=0, not in range → m becomes 1)
+        ppu.oam[9 * 4] = 200;
+        ppu.oam[9 * 4 + 1] = 200;
+        ppu.oam[9 * 4 + 2] = 200;
+        ppu.oam[9 * 4 + 3] = 200;
+
+        // Sprite 10: Y=200 (not in range at m=0, but m=1 here).
+        // Hardware reads tile byte as "Y". Set tile byte to 50 → match!
+        ppu.oam[10 * 4] = 200; // actual Y (never read — m=1)
+        ppu.oam[10 * 4 + 1] = 50; // tile byte read as "Y" → false positive
+        ppu.oam[10 * 4 + 2] = 200;
+        ppu.oam[10 * 4 + 3] = 200;
+
+        // Fill rest far away
+        for i in 11..64 {
+            ppu.oam[i * 4] = 200;
+            ppu.oam[i * 4 + 1] = 200;
+            ppu.oam[i * 4 + 2] = 200;
+            ppu.oam[i * 4 + 3] = 200;
+        }
+
+        ppu.evaluate_sprites(&mapper);
+        assert_eq!(ppu.sprite_count, 8);
+        // Overflow flag IS set: tile byte 50 falsely matches scanline 50
+        assert_ne!(
+            ppu.status & 0x20,
+            0,
+            "overflow flag not set on false positive"
+        );
     }
 
     #[test]

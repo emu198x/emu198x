@@ -108,7 +108,7 @@ pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
     Some(0), // 7: BPL1 (triggers shift register load)
 ];
 
-/// Simplified hires bitplane fetch order within a 4-CCK group.
+/// Hires bitplane fetch order within a 4-CCK group.
 ///
 /// Plane 0 (BPL1) remains last so Denise can trigger a shift-load on the
 /// final fetch of the group. Slots for planes >= current depth are free.
@@ -913,8 +913,8 @@ impl Agnus {
             // Variable slots (Bitplane, Copper, CPU)
             0x1C..=0xE2 => {
                 // Bitplane DMA: fetch window runs from DDFSTRT through the
-                // final fetch slot of the last group. In hires mode, the
-                // simplified fetch group width is 4 CCKs instead of 8.
+                // final fetch slot of the last group. Hires mode uses 4-CCK
+                // groups (vs 8-CCK lowres) to double the fetch frequency.
                 let num_bpl = self.num_bitplanes();
                 let hires = (self.bplcon0 & 0x8000) != 0;
                 let group_len = if hires { 4 } else { 8 };
