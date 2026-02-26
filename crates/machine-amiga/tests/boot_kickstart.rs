@@ -3701,6 +3701,12 @@ fn test_boot_kick204_a500plus_screenshot() {
     let mut prev_blitter_busy = false;
     let mut text_string_accessed = false;
     let mut prev_cop2lc = 0u32;
+    // Track old bitmap text area content at key checkpoints.
+    // Old plane 0 text line 102 starts at $012DE6. Check 7 words there.
+    let mut text_area_snapshot_done = false;
+    let old_plane0_text = 0x012DE6usize;
+    let old_plane1_text = 0x0158D4usize; // #72 dpt
+    let old_plane2_text = 0x01807Ausize; // #73 dpt
 
     for i in 0..total_ticks {
         amiga.tick();
@@ -3733,6 +3739,48 @@ fn test_boot_kick204_a500plus_screenshot() {
             prev_cop2lc = cop2lc;
         }
 
+        // Snapshot old bitmap text area BEFORE first text erase blit
+        if !text_area_snapshot_done && i >= 107_100_000 && i <= 107_200_000 && i % 8 == 0 {
+            // Check once just before first text blit (~tick 107.1M)
+            text_area_snapshot_done = true;
+            let chip = &amiga.memory.chip_ram;
+            let chip_len = chip.len();
+            eprintln!("\n=== OLD BITMAP TEXT AREA SNAPSHOT (before text blits, tick {}) ===", i);
+            for (label, base) in [("Plane0", old_plane0_text), ("Plane1", old_plane1_text), ("Plane2", old_plane2_text)] {
+                let mut data = Vec::new();
+                for row in 0..9usize {
+                    let line_addr = base + row * 70; // BytesPerRow=70
+                    for w in 0..7usize {
+                        let a = line_addr + w * 2;
+                        if a + 1 < chip_len {
+                            let word = ((chip[a] as u16) << 8) | chip[a + 1] as u16;
+                            data.push(word);
+                        }
+                    }
+                }
+                let non_zero = data.iter().filter(|&&w| w != 0).count();
+                let sample: Vec<_> = data.iter().take(14).map(|w| format!("{:04X}", w)).collect();
+                eprintln!("  {} @${:06X}: {}/{} non-zero, first 14: [{}]",
+                    label, base, non_zero, data.len(), sample.join(" "));
+            }
+            // Also check the NEW bitmap plane 0 at the corresponding text offset
+            // Text line 102 in new bitmap: $0188F4 + 102*70 = $0188F4 + $1BEC = $01A4E0
+            let new_plane0_text = 0x01A4E0usize;
+            let mut data = Vec::new();
+            for row in 0..9usize {
+                let line_addr = new_plane0_text + row * 70;
+                for w in 0..7usize {
+                    let a = line_addr + w * 2;
+                    if a + 1 < chip_len {
+                        let word = ((amiga.memory.chip_ram[a] as u16) << 8) | amiga.memory.chip_ram[a + 1] as u16;
+                        data.push(word);
+                    }
+                }
+            }
+            let non_zero = data.iter().filter(|&&w| w != 0).count();
+            eprintln!("  NewP0 @${:06X}: {}/{} non-zero", new_plane0_text, non_zero, data.len());
+        }
+
         // Count blitter operations
         let busy = amiga.agnus.blitter_busy;
         if busy && !prev_blitter_busy {
@@ -3741,16 +3789,45 @@ fn test_boot_kick204_a500plus_screenshot() {
                 blit_line_count += 1;
             } else {
                 blit_area_count += 1;
-                // Log area blits targeting the bitplane area
                 let dpt = amiga.agnus.blt_dpt;
                 let height = (amiga.agnus.bltsize >> 6) & 0x3FF;
                 let width = amiga.agnus.bltsize & 0x3F;
-                if dpt >= 0x018000 && dpt < 0x020000 && blit_area_count <= 100 {
+                // Detailed logging for ALL blits in the text-rendering window
+                if i >= 106_000_000 && i <= 114_000_000 {
+                    eprintln!(
+                        "[tick {}] BLIT #{}: con0=${:04X} con1=${:04X} size={}x{} apt=${:06X} bpt=${:06X} cpt=${:06X} dpt=${:06X} amod={} bmod={} cmod={} dmod={} afwm=${:04X} alwm=${:04X} adat=${:04X} bdat=${:04X} cdat=${:04X}",
+                        i, blit_area_count,
+                        amiga.agnus.bltcon0, amiga.agnus.bltcon1,
+                        width, height,
+                        amiga.agnus.blt_apt, amiga.agnus.blt_bpt,
+                        amiga.agnus.blt_cpt, amiga.agnus.blt_dpt,
+                        amiga.agnus.blt_amod, amiga.agnus.blt_bmod,
+                        amiga.agnus.blt_cmod, amiga.agnus.blt_dmod,
+                        amiga.agnus.blt_afwm, amiga.agnus.blt_alwm,
+                        amiga.agnus.blt_adat, amiga.agnus.blt_bdat,
+                        amiga.agnus.blt_cdat,
+                    );
+                } else if dpt >= 0x018000 && dpt < 0x020000 && blit_area_count <= 100 {
                     eprintln!(
                         "[tick {}] BLIT AREA #{}: dpt=${:06X} size={}x{} con0=${:04X} con1=${:04X}",
                         i, blit_area_count, dpt, width, height,
                         amiga.agnus.bltcon0, amiga.agnus.bltcon1
                     );
+                }
+                // Log any blit targeting the old bitmap text area (planes 0/1/2 near line 102)
+                // Old P0 text: $012DE6, P1: $0158D4, P2: $01807A ± some rows
+                if (dpt >= 0x012C00 && dpt < 0x013800)
+                    || (dpt >= 0x0153A0 && dpt < 0x015F00)
+                    || (dpt >= 0x017B00 && dpt < 0x018900)
+                {
+                    let lf = amiga.agnus.bltcon0 & 0xFF;
+                    if lf != 0x0A {
+                        eprintln!(
+                            "[tick {}] BLIT TO OLD TEXT AREA #{}: dpt=${:06X} size={}x{} con0=${:04X} LF=${:02X}",
+                            i, blit_area_count, dpt, width, height,
+                            amiga.agnus.bltcon0, lf
+                        );
+                    }
                 }
             }
         }

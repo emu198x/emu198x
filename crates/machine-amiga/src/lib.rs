@@ -2268,6 +2268,9 @@ fn custom_register_byte_merge_latch(
     offset: u16,
 ) -> Option<u16> {
     match offset {
+        // Blitter control registers — KS 2.04+ may byte-write these.
+        0x040 => Some(agnus.bltcon0),
+        0x042 => Some(agnus.bltcon1),
         // Display / DMA-visible latches commonly byte-written by ROMs/copper.
         0x08E => Some(agnus.diwstrt),
         0x090 => Some(agnus.diwstop),
@@ -2368,6 +2371,11 @@ fn write_custom_register(
         0x058 => {
             agnus.bltsize = val;
             agnus.start_blit();
+        }
+        0x05A if chipset == AmigaChipset::Ecs => {
+            // BLTCON0L (ECS): write only the low byte (minterm/LF) of BLTCON0,
+            // preserving the upper byte (ASH + channel enables).
+            agnus.bltcon0 = (agnus.bltcon0 & 0xFF00) | (val & 0x00FF);
         }
         0x05C if chipset == AmigaChipset::Ecs => {
             agnus.bltsizv_ecs = val;
