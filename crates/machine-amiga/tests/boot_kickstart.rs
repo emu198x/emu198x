@@ -1680,7 +1680,7 @@ fn test_boot_kick13() {
     }
 
     // Regression guard using the raster framebuffer viewport extraction.
-    // Standard viewport: 608 hires pixels x 256 rows (deinterlaced PAL).
+    // Standard viewport: 640 hires pixels x 256 rows (deinterlaced PAL).
     use machine_amiga::commodore_denise_ocs::ViewportPreset;
 
     let viewport = amiga
@@ -1749,7 +1749,7 @@ fn test_boot_kick13() {
         println!("    #{:02X}{:02X}{:02X}: {count}", r, g, b);
     }
 
-    // Raster viewport is 608x256 (hires), so counts are ~1.9x the old
+    // Raster viewport is 640x256 (hires), so counts are ~2x the old
     // 320x256 lores counts. Ranges are wide to catch regressions without
     // breaking on small timing shifts.
     let white_count = *counts.get(&WHITE).unwrap_or(&0);
@@ -1757,7 +1757,7 @@ fn test_boot_kick13() {
     let blue_count = *counts.get(&FLOPPY_BLUE).unwrap_or(&0);
     let gray_count = *counts.get(&METAL_GRAY).unwrap_or(&0);
     assert!(
-        (130_000..=150_000).contains(&white_count),
+        (138_000..=160_000).contains(&white_count),
         "white count out of range: {white_count}"
     );
     assert!(
@@ -4053,8 +4053,8 @@ fn test_boot_kick204_a500plus_screenshot() {
     // Use raster FB: raster_y = vpos*2, scan hires pixels in the standard viewport h range.
     let bg_color = 0xFF441144u32;
     let vp_hstart = 0x40u32 * 4; // raster x start of standard viewport
-    let vp_hend = 0xD8u32 * 4; // raster x end of standard viewport
-    let vp_hires_width = vp_hend - vp_hstart; // 608 hires pixels
+    let vp_hend = 0xE0u32 * 4; // raster x end of standard viewport
+    let vp_hires_width = vp_hend - vp_hstart; // 640 hires pixels
     println!("\n--- Non-background pixels in border region (vpos $2C-$5D) ---");
     let mut ghost_pixel_count = 0u32;
     for vpos in 0x2Cu32..0x5Du32 {
@@ -4437,13 +4437,12 @@ fn test_boot_kick204_a500plus_screenshot() {
     // --- WHITE STRIPE DIAGNOSTIC ---
     // Check right edge of viewport for multiple lines (raster FB).
     // Old lores x=310-319 maps to hires viewport hx=620-639 (right edge of 640-wide area).
-    // In the 608-wide viewport, the rightmost 20 hires pixels are at hx=588-607.
-    println!("\n--- Raster FB right-edge check (viewport hx=588-607) ---");
+    println!("\n--- Raster FB right-edge check (viewport hx=620-639) ---");
     for old_fb_y in (60u32..200).step_by(10) {
         let vpos = old_fb_y + 0x2C;
         let raster_y = (vpos * 2) as usize;
         let mut edge_info = String::new();
-        for hx in 588u32..608 {
+        for hx in 620u32..640 {
             let raster_x = (vp_hstart + hx) as usize;
             let pixel = amiga.denise.framebuffer_raster[raster_y * raster_w + raster_x];
             let r = (pixel >> 16) & 0xFF;
@@ -4466,7 +4465,7 @@ fn test_boot_kick204_a500plus_screenshot() {
     // Check detail at right edge for old fb_y=100 (vpos=$CC)
     let diag_vpos = 0xCCu32;
     let diag_raster_y = (diag_vpos * 2) as usize;
-    for hx in 596u32..608 {
+    for hx in 628u32..640 {
         let raster_x = (vp_hstart + hx) as usize;
         let pixel = amiga.denise.framebuffer_raster[diag_raster_y * raster_w + raster_x];
         let r = (pixel >> 16) & 0xFF;

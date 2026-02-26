@@ -1070,9 +1070,9 @@ impl ViewportPreset {
         match self {
             Self::Standard => ViewportBounds {
                 h_start_cck: 0x40,
-                h_end_cck: 0xD8,
+                h_end_cck: 0xE0, // 160 CCKs = 640 hires = 320 lores
                 v_start_line: 0x2C,
-                v_end_line: 0x12C,
+                v_end_line: 0x12C, // 256 lines
             },
             Self::Overscan => ViewportBounds {
                 h_start_cck: 0x1C,
@@ -1095,9 +1095,9 @@ impl ViewportPreset {
         match self {
             Self::Standard => ViewportBounds {
                 h_start_cck: 0x40,
-                h_end_cck: 0xD8,
+                h_end_cck: 0xE0, // 160 CCKs = 640 hires = 320 lores
                 v_start_line: 0x2C,
-                v_end_line: 0x10A,
+                v_end_line: 0xF4, // 200 lines ($F4 - $2C = $C8 = 200)
             },
             Self::Overscan => ViewportBounds {
                 h_start_cck: 0x1C,
@@ -1175,10 +1175,16 @@ impl DeniseOcs {
 }
 
 /// Pixel aspect ratio for correct display on square-pixel screens.
+///
+/// Uses the BT.601/Amiga community convention:
+/// - PAL lores: 16:15 (~1.067) — pixels slightly wider than tall
+/// - NTSC lores: 8:9 (~0.889) — pixels slightly taller than wide
+///
+/// These match the ITU-R BT.601 values for 720×576 PAL and 720×480 NTSC
+/// respectively, and are the standard values used by AmigaOS monitor drivers.
 #[must_use]
 pub fn pixel_aspect_ratio(pal: bool, hires: bool, interlaced: bool) -> f64 {
-    // PAL lores non-interlaced is the reference: ~1.067 (pixels slightly taller than wide)
-    let base = if pal { 1.067 } else { 0.833 };
+    let base = if pal { 16.0 / 15.0 } else { 8.0 / 9.0 };
     let h_factor = if hires { 0.5 } else { 1.0 };
     let v_factor = if interlaced { 0.5 } else { 1.0 };
     base * h_factor * v_factor

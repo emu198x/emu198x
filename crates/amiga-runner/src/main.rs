@@ -37,7 +37,7 @@ use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 /// Standard PAL viewport dimensions (hires resolution, deinterlaced).
-const VIEWPORT_WIDTH: u32 = 608; // (0xD8 - 0x40) * 4 = 152 CCKs * 4
+const VIEWPORT_WIDTH: u32 = 640; // (0xE0 - 0x40) * 4 = 160 CCKs * 4
 const VIEWPORT_HEIGHT: u32 = 256; // (0x12C - 0x2C) = 256 lines
 const SCALE: u32 = 2;
 const FRAME_DURATION: Duration = Duration::from_millis(20); // PAL ~50 Hz
