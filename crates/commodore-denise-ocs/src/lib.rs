@@ -284,6 +284,26 @@ impl DeniseOcs {
         self.hires_linebuf_bpl1dat_trigger_recorded = false;
     }
 
+    /// Clear a lores framebuffer line to the current COLOR00.
+    ///
+    /// On real hardware, undriven output shows COLOR00 (border). Call this
+    /// at the start of each line so that pixels beyond the DDF/DIW window
+    /// that the render path doesn't reach still show the correct border
+    /// instead of stale data from a previous frame.
+    pub fn clear_fb_line_to_background(&mut self, fb_y: u32) {
+        if fb_y >= FB_HEIGHT {
+            return;
+        }
+        let bg = Self::rgb12_to_argb32(self.palette[0]);
+        let row_start = (fb_y * FB_WIDTH) as usize;
+        let row_end = row_start + FB_WIDTH as usize;
+        self.framebuffer[row_start..row_end].fill(bg);
+        // Also clear the corresponding hires line
+        let hrow_start = (fb_y * HIRES_FB_WIDTH) as usize;
+        let hrow_end = hrow_start + HIRES_FB_WIDTH as usize;
+        self.framebuffer_hires[hrow_start..hrow_end].fill(bg);
+    }
+
     #[must_use]
     pub fn last_shift_load_debug(&self) -> DeniseShiftLoadDebug {
         self.last_shift_load_debug
@@ -621,10 +641,11 @@ impl DeniseOcs {
         // bitplane words. Model this by combining the previous and current
         // DMA words per plane when loading the serial shift registers.
         let hires = (self.bplcon0 & 0x8000) != 0;
-        // In hires modes, KS2.x output matches better when BPLCON1 is modeled
-        // as a line-start delay rather than a per-fetch-group barrel carry.
-        // Keep the old model available for lowres experimentation only.
-        let line_delay_only_scroll = hires || denise_experiment_bplcon1_line_delay_only();
+        // BPLCON1 scroll is implemented as a barrel-shift across consecutive
+        // BPL DMA words. The combined (prev << 16 | raw) >> scroll window
+        // works identically for lowres and hires — only the scroll value
+        // range differs (lowres 0-15, hires 0-14 even).
+        let line_delay_only_scroll = denise_experiment_bplcon1_line_delay_only();
         let first_shift_load_this_line = self.bpl_scroll_pending_line;
         let mut odd_scroll = ((self.bplcon1 >> 4) & 0x000F) as u8;
         let mut even_scroll = (self.bplcon1 & 0x000F) as u8;
@@ -990,27 +1011,12 @@ impl DeniseOcs {
     }
 
     fn shift_one_playfield_render_sample(&mut self, hires: bool) -> (usize, u8, u8, u8) {
-        if !hires {
-            return self.shift_one_playfield_source_pixel();
-        }
-
-        if denise_experiment_hires_full_rate_shift() {
-            return self.shift_one_playfield_source_pixel();
-        }
-
-        if !self.hires_cached_sample_valid {
-            self.hires_cached_sample = self.shift_one_playfield_source_pixel();
-            self.hires_cached_sample_valid = true;
-            self.hires_sample_pair_phase = 0;
-        }
-
-        let out = self.hires_cached_sample;
-        self.hires_sample_pair_phase = (self.hires_sample_pair_phase + 1) & 1;
-        if self.hires_sample_pair_phase == 0 {
-            self.hires_cached_sample = self.shift_one_playfield_source_pixel();
-            self.hires_cached_sample_valid = true;
-        }
-        out
+        // Hires outputs 4 source pixels per CCK (2 per output call × 2 calls).
+        // Each call shifts one actual source pixel — no caching. The 16-bit
+        // shift register drains in 4 CCK, matching the BPL1DAT fetch rate.
+        // The 640→320 downsample uses the later pixel of each pair (handled
+        // by the caller's loop overwriting raw_color_idx).
+        self.shift_one_playfield_source_pixel()
     }
 
     pub fn output_pixel(&mut self, x: u32, y: u32) {
@@ -1272,26 +1278,29 @@ mod tests {
     }
 
     #[test]
-    fn hires_bplcon1_delay_applies_only_to_first_shift_load_of_line() {
+    fn hires_bplcon1_barrel_shift_applies_on_every_load() {
         let mut denise = DeniseOcs::new();
         denise.bplcon0 = 0x9000; // HIRES + 1 bitplane
         denise.bplcon1 = 0x0040; // odd planes scroll by 4 hires pixels
         denise.begin_beam_line();
 
+        // First load: prev=0, raw=0x8000, combined=(0<<16|0x8000)>>4 = 0x0800
         denise.bpl_data[0] = 0x8000;
         denise.trigger_shift_load();
         assert_eq!(
             collect_raw_source_pixels(&mut denise, 16),
             vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            "first hires shift load of the line should honor BPLCON1 delay"
+            "first hires shift load of the line should honor BPLCON1 barrel-shift delay"
         );
 
+        // Second load: prev=0x8000, raw=0x8000, combined=(0x8000<<16|0x8000)>>4 = 0x0800
+        // Barrel shift carries the same scroll offset on every load for smooth scrolling.
         denise.bpl_data[0] = 0x8000;
         denise.trigger_shift_load();
         assert_eq!(
             collect_raw_source_pixels(&mut denise, 16),
-            vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            "subsequent hires shift loads on the same line should not reapply the line-start delay"
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "subsequent hires shift loads apply the same barrel-shift scroll for smooth scrolling"
         );
     }
 
@@ -1388,20 +1397,23 @@ mod tests {
         let dbg0 = invisible_output_pixel(&mut denise, 0);
         let dbg1 = invisible_output_pixel(&mut denise, 1);
 
+        // Full-rate shift: each output call consumes 2 distinct source pixels.
+        // 0xA000 = 1010_0000... so pixels are: 1, 0, 1, 0, ...
         assert_eq!(
             [dbg0.pair_samples[0].raw_color_idx, dbg0.pair_samples[1].raw_color_idx],
-            [1, 1]
+            [1, 0],
+            "first output call shifts source pixels 0 (=1) and 1 (=0)"
         );
         assert_eq!(
             [dbg1.pair_samples[0].raw_color_idx, dbg1.pair_samples[1].raw_color_idx],
-            [0, 0],
-            "with CCK-rate hires shifting, the second output call reuses the second half of the same CCK serializer phase"
+            [1, 0],
+            "second output call shifts source pixels 2 (=1) and 3 (=0)"
         );
-        assert_eq!(denise.shift_count, 13);
+        assert_eq!(denise.shift_count, 12);
     }
 
     #[test]
-    fn deferred_shift_load_can_land_between_two_hires_samples_in_one_call() {
+    fn deferred_shift_load_lands_between_hires_samples_in_one_call() {
         let mut denise = DeniseOcs::new();
         denise.bplcon0 = 0x9000; // HIRES + 1 bitplane
         denise.begin_beam_line();
@@ -1411,11 +1423,13 @@ mod tests {
         denise.bpl_data[0] = 0x8000; // next fetched word
         denise.defer_shift_load_after_source_pixels(1);
 
+        // Full-rate shift: first source pixel (0) triggers the deferred load,
+        // second source pixel is bit 15 of the new word (1).
         let dbg = invisible_output_pixel(&mut denise, 0);
         assert_eq!(
             [dbg.pair_samples[0].raw_color_idx, dbg.pair_samples[1].raw_color_idx],
-            [0, 0],
-            "with CCK-rate hires shifting, deferred parallel load no longer lands between the two samples of one output call"
+            [0, 1],
+            "deferred load fires after first shift, second shift sees new data"
         );
     }
 

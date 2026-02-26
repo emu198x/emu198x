@@ -131,6 +131,10 @@ fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
         paula: &mut amiga.paula,
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
+        bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
+        ddfstrt_pending: &mut amiga.ddfstrt_pending,
+        ddfstop_pending: &mut amiga.ddfstop_pending,
+        color_pending: &mut amiga.color_pending,
     };
     match M68kBus::poll_cycle(
         &mut bus,

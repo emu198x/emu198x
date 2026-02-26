@@ -527,7 +527,7 @@ impl Cpu68000 {
                 data,
                 cycle_count,
             } => {
-                *cycle_count += 1;
+                *cycle_count = cycle_count.saturating_add(1);
                 if *cycle_count >= 4 {
                     match bus.poll_cycle(*addr, *fc, *is_read, *is_word, *data) {
                         BusStatus::Ready(read_data) => {

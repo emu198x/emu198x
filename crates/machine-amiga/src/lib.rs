@@ -222,6 +222,23 @@ pub struct Amiga {
     blitter_shadow_compare_snapshot: Option<BlitShadowCompareSnapshot>,
     blitter_area_shadow_compare_started: usize,
     blitter_line_shadow_compare_started: usize,
+    /// Pending BPLCON0 write to Denise (value, CCK countdown).
+    /// Agnus sees the new value immediately; Denise sees it after 2 CCK.
+    pub bplcon0_denise_pending: Option<(u16, u8)>,
+    /// Pending DDFSTRT write (value, CCK countdown).
+    pub ddfstrt_pending: Option<(u16, u8)>,
+    /// Pending DDFSTOP write (value, CCK countdown).
+    pub ddfstop_pending: Option<(u16, u8)>,
+    /// Pending color register writes (palette index, value, CCK countdown).
+    pub color_pending: Vec<(usize, u16, u8)>,
+    /// Vertical bitplane DMA enable flip-flop, latched at line start (hpos=0).
+    ///
+    /// On real hardware Agnus latches the vertical DMA enable once per line
+    /// based on VSTART/VSTOP comparisons, not per-CCK.  Without this latch,
+    /// wrap-around window checks (e.g. VSTART=$FFF from COP1 init) falsely
+    /// enable DMA on the first display line, causing BPLxPT to advance before
+    /// the copper has written correct pointer values.
+    bpl_dma_vactive_latch: bool,
 }
 
 impl Amiga {
@@ -314,6 +331,11 @@ impl Amiga {
             blitter_shadow_compare_snapshot: None,
             blitter_area_shadow_compare_started: 0,
             blitter_line_shadow_compare_started: 0,
+            bplcon0_denise_pending: None,
+            ddfstrt_pending: None,
+            ddfstop_pending: None,
+            color_pending: Vec::new(),
+            bpl_dma_vactive_latch: false,
         }
     }
 
@@ -325,6 +347,24 @@ impl Amiga {
             let hpos = self.agnus.hpos;
             if hpos == 0 {
                 self.denise.begin_beam_line();
+                // Clear this line's framebuffer to COLOR00 (border color).
+                // The render path may not write every pixel in the line —
+                // e.g. when DDFSTRT is high enough that fewer than 160 CCKs
+                // remain before line end. Without this clear, unwritten
+                // tail pixels would retain stale data from previous frames.
+                let fb_y = vpos.wrapping_sub(DISPLAY_VSTART);
+                if (fb_y as u32) < commodore_denise_ocs::FB_HEIGHT as u32 {
+                    self.denise.clear_fb_line_to_background(fb_y as u32);
+                }
+                // Update vertical bitplane DMA flip-flop at line start.
+                // On real hardware Agnus uses a flip-flop that is SET when the
+                // beam reaches VSTART and CLEARED when it reaches VSTOP. It is
+                // NOT recalculated from scratch every line — it's persistent
+                // state. This matters when VSTART is unreachable (e.g. $FFF
+                // from COP1 init): the flip-flop stays cleared from the
+                // previous VSTOP, even though a wrap-around range check would
+                // return true.
+                self.update_bpl_dma_vactive_flipflop(vpos);
             }
             let prev_sync = self.beam_debug_snapshot.sync;
             let prev_snapshot = self.beam_debug_snapshot;
@@ -378,6 +418,42 @@ impl Amiga {
             if vsync_tod_pulse {
                 self.cia_a.tod_pulse();
             }
+
+            // --- Drain pending register pipeline writes ---
+            // Agnus→Denise register writes propagate with a 2-CCK delay.
+            if let Some((val, ref mut countdown)) = self.bplcon0_denise_pending {
+                if *countdown <= 1 {
+                    self.denise.bplcon0 = val;
+                    self.bplcon0_denise_pending = None;
+                } else {
+                    *countdown -= 1;
+                }
+            }
+            if let Some((val, ref mut countdown)) = self.ddfstrt_pending {
+                if *countdown <= 1 {
+                    self.agnus.ddfstrt = val;
+                    self.ddfstrt_pending = None;
+                } else {
+                    *countdown -= 1;
+                }
+            }
+            if let Some((val, ref mut countdown)) = self.ddfstop_pending {
+                if *countdown <= 1 {
+                    self.agnus.ddfstop = val;
+                    self.ddfstop_pending = None;
+                } else {
+                    *countdown -= 1;
+                }
+            }
+            self.color_pending.retain_mut(|(idx, val, countdown)| {
+                if *countdown <= 1 {
+                    self.denise.set_palette(*idx, *val);
+                    false
+                } else {
+                    *countdown -= 1;
+                    true
+                }
+            });
 
             // --- Output pixels BEFORE DMA ---
             // This creates the current pipeline delay model: shift registers
@@ -487,8 +563,6 @@ impl Amiga {
             if hpos == 0 {
                 self.denise.set_hires_linebuf_offsets(hires_linebuf_offsets);
             }
-            let split_hires_output_phase =
-                hires && std::env::var_os("AMIGA_EXPERIMENT_HIRES_SPLIT_OUTPUT_PHASE").is_some();
             let pixel0_debug = if let Some((fb_x, fb_y)) =
                 self.beam_to_fb_render_beam_x(vpos, hpos, beam_x0_u16)
             {
@@ -507,24 +581,21 @@ impl Amiga {
                 } else {
                     commodore_denise_ocs::DeniseOutputPixelDebug::default()
                 };
-            let mut pixel1_debug = commodore_denise_ocs::DeniseOutputPixelDebug::default();
-            if !split_hires_output_phase {
-                pixel1_debug = if let Some((fb_x, fb_y)) =
-                    self.beam_to_fb_render_beam_x(vpos, hpos, beam_x1_u16)
-                {
-                    self.denise
-                        .output_pixel_with_beam_and_playfield_gate(
-                            fb_x, fb_y, beam_x1, beam_y, playfield_gate1,
-                        )
-                } else if in_serial_window {
-                    self.denise
-                        .output_pixel_with_beam_and_playfield_gate(
-                            u32::MAX, u32::MAX, beam_x1, beam_y, playfield_gate1,
-                        )
-                } else {
-                    commodore_denise_ocs::DeniseOutputPixelDebug::default()
-                };
-            }
+            let pixel1_debug = if let Some((fb_x, fb_y)) =
+                self.beam_to_fb_render_beam_x(vpos, hpos, beam_x1_u16)
+            {
+                self.denise
+                    .output_pixel_with_beam_and_playfield_gate(
+                        fb_x, fb_y, beam_x1, beam_y, playfield_gate1,
+                    )
+            } else if in_serial_window {
+                self.denise
+                    .output_pixel_with_beam_and_playfield_gate(
+                        u32::MAX, u32::MAX, beam_x1, beam_y, playfield_gate1,
+                    )
+            } else {
+                commodore_denise_ocs::DeniseOutputPixelDebug::default()
+            };
 
             // --- DMA slots ---
             let bus_plan = self.agnus.cck_bus_plan();
@@ -538,10 +609,7 @@ impl Amiga {
             let mut copper_used_chip_bus = false;
             let mut fetched_plane_0 = false;
             let mut bitplane_dma_fetch_plane = bus_plan.bitplane_dma_fetch_plane;
-            if machine_experiment_gate_bitplane_dma_to_diw_vertical()
-                && bitplane_dma_fetch_plane.is_some()
-                && !self.bitplane_dma_vertical_active(vpos)
-            {
+            if bitplane_dma_fetch_plane.is_some() && !self.bitplane_dma_vertical_active(vpos) {
                 bitplane_dma_fetch_plane = None;
             }
             if let Some(plane) = bitplane_dma_fetch_plane {
@@ -561,6 +629,9 @@ impl Amiga {
                         let output_pos =
                             i32::from(hpos.wrapping_sub(serial_window_start)) * 4 + 4;
                         self.denise.note_hires_linebuf_bpl1dat_trigger_offset(output_pos);
+                        self.denise.trigger_shift_load();
+                    } else {
+                        self.denise.trigger_shift_load();
                     }
                 }
             } else if bus_plan.copper_dma_slot_granted {
@@ -616,24 +687,13 @@ impl Amiga {
                 }
             }
 
-            // BPL1DAT (plane 0) is always fetched last in each group.
-            // Writing it arms a pending Denise parallel-load of all holding
-            // latches. Denise commits the copy later on the BPLCON1/hcounter
-            // comparator match.
+            // Apply bitplane modulo after the last fetch group of the line.
             if fetched_plane_0 {
-                if hires {
-                    if split_hires_output_phase
-                        && let Some(delay) = machine_experiment_hires_defer_shift_load_subpixels()
-                    {
-                        self.denise.defer_shift_load_after_source_pixels(delay);
-                    } else {
-                        self.denise.queue_shift_load_from_bpl1dat();
-                    }
-                } else {
-                    self.denise.trigger_shift_load();
-                }
-
-                // Apply bitplane modulo after the last fetch group of the line.
+                // Bitplane shift-load is already triggered above in the DMA
+                // dispatch block (trigger_shift_load for lowres,
+                // queue_shift_load_from_bpl1dat for hires). Do NOT repeat it
+                // here — a second trigger_shift_load corrupts the BPLCON1
+                // barrel-shift carry by overwriting bpl_prev_data.
                 // Plane 0 is fetched at the end of the current DDF group:
                 // ddfseq position 7 in lowres, 3 in hires (simplified model).
                 let group_end_offset = if (self.agnus.bplcon0 & 0x8000) != 0 {
@@ -661,34 +721,6 @@ impl Amiga {
                 }
             }
 
-            // Debug experiment: in hires modes, some software appears sensitive
-            // to exact subpixel phase of the BPL1DAT-triggered parallel load.
-            // Allow a local phase experiment without changing default behavior.
-            if fetched_plane_0
-                && hires
-                && std::env::var_os("AMIGA_EXPERIMENT_HIRES_RELOAD_AFTER_DMA").is_some()
-            {
-                // Re-run the load after DMA to test a later parallel-load phase.
-                self.denise.trigger_shift_load();
-            }
-
-            if split_hires_output_phase {
-                pixel1_debug = if let Some((fb_x, fb_y)) =
-                    self.beam_to_fb_render_beam_x(vpos, hpos, beam_x1_u16)
-                {
-                    self.denise
-                        .output_pixel_with_beam_and_playfield_gate(
-                            fb_x, fb_y, beam_x1, beam_y, playfield_gate1,
-                        )
-                } else if in_serial_window {
-                    self.denise
-                        .output_pixel_with_beam_and_playfield_gate(
-                            u32::MAX, u32::MAX, beam_x1, beam_y, playfield_gate1,
-                        )
-                } else {
-                    commodore_denise_ocs::DeniseOutputPixelDebug::default()
-                };
-            }
             self.beam_pixel_outputs_debug = BeamPixelOutputDebug {
                 vpos,
                 hpos_cck: hpos,
@@ -734,23 +766,19 @@ impl Amiga {
                 .tick_blitter_scheduler_op(blitter_progress_this_cck)
             {
                 let line_mode = (self.agnus.bltcon1 & 0x0001) != 0;
-                if line_mode && std::env::var_os("AMIGA_EXPERIMENT_SYNC_LINE_BLITTER").is_some() {
+                if line_mode && machine_experiment_sync_line_blitter() {
                     self.agnus.clear_blitter_scheduler();
                     execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
                 } else if (self.agnus.bltcon1 & 0x0001) == 0
-                    && std::env::var_os("AMIGA_EXPERIMENT_SYNC_AREA_BLITTER").is_some()
+                    && machine_experiment_sync_area_blitter()
                 {
                     self.agnus.clear_blitter_scheduler();
                     execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
                 } else {
                     let drain_incremental_area = (self.agnus.bltcon1 & 0x0001) == 0
-                        && std::env::var_os("AMIGA_EXPERIMENT_DRAIN_INCREMENTAL_AREA_BLITTER")
-                            .is_some();
+                        && machine_experiment_drain_incremental_area_blitter();
                     let burst_incremental_area_ops = if (self.agnus.bltcon1 & 0x0001) == 0 {
-                        std::env::var("AMIGA_EXPERIMENT_BURST_INCREMENTAL_AREA_BLITTER_OPS")
-                            .ok()
-                            .and_then(|s| s.parse::<u32>().ok())
-                            .unwrap_or(0)
+                        machine_experiment_burst_incremental_area_blitter_ops()
                     } else {
                         0
                     };
@@ -833,6 +861,10 @@ impl Amiga {
             paula: &mut self.paula,
             floppy: &mut self.floppy,
             keyboard: &mut self.keyboard,
+            bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
+            ddfstrt_pending: &mut self.ddfstrt_pending,
+            ddfstop_pending: &mut self.ddfstop_pending,
+            color_pending: &mut self.color_pending,
         };
         self.cpu.tick(&mut bus, self.master_clock);
 
@@ -903,6 +935,14 @@ impl Amiga {
                 self.sprite_dma_phase[sprite] = 4;
             }
         }
+        queue_pipelined_write(
+            &mut self.bplcon0_denise_pending,
+            &mut self.ddfstrt_pending,
+            &mut self.ddfstop_pending,
+            &mut self.color_pending,
+            offset,
+            val,
+        );
         write_custom_register(
             self.chipset,
             &mut self.agnus,
@@ -1236,6 +1276,9 @@ impl Amiga {
                 vpos - vstart
             } else {
                 let lines_per_frame = commodore_agnus_ocs::PAL_LINES_PER_FRAME;
+                if vstart > lines_per_frame {
+                    return None;
+                }
                 if !(vpos >= vstart || vpos < vstop) {
                     return None;
                 }
@@ -1410,13 +1453,46 @@ impl Amiga {
         if hstart == hstop {
             return None;
         }
+        let line_beam = commodore_agnus_ocs::PAL_CCKS_PER_LINE * 2;
         let span_beam = if hstart < hstop {
             hstop - hstart
+        } else if hstart <= line_beam {
+            (line_beam - hstart).wrapping_add(hstop)
         } else {
-            (commodore_agnus_ocs::PAL_CCKS_PER_LINE * 2 - hstart).wrapping_add(hstop)
+            return None;
         };
         let span_cck = span_beam.div_ceil(2).max(1);
         Some((span_cck, hstart, hstop))
+    }
+
+    /// Update the vertical bitplane DMA flip-flop at line start.
+    ///
+    /// Real Agnus uses a flip-flop: SET when beam reaches VSTART, CLEARED
+    /// when beam reaches VSTOP.  This is edge-triggered — the flip-flop
+    /// retains its state between edges.  A wrap-around window (VSTART >
+    /// VSTOP) works naturally: the flip-flop gets set at VSTART, stays set
+    /// through frame wrap, and gets cleared at VSTOP.
+    ///
+    /// During vblank, DMA is unconditionally disabled regardless of the
+    /// flip-flop state.
+    fn update_bpl_dma_vactive_flipflop(&mut self, vpos: u16) {
+        if self.chipset == AmigaChipset::Ecs {
+            let (vstart, vstop, _hstart, _hstop) = self.ecs_decoded_diw_window();
+            // Edge-triggered: set on VSTART, clear on VSTOP.
+            // If VSTART == VSTOP the window is degenerate — keep cleared.
+            if vstart == vstop {
+                self.bpl_dma_vactive_latch = false;
+            } else if vpos == vstart {
+                self.bpl_dma_vactive_latch = true;
+            } else if vpos == vstop {
+                self.bpl_dma_vactive_latch = false;
+            }
+            // Otherwise the latch retains its previous value.
+        } else {
+            // OCS: simple fixed window, no flip-flop needed.
+            let rel = vpos.wrapping_sub(DISPLAY_VSTART);
+            self.bpl_dma_vactive_latch = rel < commodore_denise_ocs::FB_HEIGHT as u16;
+        }
     }
 
     fn bitplane_dma_vertical_active(&self, vpos: u16) -> bool {
@@ -1424,18 +1500,9 @@ impl Amiga {
             if self.agnus.vblank_window_active(vpos) {
                 return false;
             }
-            let (vstart, vstop, _hstart, _hstop) = self.ecs_decoded_diw_window();
-            if vstart == vstop {
-                return false;
-            }
-            if vstart < vstop {
-                vpos >= vstart && vpos < vstop
-            } else {
-                vpos >= vstart || vpos < vstop
-            }
+            self.bpl_dma_vactive_latch
         } else {
-            let rel = vpos.wrapping_sub(DISPLAY_VSTART);
-            rel < commodore_denise_ocs::FB_HEIGHT as u16
+            self.bpl_dma_vactive_latch
         }
     }
 
@@ -1833,18 +1900,29 @@ fn machine_experiment_hires_fb_x_offset() -> i32 {
     })
 }
 
-fn machine_experiment_gate_bitplane_dma_to_diw_vertical() -> bool {
+fn machine_experiment_sync_line_blitter() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_GATE_BPL_DMA_TO_DIW_V").is_some())
+    *ENABLED.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_SYNC_LINE_BLITTER").is_some())
 }
 
-fn machine_experiment_hires_defer_shift_load_subpixels() -> Option<u8> {
-    static DELAY: OnceLock<Option<u8>> = OnceLock::new();
-    *DELAY.get_or_init(|| {
-        std::env::var("AMIGA_EXPERIMENT_HIRES_DEFER_SHIFT_LOAD_SUBPIXELS")
+fn machine_experiment_sync_area_blitter() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_SYNC_AREA_BLITTER").is_some())
+}
+
+fn machine_experiment_drain_incremental_area_blitter() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED
+        .get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_DRAIN_INCREMENTAL_AREA_BLITTER").is_some())
+}
+
+fn machine_experiment_burst_incremental_area_blitter_ops() -> u32 {
+    static OPS: OnceLock<u32> = OnceLock::new();
+    *OPS.get_or_init(|| {
+        std::env::var("AMIGA_EXPERIMENT_BURST_INCREMENTAL_AREA_BLITTER_OPS")
             .ok()
-            .and_then(|s| s.parse::<u8>().ok())
-            .filter(|&n| n <= 4)
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0)
     })
 }
 
@@ -1889,6 +1967,11 @@ pub struct AmigaBusWrapper<'a> {
     pub paula: &'a mut Paula8364,
     pub floppy: &'a mut AmigaFloppyDrive,
     pub keyboard: &'a mut AmigaKeyboard,
+    // Pipeline state for delayed register writes (Agnus→Denise propagation).
+    pub bplcon0_denise_pending: &'a mut Option<(u16, u8)>,
+    pub ddfstrt_pending: &'a mut Option<(u16, u8)>,
+    pub ddfstop_pending: &'a mut Option<(u16, u8)>,
+    pub color_pending: &'a mut Vec<(usize, u16, u8)>,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -2036,6 +2119,14 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         lane_word
                     }
                 };
+                queue_pipelined_write(
+                    self.bplcon0_denise_pending,
+                    self.ddfstrt_pending,
+                    self.ddfstop_pending,
+                    self.color_pending,
+                    offset,
+                    val,
+                );
                 write_custom_register(
                     self.chipset,
                     self.agnus,
@@ -2214,6 +2305,41 @@ fn custom_register_byte_merge_latch(
     }
 }
 
+/// Queue writes to registers that propagate with a 2-CCK pipeline delay.
+///
+/// Returns `true` if the register was handled (caller should still call
+/// `write_custom_register` for any non-pipelined side-effects on the same
+/// offset — the free function's match arms for these offsets are no-ops).
+fn queue_pipelined_write(
+    bplcon0_denise_pending: &mut Option<(u16, u8)>,
+    ddfstrt_pending: &mut Option<(u16, u8)>,
+    ddfstop_pending: &mut Option<(u16, u8)>,
+    color_pending: &mut Vec<(usize, u16, u8)>,
+    offset: u16,
+    val: u16,
+) {
+    match offset {
+        // BPLCON0: Agnus sees the new value immediately; Denise sees it
+        // after 2 CCK (the drain logic in tick() applies it).
+        0x100 => {
+            *bplcon0_denise_pending = Some((val, 2));
+        }
+        // DDFSTRT / DDFSTOP: shadow register with 2-CCK delay.
+        0x092 => {
+            *ddfstrt_pending = Some((val, 2));
+        }
+        0x094 => {
+            *ddfstop_pending = Some((val, 2));
+        }
+        // Color palette: Denise sees the new color after 2 CCK.
+        0x180..=0x1BE => {
+            let idx = ((offset - 0x180) / 2) as usize;
+            color_pending.push((idx, val, 2));
+        }
+        _ => {}
+    }
+}
+
 /// Shared custom register write dispatch used by both CPU and copper paths.
 fn write_custom_register(
     chipset: AmigaChipset,
@@ -2275,8 +2401,10 @@ fn write_custom_register(
         // Display
         0x08E => agnus.diwstrt = val,
         0x090 => agnus.diwstop = val,
-        0x092 => agnus.ddfstrt = val,
-        0x094 => agnus.ddfstop = val,
+        // DDFSTRT/DDFSTOP writes are pipelined (2-CCK delay) — handled
+        // by queue_pipelined_write() at the call site.
+        0x092 | 0x094 => {}
+
 
         // DMA control
         0x096 => {
@@ -2322,10 +2450,10 @@ fn write_custom_register(
         0x1E0 if chipset == AmigaChipset::Ecs => agnus.write_vsstrt(val),
         0x1E4 if chipset == AmigaChipset::Ecs => agnus.write_diwhigh(val),
 
-        // Bitplane control
+        // Bitplane control — Agnus sees BPLCON0 immediately; Denise
+        // update is pipelined (2 CCK) via queue_pipelined_write().
         0x100 => {
             agnus.bplcon0 = val;
-            denise.bplcon0 = val;
         }
         0x102 => denise.bplcon1 = val,
         0x104 => denise.bplcon2 = val,
@@ -2368,11 +2496,8 @@ fn write_custom_register(
             }
         }
 
-        // Color palette ($180-$1BE)
-        0x180..=0x1BE => {
-            let idx = ((offset - 0x180) / 2) as usize;
-            denise.set_palette(idx, val);
-        }
+        // Color palette ($180-$1BE) — pipelined via queue_pipelined_write().
+        0x180..=0x1BE => {}
 
         // Paula audio channels (AUD0-AUD3)
         0x0A0..=0x0DA => {
@@ -2960,6 +3085,10 @@ mod tests {
             paula: &mut amiga.paula,
             floppy: &mut amiga.floppy,
             keyboard: &mut amiga.keyboard,
+            bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
+            ddfstrt_pending: &mut amiga.ddfstrt_pending,
+            ddfstop_pending: &mut amiga.ddfstop_pending,
+            color_pending: &mut amiga.color_pending,
         };
         match M68kBus::poll_cycle(
             &mut bus,

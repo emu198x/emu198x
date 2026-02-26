@@ -1,6 +1,7 @@
 //! Real Kickstart 1.3 boot test for machine-amiga.
 
-use machine_amiga::Amiga;
+use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel};
+use machine_amiga::commodore_agnus_ocs;
 use machine_amiga::commodore_denise_ocs::{FB_HEIGHT, FB_WIDTH};
 use machine_amiga::memory::Memory;
 use motorola_68000::cpu::State;
@@ -3636,4 +3637,711 @@ fn read_rom_string(rom: &[u8], rom_tag_addr: u32, name_offset: usize) -> String 
         s.push(ch as char);
     }
     s
+}
+
+#[test]
+#[ignore] // Requires real KS 2.04 ROM
+fn test_boot_kick204_a500plus_screenshot() {
+    let ks_path = "../../roms/kick204_37_175_a500plus.rom";
+    let rom = match fs::read(ks_path) {
+        Ok(r) => r,
+        Err(_) => {
+            eprintln!("KS 2.04 ROM not found at {ks_path}, skipping");
+            return;
+        }
+    };
+
+    let mut amiga = Amiga::new_with_config(AmigaConfig {
+        model: AmigaModel::A500Plus,
+        chipset: AmigaChipset::Ecs,
+        kickstart: rom,
+    });
+
+    println!(
+        "Reset: SSP=${:08X} PC=${:08X} SR=${:04X}",
+        amiga.cpu.regs.ssp, amiga.cpu.regs.pc, amiga.cpu.regs.sr
+    );
+
+    let total_ticks: u64 = 850_000_000; // ~30 seconds PAL
+    let report_interval: u64 = 28_375_160; // ~1 second
+    // One PAL frame in master ticks
+    let frame_ticks: u64 = (commodore_agnus_ocs::PAL_CCKS_PER_LINE as u64)
+        * (commodore_agnus_ocs::PAL_LINES_PER_FRAME as u64)
+        * 8;
+    let last_frame_start = total_ticks - frame_ticks;
+
+    let mut last_report = 0u64;
+    let mut last_pc = 0u32;
+    let mut stuck_count = 0u32;
+
+    // Per-scanline register snapshots during last frame
+    #[derive(Clone, Default)]
+    struct ScanlineRegs {
+        actual_line: u16,
+        bplcon0: u16,
+        bplcon1: u16,
+        bpl_pt: [u32; 6],
+        bpl1mod: i16,
+        bpl2mod: i16,
+        palette: [u16; 8], // first 8 colors
+        dmacon: u16,
+        copper_pc: u32,
+        copper_ir1: u16,
+        copper_ir2: u16,
+        copper_waiting: bool,
+        diwstrt: u16,
+        diwstop: u16,
+    }
+    let mut scanline_regs: Vec<ScanlineRegs> = Vec::new();
+    let mut last_captured_line: i32 = -1;
+    let mut capturing_last_frame = false;
+
+    let mut blit_area_count = 0u32;
+    let mut blit_line_count = 0u32;
+    let mut prev_blitter_busy = false;
+    let mut text_string_accessed = false;
+    let mut prev_cop2lc = 0u32;
+
+    for i in 0..total_ticks {
+        amiga.tick();
+
+        // Track COP2LC changes and dump BPL1PT from new list
+        let cop2lc = amiga.copper.cop2lc;
+        if cop2lc != prev_cop2lc && i > 100 {
+            // Scan the new copper list for BPL1PTH/PTL writes
+            let mut bpl1pt_h: Option<u16> = None;
+            let mut bpl1pt_l: Option<u16> = None;
+            let mut scan_addr = cop2lc;
+            for _ in 0..200 {
+                let a = scan_addr as usize;
+                if a + 3 >= amiga.memory.chip_ram.len() { break; }
+                let w1 = ((amiga.memory.chip_ram[a] as u16) << 8) | amiga.memory.chip_ram[a+1] as u16;
+                let w2 = ((amiga.memory.chip_ram[a+2] as u16) << 8) | amiga.memory.chip_ram[a+3] as u16;
+                if w1 == 0xFFFF && w2 == 0xFFFE { break; }
+                if (w1 & 1) == 0 {
+                    let reg = w1 & 0x01FE;
+                    if reg == 0x0E0 { bpl1pt_h = Some(w2); }
+                    if reg == 0x0E2 { bpl1pt_l = Some(w2); }
+                }
+                scan_addr += 4;
+            }
+            let bpl1pt = ((bpl1pt_h.unwrap_or(0) as u32) << 16) | bpl1pt_l.unwrap_or(0) as u32;
+            eprintln!(
+                "[tick {}] COP2LC: ${:08X} -> ${:08X}, BPL1PT in list=${:08X}",
+                i, prev_cop2lc, cop2lc, bpl1pt
+            );
+            prev_cop2lc = cop2lc;
+        }
+
+        // Count blitter operations
+        let busy = amiga.agnus.blitter_busy;
+        if busy && !prev_blitter_busy {
+            let is_line = amiga.agnus.bltcon1 & 0x0001 != 0;
+            if is_line {
+                blit_line_count += 1;
+            } else {
+                blit_area_count += 1;
+                // Log area blits targeting the bitplane area
+                let dpt = amiga.agnus.blt_dpt;
+                let height = (amiga.agnus.bltsize >> 6) & 0x3FF;
+                let width = amiga.agnus.bltsize & 0x3F;
+                if dpt >= 0x018000 && dpt < 0x020000 && blit_area_count <= 100 {
+                    eprintln!(
+                        "[tick {}] BLIT AREA #{}: dpt=${:06X} size={}x{} con0=${:04X} con1=${:04X}",
+                        i, blit_area_count, dpt, width, height,
+                        amiga.agnus.bltcon0, amiga.agnus.bltcon1
+                    );
+                }
+            }
+        }
+        prev_blitter_busy = busy;
+
+        // Check if CPU accesses the "2.0 Roms" text string at $FCECC4
+        if !text_string_accessed && i % 4 == 0 {
+            let pc = amiga.cpu.regs.pc;
+            // Check if PC is near the text string address or if any address register points to it
+            if pc >= 0x00FCECC0 && pc <= 0x00FCECD0 {
+                text_string_accessed = true;
+                eprintln!(
+                    "[tick {}] CPU near text string '2.0 Roms' at PC=${:08X}",
+                    i, pc
+                );
+            }
+            // Check address registers for the string address
+            for r in 0..7 {
+                let ar = amiga.cpu.regs.a(r);
+                if ar >= 0x00FCECC4 && ar <= 0x00FCECD0 && !text_string_accessed {
+                    text_string_accessed = true;
+                    eprintln!(
+                        "[tick {}] A{} points to text string: ${:08X} PC=${:08X}",
+                        i, r, ar, pc
+                    );
+                }
+            }
+        }
+
+        // Start capturing at the last frame
+        if i >= last_frame_start && !capturing_last_frame {
+            capturing_last_frame = true;
+        }
+
+        // Capture register state at hpos=0x20 (early in each visible line)
+        // This is after the copper has had time to set up registers for this line
+        if capturing_last_frame && amiga.agnus.hpos == 0x40 {
+            let line = amiga.agnus.vpos as i32;
+            if line != last_captured_line && line >= 0x2C && line < 0x12C {
+                last_captured_line = line;
+                let mut sr = ScanlineRegs::default();
+                sr.actual_line = line as u16;
+                sr.bplcon0 = amiga.denise.bplcon0;
+                sr.bplcon1 = amiga.denise.bplcon1;
+                sr.bpl_pt = amiga.agnus.bpl_pt;
+                sr.bpl1mod = amiga.agnus.bpl1mod;
+                sr.bpl2mod = amiga.agnus.bpl2mod;
+                sr.palette[..8].copy_from_slice(&amiga.denise.palette[..8]);
+                sr.dmacon = amiga.agnus.dmacon;
+                sr.copper_pc = amiga.copper.pc;
+                sr.copper_ir1 = amiga.copper.ir1;
+                sr.copper_ir2 = amiga.copper.ir2;
+                sr.copper_waiting = amiga.copper.waiting;
+                sr.diwstrt = amiga.agnus.diwstrt;
+                sr.diwstop = amiga.agnus.diwstop;
+                scanline_regs.push(sr);
+            }
+        }
+
+        if i % 4 != 0 || i - last_report < report_interval {
+            continue;
+        }
+        last_report = i;
+        let pc = amiga.cpu.regs.pc;
+        let elapsed_s = i as f64 / 28_375_160.0;
+        println!(
+            "[{:.1}s] tick={} PC=${:08X} V={} H={}",
+            elapsed_s,
+            i,
+            pc,
+            amiga.agnus.vpos,
+            amiga.agnus.hpos,
+        );
+        if pc == last_pc {
+            stuck_count += 1;
+            if stuck_count > 5 {
+                println!("PC stuck at ${:08X} for {stuck_count} intervals, continuing...", pc);
+            }
+        } else {
+            stuck_count = 0;
+        }
+        last_pc = pc;
+    }
+
+    // Dump framebuffer pixels at disk area line
+    // Display line +115 from BPL1PT is at vpos = $63 + 115 = $D6 (214)
+    // fb_y = vpos - DISPLAY_VSTART = 214 - 44 = 170
+    let disk_fb_y = 170u32;
+    println!("\n--- Framebuffer lores pixels at fb_y={} (disk line), x=190-280 ---", disk_fb_y);
+    let row_base = (disk_fb_y * FB_WIDTH) as usize;
+    for x in (190u32..280).step_by(5) {
+        let pixel = amiga.denise.framebuffer[row_base + x as usize];
+        let r = (pixel >> 16) & 0xFF;
+        let g = (pixel >> 8) & 0xFF;
+        let b = pixel & 0xFF;
+        // Reverse-map to 12-bit: r4=(r>>4), g4=(g>>4), b4=(b>>4)
+        let rgb12 = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+        // Find which palette color this matches
+        let pal_match = match rgb12 as u16 {
+            0x414 => "COLOR00",
+            0xEA8 => "COLOR01",
+            0xA76 => "COLOR02",
+            0x000 => "COLOR03",
+            0x238 => "COLOR04d", // disk area COLOR04
+            0x226 => "COLOR05d", // disk area COLOR05
+            0x987 => "COLOR06",
+            0xFFF => "COLOR07",
+            _ => "???",
+        };
+        println!("  x={:3}: ${:08X} (${:03X}) = {}", x, pixel, rgb12, pal_match);
+    }
+
+    // Also dump hires FB at same line
+    println!("\n--- Framebuffer hires pixels at fb_y={}, x=400-560 (disk area) ---", disk_fb_y);
+    let hires_row = (disk_fb_y * machine_amiga::commodore_denise_ocs::HIRES_FB_WIDTH) as usize;
+    for x in (400u32..560).step_by(8) {
+        let pixel = amiga.denise.framebuffer_hires[hires_row + x as usize];
+        let r = (pixel >> 16) & 0xFF;
+        let g = (pixel >> 8) & 0xFF;
+        let b = pixel & 0xFF;
+        let rgb12 = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+        let pal_match = match rgb12 as u16 {
+            0x414 => "BG",
+            0xEA8 => "C01",
+            0xA76 => "C02",
+            0x000 => "C03",
+            0x238 => "C04d",
+            0x226 => "C05d",
+            0x987 => "C06",
+            0xFFF => "C07",
+            _ => "???",
+        };
+        println!("  hx={:3}: ${:08X} (${:03X}) = {}", x, pixel, rgb12, pal_match);
+    }
+
+    // Check for non-background pixels in the border region (fb_y 0-54)
+    // Background color from COP1: COLOR00 = $0414 → ARGB32 = $FF441144
+    let bg_color = 0xFF441144u32;
+    println!("\n--- Non-background pixels in border region (fb_y 0-54) ---");
+    let mut ghost_pixel_count = 0u32;
+    for y in 0..55u32 {
+        let row_base = (y * FB_WIDTH) as usize;
+        let mut non_bg_positions: Vec<(u32, u32)> = Vec::new();
+        for x in 0..FB_WIDTH {
+            let pixel = amiga.denise.framebuffer[row_base + x as usize];
+            if pixel != bg_color && pixel != 0xFF000000 {
+                non_bg_positions.push((x, pixel));
+                ghost_pixel_count += 1;
+            }
+        }
+        if !non_bg_positions.is_empty() {
+            let first_5: Vec<_> = non_bg_positions.iter().take(5).collect();
+            println!(
+                "  fb_y={:3}: {} non-bg pixels, first {:?}",
+                y,
+                non_bg_positions.len(),
+                first_5
+            );
+        }
+    }
+    println!("  Total ghost pixels in border: {}", ghost_pixel_count);
+
+    // Also check the hires FB for the same
+    println!("\n--- Non-background pixels in hires border (fb_y 0-54) ---");
+    let hires_fb_width = machine_amiga::commodore_denise_ocs::HIRES_FB_WIDTH;
+    let mut hires_ghost_count = 0u32;
+    for y in 0..55u32 {
+        let row_base = (y * hires_fb_width) as usize;
+        let mut non_bg_count = 0u32;
+        let mut first_pos = None;
+        for x in 0..hires_fb_width {
+            let pixel = amiga.denise.framebuffer_hires[row_base + x as usize];
+            if pixel != bg_color && pixel != 0xFF000000 {
+                non_bg_count += 1;
+                hires_ghost_count += 1;
+                if first_pos.is_none() {
+                    first_pos = Some((x, pixel));
+                }
+            }
+        }
+        if non_bg_count > 0 {
+            println!(
+                "  fb_y={:3}: {} non-bg pixels, first at {:?}",
+                y, non_bg_count, first_pos
+            );
+        }
+    }
+    println!("  Total hires ghost pixels: {}", hires_ghost_count);
+
+    // Diagnostic: track per-line first/last non-background pixel x positions
+    // in the disk icon area. Diagonals would show as per-line x drift.
+    println!("\n--- Per-line first non-bg pixel in disk area (lores FB) ---");
+    for y in 130..200u32 {
+        let row_base = (y * FB_WIDTH) as usize;
+        let mut first_x = None;
+        let mut last_x = None;
+        for x in 0..FB_WIDTH {
+            let pixel = amiga.denise.framebuffer[row_base + x as usize];
+            if pixel != bg_color && pixel != 0xFF000000 {
+                if first_x.is_none() {
+                    first_x = Some(x);
+                }
+                last_x = Some(x);
+            }
+        }
+        if let (Some(fx), Some(lx)) = (first_x, last_x) {
+            let first_pixel = amiga.denise.framebuffer[row_base + fx as usize];
+            println!(
+                "  fb_y={:3}: first_x={:3} (${:08X}) last_x={:3} span={}",
+                y, fx, first_pixel, lx, lx - fx + 1
+            );
+        }
+    }
+
+    // Diagnostic: check BPL1PT progression by reading actual pointer values.
+    // The orchestrator stores bpl_pt[] in agnus. Dump what we can see.
+    println!("\nBPL1PT at end: ${:08X}", amiga.agnus.bpl_pt[0]);
+    println!("BPL2PT at end: ${:08X}", amiga.agnus.bpl_pt[1]);
+    println!("BPL3PT at end: ${:08X}", amiga.agnus.bpl_pt[2]);
+
+    // Save framebuffer as PNG screenshot
+    let out_path = std::path::Path::new("../../test_output/amiga_boot_kick204.png");
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent).ok();
+    }
+    let file = fs::File::create(out_path).expect("create screenshot file");
+    let ref mut w = std::io::BufWriter::new(file);
+    let mut encoder = png::Encoder::new(w, FB_WIDTH, FB_HEIGHT);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("write PNG header");
+    let mut rgba = Vec::with_capacity((FB_WIDTH * FB_HEIGHT * 4) as usize);
+    for &pixel in &amiga.denise.framebuffer {
+        rgba.push(((pixel >> 16) & 0xFF) as u8); // R
+        rgba.push(((pixel >> 8) & 0xFF) as u8); // G
+        rgba.push((pixel & 0xFF) as u8); // B
+        rgba.push(((pixel >> 24) & 0xFF) as u8); // A
+    }
+    writer.write_image_data(&rgba).expect("write PNG data");
+    println!("\nScreenshot saved to {}", out_path.display());
+
+    // Also save the 640-pixel-wide hires framebuffer for full-resolution evaluation
+    let hires_path = std::path::Path::new("../../test_output/amiga_boot_kick204_hires.png");
+    let hires_fb_width = machine_amiga::commodore_denise_ocs::HIRES_FB_WIDTH;
+    let file = fs::File::create(hires_path).expect("create hires screenshot file");
+    let ref mut w = std::io::BufWriter::new(file);
+    let mut encoder = png::Encoder::new(w, hires_fb_width, FB_HEIGHT);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("write hires PNG header");
+    let mut rgba = Vec::with_capacity((hires_fb_width * FB_HEIGHT * 4) as usize);
+    for &pixel in &amiga.denise.framebuffer_hires {
+        rgba.push(((pixel >> 16) & 0xFF) as u8);
+        rgba.push(((pixel >> 8) & 0xFF) as u8);
+        rgba.push((pixel & 0xFF) as u8);
+        rgba.push(((pixel >> 24) & 0xFF) as u8);
+    }
+    writer.write_image_data(&rgba).expect("write hires PNG data");
+    println!("Hires screenshot saved to {}", hires_path.display());
+
+    // Dump key display register state (end-of-frame)
+    println!("\nDisplay register state (end-of-frame):");
+    println!("  BPLCON0 = ${:04X}", amiga.denise.bplcon0);
+    println!("  BPLCON1 = ${:04X}", amiga.denise.bplcon1);
+    println!("  BPLCON2 = ${:04X}", amiga.denise.bplcon2);
+    println!("  DDFSTRT = ${:04X}", amiga.agnus.ddfstrt);
+    println!("  DDFSTOP = ${:04X}", amiga.agnus.ddfstop);
+    println!("  DIWSTRT = ${:04X}", amiga.agnus.diwstrt);
+    println!("  DIWSTOP = ${:04X}", amiga.agnus.diwstop);
+    println!("  BPL1PT  = ${:08X}", amiga.agnus.bpl_pt[0]);
+    println!("  BPL2PT  = ${:08X}", amiga.agnus.bpl_pt[1]);
+    println!("  BPL1MOD = ${:04X} ({})", amiga.agnus.bpl1mod as u16, amiga.agnus.bpl1mod);
+    println!("  BPL2MOD = ${:04X} ({})", amiga.agnus.bpl2mod as u16, amiga.agnus.bpl2mod);
+    println!("  DMACON  = ${:04X}", amiga.agnus.dmacon);
+
+    // Blitter operation summary
+    println!("\nBlitter ops: {} area, {} line, text_string_accessed={}", blit_area_count, blit_line_count, text_string_accessed);
+
+    // Dump sprite state from Denise (using public fields)
+    println!("\n--- Denise sprite registers ---");
+    for spr in 0..8usize {
+        let pos = amiga.denise.spr_pos[spr];
+        let ctl = amiga.denise.spr_ctl[spr];
+        let data = amiga.denise.spr_data[spr];
+        let datb = amiga.denise.spr_datb[spr];
+        let hstart = ((pos & 0xFF) << 1) | ((ctl & 1) as u16);
+        let vstart = ((pos >> 8) & 0xFF) | (((ctl >> 2) & 1) << 8);
+        let vstop = ((ctl >> 8) & 0xFF) | (((ctl >> 1) & 1) << 8);
+        println!(
+            "  SPR{}: POS=${:04X} CTL=${:04X} DATA=${:04X} DATB=${:04X} hstart={} vstart={} vstop={}",
+            spr, pos, ctl, data, datb, hstart, vstart, vstop
+        );
+    }
+    // Dump sprite palette (COLOR16-COLOR31)
+    println!("\n--- Sprite palette (COLOR16-COLOR31) ---");
+    for i in 16..32usize {
+        if amiga.denise.palette[i] != 0 {
+            println!("  palette[{}] = ${:04X}", i, amiga.denise.palette[i]);
+        }
+    }
+
+    // Detailed horizontal BPL1 data scan at checkmark line (~line +60 from BPL1PT)
+    println!("\n--- BPL1 horizontal word dump (line +60 from BPL1PT) ---");
+    let scan_line_addr = 0x000188F2u32 + 60 * 70;
+    for w in 0..35u32 {
+        let addr = (scan_line_addr + w * 2) as usize;
+        if addr + 1 < amiga.memory.chip_ram.len() {
+            let word = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+            if word != 0 {
+                println!("  word {:2}: ${:04X} (addr=${:06X})", w, word, addr);
+            }
+        }
+    }
+
+    // Also dump line +0 (top of display)
+    println!("\n--- BPL1 horizontal word dump (line +0 from BPL1PT) ---");
+    for w in 0..35u32 {
+        let addr = (0x000188F2u32 + w * 2) as usize;
+        if addr + 1 < amiga.memory.chip_ram.len() {
+            let word = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+            if word != 0 {
+                println!("  word {:2}: ${:04X} (addr=${:06X})", w, word, addr);
+            }
+        }
+    }
+
+    // Dump ALL 3 bitplanes at a disk area line (+115 from display start)
+    // BPL1PT=$0188F2, BPL2PT=$01B098, BPL3PT=$01D83E, bytes_per_row=70
+    let disk_line = 115u32;
+    let bpl_starts = [0x000188F2u32, 0x0001B098u32, 0x0001D83Eu32];
+    for (p, &base) in bpl_starts.iter().enumerate() {
+        let line_addr = base + disk_line * 70;
+        println!("\n--- BPL{} at display line +{} (addr=${:06X}) ---", p + 1, disk_line, line_addr);
+        let mut line_data = String::new();
+        for w in 0..35u32 {
+            let addr = (line_addr + w * 2) as usize;
+            if addr + 1 < amiga.memory.chip_ram.len() {
+                let word = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+                line_data.push_str(&format!("{:04X} ", word));
+            }
+        }
+        println!("  {}", line_data.trim());
+    }
+    // Show expected color indices from planes: color = (BPL3 << 2) | (BPL2 << 1) | BPL1
+    // For words 24-34 (disk area), show per-word expected colors
+    println!("\n--- Color indices at disk line +{}, words 24-34 ---", disk_line);
+    for w in 24..35u32 {
+        let mut colors = [0u8; 16];
+        for bit in 0..16u32 {
+            let bit_pos = 15 - bit; // MSB first
+            let mut c = 0u8;
+            for (p, &base) in bpl_starts.iter().enumerate() {
+                let addr = (base + disk_line * 70 + w * 2) as usize;
+                if addr + 1 < amiga.memory.chip_ram.len() {
+                    let word = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+                    if word & (1 << bit_pos) != 0 {
+                        c |= 1 << p;
+                    }
+                }
+            }
+            colors[bit as usize] = c;
+        }
+        let color_str: String = colors.iter().map(|c| format!("{}", c)).collect::<Vec<_>>().join("");
+        println!("  word {:2}: {}", w, color_str);
+    }
+
+    // Scan BPL1 bitmap area for non-zero data (text patterns)
+    // Bitmap likely starts around $018000, display at $0188F2
+    let bpl1_display = 0x000188F2u32;
+    let bytes_per_line = 70u32;
+    println!("\n--- BPL1 bitmap scan (bitmap before and after display start) ---");
+    // Scan from 40 lines before display start to 145 lines after
+    for rel_line in (-40i32..145).step_by(5) {
+        let line_addr = (bpl1_display as i64 + (rel_line as i64) * (bytes_per_line as i64)) as u32;
+        let mut non_zero_words = 0u32;
+        for w in 0..35u32 {
+            let addr = (line_addr + w * 2) as usize;
+            if addr + 1 < amiga.memory.chip_ram.len() {
+                let word = ((amiga.memory.chip_ram[addr] as u16) << 8)
+                    | amiga.memory.chip_ram[addr + 1] as u16;
+                if word != 0 {
+                    non_zero_words += 1;
+                }
+            }
+        }
+        if non_zero_words > 0 {
+            println!(
+                "  Line {:+4}: addr=${:06X} non_zero_words={}/35",
+                rel_line, line_addr, non_zero_words
+            );
+        }
+    }
+
+    // --- WHITE STRIPE DIAGNOSTIC ---
+    // Check right edge of lores FB for multiple lines
+    println!("\n--- Lores FB right-edge check (x=310-319) ---");
+    for y in (60u32..200).step_by(10) {
+        let row_base = (y * FB_WIDTH) as usize;
+        let mut edge_info = String::new();
+        for x in 310u32..320 {
+            let pixel = amiga.denise.framebuffer[row_base + x as usize];
+            let r = (pixel >> 16) & 0xFF;
+            let g = (pixel >> 8) & 0xFF;
+            let b = pixel & 0xFF;
+            let tag = if r == 0xFF && g == 0xFF && b == 0xFF {
+                "W"
+            } else if r == 0x44 && g == 0x11 && b == 0x44 {
+                "."
+            } else if pixel == 0xFF000000 {
+                "B"
+            } else {
+                "?"
+            };
+            edge_info.push_str(tag);
+        }
+        println!("  y={:3}: [{}]", y, edge_info);
+    }
+
+    // Check what's at fb_x=318-319 for line 100 in detail
+    let diag_y = 100u32;
+    let row = (diag_y * FB_WIDTH) as usize;
+    for x in 316u32..320 {
+        let pixel = amiga.denise.framebuffer[row + x as usize];
+        let r = (pixel >> 16) & 0xFF;
+        let g = (pixel >> 8) & 0xFF;
+        let b = pixel & 0xFF;
+        let rgb12 = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+        println!("  y={} x={}: ${:08X} (rgb12=${:03X})", diag_y, x, pixel, rgb12);
+    }
+
+    // Check palette COLOR07
+    println!("\n  Palette[7] (COLOR07) = ${:04X}", amiga.denise.palette[7]);
+    println!("  Palette[0] (COLOR00) = ${:04X}", amiga.denise.palette[0]);
+
+    // --- BITMAP STRUCTURE SEARCH ---
+    // Search chip RAM for BitMap structure: BytesPerRow=70 (0x0046), Depth=3
+    println!("\n--- BitMap structure search (BytesPerRow=70, Depth=3) ---");
+    let chip_len = amiga.memory.chip_ram.len();
+    for addr in (0..chip_len.saturating_sub(40)).step_by(2) {
+        let bpr = ((amiga.memory.chip_ram[addr] as u16) << 8) | amiga.memory.chip_ram[addr + 1] as u16;
+        if bpr != 70 { continue; }
+        // Check Depth at offset 5
+        if addr + 5 >= chip_len { continue; }
+        let depth = amiga.memory.chip_ram[addr + 5];
+        if depth != 3 { continue; }
+        // Read Rows at offset 2
+        let rows = ((amiga.memory.chip_ram[addr + 2] as u16) << 8)
+            | amiga.memory.chip_ram[addr + 3] as u16;
+        if rows == 0 || rows > 1024 { continue; }
+        // Read Planes[0] at offset 8
+        if addr + 11 >= chip_len { continue; }
+        let plane0 = ((amiga.memory.chip_ram[addr + 8] as u32) << 24)
+            | ((amiga.memory.chip_ram[addr + 9] as u32) << 16)
+            | ((amiga.memory.chip_ram[addr + 10] as u32) << 8)
+            | amiga.memory.chip_ram[addr + 11] as u32;
+        let plane1 = ((amiga.memory.chip_ram[addr + 12] as u32) << 24)
+            | ((amiga.memory.chip_ram[addr + 13] as u32) << 16)
+            | ((amiga.memory.chip_ram[addr + 14] as u32) << 8)
+            | amiga.memory.chip_ram[addr + 15] as u32;
+        let plane2 = ((amiga.memory.chip_ram[addr + 16] as u32) << 24)
+            | ((amiga.memory.chip_ram[addr + 17] as u32) << 16)
+            | ((amiga.memory.chip_ram[addr + 18] as u32) << 8)
+            | amiga.memory.chip_ram[addr + 19] as u32;
+        // Only show if planes look like chip RAM addresses
+        if plane0 > 0 && plane0 < 0x200000 && plane1 > 0 && plane1 < 0x200000 {
+            let text_blit_1 = 0x01807Au32;
+            let text_y_from_plane0 = if text_blit_1 >= plane0 {
+                (text_blit_1 - plane0) as f64 / 70.0
+            } else {
+                -((plane0 - text_blit_1) as f64 / 70.0)
+            };
+            let bpl1pt_offset = if 0x188F2 >= plane0 {
+                (0x188F2u32 - plane0) as f64 / 70.0
+            } else {
+                -((plane0 - 0x188F2) as f64 / 70.0)
+            };
+            println!(
+                "  ${:06X}: BPR={} Rows={} Depth={} Planes=[${:06X}, ${:06X}, ${:06X}] textY={:.1} bpl1ptOff={:.1}",
+                addr, bpr, rows, depth, plane0, plane1, plane2,
+                text_y_from_plane0, bpl1pt_offset
+            );
+        }
+    }
+
+    // --- TEXT IN MEMORY CHECK ---
+    // Check if text data exists at the blit destination addresses
+    println!("\n--- Memory at text blit destinations ---");
+    for &dpt in &[0x01807Au32, 0x0183C2u32, 0x01870Au32] {
+        let mut has_data = false;
+        let mut first_nonzero = None;
+        for row in 0..9u32 {
+            let line_addr = dpt + row * 70;
+            for w in 0..7u32 {
+                let a = (line_addr + w * 2) as usize;
+                if a + 1 < chip_len {
+                    let word = ((amiga.memory.chip_ram[a] as u16) << 8)
+                        | amiga.memory.chip_ram[a + 1] as u16;
+                    if word != 0 {
+                        has_data = true;
+                        if first_nonzero.is_none() {
+                            first_nonzero = Some((row, w, word));
+                        }
+                    }
+                }
+            }
+        }
+        println!(
+            "  dpt=${:06X}: has_data={} first_nonzero={:?}",
+            dpt, has_data, first_nonzero
+        );
+    }
+
+    // Decode copper lists from chip RAM
+    println!("\n--- Copper list 1 (COP1LC=${:08X}) ---", amiga.copper.cop1lc);
+    decode_copper_list(&amiga.memory.chip_ram, amiga.copper.cop1lc, 200);
+    println!("\n--- Copper list 2 (COP2LC=${:08X}) ---", amiga.copper.cop2lc);
+    decode_copper_list(&amiga.memory.chip_ram, amiga.copper.cop2lc, 200);
+
+    // Dump per-scanline register snapshots
+    println!("\n--- Per-scanline register snapshots (last frame, sampled at H=$40) ---");
+    println!("Line | BPLCON0 BPU | DIWSTRT DIWSTOP | CopPC    CopWait IR1:IR2    | BPL1PT   BPL2PT   BPL3PT");
+    let mut prev_bplcon0: u16 = 0xFFFF;
+    let mut prev_diwstrt: u16 = 0xFFFF;
+    let mut prev_copper_waiting = false;
+    for (idx, sr) in scanline_regs.iter().enumerate() {
+        let line = sr.actual_line;
+        let bpu = (sr.bplcon0 >> 12) & 7;
+        let changed = sr.bplcon0 != prev_bplcon0
+            || sr.diwstrt != prev_diwstrt
+            || sr.copper_waiting != prev_copper_waiting;
+        if changed || idx == 0 || idx == scanline_regs.len() - 1
+            || (idx % 32 == 0)
+        {
+            println!(
+                "${:03X}  | ${:04X}  {}   | ${:04X}   ${:04X}   | ${:08X} {:5} ${:04X}:${:04X} | ${:08X} ${:08X} ${:08X}",
+                line,
+                sr.bplcon0, bpu,
+                sr.diwstrt, sr.diwstop,
+                sr.copper_pc, sr.copper_waiting, sr.copper_ir1, sr.copper_ir2,
+                sr.bpl_pt[0], sr.bpl_pt[1], sr.bpl_pt[2],
+            );
+        }
+        prev_bplcon0 = sr.bplcon0;
+        prev_diwstrt = sr.diwstrt;
+        prev_copper_waiting = sr.copper_waiting;
+    }
+}
+
+/// Decode and print a copper list from chip RAM.
+fn decode_copper_list(chip_ram: &[u8], start_addr: u32, max_instructions: usize) {
+    let mut addr = start_addr;
+    for _ in 0..max_instructions {
+        let a = addr as usize;
+        if a + 3 >= chip_ram.len() {
+            println!("  ${:08X}: <out of chip RAM range>", addr);
+            break;
+        }
+        let w1 = ((chip_ram[a] as u16) << 8) | chip_ram[a + 1] as u16;
+        let w2 = ((chip_ram[a + 2] as u16) << 8) | chip_ram[a + 3] as u16;
+
+        if w1 == 0xFFFF && w2 == 0xFFFE {
+            println!("  ${:08X}: WAIT $FFFF,$FFFE (end-of-list)", addr);
+            break;
+        }
+
+        if (w1 & 1) == 0 {
+            // MOVE
+            let reg = w1 & 0x01FE;
+            println!(
+                "  ${:08X}: MOVE ${:04X} -> ${:03X} ({})",
+                addr, w2, reg, reg_name(reg)
+            );
+        } else {
+            // WAIT or SKIP
+            let vp = (w1 >> 8) & 0xFF;
+            let hp = (w1 >> 1) & 0x7F;
+            let vm = (w2 >> 8) & 0x7F;
+            let hm = (w2 >> 1) & 0x7F;
+            let is_skip = (w2 & 1) != 0;
+            if is_skip {
+                println!(
+                    "  ${:08X}: SKIP V>=${:02X} H>=${:02X} (VM=${:02X} HM=${:02X})",
+                    addr, vp, hp, vm, hm
+                );
+            } else {
+                println!(
+                    "  ${:08X}: WAIT V>=${:02X} H>=${:02X} (VM=${:02X} HM=${:02X})",
+                    addr, vp, hp, vm, hm
+                );
+            }
+        }
+        addr += 4;
+    }
 }

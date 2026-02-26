@@ -296,6 +296,10 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
         paula: &mut amiga.paula,
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
+        bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
+        ddfstrt_pending: &mut amiga.ddfstrt_pending,
+        ddfstop_pending: &mut amiga.ddfstop_pending,
+        color_pending: &mut amiga.color_pending,
     };
     M68kBus::poll_cycle(
         &mut bus,
@@ -319,6 +323,10 @@ fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
         paula: &mut amiga.paula,
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
+        bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
+        ddfstrt_pending: &mut amiga.ddfstrt_pending,
+        ddfstop_pending: &mut amiga.ddfstop_pending,
+        color_pending: &mut amiga.color_pending,
     };
     M68kBus::poll_ipl(&mut bus)
 }
@@ -335,6 +343,10 @@ fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
         paula: &mut amiga.paula,
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
+        bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
+        ddfstrt_pending: &mut amiga.ddfstrt_pending,
+        ddfstop_pending: &mut amiga.ddfstop_pending,
+        color_pending: &mut amiga.color_pending,
     };
     M68kBus::poll_cycle(
         &mut bus,
