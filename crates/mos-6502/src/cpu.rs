@@ -54,6 +54,9 @@ pub struct Mos6502 {
     /// One-instruction delay after clearing I (CLI/PLP/RTI behavior).
     irq_delay: bool,
 
+    /// Pending wait states from bus contention.
+    wait_states: u8,
+
     /// Total cycles executed (for debugging).
     total_cycles: u64,
 }
@@ -79,6 +82,7 @@ impl Mos6502 {
             nmi_pending: false,
             irq_pending: false,
             irq_delay: false,
+            wait_states: 0,
             total_cycles: 0,
         }
     }
@@ -90,28 +94,40 @@ impl Mos6502 {
         self.state == State::FetchOpcode
     }
 
+    /// Pending wait states from bus contention.
+    #[must_use]
+    pub fn wait_states(&self) -> u8 {
+        self.wait_states
+    }
+
     /// Read byte from memory (converts 16-bit address to 32-bit for Bus trait).
+    /// Accumulates any wait states from bus contention.
     #[inline]
-    fn read_mem<B: Bus>(&self, bus: &mut B, addr: u16) -> u8 {
-        bus.read(u32::from(addr)).data
+    fn read_mem<B: Bus>(&mut self, bus: &mut B, addr: u16) -> u8 {
+        let result = bus.read(u32::from(addr));
+        self.wait_states = self.wait_states.saturating_add(result.wait);
+        result.data
     }
 
     /// Read from memory returning full result (for dummy reads).
+    /// Accumulates any wait states from bus contention.
     #[inline]
-    fn read_mem_result<B: Bus>(&self, bus: &mut B, addr: u16) -> ReadResult {
-        bus.read(u32::from(addr))
+    fn read_mem_result<B: Bus>(&mut self, bus: &mut B, addr: u16) -> ReadResult {
+        let result = bus.read(u32::from(addr));
+        self.wait_states = self.wait_states.saturating_add(result.wait);
+        result
     }
 
     /// Write byte to memory (converts 16-bit address to 32-bit for Bus trait).
+    /// Accumulates any wait states from bus contention.
     #[inline]
-    fn write_mem<B: Bus>(&self, bus: &mut B, addr: u16, value: u8) {
-        bus.write(u32::from(addr), value);
+    fn write_mem<B: Bus>(&mut self, bus: &mut B, addr: u16, value: u8) {
+        let wait = bus.write(u32::from(addr), value);
+        self.wait_states = self.wait_states.saturating_add(wait);
     }
 
     /// Execute one CPU cycle.
     fn execute_cycle<B: Bus>(&mut self, bus: &mut B) {
-        self.total_cycles += 1;
-
         match self.state {
             State::FetchOpcode => {
                 // Check for interrupts before fetching next opcode
@@ -2512,6 +2528,11 @@ impl Cpu for Mos6502 {
     type Registers = Registers;
 
     fn tick<B: Bus>(&mut self, bus: &mut B) {
+        self.total_cycles += 1;
+        if self.wait_states > 0 {
+            self.wait_states -= 1;
+            return;
+        }
         self.execute_cycle(bus);
     }
 
@@ -2551,6 +2572,7 @@ impl Cpu for Mos6502 {
         self.nmi_pending = false;
         self.irq_pending = false;
         self.irq_delay = false;
+        self.wait_states = 0;
         // Note: reset sequence should read from $FFFC/$FFFD
         // For now, caller must set PC after reset
     }

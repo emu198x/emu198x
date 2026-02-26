@@ -13,8 +13,8 @@
 //!
 //! # Framebuffer
 //!
-//! 403 x 284 pixels (visible area including borders). Each tick renders
-//! 8 pixels.
+//! 416 x 284 pixels (visible area including borders). Each tick renders
+//! 8 pixels. The display window is centred within the border.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -28,19 +28,23 @@ const LINES_PER_FRAME: u16 = 312;
 const CYCLES_PER_LINE: u8 = 63;
 
 /// First visible raster line (top border start).
-const FIRST_VISIBLE_LINE: u16 = 16;
+/// 42 lines of top border before display at $30 (48).
+const FIRST_VISIBLE_LINE: u16 = 6;
 
 /// Last visible raster line (bottom border end, exclusive).
-const LAST_VISIBLE_LINE: u16 = 300;
+/// 42 lines of bottom border after display ends at $F8 (248).
+const LAST_VISIBLE_LINE: u16 = 290;
 
 /// Visible lines in framebuffer.
 const VISIBLE_LINES: u16 = LAST_VISIBLE_LINE - FIRST_VISIBLE_LINE;
 
 /// First visible cycle in a line (left border start).
-const FIRST_VISIBLE_CYCLE: u8 = 8;
+/// 6 cycles of left border before display at cycle 16.
+const FIRST_VISIBLE_CYCLE: u8 = 10;
 
 /// Last visible cycle (right border end, exclusive).
-const LAST_VISIBLE_CYCLE: u8 = 61;
+/// 6 cycles of right border after display ends at cycle 56.
+const LAST_VISIBLE_CYCLE: u8 = 62;
 
 /// Visible cycles per line.
 const VISIBLE_CYCLES: u8 = LAST_VISIBLE_CYCLE - FIRST_VISIBLE_CYCLE;
@@ -83,11 +87,8 @@ pub struct Vic {
     /// IRQ enable mask ($D01A).
     irq_enable: u8,
 
-    /// Whether the current line is a badline.
+    /// Whether the current line is a badline (re-evaluated every cycle).
     is_badline: bool,
-
-    /// Badline cycle stealing counter. When > 0, CPU is stalled.
-    badline_steal_cycles: u8,
 
     /// DEN (Display ENable) latch — set when DEN=1 seen during line $30.
     den_latch: bool,
@@ -122,7 +123,6 @@ impl Vic {
             irq_status: 0,
             irq_enable: 0,
             is_badline: false,
-            badline_steal_cycles: 0,
             den_latch: false,
             frame_complete: false,
             framebuffer: vec![0xFF00_0000; FB_WIDTH as usize * FB_HEIGHT as usize],
@@ -138,13 +138,20 @@ impl Vic {
     /// Renders 8 pixels, advances the beam, detects badlines.
     /// Returns `true` if the CPU should be stalled this cycle (badline DMA).
     pub fn tick(&mut self, memory: &C64Memory) -> bool {
-        let cpu_stalled = self.badline_steal_cycles > 0;
-        if cpu_stalled {
-            self.badline_steal_cycles -= 1;
-        }
-
         // Render 8 pixels for this cycle
         self.render_pixels(memory);
+
+        // Re-evaluate badline condition every cycle (DEN/YSCROLL can change mid-line).
+        self.check_badline();
+
+        // Stall CPU during badline DMA cycles 15–54 (40 cycles of character fetch).
+        let cpu_stalled = self.is_badline && (15..=54).contains(&self.raster_cycle);
+
+        // Fetch screen row data at the start of the badline DMA window.
+        if self.is_badline && self.raster_cycle == 15 {
+            self.char_row = 0;
+            self.fetch_screen_row(memory);
+        }
 
         // Advance beam position
         self.raster_cycle += 1;
@@ -158,8 +165,15 @@ impl Vic {
                 self.den_latch = false;
             }
 
-            // Check for badline at start of each line
-            self.check_badline(memory);
+            // Increment the row counter (RC) at each line wrap within the display.
+            // The real VIC-II increments RC at cycle 58. Badlines reset it to 0
+            // (handled above at cycle 15). This gives a 0-7 count per text line
+            // that's correct regardless of YSCROLL.
+            if self.den_latch
+                && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
+            {
+                self.char_row = (self.char_row + 1) & 7;
+            }
         }
 
         // Check raster compare IRQ
@@ -170,8 +184,11 @@ impl Vic {
         cpu_stalled
     }
 
-    /// Check if current line is a badline and set up cycle stealing.
-    fn check_badline(&mut self, memory: &C64Memory) {
+    /// Check if current cycle is within a badline.
+    ///
+    /// Real VIC-II re-evaluates the badline condition every cycle — DEN and
+    /// YSCROLL writes take effect immediately.
+    fn check_badline(&mut self) {
         let den = self.regs[0x11] & 0x10 != 0;
         let yscroll = u16::from(self.regs[0x11] & 0x07);
 
@@ -180,25 +197,9 @@ impl Vic {
             self.den_latch = true;
         }
 
-        self.is_badline = false;
-
-        if self.den_latch
+        self.is_badline = self.den_latch
             && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
-            && (self.raster_line & 7) == yscroll
-        {
-            self.is_badline = true;
-            // VIC-II steals ~40 cycles for character data fetch
-            self.badline_steal_cycles = 40;
-            self.char_row = 0;
-
-            // Fetch the 40 screen codes and colours for this line
-            self.fetch_screen_row(memory);
-        } else if self.den_latch
-            && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
-        {
-            // Non-badline within display: increment char_row
-            self.char_row = ((self.raster_line - DISPLAY_START_LINE) & 7) as u8;
-        }
+            && (self.raster_line & 7) == yscroll;
     }
 
     /// Fetch the 40 screen codes and colours for the current row.
@@ -404,6 +405,18 @@ impl Vic {
     #[must_use]
     pub fn raster_cycle(&self) -> u8 {
         self.raster_cycle
+    }
+
+    /// Current character row (0-7, for debugging).
+    #[must_use]
+    pub fn char_row(&self) -> u8 {
+        self.char_row
+    }
+
+    /// Whether the current line is a badline (for debugging).
+    #[must_use]
+    pub fn is_badline(&self) -> bool {
+        self.is_badline
     }
 }
 
