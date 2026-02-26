@@ -596,7 +596,7 @@ impl McpServer {
                     hit = true;
                     break 'outer;
                 }
-                if spec.bus_mut().video.take_frame_complete() {
+                if spec.bus_mut().ula.take_frame_complete() {
                     frames_run += 1;
                     break;
                 }

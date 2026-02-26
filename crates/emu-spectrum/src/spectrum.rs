@@ -15,6 +15,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use emu_core::{Cpu, Observable, Tickable, Value};
+use sinclair_ula::Ula;
 use zilog_z80::Z80;
 
 use crate::beeper::BeeperState;
@@ -24,7 +25,6 @@ use crate::input::{InputQueue, SpectrumKey};
 use crate::memory::Memory48K;
 use crate::tap::TapFile;
 use crate::tape::TapeDeck;
-use crate::ula::Ula;
 
 /// CPU clock divider (crystal ticks per CPU T-state).
 /// 4 = 3.5 MHz (normal speed for all Sinclair models).
@@ -73,9 +73,9 @@ impl Spectrum {
         );
 
         let memory = Box::new(Memory48K::new(&config.rom));
-        let video = Box::new(Ula::new());
+        let ula = Ula::new();
         let beeper = BeeperState::new(CPU_FREQUENCY, AUDIO_SAMPLE_RATE);
-        let bus = SpectrumBus::new(memory, video, beeper);
+        let bus = SpectrumBus::new(memory, ula, beeper);
 
         Self {
             cpu: Z80::new(),
@@ -103,7 +103,7 @@ impl Spectrum {
 
         loop {
             self.tick();
-            if self.bus.video.take_frame_complete() {
+            if self.bus.ula.take_frame_complete() {
                 break;
             }
         }
@@ -114,19 +114,19 @@ impl Spectrum {
     /// Reference to the framebuffer (ARGB32).
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
-        self.bus.video.framebuffer()
+        self.bus.ula.framebuffer()
     }
 
     /// Framebuffer width in pixels.
     #[must_use]
     pub fn framebuffer_width(&self) -> u32 {
-        self.bus.video.framebuffer_width()
+        self.bus.ula.framebuffer_width()
     }
 
     /// Framebuffer height in pixels.
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        self.bus.video.framebuffer_height()
+        self.bus.ula.framebuffer_height()
     }
 
     /// Take the audio buffer from the beeper (drains it).
@@ -238,13 +238,13 @@ impl Spectrum {
 
         // Get the next block from the tape
         let Some(block) = self.tape.next_block() else {
-            // No more blocks — let the ROM routine run (it will time out)
+            // No more blocks -- let the ROM routine run (it will time out)
             return;
         };
 
         // Check flag byte matches
         if block.flag != expected_flag {
-            // Flag mismatch — ROM would report "Tape loading error"
+            // Flag mismatch -- ROM would report "Tape loading error"
             // Clear carry to indicate failure, pop return address, jump back
             self.cpu.regs.f &= !0x01; // Clear carry
             self.pop_ret();
@@ -285,13 +285,14 @@ impl Tickable for Spectrum {
 
         // Video ticks at 7 MHz (every 2 crystal ticks)
         if self.master_clock.is_multiple_of(VIDEO_DIVIDER) {
-            self.bus.video.tick(&*self.bus.memory);
+            let mem = &*self.bus.memory;
+            self.bus.ula.tick(|addr| mem.peek(addr));
         }
 
         // CPU ticks at 3.5 MHz (every 4 crystal ticks)
         if self.master_clock.is_multiple_of(self.cpu_divider) {
-            // Check INT from video chip
-            if self.bus.video.int_active() {
+            // Check INT from ULA
+            if self.bus.ula.int_active() {
                 self.cpu.interrupt();
             }
             self.cpu.tick(&mut self.bus);
@@ -310,9 +311,9 @@ impl Observable for Spectrum {
             self.cpu.query(rest)
         } else if let Some(rest) = path.strip_prefix("ula.") {
             match rest {
-                "line" => Some(self.bus.video.line().into()),
-                "tstate" => Some(self.bus.video.line_tstate().into()),
-                "border" => Some(self.bus.video.border_colour().into()),
+                "line" => Some(self.bus.ula.line().into()),
+                "tstate" => Some(self.bus.ula.line_tstate().into()),
+                "border" => Some(self.bus.ula.border_colour().into()),
                 _ => None,
             }
         } else if let Some(rest) = path.strip_prefix("memory.") {

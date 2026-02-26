@@ -88,8 +88,8 @@ pub fn load_sna(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
         bus.memory.write(addr, byte);
     }
 
-    // Set border colour via the video chip.
-    bus.video.set_border_colour(border_colour & 0x07);
+    // Set border colour via the ULA.
+    bus.ula.set_border_colour(border_colour & 0x07);
 
     // Pop PC from the stack: read 2 bytes at SP from RAM, increment SP.
     let sp = spectrum.cpu().regs.sp;
@@ -170,7 +170,7 @@ mod tests {
 
         load_sna(&mut spec, &sna).expect("load_sna should succeed");
 
-        assert_eq!(spec.bus().video.border_colour(), 2);
+        assert_eq!(spec.bus().ula.border_colour(), 2);
     }
 
     #[test]

@@ -2,22 +2,27 @@
 //!
 //! The ULA handles video generation, memory contention, keyboard I/O, border
 //! colour, and the beeper. This module covers the video and contention aspects;
-//! keyboard and beeper are separate modules wired through the bus.
+//! keyboard and beeper are separate concerns wired through the system bus.
+//!
+//! # Standalone IC
+//!
+//! This crate has no dependencies — the ULA accesses VRAM through closures
+//! passed by the caller, keeping it decoupled from any particular memory model.
 //!
 //! # Timing (48K PAL)
 //!
-//! - 448 pixel clocks per line (= 224 CPU T-states × 2)
+//! - 448 pixel clocks per line (= 224 CPU T-states x 2)
 //! - 312 lines per frame
 //! - 139,776 pixel clocks per frame (= 69,888 CPU T-states)
 //! - INT asserted for first 64 pixel clocks of frame (= 32 CPU T-states)
 //!
 //! The ULA is ticked at the 7 MHz pixel clock (once per pixel). All internal
-//! state counts in pixel clocks. The trait methods `tstates_per_line()` and
+//! state counts in pixel clocks. The methods `tstates_per_line()` and
 //! `lines_per_frame()` report in CPU T-states for frame length calculations.
 //!
 //! # Framebuffer
 //!
-//! 320×288 pixels: 256 active + 32 left border + 32 right border horizontally,
+//! 320x288 pixels: 256 active + 32 left border + 32 right border horizontally,
 //! 192 active + 48 top border + 48 bottom border vertically.
 //!
 //! # Screen memory layout
@@ -34,23 +39,23 @@
 //! divided by 2 to derive the CPU T-state.
 
 #![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::cast_possible_wrap)] // Intentional: u16→i16 for contention offset arithmetic.
-#![allow(clippy::cast_sign_loss)] // Intentional: i16→usize after bounds-checking.
+#![allow(clippy::cast_possible_wrap)] // Intentional: u16->i16 for contention offset arithmetic.
+#![allow(clippy::cast_sign_loss)] // Intentional: i16->usize after bounds-checking.
 
-use crate::memory::SpectrumMemory;
-use crate::palette::PALETTE;
-use crate::video::SpectrumVideo;
+mod palette;
+
+pub use palette::PALETTE;
 
 /// Framebuffer dimensions.
-const FB_WIDTH: u32 = 320;
-const FB_HEIGHT: u32 = 288;
+pub const FB_WIDTH: u32 = 320;
+pub const FB_HEIGHT: u32 = 288;
 
 /// Display area within the framebuffer.
 const BORDER_LEFT: u32 = 32;
 const SCREEN_WIDTH: u32 = 256;
 const SCREEN_HEIGHT: u32 = 192;
 
-/// Pixel clocks per line (448 = 224 T-states × 2).
+/// Pixel clocks per line (448 = 224 T-states x 2).
 const PIXELS_PER_LINE: u16 = 448;
 /// Lines per frame.
 const LINES_PER_FRAME: u16 = 312;
@@ -106,13 +111,241 @@ impl Ula {
         }
     }
 
+    /// Advance the ULA by one pixel clock tick (7 MHz).
+    ///
+    /// `read_vram` reads a byte from the Spectrum's VRAM without side effects.
+    /// It is only called during the active display area for bitmap/attribute
+    /// fetches.
+    pub fn tick(&mut self, read_vram: impl Fn(u16) -> u8) {
+        self.render_pixel(&read_vram);
+
+        // Advance beam position (pixel clock)
+        self.pixel += 1;
+        if self.pixel >= PIXELS_PER_LINE {
+            self.pixel = 0;
+            self.line += 1;
+            if self.line >= LINES_PER_FRAME {
+                self.line = 0;
+                self.frame_complete = true;
+                self.flash_counter += 1;
+                if self.flash_counter >= FLASH_FRAME_COUNT {
+                    self.flash_counter = 0;
+                    self.flash_state = !self.flash_state;
+                }
+            }
+        }
+    }
+
+    /// Return contention wait states for a memory access at the current beam
+    /// position. `contended` is true when the address falls in contended RAM.
+    #[must_use]
+    pub fn contention(&self, contended: bool) -> u8 {
+        if !contended || !self.in_contention_area() {
+            return 0;
+        }
+        // The CPU's memory access happens at T2. Offset backwards by 2 T-states.
+        let offset = self.tstate() as i16 - 2;
+        Self::contention_delay_at(offset)
+    }
+
+    /// Return contention wait states for an I/O access at the current beam
+    /// position.
+    ///
+    /// `ula_port` is true when the port address has bit 0 clear (ULA port).
+    /// `contended_high` is true when the high byte of the port address falls
+    /// in contended RAM ($4000-$7FFF).
+    #[must_use]
+    pub fn io_contention(&self, ula_port: bool, contended_high: bool) -> u8 {
+        if !self.in_contention_area() {
+            return 0;
+        }
+
+        // The I/O cycle is 4 T-states. Contention depends on two factors:
+        //   1. Whether the high byte of the port address is in $4000-$7FFF (contended)
+        //   2. Whether the port is even (ULA port, bit 0 clear)
+        //
+        // Four cases, with per-T-state contention applied at the *start* of the
+        // I/O operation (T-state offset -1 from the I/O read/write at T3):
+        //
+        // | High $40-$7F? | Even (ULA)? | Pattern                        |
+        // |---------------|-------------|--------------------------------|
+        // | No            | Yes         | N:1, C:3                       |
+        // | No            | No          | N:4 (no contention)            |
+        // | Yes           | Yes         | C:1, C:3                       |
+        // | Yes           | No          | C:1, C:1, C:1, C:1            |
+        //
+        // "N" means no contention applied for that T-state.
+        // "C:n" means apply contention at the current beam position, then advance
+        //   n T-states before the next contention check.
+        //
+        // We sum the total contention and apply it all at once.
+        let base_offset = self.tstate() as i16 - 1;
+
+        match (contended_high, ula_port) {
+            (false, false) => {
+                // N:4 -- no contention at all
+                0
+            }
+            (false, true) => {
+                // N:1, C:3 -- skip 1, then contend at offset+1
+                Self::contention_delay_at(base_offset + 1)
+            }
+            (true, true) => {
+                // C:1, C:3 -- contend at offset, skip 1, contend at offset+1+delay0
+                let delay0 = Self::contention_delay_at(base_offset);
+                let delay1 = Self::contention_delay_at(base_offset + 1 + i16::from(delay0));
+                delay0 + delay1
+            }
+            (true, false) => {
+                // C:1, C:1, C:1, C:1 -- four contention checks at 1-T-state intervals
+                let d0 = Self::contention_delay_at(base_offset);
+                let d1 = Self::contention_delay_at(base_offset + 1 + i16::from(d0));
+                let d2 =
+                    Self::contention_delay_at(base_offset + 2 + i16::from(d0) + i16::from(d1));
+                let d3 = Self::contention_delay_at(
+                    base_offset + 3 + i16::from(d0) + i16::from(d1) + i16::from(d2),
+                );
+                d0 + d1 + d2 + d3
+            }
+        }
+    }
+
+    /// Is the INT signal currently asserted?
+    #[must_use]
+    pub fn int_active(&self) -> bool {
+        self.line == 0 && self.pixel < INT_LENGTH_PIXELS
+    }
+
+    /// Has the frame completed? Auto-clears on read.
+    pub fn take_frame_complete(&mut self) -> bool {
+        let result = self.frame_complete;
+        self.frame_complete = false;
+        result
+    }
+
+    /// Total T-states per scanline (224 for all known Sinclair/Timex variants).
+    #[must_use]
+    pub fn tstates_per_line(&self) -> u16 {
+        TSTATES_PER_LINE
+    }
+
+    /// Total scanlines per frame (312 for Sinclair/Timex/Scorpion, 320 for Pentagon).
+    #[must_use]
+    pub fn lines_per_frame(&self) -> u16 {
+        LINES_PER_FRAME
+    }
+
+    /// Current scanline (0-based).
+    #[must_use]
+    pub fn line(&self) -> u16 {
+        self.line
+    }
+
+    /// Current T-state within the current scanline.
+    #[must_use]
+    pub fn line_tstate(&self) -> u16 {
+        self.tstate()
+    }
+
+    /// Reference to the framebuffer (ARGB32).
+    #[must_use]
+    pub fn framebuffer(&self) -> &[u32] {
+        &self.framebuffer
+    }
+
+    /// Framebuffer width in pixels.
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        FB_WIDTH
+    }
+
+    /// Framebuffer height in pixels.
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        FB_HEIGHT
+    }
+
+    /// Current border colour index (0-7).
+    #[must_use]
+    pub fn border_colour(&self) -> u8 {
+        self.border
+    }
+
+    /// Set border colour (from port $FE write).
+    pub fn set_border_colour(&mut self, colour: u8) {
+        self.border = colour & 0x07;
+    }
+
+    /// Return the floating bus value at the current beam position.
+    ///
+    /// On a real 48K, unattached port reads leak the ULA's data bus through
+    /// 470-ohm resistors. The value depends on what the ULA is fetching:
+    ///   T+0: bitmap byte, T+1: attribute byte,
+    ///   T+2: bitmap+1 byte, T+3: attribute+1 byte,
+    ///   T+4..T+7: $FF (idle).
+    /// During border/vblank, returns $FF.
+    #[must_use]
+    pub fn floating_bus(&self, read_vram: impl Fn(u16) -> u8) -> u8 {
+        // Only during the screen area (lines 64-255, T-states 0-127)
+        if !self.in_contention_area() {
+            return 0xFF;
+        }
+
+        let tstate = self.tstate();
+        let phase = tstate % 8;
+
+        // ULA fetch pattern within each 8-T-state group:
+        //   T+0: bitmap, T+1: attribute, T+2: bitmap+1, T+3: attribute+1
+        //   T+4..T+7: idle ($FF)
+        if phase >= 4 {
+            return 0xFF;
+        }
+
+        // Calculate the character column from the T-state.
+        // Each 8-T-state group handles 2 character columns (8 pixels = 1 byte x 2).
+        let char_col_base = (tstate / 8) * 2;
+        let screen_y = (self.line - FIRST_SCREEN_LINE) as u8;
+
+        match phase {
+            0 => {
+                // Bitmap byte for current column
+                Self::bitmap_addr(screen_y, char_col_base as u8)
+                    .map_or(0xFF, &read_vram)
+            }
+            1 => {
+                // Attribute byte for current column
+                Self::attr_addr(screen_y, char_col_base as u8)
+                    .map_or(0xFF, &read_vram)
+            }
+            2 => {
+                // Bitmap byte for next column
+                let col = char_col_base + 1;
+                if col >= 32 {
+                    return 0xFF;
+                }
+                Self::bitmap_addr(screen_y, col as u8).map_or(0xFF, &read_vram)
+            }
+            3 => {
+                // Attribute byte for next column
+                let col = char_col_base + 1;
+                if col >= 32 {
+                    return 0xFF;
+                }
+                Self::attr_addr(screen_y, col as u8).map_or(0xFF, &read_vram)
+            }
+            _ => 0xFF,
+        }
+    }
+
+    // === Internal helpers ===
+
     /// Current CPU T-state within the line (pixel / 2).
     fn tstate(&self) -> u16 {
         self.pixel / 2
     }
 
     /// Render one pixel for the current beam position.
-    fn render_pixel(&mut self, memory: &dyn SpectrumMemory) {
+    fn render_pixel(&mut self, read_vram: &impl Fn(u16) -> u8) {
         let line = self.line;
         let pixel = self.pixel;
 
@@ -133,14 +366,14 @@ impl Ula {
             // Left border
             (u32::from(pixel - 416), false)
         } else {
-            // Horizontal retrace — not visible
+            // Horizontal retrace -- not visible
             return;
         };
 
         // Map the current line to a framebuffer y coordinate.
-        // Lines 16-63: top border → fb_y 0..48
-        // Lines 64-255: screen → fb_y 48..240
-        // Lines 256-303: bottom border → fb_y 240..288
+        // Lines 16-63: top border -> fb_y 0..48
+        // Lines 64-255: screen -> fb_y 48..240
+        // Lines 256-303: bottom border -> fb_y 240..288
         // Lines 304-311: vertical retrace (not visible)
         // Lines 0-15: vertical sync / not visible
         let fb_y = if (16..304).contains(&line) {
@@ -159,7 +392,7 @@ impl Ula {
             && line < FIRST_SCREEN_LINE + SCREEN_HEIGHT as u16;
 
         if in_screen {
-            self.render_screen_pixel(memory, fb_x, fb_y, line, pixel);
+            self.render_screen_pixel(read_vram, fb_x, fb_y, line, pixel);
         } else {
             self.render_border_pixel(fb_x, fb_y);
         }
@@ -168,7 +401,7 @@ impl Ula {
     /// Render 1 screen pixel.
     fn render_screen_pixel(
         &mut self,
-        memory: &dyn SpectrumMemory,
+        read_vram: &impl Fn(u16) -> u8,
         fb_x: u32,
         fb_y: u32,
         line: u16,
@@ -194,8 +427,8 @@ impl Ula {
         // Attribute address: 0101 10Y7 Y6Y5 Y4Y3 X4X3X2X1X0
         let attr_addr: u16 = 0x5800 | (u16::from(screen_y / 8) << 5) | u16::from(char_col);
 
-        let bitmap = memory.peek(bitmap_addr);
-        let attr = memory.peek(attr_addr);
+        let bitmap = read_vram(bitmap_addr);
+        let attr = read_vram(attr_addr);
 
         // Decode attribute byte: FBPPPIII
         let flash = attr & 0x80 != 0;
@@ -275,211 +508,43 @@ impl Default for Ula {
     }
 }
 
-impl SpectrumVideo for Ula {
-    fn tick(&mut self, memory: &dyn SpectrumMemory) {
-        self.render_pixel(memory);
-
-        // Advance beam position (pixel clock)
-        self.pixel += 1;
-        if self.pixel >= PIXELS_PER_LINE {
-            self.pixel = 0;
-            self.line += 1;
-            if self.line >= LINES_PER_FRAME {
-                self.line = 0;
-                self.frame_complete = true;
-                self.flash_counter += 1;
-                if self.flash_counter >= FLASH_FRAME_COUNT {
-                    self.flash_counter = 0;
-                    self.flash_state = !self.flash_state;
-                }
-            }
-        }
-    }
-
-    fn contention(&self, addr: u16, memory: &dyn SpectrumMemory) -> u8 {
-        if !memory.contended_page(addr) || !self.in_contention_area() {
-            return 0;
-        }
-        // The CPU's memory access happens at T2. Offset backwards by 2 T-states.
-        let offset = self.tstate() as i16 - 2;
-        Self::contention_delay_at(offset)
-    }
-
-    fn io_contention(&self, port: u16, memory: &dyn SpectrumMemory) -> u8 {
-        let ula_port = port & 1 == 0;
-        let contended_high = memory.contended_page(port);
-
-        if !self.in_contention_area() {
-            return 0;
-        }
-
-        // The I/O cycle is 4 T-states. Contention depends on two factors:
-        //   1. Whether the high byte of the port address is in $4000-$7FFF (contended)
-        //   2. Whether the port is even (ULA port, bit 0 clear)
-        //
-        // Four cases, with per-T-state contention applied at the *start* of the
-        // I/O operation (T-state offset -1 from the I/O read/write at T3):
-        //
-        // | High $40-$7F? | Even (ULA)? | Pattern                        |
-        // |---------------|-------------|--------------------------------|
-        // | No            | Yes         | N:1, C:3                       |
-        // | No            | No          | N:4 (no contention)            |
-        // | Yes           | Yes         | C:1, C:3                       |
-        // | Yes           | No          | C:1, C:1, C:1, C:1            |
-        //
-        // "N" means no contention applied for that T-state.
-        // "C:n" means apply contention at the current beam position, then advance
-        //   n T-states before the next contention check.
-        //
-        // We sum the total contention and apply it all at once.
-        let base_offset = self.tstate() as i16 - 1;
-
-        match (contended_high, ula_port) {
-            (false, false) => {
-                // N:4 — no contention at all
-                0
-            }
-            (false, true) => {
-                // N:1, C:3 — skip 1, then contend at offset+1
-                Self::contention_delay_at(base_offset + 1)
-            }
-            (true, true) => {
-                // C:1, C:3 — contend at offset, skip 1, contend at offset+1+delay0
-                let delay0 = Self::contention_delay_at(base_offset);
-                let delay1 = Self::contention_delay_at(base_offset + 1 + delay0 as i16);
-                delay0 + delay1
-            }
-            (true, false) => {
-                // C:1, C:1, C:1, C:1 — four contention checks at 1-T-state intervals
-                let d0 = Self::contention_delay_at(base_offset);
-                let d1 = Self::contention_delay_at(base_offset + 1 + d0 as i16);
-                let d2 = Self::contention_delay_at(base_offset + 2 + d0 as i16 + d1 as i16);
-                let d3 =
-                    Self::contention_delay_at(base_offset + 3 + d0 as i16 + d1 as i16 + d2 as i16);
-                d0 + d1 + d2 + d3
-            }
-        }
-    }
-
-    fn int_active(&self) -> bool {
-        self.line == 0 && self.pixel < INT_LENGTH_PIXELS
-    }
-
-    fn take_frame_complete(&mut self) -> bool {
-        let result = self.frame_complete;
-        self.frame_complete = false;
-        result
-    }
-
-    fn tstates_per_line(&self) -> u16 {
-        TSTATES_PER_LINE
-    }
-
-    fn lines_per_frame(&self) -> u16 {
-        LINES_PER_FRAME
-    }
-
-    fn line(&self) -> u16 {
-        self.line
-    }
-
-    fn line_tstate(&self) -> u16 {
-        self.tstate()
-    }
-
-    fn framebuffer(&self) -> &[u32] {
-        &self.framebuffer
-    }
-
-    fn framebuffer_width(&self) -> u32 {
-        FB_WIDTH
-    }
-
-    fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
-    }
-
-    fn border_colour(&self) -> u8 {
-        self.border
-    }
-
-    fn set_border_colour(&mut self, colour: u8) {
-        self.border = colour & 0x07;
-    }
-
-    fn floating_bus(&self, memory: &dyn SpectrumMemory) -> u8 {
-        // Only during the screen area (lines 64-255, T-states 0-127)
-        if !self.in_contention_area() {
-            return 0xFF;
-        }
-
-        let tstate = self.tstate();
-        let phase = tstate % 8;
-
-        // ULA fetch pattern within each 8-T-state group:
-        //   T+0: bitmap, T+1: attribute, T+2: bitmap+1, T+3: attribute+1
-        //   T+4..T+7: idle ($FF)
-        if phase >= 4 {
-            return 0xFF;
-        }
-
-        // Calculate the character column from the T-state.
-        // Each 8-T-state group handles 2 character columns (8 pixels = 1 byte × 2).
-        let char_col_base = (tstate / 8) * 2;
-        let screen_y = (self.line - FIRST_SCREEN_LINE) as u8;
-
-        match phase {
-            0 => {
-                // Bitmap byte for current column
-                Self::bitmap_addr(screen_y, char_col_base as u8)
-                    .map_or(0xFF, |addr| memory.peek(addr))
-            }
-            1 => {
-                // Attribute byte for current column
-                Self::attr_addr(screen_y, char_col_base as u8)
-                    .map_or(0xFF, |addr| memory.peek(addr))
-            }
-            2 => {
-                // Bitmap byte for next column
-                let col = char_col_base + 1;
-                if col >= 32 {
-                    return 0xFF;
-                }
-                Self::bitmap_addr(screen_y, col as u8).map_or(0xFF, |addr| memory.peek(addr))
-            }
-            3 => {
-                // Attribute byte for next column
-                let col = char_col_base + 1;
-                if col >= 32 {
-                    return 0xFF;
-                }
-                Self::attr_addr(screen_y, col as u8).map_or(0xFF, |addr| memory.peek(addr))
-            }
-            _ => 0xFF,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::Memory48K;
 
-    fn make_memory() -> Memory48K {
-        Memory48K::new(&vec![0u8; 0x4000])
+    /// Simple 64K memory for tests: 16K ROM (zeros) + 48K RAM.
+    struct TestMemory {
+        data: [u8; 0x10000],
+    }
+
+    impl TestMemory {
+        fn new() -> Self {
+            Self {
+                data: [0; 0x10000],
+            }
+        }
+
+        fn peek(&self, addr: u16) -> u8 {
+            self.data[addr as usize]
+        }
+
+        fn write(&mut self, addr: u16, val: u8) {
+            self.data[addr as usize] = val;
+        }
+
     }
 
     #[test]
     fn frame_timing_pixel_clocks() {
         let mut ula = Ula::new();
-        let memory = make_memory();
+        let mem = TestMemory::new();
         let total_pixels = u32::from(PIXELS_PER_LINE) * u32::from(LINES_PER_FRAME);
-        assert_eq!(total_pixels, 139_776); // 448 × 312
+        assert_eq!(total_pixels, 139_776); // 448 x 312
 
         // Tick through one complete frame at pixel clock rate
         for _ in 0..total_pixels {
             assert!(!ula.frame_complete, "frame_complete set too early");
-            ula.tick(&memory);
+            ula.tick(|addr| mem.peek(addr));
         }
         assert!(ula.take_frame_complete());
         assert!(
@@ -491,7 +556,7 @@ mod tests {
     #[test]
     fn frame_timing_matches_tstates() {
         // 448 pixels/line / 2 = 224 T-states/line
-        // 224 T-states × 312 lines = 69,888 T-states per frame
+        // 224 T-states x 312 lines = 69,888 T-states per frame
         let tstates = u32::from(TSTATES_PER_LINE) * u32::from(LINES_PER_FRAME);
         assert_eq!(tstates, 69_888);
     }
@@ -499,14 +564,14 @@ mod tests {
     #[test]
     fn int_timing() {
         let mut ula = Ula::new();
-        let memory = make_memory();
+        let mem = TestMemory::new();
 
         assert!(ula.int_active());
 
         // Tick through INT period (64 pixel clocks = 32 T-states)
         for _ in 0..INT_LENGTH_PIXELS {
             assert!(ula.int_active());
-            ula.tick(&memory);
+            ula.tick(|addr| mem.peek(addr));
         }
         assert!(!ula.int_active());
     }
@@ -526,21 +591,21 @@ mod tests {
     #[test]
     fn flash_toggles_every_16_frames() {
         let mut ula = Ula::new();
-        let memory = make_memory();
+        let mem = TestMemory::new();
         let pixels_per_frame = u32::from(PIXELS_PER_LINE) * u32::from(LINES_PER_FRAME);
 
         assert!(!ula.flash_state);
 
         for _ in 0..16 {
             for _ in 0..pixels_per_frame {
-                ula.tick(&memory);
+                ula.tick(|addr| mem.peek(addr));
             }
         }
         assert!(ula.flash_state);
 
         for _ in 0..16 {
             for _ in 0..pixels_per_frame {
-                ula.tick(&memory);
+                ula.tick(|addr| mem.peek(addr));
             }
         }
         assert!(!ula.flash_state);
@@ -555,12 +620,12 @@ mod tests {
     #[test]
     fn line_tstate_reports_cpu_tstates() {
         let mut ula = Ula::new();
-        let memory = make_memory();
+        let mem = TestMemory::new();
         assert_eq!(ula.line_tstate(), 0);
 
         // Tick 2 pixel clocks = 1 CPU T-state
-        ula.tick(&memory);
-        ula.tick(&memory);
+        ula.tick(|addr| mem.peek(addr));
+        ula.tick(|addr| mem.peek(addr));
         assert_eq!(ula.line_tstate(), 1);
     }
 
@@ -575,88 +640,81 @@ mod tests {
     #[test]
     fn contention_in_screen_area() {
         let mut ula = Ula::new();
-        let memory = make_memory();
 
         // Line 64 (first screen line), T-state 2 (offset 0 after -2 adjustment)
         position_ula(&mut ula, 64, 2);
-        // Offset 0 → pattern[0] = 6
-        assert_eq!(ula.contention(0x4000, &memory), 6);
+        // Offset 0 -> pattern[0] = 6
+        assert_eq!(ula.contention(true), 6);
 
-        // T-state 3 → offset 1 → pattern[1] = 5
+        // T-state 3 -> offset 1 -> pattern[1] = 5
         position_ula(&mut ula, 64, 3);
-        assert_eq!(ula.contention(0x4000, &memory), 5);
+        assert_eq!(ula.contention(true), 5);
 
-        // T-state 8 → offset 6 → pattern[6] = 0
+        // T-state 8 -> offset 6 -> pattern[6] = 0
         position_ula(&mut ula, 64, 8);
-        assert_eq!(ula.contention(0x4000, &memory), 0);
+        assert_eq!(ula.contention(true), 0);
 
-        // T-state 9 → offset 7 → pattern[7] = 0
+        // T-state 9 -> offset 7 -> pattern[7] = 0
         position_ula(&mut ula, 64, 9);
-        assert_eq!(ula.contention(0x4000, &memory), 0);
+        assert_eq!(ula.contention(true), 0);
     }
 
     #[test]
     fn contention_outside_screen_area() {
         let mut ula = Ula::new();
-        let memory = make_memory();
 
-        // Line 0 (vblank) — no contention
+        // Line 0 (vblank) -- no contention
         position_ula(&mut ula, 0, 2);
-        assert_eq!(ula.contention(0x4000, &memory), 0);
+        assert_eq!(ula.contention(true), 0);
 
-        // Line 256 (bottom border) — no contention
+        // Line 256 (bottom border) -- no contention
         position_ula(&mut ula, 256, 2);
-        assert_eq!(ula.contention(0x4000, &memory), 0);
+        assert_eq!(ula.contention(true), 0);
 
         // Line 64 but T-state 128+ (beyond contention window)
         position_ula(&mut ula, 64, 130);
-        assert_eq!(ula.contention(0x4000, &memory), 0);
+        assert_eq!(ula.contention(true), 0);
     }
 
     #[test]
     fn contention_non_contended_ram() {
         let mut ula = Ula::new();
-        let memory = make_memory();
 
-        // Contended area, but address $8000+ is not contended
+        // Contended area, but address is not contended
         position_ula(&mut ula, 64, 2);
-        assert_eq!(ula.contention(0x8000, &memory), 0);
-        assert_eq!(ula.contention(0x0000, &memory), 0); // ROM
+        assert_eq!(ula.contention(false), 0);
     }
 
     #[test]
     fn io_contention_no_contended_no_ula() {
         let mut ula = Ula::new();
-        let memory = make_memory();
 
-        // Port $01FF — high byte $01 (not contended), odd (not ULA)
-        // Pattern: N:4 → 0 contention
+        // Port $01FF -- high byte $01 (not contended), odd (not ULA)
+        // Pattern: N:4 -> 0 contention
         position_ula(&mut ula, 64, 2);
-        assert_eq!(ula.io_contention(0x01FF, &memory), 0);
+        assert_eq!(ula.io_contention(false, false), 0);
     }
 
     #[test]
     fn io_contention_no_contended_ula() {
         let mut ula = Ula::new();
-        let memory = make_memory();
 
-        // Port $00FE — high byte $00 (not contended), even (ULA)
-        // Pattern: N:1, C:3 → contention at offset+1
+        // Port $00FE -- high byte $00 (not contended), even (ULA)
+        // Pattern: N:1, C:3 -> contention at offset+1
         position_ula(&mut ula, 64, 2);
-        let delay = ula.io_contention(0x00FE, &memory);
-        // base_offset = 2 - 1 = 1, check at offset 2 → pattern[2%8] = 4
+        let delay = ula.io_contention(true, false);
+        // base_offset = 2 - 1 = 1, check at offset 2 -> pattern[2%8] = 4
         assert_eq!(delay, 4);
     }
 
     #[test]
     fn io_contention_contended_ula() {
         let mut ula = Ula::new();
-        let memory = make_memory();
 
-        // Port $40FE — high byte $40 (contended), even (ULA)
+        // Port $40FE -- high byte $40 (contended), even (ULA)
         // Pattern: C:1, C:3
         position_ula(&mut ula, 64, 2);
-        let delay = ula.io_contention(0x40FE, &memory);
+        let delay = ula.io_contention(true, true);
         // base_offset = 1
         // d0 = pattern[1%8] = 5
         // d1 = pattern[(2+5)%8] = pattern[7%8] = 0
@@ -666,12 +724,11 @@ mod tests {
     #[test]
     fn io_contention_contended_not_ula() {
         let mut ula = Ula::new();
-        let memory = make_memory();
 
-        // Port $40FF — high byte $40 (contended), odd (not ULA)
+        // Port $40FF -- high byte $40 (contended), odd (not ULA)
         // Pattern: C:1, C:1, C:1, C:1
         position_ula(&mut ula, 64, 2);
-        let delay = ula.io_contention(0x40FF, &memory);
+        let delay = ula.io_contention(false, true);
         // base_offset = 1
         // d0 = pattern[1] = 5
         // d1 = pattern[1+1+5] = pattern[7] = 0
@@ -683,13 +740,12 @@ mod tests {
     #[test]
     fn io_contention_outside_screen() {
         let mut ula = Ula::new();
-        let memory = make_memory();
 
-        // During border — no contention regardless of port
+        // During border -- no contention regardless of port
         position_ula(&mut ula, 0, 2);
-        assert_eq!(ula.io_contention(0x40FE, &memory), 0);
-        assert_eq!(ula.io_contention(0x40FF, &memory), 0);
-        assert_eq!(ula.io_contention(0x00FE, &memory), 0);
+        assert_eq!(ula.io_contention(true, true), 0);
+        assert_eq!(ula.io_contention(false, true), 0);
+        assert_eq!(ula.io_contention(true, false), 0);
     }
 
     // === Floating bus tests ===
@@ -697,64 +753,64 @@ mod tests {
     #[test]
     fn floating_bus_during_border() {
         let ula = Ula::new(); // Line 0 = vblank
-        let memory = make_memory();
-        assert_eq!(ula.floating_bus(&memory), 0xFF);
+        let mem = TestMemory::new();
+        assert_eq!(ula.floating_bus(|addr| mem.peek(addr)), 0xFF);
     }
 
     #[test]
     fn floating_bus_idle_phase() {
         let mut ula = Ula::new();
-        let memory = make_memory();
+        let mem = TestMemory::new();
 
         // Position at screen line 64, T-state 4 (phase 4 = idle)
         position_ula(&mut ula, 64, 4);
-        assert_eq!(ula.floating_bus(&memory), 0xFF);
+        assert_eq!(ula.floating_bus(|addr| mem.peek(addr)), 0xFF);
 
         // Phase 5, 6, 7 are also idle
         position_ula(&mut ula, 64, 5);
-        assert_eq!(ula.floating_bus(&memory), 0xFF);
+        assert_eq!(ula.floating_bus(|addr| mem.peek(addr)), 0xFF);
     }
 
     #[test]
     fn floating_bus_bitmap_fetch() {
         let mut ula = Ula::new();
-        let mut memory = make_memory();
+        let mut mem = TestMemory::new();
 
         // Position at line 64, T-state 0 (phase 0 = bitmap, column 0)
         position_ula(&mut ula, 64, 0);
         // Bitmap address for screen_y=0, char_col=0:
         // 010 00 000 000 00000 = $4000
-        memory.write(0x4000, 0xAA);
-        assert_eq!(ula.floating_bus(&memory), 0xAA);
+        mem.write(0x4000, 0xAA);
+        assert_eq!(ula.floating_bus(|addr| mem.peek(addr)), 0xAA);
     }
 
     #[test]
     fn floating_bus_attribute_fetch() {
         let mut ula = Ula::new();
-        let mut memory = make_memory();
+        let mut mem = TestMemory::new();
 
         // Position at line 64, T-state 1 (phase 1 = attribute, column 0)
         position_ula(&mut ula, 64, 1);
         // Attribute address for screen_y=0, char_col=0 = $5800
-        memory.write(0x5800, 0x38);
-        assert_eq!(ula.floating_bus(&memory), 0x38);
+        mem.write(0x5800, 0x38);
+        assert_eq!(ula.floating_bus(|addr| mem.peek(addr)), 0x38);
     }
 
     #[test]
     fn floating_bus_second_column() {
         let mut ula = Ula::new();
-        let mut memory = make_memory();
+        let mut mem = TestMemory::new();
 
         // Position at line 64, T-state 2 (phase 2 = bitmap+1, column 1)
         position_ula(&mut ula, 64, 2);
         // Bitmap address for screen_y=0, char_col=1 = $4001
-        memory.write(0x4001, 0x55);
-        assert_eq!(ula.floating_bus(&memory), 0x55);
+        mem.write(0x4001, 0x55);
+        assert_eq!(ula.floating_bus(|addr| mem.peek(addr)), 0x55);
 
         // T-state 3 (phase 3 = attribute+1, column 1)
         position_ula(&mut ula, 64, 3);
         // Attribute address for screen_y=0, char_col=1 = $5801
-        memory.write(0x5801, 0x47);
-        assert_eq!(ula.floating_bus(&memory), 0x47);
+        mem.write(0x5801, 0x47);
+        assert_eq!(ula.floating_bus(|addr| mem.peek(addr)), 0x47);
     }
 }

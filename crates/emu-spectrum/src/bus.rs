@@ -7,26 +7,26 @@
 //!
 //! # Contention
 //!
-//! Memory contention is delegated to the video chip via `video.contention()`.
+//! Memory contention is delegated to the ULA via `ula.contention()`.
 //! The bus adds the returned wait states to the `ReadResult`. I/O contention
-//! is similarly delegated via `video.io_contention()`.
+//! is similarly delegated via `ula.io_contention()`.
 
 #![allow(clippy::cast_possible_truncation)]
 
 use emu_core::{Bus, ReadResult};
+use sinclair_ula::Ula;
 
 use crate::beeper::BeeperState;
 use crate::keyboard::KeyboardState;
 use crate::memory::SpectrumMemory;
-use crate::video::SpectrumVideo;
 
 /// The Spectrum bus, implementing `emu_core::Bus`.
 ///
-/// Owns the memory, video, keyboard, and beeper subsystems. The CPU
+/// Owns the memory, ULA, keyboard, and beeper subsystems. The CPU
 /// accesses all of these through the `Bus` trait.
 pub struct SpectrumBus {
     pub memory: Box<dyn SpectrumMemory>,
-    pub video: Box<dyn SpectrumVideo>,
+    pub ula: Ula,
     pub keyboard: KeyboardState,
     pub beeper: BeeperState,
     /// Last value written to port $FE (for EAR bit and border).
@@ -37,12 +37,12 @@ impl SpectrumBus {
     #[must_use]
     pub fn new(
         memory: Box<dyn SpectrumMemory>,
-        video: Box<dyn SpectrumVideo>,
+        ula: Ula,
         beeper: BeeperState,
     ) -> Self {
         Self {
             memory,
-            video,
+            ula,
             keyboard: KeyboardState::new(),
             beeper,
             last_fe_write: 0,
@@ -54,23 +54,25 @@ impl Bus for SpectrumBus {
     fn read(&mut self, addr: u32) -> ReadResult {
         let addr16 = addr as u16;
         let data = self.memory.read(addr16);
-        let wait = self.video.contention(addr16, &*self.memory);
+        let wait = self.ula.contention(self.memory.contended_page(addr16));
         ReadResult::with_wait(data, wait)
     }
 
     fn write(&mut self, addr: u32, value: u8) -> u8 {
         let addr16 = addr as u16;
-        let wait = self.video.contention(addr16, &*self.memory);
+        let wait = self.ula.contention(self.memory.contended_page(addr16));
         self.memory.write(addr16, value);
         wait
     }
 
     fn io_read(&mut self, addr: u32) -> ReadResult {
         let port = addr as u16;
-        let wait = self.video.io_contention(port, &*self.memory);
+        let ula_port = port & 0x01 == 0;
+        let contended_high = self.memory.contended_page(port);
+        let wait = self.ula.io_contention(ula_port, contended_high);
 
         // Port $FE (active when bit 0 is clear)
-        let data = if port & 0x01 == 0 {
+        let data = if ula_port {
             let addr_high = (port >> 8) as u8;
             let keyboard = self.keyboard.read(addr_high);
             // Bits 0-4: keyboard, bit 5: unused (1), bit 6: EAR input (tape),
@@ -78,7 +80,8 @@ impl Bus for SpectrumBus {
             keyboard | 0xC0
         } else {
             // Non-ULA ports: floating bus leaks ULA data bus
-            self.video.floating_bus(&*self.memory)
+            let mem = &*self.memory;
+            self.ula.floating_bus(|a| mem.peek(a))
         };
 
         ReadResult::with_wait(data, wait)
@@ -86,14 +89,16 @@ impl Bus for SpectrumBus {
 
     fn io_write(&mut self, addr: u32, value: u8) -> u8 {
         let port = addr as u16;
-        let wait = self.video.io_contention(port, &*self.memory);
+        let ula_port = port & 0x01 == 0;
+        let contended_high = self.memory.contended_page(port);
+        let wait = self.ula.io_contention(ula_port, contended_high);
 
         // Port $FE (active when bit 0 is clear)
-        if port & 0x01 == 0 {
+        if ula_port {
             self.last_fe_write = value;
             // Bit 0-2: border colour
-            self.video.set_border_colour(value & 0x07);
-            // Bit 3: MIC output (tape) — ignored
+            self.ula.set_border_colour(value & 0x07);
+            // Bit 3: MIC output (tape) -- ignored
             // Bit 4: beeper
             self.beeper.set_level((value >> 4) & 1);
         }
@@ -108,14 +113,13 @@ impl Bus for SpectrumBus {
 mod tests {
     use super::*;
     use crate::memory::Memory48K;
-    use crate::ula::Ula;
 
     fn make_bus() -> SpectrumBus {
         let rom = vec![0u8; 0x4000];
         let memory = Box::new(Memory48K::new(&rom));
-        let video = Box::new(Ula::new());
+        let ula = Ula::new();
         let beeper = BeeperState::new(3_500_000, 48_000);
-        SpectrumBus::new(memory, video, beeper)
+        SpectrumBus::new(memory, ula, beeper)
     }
 
     #[test]
@@ -135,7 +139,7 @@ mod tests {
     #[test]
     fn keyboard_read_via_io() {
         let mut bus = make_bus();
-        // No keys pressed — all bits high
+        // No keys pressed -- all bits high
         let result = bus.io_read(0xFEFE); // Port $FE, scan row 0
         assert_eq!(result.data & 0x1F, 0x1F);
 
@@ -150,7 +154,7 @@ mod tests {
         let mut bus = make_bus();
         // Write port $FE: border=2 (red), beeper=1
         bus.io_write(0x00FE, 0x12); // 0b0001_0010: beeper=1, border=010
-        assert_eq!(bus.video.border_colour(), 2);
+        assert_eq!(bus.ula.border_colour(), 2);
         assert_eq!(bus.beeper.level(), 1);
     }
 

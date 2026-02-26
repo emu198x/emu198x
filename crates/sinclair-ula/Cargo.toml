@@ -1,0 +1,13 @@
+[package]
+name = "sinclair-ula"
+description = "Sinclair ULA (Uncommitted Logic Array) — video, contention, INT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "sinclair_ula"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

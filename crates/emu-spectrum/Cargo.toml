@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 emu-core = { path = "../emu-core" }
 zilog-z80 = { path = "../zilog-z80" }
+sinclair-ula = { path = "../sinclair-ula" }
 winit = "0.30"
 pixels = "0.15"
 png = "0.17"
