@@ -1293,7 +1293,7 @@ fn test_boot_kick13() {
         let viewport = amiga
             .denise
             .extract_viewport(ViewportPreset::Standard, true, true);
-        let raster_path = std::path::Path::new("../../test_output/amiga_boot_raster.png");
+        let raster_path = std::path::Path::new("../../test_output/amiga_boot_kick13_raster.png");
         let file = fs::File::create(raster_path).expect("create raster screenshot file");
         let ref mut w = std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
@@ -4776,6 +4776,87 @@ fn test_boot_kick31_a500_screenshot() {
     }
 
     // Sanity: display should be active (BPLEN set in DMACON)
+    println!("DMACON = ${:04X}", amiga.agnus.dmacon);
+    println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
+}
+
+#[test]
+#[ignore] // Requires real KS 3.1 A1200 ROM — AGA not implemented, expect degraded output
+fn test_boot_kick31_a1200_screenshot() {
+    let ks_path = "../../roms/kick31_40_068_a1200.rom";
+    let rom = match fs::read(ks_path) {
+        Ok(r) => r,
+        Err(_) => {
+            eprintln!("KS 3.1 A1200 ROM not found at {ks_path}, skipping");
+            return;
+        }
+    };
+
+    // A1200 ROM on A500Plus/ECS — no AGA chipset yet, so the display
+    // will be whatever the ROM manages with OCS/ECS registers only.
+    let mut amiga = Amiga::new_with_config(AmigaConfig {
+        model: AmigaModel::A500Plus,
+        chipset: AmigaChipset::Ecs,
+        region: AmigaRegion::Pal,
+        kickstart: rom,
+    });
+
+    println!(
+        "Reset: SSP=${:08X} PC=${:08X} SR=${:04X}",
+        amiga.cpu.regs.ssp, amiga.cpu.regs.pc, amiga.cpu.regs.sr
+    );
+
+    let total_ticks: u64 = 850_000_000;
+    let report_interval: u64 = 28_375_160;
+    let mut last_report = 0u64;
+
+    for i in 0..total_ticks {
+        amiga.tick();
+
+        if i % 4 != 0 || i - last_report < report_interval {
+            continue;
+        }
+        last_report = i;
+        let elapsed_s = i as f64 / 28_375_160.0;
+        println!(
+            "[{:.1}s] tick={} PC=${:08X} V={} H={}",
+            elapsed_s, i, amiga.cpu.regs.pc, amiga.agnus.vpos, amiga.agnus.hpos,
+        );
+    }
+
+    // Save raster framebuffer screenshot
+    {
+        use machine_amiga::commodore_denise_ocs::ViewportPreset;
+
+        let viewport = amiga
+            .denise
+            .extract_viewport(ViewportPreset::Standard, true, true);
+        let raster_path =
+            std::path::Path::new("../../test_output/amiga_boot_kick31_a1200_raster.png");
+        let file = fs::File::create(raster_path).expect("create raster screenshot file");
+        let ref mut w = std::io::BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("write raster PNG header");
+        let mut rgba = Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
+        for &pixel in &viewport.pixels {
+            rgba.push(((pixel >> 16) & 0xFF) as u8);
+            rgba.push(((pixel >> 8) & 0xFF) as u8);
+            rgba.push((pixel & 0xFF) as u8);
+            rgba.push(((pixel >> 24) & 0xFF) as u8);
+        }
+        writer
+            .write_image_data(&rgba)
+            .expect("write raster PNG data");
+        println!(
+            "Raster screenshot saved to {} ({}x{})",
+            raster_path.display(),
+            viewport.width,
+            viewport.height
+        );
+    }
+
     println!("DMACON = ${:04X}", amiga.agnus.dmacon);
     println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
 }
