@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (Amiga HAM/EHB display modes). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (NES DMC DMA sample playback). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -112,14 +112,14 @@ that use Timer A/B NMI for raster effects and playback.
 ## NES
 
 Boots games using seven mappers, renders backgrounds and sprites with
-emphasis/greyscale effects, plays pulse/triangle/noise audio. The main
-gap is **DMC audio**.
+emphasis/greyscale effects, plays all five APU channels including DMC
+sample playback via DMA.
 
 ### Implemented
 
 - **CPU**: 6502 at 100% cycle accuracy (2.56M single-step tests pass)
 - **PPU**: Background + sprites, all mirroring modes (H/V/4-screen/single-screen)
-- **APU**: Pulse (×2), triangle, noise, frame counter, mixer at 48 kHz
+- **APU**: Pulse (×2), triangle, noise, DMC sample playback (DMA), frame counter, mixer at 48 kHz
 - **PPU effects**: PPUMASK greyscale (bit 0) and emphasis (bits 5-7) applied at pixel output, open bus latch (write-only register reads return last written value, $2002 low 5 bits from open bus)
 - **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC3 (4) 8-register PRG/CHR banking + scanline counter IRQ + PRG RAM, AxROM (7) 32K PRG switching + single-screen mirroring, MMC2 (9) CHR latch-based bank switching
 - **Mapper IRQ**: Mapper trait supports IRQ signalling; MMC3 scanline counter wired to CPU interrupt line
@@ -128,8 +128,7 @@ gap is **DMC audio**.
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| DMC sample playback | `apu.rs` — stub, no DMA | Drums/bass in most game music silent |
-| DMC/OAM DMA conflict | Not implemented | Cycle-stealing interaction missing |
+| DMC/OAM DMA conflict timing | `nes.rs` — DMC waits for OAM to finish | Exact halt/realign cycle count not modelled; worst-case 4-cycle steal used |
 | Zapper (light gun) | Not implemented | Duck Hunt unplayable |
 | PAL timing | Hardcoded NTSC | PAL games run at wrong speed |
 | Four-Score adapter | Not implemented | 4-player games blocked |
@@ -139,16 +138,19 @@ gap is **DMC audio**.
 
 | Gap | Location | Impact |
 |-----|----------|--------|
+| DMC DMA cycle-steal count | `nes.rs` — always 4 cycles | Real hardware steals 1-4 depending on CPU alignment; may shift audio timing slightly |
 | Sprite zero hit cycle precision | `ppu.rs` — possibly off-by-1 | Split-screen effects may glitch |
 | Bus conflicts | Not implemented | Some mapper boards have write contention |
 
 ### Assessment
 
 **~80% of the NES library runs** (NROM + MMC1 + UxROM + CNROM + MMC3 +
-AxROM + MMC2). AxROM adds Battletoads, Marble Madness, and Wizards &
-Warriors. PPU emphasis and greyscale are now applied at pixel output.
-DMC DMA is the largest remaining gap — it requires a CPU bus access
-mechanism that doesn't exist yet.
+AxROM + MMC2). All five APU channels are now functional — DMC sample
+playback fetches bytes via DMA, stealing 4 CPU cycles per fetch.
+Drums, bass, and speech samples now play in games that use the DMC.
+The DMA/OAM conflict timing is simplified (DMC waits for OAM DMA to
+finish rather than interleaving), which is correct enough for audio
+but not cycle-exact for timing-sensitive demos.
 
 ---
 
@@ -200,7 +202,7 @@ work is in peripheral completeness.
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
 | Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
-| Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~80% (no DMC) | ~85% (no filter model) |
+| Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~95% (all 5 channels) | ~85% (no filter model) |
 | Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |
 | Model variants | 48K, 128K, +2 PAL | PAL only | NTSC only | A500 OCS only |
@@ -208,9 +210,8 @@ work is in peripheral completeness.
 ### Highest-impact work items (by games-unlocked)
 
 1. **C64 1541 disk drive** — unlocks D64 loading (huge library unlock)
-2. **NES DMC DMA** — completes audio for most NES games
-3. **Amiga disk write** — unlocks game saves
-4. **68010/020 instructions** — unlocks A500+/A1200
+2. **Amiga disk write** — unlocks game saves
+3. **68010/020 instructions** — unlocks A500+/A1200
 
 ### v1 exit criteria status
 
