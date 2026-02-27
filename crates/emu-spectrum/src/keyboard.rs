@@ -53,17 +53,49 @@ impl KeyboardState {
     /// Each cleared bit selects a half-row to scan. Multiple rows are OR'd
     /// together (any key pressed in any selected row reads as 0).
     ///
+    /// The Spectrum keyboard is a passive 8×5 matrix. When multiple keys are
+    /// pressed, current can flow through the switch network and pull extra
+    /// columns low — "ghosting". This implementation computes the transitive
+    /// closure: any row reachable through shared columns with the selected
+    /// rows contributes its columns to the result.
+    ///
     /// Returns bits 0-4 (active low: 0 = pressed), bits 5-7 = 1.
     #[must_use]
     pub fn read(&self, addr_high: u8) -> u8 {
+        // Start with directly selected rows
+        let mut active_rows: u8 = !addr_high;
+
+        // Propagate through shared columns until stable
+        loop {
+            // Columns reachable from any active row
+            let mut cols: u8 = 0;
+            for i in 0..8 {
+                if active_rows & (1 << i) != 0 {
+                    cols |= self.rows[i];
+                }
+            }
+
+            // Rows reachable from those columns
+            let mut new_rows = active_rows;
+            for i in 0..8 {
+                if self.rows[i] & cols != 0 {
+                    new_rows |= 1 << i;
+                }
+            }
+
+            if new_rows == active_rows {
+                break;
+            }
+            active_rows = new_rows;
+        }
+
+        // Final result: all columns from all reachable rows
         let mut result: u8 = 0;
-        for (i, row) in self.rows.iter().enumerate() {
-            // A cleared address bit selects this row
-            if addr_high & (1 << i) == 0 {
-                result |= row;
+        for i in 0..8 {
+            if active_rows & (1 << i) != 0 {
+                result |= self.rows[i];
             }
         }
-        // Invert (active low) and set bits 5-7 high
         (!result & 0x1F) | 0xE0
     }
 
@@ -130,5 +162,62 @@ mod tests {
     fn bits_5_7_always_high() {
         let kbd = KeyboardState::new();
         assert_eq!(kbd.read(0x00) & 0xE0, 0xE0);
+    }
+
+    #[test]
+    fn ghost_three_corners_produces_fourth() {
+        let mut kbd = KeyboardState::new();
+        // Press Shift (row 0, col 0), Z (row 0, col 1), A (row 1, col 0)
+        kbd.set_key(0, 0, true);
+        kbd.set_key(0, 1, true);
+        kbd.set_key(1, 0, true);
+
+        // Read row 1 only (A9=0, rest=1 → 0xFD)
+        // Without ghosting: only col 0 (A) would be active.
+        // With ghosting: row 0 and row 1 share col 0, so row 0's col 1
+        // propagates → col 1 (S) appears ghosted.
+        let result = kbd.read(0xFD);
+        assert_eq!(
+            result & 0x1F,
+            0x1C, // cols 0 and 1 active (bits 0,1 = 0)
+            "S (row 1, col 1) should be ghosted"
+        );
+    }
+
+    #[test]
+    fn no_ghost_with_two_keys_no_shared_axis() {
+        let mut kbd = KeyboardState::new();
+        // Press (row 0, col 0) and (row 1, col 1) — diagonal, no shared row/column
+        kbd.set_key(0, 0, true);
+        kbd.set_key(1, 1, true);
+
+        // Read row 0 only: should see only col 0
+        assert_eq!(kbd.read(0xFE) & 0x1F, 0x1E);
+        // Read row 1 only: should see only col 1
+        assert_eq!(kbd.read(0xFD) & 0x1F, 0x1D);
+    }
+
+    #[test]
+    fn ghost_propagates_transitively() {
+        let mut kbd = KeyboardState::new();
+        // Chain: row 0 col 0, row 0 col 1, row 1 col 1, row 1 col 2
+        // Row 0 and row 1 share col 1.
+        // Now add row 2 col 2 — row 1 and row 2 share col 2.
+        // Reading row 2 should propagate: row 2 → col 2 → row 1 → col 1 → row 0 → col 0
+        kbd.set_key(0, 0, true); // row 0, col 0
+        kbd.set_key(0, 1, true); // row 0, col 1
+        kbd.set_key(1, 1, true); // row 1, col 1
+        kbd.set_key(1, 2, true); // row 1, col 2
+        kbd.set_key(2, 2, true); // row 2, col 2
+
+        // Read row 2 only (A10=0 → 0xFB)
+        // Transitive: row 2 → col 2 → row 1 (shares col 2) → col 1 → row 0 (shares col 1) → col 0
+        // All three columns should be active
+        let result = kbd.read(0xFB);
+        assert_eq!(
+            result & 0x1F,
+            0x18, // cols 0, 1, 2 active (bits 0,1,2 = 0)
+            "ghost should propagate transitively through row 1 to row 0"
+        );
     }
 }

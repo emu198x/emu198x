@@ -95,6 +95,10 @@ pub struct Ula {
     flash_counter: u8,
     /// ARGB32 framebuffer.
     framebuffer: Vec<u32>,
+    /// Snow effect: when the CPU reads display memory during a ULA fetch
+    /// phase, the data bus conflict causes the ULA to use the CPU's byte
+    /// instead of its own VRAM fetch for the next bitmap read.
+    snow_byte: Option<u8>,
 }
 
 impl Ula {
@@ -108,6 +112,7 @@ impl Ula {
             flash_state: false,
             flash_counter: 0,
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            snow_byte: None,
         }
     }
 
@@ -276,6 +281,39 @@ impl Ula {
         self.border = colour & 0x07;
     }
 
+    /// Is the ULA currently fetching screen data (bitmap or attribute)?
+    ///
+    /// True during the active screen area (lines 64-255) in the first 4
+    /// T-states of each 8-T-state fetch group (phases 0-3). A CPU read from
+    /// display memory during this window causes the "snow" effect.
+    #[must_use]
+    pub fn is_screen_fetch_phase(&self) -> bool {
+        self.in_contention_area() && (self.tstate() % 8) < 4
+    }
+
+    /// Position the ULA at a specific line and T-state (for testing).
+    #[doc(hidden)]
+    pub fn set_position(&mut self, line: u16, tstate: u16) {
+        self.line = line;
+        self.pixel = tstate * 2;
+    }
+
+    /// Check whether a snow byte is pending (for testing).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn has_snow_byte(&self) -> bool {
+        self.snow_byte.is_some()
+    }
+
+    /// Inject a snow byte from a bus conflict.
+    ///
+    /// When the CPU reads display memory ($4000-$5AFF) during a ULA fetch
+    /// phase, the shared data bus causes the ULA to latch the CPU's byte.
+    /// The next bitmap fetch renders this byte instead of VRAM contents.
+    pub fn set_snow_byte(&mut self, byte: u8) {
+        self.snow_byte = Some(byte);
+    }
+
     /// Return the floating bus value at the current beam position.
     ///
     /// On a real 48K, unattached port reads leak the ULA's data bus through
@@ -427,7 +465,13 @@ impl Ula {
         // Attribute address: 0101 10Y7 Y6Y5 Y4Y3 X4X3X2X1X0
         let attr_addr: u16 = 0x5800 | (u16::from(screen_y / 8) << 5) | u16::from(char_col);
 
-        let bitmap = read_vram(bitmap_addr);
+        // Snow effect: if a bus conflict injected a byte, use it instead of
+        // the VRAM bitmap fetch. The attribute byte is unaffected.
+        let bitmap = if let Some(snow) = self.snow_byte.take() {
+            snow
+        } else {
+            read_vram(bitmap_addr)
+        };
         let attr = read_vram(attr_addr);
 
         // Decode attribute byte: FBPPPIII
@@ -812,5 +856,86 @@ mod tests {
         // Attribute address for screen_y=0, char_col=1 = $5801
         mem.write(0x5801, 0x47);
         assert_eq!(ula.floating_bus(|addr| mem.peek(addr)), 0x47);
+    }
+
+    // === Snow effect tests ===
+
+    #[test]
+    fn snow_byte_replaces_bitmap_fetch() {
+        let mut ula = Ula::new();
+        let mut mem = TestMemory::new();
+
+        // Set up normal VRAM: bitmap=$4000=0x00, attr=$5800=0x38 (paper=7, ink=0)
+        mem.write(0x4000, 0x00);
+        mem.write(0x5800, 0x38);
+
+        // Position at line 64, pixel 0 (first screen pixel, column 0)
+        position_ula(&mut ula, 64, 0);
+        ula.pixel = 0; // Exact pixel position for rendering
+
+        // Inject snow byte (all pixels set)
+        ula.set_snow_byte(0xFF);
+
+        // Tick once — this renders pixel 0 of the first screen character
+        ula.tick(|addr| mem.peek(addr));
+
+        // The pixel should use the snow byte (0xFF = all ink) not VRAM (0x00 = all paper).
+        // With attr 0x38: ink=0 (black), paper=7 (white). Snow byte 0xFF means bit 7=1 → ink.
+        let fb_idx = (48 * FB_WIDTH + BORDER_LEFT) as usize; // line 64→fb_y 48
+        let black = PALETTE[0]; // ink=0
+        assert_eq!(ula.framebuffer()[fb_idx], black, "snow byte should produce ink colour");
+    }
+
+    #[test]
+    fn is_screen_fetch_phase_true_during_fetch() {
+        let mut ula = Ula::new();
+        // Line 64, T-state 0: phase 0 of the fetch group
+        position_ula(&mut ula, 64, 0);
+        assert!(ula.is_screen_fetch_phase());
+
+        // T-state 3: still in fetch (phases 0-3)
+        position_ula(&mut ula, 64, 3);
+        assert!(ula.is_screen_fetch_phase());
+    }
+
+    #[test]
+    fn is_screen_fetch_phase_false_during_idle() {
+        let mut ula = Ula::new();
+        // Line 64, T-state 4: idle phase
+        position_ula(&mut ula, 64, 4);
+        assert!(!ula.is_screen_fetch_phase());
+
+        // T-state 7: still idle
+        position_ula(&mut ula, 64, 7);
+        assert!(!ula.is_screen_fetch_phase());
+    }
+
+    #[test]
+    fn is_screen_fetch_phase_false_during_border() {
+        let mut ula = Ula::new();
+        // Line 0 (vblank): not screen area at all
+        position_ula(&mut ula, 0, 0);
+        assert!(!ula.is_screen_fetch_phase());
+
+        // Line 300 (bottom border): not screen area
+        position_ula(&mut ula, 300, 0);
+        assert!(!ula.is_screen_fetch_phase());
+    }
+
+    #[test]
+    fn snow_byte_clears_after_use() {
+        let mut ula = Ula::new();
+        let mem = TestMemory::new();
+
+        // Position at first screen pixel
+        position_ula(&mut ula, 64, 0);
+        ula.pixel = 0;
+
+        ula.set_snow_byte(0xFF);
+        assert!(ula.snow_byte.is_some());
+
+        // Tick once — renders the pixel and consumes the snow byte
+        ula.tick(|addr| mem.peek(addr));
+        assert!(ula.snow_byte.is_none(), "snow_byte should be consumed after rendering");
     }
 }

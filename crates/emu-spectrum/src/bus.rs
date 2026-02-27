@@ -72,6 +72,12 @@ impl Bus for SpectrumBus {
         let addr16 = addr as u16;
         let data = self.memory.read(addr16);
         let wait = self.ula.contention(self.memory.contended_page(addr16));
+
+        // Snow: CPU read from display memory during ULA fetch → corrupts ULA's bitmap
+        if addr16 >= 0x4000 && addr16 <= 0x5AFF && self.ula.is_screen_fetch_phase() {
+            self.ula.set_snow_byte(data);
+        }
+
         ReadResult::with_wait(data, wait)
     }
 
@@ -249,6 +255,53 @@ mod tests {
         // Clear MIC bit — EAR should now be 0 again
         bus.io_write(0x00FE, 0x00);
         assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x00, "MIC cleared, no tape_ear");
+    }
+
+    #[test]
+    fn snow_triggered_by_display_read_during_fetch() {
+        let mut bus = make_bus();
+
+        // Write a known value into display memory
+        bus.write(0x4000, 0xAB);
+
+        // Position ULA at a screen fetch phase (line 64, T-state 0)
+        bus.ula.set_position(64, 0);
+        assert!(bus.ula.is_screen_fetch_phase());
+
+        // Read from display memory — should trigger snow
+        let result = bus.read(0x4000);
+        assert_eq!(result.data, 0xAB);
+        assert!(bus.ula.has_snow_byte(), "snow_byte should be set after display read during fetch");
+    }
+
+    #[test]
+    fn no_snow_outside_fetch_phase() {
+        let mut bus = make_bus();
+        bus.write(0x4000, 0xAB);
+
+        // Position ULA at idle phase (line 64, T-state 4)
+        bus.ula.set_position(64, 4);
+        assert!(!bus.ula.is_screen_fetch_phase());
+
+        bus.read(0x4000);
+        assert!(!bus.ula.has_snow_byte(), "no snow during idle phase");
+    }
+
+    #[test]
+    fn no_snow_outside_display_memory() {
+        let mut bus = make_bus();
+
+        // Position ULA at fetch phase
+        bus.ula.set_position(64, 0);
+        assert!(bus.ula.is_screen_fetch_phase());
+
+        // Read from outside display memory ($5B00 = above attribute area)
+        bus.read(0x5B00);
+        assert!(!bus.ula.has_snow_byte(), "no snow outside $4000-$5AFF");
+
+        // Read from RAM above screen area
+        bus.read(0x8000);
+        assert!(!bus.ula.has_snow_byte(), "no snow in upper RAM");
     }
 
     #[test]
