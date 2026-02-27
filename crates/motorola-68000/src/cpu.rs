@@ -1295,6 +1295,60 @@ impl Cpu68000 {
     }
 }
 
+impl emu_core::Observable for Cpu68000 {
+    fn query(&self, path: &str) -> Option<emu_core::Value> {
+        use emu_core::Value;
+        match path {
+            "pc" => Some(Value::U32(self.regs.pc)),
+            "sr" => Some(Value::U16(self.regs.sr)),
+            "ccr" => Some(Value::U8(self.regs.ccr())),
+            "d0" => Some(Value::U32(self.regs.d[0])),
+            "d1" => Some(Value::U32(self.regs.d[1])),
+            "d2" => Some(Value::U32(self.regs.d[2])),
+            "d3" => Some(Value::U32(self.regs.d[3])),
+            "d4" => Some(Value::U32(self.regs.d[4])),
+            "d5" => Some(Value::U32(self.regs.d[5])),
+            "d6" => Some(Value::U32(self.regs.d[6])),
+            "d7" => Some(Value::U32(self.regs.d[7])),
+            "a0" => Some(Value::U32(self.regs.a[0])),
+            "a1" => Some(Value::U32(self.regs.a[1])),
+            "a2" => Some(Value::U32(self.regs.a[2])),
+            "a3" => Some(Value::U32(self.regs.a[3])),
+            "a4" => Some(Value::U32(self.regs.a[4])),
+            "a5" => Some(Value::U32(self.regs.a[5])),
+            "a6" => Some(Value::U32(self.regs.a[6])),
+            "a7" => Some(Value::U32(self.regs.active_sp())),
+            "usp" => Some(Value::U32(self.regs.usp)),
+            "ssp" => Some(Value::U32(self.regs.ssp)),
+            "ir" => Some(Value::U16(self.ir)),
+            "irc" => Some(Value::U16(self.irc)),
+            "flags.c" => Some(Value::Bool(self.regs.sr & 0x01 != 0)),
+            "flags.v" => Some(Value::Bool(self.regs.sr & 0x02 != 0)),
+            "flags.z" => Some(Value::Bool(self.regs.sr & 0x04 != 0)),
+            "flags.n" => Some(Value::Bool(self.regs.sr & 0x08 != 0)),
+            "flags.x" => Some(Value::Bool(self.regs.sr & 0x10 != 0)),
+            "flags.s" => Some(Value::Bool(self.regs.is_supervisor())),
+            "flags.t" => Some(Value::Bool(self.regs.is_trace())),
+            "flags.ipl" => Some(Value::U8(self.regs.interrupt_mask())),
+            "halted" => Some(Value::Bool(self.is_halted())),
+            "idle" => Some(Value::Bool(self.is_idle())),
+            _ => None,
+        }
+    }
+
+    fn query_paths(&self) -> &'static [&'static str] {
+        &[
+            "pc", "sr", "ccr",
+            "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
+            "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
+            "usp", "ssp", "ir", "irc",
+            "flags.c", "flags.v", "flags.z", "flags.n", "flags.x",
+            "flags.s", "flags.t", "flags.ipl",
+            "halted", "idle",
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Cpu68000;
@@ -1481,5 +1535,32 @@ mod tests {
             "CPU should be in handler spin loop after interrupt service (pc=${:08X})",
             cpu.regs.pc
         );
+    }
+
+    #[test]
+    fn observable_registers() {
+        use emu_core::Observable;
+        use emu_core::Value;
+
+        let mut cpu = Cpu68000::new();
+        cpu.regs.d[0] = 0xDEAD_BEEF;
+        cpu.regs.d[7] = 42;
+        cpu.regs.a[3] = 0x0010_0000;
+        cpu.regs.pc = 0x00FC_0004;
+        cpu.regs.sr = 0x2704; // supervisor, IPL=7, Z flag
+
+        assert_eq!(cpu.query("d0"), Some(Value::U32(0xDEAD_BEEF)));
+        assert_eq!(cpu.query("d7"), Some(Value::U32(42)));
+        assert_eq!(cpu.query("a3"), Some(Value::U32(0x0010_0000)));
+        assert_eq!(cpu.query("pc"), Some(Value::U32(0x00FC_0004)));
+        assert_eq!(cpu.query("sr"), Some(Value::U16(0x2704)));
+        assert_eq!(cpu.query("ccr"), Some(Value::U8(0x04)));
+        assert_eq!(cpu.query("flags.z"), Some(Value::Bool(true)));
+        assert_eq!(cpu.query("flags.c"), Some(Value::Bool(false)));
+        assert_eq!(cpu.query("flags.s"), Some(Value::Bool(true)));
+        assert_eq!(cpu.query("flags.ipl"), Some(Value::U8(7)));
+        assert_eq!(cpu.query("halted"), Some(Value::Bool(false)));
+        assert_eq!(cpu.query("idle"), Some(Value::Bool(true)));
+        assert_eq!(cpu.query("nonexistent"), None);
     }
 }

@@ -1,27 +1,22 @@
-//! MCP (Model Context Protocol) server for the NES emulator.
+//! MCP (Model Context Protocol) server for the Amiga emulator.
 //!
 //! Exposes the emulator as a JSON-RPC 2.0 server over stdin/stdout.
 //! Tools allow AI agents and scripts to boot, control, observe, and
 //! capture the emulator programmatically.
 
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::redundant_closure_for_method_calls
-)]
-#![allow(clippy::too_many_lines, clippy::match_same_arms)]
+#![allow(clippy::cast_possible_truncation)]
 
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use emu_core::{Cpu, Observable, Tickable};
+use emu_core::Observable;
 
-use crate::Nes;
-use crate::config::NesConfig;
-use crate::input::NesButton;
+use crate::config::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
+use crate::format_adf::Adf;
+use crate::{Amiga, PAL_FRAME_TICKS};
 
 // ---------------------------------------------------------------------------
 // JSON-RPC types
@@ -76,24 +71,15 @@ impl RpcResponse {
 // MCP Server
 // ---------------------------------------------------------------------------
 
-/// MCP server wrapping a headless NES instance.
+/// MCP server wrapping a headless Amiga instance.
 pub struct McpServer {
-    nes: Option<Nes>,
-    rom_path: Option<PathBuf>,
+    amiga: Option<Amiga>,
 }
 
 impl McpServer {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            nes: None,
-            rom_path: None,
-        }
-    }
-
-    /// Set a default ROM path (from CLI --rom argument).
-    pub fn set_rom_path(&mut self, path: PathBuf) {
-        self.rom_path = Some(path);
+        Self { amiga: None }
     }
 
     /// Run the server loop: read JSON-RPC from stdin, write responses to stdout.
@@ -154,30 +140,28 @@ impl McpServer {
         match method {
             "boot" => self.handle_boot(params, id),
             "reset" => self.handle_reset(id),
-            "load_rom" => self.handle_load_rom(params, id),
             "run_frames" => self.handle_run_frames(params, id),
             "step_instruction" => self.handle_step_instruction(id),
             "step_ticks" => self.handle_step_ticks(params, id),
             "screenshot" => self.handle_screenshot(id),
+            "audio_capture" => self.handle_audio_capture(params, id),
             "query" => self.handle_query(params, id),
-            "poke" => self.handle_poke(params, id),
-            "press_button" => self.handle_press_button(params, id),
-            "release_button" => self.handle_release_button(params, id),
-            "input_sequence" => self.handle_input_sequence(params, id),
-            "set_breakpoint" => self.handle_set_breakpoint(params, id),
             "query_memory" => self.handle_query_memory(params, id),
+            "poke" => self.handle_poke(params, id),
+            "set_breakpoint" => self.handle_set_breakpoint(params, id),
+            "insert_disk" => self.handle_insert_disk(params, id),
             _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
         }
     }
 
-    fn require_nes(&mut self, id: &JsonValue) -> Result<&mut Nes, RpcResponse> {
-        if self.nes.is_some() {
-            Ok(self.nes.as_mut().expect("checked is_some"))
+    fn require_amiga(&mut self, id: &JsonValue) -> Result<&mut Amiga, RpcResponse> {
+        if self.amiga.is_some() {
+            Ok(self.amiga.as_mut().expect("checked is_some"))
         } else {
             Err(RpcResponse::error(
                 id.clone(),
                 -32000,
-                "No NES instance. Call 'boot' first.".to_string(),
+                "No Amiga instance. Call 'boot' first.".to_string(),
             ))
         }
     }
@@ -185,77 +169,58 @@ impl McpServer {
     // === Tool handlers ===
 
     fn handle_boot(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        // Load ROM from params, path, or default
-        let rom_data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
-            match base64::engine::general_purpose::STANDARD.decode(b64) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
-            }
-        } else if let Some(path) = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .map(PathBuf::from)
-            .or_else(|| self.rom_path.clone())
-        {
-            match std::fs::read(&path) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32000, format!("Cannot read ROM: {e}")),
-            }
-        } else {
-            return RpcResponse::error(
-                id,
-                -32602,
-                "Provide 'data' (base64), 'path', or --rom CLI argument".to_string(),
-            );
+        let kickstart = match load_kickstart(params) {
+            Ok(data) => data,
+            Err(e) => return RpcResponse::error(id, -32000, e),
         };
 
-        let config = NesConfig { rom_data };
-        match Nes::new(&config) {
-            Ok(nes) => {
-                self.nes = Some(nes);
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
-            }
-            Err(e) => RpcResponse::error(id, -32000, format!("Boot failed: {e}")),
-        }
+        let model = match params.get("model").and_then(|v| v.as_str()) {
+            Some("a500plus") => AmigaModel::A500Plus,
+            _ => AmigaModel::A500,
+        };
+
+        let chipset = match params.get("chipset").and_then(|v| v.as_str()) {
+            Some("ecs") => AmigaChipset::Ecs,
+            _ => AmigaChipset::Ocs,
+        };
+
+        let region = match params.get("region").and_then(|v| v.as_str()) {
+            Some("ntsc") => AmigaRegion::Ntsc,
+            _ => AmigaRegion::Pal,
+        };
+
+        let config = AmigaConfig {
+            model,
+            chipset,
+            region,
+            kickstart,
+        };
+
+        self.amiga = Some(Amiga::new_with_config(config));
+        RpcResponse::success(id, serde_json::json!({"status": "ok"}))
     }
 
     fn handle_reset(&mut self, id: JsonValue) -> RpcResponse {
-        match self.require_nes(&id) {
-            Ok(nes) => {
-                nes.cpu_mut().reset();
+        match self.require_amiga(&id) {
+            Ok(amiga) => {
+                // 68000 reset: read SSP from vector 0, PC from vector 4
+                let ssp = u32::from(amiga.memory.read_byte(0)) << 24
+                    | u32::from(amiga.memory.read_byte(1)) << 16
+                    | u32::from(amiga.memory.read_byte(2)) << 8
+                    | u32::from(amiga.memory.read_byte(3));
+                let pc = u32::from(amiga.memory.read_byte(4)) << 24
+                    | u32::from(amiga.memory.read_byte(5)) << 16
+                    | u32::from(amiga.memory.read_byte(6)) << 8
+                    | u32::from(amiga.memory.read_byte(7));
+                amiga.cpu.reset_to(ssp, pc);
                 RpcResponse::success(id, serde_json::json!({"status": "ok"}))
             }
             Err(e) => e,
         }
     }
 
-    fn handle_load_rom(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let rom_data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
-            match base64::engine::general_purpose::STANDARD.decode(b64) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
-            }
-        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
-            match std::fs::read(path) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
-            }
-        } else {
-            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
-        };
-
-        let config = NesConfig { rom_data };
-        match Nes::new(&config) {
-            Ok(nes) => {
-                self.nes = Some(nes);
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
-            }
-            Err(e) => RpcResponse::error(id, -32000, format!("ROM load failed: {e}")),
-        }
-    }
-
     fn handle_run_frames(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
+        let amiga = match self.require_amiga(&id) {
             Ok(s) => s,
             Err(e) => return e,
         };
@@ -266,36 +231,36 @@ impl McpServer {
             .or_else(|| params.get("frames").and_then(|v| v.as_u64()))
             .unwrap_or(1);
 
-        let mut total_ticks = 0u64;
         for _ in 0..count {
-            total_ticks += nes.run_frame();
+            amiga.run_frame();
         }
 
         RpcResponse::success(
             id,
             serde_json::json!({
                 "frames": count,
-                "ticks": total_ticks,
-                "frame_count": nes.frame_count(),
+                "master_clock": amiga.master_clock,
             }),
         )
     }
 
     fn handle_step_instruction(&mut self, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
+        let amiga = match self.require_amiga(&id) {
             Ok(s) => s,
             Err(e) => return e,
         };
 
+        // Tick until the CPU returns to idle (instruction boundary).
+        // The 68000 enters Idle after completing each instruction's micro-ops.
         let mut ticks = 0u64;
-        let max_ticks = 200 * 12; // 200 CPU cycles worth
+        let max_ticks = 10_000;
         let mut started = false;
 
         loop {
-            nes.tick();
+            amiga.tick();
             ticks += 1;
 
-            if nes.cpu().is_instruction_complete() {
+            if amiga.cpu.is_idle() {
                 if started {
                     break;
                 }
@@ -311,14 +276,14 @@ impl McpServer {
         RpcResponse::success(
             id,
             serde_json::json!({
-                "pc": format!("${:04X}", nes.cpu().regs.pc),
+                "pc": format!("${:08X}", amiga.cpu.regs.pc),
                 "ticks": ticks,
             }),
         )
     }
 
     fn handle_step_ticks(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
+        let amiga = match self.require_amiga(&id) {
             Ok(s) => s,
             Err(e) => return e,
         };
@@ -326,26 +291,31 @@ impl McpServer {
         let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
 
         for _ in 0..count {
-            nes.tick();
+            amiga.tick();
         }
 
         RpcResponse::success(
             id,
             serde_json::json!({
-                "pc": format!("${:04X}", nes.cpu().regs.pc),
+                "pc": format!("${:08X}", amiga.cpu.regs.pc),
             }),
         )
     }
 
     fn handle_screenshot(&mut self, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
+        let amiga = match self.require_amiga(&id) {
             Ok(s) => s,
             Err(e) => return e,
         };
 
-        let width = nes.framebuffer_width();
-        let height = nes.framebuffer_height();
-        let fb = nes.framebuffer();
+        let pal = matches!(amiga.region, AmigaRegion::Pal);
+        let viewport = amiga
+            .denise
+            .as_inner()
+            .extract_viewport(crate::commodore_denise_ocs::ViewportPreset::Standard, pal, true);
+
+        let width = viewport.width;
+        let height = viewport.height;
 
         let mut png_buf = Vec::new();
         {
@@ -358,7 +328,7 @@ impl McpServer {
             };
 
             let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-            for &pixel in fb {
+            for &pixel in &viewport.pixels {
                 rgba.push(((pixel >> 16) & 0xFF) as u8);
                 rgba.push(((pixel >> 8) & 0xFF) as u8);
                 rgba.push((pixel & 0xFF) as u8);
@@ -382,8 +352,61 @@ impl McpServer {
         )
     }
 
+    fn handle_audio_capture(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let frames = params.get("frames").and_then(|v| v.as_u64()).unwrap_or(50);
+
+        let mut all_audio = Vec::new();
+        for _ in 0..frames {
+            amiga.run_frame();
+            all_audio.extend_from_slice(&amiga.take_audio_buffer());
+        }
+
+        // Encode as WAV (stereo interleaved from Paula)
+        let wav_spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: crate::AUDIO_SAMPLE_RATE,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+
+        let mut wav_buf = Vec::new();
+        {
+            let cursor = io::Cursor::new(&mut wav_buf);
+            let mut writer = match hound::WavWriter::new(cursor, wav_spec) {
+                Ok(w) => w,
+                Err(e) => return RpcResponse::error(id, -32000, format!("WAV encode error: {e}")),
+            };
+            for &sample in &all_audio {
+                let clamped = sample.clamp(-1.0, 1.0);
+                let scaled = (clamped * f32::from(i16::MAX)) as i16;
+                if let Err(e) = writer.write_sample(scaled) {
+                    return RpcResponse::error(id, -32000, format!("WAV write error: {e}"));
+                }
+            }
+            if let Err(e) = writer.finalize() {
+                return RpcResponse::error(id, -32000, format!("WAV finalize error: {e}"));
+            }
+        }
+
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&wav_buf);
+        RpcResponse::success(
+            id,
+            serde_json::json!({
+                "format": "wav",
+                "samples": all_audio.len() / 2, // stereo pairs
+                "frames": frames,
+                "data": b64,
+            }),
+        )
+    }
+
     fn handle_query(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
+        let amiga = match self.require_amiga(&id) {
             Ok(s) => s,
             Err(e) => return e,
         };
@@ -393,7 +416,7 @@ impl McpServer {
             None => return RpcResponse::error(id, -32602, "Missing 'path' parameter".to_string()),
         };
 
-        match nes.query(path) {
+        match amiga.query(path) {
             Some(value) => {
                 let json_val = observable_to_json(&value);
                 RpcResponse::success(id, serde_json::json!({"path": path, "value": json_val}))
@@ -402,213 +425,19 @@ impl McpServer {
         }
     }
 
-    fn handle_poke(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
-            Err(e) => return e,
-        };
-
-        let addr = match params.get("address").and_then(|v| v.as_u64()) {
-            Some(a) if a <= 0x07FF => a as u16,
-            _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-2047, RAM only)".to_string(),
-                );
-            }
-        };
-
-        let value = match params.get("value").and_then(|v| v.as_u64()) {
-            Some(v) if v <= 0xFF => v as u8,
-            _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'value' (0-255)".to_string(),
-                );
-            }
-        };
-
-        nes.bus_mut().ram[addr as usize] = value;
-        RpcResponse::success(id, serde_json::json!({"address": addr, "value": value}))
-    }
-
-    fn handle_press_button(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
-            Err(e) => return e,
-        };
-
-        let name = match params.get("button").and_then(|v| v.as_str()) {
-            Some(n) => n,
-            None => {
-                return RpcResponse::error(id, -32602, "Missing 'button' parameter".to_string());
-            }
-        };
-
-        match parse_button_name(name) {
-            Some(button) => {
-                nes.press_button(button);
-                RpcResponse::success(id, serde_json::json!({"button": name, "pressed": true}))
-            }
-            None => RpcResponse::error(id, -32602, format!("Unknown button: {name}")),
-        }
-    }
-
-    fn handle_release_button(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
-            Err(e) => return e,
-        };
-
-        let name = match params.get("button").and_then(|v| v.as_str()) {
-            Some(n) => n,
-            None => {
-                return RpcResponse::error(id, -32602, "Missing 'button' parameter".to_string());
-            }
-        };
-
-        match parse_button_name(name) {
-            Some(button) => {
-                nes.release_button(button);
-                RpcResponse::success(id, serde_json::json!({"button": name, "pressed": false}))
-            }
-            None => RpcResponse::error(id, -32602, format!("Unknown button: {name}")),
-        }
-    }
-
-    fn handle_input_sequence(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
-            Err(e) => return e,
-        };
-
-        let sequence = match params.get("sequence").and_then(|v| v.as_array()) {
-            Some(s) => s,
-            None => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing 'sequence' array parameter".to_string(),
-                );
-            }
-        };
-
-        let hold_frames = params
-            .get("hold_frames")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(3);
-
-        let gap_frames = params
-            .get("gap_frames")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(3);
-
-        let start_frame = params
-            .get("at_frame")
-            .and_then(|v| v.as_u64())
-            .unwrap_or_else(|| nes.frame_count());
-
-        let mut frame = start_frame;
-        let mut count = 0u64;
-
-        for item in sequence {
-            let name = match item.as_str() {
-                Some(n) => n,
-                None => continue,
-            };
-            if let Some(button) = parse_button_name(name) {
-                nes.input_queue().enqueue_button(button, frame, hold_frames);
-                frame += hold_frames + gap_frames;
-                count += 1;
-            }
-        }
-
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "buttons_queued": count,
-                "start_frame": start_frame,
-                "end_frame": frame,
-            }),
-        )
-    }
-
-    fn handle_set_breakpoint(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
-            Err(e) => return e,
-        };
-
-        let addr = match params.get("address").and_then(|v| v.as_u64()) {
-            Some(a) if a <= 0xFFFF => a as u16,
-            _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-65535)".to_string(),
-                );
-            }
-        };
-
-        let max_frames = params
-            .get("max_frames")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10_000);
-
-        let ticks_per_frame = 341 * 262 * 4;
-        let mut ticks_run = 0u64;
-        let mut hit = false;
-
-        let max_ticks = max_frames * ticks_per_frame;
-
-        while ticks_run < max_ticks {
-            nes.tick();
-            ticks_run += 1;
-
-            if nes.cpu().regs.pc == addr && nes.cpu().is_instruction_complete() {
-                hit = true;
-                break;
-            }
-        }
-
-        let frames_run = ticks_run / ticks_per_frame;
-
-        if hit {
-            RpcResponse::success(
-                id,
-                serde_json::json!({
-                    "hit": true,
-                    "pc": format!("${:04X}", addr),
-                    "frames_run": frames_run,
-                }),
-            )
-        } else {
-            RpcResponse::success(
-                id,
-                serde_json::json!({
-                    "hit": false,
-                    "pc": format!("${:04X}", nes.cpu().regs.pc),
-                    "frames_run": frames_run,
-                }),
-            )
-        }
-    }
-
     fn handle_query_memory(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
+        let amiga = match self.require_amiga(&id) {
             Ok(s) => s,
             Err(e) => return e,
         };
 
         let address = match params.get("address").and_then(|v| v.as_u64()) {
-            Some(a) if a <= 0xFFFF => a as u16,
+            Some(a) if a <= 0x00FF_FFFF => a as u32,
             _ => {
                 return RpcResponse::error(
                     id,
                     -32602,
-                    "Missing or invalid 'address' (0-65535)".to_string(),
+                    "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
                 );
             }
         };
@@ -628,7 +457,7 @@ impl McpServer {
         };
 
         let bytes: Vec<u8> = (0..length)
-            .map(|i| nes.bus().peek_ram(address.wrapping_add(i as u16)))
+            .map(|i| amiga.memory.read_byte(address.wrapping_add(i as u32) & 0x00FF_FFFF))
             .collect();
 
         RpcResponse::success(
@@ -639,6 +468,126 @@ impl McpServer {
                 "data": bytes,
             }),
         )
+    }
+
+    fn handle_poke(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let addr = match params.get("address").and_then(|v| v.as_u64()) {
+            Some(a) if a <= 0x00FF_FFFF => a as u32,
+            _ => {
+                return RpcResponse::error(
+                    id,
+                    -32602,
+                    "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
+                );
+            }
+        };
+
+        let value = match params.get("value").and_then(|v| v.as_u64()) {
+            Some(v) if v <= 0xFF => v as u8,
+            _ => {
+                return RpcResponse::error(
+                    id,
+                    -32602,
+                    "Missing or invalid 'value' (0-255)".to_string(),
+                );
+            }
+        };
+
+        amiga.memory.write_byte(addr, value);
+        RpcResponse::success(id, serde_json::json!({"address": addr, "value": value}))
+    }
+
+    fn handle_set_breakpoint(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let addr = match params.get("address").and_then(|v| v.as_u64()) {
+            Some(a) if a <= 0x00FF_FFFF => a as u32,
+            _ => {
+                return RpcResponse::error(
+                    id,
+                    -32602,
+                    "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
+                );
+            }
+        };
+
+        let max_frames = params
+            .get("max_frames")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10_000);
+
+        let max_ticks = max_frames * PAL_FRAME_TICKS;
+        let mut ticks_run = 0u64;
+        let mut hit = false;
+
+        while ticks_run < max_ticks {
+            amiga.tick();
+            ticks_run += 1;
+
+            if amiga.cpu.regs.pc == addr && amiga.cpu.is_idle() {
+                hit = true;
+                break;
+            }
+        }
+
+        let frames_run = ticks_run / PAL_FRAME_TICKS;
+
+        if hit {
+            RpcResponse::success(
+                id,
+                serde_json::json!({
+                    "hit": true,
+                    "pc": format!("${:08X}", addr),
+                    "frames_run": frames_run,
+                }),
+            )
+        } else {
+            RpcResponse::success(
+                id,
+                serde_json::json!({
+                    "hit": false,
+                    "pc": format!("${:08X}", amiga.cpu.regs.pc),
+                    "frames_run": frames_run,
+                }),
+            )
+        }
+    }
+
+    fn handle_insert_disk(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
+            }
+        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+            match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
+            }
+        } else {
+            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+        };
+
+        match Adf::from_bytes(data) {
+            Ok(adf) => {
+                amiga.insert_disk(adf);
+                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
+            }
+            Err(e) => RpcResponse::error(id, -32000, format!("ADF load failed: {e}")),
+        }
     }
 }
 
@@ -652,18 +601,52 @@ impl Default for McpServer {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn parse_button_name(name: &str) -> Option<NesButton> {
-    match name.to_lowercase().as_str() {
-        "a" => Some(NesButton::A),
-        "b" => Some(NesButton::B),
-        "select" => Some(NesButton::Select),
-        "start" => Some(NesButton::Start),
-        "up" => Some(NesButton::Up),
-        "down" => Some(NesButton::Down),
-        "left" => Some(NesButton::Left),
-        "right" => Some(NesButton::Right),
-        _ => None,
+fn load_kickstart(params: &JsonValue) -> Result<Vec<u8>, String> {
+    // Try params first
+    if let Some(b64) = params.get("kickstart").and_then(|v| v.as_str()) {
+        return base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| format!("Invalid base64 kickstart: {e}"));
     }
+
+    if let Some(path) = params.get("kickstart_path").and_then(|v| v.as_str()) {
+        return std::fs::read(path).map_err(|e| format!("Cannot read kickstart: {e}"));
+    }
+
+    // Try environment variable
+    if let Ok(path) = std::env::var("AMIGA_KS13_ROM") {
+        return std::fs::read(&path)
+            .map_err(|e| format!("Cannot read kickstart from AMIGA_KS13_ROM ({path}): {e}"));
+    }
+
+    // Try roms/ directory
+    let roms_dir = find_roms_dir();
+    for name in &["kick13.rom", "kick.rom"] {
+        let path = roms_dir.join(name);
+        if path.exists() {
+            return std::fs::read(&path)
+                .map_err(|e| format!("Cannot read {}: {e}", path.display()));
+        }
+    }
+
+    Err("No kickstart ROM found. Provide 'kickstart_path', set AMIGA_KS13_ROM, or place kick13.rom in roms/".to_string())
+}
+
+fn find_roms_dir() -> std::path::PathBuf {
+    use std::path::Path;
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent().map(Path::to_path_buf);
+        for _ in 0..5 {
+            if let Some(ref d) = dir {
+                let roms = d.join("roms");
+                if roms.is_dir() {
+                    return roms;
+                }
+                dir = d.parent().map(Path::to_path_buf);
+            }
+        }
+    }
+    std::path::PathBuf::from("roms")
 }
 
 fn observable_to_json(value: &emu_core::Value) -> JsonValue {
@@ -685,16 +668,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_button_names() {
-        assert_eq!(parse_button_name("a"), Some(NesButton::A));
-        assert_eq!(parse_button_name("A"), Some(NesButton::A));
-        assert_eq!(parse_button_name("start"), Some(NesButton::Start));
-        assert_eq!(parse_button_name("select"), Some(NesButton::Select));
-        assert_eq!(parse_button_name("up"), Some(NesButton::Up));
-        assert_eq!(parse_button_name("unknown"), None);
-    }
-
-    #[test]
     fn unknown_method_returns_error() {
         let mut server = McpServer::new();
         let resp = server.dispatch("nonexistent", &JsonValue::Null, JsonValue::from(1));
@@ -708,6 +681,17 @@ mod tests {
         let resp = server.dispatch(
             "run_frames",
             &serde_json::json!({"count": 1}),
+            JsonValue::from(1),
+        );
+        assert!(resp.error.is_some());
+    }
+
+    #[test]
+    fn query_without_boot_returns_error() {
+        let mut server = McpServer::new();
+        let resp = server.dispatch(
+            "query",
+            &serde_json::json!({"path": "cpu.pc"}),
             JsonValue::from(1),
         );
         assert!(resp.error.is_some());

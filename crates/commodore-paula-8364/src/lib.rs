@@ -339,6 +339,13 @@ impl Paula8364 {
         *self = Self::new();
     }
 
+    /// Return per-channel audio state: (period, volume, output_sample).
+    ///
+    /// Returns `None` if `ch` is out of range (0..3).
+    pub fn audio_channel_state(&self, ch: usize) -> Option<(u16, u8, i8)> {
+        self.audio.get(ch).map(|ac| (ac.per, ac.vol, ac.output_sample))
+    }
+
     pub fn write_intena(&mut self, val: u16) {
         if val & 0x8000 != 0 {
             self.intena |= val & 0x7FFF;

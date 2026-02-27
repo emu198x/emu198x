@@ -15,10 +15,13 @@ commodore-denise-ecs = { path = "../commodore-denise-ecs" }
 format-adf = { path = "../format-adf" }
 drive-amiga-floppy = { path = "../drive-amiga-floppy" }
 peripheral-amiga-keyboard = { path = "../peripheral-amiga-keyboard" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+png = "0.17"
+hound = "3.5"
 
 [dev-dependencies]
-hound = "3.5"
-png = "0.17"
 
 [lib]
 name = "machine_amiga"

@@ -6,6 +6,7 @@
 
 pub mod bus;
 pub mod config;
+pub mod mcp;
 pub mod memory;
 
 use crate::memory::Memory;
@@ -1651,6 +1652,103 @@ impl Amiga {
     #[must_use]
     pub const fn blitter_progress_debug_stats(&self) -> BlitterProgressDebugStats {
         self.blitter_progress_debug
+    }
+}
+
+impl emu_core::Observable for Amiga {
+    fn query(&self, path: &str) -> Option<emu_core::Value> {
+        use emu_core::Value;
+
+        if let Some(rest) = path.strip_prefix("cpu.") {
+            self.cpu.query(rest)
+        } else if let Some(rest) = path.strip_prefix("agnus.") {
+            let inner = self.agnus.as_inner();
+            match rest {
+                "vpos" => Some(Value::U16(inner.vpos)),
+                "hpos" => Some(Value::U16(inner.hpos)),
+                _ => None,
+            }
+        } else if let Some(rest) = path.strip_prefix("denise.") {
+            if let Some(idx_str) = rest.strip_prefix("palette.") {
+                let idx: usize = idx_str.parse().ok()?;
+                if idx < 32 {
+                    Some(Value::U16(self.denise.as_inner().palette[idx]))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else if let Some(rest) = path.strip_prefix("paula.") {
+            if let Some(ch_rest) = rest.strip_prefix("audio.") {
+                // paula.audio.0.period, paula.audio.0.volume, paula.audio.0.sample
+                let dot = ch_rest.find('.')?;
+                let ch: usize = ch_rest[..dot].parse().ok()?;
+                let field = &ch_rest[dot + 1..];
+                let (per, vol, sample) = self.paula.audio_channel_state(ch)?;
+                match field {
+                    "period" => Some(Value::U16(per)),
+                    "volume" => Some(Value::U8(vol)),
+                    "sample" => Some(Value::I8(sample)),
+                    _ => None,
+                }
+            } else {
+                match rest {
+                    "intena" => Some(Value::U16(self.paula.intena)),
+                    "intreq" => Some(Value::U16(self.paula.intreq)),
+                    "adkcon" => Some(Value::U16(self.paula.adkcon)),
+                    _ => None,
+                }
+            }
+        } else if let Some(rest) = path.strip_prefix("cia_a.") {
+            match rest {
+                "timer_a" => Some(Value::U16(self.cia_a.timer_a())),
+                "timer_b" => Some(Value::U16(self.cia_a.timer_b())),
+                "icr_status" => Some(Value::U8(self.cia_a.icr_status())),
+                "icr_mask" => Some(Value::U8(self.cia_a.icr_mask())),
+                "cra" => Some(Value::U8(self.cia_a.cra())),
+                "crb" => Some(Value::U8(self.cia_a.crb())),
+                _ => None,
+            }
+        } else if let Some(rest) = path.strip_prefix("cia_b.") {
+            match rest {
+                "timer_a" => Some(Value::U16(self.cia_b.timer_a())),
+                "timer_b" => Some(Value::U16(self.cia_b.timer_b())),
+                "icr_status" => Some(Value::U8(self.cia_b.icr_status())),
+                "icr_mask" => Some(Value::U8(self.cia_b.icr_mask())),
+                "cra" => Some(Value::U8(self.cia_b.cra())),
+                "crb" => Some(Value::U8(self.cia_b.crb())),
+                _ => None,
+            }
+        } else if let Some(rest) = path.strip_prefix("memory.") {
+            let addr = if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+                u32::from_str_radix(hex, 16).ok()
+            } else if let Some(hex) = rest.strip_prefix('$') {
+                u32::from_str_radix(hex, 16).ok()
+            } else {
+                rest.parse().ok()
+            };
+            addr.map(|a| Value::U8(self.memory.read_byte(a)))
+        } else {
+            match path {
+                "master_clock" => Some(Value::U64(self.master_clock)),
+                _ => self.cpu.query(path),
+            }
+        }
+    }
+
+    fn query_paths(&self) -> &'static [&'static str] {
+        &[
+            "cpu.<68000_paths>",
+            "agnus.vpos", "agnus.hpos",
+            "denise.palette.<0-31>",
+            "paula.intena", "paula.intreq", "paula.adkcon",
+            "paula.audio.<0-3>.period", "paula.audio.<0-3>.volume", "paula.audio.<0-3>.sample",
+            "cia_a.timer_a", "cia_a.timer_b", "cia_a.icr_status", "cia_a.icr_mask", "cia_a.cra", "cia_a.crb",
+            "cia_b.timer_a", "cia_b.timer_b", "cia_b.icr_status", "cia_b.icr_mask", "cia_b.cra", "cia_b.crb",
+            "memory.<address>",
+            "master_clock",
+        ]
     }
 }
 
@@ -3900,5 +3998,55 @@ mod tests {
         tick_one_cck(&mut amiga); // frame wrap pulses both TOD inputs
         assert_eq!(amiga.cia_a.tod_counter(), 1);
         assert_eq!(amiga.cia_b.tod_counter(), 2);
+    }
+
+    #[test]
+    fn observable_cpu_and_system_state() {
+        use emu_core::Observable;
+        use emu_core::Value;
+
+        let rom = vec![0u8; 256 * 1024];
+        let amiga = Amiga::new(rom);
+
+        // CPU register queries
+        assert!(amiga.query("cpu.pc").is_some());
+        assert!(amiga.query("cpu.sr").is_some());
+        assert!(amiga.query("cpu.d0").is_some());
+        assert!(amiga.query("cpu.flags.z").is_some());
+
+        // Agnus beam position
+        assert!(matches!(amiga.query("agnus.vpos"), Some(Value::U16(_))));
+        assert!(matches!(amiga.query("agnus.hpos"), Some(Value::U16(_))));
+
+        // Denise palette
+        assert!(matches!(amiga.query("denise.palette.0"), Some(Value::U16(_))));
+        assert!(amiga.query("denise.palette.31").is_some());
+        assert!(amiga.query("denise.palette.32").is_none());
+
+        // Paula interrupt registers
+        assert!(matches!(amiga.query("paula.intena"), Some(Value::U16(_))));
+        assert!(matches!(amiga.query("paula.intreq"), Some(Value::U16(_))));
+        assert!(matches!(amiga.query("paula.adkcon"), Some(Value::U16(_))));
+
+        // Paula audio channels
+        assert!(matches!(amiga.query("paula.audio.0.period"), Some(Value::U16(_))));
+        assert!(matches!(amiga.query("paula.audio.0.volume"), Some(Value::U8(_))));
+        assert!(matches!(amiga.query("paula.audio.3.sample"), Some(Value::I8(_))));
+        assert!(amiga.query("paula.audio.4.period").is_none());
+
+        // CIA
+        assert!(matches!(amiga.query("cia_a.timer_a"), Some(Value::U16(_))));
+        assert!(matches!(amiga.query("cia_b.cra"), Some(Value::U8(_))));
+
+        // Memory (ROM area: kickstart mirror at $F80000)
+        assert!(matches!(amiga.query("memory.0xF80000"), Some(Value::U8(_))));
+        assert!(matches!(amiga.query("memory.$000000"), Some(Value::U8(_))));
+
+        // Master clock
+        assert!(matches!(amiga.query("master_clock"), Some(Value::U64(_))));
+
+        // Unknown paths
+        assert!(amiga.query("nonexistent").is_none());
+        assert!(amiga.query("agnus.nonexistent").is_none());
     }
 }

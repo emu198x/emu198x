@@ -155,6 +155,7 @@ impl McpServer {
             "type_text" => self.handle_type_text(params, id),
             "set_breakpoint" => self.handle_set_breakpoint(params, id),
             "get_screen_text" => self.handle_get_screen_text(id),
+            "query_memory" => self.handle_query_memory(params, id),
             _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
         }
     }
@@ -616,6 +617,51 @@ impl McpServer {
                 "rows": 25,
                 "cols": 40,
                 "lines": lines,
+            }),
+        )
+    }
+
+    fn handle_query_memory(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let c64 = match self.require_c64(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let address = match params.get("address").and_then(|v| v.as_u64()) {
+            Some(a) if a <= 0xFFFF => a as u16,
+            _ => {
+                return RpcResponse::error(
+                    id,
+                    -32602,
+                    "Missing or invalid 'address' (0-65535)".to_string(),
+                );
+            }
+        };
+
+        let length = match params.get("length").and_then(|v| v.as_u64()) {
+            Some(l) if l >= 1 && l <= 65536 => l as usize,
+            Some(_) => {
+                return RpcResponse::error(
+                    id,
+                    -32602,
+                    "Invalid 'length' (1-65536)".to_string(),
+                );
+            }
+            None => {
+                return RpcResponse::error(id, -32602, "Missing 'length' parameter".to_string());
+            }
+        };
+
+        let bytes: Vec<u8> = (0..length)
+            .map(|i| c64.bus().memory.peek(address.wrapping_add(i as u16)))
+            .collect();
+
+        RpcResponse::success(
+            id,
+            serde_json::json!({
+                "address": address,
+                "length": length,
+                "data": bytes,
             }),
         )
     }

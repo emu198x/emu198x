@@ -88,6 +88,7 @@ struct CliArgs {
     screenshot_path: Option<PathBuf>,
     audio_path: Option<PathBuf>,
     mute: bool,
+    mcp: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -171,6 +172,7 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
     eprintln!("  --audio <file.wav>  Save a WAV audio dump (headless)");
     eprintln!("  --mute         Disable host audio playback (windowed)");
+    eprintln!("  --mcp          Run as MCP JSON-RPC server (headless, stdin/stdout)");
     eprintln!("  -h, --help     Show this help");
     process::exit(code);
 }
@@ -193,6 +195,7 @@ fn parse_args() -> CliArgs {
     let mut screenshot_path: Option<PathBuf> = None;
     let mut audio_path: Option<PathBuf> = None;
     let mut mute = false;
+    let mut mcp = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -306,6 +309,9 @@ fn parse_args() -> CliArgs {
             "--mute" => {
                 mute = true;
             }
+            "--mcp" => {
+                mcp = true;
+            }
             "-h" | "--help" => print_usage_and_exit(0),
             other => {
                 eprintln!("Unknown argument: {other}");
@@ -315,12 +321,19 @@ fn parse_args() -> CliArgs {
         i += 1;
     }
 
-    let rom_path = rom_path
-        .or_else(|| std::env::var_os("AMIGA_KS13_ROM").map(PathBuf::from))
-        .unwrap_or_else(|| {
-            eprintln!("No Kickstart ROM specified.");
-            print_usage_and_exit(1);
-        });
+    let rom_path = if mcp {
+        // MCP mode: ROM is provided via boot method, not required upfront
+        rom_path
+            .or_else(|| std::env::var_os("AMIGA_KS13_ROM").map(PathBuf::from))
+            .unwrap_or_default()
+    } else {
+        rom_path
+            .or_else(|| std::env::var_os("AMIGA_KS13_ROM").map(PathBuf::from))
+            .unwrap_or_else(|| {
+                eprintln!("No Kickstart ROM specified.");
+                print_usage_and_exit(1);
+            })
+    };
 
     if screenshot_path.is_some() || audio_path.is_some() || bench_insert_screen || beam_debug {
         headless = true;
@@ -355,6 +368,7 @@ fn parse_args() -> CliArgs {
         screenshot_path,
         audio_path,
         mute,
+        mcp,
     }
 }
 
@@ -2145,6 +2159,11 @@ mod tests {
 
 fn main() {
     let cli = parse_args();
+
+    if cli.mcp {
+        machine_amiga::mcp::McpServer::new().run();
+        return;
+    }
 
     if cli.headless {
         run_headless(&cli);
