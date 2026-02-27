@@ -11,7 +11,7 @@
 //! 2. Check VIC-II raster IRQ → CPU IRQ
 //! 3. CPU: tick if not stalled by VIC-II badline
 //! 4. CIA1: tick timer, check IRQ → CPU IRQ
-//! 5. CIA2: tick timer (NMI — stubbed for v1)
+//! 5. CIA2: tick timer, check NMI → CPU NMI (edge-triggered)
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -37,6 +37,8 @@ pub struct C64 {
     frame_count: u64,
     /// Timed input event queue.
     input_queue: InputQueue,
+    /// Previous CIA2 IRQ active state (for NMI edge detection).
+    cia2_nmi_prev: bool,
 }
 
 impl C64 {
@@ -79,6 +81,7 @@ impl C64 {
             master_clock: 0,
             frame_count: 0,
             input_queue: InputQueue::new(),
+            cia2_nmi_prev: false,
         }
     }
 
@@ -221,8 +224,13 @@ impl Tickable for C64 {
             self.cpu.interrupt();
         }
 
-        // 5. CIA2: tick timer (NMI stubbed for v1)
+        // 5. CIA2: tick timer, check NMI → CPU NMI (edge-triggered)
         self.bus.cia2.tick();
+        let cia2_nmi_now = self.bus.cia2.irq_active();
+        if cia2_nmi_now && !self.cia2_nmi_prev {
+            self.cpu.nmi();
+        }
+        self.cia2_nmi_prev = cia2_nmi_now;
 
         // 6. SID: tick oscillators, envelopes, filter, and downsample
         self.bus.sid.tick();

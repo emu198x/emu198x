@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (NES AxROM mapper, PPU emphasis/greyscale, Amiga Copper SKIP). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (C64 CIA2 NMI). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -74,7 +74,7 @@ detection, plays SID audio.
 - **Sprites**: 8 sprites, single-colour and multicolour ($D01C), X/Y expand, priority
 - **Sprite collisions**: Sprite-sprite ($D01E) and sprite-background ($D01F), clear-on-read, IRQ triggering
 - **Audio**: SID 6581 with 3 voices, ADSR, SVF filter, downsampling to 48 kHz
-- **CIA**: Timer A/B, keyboard scanning, VIC bank selection
+- **CIA**: Timer A/B, keyboard scanning, VIC bank selection, CIA2 NMI (edge-triggered)
 - **Storage**: PRG loading
 - **Input**: 8×8 keyboard matrix
 
@@ -82,7 +82,6 @@ detection, plays SID audio.
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| CIA2 NMI | `c64.rs` line 224 — stubbed | Music players and demos using CIA2 NMI fail |
 | 1541 disk drive | Not implemented | D64 images cannot be loaded; PRG-only |
 | Cartridge support (CRT) | Not implemented | Cartridge games unloadable |
 | NTSC variant | Not implemented | PAL-only |
@@ -105,8 +104,9 @@ detection, plays SID audio.
 All six VIC-II display modes, both collision registers, and fine scrolling
 (XSCROLL/CSEL/RSEL) are now implemented. The SID is recognisable but not
 audiophile-grade; the filter model is the main audio quality gap. The
-largest remaining gaps are **1541 disk drive** (blocks D64 loading) and
-**CIA2 NMI** (blocks some music players and demos).
+largest remaining gap is **1541 disk drive** (blocks D64 loading). CIA2
+NMI is now wired with edge detection, unlocking music players and demos
+that use Timer A/B NMI for raster effects and playback.
 
 ---
 
@@ -216,7 +216,6 @@ work is in expanding display modes and peripheral completeness.
 3. **NES DMC DMA** — completes audio for most NES games
 4. **Amiga disk write** — unlocks game saves
 5. **68010/020 instructions** — unlocks A500+/A1200
-6. **C64 CIA2 NMI** — unlocks music players and demos
 
 ### v1 exit criteria status
 
