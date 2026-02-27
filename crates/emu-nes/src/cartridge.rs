@@ -3,7 +3,7 @@
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
 //! a `Mapper` trait for address translation. Supports NROM (Mapper 0),
 //! MMC1 (Mapper 1), UxROM (Mapper 2), CNROM (Mapper 3), MMC3 (Mapper 4),
-//! and MMC2 (Mapper 9).
+//! AxROM (Mapper 7), and MMC2 (Mapper 9).
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -438,6 +438,71 @@ impl Mapper for CnRom {
 
     fn chr_write(&mut self, _addr: u16, _value: u8) {
         // CNROM uses CHR ROM — no writes
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
+/// AxROM (Mapper 7): 32K PRG bank switching with single-screen mirroring.
+///
+/// Used by Battletoads, Marble Madness, and Wizards & Warriors.
+///
+/// - PRG: 32K switchable at $8000-$FFFF
+/// - CHR: 8K RAM (always)
+/// - Mirroring: single-screen, selected by bit 4 of bank register
+struct AxRom {
+    prg_rom: Vec<u8>,
+    chr_ram: [u8; 8192],
+    bank: u8,
+    mirroring: Mirroring,
+}
+
+impl AxRom {
+    fn new(prg_rom: Vec<u8>) -> Self {
+        Self {
+            prg_rom,
+            chr_ram: [0; 8192],
+            bank: 0,
+            mirroring: Mirroring::SingleScreenLower,
+        }
+    }
+
+    fn prg_bank_count(&self) -> usize {
+        self.prg_rom.len() / 32768
+    }
+}
+
+impl Mapper for AxRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let bank = (self.bank as usize & 0x07) % self.prg_bank_count();
+                let offset = (addr - 0x8000) as usize;
+                self.prg_rom[bank * 32768 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.bank = value & 0x07;
+            self.mirroring = if value & 0x10 != 0 {
+                Mirroring::SingleScreenUpper
+            } else {
+                Mirroring::SingleScreenLower
+            };
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[(addr as usize) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[(addr as usize) & 0x1FFF] = value;
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -936,6 +1001,7 @@ pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
         2 => Ok(Box::new(UxRom::new(prg_rom, chr_data, mirroring))),
         3 => Ok(Box::new(CnRom::new(prg_rom, chr_data, mirroring))),
         4 => Ok(Box::new(Mmc3::new(prg_rom, chr_data))),
+        7 => Ok(Box::new(AxRom::new(prg_rom))),
         9 => Ok(Box::new(Mmc2::new(prg_rom, chr_data))),
         n => Err(format!("Unsupported mapper: {n}")),
     }
@@ -1744,5 +1810,60 @@ mod tests {
         m.chr_read(0x1000);
         assert_eq!(m.irq_counter, 5);
         assert!(!m.irq_pending);
+    }
+
+    // --- AxROM tests ---
+
+    #[test]
+    fn axrom_parse_ines() {
+        // Mapper 7: flags6 high nibble = 0x7_, so flags6 = 0x70
+        let data = make_ines(2, 0, 0x70);
+        let mapper = parse_ines(&data).expect("parse failed");
+        assert_eq!(mapper.mirroring(), Mirroring::SingleScreenLower);
+    }
+
+    #[test]
+    fn axrom_prg_switching() {
+        // 8 x 32K PRG banks, each filled with bank index
+        let mut prg = vec![0u8; 8 * 32768];
+        for bank in 0..8usize {
+            for i in 0..32768 {
+                prg[bank * 32768 + i] = bank as u8;
+            }
+        }
+        let mut m = AxRom::new(prg);
+
+        // Default: bank 0
+        assert_eq!(m.cpu_read(0x8000), 0);
+        assert_eq!(m.cpu_read(0xFFFF), 0);
+
+        // Switch to bank 3
+        m.cpu_write(0x8000, 3);
+        assert_eq!(m.cpu_read(0x8000), 3);
+        assert_eq!(m.cpu_read(0xC000), 3);
+    }
+
+    #[test]
+    fn axrom_mirroring_switch() {
+        let mut m = AxRom::new(vec![0u8; 32768]);
+
+        // Default: single-screen lower
+        assert_eq!(m.mirroring(), Mirroring::SingleScreenLower);
+
+        // Set bit 4 → upper
+        m.cpu_write(0x8000, 0x10);
+        assert_eq!(m.mirroring(), Mirroring::SingleScreenUpper);
+
+        // Clear bit 4 → lower
+        m.cpu_write(0x8000, 0x02);
+        assert_eq!(m.mirroring(), Mirroring::SingleScreenLower);
+    }
+
+    #[test]
+    fn axrom_chr_ram() {
+        let mut m = AxRom::new(vec![0u8; 32768]);
+        assert_eq!(m.chr_read(0x0000), 0);
+        m.chr_write(0x0000, 0xAB);
+        assert_eq!(m.chr_read(0x0000), 0xAB);
     }
 }

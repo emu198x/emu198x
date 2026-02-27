@@ -87,7 +87,10 @@ impl Copper {
             // WAIT or SKIP
             let is_skip = (self.ir2 & 1) != 0;
             if is_skip {
-                // SKIP stub
+                // SKIP: if beam position reached, skip next instruction
+                if self.check_wait(vpos, hpos) {
+                    self.pc = self.pc.wrapping_add(4);
+                }
                 self.state = State::Fetch1;
                 None
             } else {
@@ -139,5 +142,66 @@ impl Copper {
 impl Default for Copper {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skip_advances_pc_when_condition_met() {
+        let mut cop = Copper::new();
+        // Place a SKIP instruction: wait for vpos >= 0, hpos >= 0 (always true)
+        // ir1: VP=0 HP=0 with bit 0 set (second word marker)
+        // ir2: mask all, bit 0 = 1 (SKIP)
+        //
+        // Memory layout at address 0:
+        //   $0000: ir1 = $0001 (WAIT/SKIP marker)
+        //   $0002: ir2 = $8001 (V mask=$80, H mask=$00, SKIP bit set)
+        //   $0004: (next instruction — should be skipped)
+        //   $0008: (instruction after skip)
+        let mem = |addr: u32| -> u16 {
+            match addr {
+                0 => 0x0001,  // ir1: vp=0, hp=0, bit0=1
+                2 => 0x8001,  // ir2: mask_v=$80, mask_h=$00, skip=1
+                _ => 0x0000,
+            }
+        };
+
+        cop.pc = 0;
+        cop.state = State::Fetch1;
+
+        // Fetch1: reads ir1 from addr 0, advances PC to 2
+        cop.tick(100, 100, mem);
+        assert_eq!(cop.state, State::Fetch2);
+
+        // Fetch2 + execute: reads ir2 from addr 2, advances PC to 4,
+        // then SKIP condition is met (vpos=100 >= 0), so PC advances +4 to 8
+        cop.tick(100, 100, mem);
+        assert_eq!(cop.state, State::Fetch1);
+        assert_eq!(cop.pc, 8); // Skipped one instruction (4 bytes)
+    }
+
+    #[test]
+    fn skip_does_not_advance_when_condition_not_met() {
+        let mut cop = Copper::new();
+        // SKIP waiting for vpos >= 200 — current beam at line 50, so not met
+        let mem = |addr: u32| -> u16 {
+            match addr {
+                0 => 0xC801, // ir1: vp=$C8 (200), hp=0, bit0=1
+                2 => 0xFF01, // ir2: full mask, skip=1
+                _ => 0x0000,
+            }
+        };
+
+        cop.pc = 0;
+        cop.state = State::Fetch1;
+
+        cop.tick(50, 0, mem); // Fetch1
+        cop.tick(50, 0, mem); // Fetch2 + execute
+
+        assert_eq!(cop.state, State::Fetch1);
+        assert_eq!(cop.pc, 4); // No skip — proceeds to next instruction normally
     }
 }

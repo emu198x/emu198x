@@ -228,7 +228,7 @@ impl Ppu {
             let x = (self.dot - 1) as usize;
             let y = self.scanline as usize;
             if y < FB_HEIGHT as usize && x < FB_WIDTH as usize {
-                self.framebuffer[y * FB_WIDTH as usize + x] = PALETTE[bg_colour as usize];
+                self.framebuffer[y * FB_WIDTH as usize + x] = self.apply_mask_effects(bg_colour);
             }
         }
     }
@@ -347,7 +347,7 @@ impl Ppu {
             (u16::from(palette) << 2) | u16::from(pixel)
         };
         let palette_index = self.palette_ram[(colour_addr as usize) & 0x1F] & 0x3F;
-        self.framebuffer[y * FB_WIDTH as usize + x] = PALETTE[palette_index as usize];
+        self.framebuffer[y * FB_WIDTH as usize + x] = self.apply_mask_effects(palette_index);
     }
 
     fn get_bg_pixel(&self) -> (u8, u8) {
@@ -731,6 +731,49 @@ impl Ppu {
         self.mask & 0x08 != 0 && self.mask & 0x10 != 0
     }
 
+    /// Apply PPUMASK greyscale (bit 0) and emphasis (bits 5-7) to an ARGB colour.
+    ///
+    /// Greyscale forces the palette index to column 0 (AND with $30) before
+    /// lookup. Emphasis attenuates the *other* channels: emphasise-red dims
+    /// green and blue, etc. The attenuation factor is ~0.816 per NES Dev wiki.
+    fn apply_mask_effects(&self, palette_index: u8) -> u32 {
+        let idx = if self.mask & 0x01 != 0 {
+            (palette_index & 0x30) as usize
+        } else {
+            palette_index as usize
+        };
+
+        let argb = PALETTE[idx];
+        let emphasis = self.mask >> 5;
+        if emphasis == 0 {
+            return argb;
+        }
+
+        // NTSC emphasis bits: bit 0 = red, bit 1 = green, bit 2 = blue.
+        // Each set bit attenuates the OTHER two channels.
+        let mut r = (argb >> 16) & 0xFF;
+        let mut g = (argb >> 8) & 0xFF;
+        let mut b = argb & 0xFF;
+
+        // Emphasise red → dim green and blue
+        if emphasis & 0x01 != 0 {
+            g = g * 13 / 16;
+            b = b * 13 / 16;
+        }
+        // Emphasise green → dim red and blue
+        if emphasis & 0x02 != 0 {
+            r = r * 13 / 16;
+            b = b * 13 / 16;
+        }
+        // Emphasise blue → dim red and green
+        if emphasis & 0x04 != 0 {
+            r = r * 13 / 16;
+            g = g * 13 / 16;
+        }
+
+        0xFF00_0000 | (r << 16) | (g << 8) | b
+    }
+
     fn check_nmi(&mut self) {
         let nmi_active = self.nmi_occurred && self.nmi_output;
         if nmi_active && !self.nmi_edge {
@@ -955,5 +998,50 @@ mod tests {
         let a3 = ppu.mirror_nametable_addr(0x2C00, Mirroring::Vertical);
         assert_eq!(a1, 0x0400);
         assert_eq!(a3, 0x0400);
+    }
+
+    #[test]
+    fn greyscale_masks_palette_column() {
+        let mut ppu = Ppu::new();
+        // Greyscale off: palette index 0x15 maps to PALETTE[0x15]
+        ppu.mask = 0x00;
+        let normal = ppu.apply_mask_effects(0x15);
+        assert_eq!(normal, PALETTE[0x15]);
+
+        // Greyscale on: palette index 0x15 → 0x15 & 0x30 = 0x10
+        ppu.mask = 0x01;
+        let grey = ppu.apply_mask_effects(0x15);
+        assert_eq!(grey, PALETTE[0x10]);
+    }
+
+    #[test]
+    fn emphasis_red_dims_green_and_blue() {
+        let mut ppu = Ppu::new();
+        // Emphasis red = PPUMASK bit 5
+        ppu.mask = 0x20;
+        let argb = ppu.apply_mask_effects(0x20); // A known palette entry
+
+        let base = PALETTE[0x20];
+        let base_r = (base >> 16) & 0xFF;
+        let base_g = (base >> 8) & 0xFF;
+        let base_b = base & 0xFF;
+
+        let out_r = (argb >> 16) & 0xFF;
+        let out_g = (argb >> 8) & 0xFF;
+        let out_b = argb & 0xFF;
+
+        // Red unchanged, green and blue attenuated
+        assert_eq!(out_r, base_r);
+        assert_eq!(out_g, base_g * 13 / 16);
+        assert_eq!(out_b, base_b * 13 / 16);
+    }
+
+    #[test]
+    fn no_emphasis_returns_raw_palette() {
+        let mut ppu = Ppu::new();
+        ppu.mask = 0x00;
+        for idx in 0..64u8 {
+            assert_eq!(ppu.apply_mask_effects(idx), PALETTE[idx as usize]);
+        }
     }
 }

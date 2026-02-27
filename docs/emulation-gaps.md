@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (NES MMC3 mapper, mapper IRQ support). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (NES AxROM mapper, PPU emphasis/greyscale, Amiga Copper SKIP). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -112,22 +112,23 @@ largest remaining gaps are **1541 disk drive** (blocks D64 loading) and
 
 ## NES
 
-Boots games using six mappers (including MMC3), renders backgrounds and
-sprites, plays pulse/triangle/noise audio. The main gap is **DMC audio**.
+Boots games using seven mappers, renders backgrounds and sprites with
+emphasis/greyscale effects, plays pulse/triangle/noise audio. The main
+gap is **DMC audio**.
 
 ### Implemented
 
 - **CPU**: 6502 at 100% cycle accuracy (2.56M single-step tests pass)
 - **PPU**: Background + sprites, all mirroring modes (H/V/4-screen/single-screen)
 - **APU**: Pulse (×2), triangle, noise, frame counter, mixer at 48 kHz
-- **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC3 (4) 8-register PRG/CHR banking + scanline counter IRQ + PRG RAM, MMC2 (9) CHR latch-based bank switching
+- **PPU effects**: PPUMASK greyscale (bit 0) and emphasis (bits 5-7) applied at pixel output — colour tinting and greyscale mode both functional
+- **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC3 (4) 8-register PRG/CHR banking + scanline counter IRQ + PRG RAM, AxROM (7) 32K PRG switching + single-screen mirroring, MMC2 (9) CHR latch-based bank switching
 - **Mapper IRQ**: Mapper trait supports IRQ signalling; MMC3 scanline counter wired to CPU interrupt line
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| Mapper 7 (AxROM) | Not implemented | Battletoads, Marble Madness |
 | DMC sample playback | `apu.rs` — stub, no DMA | Drums/bass in most game music silent |
 | DMC/OAM DMA conflict | Not implemented | Cycle-stealing interaction missing |
 | Zapper (light gun) | Not implemented | Duck Hunt unplayable |
@@ -139,18 +140,17 @@ sprites, plays pulse/triangle/noise audio. The main gap is **DMC audio**.
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| PPU emphasis bits ($2001 bits 5-7) | `ppu.rs` — stored, not applied | Colour tinting effects missing |
-| PPU greyscale ($2001 bit 0) | Not implemented | Greyscale mode broken |
 | PPU open bus | `ppu.rs` — returns 0 | Reading write-only regs should return last bus byte |
 | Sprite zero hit cycle precision | `ppu.rs` — possibly off-by-1 | Split-screen effects may glitch |
 | Bus conflicts | Not implemented | Some mapper boards have write contention |
 
 ### Assessment
 
-**~75-80% of the NES library runs** (NROM + MMC1 + UxROM + CNROM + MMC3 +
-MMC2). MMC3 alone covers ~20% of the NES library (SMB3, Kirby's Adventure,
-Mega Man 3-6, Batman). DMC DMA is the largest remaining gap — it requires
-a CPU bus access mechanism that doesn't exist yet.
+**~80% of the NES library runs** (NROM + MMC1 + UxROM + CNROM + MMC3 +
+AxROM + MMC2). AxROM adds Battletoads, Marble Madness, and Wizards &
+Warriors. PPU emphasis and greyscale are now applied at pixel output.
+DMC DMA is the largest remaining gap — it requires a CPU bus access
+mechanism that doesn't exist yet.
 
 ---
 
@@ -166,7 +166,6 @@ work.
 |-----|----------|--------|
 | HAM mode (Hold-And-Modify) | `commodore-denise-ocs` — not decoded | Large category of Amiga graphics broken |
 | EHB mode (Extra Half-Brite) | `commodore-denise-ocs` — not decoded | 64-colour mode broken |
-| Copper SKIP instruction | `copper.rs` line 90 — stubbed | Conditional copper lists fail |
 | Disk write to ADF | `drive-amiga-floppy` — captures but doesn't persist | Cannot save games or write disks |
 | 68010 MOVEC instruction | `decode.rs` line 1162 — returns error | A500+ (KS 2.x) OS code fails |
 | 68020 instruction extensions | `motorola-68020` — thin wrapper | A1200 code using 020 features fails |
@@ -190,10 +189,10 @@ work.
 ### Assessment
 
 The Amiga has the widest gap between "boots" and "runs software". **HAM
-mode** alone blocks a huge category of graphics. Copper SKIP, disk write,
-and the 68010/020 instruction gaps block running on anything beyond a stock
-A500 with KS 1.3. The OCS core is solid; the work is in expanding display
-modes and peripheral completeness.
+mode** alone blocks a huge category of graphics. Copper SKIP is now
+implemented. Disk write and the 68010/020 instruction gaps block running
+on anything beyond a stock A500 with KS 1.3. The OCS core is solid; the
+work is in expanding display modes and peripheral completeness.
 
 ---
 
@@ -204,9 +203,9 @@ modes and peripheral completeness.
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
-| Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~90% (missing emphasis/greyscale) | ~60% (missing HAM/EHB) |
+| Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~95% (emphasis + greyscale, missing open bus) | ~60% (missing HAM/EHB) |
 | Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~80% (no DMC) | ~85% (no filter model) |
-| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | 6 mappers (0/1/2/3/4/9) | ADF read only |
+| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |
 | Model variants | 48K, 128K, +2 PAL | PAL only | NTSC only | A500 OCS only |
 
@@ -215,11 +214,9 @@ modes and peripheral completeness.
 1. **C64 1541 disk drive** — unlocks D64 loading (huge library unlock)
 2. **Amiga HAM/EHB modes** — unlocks large category of Amiga graphics
 3. **NES DMC DMA** — completes audio for most NES games
-4. **Amiga Copper SKIP** — unlocks conditional copper lists
-5. **NES mapper 7** (AxROM) — unlocks Battletoads, Marble Madness
-6. **Amiga disk write** — unlocks game saves
-7. **68010/020 instructions** — unlocks A500+/A1200
-8. **C64 CIA2 NMI** — unlocks music players and demos
+4. **Amiga disk write** — unlocks game saves
+5. **68010/020 instructions** — unlocks A500+/A1200
+6. **C64 CIA2 NMI** — unlocks music players and demos
 
 ### v1 exit criteria status
 
