@@ -127,6 +127,149 @@ fn test_sid_produces_audio() {
     println!("Audio saved to {}", audio_path.display());
 }
 
+#[test]
+#[ignore] // Requires real C64 ROMs at roms/
+fn test_badline_border_timing() {
+    let kernal = fs::read("../../roms/kernal.rom").expect("kernal.rom not found");
+    let basic = fs::read("../../roms/basic.rom").expect("basic.rom not found");
+    let chargen = fs::read("../../roms/chargen.rom").expect("chargen.rom not found");
+
+    let mut c64 = C64::new(&C64Config {
+        model: C64Model::C64Pal,
+        kernal_rom: kernal,
+        basic_rom: basic,
+        char_rom: chargen,
+    });
+
+    // Boot to READY. prompt
+    for _ in 0..120 {
+        c64.run_frame();
+    }
+    assert!(find_ready_in_screen(&c64), "C64 did not reach READY. prompt");
+
+    // Poke a tight border-colour cycling loop at $C000:
+    //   $C000: SEI            (78)       — disable Kernal IRQ
+    //   $C001: INC $D020      (EE 20 D0) — increment border colour
+    //   $C004: JMP $C001      (4C 01 C0) — loop forever
+    //
+    // Loop body = 9 cycles (INC abs = 6, JMP abs = 3).
+    // On a 63-cycle PAL line:
+    //   Normal line: ~7 INC iterations → 7 colour changes
+    //   Badline:     CPU stalled 40 cycles → ~2 colour changes
+    let program: &[(u16, u8)] = &[
+        (0xC000, 0x78), // SEI
+        (0xC001, 0xEE), // INC $D020
+        (0xC002, 0x20),
+        (0xC003, 0xD0),
+        (0xC004, 0x4C), // JMP $C001
+        (0xC005, 0x01),
+        (0xC006, 0xC0),
+    ];
+    for &(addr, byte) in program {
+        c64.bus_mut().memory.ram_write(addr, byte);
+    }
+
+    // Redirect CPU to our program
+    c64.cpu_mut().regs.pc = 0xC000;
+
+    // Run 3 frames to produce a stable visual pattern
+    for _ in 0..3 {
+        c64.run_frame();
+    }
+
+    // Save screenshot
+    let out_dir = Path::new("../../test_output");
+    fs::create_dir_all(out_dir).ok();
+    let screenshot_path = out_dir.join("c64_badline_raster.png");
+    emu_c64::capture::save_screenshot(&c64, &screenshot_path)
+        .expect("Failed to save screenshot");
+    println!("Screenshot saved to {}", screenshot_path.display());
+
+    let fb = c64.framebuffer();
+    let w = c64.framebuffer_width() as usize;
+
+    // Helper: get pixel at (fb_x, fb_y)
+    let pixel = |fb_x: usize, fb_y: usize| -> u32 { fb[fb_y * w + fb_x] };
+
+    // With YSCROLL=3 (Kernal default $D011=$1B), badlines occur where (line & 7) == 3
+    // within the display window (lines $30-$F7).
+    //
+    // The INC $D020 loop advances the border colour continuously. On a badline,
+    // the CPU is stalled for 40 cycles, so fewer INC operations complete before
+    // any given beam position. This shifts the border colour at a fixed X on
+    // badline rows compared to their neighbors — the classic "staircase" effect.
+    //
+    // The right border is only 6 cycles wide (cycles 56-61), so we can't count
+    // multiple transitions per line. Instead we verify the colour at a fixed X
+    // differs between badline and normal lines across multiple 8-line groups.
+
+    // Sample column at fb_x=384 (cycle 58, middle of right border).
+    // Check 5 badline/normal pairs spaced across the display area.
+    // Badlines at raster lines where (line & 7) == 3:
+    //   raster 99 → fb_y 93,  raster 107 → fb_y 101,
+    //   raster 115 → fb_y 109, raster 155 → fb_y 149,
+    //   raster 195 → fb_y 189
+    let sample_x = 384;
+    let pairs: &[(usize, usize)] = &[
+        (93, 94),   // raster 99/100
+        (101, 102), // raster 107/108
+        (109, 110), // raster 115/116
+        (149, 150), // raster 155/156
+        (189, 190), // raster 195/196
+    ];
+
+    // Assertion 1: Every badline/normal pair shows a colour difference at the
+    // same X, proving the CPU stall shifts the border colour consistently.
+    let mut mismatches = 0;
+    for &(bl_y, nl_y) in pairs {
+        let bl_px = pixel(sample_x, bl_y);
+        let nl_px = pixel(sample_x, nl_y);
+        let differs = bl_px != nl_px;
+        if differs {
+            mismatches += 1;
+        }
+        println!(
+            "  fb_y {bl_y} (badline) = 0x{bl_px:08X}, \
+             fb_y {nl_y} (normal) = 0x{nl_px:08X} — {}",
+            if differs { "DIFFER" } else { "same" }
+        );
+    }
+    println!("Badline/normal colour mismatches: {mismatches}/{}", pairs.len());
+    assert!(
+        mismatches >= 4,
+        "At least 4 of {} badline/normal pairs should show different border colours \
+         at x={sample_x}, got {mismatches}",
+        pairs.len()
+    );
+
+    // Assertion 2: The badline effect is systematic across the entire display
+    // area, not a one-off glitch. Check ALL badline/normal pairs in the
+    // display window (raster lines $30-$F7). Badlines at every raster line
+    // where (line & 7) == 3: lines 51, 59, 67, ..., 243.
+    let mut total_pairs = 0;
+    let mut differing_pairs = 0;
+    let mut raster = 51u16;
+    while raster <= 243 {
+        let bl_y = (raster - 6) as usize;
+        let nl_y = bl_y + 1;
+        if nl_y < fb.len() / w {
+            total_pairs += 1;
+            if pixel(sample_x, bl_y) != pixel(sample_x, nl_y) {
+                differing_pairs += 1;
+            }
+        }
+        raster += 8;
+    }
+    println!(
+        "Display-wide badline/normal pairs: {differing_pairs}/{total_pairs} differ"
+    );
+    assert!(
+        differing_pairs >= total_pairs * 4 / 5,
+        "At least 80% of badline/normal pairs should differ across the display area, \
+         got {differing_pairs}/{total_pairs}"
+    );
+}
+
 /// Scan screen memory for the PETSCII sequence "READY."
 fn find_ready_in_screen(c64: &C64) -> bool {
     let screen_start = 0x0400u16;
