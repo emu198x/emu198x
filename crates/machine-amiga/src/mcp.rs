@@ -7,6 +7,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::io::{self, BufRead, Write};
+use std::path::Path;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -150,6 +151,8 @@ impl McpServer {
             "poke" => self.handle_poke(params, id),
             "set_breakpoint" => self.handle_set_breakpoint(params, id),
             "insert_disk" => self.handle_insert_disk(params, id),
+            "press_key" => self.handle_press_key(params, id),
+            "release_key" => self.handle_release_key(params, id),
             _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
         }
     }
@@ -589,6 +592,99 @@ impl McpServer {
             Err(e) => RpcResponse::error(id, -32000, format!("ADF load failed: {e}")),
         }
     }
+
+    fn handle_press_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let key_name = match params.get("key").and_then(|v| v.as_str()) {
+            Some(k) => k,
+            None => return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string()),
+        };
+
+        match parse_key_name(key_name) {
+            Some(keycode) => {
+                amiga.key_event(keycode, true);
+                RpcResponse::success(id, serde_json::json!({"key": key_name, "pressed": true}))
+            }
+            None => RpcResponse::error(id, -32602, format!("Unknown key: {key_name}")),
+        }
+    }
+
+    fn handle_release_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let amiga = match self.require_amiga(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let key_name = match params.get("key").and_then(|v| v.as_str()) {
+            Some(k) => k,
+            None => return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string()),
+        };
+
+        match parse_key_name(key_name) {
+            Some(keycode) => {
+                amiga.key_event(keycode, false);
+                RpcResponse::success(id, serde_json::json!({"key": key_name, "pressed": false}))
+            }
+            None => RpcResponse::error(id, -32602, format!("Unknown key: {key_name}")),
+        }
+    }
+
+    /// Run a script file: read a JSON array of simplified RPC requests, dispatch
+    /// each in order, and write JSON-line responses to stdout.
+    pub fn run_script(&mut self, path: &Path) -> io::Result<()> {
+        let data = std::fs::read_to_string(path)?;
+        let steps: Vec<ScriptStep> = serde_json::from_str(&data)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        let stdout = io::stdout();
+        let mut stdout = stdout.lock();
+
+        for (i, step) in steps.iter().enumerate() {
+            let id = JsonValue::from(i as u64 + 1);
+            let params = step.params.clone().unwrap_or(JsonValue::Object(Default::default()));
+            let response = self.dispatch(&step.method, &params, id);
+
+            let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap_or_default());
+            let _ = stdout.flush();
+
+            if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
+                if let Some(ref result) = response.result {
+                    if let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
+                        if let Err(e) = save_capture_data(save_path, data_b64) {
+                            eprintln!("Failed to save {save_path}: {e}");
+                        } else {
+                            eprintln!("Saved {save_path}");
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// A single step in a script file.
+#[derive(Deserialize)]
+struct ScriptStep {
+    method: String,
+    #[serde(default)]
+    params: Option<JsonValue>,
+}
+
+/// Decode base64 capture data and write to a file.
+fn save_capture_data(path: &str, data_b64: &str) -> io::Result<()> {
+    if data_b64.is_empty() {
+        return Ok(());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_b64)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, bytes)
 }
 
 impl Default for McpServer {
@@ -600,6 +696,95 @@ impl Default for McpServer {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Map a key name string to an Amiga raw keycode.
+fn parse_key_name(name: &str) -> Option<u8> {
+    match name.to_lowercase().as_str() {
+        // Letters
+        "a" => Some(0x20),
+        "b" => Some(0x35),
+        "c" => Some(0x33),
+        "d" => Some(0x22),
+        "e" => Some(0x12),
+        "f" => Some(0x23),
+        "g" => Some(0x24),
+        "h" => Some(0x25),
+        "i" => Some(0x17),
+        "j" => Some(0x26),
+        "k" => Some(0x27),
+        "l" => Some(0x28),
+        "m" => Some(0x37),
+        "n" => Some(0x36),
+        "o" => Some(0x18),
+        "p" => Some(0x19),
+        "q" => Some(0x10),
+        "r" => Some(0x13),
+        "s" => Some(0x21),
+        "t" => Some(0x14),
+        "u" => Some(0x16),
+        "v" => Some(0x34),
+        "w" => Some(0x11),
+        "x" => Some(0x32),
+        "y" => Some(0x15),
+        "z" => Some(0x31),
+        // Number row
+        "1" => Some(0x01),
+        "2" => Some(0x02),
+        "3" => Some(0x03),
+        "4" => Some(0x04),
+        "5" => Some(0x05),
+        "6" => Some(0x06),
+        "7" => Some(0x07),
+        "8" => Some(0x08),
+        "9" => Some(0x09),
+        "0" => Some(0x0A),
+        // Special keys
+        "space" => Some(0x40),
+        "return" | "enter" => Some(0x44),
+        "backspace" => Some(0x41),
+        "tab" => Some(0x42),
+        "escape" | "esc" => Some(0x45),
+        "delete" | "del" => Some(0x46),
+        // Cursor keys
+        "up" | "cursor_up" => Some(0x4C),
+        "down" | "cursor_down" => Some(0x4D),
+        "right" | "cursor_right" => Some(0x4E),
+        "left" | "cursor_left" => Some(0x4F),
+        // Modifiers
+        "lshift" | "left_shift" => Some(0x60),
+        "rshift" | "right_shift" => Some(0x61),
+        "capslock" | "caps_lock" => Some(0x62),
+        "ctrl" | "control" => Some(0x63),
+        "lalt" | "left_alt" => Some(0x64),
+        "ralt" | "right_alt" => Some(0x65),
+        "lamiga" | "left_amiga" => Some(0x66),
+        "ramiga" | "right_amiga" => Some(0x67),
+        // Function keys
+        "f1" => Some(0x50),
+        "f2" => Some(0x51),
+        "f3" => Some(0x52),
+        "f4" => Some(0x53),
+        "f5" => Some(0x54),
+        "f6" => Some(0x55),
+        "f7" => Some(0x56),
+        "f8" => Some(0x57),
+        "f9" => Some(0x58),
+        "f10" => Some(0x59),
+        // Punctuation
+        "minus" | "-" => Some(0x0B),
+        "equals" | "=" => Some(0x0C),
+        "backslash" | "\\" => Some(0x0D),
+        "semicolon" | ";" => Some(0x29),
+        "quote" | "'" => Some(0x2A),
+        "comma" | "," => Some(0x38),
+        "period" | "." => Some(0x39),
+        "slash" | "/" => Some(0x3A),
+        "leftbracket" | "[" => Some(0x1A),
+        "rightbracket" | "]" => Some(0x1B),
+        "backquote" | "`" => Some(0x00),
+        _ => None,
+    }
+}
 
 fn load_kickstart(params: &JsonValue) -> Result<Vec<u8>, String> {
     // Try params first
@@ -695,5 +880,18 @@ mod tests {
             JsonValue::from(1),
         );
         assert!(resp.error.is_some());
+    }
+
+    #[test]
+    fn parse_key_names() {
+        assert_eq!(parse_key_name("a"), Some(0x20));
+        assert_eq!(parse_key_name("A"), Some(0x20));
+        assert_eq!(parse_key_name("return"), Some(0x44));
+        assert_eq!(parse_key_name("enter"), Some(0x44));
+        assert_eq!(parse_key_name("space"), Some(0x40));
+        assert_eq!(parse_key_name("f1"), Some(0x50));
+        assert_eq!(parse_key_name("lshift"), Some(0x60));
+        assert_eq!(parse_key_name("lamiga"), Some(0x66));
+        assert_eq!(parse_key_name("unknown"), None);
     }
 }

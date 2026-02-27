@@ -89,6 +89,7 @@ struct CliArgs {
     audio_path: Option<PathBuf>,
     mute: bool,
     mcp: bool,
+    script_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -173,6 +174,7 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --audio <file.wav>  Save a WAV audio dump (headless)");
     eprintln!("  --mute         Disable host audio playback (windowed)");
     eprintln!("  --mcp          Run as MCP JSON-RPC server (headless, stdin/stdout)");
+    eprintln!("  --script <file.json>  Run a JSON script file (headless batch mode)");
     eprintln!("  -h, --help     Show this help");
     process::exit(code);
 }
@@ -196,6 +198,7 @@ fn parse_args() -> CliArgs {
     let mut audio_path: Option<PathBuf> = None;
     let mut mute = false;
     let mut mcp = false;
+    let mut script_path: Option<PathBuf> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -312,6 +315,10 @@ fn parse_args() -> CliArgs {
             "--mcp" => {
                 mcp = true;
             }
+            "--script" => {
+                i += 1;
+                script_path = args.get(i).map(PathBuf::from);
+            }
             "-h" | "--help" => print_usage_and_exit(0),
             other => {
                 eprintln!("Unknown argument: {other}");
@@ -321,8 +328,8 @@ fn parse_args() -> CliArgs {
         i += 1;
     }
 
-    let rom_path = if mcp {
-        // MCP mode: ROM is provided via boot method, not required upfront
+    let rom_path = if mcp || script_path.is_some() {
+        // MCP/script mode: ROM is provided via boot method, not required upfront
         rom_path
             .or_else(|| std::env::var_os("AMIGA_KS13_ROM").map(PathBuf::from))
             .unwrap_or_default()
@@ -369,6 +376,7 @@ fn parse_args() -> CliArgs {
         audio_path,
         mute,
         mcp,
+        script_path,
     }
 }
 
@@ -2162,6 +2170,15 @@ fn main() {
 
     if cli.mcp {
         machine_amiga::mcp::McpServer::new().run();
+        return;
+    }
+
+    if let Some(ref path) = cli.script_path {
+        let mut server = machine_amiga::mcp::McpServer::new();
+        if let Err(e) = server.run_script(path) {
+            eprintln!("Script error: {e}");
+            process::exit(1);
+        }
         return;
     }
 

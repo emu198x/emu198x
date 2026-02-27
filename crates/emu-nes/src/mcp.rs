@@ -11,7 +11,7 @@
 #![allow(clippy::too_many_lines, clippy::match_same_arms)]
 
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -640,6 +640,59 @@ impl McpServer {
             }),
         )
     }
+
+    /// Run a script file: read a JSON array of simplified RPC requests, dispatch
+    /// each in order, and write JSON-line responses to stdout.
+    pub fn run_script(&mut self, path: &Path) -> io::Result<()> {
+        let data = std::fs::read_to_string(path)?;
+        let steps: Vec<ScriptStep> = serde_json::from_str(&data)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        let stdout = io::stdout();
+        let mut stdout = stdout.lock();
+
+        for (i, step) in steps.iter().enumerate() {
+            let id = JsonValue::from(i as u64 + 1);
+            let params = step.params.clone().unwrap_or(JsonValue::Object(Default::default()));
+            let response = self.dispatch(&step.method, &params, id);
+
+            let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap_or_default());
+            let _ = stdout.flush();
+
+            if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
+                if let Some(ref result) = response.result {
+                    if let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
+                        if let Err(e) = save_capture_data(save_path, data_b64) {
+                            eprintln!("Failed to save {save_path}: {e}");
+                        } else {
+                            eprintln!("Saved {save_path}");
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// A single step in a script file.
+#[derive(Deserialize)]
+struct ScriptStep {
+    method: String,
+    #[serde(default)]
+    params: Option<JsonValue>,
+}
+
+/// Decode base64 capture data and write to a file.
+fn save_capture_data(path: &str, data_b64: &str) -> io::Result<()> {
+    if data_b64.is_empty() {
+        return Ok(());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_b64)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, bytes)
 }
 
 impl Default for McpServer {

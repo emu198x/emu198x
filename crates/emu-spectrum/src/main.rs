@@ -42,6 +42,7 @@ struct CliArgs {
     tap_path: Option<PathBuf>,
     headless: bool,
     mcp: bool,
+    script_path: Option<PathBuf>,
     frames: u32,
     screenshot_path: Option<PathBuf>,
     audio_path: Option<PathBuf>,
@@ -57,6 +58,7 @@ fn parse_args() -> CliArgs {
         tap_path: None,
         headless: false,
         mcp: false,
+        script_path: None,
         frames: 200,
         screenshot_path: None,
         audio_path: None,
@@ -81,6 +83,10 @@ fn parse_args() -> CliArgs {
             }
             "--mcp" => {
                 cli.mcp = true;
+            }
+            "--script" => {
+                i += 1;
+                cli.script_path = args.get(i).map(PathBuf::from);
             }
             "--frames" => {
                 i += 1;
@@ -118,6 +124,7 @@ fn parse_args() -> CliArgs {
                 eprintln!("  --tap <file>         Insert a TAP file into the tape deck");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
+                eprintln!("  --script <file>      Run a JSON script file (headless batch mode)");
                 eprintln!(
                     "  --frames <n>         Number of frames in headless mode [default: 200]"
                 );
@@ -405,6 +412,15 @@ fn main() {
     if cli.mcp {
         let mut server = McpServer::new();
         server.run();
+        return;
+    }
+
+    if let Some(ref path) = cli.script_path {
+        let mut server = McpServer::new();
+        if let Err(e) = server.run_script(path) {
+            eprintln!("Script error: {e}");
+            process::exit(1);
+        }
         return;
     }
 

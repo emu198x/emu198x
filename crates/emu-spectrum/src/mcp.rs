@@ -12,6 +12,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::io::{self, BufRead, Write};
+use std::path::Path;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -700,6 +701,59 @@ impl McpServer {
             }),
         )
     }
+
+    /// Run a script file: read a JSON array of simplified RPC requests, dispatch
+    /// each in order, and write JSON-line responses to stdout.
+    pub fn run_script(&mut self, path: &Path) -> io::Result<()> {
+        let data = std::fs::read_to_string(path)?;
+        let steps: Vec<ScriptStep> = serde_json::from_str(&data)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        let stdout = io::stdout();
+        let mut stdout = stdout.lock();
+
+        for (i, step) in steps.iter().enumerate() {
+            let id = JsonValue::from(i as u64 + 1);
+            let params = step.params.clone().unwrap_or(JsonValue::Object(Default::default()));
+            let response = self.dispatch(&step.method, &params, id);
+
+            let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap_or_default());
+            let _ = stdout.flush();
+
+            if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
+                if let Some(ref result) = response.result {
+                    if let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
+                        if let Err(e) = save_capture_data(save_path, data_b64) {
+                            eprintln!("Failed to save {save_path}: {e}");
+                        } else {
+                            eprintln!("Saved {save_path}");
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// A single step in a script file.
+#[derive(Deserialize)]
+struct ScriptStep {
+    method: String,
+    #[serde(default)]
+    params: Option<JsonValue>,
+}
+
+/// Decode base64 capture data and write to a file.
+fn save_capture_data(path: &str, data_b64: &str) -> io::Result<()> {
+    if data_b64.is_empty() {
+        return Ok(());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_b64)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, bytes)
 }
 
 impl Default for McpServer {
@@ -981,5 +1035,75 @@ mod tests {
             "Screen should show copyright year: {}",
             all_text
         );
+    }
+
+    #[test]
+    fn run_script_boot_and_query() {
+        let dir = std::env::temp_dir();
+        let script_path = dir.join("emu198x_test_script.json");
+        let script = r#"[
+            {"method": "boot"},
+            {"method": "run_frames", "params": {"count": 5}},
+            {"method": "query", "params": {"path": "cpu.pc"}}
+        ]"#;
+        std::fs::write(&script_path, script).unwrap();
+
+        let mut server = McpServer::new();
+        server.run_script(&script_path).unwrap();
+
+        // After running the script, the server should have a booted Spectrum
+        assert!(server.spectrum.is_some());
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    #[test]
+    fn run_script_with_screenshot_save() {
+        let dir = std::env::temp_dir();
+        let script_path = dir.join("emu198x_test_script_screenshot.json");
+        let png_path = dir.join("emu198x_test_screenshot.png");
+
+        let script = format!(
+            r#"[
+                {{"method": "boot"}},
+                {{"method": "run_frames", "params": {{"count": 5}}}},
+                {{"method": "screenshot", "params": {{"save_path": "{}"}}}}
+            ]"#,
+            png_path.display()
+        );
+        std::fs::write(&script_path, script).unwrap();
+
+        let mut server = McpServer::new();
+        server.run_script(&script_path).unwrap();
+
+        // Verify the PNG was saved
+        assert!(png_path.exists(), "Screenshot should be saved to disk");
+        let data = std::fs::read(&png_path).unwrap();
+        assert!(data.len() > 100, "PNG should have content");
+        // PNG magic bytes
+        assert_eq!(&data[..4], &[0x89, 0x50, 0x4E, 0x47]);
+
+        let _ = std::fs::remove_file(&script_path);
+        let _ = std::fs::remove_file(&png_path);
+    }
+
+    #[test]
+    fn run_script_invalid_json_returns_error() {
+        let dir = std::env::temp_dir();
+        let script_path = dir.join("emu198x_test_bad_script.json");
+        std::fs::write(&script_path, "not valid json").unwrap();
+
+        let mut server = McpServer::new();
+        let result = server.run_script(&script_path);
+        assert!(result.is_err());
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    #[test]
+    fn run_script_missing_file_returns_error() {
+        let mut server = McpServer::new();
+        let result = server.run_script(std::path::Path::new("/nonexistent/script.json"));
+        assert!(result.is_err());
     }
 }

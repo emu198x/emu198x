@@ -36,6 +36,7 @@ struct CliArgs {
     rom_path: Option<PathBuf>,
     headless: bool,
     mcp: bool,
+    script_path: Option<PathBuf>,
     frames: u32,
     screenshot_path: Option<PathBuf>,
     record_dir: Option<PathBuf>,
@@ -47,6 +48,7 @@ fn parse_args() -> CliArgs {
         rom_path: None,
         headless: false,
         mcp: false,
+        script_path: None,
         frames: 200,
         screenshot_path: None,
         record_dir: None,
@@ -64,6 +66,10 @@ fn parse_args() -> CliArgs {
             }
             "--mcp" => {
                 cli.mcp = true;
+            }
+            "--script" => {
+                i += 1;
+                cli.script_path = args.get(i).map(PathBuf::from);
             }
             "--frames" => {
                 i += 1;
@@ -86,6 +92,7 @@ fn parse_args() -> CliArgs {
                 eprintln!("  --rom <file>         iNES ROM file (.nes)");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
+                eprintln!("  --script <file>      Run a JSON script file (headless batch mode)");
                 eprintln!(
                     "  --frames <n>         Number of frames in headless mode [default: 200]"
                 );
@@ -306,6 +313,18 @@ fn main() {
             server.set_rom_path(path.clone());
         }
         server.run();
+        return;
+    }
+
+    if let Some(ref path) = cli.script_path {
+        let mut server = McpServer::new();
+        if let Some(ref rom) = cli.rom_path {
+            server.set_rom_path(rom.clone());
+        }
+        if let Err(e) = server.run_script(path) {
+            eprintln!("Script error: {e}");
+            process::exit(1);
+        }
         return;
     }
 

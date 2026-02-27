@@ -87,7 +87,7 @@ Foundational 68000 implementation for Amiga.
 
 ---
 
-### M37: Observability & Capture Infrastructure ⬜
+### M37: Observability & Capture Infrastructure ✅
 
 First-class introspection across all systems.
 
@@ -101,7 +101,7 @@ First-class introspection across all systems.
 
 ---
 
-### M38: Control Server (MCP) ⬜
+### M38: Control Server (MCP) ✅
 
 Programmatic control of all emulators.
 
@@ -115,16 +115,18 @@ Programmatic control of all emulators.
 
 ---
 
-### M39: Headless Scripting ⬜
+### M39: Headless Scripting ✅
 
-Automation without a GUI.
+Automation without a GUI. All four systems accept `--script <file.json>` which reads
+a JSON array of simplified RPC requests, dispatches each through the MCP server, writes
+JSON-line responses to stdout, and saves screenshots/audio to disk via `save_path` params.
 
 **Verification:**
 
-- JSON command protocol  
-- Batch execution  
-- Deterministic capture of video/audio  
-- Integration with Code Like It’s 198x pipeline  
+- ✅ JSON command protocol (`ScriptStep` struct, sequential ID assignment)
+- ✅ Batch execution (`run_script()` on all four MCP servers)
+- ✅ Deterministic capture of video/audio (`save_path` decodes base64 to disk)
+- ✅ Integration with Code Like It’s 198x pipeline (headless, no window)
 
 ---
 
