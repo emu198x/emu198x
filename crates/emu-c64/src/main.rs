@@ -33,6 +33,8 @@ const FRAME_DURATION: Duration = Duration::from_micros(19_950);
 
 struct CliArgs {
     prg_path: Option<PathBuf>,
+    d64_path: Option<PathBuf>,
+    drive_rom_path: Option<PathBuf>,
     headless: bool,
     mcp: bool,
     script_path: Option<PathBuf>,
@@ -47,6 +49,8 @@ fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut cli = CliArgs {
         prg_path: None,
+        d64_path: None,
+        drive_rom_path: None,
         headless: false,
         mcp: false,
         script_path: None,
@@ -63,6 +67,14 @@ fn parse_args() -> CliArgs {
             "--prg" => {
                 i += 1;
                 cli.prg_path = args.get(i).map(PathBuf::from);
+            }
+            "--d64" => {
+                i += 1;
+                cli.d64_path = args.get(i).map(PathBuf::from);
+            }
+            "--drive-rom" => {
+                i += 1;
+                cli.drive_rom_path = args.get(i).map(PathBuf::from);
             }
             "--headless" => {
                 cli.headless = true;
@@ -103,6 +115,8 @@ fn parse_args() -> CliArgs {
                 eprintln!();
                 eprintln!("Options:");
                 eprintln!("  --prg <file>         Load a PRG file into memory");
+                eprintln!("  --d64 <file>         Insert a D64 disk image");
+                eprintln!("  --drive-rom <file>   Load 1541 drive ROM (16384 bytes)");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
                 eprintln!("  --script <file>      Run a JSON script file (headless batch mode)");
@@ -364,19 +378,51 @@ fn find_roms_dir() -> PathBuf {
     PathBuf::from("roms")
 }
 
-fn load_c64_config() -> C64Config {
+fn load_c64_config(cli: &CliArgs) -> C64Config {
     let roms_dir = find_roms_dir();
+
+    // Load 1541 drive ROM if explicitly specified, or auto-detect from roms/
+    let drive_rom = if let Some(ref path) = cli.drive_rom_path {
+        Some(load_rom(path, "1541 Drive", 16384))
+    } else {
+        let auto_path = roms_dir.join("1541.rom");
+        if auto_path.is_file() {
+            Some(load_rom(&auto_path, "1541 Drive", 16384))
+        } else {
+            None
+        }
+    };
+
     C64Config {
         model: C64Model::C64Pal,
         kernal_rom: load_rom(&roms_dir.join("kernal.rom"), "Kernal", 8192),
         basic_rom: load_rom(&roms_dir.join("basic.rom"), "BASIC", 8192),
         char_rom: load_rom(&roms_dir.join("chargen.rom"), "Character", 4096),
+        drive_rom,
     }
 }
 
 fn make_c64(cli: &CliArgs) -> C64 {
-    let config = load_c64_config();
+    let config = load_c64_config(cli);
     let mut c64 = C64::new(&config);
+
+    // Load D64 disk image if specified
+    if let Some(ref path) = cli.d64_path {
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to read D64 file {}: {e}", path.display());
+                process::exit(1);
+            }
+        };
+        match c64.load_d64(&data) {
+            Ok(()) => eprintln!("Inserted D64: {}", path.display()),
+            Err(e) => {
+                eprintln!("Failed to load D64: {e}");
+                process::exit(1);
+            }
+        }
+    }
 
     if let Some(ref path) = cli.prg_path {
         let data = match std::fs::read(path) {

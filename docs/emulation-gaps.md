@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (C64 CRT cartridges + TAP tape loading). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (C64 1541 disk drive emulation). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -75,14 +75,14 @@ detection, plays SID audio.
 - **Sprite collisions**: Sprite-sprite ($D01E) and sprite-background ($D01F), clear-on-read, IRQ triggering
 - **Audio**: SID 6581 with 3 voices, ADSR, SVF filter, downsampling to 48 kHz
 - **CIA**: Timer A/B, keyboard scanning, VIC bank selection, CIA2 NMI (edge-triggered), TOD clock (BCD, 50 Hz PAL, latch-on-hours-read)
-- **Storage**: PRG loading, CRT cartridges (type 0 Normal 8K/16K, type 5 Ocean, type 19 Magic Desk), TAP tape loading via kernal ROM trap at $F49E
+- **Storage**: PRG loading, CRT cartridges (type 0 Normal 8K/16K, type 5 Ocean, type 19 Magic Desk), TAP tape loading via kernal ROM trap at $F49E, D64 disk images via full 1541 drive emulation
+- **1541 drive**: Standalone 6502 CPU + 2KB RAM + 16KB ROM + two VIA 6522 chips. IEC serial bus (ATN/CLK/DATA open-collector lines) connecting CIA2 to VIA1. GCR-encoded disk tracks with zone-dependent byte timing. Stepper motor, motor control, byte-ready IRQ via VIA2 CB1. Drive ROM handles all IEC protocol, directory parsing, and sector reading.
 - **Input**: 8×8 keyboard matrix
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| 1541 disk drive | Not implemented — requires CIA serial shift register + IEC protocol | D64 images cannot be loaded; largest single unlock but also largest scope |
 | NTSC variant | Not implemented | PAL-only |
 | CRT types beyond 0/5/19 | Unsupported CRT types return error | EasyFlash (type 32), Action Replay, etc. blocked |
 | TAP turbo loaders | ROM trap only handles standard kernal encoding | Custom tape loaders need CIA1 FLAG pulse timing |
@@ -95,20 +95,23 @@ detection, plays SID audio.
 | SID filter model | `filter.rs` — linear approximation | Filter sweeps sound different from real 6581 (documented, intentional for v1) |
 | SID combined waveforms | `voice.rs` — AND-based | Should be transition-based; combined waveforms sound harsh |
 | SID 6581 vs 8580 | Not differentiated | DC bias, filter response, combined waveforms differ between revisions |
-| CIA serial shift register | `cia.rs` — stub | Blocks IEC serial (1541 communication) |
+| 1541 half-track positioning | `drive1541.rs` — whole tracks only | Copy protection using half-tracks won't work |
+| 1541 write support | Not implemented | Disk saving not available; read-only |
 | SID envelope curve | `envelope.rs` — approximate thresholds | Decay/release not bit-exact with real chip |
 | REU (RAM expansion) | Not implemented | REU-dependent demos fail |
 
 ### Assessment
 
 All six VIC-II display modes, both collision registers, and fine scrolling
-(XSCROLL/CSEL/RSEL) are now implemented. The SID is recognisable but not
+(XSCROLL/CSEL/RSEL) are implemented. The SID is recognisable but not
 audiophile-grade; the filter model is the main audio quality gap. CRT
-cartridges (Normal 8K/16K, Ocean bankswitching, Magic Desk) and TAP
-tape loading (ROM trap at kernal LOAD entry) are now functional, unlocking
-the classic cartridge library and standard tape software. The 1541 disk
-drive remains the largest compatibility gap. CIA2 NMI is wired with edge
-detection, unlocking music players and demos that use Timer A/B NMI.
+cartridges (Normal 8K/16K, Ocean bankswitching, Magic Desk), TAP tape
+loading, and D64 disk images via full 1541 drive emulation are all
+functional, unlocking the three primary C64 media formats. The 1541
+emulation runs the real drive ROM on its own 6502 with GCR-encoded
+disk data presented via VIA2, communicating over the IEC serial bus
+wired through CIA2. CIA2 NMI is wired with edge detection, unlocking
+music players and demos that use Timer A/B NMI.
 
 ---
 
@@ -206,17 +209,17 @@ work is in peripheral completeness.
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
 | Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
 | Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~95% (all 5 channels) | ~85% (no filter model) |
-| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG + CRT (0/5/19) + TAP | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
+| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG + CRT (0/5/19) + TAP + D64 (1541 drive) | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |
 | Model variants | 48K, 128K, +2 PAL | PAL only | NTSC only | A500 OCS only |
 
 ### Highest-impact work items (by games-unlocked)
 
-1. **C64 1541 disk drive** — unlocks D64 loading (huge library but large scope: CIA serial + IEC protocol)
-2. **Amiga disk write** — unlocks game saves
-3. **68010/020 instructions** — unlocks A500+/A1200
-4. **C64 CRT types beyond 0/5/19** — EasyFlash, Action Replay, etc.
-5. **C64 TAP turbo loaders** — CIA1 FLAG pulse timing for non-standard tape formats
+1. **Amiga disk write** — unlocks game saves
+2. **68010/020 instructions** — unlocks A500+/A1200
+3. **C64 CRT types beyond 0/5/19** — EasyFlash, Action Replay, etc.
+4. **C64 TAP turbo loaders** — CIA1 FLAG pulse timing for non-standard tape formats
+5. **C64 1541 disk write** — allows saving to D64 images
 
 ### v1 exit criteria status
 

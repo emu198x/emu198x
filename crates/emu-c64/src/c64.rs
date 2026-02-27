@@ -20,6 +20,9 @@ use mos_6502::Mos6502;
 
 use crate::bus::C64Bus;
 use crate::config::{C64Config, C64Model};
+use crate::d64::D64;
+use crate::drive1541::Drive1541;
+use crate::iec::IecBus;
 use crate::input::{C64Key, InputQueue};
 use crate::memory::C64Memory;
 use crate::tape::C64TapeDeck;
@@ -46,6 +49,10 @@ pub struct C64 {
     cia2_nmi_prev: bool,
     /// Virtual tape deck for TAP file loading.
     tape: C64TapeDeck,
+    /// 1541 floppy drive (present only if drive ROM is provided).
+    drive: Option<Drive1541>,
+    /// IEC serial bus connecting C64 to the drive.
+    iec: IecBus,
 }
 
 impl C64 {
@@ -82,6 +89,12 @@ impl C64 {
         let reset_hi = bus.read(0xFFFD).data;
         cpu.regs.pc = u16::from(reset_lo) | (u16::from(reset_hi) << 8);
 
+        // Create 1541 drive if ROM is provided
+        let drive = config
+            .drive_rom
+            .as_ref()
+            .map(|rom| Drive1541::new(rom.clone()));
+
         Self {
             cpu,
             bus,
@@ -90,6 +103,8 @@ impl C64 {
             input_queue: InputQueue::new(),
             cia2_nmi_prev: false,
             tape: C64TapeDeck::new(),
+            drive,
+            iec: IecBus::new(),
         }
     }
 
@@ -201,6 +216,33 @@ impl C64 {
     #[must_use]
     pub fn audio_buffer_len(&self) -> usize {
         self.bus.sid.buffer_len()
+    }
+
+    /// Load a D64 disk image into the 1541 drive.
+    ///
+    /// Requires a drive ROM to have been provided in the config.
+    /// Returns an error if no drive is present or the D64 is invalid.
+    pub fn load_d64(&mut self, data: &[u8]) -> Result<(), String> {
+        let drive = self
+            .drive
+            .as_mut()
+            .ok_or_else(|| "No 1541 drive (drive ROM not provided)".to_string())?;
+        let d64 = D64::from_bytes(data)?;
+        drive.insert_disk(d64);
+        Ok(())
+    }
+
+    /// Eject the D64 disk from the drive.
+    pub fn eject_d64(&mut self) {
+        if let Some(ref mut drive) = self.drive {
+            drive.eject_disk();
+        }
+    }
+
+    /// Reference to the 1541 drive (if present).
+    #[must_use]
+    pub fn drive(&self) -> Option<&Drive1541> {
+        self.drive.as_ref()
     }
 
     /// Load a PRG file into memory.
@@ -364,6 +406,26 @@ impl Tickable for C64 {
 
         // 6. SID: tick oscillators, envelopes, filter, and downsample
         self.bus.sid.tick();
+
+        // 7. IEC bus + 1541 drive: read CIA2 output, tick drive, feed back
+        if let Some(ref mut drive) = self.drive {
+            // CIA2 port A output → IEC bus (bit=1 means pull low)
+            let pa = self.bus.cia2.port_a_output();
+            self.iec.set_c64_atn(pa & 0x08 != 0);
+            self.iec.set_c64_clk(pa & 0x10 != 0);
+            self.iec.set_c64_data(pa & 0x20 != 0);
+
+            // Tick the drive (reads/writes IEC bus)
+            drive.tick(&mut self.iec);
+
+            // Feed IEC bus state back into CIA2 external_a bits 6-7.
+            // Bit 6 = CLK IN (0 = line low), Bit 7 = DATA IN (0 = line low).
+            // The bus methods return true when high, but CIA2 reads
+            // inverted sense: bit=0 when line is low.
+            self.bus.cia2.external_a = (self.bus.cia2.external_a & 0x3F)
+                | if self.iec.clk() { 0x40 } else { 0x00 }
+                | if self.iec.data() { 0x80 } else { 0x00 };
+        }
     }
 }
 
@@ -419,6 +481,14 @@ impl Observable for C64 {
                 "filter.routing" => Some(Value::U8(self.bus.sid.filter.routing)),
                 _ => None,
             }
+        } else if let Some(rest) = path.strip_prefix("drive.") {
+            match rest {
+                "track" => self.drive.as_ref().map(|d| Value::U8(d.track())),
+                "motor" => self.drive.as_ref().map(|d| Value::Bool(d.motor_on())),
+                "led" => self.drive.as_ref().map(|d| Value::Bool(d.led_on())),
+                "has_disk" => self.drive.as_ref().map(|d| Value::Bool(d.has_disk())),
+                _ => None,
+            }
         } else if let Some(rest) = path.strip_prefix("memory.") {
             let addr =
                 if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
@@ -465,6 +535,10 @@ impl Observable for C64 {
             "cia2.icr_mask",
             "cia2.cra",
             "cia2.crb",
+            "drive.track",
+            "drive.motor",
+            "drive.led",
+            "drive.has_disk",
             "memory.<address>",
             "master_clock",
             "frame_count",
@@ -493,6 +567,7 @@ mod tests {
             kernal_rom: kernal,
             basic_rom: basic,
             char_rom: chargen,
+            drive_rom: None,
         })
     }
 

@@ -39,6 +39,11 @@ pub struct Cia {
     ddr_a: u8,
     /// Port B data direction register (1 = output).
     ddr_b: u8,
+    /// External input lines for port A (active-high).
+    ///
+    /// For CIA2 this feeds IEC bus state on bits 6-7 (CLK IN, DATA IN).
+    /// Defaults to $FF (all high) so CIA1 behaviour is unchanged.
+    pub external_a: u8,
 
     /// Timer A counter.
     timer_a: u16,
@@ -96,6 +101,7 @@ impl Cia {
             port_b: 0xFF,
             ddr_a: 0,
             ddr_b: 0,
+            external_a: 0xFF,
             timer_a: 0xFFFF,
             timer_a_latch: 0xFFFF,
             timer_a_running: false,
@@ -246,8 +252,8 @@ impl Cia {
     fn read_internal(&self, reg: u8, keyboard: Option<&KeyboardMatrix>) -> u8 {
         match reg & 0x0F {
             0x00 => {
-                // Port A data: output bits from port_a, input bits float high
-                (self.port_a & self.ddr_a) | (!self.ddr_a)
+                // Port A data: output bits from port register, input bits from external
+                (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)
             }
             0x01 => {
                 // Port B data: for CIA1, this reads the keyboard matrix
@@ -432,7 +438,7 @@ impl Cia {
     /// Get port A output value (for reading VIC bank from CIA2).
     #[must_use]
     pub fn port_a_output(&self) -> u8 {
-        (self.port_a & self.ddr_a) | (!self.ddr_a)
+        (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)
     }
 
     /// Debug: Timer A counter value.

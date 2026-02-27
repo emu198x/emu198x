@@ -19,4 +19,6 @@ pub struct C64Config {
     pub basic_rom: Vec<u8>,
     /// Character ROM (4,096 bytes).
     pub char_rom: Vec<u8>,
+    /// 1541 drive ROM (16,384 bytes). If present, enables the drive.
+    pub drive_rom: Option<Vec<u8>>,
 }

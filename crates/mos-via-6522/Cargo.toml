@@ -1,0 +1,13 @@
+[package]
+name = "mos-via-6522"
+description = "MOS 6522 Versatile Interface Adapter emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mos_via_6522"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

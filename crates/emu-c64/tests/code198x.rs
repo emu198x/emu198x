@@ -19,6 +19,7 @@ fn load_c64() -> Option<C64> {
         kernal_rom: kernal,
         basic_rom: basic,
         char_rom: chargen,
+        drive_rom: None,
     }))
 }
 

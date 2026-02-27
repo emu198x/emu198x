@@ -157,6 +157,7 @@ impl McpServer {
             "set_breakpoint" => self.handle_set_breakpoint(params, id),
             "get_screen_text" => self.handle_get_screen_text(id),
             "query_memory" => self.handle_query_memory(params, id),
+            "load_d64" => self.handle_load_d64(params, id),
             _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
         }
     }
@@ -667,6 +668,35 @@ impl McpServer {
         )
     }
 
+    fn handle_load_d64(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let c64 = match self.require_c64(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
+            }
+        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+            match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
+            }
+        } else {
+            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+        };
+
+        match c64.load_d64(&data) {
+            Ok(()) => RpcResponse::success(
+                id,
+                serde_json::json!({"status": "ok", "size": data.len()}),
+            ),
+            Err(e) => RpcResponse::error(id, -32000, format!("D64 load failed: {e}")),
+        }
+    }
+
     /// Run a script file: read a JSON array of simplified RPC requests, dispatch
     /// each in order, and write JSON-line responses to stdout.
     pub fn run_script(&mut self, path: &Path) -> io::Result<()> {
@@ -810,6 +840,7 @@ fn load_c64_config() -> Result<C64Config, String> {
         kernal_rom: kernal,
         basic_rom: basic,
         char_rom: chargen,
+        drive_rom: None,
     })
 }
 
