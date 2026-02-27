@@ -73,6 +73,19 @@ pub struct Cia {
     cra: u8,
     /// Control register B.
     crb: u8,
+
+    /// TOD registers: 10ths, seconds, minutes, hours (BCD).
+    tod: [u8; 4],
+    /// TOD latch (frozen on hours read, released on 10ths read).
+    tod_latch: [u8; 4],
+    /// Whether the latch is frozen (hours read but 10ths not yet read).
+    tod_latched: bool,
+    /// Whether TOD is halted (writing hours freezes TOD until 10ths written).
+    tod_halted: bool,
+    /// CPU cycle divider for TOD tick (50 Hz PAL = every 19,705 cycles).
+    tod_divider: u32,
+    /// Current divider counter.
+    tod_counter: u32,
 }
 
 impl Cia {
@@ -98,13 +111,20 @@ impl Cia {
             icr_mask: 0,
             cra: 0,
             crb: 0,
+            tod: [0; 4],
+            tod_latch: [0; 4],
+            tod_latched: false,
+            tod_halted: true, // Halted until first 10ths write
+            tod_divider: 19705, // 985,248 Hz / 50 Hz (PAL)
+            tod_counter: 0,
         }
     }
 
     /// Tick the CIA for one CPU cycle.
     ///
-    /// Counts down Timer A and Timer B if running.
+    /// Counts down Timer A and Timer B if running. Advances TOD clock.
     pub fn tick(&mut self) {
+        self.tick_tod();
         // Timer A force load
         if self.timer_a_force_load {
             self.timer_a = self.timer_a_latch;
@@ -155,6 +175,53 @@ impl Cia {
         }
     }
 
+    /// Tick the TOD clock. Called from `tick()` using a CPU cycle divider.
+    fn tick_tod(&mut self) {
+        if self.tod_halted {
+            return;
+        }
+        self.tod_counter += 1;
+        if self.tod_counter < self.tod_divider {
+            return;
+        }
+        self.tod_counter = 0;
+
+        // Increment 10ths (0-9)
+        self.tod[0] = (self.tod[0] + 1) & 0x0F;
+        if self.tod[0] < 10 {
+            return;
+        }
+        self.tod[0] = 0;
+
+        // Increment seconds (BCD 00-59)
+        self.tod[1] = bcd_increment(self.tod[1]);
+        if self.tod[1] < 0x60 {
+            return;
+        }
+        self.tod[1] = 0;
+
+        // Increment minutes (BCD 00-59)
+        self.tod[2] = bcd_increment(self.tod[2]);
+        if self.tod[2] < 0x60 {
+            return;
+        }
+        self.tod[2] = 0;
+
+        // Increment hours (BCD 01-12 with AM/PM in bit 7)
+        let pm = self.tod[3] & 0x80;
+        let mut h = self.tod[3] & 0x1F;
+        h = bcd_increment(h);
+        if h == 0x12 {
+            // 11→12 toggles AM/PM
+            self.tod[3] = h | (pm ^ 0x80);
+        } else if h == 0x13 {
+            // 12→1 (wraps, keeps current AM/PM)
+            self.tod[3] = 0x01 | (self.tod[3] & 0x80);
+        } else {
+            self.tod[3] = h | pm;
+        }
+    }
+
     /// Check if the CIA has an active IRQ/NMI.
     #[must_use]
     pub fn irq_active(&self) -> bool {
@@ -201,8 +268,40 @@ impl Cia {
             0x05 => (self.timer_a >> 8) as u8,
             0x06 => self.timer_b as u8,
             0x07 => (self.timer_b >> 8) as u8,
-            // TOD registers: return 0 (stubbed)
-            0x08..=0x0B => 0,
+            // TOD registers: latched on hours read, released on 10ths read
+            0x08 => {
+                // 10ths: release latch
+                let val = if self.tod_latched {
+                    self.tod_latch[0]
+                } else {
+                    self.tod[0]
+                };
+                // Cannot release here — read_internal is &self.
+                // Latch release handled by caller via read_tod_10ths_release().
+                val
+            }
+            0x09 => {
+                if self.tod_latched {
+                    self.tod_latch[1]
+                } else {
+                    self.tod[1]
+                }
+            }
+            0x0A => {
+                if self.tod_latched {
+                    self.tod_latch[2]
+                } else {
+                    self.tod[2]
+                }
+            }
+            0x0B => {
+                // Hours: freeze latch (handled by caller via read_tod_hours_latch())
+                if self.tod_latched {
+                    self.tod_latch[3]
+                } else {
+                    self.tod[3]
+                }
+            }
             // Serial shift register: return 0 (stubbed)
             0x0C => 0,
             0x0D => {
@@ -219,6 +318,28 @@ impl Cia {
             0x0F => self.crb,
             _ => 0xFF,
         }
+    }
+
+    /// Read TOD hours and freeze the latch (side-effectful read).
+    /// Call this for reads of register $xB.
+    pub fn read_tod_hours_and_latch(&mut self) -> u8 {
+        if !self.tod_latched {
+            self.tod_latch = self.tod;
+            self.tod_latched = true;
+        }
+        self.tod_latch[3]
+    }
+
+    /// Read TOD 10ths and release the latch (side-effectful read).
+    /// Call this for reads of register $x8.
+    pub fn read_tod_10ths_and_release(&mut self) -> u8 {
+        let val = if self.tod_latched {
+            self.tod_latch[0]
+        } else {
+            self.tod[0]
+        };
+        self.tod_latched = false;
+        val
     }
 
     /// Read ICR and clear status (side-effectful read).
@@ -262,8 +383,18 @@ impl Cia {
                     self.timer_b = self.timer_b_latch;
                 }
             }
-            // TOD: ignored for v1
-            0x08..=0x0B => {}
+            // TOD write: writing hours halts TOD, writing 10ths resumes
+            0x08 => {
+                self.tod[0] = value & 0x0F;
+                self.tod_halted = false; // Resume counting
+                self.tod_counter = 0;
+            }
+            0x09 => self.tod[1] = value & 0x7F,
+            0x0A => self.tod[2] = value & 0x7F,
+            0x0B => {
+                self.tod[3] = value & 0x9F;
+                self.tod_halted = true; // Halt until 10ths written
+            }
             // Serial shift register: ignored
             0x0C => {}
             0x0D => {
@@ -338,6 +469,19 @@ impl Cia {
     #[must_use]
     pub fn crb(&self) -> u8 {
         self.crb
+    }
+}
+
+/// Increment a BCD value by 1 (no carry-out, wraps at 0x99→0x00).
+fn bcd_increment(val: u8) -> u8 {
+    let lo = val & 0x0F;
+    let hi = val & 0xF0;
+    if lo < 9 {
+        hi | (lo + 1)
+    } else if hi < 0x90 {
+        (hi + 0x10) & 0xF0
+    } else {
+        0x00
     }
 }
 
@@ -492,5 +636,89 @@ mod tests {
 
         let result = cia.read_with_keyboard(0x01, &kbd);
         assert_eq!(result & 0x02, 0x00); // Col 1 should be low (pressed)
+    }
+
+    #[test]
+    fn tod_write_and_read() {
+        let mut cia = Cia::new();
+        // Write TOD: hours first (halts), then minutes, seconds, 10ths (resumes)
+        cia.write(0x0B, 0x12); // 12 hours
+        cia.write(0x0A, 0x30); // 30 minutes
+        cia.write(0x09, 0x00); // 0 seconds
+        cia.write(0x08, 0x05); // 5 10ths (resumes TOD)
+
+        assert_eq!(cia.read_tod_hours_and_latch(), 0x12);
+        assert_eq!(cia.read(0x0A), 0x30);
+        assert_eq!(cia.read(0x09), 0x00);
+        assert_eq!(cia.read_tod_10ths_and_release(), 0x05);
+    }
+
+    #[test]
+    fn tod_counts_at_50hz() {
+        let mut cia = Cia::new();
+        // Write TOD to 0 and start it
+        cia.write(0x0B, 0x00); // Hours (halts)
+        cia.write(0x0A, 0x00);
+        cia.write(0x09, 0x00);
+        cia.write(0x08, 0x00); // 10ths (resumes)
+
+        // Tick for one TOD period (19,705 cycles at PAL)
+        for _ in 0..19705 {
+            cia.tick();
+        }
+        assert_eq!(cia.tod[0], 1); // 10ths incremented to 1
+    }
+
+    #[test]
+    fn tod_seconds_rollover() {
+        let mut cia = Cia::new();
+        cia.write(0x0B, 0x00);
+        cia.write(0x0A, 0x00);
+        cia.write(0x09, 0x59); // 59 seconds
+        cia.write(0x08, 0x09); // 9 10ths
+
+        // One TOD tick: 10ths wraps 9→0, seconds wraps 59→0, minutes 0→1
+        for _ in 0..19705 {
+            cia.tick();
+        }
+        assert_eq!(cia.tod[0], 0); // 10ths wrapped
+        assert_eq!(cia.tod[1], 0); // Seconds wrapped
+        assert_eq!(cia.tod[2], 1); // Minutes incremented
+    }
+
+    #[test]
+    fn tod_latch_freezes_on_hours_read() {
+        let mut cia = Cia::new();
+        cia.write(0x0B, 0x01);
+        cia.write(0x0A, 0x30);
+        cia.write(0x09, 0x00);
+        cia.write(0x08, 0x00);
+
+        // Read hours → latches
+        let hours = cia.read_tod_hours_and_latch();
+        assert_eq!(hours, 0x01);
+        assert!(cia.tod_latched);
+
+        // Advance TOD
+        for _ in 0..19705 {
+            cia.tick();
+        }
+
+        // Latched values unchanged despite TOD advancing
+        assert_eq!(cia.read(0x09), 0x00);
+
+        // Read 10ths → releases latch
+        let tenths = cia.read_tod_10ths_and_release();
+        assert_eq!(tenths, 0x00); // Latch value, not current
+        assert!(!cia.tod_latched);
+    }
+
+    #[test]
+    fn bcd_increment_works() {
+        assert_eq!(super::bcd_increment(0x00), 0x01);
+        assert_eq!(super::bcd_increment(0x09), 0x10);
+        assert_eq!(super::bcd_increment(0x19), 0x20);
+        assert_eq!(super::bcd_increment(0x59), 0x60);
+        assert_eq!(super::bcd_increment(0x99), 0x00);
     }
 }

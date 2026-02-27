@@ -63,18 +63,20 @@ impl Bus for C64Bus {
                 0xD800..=0xDBFF => self.memory.colour_ram_read(addr16 - 0xD800),
                 0xDC00..=0xDCFF => {
                     let reg = (addr16 & 0x0F) as u8;
-                    if reg == 0x0D {
-                        self.cia1.read_icr_and_clear()
-                    } else {
-                        self.cia1.read_with_keyboard(reg, &self.keyboard)
+                    match reg {
+                        0x0D => self.cia1.read_icr_and_clear(),
+                        0x08 => self.cia1.read_tod_10ths_and_release(),
+                        0x0B => self.cia1.read_tod_hours_and_latch(),
+                        _ => self.cia1.read_with_keyboard(reg, &self.keyboard),
                     }
                 }
                 0xDD00..=0xDDFF => {
                     let reg = (addr16 & 0x0F) as u8;
-                    if reg == 0x0D {
-                        self.cia2.read_icr_and_clear()
-                    } else {
-                        self.cia2.read(reg)
+                    match reg {
+                        0x0D => self.cia2.read_icr_and_clear(),
+                        0x08 => self.cia2.read_tod_10ths_and_release(),
+                        0x0B => self.cia2.read_tod_hours_and_latch(),
+                        _ => self.cia2.read(reg),
                     }
                 }
                 0xDE00..=0xDFFF => 0xFF, // I/O expansion

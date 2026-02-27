@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (C64 CIA2 NMI). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (NES PPU open bus, C64 CIA TOD clock). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -74,7 +74,7 @@ detection, plays SID audio.
 - **Sprites**: 8 sprites, single-colour and multicolour ($D01C), X/Y expand, priority
 - **Sprite collisions**: Sprite-sprite ($D01E) and sprite-background ($D01F), clear-on-read, IRQ triggering
 - **Audio**: SID 6581 with 3 voices, ADSR, SVF filter, downsampling to 48 kHz
-- **CIA**: Timer A/B, keyboard scanning, VIC bank selection, CIA2 NMI (edge-triggered)
+- **CIA**: Timer A/B, keyboard scanning, VIC bank selection, CIA2 NMI (edge-triggered), TOD clock (BCD, 50 Hz PAL, latch-on-hours-read)
 - **Storage**: PRG loading
 - **Input**: 8×8 keyboard matrix
 
@@ -94,7 +94,6 @@ detection, plays SID audio.
 | SID filter model | `filter.rs` — linear approximation | Filter sweeps sound different from real 6581 (documented, intentional for v1) |
 | SID combined waveforms | `voice.rs` — AND-based | Should be transition-based; combined waveforms sound harsh |
 | SID 6581 vs 8580 | Not differentiated | DC bias, filter response, combined waveforms differ between revisions |
-| CIA TOD clock | `cia.rs` — returns 0 | Programs using TOD for timing fail |
 | CIA serial shift register | `cia.rs` — stub | Blocks IEC serial (1541 communication) |
 | SID envelope curve | `envelope.rs` — approximate thresholds | Decay/release not bit-exact with real chip |
 | REU (RAM expansion) | Not implemented | REU-dependent demos fail |
@@ -121,7 +120,7 @@ gap is **DMC audio**.
 - **CPU**: 6502 at 100% cycle accuracy (2.56M single-step tests pass)
 - **PPU**: Background + sprites, all mirroring modes (H/V/4-screen/single-screen)
 - **APU**: Pulse (×2), triangle, noise, frame counter, mixer at 48 kHz
-- **PPU effects**: PPUMASK greyscale (bit 0) and emphasis (bits 5-7) applied at pixel output — colour tinting and greyscale mode both functional
+- **PPU effects**: PPUMASK greyscale (bit 0) and emphasis (bits 5-7) applied at pixel output, open bus latch (write-only register reads return last written value, $2002 low 5 bits from open bus)
 - **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC3 (4) 8-register PRG/CHR banking + scanline counter IRQ + PRG RAM, AxROM (7) 32K PRG switching + single-screen mirroring, MMC2 (9) CHR latch-based bank switching
 - **Mapper IRQ**: Mapper trait supports IRQ signalling; MMC3 scanline counter wired to CPU interrupt line
 
@@ -140,7 +139,6 @@ gap is **DMC audio**.
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| PPU open bus | `ppu.rs` — returns 0 | Reading write-only regs should return last bus byte |
 | Sprite zero hit cycle precision | `ppu.rs` — possibly off-by-1 | Split-screen effects may glitch |
 | Bus conflicts | Not implemented | Some mapper boards have write contention |
 
@@ -203,7 +201,7 @@ work is in expanding display modes and peripheral completeness.
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
-| Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~95% (emphasis + greyscale, missing open bus) | ~60% (missing HAM/EHB) |
+| Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~60% (missing HAM/EHB) |
 | Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~80% (no DMC) | ~85% (no filter model) |
 | Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |

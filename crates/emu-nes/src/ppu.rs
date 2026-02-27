@@ -48,6 +48,8 @@ pub struct Ppu {
 
     // Data read buffer ($2007)
     read_buffer: u8,
+    /// Open bus latch: last value written to any PPU register.
+    open_bus: u8,
 
     // Rendering position
     scanline: u16,
@@ -99,6 +101,7 @@ impl Ppu {
             w: false,
 
             read_buffer: 0,
+            open_bus: 0,
 
             scanline: 261, // Start at pre-render
             dot: 0,
@@ -561,10 +564,10 @@ impl Ppu {
 
     /// CPU read from PPU register ($2000-$2007 mirrored).
     pub fn cpu_read(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
-        match reg & 0x07 {
-            // $2002 - PPUSTATUS
+        let result = match reg & 0x07 {
+            // $2002 - PPUSTATUS: top 3 bits from status, low 5 from open bus
             2 => {
-                let result = (self.status & 0xE0) | (self.read_buffer & 0x1F);
+                let result = (self.status & 0xE0) | (self.open_bus & 0x1F);
                 self.status &= !0x80; // Clear VBlank
                 self.nmi_occurred = false;
                 self.check_nmi();
@@ -591,12 +594,16 @@ impl Ppu {
                 self.v &= 0x7FFF;
                 result
             }
-            _ => 0, // Write-only registers
-        }
+            // Write-only registers return open bus
+            _ => self.open_bus,
+        };
+        self.open_bus = result;
+        result
     }
 
     /// CPU write to PPU register ($2000-$2007 mirrored).
     pub fn cpu_write(&mut self, reg: u16, val: u8, mapper: &mut dyn Mapper) {
+        self.open_bus = val;
         match reg & 0x07 {
             // $2000 - PPUCTRL
             0 => {
