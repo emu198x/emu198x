@@ -2,7 +2,8 @@
 //!
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
 //! a `Mapper` trait for address translation. Supports NROM (Mapper 0),
-//! MMC1 (Mapper 1), UxROM (Mapper 2), and MMC2 (Mapper 9).
+//! MMC1 (Mapper 1), UxROM (Mapper 2), CNROM (Mapper 3), and MMC2
+//! (Mapper 9).
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -385,6 +386,61 @@ impl Mapper for UxRom {
     }
 }
 
+/// CNROM (Mapper 3): simple 8K CHR bank switching.
+///
+/// Used by many early NES games including Gradius, Paperboy, and
+/// Arkanoid. PRG ROM is unbanked (16K mirrored or 32K). Writes to
+/// $8000-$FFFF select an 8K CHR ROM bank at PPU $0000-$1FFF.
+struct CnRom {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+    chr_bank: u8,
+}
+
+impl CnRom {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            mirroring,
+            chr_bank: 0,
+        }
+    }
+}
+
+impl Mapper for CnRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let offset = (addr - 0x8000) as usize;
+                self.prg_rom[offset % self.prg_rom.len()]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.chr_bank = value;
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank_offset = self.chr_bank as usize * 8192;
+        let index = (bank_offset + (addr as usize & 0x1FFF)) % self.chr_rom.len();
+        self.chr_rom[index]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {
+        // CNROM uses CHR ROM — no writes
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 /// MMC2 (Mapper 9, PxROM): CHR latch-based bank switching.
 ///
 /// Used by Punch-Out!! The mapper selects between two CHR banks for each
@@ -593,6 +649,7 @@ pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
         0 => Ok(Box::new(Nrom::new(prg_rom, chr_data, mirroring))),
         1 => Ok(Box::new(Mmc1::new(prg_rom, chr_data))),
         2 => Ok(Box::new(UxRom::new(prg_rom, chr_data, mirroring))),
+        3 => Ok(Box::new(CnRom::new(prg_rom, chr_data, mirroring))),
         9 => Ok(Box::new(Mmc2::new(prg_rom, chr_data))),
         n => Err(format!("Unsupported mapper: {n}")),
     }
@@ -898,6 +955,79 @@ mod tests {
     fn uxrom_fixed_mirroring() {
         let m = UxRom::new(vec![0u8; 16384], Vec::new(), Mirroring::Vertical);
         assert_eq!(m.mirroring(), Mirroring::Vertical);
+    }
+
+    // --- CNROM tests ---
+
+    #[test]
+    fn cnrom_parse_ines() {
+        // Mapper 3: flags6 high nibble = 0x3_, so flags6 = 0x30
+        let data = make_ines(2, 4, 0x30);
+        let mapper = parse_ines(&data).expect("parse failed");
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn cnrom_prg_unbanked_32k() {
+        let m = CnRom::new(
+            {
+                let mut prg = vec![0u8; 32768];
+                prg[0] = 0xAA;
+                prg[0x4000] = 0xBB;
+                prg
+            },
+            vec![0u8; 32768],
+            Mirroring::Vertical,
+        );
+        assert_eq!(m.cpu_read(0x8000), 0xAA);
+        assert_eq!(m.cpu_read(0xC000), 0xBB);
+    }
+
+    #[test]
+    fn cnrom_prg_unbanked_16k_mirrored() {
+        let m = CnRom::new(
+            {
+                let mut prg = vec![0u8; 16384];
+                prg[0] = 0xCC;
+                prg
+            },
+            vec![0u8; 32768],
+            Mirroring::Horizontal,
+        );
+        // 16K mirrored: $8000 and $C000 both see offset 0
+        assert_eq!(m.cpu_read(0x8000), 0xCC);
+        assert_eq!(m.cpu_read(0xC000), 0xCC);
+    }
+
+    #[test]
+    fn cnrom_chr_switching() {
+        // 4 x 8K CHR banks, each filled with bank index
+        let mut chr = vec![0u8; 4 * 8192];
+        for bank in 0..4usize {
+            for i in 0..8192 {
+                chr[bank * 8192 + i] = bank as u8;
+            }
+        }
+        let mut m = CnRom::new(vec![0u8; 32768], chr, Mirroring::Vertical);
+
+        // Default: bank 0
+        assert_eq!(m.chr_read(0x0000), 0);
+
+        // Switch to bank 2
+        m.cpu_write(0x8000, 2);
+        assert_eq!(m.chr_read(0x0000), 2);
+
+        // Switch to bank 3
+        m.cpu_write(0xFFFF, 3);
+        assert_eq!(m.chr_read(0x0000), 3);
+    }
+
+    #[test]
+    fn cnrom_chr_not_writable() {
+        let mut m = CnRom::new(vec![0u8; 32768], vec![0u8; 8192], Mirroring::Vertical);
+        let original = m.chr_read(0x0000);
+        m.chr_write(0x0000, 0xFF);
+        assert_eq!(m.chr_read(0x0000), original);
     }
 
     // --- MMC2 tests ---
