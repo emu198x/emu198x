@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (NES PPU open bus, C64 CIA TOD clock). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (Amiga HAM/EHB display modes). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -162,8 +162,6 @@ work.
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| HAM mode (Hold-And-Modify) | `commodore-denise-ocs` — not decoded | Large category of Amiga graphics broken |
-| EHB mode (Extra Half-Brite) | `commodore-denise-ocs` — not decoded | 64-colour mode broken |
 | Disk write to ADF | `drive-amiga-floppy` — captures but doesn't persist | Cannot save games or write disks |
 | 68010 MOVEC instruction | `decode.rs` line 1162 — returns error | A500+ (KS 2.x) OS code fails |
 | 68020 instruction extensions | `motorola-68020` — thin wrapper | A1200 code using 020 features fails |
@@ -186,11 +184,11 @@ work.
 
 ### Assessment
 
-The Amiga has the widest gap between "boots" and "runs software". **HAM
-mode** alone blocks a huge category of graphics. Copper SKIP is now
+The Amiga has the widest gap between "boots" and "runs software". HAM
+and EHB display modes are now decoded in Denise. Copper SKIP is
 implemented. Disk write and the 68010/020 instruction gaps block running
 on anything beyond a stock A500 with KS 1.3. The OCS core is solid; the
-work is in expanding display modes and peripheral completeness.
+work is in peripheral completeness.
 
 ---
 
@@ -201,7 +199,7 @@ work is in expanding display modes and peripheral completeness.
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
-| Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~60% (missing HAM/EHB) |
+| Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
 | Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~80% (no DMC) | ~85% (no filter model) |
 | Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |
@@ -210,10 +208,9 @@ work is in expanding display modes and peripheral completeness.
 ### Highest-impact work items (by games-unlocked)
 
 1. **C64 1541 disk drive** — unlocks D64 loading (huge library unlock)
-2. **Amiga HAM/EHB modes** — unlocks large category of Amiga graphics
-3. **NES DMC DMA** — completes audio for most NES games
-4. **Amiga disk write** — unlocks game saves
-5. **68010/020 instructions** — unlocks A500+/A1200
+2. **NES DMC DMA** — completes audio for most NES games
+3. **Amiga disk write** — unlocks game saves
+4. **68010/020 instructions** — unlocks A500+/A1200
 
 ### v1 exit criteria status
 

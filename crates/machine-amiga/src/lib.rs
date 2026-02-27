@@ -507,22 +507,18 @@ impl Amiga {
             // hires pixels per CCK (2 per output call × 2 calls).
             {
                 let pair0 = pixel0_debug.hires_pair_color_idx;
-                let rc0a = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
-                    self.denise.palette[pair0[0] as usize],
-                );
-                let rc0b = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
-                    self.denise.palette[pair0[1] as usize],
-                );
+                let rgb0a = self.denise.resolve_color_rgb12(pair0[0]);
+                let rgb0b = self.denise.resolve_color_rgb12(pair0[1]);
+                let rc0a = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb0a);
+                let rc0b = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb0b);
                 self.denise.write_raster_pixel(hpos, vpos, 0, rc0a);
                 self.denise.write_raster_pixel(hpos, vpos, 1, rc0b);
 
                 let pair1 = pixel1_debug.hires_pair_color_idx;
-                let rc1a = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
-                    self.denise.palette[pair1[0] as usize],
-                );
-                let rc1b = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(
-                    self.denise.palette[pair1[1] as usize],
-                );
+                let rgb1a = self.denise.resolve_color_rgb12(pair1[0]);
+                let rgb1b = self.denise.resolve_color_rgb12(pair1[1]);
+                let rc1a = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb1a);
+                let rc1b = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb1b);
                 self.denise.write_raster_pixel(hpos, vpos, 2, rc1a);
                 self.denise.write_raster_pixel(hpos, vpos, 3, rc1b);
             }

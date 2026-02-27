@@ -99,6 +99,9 @@ pub struct DeniseOcs {
     sprite_runtime_beam_y: u32,
     last_shift_load_debug: DeniseShiftLoadDebug,
     deferred_shift_load_after_source_pixels: Option<u8>,
+    /// HAM mode: previous pixel's 12-bit RGB (for hold-and-modify).
+    /// Reset to COLOR00 at the start of each scanline.
+    ham_prev_rgb: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,6 +174,7 @@ impl DeniseOcs {
             sprite_runtime_beam_y: 0,
             last_shift_load_debug: DeniseShiftLoadDebug::default(),
             deferred_shift_load_after_source_pixels: None,
+            ham_prev_rgb: 0,
         }
     }
 
@@ -231,6 +235,7 @@ impl DeniseOcs {
     pub fn begin_beam_line(&mut self) {
         self.bpl_scroll_pending_line = true;
         self.bpl_prev_data = [0; 6];
+        self.ham_prev_rgb = self.palette[0];
     }
 
     /// Write a pixel to the full-raster framebuffer.
@@ -764,6 +769,54 @@ impl DeniseOcs {
         0xFF000000 | (u32::from(r8) << 16) | (u32::from(g8) << 8) | u32::from(b8)
     }
 
+    /// Resolve a playfield colour index to 12-bit RGB, accounting for the
+    /// current display mode (normal, EHB, or HAM).
+    ///
+    /// - **Normal** (≤5 planes, or DBLPF): index 0-31 → palette lookup.
+    /// - **EHB** (6 planes, no HAM, no DBLPF): index 0-31 from palette;
+    ///   index 32-63 halves the RGB of the base colour (index & 31).
+    /// - **HAM** (HOMOD set, 6 planes, no DBLPF): bits 5-4 select mode:
+    ///   00 = palette[bits 3-0], 01 = modify blue, 10 = modify red,
+    ///   11 = modify green of the previous pixel's colour.
+    ///
+    /// Updates `ham_prev_rgb` for HAM mode continuity across pixels.
+    pub fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
+        let ham = (self.bplcon0 & 0x0800) != 0;
+        let dual_playfield = (self.bplcon0 & 0x0400) != 0;
+        let num_planes = self.num_bitplanes();
+
+        if ham && !dual_playfield && num_planes >= 5 {
+            // HAM mode: 6-bit value, top 2 bits = control
+            let control = (color_idx >> 4) & 0x03;
+            let data = u16::from(color_idx & 0x0F);
+            let rgb = match control {
+                0b00 => self.palette[data as usize],
+                0b01 => (self.ham_prev_rgb & 0xFF0) | data,         // Modify blue
+                0b10 => (self.ham_prev_rgb & 0x0FF) | (data << 8),  // Modify red
+                0b11 => (self.ham_prev_rgb & 0xF0F) | (data << 4),  // Modify green
+                _ => unreachable!(),
+            };
+            self.ham_prev_rgb = rgb;
+            rgb
+        } else if !ham && !dual_playfield && num_planes == 6 {
+            // EHB mode: 6-bit index, bit 5 = half-brite flag
+            let base_idx = (color_idx & 0x1F) as usize;
+            if color_idx & 0x20 != 0 {
+                // Half-brite: halve each RGB nibble
+                let base = self.palette[base_idx];
+                let r = ((base >> 8) & 0xF) >> 1;
+                let g = ((base >> 4) & 0xF) >> 1;
+                let b = (base & 0xF) >> 1;
+                (r << 8) | (g << 4) | b
+            } else {
+                self.palette[base_idx]
+            }
+        } else {
+            // Normal mode: direct palette lookup
+            self.palette[(color_idx as usize) & 0x1F]
+        }
+    }
+
     fn ensure_legacy_shift_state_compat(&mut self) {
         // Older unit tests directly set `shift_count`/`bpl_shift` without using
         // `trigger_shift_load()`. Lazily mirror that into the per-plane state.
@@ -869,7 +922,8 @@ impl DeniseOcs {
     pub fn output_pixel_color(&mut self, x: u32, y: u32) -> u32 {
         let debug = self.output_pixel_with_beam(x, y, x, y);
         if debug.called {
-            Self::rgb12_to_argb32(self.palette[debug.final_color_idx as usize])
+            let rgb12 = self.resolve_color_rgb12(debug.final_color_idx);
+            Self::rgb12_to_argb32(rgb12)
         } else {
             0xFF00_0000
         }
@@ -1911,5 +1965,144 @@ mod tests {
             DeniseOcs::rgb12_to_argb32(0xF00),
             "sprite should appear when PF2P places SP01 ahead of front PF2"
         );
+    }
+
+    // --- EHB tests ---
+
+    #[test]
+    fn ehb_normal_palette_unchanged() {
+        let mut denise = DeniseOcs::new();
+        // EHB: 6 planes, no HAM, no DBLPF
+        denise.bplcon0 = 0x6000; // BPU=6
+        denise.set_palette(5, 0xF00);
+
+        // Color index 5 (bit 5 clear) → normal palette
+        denise.bpl_shift[0] = 0x8000; // plane 1 = bit 0
+        denise.bpl_shift[2] = 0x8000; // plane 3 = bit 2
+        // raw_color_idx = 0b000101 = 5
+        denise.shift_count = 1;
+
+        let rgb = denise.resolve_color_rgb12(5);
+        assert_eq!(rgb, 0xF00);
+    }
+
+    #[test]
+    fn ehb_half_brite_halves_rgb() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x6000; // BPU=6, no HAM, no DBLPF
+        denise.set_palette(5, 0xF80); // R=F, G=8, B=0
+
+        // Color index 37 = 0b100101 → bit 5 set → half-brite of palette[5]
+        let rgb = denise.resolve_color_rgb12(37);
+        // Half-brite: R=7, G=4, B=0
+        assert_eq!(rgb, 0x740);
+    }
+
+    #[test]
+    fn ehb_index_zero_half_brite_uses_color00() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x6000; // BPU=6
+        denise.set_palette(0, 0x888);
+
+        // Index 32 = half-brite of COLOR00
+        let rgb = denise.resolve_color_rgb12(32);
+        assert_eq!(rgb, 0x444);
+    }
+
+    // --- HAM tests ---
+
+    #[test]
+    fn ham_palette_lookup_control_00() {
+        let mut denise = DeniseOcs::new();
+        // HAM: HOMOD=1 (bit 11), BPU=6
+        denise.bplcon0 = 0x6800; // 0x6000 (BPU=6) | 0x0800 (HOMOD)
+        denise.set_palette(7, 0xABC);
+
+        // Control=00, data=7 → palette[7]
+        let rgb = denise.resolve_color_rgb12(0x07);
+        assert_eq!(rgb, 0xABC);
+    }
+
+    #[test]
+    fn ham_modify_blue_control_01() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x6800;
+        denise.set_palette(0, 0xF80);
+        denise.begin_beam_line(); // ham_prev_rgb = COLOR00 = 0xF80
+
+        // Control=01, data=0xA → modify blue: prev=0xF80 → 0xF8A
+        let rgb = denise.resolve_color_rgb12(0x1A); // 0b01_1010
+        assert_eq!(rgb, 0xF8A);
+    }
+
+    #[test]
+    fn ham_modify_red_control_10() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x6800;
+        denise.set_palette(0, 0x000);
+        denise.begin_beam_line(); // ham_prev_rgb = 0x000
+
+        // Control=10, data=0xC → modify red: prev=0x000 → 0xC00
+        let rgb = denise.resolve_color_rgb12(0x2C); // 0b10_1100
+        assert_eq!(rgb, 0xC00);
+    }
+
+    #[test]
+    fn ham_modify_green_control_11() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x6800;
+        denise.set_palette(0, 0xF0F);
+        denise.begin_beam_line(); // ham_prev_rgb = 0xF0F
+
+        // Control=11, data=0x5 → modify green: prev=0xF0F → 0xF5F
+        let rgb = denise.resolve_color_rgb12(0x35); // 0b11_0101
+        assert_eq!(rgb, 0xF5F);
+    }
+
+    #[test]
+    fn ham_modify_chains_across_pixels() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x6800;
+        denise.set_palette(0, 0x000);
+        denise.begin_beam_line(); // Start from black
+
+        // Set red to 0xA
+        let rgb1 = denise.resolve_color_rgb12(0x2A); // control=10, data=A → 0xA00
+        assert_eq!(rgb1, 0xA00);
+
+        // Set green to 0x5
+        let rgb2 = denise.resolve_color_rgb12(0x35); // control=11, data=5 → 0xA50
+        assert_eq!(rgb2, 0xA50);
+
+        // Set blue to 0x3
+        let rgb3 = denise.resolve_color_rgb12(0x13); // control=01, data=3 → 0xA53
+        assert_eq!(rgb3, 0xA53);
+    }
+
+    #[test]
+    fn ham_line_start_resets_to_color00() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x6800;
+        denise.set_palette(0, 0x123);
+
+        // Pollute ham_prev_rgb
+        denise.ham_prev_rgb = 0xFFF;
+
+        denise.begin_beam_line();
+        // After line start, prev should be COLOR00
+        let rgb = denise.resolve_color_rgb12(0x10); // control=01, data=0 → modify blue to 0
+        assert_eq!(rgb, 0x120); // 0x123 with blue=0
+    }
+
+    #[test]
+    fn normal_mode_ignores_ham_ehb() {
+        let mut denise = DeniseOcs::new();
+        // 4 planes, no HAM, no DBLPF → normal mode even with index > 31
+        denise.bplcon0 = 0x4000; // BPU=4
+        denise.set_palette(5, 0x0FF);
+
+        // resolve_color_rgb12 with index 5 in normal mode
+        let rgb = denise.resolve_color_rgb12(5);
+        assert_eq!(rgb, 0x0FF);
     }
 }
