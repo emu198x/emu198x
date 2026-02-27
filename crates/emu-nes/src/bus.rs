@@ -58,7 +58,7 @@ impl Bus for NesBus {
         let addr = addr as u16;
         let data = match addr {
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize],
-            0x2000..=0x3FFF => self.ppu.cpu_read(addr & 0x0007, self.cartridge.as_ref()),
+            0x2000..=0x3FFF => self.ppu.cpu_read(addr & 0x0007, self.cartridge.as_mut()),
             0x4016 => self.controller1.read(),
             0x4017 => self.controller2.read(),
             0x4000..=0x4015 => self.apu.read(addr),

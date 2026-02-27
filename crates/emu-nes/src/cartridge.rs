@@ -1,8 +1,8 @@
 //! iNES cartridge parser and mapper implementations.
 //!
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
-//! a `Mapper` trait for address translation. Supports NROM (Mapper 0) and
-//! MMC1 (Mapper 1).
+//! a `Mapper` trait for address translation. Supports NROM (Mapper 0),
+//! MMC1 (Mapper 1), and MMC2 (Mapper 9).
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -28,10 +28,13 @@ pub struct CartridgeHeader {
 }
 
 /// Mapper trait: translates CPU and PPU addresses to cartridge ROM/RAM.
+///
+/// `chr_read` takes `&mut self` because some mappers (MMC2, MMC4) update
+/// internal latches when the PPU reads from pattern table addresses.
 pub trait Mapper {
     fn cpu_read(&self, addr: u16) -> u8;
     fn cpu_write(&mut self, addr: u16, value: u8);
-    fn chr_read(&self, addr: u16) -> u8;
+    fn chr_read(&mut self, addr: u16) -> u8;
     fn chr_write(&mut self, addr: u16, value: u8);
     fn mirroring(&self) -> Mirroring;
 }
@@ -86,7 +89,7 @@ impl Mapper for Nrom {
         // NROM has no writable PRG area
     }
 
-    fn chr_read(&self, addr: u16) -> u8 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
         self.chr[(addr as usize) & 0x1FFF]
     }
 
@@ -249,7 +252,7 @@ impl Mapper for Mmc1 {
         }
     }
 
-    fn chr_read(&self, addr: u16) -> u8 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
         let addr = addr as usize & 0x1FFF;
         let chr_mode = (self.control >> 4) & 1;
 
@@ -301,6 +304,146 @@ impl Mapper for Mmc1 {
             2 => Mirroring::Vertical,
             3 => Mirroring::Horizontal,
             _ => unreachable!(),
+        }
+    }
+}
+
+/// MMC2 (Mapper 9, PxROM): CHR latch-based bank switching.
+///
+/// Used by Punch-Out!! The mapper selects between two CHR banks for each
+/// pattern table half based on latches that update when the PPU reads
+/// specific tile addresses. This allows animated tiles without CPU
+/// involvement — the PPU's own reads trigger the bank switch.
+///
+/// - PRG: 8K switchable at $8000-$9FFF, three fixed 8K banks at $A000-$FFFF
+/// - CHR: Two latch-selected 4K banks per pattern table half
+/// - PRG RAM: none
+struct Mmc2 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    /// 8K PRG bank for $8000-$9FFF (4 bits)
+    prg_bank: u8,
+    /// CHR bank when latch 0 = $FD (PPU $0000-$0FFF)
+    chr_fd_0: u8,
+    /// CHR bank when latch 0 = $FE (PPU $0000-$0FFF)
+    chr_fe_0: u8,
+    /// CHR bank when latch 1 = $FD (PPU $1000-$1FFF)
+    chr_fd_1: u8,
+    /// CHR bank when latch 1 = $FE (PPU $1000-$1FFF)
+    chr_fe_1: u8,
+    /// Latch 0 state: true = $FE, false = $FD
+    latch_0_fe: bool,
+    /// Latch 1 state: true = $FE, false = $FD
+    latch_1_fe: bool,
+    /// Mirroring: false = vertical, true = horizontal
+    horizontal_mirror: bool,
+}
+
+impl Mmc2 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            prg_bank: 0,
+            chr_fd_0: 0,
+            chr_fe_0: 0,
+            chr_fd_1: 0,
+            chr_fe_1: 0,
+            latch_0_fe: true, // Power-on: latches set to $FE
+            latch_1_fe: true,
+            horizontal_mirror: false,
+        }
+    }
+
+    /// Number of 8K PRG banks.
+    fn prg_8k_count(&self) -> usize {
+        self.prg_rom.len() / 8192
+    }
+
+    /// Read a CHR byte and update latches based on the address.
+    ///
+    /// The latch updates AFTER the byte is fetched, so the triggering
+    /// tile itself uses the old bank selection.
+    fn chr_read_with_latch(&mut self, addr: u16) -> u8 {
+        let addr_usize = (addr & 0x1FFF) as usize;
+
+        // Select bank based on current latch state
+        let bank = if addr_usize < 0x1000 {
+            if self.latch_0_fe {
+                self.chr_fe_0
+            } else {
+                self.chr_fd_0
+            }
+        } else if self.latch_1_fe {
+            self.chr_fe_1
+        } else {
+            self.chr_fd_1
+        };
+
+        let offset = addr_usize & 0x0FFF;
+        let index = (bank as usize * 4096 + offset) % self.chr_rom.len();
+        let data = self.chr_rom[index];
+
+        // Update latches AFTER the read
+        match addr {
+            0x0FD8 => self.latch_0_fe = false,
+            0x0FE8 => self.latch_0_fe = true,
+            0x1FD8..=0x1FDF => self.latch_1_fe = false,
+            0x1FE8..=0x1FEF => self.latch_1_fe = true,
+            _ => {}
+        }
+
+        data
+    }
+}
+
+impl Mapper for Mmc2 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0x9FFF => {
+                // Switchable 8K bank
+                let bank = self.prg_bank as usize % self.prg_8k_count();
+                let offset = (addr - 0x8000) as usize;
+                self.prg_rom[bank * 8192 + offset]
+            }
+            0xA000..=0xFFFF => {
+                // Fixed: last three 8K banks
+                let count = self.prg_8k_count();
+                let fixed_start = count.saturating_sub(3);
+                let bank_offset = ((addr - 0xA000) as usize) / 8192;
+                let bank = (fixed_start + bank_offset) % count;
+                let offset = (addr as usize - 0xA000) % 8192;
+                self.prg_rom[bank * 8192 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0xA000..=0xAFFF => self.prg_bank = value & 0x0F,
+            0xB000..=0xBFFF => self.chr_fd_0 = value & 0x1F,
+            0xC000..=0xCFFF => self.chr_fe_0 = value & 0x1F,
+            0xD000..=0xDFFF => self.chr_fd_1 = value & 0x1F,
+            0xE000..=0xEFFF => self.chr_fe_1 = value & 0x1F,
+            0xF000..=0xFFFF => self.horizontal_mirror = value & 1 != 0,
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_read_with_latch(addr)
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {
+        // MMC2 uses CHR ROM only — no writes
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        if self.horizontal_mirror {
+            Mirroring::Horizontal
+        } else {
+            Mirroring::Vertical
         }
     }
 }
@@ -372,6 +515,7 @@ pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
     match header.mapper_number {
         0 => Ok(Box::new(Nrom::new(prg_rom, chr_data, mirroring))),
         1 => Ok(Box::new(Mmc1::new(prg_rom, chr_data))),
+        9 => Ok(Box::new(Mmc2::new(prg_rom, chr_data))),
         n => Err(format!("Unsupported mapper: {n}")),
     }
 }
@@ -625,5 +769,184 @@ mod tests {
         // Set to single-screen upper (bits 1:0 = 1)
         mmc1_write_5(&mut m, 0x8000, 0b01101); // control = 0x0D
         assert_eq!(m.mirroring(), Mirroring::SingleScreenUpper);
+    }
+
+    // --- MMC2 tests ---
+
+    /// Build an MMC2 with `prg_8k_banks` x 8K PRG and `chr_4k_pages` x 4K CHR.
+    /// PRG 8K banks are filled with their bank index.
+    /// CHR 4K pages are filled with their page index.
+    fn make_mmc2(prg_8k_banks: u8, chr_4k_pages: u8) -> Mmc2 {
+        let prg_size = prg_8k_banks as usize * 8192;
+        let chr_size = chr_4k_pages as usize * 4096;
+        let mut prg_rom = vec![0u8; prg_size];
+        for bank in 0..prg_8k_banks as usize {
+            for i in 0..8192 {
+                prg_rom[bank * 8192 + i] = bank as u8;
+            }
+        }
+        let mut chr_rom = vec![0u8; chr_size];
+        for page in 0..chr_4k_pages as usize {
+            for i in 0..4096 {
+                chr_rom[page * 4096 + i] = page as u8;
+            }
+        }
+        Mmc2::new(prg_rom, chr_rom)
+    }
+
+    #[test]
+    fn mmc2_parse_ines() {
+        // Mapper 9: flags6 high nibble = 0x9_, so flags6 = 0x90
+        let data = make_ines(8, 2, 0x90);
+        let mapper = parse_ines(&data).expect("parse failed");
+        // Default mirroring is vertical
+        assert_eq!(mapper.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn mmc2_prg_banking() {
+        // 16 x 8K PRG banks. Last three ($A000-$FFFF) are fixed.
+        let mut m = make_mmc2(16, 8);
+
+        // Default: bank 0 at $8000
+        assert_eq!(m.cpu_read(0x8000), 0);
+        // $A000 = bank 13, $C000 = bank 14, $E000 = bank 15 (last three)
+        assert_eq!(m.cpu_read(0xA000), 13);
+        assert_eq!(m.cpu_read(0xC000), 14);
+        assert_eq!(m.cpu_read(0xE000), 15);
+
+        // Switch $8000 to bank 5
+        m.cpu_write(0xA000, 5);
+        assert_eq!(m.cpu_read(0x8000), 5);
+        // Fixed banks unchanged
+        assert_eq!(m.cpu_read(0xA000), 13);
+    }
+
+    #[test]
+    fn mmc2_chr_latch_default() {
+        // 8 x 4K CHR pages. Latches power on as $FE.
+        let mut m = make_mmc2(16, 8);
+
+        // Set $FD banks to page 1 ($0000) and page 3 ($1000)
+        m.cpu_write(0xB000, 1); // chr_fd_0
+        m.cpu_write(0xD000, 3); // chr_fd_1
+        // Set $FE banks to page 2 ($0000) and page 5 ($1000)
+        m.cpu_write(0xC000, 2); // chr_fe_0
+        m.cpu_write(0xE000, 5); // chr_fe_1
+
+        // Latches default to $FE, so should read FE banks
+        assert_eq!(m.chr_read(0x0000), 2); // chr_fe_0 = page 2
+        assert_eq!(m.chr_read(0x1000), 5); // chr_fe_1 = page 5
+    }
+
+    #[test]
+    fn mmc2_latch_0_fd_trigger() {
+        let mut m = make_mmc2(16, 8);
+        m.cpu_write(0xB000, 1); // chr_fd_0 = page 1
+        m.cpu_write(0xC000, 2); // chr_fe_0 = page 2
+
+        // Latch defaults to $FE → reads page 2
+        assert_eq!(m.chr_read(0x0000), 2);
+
+        // Read $0FD8 → triggers latch 0 to $FD (AFTER the read)
+        let val = m.chr_read(0x0FD8);
+        assert_eq!(val, 2); // Still reads from old $FE bank
+
+        // Now latch 0 = $FD → reads page 1
+        assert_eq!(m.chr_read(0x0000), 1);
+    }
+
+    #[test]
+    fn mmc2_latch_0_fe_trigger() {
+        let mut m = make_mmc2(16, 8);
+        m.cpu_write(0xB000, 1); // chr_fd_0 = page 1
+        m.cpu_write(0xC000, 2); // chr_fe_0 = page 2
+
+        // Force latch 0 to $FD first
+        m.chr_read(0x0FD8);
+        assert_eq!(m.chr_read(0x0000), 1); // Confirms $FD
+
+        // Read $0FE8 → triggers latch 0 back to $FE
+        m.chr_read(0x0FE8);
+        assert_eq!(m.chr_read(0x0000), 2); // Back to $FE bank
+    }
+
+    #[test]
+    fn mmc2_latch_1_fd_trigger() {
+        let mut m = make_mmc2(16, 8);
+        m.cpu_write(0xD000, 3); // chr_fd_1 = page 3
+        m.cpu_write(0xE000, 5); // chr_fe_1 = page 5
+
+        // Latch 1 defaults to $FE
+        assert_eq!(m.chr_read(0x1000), 5);
+
+        // Read in $1FD8-$1FDF range → latch 1 to $FD
+        m.chr_read(0x1FD8);
+        assert_eq!(m.chr_read(0x1000), 3); // Now $FD bank
+
+        // Also test $1FDF (end of range)
+        // Reset to $FE first
+        m.chr_read(0x1FE8);
+        assert_eq!(m.chr_read(0x1000), 5);
+        m.chr_read(0x1FDF);
+        assert_eq!(m.chr_read(0x1000), 3);
+    }
+
+    #[test]
+    fn mmc2_latch_1_fe_trigger() {
+        let mut m = make_mmc2(16, 8);
+        m.cpu_write(0xD000, 3); // chr_fd_1 = page 3
+        m.cpu_write(0xE000, 5); // chr_fe_1 = page 5
+
+        // Force latch 1 to $FD
+        m.chr_read(0x1FD8);
+        assert_eq!(m.chr_read(0x1000), 3);
+
+        // Read in $1FE8-$1FEF range → latch 1 to $FE
+        m.chr_read(0x1FEF);
+        assert_eq!(m.chr_read(0x1000), 5);
+    }
+
+    #[test]
+    fn mmc2_mirroring() {
+        let mut m = make_mmc2(16, 8);
+        // Default: vertical
+        assert_eq!(m.mirroring(), Mirroring::Vertical);
+
+        // Set horizontal
+        m.cpu_write(0xF000, 1);
+        assert_eq!(m.mirroring(), Mirroring::Horizontal);
+
+        // Set vertical
+        m.cpu_write(0xF000, 0);
+        assert_eq!(m.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn mmc2_chr_rom_not_writable() {
+        let mut m = make_mmc2(16, 8);
+        let original = m.chr_read(0x0000);
+        m.chr_write(0x0000, 0xFF);
+        assert_eq!(m.chr_read(0x0000), original);
+    }
+
+    #[test]
+    fn mmc2_latches_independent() {
+        // Latch 0 and latch 1 don't affect each other
+        let mut m = make_mmc2(16, 8);
+        m.cpu_write(0xB000, 1); // chr_fd_0
+        m.cpu_write(0xC000, 2); // chr_fe_0
+        m.cpu_write(0xD000, 3); // chr_fd_1
+        m.cpu_write(0xE000, 5); // chr_fe_1
+
+        // Toggle latch 0 to $FD — latch 1 should stay at $FE
+        m.chr_read(0x0FD8);
+        assert_eq!(m.chr_read(0x0000), 1); // latch 0 = $FD
+        assert_eq!(m.chr_read(0x1000), 5); // latch 1 still $FE
+
+        // Toggle latch 1 to $FD — latch 0 should stay at $FD
+        m.chr_read(0x1FD8);
+        assert_eq!(m.chr_read(0x0000), 1); // latch 0 still $FD
+        assert_eq!(m.chr_read(0x1000), 3); // latch 1 = $FD
     }
 }

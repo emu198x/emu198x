@@ -129,7 +129,7 @@ impl Ppu {
     }
 
     /// One PPU dot.
-    pub fn tick(&mut self, mapper: &dyn Mapper) {
+    pub fn tick(&mut self, mapper: &mut dyn Mapper) {
         // Pre-render line (261)
         if self.scanline == 261 {
             self.tick_prerender(mapper);
@@ -158,7 +158,7 @@ impl Ppu {
         }
     }
 
-    fn tick_prerender(&mut self, mapper: &dyn Mapper) {
+    fn tick_prerender(&mut self, mapper: &mut dyn Mapper) {
         if self.dot == 1 {
             // Clear VBlank, sprite 0 hit, sprite overflow
             self.status &= 0x1F;
@@ -194,7 +194,7 @@ impl Ppu {
         }
     }
 
-    fn tick_visible(&mut self, mapper: &dyn Mapper) {
+    fn tick_visible(&mut self, mapper: &mut dyn Mapper) {
         if self.rendering_enabled() {
             // Pixel output (dots 1-256)
             if self.dot >= 1 && self.dot <= 256 {
@@ -233,7 +233,7 @@ impl Ppu {
         }
     }
 
-    fn bg_fetch_cycle(&mut self, mapper: &dyn Mapper) {
+    fn bg_fetch_cycle(&mut self, mapper: &mut dyn Mapper) {
         let cycle = if self.dot >= 321 {
             self.dot - 321
         } else {
@@ -309,7 +309,7 @@ impl Ppu {
         self.bg_shift_attrib_hi <<= 1;
     }
 
-    fn render_pixel(&mut self, _mapper: &dyn Mapper) {
+    fn render_pixel(&mut self, _mapper: &mut dyn Mapper) {
         let x = (self.dot - 1) as usize;
         let y = self.scanline as usize;
 
@@ -405,7 +405,7 @@ impl Ppu {
         (0, 0, false, false)
     }
 
-    fn evaluate_sprites(&mut self, mapper: &dyn Mapper) {
+    fn evaluate_sprites(&mut self, mapper: &mut dyn Mapper) {
         let sprite_height: u16 = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
         let next_scanline = self.scanline;
 
@@ -560,7 +560,7 @@ impl Ppu {
     // === Register access (CPU side) ===
 
     /// CPU read from PPU register ($2000-$2007 mirrored).
-    pub fn cpu_read(&mut self, reg: u16, mapper: &dyn Mapper) -> u8 {
+    pub fn cpu_read(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
         match reg & 0x07 {
             // $2002 - PPUSTATUS
             2 => {
@@ -656,7 +656,7 @@ impl Ppu {
 
     // === PPU memory access ===
 
-    fn ppu_read(&self, addr: u16, mapper: &dyn Mapper) -> u8 {
+    fn ppu_read(&self, addr: u16, mapper: &mut dyn Mapper) -> u8 {
         let addr = addr & 0x3FFF;
         match addr {
             0x0000..=0x1FFF => mapper.chr_read(addr),
@@ -854,7 +854,7 @@ mod tests {
         // first sprite checked. If that sprite's Y is out of range, m
         // becomes 1 — now the PPU reads tile bytes as Y. Real overflows
         // get missed when the non-Y bytes are out of range.
-        let mapper = dummy_mapper();
+        let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
         ppu.scanline = 50;
         ppu.ctrl = 0; // 8x8 sprites
@@ -888,7 +888,7 @@ mod tests {
             ppu.oam[i * 4 + 3] = 200; // X
         }
 
-        ppu.evaluate_sprites(&mapper);
+        ppu.evaluate_sprites(&mut mapper);
         assert_eq!(ppu.sprite_count, 8);
         // Overflow flag NOT set: real sprites at Y=50 are missed because
         // the buggy m offset reads 200 instead of 50.
@@ -899,7 +899,7 @@ mod tests {
     fn sprite_overflow_bug_false_positive() {
         // When the buggy m offset happens to read a byte that looks like
         // a Y in range, the PPU sets the overflow flag — a false positive.
-        let mapper = dummy_mapper();
+        let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
         ppu.scanline = 50;
         ppu.ctrl = 0; // 8x8 sprites
@@ -932,7 +932,7 @@ mod tests {
             ppu.oam[i * 4 + 3] = 200;
         }
 
-        ppu.evaluate_sprites(&mapper);
+        ppu.evaluate_sprites(&mut mapper);
         assert_eq!(ppu.sprite_count, 8);
         // Overflow flag IS set: tile byte 50 falsely matches scanline 50
         assert_ne!(

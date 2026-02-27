@@ -226,7 +226,7 @@ impl Tickable for Nes {
 
         // PPU: every 4 crystal ticks
         if self.master_clock.is_multiple_of(PPU_DIVISOR) {
-            self.bus.ppu.tick(self.bus.cartridge.as_ref());
+            self.bus.ppu.tick(self.bus.cartridge.as_mut());
 
             // VBlank NMI → CPU
             if self.bus.ppu.take_nmi() {
