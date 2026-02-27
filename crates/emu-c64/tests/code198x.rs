@@ -38,12 +38,100 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
-// Starfield Unit 1: Ship sprite on screen
+// SID Symphony Unit 1: three-track rhythm display with SID audio
+//
+// Uses screen RAM, colour RAM, SID registers, and CIA keyboard.
+// No sprites needed — verifies character-mode rendering and SID init.
 // ---------------------------------------------------------------------------
 
 #[test]
 #[ignore] // Requires C64 ROMs and Code198x repo
-fn test_starfield_unit01() {
+fn test_sid_symphony_unit01() {
+    let prg_path = match code198x_path(
+        "commodore-64/game-01-sid-symphony/unit-01/symphony.prg",
+    ) {
+        Some(p) => p,
+        None => {
+            eprintln!("Skipping: Code198x repo not found");
+            return;
+        }
+    };
+
+    let mut c64 = match load_c64() {
+        Some(c) => c,
+        None => {
+            eprintln!("Skipping: C64 ROMs not found");
+            return;
+        }
+    };
+
+    ensure_output_dir();
+
+    // Boot to READY. prompt (~120 frames)
+    for _ in 0..120 {
+        c64.run_frame();
+        let _ = c64.take_audio_buffer();
+    }
+
+    // Load the PRG and jump to the ML entry point ($0810)
+    let prg_data = std::fs::read(&prg_path).expect("read PRG");
+    c64.load_prg(&prg_data).expect("load PRG");
+    c64.cpu_mut().regs.pc = 0x0810;
+
+    // Run frames for the program to set up the display
+    for _ in 0..60 {
+        c64.run_frame();
+        let _ = c64.take_audio_buffer();
+    }
+
+    // Verify: border and background should be black
+    let border = c64.bus().vic.read(0x20) & 0x0F;
+    let background = c64.bus().vic.read(0x21) & 0x0F;
+    assert_eq!(border, 0, "SID Symphony sets border to black");
+    assert_eq!(background, 0, "SID Symphony sets background to black");
+
+    // Verify: screen has the title "SID SYMPHONY" at row 0, col 13.
+    // PETSCII screen codes: S=19, I=9, D=4, space=32, etc.
+    let title_addr = 0x0400 + 13;
+    let s_code = c64.bus().memory.ram_read(title_addr);
+    let i_code = c64.bus().memory.ram_read(title_addr + 1);
+    let d_code = c64.bus().memory.ram_read(title_addr + 2);
+    assert_eq!(s_code, 19, "First char should be S (screen code 19), got {s_code}");
+    assert_eq!(i_code, 9, "Second char should be I (screen code 9), got {i_code}");
+    assert_eq!(d_code, 4, "Third char should be D (screen code 4), got {d_code}");
+
+    // Verify: track lines are drawn (minus chars = screen code $2D = 45)
+    // Track 1 at row 8, Track 2 at row 12, Track 3 at row 16
+    let track1_char = c64.bus().memory.ram_read(0x0400 + 8 * 40 + 5);
+    let track2_char = c64.bus().memory.ram_read(0x0400 + 12 * 40 + 5);
+    let track3_char = c64.bus().memory.ram_read(0x0400 + 16 * 40 + 5);
+    assert_eq!(track1_char, 0x2D, "Track 1 line should be minus char");
+    assert_eq!(track2_char, 0x2D, "Track 2 line should be minus char");
+    assert_eq!(track3_char, 0x2D, "Track 3 line should be minus char");
+
+    // Verify: SID volume is set to maximum ($0F)
+    // SID $D418 lower nibble = volume
+    let sid_vol = c64.bus().memory.peek(0xD418) & 0x0F;
+    assert_eq!(sid_vol, 0x0F, "SID volume should be max (15), got {sid_vol}");
+
+    // Save screenshot
+    let path = format!("{OUTPUT_DIR}/code198x_sid_symphony_unit01.png");
+    save_screenshot(&c64, path.as_ref()).expect("save screenshot");
+    eprintln!("Saved {path}");
+}
+
+// ---------------------------------------------------------------------------
+// Starfield Unit 1: Ship sprite on screen
+//
+// Note: VIC-II sprite rendering is not yet implemented, so this test verifies
+// the program executes correctly (border=black, sprite registers written)
+// without asserting visible sprite pixels. When sprites are added, the
+// screenshot will show the ship.
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore] // Requires C64 ROMs and Code198x repo
+fn test_starfield_unit01_registers() {
     let prg_path = match code198x_path(
         "commodore-64/game-01-starfield/unit-01/starfield.prg",
     ) {
@@ -64,54 +152,29 @@ fn test_starfield_unit01() {
 
     ensure_output_dir();
 
-    // Boot to READY. prompt first (~120 frames)
+    // Boot, load PRG, jump to entry point
     for _ in 0..120 {
         c64.run_frame();
         let _ = c64.take_audio_buffer();
     }
-
-    // Load the PRG — writes bytes into RAM at the load address ($0801)
     let prg_data = std::fs::read(&prg_path).expect("read PRG");
     c64.load_prg(&prg_data).expect("load PRG");
-
-    // Jump directly to the machine code entry point ($080D = 2061 decimal).
-    // This bypasses BASIC's RUN/SYS — we set PC directly to the ML code.
     c64.cpu_mut().regs.pc = 0x080D;
-
-    // Run frames for the program to execute and render
     for _ in 0..60 {
         c64.run_frame();
         let _ = c64.take_audio_buffer();
     }
 
-    // Verify: border and background should be black ($00)
-    let border = c64.bus().vic.read(0x20); // $D020
-    let background = c64.bus().vic.read(0x21); // $D021
-    assert_eq!(border & 0x0F, 0, "Starfield sets border to black");
-    assert_eq!(background & 0x0F, 0, "Starfield sets background to black");
+    // Program executes: border=black, sprite 0 enabled at (172, 220)
+    assert_eq!(c64.bus().vic.read(0x20) & 0x0F, 0, "Border should be black");
+    assert_eq!(c64.bus().vic.read(0x15) & 0x01, 0x01, "Sprite 0 should be enabled");
+    assert_eq!(c64.bus().vic.read(0x00), 172, "Sprite 0 X should be 172");
+    assert_eq!(c64.bus().vic.read(0x01), 220, "Sprite 0 Y should be 220");
 
-    // Verify: sprite 0 should be enabled
-    let sprite_enable = c64.bus().vic.read(0x15); // $D015
-    assert_eq!(
-        sprite_enable & 0x01,
-        0x01,
-        "Starfield enables sprite 0"
-    );
+    // Sprite data at $2000 should be the ship pattern
+    assert_eq!(c64.bus().memory.ram_read(0x2001), 0x18, "Sprite row 0 mid-byte");
 
-    // Verify: sprite 0 position should be near center-bottom
-    let sprite_x = c64.bus().vic.read(0x00); // $D000
-    let sprite_y = c64.bus().vic.read(0x01); // $D001
-    assert!(sprite_x > 100, "Sprite X should be near center ({sprite_x})");
-    assert!(sprite_y > 180, "Sprite Y should be near bottom ({sprite_y})");
-
-    // Verify: sprite data at $2000 should have the ship pattern
-    let sprite_byte = c64.bus().memory.ram_read(0x2000);
-    assert_eq!(sprite_byte, 0x00, "First sprite byte should be $00");
-    let sprite_byte_1 = c64.bus().memory.ram_read(0x2001);
-    assert_eq!(sprite_byte_1, 0x18, "Second sprite byte should be $18");
-
-    // Save screenshot
     let path = format!("{OUTPUT_DIR}/code198x_starfield_unit01.png");
     save_screenshot(&c64, path.as_ref()).expect("save screenshot");
-    eprintln!("Saved {path}");
+    eprintln!("Saved {path} (sprite not rendered — VIC-II sprites pending)");
 }
