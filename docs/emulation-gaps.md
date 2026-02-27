@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (NES NROM/MMC1/UxROM/CNROM/MMC2 mappers). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (NES MMC3 mapper, mapper IRQ support). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -112,21 +112,21 @@ largest remaining gaps are **1541 disk drive** (blocks D64 loading) and
 
 ## NES
 
-Boots games using five mappers, renders backgrounds and sprites, plays
-pulse/triangle/noise audio. The main gaps are **MMC3** and **DMC audio**.
+Boots games using six mappers (including MMC3), renders backgrounds and
+sprites, plays pulse/triangle/noise audio. The main gap is **DMC audio**.
 
 ### Implemented
 
 - **CPU**: 6502 at 100% cycle accuracy (2.56M single-step tests pass)
 - **PPU**: Background + sprites, all mirroring modes (H/V/4-screen/single-screen)
 - **APU**: Pulse (×2), triangle, noise, frame counter, mixer at 48 kHz
-- **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC2 (9) CHR latch-based bank switching
+- **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC3 (4) 8-register PRG/CHR banking + scanline counter IRQ + PRG RAM, MMC2 (9) CHR latch-based bank switching
+- **Mapper IRQ**: Mapper trait supports IRQ signalling; MMC3 scanline counter wired to CPU interrupt line
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| Mapper 4 (MMC3) | Not implemented | SMB3, Kirby, Mega Man 3-6, ~20% of library |
 | Mapper 7 (AxROM) | Not implemented | Battletoads, Marble Madness |
 | DMC sample playback | `apu.rs` — stub, no DMA | Drums/bass in most game music silent |
 | DMC/OAM DMA conflict | Not implemented | Cycle-stealing interaction missing |
@@ -147,9 +147,10 @@ pulse/triangle/noise audio. The main gaps are **MMC3** and **DMC audio**.
 
 ### Assessment
 
-**~55-60% of the NES library runs** (NROM + MMC1 + UxROM + CNROM + MMC2).
-Adding MMC3 would push coverage to ~80%. DMC DMA is the other major gap —
-it requires a CPU bus access mechanism that doesn't exist yet.
+**~75-80% of the NES library runs** (NROM + MMC1 + UxROM + CNROM + MMC3 +
+MMC2). MMC3 alone covers ~20% of the NES library (SMB3, Kirby's Adventure,
+Mega Man 3-6, Batman). DMC DMA is the largest remaining gap — it requires
+a CPU bus access mechanism that doesn't exist yet.
 
 ---
 
@@ -205,17 +206,17 @@ modes and peripheral completeness.
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
 | Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~90% (missing emphasis/greyscale) | ~60% (missing HAM/EHB) |
 | Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~80% (no DMC) | ~85% (no filter model) |
-| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | 5 mappers (0/1/2/3/9) | ADF read only |
+| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | 6 mappers (0/1/2/3/4/9) | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |
 | Model variants | 48K, 128K, +2 PAL | PAL only | NTSC only | A500 OCS only |
 
 ### Highest-impact work items (by games-unlocked)
 
-1. **NES mapper 4** (MMC3) — unlocks ~20% more of NES library
-2. **C64 1541 disk drive** — unlocks D64 loading (huge library unlock)
-3. **Amiga HAM/EHB modes** — unlocks large category of Amiga graphics
-4. **NES DMC DMA** — completes audio for most NES games
-5. **Amiga Copper SKIP** — unlocks conditional copper lists
+1. **C64 1541 disk drive** — unlocks D64 loading (huge library unlock)
+2. **Amiga HAM/EHB modes** — unlocks large category of Amiga graphics
+3. **NES DMC DMA** — completes audio for most NES games
+4. **Amiga Copper SKIP** — unlocks conditional copper lists
+5. **NES mapper 7** (AxROM) — unlocks Battletoads, Marble Madness
 6. **Amiga disk write** — unlocks game saves
 7. **68010/020 instructions** — unlocks A500+/A1200
 8. **C64 CIA2 NMI** — unlocks music players and demos

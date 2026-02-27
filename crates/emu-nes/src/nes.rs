@@ -256,8 +256,8 @@ impl Tickable for Nes {
             // APU ticks at CPU rate
             self.bus.apu.tick();
 
-            // APU IRQ → CPU (level-sensitive)
-            if self.bus.apu.irq_pending() {
+            // APU / mapper IRQ → CPU (level-sensitive)
+            if self.bus.apu.irq_pending() || self.bus.cartridge.irq_pending() {
                 self.cpu.interrupt();
             }
         }

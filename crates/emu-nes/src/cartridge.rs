@@ -2,8 +2,8 @@
 //!
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
 //! a `Mapper` trait for address translation. Supports NROM (Mapper 0),
-//! MMC1 (Mapper 1), UxROM (Mapper 2), CNROM (Mapper 3), and MMC2
-//! (Mapper 9).
+//! MMC1 (Mapper 1), UxROM (Mapper 2), CNROM (Mapper 3), MMC3 (Mapper 4),
+//! and MMC2 (Mapper 9).
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -38,6 +38,10 @@ pub trait Mapper {
     fn chr_read(&mut self, addr: u16) -> u8;
     fn chr_write(&mut self, addr: u16, value: u8);
     fn mirroring(&self) -> Mirroring;
+    /// Whether the mapper is asserting an IRQ. Default: no IRQ.
+    fn irq_pending(&self) -> bool {
+        false
+    }
 }
 
 /// NROM (Mapper 0): no bank switching.
@@ -441,6 +445,287 @@ impl Mapper for CnRom {
     }
 }
 
+/// MMC3 (Mapper 4, TxROM): the second-most common NES mapper.
+///
+/// Used by SMB3, Kirby's Adventure, Mega Man 3-6, and Batman.
+///
+/// - PRG: 4 x 8K windows with two switchable modes
+/// - CHR: 8 x 1K windows (mixed 2K/1K granularity) with two modes
+/// - PRG RAM: 8K at $6000-$7FFF with write protection
+/// - Mirroring: dynamically switchable H/V
+/// - Scanline counter: IRQ driven by PPU A12 rising edges
+struct Mmc3 {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    prg_ram: [u8; 8192],
+    /// Bank select register ($8000): bits 0-2 = target register,
+    /// bit 6 = PRG mode, bit 7 = CHR mode.
+    bank_select: u8,
+    /// R0-R7 bank registers, written via $8001.
+    registers: [u8; 8],
+    mirroring: Mirroring,
+    prg_ram_enable: bool,
+    prg_ram_write_protect: bool,
+    irq_latch: u8,
+    irq_counter: u8,
+    irq_reload_flag: bool,
+    irq_enabled: bool,
+    irq_pending: bool,
+    /// Last observed state of PPU A12 (for rising edge detection).
+    last_a12: bool,
+}
+
+impl Mmc3 {
+    fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr,
+            chr_is_ram,
+            prg_ram: [0; 8192],
+            bank_select: 0,
+            registers: [0; 8],
+            mirroring: Mirroring::Vertical,
+            prg_ram_enable: true,
+            prg_ram_write_protect: false,
+            irq_latch: 0,
+            irq_counter: 0,
+            irq_reload_flag: false,
+            irq_enabled: false,
+            irq_pending: false,
+            last_a12: false,
+        }
+    }
+
+    /// Number of 8K PRG banks.
+    fn prg_8k_count(&self) -> usize {
+        self.prg_rom.len() / 8192
+    }
+
+    /// Read a byte from an 8K PRG bank at the given offset.
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+
+    /// Clock the scanline counter on PPU A12 rising edge.
+    fn clock_irq_counter(&mut self) {
+        if self.irq_counter == 0 || self.irq_reload_flag {
+            self.irq_counter = self.irq_latch;
+            self.irq_reload_flag = false;
+        } else {
+            self.irq_counter -= 1;
+        }
+        if self.irq_counter == 0 && self.irq_enabled {
+            self.irq_pending = true;
+        }
+    }
+}
+
+impl Mapper for Mmc3 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF => {
+                if self.prg_ram_enable {
+                    self.prg_ram[(addr - 0x6000) as usize]
+                } else {
+                    0
+                }
+            }
+            0x8000..=0x9FFF => {
+                let offset = (addr - 0x8000) as usize;
+                if self.bank_select & 0x40 == 0 {
+                    // Mode 0: R6 at $8000
+                    self.read_prg_8k(self.registers[6] as usize & 0x3F, offset)
+                } else {
+                    // Mode 1: second-to-last at $8000
+                    self.read_prg_8k(self.prg_8k_count() - 2, offset)
+                }
+            }
+            0xA000..=0xBFFF => {
+                let offset = (addr - 0xA000) as usize;
+                // R7 at $A000 in both modes
+                self.read_prg_8k(self.registers[7] as usize & 0x3F, offset)
+            }
+            0xC000..=0xDFFF => {
+                let offset = (addr - 0xC000) as usize;
+                if self.bank_select & 0x40 == 0 {
+                    // Mode 0: second-to-last at $C000
+                    self.read_prg_8k(self.prg_8k_count() - 2, offset)
+                } else {
+                    // Mode 1: R6 at $C000
+                    self.read_prg_8k(self.registers[6] as usize & 0x3F, offset)
+                }
+            }
+            0xE000..=0xFFFF => {
+                let offset = (addr - 0xE000) as usize;
+                // Last bank always at $E000
+                self.read_prg_8k(self.prg_8k_count() - 1, offset)
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x7FFF => {
+                if self.prg_ram_enable && !self.prg_ram_write_protect {
+                    self.prg_ram[(addr - 0x6000) as usize] = value;
+                }
+            }
+            0x8000..=0x9FFF => {
+                if addr & 1 == 0 {
+                    // $8000 (even): bank select
+                    self.bank_select = value;
+                } else {
+                    // $8001 (odd): bank data
+                    let reg = (self.bank_select & 0x07) as usize;
+                    self.registers[reg] = value;
+                }
+            }
+            0xA000..=0xBFFF => {
+                if addr & 1 == 0 {
+                    // $A000 (even): mirroring
+                    self.mirroring = if value & 1 == 0 {
+                        Mirroring::Vertical
+                    } else {
+                        Mirroring::Horizontal
+                    };
+                } else {
+                    // $A001 (odd): PRG RAM protect
+                    self.prg_ram_write_protect = value & 0x40 != 0;
+                    self.prg_ram_enable = value & 0x80 != 0;
+                }
+            }
+            0xC000..=0xDFFF => {
+                if addr & 1 == 0 {
+                    // $C000 (even): IRQ latch
+                    self.irq_latch = value;
+                } else {
+                    // $C001 (odd): IRQ reload
+                    self.irq_reload_flag = true;
+                }
+            }
+            0xE000..=0xFFFF => {
+                if addr & 1 == 0 {
+                    // $E000 (even): IRQ disable + acknowledge
+                    self.irq_enabled = false;
+                    self.irq_pending = false;
+                } else {
+                    // $E001 (odd): IRQ enable
+                    self.irq_enabled = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        // Track A12 for scanline counter
+        let a12 = addr & 0x1000 != 0;
+        if a12 && !self.last_a12 {
+            self.clock_irq_counter();
+        }
+        self.last_a12 = a12;
+
+        let addr_usize = (addr & 0x1FFF) as usize;
+        let chr_mode = self.bank_select & 0x80 != 0;
+
+        // Resolve 1K bank index for this address
+        let bank_1k = if !chr_mode {
+            // Mode 0: 2K,2K,1K,1K,1K,1K
+            match addr_usize >> 10 {
+                0 => (self.registers[0] & 0xFE) as usize,     // R0 (2K-aligned)
+                1 => (self.registers[0] | 1) as usize,        // R0+1
+                2 => (self.registers[1] & 0xFE) as usize,     // R1 (2K-aligned)
+                3 => (self.registers[1] | 1) as usize,        // R1+1
+                4 => self.registers[2] as usize,               // R2
+                5 => self.registers[3] as usize,               // R3
+                6 => self.registers[4] as usize,               // R4
+                7 => self.registers[5] as usize,               // R5
+                _ => unreachable!(),
+            }
+        } else {
+            // Mode 1: 1K,1K,1K,1K,2K,2K (inverted)
+            match addr_usize >> 10 {
+                0 => self.registers[2] as usize,               // R2
+                1 => self.registers[3] as usize,               // R3
+                2 => self.registers[4] as usize,               // R4
+                3 => self.registers[5] as usize,               // R5
+                4 => (self.registers[0] & 0xFE) as usize,     // R0 (2K-aligned)
+                5 => (self.registers[0] | 1) as usize,        // R0+1
+                6 => (self.registers[1] & 0xFE) as usize,     // R1 (2K-aligned)
+                7 => (self.registers[1] | 1) as usize,        // R1+1
+                _ => unreachable!(),
+            }
+        };
+
+        let offset = addr_usize & 0x3FF; // 1K offset within bank
+        let index = (bank_1k * 1024 + offset) % self.chr.len();
+        self.chr[index]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if !self.chr_is_ram {
+            return;
+        }
+
+        // Track A12 for scanline counter
+        let a12 = addr & 0x1000 != 0;
+        if a12 && !self.last_a12 {
+            self.clock_irq_counter();
+        }
+        self.last_a12 = a12;
+
+        let addr_usize = (addr & 0x1FFF) as usize;
+        let chr_mode = self.bank_select & 0x80 != 0;
+
+        let bank_1k = if !chr_mode {
+            match addr_usize >> 10 {
+                0 => (self.registers[0] & 0xFE) as usize,
+                1 => (self.registers[0] | 1) as usize,
+                2 => (self.registers[1] & 0xFE) as usize,
+                3 => (self.registers[1] | 1) as usize,
+                4 => self.registers[2] as usize,
+                5 => self.registers[3] as usize,
+                6 => self.registers[4] as usize,
+                7 => self.registers[5] as usize,
+                _ => unreachable!(),
+            }
+        } else {
+            match addr_usize >> 10 {
+                0 => self.registers[2] as usize,
+                1 => self.registers[3] as usize,
+                2 => self.registers[4] as usize,
+                3 => self.registers[5] as usize,
+                4 => (self.registers[0] & 0xFE) as usize,
+                5 => (self.registers[0] | 1) as usize,
+                6 => (self.registers[1] & 0xFE) as usize,
+                7 => (self.registers[1] | 1) as usize,
+                _ => unreachable!(),
+            }
+        };
+
+        let offset = addr_usize & 0x3FF;
+        let index = (bank_1k * 1024 + offset) % self.chr.len();
+        self.chr[index] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+}
+
 /// MMC2 (Mapper 9, PxROM): CHR latch-based bank switching.
 ///
 /// Used by Punch-Out!! The mapper selects between two CHR banks for each
@@ -650,6 +935,7 @@ pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
         1 => Ok(Box::new(Mmc1::new(prg_rom, chr_data))),
         2 => Ok(Box::new(UxRom::new(prg_rom, chr_data, mirroring))),
         3 => Ok(Box::new(CnRom::new(prg_rom, chr_data, mirroring))),
+        4 => Ok(Box::new(Mmc3::new(prg_rom, chr_data))),
         9 => Ok(Box::new(Mmc2::new(prg_rom, chr_data))),
         n => Err(format!("Unsupported mapper: {n}")),
     }
@@ -1207,5 +1493,256 @@ mod tests {
         m.chr_read(0x1FD8);
         assert_eq!(m.chr_read(0x0000), 1); // latch 0 still $FD
         assert_eq!(m.chr_read(0x1000), 3); // latch 1 = $FD
+    }
+
+    // --- MMC3 tests ---
+
+    /// Build an MMC3 with `prg_8k_banks` x 8K PRG and `chr_1k_pages` x 1K CHR.
+    /// PRG 8K banks filled with their bank index. CHR 1K pages filled with page index.
+    fn make_mmc3(prg_8k_banks: usize, chr_1k_pages: usize) -> Mmc3 {
+        let prg_size = prg_8k_banks * 8192;
+        let chr_size = chr_1k_pages * 1024;
+        let mut prg_rom = vec![0u8; prg_size];
+        for bank in 0..prg_8k_banks {
+            for i in 0..8192 {
+                prg_rom[bank * 8192 + i] = bank as u8;
+            }
+        }
+        let chr_data = if chr_size > 0 {
+            let mut chr = vec![0u8; chr_size];
+            for page in 0..chr_1k_pages {
+                for i in 0..1024 {
+                    chr[page * 1024 + i] = page as u8;
+                }
+            }
+            chr
+        } else {
+            Vec::new()
+        };
+        Mmc3::new(prg_rom, chr_data)
+    }
+
+    #[test]
+    fn mmc3_parse_ines() {
+        // Mapper 4: flags6 high nibble = 0x4_, so flags6 = 0x40
+        let data = make_ines(8, 4, 0x40);
+        let mapper = parse_ines(&data).expect("parse failed");
+        // MMC3 default mirroring is vertical
+        assert_eq!(mapper.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn mmc3_prg_mode_0() {
+        // 32 x 8K PRG banks. Mode 0: R6@$8000, R7@$A000, -2@$C000, -1@$E000
+        let mut m = make_mmc3(32, 256);
+
+        // Select register 6, PRG mode 0 (bit 6 clear)
+        m.cpu_write(0x8000, 6); // bank_select = 6
+        m.cpu_write(0x8001, 5); // R6 = 5
+
+        m.cpu_write(0x8000, 7); // bank_select = 7
+        m.cpu_write(0x8001, 10); // R7 = 10
+
+        assert_eq!(m.cpu_read(0x8000), 5);  // R6
+        assert_eq!(m.cpu_read(0xA000), 10); // R7
+        assert_eq!(m.cpu_read(0xC000), 30); // second-to-last
+        assert_eq!(m.cpu_read(0xE000), 31); // last
+    }
+
+    #[test]
+    fn mmc3_prg_mode_1() {
+        // Mode 1 (bit 6 set): -2@$8000, R7@$A000, R6@$C000, -1@$E000
+        let mut m = make_mmc3(32, 256);
+
+        // Set PRG mode 1, select R6
+        m.cpu_write(0x8000, 0x46); // bank_select = 0x46 (bit 6 set, reg 6)
+        m.cpu_write(0x8001, 5);    // R6 = 5
+
+        m.cpu_write(0x8000, 0x47); // reg 7
+        m.cpu_write(0x8001, 10);   // R7 = 10
+
+        assert_eq!(m.cpu_read(0x8000), 30); // second-to-last (fixed)
+        assert_eq!(m.cpu_read(0xA000), 10); // R7
+        assert_eq!(m.cpu_read(0xC000), 5);  // R6 (swapped to $C000)
+        assert_eq!(m.cpu_read(0xE000), 31); // last
+    }
+
+    #[test]
+    fn mmc3_chr_mode_0() {
+        // Mode 0: R0,R0+1 (2K) | R1,R1+1 (2K) | R2,R3,R4,R5 (4x1K)
+        let mut m = make_mmc3(4, 256);
+
+        // bank_select bit 7 = 0 (mode 0), select R0
+        m.cpu_write(0x8000, 0); // reg 0
+        m.cpu_write(0x8001, 4); // R0 = 4 (bit 0 ignored → pages 4,5)
+
+        m.cpu_write(0x8000, 1); // reg 1
+        m.cpu_write(0x8001, 8); // R1 = 8 (→ pages 8,9)
+
+        m.cpu_write(0x8000, 2); m.cpu_write(0x8001, 20); // R2 = 20
+        m.cpu_write(0x8000, 3); m.cpu_write(0x8001, 21); // R3 = 21
+        m.cpu_write(0x8000, 4); m.cpu_write(0x8001, 22); // R4 = 22
+        m.cpu_write(0x8000, 5); m.cpu_write(0x8001, 23); // R5 = 23
+
+        // $0000-$03FF = page 4, $0400-$07FF = page 5
+        assert_eq!(m.chr_read(0x0000), 4);
+        assert_eq!(m.chr_read(0x0400), 5);
+        // $0800-$0BFF = page 8, $0C00-$0FFF = page 9
+        assert_eq!(m.chr_read(0x0800), 8);
+        assert_eq!(m.chr_read(0x0C00), 9);
+        // $1000-$13FF = page 20, etc.
+        assert_eq!(m.chr_read(0x1000), 20);
+        assert_eq!(m.chr_read(0x1400), 21);
+        assert_eq!(m.chr_read(0x1800), 22);
+        assert_eq!(m.chr_read(0x1C00), 23);
+    }
+
+    #[test]
+    fn mmc3_chr_mode_1() {
+        // Mode 1 (bit 7 set): R2,R3,R4,R5 (4x1K) | R0,R0+1 (2K) | R1,R1+1 (2K)
+        let mut m = make_mmc3(4, 256);
+
+        // Set CHR mode 1
+        m.cpu_write(0x8000, 0x80); // reg 0, chr mode 1
+        m.cpu_write(0x8001, 4);    // R0 = 4
+
+        m.cpu_write(0x8000, 0x81); // reg 1
+        m.cpu_write(0x8001, 8);    // R1 = 8
+
+        m.cpu_write(0x8000, 0x82); m.cpu_write(0x8001, 20); // R2
+        m.cpu_write(0x8000, 0x83); m.cpu_write(0x8001, 21); // R3
+        m.cpu_write(0x8000, 0x84); m.cpu_write(0x8001, 22); // R4
+        m.cpu_write(0x8000, 0x85); m.cpu_write(0x8001, 23); // R5
+
+        // $0000 = R2, $0400 = R3, $0800 = R4, $0C00 = R5
+        assert_eq!(m.chr_read(0x0000), 20);
+        assert_eq!(m.chr_read(0x0400), 21);
+        assert_eq!(m.chr_read(0x0800), 22);
+        assert_eq!(m.chr_read(0x0C00), 23);
+        // $1000 = R0 (page 4), $1400 = R0+1 (page 5)
+        assert_eq!(m.chr_read(0x1000), 4);
+        assert_eq!(m.chr_read(0x1400), 5);
+        // $1800 = R1 (page 8), $1C00 = R1+1 (page 9)
+        assert_eq!(m.chr_read(0x1800), 8);
+        assert_eq!(m.chr_read(0x1C00), 9);
+    }
+
+    #[test]
+    fn mmc3_mirroring() {
+        let mut m = make_mmc3(4, 8);
+
+        // Default: vertical
+        assert_eq!(m.mirroring(), Mirroring::Vertical);
+
+        // Switch to horizontal
+        m.cpu_write(0xA000, 1);
+        assert_eq!(m.mirroring(), Mirroring::Horizontal);
+
+        // Switch back to vertical
+        m.cpu_write(0xA000, 0);
+        assert_eq!(m.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn mmc3_prg_ram() {
+        let mut m = make_mmc3(4, 8);
+
+        // PRG RAM enabled by default
+        assert_eq!(m.cpu_read(0x6000), 0);
+        m.cpu_write(0x6000, 0x42);
+        assert_eq!(m.cpu_read(0x6000), 0x42);
+        m.cpu_write(0x7FFF, 0xAB);
+        assert_eq!(m.cpu_read(0x7FFF), 0xAB);
+
+        // Write protect: $A001 with bit 6 set, bit 7 set (enable + protect)
+        m.cpu_write(0xA001, 0xC0);
+        m.cpu_write(0x6000, 0xFF); // Should be blocked
+        assert_eq!(m.cpu_read(0x6000), 0x42); // Unchanged
+
+        // Disable write protect: bit 7 set, bit 6 clear
+        m.cpu_write(0xA001, 0x80);
+        m.cpu_write(0x6000, 0xFF);
+        assert_eq!(m.cpu_read(0x6000), 0xFF); // Written
+    }
+
+    #[test]
+    fn mmc3_irq_counter() {
+        // Scanline counter fires after N+1 A12 rising edges when latch=N.
+        let mut m = make_mmc3(4, 256);
+        m.irq_enabled = true; // Enable directly for unit test
+
+        // Set latch to 3
+        m.cpu_write(0xC000, 3);   // latch = 3
+        m.cpu_write(0xC001, 0);   // reload flag set
+
+        // Simulate A12 rising edges by reading from $1000+ (A12=1)
+        // after reading from $0000 (A12=0) to create a transition.
+        // Edge 1: counter loaded from latch (3), no fire
+        m.chr_read(0x0000); // A12 low
+        m.chr_read(0x1000); // A12 rising edge → counter = 3
+        assert!(!m.irq_pending);
+
+        // Edge 2: counter = 2
+        m.chr_read(0x0000);
+        m.chr_read(0x1000);
+        assert!(!m.irq_pending);
+
+        // Edge 3: counter = 1
+        m.chr_read(0x0000);
+        m.chr_read(0x1000);
+        assert!(!m.irq_pending);
+
+        // Edge 4: counter = 0, IRQ fires
+        m.chr_read(0x0000);
+        m.chr_read(0x1000);
+        assert!(m.irq_pending);
+    }
+
+    #[test]
+    fn mmc3_irq_disable() {
+        let mut m = make_mmc3(4, 256);
+
+        // Force IRQ pending
+        m.irq_pending = true;
+        m.irq_enabled = true;
+
+        // Write to $E000 (even) → disable + acknowledge
+        m.cpu_write(0xE000, 0);
+        assert!(!m.irq_pending);
+        assert!(!m.irq_enabled);
+    }
+
+    #[test]
+    fn mmc3_irq_reload() {
+        // Writing $C001 causes counter to reload from latch on next clock.
+        let mut m = make_mmc3(4, 256);
+        m.irq_enabled = true;
+
+        // Set latch to 2
+        m.cpu_write(0xC000, 2);
+        m.cpu_write(0xC001, 0); // reload flag
+
+        // Clock once → loads latch (2)
+        m.chr_read(0x0000);
+        m.chr_read(0x1000);
+        assert_eq!(m.irq_counter, 2);
+
+        // Clock twice more → counter reaches 0
+        m.chr_read(0x0000);
+        m.chr_read(0x1000); // 1
+        m.chr_read(0x0000);
+        m.chr_read(0x1000); // 0 → IRQ
+        assert!(m.irq_pending);
+
+        // Now change latch to 5 and trigger reload
+        m.irq_pending = false;
+        m.cpu_write(0xC000, 5);
+        m.cpu_write(0xC001, 0); // set reload flag
+
+        // Next clock reloads from new latch
+        m.chr_read(0x0000);
+        m.chr_read(0x1000);
+        assert_eq!(m.irq_counter, 5);
+        assert!(!m.irq_pending);
     }
 }
