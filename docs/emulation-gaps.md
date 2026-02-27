@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (NES MMC1 mapper). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (NES MMC1 + UxROM + MMC2 mappers). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -112,22 +112,21 @@ largest remaining gaps are **1541 disk drive** (blocks D64 loading) and
 
 ## NES
 
-Boots NROM and MMC1 games, renders backgrounds and sprites, plays
-pulse/triangle/noise audio. The main gaps are **additional mappers** and
-**DMC audio**.
+Boots NROM, MMC1, UxROM, and MMC2 games, renders backgrounds and sprites,
+plays pulse/triangle/noise audio. The main gaps are **additional mappers**
+and **DMC audio**.
 
 ### Implemented
 
 - **CPU**: 6502 at 100% cycle accuracy (2.56M single-step tests pass)
 - **PPU**: Background + sprites, all mirroring modes (H/V/4-screen/single-screen)
 - **APU**: Pulse (×2), triangle, noise, frame counter, mixer at 48 kHz
-- **Mappers**: NROM (Mapper 0), MMC1 (Mapper 1) with PRG/CHR banking, PRG RAM, dynamic mirroring
+- **Mappers**: NROM (0), MMC1 (1) with PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) with 16K PRG switching, MMC2 (9) with CHR latch-based bank switching
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| Mapper 2 (UxROM) | Not implemented | Mega Man, Castlevania, Contra |
 | Mapper 3 (CNROM) | Not implemented | Various platformers |
 | Mapper 4 (MMC3) | Not implemented | SMB3, Kirby, Mega Man 3-6, ~20% of library |
 | Mapper 7 (AxROM) | Not implemented | Battletoads, Marble Madness |
@@ -150,9 +149,9 @@ pulse/triangle/noise audio. The main gaps are **additional mappers** and
 
 ### Assessment
 
-**~35-40% of the NES library runs** (Mapper 0 + MMC1). Adding UxROM,
-CNROM, and MMC3 would push coverage to ~80%. DMC DMA is the other major
-gap — it requires a CPU bus access mechanism that doesn't exist yet.
+**~45-50% of the NES library runs** (NROM + MMC1 + UxROM + MMC2). Adding
+CNROM and MMC3 would push coverage to ~80%. DMC DMA is the other major gap
+— it requires a CPU bus access mechanism that doesn't exist yet.
 
 ---
 
@@ -208,13 +207,13 @@ modes and peripheral completeness.
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
 | Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~90% (missing emphasis/greyscale) | ~60% (missing HAM/EHB) |
 | Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~80% (no DMC) | ~85% (no filter model) |
-| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | NROM + MMC1 | ADF read only |
+| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | NROM + MMC1 + UxROM + MMC2 | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |
 | Model variants | 48K, 128K, +2 PAL | PAL only | NTSC only | A500 OCS only |
 
 ### Highest-impact work items (by games-unlocked)
 
-1. **NES mappers** (UxROM + CNROM + MMC3) — unlocks ~45% more of NES library
+1. **NES mappers** (CNROM + MMC3) — unlocks ~30% more of NES library
 2. **C64 1541 disk drive** — unlocks D64 loading (huge library unlock)
 3. **Amiga HAM/EHB modes** — unlocks large category of Amiga graphics
 4. **NES DMC DMA** — completes audio for most NES games

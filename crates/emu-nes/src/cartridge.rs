@@ -2,7 +2,7 @@
 //!
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
 //! a `Mapper` trait for address translation. Supports NROM (Mapper 0),
-//! MMC1 (Mapper 1), and MMC2 (Mapper 9).
+//! MMC1 (Mapper 1), UxROM (Mapper 2), and MMC2 (Mapper 9).
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -308,6 +308,83 @@ impl Mapper for Mmc1 {
     }
 }
 
+/// UxROM (Mapper 2): simple 16K PRG bank switching.
+///
+/// One of the most common NES mappers, used by Mega Man, Castlevania,
+/// Contra, and DuckTales.
+///
+/// - PRG: 16K switchable at $8000-$BFFF, 16K fixed (last bank) at $C000-$FFFF
+/// - CHR: 8K RAM (most boards) or ROM
+/// - Mirroring: fixed from cartridge header
+struct UxRom {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    mirroring: Mirroring,
+    prg_bank: u8,
+}
+
+impl UxRom {
+    fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr,
+            chr_is_ram,
+            mirroring,
+            prg_bank: 0,
+        }
+    }
+
+    fn prg_bank_count(&self) -> usize {
+        self.prg_rom.len() / 16384
+    }
+}
+
+impl Mapper for UxRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => {
+                let bank = self.prg_bank as usize % self.prg_bank_count();
+                let offset = (addr - 0x8000) as usize;
+                self.prg_rom[bank * 16384 + offset]
+            }
+            0xC000..=0xFFFF => {
+                // Fixed to last bank
+                let bank = self.prg_bank_count() - 1;
+                let offset = (addr - 0xC000) as usize;
+                self.prg_rom[bank * 16384 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.prg_bank = value;
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[(addr as usize) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            self.chr[(addr as usize) & 0x1FFF] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 /// MMC2 (Mapper 9, PxROM): CHR latch-based bank switching.
 ///
 /// Used by Punch-Out!! The mapper selects between two CHR banks for each
@@ -515,6 +592,7 @@ pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
     match header.mapper_number {
         0 => Ok(Box::new(Nrom::new(prg_rom, chr_data, mirroring))),
         1 => Ok(Box::new(Mmc1::new(prg_rom, chr_data))),
+        2 => Ok(Box::new(UxRom::new(prg_rom, chr_data, mirroring))),
         9 => Ok(Box::new(Mmc2::new(prg_rom, chr_data))),
         n => Err(format!("Unsupported mapper: {n}")),
     }
@@ -591,7 +669,7 @@ mod tests {
     #[test]
     fn unsupported_mapper() {
         let mut data = make_ines(1, 1, 0x00);
-        data[6] = 0x20; // Mapper 2 (low nibble)
+        data[6] = 0x50; // Mapper 5 (low nibble)
         assert!(parse_ines(&data).is_err());
     }
 
@@ -769,6 +847,57 @@ mod tests {
         // Set to single-screen upper (bits 1:0 = 1)
         mmc1_write_5(&mut m, 0x8000, 0b01101); // control = 0x0D
         assert_eq!(m.mirroring(), Mirroring::SingleScreenUpper);
+    }
+
+    // --- UxROM tests ---
+
+    #[test]
+    fn uxrom_parse_ines() {
+        // Mapper 2: flags6 high nibble = 0x2_, so flags6 = 0x20
+        let data = make_ines(8, 0, 0x20);
+        let mapper = parse_ines(&data).expect("parse failed");
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn uxrom_prg_switching() {
+        // 8 x 16K PRG banks. $C000 fixed to last bank.
+        let mut m = UxRom::new(
+            {
+                let mut prg = vec![0u8; 8 * 16384];
+                for bank in 0..8usize {
+                    for i in 0..16384 {
+                        prg[bank * 16384 + i] = bank as u8;
+                    }
+                }
+                prg
+            },
+            Vec::new(),
+            Mirroring::Vertical,
+        );
+
+        // Default: bank 0 at $8000, last bank at $C000
+        assert_eq!(m.cpu_read(0x8000), 0);
+        assert_eq!(m.cpu_read(0xC000), 7);
+
+        // Switch to bank 3
+        m.cpu_write(0x8000, 3);
+        assert_eq!(m.cpu_read(0x8000), 3);
+        assert_eq!(m.cpu_read(0xC000), 7); // Still last bank
+    }
+
+    #[test]
+    fn uxrom_chr_ram() {
+        let mut m = UxRom::new(vec![0u8; 16384], Vec::new(), Mirroring::Horizontal);
+        assert_eq!(m.chr_read(0x0000), 0);
+        m.chr_write(0x0000, 0xAB);
+        assert_eq!(m.chr_read(0x0000), 0xAB);
+    }
+
+    #[test]
+    fn uxrom_fixed_mirroring() {
+        let m = UxRom::new(vec![0u8; 16384], Vec::new(), Mirroring::Vertical);
+        assert_eq!(m.mirroring(), Mirroring::Vertical);
     }
 
     // --- MMC2 tests ---
