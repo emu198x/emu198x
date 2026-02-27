@@ -701,6 +701,14 @@ impl Ppu {
                 nt_addr & 0x07FF
             }
             Mirroring::FourScreen => nt_addr & 0x0FFF,
+            Mirroring::SingleScreenLower => {
+                // All nametables → page 0
+                nt_addr & 0x03FF
+            }
+            Mirroring::SingleScreenUpper => {
+                // All nametables → page 1
+                0x0400 + (nt_addr & 0x03FF)
+            }
         }
     }
 
