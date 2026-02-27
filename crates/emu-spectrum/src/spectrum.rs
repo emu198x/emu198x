@@ -22,9 +22,11 @@ use crate::beeper::BeeperState;
 use crate::bus::SpectrumBus;
 use crate::config::{SpectrumConfig, SpectrumModel};
 use crate::input::{InputQueue, SpectrumKey};
-use crate::memory::Memory48K;
+use crate::memory::{Memory128K, Memory48K, SpectrumMemory};
 use crate::tap::TapFile;
 use crate::tape::TapeDeck;
+use crate::tzx::TzxFile;
+use crate::tzx_signal::TzxSignal;
 
 /// CPU clock divider (crystal ticks per CPU T-state).
 /// 4 = 3.5 MHz (normal speed for all Sinclair models).
@@ -55,8 +57,14 @@ pub struct Spectrum {
     frame_count: u64,
     /// Timed input event queue for scripted key sequences.
     input_queue: InputQueue,
-    /// Virtual tape deck for TAP loading.
+    /// Virtual tape deck for TAP loading (ROM trap / instant load).
     tape: TapeDeck,
+    /// AY clock toggle (ticks every other CPU T-state).
+    ay_toggle: bool,
+    /// Spectrum model (stored for TZX 48K detection).
+    model: SpectrumModel,
+    /// TZX signal generator for real-time tape loading.
+    tzx_signal: Option<TzxSignal>,
 }
 
 impl Spectrum {
@@ -64,18 +72,31 @@ impl Spectrum {
     ///
     /// # Panics
     ///
-    /// Panics if the model is not yet supported (only 48K in v1).
+    /// Panics if the model is not yet supported or the ROM size is wrong.
     #[must_use]
     pub fn new(config: &SpectrumConfig) -> Self {
-        assert!(
-            config.model == SpectrumModel::Spectrum48K,
-            "Only 48K model is supported in v1"
+        let memory: Box<dyn SpectrumMemory> = match config.model {
+            SpectrumModel::Spectrum48K => Box::new(Memory48K::new(&config.rom)),
+            SpectrumModel::Spectrum128K | SpectrumModel::SpectrumPlus2 => {
+                Box::new(Memory128K::new(&config.rom))
+            }
+            other => panic!("Model {other:?} is not yet supported"),
+        };
+
+        let has_ay = matches!(
+            config.model,
+            SpectrumModel::Spectrum128K | SpectrumModel::SpectrumPlus2
         );
 
-        let memory = Box::new(Memory48K::new(&config.rom));
         let ula = Ula::new();
         let beeper = BeeperState::new(CPU_FREQUENCY, AUDIO_SAMPLE_RATE);
-        let bus = SpectrumBus::new(memory, ula, beeper);
+        let mut bus = SpectrumBus::new(memory, ula, beeper);
+        if has_ay {
+            bus.enable_ay(CPU_FREQUENCY, AUDIO_SAMPLE_RATE);
+            if let Some(ay) = &mut bus.ay {
+                ay.set_stereo(gi_ay_3_8910::StereoMode::Acb);
+            }
+        }
 
         Self {
             cpu: Z80::new(),
@@ -85,6 +106,9 @@ impl Spectrum {
             frame_count: 0,
             input_queue: InputQueue::new(),
             tape: TapeDeck::new(),
+            ay_toggle: false,
+            model: config.model,
+            tzx_signal: None,
         }
     }
 
@@ -95,8 +119,11 @@ impl Spectrum {
     ///
     /// Returns the number of CPU T-states executed during the frame.
     pub fn run_frame(&mut self) -> u64 {
-        self.input_queue
-            .process(self.frame_count, &mut self.bus.keyboard);
+        self.input_queue.process(
+            self.frame_count,
+            &mut self.bus.keyboard,
+            &mut self.bus.kempston,
+        );
         self.frame_count += 1;
 
         let start_ticks = self.cpu.total_ticks();
@@ -129,9 +156,28 @@ impl Spectrum {
         self.bus.ula.framebuffer_height()
     }
 
-    /// Take the audio buffer from the beeper (drains it).
-    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
-        self.bus.beeper.take_buffer()
+    /// Take the mixed audio buffer (beeper + AY if present). Drains both.
+    ///
+    /// Returns stereo samples as `[left, right]` pairs. The beeper is mono
+    /// (duplicated to both channels); the AY provides stereo via ACB panning.
+    pub fn take_audio_buffer(&mut self) -> Vec<[f32; 2]> {
+        let beeper = self.bus.beeper.take_buffer();
+        if let Some(ay) = &mut self.bus.ay {
+            let ay_buf = ay.take_buffer();
+            let len = beeper.len().min(ay_buf.len());
+            let mut out = Vec::with_capacity(len);
+            for i in 0..len {
+                let b = beeper[i];
+                out.push([
+                    (b + ay_buf[i][0]) * 0.5,
+                    (b + ay_buf[i][1]) * 0.5,
+                ]);
+            }
+            out
+        } else {
+            // No AY — beeper only, duplicate mono to stereo.
+            beeper.into_iter().map(|s| [s, s]).collect()
+        }
     }
 
     /// Reference to the CPU.
@@ -175,19 +221,28 @@ impl Spectrum {
 
     /// Press a key immediately (stays pressed until released).
     pub fn press_key(&mut self, key: SpectrumKey) {
-        let (row, bit) = key.matrix();
-        self.bus.keyboard.set_key(row, bit, true);
+        if let Some(bit) = key.kempston_bit() {
+            self.bus.kempston |= 1 << bit;
+        } else {
+            let (row, bit) = key.matrix();
+            self.bus.keyboard.set_key(row, bit, true);
+        }
     }
 
     /// Release a key.
     pub fn release_key(&mut self, key: SpectrumKey) {
-        let (row, bit) = key.matrix();
-        self.bus.keyboard.set_key(row, bit, false);
+        if let Some(bit) = key.kempston_bit() {
+            self.bus.kempston &= !(1 << bit);
+        } else {
+            let (row, bit) = key.matrix();
+            self.bus.keyboard.set_key(row, bit, false);
+        }
     }
 
     /// Release all keys.
     pub fn release_all_keys(&mut self) {
         self.bus.keyboard.release_all();
+        self.bus.kempston = 0;
     }
 
     /// Insert a TAP file into the tape deck.
@@ -209,6 +264,34 @@ impl Spectrum {
     #[must_use]
     pub fn tape(&self) -> &TapeDeck {
         &self.tape
+    }
+
+    /// Insert a TZX file and start playback.
+    pub fn insert_tzx(&mut self, tzx: TzxFile) {
+        let is_48k = self.model == SpectrumModel::Spectrum48K;
+        let mut signal = TzxSignal::new(tzx.blocks, is_48k, CPU_FREQUENCY);
+        signal.play();
+        self.tzx_signal = Some(signal);
+    }
+
+    /// Eject the TZX tape and restore MIC loopback.
+    pub fn eject_tzx(&mut self) {
+        self.tzx_signal = None;
+        self.bus.tape_ear = None;
+    }
+
+    /// Whether a TZX signal is currently playing.
+    #[must_use]
+    pub fn is_tzx_playing(&self) -> bool {
+        self.tzx_signal
+            .as_ref()
+            .is_some_and(|s| s.is_playing())
+    }
+
+    /// The Spectrum model.
+    #[must_use]
+    pub fn model(&self) -> SpectrumModel {
+        self.model
     }
 
     /// Check for and handle the ROM tape-loading trap.
@@ -286,20 +369,39 @@ impl Tickable for Spectrum {
         // Video ticks at 7 MHz (every 2 crystal ticks)
         if self.master_clock.is_multiple_of(VIDEO_DIVIDER) {
             let mem = &*self.bus.memory;
-            self.bus.ula.tick(|addr| mem.peek(addr));
+            self.bus.ula.tick(|addr| mem.vram_peek(addr));
         }
 
         // CPU ticks at 3.5 MHz (every 4 crystal ticks)
         if self.master_clock.is_multiple_of(self.cpu_divider) {
+            // Advance TZX signal (one T-state) before CPU tick
+            if let Some(ref mut signal) = self.tzx_signal {
+                let level = signal.tick();
+                self.bus.tape_ear = Some(level);
+                if signal.is_finished() {
+                    self.bus.tape_ear = None;
+                }
+            }
+
             // Check INT from ULA
             if self.bus.ula.int_active() {
                 self.cpu.interrupt();
             }
             self.cpu.tick(&mut self.bus);
-            // ROM trap: intercept tape loading at LD-BYTES ($0556)
-            self.check_tape_trap();
+            // ROM trap: only when no TZX signal is driving the EAR bit.
+            // TZX loading uses the ROM's own LD-BYTES via real signal timing,
+            // so the trap must not short-circuit it.
+            if self.bus.tape_ear.is_none() {
+                self.check_tape_trap();
+            }
             // Sample audio at CPU rate
             self.bus.beeper.sample();
+
+            // AY clocks at half CPU rate (1.7734 MHz)
+            self.ay_toggle = !self.ay_toggle;
+            if self.ay_toggle && let Some(ay) = &mut self.bus.ay {
+                ay.tick();
+            }
         }
     }
 }
@@ -326,6 +428,12 @@ impl Observable for Spectrum {
                     rest.parse().ok()
                 };
             addr.map(|a| Value::U8(self.bus.memory.peek(a)))
+        } else if let Some(rest) = path.strip_prefix("ay.") {
+            let ay = self.bus.ay.as_ref()?;
+            match rest {
+                "buffer_len" => Some(Value::U64(ay.buffer_len() as u64)),
+                _ => None,
+            }
         } else {
             match path {
                 "master_clock" => Some(self.master_clock.into()),

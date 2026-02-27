@@ -14,6 +14,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use emu_core::{Bus, ReadResult};
+use gi_ay_3_8910::Ay3_8910;
 use sinclair_ula::Ula;
 
 use crate::beeper::BeeperState;
@@ -31,6 +32,13 @@ pub struct SpectrumBus {
     pub beeper: BeeperState,
     /// Last value written to port $FE (for EAR bit and border).
     pub last_fe_write: u8,
+    /// Kempston joystick state: bits 0-4 = right, left, down, up, fire (active-high).
+    pub kempston: u8,
+    /// AY-3-8910 sound chip (present on 128K/+2/+3 models).
+    pub ay: Option<Ay3_8910>,
+    /// Tape EAR override: `Some(level)` when TZX signal is active, `None`
+    /// falls back to MIC loopback (bit 3 of last $FE write).
+    pub tape_ear: Option<bool>,
 }
 
 impl SpectrumBus {
@@ -46,7 +54,16 @@ impl SpectrumBus {
             keyboard: KeyboardState::new(),
             beeper,
             last_fe_write: 0,
+            kempston: 0,
+            ay: None,
+            tape_ear: None,
         }
+    }
+
+    /// Enable the AY sound chip (for 128K/+2/+3 models).
+    pub fn enable_ay(&mut self, cpu_frequency: u32, sample_rate: u32) {
+        // AY clock is CPU clock / 2 on the Spectrum 128
+        self.ay = Some(Ay3_8910::new(cpu_frequency / 2, sample_rate));
     }
 }
 
@@ -71,13 +88,31 @@ impl Bus for SpectrumBus {
         let contended_high = self.memory.contended_page(port);
         let wait = self.ula.io_contention(ula_port, contended_high);
 
+        // Kempston joystick (port $1F, active when low byte = $1F)
+        if port & 0xFF == 0x1F {
+            return ReadResult::with_wait(self.kempston, wait);
+        }
+
         // Port $FE (active when bit 0 is clear)
         let data = if ula_port {
             let addr_high = (port >> 8) as u8;
-            let keyboard = self.keyboard.read(addr_high);
-            // Bits 0-4: keyboard, bit 5: unused (1), bit 6: EAR input (tape),
-            // bit 7: unused (1). For now, EAR returns 1 (no tape).
-            keyboard | 0xC0
+            let keyboard = self.keyboard.read(addr_high) & 0x1F;
+            // Bits 0-4: keyboard, bit 5: always 1, bit 6: EAR input,
+            // bit 7: always 1. When a TZX signal is active, EAR comes from
+            // the tape; otherwise it reflects MIC output (bit 3 of $FE write).
+            let ear = if let Some(level) = self.tape_ear {
+                if level { 0x40 } else { 0x00 }
+            } else {
+                (self.last_fe_write & 0x08) << 3
+            };
+            keyboard | 0xA0 | ear
+        } else if port & 0xC002 == 0xC000 {
+            // Port $FFFD: AY register read
+            if let Some(ay) = &self.ay {
+                ay.read_data()
+            } else {
+                0xFF
+            }
         } else {
             // Non-ULA ports: floating bus leaks ULA data bus
             let mem = &*self.memory;
@@ -103,7 +138,20 @@ impl Bus for SpectrumBus {
             self.beeper.set_level((value >> 4) & 1);
         }
 
-        // Other ports silently ignored in v1
+        // Port $7FFD: 128K bank switching (bit 1 set, bit 15 clear)
+        if port & 0x8002 == 0x0000 && !ula_port {
+            self.memory.write_bank_register(value);
+        }
+
+        // Port $FFFD: AY register select
+        if port & 0xC002 == 0xC000 && let Some(ay) = &mut self.ay {
+            ay.select_register(value);
+        }
+
+        // Port $BFFD: AY data write
+        if port & 0xC002 == 0x8000 && let Some(ay) = &mut self.ay {
+            ay.write_data(value);
+        }
 
         wait
     }
@@ -163,5 +211,62 @@ mod tests {
         let mut bus = make_bus();
         let result = bus.io_read(0x00FF); // Odd port, not $FE
         assert_eq!(result.data, 0xFF);
+    }
+
+    #[test]
+    fn kempston_port_returns_joystick_state() {
+        let mut bus = make_bus();
+        // No buttons pressed
+        let result = bus.io_read(0x001F);
+        assert_eq!(result.data, 0x00);
+
+        // Press right (bit 0) and fire (bit 4)
+        bus.kempston = 0b0001_0001;
+        let result = bus.io_read(0x001F);
+        assert_eq!(result.data, 0x11);
+    }
+
+    #[test]
+    fn tape_ear_overrides_mic_loopback() {
+        let mut bus = make_bus();
+
+        // Set MIC bit high — without tape_ear, EAR should reflect MIC
+        bus.io_write(0x00FE, 0x08);
+        assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x40, "MIC loopback");
+
+        // Override with tape_ear = Some(false) — EAR should be 0
+        bus.tape_ear = Some(false);
+        assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x00, "tape_ear=false overrides MIC");
+
+        // Override with tape_ear = Some(true) — EAR should be 1
+        bus.tape_ear = Some(true);
+        assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x40, "tape_ear=true");
+
+        // Remove override — MIC loopback resumes
+        bus.tape_ear = None;
+        assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x40, "MIC loopback restored");
+
+        // Clear MIC bit — EAR should now be 0 again
+        bus.io_write(0x00FE, 0x00);
+        assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x00, "MIC cleared, no tape_ear");
+    }
+
+    #[test]
+    fn ear_reflects_mic_output() {
+        let mut bus = make_bus();
+
+        // No write to $FE yet — MIC bit 3 = 0, so EAR bit 6 = 0
+        let result = bus.io_read(0xFEFE);
+        assert_eq!(result.data & 0x40, 0x00, "EAR should be 0 when MIC is 0");
+
+        // Write to $FE with MIC bit (bit 3) set
+        bus.io_write(0x00FE, 0x08);
+        let result = bus.io_read(0xFEFE);
+        assert_eq!(result.data & 0x40, 0x40, "EAR should be 1 when MIC is 1");
+
+        // Write to $FE with MIC bit clear
+        bus.io_write(0x00FE, 0x00);
+        let result = bus.io_read(0xFEFE);
+        assert_eq!(result.data & 0x40, 0x00, "EAR should be 0 when MIC is 0");
     }
 }

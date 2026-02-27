@@ -25,6 +25,8 @@ use crate::config::{SpectrumConfig, SpectrumModel};
 use crate::input::SpectrumKey;
 use crate::sna::load_sna;
 use crate::tap::TapFile;
+use crate::tzx::TzxFile;
+use crate::z80::load_z80;
 
 /// Embedded 48K ROM.
 const ROM_48K: &[u8] = include_bytes!("../../../roms/48.rom");
@@ -52,7 +54,7 @@ struct RpcResponse {
     id: JsonValue,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct RpcError {
     code: i32,
     message: String,
@@ -150,10 +152,13 @@ impl McpServer {
     /// Dispatch a method call to the appropriate handler.
     fn dispatch(&mut self, method: &str, params: &JsonValue, id: JsonValue) -> RpcResponse {
         match method {
-            "boot" => self.handle_boot(id),
+            "boot" => self.handle_boot(params, id),
             "reset" => self.handle_reset(id),
             "load_sna" => self.handle_load_sna(params, id),
+            "load_z80" => self.handle_load_z80(params, id),
             "load_tap" => self.handle_load_tap(params, id),
+            "load_tzx" => self.handle_load_tzx(params, id),
+            "tape_status" => self.handle_tape_status(id),
             "run_frames" => self.handle_run_frames(params, id),
             "step_instruction" => self.handle_step_instruction(id),
             "step_ticks" => self.handle_step_ticks(params, id),
@@ -186,13 +191,53 @@ impl McpServer {
 
     // === Tool handlers ===
 
-    fn handle_boot(&mut self, id: JsonValue) -> RpcResponse {
-        let config = SpectrumConfig {
-            model: SpectrumModel::Spectrum48K,
-            rom: ROM_48K.to_vec(),
+    fn handle_boot(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let model_str = params
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("48k");
+
+        let (model, model_label) = match model_str.to_lowercase().as_str() {
+            "48k" | "48" => (SpectrumModel::Spectrum48K, "48k"),
+            "128k" | "128" => (SpectrumModel::Spectrum128K, "128k"),
+            "plus2" | "+2" => (SpectrumModel::SpectrumPlus2, "plus2"),
+            other => {
+                return RpcResponse::error(
+                    id,
+                    -32602,
+                    format!("Unknown model: {other}. Use 48k, 128k, or plus2."),
+                );
+            }
         };
+
+        let rom = if model == SpectrumModel::Spectrum48K {
+            ROM_48K.to_vec()
+        } else if let Some(b64) = params.get("rom").and_then(|v| v.as_str()) {
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64 ROM: {e}")),
+            }
+        } else if let Some(path) = params.get("rom_path").and_then(|v| v.as_str()) {
+            match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => {
+                    return RpcResponse::error(id, -32602, format!("Cannot read ROM file: {e}"))
+                }
+            }
+        } else {
+            return RpcResponse::error(
+                id,
+                -32602,
+                format!("{model_label} model requires 'rom' (base64) or 'rom_path' parameter"),
+            );
+        };
+
+        let config = SpectrumConfig { model, rom };
         self.spectrum = Some(Spectrum::new(&config));
-        RpcResponse::success(id, serde_json::json!({"status": "ok"}))
+        RpcResponse::success(
+            id,
+            serde_json::json!({"status": "ok", "model": model_label}),
+        )
     }
 
     fn handle_reset(&mut self, id: JsonValue) -> RpcResponse {
@@ -232,6 +277,32 @@ impl McpServer {
         }
     }
 
+    fn handle_load_z80(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let spec = match self.require_spectrum(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
+            }
+        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+            match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
+            }
+        } else {
+            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+        };
+
+        match load_z80(spec, &data) {
+            Ok(()) => RpcResponse::success(id, serde_json::json!({"status": "ok"})),
+            Err(e) => RpcResponse::error(id, -32000, format!("Z80 load failed: {e}")),
+        }
+    }
+
     fn handle_load_tap(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
         let spec = match self.require_spectrum(&id) {
             Ok(s) => s,
@@ -260,6 +331,66 @@ impl McpServer {
             }
             Err(e) => RpcResponse::error(id, -32000, format!("TAP parse failed: {e}")),
         }
+    }
+
+    fn handle_load_tzx(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let spec = match self.require_spectrum(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
+            }
+        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+            match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
+            }
+        } else {
+            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+        };
+
+        match TzxFile::parse(&data) {
+            Ok(tzx) => {
+                let blocks = tzx.blocks.len();
+                spec.insert_tzx(tzx);
+                RpcResponse::success(
+                    id,
+                    serde_json::json!({"status": "ok", "blocks": blocks, "format": "tzx"}),
+                )
+            }
+            Err(e) => RpcResponse::error(id, -32000, format!("TZX parse failed: {e}")),
+        }
+    }
+
+    fn handle_tape_status(&mut self, id: JsonValue) -> RpcResponse {
+        let spec = match self.require_spectrum(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let tap_loaded = spec.tape().is_loaded();
+        let tap_block = spec.tape().block_index();
+        let tap_blocks = spec.tape().block_count();
+
+        let tzx_playing = spec.is_tzx_playing();
+
+        RpcResponse::success(
+            id,
+            serde_json::json!({
+                "tap": {
+                    "loaded": tap_loaded,
+                    "block_index": tap_block,
+                    "block_count": tap_blocks,
+                },
+                "tzx": {
+                    "playing": tzx_playing,
+                },
+            }),
+        )
     }
 
     fn handle_run_frames(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
@@ -391,15 +522,15 @@ impl McpServer {
 
         let frames = params.get("frames").and_then(|v| v.as_u64()).unwrap_or(50);
 
-        let mut all_audio = Vec::new();
+        let mut all_audio: Vec<[f32; 2]> = Vec::new();
         for _ in 0..frames {
             spec.run_frame();
             all_audio.extend_from_slice(&spec.take_audio_buffer());
         }
 
-        // Encode as WAV in memory
+        // Encode as WAV in memory (stereo)
         let spec_wav = hound::WavSpec {
-            channels: 1,
+            channels: 2,
             sample_rate: 48_000,
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
@@ -412,10 +543,13 @@ impl McpServer {
                 Ok(w) => w,
                 Err(e) => return RpcResponse::error(id, -32000, format!("WAV encode error: {e}")),
             };
-            for &sample in &all_audio {
-                let clamped = sample.clamp(-1.0, 1.0);
-                let scaled = (clamped * f32::from(i16::MAX)) as i16;
-                if let Err(e) = writer.write_sample(scaled) {
+            for &[left, right] in &all_audio {
+                let l = (left.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
+                let r = (right.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
+                if let Err(e) = writer.write_sample(l) {
+                    return RpcResponse::error(id, -32000, format!("WAV write error: {e}"));
+                }
+                if let Err(e) = writer.write_sample(r) {
                     return RpcResponse::error(id, -32000, format!("WAV write error: {e}"));
                 }
             }
@@ -809,6 +943,12 @@ fn parse_key_name(name: &str) -> Option<SpectrumKey> {
         "7" => Some(SpectrumKey::N7),
         "8" => Some(SpectrumKey::N8),
         "9" => Some(SpectrumKey::N9),
+        // Kempston joystick
+        "kempston_right" | "joy_right" => Some(SpectrumKey::KempstonRight),
+        "kempston_left" | "joy_left" => Some(SpectrumKey::KempstonLeft),
+        "kempston_down" | "joy_down" => Some(SpectrumKey::KempstonDown),
+        "kempston_up" | "joy_up" => Some(SpectrumKey::KempstonUp),
+        "kempston_fire" | "joy_fire" => Some(SpectrumKey::KempstonFire),
         _ => None,
     }
 }
@@ -1105,5 +1245,38 @@ mod tests {
         let mut server = McpServer::new();
         let result = server.run_script(std::path::Path::new("/nonexistent/script.json"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn boot_128k_with_rom() {
+        let mut server = McpServer::new();
+        // Create a minimal 32K ROM (all zeros is fine for construction).
+        let rom = vec![0u8; 0x8000];
+        let rom_b64 = base64::engine::general_purpose::STANDARD.encode(&rom);
+        let params = serde_json::json!({"model": "128k", "rom": rom_b64});
+        let resp = server.dispatch("boot", &params, JsonValue::from(1));
+        assert!(resp.error.is_none(), "Expected success, got: {:?}", resp.error);
+        let result = resp.result.unwrap();
+        assert_eq!(result["model"], "128k");
+        assert!(server.spectrum.is_some());
+    }
+
+    #[test]
+    fn boot_128k_missing_rom_errors() {
+        let mut server = McpServer::new();
+        let params = serde_json::json!({"model": "128k"});
+        let resp = server.dispatch("boot", &params, JsonValue::from(1));
+        assert!(resp.error.is_some(), "128K boot without ROM should fail");
+        assert!(server.spectrum.is_none());
+    }
+
+    #[test]
+    fn boot_48k_default_no_params() {
+        let mut server = McpServer::new();
+        // Boot with no params should default to 48K
+        let resp = server.dispatch("boot", &JsonValue::Null, JsonValue::from(1));
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        assert_eq!(result["model"], "48k");
     }
 }

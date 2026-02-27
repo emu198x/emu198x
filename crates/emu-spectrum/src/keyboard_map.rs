@@ -62,6 +62,13 @@ pub fn map_keycode(key: KeyCode) -> Option<SpectrumKey> {
         KeyCode::Enter => Some(SpectrumKey::Enter),
         KeyCode::Space => Some(SpectrumKey::Space),
 
+        // Kempston joystick (arrow keys + right Alt for fire)
+        KeyCode::ArrowRight => Some(SpectrumKey::KempstonRight),
+        KeyCode::ArrowLeft => Some(SpectrumKey::KempstonLeft),
+        KeyCode::ArrowDown => Some(SpectrumKey::KempstonDown),
+        KeyCode::ArrowUp => Some(SpectrumKey::KempstonUp),
+        KeyCode::AltRight => Some(SpectrumKey::KempstonFire),
+
         _ => None,
     }
 }

@@ -205,7 +205,7 @@ fn test_beeper_tone() {
     let mut spectrum = make_spectrum_custom_rom(&rom);
 
     // Run 50 frames (~1 second at PAL 50 Hz) to produce a usable audio clip.
-    let mut all_audio = Vec::new();
+    let mut all_audio: Vec<[f32; 2]> = Vec::new();
     for _ in 0..50 {
         spectrum.run_frame();
         all_audio.extend_from_slice(&spectrum.take_audio_buffer());
@@ -217,9 +217,9 @@ fn test_beeper_tone() {
         "Audio buffer should have samples after 50 frames"
     );
 
-    // Verify both positive and negative values (square wave)
-    let has_positive = all_audio.iter().any(|&s| s > 0.0);
-    let has_negative = all_audio.iter().any(|&s| s < 0.0);
+    // Check left channel (beeper is mono, duplicated to both)
+    let has_positive = all_audio.iter().any(|s| s[0] > 0.0);
+    let has_negative = all_audio.iter().any(|s| s[0] < 0.0);
     assert!(
         has_positive && has_negative,
         "Audio should have both positive and negative samples (square wave)"
@@ -228,14 +228,14 @@ fn test_beeper_tone() {
     // Verify reasonable amplitude
     let max_abs = all_audio
         .iter()
-        .map(|s| s.abs())
+        .map(|s| s[0].abs())
         .fold(0.0f32, f32::max);
     assert!(
         max_abs > 0.5,
         "Max amplitude should be > 0.5 for a beeper square wave, got {max_abs}"
     );
 
-    // Save WAV
+    // Save WAV (stereo)
     let path = Path::new(OUTPUT_DIR).join("spectrum_beeper_tone.wav");
     save_audio(&all_audio, &path).expect("Failed to save audio");
     assert!(path.exists());

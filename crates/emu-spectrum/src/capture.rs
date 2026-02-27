@@ -40,22 +40,23 @@ pub fn save_screenshot(spectrum: &Spectrum, path: &Path) -> Result<(), Box<dyn E
     Ok(())
 }
 
-/// Save audio samples as a WAV file (mono, 48 kHz, 16-bit PCM).
+/// Save audio samples as a WAV file (stereo, 48 kHz, 16-bit PCM).
 ///
-/// Input samples are f32 in the range -1.0 to +1.0.
-pub fn save_audio(samples: &[f32], path: &Path) -> Result<(), Box<dyn Error>> {
+/// Input samples are `[left, right]` pairs of f32 in the range -1.0 to +1.0.
+pub fn save_audio(samples: &[[f32; 2]], path: &Path) -> Result<(), Box<dyn Error>> {
     let spec = hound::WavSpec {
-        channels: 1,
+        channels: 2,
         sample_rate: 48_000,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
 
     let mut writer = hound::WavWriter::create(path, spec)?;
-    for &sample in samples {
-        let clamped = sample.clamp(-1.0, 1.0);
-        let scaled = (clamped * f32::from(i16::MAX)) as i16;
-        writer.write_sample(scaled)?;
+    for &[left, right] in samples {
+        let l = (left.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
+        let r = (right.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
+        writer.write_sample(l)?;
+        writer.write_sample(r)?;
     }
     writer.finalize()?;
     Ok(())

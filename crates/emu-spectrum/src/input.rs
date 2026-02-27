@@ -62,10 +62,34 @@ pub enum SpectrumKey {
     M,
     N,
     B,
+
+    // Kempston joystick (active-high, port $1F)
+    KempstonRight,
+    KempstonLeft,
+    KempstonDown,
+    KempstonUp,
+    KempstonFire,
 }
 
 impl SpectrumKey {
+    /// Return the Kempston joystick bit index, or None for keyboard keys.
+    #[must_use]
+    pub const fn kempston_bit(self) -> Option<u8> {
+        match self {
+            Self::KempstonRight => Some(0),
+            Self::KempstonLeft => Some(1),
+            Self::KempstonDown => Some(2),
+            Self::KempstonUp => Some(3),
+            Self::KempstonFire => Some(4),
+            _ => None,
+        }
+    }
+
     /// Return the (row, bit) pair for this key in the keyboard matrix.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on a Kempston joystick key.
     #[must_use]
     pub const fn matrix(self) -> (usize, u8) {
         match self {
@@ -116,6 +140,12 @@ impl SpectrumKey {
             Self::M => (7, 2),
             Self::N => (7, 3),
             Self::B => (7, 4),
+
+            Self::KempstonRight
+            | Self::KempstonLeft
+            | Self::KempstonDown
+            | Self::KempstonUp
+            | Self::KempstonFire => panic!("Kempston keys have no keyboard matrix mapping"),
         }
     }
 }
@@ -202,15 +232,24 @@ impl InputQueue {
         frame
     }
 
-    /// Process all events for the given frame, applying them to the keyboard.
-    pub fn process(&mut self, frame: u64, keyboard: &mut KeyboardState) {
+    /// Process all events for the given frame, applying them to the keyboard
+    /// and Kempston joystick state.
+    pub fn process(&mut self, frame: u64, keyboard: &mut KeyboardState, kempston: &mut u8) {
         while let Some(event) = self.events.front() {
             if event.frame > frame {
                 break;
             }
             let event = self.events.pop_front().expect("front was Some");
-            let (row, bit) = event.key.matrix();
-            keyboard.set_key(row, bit, event.pressed);
+            if let Some(bit) = event.key.kempston_bit() {
+                if event.pressed {
+                    *kempston |= 1 << bit;
+                } else {
+                    *kempston &= !(1 << bit);
+                }
+            } else {
+                let (row, bit) = event.key.matrix();
+                keyboard.set_key(row, bit, event.pressed);
+            }
         }
     }
 
@@ -320,19 +359,20 @@ mod tests {
     fn process_applies_events() {
         let mut queue = InputQueue::new();
         let mut kbd = KeyboardState::new();
+        let mut kempston = 0u8;
 
         queue.enqueue_key(SpectrumKey::A, 5, 3);
 
         // Frame 4: nothing happens
-        queue.process(4, &mut kbd);
+        queue.process(4, &mut kbd, &mut kempston);
         assert_eq!(kbd.read(0xFD) & 0x01, 0x01); // A not pressed
 
         // Frame 5: press
-        queue.process(5, &mut kbd);
+        queue.process(5, &mut kbd, &mut kempston);
         assert_eq!(kbd.read(0xFD) & 0x01, 0x00); // A pressed (active low)
 
         // Frame 8: release
-        queue.process(8, &mut kbd);
+        queue.process(8, &mut kbd, &mut kempston);
         assert_eq!(kbd.read(0xFD) & 0x01, 0x01); // A released
     }
 

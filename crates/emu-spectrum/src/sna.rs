@@ -1,8 +1,13 @@
-//! SNA snapshot loader for 48K Spectrum.
+//! SNA snapshot loader for 48K and 128K Spectrum.
 //!
-//! The 48K SNA format is 49,179 bytes: 27-byte header + 49,152 bytes of RAM.
-//! The header contains the Z80 register state. PC is stored on the stack
-//! (SP points to it in RAM), so after loading we pop it.
+//! **48K format** (49,179 bytes): 27-byte header + 49,152 bytes of RAM.
+//! PC is stored on the stack (SP points to it in RAM), so after loading
+//! we pop it.
+//!
+//! **128K format** (131,103 bytes): 27-byte header + 49,152 bytes of RAM
+//! (banks 5, 2, and the currently paged bank in that order) + 4-byte
+//! extension (PC, port $7FFD, TR-DOS flag) + 5 × 16,384 bytes of the
+//! remaining RAM banks in ascending order.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -13,33 +18,42 @@ use crate::Spectrum;
 /// Expected size of a 48K SNA snapshot file.
 const SNA_48K_SIZE: usize = 49_179;
 
+/// Expected size of a 128K SNA snapshot file.
+const SNA_128K_SIZE: usize = 131_103;
+
 /// Header size in bytes.
 const HEADER_SIZE: usize = 27;
 
-/// Load a 48K SNA snapshot into the given Spectrum instance.
+/// RAM dump size (48K from $4000-$FFFF).
+const RAM_SIZE: usize = 49_152;
+
+/// Load a SNA snapshot into the given Spectrum instance.
 ///
-/// Sets all Z80 registers, loads RAM ($4000-$FFFF), sets the border colour,
-/// and pops PC from the stack.
+/// Accepts both 48K (49,179 bytes) and 128K (131,103 bytes) snapshots.
+/// The Spectrum must already be created with the correct model — 48K
+/// snapshots load into any model, 128K snapshots require a 128K model.
 ///
 /// # Errors
 ///
-/// Returns an error if the data is not exactly 49,179 bytes, or if the
-/// stack pointer doesn't point into RAM ($4000-$FFFF).
+/// Returns an error if the data is the wrong size, or (for 48K) the
+/// stack pointer doesn't point into RAM.
 pub fn load_sna(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
-    if data.len() != SNA_48K_SIZE {
-        return Err(format!(
-            "SNA file must be exactly {SNA_48K_SIZE} bytes, got {}",
-            data.len()
-        ));
+    match data.len() {
+        SNA_48K_SIZE => load_sna_48k(spectrum, data),
+        SNA_128K_SIZE => load_sna_128k(spectrum, data),
+        n => Err(format!(
+            "SNA file must be {SNA_48K_SIZE} (48K) or {SNA_128K_SIZE} (128K) bytes, got {n}"
+        )),
     }
+}
 
-    // Reset the CPU to clear the micro-op pipeline, then set registers.
+/// Load the common 27-byte header into the CPU registers.
+fn load_sna_header(spectrum: &mut Spectrum, data: &[u8]) -> u8 {
     spectrum.cpu_mut().reset();
 
     let cpu = spectrum.cpu_mut();
     let regs = &mut cpu.regs;
 
-    // Parse header — all 16-bit values are little-endian.
     regs.i = data[0];
 
     regs.l_alt = data[1];
@@ -61,51 +75,109 @@ pub fn load_sna(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
     regs.iy = u16::from(data[15]) | (u16::from(data[16]) << 8);
     regs.ix = u16::from(data[17]) | (u16::from(data[18]) << 8);
 
-    // Byte 19: IFF2 is bit 2
     let iff2 = data[19] & 0x04 != 0;
     regs.iff1 = iff2;
     regs.iff2 = iff2;
 
     regs.r = data[20];
-
     regs.f = data[21];
     regs.a = data[22];
-
     regs.sp = u16::from(data[23]) | (u16::from(data[24]) << 8);
-
     regs.im = data[25];
 
-    let border_colour = data[26];
+    data[26] // border colour
+}
 
-    // Load RAM ($4000-$FFFF): 49,152 bytes starting at offset 27.
-    let ram_data = &data[HEADER_SIZE..];
+/// Load a 48K SNA snapshot.
+fn load_sna_48k(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
+    let border = load_sna_header(spectrum, data);
 
-    // We need to downcast the memory to Memory48K to use load_ram.
-    // The bus memory is a Box<dyn SpectrumMemory>, so we write byte by byte.
+    // Load RAM ($4000-$FFFF) byte by byte through the memory trait.
+    let ram_data = &data[HEADER_SIZE..HEADER_SIZE + RAM_SIZE];
     let bus = spectrum.bus_mut();
     for (i, &byte) in ram_data.iter().enumerate() {
-        let addr = 0x4000u16 + i as u16;
-        bus.memory.write(addr, byte);
+        bus.memory.write(0x4000u16 + i as u16, byte);
     }
+    bus.ula.set_border_colour(border & 0x07);
 
-    // Set border colour via the ULA.
-    bus.ula.set_border_colour(border_colour & 0x07);
-
-    // Pop PC from the stack: read 2 bytes at SP from RAM, increment SP.
+    // Pop PC from the stack.
     let sp = spectrum.cpu().regs.sp;
     if sp < 0x4000 {
         return Err(format!(
             "SNA stack pointer ${sp:04X} points into ROM — cannot pop PC"
         ));
     }
-
     let pc_lo = spectrum.bus().memory.read(sp);
     let pc_hi = spectrum.bus().memory.read(sp.wrapping_add(1));
     let pc = u16::from(pc_lo) | (u16::from(pc_hi) << 8);
-
-    // Clear the two stack bytes (they were the saved PC, not real stack data)
-    // and advance SP.
     spectrum.cpu_mut().regs.sp = sp.wrapping_add(2);
+    spectrum.cpu_mut().regs.pc = pc;
+
+    Ok(())
+}
+
+/// Load a 128K SNA snapshot.
+fn load_sna_128k(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
+    let border = load_sna_header(spectrum, data);
+
+    // The first 48K of RAM in the file is banks 5, 2, and the currently paged bank.
+    // We load this through the memory trait. First, set up the bank register so that
+    // $C000 maps to the correct bank, then load the remaining 5 banks.
+
+    // Read the 128K extension at offset 27 + 49152 = 49179.
+    let ext_offset = HEADER_SIZE + RAM_SIZE;
+    let pc = u16::from(data[ext_offset]) | (u16::from(data[ext_offset + 1]) << 8);
+    let port_7ffd = data[ext_offset + 2];
+    // data[ext_offset + 3] is the TR-DOS flag — we ignore it.
+
+    let paged_bank = (port_7ffd & 0x07) as usize;
+
+    // Load bank 5 ($4000-$7FFF in the file's first 16K)
+    let bank5_data = &data[HEADER_SIZE..HEADER_SIZE + 0x4000];
+    // Load bank 2 ($8000-$BFFF in the file's second 16K)
+    let bank2_data = &data[HEADER_SIZE + 0x4000..HEADER_SIZE + 0x8000];
+    // Load the paged bank ($C000-$FFFF in the file's third 16K)
+    let paged_data = &data[HEADER_SIZE + 0x8000..HEADER_SIZE + 0xC000];
+
+    // Set the bank register so $C000 maps to the paged bank during loading.
+    let bus = spectrum.bus_mut();
+    bus.memory.write_bank_register(port_7ffd);
+
+    // Write banks 5, 2, paged through the normal address space.
+    for (i, &byte) in bank5_data.iter().enumerate() {
+        bus.memory.write(0x4000u16 + i as u16, byte);
+    }
+    for (i, &byte) in bank2_data.iter().enumerate() {
+        bus.memory.write(0x8000u16 + i as u16, byte);
+    }
+    for (i, &byte) in paged_data.iter().enumerate() {
+        bus.memory.write(0xC000u16 + i as u16, byte);
+    }
+
+    bus.ula.set_border_colour(border & 0x07);
+
+    // Load the remaining 5 banks. The file stores them in ascending bank
+    // order, skipping banks 5, 2, and the paged bank.
+    let extra_offset = ext_offset + 4;
+    let mut file_pos = extra_offset;
+    for bank in 0u8..8 {
+        if bank == 5 || bank == 2 || bank as usize == paged_bank {
+            continue;
+        }
+        let bank_data = &data[file_pos..file_pos + 0x4000];
+        file_pos += 0x4000;
+
+        // Page this bank in, write the data, then restore.
+        let bus = spectrum.bus_mut();
+        let saved_reg = port_7ffd;
+        bus.memory
+            .write_bank_register((port_7ffd & 0xF8) | bank);
+        for (i, &byte) in bank_data.iter().enumerate() {
+            bus.memory.write(0xC000u16 + i as u16, byte);
+        }
+        bus.memory.write_bank_register(saved_reg);
+    }
+
     spectrum.cpu_mut().regs.pc = pc;
 
     Ok(())
@@ -190,5 +262,78 @@ mod tests {
         let result = load_sna(&mut spec, &sna);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("points into ROM"));
+    }
+
+    // --- 128K SNA tests ---
+
+    fn make_128k_spectrum() -> Spectrum {
+        let rom = vec![0u8; 0x8000]; // 32K ROM
+        Spectrum::new(&SpectrumConfig {
+            model: SpectrumModel::Spectrum128K,
+            rom,
+        })
+    }
+
+    fn make_128k_sna(port_7ffd: u8, pc: u16) -> Vec<u8> {
+        let mut data = vec![0u8; SNA_128K_SIZE];
+
+        // Header: recognisable values
+        data[0] = 0x3F; // I
+        data[20] = 0x42; // R
+        data[21] = 0xFF; // F
+        data[22] = 0xAA; // A
+        data[23] = 0x00; // SP low (doesn't matter — PC is in extension)
+        data[24] = 0x80; // SP = $8000
+        data[25] = 1; // IM 1
+        data[26] = 3; // Border = magenta
+
+        // Write a marker byte into bank 5 (offset HEADER in file)
+        data[HEADER_SIZE] = 0x55;
+        // Write a marker byte into bank 2 (offset HEADER + 16K)
+        data[HEADER_SIZE + 0x4000] = 0x22;
+
+        // Extension at offset HEADER_SIZE + RAM_SIZE
+        let ext = HEADER_SIZE + RAM_SIZE;
+        data[ext] = pc as u8;
+        data[ext + 1] = (pc >> 8) as u8;
+        data[ext + 2] = port_7ffd;
+        data[ext + 3] = 0; // TR-DOS flag
+
+        data
+    }
+
+    #[test]
+    fn load_sna_128k_sets_pc_from_extension() {
+        let mut spec = make_128k_spectrum();
+        let sna = make_128k_sna(0x00, 0xABCD);
+
+        load_sna(&mut spec, &sna).expect("load_sna should succeed");
+
+        assert_eq!(spec.cpu().regs.pc, 0xABCD);
+        assert_eq!(spec.cpu().regs.a, 0xAA);
+        assert_eq!(spec.cpu().regs.i, 0x3F);
+    }
+
+    #[test]
+    fn load_sna_128k_loads_fixed_banks() {
+        let mut spec = make_128k_spectrum();
+        let sna = make_128k_sna(0x00, 0x0000);
+
+        load_sna(&mut spec, &sna).expect("load_sna should succeed");
+
+        // Bank 5 at $4000
+        assert_eq!(spec.bus().memory.read(0x4000), 0x55);
+        // Bank 2 at $8000
+        assert_eq!(spec.bus().memory.read(0x8000), 0x22);
+    }
+
+    #[test]
+    fn load_sna_128k_sets_border() {
+        let mut spec = make_128k_spectrum();
+        let sna = make_128k_sna(0x00, 0x0000);
+
+        load_sna(&mut spec, &sna).expect("load_sna should succeed");
+
+        assert_eq!(spec.bus().ula.border_colour(), 3);
     }
 }

@@ -10,8 +10,8 @@ use std::process;
 use std::time::{Duration, Instant};
 
 use emu_spectrum::{
-    Spectrum, SpectrumConfig, SpectrumModel, TapFile, capture, keyboard_map, load_sna,
-    mcp::McpServer,
+    Spectrum, SpectrumConfig, SpectrumModel, TapFile, TzxFile, capture, keyboard_map, load_sna,
+    load_z80, mcp::McpServer,
 };
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -38,8 +38,12 @@ const FRAME_DURATION: Duration = Duration::from_micros(20_000);
 // ---------------------------------------------------------------------------
 
 struct CliArgs {
+    model: String,
+    rom_path: Option<PathBuf>,
     sna_path: Option<PathBuf>,
+    z80_path: Option<PathBuf>,
     tap_path: Option<PathBuf>,
+    tzx_path: Option<PathBuf>,
     headless: bool,
     mcp: bool,
     script_path: Option<PathBuf>,
@@ -54,8 +58,12 @@ struct CliArgs {
 fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut cli = CliArgs {
+        model: "48k".to_string(),
+        rom_path: None,
         sna_path: None,
+        z80_path: None,
         tap_path: None,
+        tzx_path: None,
         headless: false,
         mcp: false,
         script_path: None,
@@ -70,13 +78,31 @@ fn parse_args() -> CliArgs {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--model" => {
+                i += 1;
+                if let Some(s) = args.get(i) {
+                    cli.model = s.to_lowercase();
+                }
+            }
+            "--rom" => {
+                i += 1;
+                cli.rom_path = args.get(i).map(PathBuf::from);
+            }
             "--sna" => {
                 i += 1;
                 cli.sna_path = args.get(i).map(PathBuf::from);
             }
+            "--z80" => {
+                i += 1;
+                cli.z80_path = args.get(i).map(PathBuf::from);
+            }
             "--tap" => {
                 i += 1;
                 cli.tap_path = args.get(i).map(PathBuf::from);
+            }
+            "--tzx" => {
+                i += 1;
+                cli.tzx_path = args.get(i).map(PathBuf::from);
             }
             "--headless" => {
                 cli.headless = true;
@@ -120,8 +146,12 @@ fn parse_args() -> CliArgs {
                 eprintln!("Usage: emu-spectrum [OPTIONS]");
                 eprintln!();
                 eprintln!("Options:");
-                eprintln!("  --sna <file>         Load a 48K SNA snapshot");
+                eprintln!("  --model <model>      Spectrum model: 48k, 128k, plus2 [default: 48k]");
+                eprintln!("  --rom <file>         ROM file (required for 128k/plus2)");
+                eprintln!("  --sna <file>         Load a SNA snapshot (48K or 128K)");
+                eprintln!("  --z80 <file>         Load a .Z80 snapshot (v1/v2/v3)");
                 eprintln!("  --tap <file>         Insert a TAP file into the tape deck");
+                eprintln!("  --tzx <file>         Insert a TZX file (real-time tape signal)");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
                 eprintln!("  --script <file>      Run a JSON script file (headless batch mode)");
@@ -163,11 +193,10 @@ fn run_headless(cli: &CliArgs) {
     }
 
     // Run frames, collecting audio.
-    let mut all_audio = Vec::new();
+    let mut all_audio: Vec<[f32; 2]> = Vec::new();
     for _ in 0..cli.frames {
         spectrum.run_frame();
-        let audio = spectrum.take_audio_buffer();
-        all_audio.extend_from_slice(&audio);
+        all_audio.extend_from_slice(&spectrum.take_audio_buffer());
     }
 
     // Save screenshot.
@@ -198,15 +227,17 @@ struct App {
     window: Option<&'static Window>,
     pixels: Option<Pixels<'static>>,
     last_frame_time: Instant,
+    title: String,
 }
 
 impl App {
-    fn new(spectrum: Spectrum) -> Self {
+    fn new(spectrum: Spectrum, title: String) -> Self {
         Self {
             spectrum,
             window: None,
             pixels: None,
             last_frame_time: Instant::now(),
+            title,
         }
     }
 
@@ -260,7 +291,7 @@ impl ApplicationHandler for App {
 
         let window_size = winit::dpi::LogicalSize::new(FB_WIDTH * SCALE, FB_HEIGHT * SCALE);
         let attrs = WindowAttributes::default()
-            .with_title("ZX Spectrum 48K")
+            .with_title(&self.title)
             .with_inner_size(window_size)
             .with_resizable(false);
 
@@ -344,11 +375,38 @@ impl ApplicationHandler for App {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn make_spectrum(cli: &CliArgs) -> Spectrum {
-    let config = SpectrumConfig {
-        model: SpectrumModel::Spectrum48K,
-        rom: ROM_48K.to_vec(),
+fn load_rom_file(cli: &CliArgs, model_name: &str) -> Vec<u8> {
+    let Some(ref path) = cli.rom_path else {
+        eprintln!("{model_name} model requires --rom <file> (32K ROM image)");
+        process::exit(1);
     };
+    match std::fs::read(path) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Failed to read ROM file {}: {e}", path.display());
+            process::exit(1);
+        }
+    }
+}
+
+fn make_spectrum(cli: &CliArgs) -> Spectrum {
+    let (model, rom) = match cli.model.as_str() {
+        "48k" | "48" => (SpectrumModel::Spectrum48K, ROM_48K.to_vec()),
+        "128k" | "128" => {
+            let rom = load_rom_file(cli, "128K");
+            (SpectrumModel::Spectrum128K, rom)
+        }
+        "plus2" | "+2" => {
+            let rom = load_rom_file(cli, "+2");
+            (SpectrumModel::SpectrumPlus2, rom)
+        }
+        other => {
+            eprintln!("Unknown model: {other}. Use 48k, 128k, or plus2.");
+            process::exit(1);
+        }
+    };
+
+    let config = SpectrumConfig { model, rom };
     let mut spectrum = Spectrum::new(&config);
 
     // Load SNA snapshot if provided.
@@ -365,6 +423,22 @@ fn make_spectrum(cli: &CliArgs) -> Spectrum {
             process::exit(1);
         }
         eprintln!("Loaded SNA: {}", path.display());
+    }
+
+    // Load .Z80 snapshot if provided.
+    if let Some(ref path) = cli.z80_path {
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to read Z80 file {}: {e}", path.display());
+                process::exit(1);
+            }
+        };
+        if let Err(e) = load_z80(&mut spectrum, &data) {
+            eprintln!("Failed to load Z80: {e}");
+            process::exit(1);
+        }
+        eprintln!("Loaded Z80: {}", path.display());
     }
 
     // Insert TAP file if provided.
@@ -387,6 +461,31 @@ fn make_spectrum(cli: &CliArgs) -> Spectrum {
             }
             Err(e) => {
                 eprintln!("Failed to parse TAP file: {e}");
+                process::exit(1);
+            }
+        }
+    }
+
+    // Insert TZX file if provided.
+    if let Some(ref path) = cli.tzx_path {
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to read TZX file {}: {e}", path.display());
+                process::exit(1);
+            }
+        };
+        match TzxFile::parse(&data) {
+            Ok(tzx) => {
+                eprintln!(
+                    "Inserted TZX: {} ({} blocks)",
+                    path.display(),
+                    tzx.blocks.len()
+                );
+                spectrum.insert_tzx(tzx);
+            }
+            Err(e) => {
+                eprintln!("Failed to parse TZX file: {e}");
                 process::exit(1);
             }
         }
@@ -429,8 +528,13 @@ fn main() {
         return;
     }
 
+    let title = match cli.model.as_str() {
+        "128k" | "128" => "ZX Spectrum 128K",
+        "plus2" | "+2" => "ZX Spectrum +2",
+        _ => "ZX Spectrum 48K",
+    };
     let spectrum = make_spectrum(&cli);
-    let mut app = App::new(spectrum);
+    let mut app = App::new(spectrum, title.to_string());
 
     let event_loop = match EventLoop::new() {
         Ok(el) => el,

@@ -1,0 +1,9 @@
+[package]
+name = "gi-ay-3-8910"
+description = "General Instrument AY-3-8910 PSG emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
