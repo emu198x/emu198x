@@ -873,7 +873,7 @@ fn screen_code_to_ascii(code: u8) -> char {
 fn read_screen_lines(c64: &C64) -> Vec<String> {
     let mut lines = Vec::new();
     let vic = &c64.bus().vic;
-    let d018 = vic.read(0x18);
+    let d018 = vic.peek(0x18);
     let screen_base = u16::from((d018 >> 4) & 0x0F) * 0x0400;
     let bank_offset = u16::from(vic.bank()) * 0x4000;
     let screen_start = bank_offset + screen_base;

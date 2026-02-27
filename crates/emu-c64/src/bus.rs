@@ -193,7 +193,7 @@ mod tests {
         // $DE00-$DFFF returns $FF
         let val = bus
             .memory
-            .io_read(0xDE00, &Vic::new(), &Sid6581::new(985_248, 48_000), &Cia::new(), &Cia::new());
+            .io_read(0xDE00, &mut Vic::new(), &Sid6581::new(985_248, 48_000), &Cia::new(), &Cia::new());
         assert_eq!(val, 0xFF);
     }
 }

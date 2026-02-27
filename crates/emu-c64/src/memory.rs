@@ -217,7 +217,7 @@ impl C64Memory {
 
     /// Read I/O register (called by bus when $D000-$DFFF and I/O visible).
     #[must_use]
-    pub fn io_read(&self, addr: u16, vic: &Vic, sid: &Sid6581, cia1: &Cia, cia2: &Cia) -> u8 {
+    pub fn io_read(&self, addr: u16, vic: &mut Vic, sid: &Sid6581, cia1: &Cia, cia2: &Cia) -> u8 {
         match addr {
             0xD000..=0xD3FF => vic.read((addr & 0x3F) as u8),
             0xD400..=0xD7FF => sid.read((addr & 0x1F) as u8),

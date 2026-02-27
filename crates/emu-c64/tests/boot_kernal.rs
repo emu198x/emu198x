@@ -273,6 +273,144 @@ fn test_badline_border_timing() {
     );
 }
 
+#[test]
+#[ignore] // Requires real C64 ROMs at roms/
+fn test_hires_bitmap_mode() {
+    let kernal = fs::read("../../roms/kernal.rom").expect("kernal.rom not found");
+    let basic = fs::read("../../roms/basic.rom").expect("basic.rom not found");
+    let chargen = fs::read("../../roms/chargen.rom").expect("chargen.rom not found");
+
+    let mut c64 = C64::new(&C64Config {
+        model: C64Model::C64Pal,
+        kernal_rom: kernal,
+        basic_rom: basic,
+        char_rom: chargen,
+    });
+
+    // Boot to READY.
+    for _ in 0..120 {
+        c64.run_frame();
+    }
+    assert!(find_ready_in_screen(&c64), "C64 did not reach READY.");
+
+    // Poke program to enable hires bitmap mode and fill bitmap + screen RAM.
+    //
+    // $D011 = $3B: DEN + BMM + YSCROLL=3
+    // $D018 = $3C: screen at $0C00, bitmap at $2000
+    // Fill bitmap RAM ($2000-$3FFF) with a checkerboard.
+    // Fill screen RAM ($0C00-$0FFF) with colour $F0 (white fg, black bg).
+    c64.bus_mut().write(0xD011, 0x3B);
+    c64.bus_mut().write(0xD018, 0x3C);
+
+    // Fill bitmap with checkerboard (alternating $AA/$55)
+    for addr in 0x2000u16..0x3FFF {
+        let pattern = if (addr & 1) == 0 { 0xAA } else { 0x55 };
+        c64.bus_mut().memory.ram_write(addr, pattern);
+    }
+
+    // Fill screen RAM with white-on-black
+    for addr in 0x0C00u16..0x0FFF {
+        c64.bus_mut().memory.ram_write(addr, 0xF0);
+    }
+
+    // Run a few frames
+    for _ in 0..3 {
+        c64.run_frame();
+    }
+
+    // Save screenshot
+    let out_dir = Path::new("../../test_output");
+    fs::create_dir_all(out_dir).ok();
+    let screenshot_path = out_dir.join("c64_hires_bitmap.png");
+    emu_c64::capture::save_screenshot(&c64, &screenshot_path)
+        .expect("Failed to save screenshot");
+    println!("Screenshot saved to {}", screenshot_path.display());
+
+    // Verify that the display window contains non-uniform pixels.
+    // In bitmap mode, our checkerboard should produce alternating white/black.
+    let fb = c64.framebuffer();
+    let w = c64.framebuffer_width() as usize;
+
+    // Sample two adjacent pixels in the display area.
+    // Display starts at fb_y ~42 (line $30 - line 6), fb_x ~48 (cycle 16 - cycle 10)*8.
+    let fb_y = 50;
+    let fb_x = 56;
+    let idx0 = fb_y * w + fb_x;
+    let idx1 = idx0 + 1;
+
+    // The two pixels should be different colours (checkerboard)
+    assert_ne!(
+        fb[idx0], fb[idx1],
+        "Adjacent bitmap pixels should differ in checkerboard"
+    );
+}
+
+#[test]
+#[ignore] // Requires real C64 ROMs at roms/
+fn test_multicolour_text_mode() {
+    let kernal = fs::read("../../roms/kernal.rom").expect("kernal.rom not found");
+    let basic = fs::read("../../roms/basic.rom").expect("basic.rom not found");
+    let chargen = fs::read("../../roms/chargen.rom").expect("chargen.rom not found");
+
+    let mut c64 = C64::new(&C64Config {
+        model: C64Model::C64Pal,
+        kernal_rom: kernal,
+        basic_rom: basic,
+        char_rom: chargen,
+    });
+
+    // Boot to READY.
+    for _ in 0..120 {
+        c64.run_frame();
+    }
+    assert!(find_ready_in_screen(&c64), "C64 did not reach READY.");
+
+    // Enable multicolour text mode
+    // $D016 bit 4 = MCM on
+    c64.bus_mut().write(0xD016, 0x18); // MCM=1
+    c64.bus_mut().write(0xD021, 0x00); // BG0 = black
+    c64.bus_mut().write(0xD022, 0x02); // BG1 = red
+    c64.bus_mut().write(0xD023, 0x05); // BG2 = green
+
+    // Fill colour RAM with bit 3 set (activates MCM per character)
+    for offset in 0u16..1000 {
+        c64.bus_mut().memory.colour_ram_write(offset, 0x0F);
+    }
+
+    // Fill screen with char 0 (uses chargen bitmap)
+    for addr in 0x0400u16..0x07E8 {
+        c64.bus_mut().memory.ram_write(addr, 0x00);
+    }
+
+    // Run frames
+    for _ in 0..3 {
+        c64.run_frame();
+    }
+
+    // Save screenshot
+    let out_dir = Path::new("../../test_output");
+    fs::create_dir_all(out_dir).ok();
+    let screenshot_path = out_dir.join("c64_mcm_text.png");
+    emu_c64::capture::save_screenshot(&c64, &screenshot_path)
+        .expect("Failed to save screenshot");
+    println!("Screenshot saved to {}", screenshot_path.display());
+
+    // Verify MCM rendering: in MCM, adjacent pixels within a pair are the same
+    // colour (each pair is 2 pixels wide). Sample in display area.
+    let fb = c64.framebuffer();
+    let w = c64.framebuffer_width() as usize;
+    let fb_y = 50;
+    let fb_x = 48; // Start of display window
+
+    let idx0 = fb_y * w + fb_x;
+    // In MCM, pixel 0 and pixel 1 should be the same colour (same bit pair)
+    assert_eq!(
+        fb[idx0],
+        fb[idx0 + 1],
+        "MCM pair pixels should be the same colour"
+    );
+}
+
 /// Scan screen memory for the PETSCII sequence "READY."
 fn find_ready_in_screen(c64: &C64) -> bool {
     let screen_start = 0x0400u16;

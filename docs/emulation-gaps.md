@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (TZX implemented). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (C64 VIC-II graphics modes + sprite collisions). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -60,19 +60,26 @@ schemes via real-time EAR signal simulation. The only remaining gap is the
 
 ## Commodore 64
 
-Boots to READY prompt, renders text and single-colour sprites, plays SID
-audio. The main gaps are VIC-II graphics modes and collision detection.
+Boots to READY prompt, renders all six VIC-II display modes (standard text,
+multicolour text, hires bitmap, multicolour bitmap, extended colour,
+invalid-mode blackout), single-colour and multicolour sprites with
+collision detection, plays SID audio.
+
+### Implemented
+
+- **CPU**: 6502 at 100% cycle accuracy (2.56M single-step tests pass)
+- **VIC-II display modes**: Standard text, multicolour text (MCM), hires bitmap (BMM), multicolour bitmap (BMM+MCM), extended colour (ECM), invalid mode combinations
+- **Sprites**: 8 sprites, single-colour and multicolour ($D01C), X/Y expand, priority
+- **Sprite collisions**: Sprite-sprite ($D01E) and sprite-background ($D01F), clear-on-read, IRQ triggering
+- **Audio**: SID 6581 with 3 voices, ADSR, SVF filter, downsampling to 48 kHz
+- **CIA**: Timer A/B, keyboard scanning, VIC bank selection
+- **Storage**: PRG loading
+- **Input**: 8×8 keyboard matrix
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| Bitmap mode (BMM) | `vic.rs` render_pixels() | All bitmap graphics fail (Impossible Mission, many demos) |
-| Multicolour text mode (MCM) | `vic.rs` render_pixels() | Boulder Dash, many commercial games display wrong |
-| Extended colour mode (ECM) | `vic.rs` render_pixels() | 4-background-colour programs fail |
-| Sprite multicolour ($D01C) | `vic.rs` overlay_sprites() | 3-colour sprites render as single-colour |
-| Sprite-sprite collision ($D01E) | `vic.rs` — never set | Games cannot detect sprite overlap |
-| Sprite-background collision ($D01F) | `vic.rs` — never set | Games cannot detect sprite-foreground overlap |
 | CIA2 NMI | `c64.rs` line 224 — stubbed | Music players and demos using CIA2 NMI fail |
 | 1541 disk drive | Not implemented | D64 images cannot be loaded; PRG-only |
 | Cartridge support (CRT) | Not implemented | Cartridge games unloadable |
@@ -94,11 +101,12 @@ audio. The main gaps are VIC-II graphics modes and collision detection.
 
 ### Assessment
 
-The biggest single category of missing functionality is **VIC-II graphics
-modes** — bitmap, multicolour, and ECM. Adding these three modes plus
-sprite multicolour and collision detection would cover the majority of
-commercial C64 software. The SID is recognisable but not audiophile-grade;
-the filter model is the main quality gap.
+All six VIC-II display modes and both collision registers are now
+implemented. The SID is recognisable but not audiophile-grade; the filter
+model is the main audio quality gap. The largest remaining gaps are
+**1541 disk drive** (blocks D64 loading) and **CIA2 NMI** (blocks some
+music players and demos). XSCROLL fine scrolling is needed for smooth
+side-scrollers.
 
 ---
 
@@ -192,7 +200,7 @@ modes and peripheral completeness.
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
-| Video modes | 100% | ~40% (text + single-colour sprites) | ~90% (missing emphasis/greyscale) | ~60% (missing HAM/EHB) |
+| Video modes | 100% | ~90% (all modes + MCM sprites + collisions) | ~90% (missing emphasis/greyscale) | ~60% (missing HAM/EHB) |
 | Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~80% (no DMC) | ~85% (no filter model) |
 | Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | NROM only | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |
@@ -201,14 +209,14 @@ modes and peripheral completeness.
 ### Highest-impact work items (by games-unlocked)
 
 1. **NES mappers** (MMC1 + UxROM + CNROM + MMC3) — unlocks ~80% of NES library
-2. **C64 VIC-II graphics modes** (bitmap + multicolour + ECM) — unlocks most commercial C64 software
-3. **C64 sprite collisions** — unlocks virtually all C64 games
-4. **Amiga HAM/EHB modes** — unlocks large category of Amiga graphics
-5. **NES DMC DMA** — completes audio for most NES games
-6. **Amiga Copper SKIP** — unlocks conditional copper lists
-7. **C64 1541 disk drive** — unlocks D64 loading (huge)
-8. **Amiga disk write** — unlocks game saves
-9. **68010/020 instructions** — unlocks A500+/A1200
+2. **C64 1541 disk drive** — unlocks D64 loading (huge library unlock)
+3. **Amiga HAM/EHB modes** — unlocks large category of Amiga graphics
+4. **NES DMC DMA** — completes audio for most NES games
+5. **Amiga Copper SKIP** — unlocks conditional copper lists
+6. **C64 XSCROLL fine scrolling** — unlocks smooth side-scrollers
+7. **Amiga disk write** — unlocks game saves
+8. **68010/020 instructions** — unlocks A500+/A1200
+9. **C64 CIA2 NMI** — unlocks music players and demos
 
 ### v1 exit criteria status
 

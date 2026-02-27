@@ -124,6 +124,16 @@ pub struct Vic {
 
     /// Whether each sprite is active on the current scanline.
     sprite_active: [bool; 8],
+
+    /// Sprite-sprite collision ($D01E). Clear-on-read.
+    sprite_sprite_collision: u8,
+    /// Sprite-background collision ($D01F). Clear-on-read.
+    sprite_bg_collision: u8,
+    /// Edge-detect: suppress re-triggering IRQ until register is read.
+    sprite_sprite_irq_latched: bool,
+    sprite_bg_irq_latched: bool,
+    /// Text row index (0-24), set during fetch_screen_row for bitmap modes.
+    text_row: u16,
 }
 
 impl Vic {
@@ -146,6 +156,11 @@ impl Vic {
             vic_bank: 0,
             sprite_data: [[0; 3]; 8],
             sprite_active: [false; 8],
+            sprite_sprite_collision: 0,
+            sprite_bg_collision: 0,
+            sprite_sprite_irq_latched: false,
+            sprite_bg_irq_latched: false,
+            text_row: 0,
         }
     }
 
@@ -230,6 +245,7 @@ impl Vic {
     fn fetch_screen_row(&mut self, memory: &C64Memory) {
         let screen_base = self.screen_base();
         let text_row = ((self.raster_line - DISPLAY_START_LINE) / 8) as u16;
+        self.text_row = text_row;
 
         for col in 0u16..40 {
             let screen_addr = screen_base + text_row * 40 + col;
@@ -329,44 +345,278 @@ impl Vic {
                 }
             } else {
                 let char_code = self.screen_row[col];
-                let fg_colour = PALETTE[(self.colour_row[col] & 0x0F) as usize];
+                let colour_nybble = self.colour_row[col];
 
-                // Fetch the character bitmap for the current row
-                let char_base = self.char_base();
-                let bitmap_addr =
-                    char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
-                let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
+                let bmm = self.regs[0x11] & 0x20 != 0;
+                let ecm = self.regs[0x11] & 0x40 != 0;
+                let mcm = self.regs[0x16] & 0x10 != 0;
 
-                // Render 8 pixels
-                for px in 0..8usize {
-                    let bit = (bitmap >> (7 - px)) & 1;
-                    let colour = if bit != 0 {
-                        fg_mask |= 1 << px;
-                        fg_colour
-                    } else {
-                        bg_colour
-                    };
-                    let idx = fb_offset + px;
-                    if idx < self.framebuffer.len() {
-                        self.framebuffer[idx] = colour;
+                if ecm && (bmm || mcm) {
+                    // Invalid mode combination: all pixels black
+                    for px in 0..8usize {
+                        let idx = fb_offset + px;
+                        if idx < self.framebuffer.len() {
+                            self.framebuffer[idx] = PALETTE[0];
+                        }
                     }
+                } else if bmm && mcm {
+                    self.render_mcm_bitmap(
+                        fb_offset, col, char_code, colour_nybble, &mut fg_mask, memory,
+                    );
+                } else if bmm {
+                    self.render_hires_bitmap(
+                        fb_offset, col, char_code, &mut fg_mask, memory,
+                    );
+                } else if ecm {
+                    self.render_ecm_text(
+                        fb_offset, col, char_code, colour_nybble, &mut fg_mask, memory,
+                    );
+                } else if mcm {
+                    self.render_mcm_text(
+                        fb_offset, col, char_code, colour_nybble, &mut fg_mask, memory,
+                    );
+                } else {
+                    self.render_standard_text(
+                        fb_offset, col, char_code, colour_nybble, &mut fg_mask, memory,
+                    );
                 }
             }
         }
 
         // Overlay sprites on top of the rendered pixels
         self.overlay_sprites(fb_offset, fb_x, fg_mask);
+
+        // Trigger sprite collision IRQs
+        if self.sprite_sprite_collision != 0 && !self.sprite_sprite_irq_latched {
+            self.sprite_sprite_irq_latched = true;
+            self.irq_status |= 0x04; // IMMC: sprite-sprite collision
+        }
+        if self.sprite_bg_collision != 0 && !self.sprite_bg_irq_latched {
+            self.sprite_bg_irq_latched = true;
+            self.irq_status |= 0x02; // IMBC: sprite-background collision
+        }
+    }
+
+    /// Standard text mode: 320×200, 1 bit per pixel.
+    fn render_standard_text(
+        &mut self,
+        fb_offset: usize,
+        _col: usize,
+        char_code: u8,
+        colour_nybble: u8,
+        fg_mask: &mut u8,
+        memory: &C64Memory,
+    ) {
+        let bg_colour = PALETTE[(self.regs[0x21] & 0x0F) as usize];
+        let fg_colour = PALETTE[(colour_nybble & 0x0F) as usize];
+
+        let char_base = self.char_base();
+        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
+        let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
+
+        for px in 0..8usize {
+            let bit = (bitmap >> (7 - px)) & 1;
+            let colour = if bit != 0 {
+                *fg_mask |= 1 << px;
+                fg_colour
+            } else {
+                bg_colour
+            };
+            let idx = fb_offset + px;
+            if idx < self.framebuffer.len() {
+                self.framebuffer[idx] = colour;
+            }
+        }
+    }
+
+    /// Hires bitmap mode (BMM): 320×200, 1 bit per pixel.
+    /// Colours from screen RAM: hi nybble = fg, lo nybble = bg.
+    fn render_hires_bitmap(
+        &mut self,
+        fb_offset: usize,
+        col: usize,
+        char_code: u8,
+        fg_mask: &mut u8,
+        memory: &C64Memory,
+    ) {
+        let fg_colour = PALETTE[((char_code >> 4) & 0x0F) as usize];
+        let bg_colour = PALETTE[(char_code & 0x0F) as usize];
+
+        let bitmap_base = self.bitmap_base();
+        let bitmap_addr =
+            bitmap_base + self.text_row * 40 * 8 + col as u16 * 8 + u16::from(self.char_row);
+        let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
+
+        for px in 0..8usize {
+            let bit = (bitmap >> (7 - px)) & 1;
+            let colour = if bit != 0 {
+                *fg_mask |= 1 << px;
+                fg_colour
+            } else {
+                bg_colour
+            };
+            let idx = fb_offset + px;
+            if idx < self.framebuffer.len() {
+                self.framebuffer[idx] = colour;
+            }
+        }
+    }
+
+    /// Extended colour text mode (ECM): 320×200.
+    /// Char code bits 6-7 select background from $D021-$D024.
+    /// Only 64 characters available (bits 0-5).
+    fn render_ecm_text(
+        &mut self,
+        fb_offset: usize,
+        _col: usize,
+        char_code: u8,
+        colour_nybble: u8,
+        fg_mask: &mut u8,
+        memory: &C64Memory,
+    ) {
+        let bg_select = (char_code >> 6) & 0x03;
+        let bg_colour = PALETTE[(self.regs[0x21 + bg_select as usize] & 0x0F) as usize];
+        let fg_colour = PALETTE[(colour_nybble & 0x0F) as usize];
+
+        let char_base = self.char_base();
+        let effective_char = char_code & 0x3F;
+        let bitmap_addr = char_base + u16::from(effective_char) * 8 + u16::from(self.char_row);
+        let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
+
+        for px in 0..8usize {
+            let bit = (bitmap >> (7 - px)) & 1;
+            let colour = if bit != 0 {
+                *fg_mask |= 1 << px;
+                fg_colour
+            } else {
+                bg_colour
+            };
+            let idx = fb_offset + px;
+            if idx < self.framebuffer.len() {
+                self.framebuffer[idx] = colour;
+            }
+        }
+    }
+
+    /// Multicolour text mode (MCM): per-character decision.
+    /// Colour RAM bit 3 clear → standard text (8px wide).
+    /// Colour RAM bit 3 set → bit-pair mode (4 double-wide pixels).
+    fn render_mcm_text(
+        &mut self,
+        fb_offset: usize,
+        _col: usize,
+        char_code: u8,
+        colour_nybble: u8,
+        fg_mask: &mut u8,
+        memory: &C64Memory,
+    ) {
+        if colour_nybble & 0x08 == 0 {
+            // Bit 3 clear: standard text rendering for this character
+            self.render_standard_text(fb_offset, _col, char_code, colour_nybble, fg_mask, memory);
+            return;
+        }
+
+        // Bit 3 set: multicolour mode
+        let bg0 = PALETTE[(self.regs[0x21] & 0x0F) as usize]; // 00
+        let bg1 = PALETTE[(self.regs[0x22] & 0x0F) as usize]; // 01
+        let bg2 = PALETTE[(self.regs[0x23] & 0x0F) as usize]; // 10
+        let fg_colour = PALETTE[(colour_nybble & 0x07) as usize]; // 11 (low 3 bits)
+
+        let char_base = self.char_base();
+        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
+        let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
+
+        for pair in 0..4usize {
+            let bits = (bitmap >> (6 - pair * 2)) & 0x03;
+            let colour = match bits {
+                0b00 => bg0,
+                0b01 => bg1,
+                0b10 => bg2,
+                _ => fg_colour,
+            };
+            let is_fg = bits != 0b00;
+            let px0 = pair * 2;
+            let px1 = px0 + 1;
+            if is_fg {
+                *fg_mask |= (1 << px0) | (1 << px1);
+            }
+            let idx0 = fb_offset + px0;
+            let idx1 = fb_offset + px1;
+            if idx0 < self.framebuffer.len() {
+                self.framebuffer[idx0] = colour;
+            }
+            if idx1 < self.framebuffer.len() {
+                self.framebuffer[idx1] = colour;
+            }
+        }
+    }
+
+    /// Multicolour bitmap mode (BMM+MCM): 160×200, bit pairs.
+    /// 00=$D021, 01=screen hi, 10=screen lo, 11=colour RAM.
+    fn render_mcm_bitmap(
+        &mut self,
+        fb_offset: usize,
+        col: usize,
+        char_code: u8,
+        colour_nybble: u8,
+        fg_mask: &mut u8,
+        memory: &C64Memory,
+    ) {
+        let bg0 = PALETTE[(self.regs[0x21] & 0x0F) as usize]; // 00
+        let c01 = PALETTE[((char_code >> 4) & 0x0F) as usize]; // 01: screen hi
+        let c10 = PALETTE[(char_code & 0x0F) as usize]; // 10: screen lo
+        let c11 = PALETTE[(colour_nybble & 0x0F) as usize]; // 11: colour RAM
+
+        let bitmap_base = self.bitmap_base();
+        let bitmap_addr =
+            bitmap_base + self.text_row * 40 * 8 + col as u16 * 8 + u16::from(self.char_row);
+        let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
+
+        for pair in 0..4usize {
+            let bits = (bitmap >> (6 - pair * 2)) & 0x03;
+            let colour = match bits {
+                0b00 => bg0,
+                0b01 => c01,
+                0b10 => c10,
+                _ => c11,
+            };
+            let is_fg = bits != 0b00;
+            let px0 = pair * 2;
+            let px1 = px0 + 1;
+            if is_fg {
+                *fg_mask |= (1 << px0) | (1 << px1);
+            }
+            let idx0 = fb_offset + px0;
+            let idx1 = fb_offset + px1;
+            if idx0 < self.framebuffer.len() {
+                self.framebuffer[idx0] = colour;
+            }
+            if idx1 < self.framebuffer.len() {
+                self.framebuffer[idx1] = colour;
+            }
+        }
     }
 
     /// Overlay active sprites onto the 8 pixels just rendered.
     ///
-    /// Processes sprites in reverse priority order (7 = lowest priority first,
-    /// 0 = highest priority last) so higher-priority sprites overwrite lower ones.
+    /// Handles both hires and multicolour sprites, collision detection,
+    /// and sprite priority. Processes sprites in reverse priority order
+    /// (7 = lowest first, 0 = highest last) for rendering.
     fn overlay_sprites(&mut self, fb_offset: usize, fb_x_start: usize, fg_mask: u8) {
         let priority = self.regs[0x1B];
         let x_expand = self.regs[0x1D];
+        let mcm_reg = self.regs[0x1C];
+        let mc0 = PALETTE[(self.regs[0x25] & 0x0F) as usize];
+        let mc1 = PALETTE[(self.regs[0x26] & 0x0F) as usize];
 
-        for i in (0..8usize).rev() {
+        // Pass 1: build per-pixel coverage mask (which sprites have non-transparent
+        // pixels at each of the 8 screen pixels) and colour for rendering.
+        // sprite_coverage[px] = bitmask of sprites present at that pixel.
+        // sprite_colour[px][i] = ARGB colour for sprite i at pixel px (if present).
+        let mut sprite_coverage: [u8; 8] = [0; 8];
+        let mut sprite_colour: [[u32; 8]; 8] = [[0; 8]; 8];
+
+        for i in 0..8usize {
             if !self.sprite_active[i] {
                 continue;
             }
@@ -377,46 +627,87 @@ impl Vic {
                 } else {
                     0
                 };
-            let colour = PALETTE[(self.regs[0x27 + i] & 0x0F) as usize];
-            let behind_fg = priority & (1 << i) != 0;
             let expanded_x = x_expand & (1 << i) != 0;
+            let is_mcm = mcm_reg & (1 << i) != 0;
+            let sprite_col = PALETTE[(self.regs[0x27 + i] & 0x0F) as usize];
 
-            // Sprite fb position
             let sprite_fb_x = i16::try_from(sprite_x).unwrap_or(0) + SPRITE_X_TO_FB;
+            let sprite_width: i16 = if expanded_x { 48 } else { 24 };
 
             for px in 0..8usize {
                 let screen_px = fb_x_start as i16 + px as i16;
                 let pixel_in_sprite = screen_px - sprite_fb_x;
 
-                if pixel_in_sprite < 0 {
-                    continue;
-                }
-
-                let sprite_width = if expanded_x { 48 } else { 24 };
-                if pixel_in_sprite >= sprite_width {
+                if pixel_in_sprite < 0 || pixel_in_sprite >= sprite_width {
                     continue;
                 }
 
                 // X-expand doubles each pixel
-                let data_bit = if expanded_x {
+                let data_pos = if expanded_x {
                     pixel_in_sprite / 2
                 } else {
                     pixel_in_sprite
                 } as usize;
 
-                let byte_idx = data_bit / 8;
-                let bit_idx = 7 - (data_bit % 8);
+                if is_mcm {
+                    // Multicolour: bit pairs from the data, each pair = 2 data pixels
+                    // In MCM, the 24 data bits become 12 bit-pairs.
+                    // data_pos ranges 0-23; MCM pair index = data_pos / 2.
+                    let pair_idx = data_pos / 2;
+                    let byte_idx = pair_idx / 4;
+                    let shift = 6 - (pair_idx % 4) * 2;
+                    let bits = (self.sprite_data[i][byte_idx] >> shift) & 0x03;
 
-                if self.sprite_data[i][byte_idx] & (1 << bit_idx) != 0 {
-                    // Skip if sprite is behind foreground and this pixel is fg
-                    if behind_fg && (fg_mask & (1 << px)) != 0 {
-                        continue;
+                    if bits != 0b00 {
+                        sprite_coverage[px] |= 1 << i;
+                        sprite_colour[px][i] = match bits {
+                            0b01 => mc0,
+                            0b10 => sprite_col,
+                            _ => mc1, // 0b11
+                        };
                     }
-                    let idx = fb_offset + px;
-                    if idx < self.framebuffer.len() {
-                        self.framebuffer[idx] = colour;
+                } else {
+                    // Hires: single bits
+                    let byte_idx = data_pos / 8;
+                    let bit_idx = 7 - (data_pos % 8);
+
+                    if self.sprite_data[i][byte_idx] & (1 << bit_idx) != 0 {
+                        sprite_coverage[px] |= 1 << i;
+                        sprite_colour[px][i] = sprite_col;
                     }
                 }
+            }
+        }
+
+        // Pass 2: collision detection (independent of priority/rendering)
+        for px in 0..8usize {
+            let cov = sprite_coverage[px];
+            if cov.count_ones() >= 2 {
+                self.sprite_sprite_collision |= cov;
+            }
+            if cov != 0 && (fg_mask & (1 << px)) != 0 {
+                self.sprite_bg_collision |= cov;
+            }
+        }
+
+        // Pass 3: render sprites in reverse priority order (7 first, 0 last)
+        for px in 0..8usize {
+            let idx = fb_offset + px;
+            if idx >= self.framebuffer.len() {
+                continue;
+            }
+
+            for i in (0..8usize).rev() {
+                if sprite_coverage[px] & (1 << i) == 0 {
+                    continue;
+                }
+
+                let behind_fg = priority & (1 << i) != 0;
+                if behind_fg && (fg_mask & (1 << px)) != 0 {
+                    continue;
+                }
+
+                self.framebuffer[idx] = sprite_colour[px][i];
             }
         }
     }
@@ -431,9 +722,19 @@ impl Vic {
         u16::from((self.regs[0x18] >> 1) & 0x07) * 0x0800
     }
 
+    /// Bitmap memory base address within the VIC-II 16K bank.
+    fn bitmap_base(&self) -> u16 {
+        if self.regs[0x18] & 0x08 != 0 {
+            0x2000
+        } else {
+            0x0000
+        }
+    }
+
     /// Read a VIC-II register.
-    #[must_use]
-    pub fn read(&self, reg: u8) -> u8 {
+    ///
+    /// `&mut self` because $D01E/$D01F are clear-on-read.
+    pub fn read(&mut self, reg: u8) -> u8 {
         match reg & 0x3F {
             0x11 => {
                 // $D011: Control reg 1 with current raster bit 8
@@ -458,8 +759,53 @@ impl Vic {
                 self.irq_status | any_active
             }
             0x1A => self.irq_enable & 0x0F,
+            0x1E => {
+                // $D01E: Sprite-sprite collision — clear on read
+                let val = self.sprite_sprite_collision;
+                self.sprite_sprite_collision = 0;
+                self.sprite_sprite_irq_latched = false;
+                val
+            }
+            0x1F => {
+                // $D01F: Sprite-background collision — clear on read
+                let val = self.sprite_bg_collision;
+                self.sprite_bg_collision = 0;
+                self.sprite_bg_irq_latched = false;
+                val
+            }
             r if r <= 0x2E => self.regs[r as usize],
             // Unused registers return $FF
+            _ => 0xFF,
+        }
+    }
+
+    /// Read a VIC-II register without side effects (no clear-on-read).
+    ///
+    /// Used for observation/debugging when mutation is not desired.
+    #[must_use]
+    pub fn peek(&self, reg: u8) -> u8 {
+        match reg & 0x3F {
+            0x11 => {
+                let raster_hi = if self.raster_line & 0x100 != 0 {
+                    0x80
+                } else {
+                    0x00
+                };
+                (self.regs[0x11] & 0x7F) | raster_hi
+            }
+            0x12 => (self.raster_line & 0xFF) as u8,
+            0x19 => {
+                let any_active = if (self.irq_status & self.irq_enable & 0x0F) != 0 {
+                    0x80
+                } else {
+                    0x00
+                };
+                self.irq_status | any_active
+            }
+            0x1A => self.irq_enable & 0x0F,
+            0x1E => self.sprite_sprite_collision,
+            0x1F => self.sprite_bg_collision,
+            r if r <= 0x2E => self.regs[r as usize],
             _ => 0xFF,
         }
     }
@@ -703,6 +1049,349 @@ mod tests {
         assert_eq!(
             vic.framebuffer()[idx], white,
             "Sprite pixel at ({sprite_fb_x}, {fb_y}) should be white"
+        );
+    }
+
+    #[test]
+    fn bitmap_base_selection() {
+        let mut vic = Vic::new();
+        // Bit 3 clear → $0000
+        vic.write(0x18, 0x14);
+        assert_eq!(vic.bitmap_base(), 0x0000);
+        // Bit 3 set → $2000
+        vic.write(0x18, 0x1C);
+        assert_eq!(vic.bitmap_base(), 0x2000);
+    }
+
+    #[test]
+    fn collision_register_clear_on_read() {
+        let mut vic = Vic::new();
+        // Manually set collision fields
+        vic.sprite_sprite_collision = 0x05;
+        vic.sprite_bg_collision = 0x0A;
+
+        // First read returns the collision value
+        assert_eq!(vic.read(0x1E), 0x05);
+        // Second read returns 0 (cleared)
+        assert_eq!(vic.read(0x1E), 0x00);
+
+        assert_eq!(vic.read(0x1F), 0x0A);
+        assert_eq!(vic.read(0x1F), 0x00);
+    }
+
+    #[test]
+    fn collision_peek_does_not_clear() {
+        let mut vic = Vic::new();
+        vic.sprite_sprite_collision = 0x03;
+        // peek should not clear the register
+        assert_eq!(vic.peek(0x1E), 0x03);
+        assert_eq!(vic.peek(0x1E), 0x03);
+        // read should clear it
+        assert_eq!(vic.read(0x1E), 0x03);
+        assert_eq!(vic.read(0x1E), 0x00);
+    }
+
+    #[test]
+    fn invalid_mode_renders_black() {
+        let (mut vic, memory) = make_vic_and_memory();
+
+        // ECM + BMM = invalid mode
+        vic.write(0x11, 0x7B); // DEN=1, YSCROLL=3, BMM=1, ECM=1
+        vic.write(0x20, 0x06); // Border = blue
+        vic.write(0x21, 0x01); // Background = white
+
+        // Run to a display line, hitting a cell inside the display window
+        let target_line = DISPLAY_START_LINE + 3; // First badline with YSCROLL=3
+        let target_cycle = DISPLAY_START_CYCLE + 5; // Column 5
+        let cycles_to_target =
+            u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..=cycles_to_target {
+            vic.tick(&memory);
+        }
+
+        // Check the pixel at the target position is black (PALETTE[0])
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x = (target_cycle - FIRST_VISIBLE_CYCLE) as usize * 8;
+        let idx = fb_y * FB_WIDTH as usize + fb_x;
+        assert_eq!(
+            vic.framebuffer()[idx],
+            PALETTE[0],
+            "Invalid mode should render black"
+        );
+    }
+
+    #[test]
+    fn ecm_selects_background() {
+        let kernal = vec![0; 8192];
+        let basic = vec![0; 8192];
+        let chargen = vec![0x00; 4096]; // All pixels clear → bg visible
+        let memory = C64Memory::new(&kernal, &basic, &chargen);
+
+        let mut vic = Vic::new();
+        vic.write(0x11, 0x5B); // ECM + DEN + YSCROLL=3
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x00); // BG0 = black
+        vic.write(0x22, 0x02); // BG1 = red
+        vic.write(0x23, 0x05); // BG2 = green
+        vic.write(0x24, 0x06); // BG3 = blue
+
+        // Advance to the first badline (line $33). Run past cycle 15 so
+        // fetch_screen_row has already fired, then overwrite screen_row.
+        let target_line = DISPLAY_START_LINE + 3;
+        let past_fetch = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + 16;
+        for _ in 0..past_fetch {
+            vic.tick(&memory);
+        }
+        // Now at cycle 16 (DISPLAY_START_CYCLE). Overwrite screen_row after fetch.
+        vic.screen_row[0] = 0x00; // BG0
+        vic.screen_row[1] = 0x40; // BG1
+        vic.screen_row[2] = 0x80; // BG2
+        vic.screen_row[3] = 0xC0; // BG3
+
+        // Tick column 0
+        vic.tick(&memory);
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+        let idx0 = fb_y * FB_WIDTH as usize + fb_x0;
+        assert_eq!(vic.framebuffer()[idx0], PALETTE[0], "ECM BG0 should be black");
+
+        // Tick column 1
+        vic.tick(&memory);
+        let idx1 = fb_y * FB_WIDTH as usize + fb_x0 + 8;
+        assert_eq!(vic.framebuffer()[idx1], PALETTE[2], "ECM BG1 should be red");
+
+        // Tick column 2
+        vic.tick(&memory);
+        let idx2 = fb_y * FB_WIDTH as usize + fb_x0 + 16;
+        assert_eq!(vic.framebuffer()[idx2], PALETTE[5], "ECM BG2 should be green");
+
+        // Tick column 3
+        vic.tick(&memory);
+        let idx3 = fb_y * FB_WIDTH as usize + fb_x0 + 24;
+        assert_eq!(vic.framebuffer()[idx3], PALETTE[6], "ECM BG3 should be blue");
+    }
+
+    #[test]
+    fn mcm_text_bit3_selects_mode() {
+        let kernal = vec![0; 8192];
+        let basic = vec![0; 8192];
+        // Chargen: char 0 = alternating bits for easy visual check
+        let mut chargen = vec![0x00; 4096];
+        chargen[0] = 0b10101010; // Char 0, row 0: bits 10 10 10 10
+
+        let memory = C64Memory::new(&kernal, &basic, &chargen);
+        let mut vic = Vic::new();
+
+        // MCM mode
+        vic.write(0x11, 0x1B); // DEN + YSCROLL=3
+        vic.write(0x16, 0x18); // MCM=1 + XSCROLL=0
+        vic.write(0x18, 0x14); // Screen $0400, chars $1000
+        vic.write(0x21, 0x00); // BG0 = black (00)
+        vic.write(0x22, 0x02); // BG1 = red (01)
+        vic.write(0x23, 0x05); // BG2 = green (10)
+
+        // Advance past the badline fetch at cycle 15
+        let target_line = DISPLAY_START_LINE + 3;
+        let past_fetch = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + 16;
+        for _ in 0..past_fetch {
+            vic.tick(&memory);
+        }
+
+        // Now at cycle 16 (DISPLAY_START_CYCLE). Overwrite screen/colour rows.
+        vic.screen_row[0] = 0; // Char 0
+        vic.colour_row[0] = 0x0F; // Bit 3 set → MCM, low 3 bits = 7 (yellow for 11 pair)
+        vic.screen_row[1] = 0;
+        vic.colour_row[1] = 0x01; // Bit 3 clear → standard text, fg = white
+
+        // Tick column 0 (MCM)
+        vic.tick(&memory);
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+        let idx0 = fb_y * FB_WIDTH as usize + fb_x0;
+
+        // Bitmap 0b10101010 → bit pairs: 10, 10, 10, 10
+        // Pair 10 = BG2 colour = green (PALETTE[5])
+        assert_eq!(
+            vic.framebuffer()[idx0],
+            PALETTE[5],
+            "MCM pixel 0 should be green (pair 10)"
+        );
+        assert_eq!(
+            vic.framebuffer()[idx0 + 1],
+            PALETTE[5],
+            "MCM pixel 1 should be green (pair 10, doubled)"
+        );
+
+        // Tick column 1 (standard text, bit 3 clear)
+        vic.tick(&memory);
+        let fb_x1 = fb_x0 + 8;
+        let idx1 = fb_y * FB_WIDTH as usize + fb_x1;
+
+        // Standard text: bitmap 0b10101010, fg = white (PALETTE[1]), bg = black (PALETTE[0])
+        assert_eq!(
+            vic.framebuffer()[idx1],
+            PALETTE[1],
+            "Standard text pixel 0 should be white (fg)"
+        );
+        assert_eq!(
+            vic.framebuffer()[idx1 + 1],
+            PALETTE[0],
+            "Standard text pixel 1 should be black (bg)"
+        );
+    }
+
+    #[test]
+    fn sprite_mcm_bit_pairs() {
+        let (mut vic, mut memory) = make_vic_and_memory();
+
+        // Enable sprite 0 in MCM mode
+        vic.write(0x15, 0x01); // Enable sprite 0
+        vic.write(0x1C, 0x01); // Sprite 0 = multicolour
+        vic.write(0x00, 172); // X = 172
+        vic.write(0x01, 100); // Y = 100
+        vic.write(0x25, 0x02); // MC0 = red
+        vic.write(0x27, 0x05); // Sprite 0 colour = green (pair 10)
+        vic.write(0x26, 0x06); // MC1 = blue
+        vic.write(0x18, 0x14);
+        vic.write(0x11, 0x1B); // DEN + YSCROLL=3
+
+        // Sprite pointer at $07F8
+        memory.ram_write(0x07F8, 0x80);
+
+        // Sprite data at $2000: first byte = 0b01_10_11_00
+        // Pairs: 01=MC0(red), 10=sprite(green), 11=MC1(blue), 00=transparent
+        memory.ram_write(0x2000, 0b01_10_11_00);
+        memory.ram_write(0x2001, 0x00);
+        memory.ram_write(0x2002, 0x00);
+
+        // Sprite fb_x = 172 + 24 = 196. MCM pairs each cover 2 screen pixels:
+        //   pair 0 (01) → pixels 196-197
+        //   pair 1 (10) → pixels 198-199
+        //   pair 2 (11) → pixels 200-201
+        //   pair 3 (00) → pixels 202-203 (transparent)
+        // Cycle 34 renders fb_x 192-199, cycle 35 renders fb_x 200-207.
+        // Need both cycles to have rendered.
+        let target_line = 100u16;
+        let target_cycle = 35u8; // Render through cycle 35
+        let cycles_to_target =
+            u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..=cycles_to_target {
+            vic.tick(&memory);
+        }
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let base_idx = fb_y * FB_WIDTH as usize;
+
+        // MCM pair 0 (bits 01) = MC0 = red, covers pixels 196-197
+        assert_eq!(
+            vic.framebuffer()[base_idx + 196],
+            PALETTE[2],
+            "MCM pair 01 pixel 0 should be red (MC0)"
+        );
+        assert_eq!(
+            vic.framebuffer()[base_idx + 197],
+            PALETTE[2],
+            "MCM pair 01 pixel 1 should be red (MC0)"
+        );
+
+        // MCM pair 1 (bits 10) = sprite colour = green, covers pixels 198-199
+        assert_eq!(
+            vic.framebuffer()[base_idx + 198],
+            PALETTE[5],
+            "MCM pair 10 pixel 0 should be green (sprite colour)"
+        );
+
+        // MCM pair 2 (bits 11) = MC1 = blue, covers pixels 200-201
+        assert_eq!(
+            vic.framebuffer()[base_idx + 200],
+            PALETTE[6],
+            "MCM pair 11 pixel 0 should be blue (MC1)"
+        );
+    }
+
+    #[test]
+    fn sprite_sprite_collision() {
+        let (mut vic, mut memory) = make_vic_and_memory();
+
+        // Enable sprites 0 and 1 at the same position
+        vic.write(0x15, 0x03); // Enable sprites 0 and 1
+        vic.write(0x00, 172); // Sprite 0 X
+        vic.write(0x01, 100); // Sprite 0 Y
+        vic.write(0x02, 172); // Sprite 1 X (same as sprite 0)
+        vic.write(0x03, 100); // Sprite 1 Y (same as sprite 0)
+        vic.write(0x27, 0x01); // Sprite 0 colour = white
+        vic.write(0x28, 0x02); // Sprite 1 colour = red
+        vic.write(0x18, 0x14);
+        vic.write(0x11, 0x1B);
+
+        // Both sprites point to the same data
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x07F9, 0x80);
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+
+        // Run to where sprites overlap
+        let target_line = 100u16;
+        let target_cycle = 35u8;
+        let cycles_to_target =
+            u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..=cycles_to_target {
+            vic.tick(&memory);
+        }
+
+        // $D01E should have bits 0 and 1 set (sprites 0 and 1 collided)
+        let collision = vic.read(0x1E);
+        assert_eq!(
+            collision & 0x03,
+            0x03,
+            "Sprites 0 and 1 should collide, got {collision:#04X}"
+        );
+
+        // After reading, register should be cleared
+        assert_eq!(vic.read(0x1E), 0x00, "$D01E should be cleared after read");
+    }
+
+    #[test]
+    fn sprite_bg_collision() {
+        let (mut vic, mut memory) = make_vic_and_memory();
+
+        // chargen is 0xFF (all fg pixels) — sprite overlapping fg triggers collision
+        vic.write(0x15, 0x01); // Enable sprite 0
+        vic.write(0x11, 0x1B); // DEN + YSCROLL=3
+        vic.write(0x18, 0x14); // Screen $0400, chars $1000
+
+        // Place sprite 0 within display window
+        // Display window fb starts at cycle 16, fb_x = (16-10)*8 = 48
+        // Sprite X that maps to display: fb_x = sprite_x + 24
+        // For sprite to overlap char column 0: fb_x = 48, sprite_x = 24
+        vic.write(0x00, 24); // X = 24 → fb_x = 48 (display window start)
+        vic.write(0x01, 51); // Y = 51 (first badline with YSCROLL=3)
+        vic.write(0x27, 0x01); // Sprite 0 colour = white
+
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+
+        // Set colour RAM to non-zero so char fg is rendered
+        memory.colour_ram_write(0, 0x01);
+
+        // Run to where sprite overlaps character fg
+        let target_line = 51u16;
+        let target_cycle = DISPLAY_START_CYCLE + 1;
+        let cycles_to_target =
+            u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..=cycles_to_target {
+            vic.tick(&memory);
+        }
+
+        // $D01F should have bit 0 set (sprite 0 collided with background)
+        let collision = vic.read(0x1F);
+        assert_ne!(
+            collision & 0x01,
+            0x00,
+            "Sprite 0 should collide with bg, got {collision:#04X}"
         );
     }
 }
