@@ -564,3 +564,125 @@ fn test_sprite_rendering() {
     capture::save_screenshot(&nes, &screenshot_path).expect("Failed to save screenshot");
     println!("Screenshot saved to {}", screenshot_path.display());
 }
+
+/// Build an NROM ROM that programs APU pulse 1 to play a ~440 Hz tone.
+///
+/// The code:
+/// 1. Standard init (SEI, CLD, LDX #$FF, TXS)
+/// 2. Enable pulse 1 via $4015
+/// 3. Set duty 50%, constant volume 15 via $4000
+/// 4. Set timer period for ~440 Hz via $4002/$4003
+/// 5. Idle loop
+fn build_apu_tone_rom() -> Vec<u8> {
+    let prg_size = 32768usize;
+    let chr_size = 8192usize;
+    let mut rom = vec![0u8; 16 + prg_size + chr_size];
+
+    // iNES header
+    rom[0..4].copy_from_slice(b"NES\x1a");
+    rom[4] = 2; // 2 × 16K PRG banks = 32K
+    rom[5] = 1; // 1 × 8K CHR bank
+    rom[6] = 0;
+    rom[7] = 0;
+
+    // 440 Hz pulse: CPU_FREQ / (16 * (period + 1)) = 440
+    // period = CPU_FREQ / (16 * 440) - 1 = 1789773 / 7040 - 1 ≈ 253
+    // period = 253 = $00FD
+    //
+    // $8000: 78       SEI
+    // $8001: D8       CLD
+    // $8002: A2 FF    LDX #$FF
+    // $8004: 9A       TXS
+    // $8005: A9 01    LDA #$01         ; enable pulse 1
+    // $8007: 8D 15 40 STA $4015
+    // $800A: A9 BF    LDA #$BF         ; duty=50%, constant vol, vol=15
+    // $800C: 8D 00 40 STA $4000
+    // $800F: A9 FD    LDA #$FD         ; timer low
+    // $8011: 8D 02 40 STA $4002
+    // $8014: A9 08    LDA #$08         ; timer high=0, length index=1
+    // $8016: 8D 03 40 STA $4003
+    // $8019: A9 C0    LDA #$C0         ; 5-step mode (no IRQ)
+    // $801B: 8D 17 40 STA $4017
+    // $801E: 4C 1E 80 JMP $801E        ; idle
+    #[rustfmt::skip]
+    let code: &[u8] = &[
+        0x78,                   // SEI
+        0xD8,                   // CLD
+        0xA2, 0xFF,             // LDX #$FF
+        0x9A,                   // TXS
+        0xA9, 0x01,             // LDA #$01
+        0x8D, 0x15, 0x40,       // STA $4015
+        0xA9, 0xBF,             // LDA #$BF (duty=50%, const vol, vol=15)
+        0x8D, 0x00, 0x40,       // STA $4000
+        0xA9, 0xFD,             // LDA #$FD (timer lo)
+        0x8D, 0x02, 0x40,       // STA $4002
+        0xA9, 0x08,             // LDA #$08 (timer hi=0, length index=1)
+        0x8D, 0x03, 0x40,       // STA $4003
+        0xA9, 0xC0,             // LDA #$C0 (5-step mode, no IRQ)
+        0x8D, 0x17, 0x40,       // STA $4017
+        0x4C, 0x1E, 0x80,       // JMP $801E (idle)
+    ];
+
+    rom[16..16 + code.len()].copy_from_slice(code);
+
+    // Reset vector → $8000
+    rom[16 + 0x7FFC] = 0x00;
+    rom[16 + 0x7FFD] = 0x80;
+    // NMI/IRQ vectors → SEI (harmless)
+    rom[16 + 0x7FFA] = 0x00;
+    rom[16 + 0x7FFB] = 0x80;
+    rom[16 + 0x7FFE] = 0x00;
+    rom[16 + 0x7FFF] = 0x80;
+
+    rom
+}
+
+#[test]
+#[ignore] // Slow: runs 30 frames
+fn test_apu_produces_audio() {
+    let rom_data = build_apu_tone_rom();
+    let mut nes = Nes::new(&NesConfig { rom_data }).expect("Failed to parse APU tone ROM");
+
+    let mut all_audio: Vec<f32> = Vec::new();
+
+    // Run 30 frames (~0.5 seconds of audio)
+    for frame in 0..30 {
+        nes.run_frame();
+        let buf = nes.take_audio_buffer();
+        if frame == 0 {
+            println!("Frame 0: {} audio samples", buf.len());
+        }
+        all_audio.extend_from_slice(&buf);
+    }
+
+    println!(
+        "Total audio samples: {} ({:.2}s at 48 kHz)",
+        all_audio.len(),
+        all_audio.len() as f64 / 48_000.0
+    );
+
+    // Verify we got a reasonable amount of audio (~800 samples per frame)
+    assert!(
+        all_audio.len() > 20_000,
+        "Expected >20k samples from 30 frames, got {}",
+        all_audio.len()
+    );
+
+    // Verify the audio has dynamic range (not flat silence)
+    let min = all_audio.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = all_audio.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let range = max - min;
+    println!("Audio range: min={min:.4} max={max:.4} range={range:.4}");
+
+    assert!(
+        range > 0.05,
+        "Audio should have dynamic range (pulse tone playing), got range={range}"
+    );
+
+    // Save WAV for manual inspection
+    let output_dir = Path::new("../../test_output");
+    std::fs::create_dir_all(output_dir).ok();
+    let wav_path = output_dir.join("nes_apu_tone.wav");
+    capture::save_audio(&all_audio, &wav_path).expect("Failed to save WAV");
+    println!("Audio saved to {}", wav_path.display());
+}

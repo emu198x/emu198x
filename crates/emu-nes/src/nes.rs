@@ -180,6 +180,19 @@ impl Nes {
         &self.bus.controller1
     }
 
+    /// Take the APU audio output buffer (drains it).
+    ///
+    /// Returns mono f32 samples in the range -1.0 to 1.0, at 48 kHz.
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        self.bus.apu.take_buffer()
+    }
+
+    /// Number of audio samples pending in the APU buffer.
+    #[must_use]
+    pub fn audio_buffer_len(&self) -> usize {
+        self.bus.apu.buffer_len()
+    }
+
     /// Handle OAM DMA within the tick loop.
     fn tick_dma(&mut self) {
         if self.dma_cycles_remaining == 0 {
@@ -239,6 +252,14 @@ impl Tickable for Nes {
             } else {
                 self.cpu.tick(&mut self.bus);
             }
+
+            // APU ticks at CPU rate
+            self.bus.apu.tick();
+
+            // APU IRQ → CPU (level-sensitive)
+            if self.bus.apu.irq_pending() {
+                self.cpu.interrupt();
+            }
         }
     }
 }
@@ -253,6 +274,8 @@ impl Observable for Nes {
                 "dot" => Some(self.bus.ppu.dot().into()),
                 _ => None,
             }
+        } else if let Some(rest) = path.strip_prefix("apu.") {
+            self.bus.apu.query(rest)
         } else if let Some(rest) = path.strip_prefix("memory.") {
             let addr =
                 if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
@@ -277,6 +300,13 @@ impl Observable for Nes {
             "cpu.<6502_paths>",
             "ppu.scanline",
             "ppu.dot",
+            "apu.pulse1.period",
+            "apu.pulse1.length",
+            "apu.pulse1.envelope",
+            "apu.pulse2.period",
+            "apu.triangle.period",
+            "apu.noise.period",
+            "apu.frame_counter.mode",
             "memory.<address>",
             "master_clock",
             "frame_count",

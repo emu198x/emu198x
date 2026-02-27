@@ -1,4 +1,4 @@
-//! Headless capture: PNG screenshots.
+//! Headless capture: PNG screenshots and WAV audio dumps.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -44,7 +44,32 @@ pub fn save_screenshot(nes: &Nes, path: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Record video: dump frames as PNGs.
+/// Save audio samples as a WAV file (mono, 48 kHz, 16-bit PCM).
+///
+/// Input samples are f32 in the range -1.0 to +1.0.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be created or written.
+pub fn save_audio(samples: &[f32], path: &Path) -> Result<(), Box<dyn Error>> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 48_000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let mut writer = hound::WavWriter::create(path, spec)?;
+    for &sample in samples {
+        let clamped = sample.clamp(-1.0, 1.0);
+        let scaled = (clamped * f32::from(i16::MAX)) as i16;
+        writer.write_sample(scaled)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
+
+/// Record video + audio: dump frames as PNGs + combined WAV.
 ///
 /// # Errors
 ///
@@ -53,10 +78,19 @@ pub fn record(nes: &mut Nes, dir: &Path, num_frames: u32) -> Result<(), Box<dyn 
     let frames_dir = dir.join("frames");
     fs::create_dir_all(&frames_dir)?;
 
+    let mut all_audio: Vec<f32> = Vec::new();
+
     for i in 1..=num_frames {
         nes.run_frame();
         let filename = frames_dir.join(format!("{i:06}.png"));
         save_screenshot(nes, &filename)?;
+        all_audio.extend_from_slice(&nes.take_audio_buffer());
+    }
+
+    if !all_audio.is_empty() {
+        let audio_path = dir.join("audio.wav");
+        save_audio(&all_audio, &audio_path)?;
+        eprintln!("Audio saved to {}", audio_path.display());
     }
 
     eprintln!("Captured {num_frames} frames to {}", frames_dir.display());

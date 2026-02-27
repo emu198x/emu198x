@@ -247,6 +247,8 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 if now.duration_since(self.last_frame_time) >= FRAME_DURATION {
                     self.nes.run_frame();
+                    // Drain audio buffer to prevent unbounded growth
+                    let _ = self.nes.take_audio_buffer();
                     self.update_pixels();
                     self.last_frame_time = now;
                 }
