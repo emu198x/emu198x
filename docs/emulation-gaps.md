@@ -82,8 +82,9 @@ detection, plays SID audio.
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| 1541 disk drive | Not implemented | D64 images cannot be loaded; PRG-only |
-| Cartridge support (CRT) | Not implemented | Cartridge games unloadable |
+| CRT cartridge support | Not implemented — EXROM/GAME lines, memory banking | Cartridge games unloadable; type 0 (8K/16K) covers many classic titles, Ocean type 5 covers commercial games |
+| TAP tape loading | Not implemented — no TAP parser, no kernal trap, no CIA1 FLAG pulse input | Tape software unloadable; ROM trap approach for standard loading, signal-based for turbo loaders |
+| 1541 disk drive | Not implemented — requires CIA serial shift register + IEC protocol | D64 images cannot be loaded; largest single unlock but also largest scope |
 | NTSC variant | Not implemented | PAL-only |
 
 ### Accuracy gaps
@@ -103,9 +104,12 @@ detection, plays SID audio.
 All six VIC-II display modes, both collision registers, and fine scrolling
 (XSCROLL/CSEL/RSEL) are now implemented. The SID is recognisable but not
 audiophile-grade; the filter model is the main audio quality gap. The
-largest remaining gap is **1541 disk drive** (blocks D64 loading). CIA2
-NMI is now wired with edge detection, unlocking music players and demos
-that use Timer A/B NMI for raster effects and playback.
+highest-ROI storage gaps are **CRT cartridges** (type 0 is ~300 lines,
+unlocks 8K/16K games immediately) and **TAP tape loading** (ROM trap
+~600 lines, unlocks the tape library). Both are smaller and lower-risk
+than the 1541 disk drive. CIA2 NMI is now wired with edge detection,
+unlocking music players and demos that use Timer A/B NMI for raster
+effects and playback.
 
 ---
 
@@ -209,9 +213,11 @@ work is in peripheral completeness.
 
 ### Highest-impact work items (by games-unlocked)
 
-1. **C64 1541 disk drive** — unlocks D64 loading (huge library unlock)
-2. **Amiga disk write** — unlocks game saves
-3. **68010/020 instructions** — unlocks A500+/A1200
+1. **C64 CRT cartridges** — type 0 (8K/16K) is ~300 lines, unlocks classic cartridge games immediately
+2. **C64 TAP tape loading** — ROM trap approach ~600 lines, unlocks the tape software library
+3. **C64 1541 disk drive** — unlocks D64 loading (huge library but large scope: CIA serial + IEC protocol)
+4. **Amiga disk write** — unlocks game saves
+5. **68010/020 instructions** — unlocks A500+/A1200
 
 ### v1 exit criteria status
 
