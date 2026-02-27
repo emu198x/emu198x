@@ -55,7 +55,7 @@ impl AmigaFloppyDrive {
 
     pub fn insert_disk(&mut self, adf: Adf) {
         self.disk = Some(adf);
-        self.disk_changed = false;
+        self.disk_changed = true;
     }
 
     pub fn eject_disk(&mut self) {
@@ -258,14 +258,16 @@ mod tests {
         let mut drive = AmigaFloppyDrive::new();
         let adf = Adf::from_bytes(vec![0; format_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk(adf);
-        assert!(!drive.status().disk_change);
+        // CHNG active after insert — cleared by head step, matching real hardware
+        assert!(drive.status().disk_change);
 
         drive.eject_disk();
         assert!(drive.status().disk_change);
 
-        // Insert new disk — change still set until step
+        // Insert new disk — CHNG still active until step
         let adf2 = Adf::from_bytes(vec![0; format_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk(adf2);
+        assert!(drive.status().disk_change);
 
         // Step clears change flag
         drive.update_control(false, true, false, true, true);

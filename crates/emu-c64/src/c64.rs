@@ -164,14 +164,14 @@ impl C64 {
 
     /// Press a key immediately.
     pub fn press_key(&mut self, key: C64Key) {
-        let (col, row) = key.matrix();
-        self.bus.keyboard.set_key(col, row, true);
+        let (row, col) = key.matrix();
+        self.bus.keyboard.set_key(row, col, true);
     }
 
     /// Release a key.
     pub fn release_key(&mut self, key: C64Key) {
-        let (col, row) = key.matrix();
-        self.bus.keyboard.set_key(col, row, false);
+        let (row, col) = key.matrix();
+        self.bus.keyboard.set_key(row, col, false);
     }
 
     /// Release all keys.

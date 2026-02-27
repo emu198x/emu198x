@@ -123,15 +123,13 @@ fn test_sid_symphony_unit01() {
 // ---------------------------------------------------------------------------
 // Starfield Unit 1: Ship sprite on screen
 //
-// Note: VIC-II sprite rendering is not yet implemented, so this test verifies
-// the program executes correctly (border=black, sprite registers written)
-// without asserting visible sprite pixels. When sprites are added, the
-// screenshot will show the ship.
+// Verifies the program sets up sprite 0 at (172, 220) with the ship pattern,
+// and that the sprite is visibly rendered in the framebuffer.
 // ---------------------------------------------------------------------------
 
 #[test]
 #[ignore] // Requires C64 ROMs and Code198x repo
-fn test_starfield_unit01_registers() {
+fn test_starfield_unit01_sprite() {
     let prg_path = match code198x_path(
         "commodore-64/game-01-starfield/unit-01/starfield.prg",
     ) {
@@ -174,7 +172,33 @@ fn test_starfield_unit01_registers() {
     // Sprite data at $2000 should be the ship pattern
     assert_eq!(c64.bus().memory.ram_read(0x2001), 0x18, "Sprite row 0 mid-byte");
 
+    // Verify sprite pixels are visible in the framebuffer.
+    // The ship has white (colour 1) pixels on a black (colour 0) background.
+    // Sprite at X=172, Y=220 → fb position (196, 214).
+    // Scan the sprite area for any non-black pixels.
+    let fb = c64.bus().vic.framebuffer();
+    let fb_w = c64.bus().vic.framebuffer_width() as usize;
+    let sprite_colour = c64.bus().vic.read(0x27) & 0x0F;
+    eprintln!("Sprite 0 colour register: {sprite_colour}");
+
+    let fb_sprite_x = 196usize; // 172 + 24
+    let fb_sprite_y = 214usize; // 220 - 6 (FIRST_VISIBLE_LINE)
+    let mut sprite_pixels = 0u32;
+    for dy in 0..21usize {
+        for dx in 0..24usize {
+            let idx = (fb_sprite_y + dy) * fb_w + fb_sprite_x + dx;
+            if idx < fb.len() && fb[idx] != 0xFF00_0000 {
+                sprite_pixels += 1;
+            }
+        }
+    }
+    eprintln!("Non-black pixels in sprite area: {sprite_pixels}");
+    assert!(
+        sprite_pixels > 0,
+        "Sprite should have visible (non-black) pixels in the framebuffer"
+    );
+
     let path = format!("{OUTPUT_DIR}/code198x_starfield_unit01.png");
     save_screenshot(&c64, path.as_ref()).expect("save screenshot");
-    eprintln!("Saved {path} (sprite not rendered — VIC-II sprites pending)");
+    eprintln!("Saved {path}");
 }

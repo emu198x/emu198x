@@ -1,8 +1,7 @@
 //! VIC-II 6569 (PAL) video chip.
 //!
-//! Implements text mode rendering, raster counter, raster IRQ, and badline
-//! cycle stealing. Sprites, bitmap mode, and multicolour mode are not
-//! implemented in v1.
+//! Implements text mode rendering, raster counter, raster IRQ, badline
+//! cycle stealing, and single-colour sprites with priority.
 //!
 //! # Timing (PAL)
 //!
@@ -67,6 +66,13 @@ const DISPLAY_START_CYCLE: u8 = 16;
 /// Last cycle of the display window (exclusive).
 const DISPLAY_END_CYCLE: u8 = 56;
 
+/// Offset to convert sprite X coordinate to framebuffer X coordinate.
+///
+/// Sprite X=24 corresponds to the left edge of the display window.
+/// The display window starts at fb_x = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) * 8 = 48.
+/// So fb_x = sprite_x - 24 + 48 = sprite_x + 24.
+const SPRITE_X_TO_FB: i16 = 24;
+
 /// VIC-II 6569 PAL chip.
 pub struct Vic {
     /// VIC-II registers ($D000-$D02E).
@@ -110,6 +116,14 @@ pub struct Vic {
 
     /// VIC-II bank (0-3), set from CIA2 port A.
     vic_bank: u8,
+
+    // --- Sprite state ---
+
+    /// Per-sprite bitmap data for the current scanline (3 bytes each).
+    sprite_data: [[u8; 3]; 8],
+
+    /// Whether each sprite is active on the current scanline.
+    sprite_active: [bool; 8],
 }
 
 impl Vic {
@@ -130,6 +144,8 @@ impl Vic {
             colour_row: [0; 40],
             char_row: 0,
             vic_bank: 0,
+            sprite_data: [[0; 3]; 8],
+            sprite_active: [false; 8],
         }
     }
 
@@ -138,6 +154,14 @@ impl Vic {
     /// Renders 8 pixels, advances the beam, detects badlines.
     /// Returns `true` if the CPU should be stalled this cycle (badline DMA).
     pub fn tick(&mut self, memory: &C64Memory) -> bool {
+        // Fetch sprite data at the start of each visible line
+        if self.raster_cycle == 0
+            && self.raster_line >= FIRST_VISIBLE_LINE
+            && self.raster_line < LAST_VISIBLE_LINE
+        {
+            self.fetch_sprite_data(memory);
+        }
+
         // Render 8 pixels for this cycle
         self.render_pixels(memory);
 
@@ -215,6 +239,48 @@ impl Vic {
         }
     }
 
+    /// Fetch sprite bitmap data for all active sprites on the current scanline.
+    fn fetch_sprite_data(&mut self, memory: &C64Memory) {
+        let sprite_enable = self.regs[0x15];
+        let y_expand = self.regs[0x17];
+        let screen_base = self.screen_base();
+
+        for i in 0..8usize {
+            self.sprite_active[i] = false;
+
+            if sprite_enable & (1 << i) == 0 {
+                continue;
+            }
+
+            let sprite_y = u16::from(self.regs[1 + i * 2]);
+            let height = if y_expand & (1 << i) != 0 { 42u16 } else { 21u16 };
+
+            // Check if this sprite is visible on the current raster line
+            let line_in_sprite = self.raster_line.wrapping_sub(sprite_y);
+            if line_in_sprite >= height {
+                continue;
+            }
+
+            // Y-expand doubles each row
+            let data_line = if y_expand & (1 << i) != 0 {
+                line_in_sprite / 2
+            } else {
+                line_in_sprite
+            } as u16;
+
+            // Sprite pointer at screen_base + $3F8 + sprite_num
+            let ptr_addr = screen_base + 0x03F8 + i as u16;
+            let sprite_ptr = memory.vic_read(self.vic_bank, ptr_addr & 0x3FFF);
+
+            // Sprite data at pointer * 64 + data_line * 3
+            let data_base = u16::from(sprite_ptr) * 64 + data_line * 3;
+            self.sprite_data[i][0] = memory.vic_read(self.vic_bank, data_base & 0x3FFF);
+            self.sprite_data[i][1] = memory.vic_read(self.vic_bank, (data_base + 1) & 0x3FFF);
+            self.sprite_data[i][2] = memory.vic_read(self.vic_bank, (data_base + 2) & 0x3FFF);
+            self.sprite_active[i] = true;
+        }
+    }
+
     /// Render 8 pixels for the current beam position.
     fn render_pixels(&mut self, memory: &C64Memory) {
         // Check if we're in the visible area
@@ -237,6 +303,9 @@ impl Vic {
             && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
             && (DISPLAY_START_CYCLE..DISPLAY_END_CYCLE).contains(&self.raster_cycle);
 
+        // Track which of the 8 pixels are character foreground (for sprite priority)
+        let mut fg_mask: u8 = 0;
+
         if !in_display {
             // Border area
             for px in 0..8usize {
@@ -245,39 +314,109 @@ impl Vic {
                     self.framebuffer[idx] = border_colour;
                 }
             }
-            return;
-        }
+        } else {
+            // Character display area
+            let display_cycle = self.raster_cycle - DISPLAY_START_CYCLE;
+            let col = display_cycle as usize;
 
-        // Character display area
-        let display_cycle = self.raster_cycle - DISPLAY_START_CYCLE;
-        let col = display_cycle as usize;
+            if col >= 40 {
+                // Beyond 40 columns — draw border
+                for px in 0..8usize {
+                    let idx = fb_offset + px;
+                    if idx < self.framebuffer.len() {
+                        self.framebuffer[idx] = border_colour;
+                    }
+                }
+            } else {
+                let char_code = self.screen_row[col];
+                let fg_colour = PALETTE[(self.colour_row[col] & 0x0F) as usize];
 
-        if col >= 40 {
-            // Beyond 40 columns — draw border
-            for px in 0..8usize {
-                let idx = fb_offset + px;
-                if idx < self.framebuffer.len() {
-                    self.framebuffer[idx] = border_colour;
+                // Fetch the character bitmap for the current row
+                let char_base = self.char_base();
+                let bitmap_addr =
+                    char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
+                let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
+
+                // Render 8 pixels
+                for px in 0..8usize {
+                    let bit = (bitmap >> (7 - px)) & 1;
+                    let colour = if bit != 0 {
+                        fg_mask |= 1 << px;
+                        fg_colour
+                    } else {
+                        bg_colour
+                    };
+                    let idx = fb_offset + px;
+                    if idx < self.framebuffer.len() {
+                        self.framebuffer[idx] = colour;
+                    }
                 }
             }
-            return;
         }
 
-        let char_code = self.screen_row[col];
-        let fg_colour = PALETTE[(self.colour_row[col] & 0x0F) as usize];
+        // Overlay sprites on top of the rendered pixels
+        self.overlay_sprites(fb_offset, fb_x, fg_mask);
+    }
 
-        // Fetch the character bitmap for the current row
-        let char_base = self.char_base();
-        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
-        let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
+    /// Overlay active sprites onto the 8 pixels just rendered.
+    ///
+    /// Processes sprites in reverse priority order (7 = lowest priority first,
+    /// 0 = highest priority last) so higher-priority sprites overwrite lower ones.
+    fn overlay_sprites(&mut self, fb_offset: usize, fb_x_start: usize, fg_mask: u8) {
+        let priority = self.regs[0x1B];
+        let x_expand = self.regs[0x1D];
 
-        // Render 8 pixels
-        for px in 0..8usize {
-            let bit = (bitmap >> (7 - px)) & 1;
-            let colour = if bit != 0 { fg_colour } else { bg_colour };
-            let idx = fb_offset + px;
-            if idx < self.framebuffer.len() {
-                self.framebuffer[idx] = colour;
+        for i in (0..8usize).rev() {
+            if !self.sprite_active[i] {
+                continue;
+            }
+
+            let sprite_x = u16::from(self.regs[i * 2])
+                | if self.regs[0x10] & (1 << i) != 0 {
+                    256
+                } else {
+                    0
+                };
+            let colour = PALETTE[(self.regs[0x27 + i] & 0x0F) as usize];
+            let behind_fg = priority & (1 << i) != 0;
+            let expanded_x = x_expand & (1 << i) != 0;
+
+            // Sprite fb position
+            let sprite_fb_x = i16::try_from(sprite_x).unwrap_or(0) + SPRITE_X_TO_FB;
+
+            for px in 0..8usize {
+                let screen_px = fb_x_start as i16 + px as i16;
+                let pixel_in_sprite = screen_px - sprite_fb_x;
+
+                if pixel_in_sprite < 0 {
+                    continue;
+                }
+
+                let sprite_width = if expanded_x { 48 } else { 24 };
+                if pixel_in_sprite >= sprite_width {
+                    continue;
+                }
+
+                // X-expand doubles each pixel
+                let data_bit = if expanded_x {
+                    pixel_in_sprite / 2
+                } else {
+                    pixel_in_sprite
+                } as usize;
+
+                let byte_idx = data_bit / 8;
+                let bit_idx = 7 - (data_bit % 8);
+
+                if self.sprite_data[i][byte_idx] & (1 << bit_idx) != 0 {
+                    // Skip if sprite is behind foreground and this pixel is fg
+                    if behind_fg && (fg_mask & (1 << px)) != 0 {
+                        continue;
+                    }
+                    let idx = fb_offset + px;
+                    if idx < self.framebuffer.len() {
+                        self.framebuffer[idx] = colour;
+                    }
+                }
             }
         }
     }
@@ -515,5 +654,55 @@ mod tests {
         assert_eq!(vic.bank(), 2);
         vic.set_bank(5); // Should mask to 1
         assert_eq!(vic.bank(), 1);
+    }
+
+    #[test]
+    fn sprite_renders_at_correct_position() {
+        let (mut vic, mut memory) = make_vic_and_memory();
+
+        // Set up sprite 0: enable, position, colour
+        vic.write(0x15, 0x01); // Enable sprite 0
+        vic.write(0x00, 172); // X = 172
+        vic.write(0x01, 100); // Y = 100 (within display area)
+        vic.write(0x27, 0x01); // Sprite 0 colour = white
+
+        // Set screen base to default ($0400) → sprite pointers at $07F8
+        vic.write(0x18, 0x14); // Screen at $0400, chars at $1000
+
+        // Sprite pointer: $07F8 = screen_base($0400) + $3F8
+        // Point to sprite data at address $80 * 64 = $2000
+        memory.ram_write(0x07F8, 0x80);
+
+        // Write a solid first row of sprite data at $2000
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+
+        // Enable display (DEN) with YSCROLL=3 (standard)
+        vic.write(0x11, 0x1B);
+
+        // Run through frames until raster line 100, cycle past the sprite X
+        let target_line = 100u16;
+        let target_cycle = 35u8; // Within sprite X range
+
+        // Advance to target line
+        let cycles_to_target =
+            u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..cycles_to_target {
+            vic.tick(&memory);
+        }
+
+        // Check framebuffer: sprite should have drawn white pixels
+        // Sprite X=172, fb_x = 172 + 24 = 196
+        // At raster line 100, fb_y = 100 - FIRST_VISIBLE_LINE = 94
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let sprite_fb_x = 196usize;
+        let idx = fb_y * FB_WIDTH as usize + sprite_fb_x;
+
+        let white = PALETTE[1]; // Colour index 1 = white
+        assert_eq!(
+            vic.framebuffer()[idx], white,
+            "Sprite pixel at ({sprite_fb_x}, {fb_y}) should be white"
+        );
     }
 }

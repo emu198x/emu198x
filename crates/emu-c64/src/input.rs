@@ -11,11 +11,11 @@ use crate::keyboard::KeyboardMatrix;
 
 /// Logical key on the C64 keyboard.
 ///
-/// Each key maps to a (col, row) pair in the 8x8 keyboard matrix.
+/// Each key maps to a (row, col) pair in the 8x8 keyboard matrix.
 ///
-/// Matrix layout (col = CIA1 PA, row = CIA1 PB):
+/// Matrix layout (row = CIA1 PA, col = CIA1 PB):
 ///
-/// | Col | Row0 | Row1 | Row2 | Row3 | Row4 | Row5 | Row6 | Row7    |
+/// | Row | Col0 | Col1 | Col2 | Col3 | Col4 | Col5 | Col6 | Col7    |
 /// |-----|------|------|------|------|------|------|------|---------|
 /// | 0   | DEL  | 3    | 5    | 7    | 9    | +    | £    | 1       |
 /// | 1   | RET  | W    | R    | Y    | I    | P    | *    | ←       |
@@ -27,7 +27,7 @@ use crate::keyboard::KeyboardMatrix;
 /// | 7   | ↓    | LSHFT| X    | V    | N    | ,    | /    | STOP    |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum C64Key {
-    // Col 0
+    // Row 0
     Delete,
     N3,
     N5,
@@ -36,7 +36,7 @@ pub enum C64Key {
     Plus,
     Pound,
     N1,
-    // Col 1
+    // Row 1
     Return,
     W,
     R,
@@ -45,7 +45,7 @@ pub enum C64Key {
     P,
     Asterisk,
     LeftArrow,
-    // Col 2
+    // Row 2
     CursorRight,
     A,
     D,
@@ -54,7 +54,7 @@ pub enum C64Key {
     L,
     Semicolon,
     Ctrl,
-    // Col 3
+    // Row 3
     F7,
     N4,
     N6,
@@ -63,7 +63,7 @@ pub enum C64Key {
     Minus,
     Home,
     N2,
-    // Col 4
+    // Row 4
     F1,
     Z,
     C,
@@ -72,7 +72,7 @@ pub enum C64Key {
     Period,
     RShift,
     Space,
-    // Col 5
+    // Row 5
     F3,
     S,
     F,
@@ -81,7 +81,7 @@ pub enum C64Key {
     Colon,
     Equals,
     Commodore,
-    // Col 6
+    // Row 6
     F5,
     E,
     T,
@@ -90,7 +90,7 @@ pub enum C64Key {
     At,
     UpArrow,
     Q,
-    // Col 7
+    // Row 7
     CursorDown,
     LShift,
     X,
@@ -102,11 +102,11 @@ pub enum C64Key {
 }
 
 impl C64Key {
-    /// Return the (col, row) pair for this key in the keyboard matrix.
+    /// Return the (row, col) pair for this key in the keyboard matrix.
     #[must_use]
     pub const fn matrix(self) -> (u8, u8) {
         match self {
-            // Col 0
+            // Row 0
             Self::Delete => (0, 0),
             Self::N3 => (0, 1),
             Self::N5 => (0, 2),
@@ -115,7 +115,7 @@ impl C64Key {
             Self::Plus => (0, 5),
             Self::Pound => (0, 6),
             Self::N1 => (0, 7),
-            // Col 1
+            // Row 1
             Self::Return => (1, 0),
             Self::W => (1, 1),
             Self::R => (1, 2),
@@ -124,7 +124,7 @@ impl C64Key {
             Self::P => (1, 5),
             Self::Asterisk => (1, 6),
             Self::LeftArrow => (1, 7),
-            // Col 2
+            // Row 2
             Self::CursorRight => (2, 0),
             Self::A => (2, 1),
             Self::D => (2, 2),
@@ -133,7 +133,7 @@ impl C64Key {
             Self::L => (2, 5),
             Self::Semicolon => (2, 6),
             Self::Ctrl => (2, 7),
-            // Col 3
+            // Row 3
             Self::F7 => (3, 0),
             Self::N4 => (3, 1),
             Self::N6 => (3, 2),
@@ -142,7 +142,7 @@ impl C64Key {
             Self::Minus => (3, 5),
             Self::Home => (3, 6),
             Self::N2 => (3, 7),
-            // Col 4
+            // Row 4
             Self::F1 => (4, 0),
             Self::Z => (4, 1),
             Self::C => (4, 2),
@@ -151,7 +151,7 @@ impl C64Key {
             Self::Period => (4, 5),
             Self::RShift => (4, 6),
             Self::Space => (4, 7),
-            // Col 5
+            // Row 5
             Self::F3 => (5, 0),
             Self::S => (5, 1),
             Self::F => (5, 2),
@@ -160,7 +160,7 @@ impl C64Key {
             Self::Colon => (5, 5),
             Self::Equals => (5, 6),
             Self::Commodore => (5, 7),
-            // Col 6
+            // Row 6
             Self::F5 => (6, 0),
             Self::E => (6, 1),
             Self::T => (6, 2),
@@ -169,7 +169,7 @@ impl C64Key {
             Self::At => (6, 5),
             Self::UpArrow => (6, 6),
             Self::Q => (6, 7),
-            // Col 7
+            // Row 7
             Self::CursorDown => (7, 0),
             Self::LShift => (7, 1),
             Self::X => (7, 2),
@@ -268,8 +268,8 @@ impl InputQueue {
                 break;
             }
             let event = self.events.pop_front().expect("front was Some");
-            let (col, row) = event.key.matrix();
-            keyboard.set_key(col, row, event.pressed);
+            let (row, col) = event.key.matrix();
+            keyboard.set_key(row, col, event.pressed);
         }
     }
 
@@ -400,7 +400,7 @@ mod tests {
 
         // Frame 4: nothing
         queue.process(4, &mut kbd);
-        assert_eq!(kbd.scan(0xFB) & 0x02, 0x02); // A not pressed (col 2, row 1)
+        assert_eq!(kbd.scan(0xFB) & 0x02, 0x02); // A not pressed (row 2, col 1)
 
         // Frame 5: press
         queue.process(5, &mut kbd);

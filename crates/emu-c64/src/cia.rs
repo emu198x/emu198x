@@ -186,9 +186,9 @@ impl Cia {
                 // Port B data: for CIA1, this reads the keyboard matrix
                 let port_output = (self.port_b & self.ddr_b) | (!self.ddr_b);
                 if let Some(kbd) = keyboard {
-                    // CIA1: scan keyboard using port A as column select
-                    let col_mask = (self.port_a & self.ddr_a) | (!self.ddr_a);
-                    let kbd_data = kbd.scan(col_mask);
+                    // CIA1: scan keyboard using port A as row select
+                    let row_mask = (self.port_a & self.ddr_a) | (!self.ddr_a);
+                    let kbd_data = kbd.scan(row_mask);
                     // Merge: output bits from port_b, input bits from keyboard
                     (self.port_b & self.ddr_b) | (kbd_data & !self.ddr_b)
                 } else {
@@ -482,15 +482,15 @@ mod tests {
         let mut cia = Cia::new();
         let mut kbd = KeyboardMatrix::new();
 
-        // CIA1: Port A is output (columns), Port B is input (rows)
+        // CIA1: Port A is output (rows), Port B is input (columns)
         cia.write(0x02, 0xFF); // DDR A: all output
         cia.write(0x03, 0x00); // DDR B: all input
-        cia.write(0x00, 0xFD); // Select column 1 (bit 1 = 0)
+        cia.write(0x00, 0xFD); // Select row 1 (bit 1 = 0)
 
-        // Press key at col=1, row=1
+        // Press key at row=1, col=1
         kbd.set_key(1, 1, true);
 
         let result = cia.read_with_keyboard(0x01, &kbd);
-        assert_eq!(result & 0x02, 0x00); // Row 1 should be low (pressed)
+        assert_eq!(result & 0x02, 0x00); // Col 1 should be low (pressed)
     }
 }
