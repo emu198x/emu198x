@@ -100,6 +100,17 @@ impl Mos6502 {
         self.wait_states
     }
 
+    /// Force the program counter to a new address and reset the instruction
+    /// pipeline. Used by ROM trap handlers (e.g., tape loading) that need
+    /// to redirect execution without going through the normal instruction
+    /// flow.
+    pub fn force_pc(&mut self, addr: u16) {
+        self.regs.pc = addr;
+        self.state = State::FetchOpcode;
+        self.cycle = 0;
+        self.wait_states = 0;
+    }
+
     /// Read byte from memory (converts 16-bit address to 32-bit for Bus trait).
     /// Accumulates any wait states from bus contention.
     #[inline]

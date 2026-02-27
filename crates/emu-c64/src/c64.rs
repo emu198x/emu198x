@@ -22,10 +22,15 @@ use crate::bus::C64Bus;
 use crate::config::{C64Config, C64Model};
 use crate::input::{C64Key, InputQueue};
 use crate::memory::C64Memory;
+use crate::tape::C64TapeDeck;
 
 /// Cycles per frame (PAL): 312 lines × 63 cycles.
 #[cfg(test)]
 const CYCLES_PER_FRAME: u64 = 312 * 63;
+
+/// Kernal LOAD entry: $FFD5 jumps to $F49E (STX $C3; STY $C4; JMP ($0330)).
+/// We trap here when device == 1 (datasette) to deliver tape blocks directly.
+const TAPE_LOAD_ADDR: u16 = 0xF49E;
 
 /// C64 system.
 pub struct C64 {
@@ -39,6 +44,8 @@ pub struct C64 {
     input_queue: InputQueue,
     /// Previous CIA2 IRQ active state (for NMI edge detection).
     cia2_nmi_prev: bool,
+    /// Virtual tape deck for TAP file loading.
+    tape: C64TapeDeck,
 }
 
 impl C64 {
@@ -82,6 +89,7 @@ impl C64 {
             frame_count: 0,
             input_queue: InputQueue::new(),
             cia2_nmi_prev: false,
+            tape: C64TapeDeck::new(),
         }
     }
 
@@ -199,6 +207,126 @@ impl C64 {
     pub fn load_prg(&mut self, data: &[u8]) -> Result<u16, String> {
         crate::prg::load_prg(&mut self.bus.memory, data)
     }
+
+    /// Load a CRT cartridge file.
+    ///
+    /// Parses the CRT, inserts it into the memory subsystem, and re-reads
+    /// the reset vector (the cartridge may provide its own kernal at $E000).
+    /// Returns the cartridge name from the CRT header.
+    pub fn load_crt(&mut self, data: &[u8]) -> Result<String, String> {
+        let cart = crate::cartridge::parse_crt(data)?;
+        let name = crate::cartridge::crt_name(data);
+        self.bus.memory.cartridge = Some(cart);
+        // Re-read reset vector — cartridge may override $FFFC/$FFFD
+        let lo = self.bus.read(0xFFFC).data;
+        let hi = self.bus.read(0xFFFD).data;
+        self.cpu.regs.pc = u16::from(lo) | (u16::from(hi) << 8);
+        Ok(name)
+    }
+
+    /// Load a C64 TAP tape file.
+    ///
+    /// Parses the TAP pulse data into logical blocks and inserts them
+    /// into the virtual tape deck. Returns the number of decoded blocks.
+    pub fn load_tap(&mut self, data: &[u8]) -> Result<usize, String> {
+        let tap = crate::tap::C64TapFile::parse(data)?;
+        let count = tap.blocks.len();
+        self.tape.insert(tap);
+        Ok(count)
+    }
+
+    /// Reference to the tape deck.
+    #[must_use]
+    pub fn tape(&self) -> &C64TapeDeck {
+        &self.tape
+    }
+
+    /// Mutable reference to the tape deck.
+    pub fn tape_mut(&mut self) -> &mut C64TapeDeck {
+        &mut self.tape
+    }
+
+    /// Check for and handle the ROM tape-loading trap.
+    ///
+    /// The kernal LOAD entry at $FFD5 jumps to $F49E. When the CPU reaches
+    /// $F49E and device == 1 (datasette), we intercept and copy the next
+    /// tape block directly into memory instead of emulating the cassette
+    /// signal timing.
+    ///
+    /// Kernal register conventions on entry to LOAD ($FFD5):
+    ///   A  = 0 (LOAD) or 1 (VERIFY)
+    ///   X  = start address low byte
+    ///   Y  = start address high byte
+    ///   $BA = device number (1 = tape, 8 = disk)
+    ///   $B9 = secondary address (0 = use header address)
+    fn check_tape_trap(&mut self) {
+        if self.cpu.regs.pc != TAPE_LOAD_ADDR
+            || !self.cpu.is_instruction_complete()
+            || !self.tape.is_loaded()
+        {
+            return;
+        }
+
+        // Check device number at zero-page $BA
+        let device = self.bus.memory.ram_read(0x00BA);
+        if device != 1 {
+            return; // Not tape — let normal ROM run
+        }
+
+        let Some(block) = self.tape.next_block() else {
+            return; // No more blocks — let ROM routine run (will time out)
+        };
+
+        // Secondary address at $B9: 0 = use header address, non-zero = use X/Y
+        let secondary = self.bus.memory.ram_read(0x00B9);
+        let load_addr = if secondary == 0 {
+            block.start_address
+        } else {
+            u16::from(self.cpu.regs.x) | (u16::from(self.cpu.regs.y) << 8)
+        };
+
+        // A=0 means LOAD, A=1 means VERIFY
+        let is_load = self.cpu.regs.a == 0;
+
+        if is_load {
+            // Copy block data into RAM
+            for (i, &byte) in block.data.iter().enumerate() {
+                self.bus
+                    .memory
+                    .ram_write(load_addr.wrapping_add(i as u16), byte);
+            }
+        }
+
+        // Set end address in X/Y (kernal convention for LOAD return)
+        let end_addr = load_addr.wrapping_add(block.data.len() as u16);
+        self.cpu.regs.x = end_addr as u8;
+        self.cpu.regs.y = (end_addr >> 8) as u8;
+
+        // Clear carry (success) and clear status byte at $90
+        self.cpu.regs.p.0 &= !0x01; // Clear carry
+        self.bus.memory.ram_write(0x0090, 0x00); // Clear I/O status
+
+        // Also store end address at $AE/$AF (kernal convention)
+        self.bus.memory.ram_write(0x00AE, end_addr as u8);
+        self.bus.memory.ram_write(0x00AF, (end_addr >> 8) as u8);
+
+        // Return to caller by popping the return address from the stack
+        self.pop_ret_6502();
+    }
+
+    /// Pop the return address from the 6502 stack and redirect the CPU.
+    ///
+    /// The 6502 JSR pushes PC-1 (address of the last byte of the JSR
+    /// instruction). RTS pops and adds 1. We replicate that here.
+    fn pop_ret_6502(&mut self) {
+        let sp = self.cpu.regs.s;
+        let lo = self.bus.memory.ram_read(0x0100 | u16::from(sp.wrapping_add(1)));
+        let hi = self.bus.memory.ram_read(0x0100 | u16::from(sp.wrapping_add(2)));
+        self.cpu.regs.s = sp.wrapping_add(2);
+        // RTS adds 1 to the popped address
+        let ret_addr = (u16::from(lo) | (u16::from(hi) << 8)).wrapping_add(1);
+        self.cpu.force_pc(ret_addr);
+    }
 }
 
 impl Tickable for C64 {
@@ -216,6 +344,8 @@ impl Tickable for C64 {
         // 3. CPU: tick if not stalled by VIC-II badline
         if !cpu_stalled {
             self.cpu.tick(&mut self.bus);
+            // Check for tape loading trap after each CPU tick
+            self.check_tape_trap();
         }
 
         // 4. CIA1: tick timer, check IRQ → CPU IRQ
@@ -409,5 +539,93 @@ mod tests {
         let mut c64 = make_c64();
         c64.bus_mut().memory.ram_write(0x8000, 0xAB);
         assert_eq!(c64.query("memory.0x8000"), Some(Value::U8(0xAB)));
+    }
+
+    #[test]
+    fn tape_trap_not_triggered_without_tape() {
+        let mut c64 = make_c64();
+        // Set PC to trap address and mark instruction complete
+        c64.cpu.force_pc(TAPE_LOAD_ADDR);
+        // Set device to tape
+        c64.bus.memory.ram_write(0x00BA, 1);
+        // No tape loaded — trap should be a no-op
+        assert!(!c64.tape.is_loaded());
+        c64.check_tape_trap();
+        // PC unchanged (trap didn't fire)
+        assert_eq!(c64.cpu.regs.pc, TAPE_LOAD_ADDR);
+    }
+
+    #[test]
+    fn tape_trap_ignores_non_tape_device() {
+        use crate::tap::{C64TapBlock, C64TapFile};
+
+        let mut c64 = make_c64();
+        // Insert a tape with one block
+        c64.tape.insert(C64TapFile {
+            blocks: vec![C64TapBlock {
+                file_type: 1,
+                start_address: 0x0801,
+                end_address: 0x0803,
+                filename: "TEST".to_string(),
+                data: vec![1, 2],
+            }],
+        });
+        // Set PC to trap address
+        c64.cpu.force_pc(TAPE_LOAD_ADDR);
+        // Set device to disk (8), not tape (1)
+        c64.bus.memory.ram_write(0x00BA, 8);
+        c64.check_tape_trap();
+        // PC unchanged — trap didn't fire for non-tape device
+        assert_eq!(c64.cpu.regs.pc, TAPE_LOAD_ADDR);
+    }
+
+    #[test]
+    fn tape_trap_loads_block() {
+        use crate::tap::{C64TapBlock, C64TapFile};
+
+        let mut c64 = make_c64();
+
+        // Push a fake return address onto the stack (simulating JSR)
+        // JSR pushes PC-1, so for return address $E010, push $E00F
+        c64.cpu.regs.s = 0xFD;
+        c64.bus.memory.ram_write(0x01FE, 0x0F); // Low byte of $E00F
+        c64.bus.memory.ram_write(0x01FF, 0xE0); // High byte of $E00F
+
+        // Insert a tape
+        c64.tape.insert(C64TapFile {
+            blocks: vec![C64TapBlock {
+                file_type: 1,
+                start_address: 0x0801,
+                end_address: 0x0804,
+                filename: "HELLO".to_string(),
+                data: vec![0xAA, 0xBB, 0xCC],
+            }],
+        });
+
+        // Set up the trap conditions
+        c64.cpu.force_pc(TAPE_LOAD_ADDR);
+        c64.cpu.regs.a = 0; // LOAD (not VERIFY)
+        c64.bus.memory.ram_write(0x00BA, 1); // Device = tape
+        c64.bus.memory.ram_write(0x00B9, 0); // Secondary = 0 (use header address)
+
+        c64.check_tape_trap();
+
+        // Data should be in RAM at $0801
+        assert_eq!(c64.bus.memory.ram_read(0x0801), 0xAA);
+        assert_eq!(c64.bus.memory.ram_read(0x0802), 0xBB);
+        assert_eq!(c64.bus.memory.ram_read(0x0803), 0xCC);
+
+        // PC should be at the return address ($E00F + 1 = $E010)
+        assert_eq!(c64.cpu.regs.pc, 0xE010);
+
+        // End address in X/Y
+        assert_eq!(c64.cpu.regs.x, 0x04); // Low byte of $0804
+        assert_eq!(c64.cpu.regs.y, 0x08); // High byte of $0804
+
+        // Carry should be clear (success)
+        assert_eq!(c64.cpu.regs.p.0 & 0x01, 0);
+
+        // Status byte at $90 should be clear
+        assert_eq!(c64.bus.memory.ram_read(0x0090), 0x00);
     }
 }

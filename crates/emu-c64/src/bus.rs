@@ -79,7 +79,13 @@ impl Bus for C64Bus {
                         _ => self.cia2.read(reg),
                     }
                 }
-                0xDE00..=0xDFFF => 0xFF, // I/O expansion
+                0xDE00..=0xDFFF => {
+                    // I/O expansion — route to cartridge if present
+                    self.memory
+                        .cartridge
+                        .as_ref()
+                        .map_or(0xFF, |c| c.read_io(addr16))
+                }
                 _ => 0xFF,
             };
             return ReadResult::new(data);
@@ -106,6 +112,12 @@ impl Bus for C64Bus {
                     // Update VIC bank when CIA2 port A changes
                     if (addr16 & 0x0F) == 0x00 || (addr16 & 0x0F) == 0x02 {
                         self.update_vic_bank();
+                    }
+                }
+                0xDE00..=0xDFFF => {
+                    // I/O expansion — route to cartridge if present
+                    if let Some(ref mut cart) = self.memory.cartridge {
+                        cart.write_io(addr16, value);
                     }
                 }
                 _ => {}

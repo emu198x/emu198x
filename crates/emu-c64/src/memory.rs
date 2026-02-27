@@ -20,6 +20,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+use crate::cartridge::Cartridge;
 use crate::cia::Cia;
 use mos_sid_6581::Sid6581;
 use crate::vic::Vic;
@@ -40,6 +41,8 @@ pub struct C64Memory {
     port_ddr: u8,
     /// 6510 port: data register ($01).
     port_data: u8,
+    /// Inserted cartridge (controls EXROM/GAME lines and provides ROM).
+    pub cartridge: Option<Cartridge>,
 }
 
 impl C64Memory {
@@ -62,6 +65,7 @@ impl C64Memory {
             colour_ram: [0; 1024],
             port_ddr: 0x2F,  // Default: bits 0-3,5 output
             port_data: 0x37, // Default: all ROMs + I/O visible
+            cartridge: None,
         }
     }
 
@@ -98,13 +102,35 @@ impl C64Memory {
         !self.charen() && self.hiram() && self.loram()
     }
 
+    /// Cartridge EXROM line: true when inactive (no cartridge, or EXROM=1).
+    fn cart_exrom(&self) -> bool {
+        self.cartridge.as_ref().map_or(true, |c| c.exrom)
+    }
+
+    /// Cartridge GAME line: true when inactive (no cartridge, or GAME=1).
+    fn cart_game(&self) -> bool {
+        self.cartridge.as_ref().map_or(true, |c| c.game)
+    }
+
     /// CPU read: applies banking rules, handles $00/$01 port.
     ///
     /// I/O reads ($D000-$DFFF when I/O visible) are routed through the
     /// bus layer which calls `io_read` instead, so this method only
     /// handles RAM/ROM reads.
+    ///
+    /// Cartridge EXROM/GAME lines modify the PLA banking:
+    ///
+    /// | EXROM | GAME | $8000    | $A000     | $E000      |
+    /// |-------|------|----------|-----------|------------|
+    /// | 1     | 1    | RAM      | BASIC/RAM | Kernal/RAM | (no cart)
+    /// | 0     | 1    | ROML     | BASIC/RAM | Kernal/RAM | (8K cart)
+    /// | 0     | 0    | ROML     | ROMH      | ROMH       | (16K cart)
+    /// | 1     | 0    | -        | -         | ROMH       | (Ultimax)
     #[must_use]
     pub fn cpu_read(&self, addr: u16) -> u8 {
+        let exrom = self.cart_exrom();
+        let game = self.cart_game();
+
         match addr {
             // 6510 port
             0x0000 => self.port_ddr,
@@ -114,8 +140,30 @@ impl C64Memory {
                 (self.port_data & self.port_ddr) | (0x37 & !self.port_ddr)
             }
 
-            // BASIC ROM area
+            // $8000-$9FFF: ROML when cartridge asserts EXROM=0
+            0x8000..=0x9FFF => {
+                if !exrom {
+                    // EXROM=0: cartridge ROML visible (both 8K and 16K modes)
+                    if let Some(ref cart) = self.cartridge {
+                        return cart.read_roml(addr - 0x8000);
+                    }
+                }
+                self.ram[addr as usize]
+            }
+
+            // $A000-$BFFF: ROMH when 16K cart, else BASIC/RAM
             0xA000..=0xBFFF => {
+                if !exrom && !game {
+                    // 16K mode: ROMH at $A000
+                    if let Some(ref cart) = self.cartridge {
+                        return cart.read_romh(addr - 0xA000);
+                    }
+                }
+                if exrom && !game {
+                    // Ultimax: no ROM here, open bus
+                    return self.ram[addr as usize];
+                }
+                // Normal banking: BASIC ROM or RAM
                 if self.hiram() && self.loram() {
                     self.basic_rom[(addr - 0xA000) as usize]
                 } else {
@@ -136,8 +184,15 @@ impl C64Memory {
                 }
             }
 
-            // Kernal ROM area
+            // $E000-$FFFF: ROMH when GAME=0, else Kernal/RAM
             0xE000..=0xFFFF => {
+                if !game {
+                    // GAME=0: cartridge ROMH at $E000 (16K or Ultimax)
+                    if let Some(ref cart) = self.cartridge {
+                        return cart.read_romh(addr - 0xE000);
+                    }
+                }
+                // Normal banking: Kernal ROM or RAM
                 if self.hiram() {
                     self.kernal_rom[(addr - 0xE000) as usize]
                 } else {
@@ -340,5 +395,67 @@ mod tests {
         // High nybble is masked
         mem.colour_ram_write(1, 0xFF);
         assert_eq!(mem.colour_ram_read(1), 0x0F);
+    }
+
+    #[test]
+    fn cart_8k_overrides_ram() {
+        use crate::cartridge::{Cartridge, CartridgeType};
+        let mut mem = make_memory();
+        // Write something to RAM at $8000 and $A000
+        mem.ram[0x8000] = 0x42;
+        mem.ram[0xA000] = 0x43;
+
+        // Insert 8K cartridge: EXROM=0, GAME=1
+        let roml = vec![0xDD; 8192];
+        mem.cartridge = Some(Cartridge {
+            cart_type: CartridgeType::Normal,
+            exrom: false, // Active
+            game: true,   // Inactive (8K mode)
+            roml: vec![roml],
+            romh: vec![],
+            bank: 0,
+        });
+
+        // $8000 reads ROML, not RAM
+        assert_eq!(mem.cpu_read(0x8000), 0xDD);
+        // $A000 still reads BASIC ROM (not ROMH)
+        assert_eq!(mem.cpu_read(0xA000), 0xBB);
+        // $E000 still reads Kernal ROM
+        assert_eq!(mem.cpu_read(0xE000), 0xEE);
+    }
+
+    #[test]
+    fn cart_16k_overrides_all() {
+        use crate::cartridge::{Cartridge, CartridgeType};
+        let mut mem = make_memory();
+
+        // Insert 16K cartridge: EXROM=0, GAME=0
+        let roml = vec![0xAA; 8192];
+        let romh = vec![0xBE; 8192];
+        mem.cartridge = Some(Cartridge {
+            cart_type: CartridgeType::Normal,
+            exrom: false,
+            game: false, // 16K mode
+            roml: vec![roml],
+            romh: vec![romh],
+            bank: 0,
+        });
+
+        // $8000 reads ROML
+        assert_eq!(mem.cpu_read(0x8000), 0xAA);
+        // $A000 reads ROMH
+        assert_eq!(mem.cpu_read(0xA000), 0xBE);
+        // $E000 reads ROMH (cartridge kernal)
+        assert_eq!(mem.cpu_read(0xE000), 0xBE);
+    }
+
+    #[test]
+    fn no_cart_unchanged() {
+        let mem = make_memory();
+        // Default: no cartridge, standard banking
+        assert!(mem.cartridge.is_none());
+        assert_eq!(mem.cpu_read(0x8000), 0x00); // RAM
+        assert_eq!(mem.cpu_read(0xA000), 0xBB); // BASIC ROM
+        assert_eq!(mem.cpu_read(0xE000), 0xEE); // Kernal ROM
     }
 }

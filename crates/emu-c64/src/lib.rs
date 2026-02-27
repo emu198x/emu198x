@@ -7,6 +7,7 @@
 mod bus;
 mod c64;
 pub mod capture;
+pub mod cartridge;
 mod cia;
 mod config;
 pub mod input;
@@ -16,6 +17,8 @@ pub mod mcp;
 mod memory;
 pub mod palette;
 pub mod prg;
+pub mod tap;
+pub mod tape;
 pub mod vic;
 
 pub use bus::C64Bus;
