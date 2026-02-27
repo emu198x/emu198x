@@ -2,9 +2,8 @@
 //!
 //! The APU lives on the 2A03 CPU die. It produces audio via two pulse
 //! channels, one triangle channel, one noise channel, and a DMC (delta
-//! modulation) channel. This implementation covers everything except DMC
-//! DMA playback — the DMC accepts register writes and supports direct
-//! load via $4011 but does not fetch samples from memory.
+//! modulation) channel. The DMC fetches 1-bit delta-encoded samples from
+//! PRG memory via DMA, stealing CPU cycles one byte at a time.
 //!
 //! The APU is ticked once per CPU cycle (~1.789 MHz NTSC). Pulse and
 //! noise timers decrement every other CPU cycle (APU cycle). The triangle
@@ -34,8 +33,7 @@ const NOISE_PERIOD_TABLE: [u16; 16] = [
     4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
-/// DMC rate table (NTSC) — CPU cycles per sample output.
-#[allow(dead_code)]
+/// DMC rate table (NTSC) — CPU cycles per sample bit output.
 const DMC_RATE_TABLE: [u16; 16] = [
     428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
 ];
@@ -426,18 +424,51 @@ impl Noise {
 }
 
 // ---------------------------------------------------------------------------
-// DMC channel (stub)
+// DMC channel
 // ---------------------------------------------------------------------------
 
-/// DMC channel — stub. Accepts register writes and supports direct load
-/// ($4011) but does not perform DMA sample playback.
-struct Dmc {
-    /// 7-bit output level (0–127), set by $4011 direct load.
-    output_level: u8,
-    /// IRQ enable flag.
+/// DMC (delta modulation) channel. Fetches 1-bit delta-encoded samples from
+/// PRG memory via DMA, producing drums, bass, and speech. A timer clocks
+/// the output shift register; when the shift register is exhausted, the
+/// sample buffer is loaded. When the sample buffer is empty and bytes
+/// remain, `dma_pending` signals the tick loop to steal a CPU cycle.
+pub(crate) struct Dmc {
+    /// 7-bit output level (0–127), written directly by $4011.
+    pub(crate) output_level: u8,
+    /// IRQ enable flag (bit 7 of $4010).
     irq_enabled: bool,
-    /// IRQ pending flag.
-    irq_flag: bool,
+    /// IRQ pending flag, read via bit 7 of $4015.
+    pub(crate) irq_flag: bool,
+    /// Loop flag (bit 6 of $4010).
+    loop_flag: bool,
+    /// Rate index (bits 0–3 of $4010).
+    rate_index: u8,
+    /// Countdown timer, clocked every CPU cycle.
+    timer: u16,
+    /// Timer reload value from `DMC_RATE_TABLE[rate_index]`.
+    timer_period: u16,
+    /// Starting sample address (from $4012).
+    sample_address: u16,
+    /// Total sample length in bytes (from $4013).
+    sample_length: u16,
+    /// Current DMA fetch address.
+    pub(crate) current_address: u16,
+    /// Bytes remaining to fetch.
+    pub(crate) bytes_remaining: u16,
+    /// Last byte fetched from memory.
+    sample_buffer: u8,
+    /// True when the sample buffer has been consumed.
+    sample_buffer_empty: bool,
+    /// 8-bit output shift register.
+    shift_register: u8,
+    /// Bits remaining in the shift register (counts down from 8).
+    bits_remaining: u8,
+    /// True when no sample data is available for output.
+    silence_flag: bool,
+    /// Controlled by bit 4 of $4015.
+    enabled: bool,
+    /// Signals the tick loop to steal a CPU cycle for a DMA fetch.
+    pub(crate) dma_pending: bool,
 }
 
 impl Dmc {
@@ -446,6 +477,87 @@ impl Dmc {
             output_level: 0,
             irq_enabled: false,
             irq_flag: false,
+            loop_flag: false,
+            rate_index: 0,
+            timer: DMC_RATE_TABLE[0],
+            timer_period: DMC_RATE_TABLE[0],
+            sample_address: 0xC000,
+            sample_length: 1,
+            current_address: 0xC000,
+            bytes_remaining: 0,
+            sample_buffer: 0,
+            sample_buffer_empty: true,
+            shift_register: 0,
+            bits_remaining: 8,
+            silence_flag: true,
+            enabled: false,
+            dma_pending: false,
+        }
+    }
+
+    /// Clock the DMC timer. Called every CPU cycle.
+    fn tick(&mut self) {
+        if self.timer == 0 {
+            self.timer = self.timer_period;
+            self.clock_output();
+        } else {
+            self.timer -= 1;
+        }
+    }
+
+    /// Clock the output unit: shift one bit and update `output_level`.
+    fn clock_output(&mut self) {
+        // Update output level from the shift register
+        if !self.silence_flag {
+            if self.shift_register & 1 != 0 {
+                if self.output_level <= 125 {
+                    self.output_level += 2;
+                }
+            } else if self.output_level >= 2 {
+                self.output_level -= 2;
+            }
+            self.shift_register >>= 1;
+        }
+
+        // Count down bits; reload from sample buffer when exhausted
+        self.bits_remaining -= 1;
+        if self.bits_remaining == 0 {
+            self.bits_remaining = 8;
+            if self.sample_buffer_empty {
+                self.silence_flag = true;
+            } else {
+                self.silence_flag = false;
+                self.shift_register = self.sample_buffer;
+                self.sample_buffer_empty = true;
+            }
+            // Request the next byte if there are more to fetch
+            if self.sample_buffer_empty && self.bytes_remaining > 0 {
+                self.dma_pending = true;
+            }
+        }
+    }
+
+    /// Deliver a byte fetched by the DMA controller.
+    pub(crate) fn receive_dma_byte(&mut self, byte: u8) {
+        self.sample_buffer = byte;
+        self.sample_buffer_empty = false;
+        self.dma_pending = false;
+
+        // Advance address (wraps $FFFF → $8000)
+        self.current_address = if self.current_address == 0xFFFF {
+            0x8000
+        } else {
+            self.current_address + 1
+        };
+
+        self.bytes_remaining -= 1;
+        if self.bytes_remaining == 0 {
+            if self.loop_flag {
+                self.current_address = self.sample_address;
+                self.bytes_remaining = self.sample_length;
+            } else if self.irq_enabled {
+                self.irq_flag = true;
+            }
         }
     }
 }
@@ -479,7 +591,7 @@ pub struct Apu {
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
-    dmc: Dmc,
+    pub(crate) dmc: Dmc,
 
     // Frame counter
     frame_mode: FrameCounterMode,
@@ -551,7 +663,9 @@ impl Apu {
                 if self.noise.length.active() {
                     status |= 0x08;
                 }
-                // DMC active would be bit 4 — stubbed to 0
+                if self.dmc.bytes_remaining > 0 {
+                    status |= 0x10;
+                }
                 if self.frame_irq_flag {
                     status |= 0x40;
                 }
@@ -658,20 +772,26 @@ impl Apu {
                 self.noise.envelope.start_flag = true;
             }
 
-            // DMC: $4010–$4013 (stub)
+            // DMC: $4010–$4013
             0x4010 => {
                 self.dmc.irq_enabled = value & 0x80 != 0;
+                self.dmc.loop_flag = value & 0x40 != 0;
+                self.dmc.rate_index = value & 0x0F;
+                self.dmc.timer_period = DMC_RATE_TABLE[self.dmc.rate_index as usize];
                 if !self.dmc.irq_enabled {
                     self.dmc.irq_flag = false;
                 }
-                // Loop flag (bit 6) and rate index (bits 0–3) stored but unused
             }
             0x4011 => {
                 // Direct load: 7-bit output level
                 self.dmc.output_level = value & 0x7F;
             }
-            0x4012 => {} // Sample address (stub)
-            0x4013 => {} // Sample length (stub)
+            0x4012 => {
+                self.dmc.sample_address = 0xC000 + u16::from(value) * 64;
+            }
+            0x4013 => {
+                self.dmc.sample_length = u16::from(value) * 16 + 1;
+            }
 
             // Status: $4015
             0x4015 => {
@@ -679,7 +799,21 @@ impl Apu {
                 self.pulse2.length.set_enabled(value & 0x02 != 0);
                 self.triangle.length.set_enabled(value & 0x04 != 0);
                 self.noise.length.set_enabled(value & 0x08 != 0);
-                // DMC enable (bit 4) — stubbed
+
+                // DMC enable (bit 4)
+                let dmc_enable = value & 0x10 != 0;
+                if dmc_enable {
+                    if self.dmc.bytes_remaining == 0 {
+                        self.dmc.current_address = self.dmc.sample_address;
+                        self.dmc.bytes_remaining = self.dmc.sample_length;
+                        if self.dmc.sample_buffer_empty {
+                            self.dmc.dma_pending = true;
+                        }
+                    }
+                } else {
+                    self.dmc.bytes_remaining = 0;
+                }
+                self.dmc.enabled = dmc_enable;
                 self.dmc.irq_flag = false;
             }
 
@@ -720,6 +854,9 @@ impl Apu {
             self.noise.clock_timer();
         }
         self.odd_cycle = !self.odd_cycle;
+
+        // DMC timer ticks every CPU cycle
+        self.dmc.tick();
 
         // Frame counter
         self.clock_frame_counter();
@@ -1124,5 +1261,151 @@ mod tests {
         let sample = apu.mix();
         // With only DMC at 64, tnd_out should be non-zero
         assert!(sample > -1.0, "DMC direct load should shift output, got {sample}");
+    }
+
+    // -----------------------------------------------------------------------
+    // DMC DMA tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn dmc_rate_table_length() {
+        assert_eq!(DMC_RATE_TABLE.len(), 16);
+    }
+
+    #[test]
+    fn dmc_address_formula() {
+        let mut apu = Apu::new();
+        // $4012 value 0 → $C000, value 1 → $C040, value $FF → $FFC0
+        apu.write(0x4012, 0x00);
+        assert_eq!(apu.dmc.sample_address, 0xC000);
+        apu.write(0x4012, 0x01);
+        assert_eq!(apu.dmc.sample_address, 0xC040);
+        apu.write(0x4012, 0xFF);
+        assert_eq!(apu.dmc.sample_address, 0xFFC0);
+    }
+
+    #[test]
+    fn dmc_length_formula() {
+        let mut apu = Apu::new();
+        // $4013 value 0 → 1, value 1 → 17, value $FF → 4081
+        apu.write(0x4013, 0x00);
+        assert_eq!(apu.dmc.sample_length, 1);
+        apu.write(0x4013, 0x01);
+        assert_eq!(apu.dmc.sample_length, 17);
+        apu.write(0x4013, 0xFF);
+        assert_eq!(apu.dmc.sample_length, 4081);
+    }
+
+    #[test]
+    fn dmc_enable_starts_sample() {
+        let mut apu = Apu::new();
+        apu.write(0x4012, 0x00); // address = $C000
+        apu.write(0x4013, 0x01); // length = 17
+        apu.write(0x4015, 0x10); // enable DMC
+
+        assert!(apu.dmc.bytes_remaining > 0, "DMC should have bytes to fetch");
+        assert!(apu.dmc.dma_pending, "DMC should request first DMA fetch");
+        assert_eq!(apu.dmc.current_address, 0xC000);
+    }
+
+    #[test]
+    fn dmc_disable_stops() {
+        let mut apu = Apu::new();
+        apu.write(0x4012, 0x00);
+        apu.write(0x4013, 0x01);
+        apu.write(0x4015, 0x10); // enable
+        assert!(apu.dmc.bytes_remaining > 0);
+
+        apu.write(0x4015, 0x00); // disable
+        assert_eq!(apu.dmc.bytes_remaining, 0, "DMC should stop immediately");
+    }
+
+    #[test]
+    fn dmc_status_bit4_active() {
+        let mut apu = Apu::new();
+        apu.write(0x4012, 0x00);
+        apu.write(0x4013, 0x01);
+        apu.write(0x4015, 0x10);
+
+        let status = apu.read(0x4015);
+        assert!(status & 0x10 != 0, "Bit 4 should reflect DMC active");
+    }
+
+    #[test]
+    fn dmc_timer_output_changes() {
+        let mut apu = Apu::new();
+        // Set rate index 0 (period = 428)
+        apu.write(0x4010, 0x00);
+        // Start at output_level 64
+        apu.write(0x4011, 64);
+
+        // Manually feed a byte with all 1-bits into the DMC
+        apu.dmc.sample_buffer = 0xFF;
+        apu.dmc.sample_buffer_empty = false;
+        apu.dmc.silence_flag = false;
+        apu.dmc.shift_register = 0xFF;
+        apu.dmc.bits_remaining = 8;
+
+        let before = apu.dmc.output_level;
+
+        // Tick through one full timer period + 1 to trigger an output clock
+        for _ in 0..=(apu.dmc.timer_period + 1) {
+            apu.dmc.tick();
+        }
+
+        assert_ne!(
+            apu.dmc.output_level, before,
+            "Output level should change after clocking the shift register"
+        );
+    }
+
+    #[test]
+    fn dmc_loop_restarts() {
+        let mut apu = Apu::new();
+        apu.write(0x4010, 0x40); // loop flag set, no IRQ
+        apu.write(0x4012, 0x00); // address = $C000
+        apu.write(0x4013, 0x00); // length = 1
+        apu.write(0x4015, 0x10); // enable
+
+        // Deliver the single byte — should restart
+        apu.dmc.receive_dma_byte(0xAA);
+        assert_eq!(
+            apu.dmc.bytes_remaining, 1,
+            "Loop should restart bytes_remaining"
+        );
+        assert_eq!(
+            apu.dmc.current_address, 0xC000,
+            "Loop should reset address"
+        );
+    }
+
+    #[test]
+    fn dmc_irq_at_end() {
+        let mut apu = Apu::new();
+        apu.write(0x4010, 0x80); // IRQ enabled, no loop
+        apu.write(0x4012, 0x00);
+        apu.write(0x4013, 0x00); // length = 1
+        apu.write(0x4015, 0x10); // enable (clears irq_flag)
+
+        apu.dmc.receive_dma_byte(0x00);
+        assert!(
+            apu.dmc.irq_flag,
+            "IRQ flag should be set when sample ends with IRQ enabled"
+        );
+    }
+
+    #[test]
+    fn dmc_irq_disabled_no_flag() {
+        let mut apu = Apu::new();
+        apu.write(0x4010, 0x00); // no IRQ, no loop
+        apu.write(0x4012, 0x00);
+        apu.write(0x4013, 0x00); // length = 1
+        apu.write(0x4015, 0x10); // enable
+
+        apu.dmc.receive_dma_byte(0x00);
+        assert!(
+            !apu.dmc.irq_flag,
+            "IRQ flag should not be set when IRQ is disabled"
+        );
     }
 }

@@ -42,6 +42,8 @@ pub struct Nes {
     dma_addr: u16,
     dma_read_data: u8,
     dma_odd_cycle: bool,
+    /// DMC DMA steal counter: counts down from 4 to 0.
+    dmc_dma_cycles: u8,
 }
 
 impl Nes {
@@ -76,6 +78,7 @@ impl Nes {
             dma_addr: 0,
             dma_read_data: 0,
             dma_odd_cycle: false,
+            dmc_dma_cycles: 0,
         }
     }
 
@@ -247,7 +250,23 @@ impl Tickable for Nes {
                 }
             }
 
-            if self.dma_cycles_remaining > 0 {
+            // DMC DMA: steal cycles one byte at a time
+            if self.dmc_dma_cycles == 0
+                && self.bus.apu.dmc.dma_pending
+                && self.dma_cycles_remaining == 0
+            {
+                self.dmc_dma_cycles = 4;
+            }
+
+            if self.dmc_dma_cycles > 0 {
+                self.dmc_dma_cycles -= 1;
+                if self.dmc_dma_cycles == 0 {
+                    // Final cycle: perform the bus read and deliver the byte
+                    let addr = self.bus.apu.dmc.current_address;
+                    let byte = self.bus.read(u32::from(addr)).data;
+                    self.bus.apu.dmc.receive_dma_byte(byte);
+                }
+            } else if self.dma_cycles_remaining > 0 {
                 self.tick_dma();
             } else {
                 self.cpu.tick(&mut self.bus);
