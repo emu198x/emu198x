@@ -2,232 +2,194 @@
 
 ## Overview
 
-Headless automation for content generation, testing, and CI/CD.
+Headless batch automation for content generation, testing, and CI/CD. Each
+emulator binary accepts `--script <file.json>` to run a sequence of commands
+without opening a window. Scripts reuse the MCP server's method dispatch, so
+every MCP command is available.
 
 ## CLI Usage
 
-```bash
-emu198x-cli [OPTIONS] [COMMANDS...]
-```
-
-### Options
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--system` | `-s` | Target system |
-| `--region` | `-r` | PAL or NTSC |
-| `--headless` | `-H` | No display output |
-| `--firmware` | `-f` | Firmware path(s) |
-| `--verbose` | `-v` | Verbose output |
-| `--script` | | JSON/YAML script file |
-
-### Commands
-
-Commands can be chained:
+Each system has its own binary. Pass `--script` with a JSON file:
 
 ```bash
-emu198x-cli -s c64 -H \
-  load game.d64 \
-  type "LOAD \"*\",8,1\n" \
-  wait 300 \
-  type "RUN\n" \
-  wait 60 \
-  screenshot title.png
-```
+# ZX Spectrum (ROM embedded — no extra files needed)
+cargo run -p emu-spectrum -- --script capture.json
 
-### Command Reference
+# Commodore 64 (needs ROMs in roms/ directory)
+cargo run -p emu-c64 -- --script capture.json
 
-#### Media
+# NES (ROM passed via boot command or --rom)
+cargo run -p emu-nes -- --rom game.nes --script capture.json
 
-```bash
-load <file>              # Auto-detect slot
-load --slot drive8 <file>
-load --slot tape <file>
-load --slot cart <file>
-eject <slot>
-```
-
-#### Execution
-
-```bash
-run                      # Run until stopped
-run --frames 60          # Run N frames
-run --ticks 1000000      # Run N crystal ticks
-run --until 0xC000       # Run until PC = address
-step                     # One instruction
-step --cycles 10         # N CPU cycles
-step --ticks 100         # N crystal ticks
-pause
-reset
-reset --hard
-```
-
-#### Input
-
-```bash
-type "TEXT\n"            # Type with timing
-key A                    # Key down then up
-keydown A                # Key down only
-keyup A                  # Key up only
-joy 2 left fire          # Joystick state
-joy 2 release            # Release all
-wait 60                  # Wait N frames
-```
-
-#### State
-
-```bash
-peek 0xD020              # Read memory
-poke 0xD020 0            # Write memory
-regs                     # Show registers
-mem 0x0400 256           # Hex dump
-disasm 0xC000 20         # Disassemble
-inject 0xC000 code.bin   # Load binary
-save-state 1             # Save to slot
-load-state 1             # Load from slot
-```
-
-#### Capture
-
-```bash
-screenshot output.png
-screenshot --format bmp output.bmp
-record start output.mp4
-record stop
-audio-capture output.wav
+# Amiga (Kickstart passed via boot command or AMIGA_KS13_ROM)
+cargo run -p amiga-runner -- --script capture.json
 ```
 
 ## Script Format
 
-### JSON
+A script file is a JSON array of simplified RPC requests. No `jsonrpc` or `id`
+fields needed — the runner assigns sequential IDs automatically.
+
+Each step has a `method` and optional `params`:
 
 ```json
-{
-  "system": "c64",
-  "region": "pal",
-  "firmware": {
-    "kernal": "roms/kernal.bin",
-    "basic": "roms/basic.bin",
-    "chargen": "roms/chargen.bin"
-  },
-  "steps": [
-    {"load": "game.d64"},
-    {"type": "LOAD \"*\",8,1\n"},
-    {"wait": 300},
-    {"type": "RUN\n"},
-    {"wait": 60},
-    {"screenshot": "title.png"},
-    {"run": {"frames": 600}},
-    {"screenshot": "gameplay.png"}
-  ]
-}
+[
+  {"method": "boot", "params": {}},
+  {"method": "run_frames", "params": {"count": 200}},
+  {"method": "screenshot", "params": {"save_path": "boot.png"}},
+  {"method": "query", "params": {"path": "cpu.pc"}}
+]
 ```
 
-### YAML
+### save_path Convention
 
-```yaml
-system: c64
-region: pal
-firmware:
-  kernal: roms/kernal.bin
-  basic: roms/basic.bin
-  chargen: roms/chargen.bin
-steps:
-  - load: game.d64
-  - type: "LOAD \"*\",8,1\n"
-  - wait: 300
-  - type: "RUN\n"
-  - wait: 60
-  - screenshot: title.png
-  - run:
-      frames: 600
-  - screenshot: gameplay.png
+When a response contains base64 `data` (from `screenshot` or `audio_capture`)
+and the request params include `save_path`, the runner decodes and writes the
+file to disk. The MCP dispatch ignores `save_path` — it is handled by the
+script runner after the response comes back.
+
+## Available Methods
+
+Methods match the MCP server for each system. Common methods across all four:
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `boot` | system-specific | Create emulator instance |
+| `reset` | — | Reset CPU |
+| `run_frames` | `count` | Run N frames |
+| `step_instruction` | — | Step one instruction |
+| `step_ticks` | `count` | Step N master clock ticks |
+| `screenshot` | `save_path` (optional) | Capture PNG |
+| `audio_capture` | `frames`, `save_path` | Capture WAV |
+| `query` | `path` | Query observable state |
+| `query_memory` | `address`, `length` | Read memory bytes |
+| `poke` | `address`, `value` | Write memory byte |
+| `set_breakpoint` | `address`, `max_frames` | Run until PC hits address |
+
+### System-specific methods
+
+**Spectrum:** `load_sna`, `load_tap`, `press_key`, `release_key`, `type_text`,
+`get_screen_text`
+
+**C64:** `load_prg`, `press_key`, `release_key`, `type_text`,
+`get_screen_text`, `boot_detected`, `boot_status`
+
+**NES:** `load_rom`, `press_button`, `release_button`, `input_sequence`
+
+**Amiga:** `insert_disk`, `press_key`, `release_key`
+
+## Output
+
+The runner writes one JSON-line response per step to stdout. Diagnostic
+messages (like "Saved boot.png") go to stderr.
+
+```
+{"jsonrpc":"2.0","result":{"status":"ok"},"id":1}
+{"jsonrpc":"2.0","result":{"frames":200,"tstates":13977600},"id":2}
+{"jsonrpc":"2.0","result":{"format":"png","width":320,"height":288,"data":"iVBOR..."},"id":3}
+{"jsonrpc":"2.0","result":{"path":"cpu.pc","value":4572},"id":4}
+```
+
+## Examples
+
+### Spectrum: Boot and capture the copyright screen
+
+```json
+[
+  {"method": "boot"},
+  {"method": "run_frames", "params": {"count": 200}},
+  {"method": "screenshot", "params": {"save_path": "spectrum_boot.png"}},
+  {"method": "get_screen_text"}
+]
+```
+
+### Spectrum: Load a SNA snapshot and screenshot
+
+```json
+[
+  {"method": "boot"},
+  {"method": "load_sna", "params": {"path": "shadowkeep.sna"}},
+  {"method": "run_frames", "params": {"count": 50}},
+  {"method": "screenshot", "params": {"save_path": "shadowkeep.png"}}
+]
+```
+
+### C64: Boot, wait for READY, load a PRG
+
+```json
+[
+  {"method": "boot"},
+  {"method": "run_frames", "params": {"count": 120}},
+  {"method": "boot_detected"},
+  {"method": "load_prg", "params": {"path": "starfield.prg"}},
+  {"method": "run_frames", "params": {"count": 60}},
+  {"method": "screenshot", "params": {"save_path": "starfield.png"}}
+]
+```
+
+### NES: Load a ROM and capture
+
+```json
+[
+  {"method": "boot", "params": {"path": "dash.nes"}},
+  {"method": "run_frames", "params": {"count": 30}},
+  {"method": "screenshot", "params": {"save_path": "dash.png"}}
+]
+```
+
+### Amiga: Boot Kickstart and capture insert-disk screen
+
+```json
+[
+  {"method": "boot", "params": {"kickstart_path": "roms/kick13.rom"}},
+  {"method": "run_frames", "params": {"count": 300}},
+  {"method": "screenshot", "params": {"save_path": "amiga_boot.png"}}
+]
+```
+
+### Amiga: Boot with ADF disk
+
+```json
+[
+  {"method": "boot", "params": {"kickstart_path": "roms/kick13.rom"}},
+  {"method": "insert_disk", "params": {"path": "exodus.adf"}},
+  {"method": "run_frames", "params": {"count": 500}},
+  {"method": "screenshot", "params": {"save_path": "exodus.png"}}
+]
 ```
 
 ## Batch Processing
 
-### Directory Processing
-
 ```bash
 #!/bin/bash
-for game in games/*.d64; do
-  name=$(basename "$game" .d64)
-  emu198x-cli -s c64 -H \
-    load "$game" \
-    type "LOAD \"*\",8,1\n" \
-    wait 300 \
-    type "RUN\n" \
-    wait 120 \
-    screenshot "screenshots/${name}.png"
+for sna in snapshots/*.sna; do
+  name=$(basename "$sna" .sna)
+  cat > /tmp/script.json <<SCRIPT
+[
+  {"method": "boot"},
+  {"method": "load_sna", "params": {"path": "$sna"}},
+  {"method": "run_frames", "params": {"count": 50}},
+  {"method": "screenshot", "params": {"save_path": "screenshots/${name}.png"}}
+]
+SCRIPT
+  cargo run -p emu-spectrum -- --script /tmp/script.json
 done
 ```
 
-### Parallel Processing
+## MCP Server Mode
+
+For interactive use (AI agents, IDEs, live debugging), use `--mcp` instead.
+This reads newline-delimited JSON-RPC 2.0 requests from stdin and writes
+responses to stdout, running until stdin closes.
 
 ```bash
-parallel --jobs 4 'emu198x-cli -s c64 -H --script {}' ::: scripts/*.json
+cargo run -p emu-spectrum -- --mcp
 ```
 
-## Exit Codes
+## Future Work
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Invalid arguments |
-| 3 | File not found |
-| 4 | Emulation error |
-| 5 | Timeout |
-| 6 | Verification failed |
+Not implemented yet, but planned:
 
-## Verification Mode
-
-For testing lesson code:
-
-```bash
-emu198x-cli -s c64 -H \
-  --verify expected.png \
-  --tolerance 0.01 \
-  load student-code.prg \
-  run --frames 60 \
-  screenshot
-
-# Exit code 0 = matches, 6 = different
-```
-
-### Verification Options
-
-```bash
---verify <expected>       # Image to compare
---tolerance <float>       # Pixel difference tolerance (0-1)
---verify-memory <addr>=<value>  # Check memory value
---verify-register <reg>=<value> # Check register
-```
-
-## JSON-over-Stdin Mode
-
-For integration with other tools:
-
-```bash
-emu198x-cli -s c64 -H --json-stdin
-```
-
-Then send commands as JSON:
-
-```json
-{"command": "load", "file": "game.d64"}
-{"command": "run", "frames": 60}
-{"command": "screenshot", "path": "out.png"}
-{"command": "query", "path": "cpu.pc"}
-{"command": "quit"}
-```
-
-Responses:
-
-```json
-{"status": "ok"}
-{"status": "ok", "frames_run": 60}
-{"status": "ok", "path": "out.png", "size": [320, 200]}
-{"status": "ok", "value": 49152}
-{"status": "ok", "message": "goodbye"}
-```
+- **Verification mode** — compare screenshots against expected images
+- **Chained CLI commands** — `--run 60 --screenshot out.png` without a JSON file
+- **YAML script format** — for readability in lesson pipelines
