@@ -103,11 +103,14 @@ fn test_sid_produces_audio() {
     c64.bus_mut().write(sid_base + 4, 0x21);                  // Sawtooth + gate on
     c64.bus_mut().write(sid_base + 0x18, 0x0F);               // Volume = 15
 
-    // Run one frame to produce audio
-    c64.run_frame();
-    let audio = c64.take_audio_buffer();
+    // Run 50 frames (~1 second at PAL 50 Hz) to produce a usable audio clip.
+    let mut audio = Vec::new();
+    for _ in 0..50 {
+        c64.run_frame();
+        audio.extend_from_slice(&c64.take_audio_buffer());
+    }
 
-    println!("SID audio buffer: {} samples", audio.len());
+    println!("SID audio buffer: {} samples ({:.2}s)", audio.len(), audio.len() as f64 / 48_000.0);
 
     assert!(!audio.is_empty(), "SID should produce audio samples");
 

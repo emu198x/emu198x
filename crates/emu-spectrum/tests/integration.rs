@@ -204,9 +204,9 @@ fn test_beeper_tone() {
 
     let mut spectrum = make_spectrum_custom_rom(&rom);
 
-    // Run 5 frames
+    // Run 50 frames (~1 second at PAL 50 Hz) to produce a usable audio clip.
     let mut all_audio = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..50 {
         spectrum.run_frame();
         all_audio.extend_from_slice(&spectrum.take_audio_buffer());
     }
@@ -214,7 +214,7 @@ fn test_beeper_tone() {
     // Verify audio buffer has samples
     assert!(
         !all_audio.is_empty(),
-        "Audio buffer should have samples after 5 frames"
+        "Audio buffer should have samples after 50 frames"
     );
 
     // Verify both positive and negative values (square wave)
