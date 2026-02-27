@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (C64 VIC-II graphics modes + sprite collisions). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-27 (C64 XSCROLL fine scrolling, CSEL/RSEL display window). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -62,13 +62,15 @@ schemes via real-time EAR signal simulation. The only remaining gap is the
 
 Boots to READY prompt, renders all six VIC-II display modes (standard text,
 multicolour text, hires bitmap, multicolour bitmap, extended colour,
-invalid-mode blackout), single-colour and multicolour sprites with
-collision detection, plays SID audio.
+invalid-mode blackout) with XSCROLL fine scrolling and CSEL/RSEL display
+window control, single-colour and multicolour sprites with collision
+detection, plays SID audio.
 
 ### Implemented
 
 - **CPU**: 6502 at 100% cycle accuracy (2.56M single-step tests pass)
 - **VIC-II display modes**: Standard text, multicolour text (MCM), hires bitmap (BMM), multicolour bitmap (BMM+MCM), extended colour (ECM), invalid mode combinations
+- **VIC-II scrolling**: XSCROLL fine scrolling (0-7 pixel shift with carry pipeline), YSCROLL, CSEL 38-column mode, RSEL 24-row mode
 - **Sprites**: 8 sprites, single-colour and multicolour ($D01C), X/Y expand, priority
 - **Sprite collisions**: Sprite-sprite ($D01E) and sprite-background ($D01F), clear-on-read, IRQ triggering
 - **Audio**: SID 6581 with 3 voices, ADSR, SVF filter, downsampling to 48 kHz
@@ -84,7 +86,6 @@ collision detection, plays SID audio.
 | 1541 disk drive | Not implemented | D64 images cannot be loaded; PRG-only |
 | Cartridge support (CRT) | Not implemented | Cartridge games unloadable |
 | NTSC variant | Not implemented | PAL-only |
-| XSCROLL fine scrolling | `vic.rs` — per-cell only | Smooth horizontal scrolling broken |
 
 ### Accuracy gaps
 
@@ -101,12 +102,11 @@ collision detection, plays SID audio.
 
 ### Assessment
 
-All six VIC-II display modes and both collision registers are now
-implemented. The SID is recognisable but not audiophile-grade; the filter
-model is the main audio quality gap. The largest remaining gaps are
-**1541 disk drive** (blocks D64 loading) and **CIA2 NMI** (blocks some
-music players and demos). XSCROLL fine scrolling is needed for smooth
-side-scrollers.
+All six VIC-II display modes, both collision registers, and fine scrolling
+(XSCROLL/CSEL/RSEL) are now implemented. The SID is recognisable but not
+audiophile-grade; the filter model is the main audio quality gap. The
+largest remaining gaps are **1541 disk drive** (blocks D64 loading) and
+**CIA2 NMI** (blocks some music players and demos).
 
 ---
 
@@ -200,7 +200,7 @@ modes and peripheral completeness.
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
-| Video modes | 100% | ~90% (all modes + MCM sprites + collisions) | ~90% (missing emphasis/greyscale) | ~60% (missing HAM/EHB) |
+| Video modes | 100% | ~95% (all modes + scrolling + MCM sprites + collisions) | ~90% (missing emphasis/greyscale) | ~60% (missing HAM/EHB) |
 | Audio | 100% (beeper + AY) | ~85% (filter approximate) | ~80% (no DMC) | ~85% (no filter model) |
 | Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG only | NROM only | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard | 2-player pad | Keyboard + mouse |
@@ -213,10 +213,9 @@ modes and peripheral completeness.
 3. **Amiga HAM/EHB modes** — unlocks large category of Amiga graphics
 4. **NES DMC DMA** — completes audio for most NES games
 5. **Amiga Copper SKIP** — unlocks conditional copper lists
-6. **C64 XSCROLL fine scrolling** — unlocks smooth side-scrollers
-7. **Amiga disk write** — unlocks game saves
-8. **68010/020 instructions** — unlocks A500+/A1200
-9. **C64 CIA2 NMI** — unlocks music players and demos
+6. **Amiga disk write** — unlocks game saves
+7. **68010/020 instructions** — unlocks A500+/A1200
+8. **C64 CIA2 NMI** — unlocks music players and demos
 
 ### v1 exit criteria status
 

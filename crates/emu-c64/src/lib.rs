@@ -14,7 +14,7 @@ mod keyboard;
 pub mod keyboard_map;
 pub mod mcp;
 mod memory;
-mod palette;
+pub mod palette;
 pub mod prg;
 pub mod vic;
 

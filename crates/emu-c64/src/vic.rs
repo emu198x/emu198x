@@ -73,6 +73,24 @@ const DISPLAY_END_CYCLE: u8 = 56;
 /// So fb_x = sprite_x - 24 + 48 = sprite_x + 24.
 const SPRITE_X_TO_FB: i16 = 24;
 
+/// 8 pixels of rendered cell data, returned by each render method.
+struct CellPixels {
+    /// ARGB colour for each of the 8 pixels.
+    colour: [u32; 8],
+    /// Bitmask: bit N set if pixel N is foreground (for sprite priority).
+    fg_mask: u8,
+}
+
+impl CellPixels {
+    /// All 8 pixels the same colour, no foreground.
+    fn solid(c: u32) -> Self {
+        Self {
+            colour: [c; 8],
+            fg_mask: 0,
+        }
+    }
+}
+
 /// VIC-II 6569 PAL chip.
 pub struct Vic {
     /// VIC-II registers ($D000-$D02E).
@@ -134,6 +152,13 @@ pub struct Vic {
     sprite_bg_irq_latched: bool,
     /// Text row index (0-24), set during fetch_screen_row for bitmap modes.
     text_row: u16,
+
+    /// XSCROLL carry: 8 pixels of ARGB colour from the previous column.
+    xscroll_carry_pixels: [u32; 8],
+    /// XSCROLL carry: fg_mask bits from the previous column.
+    xscroll_carry_fg: u8,
+    /// XSCROLL value latched at the start of each display line.
+    xscroll_latch: u8,
 }
 
 impl Vic {
@@ -161,6 +186,9 @@ impl Vic {
             sprite_sprite_irq_latched: false,
             sprite_bg_irq_latched: false,
             text_row: 0,
+            xscroll_carry_pixels: [0; 8],
+            xscroll_carry_fg: 0,
+            xscroll_latch: 0,
         }
     }
 
@@ -312,38 +340,30 @@ impl Vic {
         let fb_offset = fb_y * FB_WIDTH as usize + fb_x;
 
         let border_colour = PALETTE[(self.regs[0x20] & 0x0F) as usize];
-        let bg_colour = PALETTE[(self.regs[0x21] & 0x0F) as usize];
 
-        // Are we in the display window?
-        let in_display = self.den_latch
+        // Are we in the character data area? (always 40 columns, lines $30-$F7)
+        let in_char_area = self.den_latch
             && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
             && (DISPLAY_START_CYCLE..DISPLAY_END_CYCLE).contains(&self.raster_cycle);
 
         // Track which of the 8 pixels are character foreground (for sprite priority)
         let mut fg_mask: u8 = 0;
 
-        if !in_display {
-            // Border area
-            for px in 0..8usize {
-                let idx = fb_offset + px;
-                if idx < self.framebuffer.len() {
-                    self.framebuffer[idx] = border_colour;
-                }
-            }
-        } else {
-            // Character display area
+        // At the first display cycle, latch XSCROLL and initialise carry to bg colour
+        if self.raster_cycle == DISPLAY_START_CYCLE && in_char_area {
+            self.xscroll_latch = self.regs[0x16] & 0x07;
+            let bg = PALETTE[(self.regs[0x21] & 0x0F) as usize];
+            self.xscroll_carry_pixels = [bg; 8];
+            self.xscroll_carry_fg = 0;
+        }
+
+        if in_char_area {
+            // Character display area — render cell data (even if not in visible
+            // window, to keep the XSCROLL carry pipeline correct).
             let display_cycle = self.raster_cycle - DISPLAY_START_CYCLE;
             let col = display_cycle as usize;
 
-            if col >= 40 {
-                // Beyond 40 columns — draw border
-                for px in 0..8usize {
-                    let idx = fb_offset + px;
-                    if idx < self.framebuffer.len() {
-                        self.framebuffer[idx] = border_colour;
-                    }
-                }
-            } else {
+            if col < 40 {
                 let char_code = self.screen_row[col];
                 let colour_nybble = self.colour_row[col];
 
@@ -351,36 +371,84 @@ impl Vic {
                 let ecm = self.regs[0x11] & 0x40 != 0;
                 let mcm = self.regs[0x16] & 0x10 != 0;
 
-                if ecm && (bmm || mcm) {
-                    // Invalid mode combination: all pixels black
+                let cell = if ecm && (bmm || mcm) {
+                    CellPixels::solid(PALETTE[0])
+                } else if bmm && mcm {
+                    self.render_mcm_bitmap(col, char_code, colour_nybble, memory)
+                } else if bmm {
+                    self.render_hires_bitmap(col, char_code, memory)
+                } else if ecm {
+                    self.render_ecm_text(char_code, colour_nybble, memory)
+                } else if mcm {
+                    self.render_mcm_text(char_code, colour_nybble, memory)
+                } else {
+                    self.render_standard_text(char_code, colour_nybble, memory)
+                };
+
+                let xscroll = self.xscroll_latch as usize;
+
+                if xscroll == 0 {
+                    // Fast path: no scroll, write cell directly
                     for px in 0..8usize {
                         let idx = fb_offset + px;
                         if idx < self.framebuffer.len() {
-                            self.framebuffer[idx] = PALETTE[0];
+                            self.framebuffer[idx] = cell.colour[px];
                         }
                     }
-                } else if bmm && mcm {
-                    self.render_mcm_bitmap(
-                        fb_offset, col, char_code, colour_nybble, &mut fg_mask, memory,
-                    );
-                } else if bmm {
-                    self.render_hires_bitmap(
-                        fb_offset, col, char_code, &mut fg_mask, memory,
-                    );
-                } else if ecm {
-                    self.render_ecm_text(
-                        fb_offset, col, char_code, colour_nybble, &mut fg_mask, memory,
-                    );
-                } else if mcm {
-                    self.render_mcm_text(
-                        fb_offset, col, char_code, colour_nybble, &mut fg_mask, memory,
-                    );
+                    fg_mask = cell.fg_mask;
                 } else {
-                    self.render_standard_text(
-                        fb_offset, col, char_code, colour_nybble, &mut fg_mask, memory,
-                    );
+                    // Composite: carry fills pixels 0..xscroll-1,
+                    // cell fills pixels xscroll..7
+                    for px in 0..8usize {
+                        let idx = fb_offset + px;
+                        if idx < self.framebuffer.len() {
+                            if px < xscroll {
+                                self.framebuffer[idx] = self.xscroll_carry_pixels[px];
+                                if (self.xscroll_carry_fg >> px) & 1 != 0 {
+                                    fg_mask |= 1 << px;
+                                }
+                            } else {
+                                self.framebuffer[idx] = cell.colour[px - xscroll];
+                                if (cell.fg_mask >> (px - xscroll)) & 1 != 0 {
+                                    fg_mask |= 1 << px;
+                                }
+                            }
+                        }
+                    }
+                    // Save carry: rightmost xscroll pixels from cell
+                    for i in 0..xscroll {
+                        self.xscroll_carry_pixels[i] = cell.colour[8 - xscroll + i];
+                    }
+                    self.xscroll_carry_fg =
+                        (cell.fg_mask >> (8 - xscroll)) & ((1u8 << xscroll) - 1);
                 }
             }
+        }
+
+        // Visible window: CSEL/RSEL control display borders.
+        // RSEL=1: rows $33-$FA, RSEL=0: rows $37-$F6 (24-row mode)
+        // CSEL=1: cycles 16-55, CSEL=0: cycles 17-54 (38-column mode)
+        let rsel = self.regs[0x11] & 0x08 != 0;
+        let csel = self.regs[0x16] & 0x08 != 0;
+        let vstart = if rsel { 0x33u16 } else { 0x37u16 };
+        let vstop = if rsel { 0xFBu16 } else { 0xF7u16 };
+        let hstart = if csel { DISPLAY_START_CYCLE } else { DISPLAY_START_CYCLE + 1 };
+        let hstop = if csel { DISPLAY_END_CYCLE } else { DISPLAY_END_CYCLE - 1 };
+
+        let in_visible_window = self.den_latch
+            && (vstart..vstop).contains(&self.raster_line)
+            && (hstart..hstop).contains(&self.raster_cycle);
+
+        if !in_visible_window {
+            // Overwrite with border colour (covers CSEL=0 edges, RSEL=0
+            // top/bottom, and the normal outer border).
+            for px in 0..8usize {
+                let idx = fb_offset + px;
+                if idx < self.framebuffer.len() {
+                    self.framebuffer[idx] = border_colour;
+                }
+            }
+            fg_mask = 0;
         }
 
         // Overlay sprites on top of the rendered pixels
@@ -399,14 +467,11 @@ impl Vic {
 
     /// Standard text mode: 320×200, 1 bit per pixel.
     fn render_standard_text(
-        &mut self,
-        fb_offset: usize,
-        _col: usize,
+        &self,
         char_code: u8,
         colour_nybble: u8,
-        fg_mask: &mut u8,
         memory: &C64Memory,
-    ) {
+    ) -> CellPixels {
         let bg_colour = PALETTE[(self.regs[0x21] & 0x0F) as usize];
         let fg_colour = PALETTE[(colour_nybble & 0x0F) as usize];
 
@@ -414,31 +479,30 @@ impl Vic {
         let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
         let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
 
+        let mut cell = CellPixels {
+            colour: [0; 8],
+            fg_mask: 0,
+        };
         for px in 0..8usize {
             let bit = (bitmap >> (7 - px)) & 1;
-            let colour = if bit != 0 {
-                *fg_mask |= 1 << px;
-                fg_colour
+            if bit != 0 {
+                cell.fg_mask |= 1 << px;
+                cell.colour[px] = fg_colour;
             } else {
-                bg_colour
-            };
-            let idx = fb_offset + px;
-            if idx < self.framebuffer.len() {
-                self.framebuffer[idx] = colour;
+                cell.colour[px] = bg_colour;
             }
         }
+        cell
     }
 
     /// Hires bitmap mode (BMM): 320×200, 1 bit per pixel.
     /// Colours from screen RAM: hi nybble = fg, lo nybble = bg.
     fn render_hires_bitmap(
-        &mut self,
-        fb_offset: usize,
+        &self,
         col: usize,
         char_code: u8,
-        fg_mask: &mut u8,
         memory: &C64Memory,
-    ) {
+    ) -> CellPixels {
         let fg_colour = PALETTE[((char_code >> 4) & 0x0F) as usize];
         let bg_colour = PALETTE[(char_code & 0x0F) as usize];
 
@@ -447,33 +511,31 @@ impl Vic {
             bitmap_base + self.text_row * 40 * 8 + col as u16 * 8 + u16::from(self.char_row);
         let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
 
+        let mut cell = CellPixels {
+            colour: [0; 8],
+            fg_mask: 0,
+        };
         for px in 0..8usize {
             let bit = (bitmap >> (7 - px)) & 1;
-            let colour = if bit != 0 {
-                *fg_mask |= 1 << px;
-                fg_colour
+            if bit != 0 {
+                cell.fg_mask |= 1 << px;
+                cell.colour[px] = fg_colour;
             } else {
-                bg_colour
-            };
-            let idx = fb_offset + px;
-            if idx < self.framebuffer.len() {
-                self.framebuffer[idx] = colour;
+                cell.colour[px] = bg_colour;
             }
         }
+        cell
     }
 
     /// Extended colour text mode (ECM): 320×200.
     /// Char code bits 6-7 select background from $D021-$D024.
     /// Only 64 characters available (bits 0-5).
     fn render_ecm_text(
-        &mut self,
-        fb_offset: usize,
-        _col: usize,
+        &self,
         char_code: u8,
         colour_nybble: u8,
-        fg_mask: &mut u8,
         memory: &C64Memory,
-    ) {
+    ) -> CellPixels {
         let bg_select = (char_code >> 6) & 0x03;
         let bg_colour = PALETTE[(self.regs[0x21 + bg_select as usize] & 0x0F) as usize];
         let fg_colour = PALETTE[(colour_nybble & 0x0F) as usize];
@@ -483,37 +545,34 @@ impl Vic {
         let bitmap_addr = char_base + u16::from(effective_char) * 8 + u16::from(self.char_row);
         let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
 
+        let mut cell = CellPixels {
+            colour: [0; 8],
+            fg_mask: 0,
+        };
         for px in 0..8usize {
             let bit = (bitmap >> (7 - px)) & 1;
-            let colour = if bit != 0 {
-                *fg_mask |= 1 << px;
-                fg_colour
+            if bit != 0 {
+                cell.fg_mask |= 1 << px;
+                cell.colour[px] = fg_colour;
             } else {
-                bg_colour
-            };
-            let idx = fb_offset + px;
-            if idx < self.framebuffer.len() {
-                self.framebuffer[idx] = colour;
+                cell.colour[px] = bg_colour;
             }
         }
+        cell
     }
 
     /// Multicolour text mode (MCM): per-character decision.
     /// Colour RAM bit 3 clear → standard text (8px wide).
     /// Colour RAM bit 3 set → bit-pair mode (4 double-wide pixels).
     fn render_mcm_text(
-        &mut self,
-        fb_offset: usize,
-        _col: usize,
+        &self,
         char_code: u8,
         colour_nybble: u8,
-        fg_mask: &mut u8,
         memory: &C64Memory,
-    ) {
+    ) -> CellPixels {
         if colour_nybble & 0x08 == 0 {
             // Bit 3 clear: standard text rendering for this character
-            self.render_standard_text(fb_offset, _col, char_code, colour_nybble, fg_mask, memory);
-            return;
+            return self.render_standard_text(char_code, colour_nybble, memory);
         }
 
         // Bit 3 set: multicolour mode
@@ -526,6 +585,10 @@ impl Vic {
         let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
         let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
 
+        let mut cell = CellPixels {
+            colour: [0; 8],
+            fg_mask: 0,
+        };
         for pair in 0..4usize {
             let bits = (bitmap >> (6 - pair * 2)) & 0x03;
             let colour = match bits {
@@ -538,30 +601,23 @@ impl Vic {
             let px0 = pair * 2;
             let px1 = px0 + 1;
             if is_fg {
-                *fg_mask |= (1 << px0) | (1 << px1);
+                cell.fg_mask |= (1 << px0) | (1 << px1);
             }
-            let idx0 = fb_offset + px0;
-            let idx1 = fb_offset + px1;
-            if idx0 < self.framebuffer.len() {
-                self.framebuffer[idx0] = colour;
-            }
-            if idx1 < self.framebuffer.len() {
-                self.framebuffer[idx1] = colour;
-            }
+            cell.colour[px0] = colour;
+            cell.colour[px1] = colour;
         }
+        cell
     }
 
     /// Multicolour bitmap mode (BMM+MCM): 160×200, bit pairs.
     /// 00=$D021, 01=screen hi, 10=screen lo, 11=colour RAM.
     fn render_mcm_bitmap(
-        &mut self,
-        fb_offset: usize,
+        &self,
         col: usize,
         char_code: u8,
         colour_nybble: u8,
-        fg_mask: &mut u8,
         memory: &C64Memory,
-    ) {
+    ) -> CellPixels {
         let bg0 = PALETTE[(self.regs[0x21] & 0x0F) as usize]; // 00
         let c01 = PALETTE[((char_code >> 4) & 0x0F) as usize]; // 01: screen hi
         let c10 = PALETTE[(char_code & 0x0F) as usize]; // 10: screen lo
@@ -572,6 +628,10 @@ impl Vic {
             bitmap_base + self.text_row * 40 * 8 + col as u16 * 8 + u16::from(self.char_row);
         let bitmap = memory.vic_read(self.vic_bank, bitmap_addr & 0x3FFF);
 
+        let mut cell = CellPixels {
+            colour: [0; 8],
+            fg_mask: 0,
+        };
         for pair in 0..4usize {
             let bits = (bitmap >> (6 - pair * 2)) & 0x03;
             let colour = match bits {
@@ -584,17 +644,12 @@ impl Vic {
             let px0 = pair * 2;
             let px1 = px0 + 1;
             if is_fg {
-                *fg_mask |= (1 << px0) | (1 << px1);
+                cell.fg_mask |= (1 << px0) | (1 << px1);
             }
-            let idx0 = fb_offset + px0;
-            let idx1 = fb_offset + px1;
-            if idx0 < self.framebuffer.len() {
-                self.framebuffer[idx0] = colour;
-            }
-            if idx1 < self.framebuffer.len() {
-                self.framebuffer[idx1] = colour;
-            }
+            cell.colour[px0] = colour;
+            cell.colour[px1] = colour;
         }
+        cell
     }
 
     /// Overlay active sprites onto the 8 pixels just rendered.
@@ -1392,6 +1447,235 @@ mod tests {
             collision & 0x01,
             0x00,
             "Sprite 0 should collide with bg, got {collision:#04X}"
+        );
+    }
+
+    /// Helper: advance VIC to a specific raster line and cycle.
+    fn advance_to(vic: &mut Vic, memory: &C64Memory, line: u16, cycle: u8) {
+        let target = u32::from(line) * u32::from(CYCLES_PER_LINE) + u32::from(cycle);
+        for _ in 0..target {
+            vic.tick(memory);
+        }
+    }
+
+    /// Helper: get the framebuffer pixel at (fb_x, fb_y).
+    fn fb_pixel(vic: &Vic, fb_x: usize, fb_y: usize) -> u32 {
+        vic.framebuffer()[fb_y * FB_WIDTH as usize + fb_x]
+    }
+
+    #[test]
+    fn xscroll_zero_unchanged() {
+        // XSCROLL=0 should produce the same output as the default (no shift).
+        // chargen is 0xFF (all pixels set) so the entire display area is fg.
+        let (mut vic, mut memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // DEN + YSCROLL=3
+        vic.write(0x16, 0x08); // CSEL=1, XSCROLL=0
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x00); // BG = black
+        memory.colour_ram_write(0, 0x01); // fg = white for col 0
+
+        // Advance to the first badline (line $33), past fetch, then tick col 0
+        let target_line = DISPLAY_START_LINE + 3;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        vic.colour_row[0] = 0x01; // white fg
+        vic.tick(&memory); // renders col 0
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+
+        // All 8 pixels should be white (chargen = 0xFF)
+        for px in 0..8 {
+            assert_eq!(
+                fb_pixel(&vic, fb_x0 + px, fb_y),
+                PALETTE[1],
+                "XSCROLL=0: pixel {px} should be white"
+            );
+        }
+    }
+
+    #[test]
+    fn xscroll_shifts_right() {
+        // XSCROLL=4: first 4 pixels should be background (carry from init),
+        // next 4 pixels should be white (chargen 0xFF = all foreground).
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // DEN + YSCROLL=3
+        vic.write(0x16, 0x0C); // CSEL=1, XSCROLL=4
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x00); // BG = black
+
+        let target_line = DISPLAY_START_LINE + 3;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        vic.colour_row[0] = 0x01; // white fg
+        vic.tick(&memory); // renders col 0
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+
+        // Pixels 0-3: background carry (black)
+        for px in 0..4 {
+            assert_eq!(
+                fb_pixel(&vic, fb_x0 + px, fb_y),
+                PALETTE[0],
+                "XSCROLL=4: pixel {px} should be bg (black)"
+            );
+        }
+        // Pixels 4-7: character fg (white)
+        for px in 4..8 {
+            assert_eq!(
+                fb_pixel(&vic, fb_x0 + px, fb_y),
+                PALETTE[1],
+                "XSCROLL=4: pixel {px} should be fg (white)"
+            );
+        }
+    }
+
+    #[test]
+    fn xscroll_carry_propagates() {
+        // XSCROLL=3: column 0 chargen=0xFF (all fg), column 1 chargen=0x00 (all bg).
+        // At column 1, pixels 0-2 should be carry from column 0 (white),
+        // pixels 3-7 should be bg from column 1 (black).
+        let kernal = vec![0; 8192];
+        let basic = vec![0; 8192];
+        // Char 0 = 0xFF, char 1 = 0x00
+        let mut chargen = vec![0x00; 4096];
+        chargen[0] = 0xFF; // Char 0, row 0
+
+        let memory = C64Memory::new(&kernal, &basic, &chargen);
+        let mut vic = Vic::new();
+        vic.write(0x11, 0x1B); // DEN + YSCROLL=3
+        vic.write(0x16, 0x0B); // CSEL=1, XSCROLL=3
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x00); // BG = black
+
+        let target_line = DISPLAY_START_LINE + 3;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        vic.screen_row[0] = 0; // Char 0 (0xFF)
+        vic.screen_row[1] = 1; // Char 1 (0x00)
+        vic.colour_row[0] = 0x01; // white fg
+        vic.colour_row[1] = 0x01; // white fg (won't matter, bitmap is 0x00)
+
+        vic.tick(&memory); // col 0
+        vic.tick(&memory); // col 1
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x1 = (DISPLAY_START_CYCLE + 1 - FIRST_VISIBLE_CYCLE) as usize * 8;
+
+        // At col 1: pixels 0-2 are carry from col 0 (rightmost 3 of 0xFF = white)
+        for px in 0..3 {
+            assert_eq!(
+                fb_pixel(&vic, fb_x1 + px, fb_y),
+                PALETTE[1],
+                "XSCROLL=3 col 1: pixel {px} should be carry (white)"
+            );
+        }
+        // Pixels 3-7 are from char 1 (bitmap 0x00 = bg = black)
+        for px in 3..8 {
+            assert_eq!(
+                fb_pixel(&vic, fb_x1 + px, fb_y),
+                PALETTE[0],
+                "XSCROLL=3 col 1: pixel {px} should be bg (black)"
+            );
+        }
+    }
+
+    #[test]
+    fn xscroll_carry_fg_mask() {
+        // Verify that the fg_mask carry propagates correctly for sprite collisions.
+        // XSCROLL=2, chargen=0xFF at col 0 and col 1.
+        // At col 1, pixels 0-1 should have fg bits set (carry from col 0).
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B);
+        vic.write(0x16, 0x0A); // CSEL=1, XSCROLL=2
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x00);
+
+        // Enable sprite 0 overlapping col 1, behind fg (priority bit set)
+        vic.write(0x15, 0x01);
+        vic.write(0x1B, 0x01); // Sprite 0 behind fg
+        // Position sprite at col 1 start. Col 1 fb_x = (17-10)*8 = 56.
+        // fb_x = sprite_x + 24, so sprite_x = 32.
+        vic.write(0x00, 32);
+
+        let target_line = DISPLAY_START_LINE + 3;
+        vic.write(0x01, target_line as u8); // Sprite Y
+
+        let mut memory = memory;
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        vic.colour_row[0] = 0x01;
+        vic.colour_row[1] = 0x01;
+        vic.tick(&memory); // col 0
+        vic.tick(&memory); // col 1 — sprite overlays here
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x1 = (DISPLAY_START_CYCLE + 1 - FIRST_VISIBLE_CYCLE) as usize * 8;
+
+        // Pixels 0-1 of col 1 are carry from col 0 (fg). Sprite is behind fg,
+        // so these pixels should show the character foreground (white), not the
+        // sprite colour.
+        for px in 0..2 {
+            assert_eq!(
+                fb_pixel(&vic, fb_x1 + px, fb_y),
+                PALETTE[1],
+                "XSCROLL carry fg_mask: pixel {px} should be char fg (white), not sprite"
+            );
+        }
+    }
+
+    #[test]
+    fn csel_38_column_border() {
+        // CSEL=0: cycle 16 (column 0) should be covered by border.
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // DEN + YSCROLL=3
+        vic.write(0x16, 0x00); // CSEL=0, XSCROLL=0
+        vic.write(0x18, 0x14);
+        vic.write(0x20, 0x06); // Border = blue
+        vic.write(0x21, 0x01); // BG = white
+
+        let target_line = DISPLAY_START_LINE + 3;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        vic.colour_row[0] = 0x0E; // yellow fg
+        vic.tick(&memory); // col 0 / cycle 16
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+
+        // CSEL=0 hstart=17, so cycle 16 is outside the visible window → border
+        assert_eq!(
+            fb_pixel(&vic, fb_x0, fb_y),
+            PALETTE[6], // blue
+            "CSEL=0: cycle 16 should show border, not character data"
+        );
+    }
+
+    #[test]
+    fn rsel_24_row_border() {
+        // RSEL=0: line $30 should be covered by border (vstart=$37).
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x13); // DEN + YSCROLL=3 + RSEL=0 (bit 3 clear)
+        vic.write(0x16, 0x08); // CSEL=1, XSCROLL=0
+        vic.write(0x18, 0x14);
+        vic.write(0x20, 0x06); // Border = blue
+        vic.write(0x21, 0x01); // BG = white
+
+        // Line $33 is a badline (YSCROLL=3), within char area ($30-$F7)
+        // but RSEL=0 means vstart=$37, so lines $30-$36 are border.
+        let target_line = 0x33u16;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE + 5);
+        vic.tick(&memory); // renders cycle at column 5
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x = (DISPLAY_START_CYCLE + 5 - FIRST_VISIBLE_CYCLE) as usize * 8;
+
+        // RSEL=0: line $33 < $37 → border
+        assert_eq!(
+            fb_pixel(&vic, fb_x, fb_y),
+            PALETTE[6], // blue
+            "RSEL=0: line $33 should show border"
         );
     }
 }

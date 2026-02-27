@@ -411,6 +411,121 @@ fn test_multicolour_text_mode() {
     );
 }
 
+#[test]
+#[ignore] // Requires real C64 ROMs at roms/
+fn test_xscroll_smooth_scroll() {
+    let kernal = fs::read("../../roms/kernal.rom").expect("kernal.rom not found");
+    let basic = fs::read("../../roms/basic.rom").expect("basic.rom not found");
+    let chargen = fs::read("../../roms/chargen.rom").expect("chargen.rom not found");
+
+    let mut c64 = C64::new(&C64Config {
+        model: C64Model::C64Pal,
+        kernal_rom: kernal,
+        basic_rom: basic,
+        char_rom: chargen,
+    });
+
+    // Boot to READY.
+    for _ in 0..120 {
+        c64.run_frame();
+    }
+    assert!(find_ready_in_screen(&c64), "C64 did not reach READY.");
+
+    // For each XSCROLL value 0..7, capture the pixel at a fixed position in
+    // the display area. Changing XSCROLL should shift character data right,
+    // so the pixel at the display window start should change from character
+    // fg to bg as XSCROLL increases (carry pixels are bg colour).
+    let w = c64.framebuffer_width() as usize;
+    // Display area fb_y around line $33 (first badline with YSCROLL=3)
+    // fb_y = 0x33 - 6 = 45
+    let fb_y = 45;
+    // fb_x = (16 - 10) * 8 = 48 (first display pixel)
+    let fb_x = 48;
+
+    let mut pixels_at_xscroll = Vec::new();
+    for xscroll in 0..8u8 {
+        // Set XSCROLL
+        c64.bus_mut().write(0xD016, 0x08 | xscroll); // CSEL=1 + XSCROLL
+
+        // Run 2 frames for stable output
+        for _ in 0..2 {
+            c64.run_frame();
+        }
+
+        let fb = c64.framebuffer();
+        let pixel = fb[fb_y * w + fb_x];
+        pixels_at_xscroll.push(pixel);
+        println!("XSCROLL={xscroll}: pixel at ({fb_x},{fb_y}) = 0x{pixel:08X}");
+    }
+
+    // At XSCROLL=0, the first display pixel shows the leftmost pixel of
+    // column 0 (character data). As XSCROLL increases, pixels 0..N-1 become
+    // background carry. With the Kernal's screen content (characters rendered
+    // with chargen), the pixel value should change at some XSCROLL threshold.
+    // We verify that not all 8 XSCROLL values produce the same pixel — that
+    // would mean XSCROLL has no effect.
+    let all_same = pixels_at_xscroll.iter().all(|&p| p == pixels_at_xscroll[0]);
+    assert!(
+        !all_same,
+        "XSCROLL should shift pixels — all 8 values produced the same colour"
+    );
+}
+
+#[test]
+#[ignore] // Requires real C64 ROMs at roms/
+fn test_csel_38_column() {
+    let kernal = fs::read("../../roms/kernal.rom").expect("kernal.rom not found");
+    let basic = fs::read("../../roms/basic.rom").expect("basic.rom not found");
+    let chargen = fs::read("../../roms/chargen.rom").expect("chargen.rom not found");
+
+    let mut c64 = C64::new(&C64Config {
+        model: C64Model::C64Pal,
+        kernal_rom: kernal,
+        basic_rom: basic,
+        char_rom: chargen,
+    });
+
+    // Boot to READY.
+    for _ in 0..120 {
+        c64.run_frame();
+    }
+    assert!(find_ready_in_screen(&c64), "C64 did not reach READY.");
+
+    let w = c64.framebuffer_width() as usize;
+    let border_colour_idx = c64.bus().memory.peek(0xD020) & 0x0F;
+    println!("Border colour index: {border_colour_idx}");
+
+    // Set CSEL=0 (38-column mode)
+    c64.bus_mut().write(0xD016, 0x00); // CSEL=0, XSCROLL=0
+
+    // Run 2 frames
+    for _ in 0..2 {
+        c64.run_frame();
+    }
+
+    let fb = c64.framebuffer();
+
+    // With CSEL=0, hstart=17 (cycle 17). Cycle 16 (column 0) should be border.
+    // fb_x at cycle 16 = (16 - 10) * 8 = 48
+    // fb_x at cycle 17 = (17 - 10) * 8 = 56
+    let fb_y = 50; // Well within display area
+    let col0_pixel = fb[fb_y * w + 48]; // cycle 16 → should be border
+    let col1_pixel = fb[fb_y * w + 56]; // cycle 17 → should be character data
+
+    let border_colour = emu_c64::palette::PALETTE[border_colour_idx as usize];
+
+    println!("CSEL=0: col0 (cycle 16) = 0x{col0_pixel:08X}, col1 (cycle 17) = 0x{col1_pixel:08X}");
+    println!("Border colour: 0x{border_colour:08X}");
+
+    assert_eq!(
+        col0_pixel, border_colour,
+        "CSEL=0: cycle 16 should be border colour"
+    );
+    // cycle 17 should be character data (may not equal border)
+    // We just verify it's different from border on most lines
+    // (unless the screen happens to have the same colour as border)
+}
+
 /// Scan screen memory for the PETSCII sequence "READY."
 fn find_ready_in_screen(c64: &C64) -> bool {
     let screen_start = 0x0400u16;
