@@ -17,6 +17,7 @@ drive-amiga-floppy = { path = "../drive-amiga-floppy" }
 peripheral-amiga-keyboard = { path = "../peripheral-amiga-keyboard" }
 
 [dev-dependencies]
+hound = "3.5"
 png = "0.17"
 
 [lib]

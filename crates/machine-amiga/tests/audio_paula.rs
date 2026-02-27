@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::Path;
+
 use machine_amiga::memory::ROM_BASE;
 use machine_amiga::{Amiga, TICKS_PER_CCK};
 
@@ -21,6 +24,7 @@ const AUD_REG_DAT_OFFSET: u16 = 0x0A;
 
 const DMACON_DMAEN: u16 = 0x0200;
 const DMACON_AUD0EN: u16 = 0x0001;
+const DMACON_AUD1EN: u16 = 0x0002;
 const DMACON_COPEN: u16 = 0x0080;
 const DMACON_SPREN: u16 = 0x0020;
 const DMACON_BPLEN: u16 = 0x0100;
@@ -690,4 +694,111 @@ fn aud0dat_write_does_not_override_active_dma_playback() {
         "AUD0DAT CPU write should not override active DMA playback (left={left_after})"
     );
     assert!(right_after.abs() < 0.01);
+}
+
+const REG_AUD1LCH: u16 = 0x0B0;
+const REG_AUD1LCL: u16 = 0x0B2;
+const REG_AUD1LEN: u16 = 0x0B4;
+const REG_AUD1PER: u16 = 0x0B6;
+const REG_AUD1VOL: u16 = 0x0B8;
+
+fn save_stereo_wav(samples: &[f32], path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: 48_000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(path, spec)?;
+    for &sample in samples {
+        let clamped = sample.clamp(-1.0, 1.0);
+        let scaled = (clamped * f32::from(i16::MAX)) as i16;
+        writer.write_sample(scaled)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn test_paula_audio_dma_capture() {
+    let mut amiga = make_test_amiga();
+
+    // Write a 32-byte square wave into chip RAM at $2000.
+    // First 16 bytes = +127, next 16 bytes = -128.
+    let sample_addr = 0x0000_2000u32;
+    for i in 0..16u32 {
+        amiga.memory.write_byte(sample_addr + i, 0x7F);
+    }
+    for i in 16..32u32 {
+        amiga.memory.write_byte(sample_addr + i, 0x80);
+    }
+
+    // Configure AUD0 (left channel): pointer, length, period, volume.
+    // Period 252 CCK with 32-byte waveform → 3,546,895 / (32 * 252) ≈ 440 Hz.
+    amiga.write_custom_reg(REG_AUD0LCH, (sample_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_AUD0LCL, (sample_addr & 0xFFFF) as u16);
+    amiga.write_custom_reg(REG_AUD0LEN, 16); // 16 words = 32 bytes
+    amiga.write_custom_reg(REG_AUD0PER, 252);
+    amiga.write_custom_reg(REG_AUD0VOL, 64);
+
+    // Configure AUD1 (right channel) with the same waveform.
+    amiga.write_custom_reg(REG_AUD1LCH, (sample_addr >> 16) as u16);
+    amiga.write_custom_reg(REG_AUD1LCL, (sample_addr & 0xFFFF) as u16);
+    amiga.write_custom_reg(REG_AUD1LEN, 16);
+    amiga.write_custom_reg(REG_AUD1PER, 252);
+    amiga.write_custom_reg(REG_AUD1VOL, 64);
+
+    // Enable DMA for both audio channels.
+    amiga.write_custom_reg(
+        REG_DMACON,
+        0x8000 | DMACON_DMAEN | DMACON_AUD0EN | DMACON_AUD1EN,
+    );
+
+    // Run 50 PAL frames (~1 second) and accumulate stereo audio.
+    let mut all_audio: Vec<f32> = Vec::new();
+    for _ in 0..50 {
+        amiga.run_frame();
+        all_audio.extend_from_slice(&amiga.take_audio_buffer());
+    }
+
+    // Stereo frames = total samples / 2 (interleaved L, R).
+    let stereo_frames = all_audio.len() / 2;
+    assert!(
+        all_audio.len() % 2 == 0,
+        "audio buffer should contain interleaved stereo pairs"
+    );
+    assert!(
+        stereo_frames > 40_000,
+        "expected ~48,000 stereo frames for 1 second at 48 kHz, got {stereo_frames}"
+    );
+
+    // Check both channels are non-silent.
+    let mut left_max = 0.0f32;
+    let mut right_max = 0.0f32;
+    for frame in all_audio.chunks_exact(2) {
+        left_max = left_max.max(frame[0].abs());
+        right_max = right_max.max(frame[1].abs());
+    }
+    assert!(
+        left_max > 0.1,
+        "left channel should be non-silent (max abs = {left_max})"
+    );
+    assert!(
+        right_max > 0.1,
+        "right channel should be non-silent (max abs = {right_max})"
+    );
+
+    // Save as stereo WAV.
+    let out_dir = Path::new("../../test_output");
+    fs::create_dir_all(out_dir).ok();
+    let wav_path = out_dir.join("amiga_paula_tone.wav");
+    save_stereo_wav(&all_audio, &wav_path).expect("failed to save stereo WAV");
+    assert!(wav_path.exists());
+
+    eprintln!(
+        "Saved Paula audio to {} ({} stereo frames, L max={left_max:.3}, R max={right_max:.3})",
+        wav_path.display(),
+        stereo_frames,
+    );
 }
