@@ -931,6 +931,124 @@ impl Mapper for Mmc2 {
     }
 }
 
+/// Color Dreams (Mapper 11): Simple PRG + CHR bank switching.
+///
+/// Used by unlicensed Color Dreams games (Crystal Mines, Bible Adventures).
+///
+/// - PRG: 32K switchable at $8000-$FFFF (bits 0-1 of bank register)
+/// - CHR: 8K switchable (bits 4-7 of bank register)
+/// - Mirroring: fixed from header
+struct ColorDreams {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+    prg_bank: u8,
+    chr_bank: u8,
+}
+
+impl ColorDreams {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            mirroring,
+            prg_bank: 0,
+            chr_bank: 0,
+        }
+    }
+}
+
+impl Mapper for ColorDreams {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let bank_offset = self.prg_bank as usize * 32768;
+                let index = (bank_offset + (addr as usize - 0x8000)) % self.prg_rom.len();
+                self.prg_rom[index]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.prg_bank = value & 0x03;
+            self.chr_bank = (value >> 4) & 0x0F;
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank_offset = self.chr_bank as usize * 8192;
+        let index = (bank_offset + (addr as usize & 0x1FFF)) % self.chr_rom.len().max(1);
+        self.chr_rom.get(index).copied().unwrap_or(0)
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
+/// GxROM (Mapper 66): Simple PRG + CHR bank switching.
+///
+/// Used by Super Mario Bros / Duck Hunt multicart, Dragon Power.
+///
+/// - PRG: 32K switchable at $8000-$FFFF (bits 4-5 of bank register)
+/// - CHR: 8K switchable (bits 0-1 of bank register)
+/// - Mirroring: fixed from header
+struct GxRom {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+    prg_bank: u8,
+    chr_bank: u8,
+}
+
+impl GxRom {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            mirroring,
+            prg_bank: 0,
+            chr_bank: 0,
+        }
+    }
+}
+
+impl Mapper for GxRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let bank_offset = self.prg_bank as usize * 32768;
+                let index = (bank_offset + (addr as usize - 0x8000)) % self.prg_rom.len();
+                self.prg_rom[index]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.prg_bank = (value >> 4) & 0x03;
+            self.chr_bank = value & 0x03;
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank_offset = self.chr_bank as usize * 8192;
+        let index = (bank_offset + (addr as usize & 0x1FFF)) % self.chr_rom.len().max(1);
+        self.chr_rom.get(index).copied().unwrap_or(0)
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 /// Parse an iNES file and return a boxed mapper.
 ///
 /// # Errors
@@ -1003,6 +1121,8 @@ pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
         4 => Ok(Box::new(Mmc3::new(prg_rom, chr_data))),
         7 => Ok(Box::new(AxRom::new(prg_rom))),
         9 => Ok(Box::new(Mmc2::new(prg_rom, chr_data))),
+        11 => Ok(Box::new(ColorDreams::new(prg_rom, chr_data, mirroring))),
+        66 => Ok(Box::new(GxRom::new(prg_rom, chr_data, mirroring))),
         n => Err(format!("Unsupported mapper: {n}")),
     }
 }
@@ -1865,5 +1985,93 @@ mod tests {
         assert_eq!(m.chr_read(0x0000), 0);
         m.chr_write(0x0000, 0xAB);
         assert_eq!(m.chr_read(0x0000), 0xAB);
+    }
+
+    // --- Color Dreams (Mapper 11) ---
+
+    #[test]
+    fn color_dreams_prg_switching() {
+        // 4 × 32K = 128K PRG
+        let mut prg = vec![0u8; 4 * 32768];
+        prg[0] = 0xAA;          // bank 0, addr $8000
+        prg[32768] = 0xBB;      // bank 1, addr $8000
+        prg[2 * 32768] = 0xCC;  // bank 2, addr $8000
+        let chr = vec![0u8; 8192];
+        let mut m = ColorDreams::new(prg, chr, Mirroring::Vertical);
+
+        assert_eq!(m.cpu_read(0x8000), 0xAA); // bank 0 default
+        m.cpu_write(0x8000, 0x01); // PRG bank 1
+        assert_eq!(m.cpu_read(0x8000), 0xBB);
+        m.cpu_write(0x8000, 0x02); // PRG bank 2
+        assert_eq!(m.cpu_read(0x8000), 0xCC);
+    }
+
+    #[test]
+    fn color_dreams_chr_switching() {
+        let mut chr = vec![0u8; 4 * 8192];
+        chr[0] = 0x11;        // bank 0
+        chr[8192] = 0x22;     // bank 1
+        chr[2 * 8192] = 0x33; // bank 2
+        let prg = vec![0u8; 32768];
+        let mut m = ColorDreams::new(prg, chr, Mirroring::Horizontal);
+
+        assert_eq!(m.chr_read(0x0000), 0x11); // bank 0
+        m.cpu_write(0x8000, 0x10); // CHR bank 1 (bits 4-7)
+        assert_eq!(m.chr_read(0x0000), 0x22);
+        m.cpu_write(0x8000, 0x20); // CHR bank 2
+        assert_eq!(m.chr_read(0x0000), 0x33);
+    }
+
+    #[test]
+    fn color_dreams_parse_ines() {
+        // Mapper 11 = (0xB0 >> 4) | (flags6 bits 4-7) = 0x10 | 0x01 = 11
+        // flags6: low nibble mapper = 0xB0, flags7: high nibble mapper = 0x00
+        let data = make_ines(2, 1, 0xB0); // 2×16K PRG + 1×8K CHR, mapper 11
+        let m = parse_ines(&data);
+        assert!(m.is_ok(), "Mapper 11 should parse successfully");
+    }
+
+    // --- GxROM (Mapper 66) ---
+
+    #[test]
+    fn gxrom_prg_switching() {
+        let mut prg = vec![0u8; 4 * 32768];
+        prg[0] = 0xAA;          // bank 0
+        prg[32768] = 0xBB;      // bank 1
+        prg[2 * 32768] = 0xCC;  // bank 2
+        let chr = vec![0u8; 8192];
+        let mut m = GxRom::new(prg, chr, Mirroring::Vertical);
+
+        assert_eq!(m.cpu_read(0x8000), 0xAA);
+        m.cpu_write(0x8000, 0x10); // PRG bank 1 (bits 4-5)
+        assert_eq!(m.cpu_read(0x8000), 0xBB);
+        m.cpu_write(0x8000, 0x20); // PRG bank 2
+        assert_eq!(m.cpu_read(0x8000), 0xCC);
+    }
+
+    #[test]
+    fn gxrom_chr_switching() {
+        let mut chr = vec![0u8; 4 * 8192];
+        chr[0] = 0x11;
+        chr[8192] = 0x22;
+        chr[2 * 8192] = 0x33;
+        let prg = vec![0u8; 32768];
+        let mut m = GxRom::new(prg, chr, Mirroring::Horizontal);
+
+        assert_eq!(m.chr_read(0x0000), 0x11);
+        m.cpu_write(0x8000, 0x01); // CHR bank 1 (bits 0-1)
+        assert_eq!(m.chr_read(0x0000), 0x22);
+        m.cpu_write(0x8000, 0x02); // CHR bank 2
+        assert_eq!(m.chr_read(0x0000), 0x33);
+    }
+
+    #[test]
+    fn gxrom_parse_ines() {
+        // Mapper 66: flags6 high nibble = 0x20, flags7 high nibble = 0x40
+        // mapper = 0x20 >> 4 | 0x40 = 2 | 64 = 66
+        let mut data = make_ines(2, 1, 0x20); // mapper low nibble = 2
+        data[7] = 0x40; // mapper high nibble = 4 → mapper = 66
+        let m = parse_ines(&data);
+        assert!(m.is_ok(), "Mapper 66 should parse successfully");
     }
 }

@@ -15,17 +15,14 @@ use mos_6502::Mos6502;
 
 use crate::bus::NesBus;
 use crate::cartridge::{self, Mapper};
-use crate::config::NesConfig;
+use crate::config::{NesConfig, NesRegion};
 use crate::controller::Controller;
 use crate::input::{InputQueue, NesButton};
 use crate::ppu;
 
-/// Crystal divisors.
+/// Crystal divisors (same for both NTSC and PAL — only the crystal changes).
 const PPU_DIVISOR: u64 = 4;
 const CPU_DIVISOR: u64 = 12;
-
-/// Crystal ticks per frame: 341 dots × 262 scanlines × 4.
-const TICKS_PER_FRAME: u64 = 341 * 262 * PPU_DIVISOR;
 
 /// NES system.
 pub struct Nes {
@@ -33,6 +30,8 @@ pub struct Nes {
     bus: NesBus,
     /// Master clock: counts crystal ticks.
     master_clock: u64,
+    /// Crystal ticks per frame (region-dependent).
+    ticks_per_frame: u64,
     /// Completed frame counter.
     frame_count: u64,
     /// Timed input event queue.
@@ -44,6 +43,8 @@ pub struct Nes {
     dma_odd_cycle: bool,
     /// DMC DMA steal counter: counts down from 4 to 0.
     dmc_dma_cycles: u8,
+    /// Video region.
+    region: NesRegion,
 }
 
 impl Nes {
@@ -54,12 +55,12 @@ impl Nes {
     /// Returns an error if the ROM data is invalid.
     pub fn new(config: &NesConfig) -> Result<Self, String> {
         let mapper = cartridge::parse_ines(&config.rom_data)?;
-        Ok(Self::from_mapper(mapper))
+        Ok(Self::from_mapper(mapper, config.region))
     }
 
     /// Create a new NES from a pre-parsed mapper.
-    fn from_mapper(mapper: Box<dyn Mapper>) -> Self {
-        let mut bus = NesBus::new(mapper);
+    fn from_mapper(mapper: Box<dyn Mapper>, region: NesRegion) -> Self {
+        let mut bus = NesBus::new_with_region(mapper, region);
 
         let mut cpu = Mos6502::new();
 
@@ -68,10 +69,14 @@ impl Nes {
         let reset_hi = bus.read(0xFFFD).data;
         cpu.regs.pc = u16::from(reset_lo) | (u16::from(reset_hi) << 8);
 
+        let scanlines = u64::from(region.scanlines_per_frame());
+        let ticks_per_frame = 341 * scanlines * PPU_DIVISOR;
+
         Self {
             cpu,
             bus,
             master_clock: 0,
+            ticks_per_frame,
             frame_count: 0,
             input_queue: InputQueue::new(),
             dma_cycles_remaining: 0,
@@ -79,6 +84,7 @@ impl Nes {
             dma_read_data: 0,
             dma_odd_cycle: false,
             dmc_dma_cycles: 0,
+            region,
         }
     }
 
@@ -94,7 +100,7 @@ impl Nes {
         self.frame_count += 1;
 
         let start_clock = self.master_clock;
-        let target = start_clock + TICKS_PER_FRAME;
+        let target = start_clock + self.ticks_per_frame;
 
         while self.master_clock < target {
             self.tick();
@@ -119,6 +125,12 @@ impl Nes {
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
         ppu::FB_HEIGHT
+    }
+
+    /// Video region (NTSC or PAL).
+    #[must_use]
+    pub fn region(&self) -> NesRegion {
+        self.region
     }
 
     /// Reference to the CPU.
@@ -346,7 +358,7 @@ mod tests {
         prg[0x7FFD] = 0x80; // High byte
         let chr = vec![0; 8192];
         let mapper = Box::new(Nrom::new(prg, chr, Mirroring::Horizontal));
-        Nes::from_mapper(mapper)
+        Nes::from_mapper(mapper, NesRegion::Ntsc)
     }
 
     #[test]
@@ -361,7 +373,8 @@ mod tests {
     fn run_frame_returns_tick_count() {
         let mut nes = make_nes();
         let ticks = nes.run_frame();
-        assert_eq!(ticks, TICKS_PER_FRAME);
+        // NTSC: 341 dots × 262 scanlines × 4 = 357,368
+        assert_eq!(ticks, 341 * 262 * 4);
     }
 
     #[test]

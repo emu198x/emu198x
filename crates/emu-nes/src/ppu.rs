@@ -80,11 +80,21 @@ pub struct Ppu {
     nmi_occurred: bool,
     nmi_output: bool,
     nmi_edge: bool,
+
+    /// Pre-render scanline number (261 for NTSC, 311 for PAL).
+    pre_render_line: u16,
 }
 
 impl Ppu {
     #[must_use]
     pub fn new() -> Self {
+        Self::new_with_pre_render_line(261)
+    }
+
+    /// Create a PPU with the given pre-render scanline number.
+    /// NTSC: 261, PAL: 311.
+    #[must_use]
+    pub fn new_with_pre_render_line(pre_render_line: u16) -> Self {
         Self {
             nametable_ram: [0; 2048],
             palette_ram: [0; 32],
@@ -103,7 +113,7 @@ impl Ppu {
             read_buffer: 0,
             open_bus: 0,
 
-            scanline: 261, // Start at pre-render
+            scanline: pre_render_line,
             dot: 0,
             frame_odd: false,
 
@@ -128,13 +138,14 @@ impl Ppu {
             nmi_occurred: false,
             nmi_output: false,
             nmi_edge: false,
+            pre_render_line,
         }
     }
 
     /// One PPU dot.
     pub fn tick(&mut self, mapper: &mut dyn Mapper) {
         // Pre-render line (261)
-        if self.scanline == 261 {
+        if self.scanline == self.pre_render_line {
             self.tick_prerender(mapper);
         }
         // Visible scanlines (0-239)
@@ -154,7 +165,7 @@ impl Ppu {
         if self.dot > 340 {
             self.dot = 0;
             self.scanline += 1;
-            if self.scanline > 261 {
+            if self.scanline > self.pre_render_line {
                 self.scanline = 0;
                 self.frame_odd = !self.frame_odd;
             }

@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-28 (Amiga: A1200/AGA, 68020 MULL/DIVL/EXTB). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-28 (NES PAL, Paula LPF, mappers 11/66). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -119,7 +119,7 @@ sample playback via DMA.
 - **PPU**: Background + sprites, all mirroring modes (H/V/4-screen/single-screen)
 - **APU**: Pulse (×2), triangle, noise, DMC sample playback (DMA), frame counter, mixer at 48 kHz
 - **PPU effects**: PPUMASK greyscale (bit 0) and emphasis (bits 5-7) applied at pixel output, open bus latch (write-only register reads return last written value, $2002 low 5 bits from open bus)
-- **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC3 (4) 8-register PRG/CHR banking + scanline counter IRQ + PRG RAM, AxROM (7) 32K PRG switching + single-screen mirroring, MMC2 (9) CHR latch-based bank switching
+- **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC3 (4) 8-register PRG/CHR banking + scanline counter IRQ + PRG RAM, AxROM (7) 32K PRG switching + single-screen mirroring, MMC2 (9) CHR latch-based bank switching, Color Dreams (11) PRG+CHR switching, GxROM (66) PRG+CHR switching
 - **Mapper IRQ**: Mapper trait supports IRQ signalling; MMC3 scanline counter wired to CPU interrupt line
 
 ### Blocking broader compatibility
@@ -128,7 +128,6 @@ sample playback via DMA.
 |-----|----------|--------|
 | DMC/OAM DMA conflict timing | `nes.rs` — DMC waits for OAM to finish | Exact halt/realign cycle count not modelled; worst-case 4-cycle steal used |
 | Zapper (light gun) | Not implemented | Duck Hunt unplayable |
-| PAL timing | Hardcoded NTSC | PAL games run at wrong speed |
 | Four-Score adapter | Not implemented | 4-player games blocked |
 | FDS (Famicom Disk System) | Not implemented | Disk games unplayable |
 
@@ -142,8 +141,10 @@ sample playback via DMA.
 
 ### Assessment
 
-**~80% of the NES library runs** (NROM + MMC1 + UxROM + CNROM + MMC3 +
-AxROM + MMC2). All five APU channels are now functional — DMC sample
+**~85% of the NES library runs** (9 mappers: NROM + MMC1 + UxROM + CNROM +
+MMC3 + AxROM + MMC2 + Color Dreams + GxROM). NTSC and PAL regions are
+supported with correct frame timing, APU tables, and CPU frequency.
+All five APU channels are now functional — DMC sample
 playback fetches bytes via DMA, stealing 4 CPU cycles per fetch.
 Drums, bass, and speech samples now play in games that use the DMC.
 The DMA/OAM conflict timing is simplified (DMC waits for OAM DMA to
@@ -181,7 +182,7 @@ work.
 | Gap | Location | Impact |
 |-----|----------|--------|
 | Blitter micro-op granularity | `agnus.rs` — atomic DMA ops | Timing under extreme contention diverges |
-| Paula audio filtering/DAC | Not modelled | Audio sounds "too clean"; no hardware warmth |
+| Paula audio DAC non-linearity | Not modelled | Subtle DAC stepping artefacts not reproduced |
 | Paula disk PLL timing | Simplified | Clock-recovery sensitive copy protection fails |
 | Paula modulation edge cases | ADKCON approximate | Extreme cross-channel modulation diverges |
 | ECS beam timing (BEAMCON0) | Latched but not active | Tight ECS timing code diverges |
@@ -209,10 +210,10 @@ completeness.
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | ~97% (68000 + 68020 MULL/DIVL/EXTB/MOVEC) |
 | Video modes | 100% | 100% (all modes + scrolling + MCM sprites + collisions + sprite DMA stealing) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
-| Audio | 100% (beeper + AY) | ~95% (6581/8580 models, non-linear filter, combined waveforms) | ~95% (all 5 channels) | ~85% (no filter model) |
-| Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 7 mappers (0/1/2/3/4/7/9) | ADF read/write |
+| Audio | 100% (beeper + AY) | ~95% (6581/8580 models, non-linear filter, combined waveforms) | ~95% (all 5 channels) | ~90% (hardware LPF modelled) |
+| Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 9 mappers (0/1/2/3/4/7/9/11/66) | ADF read/write |
 | Peripherals | Keyboard + Kempston | Keyboard + REU (128/256/512K) | 2-player pad | Keyboard + mouse |
-| Model variants | 48K, 128K, +2, +2A, +3 PAL | PAL + NTSC | NTSC only | A500 OCS, A500+ ECS, A1200 AGA (stub) |
+| Model variants | 48K, 128K, +2, +2A, +3 PAL | PAL + NTSC | NTSC + PAL | A500 OCS, A500+ ECS, A1200 AGA (stub) |
 
 ### Highest-impact work items (by games-unlocked)
 

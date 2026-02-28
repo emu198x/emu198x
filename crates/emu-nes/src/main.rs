@@ -10,7 +10,7 @@ use std::process;
 use std::time::{Duration, Instant};
 
 use emu_nes::ppu;
-use emu_nes::{Nes, NesConfig, capture, controller_map, mcp::McpServer};
+use emu_nes::{Nes, NesConfig, NesRegion, capture, controller_map, mcp::McpServer};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -40,6 +40,7 @@ struct CliArgs {
     frames: u32,
     screenshot_path: Option<PathBuf>,
     record_dir: Option<PathBuf>,
+    region: NesRegion,
 }
 
 fn parse_args() -> CliArgs {
@@ -52,6 +53,7 @@ fn parse_args() -> CliArgs {
         frames: 200,
         screenshot_path: None,
         record_dir: None,
+        region: NesRegion::Ntsc,
     };
 
     let mut i = 1;
@@ -85,11 +87,21 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 cli.record_dir = args.get(i).map(PathBuf::from);
             }
+            "--region" => {
+                i += 1;
+                if let Some(s) = args.get(i) {
+                    cli.region = match s.to_lowercase().as_str() {
+                        "pal" => NesRegion::Pal,
+                        _ => NesRegion::Ntsc,
+                    };
+                }
+            }
             "--help" | "-h" => {
                 eprintln!("Usage: emu-nes [OPTIONS]");
                 eprintln!();
                 eprintln!("Options:");
                 eprintln!("  --rom <file>         iNES ROM file (.nes)");
+                eprintln!("  --region <ntsc|pal>  Video region (default: ntsc)");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
                 eprintln!("  --script <file>      Run a JSON script file (headless batch mode)");
@@ -289,7 +301,7 @@ fn make_nes(cli: &CliArgs) -> Nes {
         }
     };
 
-    let config = NesConfig { rom_data };
+    let config = NesConfig { rom_data, region: cli.region };
     match Nes::new(&config) {
         Ok(nes) => {
             eprintln!("Loaded ROM: {}", rom_path.display());

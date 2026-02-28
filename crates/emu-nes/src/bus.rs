@@ -35,10 +35,16 @@ pub struct NesBus {
 impl NesBus {
     #[must_use]
     pub fn new(cartridge: Box<dyn Mapper>) -> Self {
+        Self::new_with_region(cartridge, crate::config::NesRegion::Ntsc)
+    }
+
+    /// Create a bus with the given region for PPU/APU timing.
+    #[must_use]
+    pub fn new_with_region(cartridge: Box<dyn Mapper>, region: crate::config::NesRegion) -> Self {
         Self {
             ram: [0; 2048],
-            ppu: Ppu::new(),
-            apu: Apu::new(),
+            ppu: Ppu::new_with_pre_render_line(region.pre_render_line()),
+            apu: Apu::new_with_cpu_freq(region),
             cartridge,
             controller1: Controller::new(),
             controller2: Controller::new(),

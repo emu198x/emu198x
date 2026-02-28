@@ -212,6 +212,11 @@ pub struct Amiga {
     pub keyboard: AmigaKeyboard,
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
+    /// RC low-pass filter state (left, right) for hardware output stage.
+    audio_lpf_left: f32,
+    audio_lpf_right: f32,
+    /// Filter coefficient: alpha = omega / (1 + omega), omega = 2π * cutoff / sample_rate.
+    audio_lpf_alpha: f32,
     disk_dma_runtime: Option<DiskDmaRuntime>,
     sprite_dma_phase: [u8; 8],
     beam_debug_snapshot: BeamDebugSnapshot,
@@ -342,6 +347,14 @@ impl Amiga {
             keyboard: AmigaKeyboard::new(),
             audio_sample_phase: 0,
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
+            audio_lpf_left: 0.0,
+            audio_lpf_right: 0.0,
+            // RC low-pass at ~4500 Hz, matching the Amiga's hardware output filter.
+            // alpha = omega / (1 + omega), omega = 2π × 4500 / 48000 ≈ 0.589
+            audio_lpf_alpha: {
+                let omega = 2.0 * std::f32::consts::PI * 4500.0 / AUDIO_SAMPLE_RATE as f32;
+                omega / (1.0 + omega)
+            },
             disk_dma_runtime: None,
             sprite_dma_phase: [0; 8],
             beam_debug_snapshot: BeamDebugSnapshot::default(),
@@ -749,8 +762,13 @@ impl Amiga {
             while self.audio_sample_phase >= PAL_CCK_HZ {
                 self.audio_sample_phase -= PAL_CCK_HZ;
                 let (left, right) = self.paula.mix_audio_stereo();
-                self.audio_buffer.push(left);
-                self.audio_buffer.push(right);
+                // Apply one-pole RC low-pass filter (~4.5 kHz cutoff)
+                // to match the Amiga's hardware output stage.
+                let a = self.audio_lpf_alpha;
+                self.audio_lpf_left += a * (left - self.audio_lpf_left);
+                self.audio_lpf_right += a * (right - self.audio_lpf_right);
+                self.audio_buffer.push(self.audio_lpf_left);
+                self.audio_buffer.push(self.audio_lpf_right);
             }
 
             self.agnus.tick_cck();

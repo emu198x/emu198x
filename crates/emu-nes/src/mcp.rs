@@ -20,8 +20,15 @@ use serde_json::Value as JsonValue;
 use emu_core::{Cpu, Observable, Tickable};
 
 use crate::Nes;
-use crate::config::NesConfig;
+use crate::config::{NesConfig, NesRegion};
 use crate::input::NesButton;
+
+fn parse_region(params: &JsonValue) -> NesRegion {
+    match params.get("region").and_then(|v| v.as_str()) {
+        Some("pal") => NesRegion::Pal,
+        _ => NesRegion::Ntsc,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // JSON-RPC types
@@ -209,7 +216,7 @@ impl McpServer {
             );
         };
 
-        let config = NesConfig { rom_data };
+        let config = NesConfig { rom_data, region: parse_region(params) };
         match Nes::new(&config) {
             Ok(nes) => {
                 self.nes = Some(nes);
@@ -244,7 +251,7 @@ impl McpServer {
             return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
         };
 
-        let config = NesConfig { rom_data };
+        let config = NesConfig { rom_data, region: parse_region(params) };
         match Nes::new(&config) {
             Ok(nes) => {
                 self.nes = Some(nes);

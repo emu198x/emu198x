@@ -20,7 +20,7 @@ mod palette;
 pub mod ppu;
 
 pub use bus::NesBus;
-pub use config::NesConfig;
+pub use config::{NesConfig, NesRegion};
 pub use controller::Controller;
 pub use input::{InputQueue, NesButton};
 pub use nes::Nes;

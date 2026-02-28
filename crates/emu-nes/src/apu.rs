@@ -29,13 +29,23 @@ const LENGTH_TABLE: [u8; 32] = [
 ];
 
 /// Noise timer period lookup (NTSC).
-const NOISE_PERIOD_TABLE: [u16; 16] = [
+const NOISE_PERIOD_TABLE_NTSC: [u16; 16] = [
     4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
+/// Noise timer period lookup (PAL).
+const NOISE_PERIOD_TABLE_PAL: [u16; 16] = [
+    4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
+];
+
 /// DMC rate table (NTSC) — CPU cycles per sample bit output.
-const DMC_RATE_TABLE: [u16; 16] = [
+const DMC_RATE_TABLE_NTSC: [u16; 16] = [
     428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
+];
+
+/// DMC rate table (PAL) — CPU cycles per sample bit output.
+const DMC_RATE_TABLE_PAL: [u16; 16] = [
+    398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50,
 ];
 
 /// Triangle waveform: 32-step sequence (0–15 up, 15–0 down).
@@ -479,8 +489,8 @@ impl Dmc {
             irq_flag: false,
             loop_flag: false,
             rate_index: 0,
-            timer: DMC_RATE_TABLE[0],
-            timer_period: DMC_RATE_TABLE[0],
+            timer: DMC_RATE_TABLE_NTSC[0],
+            timer_period: DMC_RATE_TABLE_NTSC[0],
             sample_address: 0xC000,
             sample_length: 1,
             current_address: 0xC000,
@@ -576,10 +586,14 @@ enum FrameCounterMode {
 }
 
 // Frame counter step boundaries (CPU cycles).
-// 4-step: events at 7457, 14913, 22371, 29829 (IRQ at step 4)
-// 5-step: events at 7457, 14913, 22371, 29829, 37281 (no IRQ)
-const FOUR_STEP_SEQUENCE: [u16; 4] = [7457, 14913, 22371, 29829];
-const FIVE_STEP_SEQUENCE: [u16; 5] = [7457, 14913, 22371, 29829, 37281];
+// NTSC 4-step: events at 7457, 14913, 22371, 29829 (IRQ at step 4)
+// NTSC 5-step: events at 7457, 14913, 22371, 29829, 37281 (no IRQ)
+const FOUR_STEP_SEQUENCE_NTSC: [u16; 4] = [7457, 14913, 22371, 29829];
+const FIVE_STEP_SEQUENCE_NTSC: [u16; 5] = [7457, 14913, 22371, 29829, 37281];
+
+// PAL frame counter boundaries (adjusted for ~50 Hz frame rate).
+const FOUR_STEP_SEQUENCE_PAL: [u16; 4] = [8313, 16627, 24939, 33253];
+const FIVE_STEP_SEQUENCE_PAL: [u16; 5] = [8313, 16627, 24939, 33253, 41565];
 
 // ---------------------------------------------------------------------------
 // APU
@@ -603,6 +617,12 @@ pub struct Apu {
     /// CPU cycle parity: true on odd CPU cycles (pulse/noise tick on even).
     odd_cycle: bool,
 
+    // Region-dependent tables
+    noise_period_table: &'static [u16; 16],
+    dmc_rate_table: &'static [u16; 16],
+    four_step_seq: &'static [u16; 4],
+    five_step_seq: &'static [u16; 5],
+
     // Downsampling
     accumulator: f32,
     sample_count: u32,
@@ -618,16 +638,35 @@ pub struct Apu {
 }
 
 impl Apu {
-    /// CPU frequency for NTSC NES.
-    const CPU_FREQ: u32 = 1_789_773;
     /// Output sample rate.
     const SAMPLE_RATE: u32 = 48_000;
 
     #[must_use]
     pub fn new() -> Self {
+        Self::new_with_cpu_freq(crate::config::NesRegion::Ntsc)
+    }
+
+    /// Create an APU with region-specific timing tables.
+    #[must_use]
+    pub fn new_with_cpu_freq(region: crate::config::NesRegion) -> Self {
+        let cpu_freq = region.cpu_hz();
+        let (noise_table, dmc_table, four_step, five_step) = match region {
+            crate::config::NesRegion::Ntsc => (
+                &NOISE_PERIOD_TABLE_NTSC,
+                &DMC_RATE_TABLE_NTSC,
+                &FOUR_STEP_SEQUENCE_NTSC,
+                &FIVE_STEP_SEQUENCE_NTSC,
+            ),
+            crate::config::NesRegion::Pal => (
+                &NOISE_PERIOD_TABLE_PAL,
+                &DMC_RATE_TABLE_PAL,
+                &FOUR_STEP_SEQUENCE_PAL,
+                &FIVE_STEP_SEQUENCE_PAL,
+            ),
+        };
         Self {
-            pulse1: Pulse::new(true),   // One's complement negate
-            pulse2: Pulse::new(false),  // Two's complement negate
+            pulse1: Pulse::new(true),
+            pulse2: Pulse::new(false),
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
@@ -637,9 +676,13 @@ impl Apu {
             frame_irq_inhibit: false,
             frame_irq_flag: false,
             odd_cycle: false,
+            noise_period_table: noise_table,
+            dmc_rate_table: dmc_table,
+            four_step_seq: four_step,
+            five_step_seq: five_step,
             accumulator: 0.0,
             sample_count: 0,
-            ticks_per_sample: Self::CPU_FREQ as f32 / Self::SAMPLE_RATE as f32,
+            ticks_per_sample: cpu_freq as f32 / Self::SAMPLE_RATE as f32,
             buffer: Vec::with_capacity(Self::SAMPLE_RATE as usize / 50 + 1),
             hp_prev_in: 0.0,
             hp_prev_out: 0.0,
@@ -765,7 +808,7 @@ impl Apu {
             0x400D => {} // Unused
             0x400E => {
                 self.noise.mode = value & 0x80 != 0;
-                self.noise.timer_period = NOISE_PERIOD_TABLE[(value & 0x0F) as usize];
+                self.noise.timer_period = self.noise_period_table[(value & 0x0F) as usize];
             }
             0x400F => {
                 self.noise.length.load((value >> 3) & 0x1F);
@@ -777,7 +820,7 @@ impl Apu {
                 self.dmc.irq_enabled = value & 0x80 != 0;
                 self.dmc.loop_flag = value & 0x40 != 0;
                 self.dmc.rate_index = value & 0x0F;
-                self.dmc.timer_period = DMC_RATE_TABLE[self.dmc.rate_index as usize];
+                self.dmc.timer_period = self.dmc_rate_table[self.dmc.rate_index as usize];
                 if !self.dmc.irq_enabled {
                     self.dmc.irq_flag = false;
                 }
@@ -890,7 +933,7 @@ impl Apu {
         match self.frame_mode {
             FrameCounterMode::FourStep => {
                 if self.frame_step < 4
-                    && self.frame_counter >= FOUR_STEP_SEQUENCE[self.frame_step as usize]
+                    && self.frame_counter >= self.four_step_seq[self.frame_step as usize]
                 {
                     match self.frame_step {
                         0 => self.clock_quarter_frame(),
@@ -917,7 +960,7 @@ impl Apu {
             }
             FrameCounterMode::FiveStep => {
                 if self.frame_step < 5
-                    && self.frame_counter >= FIVE_STEP_SEQUENCE[self.frame_step as usize]
+                    && self.frame_counter >= self.five_step_seq[self.frame_step as usize]
                 {
                     match self.frame_step {
                         0 => self.clock_quarter_frame(),
@@ -1269,7 +1312,8 @@ mod tests {
 
     #[test]
     fn dmc_rate_table_length() {
-        assert_eq!(DMC_RATE_TABLE.len(), 16);
+        assert_eq!(DMC_RATE_TABLE_NTSC.len(), 16);
+        assert_eq!(DMC_RATE_TABLE_PAL.len(), 16);
     }
 
     #[test]
