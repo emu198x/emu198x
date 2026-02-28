@@ -202,12 +202,13 @@ impl McpServer {
             "48k" | "48" => (SpectrumModel::Spectrum48K, "48k"),
             "128k" | "128" => (SpectrumModel::Spectrum128K, "128k"),
             "plus2" | "+2" => (SpectrumModel::SpectrumPlus2, "plus2"),
+            "plus2a" | "+2a" => (SpectrumModel::SpectrumPlus2A, "plus2a"),
             "plus3" | "+3" => (SpectrumModel::SpectrumPlus3, "plus3"),
             other => {
                 return RpcResponse::error(
                     id,
                     -32602,
-                    format!("Unknown model: {other}. Use 48k, 128k, plus2, or plus3."),
+                    format!("Unknown model: {other}. Use 48k, 128k, plus2, plus2a, or plus3."),
                 );
             }
         };

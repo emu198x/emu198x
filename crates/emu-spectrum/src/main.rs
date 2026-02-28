@@ -152,7 +152,7 @@ fn parse_args() -> CliArgs {
                 eprintln!("Usage: emu-spectrum [OPTIONS]");
                 eprintln!();
                 eprintln!("Options:");
-                eprintln!("  --model <model>      Spectrum model: 48k, 128k, plus2, plus3 [default: 48k]");
+                eprintln!("  --model <model>      Spectrum model: 48k, 128k, plus2, plus2a, plus3 [default: 48k]");
                 eprintln!("  --rom <file>         ROM file (required for 128k/plus2/plus3)");
                 eprintln!("  --sna <file>         Load a SNA snapshot (48K or 128K)");
                 eprintln!("  --z80 <file>         Load a .Z80 snapshot (v1/v2/v3)");
@@ -407,12 +407,16 @@ fn make_spectrum(cli: &CliArgs) -> Spectrum {
             let rom = load_rom_file(cli, "+2");
             (SpectrumModel::SpectrumPlus2, rom)
         }
+        "plus2a" | "+2a" => {
+            let rom = load_rom_file(cli, "+2A");
+            (SpectrumModel::SpectrumPlus2A, rom)
+        }
         "plus3" | "+3" => {
             let rom = load_rom_file(cli, "+3");
             (SpectrumModel::SpectrumPlus3, rom)
         }
         other => {
-            eprintln!("Unknown model: {other}. Use 48k, 128k, plus2, or plus3.");
+            eprintln!("Unknown model: {other}. Use 48k, 128k, plus2, plus2a, or plus3.");
             process::exit(1);
         }
     };
@@ -558,6 +562,7 @@ fn main() {
     let title = match cli.model.as_str() {
         "128k" | "128" => "ZX Spectrum 128K",
         "plus2" | "+2" => "ZX Spectrum +2",
+        "plus2a" | "+2a" => "ZX Spectrum +2A",
         "plus3" | "+3" => "ZX Spectrum +3",
         _ => "ZX Spectrum 48K",
     };

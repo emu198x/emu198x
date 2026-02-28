@@ -10,6 +10,7 @@ pub enum SpectrumModel {
     Spectrum48K,
     Spectrum128K,
     SpectrumPlus2,
+    SpectrumPlus2A,
     SpectrumPlus3,
     // Timex
     TimexTC2048,

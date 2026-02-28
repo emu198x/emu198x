@@ -80,7 +80,9 @@ impl Spectrum {
             SpectrumModel::Spectrum128K | SpectrumModel::SpectrumPlus2 => {
                 Box::new(Memory128K::new(&config.rom))
             }
-            SpectrumModel::SpectrumPlus3 => Box::new(MemoryPlus3::new(&config.rom)),
+            SpectrumModel::SpectrumPlus2A | SpectrumModel::SpectrumPlus3 => {
+                Box::new(MemoryPlus3::new(&config.rom))
+            }
             other => panic!("Model {other:?} is not yet supported"),
         };
 
@@ -88,6 +90,7 @@ impl Spectrum {
             config.model,
             SpectrumModel::Spectrum128K
                 | SpectrumModel::SpectrumPlus2
+                | SpectrumModel::SpectrumPlus2A
                 | SpectrumModel::SpectrumPlus3
         );
 

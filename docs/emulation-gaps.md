@@ -19,7 +19,7 @@ TODO/FIXME/HACK comments in the codebase.
 
 ### Implemented
 
-48K, 128K, +2, and +3 models are fully functional:
+48K, 128K, +2, +2A, and +3 models are fully functional:
 
 - **CPU**: Z80 at 100% cycle accuracy (1.6M single-step tests pass)
 - **ULA**: Video, contention, INT, floating bus — all verified
@@ -31,8 +31,8 @@ TODO/FIXME/HACK comments in the codebase.
 - **FDC**: NEC uPD765 — SPECIFY, RECALIBRATE, SEEK, SENSE INTERRUPT/DRIVE STATUS, READ DATA, WRITE DATA, READ ID, FORMAT TRACK
 - **EAR bit**: Port $FE bit 6 driven by TZX signal when active, falls back to MIC output (bit 3 of last $FE write)
 - **Audio**: Stereo AY output with ACB panning (A→left, C→right, B→centre)
-- **CLI**: `--model 48k|128k|plus2|plus3`, `--rom`, `--sna`, `--z80`, `--tap`, `--tzx`, `--dsk`
-- **MCP**: Key input including Kempston, screenshots, state queries, 128K/+3 boot, load_z80, load_tzx, load_dsk, tape_status
+- **CLI**: `--model 48k|128k|plus2|plus2a|plus3`, `--rom`, `--sna`, `--z80`, `--tap`, `--tzx`, `--dsk`
+- **MCP**: Key input including Kempston, screenshots, state queries, 128K/+2A/+3 boot, load_z80, load_tzx, load_dsk, tape_status
 
 ### Blocking broader compatibility
 
@@ -50,8 +50,8 @@ No blocking gaps remain for any in-scope Spectrum model.
 
 ### Assessment
 
-48K, 128K, +2, and +3 PAL are **complete**. The Spectrum is the most mature
-of the four systems. TZX support handles turbo loaders and custom protection
+48K, 128K, +2, +2A, and +3 PAL are **complete**. The Spectrum is the most
+mature of the four systems. TZX support handles turbo loaders and custom protection
 schemes via real-time EAR signal simulation. The +3 FDC (NEC uPD765) supports
 DSK/EDSK disk images with read and write capability.
 
@@ -203,7 +203,7 @@ work is in peripheral completeness.
 | Audio | 100% (beeper + AY) | ~95% (6581/8580 models, non-linear filter, combined waveforms) | ~95% (all 5 channels) | ~85% (no filter model) |
 | Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard + REU (128/256/512K) | 2-player pad | Keyboard + mouse |
-| Model variants | 48K, 128K, +2, +3 PAL | PAL + NTSC | NTSC only | A500 OCS only |
+| Model variants | 48K, 128K, +2, +2A, +3 PAL | PAL + NTSC | NTSC only | A500 OCS only |
 
 ### Highest-impact work items (by games-unlocked)
 
