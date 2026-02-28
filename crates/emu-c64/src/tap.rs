@@ -54,6 +54,8 @@ pub struct C64TapBlock {
 pub struct C64TapFile {
     /// Decoded tape blocks.
     pub blocks: Vec<C64TapBlock>,
+    /// Raw pulse durations in CPU cycles (for real-time playback / turbo loaders).
+    pub raw_pulses: Vec<u32>,
 }
 
 /// Classify a pulse duration into short (0), long (1), or medium (sync).
@@ -257,7 +259,7 @@ impl C64TapFile {
         // Find and decode blocks
         let blocks = Self::extract_blocks(&bits);
 
-        Ok(Self { blocks })
+        Ok(Self { blocks, raw_pulses })
     }
 
     /// Extract blocks from a decoded bit stream.

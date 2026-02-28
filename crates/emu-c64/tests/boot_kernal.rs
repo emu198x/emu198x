@@ -29,6 +29,8 @@ fn test_boot_kernal() {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     });
 
     println!("Reset: PC=${:04X}", c64.cpu().regs.pc);
@@ -86,6 +88,8 @@ fn test_sid_produces_audio() {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     });
 
     // Boot past READY.
@@ -145,6 +149,8 @@ fn test_badline_border_timing() {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     });
 
     // Boot to READY. prompt
@@ -289,6 +295,8 @@ fn test_hires_bitmap_mode() {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     });
 
     // Boot to READY.
@@ -362,6 +370,8 @@ fn test_multicolour_text_mode() {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     });
 
     // Boot to READY.
@@ -429,6 +439,8 @@ fn test_xscroll_smooth_scroll() {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     });
 
     // Boot to READY.
@@ -490,6 +502,8 @@ fn test_csel_38_column() {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     });
 
     // Boot to READY.
@@ -553,6 +567,8 @@ fn test_d64_load() {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: Some(drive_rom),
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     });
 
     // Boot to READY.

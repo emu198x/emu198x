@@ -1,58 +1,52 @@
-//! VIC-II 6569 (PAL) video chip.
+//! VIC-II video chip (6569 PAL / 6567 NTSC).
 //!
 //! Implements text mode rendering, raster counter, raster IRQ, badline
-//! cycle stealing, and single-colour sprites with priority.
+//! cycle stealing, sprite DMA stealing, and single-colour sprites with
+//! priority.
 //!
-//! # Timing (PAL)
+//! # Timing
 //!
-//! - 312 raster lines per frame (0-311)
-//! - 63 CPU cycles per line
-//! - 19,656 CPU cycles per frame
-//! - Display window: cycles 16-55, lines $30-$F7
+//! **PAL (6569):** 312 lines, 63 cycles/line, 19,656 cycles/frame.
+//! **NTSC (6567):** 263 lines, 65 cycles/line, 17,095 cycles/frame.
 //!
 //! # Framebuffer
 //!
-//! 416 x 284 pixels (visible area including borders). Each tick renders
-//! 8 pixels. The display window is centred within the border.
+//! Visible area including borders. Each tick renders 8 pixels.
 
 #![allow(clippy::cast_possible_truncation)]
 
+use crate::config::C64Model;
 use crate::memory::C64Memory;
 use crate::palette::PALETTE;
 
-/// Total raster lines per PAL frame.
-const LINES_PER_FRAME: u16 = 312;
+// --- PAL defaults (used for the public constants) ---
 
-/// CPU cycles per raster line (PAL).
-const CYCLES_PER_LINE: u8 = 63;
+/// PAL first visible line.
+const PAL_FIRST_VISIBLE_LINE: u16 = 6;
+/// PAL last visible line (exclusive).
+const PAL_LAST_VISIBLE_LINE: u16 = 290;
 
-/// First visible raster line (top border start).
-/// 42 lines of top border before display at $30 (48).
-const FIRST_VISIBLE_LINE: u16 = 6;
-
-/// Last visible raster line (bottom border end, exclusive).
-/// 42 lines of bottom border after display ends at $F8 (248).
-const LAST_VISIBLE_LINE: u16 = 290;
-
-/// Visible lines in framebuffer.
-const VISIBLE_LINES: u16 = LAST_VISIBLE_LINE - FIRST_VISIBLE_LINE;
+/// NTSC first visible line.
+const NTSC_FIRST_VISIBLE_LINE: u16 = 14;
+/// NTSC last visible line (exclusive).
+const NTSC_LAST_VISIBLE_LINE: u16 = 258;
 
 /// First visible cycle in a line (left border start).
-/// 6 cycles of left border before display at cycle 16.
 const FIRST_VISIBLE_CYCLE: u8 = 10;
 
 /// Last visible cycle (right border end, exclusive).
-/// 6 cycles of right border after display ends at cycle 56.
+/// Both PAL (63 cycles) and NTSC (65 cycles) have the same visible
+/// horizontal range — the extra 2 NTSC cycles are in the HBLANK.
 const LAST_VISIBLE_CYCLE: u8 = 62;
 
 /// Visible cycles per line.
 const VISIBLE_CYCLES: u8 = LAST_VISIBLE_CYCLE - FIRST_VISIBLE_CYCLE;
 
-/// Framebuffer width: visible cycles * 8 pixels per cycle.
+/// Default framebuffer width (PAL): visible cycles * 8 pixels.
 pub const FB_WIDTH: u32 = VISIBLE_CYCLES as u32 * 8;
 
-/// Framebuffer height: visible lines.
-pub const FB_HEIGHT: u32 = VISIBLE_LINES as u32;
+/// Default framebuffer height (PAL): visible lines.
+pub const FB_HEIGHT: u32 = (PAL_LAST_VISIBLE_LINE - PAL_FIRST_VISIBLE_LINE) as u32;
 
 /// First line of the display window (where characters are rendered).
 const DISPLAY_START_LINE: u16 = 0x30;
@@ -91,15 +85,15 @@ impl CellPixels {
     }
 }
 
-/// VIC-II 6569 PAL chip.
+/// VIC-II chip (6569 PAL / 6567 NTSC).
 pub struct Vic {
     /// VIC-II registers ($D000-$D02E).
     regs: [u8; 0x40],
 
-    /// Current raster line (0-311).
+    /// Current raster line.
     raster_line: u16,
 
-    /// Current cycle within the line (0-62).
+    /// Current cycle within the line.
     raster_cycle: u8,
 
     /// Raster compare value for IRQ ($D012 + bit 7 of $D011).
@@ -143,6 +137,9 @@ pub struct Vic {
     /// Whether each sprite is active on the current scanline.
     sprite_active: [bool; 8],
 
+    /// Whether each sprite has DMA active on the current line.
+    sprite_dma_active: [bool; 8],
+
     /// Sprite-sprite collision ($D01E). Clear-on-read.
     sprite_sprite_collision: u8,
     /// Sprite-background collision ($D01F). Clear-on-read.
@@ -159,11 +156,30 @@ pub struct Vic {
     xscroll_carry_fg: u8,
     /// XSCROLL value latched at the start of each display line.
     xscroll_latch: u8,
+
+    // --- Model-dependent timing ---
+
+    /// Total raster lines per frame (312 PAL / 263 NTSC).
+    lines_per_frame: u16,
+    /// CPU cycles per raster line (63 PAL / 65 NTSC).
+    cycles_per_line: u8,
+    /// First visible raster line.
+    first_visible_line: u16,
+    /// Last visible raster line (exclusive).
+    last_visible_line: u16,
 }
 
 impl Vic {
+    /// Create a new VIC-II for the given C64 model.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(model: C64Model) -> Self {
+        let (first_vis, last_vis) = match model {
+            C64Model::C64Pal => (PAL_FIRST_VISIBLE_LINE, PAL_LAST_VISIBLE_LINE),
+            C64Model::C64Ntsc => (NTSC_FIRST_VISIBLE_LINE, NTSC_LAST_VISIBLE_LINE),
+        };
+        let visible_lines = (last_vis - first_vis) as u32;
+        let fb_size = FB_WIDTH as usize * visible_lines as usize;
+
         Self {
             regs: [0; 0x40],
             raster_line: 0,
@@ -174,13 +190,14 @@ impl Vic {
             is_badline: false,
             den_latch: false,
             frame_complete: false,
-            framebuffer: vec![0xFF00_0000; FB_WIDTH as usize * FB_HEIGHT as usize],
+            framebuffer: vec![0xFF00_0000; fb_size],
             screen_row: [0; 40],
             colour_row: [0; 40],
             char_row: 0,
             vic_bank: 0,
             sprite_data: [[0; 3]; 8],
             sprite_active: [false; 8],
+            sprite_dma_active: [false; 8],
             sprite_sprite_collision: 0,
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
@@ -189,6 +206,10 @@ impl Vic {
             xscroll_carry_pixels: [0; 8],
             xscroll_carry_fg: 0,
             xscroll_latch: 0,
+            lines_per_frame: model.lines_per_frame(),
+            cycles_per_line: model.cycles_per_line(),
+            first_visible_line: first_vis,
+            last_visible_line: last_vis,
         }
     }
 
@@ -197,10 +218,16 @@ impl Vic {
     /// Renders 8 pixels, advances the beam, detects badlines.
     /// Returns `true` if the CPU should be stalled this cycle (badline DMA).
     pub fn tick(&mut self, memory: &C64Memory) -> bool {
+        // Evaluate sprite DMA at cycle 55 (which sprites are active for
+        // DMA on this line, based on Y-coordinate comparison).
+        if self.raster_cycle == 55 {
+            self.evaluate_sprite_dma();
+        }
+
         // Fetch sprite data at the start of each visible line
         if self.raster_cycle == 0
-            && self.raster_line >= FIRST_VISIBLE_LINE
-            && self.raster_line < LAST_VISIBLE_LINE
+            && self.raster_line >= self.first_visible_line
+            && self.raster_line < self.last_visible_line
         {
             self.fetch_sprite_data(memory);
         }
@@ -211,8 +238,10 @@ impl Vic {
         // Re-evaluate badline condition every cycle (DEN/YSCROLL can change mid-line).
         self.check_badline();
 
-        // Stall CPU during badline DMA cycles 15–54 (40 cycles of character fetch).
-        let cpu_stalled = self.is_badline && (15..=54).contains(&self.raster_cycle);
+        // Stall CPU during badline DMA cycles 15–54 or sprite DMA slots.
+        let badline_stall = self.is_badline && (15..=54).contains(&self.raster_cycle);
+        let sprite_stall = self.is_sprite_dma_stealing();
+        let cpu_stalled = badline_stall || sprite_stall;
 
         // Fetch screen row data at the start of the badline DMA window.
         if self.is_badline && self.raster_cycle == 15 {
@@ -222,11 +251,11 @@ impl Vic {
 
         // Advance beam position
         self.raster_cycle += 1;
-        if self.raster_cycle >= CYCLES_PER_LINE {
+        if self.raster_cycle >= self.cycles_per_line {
             self.raster_cycle = 0;
             self.raster_line += 1;
 
-            if self.raster_line >= LINES_PER_FRAME {
+            if self.raster_line >= self.lines_per_frame {
                 self.raster_line = 0;
                 self.frame_complete = true;
                 self.den_latch = false;
@@ -328,14 +357,14 @@ impl Vic {
     /// Render 8 pixels for the current beam position.
     fn render_pixels(&mut self, memory: &C64Memory) {
         // Check if we're in the visible area
-        if self.raster_line < FIRST_VISIBLE_LINE || self.raster_line >= LAST_VISIBLE_LINE {
+        if self.raster_line < self.first_visible_line || self.raster_line >= self.last_visible_line {
             return;
         }
         if self.raster_cycle < FIRST_VISIBLE_CYCLE || self.raster_cycle >= LAST_VISIBLE_CYCLE {
             return;
         }
 
-        let fb_y = (self.raster_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_y = (self.raster_line - self.first_visible_line) as usize;
         let fb_x = (self.raster_cycle - FIRST_VISIBLE_CYCLE) as usize * 8;
         let fb_offset = fb_y * FB_WIDTH as usize + fb_x;
 
@@ -767,6 +796,54 @@ impl Vic {
         }
     }
 
+    /// Evaluate which sprites need DMA on this line.
+    ///
+    /// Called at cycle 55 of each line. Compares each enabled sprite's Y
+    /// coordinate against the current raster line.
+    fn evaluate_sprite_dma(&mut self) {
+        let sprite_enable = self.regs[0x15];
+        let y_expand = self.regs[0x17];
+
+        for i in 0..8usize {
+            if sprite_enable & (1 << i) == 0 {
+                self.sprite_dma_active[i] = false;
+                continue;
+            }
+
+            let sprite_y = u16::from(self.regs[1 + i * 2]);
+            let height = if y_expand & (1 << i) != 0 { 42u16 } else { 21u16 };
+            let offset = self.raster_line.wrapping_sub(sprite_y);
+            self.sprite_dma_active[i] = offset < height;
+        }
+    }
+
+    /// Check whether the current cycle falls in a sprite DMA fetch slot.
+    ///
+    /// PAL VIC-II (6569) sprite DMA timing:
+    ///   Sprite 0: cycles 58, 59
+    ///   Sprite 1: cycles 60, 61
+    ///   Sprite 2: cycles 62, 0 (wraps)
+    ///   Sprite 3: cycles 1, 2
+    ///   Sprite 4: cycles 3, 4
+    ///   Sprite 5: cycles 5, 6
+    ///   Sprite 6: cycles 7, 8
+    ///   Sprite 7: cycles 9, 10
+    ///
+    /// NTSC (6567) has the same slot layout, just shifted by the extra cycles.
+    /// Each active sprite steals 2 CPU cycles.
+    fn is_sprite_dma_stealing(&self) -> bool {
+        let c = self.raster_cycle;
+        // Check each sprite's 2-cycle DMA window
+        (self.sprite_dma_active[0] && (c == 58 || c == 59))
+            || (self.sprite_dma_active[1] && (c == 60 || c == 61))
+            || (self.sprite_dma_active[2] && (c == 62 || c == 0))
+            || (self.sprite_dma_active[3] && (c == 1 || c == 2))
+            || (self.sprite_dma_active[4] && (c == 3 || c == 4))
+            || (self.sprite_dma_active[5] && (c == 5 || c == 6))
+            || (self.sprite_dma_active[6] && (c == 7 || c == 8))
+            || (self.sprite_dma_active[7] && (c == 9 || c == 10))
+    }
+
     /// Screen memory base address within the VIC-II 16K bank.
     fn screen_base(&self) -> u16 {
         u16::from((self.regs[0x18] >> 4) & 0x0F) * 0x0400
@@ -924,8 +1001,8 @@ impl Vic {
 
     /// Framebuffer height in pixels.
     #[must_use]
-    pub const fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
+    pub fn framebuffer_height(&self) -> u32 {
+        (self.last_visible_line - self.first_visible_line) as u32
     }
 
     /// Check and clear the frame-complete flag.
@@ -962,7 +1039,7 @@ impl Vic {
 
 impl Default for Vic {
     fn default() -> Self {
-        Self::new()
+        Self::new(C64Model::C64Pal)
     }
 }
 
@@ -970,18 +1047,23 @@ impl Default for Vic {
 mod tests {
     use super::*;
 
+    // PAL constants for tests
+    const LINES_PER_FRAME: u16 = 312;
+    const CYCLES_PER_LINE: u8 = 63;
+    const FIRST_VISIBLE_LINE: u16 = PAL_FIRST_VISIBLE_LINE;
+
     fn make_vic_and_memory() -> (Vic, C64Memory) {
         let kernal = vec![0; 8192];
         let basic = vec![0; 8192];
         let chargen = vec![0xFF; 4096]; // All pixels set
-        let vic = Vic::new();
+        let vic = Vic::new(C64Model::C64Pal);
         let memory = C64Memory::new(&kernal, &basic, &chargen);
         (vic, memory)
     }
 
     #[test]
     fn initial_state() {
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
         assert_eq!(vic.raster_line(), 0);
         assert_eq!(vic.raster_cycle(), 0);
         assert!(!vic.irq_active());
@@ -1031,7 +1113,7 @@ mod tests {
 
     #[test]
     fn framebuffer_size() {
-        let vic = Vic::new();
+        let vic = Vic::new(C64Model::C64Pal);
         assert_eq!(
             vic.framebuffer().len(),
             FB_WIDTH as usize * FB_HEIGHT as usize
@@ -1040,7 +1122,7 @@ mod tests {
 
     #[test]
     fn register_read_write() {
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
         vic.write(0x20, 0x06); // Border colour = blue
         assert_eq!(vic.read(0x20), 0x06);
 
@@ -1050,7 +1132,7 @@ mod tests {
 
     #[test]
     fn bank_selection() {
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
         vic.set_bank(2);
         assert_eq!(vic.bank(), 2);
         vic.set_bank(5); // Should mask to 1
@@ -1109,7 +1191,7 @@ mod tests {
 
     #[test]
     fn bitmap_base_selection() {
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
         // Bit 3 clear → $0000
         vic.write(0x18, 0x14);
         assert_eq!(vic.bitmap_base(), 0x0000);
@@ -1120,7 +1202,7 @@ mod tests {
 
     #[test]
     fn collision_register_clear_on_read() {
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
         // Manually set collision fields
         vic.sprite_sprite_collision = 0x05;
         vic.sprite_bg_collision = 0x0A;
@@ -1136,7 +1218,7 @@ mod tests {
 
     #[test]
     fn collision_peek_does_not_clear() {
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
         vic.sprite_sprite_collision = 0x03;
         // peek should not clear the register
         assert_eq!(vic.peek(0x1E), 0x03);
@@ -1182,7 +1264,7 @@ mod tests {
         let chargen = vec![0x00; 4096]; // All pixels clear → bg visible
         let memory = C64Memory::new(&kernal, &basic, &chargen);
 
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
         vic.write(0x11, 0x5B); // ECM + DEN + YSCROLL=3
         vic.write(0x18, 0x14);
         vic.write(0x21, 0x00); // BG0 = black
@@ -1235,7 +1317,7 @@ mod tests {
         chargen[0] = 0b10101010; // Char 0, row 0: bits 10 10 10 10
 
         let memory = C64Memory::new(&kernal, &basic, &chargen);
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
 
         // MCM mode
         vic.write(0x11, 0x1B); // DEN + YSCROLL=3
@@ -1541,7 +1623,7 @@ mod tests {
         chargen[0] = 0xFF; // Char 0, row 0
 
         let memory = C64Memory::new(&kernal, &basic, &chargen);
-        let mut vic = Vic::new();
+        let mut vic = Vic::new(C64Model::C64Pal);
         vic.write(0x11, 0x1B); // DEN + YSCROLL=3
         vic.write(0x16, 0x0B); // CSEL=1, XSCROLL=3
         vic.write(0x18, 0x14);

@@ -58,6 +58,10 @@ pub struct Drive1541 {
     prev_atn: bool,
     /// Previous CB1 state for drive byte-ready (avoids re-triggering).
     prev_byte_ready: bool,
+    /// Write mode active (VIA2 CB2 low = write mode).
+    write_mode: bool,
+    /// Buffer collecting GCR bytes written by the drive head.
+    write_buffer: Vec<u8>,
 }
 
 impl Drive1541 {
@@ -89,6 +93,8 @@ impl Drive1541 {
             prev_stepper_phase: 0,
             prev_atn: true, // ATN starts high (not asserted)
             prev_byte_ready: false,
+            write_mode: false,
+            write_buffer: Vec::new(),
         }
     }
 
@@ -223,9 +229,22 @@ impl Drive1541 {
         let wp = if self.d64.is_some() { 0x10 } else { 0x00 };
         self.bus.via2.external_b =
             (self.bus.via2.external_b & !0x10) | wp;
+
+        // Write mode: VIA2 CB2 (active-low: 0 = write mode).
+        // CB2 is controlled by CRB bits 5-7. In manual output mode
+        // (bits 7-5 = 110 or 111), CB2 level is CRB bit 5.
+        let crb = self.bus.via2.read(0x0F);
+        let cb2_low = (crb & 0xE0) == 0xC0; // Manual output low
+        let was_writing = self.write_mode;
+        self.write_mode = cb2_low;
+
+        // Transition write→read: flush write buffer back to D64
+        if was_writing && !self.write_mode {
+            self.flush_write_buffer();
+        }
     }
 
-    /// Advance the disk rotation and present GCR bytes to VIA2.
+    /// Advance the disk rotation and present/capture GCR bytes.
     fn advance_disk(&mut self) {
         if !self.motor_on || self.gcr_track.is_empty() {
             return;
@@ -237,21 +256,31 @@ impl Drive1541 {
         if self.byte_counter >= cpb {
             self.byte_counter = 0;
 
-            // Present the next GCR byte to VIA2 port A
-            let byte = self.gcr_track[self.gcr_position];
-            self.bus.via2.external_a = byte;
+            if self.write_mode {
+                // Write mode: capture byte from VIA2 port A into the
+                // GCR track buffer and write buffer for later decoding.
+                let byte = self.bus.via2.port_a_output();
+                if self.gcr_position < self.gcr_track.len() {
+                    self.gcr_track[self.gcr_position] = byte;
+                }
+                self.write_buffer.push(byte);
+            } else {
+                // Read mode: present the next GCR byte to VIA2 port A
+                let byte = self.gcr_track[self.gcr_position];
+                self.bus.via2.external_a = byte;
+
+                // SYNC detect: bit 7 of VIA2 port B external.
+                // Active-low: 0 = sync detected.
+                let in_sync = byte == 0xFF;
+                self.bus.via2.external_b = (self.bus.via2.external_b & !0x80)
+                    | if in_sync { 0x00 } else { 0x80 };
+            }
 
             // Advance position (wrap around the track)
             self.gcr_position += 1;
             if self.gcr_position >= self.gcr_track.len() {
                 self.gcr_position = 0;
             }
-
-            // SYNC detect: bit 7 of VIA2 port B external.
-            // Active-low: 0 = sync detected (current byte is $FF and in sync zone).
-            let in_sync = byte == 0xFF;
-            self.bus.via2.external_b = (self.bus.via2.external_b & !0x80)
-                | if in_sync { 0x00 } else { 0x80 };
 
             // Pulse CB1 (byte-ready) — triggers on positive edge
             if !self.prev_byte_ready {
@@ -265,6 +294,105 @@ impl Drive1541 {
                 self.prev_byte_ready = false;
             }
         }
+    }
+
+    /// Flush the write buffer: decode GCR sectors and write back to D64.
+    fn flush_write_buffer(&mut self) {
+        if self.write_buffer.is_empty() {
+            return;
+        }
+
+        if self.d64.is_none() {
+            self.write_buffer.clear();
+            return;
+        }
+
+        // First pass: find sectors to write (collect into a temp vec to avoid borrow issues)
+        let mut writes: Vec<(u8, Vec<u8>)> = Vec::new();
+        let sector_num = self.find_sector_at_track_position();
+
+        // Scan the write buffer for sync + data block patterns.
+        let buf = &self.write_buffer;
+        let mut i = 0;
+
+        while i + 5 + 325 <= buf.len() {
+            if buf[i..i + 5].iter().all(|&b| b == 0xFF) {
+                let gcr_start = i + 5;
+                if gcr_start + 325 <= buf.len() {
+                    if let Some(sector_data) = gcr::decode_data_block(&buf[gcr_start..gcr_start + 325]) {
+                        if let Some(sector) = sector_num {
+                            writes.push((sector, sector_data));
+                        }
+                    }
+                }
+                i = gcr_start + 325;
+            } else {
+                i += 1;
+            }
+        }
+
+        self.write_buffer.clear();
+
+        // Second pass: apply writes to D64
+        let track = self.current_track;
+        if let Some(ref mut d64) = self.d64 {
+            for (sector, data) in &writes {
+                let _ = d64.write_sector(track, *sector, data);
+            }
+        }
+
+        // Re-encode the track from D64 to keep GCR track in sync
+        self.encode_current_track();
+    }
+
+    /// Attempt to identify which sector was written based on the
+    /// track's GCR data. Scans backwards from current position for
+    /// the most recent header block.
+    fn find_sector_at_track_position(&self) -> Option<u8> {
+        if self.gcr_track.is_empty() {
+            return None;
+        }
+
+        // Scan backwards from current position looking for a header sync
+        // (5x $FF followed by 10 GCR header bytes). The header contains
+        // the sector number.
+        let len = self.gcr_track.len();
+        let start = if self.gcr_position == 0 { len - 1 } else { self.gcr_position - 1 };
+
+        for offset in 0..len {
+            let pos = (start + len - offset) % len;
+            // Check for header sync (need 5 bytes of $FF)
+            let mut sync_count = 0;
+            for j in 0..5 {
+                if self.gcr_track[(pos + len - j) % len] == 0xFF {
+                    sync_count += 1;
+                } else {
+                    break;
+                }
+            }
+            if sync_count >= 5 {
+                // Next 10 bytes should be the GCR header
+                let hdr_start = (pos + 1) % len;
+                if hdr_start + 10 <= len {
+                    let mut group = [0u8; 5];
+                    group.copy_from_slice(&self.gcr_track[hdr_start..hdr_start + 5]);
+                    if let Some(decoded) = gcr::decode_gcr_group(&group) {
+                        // decoded[0] = 0x08 (header marker)
+                        // decoded[2] = sector number
+                        if decoded[0] == 0x08 {
+                            return Some(decoded[2]);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Get a reference to the D64 image (for saving).
+    #[must_use]
+    pub fn d64(&self) -> Option<&D64> {
+        self.d64.as_ref()
     }
 
     /// Step the head based on stepper motor phase change.
@@ -294,17 +422,32 @@ impl Drive1541 {
         }
 
         let new_track = (self.half_track / 2) + 1;
-        if new_track != self.current_track && (1..=35).contains(&new_track) {
+        if new_track != self.current_track {
             self.current_track = new_track;
             self.encode_current_track();
         }
     }
 
     /// Re-encode the GCR track data for the current head position.
+    ///
+    /// On whole tracks (even half_track values), encodes from D64.
+    /// On half-tracks (odd half_track values), fills with $00 — the
+    /// drive ROM fails to find sync marks, which is correct behaviour
+    /// and matches real hardware.
     fn encode_current_track(&mut self) {
+        let on_half_track = self.half_track & 1 != 0;
+
+        if on_half_track || !(1..=35).contains(&self.current_track) {
+            // Half-track or out-of-range: no valid data
+            // Fill with $00 so drive ROM sees no sync marks
+            let track_bytes = 7692; // Approximate track length
+            self.gcr_track = vec![0x00; track_bytes];
+            self.gcr_position = 0;
+            return;
+        }
+
         if let Some(ref d64) = self.d64 {
             self.gcr_track = gcr::encode_track(d64, self.current_track);
-            // Preserve position within bounds, or reset
             if self.gcr_position >= self.gcr_track.len() {
                 self.gcr_position = 0;
             }

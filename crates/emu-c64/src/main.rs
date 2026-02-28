@@ -10,6 +10,7 @@ use std::process;
 use std::time::{Duration, Instant};
 
 use emu_c64::{C64, C64Config, C64Model, capture, keyboard_map, mcp::McpServer};
+use emu_c64::config::SidModel;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -17,21 +18,17 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-/// C64 framebuffer dimensions.
-const FB_WIDTH: u32 = emu_c64::vic::FB_WIDTH;
-const FB_HEIGHT: u32 = emu_c64::vic::FB_HEIGHT;
-
 /// Window scale factor.
 const SCALE: u32 = 3;
-
-/// Frame duration for ~50 Hz PAL.
-const FRAME_DURATION: Duration = Duration::from_micros(19_950);
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
 struct CliArgs {
+    model: String,
+    sid_model: String,
+    reu_size: Option<u32>,
     prg_path: Option<PathBuf>,
     d64_path: Option<PathBuf>,
     drive_rom_path: Option<PathBuf>,
@@ -48,6 +45,9 @@ struct CliArgs {
 fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut cli = CliArgs {
+        model: "pal".to_string(),
+        sid_model: "6581".to_string(),
+        reu_size: None,
         prg_path: None,
         d64_path: None,
         drive_rom_path: None,
@@ -64,6 +64,24 @@ fn parse_args() -> CliArgs {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--model" => {
+                i += 1;
+                if let Some(s) = args.get(i) {
+                    cli.model = s.to_lowercase();
+                }
+            }
+            "--sid" => {
+                i += 1;
+                if let Some(s) = args.get(i) {
+                    cli.sid_model = s.clone();
+                }
+            }
+            "--reu" => {
+                i += 1;
+                if let Some(s) = args.get(i) {
+                    cli.reu_size = s.parse().ok();
+                }
+            }
             "--prg" => {
                 i += 1;
                 cli.prg_path = args.get(i).map(PathBuf::from);
@@ -114,6 +132,9 @@ fn parse_args() -> CliArgs {
                 eprintln!("Usage: emu-c64 [OPTIONS]");
                 eprintln!();
                 eprintln!("Options:");
+                eprintln!("  --model <pal|ntsc>   C64 model variant [default: pal]");
+                eprintln!("  --sid <6581|8580>    SID chip revision [default: 6581]");
+                eprintln!("  --reu <128|256|512>  Enable REU with given KB");
                 eprintln!("  --prg <file>         Load a PRG file into memory");
                 eprintln!("  --d64 <file>         Insert a D64 disk image");
                 eprintln!("  --drive-rom <file>   Load 1541 drive ROM (16384 bytes)");
@@ -178,15 +199,23 @@ struct App {
     window: Option<&'static Window>,
     pixels: Option<Pixels<'static>>,
     last_frame_time: Instant,
+    frame_duration: Duration,
+    fb_width: u32,
+    fb_height: u32,
 }
 
 impl App {
     fn new(c64: C64) -> Self {
+        let fb_width = c64.framebuffer_width();
+        let fb_height = c64.framebuffer_height();
         Self {
             c64,
             window: None,
             pixels: None,
             last_frame_time: Instant::now(),
+            frame_duration: Duration::from_micros(19_950), // ~50 Hz PAL default
+            fb_width,
+            fb_height,
         }
     }
 
@@ -250,7 +279,7 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let window_size = winit::dpi::LogicalSize::new(FB_WIDTH * SCALE, FB_HEIGHT * SCALE);
+        let window_size = winit::dpi::LogicalSize::new(self.fb_width * SCALE, self.fb_height * SCALE);
         let attrs = WindowAttributes::default()
             .with_title("Commodore 64")
             .with_inner_size(window_size)
@@ -261,7 +290,7 @@ impl ApplicationHandler for App {
                 let window: &'static Window = Box::leak(Box::new(window));
                 let inner = window.inner_size();
                 let surface = SurfaceTexture::new(inner.width, inner.height, window);
-                match Pixels::new(FB_WIDTH, FB_HEIGHT, surface) {
+                match Pixels::new(self.fb_width, self.fb_height, surface) {
                     Ok(pixels) => {
                         self.pixels = Some(pixels);
                     }
@@ -301,7 +330,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 let now = Instant::now();
-                if now.duration_since(self.last_frame_time) >= FRAME_DURATION {
+                if now.duration_since(self.last_frame_time) >= self.frame_duration {
                     self.c64.run_frame();
                     // Drain SID audio buffer (prevent unbounded growth).
                     // Future: feed to audio output device.
@@ -381,6 +410,16 @@ fn find_roms_dir() -> PathBuf {
 fn load_c64_config(cli: &CliArgs) -> C64Config {
     let roms_dir = find_roms_dir();
 
+    let model = match cli.model.as_str() {
+        "ntsc" => C64Model::C64Ntsc,
+        _ => C64Model::C64Pal,
+    };
+
+    let sid_model = match cli.sid_model.as_str() {
+        "8580" => SidModel::Sid8580,
+        _ => SidModel::Sid6581,
+    };
+
     // Load 1541 drive ROM if explicitly specified, or auto-detect from roms/
     let drive_rom = if let Some(ref path) = cli.drive_rom_path {
         Some(load_rom(path, "1541 Drive", 16384))
@@ -394,16 +433,22 @@ fn load_c64_config(cli: &CliArgs) -> C64Config {
     };
 
     C64Config {
-        model: C64Model::C64Pal,
+        model,
+        sid_model,
         kernal_rom: load_rom(&roms_dir.join("kernal.rom"), "Kernal", 8192),
         basic_rom: load_rom(&roms_dir.join("basic.rom"), "BASIC", 8192),
         char_rom: load_rom(&roms_dir.join("chargen.rom"), "Character", 4096),
         drive_rom,
+        reu_size: cli.reu_size,
     }
 }
 
 fn make_c64(cli: &CliArgs) -> C64 {
     let config = load_c64_config(cli);
+    make_c64_from_config(config, cli)
+}
+
+fn make_c64_from_config(config: C64Config, cli: &CliArgs) -> C64 {
     let mut c64 = C64::new(&config);
 
     // Load D64 disk image if specified
@@ -476,8 +521,13 @@ fn main() {
         return;
     }
 
-    let c64 = make_c64(&cli);
+    let config = load_c64_config(&cli);
+    let is_ntsc = config.model == C64Model::C64Ntsc;
+    let c64 = make_c64_from_config(config, &cli);
     let mut app = App::new(c64);
+    if is_ntsc {
+        app.frame_duration = Duration::from_micros(16_667); // ~60 Hz NTSC
+    }
 
     let event_loop = match EventLoop::new() {
         Ok(el) => el,

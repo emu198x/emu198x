@@ -28,6 +28,15 @@ const GCR_ENCODE: [u8; 16] = [
     0x09, 0x19, 0x1A, 0x1B, 0x0D, 0x1D, 0x1E, 0x15,
 ];
 
+/// 5-bit to 4-bit GCR decoding table (inverse of GCR_ENCODE).
+/// Invalid codes map to 0x00.
+const GCR_DECODE: [u8; 32] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 00-07: invalid
+    0xFF, 0x08, 0x00, 0x01, 0xFF, 0x0C, 0x04, 0x05, // 08-0F
+    0xFF, 0xFF, 0x02, 0x03, 0xFF, 0x0F, 0x06, 0x07, // 10-17
+    0xFF, 0x09, 0x0A, 0x0B, 0xFF, 0x0D, 0x0E, 0xFF, // 18-1F
+];
+
 /// Speed zone for a given track number.
 ///
 /// Returns the zone (0-3) which determines the bit rate.
@@ -52,6 +61,77 @@ pub fn cycles_per_byte(track: u8) -> u32 {
         3 => 256,
         _ => 208,
     }
+}
+
+/// Decode 5 GCR bytes into 4 raw bytes.
+///
+/// Returns `None` if any GCR nybble is invalid.
+pub fn decode_gcr_group(input: &[u8; 5]) -> Option<[u8; 4]> {
+    // Unpack 40 bits (5 bytes) into 8 x 5-bit GCR nybbles
+    let g0 = (input[0] >> 3) & 0x1F;
+    let g1 = ((input[0] << 2) | (input[1] >> 6)) & 0x1F;
+    let g2 = (input[1] >> 1) & 0x1F;
+    let g3 = ((input[1] << 4) | (input[2] >> 4)) & 0x1F;
+    let g4 = ((input[2] << 1) | (input[3] >> 7)) & 0x1F;
+    let g5 = (input[3] >> 2) & 0x1F;
+    let g6 = ((input[3] << 3) | (input[4] >> 5)) & 0x1F;
+    let g7 = input[4] & 0x1F;
+
+    let d = [
+        GCR_DECODE[g0 as usize],
+        GCR_DECODE[g1 as usize],
+        GCR_DECODE[g2 as usize],
+        GCR_DECODE[g3 as usize],
+        GCR_DECODE[g4 as usize],
+        GCR_DECODE[g5 as usize],
+        GCR_DECODE[g6 as usize],
+        GCR_DECODE[g7 as usize],
+    ];
+
+    // Check for invalid codes
+    if d.iter().any(|&b| b == 0xFF) {
+        return None;
+    }
+
+    Some([
+        (d[0] << 4) | d[1],
+        (d[2] << 4) | d[3],
+        (d[4] << 4) | d[5],
+        (d[6] << 4) | d[7],
+    ])
+}
+
+/// Decode a GCR data block (325 GCR bytes → 260 raw bytes).
+///
+/// Returns the 256 data bytes (skipping the marker byte, checksum, and
+/// padding), or `None` on decode error or checksum mismatch.
+pub fn decode_data_block(gcr: &[u8]) -> Option<Vec<u8>> {
+    if gcr.len() < 325 {
+        return None;
+    }
+
+    let mut raw = Vec::with_capacity(260);
+    for chunk in gcr[..325].chunks_exact(5) {
+        let group = decode_gcr_group(&[chunk[0], chunk[1], chunk[2], chunk[3], chunk[4]])?;
+        raw.extend_from_slice(&group);
+    }
+
+    if raw.len() < 260 {
+        return None;
+    }
+
+    // raw[0] = 0x07 marker, raw[1..257] = data, raw[257] = checksum
+    let data = &raw[1..257];
+    let expected_checksum = raw[257];
+    let mut checksum: u8 = 0;
+    for &b in data {
+        checksum ^= b;
+    }
+    if checksum != expected_checksum {
+        return None;
+    }
+
+    Some(data.to_vec())
 }
 
 /// Encode 4 raw bytes into 5 GCR bytes.

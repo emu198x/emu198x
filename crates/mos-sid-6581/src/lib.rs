@@ -38,8 +38,21 @@ pub use envelope::{Envelope, Phase};
 pub use filter::Filter;
 pub use voice::Voice;
 
+/// SID chip revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidModel {
+    /// MOS 6581 — original revision. Non-linear filter curve, specific
+    /// combined-waveform bit patterns from die analysis.
+    Mos6581,
+    /// MOS 8580 — later revision. Wider linear filter range, lower
+    /// resonance ceiling, AND-based combined waveforms.
+    Mos8580,
+}
+
 /// MOS 6581 SID chip.
 pub struct Sid6581 {
+    /// Chip revision (6581 or 8580).
+    pub model: SidModel,
     /// Three voices.
     pub voices: [Voice; 3],
     /// Three envelope generators (one per voice).
@@ -65,16 +78,23 @@ pub struct Sid6581 {
 }
 
 impl Sid6581 {
-    /// Create a new SID chip.
+    /// Create a new SID chip (defaults to 6581 model).
     ///
     /// `cpu_frequency` is the master clock rate in Hz (985,248 for PAL C64).
     /// `output_sample_rate` is the audio output rate in Hz (typically 48,000).
     #[must_use]
     pub fn new(cpu_frequency: u32, output_sample_rate: u32) -> Self {
+        Self::new_with_model(cpu_frequency, output_sample_rate, SidModel::Mos6581)
+    }
+
+    /// Create a new SID chip with a specific model.
+    #[must_use]
+    pub fn new_with_model(cpu_frequency: u32, output_sample_rate: u32, model: SidModel) -> Self {
         Self {
+            model,
             voices: [Voice::new(), Voice::new(), Voice::new()],
             envelopes: [Envelope::new(), Envelope::new(), Envelope::new()],
-            filter: Filter::new(),
+            filter: Filter::new(model),
             volume: 0,
             voice3_off: false,
             accumulator: 0.0,
@@ -94,7 +114,7 @@ impl Sid6581 {
             // OSC3: top 8 bits of voice 3 waveform output
             0x1B => {
                 let ring_src_msb = self.voices[1].msb();
-                let wav = self.voices[2].waveform_output(ring_src_msb);
+                let wav = self.voices[2].waveform_output(ring_src_msb, self.model);
                 (wav >> 4) as u8
             }
             // ENV3: voice 3 envelope level
@@ -230,6 +250,7 @@ impl Sid6581 {
 
         let mut filtered_sum: f32 = 0.0;
         let mut direct_sum: f32 = 0.0;
+        let model = self.model;
 
         for (i, (voice, (env, &ring_msb))) in self
             .voices
@@ -237,7 +258,7 @@ impl Sid6581 {
             .zip(self.envelopes.iter().zip(ring_mod_msb.iter()))
             .enumerate()
         {
-            let waveform = voice.waveform_output(ring_msb);
+            let waveform = voice.waveform_output(ring_msb, model);
             let envelope = env.level;
 
             // Centre the 12-bit waveform around 0 (-2048..+2047), scale by envelope

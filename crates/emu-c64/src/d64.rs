@@ -125,6 +125,12 @@ impl D64 {
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+
+    /// Return a copy of the D64 image as a byte vector (for saving).
+    #[must_use]
+    pub fn to_bytes(&self) -> Option<Vec<u8>> {
+        Some(self.data.clone())
+    }
 }
 
 #[cfg(test)]

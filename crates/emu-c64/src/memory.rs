@@ -27,8 +27,8 @@ use crate::vic::Vic;
 
 /// C64 memory subsystem: 64K RAM + ROMs + colour RAM + 6510 port.
 pub struct C64Memory {
-    /// 64K RAM. Writes always go here.
-    ram: Box<[u8; 0x10000]>,
+    /// 64K RAM. Writes always go here. Public for REU DMA access.
+    pub ram: Box<[u8; 0x10000]>,
     /// Kernal ROM (8K, mapped at $E000-$FFFF).
     kernal_rom: Vec<u8>,
     /// BASIC ROM (8K, mapped at $A000-$BFFF).
@@ -414,6 +414,8 @@ mod tests {
             roml: vec![roml],
             romh: vec![],
             bank: 0,
+            ef_ram: [0; 256],
+            ef_control: 0,
         });
 
         // $8000 reads ROML, not RAM
@@ -439,6 +441,8 @@ mod tests {
             roml: vec![roml],
             romh: vec![romh],
             bank: 0,
+            ef_ram: [0; 256],
+            ef_control: 0,
         });
 
         // $8000 reads ROML

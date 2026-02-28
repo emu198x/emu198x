@@ -837,10 +837,12 @@ fn load_c64_config() -> Result<C64Config, String> {
     let chargen = load_rom_file(&roms_dir.join("chargen.rom"), "Character", 4096)?;
     Ok(C64Config {
         model: C64Model::C64Pal,
+        sid_model: crate::config::SidModel::Sid6581,
         kernal_rom: kernal,
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        reu_size: None,
     })
 }
 

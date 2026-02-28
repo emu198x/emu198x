@@ -13,8 +13,10 @@ use emu_core::{Bus, ReadResult};
 use mos_sid_6581::Sid6581;
 
 use crate::cia::Cia;
+use crate::config::C64Model;
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::C64Memory;
+use crate::reu::Reu;
 use crate::vic::Vic;
 
 /// The C64 bus, implementing `emu_core::Bus`.
@@ -27,18 +29,23 @@ pub struct C64Bus {
     pub cia1: Cia,
     pub cia2: Cia,
     pub keyboard: KeyboardMatrix,
+    pub reu: Option<Reu>,
 }
 
 impl C64Bus {
     #[must_use]
-    pub fn new(memory: C64Memory) -> Self {
+    pub fn new(memory: C64Memory, model: C64Model) -> Self {
+        let tod_divider = model.tod_divider();
+        let cpu_freq = model.cpu_frequency();
+
         Self {
             memory,
-            vic: Vic::new(),
-            sid: Sid6581::new(985_248, 48_000),
-            cia1: Cia::new(),
-            cia2: Cia::new(),
+            vic: Vic::new(model),
+            sid: Sid6581::new(cpu_freq, 48_000),
+            cia1: Cia::new_with_tod(tod_divider),
+            cia2: Cia::new_with_tod(tod_divider),
             keyboard: KeyboardMatrix::new(),
+            reu: None,
         }
     }
 
@@ -79,12 +86,29 @@ impl Bus for C64Bus {
                         _ => self.cia2.read(reg),
                     }
                 }
-                0xDE00..=0xDFFF => {
-                    // I/O expansion — route to cartridge if present
+                0xDE00..=0xDEFF => {
+                    // I/O expansion 1 — route to cartridge if present
                     self.memory
                         .cartridge
                         .as_ref()
                         .map_or(0xFF, |c| c.read_io(addr16))
+                }
+                0xDF00..=0xDFFF => {
+                    // I/O expansion 2 — REU ($DF00-$DF0A) or cartridge
+                    if let Some(ref reu) = self.reu {
+                        if addr16 <= 0xDF0A {
+                            reu.read(addr16)
+                        } else if let Some(ref c) = self.memory.cartridge {
+                            c.read_io(addr16)
+                        } else {
+                            0xFF
+                        }
+                    } else {
+                        self.memory
+                            .cartridge
+                            .as_ref()
+                            .map_or(0xFF, |c| c.read_io(addr16))
+                    }
                 }
                 _ => 0xFF,
             };
@@ -114,8 +138,19 @@ impl Bus for C64Bus {
                         self.update_vic_bank();
                     }
                 }
-                0xDE00..=0xDFFF => {
-                    // I/O expansion — route to cartridge if present
+                0xDE00..=0xDEFF => {
+                    // I/O expansion 1 — route to cartridge if present
+                    if let Some(ref mut cart) = self.memory.cartridge {
+                        cart.write_io(addr16, value);
+                    }
+                }
+                0xDF00..=0xDFFF => {
+                    // I/O expansion 2 — REU ($DF00-$DF0A) or cartridge
+                    if addr16 <= 0xDF0A {
+                        if let Some(ref mut reu) = self.reu {
+                            reu.write(addr16, value, &mut self.memory.ram);
+                        }
+                    }
                     if let Some(ref mut cart) = self.memory.cartridge {
                         cart.write_io(addr16, value);
                     }
@@ -146,7 +181,7 @@ mod tests {
         let basic = vec![0xBB; 8192];
         let chargen = vec![0xCC; 4096];
         let memory = C64Memory::new(&kernal, &basic, &chargen);
-        C64Bus::new(memory)
+        C64Bus::new(memory, C64Model::C64Pal)
     }
 
     #[test]
@@ -203,11 +238,9 @@ mod tests {
 
     #[test]
     fn io_expansion_returns_ff() {
-        let bus = make_bus();
+        let mut bus = make_bus();
         // $DE00-$DFFF returns $FF
-        let val = bus
-            .memory
-            .io_read(0xDE00, &mut Vic::new(), &Sid6581::new(985_248, 48_000), &Cia::new(), &Cia::new());
+        let val = bus.read(0xDE00).data;
         assert_eq!(val, 0xFF);
     }
 }

@@ -152,7 +152,15 @@ impl Envelope {
     /// Update the exponential period based on the current level.
     ///
     /// The 6581 uses different step periods at specific level thresholds
-    /// to approximate an exponential decay curve.
+    /// to approximate an exponential decay curve. These values match the
+    /// reSID die-analysis data exactly:
+    ///
+    ///   Level >= 0x5D: period 1 (fastest decay)
+    ///   Level >= 0x36: period 2
+    ///   Level >= 0x1A: period 4
+    ///   Level >= 0x0E: period 8
+    ///   Level >= 0x06: period 16
+    ///   Level <  0x06: period 30 (slowest, near silence)
     fn update_exp_period(&mut self) {
         self.exp_period = if self.level >= 0x5D {
             1

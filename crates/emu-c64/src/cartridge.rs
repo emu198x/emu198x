@@ -6,9 +6,14 @@
 //!
 //! Supported types:
 //! - Type 0 (Normal): 8K at $8000 or 16K at $8000+$A000. No bankswitching.
+//! - Type 1 (Action Replay): 4x8K banks at ROML, mode switching via $DE00.
+//! - Type 4 (Simon's BASIC): 2x8K: ROML + ROMH, toggled via $DE00.
 //! - Type 5 (Ocean): Up to 64 x 8K banks at $8000, selected via $DE00.
+//! - Type 10 (Fun Play / Power Play): 16x8K banks at ROML via $DE00.
 //! - Type 19 (Magic Desk): Up to 128 x 8K banks at $8000, selected via $DE00.
 //!   Bit 7 of the bank register disables the cartridge (EXROM=1).
+//! - Type 32 (EasyFlash): 64x8K dual banks (ROML+ROMH), 256B RAM at $DF00,
+//!   control registers at $DE00/$DE02.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -17,10 +22,18 @@
 pub enum CartridgeType {
     /// Type 0: 8K or 16K, no bankswitching.
     Normal,
+    /// Type 1: Action Replay — 4x8K banks, mode switching.
+    ActionReplay,
+    /// Type 4: Simon's BASIC — 2x8K, ROML+ROMH toggled via $DE00.
+    SimonsBasic,
     /// Type 5: up to 64 x 8K banks at $8000, selected via $DE00.
     Ocean,
+    /// Type 10: Fun Play / Power Play — 16x8K banks at ROML via $DE00.
+    FunPlay,
     /// Type 19: up to 128 x 8K banks at $8000, selected via $DE00.
     MagicDesk,
+    /// Type 32: EasyFlash — 64x8K dual banks, 256B RAM, control regs.
+    EasyFlash,
 }
 
 /// A loaded CRT cartridge.
@@ -38,6 +51,10 @@ pub struct Cartridge {
     pub romh: Vec<Vec<u8>>,
     /// Current bank index (for bankswitched types).
     pub bank: u8,
+    /// EasyFlash: 256 bytes of on-cartridge RAM at $DF00-$DFFF.
+    pub ef_ram: [u8; 256],
+    /// EasyFlash: control register ($DE02) value.
+    pub ef_control: u8,
 }
 
 /// CRT file signature.
@@ -63,11 +80,13 @@ impl Cartridge {
     /// Read from the current ROMH bank at the given offset (0-8191).
     #[must_use]
     pub fn read_romh(&self, offset: u16) -> u8 {
-        // ROMH typically has only one bank (bank 0) for Normal carts.
-        // Ocean/MagicDesk don't use ROMH.
         let bank = match self.cart_type {
-            CartridgeType::Normal => 0usize,
-            CartridgeType::Ocean | CartridgeType::MagicDesk => self.bank as usize,
+            CartridgeType::Normal | CartridgeType::SimonsBasic => 0usize,
+            CartridgeType::EasyFlash
+            | CartridgeType::Ocean
+            | CartridgeType::MagicDesk
+            | CartridgeType::ActionReplay
+            | CartridgeType::FunPlay => self.bank as usize,
         };
         if bank < self.romh.len() {
             let off = offset as usize;
@@ -82,9 +101,28 @@ impl Cartridge {
     pub fn write_io(&mut self, addr: u16, value: u8) {
         match self.cart_type {
             CartridgeType::Normal => {} // No bankswitching
+            CartridgeType::ActionReplay => {
+                if addr == 0xDE00 {
+                    // Bits 0-1: bank select. Bits 2-3: EXROM/GAME mode.
+                    self.bank = value & 0x03;
+                    self.exrom = value & 0x04 != 0;
+                    self.game = value & 0x08 != 0;
+                }
+            }
+            CartridgeType::SimonsBasic => {
+                if addr == 0xDE00 {
+                    // Toggle between ROML ($8000) and ROMH ($A000)
+                    self.game = !self.game;
+                }
+            }
             CartridgeType::Ocean => {
                 if addr == 0xDE00 {
                     self.bank = value & 0x3F;
+                }
+            }
+            CartridgeType::FunPlay => {
+                if addr == 0xDE00 {
+                    self.bank = value & 0x0F;
                 }
             }
             CartridgeType::MagicDesk => {
@@ -94,14 +132,45 @@ impl Cartridge {
                     self.exrom = value & 0x80 != 0;
                 }
             }
+            CartridgeType::EasyFlash => {
+                match addr {
+                    0xDE00 => {
+                        // Bits 0-5: bank select, bit 7: LED
+                        self.bank = value & 0x3F;
+                    }
+                    0xDE02 => {
+                        // Bit 0: GAME, bit 1: EXROM, bit 2: cartridge off
+                        self.ef_control = value;
+                        if value & 0x04 != 0 {
+                            // Cartridge off: release both lines
+                            self.exrom = true;
+                            self.game = true;
+                        } else {
+                            self.game = value & 0x01 == 0;   // Active low
+                            self.exrom = value & 0x02 == 0;  // Active low
+                        }
+                    }
+                    0xDF00..=0xDFFF => {
+                        self.ef_ram[(addr - 0xDF00) as usize] = value;
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
     /// Read from I/O expansion area ($DE00-$DFFF).
     #[must_use]
-    pub fn read_io(&self, _addr: u16) -> u8 {
-        // Most cartridge types return open bus here
-        0xFF
+    pub fn read_io(&self, addr: u16) -> u8 {
+        match self.cart_type {
+            CartridgeType::EasyFlash => {
+                if (0xDF00..=0xDFFF).contains(&addr) {
+                    return self.ef_ram[(addr - 0xDF00) as usize];
+                }
+                0xFF
+            }
+            _ => 0xFF,
+        }
     }
 }
 
@@ -144,8 +213,12 @@ pub fn parse_crt(data: &[u8]) -> Result<Cartridge, String> {
     let type_id = read_be_u16(data, 0x16);
     let cart_type = match type_id {
         0 => CartridgeType::Normal,
+        1 => CartridgeType::ActionReplay,
+        4 => CartridgeType::SimonsBasic,
         5 => CartridgeType::Ocean,
+        10 => CartridgeType::FunPlay,
         19 => CartridgeType::MagicDesk,
+        32 => CartridgeType::EasyFlash,
         _ => return Err(format!("Unsupported CRT type: {type_id}")),
     };
 
@@ -235,6 +308,8 @@ pub fn parse_crt(data: &[u8]) -> Result<Cartridge, String> {
         roml,
         romh,
         bank: 0,
+        ef_ram: [0; 256],
+        ef_control: 0,
     })
 }
 

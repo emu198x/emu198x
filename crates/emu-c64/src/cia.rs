@@ -91,11 +91,22 @@ pub struct Cia {
     tod_divider: u32,
     /// Current divider counter.
     tod_counter: u32,
+    /// Previous FLAG pin level (for negative-edge detection).
+    prev_flag: bool,
 }
 
 impl Cia {
+    /// Create a CIA with the default PAL TOD divider.
     #[must_use]
     pub fn new() -> Self {
+        Self::new_with_tod(19705)
+    }
+
+    /// Create a CIA with a specific TOD divider.
+    ///
+    /// PAL: `985_248 / 50 = 19_705`. NTSC: `1_022_727 / 60 = 17_045`.
+    #[must_use]
+    pub fn new_with_tod(tod_divider: u32) -> Self {
         Self {
             port_a: 0xFF,
             port_b: 0xFF,
@@ -121,8 +132,9 @@ impl Cia {
             tod_latch: [0; 4],
             tod_latched: false,
             tod_halted: true, // Halted until first 10ths write
-            tod_divider: 19705, // 985,248 Hz / 50 Hz (PAL)
+            tod_divider,
             tod_counter: 0,
+            prev_flag: true,
         }
     }
 
@@ -232,6 +244,18 @@ impl Cia {
     #[must_use]
     pub fn irq_active(&self) -> bool {
         (self.icr_status & self.icr_mask & 0x1F) != 0
+    }
+
+    /// Set the FLAG pin level.
+    ///
+    /// A negative edge (high→low) sets ICR bit 4 (FLAG interrupt).
+    /// CIA1 FLAG is connected to the cassette read line; CIA2 FLAG
+    /// is active on IEC serial byte-ready.
+    pub fn set_flag(&mut self, level: bool) {
+        if self.prev_flag && !level {
+            self.icr_status |= 0x10; // FLAG bit
+        }
+        self.prev_flag = level;
     }
 
     /// Read a CIA register.

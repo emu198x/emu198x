@@ -20,6 +20,8 @@ fn load_c64() -> Option<C64> {
         basic_rom: basic,
         char_rom: chargen,
         drive_rom: None,
+        sid_model: emu_c64::config::SidModel::Sid6581,
+        reu_size: None,
     }))
 }
 
@@ -86,8 +88,8 @@ fn test_sid_symphony_unit01() {
     }
 
     // Verify: border and background should be black
-    let border = c64.bus().vic.read(0x20) & 0x0F;
-    let background = c64.bus().vic.read(0x21) & 0x0F;
+    let border = c64.bus().vic.peek(0x20) & 0x0F;
+    let background = c64.bus().vic.peek(0x21) & 0x0F;
     assert_eq!(border, 0, "SID Symphony sets border to black");
     assert_eq!(background, 0, "SID Symphony sets background to black");
 
@@ -165,10 +167,10 @@ fn test_starfield_unit01_sprite() {
     }
 
     // Program executes: border=black, sprite 0 enabled at (172, 220)
-    assert_eq!(c64.bus().vic.read(0x20) & 0x0F, 0, "Border should be black");
-    assert_eq!(c64.bus().vic.read(0x15) & 0x01, 0x01, "Sprite 0 should be enabled");
-    assert_eq!(c64.bus().vic.read(0x00), 172, "Sprite 0 X should be 172");
-    assert_eq!(c64.bus().vic.read(0x01), 220, "Sprite 0 Y should be 220");
+    assert_eq!(c64.bus().vic.peek(0x20) & 0x0F, 0, "Border should be black");
+    assert_eq!(c64.bus().vic.peek(0x15) & 0x01, 0x01, "Sprite 0 should be enabled");
+    assert_eq!(c64.bus().vic.peek(0x00), 172, "Sprite 0 X should be 172");
+    assert_eq!(c64.bus().vic.peek(0x01), 220, "Sprite 0 Y should be 220");
 
     // Sprite data at $2000 should be the ship pattern
     assert_eq!(c64.bus().memory.ram_read(0x2001), 0x18, "Sprite row 0 mid-byte");
@@ -179,7 +181,7 @@ fn test_starfield_unit01_sprite() {
     // Scan the sprite area for any non-black pixels.
     let fb = c64.bus().vic.framebuffer();
     let fb_w = c64.bus().vic.framebuffer_width() as usize;
-    let sprite_colour = c64.bus().vic.read(0x27) & 0x0F;
+    let sprite_colour = c64.bus().vic.peek(0x27) & 0x0F;
     eprintln!("Sprite 0 colour register: {sprite_colour}");
 
     let fb_sprite_x = 196usize; // 172 + 24

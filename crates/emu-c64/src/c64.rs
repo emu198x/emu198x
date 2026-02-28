@@ -19,7 +19,7 @@ use emu_core::{Bus, Cpu, Observable, Tickable, Value};
 use mos_6502::Mos6502;
 
 use crate::bus::C64Bus;
-use crate::config::{C64Config, C64Model};
+use crate::config::C64Config;
 use crate::d64::D64;
 use crate::drive1541::Drive1541;
 use crate::iec::IecBus;
@@ -57,19 +57,15 @@ pub struct C64 {
 
 impl C64 {
     /// Create a new C64 from the given configuration.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the model is not PAL (only PAL supported in v1).
     #[must_use]
     pub fn new(config: &C64Config) -> Self {
-        assert!(
-            config.model == C64Model::C64Pal,
-            "Only PAL model is supported in v1"
-        );
-
         let memory = C64Memory::new(&config.kernal_rom, &config.basic_rom, &config.char_rom);
-        let mut bus = C64Bus::new(memory);
+        let mut bus = C64Bus::new(memory, config.model);
+
+        // Enable REU if requested
+        if let Some(size_kb) = config.reu_size {
+            bus.reu = Some(crate::reu::Reu::new(size_kb));
+        }
 
         // Set up CIA1 for keyboard scanning: port A = output, port B = input
         bus.cia1.write(0x02, 0xFF); // DDR A: all output
@@ -245,6 +241,14 @@ impl C64 {
         self.drive.as_ref()
     }
 
+    /// Extract the current D64 image data (for saving after writes).
+    ///
+    /// Returns `None` if no drive or no disk is inserted.
+    #[must_use]
+    pub fn save_d64(&self) -> Option<Vec<u8>> {
+        self.drive.as_ref()?.d64()?.to_bytes()
+    }
+
     /// Load a PRG file into memory.
     pub fn load_prg(&mut self, data: &[u8]) -> Result<u16, String> {
         crate::prg::load_prg(&mut self.bus.memory, data)
@@ -392,6 +396,19 @@ impl Tickable for C64 {
 
         // 4. CIA1: tick timer, check IRQ → CPU IRQ
         self.bus.cia1.tick();
+
+        // 4a. Real-time tape: tick the tape deck and feed edges to CIA1 FLAG.
+        // Motor is controlled by $01 bit 5 (active-low: 0 = motor on).
+        if self.tape.is_playing() && self.tape.has_raw_pulses() {
+            let port01 = self.bus.memory.ram[1];
+            self.tape.set_motor(port01 & 0x20 == 0);
+            if self.tape.tick() {
+                self.bus.cia1.set_flag(false); // Negative edge
+            } else {
+                self.bus.cia1.set_flag(true); // Release
+            }
+        }
+
         if self.bus.cia1.irq_active() {
             self.cpu.interrupt();
         }
@@ -549,6 +566,7 @@ impl Observable for C64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::C64Model;
     use crate::vic;
 
     fn make_c64() -> C64 {
@@ -564,10 +582,12 @@ mod tests {
 
         C64::new(&C64Config {
             model: C64Model::C64Pal,
+            sid_model: crate::config::SidModel::Sid6581,
             kernal_rom: kernal,
             basic_rom: basic,
             char_rom: chargen,
             drive_rom: None,
+            reu_size: None,
         })
     }
 
@@ -644,6 +664,7 @@ mod tests {
                 filename: "TEST".to_string(),
                 data: vec![1, 2],
             }],
+            raw_pulses: Vec::new(),
         });
         // Set PC to trap address
         c64.cpu.force_pc(TAPE_LOAD_ADDR);
@@ -675,6 +696,7 @@ mod tests {
                 filename: "HELLO".to_string(),
                 data: vec![0xAA, 0xBB, 0xCC],
             }],
+            raw_pulses: Vec::new(),
         });
 
         // Set up the trap conditions
