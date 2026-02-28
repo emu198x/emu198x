@@ -192,11 +192,18 @@ impl McpServer {
             _ => AmigaRegion::Pal,
         };
 
+        let slow_ram_size = params
+            .get("slow_ram")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize * 1024)
+            .unwrap_or(0);
+
         let config = AmigaConfig {
             model,
             chipset,
             region,
             kickstart,
+            slow_ram_size,
         };
 
         self.amiga = Some(Amiga::new_with_config(config));

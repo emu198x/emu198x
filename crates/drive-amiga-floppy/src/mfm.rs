@@ -201,10 +201,128 @@ fn mfm_encode_long(data: u32) -> u32 {
     mfm
 }
 
+/// A decoded sector from an MFM track.
+pub struct DecodedSector {
+    pub track: u8,
+    pub sector: u8,
+    pub data: [u8; 512],
+}
+
+/// Decode an MFM word stream (as captured by DMA) into sector data.
+///
+/// Scans for $4489 sync word pairs, then decodes the Amiga sector
+/// structure: header info, label, checksums, and 512-byte data block.
+/// Returns only sectors with valid data checksums.
+pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
+    let mut sectors = Vec::new();
+    let mut i = 0;
+
+    while i + 1 < mfm_words.len() {
+        // Scan for sync pair: $4489 $4489
+        if mfm_words[i] != 0x4489 {
+            i += 1;
+            continue;
+        }
+        // Skip consecutive sync words
+        while i < mfm_words.len() && mfm_words[i] == 0x4489 {
+            i += 1;
+        }
+
+        // After sync: need at least 2 (info) + 8 (label odd) + 8 (label even)
+        //   + 2 (hdr cksum) + 2 (data cksum) + 256 (data odd) + 256 (data even)
+        //   = 534 words
+        if i + 534 > mfm_words.len() {
+            break;
+        }
+
+        // Read MFM longs as pairs of u16 words (big-endian)
+        let read_mfm_long = |pos: usize| -> u32 {
+            (u32::from(mfm_words[pos]) << 16) | u32::from(mfm_words[pos + 1])
+        };
+
+        // Header info: 1 longword as odd + even halves (2 MFM longs = 4 words)
+        let info_odd_mfm = read_mfm_long(i);
+        let info_even_mfm = read_mfm_long(i + 2);
+        let info_odd = mfm_decode_long(info_odd_mfm);
+        let info_even = mfm_decode_long(info_even_mfm);
+        let info_long = reconstruct_long(info_odd, info_even);
+        let info_bytes = info_long.to_be_bytes();
+        let _format = info_bytes[0];
+        let track = info_bytes[1];
+        let sector = info_bytes[2];
+        i += 4;
+
+        // Label: 4 longs odd + 4 longs even (16 words) — skip
+        i += 16;
+
+        // Header checksum: 1 longword odd/even (4 words) — skip
+        i += 4;
+
+        // Data checksum: stored as odd/even MFM-encoded longword (4 words)
+        let stored_cksum_odd_mfm = read_mfm_long(i);
+        let stored_cksum_even_mfm = read_mfm_long(i + 2);
+        let stored_data_cksum = reconstruct_long(
+            mfm_decode_long(stored_cksum_odd_mfm),
+            mfm_decode_long(stored_cksum_even_mfm),
+        );
+        i += 4;
+
+        // Data: 128 longs, odd first (256 words), then even (256 words)
+        let mut computed_data_cksum: u32 = 0;
+        let mut data_odd_mfm = [0u32; 128];
+        let mut data_even_mfm = [0u32; 128];
+        for j in 0..128 {
+            data_odd_mfm[j] = read_mfm_long(i + j * 2);
+            computed_data_cksum ^= data_odd_mfm[j];
+        }
+        i += 256;
+        for j in 0..128 {
+            data_even_mfm[j] = read_mfm_long(i + j * 2);
+            computed_data_cksum ^= data_even_mfm[j];
+        }
+        i += 256;
+
+        // Verify: XOR of all raw MFM data longs should equal stored checksum
+        if computed_data_cksum != stored_data_cksum {
+            continue; // Bad checksum — skip sector
+        }
+
+        // Decode data longs
+        let mut data = [0u8; 512];
+        for j in 0..128 {
+            let odd_val = mfm_decode_long(data_odd_mfm[j]);
+            let even_val = mfm_decode_long(data_even_mfm[j]);
+            let long_val = reconstruct_long(odd_val, even_val);
+            let bytes = long_val.to_be_bytes();
+            data[j * 4] = bytes[0];
+            data[j * 4 + 1] = bytes[1];
+            data[j * 4 + 2] = bytes[2];
+            data[j * 4 + 3] = bytes[3];
+        }
+
+        sectors.push(DecodedSector {
+            track,
+            sector,
+            data,
+        });
+    }
+
+    sectors
+}
+
+/// Reconstruct a 32-bit value from separate odd and even 16-bit halves.
+fn reconstruct_long(odd: u32, even: u32) -> u32 {
+    let mut result = 0u32;
+    for i in 0..16 {
+        result |= ((even >> i) & 1) << (i * 2);
+        result |= ((odd >> i) & 1) << (i * 2 + 1);
+    }
+    result
+}
+
 /// Decode a 32-bit MFM longword back to a 16-bit data value.
 /// Extracts data bits (odd positions in the MFM stream).
-#[cfg(test)]
-fn mfm_decode_long(mfm: u32) -> u32 {
+pub fn mfm_decode_long(mfm: u32) -> u32 {
     let mut data = 0u32;
     for i in 0..16 {
         let bit = (mfm >> (30 - i * 2)) & 1;
@@ -275,5 +393,94 @@ mod tests {
         let track_data = vec![0u8; 11 * 512];
         let mfm = encode_mfm_track(&track_data, 0, 11);
         assert_eq!(mfm.len(), MFM_TRACK_BYTES);
+    }
+
+    #[test]
+    fn decode_mfm_track_round_trip() {
+        // Encode a track with known data, then decode and verify
+        let mut track_data = vec![0u8; 11 * 512];
+        for (i, byte) in track_data.iter_mut().enumerate() {
+            *byte = (i & 0xFF) as u8;
+        }
+        let track_num = 5u8;
+        let encoded = encode_mfm_track(&track_data, track_num, 11);
+
+        // Convert byte stream to u16 word stream (as DMA would capture)
+        let mfm_words: Vec<u16> = encoded
+            .chunks_exact(2)
+            .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
+            .collect();
+
+        let decoded = decode_mfm_track(&mfm_words);
+        assert_eq!(decoded.len(), 11, "should decode all 11 sectors");
+
+        for ds in &decoded {
+            assert_eq!(ds.track, track_num, "track number should match");
+            let sector = ds.sector as usize;
+            let expected = &track_data[sector * 512..(sector + 1) * 512];
+            assert_eq!(&ds.data[..], expected, "sector {} data mismatch", sector);
+        }
+    }
+
+    #[test]
+    fn decode_empty_stream() {
+        let decoded = decode_mfm_track(&[]);
+        assert!(decoded.is_empty());
+    }
+
+    #[test]
+    fn decode_corrupted_sync_skips_bad_sectors() {
+        // Encode a valid track
+        let track_data = vec![0u8; 11 * 512];
+        let encoded = encode_mfm_track(&track_data, 0, 11);
+        let mut mfm_words: Vec<u16> = encoded
+            .chunks_exact(2)
+            .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
+            .collect();
+
+        // Corrupt data in the first sector (after the first sync pair)
+        // Find first sync and corrupt data words after it
+        let mut found = 0;
+        for i in 0..mfm_words.len() - 1 {
+            if mfm_words[i] == 0x4489 && mfm_words[i + 1] != 0x4489 {
+                // Corrupt some data words to invalidate checksum
+                if found == 0 {
+                    for j in i + 30..i + 40 {
+                        if j < mfm_words.len() {
+                            mfm_words[j] ^= 0xFFFF;
+                        }
+                    }
+                }
+                found += 1;
+            }
+        }
+
+        let decoded = decode_mfm_track(&mfm_words);
+        // First sector should be skipped due to bad checksum
+        assert!(
+            decoded.len() < 11,
+            "corrupted sector should be skipped (got {} sectors)",
+            decoded.len()
+        );
+        assert!(
+            decoded.len() >= 9,
+            "remaining sectors should still decode (got {})",
+            decoded.len()
+        );
+    }
+
+    #[test]
+    fn decode_sector_numbers_match_encoded() {
+        let track_data = vec![0u8; 11 * 512];
+        let encoded = encode_mfm_track(&track_data, 10, 11);
+        let mfm_words: Vec<u16> = encoded
+            .chunks_exact(2)
+            .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
+            .collect();
+
+        let decoded = decode_mfm_track(&mfm_words);
+        let mut sector_nums: Vec<u8> = decoded.iter().map(|s| s.sector).collect();
+        sector_nums.sort();
+        assert_eq!(sector_nums, (0..11).collect::<Vec<u8>>());
     }
 }

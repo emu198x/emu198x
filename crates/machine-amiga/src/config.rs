@@ -56,4 +56,8 @@ pub struct AmigaConfig {
     pub chipset: AmigaChipset,
     pub region: AmigaRegion,
     pub kickstart: Vec<u8>,
+    /// Slow RAM (A500 trapdoor expansion) size in bytes.
+    /// 0 = disabled, valid sizes: 512K, 1M, 2M.
+    /// Maps to $C00000-$DFFFFF.
+    pub slow_ram_size: usize,
 }

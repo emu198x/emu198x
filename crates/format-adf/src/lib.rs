@@ -68,6 +68,11 @@ impl Adf {
         self.data[start..start + SECTOR_SIZE as usize].copy_from_slice(data);
     }
 
+    /// Return the raw ADF image data.
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
     pub fn read_track_sectors(&self, cyl: u32, head: u32) -> &[u8] {
         let start = self.offset(cyl, head, 0);
         let len = self.sectors_per_track as usize * SECTOR_SIZE as usize;

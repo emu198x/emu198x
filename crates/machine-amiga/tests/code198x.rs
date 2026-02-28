@@ -126,6 +126,7 @@ fn test_exodus_unit01() {
         chipset: AmigaChipset::Ocs,
         region: AmigaRegion::Pal,
         kickstart,
+        slow_ram_size: 0,
     };
     let mut amiga = Amiga::new_with_config(config);
 

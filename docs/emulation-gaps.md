@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-27 (C64 complete emulation gaps closed). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-28 (Amiga: MOVEC, disk write, slow RAM). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -158,15 +158,17 @@ Boots KS 1.3 to insert-disk screen, renders bitplanes with copper and
 blitter, plays Paula audio. The most complex system with the most remaining
 work.
 
+### Implemented (post-v1)
+
+- **MOVEC instruction** (68010/020): VBR, SFC, DFC, CACR control registers. Privileged; illegal on 68000, privilege violation in user mode.
+- **ADF disk write**: MFM decode of DMA write captures, sector checksum verification, write-back to ADF image. `save_adf()` API for extracting modified disk images.
+- **Slow RAM**: A500 trapdoor expansion at $C00000-$DFFFFF, configurable 512K/1M/2M via `slow_ram_size` config field.
+
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| Disk write to ADF | `drive-amiga-floppy` — captures but doesn't persist | Cannot save games or write disks |
-| 68010 MOVEC instruction | `decode.rs` line 1162 — returns error | A500+ (KS 2.x) OS code fails |
 | 68020 instruction extensions | `motorola-68020` — thin wrapper | A1200 code using 020 features fails |
-| Slow RAM ($C00000-$DFFFFF) | Not modelled | A500 trapdoor expansion missing |
-| Disk write encoding (MFM) | Not implemented | Write-back to media impossible |
 | IPF/WHDLoad formats | Not supported | Copy-protected and WHDLoad games unloadable |
 
 ### Accuracy gaps
@@ -186,9 +188,9 @@ work.
 
 The Amiga has the widest gap between "boots" and "runs software". HAM
 and EHB display modes are now decoded in Denise. Copper SKIP is
-implemented. Disk write and the 68010/020 instruction gaps block running
-on anything beyond a stock A500 with KS 1.3. The OCS core is solid; the
-work is in peripheral completeness.
+implemented. Disk write persistence, MOVEC (68010/020), and slow RAM
+are now implemented. The 68020 instruction gap still blocks A1200 code.
+The OCS core is solid; the work is in peripheral completeness.
 
 ---
 
@@ -201,14 +203,14 @@ work is in peripheral completeness.
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
 | Video modes | 100% | 100% (all modes + scrolling + MCM sprites + collisions + sprite DMA stealing) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
 | Audio | 100% (beeper + AY) | ~95% (6581/8580 models, non-linear filter, combined waveforms) | ~95% (all 5 channels) | ~85% (no filter model) |
-| Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
+| Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 7 mappers (0/1/2/3/4/7/9) | ADF read/write |
 | Peripherals | Keyboard + Kempston | Keyboard + REU (128/256/512K) | 2-player pad | Keyboard + mouse |
 | Model variants | 48K, 128K, +2, +2A, +3 PAL | PAL + NTSC | NTSC only | A500 OCS only |
 
 ### Highest-impact work items (by games-unlocked)
 
-1. **Amiga disk write** — unlocks game saves
-2. **68010/020 instructions** — unlocks A500+/A1200
+1. ~~**Amiga disk write**~~ — Done (MFM decode + sector checksum + ADF write-back)
+2. ~~**68010 MOVEC**~~ — Done (VBR/SFC/DFC/CACR + privilege checks)
 3. ~~**C64 CRT types beyond 0/5/19**~~ — Done (7 types: Normal, Action Replay, Simon's BASIC, Ocean, Fun Play, Magic Desk, EasyFlash)
 4. ~~**C64 TAP turbo loaders**~~ — Done (real-time pulse playback via CIA1 FLAG)
 5. ~~**C64 1541 disk write**~~ — Done (GCR decode + write state machine)

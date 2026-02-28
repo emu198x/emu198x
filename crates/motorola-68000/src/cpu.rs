@@ -1563,4 +1563,248 @@ mod tests {
         assert_eq!(cpu.query("idle"), Some(Value::Bool(true)));
         assert_eq!(cpu.query("nonexistent"), None);
     }
+
+    // --- Simple test bus for instruction-level tests ---
+
+    struct SimpleBus {
+        mem: Vec<u8>,
+    }
+
+    impl SimpleBus {
+        fn new(program: &[(u32, u16)]) -> Self {
+            let mut mem = vec![0u8; 0x10000];
+            for &(addr, word) in program {
+                let a = addr as usize;
+                mem[a] = (word >> 8) as u8;
+                mem[a + 1] = word as u8;
+            }
+            Self { mem }
+        }
+    }
+
+    impl M68kBus for SimpleBus {
+        fn poll_cycle(
+            &mut self,
+            addr: u32,
+            _fc: FunctionCode,
+            is_read: bool,
+            is_word: bool,
+            data: Option<u16>,
+        ) -> BusStatus {
+            if is_read {
+                if is_word {
+                    let a = (addr as usize) & !1;
+                    let w = if a + 1 < self.mem.len() {
+                        (u16::from(self.mem[a]) << 8) | u16::from(self.mem[a + 1])
+                    } else {
+                        0
+                    };
+                    BusStatus::Ready(w)
+                } else {
+                    let a = addr as usize;
+                    let b = if a < self.mem.len() { self.mem[a] } else { 0 };
+                    BusStatus::Ready(u16::from(b))
+                }
+            } else {
+                let val = data.unwrap_or(0);
+                if is_word {
+                    let a = (addr as usize) & !1;
+                    if a + 1 < self.mem.len() {
+                        self.mem[a] = (val >> 8) as u8;
+                        self.mem[a + 1] = val as u8;
+                    }
+                } else {
+                    let a = addr as usize;
+                    if a < self.mem.len() {
+                        self.mem[a] = val as u8;
+                    }
+                }
+                BusStatus::Ready(0)
+            }
+        }
+
+        fn poll_ipl(&mut self) -> u8 {
+            0
+        }
+
+        fn poll_interrupt_ack(&mut self, level: u8) -> BusStatus {
+            BusStatus::Ready(24 + u16::from(level))
+        }
+
+        fn reset(&mut self) {}
+    }
+
+    /// Run CPU until it reaches a BRA.S * (0x60FE) idle loop or tick limit.
+    fn run_until_idle(cpu: &mut Cpu68000, bus: &mut SimpleBus, max_ticks: u32) {
+        let mut clock = 0u64;
+        for _ in 0..max_ticks {
+            clock += 4;
+            cpu.tick(bus, clock);
+            // Detect BRA.S * idle loop (IR=0x60FE, PC stable)
+            if cpu.ir == 0x60FE {
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn movec_vbr_write_read_roundtrip_68010() {
+        // Program: MOVEC D0,VBR ; MOVEC VBR,D1 ; BRA.S *
+        // MOVE.L #$12345678,D0 = 203C 1234 5678
+        // MOVEC D0,VBR = 4E7B 0801
+        // MOVEC VBR,D1 = 4E7A 1801
+        // BRA.S * = 60FE
+        let mut bus = SimpleBus::new(&[
+            // Reset vector: SSP=$1000, PC=$0100
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+            // Program at $0100
+            (0x0100, 0x203C), (0x0102, 0x1234), (0x0104, 0x5678), // MOVE.L #$12345678,D0
+            (0x0106, 0x4E7B), (0x0108, 0x0801), // MOVEC D0,VBR
+            (0x010A, 0x4E7A), (0x010C, 0x1801), // MOVEC VBR,D1
+            (0x010E, 0x60FE), // BRA.S *
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68010);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 5000);
+        assert_eq!(cpu.regs.vbr, 0x1234_5678, "VBR should hold written value");
+        assert_eq!(cpu.regs.d[1], 0x1234_5678, "D1 should read back VBR");
+    }
+
+    #[test]
+    fn movec_sfc_dfc_write_read_68010() {
+        // MOVEQ #5,D0 ; MOVEC D0,SFC ; MOVEQ #3,D0 ; MOVEC D0,DFC
+        // MOVEC SFC,D2 ; MOVEC DFC,D3 ; BRA.S *
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0100, 0x7005), // MOVEQ #5,D0
+            (0x0102, 0x4E7B), (0x0104, 0x0000), // MOVEC D0,SFC
+            (0x0106, 0x7003), // MOVEQ #3,D0
+            (0x0108, 0x4E7B), (0x010A, 0x0001), // MOVEC D0,DFC
+            (0x010C, 0x4E7A), (0x010E, 0x2000), // MOVEC SFC,D2
+            (0x0110, 0x4E7A), (0x0112, 0x3001), // MOVEC DFC,D3
+            (0x0114, 0x60FE), // BRA.S *
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68010);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 10000);
+        assert_eq!(cpu.regs.d[2], 5, "SFC should be 5");
+        assert_eq!(cpu.regs.d[3], 3, "DFC should be 3");
+        // SFC/DFC are 3 bits wide — value 5 = 0b101, fits in 3 bits
+        assert_eq!(cpu.regs.sfc, 5);
+        assert_eq!(cpu.regs.dfc, 3);
+    }
+
+    #[test]
+    fn movec_cacr_68020_only() {
+        // On 68020: MOVEC D0,CACR should work.
+        // MOVE.L #$0B,D0 ; MOVEC D0,CACR ; MOVEC CACR,D1 ; BRA.S *
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0100, 0x700B), // MOVEQ #$0B,D0
+            (0x0102, 0x4E7B), (0x0104, 0x0002), // MOVEC D0,CACR
+            (0x0106, 0x4E7A), (0x0108, 0x1002), // MOVEC CACR,D1
+            (0x010A, 0x60FE), // BRA.S *
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 5000);
+        assert_eq!(cpu.regs.cacr, 0x0B, "CACR should hold written value on 68020");
+        assert_eq!(cpu.regs.d[1], 0x0B, "D1 should read back CACR");
+    }
+
+    #[test]
+    fn movec_cacr_illegal_on_68010() {
+        // On 68010: MOVEC D0,CACR should fire illegal exception.
+        // Vector 4 (illegal) at $010 → handler at $0200.
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+            // Illegal instruction vector (vector 4) → $0200
+            (0x0010, 0x0000), (0x0012, 0x0200),
+            // Program
+            (0x0100, 0x700B), // MOVEQ #$0B,D0
+            (0x0102, 0x4E7B), (0x0104, 0x0002), // MOVEC D0,CACR
+            (0x0106, 0x60FE), // BRA.S * (shouldn't reach)
+            // Handler: MOVEQ #$FF,D7 ; BRA.S *
+            (0x0200, 0x7EFF), // MOVEQ #-1,D7
+            (0x0202, 0x60FE), // BRA.S *
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68010);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 10000);
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0xFF,
+            "Should have reached illegal-instruction handler"
+        );
+    }
+
+    #[test]
+    fn movec_on_68000_fires_illegal() {
+        // On 68000: 0x4E7B is always illegal.
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0010, 0x0000), (0x0012, 0x0200),
+            (0x0100, 0x4E7B), (0x0102, 0x0801), // MOVEC D0,VBR (illegal on 68000)
+            (0x0104, 0x60FE),
+            (0x0200, 0x7EFF), // MOVEQ #-1,D7
+            (0x0202, 0x60FE),
+        ]);
+        let mut cpu = Cpu68000::new(); // 68000
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 10000);
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0xFF,
+            "MOVEC on 68000 should fire illegal exception"
+        );
+    }
+
+    #[test]
+    fn movec_in_user_mode_fires_privilege_violation() {
+        // MOVEC is privileged — executing in user mode → privilege violation (vector 8).
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+            // Privilege violation vector (vector 8) → $0300
+            (0x0020, 0x0000), (0x0022, 0x0300),
+            // Program: MOVE #$0000,SR (drop to user mode), then MOVEC
+            (0x0100, 0x46FC), (0x0102, 0x0000), // MOVE #$0000,SR → user mode
+            (0x0104, 0x4E7B), (0x0106, 0x0801), // MOVEC D0,VBR (privileged!)
+            (0x0108, 0x60FE),
+            // Handler
+            (0x0300, 0x7EFF), // MOVEQ #-1,D7
+            (0x0302, 0x60FE),
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68010);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 10000);
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0xFF,
+            "MOVEC in user mode should fire privilege violation"
+        );
+    }
+
+    #[test]
+    fn movec_unknown_cr_fires_illegal() {
+        // Unknown control register code $FFF → illegal exception.
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0010, 0x0000), (0x0012, 0x0200),
+            (0x0100, 0x4E7B), (0x0102, 0x0FFF), // MOVEC D0,<unknown $FFF>
+            (0x0104, 0x60FE),
+            (0x0200, 0x7EFF),
+            (0x0202, 0x60FE),
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68010);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 10000);
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0xFF,
+            "MOVEC with unknown CR should fire illegal exception"
+        );
+    }
 }

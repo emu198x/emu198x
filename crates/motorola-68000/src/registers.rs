@@ -22,6 +22,14 @@ pub struct Registers {
     pub pc: u32,
     /// Status register.
     pub sr: u16,
+    /// Vector Base Register (68010+).
+    pub vbr: u32,
+    /// Source Function Code register (68010+, 3 bits).
+    pub sfc: u8,
+    /// Destination Function Code register (68010+, 3 bits).
+    pub dfc: u8,
+    /// Cache Control Register (68020+).
+    pub cacr: u32,
 }
 
 impl Default for Registers {
@@ -43,6 +51,10 @@ impl Registers {
             ssp: 0,
             pc: 0,
             sr: 0x2700, // Supervisor mode, interrupt level 7
+            vbr: 0,
+            sfc: 0,
+            dfc: 0,
+            cacr: 0,
         }
     }
 

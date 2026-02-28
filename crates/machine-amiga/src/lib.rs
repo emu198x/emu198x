@@ -246,6 +246,7 @@ impl Amiga {
             chipset: AmigaChipset::Ocs,
             region: AmigaRegion::Pal,
             kickstart,
+            slow_ram_size: 0,
         })
     }
 
@@ -259,6 +260,7 @@ impl Amiga {
             chipset,
             region,
             kickstart,
+            slow_ram_size,
         } = config;
         let chip_ram_size = match model {
             AmigaModel::A500 => 512 * 1024,
@@ -293,7 +295,7 @@ impl Amiga {
         };
 
         let mut cpu = Cpu68000::new();
-        let memory = Memory::new(chip_ram_size, kickstart);
+        let memory = Memory::new(chip_ram_size, kickstart, slow_ram_size);
 
         // Initial reset vectors come from ROM (overlay is ON at power-on,
         // mapping Kickstart to $000000).
@@ -890,6 +892,11 @@ impl Amiga {
         self.floppy.has_disk()
     }
 
+    /// Return the current ADF image as raw bytes, or `None` if no disk is inserted.
+    pub fn save_adf(&self) -> Option<Vec<u8>> {
+        self.floppy.save_adf()
+    }
+
     /// Queue an Amiga keyboard event (raw Amiga keycode).
     pub fn key_event(&mut self, keycode: u8, pressed: bool) {
         self.keyboard.key_event(keycode, pressed);
@@ -1016,7 +1023,12 @@ impl Amiga {
         if dma_word_completed {
             runtime.words_remaining = runtime.words_remaining.saturating_sub(1);
             if runtime.words_remaining == 0 {
+                let was_write = runtime.is_write;
                 self.disk_dma_runtime = None;
+                // Persist written sectors to ADF image when write DMA completes.
+                if was_write {
+                    self.floppy.flush_write_capture();
+                }
                 // DSKBLK interrupt on transfer completion.
                 self.paula.request_interrupt(1);
             }
@@ -2972,6 +2984,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
         assert_eq!(amiga.chipset, AmigaChipset::Ecs);
     }
@@ -2983,6 +2996,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
         assert_eq!(amiga.model, AmigaModel::A500Plus);
         assert_eq!(amiga.memory.chip_ram.len(), 1024 * 1024);
@@ -3005,6 +3019,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
         amiga.write_custom_reg(0x1DC, 0x0020);
         amiga.write_custom_reg(0x1E4, 0xA5A5);
@@ -3019,6 +3034,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -3049,6 +3065,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         // Classic PAL OCS-style display window values.
@@ -3070,6 +3087,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x1C0, 0x0033);
@@ -3116,6 +3134,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
         amiga.write_custom_reg(0x1C0, 0x0033);
         amiga.write_custom_reg(0x1C2, 0x0044);
@@ -3151,6 +3170,7 @@ mod tests {
             chipset: AmigaChipset::Ocs,
             region: AmigaRegion::Ntsc,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         // Verify NTSC frame timing: 262 lines x 227 CCKs.
@@ -3198,6 +3218,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x1C0, 3); // HTOTAL highest hpos count
@@ -3227,6 +3248,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // VSTART=$2C, HSTART=$00
@@ -3250,6 +3272,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // VSTART=$2C, HSTART=$00
@@ -3273,6 +3296,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -3309,6 +3333,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         // Before enabling ECS variable sync windows, state is inactive.
@@ -3359,6 +3384,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x1C2, 5); // HSSTOP
@@ -3423,6 +3449,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         let last_line = commodore_agnus_ocs::PAL_LINES_PER_FRAME - 1;
@@ -3483,6 +3510,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -3567,6 +3595,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -3623,6 +3652,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x1C4, 8); // HBSTRT
@@ -3739,6 +3769,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -3787,6 +3818,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -3833,6 +3865,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x1C4, 8); // HBSTRT
@@ -3868,6 +3901,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x1C2, 40); // HSSTOP
@@ -3893,6 +3927,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         amiga.write_custom_reg(0x1CA, 110); // VSSTOP
@@ -3922,6 +3957,7 @@ mod tests {
             chipset: AmigaChipset::Ecs,
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
         });
 
         let last_line = commodore_agnus_ocs::PAL_LINES_PER_FRAME - 1;

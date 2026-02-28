@@ -1159,8 +1159,65 @@ impl Cpu68000 {
             if self.check_supervisor() {
                 return;
             }
-            // TODO: Decode extension word and execute MOVEC on 68010+ models.
-            self.begin_group1_exception(4, self.instr_start_pc);
+            let ext = self.consume_irc();
+            let reg_idx = ((ext >> 12) & 0x0F) as usize;
+            let is_addr = ext & 0x8000 != 0;
+            let cr_code = ext & 0x0FFF;
+            let direction_to_cr = opcode == 0x4E7B;
+
+            if direction_to_cr {
+                // MOVEC Rn,Rc — general register → control register
+                let val = if is_addr {
+                    self.regs.a(reg_idx & 7)
+                } else {
+                    self.regs.d[reg_idx & 7]
+                };
+                match cr_code {
+                    0x000 => self.regs.sfc = (val & 0x07) as u8,
+                    0x001 => self.regs.dfc = (val & 0x07) as u8,
+                    0x002 => {
+                        if !self.capabilities().cacr {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.cacr = val;
+                    }
+                    0x800 => self.regs.usp = val,
+                    0x801 => self.regs.vbr = val,
+                    _ => {
+                        self.begin_group1_exception(4, self.instr_start_pc);
+                        return;
+                    }
+                }
+            } else {
+                // MOVEC Rc,Rn — control register → general register
+                let val = match cr_code {
+                    0x000 => u32::from(self.regs.sfc),
+                    0x001 => u32::from(self.regs.dfc),
+                    0x002 => {
+                        if !self.capabilities().cacr {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.cacr
+                    }
+                    0x800 => self.regs.usp,
+                    0x801 => self.regs.vbr,
+                    _ => {
+                        self.begin_group1_exception(4, self.instr_start_pc);
+                        return;
+                    }
+                };
+                if is_addr {
+                    self.regs.set_a(reg_idx & 7, val);
+                } else {
+                    self.regs.d[reg_idx & 7] = val;
+                }
+            }
+            // MOVEC takes 12 cycles total (2 words fetched = 8 cycles + 4 internal).
+            // consume_irc already queued 4 cycles for the extension word fetch.
+            // The initial IR decode took 4 cycles. Add 4 internal cycles.
+            self.micro_ops.push(MicroOp::Internal(4));
             return;
         }
 

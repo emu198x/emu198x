@@ -3684,6 +3684,7 @@ fn test_boot_kick204_a500plus_screenshot() {
         chipset: AmigaChipset::Ecs,
         region: AmigaRegion::Pal,
         kickstart: rom,
+            slow_ram_size: 0,
     });
 
     println!(
@@ -4639,6 +4640,7 @@ fn test_boot_kick205_a600hd_screenshot() {
         chipset: AmigaChipset::Ecs,
         region: AmigaRegion::Pal,
         kickstart: rom,
+            slow_ram_size: 0,
     });
 
     println!(
@@ -4718,6 +4720,7 @@ fn test_boot_kick31_a500_screenshot() {
         chipset: AmigaChipset::Ecs,
         region: AmigaRegion::Pal,
         kickstart: rom,
+            slow_ram_size: 0,
     });
 
     println!(
@@ -4799,6 +4802,7 @@ fn test_boot_kick31_a1200_screenshot() {
         chipset: AmigaChipset::Ecs,
         region: AmigaRegion::Pal,
         kickstart: rom,
+            slow_ram_size: 0,
     });
 
     println!(

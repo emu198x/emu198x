@@ -7,7 +7,7 @@
 pub mod mfm;
 
 use format_adf::Adf;
-use mfm::encode_mfm_track;
+use mfm::{decode_mfm_track, encode_mfm_track};
 
 /// E-clock ticks for motor spin-up (~500ms at 709 kHz).
 const MOTOR_SPINUP_TICKS: u32 = 350_000;
@@ -176,6 +176,40 @@ impl AmigaFloppyDrive {
     pub fn clear_write_mfm_capture(&mut self) {
         self.write_mfm_capture.clear();
     }
+
+    /// Decode captured MFM write data and persist decoded sectors to the ADF image.
+    ///
+    /// Returns the number of sectors successfully written back.
+    pub fn flush_write_capture(&mut self) -> usize {
+        if self.write_mfm_capture.is_empty() {
+            return 0;
+        }
+
+        let decoded = decode_mfm_track(&self.write_mfm_capture);
+        self.write_mfm_capture.clear();
+
+        let adf = match self.disk.as_mut() {
+            Some(adf) => adf,
+            None => return 0,
+        };
+
+        let mut written = 0;
+        for sector in &decoded {
+            let track_num = sector.track as u32;
+            let cyl = track_num / 2;
+            let head = track_num % 2;
+            if cyl < 80 && (sector.sector as u32) < adf.sectors_per_track() {
+                adf.write_sector(cyl, head, sector.sector as u32, &sector.data);
+                written += 1;
+            }
+        }
+        written
+    }
+
+    /// Return the current ADF image as raw bytes, or `None` if no disk is inserted.
+    pub fn save_adf(&self) -> Option<Vec<u8>> {
+        self.disk.as_ref().map(|adf| adf.data().to_vec())
+    }
 }
 
 impl Default for AmigaFloppyDrive {
@@ -301,6 +335,51 @@ mod tests {
         // side_upper = false means lower head (head 0)
         drive.update_control(false, false, false, true, true);
         assert_eq!(drive.head(), 0);
+    }
+
+    #[test]
+    fn flush_write_capture_persists_to_adf() {
+        let mut drive = AmigaFloppyDrive::new();
+        let adf = Adf::from_bytes(vec![0; format_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk(adf);
+
+        // Prepare sector data with a known pattern
+        let mut sector_data = vec![0u8; 11 * 512];
+        for (i, byte) in sector_data[..512].iter_mut().enumerate() {
+            *byte = (i & 0xFF) as u8;
+        }
+
+        // Encode track 0 (cyl 0, head 0) and feed as MFM words
+        let mfm_bytes = mfm::encode_mfm_track(&sector_data, 0, 11);
+        let mfm_words: Vec<u16> = mfm_bytes
+            .chunks_exact(2)
+            .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
+            .collect();
+        for &word in &mfm_words {
+            drive.note_write_mfm_word(word);
+        }
+
+        let written = drive.flush_write_capture();
+        assert_eq!(written, 11, "should write all 11 sectors");
+
+        // Verify sector 0 was persisted
+        let saved = drive.save_adf().expect("disk present");
+        let expected: Vec<u8> = (0..512).map(|i| (i & 0xFF) as u8).collect();
+        assert_eq!(&saved[..512], &expected[..]);
+    }
+
+    #[test]
+    fn flush_write_no_disk_returns_zero() {
+        let mut drive = AmigaFloppyDrive::new();
+        drive.note_write_mfm_word(0x4489);
+        drive.note_write_mfm_word(0x4489);
+        assert_eq!(drive.flush_write_capture(), 0);
+    }
+
+    #[test]
+    fn save_adf_returns_none_without_disk() {
+        let drive = AmigaFloppyDrive::new();
+        assert!(drive.save_adf().is_none());
     }
 
     #[test]
