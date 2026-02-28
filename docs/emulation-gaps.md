@@ -19,25 +19,24 @@ TODO/FIXME/HACK comments in the codebase.
 
 ### Implemented
 
-48K, 128K, and +2 models are fully functional:
+48K, 128K, +2, and +3 models are fully functional:
 
 - **CPU**: Z80 at 100% cycle accuracy (1.6M single-step tests pass)
 - **ULA**: Video, contention, INT, floating bus — all verified
-- **Memory**: 48K flat layout, 128K banking ($7FFD), ROM paging, shadow screen
+- **Memory**: 48K flat layout, 128K banking ($7FFD), +3 dual banking ($7FFD + $1FFD), ROM paging, shadow screen, special all-RAM modes
 - **Audio**: 1-bit beeper + AY-3-8910 PSG (3 tone, noise, envelope, 48 kHz)
 - **Input**: 8×5 keyboard matrix, Kempston joystick (port $1F)
-- **Storage**: TAP instant-load via ROM trap, TZX real-time signal (turbo loaders, custom protection), SNA snapshots (48K + 128K), .Z80 snapshots (v1/v2/v3)
-- **I/O ports**: $FE (ULA), $7FFD (banking), $FFFD/$BFFD (AY), $1F (Kempston)
+- **Storage**: TAP instant-load via ROM trap, TZX real-time signal (turbo loaders, custom protection), SNA snapshots (48K + 128K), .Z80 snapshots (v1/v2/v3), DSK/EDSK disk images (+3, read/write)
+- **I/O ports**: $FE (ULA), $7FFD (banking), $1FFD (+3 banking/motor), $FFFD/$BFFD (AY), $1F (Kempston), $2FFD/$3FFD (FDC)
+- **FDC**: NEC uPD765 — SPECIFY, RECALIBRATE, SEEK, SENSE INTERRUPT/DRIVE STATUS, READ DATA, WRITE DATA, READ ID, FORMAT TRACK
 - **EAR bit**: Port $FE bit 6 driven by TZX signal when active, falls back to MIC output (bit 3 of last $FE write)
 - **Audio**: Stereo AY output with ACB panning (A→left, C→right, B→centre)
-- **CLI**: `--model 48k|128k|plus2`, `--rom`, `--sna`, `--z80`, `--tap`, `--tzx`
-- **MCP**: Key input including Kempston, screenshots, state queries, 128K boot, load_z80, load_tzx, tape_status
+- **CLI**: `--model 48k|128k|plus2|plus3`, `--rom`, `--sna`, `--z80`, `--tap`, `--tzx`, `--dsk`
+- **MCP**: Key input including Kempston, screenshots, state queries, 128K/+3 boot, load_z80, load_tzx, load_dsk, tape_status
 
 ### Blocking broader compatibility
 
-| Gap | Location | Impact |
-|-----|----------|--------|
-| +3 disk controller (FDC) | Not implemented | +3 software unloadable; ~1000 lines of FDC emulation |
+No blocking gaps remain for any in-scope Spectrum model.
 
 ### Not planned
 
@@ -51,10 +50,10 @@ TODO/FIXME/HACK comments in the codebase.
 
 ### Assessment
 
-48K and 128K PAL are **complete**. The Spectrum is the most mature of the
-four systems. TZX support now handles turbo loaders and custom protection
-schemes via real-time EAR signal simulation. The only remaining gap is the
-+3 FDC, which is a bounded standalone project for +3-specific software.
+48K, 128K, +2, and +3 PAL are **complete**. The Spectrum is the most mature
+of the four systems. TZX support handles turbo loaders and custom protection
+schemes via real-time EAR signal simulation. The +3 FDC (NEC uPD765) supports
+DSK/EDSK disk images with read and write capability.
 
 ---
 
@@ -202,9 +201,9 @@ work is in peripheral completeness.
 | CPU | 100% | 100% | 100% | 95% (68000 only) |
 | Video modes | 100% | 100% (all modes + scrolling + MCM sprites + collisions + sprite DMA stealing) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
 | Audio | 100% (beeper + AY) | ~95% (6581/8580 models, non-linear filter, combined waveforms) | ~95% (all 5 channels) | ~85% (no filter model) |
-| Storage | TAP + TZX + SNA + Z80 (48K/128K) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
+| Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 7 mappers (0/1/2/3/4/7/9) | ADF read only |
 | Peripherals | Keyboard + Kempston | Keyboard + REU (128/256/512K) | 2-player pad | Keyboard + mouse |
-| Model variants | 48K, 128K, +2 PAL | PAL + NTSC | NTSC only | A500 OCS only |
+| Model variants | 48K, 128K, +2, +3 PAL | PAL + NTSC | NTSC only | A500 OCS only |
 
 ### Highest-impact work items (by games-unlocked)
 

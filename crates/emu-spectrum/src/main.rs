@@ -44,6 +44,7 @@ struct CliArgs {
     z80_path: Option<PathBuf>,
     tap_path: Option<PathBuf>,
     tzx_path: Option<PathBuf>,
+    dsk_path: Option<PathBuf>,
     headless: bool,
     mcp: bool,
     script_path: Option<PathBuf>,
@@ -64,6 +65,7 @@ fn parse_args() -> CliArgs {
         z80_path: None,
         tap_path: None,
         tzx_path: None,
+        dsk_path: None,
         headless: false,
         mcp: false,
         script_path: None,
@@ -103,6 +105,10 @@ fn parse_args() -> CliArgs {
             "--tzx" => {
                 i += 1;
                 cli.tzx_path = args.get(i).map(PathBuf::from);
+            }
+            "--dsk" => {
+                i += 1;
+                cli.dsk_path = args.get(i).map(PathBuf::from);
             }
             "--headless" => {
                 cli.headless = true;
@@ -146,12 +152,13 @@ fn parse_args() -> CliArgs {
                 eprintln!("Usage: emu-spectrum [OPTIONS]");
                 eprintln!();
                 eprintln!("Options:");
-                eprintln!("  --model <model>      Spectrum model: 48k, 128k, plus2 [default: 48k]");
-                eprintln!("  --rom <file>         ROM file (required for 128k/plus2)");
+                eprintln!("  --model <model>      Spectrum model: 48k, 128k, plus2, plus3 [default: 48k]");
+                eprintln!("  --rom <file>         ROM file (required for 128k/plus2/plus3)");
                 eprintln!("  --sna <file>         Load a SNA snapshot (48K or 128K)");
                 eprintln!("  --z80 <file>         Load a .Z80 snapshot (v1/v2/v3)");
                 eprintln!("  --tap <file>         Insert a TAP file into the tape deck");
                 eprintln!("  --tzx <file>         Insert a TZX file (real-time tape signal)");
+                eprintln!("  --dsk <file>         Insert a DSK disk image (+3 only)");
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
                 eprintln!("  --script <file>      Run a JSON script file (headless batch mode)");
@@ -377,7 +384,7 @@ impl ApplicationHandler for App {
 
 fn load_rom_file(cli: &CliArgs, model_name: &str) -> Vec<u8> {
     let Some(ref path) = cli.rom_path else {
-        eprintln!("{model_name} model requires --rom <file> (32K ROM image)");
+        eprintln!("{model_name} model requires --rom <file>");
         process::exit(1);
     };
     match std::fs::read(path) {
@@ -400,8 +407,12 @@ fn make_spectrum(cli: &CliArgs) -> Spectrum {
             let rom = load_rom_file(cli, "+2");
             (SpectrumModel::SpectrumPlus2, rom)
         }
+        "plus3" | "+3" => {
+            let rom = load_rom_file(cli, "+3");
+            (SpectrumModel::SpectrumPlus3, rom)
+        }
         other => {
-            eprintln!("Unknown model: {other}. Use 48k, 128k, or plus2.");
+            eprintln!("Unknown model: {other}. Use 48k, 128k, plus2, or plus3.");
             process::exit(1);
         }
     };
@@ -491,6 +502,22 @@ fn make_spectrum(cli: &CliArgs) -> Spectrum {
         }
     }
 
+    // Insert DSK if provided.
+    if let Some(ref path) = cli.dsk_path {
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to read DSK file {}: {e}", path.display());
+                process::exit(1);
+            }
+        };
+        if let Err(e) = spectrum.load_dsk(&data) {
+            eprintln!("Failed to load DSK: {e}");
+            process::exit(1);
+        }
+        eprintln!("Inserted DSK: {}", path.display());
+    }
+
     // Enqueue typed text if provided.
     if let Some(ref text) = cli.type_text {
         // Unescape \n to actual newlines.
@@ -531,6 +558,7 @@ fn main() {
     let title = match cli.model.as_str() {
         "128k" | "128" => "ZX Spectrum 128K",
         "plus2" | "+2" => "ZX Spectrum +2",
+        "plus3" | "+3" => "ZX Spectrum +3",
         _ => "ZX Spectrum 48K",
     };
     let spectrum = make_spectrum(&cli);

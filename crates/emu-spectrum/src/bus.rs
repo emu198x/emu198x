@@ -15,6 +15,7 @@
 
 use emu_core::{Bus, ReadResult};
 use gi_ay_3_8910::Ay3_8910;
+use nec_upd765::Upd765;
 use sinclair_ula::Ula;
 
 use crate::beeper::BeeperState;
@@ -36,6 +37,8 @@ pub struct SpectrumBus {
     pub kempston: u8,
     /// AY-3-8910 sound chip (present on 128K/+2/+3 models).
     pub ay: Option<Ay3_8910>,
+    /// NEC uPD765 floppy disk controller (present on +3 only).
+    pub fdc: Option<Upd765>,
     /// Tape EAR override: `Some(level)` when TZX signal is active, `None`
     /// falls back to MIC loopback (bit 3 of last $FE write).
     pub tape_ear: Option<bool>,
@@ -56,6 +59,7 @@ impl SpectrumBus {
             last_fe_write: 0,
             kempston: 0,
             ay: None,
+            fdc: None,
             tape_ear: None,
         }
     }
@@ -97,6 +101,20 @@ impl Bus for SpectrumBus {
         // Kempston joystick (port $1F, active when low byte = $1F)
         if port & 0xFF == 0x1F {
             return ReadResult::with_wait(self.kempston, wait);
+        }
+
+        // Port $2FFD: FDC main status register (+3 only)
+        if port & 0xF002 == 0x2000 {
+            if let Some(ref fdc) = self.fdc {
+                return ReadResult::with_wait(fdc.read_msr(), wait);
+            }
+        }
+
+        // Port $3FFD: FDC data register read (+3 only)
+        if port & 0xF002 == 0x3000 {
+            if let Some(ref mut fdc) = self.fdc {
+                return ReadResult::with_wait(fdc.read_data(), wait);
+            }
         }
 
         // Port $FE (active when bit 0 is clear)
@@ -147,6 +165,18 @@ impl Bus for SpectrumBus {
         // Port $7FFD: 128K bank switching (bit 1 set, bit 15 clear)
         if port & 0x8002 == 0x0000 && !ula_port {
             self.memory.write_bank_register(value);
+        }
+
+        // Port $1FFD: +3 memory/disk banking (bit 12 set, bit 1 clear, not ULA)
+        if port & 0xF002 == 0x1000 && !ula_port {
+            self.memory.write_plus3_register(value);
+        }
+
+        // Port $3FFD: FDC data register write (+3 only)
+        if port & 0xF002 == 0x3000 {
+            if let Some(ref mut fdc) = self.fdc {
+                fdc.write_data(value);
+            }
         }
 
         // Port $FFFD: AY register select

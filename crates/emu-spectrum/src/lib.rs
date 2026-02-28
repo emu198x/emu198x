@@ -27,7 +27,7 @@ pub use bus::SpectrumBus;
 pub use config::{SpectrumConfig, SpectrumModel};
 pub use input::{InputQueue, SpectrumKey};
 pub use keyboard::KeyboardState;
-pub use memory::{Memory128K, Memory48K, SpectrumMemory};
+pub use memory::{Memory128K, Memory48K, MemoryPlus3, SpectrumMemory};
 pub use sinclair_ula::Ula;
 pub use sna::load_sna;
 pub use spectrum::Spectrum;

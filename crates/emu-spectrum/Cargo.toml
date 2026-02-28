@@ -18,6 +18,7 @@ emu-core = { path = "../emu-core" }
 zilog-z80 = { path = "../zilog-z80" }
 sinclair-ula = { path = "../sinclair-ula" }
 gi-ay-3-8910 = { path = "../gi-ay-3-8910" }
+nec-upd765 = { path = "../nec-upd765" }
 winit = "0.30"
 pixels = "0.15"
 png = "0.17"

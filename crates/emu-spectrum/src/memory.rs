@@ -38,6 +38,14 @@ pub trait SpectrumMemory {
     /// Write the bank register ($7FFD). No-op on 48K.
     fn write_bank_register(&mut self, _value: u8) {}
 
+    /// Write the +3 banking register ($1FFD). No-op on non-+3 models.
+    fn write_plus3_register(&mut self, _value: u8) {}
+
+    /// Whether the disk motor is on (controlled by $1FFD bit 3). Always false on non-+3.
+    fn disk_motor(&self) -> bool {
+        false
+    }
+
     /// Which RAM bank holds the current screen? Always 5 on 48K.
     fn screen_bank(&self) -> u8 {
         5
@@ -446,5 +454,400 @@ mod tests {
     #[should_panic(expected = "128K ROM must be exactly 32768 bytes")]
     fn wrong_128k_rom_size_panics() {
         let _ = Memory128K::new(&[0; 1024]);
+    }
+}
+
+/// +3 Spectrum memory: 4×16K ROM + 8×16K RAM with dual bank registers.
+///
+/// The +3 extends the 128K banking with an additional register at $1FFD
+/// that controls ROM paging, special all-RAM modes, and the disk motor.
+///
+/// ## Normal mode ($1FFD bit 0 = 0)
+///
+/// ```text
+/// $0000-$3FFF: ROM page (2-bit select: $1FFD bit 2 << 1 | $7FFD bit 4)
+/// $4000-$7FFF: Always RAM bank 5 (contended)
+/// $8000-$BFFF: Always RAM bank 2
+/// $C000-$FFFF: Switchable RAM bank 0-7 ($7FFD bits 0-2)
+/// ```
+///
+/// ## Special mode ($1FFD bit 0 = 1, all-RAM)
+///
+/// Four configurations selected by $1FFD bits 1-2:
+/// ```text
+/// Config 0: banks 0, 1, 2, 3
+/// Config 1: banks 4, 5, 6, 7
+/// Config 2: banks 4, 5, 6, 3
+/// Config 3: banks 4, 7, 6, 3
+/// ```
+pub struct MemoryPlus3 {
+    rom: [[u8; 0x4000]; 4],
+    ram: [Box<[u8; 0x4000]>; 8],
+    /// $7FFD register value.
+    bank_7ffd: u8,
+    /// $1FFD register value.
+    bank_1ffd: u8,
+    /// Once $7FFD bit 5 is set, both $7FFD and $1FFD writes are ignored.
+    locked: bool,
+}
+
+/// Special mode RAM bank configurations, indexed by $1FFD bits 1-2.
+/// Each entry is [slot0, slot1, slot2, slot3] = banks at $0000/$4000/$8000/$C000.
+const SPECIAL_CONFIGS: [[usize; 4]; 4] = [
+    [0, 1, 2, 3], // Config 0
+    [4, 5, 6, 7], // Config 1
+    [4, 5, 6, 3], // Config 2
+    [4, 7, 6, 3], // Config 3
+];
+
+impl MemoryPlus3 {
+    /// Create a new +3 memory with the given 64K ROM data.
+    ///
+    /// The ROM is split into four 16K pages:
+    /// - Page 0 ($0000): Editor
+    /// - Page 1 ($4000): Syntax
+    /// - Page 2 ($8000): +3DOS
+    /// - Page 3 ($C000): 48K BASIC
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rom` is not exactly 65,536 bytes.
+    #[must_use]
+    pub fn new(rom: &[u8]) -> Self {
+        assert!(
+            rom.len() == 0x10000,
+            "+3 ROM must be exactly 65536 bytes, got {}",
+            rom.len()
+        );
+        let mut memory = Self {
+            rom: [[0; 0x4000]; 4],
+            ram: std::array::from_fn(|_| Box::new([0u8; 0x4000])),
+            bank_7ffd: 0,
+            bank_1ffd: 0,
+            locked: false,
+        };
+        for i in 0..4 {
+            memory.rom[i].copy_from_slice(&rom[i * 0x4000..(i + 1) * 0x4000]);
+        }
+        memory
+    }
+
+    /// Whether special mode (all-RAM) is active ($1FFD bit 0).
+    fn special_mode(&self) -> bool {
+        self.bank_1ffd & 0x01 != 0
+    }
+
+    /// Special mode configuration index ($1FFD bits 1-2).
+    fn special_config(&self) -> usize {
+        ((self.bank_1ffd >> 1) & 0x03) as usize
+    }
+
+    /// Selected ROM page in normal mode (2-bit: $1FFD bit 2, $7FFD bit 4).
+    fn rom_page(&self) -> usize {
+        let bit_high = (self.bank_1ffd >> 2) & 1;
+        let bit_low = (self.bank_7ffd >> 4) & 1;
+        ((bit_high << 1) | bit_low) as usize
+    }
+
+    /// Selected RAM bank at $C000 in normal mode ($7FFD bits 0-2).
+    fn page_bank(&self) -> usize {
+        (self.bank_7ffd & 0x07) as usize
+    }
+
+    /// Direct RAM access for snapshot loading.
+    pub fn load_ram_bank(&mut self, bank: usize, data: &[u8]) {
+        let len = data.len().min(0x4000);
+        self.ram[bank][..len].copy_from_slice(&data[..len]);
+    }
+
+    /// Direct RAM read for observation.
+    #[must_use]
+    pub fn ram_bank_slice(&self, bank: usize, offset: usize, len: usize) -> &[u8] {
+        &self.ram[bank][offset..offset + len]
+    }
+}
+
+impl SpectrumMemory for MemoryPlus3 {
+    fn read(&self, addr: u16) -> u8 {
+        let a = addr as usize;
+        if self.special_mode() {
+            let cfg = SPECIAL_CONFIGS[self.special_config()];
+            let slot = a >> 14;
+            self.ram[cfg[slot]][a & 0x3FFF]
+        } else {
+            match a {
+                0x0000..0x4000 => self.rom[self.rom_page()][a],
+                0x4000..0x8000 => self.ram[5][a - 0x4000],
+                0x8000..0xC000 => self.ram[2][a - 0x8000],
+                _ => self.ram[self.page_bank()][a - 0xC000],
+            }
+        }
+    }
+
+    fn write(&mut self, addr: u16, val: u8) {
+        let a = addr as usize;
+        if self.special_mode() {
+            let cfg = SPECIAL_CONFIGS[self.special_config()];
+            let slot = a >> 14;
+            self.ram[cfg[slot]][a & 0x3FFF] = val;
+        } else {
+            match a {
+                0x0000..0x4000 => {} // ROM writes ignored
+                0x4000..0x8000 => self.ram[5][a - 0x4000] = val,
+                0x8000..0xC000 => self.ram[2][a - 0x8000] = val,
+                _ => {
+                    let bank = self.page_bank();
+                    self.ram[bank][a - 0xC000] = val;
+                }
+            }
+        }
+    }
+
+    fn peek(&self, addr: u16) -> u8 {
+        self.read(addr)
+    }
+
+    fn vram_peek(&self, addr: u16) -> u8 {
+        let a = addr as usize;
+        if (0x4000..0x5B00).contains(&a) {
+            let screen = self.screen_bank() as usize;
+            self.ram[screen][a - 0x4000]
+        } else {
+            self.read(addr)
+        }
+    }
+
+    fn contended_page(&self, addr: u16) -> bool {
+        if self.special_mode() {
+            // In special mode, contention applies to slots holding odd banks (1,3,5,7)
+            let cfg = SPECIAL_CONFIGS[self.special_config()];
+            let slot = (addr as usize) >> 14;
+            cfg[slot] & 1 != 0
+        } else {
+            let a = addr as usize;
+            match a {
+                0x4000..0x8000 => true, // Always bank 5 (contended)
+                0xC000..=0xFFFF => self.page_bank() & 1 != 0,
+                _ => false,
+            }
+        }
+    }
+
+    fn write_bank_register(&mut self, value: u8) {
+        if !self.locked {
+            self.bank_7ffd = value;
+            self.locked = value & 0x20 != 0;
+        }
+    }
+
+    fn write_plus3_register(&mut self, value: u8) {
+        if !self.locked {
+            self.bank_1ffd = value;
+        }
+    }
+
+    fn disk_motor(&self) -> bool {
+        self.bank_1ffd & 0x08 != 0
+    }
+
+    fn screen_bank(&self) -> u8 {
+        if self.bank_7ffd & 0x08 != 0 { 7 } else { 5 }
+    }
+}
+
+#[cfg(test)]
+mod tests_plus3 {
+    use super::*;
+
+    fn make_plus3_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 0x10000];
+        rom[0] = 0xAA;          // ROM page 0 first byte
+        rom[0x4000] = 0xBB;     // ROM page 1 first byte
+        rom[0x8000] = 0xCC;     // ROM page 2 first byte
+        rom[0xC000] = 0xDD;     // ROM page 3 first byte
+        rom
+    }
+
+    #[test]
+    fn rom_paging_all_four_pages() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+
+        // Default: ROM page 0 ($7FFD bit 4 = 0, $1FFD bit 2 = 0)
+        assert_eq!(mem.read(0x0000), 0xAA);
+
+        // ROM page 1: $7FFD bit 4 = 1, $1FFD bit 2 = 0
+        mem.write_bank_register(0x10);
+        assert_eq!(mem.read(0x0000), 0xBB);
+
+        // ROM page 2: $7FFD bit 4 = 0, $1FFD bit 2 = 1
+        mem.write_bank_register(0x00);
+        mem.write_plus3_register(0x04);
+        assert_eq!(mem.read(0x0000), 0xCC);
+
+        // ROM page 3: $7FFD bit 4 = 1, $1FFD bit 2 = 1
+        mem.write_bank_register(0x10);
+        assert_eq!(mem.read(0x0000), 0xDD);
+    }
+
+    #[test]
+    fn normal_mode_ram_banking() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+
+        // Write to bank 0 (default at $C000)
+        mem.write(0xC000, 0x11);
+        assert_eq!(mem.read(0xC000), 0x11);
+
+        // Switch to bank 3
+        mem.write_bank_register(0x03);
+        assert_eq!(mem.read(0xC000), 0x00);
+        mem.write(0xC000, 0x33);
+
+        // Back to bank 0
+        mem.write_bank_register(0x00);
+        assert_eq!(mem.read(0xC000), 0x11);
+    }
+
+    #[test]
+    fn normal_mode_fixed_banks() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+        mem.write(0x4000, 0x55);
+        mem.write(0x8000, 0x22);
+
+        // Bank switching doesn't affect $4000 or $8000
+        mem.write_bank_register(0x07);
+        assert_eq!(mem.read(0x4000), 0x55);
+        assert_eq!(mem.read(0x8000), 0x22);
+    }
+
+    #[test]
+    fn special_mode_config_0() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+
+        // Pre-load banks with identifiable data
+        mem.ram[0][0] = 0x00;
+        mem.ram[1][0] = 0x11;
+        mem.ram[2][0] = 0x22;
+        mem.ram[3][0] = 0x33;
+
+        // Enter special mode, config 0: banks 0,1,2,3
+        mem.write_plus3_register(0x01); // bit 0 = 1, bits 1-2 = 00
+        assert!(mem.special_mode());
+
+        assert_eq!(mem.read(0x0000), 0x00);
+        assert_eq!(mem.read(0x4000), 0x11);
+        assert_eq!(mem.read(0x8000), 0x22);
+        assert_eq!(mem.read(0xC000), 0x33);
+    }
+
+    #[test]
+    fn special_mode_config_1() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+        mem.ram[4][0] = 0x44;
+        mem.ram[5][0] = 0x55;
+        mem.ram[6][0] = 0x66;
+        mem.ram[7][0] = 0x77;
+
+        // Config 1: banks 4,5,6,7 — bits 1-2 = 01
+        mem.write_plus3_register(0x03);
+        assert_eq!(mem.read(0x0000), 0x44);
+        assert_eq!(mem.read(0x4000), 0x55);
+        assert_eq!(mem.read(0x8000), 0x66);
+        assert_eq!(mem.read(0xC000), 0x77);
+    }
+
+    #[test]
+    fn special_mode_config_3() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+        mem.ram[3][0] = 0x33;
+        mem.ram[4][0] = 0x44;
+        mem.ram[6][0] = 0x66;
+        mem.ram[7][0] = 0x77;
+
+        // Config 3: banks 4,7,6,3 — bits 1-2 = 11
+        mem.write_plus3_register(0x07);
+        assert_eq!(mem.read(0x0000), 0x44);
+        assert_eq!(mem.read(0x4000), 0x77);
+        assert_eq!(mem.read(0x8000), 0x66);
+        assert_eq!(mem.read(0xC000), 0x33);
+    }
+
+    #[test]
+    fn special_mode_writes_to_ram() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+
+        // In special mode, all addresses are RAM (writable)
+        mem.write_plus3_register(0x01); // Config 0: 0,1,2,3
+        mem.write(0x0000, 0xEE); // Writes to bank 0 (would be ROM in normal mode)
+        assert_eq!(mem.ram[0][0], 0xEE);
+    }
+
+    #[test]
+    fn lock_bit_prevents_both_registers() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+
+        // Switch to bank 3 and ROM page 1
+        mem.write_bank_register(0x13); // bank 3, ROM 1
+        mem.write_plus3_register(0x04); // ROM page bit
+
+        // Lock
+        mem.write_bank_register(0x23); // bit 5 set
+
+        // Attempt to change — should be ignored
+        mem.write_bank_register(0x00);
+        assert_eq!(mem.read(0xC000), 0x00); // Still bank 3
+        mem.write(0xC000, 0x33);
+        mem.write_bank_register(0x00); // Try again
+        assert_eq!(mem.read(0xC000), 0x33); // Still bank 3
+
+        // $1FFD also locked
+        mem.write_plus3_register(0x00);
+        assert_eq!(mem.bank_1ffd, 0x04); // Unchanged
+    }
+
+    #[test]
+    fn disk_motor_bit() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+        assert!(!mem.disk_motor());
+
+        mem.write_plus3_register(0x08); // bit 3
+        assert!(mem.disk_motor());
+
+        mem.write_plus3_register(0x00);
+        assert!(!mem.disk_motor());
+    }
+
+    #[test]
+    fn contention_special_mode() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+
+        // Config 1: banks 4,5,6,7
+        mem.write_plus3_register(0x03);
+        assert!(!mem.contended_page(0x0000)); // Bank 4 (even)
+        assert!(mem.contended_page(0x4000));  // Bank 5 (odd)
+        assert!(!mem.contended_page(0x8000)); // Bank 6 (even)
+        assert!(mem.contended_page(0xC000));  // Bank 7 (odd)
+    }
+
+    #[test]
+    fn shadow_screen() {
+        let mut mem = MemoryPlus3::new(&make_plus3_rom());
+        mem.write(0x4000, 0x55); // Bank 5
+
+        mem.write_bank_register(0x07); // Page bank 7 at $C000
+        mem.ram[7][0] = 0x77;
+        mem.write_bank_register(0x00);
+
+        assert_eq!(mem.screen_bank(), 5);
+        assert_eq!(mem.vram_peek(0x4000), 0x55);
+
+        mem.write_bank_register(0x08); // Shadow screen = bank 7
+        assert_eq!(mem.screen_bank(), 7);
+        assert_eq!(mem.vram_peek(0x4000), 0x77);
+    }
+
+    #[test]
+    #[should_panic(expected = "+3 ROM must be exactly 65536 bytes")]
+    fn wrong_plus3_rom_size_panics() {
+        let _ = MemoryPlus3::new(&[0; 1024]);
     }
 }

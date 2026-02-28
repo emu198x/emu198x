@@ -1,0 +1,13 @@
+[package]
+name = "nec-upd765"
+description = "NEC uPD765 floppy disk controller emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "nec_upd765"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

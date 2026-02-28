@@ -22,7 +22,7 @@ use crate::beeper::BeeperState;
 use crate::bus::SpectrumBus;
 use crate::config::{SpectrumConfig, SpectrumModel};
 use crate::input::{InputQueue, SpectrumKey};
-use crate::memory::{Memory128K, Memory48K, SpectrumMemory};
+use crate::memory::{Memory128K, Memory48K, MemoryPlus3, SpectrumMemory};
 use crate::tap::TapFile;
 use crate::tape::TapeDeck;
 use crate::tzx::TzxFile;
@@ -80,12 +80,15 @@ impl Spectrum {
             SpectrumModel::Spectrum128K | SpectrumModel::SpectrumPlus2 => {
                 Box::new(Memory128K::new(&config.rom))
             }
+            SpectrumModel::SpectrumPlus3 => Box::new(MemoryPlus3::new(&config.rom)),
             other => panic!("Model {other:?} is not yet supported"),
         };
 
         let has_ay = matches!(
             config.model,
-            SpectrumModel::Spectrum128K | SpectrumModel::SpectrumPlus2
+            SpectrumModel::Spectrum128K
+                | SpectrumModel::SpectrumPlus2
+                | SpectrumModel::SpectrumPlus3
         );
 
         let ula = Ula::new();
@@ -96,6 +99,10 @@ impl Spectrum {
             if let Some(ay) = &mut bus.ay {
                 ay.set_stereo(gi_ay_3_8910::StereoMode::Acb);
             }
+        }
+
+        if config.model == SpectrumModel::SpectrumPlus3 {
+            bus.fdc = Some(nec_upd765::Upd765::new());
         }
 
         Self {
@@ -286,6 +293,25 @@ impl Spectrum {
         self.tzx_signal
             .as_ref()
             .is_some_and(|s| s.is_playing())
+    }
+
+    /// Load a DSK disk image into the +3's floppy drive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no FDC is present (not a +3) or the DSK fails to parse.
+    pub fn load_dsk(&mut self, data: &[u8]) -> Result<(), String> {
+        let image = nec_upd765::dsk::parse_dsk(data)?;
+        let fdc = self.bus.fdc.as_mut().ok_or("No FDC (not a +3 model)")?;
+        fdc.insert_disk(0, image);
+        Ok(())
+    }
+
+    /// Eject the disk from the +3's floppy drive.
+    pub fn eject_dsk(&mut self) {
+        if let Some(fdc) = &mut self.bus.fdc {
+            fdc.eject_disk(0);
+        }
     }
 
     /// The Spectrum model.

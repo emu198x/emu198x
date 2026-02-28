@@ -158,6 +158,7 @@ impl McpServer {
             "load_z80" => self.handle_load_z80(params, id),
             "load_tap" => self.handle_load_tap(params, id),
             "load_tzx" => self.handle_load_tzx(params, id),
+            "load_dsk" => self.handle_load_dsk(params, id),
             "tape_status" => self.handle_tape_status(id),
             "run_frames" => self.handle_run_frames(params, id),
             "step_instruction" => self.handle_step_instruction(id),
@@ -201,11 +202,12 @@ impl McpServer {
             "48k" | "48" => (SpectrumModel::Spectrum48K, "48k"),
             "128k" | "128" => (SpectrumModel::Spectrum128K, "128k"),
             "plus2" | "+2" => (SpectrumModel::SpectrumPlus2, "plus2"),
+            "plus3" | "+3" => (SpectrumModel::SpectrumPlus3, "plus3"),
             other => {
                 return RpcResponse::error(
                     id,
                     -32602,
-                    format!("Unknown model: {other}. Use 48k, 128k, or plus2."),
+                    format!("Unknown model: {other}. Use 48k, 128k, plus2, or plus3."),
                 );
             }
         };
@@ -363,6 +365,32 @@ impl McpServer {
                 )
             }
             Err(e) => RpcResponse::error(id, -32000, format!("TZX parse failed: {e}")),
+        }
+    }
+
+    fn handle_load_dsk(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let spec = match self.require_spectrum(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
+            }
+        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+            match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
+            }
+        } else {
+            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+        };
+
+        match spec.load_dsk(&data) {
+            Ok(()) => RpcResponse::success(id, serde_json::json!({"status": "ok", "format": "dsk"})),
+            Err(e) => RpcResponse::error(id, -32000, format!("DSK load failed: {e}")),
         }
     }
 
