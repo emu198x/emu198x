@@ -4784,7 +4784,7 @@ fn test_boot_kick31_a500_screenshot() {
 }
 
 #[test]
-#[ignore] // Requires real KS 3.1 A1200 ROM — AGA not implemented, expect degraded output
+#[ignore] // Requires real KS 3.1 A1200 ROM
 fn test_boot_kick31_a1200_screenshot() {
     let ks_path = "../../roms/kick31_40_068_a1200.rom";
     let rom = match fs::read(ks_path) {
@@ -4795,14 +4795,13 @@ fn test_boot_kick31_a1200_screenshot() {
         }
     };
 
-    // A1200 ROM on A500Plus/ECS — no AGA chipset yet, so the display
-    // will be whatever the ROM manages with OCS/ECS registers only.
+    // A1200 with AGA chipset and 68020 CPU.
     let mut amiga = Amiga::new_with_config(AmigaConfig {
-        model: AmigaModel::A500Plus,
-        chipset: AmigaChipset::Ecs,
+        model: AmigaModel::A1200,
+        chipset: AmigaChipset::Aga,
         region: AmigaRegion::Pal,
         kickstart: rom,
-            slow_ram_size: 0,
+        slow_ram_size: 0,
     });
 
     println!(

@@ -24,6 +24,10 @@ pub struct CpuCapabilities {
     pub vbr: bool,
     /// Cache control register (`CACR`) is present.
     pub cacr: bool,
+    /// 32-bit multiply/divide (`MULL`/`DIVL`) instructions.
+    pub mull_divl: bool,
+    /// `EXTB.L` sign-extend byte to long.
+    pub extb_l: bool,
 }
 
 impl CpuModel {
@@ -35,16 +39,22 @@ impl CpuModel {
                 movec: false,
                 vbr: false,
                 cacr: false,
+                mull_divl: false,
+                extb_l: false,
             },
             Self::M68010 => CpuCapabilities {
                 movec: true,
                 vbr: true,
                 cacr: false,
+                mull_divl: false,
+                extb_l: false,
             },
             Self::M68020 => CpuCapabilities {
                 movec: true,
                 vbr: true,
                 cacr: true,
+                mull_divl: true,
+                extb_l: true,
             },
         }
     }
@@ -67,7 +77,9 @@ mod tests {
             CpuCapabilities {
                 movec: false,
                 vbr: false,
-                cacr: false
+                cacr: false,
+                mull_divl: false,
+                extb_l: false,
             }
         );
         assert_eq!(
@@ -75,7 +87,9 @@ mod tests {
             CpuCapabilities {
                 movec: true,
                 vbr: true,
-                cacr: false
+                cacr: false,
+                mull_divl: false,
+                extb_l: false,
             }
         );
         assert_eq!(
@@ -83,7 +97,9 @@ mod tests {
             CpuCapabilities {
                 movec: true,
                 vbr: true,
-                cacr: true
+                cacr: true,
+                mull_divl: true,
+                extb_l: true,
             }
         );
     }

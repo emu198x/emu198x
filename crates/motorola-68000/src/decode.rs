@@ -734,6 +734,19 @@ impl Cpu68000 {
             return;
         }
 
+        // --- EXTB.L (0x49C0, 68020+) — must check before LEA which shares mask ---
+        if (opcode & 0xFFF8) == 0x49C0 {
+            if !self.capabilities().extb_l {
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
+            let r = (opcode & 7) as usize;
+            let ext = (self.regs.d[r] as u8 as i8 as i32) as u32;
+            self.regs.d[r] = ext;
+            self.set_flags_move(ext, Size::Long);
+            return;
+        }
+
         // --- LEA (0x41C0) ---
         if (opcode & 0xF1C0) == 0x41C0 {
             let reg = ((opcode >> 9) & 7) as u8;
@@ -792,6 +805,26 @@ impl Cpu68000 {
             let ext = (val as u16 as i16 as i32) as u32;
             self.regs.d[r] = ext;
             self.set_flags_move(ext, Size::Long);
+            return;
+        }
+
+        // --- MULL (0x4C00-0x4C3F) / DIVL (0x4C40-0x4C7F), 68020+ ---
+        if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
+            if !self.capabilities().mull_divl {
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
+            // Extension word is in IRC (next word after opcode).
+            // Store it in movem_mask (unused field) before EA resolution.
+            let ext = self.consume_irc();
+            self.movem_mask = ext;
+            self.size = Size::Long;
+            let ea_mode_bits = ((opcode >> 3) & 7) as u8;
+            let ea_reg = (opcode & 7) as u8;
+            self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            self.in_followup = true;
+            self.followup_tag = TAG_FETCH_SRC_EA;
+            self.continue_instruction(bus);
             return;
         }
 
@@ -1327,7 +1360,7 @@ impl Cpu68000 {
                     return;
                 }
 
-                // MULU/MULS/DIVU/DIVS: read source word, then execute
+                // MULU/MULS/DIVU/DIVS (16-bit): read source word, then execute
                 if matches!(opcode & 0xF000, 0xC000 | 0x8000) {
                     let opmode = (opcode >> 6) & 7;
                     if opmode == 3 || opmode == 7 {
@@ -1350,6 +1383,29 @@ impl Cpu68000 {
                         }
                         return;
                     }
+                }
+
+                // MULL/DIVL (32-bit, 68020+): read source long, then execute
+                if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
+                    match self.src_mode.unwrap() {
+                        AddrMode::DataReg(r) => {
+                            self.src_val = self.regs.d[r as usize];
+                            self.followup_tag = TAG_MULDIV_EXECUTE;
+                            self.micro_ops.push(MicroOp::Execute);
+                        }
+                        AddrMode::Immediate => {
+                            let hi = self.consume_irc();
+                            self.src_val = u32::from(hi) << 16;
+                            self.followup_tag = TAG_DATA_SRC_LONG;
+                            self.micro_ops.push(MicroOp::Execute);
+                        }
+                        _ => {
+                            self.followup_tag = TAG_MULDIV_EXECUTE;
+                            self.queue_read_ops(Size::Long);
+                            self.micro_ops.push(MicroOp::Execute);
+                        }
+                    }
+                    return;
                 }
 
                 match self.src_mode.unwrap() {
@@ -1519,7 +1575,13 @@ impl Cpu68000 {
             // --- Immediate long lo-word handlers ---
             TAG_DATA_SRC_LONG => {
                 self.src_val |= u32::from(self.consume_irc());
-                self.followup_tag = TAG_FETCH_DST_EA;
+                // MULL/DIVL immediate long: go to execute, not dest EA
+                let opc = self.ir;
+                if (opc & 0xFFC0) == 0x4C00 || (opc & 0xFFC0) == 0x4C40 {
+                    self.followup_tag = TAG_MULDIV_EXECUTE;
+                } else {
+                    self.followup_tag = TAG_FETCH_DST_EA;
+                }
                 self.micro_ops.push(MicroOp::Execute);
             }
 
@@ -2111,8 +2173,132 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::Execute);
             }
 
-            // --- MULU/MULS/DIVU/DIVS execution ---
+            // --- MULU/MULS/DIVU/DIVS + MULL/DIVL execution ---
             TAG_MULDIV_EXECUTE => {
+                let opcode = self.ir;
+
+                // --- 68020 MULL/DIVL (opcode $4Cxx) ---
+                if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
+                    // For memory modes, bus read result (32-bit) is in self.data
+                    if let Some(mode) = self.src_mode {
+                        if !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
+                            self.src_val = self.data;
+                        }
+                    }
+                    let ext = self.movem_mask; // stashed during decode
+                    let dq = ((ext >> 12) & 7) as usize;
+                    let is_signed = ext & 0x0800 != 0;
+                    let is_64bit = ext & 0x0400 != 0;
+                    let dr = (ext & 7) as usize;
+                    let src = self.src_val;
+
+                    if (opcode & 0xFFC0) == 0x4C00 {
+                        // MULL: 32x32 multiply
+                        if is_signed {
+                            let result = (src as i32 as i64) * (self.regs.d[dq] as i32 as i64);
+                            let result_u = result as u64;
+                            if is_64bit {
+                                self.regs.d[dr] = result_u as u32; // low
+                                self.regs.d[dq] = (result_u >> 32) as u32; // high
+                            } else {
+                                self.regs.d[dq] = result_u as u32;
+                            }
+                            let mut sr = self.regs.sr & !0x000F;
+                            if is_64bit {
+                                if result_u & 0x8000_0000_0000_0000 != 0 { sr |= 0x0008; }
+                                if result_u == 0 { sr |= 0x0004; }
+                            } else {
+                                let r32 = result_u as u32;
+                                if r32 & 0x8000_0000 != 0 { sr |= 0x0008; }
+                                if r32 == 0 { sr |= 0x0004; }
+                                // V set if 64-bit result doesn't fit in 32 bits
+                                let hi = (result_u >> 32) as u32;
+                                if (r32 & 0x8000_0000 != 0 && hi != 0xFFFF_FFFF)
+                                    || (r32 & 0x8000_0000 == 0 && hi != 0)
+                                {
+                                    sr |= 0x0002;
+                                }
+                            }
+                            self.regs.sr = sr;
+                        } else {
+                            let result = u64::from(src) * u64::from(self.regs.d[dq]);
+                            if is_64bit {
+                                self.regs.d[dr] = result as u32; // low
+                                self.regs.d[dq] = (result >> 32) as u32; // high
+                            } else {
+                                self.regs.d[dq] = result as u32;
+                            }
+                            let mut sr = self.regs.sr & !0x000F;
+                            if is_64bit {
+                                if result & 0x8000_0000_0000_0000 != 0 { sr |= 0x0008; }
+                                if result == 0 { sr |= 0x0004; }
+                            } else {
+                                let r32 = result as u32;
+                                if r32 & 0x8000_0000 != 0 { sr |= 0x0008; }
+                                if r32 == 0 { sr |= 0x0004; }
+                                if result > 0xFFFF_FFFF { sr |= 0x0002; } // V
+                            }
+                            self.regs.sr = sr;
+                        }
+                        // ~44 cycles for 32-bit multiply
+                        self.micro_ops.push(MicroOp::Internal(40));
+                    } else {
+                        // DIVL: 32/32 divide (or 64/32 when is_64bit)
+                        if src == 0 {
+                            self.begin_group1_exception(5, self.irc_addr);
+                            return;
+                        }
+                        if is_signed {
+                            let divisor = src as i32;
+                            let dividend = if is_64bit {
+                                ((self.regs.d[dq] as i64) << 32) | (self.regs.d[dr] as u32 as i64)
+                            } else {
+                                self.regs.d[dq] as i32 as i64
+                            };
+                            let quotient = dividend / i64::from(divisor);
+                            let remainder = dividend % i64::from(divisor);
+                            if quotient > i32::MAX as i64 || quotient < i32::MIN as i64 {
+                                let mut sr = self.regs.sr & !0x000F;
+                                sr |= 0x000A; // V + N
+                                self.regs.sr = sr;
+                            } else {
+                                self.regs.d[dr] = remainder as u32;
+                                self.regs.d[dq] = quotient as u32;
+                                let mut sr = self.regs.sr & !0x000F;
+                                if quotient as u32 & 0x8000_0000 != 0 { sr |= 0x0008; }
+                                if quotient as u32 == 0 { sr |= 0x0004; }
+                                self.regs.sr = sr;
+                            }
+                        } else {
+                            let divisor = src as u64;
+                            let dividend = if is_64bit {
+                                ((self.regs.d[dq] as u64) << 32) | (self.regs.d[dr] as u64)
+                            } else {
+                                self.regs.d[dq] as u64
+                            };
+                            let quotient = dividend / divisor;
+                            let remainder = dividend % divisor;
+                            if quotient > u32::MAX as u64 {
+                                let mut sr = self.regs.sr & !0x000F;
+                                sr |= 0x000A; // V + N
+                                self.regs.sr = sr;
+                            } else {
+                                self.regs.d[dr] = remainder as u32;
+                                self.regs.d[dq] = quotient as u32;
+                                let mut sr = self.regs.sr & !0x000F;
+                                if quotient as u32 & 0x8000_0000 != 0 { sr |= 0x0008; }
+                                if quotient as u32 == 0 { sr |= 0x0004; }
+                                self.regs.sr = sr;
+                            }
+                        }
+                        // ~78 cycles for 32-bit divide
+                        self.micro_ops.push(MicroOp::Internal(74));
+                    }
+                    self.in_followup = false;
+                    return;
+                }
+
+                // --- 68000 16-bit MULU/MULS/DIVU/DIVS ---
                 // For memory modes, bus read result is in self.data
                 if let Some(mode) = self.src_mode {
                     if !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
@@ -2120,7 +2306,6 @@ impl Cpu68000 {
                     }
                 }
 
-                let opcode = self.ir;
                 let dn = ((opcode >> 9) & 7) as usize;
                 let src_word = (self.src_val & 0xFFFF) as u16;
                 let top = opcode & 0xF000;

@@ -4,6 +4,7 @@
 pub enum AmigaModel {
     A500,
     A500Plus,
+    A1200,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +12,15 @@ pub enum AmigaChipset {
     #[default]
     Ocs,
     Ecs,
+    Aga,
+}
+
+impl AmigaChipset {
+    /// True for ECS or AGA (both extend OCS with additional registers).
+    #[must_use]
+    pub const fn is_ecs_or_aga(self) -> bool {
+        matches!(self, Self::Ecs | Self::Aga)
+    }
 }
 
 /// Video region (PAL or NTSC) — determines frame timing and raster dimensions.

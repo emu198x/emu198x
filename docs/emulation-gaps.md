@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-28 (Amiga: MOVEC, disk write, slow RAM). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-02-28 (Amiga: A1200/AGA, 68020 MULL/DIVL/EXTB). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -161,14 +161,19 @@ work.
 ### Implemented (post-v1)
 
 - **MOVEC instruction** (68010/020): VBR, SFC, DFC, CACR control registers. Privileged; illegal on 68000, privilege violation in user mode.
+- **MULL/DIVL** (68020): 32-bit unsigned/signed multiply and divide with 32-bit and 64-bit result modes. Division by zero traps to vector 5.
+- **EXTB.L** (68020): Sign-extend byte to long.
 - **ADF disk write**: MFM decode of DMA write captures, sector checksum verification, write-back to ADF image. `save_adf()` API for extracting modified disk images.
 - **Slow RAM**: A500 trapdoor expansion at $C00000-$DFFFFF, configurable 512K/1M/2M via `slow_ram_size` config field.
+- **A1200 model**: 68020 CPU, 2MB chip RAM, AGA chipset ID registers (Alice $22, Lisa $F8).
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| 68020 instruction extensions | `motorola-68020` — thin wrapper | A1200 code using 020 features fails |
+| 68020 bit field instructions | `decode.rs` — not implemented | Some 68020 code using BFXXX fails |
+| 68020 CAS/CAS2 | Not implemented | Atomic compare-and-swap operations fail |
+| AGA display features | Not implemented | 8 bitplanes, HAM8, 24-bit palette, FMODE not available |
 | IPF/WHDLoad formats | Not supported | Copy-protected and WHDLoad games unloadable |
 
 ### Accuracy gaps
@@ -189,8 +194,10 @@ work.
 The Amiga has the widest gap between "boots" and "runs software". HAM
 and EHB display modes are now decoded in Denise. Copper SKIP is
 implemented. Disk write persistence, MOVEC (68010/020), and slow RAM
-are now implemented. The 68020 instruction gap still blocks A1200 code.
-The OCS core is solid; the work is in peripheral completeness.
+are now implemented. The A1200 model routes to a 68020 CPU with MULL/DIVL/EXTB
+and reports AGA chipset IDs. AGA display features (8 bitplanes, HAM8, 24-bit
+palette) are not yet rendered. The OCS core is solid; the work is in peripheral
+completeness.
 
 ---
 
@@ -200,12 +207,12 @@ The OCS core is solid; the work is in peripheral completeness.
 
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
-| CPU | 100% | 100% | 100% | 95% (68000 only) |
+| CPU | 100% | 100% | 100% | ~97% (68000 + 68020 MULL/DIVL/EXTB/MOVEC) |
 | Video modes | 100% | 100% (all modes + scrolling + MCM sprites + collisions + sprite DMA stealing) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
 | Audio | 100% (beeper + AY) | ~95% (6581/8580 models, non-linear filter, combined waveforms) | ~95% (all 5 channels) | ~85% (no filter model) |
 | Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 7 mappers (0/1/2/3/4/7/9) | ADF read/write |
 | Peripherals | Keyboard + Kempston | Keyboard + REU (128/256/512K) | 2-player pad | Keyboard + mouse |
-| Model variants | 48K, 128K, +2, +2A, +3 PAL | PAL + NTSC | NTSC only | A500 OCS only |
+| Model variants | 48K, 128K, +2, +2A, +3 PAL | PAL + NTSC | NTSC only | A500 OCS, A500+ ECS, A1200 AGA (stub) |
 
 ### Highest-impact work items (by games-unlocked)
 

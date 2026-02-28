@@ -179,11 +179,13 @@ impl McpServer {
 
         let model = match params.get("model").and_then(|v| v.as_str()) {
             Some("a500plus") => AmigaModel::A500Plus,
+            Some("a1200") => AmigaModel::A1200,
             _ => AmigaModel::A500,
         };
 
         let chipset = match params.get("chipset").and_then(|v| v.as_str()) {
             Some("ecs") => AmigaChipset::Ecs,
+            Some("aga") => AmigaChipset::Aga,
             _ => AmigaChipset::Ocs,
         };
 

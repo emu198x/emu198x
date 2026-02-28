@@ -18,6 +18,7 @@ use drive_amiga_floppy::AmigaFloppyDrive;
 use format_adf::Adf;
 use mos_cia_8520::Cia8520;
 use motorola_68000::cpu::Cpu68000;
+use motorola_68000::model::CpuModel;
 use peripheral_amiga_keyboard::AmigaKeyboard;
 use std::sync::OnceLock;
 
@@ -264,8 +265,8 @@ impl Amiga {
         } = config;
         let chip_ram_size = match model {
             AmigaModel::A500 => 512 * 1024,
-            // A500+ ships with 1MB chip RAM.
             AmigaModel::A500Plus => 1024 * 1024,
+            AmigaModel::A1200 => 2 * 1024 * 1024,
         };
 
         let region_lines = region.lines_per_frame();
@@ -278,7 +279,7 @@ impl Amiga {
             AmigaChipset::Ocs => commodore_agnus_ecs::AgnusEcs::from_ocs(
                 commodore_agnus_ocs::Agnus::new_with_region_lines(region_lines),
             ),
-            AmigaChipset::Ecs => {
+            AmigaChipset::Ecs | AmigaChipset::Aga => {
                 let mut a = commodore_agnus_ecs::AgnusEcs::new();
                 a.as_inner_mut().lines_per_frame = region_lines;
                 a
@@ -288,13 +289,16 @@ impl Amiga {
             AmigaChipset::Ocs => commodore_denise_ecs::DeniseEcs::from_ocs(
                 commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height),
             ),
-            AmigaChipset::Ecs => {
+            AmigaChipset::Ecs | AmigaChipset::Aga => {
                 let d = commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height);
                 commodore_denise_ecs::DeniseEcs::from_ocs(d)
             }
         };
 
-        let mut cpu = Cpu68000::new();
+        let mut cpu = match model {
+            AmigaModel::A1200 => Cpu68000::new_with_model(CpuModel::M68020),
+            _ => Cpu68000::new(),
+        };
         let memory = Memory::new(chip_ram_size, kickstart, slow_ram_size);
 
         // Initial reset vectors come from ROM (overlay is ON at power-on,
@@ -388,13 +392,13 @@ impl Amiga {
             };
 
             let hsync_tod_pulse =
-                if self.chipset == AmigaChipset::Ecs && self.agnus.varhsyen_enabled() {
+                if self.chipset.is_ecs_or_aga() && self.agnus.varhsyen_enabled() {
                     !prev_sync.hsync && current_sync.hsync
                 } else {
                     hpos == 0
                 };
             let vsync_tod_pulse =
-                if self.chipset == AmigaChipset::Ecs && self.agnus.varvsyen_enabled() {
+                if self.chipset.is_ecs_or_aga() && self.agnus.varvsyen_enabled() {
                     !prev_sync.vsync && current_sync.vsync
                 } else {
                     vpos == 0 && hpos == 0
@@ -1130,7 +1134,7 @@ impl Amiga {
     /// blanked by ECS programmable blank windows or outside the ECS display
     /// window. OCS has no programmable blanking, so all positions are visible.
     fn beam_to_fb_beam_x(&self, vpos: u16, hpos_cck: u16, beam_x: u16) -> Option<(u32, u32)> {
-        if self.chipset == AmigaChipset::Ecs {
+        if self.chipset.is_ecs_or_aga() {
             if self.agnus.hblank_window_active(hpos_cck) {
                 return None;
             }
@@ -1249,7 +1253,7 @@ impl Amiga {
     /// During vblank, DMA is unconditionally disabled regardless of the
     /// flip-flop state.
     fn update_bpl_dma_vactive_flipflop(&mut self, vpos: u16) {
-        if self.chipset == AmigaChipset::Ecs {
+        if self.chipset.is_ecs_or_aga() {
             let (vstart, vstop, _hstart, _hstop) = self.ecs_decoded_diw_window();
             // Edge-triggered: set on VSTART, clear on VSTOP.
             // If VSTART == VSTOP the window is degenerate — keep cleared.
@@ -1269,7 +1273,7 @@ impl Amiga {
     }
 
     fn bitplane_dma_vertical_active(&self, vpos: u16) -> bool {
-        if self.chipset == AmigaChipset::Ecs {
+        if self.chipset.is_ecs_or_aga() {
             if self.agnus.vblank_window_active(vpos) {
                 return false;
             }
@@ -1605,7 +1609,7 @@ impl Amiga {
     /// Build a debug beam snapshot at an explicit beam position.
     #[must_use]
     pub fn beam_debug_snapshot_at(&self, vpos: u16, hpos_cck: u16) -> BeamDebugSnapshot {
-        let (hblank, vblank) = if self.chipset == AmigaChipset::Ecs {
+        let (hblank, vblank) = if self.chipset.is_ecs_or_aga() {
             (
                 self.agnus.hblank_window_active(hpos_cck),
                 self.agnus.vblank_window_active(vpos),
@@ -2017,6 +2021,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         let agnus_id = match self.chipset {
                             AmigaChipset::Ocs => 0x00u16, // PAL OCS Agnus
                             AmigaChipset::Ecs => 0x20u16, // PAL ECS (HR) Agnus
+                            AmigaChipset::Aga => 0x22u16, // AGA Alice
                         };
                         let v8 = (self.agnus.vpos >> 8) & 1;
                         let v9 = (self.agnus.vpos >> 9) & 1;
@@ -2036,22 +2041,22 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x01C => self.paula.intena,
                     0x01E => self.paula.intreq,
-                    0x05C if self.chipset == AmigaChipset::Ecs => self.agnus.bltsizv_ecs,
-                    0x05E if self.chipset == AmigaChipset::Ecs => self.agnus.bltsizh_ecs,
+                    0x05C if self.chipset.is_ecs_or_aga() => self.agnus.bltsizv_ecs,
+                    0x05E if self.chipset.is_ecs_or_aga() => self.agnus.bltsizh_ecs,
                     0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),
-                    0x106 if self.chipset == AmigaChipset::Ecs => self.denise.bplcon3,
-                    0x1C0 if self.chipset == AmigaChipset::Ecs => self.agnus.htotal(),
-                    0x1C2 if self.chipset == AmigaChipset::Ecs => self.agnus.hsstop(),
-                    0x1C4 if self.chipset == AmigaChipset::Ecs => self.agnus.hbstrt(),
-                    0x1C6 if self.chipset == AmigaChipset::Ecs => self.agnus.hbstop(),
-                    0x1C8 if self.chipset == AmigaChipset::Ecs => self.agnus.vtotal(),
-                    0x1CA if self.chipset == AmigaChipset::Ecs => self.agnus.vsstop(),
-                    0x1CC if self.chipset == AmigaChipset::Ecs => self.agnus.vbstrt(),
-                    0x1CE if self.chipset == AmigaChipset::Ecs => self.agnus.vbstop(),
-                    0x1DC if self.chipset == AmigaChipset::Ecs => self.agnus.beamcon0(),
-                    0x1DE if self.chipset == AmigaChipset::Ecs => self.agnus.hsstrt(),
-                    0x1E0 if self.chipset == AmigaChipset::Ecs => self.agnus.vsstrt(),
-                    0x1E4 if self.chipset == AmigaChipset::Ecs => self.agnus.diwhigh(),
+                    0x106 if self.chipset.is_ecs_or_aga() => self.denise.bplcon3,
+                    0x1C0 if self.chipset.is_ecs_or_aga() => self.agnus.htotal(),
+                    0x1C2 if self.chipset.is_ecs_or_aga() => self.agnus.hsstop(),
+                    0x1C4 if self.chipset.is_ecs_or_aga() => self.agnus.hbstrt(),
+                    0x1C6 if self.chipset.is_ecs_or_aga() => self.agnus.hbstop(),
+                    0x1C8 if self.chipset.is_ecs_or_aga() => self.agnus.vtotal(),
+                    0x1CA if self.chipset.is_ecs_or_aga() => self.agnus.vsstop(),
+                    0x1CC if self.chipset.is_ecs_or_aga() => self.agnus.vbstrt(),
+                    0x1CE if self.chipset.is_ecs_or_aga() => self.agnus.vbstop(),
+                    0x1DC if self.chipset.is_ecs_or_aga() => self.agnus.beamcon0(),
+                    0x1DE if self.chipset.is_ecs_or_aga() => self.agnus.hsstrt(),
+                    0x1E0 if self.chipset.is_ecs_or_aga() => self.agnus.vsstrt(),
+                    0x1E4 if self.chipset.is_ecs_or_aga() => self.agnus.diwhigh(),
                     0x07C => match self.chipset {
                         // Original Denise has no DENISEID register; many programs observe
                         // bus residue. Keep legacy all-ones behavior for OCS until bus
@@ -2059,6 +2064,8 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         AmigaChipset::Ocs => 0xFFFF,
                         // HRM Appendix C: Enhanced Denise (8373) returns $FC in low byte.
                         AmigaChipset::Ecs => 0x00FC,
+                        // AGA Lisa returns $F8.
+                        AmigaChipset::Aga => 0x00F8,
                     },
                     _ => 0,
                 };
