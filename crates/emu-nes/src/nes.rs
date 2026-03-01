@@ -182,10 +182,21 @@ impl Nes {
         self.bus.controller1.set_button(button.bit(), false);
     }
 
-    /// Release all buttons.
+    /// Press a button on controller 2 immediately.
+    pub fn press_button_p2(&mut self, button: NesButton) {
+        self.bus.controller2.set_button(button.bit(), true);
+    }
+
+    /// Release a button on controller 2.
+    pub fn release_button_p2(&mut self, button: NesButton) {
+        self.bus.controller2.set_button(button.bit(), false);
+    }
+
+    /// Release all buttons on both controllers.
     pub fn release_all_buttons(&mut self) {
         for bit in 0..8 {
             self.bus.controller1.set_button(bit, false);
+            self.bus.controller2.set_button(bit, false);
         }
     }
 

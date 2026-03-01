@@ -16,7 +16,7 @@
 
 use crate::addressing::AddrMode;
 use crate::alu::Size;
-use crate::bus::M68kBus;
+use crate::bus::{BusStatus, FunctionCode, M68kBus};
 use crate::cpu::{
     AluOp, BitOp, Cpu68000, State, TAG_ADDX_READ_DST, TAG_ADDX_READ_SRC, TAG_ADDX_WRITE,
     TAG_AE_FETCH_VECTOR, TAG_AE_FINISH, TAG_AE_PUSH_FAULT, TAG_AE_PUSH_INFO, TAG_AE_PUSH_IR,
@@ -31,6 +31,28 @@ use crate::cpu::{
     TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
+
+/// Extract a bit field from a 32-bit register value.
+/// `offset` is the bit position from the MSB (bit 31), wrapping within 32 bits.
+/// Returns the field value right-justified.
+fn extract_bitfield_reg(val: u32, offset: u32, width: u32) -> u32 {
+    let off = offset & 31;
+    let mask = if width >= 32 { 0xFFFF_FFFFu32 } else { (1u32 << width) - 1 };
+    // Rotate left by offset to bring the field's MSB to bit 31, then shift right
+    let rotated = val.rotate_left(off);
+    (rotated >> (32 - width)) & mask
+}
+
+/// Insert a bit field into a 32-bit register value.
+/// `insert_val` is right-justified field data.
+fn insert_bitfield_reg(val: u32, offset: u32, width: u32, insert_val: u32) -> u32 {
+    let off = offset & 31;
+    let mask = if width >= 32 { 0xFFFF_FFFFu32 } else { (1u32 << width) - 1 };
+    // Build a mask at the field position and replace those bits
+    let field_mask = mask.wrapping_shl(32u32.wrapping_sub(width)).rotate_right(off);
+    let field_bits = (insert_val & mask).wrapping_shl(32u32.wrapping_sub(width)).rotate_right(off);
+    (val & !field_mask) | field_bits
+}
 
 impl Cpu68000 {
     /// Decode the opcode in IR and begin execution.
@@ -628,6 +650,114 @@ impl Cpu68000 {
             let size_bits = ((opcode >> 6) & 3) as u8;
 
             if size_bits == 3 {
+                // Bit 11 separates memory shifts (0) from bit field instructions (1).
+                if (opcode & 0x0800) != 0 {
+                    // --- Bit field instructions (68020+): 1110 1xxx 11 MMMRRR ---
+                    if !self.capabilities().bitfield {
+                        self.begin_group1_exception(4, self.instr_start_pc);
+                        return;
+                    }
+                    let ext = self.consume_irc();
+                    self.movem_mask = ext; // stash extension word
+
+                    let ea_mode_bits = ((opcode >> 3) & 7) as u8;
+                    let ea_reg = (opcode & 7) as u8;
+                    let mode = AddrMode::decode(ea_mode_bits, ea_reg);
+
+                    // Decode offset/width from extension word
+                    let do_flag = ext & 0x0800 != 0;
+                    let dw_flag = ext & 0x0020 != 0;
+                    let offset = if do_flag {
+                        self.regs.d[((ext >> 6) & 7) as usize] as i32
+                    } else {
+                        ((ext >> 6) & 0x1F) as i32
+                    };
+                    let width_raw = if dw_flag {
+                        self.regs.d[(ext & 7) as usize] & 31
+                    } else {
+                        let w = ext & 0x1F;
+                        if w == 0 { 32 } else { u16::from(w) as u32 }
+                    };
+                    let width = if width_raw == 0 { 32 } else { width_raw };
+
+                    let bf_type = (opcode >> 8) & 7; // instruction selector
+
+                    match mode {
+                        Some(AddrMode::DataReg(r)) => {
+                            // Register bit field: operates on Dn, wraps within 32 bits
+                            let val = self.regs.d[r as usize];
+                            let off = (offset as u32) & 31;
+                            let field = extract_bitfield_reg(val, off, width);
+
+                            // Set condition codes: N from MSB of field, Z if zero, V=0, C=0
+                            let mask = if width >= 32 { 0xFFFF_FFFF } else { (1u32 << width) - 1 };
+                            let result = field & mask;
+                            let mut sr = self.regs.sr & !0x000F;
+                            if result & (1u32 << (width - 1)) != 0 { sr |= 0x0008; } // N
+                            if result == 0 { sr |= 0x0004; } // Z
+                            self.regs.sr = sr;
+
+                            match bf_type {
+                                0 => {} // BFTST — test only
+                                1 => {  // BFEXTU — extract unsigned
+                                    let dn = ((ext >> 12) & 7) as usize;
+                                    self.regs.d[dn] = result;
+                                }
+                                2 => {  // BFCHG — toggle
+                                    let new_val = insert_bitfield_reg(val, off, width, field ^ mask);
+                                    self.regs.d[r as usize] = new_val;
+                                }
+                                3 => {  // BFEXTS — extract signed
+                                    let dn = ((ext >> 12) & 7) as usize;
+                                    let shift = 32u32.wrapping_sub(width);
+                                    self.regs.d[dn] = ((result << shift) as i32 >> shift) as u32;
+                                }
+                                4 => {  // BFCLR — clear
+                                    let new_val = insert_bitfield_reg(val, off, width, 0);
+                                    self.regs.d[r as usize] = new_val;
+                                }
+                                5 => {  // BFFFO — find first one
+                                    let dn = ((ext >> 12) & 7) as usize;
+                                    let first_one = if result == 0 {
+                                        offset as u32 + width
+                                    } else {
+                                        let leading = (result << (32 - width)).leading_zeros();
+                                        offset as u32 + leading
+                                    };
+                                    self.regs.d[dn] = first_one;
+                                }
+                                6 => {  // BFSET — set all bits
+                                    let new_val = insert_bitfield_reg(val, off, width, mask);
+                                    self.regs.d[r as usize] = new_val;
+                                }
+                                7 => {  // BFINS — insert
+                                    let dn = ((ext >> 12) & 7) as usize;
+                                    let insert_val = self.regs.d[dn] & mask;
+                                    let new_val = insert_bitfield_reg(val, off, width, insert_val);
+                                    self.regs.d[r as usize] = new_val;
+                                    // Flags from inserted value
+                                    let mut sr2 = self.regs.sr & !0x000F;
+                                    if insert_val & (1u32 << (width - 1)) != 0 { sr2 |= 0x0008; }
+                                    if insert_val == 0 { sr2 |= 0x0004; }
+                                    self.regs.sr = sr2;
+                                }
+                                _ => unreachable!(),
+                            }
+                            // ~6 cycles for register bit fields
+                            self.micro_ops.push(MicroOp::Internal(2));
+                        }
+                        _ => {
+                            // Memory bit field: resolve EA, then execute
+                            self.size = Size::Long; // for EA resolution
+                            self.src_mode = mode;
+                            self.in_followup = true;
+                            self.followup_tag = TAG_FETCH_SRC_EA;
+                            self.continue_instruction(bus);
+                        }
+                    }
+                    return;
+                }
+
                 // Memory shift: 1110 0TT D 11 MMMRRR — shift by 1, word size
                 let shift_type = ((opcode >> 9) & 3) as u8;
                 let direction = (opcode >> 8) & 1; // 0=right, 1=left
@@ -1300,7 +1430,7 @@ impl Cpu68000 {
     /// Each tag represents a point in the instruction's execution pipeline.
     /// After completing its work, each handler sets the next tag and queues
     /// micro-ops needed to reach it.
-    pub fn continue_instruction<B: M68kBus>(&mut self, _bus: &mut B) {
+    pub fn continue_instruction<B: M68kBus>(&mut self, bus: &mut B) {
         match self.followup_tag {
             // --- Operand fetch pipeline ---
             TAG_FETCH_SRC_EA => {
@@ -1317,6 +1447,14 @@ impl Cpu68000 {
                 if (opcode & 0xFF80) == 0x4880 || (opcode & 0xFF80) == 0x4C80 {
                     self.followup_tag = TAG_MOVEM_NEXT;
                     self.micro_ops.push(MicroOp::Execute);
+                    return;
+                }
+
+                // Bit field memory: EA resolved, execute bit field operation
+                if (opcode & 0xF000) == 0xE000 && (opcode & 0x00C0) == 0x00C0
+                    && (opcode & 0x0800) != 0
+                {
+                    self.execute_bitfield_memory(bus);
                     return;
                 }
 
@@ -2436,6 +2574,167 @@ impl Cpu68000 {
 
             _ => {
                 self.in_followup = false;
+            }
+        }
+    }
+
+    /// Execute a bit field instruction on a memory operand.
+    /// Called after EA resolution — `self.addr` holds the base address.
+    /// The extension word is in `self.movem_mask`.
+    fn execute_bitfield_memory(&mut self, bus: &mut impl M68kBus) {
+        let opcode = self.ir;
+        let ext = self.movem_mask;
+        let bf_type = (opcode >> 8) & 7;
+
+        let do_flag = ext & 0x0800 != 0;
+        let dw_flag = ext & 0x0020 != 0;
+        let offset = if do_flag {
+            self.regs.d[((ext >> 6) & 7) as usize] as i32
+        } else {
+            ((ext >> 6) & 0x1F) as i32
+        };
+        let width = if dw_flag {
+            let w = self.regs.d[(ext & 7) as usize] & 31;
+            if w == 0 { 32 } else { w }
+        } else {
+            let w = (ext & 0x1F) as u32;
+            if w == 0 { 32 } else { w }
+        };
+
+        // Compute byte address range.
+        // Memory bit fields: base_addr + (offset / 8), bit position = offset % 8
+        let base_addr = self.addr;
+        let byte_offset = if offset >= 0 {
+            offset / 8
+        } else {
+            (offset - 7) / 8 // floor division for negative offsets
+        };
+        let first_byte_addr = base_addr.wrapping_add(byte_offset as u32);
+        let bit_offset = ((offset % 8) + 8) as u32 % 8; // normalise to 0-7
+
+        // Total bytes to read: ceil((bit_offset + width) / 8)
+        let total_bits = bit_offset + width;
+        let num_bytes = ((total_bits + 7) / 8).min(5) as usize;
+
+        // Read bytes from memory. Synchronous poll — the 68020 has an
+        // instruction cache so byte reads complete in one shot.
+        let fc = if self.regs.sr & 0x2000 != 0 {
+            FunctionCode::SupervisorData
+        } else {
+            FunctionCode::UserData
+        };
+        let mut bytes = [0u8; 5];
+        for i in 0..num_bytes {
+            let addr = first_byte_addr.wrapping_add(i as u32);
+            if let BusStatus::Ready(w) = bus.poll_cycle(addr & 0x00FF_FFFF, fc, true, false, None) {
+                bytes[i] = (w & 0xFF) as u8;
+            }
+        }
+
+        // Assemble into a u64 for easy bit manipulation
+        let mut bits: u64 = 0;
+        for i in 0..num_bytes {
+            bits |= (bytes[i] as u64) << ((4 - i) * 8);
+        }
+
+        // Extract the field: starts at bit (39 - bit_offset), width bits
+        let shift = 40 - bit_offset - width;
+        let mask = if width >= 32 { 0xFFFF_FFFF_u64 } else { (1u64 << width) - 1 };
+        let field = ((bits >> shift) & mask) as u32;
+
+        // Set condition codes
+        let field_mask32 = if width >= 32 { 0xFFFF_FFFFu32 } else { (1u32 << width) - 1 };
+        let result = field & field_mask32;
+        let mut sr = self.regs.sr & !0x000F;
+        if result & (1u32 << (width - 1)) != 0 { sr |= 0x0008; } // N
+        if result == 0 { sr |= 0x0004; } // Z
+        self.regs.sr = sr;
+
+        match bf_type {
+            0 => {} // BFTST
+            1 => {  // BFEXTU
+                let dn = ((ext >> 12) & 7) as usize;
+                self.regs.d[dn] = result;
+            }
+            2 => {  // BFCHG
+                let toggled = field ^ field_mask32;
+                self.write_bitfield_memory(bus, first_byte_addr, bit_offset, width, toggled, &bytes, num_bytes);
+            }
+            3 => {  // BFEXTS
+                let dn = ((ext >> 12) & 7) as usize;
+                let sh = 32u32.wrapping_sub(width);
+                self.regs.d[dn] = ((result << sh) as i32 >> sh) as u32;
+            }
+            4 => {  // BFCLR
+                self.write_bitfield_memory(bus, first_byte_addr, bit_offset, width, 0, &bytes, num_bytes);
+            }
+            5 => {  // BFFFO
+                let dn = ((ext >> 12) & 7) as usize;
+                let first_one = if result == 0 {
+                    offset as u32 + width
+                } else {
+                    let leading = (result << (32 - width)).leading_zeros();
+                    offset as u32 + leading
+                };
+                self.regs.d[dn] = first_one;
+            }
+            6 => {  // BFSET
+                self.write_bitfield_memory(bus, first_byte_addr, bit_offset, width, field_mask32, &bytes, num_bytes);
+            }
+            7 => {  // BFINS
+                let dn = ((ext >> 12) & 7) as usize;
+                let insert_val = self.regs.d[dn] & field_mask32;
+                self.write_bitfield_memory(bus, first_byte_addr, bit_offset, width, insert_val, &bytes, num_bytes);
+                // Flags from inserted value
+                let mut sr2 = self.regs.sr & !0x000F;
+                if insert_val & (1u32 << (width - 1)) != 0 { sr2 |= 0x0008; }
+                if insert_val == 0 { sr2 |= 0x0004; }
+                self.regs.sr = sr2;
+            }
+            _ => unreachable!(),
+        }
+
+        // ~12 cycles for memory bit field operations
+        self.micro_ops.push(MicroOp::Internal(8));
+        self.in_followup = false;
+    }
+
+    /// Write a modified bit field back to memory.
+    fn write_bitfield_memory(
+        &mut self,
+        bus: &mut impl M68kBus,
+        first_byte_addr: u32,
+        bit_offset: u32,
+        width: u32,
+        new_field: u32,
+        orig_bytes: &[u8; 5],
+        num_bytes: usize,
+    ) {
+        let mask64 = if width >= 32 { 0xFFFF_FFFF_u64 } else { (1u64 << width) - 1 };
+        let shift = 40 - bit_offset - width;
+
+        // Reassemble original bytes into u64
+        let mut bits: u64 = 0;
+        for i in 0..num_bytes {
+            bits |= (orig_bytes[i] as u64) << ((4 - i) * 8);
+        }
+
+        // Clear old field, insert new
+        bits &= !(mask64 << shift);
+        bits |= ((new_field as u64) & mask64) << shift;
+
+        let fc = if self.regs.sr & 0x2000 != 0 {
+            FunctionCode::SupervisorData
+        } else {
+            FunctionCode::UserData
+        };
+
+        // Write back modified bytes
+        for i in 0..num_bytes {
+            let byte_val = ((bits >> ((4 - i) * 8)) & 0xFF) as u8;
+            if byte_val != orig_bytes[i] {
+                let addr = first_byte_addr.wrapping_add(i as u32);
+                bus.poll_cycle(addr & 0x00FF_FFFF, fc, false, false, Some(u16::from(byte_val)));
             }
         }
     }

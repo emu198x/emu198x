@@ -28,6 +28,8 @@ pub struct CpuCapabilities {
     pub mull_divl: bool,
     /// `EXTB.L` sign-extend byte to long.
     pub extb_l: bool,
+    /// Bit field instructions (`BFTST`/`BFEXTU`/`BFEXTS`/`BFINS`/`BFSET`/`BFCLR`/`BFCHG`/`BFFFO`).
+    pub bitfield: bool,
 }
 
 impl CpuModel {
@@ -41,6 +43,7 @@ impl CpuModel {
                 cacr: false,
                 mull_divl: false,
                 extb_l: false,
+                bitfield: false,
             },
             Self::M68010 => CpuCapabilities {
                 movec: true,
@@ -48,6 +51,7 @@ impl CpuModel {
                 cacr: false,
                 mull_divl: false,
                 extb_l: false,
+                bitfield: false,
             },
             Self::M68020 => CpuCapabilities {
                 movec: true,
@@ -55,6 +59,7 @@ impl CpuModel {
                 cacr: true,
                 mull_divl: true,
                 extb_l: true,
+                bitfield: true,
             },
         }
     }
@@ -80,6 +85,7 @@ mod tests {
                 cacr: false,
                 mull_divl: false,
                 extb_l: false,
+                bitfield: false,
             }
         );
         assert_eq!(
@@ -90,6 +96,7 @@ mod tests {
                 cacr: false,
                 mull_divl: false,
                 extb_l: false,
+                bitfield: false,
             }
         );
         assert_eq!(
@@ -100,6 +107,7 @@ mod tests {
                 cacr: true,
                 mull_divl: true,
                 extb_l: true,
+                bitfield: true,
             }
         );
     }

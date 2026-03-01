@@ -104,6 +104,8 @@ pub const TAG_MOVEP_TRANSFER: u8 = 83;
 pub const TAG_BCD_SRC_READ: u8 = 84;
 /// BCD -(An),-(An): dest byte read complete, compute and write result.
 pub const TAG_BCD_DST_READ: u8 = 85;
+/// Bit field memory execute: EA resolved, read/modify/write bytes.
+pub const TAG_BITFIELD_MEM_EXECUTE: u8 = 88;
 /// MOVEM: resolve EA after FetchIRC refills IRC with the first EA extension word.
 /// Needed because consume_irc() for the register mask leaves IRC stale until
 /// the queued FetchIRC completes; calc_ea_start can't be called until then.
@@ -2014,5 +2016,163 @@ mod tests {
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 10000);
         assert_eq!(cpu.regs.d[7] as u8, 0xFF, "MULL on 68000 should fire illegal");
+    }
+
+    #[test]
+    fn bftst_register_sets_z_flag() {
+        // MOVE.L #$00FF0000,D0 ; BFTST D0{8:8} ; BRA.S *
+        // BFTST D0: opcode $E8C0 (ea=D0), ext: offset=8 immediate, width=8 immediate
+        // ext word: Do=0, offset=8(00100_0 in bits 10-6), Dw=0, width=8(01000 in bits 4-0)
+        // bits 15-11: 00001 (offset=8), bit 5: 0, bits 4-0: 01000 (width=8)
+        // ext = 0000_0_01000_0_01000 = $0208
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+        ]);
+        // MOVE.L #$00FF0000,D0
+        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0x00; bus.mem[0x0103] = 0xFF;
+        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
+        // BFTST D0{8:8} = $E8C0, ext $0208
+        bus.mem[0x0106] = 0xE8; bus.mem[0x0107] = 0xC0;
+        bus.mem[0x0108] = 0x02; bus.mem[0x0109] = 0x08;
+        bus.mem[0x010A] = 0x60; bus.mem[0x010B] = 0xFE; // BRA.S *
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        // Field at offset 8, width 8 of $00FF0000 = $FF → N=1, Z=0
+        assert!(cpu.regs.sr & 0x0008 != 0, "BFTST should set N for $FF field");
+        assert!(cpu.regs.sr & 0x0004 == 0, "BFTST should clear Z for non-zero field");
+    }
+
+    #[test]
+    fn bfextu_register_extracts_unsigned() {
+        // MOVE.L #$A5000000,D0 ; BFEXTU D0{0:8},D1 ; BRA.S *
+        // BFEXTU D0: opcode $E9C0, ext: Dn=D1(001), offset=0, width=8
+        // ext = 0_001_0_00000_0_01000 = $1008
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+        ]);
+        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0xA5; bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0xE9; bus.mem[0x0107] = 0xC0;
+        bus.mem[0x0108] = 0x10; bus.mem[0x0109] = 0x08;
+        bus.mem[0x010A] = 0x60; bus.mem[0x010B] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert_eq!(cpu.regs.d[1], 0xA5, "BFEXTU should extract $A5 from top byte");
+    }
+
+    #[test]
+    fn bfexts_register_sign_extends() {
+        // MOVE.L #$A5000000,D0 ; BFEXTS D0{0:8},D1 ; BRA.S *
+        // BFEXTS D0: opcode $EBC0, ext: Dn=D1(001), offset=0, width=8
+        // ext = 0_001_0_00000_0_01000 = $1008
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+        ]);
+        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0xA5; bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0xEB; bus.mem[0x0107] = 0xC0;
+        bus.mem[0x0108] = 0x10; bus.mem[0x0109] = 0x08;
+        bus.mem[0x010A] = 0x60; bus.mem[0x010B] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert_eq!(cpu.regs.d[1] as i32, -91, "BFEXTS should sign-extend $A5 to -91");
+    }
+
+    #[test]
+    fn bfins_register_inserts_field() {
+        // MOVEQ #$0F,D1 ; MOVEQ #0,D0 ; BFINS D1,D0{4:8} ; BRA.S *
+        // BFINS: opcode $EFC0, ext: Dn=D1(001), offset=4, width=8
+        // ext = 0_001_0_00100_0_01000 = $1108
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+        ]);
+        bus.mem[0x0100] = 0x72; bus.mem[0x0101] = 0x0F; // MOVEQ #$0F,D1
+        bus.mem[0x0102] = 0x70; bus.mem[0x0103] = 0x00; // MOVEQ #0,D0
+        bus.mem[0x0104] = 0xEF; bus.mem[0x0105] = 0xC0; // BFINS D1,D0
+        bus.mem[0x0106] = 0x11; bus.mem[0x0107] = 0x08; // ext: D1, offset=4, width=8
+        bus.mem[0x0108] = 0x60; bus.mem[0x0109] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        // D0 should have $0F inserted at bit offset 4, width 8
+        // Offset 4 from MSB = bits 27-20 → $0F at bits 27-20 = $00F00000
+        assert_eq!(cpu.regs.d[0], 0x00F0_0000, "BFINS should insert $0F at offset 4");
+    }
+
+    #[test]
+    fn bfset_register_sets_bits() {
+        // MOVEQ #0,D0 ; BFSET D0{0:16} ; BRA.S *
+        // BFSET D0: opcode $EEC0, ext: offset=0, width=16
+        // ext = 0000_0_00000_0_10000 = $0010
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+        ]);
+        bus.mem[0x0100] = 0x70; bus.mem[0x0101] = 0x00; // MOVEQ #0,D0
+        bus.mem[0x0102] = 0xEE; bus.mem[0x0103] = 0xC0;
+        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x10; // ext: offset=0, width=16
+        bus.mem[0x0106] = 0x60; bus.mem[0x0107] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert_eq!(cpu.regs.d[0], 0xFFFF_0000, "BFSET should set top 16 bits");
+    }
+
+    #[test]
+    fn bfffo_register_finds_first_one() {
+        // MOVE.L #$00080000,D0 ; BFFFO D0{0:32},D1 ; BRA.S *
+        // BFFFO D0: opcode $EDC0, ext: Dn=D1(001), offset=0, width=0(=32)
+        // ext = 0_001_0_00000_0_00000 = $1000
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+        ]);
+        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0x00; bus.mem[0x0103] = 0x08;
+        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0xED; bus.mem[0x0107] = 0xC0;
+        bus.mem[0x0108] = 0x10; bus.mem[0x0109] = 0x00;
+        bus.mem[0x010A] = 0x60; bus.mem[0x010B] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        // $00080000 = bit 19 set → first one at position 12 (from MSB)
+        assert_eq!(cpu.regs.d[1], 12, "BFFFO should find first one at bit 12");
+    }
+
+    #[test]
+    fn bitfield_on_68000_fires_illegal() {
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0010, 0x0000), (0x0012, 0x0200),
+        ]);
+        // BFTST D0{0:8} = $E8C0, $0008
+        bus.mem[0x0100] = 0xE8; bus.mem[0x0101] = 0xC0;
+        bus.mem[0x0102] = 0x00; bus.mem[0x0103] = 0x08;
+        bus.mem[0x0104] = 0x60; bus.mem[0x0105] = 0xFE;
+        bus.mem[0x0200] = 0x7E; bus.mem[0x0201] = 0xFF; // MOVEQ #-1,D7
+        bus.mem[0x0202] = 0x60; bus.mem[0x0203] = 0xFE;
+
+        let mut cpu = Cpu68000::new();
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 10000);
+        assert_eq!(cpu.regs.d[7] as u8, 0xFF, "BFTST on 68000 should fire illegal");
     }
 }

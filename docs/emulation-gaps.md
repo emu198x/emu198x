@@ -172,7 +172,7 @@ work.
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| 68020 bit field instructions | `decode.rs` — not implemented | Some 68020 code using BFXXX fails |
+| ~~68020 bit field instructions~~ | Done | BFTST/BFEXTU/BFEXTS/BFINS/BFSET/BFCLR/BFCHG/BFFFO — register and memory modes |
 | 68020 CAS/CAS2 | Not implemented | Atomic compare-and-swap operations fail |
 | AGA display features | Not implemented | 8 bitplanes, HAM8, 24-bit palette, FMODE not available |
 | IPF/WHDLoad formats | Not supported | Copy-protected and WHDLoad games unloadable |
@@ -208,11 +208,11 @@ completeness.
 
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
-| CPU | 100% | 100% | 100% | ~97% (68000 + 68020 MULL/DIVL/EXTB/MOVEC) |
+| CPU | 100% | 100% | 100% | ~99% (68000 + 68020 MULL/DIVL/EXTB/MOVEC/BFXXX) |
 | Video modes | 100% | 100% (all modes + scrolling + MCM sprites + collisions + sprite DMA stealing) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
 | Audio | 100% (beeper + AY) | ~95% (6581/8580 models, non-linear filter, combined waveforms) | ~95% (all 5 channels) | ~90% (hardware LPF modelled) |
 | Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 9 mappers (0/1/2/3/4/7/9/11/66) | ADF read/write |
-| Peripherals | Keyboard + Kempston | Keyboard + REU (128/256/512K) | 2-player pad | Keyboard + mouse |
+| Peripherals | Keyboard + Kempston | Keyboard + REU (128/256/512K) | 2-player pads | Keyboard + mouse |
 | Model variants | 48K, 128K, +2, +2A, +3 PAL | PAL + NTSC | NTSC + PAL | A500 OCS, A500+ ECS, A1200 AGA (stub) |
 
 ### Highest-impact work items (by games-unlocked)

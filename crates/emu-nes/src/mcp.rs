@@ -454,10 +454,16 @@ impl McpServer {
             }
         };
 
+        let player = params.get("player").and_then(|v| v.as_u64()).unwrap_or(1);
+
         match parse_button_name(name) {
             Some(button) => {
-                nes.press_button(button);
-                RpcResponse::success(id, serde_json::json!({"button": name, "pressed": true}))
+                if player == 2 {
+                    nes.press_button_p2(button);
+                } else {
+                    nes.press_button(button);
+                }
+                RpcResponse::success(id, serde_json::json!({"button": name, "player": player, "pressed": true}))
             }
             None => RpcResponse::error(id, -32602, format!("Unknown button: {name}")),
         }
@@ -476,10 +482,16 @@ impl McpServer {
             }
         };
 
+        let player = params.get("player").and_then(|v| v.as_u64()).unwrap_or(1);
+
         match parse_button_name(name) {
             Some(button) => {
-                nes.release_button(button);
-                RpcResponse::success(id, serde_json::json!({"button": name, "pressed": false}))
+                if player == 2 {
+                    nes.release_button_p2(button);
+                } else {
+                    nes.release_button(button);
+                }
+                RpcResponse::success(id, serde_json::json!({"button": name, "player": player, "pressed": false}))
             }
             None => RpcResponse::error(id, -32602, format!("Unknown button: {name}")),
         }
