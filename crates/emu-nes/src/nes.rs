@@ -106,6 +106,11 @@ impl Nes {
             self.tick();
         }
 
+        // Update Zapper light sense from framebuffer after rendering
+        if let Some(ref mut z) = self.bus.zapper {
+            z.update_light_sense(self.bus.ppu.framebuffer(), ppu::FB_WIDTH);
+        }
+
         self.master_clock - start_clock
     }
 
@@ -197,6 +202,51 @@ impl Nes {
         for bit in 0..8 {
             self.bus.controller1.set_button(bit, false);
             self.bus.controller2.set_button(bit, false);
+        }
+    }
+
+    /// Enable the Four-Score 4-player adapter.
+    pub fn enable_four_score(&mut self) {
+        self.bus.four_score = true;
+    }
+
+    /// Press a button on controller 3 (requires Four-Score).
+    pub fn press_button_p3(&mut self, button: NesButton) {
+        self.bus.controller3.set_button(button.bit(), true);
+    }
+
+    /// Release a button on controller 3.
+    pub fn release_button_p3(&mut self, button: NesButton) {
+        self.bus.controller3.set_button(button.bit(), false);
+    }
+
+    /// Press a button on controller 4 (requires Four-Score).
+    pub fn press_button_p4(&mut self, button: NesButton) {
+        self.bus.controller4.set_button(button.bit(), true);
+    }
+
+    /// Release a button on controller 4.
+    pub fn release_button_p4(&mut self, button: NesButton) {
+        self.bus.controller4.set_button(button.bit(), false);
+    }
+
+    /// Enable the Zapper light gun on port 2.
+    pub fn enable_zapper(&mut self) {
+        self.bus.zapper = Some(crate::controller::Zapper::new());
+    }
+
+    /// Set the Zapper aim point (screen pixel coordinates).
+    pub fn set_zapper_aim(&mut self, x: u16, y: u16) {
+        if let Some(ref mut z) = self.bus.zapper {
+            z.aim_x = x;
+            z.aim_y = y;
+        }
+    }
+
+    /// Pull or release the Zapper trigger.
+    pub fn set_zapper_trigger(&mut self, pulled: bool) {
+        if let Some(ref mut z) = self.bus.zapper {
+            z.trigger = pulled;
         }
     }
 

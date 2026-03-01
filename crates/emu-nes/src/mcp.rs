@@ -173,6 +173,9 @@ impl McpServer {
             "input_sequence" => self.handle_input_sequence(params, id),
             "set_breakpoint" => self.handle_set_breakpoint(params, id),
             "query_memory" => self.handle_query_memory(params, id),
+            "enable_zapper" => self.handle_enable_zapper(id),
+            "zapper_aim" => self.handle_zapper_aim(params, id),
+            "zapper_trigger" => self.handle_zapper_trigger(params, id),
             _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
         }
     }
@@ -658,6 +661,37 @@ impl McpServer {
                 "data": bytes,
             }),
         )
+    }
+
+    fn handle_enable_zapper(&mut self, id: JsonValue) -> RpcResponse {
+        match self.require_nes(&id) {
+            Ok(nes) => {
+                nes.enable_zapper();
+                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
+            }
+            Err(e) => e,
+        }
+    }
+
+    fn handle_zapper_aim(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let nes = match self.require_nes(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let x = params.get("x").and_then(|v| v.as_u64()).unwrap_or(128) as u16;
+        let y = params.get("y").and_then(|v| v.as_u64()).unwrap_or(120) as u16;
+        nes.set_zapper_aim(x, y);
+        RpcResponse::success(id, serde_json::json!({"x": x, "y": y}))
+    }
+
+    fn handle_zapper_trigger(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let nes = match self.require_nes(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let pulled = params.get("pulled").and_then(|v| v.as_bool()).unwrap_or(true);
+        nes.set_zapper_trigger(pulled);
+        RpcResponse::success(id, serde_json::json!({"trigger": pulled}))
     }
 
     /// Run a script file: read a JSON array of simplified RPC requests, dispatch

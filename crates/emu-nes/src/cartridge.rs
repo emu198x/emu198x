@@ -371,7 +371,9 @@ impl Mapper for UxRom {
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
         if addr >= 0x8000 {
-            self.prg_bank = value;
+            // Bus conflict: written value ANDed with ROM data at write address
+            let rom_byte = self.cpu_read(addr);
+            self.prg_bank = value & rom_byte;
         }
     }
 
@@ -426,7 +428,9 @@ impl Mapper for CnRom {
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
         if addr >= 0x8000 {
-            self.chr_bank = value;
+            // Bus conflict: written value ANDed with ROM data at write address
+            let rom_byte = self.cpu_read(addr);
+            self.chr_bank = value & rom_byte;
         }
     }
 
@@ -488,8 +492,10 @@ impl Mapper for AxRom {
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
         if addr >= 0x8000 {
-            self.bank = value & 0x07;
-            self.mirroring = if value & 0x10 != 0 {
+            // Bus conflict: written value ANDed with ROM data at write address
+            let effective = value & self.cpu_read(addr);
+            self.bank = effective & 0x07;
+            self.mirroring = if effective & 0x10 != 0 {
                 Mirroring::SingleScreenUpper
             } else {
                 Mirroring::SingleScreenLower
@@ -1187,7 +1193,7 @@ impl Mapper for BxRom {
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
         if addr >= 0x8000 {
-            self.prg_bank = value;
+            self.prg_bank = value & self.cpu_read(addr);
         }
     }
 
@@ -1620,6 +1626,7 @@ mod tests {
     #[test]
     fn uxrom_prg_switching() {
         // 8 x 16K PRG banks. $C000 fixed to last bank.
+        // Each bank filled with its number; first byte = $FF for bus-conflict-safe writes.
         let mut m = UxRom::new(
             {
                 let mut prg = vec![0u8; 8 * 16384];
@@ -1627,6 +1634,7 @@ mod tests {
                     for i in 0..16384 {
                         prg[bank * 16384 + i] = bank as u8;
                     }
+                    prg[bank * 16384] = 0xFF; // bus-conflict-safe write target
                 }
                 prg
             },
@@ -1635,13 +1643,13 @@ mod tests {
         );
 
         // Default: bank 0 at $8000, last bank at $C000
-        assert_eq!(m.cpu_read(0x8000), 0);
-        assert_eq!(m.cpu_read(0xC000), 7);
+        assert_eq!(m.cpu_read(0x8001), 0); // byte 1, not 0 (byte 0 is $FF)
+        assert_eq!(m.cpu_read(0xC001), 7);
 
-        // Switch to bank 3
+        // Switch to bank 3 (write to $8000 where ROM=$FF, so 3&$FF=3)
         m.cpu_write(0x8000, 3);
-        assert_eq!(m.cpu_read(0x8000), 3);
-        assert_eq!(m.cpu_read(0xC000), 7); // Still last bank
+        assert_eq!(m.cpu_read(0x8001), 3);
+        assert_eq!(m.cpu_read(0xC001), 7); // Still last bank
     }
 
     #[test]
@@ -1709,7 +1717,7 @@ mod tests {
                 chr[bank * 8192 + i] = bank as u8;
             }
         }
-        let mut m = CnRom::new(vec![0u8; 32768], chr, Mirroring::Vertical);
+        let mut m = CnRom::new(vec![0xFFu8; 32768], chr, Mirroring::Vertical);
 
         // Default: bank 0
         assert_eq!(m.chr_read(0x0000), 0);
@@ -2173,28 +2181,31 @@ mod tests {
 
     #[test]
     fn axrom_prg_switching() {
-        // 8 x 32K PRG banks, each filled with bank index
+        // 8 x 32K PRG banks, each filled with bank index.
+        // First byte of each bank = $FF for bus-conflict-safe writes.
         let mut prg = vec![0u8; 8 * 32768];
         for bank in 0..8usize {
             for i in 0..32768 {
                 prg[bank * 32768 + i] = bank as u8;
             }
+            prg[bank * 32768] = 0xFF;
         }
         let mut m = AxRom::new(prg);
 
         // Default: bank 0
-        assert_eq!(m.cpu_read(0x8000), 0);
+        assert_eq!(m.cpu_read(0x8001), 0);
         assert_eq!(m.cpu_read(0xFFFF), 0);
 
-        // Switch to bank 3
+        // Switch to bank 3 (write to $8000 where ROM=$FF)
         m.cpu_write(0x8000, 3);
-        assert_eq!(m.cpu_read(0x8000), 3);
-        assert_eq!(m.cpu_read(0xC000), 3);
+        assert_eq!(m.cpu_read(0x8001), 3);
+        assert_eq!(m.cpu_read(0xC001), 3);
     }
 
     #[test]
     fn axrom_mirroring_switch() {
-        let mut m = AxRom::new(vec![0u8; 32768]);
+        // Fill PRG with $FF so bus conflict AND is transparent.
+        let mut m = AxRom::new(vec![0xFFu8; 32768]);
 
         // Default: single-screen lower
         assert_eq!(m.mirroring(), Mirroring::SingleScreenLower);
@@ -2343,12 +2354,14 @@ mod tests {
     #[test]
     fn bxrom_prg_switching() {
         let mut prg = vec![0u8; 4 * 32768];
-        prg[0] = 0xAA;
-        prg[32768] = 0xBB;
+        prg[0] = 0xFF;         // bus-conflict-safe write target
+        prg[1] = 0xAA;         // identifying byte at offset 1
+        prg[32768] = 0xFF;     // bank 1 write target
+        prg[32768 + 1] = 0xBB; // identifying byte
         let mut m = BxRom::new(prg, Mirroring::Vertical);
-        assert_eq!(m.cpu_read(0x8000), 0xAA);
-        m.cpu_write(0x8000, 1);
-        assert_eq!(m.cpu_read(0x8000), 0xBB);
+        assert_eq!(m.cpu_read(0x8001), 0xAA);
+        m.cpu_write(0x8000, 1); // write 1, ROM=$FF, so 1&$FF=1
+        assert_eq!(m.cpu_read(0x8001), 0xBB);
     }
 
     #[test]

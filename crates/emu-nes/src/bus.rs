@@ -11,7 +11,7 @@ use emu_core::{Bus, ReadResult};
 
 use crate::apu::Apu;
 use crate::cartridge::Mapper;
-use crate::controller::Controller;
+use crate::controller::{Controller, Zapper};
 use crate::ppu::Ppu;
 
 /// The NES bus, implementing `emu_core::Bus`.
@@ -28,6 +28,17 @@ pub struct NesBus {
     pub controller1: Controller,
     /// Controller 2 ($4017 reads).
     pub controller2: Controller,
+    /// Zapper light gun (optional, replaces controller 2 reads when present).
+    pub zapper: Option<Zapper>,
+    /// Controllers 3 and 4 (Four-Score adapter).
+    pub controller3: Controller,
+    pub controller4: Controller,
+    /// Four-Score adapter enabled.
+    pub four_score: bool,
+    /// Four-Score read counter for $4016 (tracks position in extended sequence).
+    four_score_idx_1: u8,
+    /// Four-Score read counter for $4017.
+    four_score_idx_2: u8,
     /// OAM DMA pending page (set when $4014 is written).
     pub oam_dma_page: Option<u8>,
 }
@@ -48,6 +59,12 @@ impl NesBus {
             cartridge,
             controller1: Controller::new(),
             controller2: Controller::new(),
+            zapper: None,
+            controller3: Controller::new(),
+            controller4: Controller::new(),
+            four_score: false,
+            four_score_idx_1: 0,
+            four_score_idx_2: 0,
             oam_dma_page: None,
         }
     }
@@ -65,8 +82,36 @@ impl Bus for NesBus {
         let data = match addr {
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize],
             0x2000..=0x3FFF => self.ppu.cpu_read(addr & 0x0007, self.cartridge.as_mut()),
-            0x4016 => self.controller1.read(),
-            0x4017 => self.controller2.read(),
+            0x4016 => {
+                if self.four_score {
+                    let idx = self.four_score_idx_1;
+                    self.four_score_idx_1 = idx.saturating_add(1);
+                    match idx {
+                        0..=7 => self.controller1.read(),
+                        8..=15 => self.controller3.read(),
+                        16 => 0x01, // Signature: bit 0 set for $4016
+                        _ => 0,
+                    }
+                } else {
+                    self.controller1.read()
+                }
+            }
+            0x4017 => {
+                if let Some(ref z) = self.zapper {
+                    z.read()
+                } else if self.four_score {
+                    let idx = self.four_score_idx_2;
+                    self.four_score_idx_2 = idx.saturating_add(1);
+                    match idx {
+                        0..=7 => self.controller2.read(),
+                        8..=15 => self.controller4.read(),
+                        16 => 0x02, // Signature: bit 1 set for $4017
+                        _ => 0,
+                    }
+                } else {
+                    self.controller2.read()
+                }
+            }
             0x4000..=0x4015 => self.apu.read(addr),
             0x4018..=0x401F => 0, // Normally disabled APU test mode
             0x4020..=0xFFFF => self.cartridge.cpu_read(addr),
@@ -89,6 +134,13 @@ impl Bus for NesBus {
             0x4016 => {
                 self.controller1.write(value);
                 self.controller2.write(value);
+                self.controller3.write(value);
+                self.controller4.write(value);
+                if value & 1 == 0 {
+                    // Falling edge resets Four-Score read counters
+                    self.four_score_idx_1 = 0;
+                    self.four_score_idx_2 = 0;
+                }
             }
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, value),
             0x4018..=0x401F => {} // Test mode registers

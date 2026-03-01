@@ -86,6 +86,66 @@ impl Default for Controller {
     }
 }
 
+/// NES Zapper light gun state.
+///
+/// Connects to port 2 ($4017). Bit 3 = light sense (0 = light detected,
+/// 1 = no light). Bit 4 = trigger (0 = pulled, 1 = released).
+pub struct Zapper {
+    /// Trigger pressed.
+    pub trigger: bool,
+    /// Aim coordinates (screen pixel position). Used to sample the
+    /// framebuffer for brightness when the PPU beam passes this point.
+    pub aim_x: u16,
+    pub aim_y: u16,
+    /// Whether the pixel at the aim point was bright on the last check.
+    /// Updated by the system each frame.
+    pub light_detected: bool,
+}
+
+impl Zapper {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            trigger: false,
+            aim_x: 128,
+            aim_y: 120,
+            light_detected: false,
+        }
+    }
+
+    /// Read $4017 for Zapper: bits 3 (light) and 4 (trigger).
+    #[must_use]
+    pub fn read(&self) -> u8 {
+        let light_bit = if self.light_detected { 0 } else { 0x08 };
+        let trigger_bit = if self.trigger { 0 } else { 0x10 };
+        light_bit | trigger_bit
+    }
+
+    /// Check framebuffer brightness at aim coordinates.
+    /// Returns true if the pixel is bright enough to trigger the light sensor.
+    pub fn update_light_sense(&mut self, framebuffer: &[u32], fb_width: u32) {
+        let x = self.aim_x as usize;
+        let y = self.aim_y as usize;
+        let w = fb_width as usize;
+        if x < 256 && y < 240 {
+            let pixel = framebuffer[y * w + x];
+            let r = (pixel >> 16) & 0xFF;
+            let g = (pixel >> 8) & 0xFF;
+            let b = pixel & 0xFF;
+            // Bright if any RGB component exceeds threshold (white flash detection)
+            self.light_detected = (r + g + b) > 0x180;
+        } else {
+            self.light_detected = false;
+        }
+    }
+}
+
+impl Default for Zapper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -130,15 +130,14 @@ APU channels including DMC sample playback via DMA. Two-player input.
 - **PPU effects**: PPUMASK greyscale (bit 0) and emphasis (bits 5-7) applied at pixel output, open bus latch (write-only register reads return last written value, $2002 low 5 bits from open bus)
 - **Mappers**: NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4) with scanline IRQ, AxROM (7), MMC2 (9) CHR latch, MMC4 (10) CHR latch, Color Dreams (11), BxROM (34), GxROM (66), Camerica (71)
 - **Mapper IRQ**: Mapper trait supports IRQ signalling; MMC3 scanline counter wired to CPU interrupt line
-- **Input**: Two standard controllers ($4016/$4017), strobe and latch modes
+- **Input**: Two standard controllers ($4016/$4017), Four-Score 4-player adapter ($4016/$4017 extended read with P3/P4 and signature), Zapper light gun (port 2, light sense from framebuffer brightness, trigger)
+- **Bus conflicts**: UxROM, CNROM, AxROM, BxROM — written value ANDed with ROM data at write address
 - **Region**: NTSC (262 scanlines, 1.79 MHz CPU) and PAL (312 scanlines, 1.66 MHz CPU) with region-specific APU noise period, DMC rate, and frame counter tables
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| Zapper (light gun) | Not implemented | Duck Hunt unplayable |
-| Four-Score adapter | Not implemented | 4-player games blocked |
 | FDS (Famicom Disk System) | Not implemented | Disk games unplayable |
 
 ### Accuracy gaps
@@ -147,7 +146,6 @@ APU channels including DMC sample playback via DMA. Two-player input.
 |-----|----------|--------|
 | DMC DMA cycle-steal count | `nes.rs` — always 4 cycles | Real hardware steals 1-4 depending on CPU alignment; may shift audio timing slightly |
 | DMC/OAM DMA conflict | `nes.rs` — DMC waits for OAM | Exact halt/realign cycle count not modelled; correct enough for audio |
-| Bus conflicts | Not implemented | Some mapper boards have write contention |
 
 ### Assessment
 
@@ -222,7 +220,7 @@ support for copy-protected games.
 | Video modes | 100% | 100% (all 6 modes + scrolling + sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard bitplanes) |
 | Audio | 100% (beeper + AY) | ~97% (6581/8580, piecewise filter table, combined waveforms) | ~95% (all 5 channels) | ~90% (hardware LPF modelled) |
 | Storage | TAP + TZX + SNA + Z80 + DSK | PRG + CRT (7 types) + TAP (turbo) + D64 (r/w) | 12 mappers | ADF read/write |
-| Peripherals | Keyboard + Kempston | Keyboard + joystick + REU + paddles | 2-player pads | Keyboard + mouse |
+| Peripherals | Keyboard + Kempston | Keyboard + joystick + REU + paddles | 4-player pads + Zapper | Keyboard + mouse |
 | Model variants | 48K, 128K, +2, +2A, +3 | PAL + NTSC | NTSC + PAL | A500, A500+, A1200 |
 
 ### Highest-impact work items (by games-unlocked)
