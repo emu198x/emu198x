@@ -233,8 +233,11 @@ pub struct Amiga {
     pub ddfstrt_pending: Option<(u16, u8)>,
     /// Pending DDFSTOP write (value, CCK countdown).
     pub ddfstop_pending: Option<(u16, u8)>,
-    /// Pending color register writes (palette index, value, CCK countdown).
-    pub color_pending: Vec<(usize, u16, u8)>,
+    /// Pending color register writes.
+    /// Fields: (palette base index 0-31, value, CCK countdown, AGA BPLCON3 snapshot).
+    /// The BPLCON3 snapshot captures bank selection and LOCT state at write
+    /// time so that the drain correctly orders consecutive high/low nibble writes.
+    pub color_pending: Vec<(usize, u16, u8, u16)>,
     /// Vertical bitplane DMA enable flip-flop, latched at line start (hpos=0).
     ///
     /// On real hardware Agnus latches the vertical DMA enable once per line
@@ -480,19 +483,26 @@ impl Amiga {
                     *countdown -= 1;
                 }
             }
-            self.color_pending.retain_mut(|(idx, val, countdown)| {
-                if *countdown <= 1 {
-                    if self.chipset.is_aga() {
-                        self.denise.set_palette_aga(*idx, *val);
+            self.color_pending
+                .retain_mut(|(idx, val, countdown, bplcon3_snap)| {
+                    if *countdown <= 1 {
+                        if self.chipset.is_aga() {
+                            // Apply with the BPLCON3 state captured at write time
+                            // so that LOCT and bank selection are correctly ordered
+                            // relative to the color register write.
+                            let saved = self.denise.bplcon3;
+                            self.denise.bplcon3 = *bplcon3_snap;
+                            self.denise.set_palette_aga(*idx, *val);
+                            self.denise.bplcon3 = saved;
+                        } else {
+                            self.denise.set_palette(*idx, *val);
+                        }
+                        false
                     } else {
-                        self.denise.set_palette(*idx, *val);
+                        *countdown -= 1;
+                        true
                     }
-                    false
-                } else {
-                    *countdown -= 1;
-                    true
-                }
-            });
+                });
 
             // --- Output pixels BEFORE DMA ---
             // This creates the current pipeline delay model: shift registers
@@ -919,6 +929,7 @@ impl Amiga {
             &mut self.color_pending,
             offset,
             val,
+            self.denise.bplcon3,
         );
         write_custom_register(
             self.chipset,
@@ -944,9 +955,14 @@ impl Amiga {
         std::mem::take(&mut self.audio_buffer)
     }
 
-    /// Insert a disk image into the internal floppy drive (DF0:).
+    /// Insert an ADF disk image into the internal floppy drive (DF0:).
     pub fn insert_disk(&mut self, adf: Adf) {
         self.floppy.insert_disk(adf);
+    }
+
+    /// Insert any disk image implementing `DiskImage` (ADF, IPF, etc.).
+    pub fn insert_disk_image(&mut self, image: Box<dyn drive_amiga_floppy::DiskImage>) {
+        self.floppy.insert_disk_image(image);
     }
 
     /// Eject the current DF0: disk, if any.
@@ -1921,7 +1937,7 @@ pub struct AmigaBusWrapper<'a> {
     pub bplcon0_denise_pending: &'a mut Option<(u16, u8)>,
     pub ddfstrt_pending: &'a mut Option<(u16, u8)>,
     pub ddfstop_pending: &'a mut Option<(u16, u8)>,
-    pub color_pending: &'a mut Vec<(usize, u16, u8)>,
+    pub color_pending: &'a mut Vec<(usize, u16, u8, u16)>,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -2076,6 +2092,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     self.color_pending,
                     offset,
                     val,
+                    self.denise.bplcon3,
                 );
                 write_custom_register(
                     self.chipset,
@@ -2271,9 +2288,10 @@ fn queue_pipelined_write(
     bplcon0_denise_pending: &mut Option<(u16, u8)>,
     ddfstrt_pending: &mut Option<(u16, u8)>,
     ddfstop_pending: &mut Option<(u16, u8)>,
-    color_pending: &mut Vec<(usize, u16, u8)>,
+    color_pending: &mut Vec<(usize, u16, u8, u16)>,
     offset: u16,
     val: u16,
+    bplcon3: u16,
 ) {
     match offset {
         // BPLCON0: Agnus sees the new value immediately; Denise sees it
@@ -2289,9 +2307,10 @@ fn queue_pipelined_write(
             *ddfstop_pending = Some((val, 2));
         }
         // Color palette: Denise sees the new color after 2 CCK.
+        // Capture BPLCON3 at write time for correct LOCT/bank ordering.
         0x180..=0x1BE => {
             let idx = ((offset - 0x180) / 2) as usize;
-            color_pending.push((idx, val, 2));
+            color_pending.push((idx, val, 2, bplcon3));
         }
         _ => {}
     }
@@ -2482,8 +2501,8 @@ fn write_custom_register(
 }
 
 /// Execute one queued blitter DMA timing op against any incremental blitter
-/// runtime currently active in Agnus (today: line mode only).
-fn execute_incremental_blitter_op(
+/// runtime currently active in Agnus.
+pub fn execute_incremental_blitter_op(
     agnus: &mut Agnus,
     memory: &mut Memory,
     op: BlitterDmaOp,

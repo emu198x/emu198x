@@ -831,3 +831,122 @@ fn cpu_services_blit_interrupt_and_enters_handler_loop() {
         handler_loop_pc.wrapping_add(2)
     );
 }
+
+/// Verify that granting blitter reads in non-standard order (C before A)
+/// produces the same blit result as the default A→B→C priority order.
+/// This exercises the per-channel interleaving capability of the word
+/// state machine.
+#[test]
+fn area_blit_interleaved_read_order_produces_same_result() {
+    use machine_amiga::commodore_agnus_ocs::BlitterDmaOp;
+
+    let base_a = 0x0000_4000u32;
+    let base_b = 0x0000_5000u32;
+    let base_c = 0x0000_6000u32;
+    let base_d = 0x0000_7000u32;
+    let width_words = 4u16;
+    let height_rows = 2u16;
+    let total_words = u32::from(width_words) * u32::from(height_rows);
+
+    // --- Run 1: default order (A, B, C, D) via normal tick loop ---
+    let default_result = {
+        let mut amiga = make_test_amiga();
+        amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_BLTEN);
+        start_area_blit_copy_c(
+            &mut amiga,
+            width_words,
+            height_rows,
+            true,
+            true,
+            true,
+            true,
+            base_a,
+            base_b,
+            base_c,
+            base_d,
+        );
+        run_blit_to_completion(&mut amiga, 5_000).expect("default order blit should complete");
+        (0..total_words)
+            .map(|i| read_chip_word(&amiga, base_d + i * 2))
+            .collect::<Vec<_>>()
+    };
+
+    // --- Run 2: manually grant reads in C, B, A order per word ---
+    let interleaved_result = {
+        let mut amiga = make_test_amiga();
+        amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_BLTEN);
+        start_area_blit_copy_c(
+            &mut amiga,
+            width_words,
+            height_rows,
+            true,
+            true,
+            true,
+            true,
+            base_a,
+            base_b,
+            base_c,
+            base_d,
+        );
+        assert!(amiga.agnus.blitter_busy);
+
+        // Manually drive the blitter word by word, granting reads in C→B→A order.
+        for _word in 0..total_words {
+            // Grant ReadC first (skipping the default A→B→C priority).
+            let req = amiga.agnus.next_blitter_dma_request();
+            assert_eq!(req, Some(BlitterDmaOp::ReadA), "default request should be ReadA");
+            // Instead of granting A, grant C first.
+            amiga.agnus.grant_blitter_dma_op(BlitterDmaOp::ReadC);
+            machine_amiga::execute_incremental_blitter_op(
+                &mut amiga.agnus,
+                &mut amiga.memory,
+                BlitterDmaOp::ReadC,
+            );
+
+            // Now B.
+            amiga.agnus.grant_blitter_dma_op(BlitterDmaOp::ReadB);
+            machine_amiga::execute_incremental_blitter_op(
+                &mut amiga.agnus,
+                &mut amiga.memory,
+                BlitterDmaOp::ReadB,
+            );
+
+            // Now A.
+            amiga.agnus.grant_blitter_dma_op(BlitterDmaOp::ReadA);
+            machine_amiga::execute_incremental_blitter_op(
+                &mut amiga.agnus,
+                &mut amiga.memory,
+                BlitterDmaOp::ReadA,
+            );
+
+            // Now WriteD should be available (all reads done).
+            let req = amiga.agnus.next_blitter_dma_request();
+            assert_eq!(
+                req,
+                Some(BlitterDmaOp::WriteD),
+                "WriteD should be available after all reads"
+            );
+            amiga.agnus.grant_blitter_dma_op(BlitterDmaOp::WriteD);
+            machine_amiga::execute_incremental_blitter_op(
+                &mut amiga.agnus,
+                &mut amiga.memory,
+                BlitterDmaOp::WriteD,
+            );
+        }
+
+        assert!(
+            !amiga.agnus.blitter_busy
+                || amiga.agnus.blitter_ccks_remaining == 0,
+            "blit should be complete"
+        );
+
+        (0..total_words)
+            .map(|i| read_chip_word(&amiga, base_d + i * 2))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        default_result, interleaved_result,
+        "interleaved read order (C→B→A) should produce identical blit output to default (A→B→C)"
+    );
+}

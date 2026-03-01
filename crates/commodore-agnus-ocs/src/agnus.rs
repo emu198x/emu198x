@@ -1,6 +1,5 @@
 //! Agnus - Beam counter and DMA slot allocation.
 
-use std::collections::VecDeque;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -140,6 +139,58 @@ pub enum BlitterDmaOp {
     Internal,
 }
 
+/// Per-word blitter state machine: tracks which channel accesses still need
+/// servicing for the current word. Replaces the pre-built VecDeque queue so
+/// that individual channel accesses can be granted in any order (with the
+/// constraint that WriteD must wait until all reads are done).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BlitterWordState {
+    need_a: bool,
+    need_b: bool,
+    need_c: bool,
+    need_d: bool,
+    reads_done: bool,
+    /// True when no channels are enabled (internal-only timing).
+    internal_only: bool,
+    /// For internal-only words, tracks whether the single internal op is done.
+    internal_done: bool,
+}
+
+impl BlitterWordState {
+    fn new_area(use_a: bool, use_b: bool, use_c: bool, use_d: bool) -> Self {
+        let internal_only = !use_a && !use_b && !use_c && !use_d;
+        let reads_done = !use_a && !use_b && !use_c;
+        Self {
+            need_a: use_a,
+            need_b: use_b,
+            need_c: use_c,
+            need_d: use_d,
+            reads_done,
+            internal_only,
+            internal_done: false,
+        }
+    }
+
+    fn new_line() -> Self {
+        Self {
+            need_a: false,
+            need_b: false,
+            need_c: true,
+            need_d: true,
+            reads_done: false,
+            internal_only: false,
+            internal_done: false,
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        if self.internal_only {
+            return self.internal_done;
+        }
+        !self.need_a && !self.need_b && !self.need_c && !self.need_d
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BlitterLineRuntime {
     steps_remaining: u32,
@@ -170,8 +221,6 @@ struct BlitterAreaRuntime {
     use_b: bool,
     use_c: bool,
     use_d: bool,
-    ops_per_word: u8,
-    ops_done_in_word: u8,
     lf: u8,
     a_shift: u16,
     b_shift: u16,
@@ -220,7 +269,7 @@ pub struct Agnus {
     pub blitter_busy: bool,
     pub blitter_exec_pending: bool,
     pub blitter_ccks_remaining: u32,
-    blitter_dma_ops: VecDeque<BlitterDmaOp>,
+    blitter_word_state: Option<BlitterWordState>,
     blitter_line_runtime: Option<BlitterLineRuntime>,
     blitter_area_runtime: Option<BlitterAreaRuntime>,
     pub blt_apt: u32,
@@ -284,7 +333,7 @@ impl Agnus {
             blitter_busy: false,
             blitter_exec_pending: false,
             blitter_ccks_remaining: 0,
-            blitter_dma_ops: VecDeque::new(),
+            blitter_word_state: None,
             blitter_line_runtime: None,
             blitter_area_runtime: None,
             blt_apt: 0,
@@ -409,36 +458,142 @@ impl Agnus {
         self.blitter_busy = true;
         self.blitter_exec_pending = true;
         self.init_incremental_blitter_runtime();
-        self.rebuild_blitter_dma_ops();
-        self.blitter_ccks_remaining = self.blitter_dma_ops.len() as u32;
+        self.init_blitter_word_state();
+        self.blitter_ccks_remaining = self.count_total_blitter_ops();
     }
 
-    /// Consume one queued blitter DMA timing op if progress is granted.
-    pub fn tick_blitter_scheduler_op(&mut self, progress_this_cck: bool) -> Option<BlitterDmaOp> {
-        if !self.blitter_exec_pending || !self.blitter_busy || !progress_this_cck {
+    /// Return the next DMA operation the blitter wants, without consuming it.
+    ///
+    /// The bus plan queries this to decide whether to grant the blitter a slot.
+    /// Reads are offered first (A, B, C in priority order), then WriteD once
+    /// all reads are done. For line mode, the strict ReadC→WriteD sequence is
+    /// preserved.
+    #[must_use]
+    pub fn next_blitter_dma_request(&self) -> Option<BlitterDmaOp> {
+        if !self.blitter_exec_pending || !self.blitter_busy {
             return None;
         }
-
-        let op = self.blitter_dma_ops.pop_front()?;
-        self.blitter_ccks_remaining = self.blitter_dma_ops.len() as u32;
-        if self.blitter_dma_ops.is_empty() {
-            self.blitter_exec_pending = false;
-            self.blitter_ccks_remaining = 0;
+        let ws = self.blitter_word_state.as_ref()?;
+        if ws.internal_only {
+            return if ws.internal_done {
+                None
+            } else {
+                Some(BlitterDmaOp::Internal)
+            };
         }
+        if ws.need_a {
+            return Some(BlitterDmaOp::ReadA);
+        }
+        if ws.need_b {
+            return Some(BlitterDmaOp::ReadB);
+        }
+        if ws.need_c {
+            return Some(BlitterDmaOp::ReadC);
+        }
+        if ws.reads_done && ws.need_d {
+            return Some(BlitterDmaOp::WriteD);
+        }
+        None
+    }
+
+    /// Grant a blitter DMA operation, marking the channel as serviced.
+    ///
+    /// Called by the machine tick loop when a blitter slot is available.
+    pub fn grant_blitter_dma_op(&mut self, op: BlitterDmaOp) {
+        if let Some(ws) = &mut self.blitter_word_state {
+            match op {
+                BlitterDmaOp::ReadA => ws.need_a = false,
+                BlitterDmaOp::ReadB => ws.need_b = false,
+                BlitterDmaOp::ReadC => ws.need_c = false,
+                BlitterDmaOp::WriteD => ws.need_d = false,
+                BlitterDmaOp::Internal => ws.internal_done = true,
+            }
+            ws.reads_done = !ws.need_a && !ws.need_b && !ws.need_c;
+        }
+        self.blitter_ccks_remaining = self.blitter_ccks_remaining.saturating_sub(1);
+    }
+
+    /// Check if the current word's channel ops are all serviced.
+    #[must_use]
+    pub fn blitter_word_complete(&self) -> bool {
+        self.blitter_word_state
+            .as_ref()
+            .is_some_and(|ws| ws.is_complete())
+    }
+
+    /// Advance to the next word after the current word completed.
+    ///
+    /// For area mode: decrements `words_remaining_in_row`, handles row
+    /// transitions. For line mode: decrements `steps_remaining`.
+    /// Returns `true` when the entire blit is finished.
+    pub fn advance_blitter_word(&mut self) -> bool {
+        if self.blitter_line_runtime.is_some() {
+            // Line mode: word state is re-initialized per step in
+            // execute_incremental_blitter_op when WriteD completes and
+            // steps_remaining > 0. If line_runtime is None after that call,
+            // the blit is done.
+            return self.blitter_line_runtime.is_none();
+        }
+
+        if let Some(area) = &self.blitter_area_runtime {
+            if area.words_remaining_in_row == 0 && area.rows_remaining == 0 {
+                // Blit finished — will be cleaned up by caller.
+                self.blitter_word_state = None;
+                self.blitter_exec_pending = false;
+                return true;
+            }
+            // Set up next word state from area runtime channel enables.
+            self.blitter_word_state =
+                Some(BlitterWordState::new_area(area.use_a, area.use_b, area.use_c, area.use_d));
+            return false;
+        }
+
+        // No runtime — blit must have completed.
+        self.blitter_word_state = None;
+        self.blitter_exec_pending = false;
+        true
+    }
+
+    /// Consume one blitter DMA timing op if progress is granted.
+    ///
+    /// Queries the word state machine for the next requested op and grants it.
+    /// The caller is responsible for executing the op against the incremental
+    /// runtime and calling `advance_blitter_word()` when the word completes.
+    pub fn tick_blitter_scheduler_op(&mut self, progress_this_cck: bool) -> Option<BlitterDmaOp> {
+        if !progress_this_cck {
+            return None;
+        }
+        let op = self.next_blitter_dma_request()?;
+        self.grant_blitter_dma_op(op);
         Some(op)
     }
 
-    /// Advance the blitter scheduler by one CCK and report queue drain.
+    /// Advance the blitter scheduler by one CCK and report completion.
     ///
-    /// Compatibility wrapper used by tests. Returns `true` when the queued
-    /// timing model drains and the blit body should execute.
+    /// Compatibility wrapper used by unit tests. Handles the full
+    /// request→grant→advance cycle. Returns `true` when the blit completes.
+    #[cfg(test)]
     pub fn tick_blitter_scheduler(&mut self, progress_this_cck: bool) -> bool {
-        self.tick_blitter_scheduler_op(progress_this_cck).is_some() && !self.blitter_exec_pending
+        if self.tick_blitter_scheduler_op(progress_this_cck).is_none() {
+            return false;
+        }
+        // Check if the word is complete after granting an op.
+        if self.blitter_word_complete() {
+            if self.blitter_ccks_remaining == 0 {
+                self.blitter_word_state = None;
+                self.blitter_exec_pending = false;
+                self.blitter_line_runtime = None;
+                self.blitter_area_runtime = None;
+                return true;
+            }
+            self.advance_blitter_word();
+        }
+        false
     }
 
-    /// Clear the queued blitter DMA timing model after the blit core executes.
+    /// Clear the blitter scheduler state after the blit core executes.
     pub fn clear_blitter_scheduler(&mut self) {
-        self.blitter_dma_ops.clear();
+        self.blitter_word_state = None;
         self.blitter_exec_pending = false;
         self.blitter_ccks_remaining = 0;
         self.blitter_line_runtime = None;
@@ -573,9 +728,13 @@ impl Agnus {
                         self.blt_dpt = line.dpt;
                         self.blt_bdat = line.texture;
                         self.blitter_line_runtime = None;
+                        self.blitter_word_state = None;
+                        self.blitter_exec_pending = false;
                         true
                     } else {
                         self.blitter_line_runtime = Some(line);
+                        // Reset word state for next line step.
+                        self.blitter_word_state = Some(BlitterWordState::new_line());
                         false
                     }
                 }
@@ -589,12 +748,6 @@ impl Agnus {
         let Some(mut area) = self.blitter_area_runtime else {
             return false;
         };
-
-        if area.ops_done_in_word == 0 {
-            area.a_raw = self.blt_adat;
-            area.b_raw = self.blt_bdat;
-            area.c_val = self.blt_cdat;
-        }
 
         match op {
             BlitterDmaOp::ReadA => {
@@ -618,12 +771,11 @@ impl Agnus {
             BlitterDmaOp::WriteD | BlitterDmaOp::Internal => {}
         }
 
-        area.ops_done_in_word = area.ops_done_in_word.saturating_add(1);
-        if area.ops_done_in_word < area.ops_per_word {
+        // Word processing happens when all channel ops are complete.
+        if !self.blitter_word_complete() {
             self.blitter_area_runtime = Some(area);
             return false;
         }
-        area.ops_done_in_word = 0;
 
         let current_col = area.width_words - area.words_remaining_in_row;
         let mut a_masked = area.a_raw;
@@ -714,6 +866,8 @@ impl Agnus {
                 self.blt_cpt = area.cpt;
                 self.blt_dpt = area.dpt;
                 self.blitter_area_runtime = None;
+                self.blitter_word_state = None;
+                self.blitter_exec_pending = false;
                 return true;
             }
 
@@ -721,28 +875,18 @@ impl Agnus {
             area.fill_carry = area.fill_carry_init;
         }
 
+        // Reset word state for the next word.
+        self.blitter_word_state =
+            Some(BlitterWordState::new_area(area.use_a, area.use_b, area.use_c, area.use_d));
         self.blitter_area_runtime = Some(area);
         false
     }
 
-    fn rebuild_blitter_dma_ops(&mut self) {
-        self.blitter_dma_ops.clear();
-
-        // Timing-only queue until the blitter itself is executed incrementally.
-        let height = u32::from((self.bltsize >> 6) & 0x03FF);
-        let width_words = u32::from(self.bltsize & 0x003F);
-        let height = if height == 0 { 1024 } else { height };
-        let width_words = if width_words == 0 { 64 } else { width_words };
-
+    /// Initialise the per-word state machine for the first word of the blit.
+    fn init_blitter_word_state(&mut self) {
         if (self.bltcon1 & 0x0001) != 0 {
-            // LINE mode:
-            // - A pixel mask generated internally
-            // - B texture from BLTBDAT register
-            // - C read + D write per plotted step
-            for _ in 0..height {
-                self.blitter_dma_ops.push_back(BlitterDmaOp::ReadC);
-                self.blitter_dma_ops.push_back(BlitterDmaOp::WriteD);
-            }
+            // LINE mode: strict ReadC → WriteD per pixel step.
+            self.blitter_word_state = Some(BlitterWordState::new_line());
             return;
         }
 
@@ -750,38 +894,30 @@ impl Agnus {
         let use_b = (self.bltcon0 & 0x0400) != 0;
         let use_c = (self.bltcon0 & 0x0200) != 0;
         let use_d = (self.bltcon0 & 0x0100) != 0;
-
-        for _row in 0..height {
-            for _col in 0..width_words {
-                if use_a {
-                    self.blitter_dma_ops.push_back(BlitterDmaOp::ReadA);
-                }
-                if use_b {
-                    self.blitter_dma_ops.push_back(BlitterDmaOp::ReadB);
-                }
-                if use_c {
-                    self.blitter_dma_ops.push_back(BlitterDmaOp::ReadC);
-                }
-                if use_d {
-                    self.blitter_dma_ops.push_back(BlitterDmaOp::WriteD);
-                }
-            }
-        }
-
-        // Keep BUSY observable across at least one granted slot for unusual
-        // cases with no external DMA channels enabled.
-        if self.blitter_dma_ops.is_empty() {
-            for _row in 0..height {
-                for _col in 0..width_words {
-                    self.blitter_dma_ops.push_back(BlitterDmaOp::Internal);
-                }
-            }
-        }
+        self.blitter_word_state = Some(BlitterWordState::new_area(use_a, use_b, use_c, use_d));
     }
 
-    #[cfg(test)]
-    fn blitter_dma_ops_snapshot(&self) -> Vec<BlitterDmaOp> {
-        self.blitter_dma_ops.iter().copied().collect()
+    /// Count the total blitter DMA ops for the entire blit (for BLTBUSY timing).
+    fn count_total_blitter_ops(&self) -> u32 {
+        let height = u32::from((self.bltsize >> 6) & 0x03FF);
+        let width_words = u32::from(self.bltsize & 0x003F);
+        let height = if height == 0 { 1024 } else { height };
+        let width_words = if width_words == 0 { 64 } else { width_words };
+
+        if (self.bltcon1 & 0x0001) != 0 {
+            // LINE mode: 2 ops per step (ReadC + WriteD).
+            return height * 2;
+        }
+
+        let use_a = (self.bltcon0 & 0x0800) != 0;
+        let use_b = (self.bltcon0 & 0x0400) != 0;
+        let use_c = (self.bltcon0 & 0x0200) != 0;
+        let use_d = (self.bltcon0 & 0x0100) != 0;
+        let ops_per_word = u32::from(use_a) + u32::from(use_b) + u32::from(use_c) + u32::from(use_d);
+
+        // When no external channels are enabled, each word takes one Internal op.
+        let ops_per_word = ops_per_word.max(1);
+        height * width_words * ops_per_word
     }
 
     fn init_incremental_blitter_runtime(&mut self) {
@@ -801,8 +937,6 @@ impl Agnus {
             let ife = (self.bltcon1 & 0x0008) != 0;
             let efe = (self.bltcon1 & 0x0010) != 0;
             let fill_enabled = ife || efe;
-            let ops_per_word =
-                (u8::from(use_a) + u8::from(use_b) + u8::from(use_c) + u8::from(use_d)).max(1);
             self.blitter_area_runtime = Some(BlitterAreaRuntime {
                 rows_remaining: height,
                 width_words,
@@ -811,8 +945,6 @@ impl Agnus {
                 use_b,
                 use_c,
                 use_d,
-                ops_per_word,
-                ops_done_in_word: 0,
                 lf: self.bltcon0 as u8,
                 a_shift: (self.bltcon0 >> 12) & 0xF,
                 b_shift: (self.bltcon1 >> 12) & 0xF,
@@ -1333,49 +1465,41 @@ mod tests {
     }
 
     #[test]
-    fn blitter_dma_op_queue_scales_with_enabled_area_channels() {
+    fn blitter_total_ops_scales_with_enabled_area_channels() {
         let mut agnus = Agnus::new();
         agnus.bltcon0 = 0x0800 | 0x0200 | 0x0100; // A read + C read + D write
         agnus.bltsize = (1 << 6) | 3; // height=1, width=3 words
         agnus.start_blit();
 
-        let ops = agnus.blitter_dma_ops_snapshot();
         assert_eq!(
             agnus.blitter_ccks_remaining, 9,
             "3 words * (A+C+D) => 9 DMA-op grants"
         );
-        assert_eq!(ops.len(), 9);
-        assert_eq!(
-            &ops[0..3],
-            &[
-                BlitterDmaOp::ReadA,
-                BlitterDmaOp::ReadC,
-                BlitterDmaOp::WriteD
-            ]
-        );
+
+        // First word should request ReadA, then ReadC, then WriteD.
+        assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::ReadA));
+        agnus.grant_blitter_dma_op(BlitterDmaOp::ReadA);
+        assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::ReadC));
+        agnus.grant_blitter_dma_op(BlitterDmaOp::ReadC);
+        assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::WriteD));
     }
 
     #[test]
-    fn blitter_dma_op_queue_uses_c_then_d_per_line_step() {
+    fn blitter_line_mode_requests_c_then_d_per_step() {
         let mut agnus = Agnus::new();
         agnus.bltcon1 = 0x0001; // LINE mode
         agnus.bltsize = (4 << 6) | 2; // length=4, width field ignored in line mode
         agnus.start_blit();
 
-        let ops = agnus.blitter_dma_ops_snapshot();
         assert_eq!(
             agnus.blitter_ccks_remaining, 8,
             "4 line steps * (C read + D write) => 8 DMA-op grants"
         );
-        assert_eq!(
-            &ops[0..4],
-            &[
-                BlitterDmaOp::ReadC,
-                BlitterDmaOp::WriteD,
-                BlitterDmaOp::ReadC,
-                BlitterDmaOp::WriteD
-            ]
-        );
+
+        // First line step should request ReadC, then WriteD.
+        assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::ReadC));
+        agnus.grant_blitter_dma_op(BlitterDmaOp::ReadC);
+        assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::WriteD));
     }
 
     #[test]

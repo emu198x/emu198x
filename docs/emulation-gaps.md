@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-03-01 (AGA display, sprite widths). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-03-01 (blitter DMA interleaving, close remaining Amiga gaps). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -173,8 +173,8 @@ Three model variants: A500 (OCS), A500+ (ECS), A1200 (AGA).
 - **Chipsets**: OCS (A500), ECS (A500+), AGA (A1200)
 - **Video**: Bitplane DMA (1-8 planes), copper, blitter (copy, line, fill), HAM6/HAM8 and EHB modes, full-raster framebuffer at hires resolution
 - **AGA display**: 8 bitplanes (4-bit BPU decode), 256-entry 24-bit palette with BPLCON3 bank selection and LOCT, HAM8 (6-bit data with 8-bit expansion), BPLCON4 colour offset (bitplane and sprite XOR), FMODE wider DMA fetches (32-bit and 64-bit) with FIFO buffering, FMODE sprite width modes (16/32/64-pixel sprites via bits 3-2)
-- **Audio**: Paula 4-channel DMA with volume/period modulation (ADKCON), stereo routing (0+3 left, 1+2 right), one-pole RC low-pass filter at ~4.5 kHz matching hardware output stage
-- **Storage**: ADF read and write (MFM decode, sector checksum, floppy DMA via DSKLEN double-write protocol), disk write persistence with `save_adf()` API
+- **Audio**: Paula 4-channel DMA with volume/period modulation (ADKCON), stereo routing (0+3 left, 1+2 right), one-pole RC low-pass filter at ~4.5 kHz matching hardware output stage, DAC non-linearity table modelling A500 resistor-ladder output
+- **Storage**: ADF read and write (MFM decode, sector checksum, floppy DMA via DSKLEN double-write protocol), disk write persistence with `save_adf()` API, IPF disk images (read-only, pre-encoded MFM, copy-protection timing metadata, auto-detected by magic bytes)
 - **Memory**: Chip RAM (512K A500, 1MB A500+, 2MB A1200), slow RAM ($C00000-$DFFFFF, configurable 512K/1M/2M), ROM overlay
 - **Peripherals**: Keyboard, mouse, CIA-A/B (8520) with TOD, floppy status, battclock simulation
 - **Models**: A500 (OCS, 512K), A500+ (ECS, 1MB), A1200 (AGA, 68020, 2MB)
@@ -183,37 +183,45 @@ Three model variants: A500 (OCS), A500+ (ECS), A1200 (AGA).
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| IPF/WHDLoad formats | Not supported | Copy-protected and WHDLoad games unloadable |
+| WHDLoad format | Not supported | WHDLoad games need IDE/filesystem/autoconfig infrastructure |
 
 ### Accuracy gaps
 
-| Gap | Location | Impact |
-|-----|----------|--------|
-| Blitter micro-op granularity | `agnus.rs` — atomic DMA ops | Timing under extreme contention diverges |
-| Paula audio DAC non-linearity | Not modelled | Subtle DAC stepping artefacts not reproduced |
-| Paula disk PLL timing | Simplified | Clock-recovery sensitive copy protection fails |
-| Paula modulation edge cases | ADKCON approximate | Extreme cross-channel modulation diverges |
-| ECS beam timing (BEAMCON0) | Latched but not active | Tight ECS timing code diverges |
-| Sprite mid-line register timing | Approximate | SPRxPOS/CTL writes mid-scanline may have edge cases |
-| Copper V7 comparison | Partial guard only | Edge cases with V7 masking may diverge |
-| Blitter fill exclusive mode | Implemented but untested | May have edge cases |
-| AGA palette LOCT timing | Immediate apply | Real hardware may pipeline high/low nibble writes |
-| AGA scan-doubled output | Cosmetic only | Real AGA doubles lowres lines to hires in analog output; raster FB already writes at hires coordinates so lowres pixels fill correct-width cells |
+No significant accuracy gaps remain for any in-scope Amiga model.
+
+### Recently resolved
+
+| Item | Resolution |
+|------|-----------|
+| Blitter per-channel DMA interleaving | Per-word state machine replaces pre-built VecDeque queue; individual channel accesses can be granted in any order (WriteD waits for all reads) |
+| AGA scan-doubled output | Raster FB writes at hires coordinates; lores pixels duplicate across 2 sub-positions — no real gap exists |
+| IPF disk support | `format-ipf` crate parses IPF container, `DiskImage` trait abstracts disk sources, auto-detected in MCP and runner |
+| Copper V7 comparison | V7 forced into comparison mask — fixes false-early and false-late cases |
+| Paula audio DAC non-linearity | 256-entry lookup table models A500 resistor-ladder S-curve |
+| Paula disk PLL timing | Phase accumulator for variable-rate IPF tracks |
+| ECS BEAMCON0 activation | Sync polarity (HSYTRUE/VSYTRUE/CSYTRUE), BLANKEN blank gating, CSCBEN composite sync routing |
+| Sprite mid-line register timing | 1-pixel pipeline delay via `spr_pos_pending` array |
+| Blitter fill exclusive mode | 6 integration tests cover IFE, EFE, carry propagation, FCI seed, descending mode |
+| Paula modulation coverage | Additional tests for attach-period, attach-volume, combined modulation, modulator muting |
+| AGA palette LOCT timing | Color writes capture BPLCON3 snapshot at write time for correct bank/LOCT ordering through pipeline |
 
 ### Assessment
 
-The Amiga has the widest gap between "boots" and "runs software", but the
-core is solid and improving. KS 1.3, 2.04, and 3.1 all boot to insert-disk
-screens with correct display rendering. The AGA display pipeline is now
-functional: 8 bitplanes, 256-entry 24-bit palette with BPLCON3 bank/LOCT
-selection, HAM8, BPLCON4 colour offset for both bitplanes and sprites,
-FMODE wider DMA fetches with FIFO buffering, and FMODE-controlled sprite
-widths (16/32/64 pixels). Hires 8-plane mode works via the same FMODE
-wider-fetch mechanism — no separate DMA table is needed, matching real AGA
-hardware. The 68020 instruction set is nearly complete for A1200 software
-(MULL/DIVL, EXTB, MOVEC, all 8 bit field ops, CAS). Paula audio includes
-hardware low-pass filter modelling. The main remaining gap is IPF/WHDLoad
-support for copy-protected games.
+The Amiga emulator is approaching broad compatibility. KS 1.3, 2.04, and
+3.1 all boot to insert-disk screens with correct display rendering. IPF
+disk images are now supported via the `format-ipf` crate, enabling
+copy-protected titles. The `DiskImage` trait abstracts disk sources so
+ADF and IPF (and future formats) share the same floppy drive interface.
+The AGA display pipeline is functional: 8 bitplanes, 256-entry 24-bit
+palette with BPLCON3 bank/LOCT selection (now correctly pipelined), HAM8,
+BPLCON4 colour offset, FMODE wider DMA fetches with FIFO buffering, and
+FMODE-controlled sprite widths. Paula audio now includes A500 DAC
+non-linearity modelling and a disk PLL phase accumulator for
+variable-rate MFM streams. ECS BEAMCON0 sync polarity, blank gating, and
+composite sync routing are active. Copper V7 comparison is correct.
+Sprite position writes go through a 1-pixel pipeline delay matching
+hardware. The main remaining gap is WHDLoad support (deferred — needs
+IDE/filesystem/autoconfig).
 
 ---
 
@@ -225,8 +233,8 @@ support for copy-protected games.
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | ~99% (68000 + 68020 MULL/DIVL/EXTB/MOVEC/BFXXX/CAS) |
 | Video modes | 100% | 100% (all 6 modes + scrolling + sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~97% (OCS/ECS/AGA bitplanes + HAM6/8 + EHB + 24-bit palette + FMODE + sprite widths) |
-| Audio | 100% (beeper + AY) | ~97% (6581/8580, piecewise filter table, combined waveforms) | ~95% (all 5 channels) | ~90% (hardware LPF modelled) |
-| Storage | TAP + TZX + SNA + Z80 + DSK | PRG + CRT (7 types) + TAP (turbo) + D64 (r/w) | 12 mappers | ADF read/write |
+| Audio | 100% (beeper + AY) | ~97% (6581/8580, piecewise filter table, combined waveforms) | ~95% (all 5 channels) | ~93% (hardware LPF + DAC non-linearity) |
+| Storage | TAP + TZX + SNA + Z80 + DSK | PRG + CRT (7 types) + TAP (turbo) + D64 (r/w) | 12 mappers | ADF read/write + IPF read |
 | Peripherals | Keyboard + Kempston | Keyboard + joystick + REU + paddles | 4-player pads + Zapper | Keyboard + mouse |
 | Model variants | 48K, 128K, +2, +2A, +3 | PAL + NTSC | NTSC + PAL | A500, A500+, A1200 |
 
@@ -243,7 +251,8 @@ support for copy-protected games.
 9. ~~**SID 6581 filter accuracy**~~ — Done (lookup table)
 10. ~~**AGA display rendering**~~ — Done (8 bitplanes, 24-bit palette, HAM8, BPLCON4, FMODE)
 11. ~~**AGA sprite width modes**~~ — Done (FMODE bits 2-3 for 16/32/64-pixel sprites)
-12. **IPF/WHDLoad support** — Copy-protected Amiga games
+12. ~~**IPF disk support**~~ — Done (format-ipf crate, DiskImage trait, auto-detection)
+13. **WHDLoad support** — Needs IDE/filesystem/autoconfig infrastructure
 
 ### v1 exit criteria status
 
