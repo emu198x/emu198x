@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-03-01. Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-03-01 (AGA display). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -164,26 +164,28 @@ demos.
 
 Boots KS 1.3, 2.04, and 3.1 to insert-disk screen. Renders bitplanes
 with copper and blitter, plays Paula audio with hardware low-pass filter.
-Three model variants: A500 (OCS), A500+ (ECS), A1200 (AGA stubs).
+Three model variants: A500 (OCS), A500+ (ECS), A1200 (AGA).
 
 ### Implemented
 
 - **CPU**: 68000 at 100% cycle accuracy (317,500 single-step tests pass)
 - **68020 extensions** (A1200): MULL/DIVL (32×32 multiply/divide with 32-bit and 64-bit results), EXTB.L, MOVEC (VBR/SFC/DFC/CACR), all 8 bit field instructions (BFTST/BFEXTU/BFEXTS/BFINS/BFSET/BFCLR/BFCHG/BFFFO with register and memory modes), CAS (compare-and-swap byte/word/long)
-- **Chipsets**: OCS (A500), ECS (A500+), AGA stubs (A1200 — correct chipset IDs, ECS register superset)
-- **Video**: Bitplane DMA (1-6 planes), copper, blitter (copy, line, fill), HAM and EHB modes decoded in Denise, full-raster framebuffer at hires resolution
+- **Chipsets**: OCS (A500), ECS (A500+), AGA (A1200)
+- **Video**: Bitplane DMA (1-8 planes), copper, blitter (copy, line, fill), HAM6/HAM8 and EHB modes, full-raster framebuffer at hires resolution
+- **AGA display**: 8 bitplanes (4-bit BPU decode), 256-entry 24-bit palette with BPLCON3 bank selection and LOCT, HAM8 (6-bit data with 8-bit expansion), BPLCON4 colour offset (bitplane and sprite XOR), FMODE wider DMA fetches (32-bit and 64-bit) with FIFO buffering
 - **Audio**: Paula 4-channel DMA with volume/period modulation (ADKCON), stereo routing (0+3 left, 1+2 right), one-pole RC low-pass filter at ~4.5 kHz matching hardware output stage
 - **Storage**: ADF read and write (MFM decode, sector checksum, floppy DMA via DSKLEN double-write protocol), disk write persistence with `save_adf()` API
 - **Memory**: Chip RAM (512K A500, 1MB A500+, 2MB A1200), slow RAM ($C00000-$DFFFFF, configurable 512K/1M/2M), ROM overlay
 - **Peripherals**: Keyboard, mouse, CIA-A/B (8520) with TOD, floppy status, battclock simulation
-- **Models**: A500 (OCS, 512K), A500+ (ECS, 1MB), A1200 (AGA stubs, 68020, 2MB)
+- **Models**: A500 (OCS, 512K), A500+ (ECS, 1MB), A1200 (AGA, 68020, 2MB)
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| AGA display features | Not implemented | 8 bitplanes, HAM8, 24-bit palette, FMODE not available |
 | IPF/WHDLoad formats | Not supported | Copy-protected and WHDLoad games unloadable |
+| AGA hires 8-plane DMA table | Not implemented | Hires mode limited to 4 planes on AGA (lowres 8-plane works) |
+| AGA sprite width modes | Not implemented | FMODE bits 2-3 control 32/64-pixel-wide sprites |
 
 ### Accuracy gaps
 
@@ -197,16 +199,23 @@ Three model variants: A500 (OCS), A500+ (ECS), A1200 (AGA stubs).
 | Sprite mid-line register timing | Approximate | SPRxPOS/CTL writes mid-scanline may have edge cases |
 | Copper V7 comparison | Partial guard only | Edge cases with V7 masking may diverge |
 | Blitter fill exclusive mode | Implemented but untested | May have edge cases |
+| AGA palette LOCT timing | Immediate apply | Real hardware may pipeline high/low nibble writes |
+| AGA FMODE sprite fetch width | Not implemented (FMODE bits 2-3) | 32/64-pixel sprites not available |
+| AGA hires 8-plane DMA scheduling | Uses lowres AGA table for hires too | Hires 8-plane mode would need an 8-slot DMA table |
+| AGA scan-doubled output | Not modelled | Real AGA doubles lowres lines to hires resolution internally |
 
 ### Assessment
 
-The Amiga has the widest gap between "boots" and "runs software". The OCS
-core is solid — KS 1.3, 2.04, and 3.1 all boot to insert-disk screens with
-correct display rendering. The 68020 instruction set is nearly complete for
-A1200 software (MULL/DIVL, EXTB, MOVEC, all 8 bit field ops, CAS). Paula
-audio includes hardware low-pass filter modelling. The main remaining gaps
-are AGA display rendering (8 bitplanes, HAM8, 24-bit palette) and IPF/WHDLoad
-support for copy-protected games.
+The Amiga has the widest gap between "boots" and "runs software", but the
+core is solid and improving. KS 1.3, 2.04, and 3.1 all boot to insert-disk
+screens with correct display rendering. The AGA display pipeline is now
+functional: 8 bitplanes, 256-entry 24-bit palette with BPLCON3 bank/LOCT
+selection, HAM8, BPLCON4 colour offset for both bitplanes and sprites, and
+FMODE wider DMA fetches with FIFO buffering. The 68020 instruction set is
+nearly complete for A1200 software (MULL/DIVL, EXTB, MOVEC, all 8 bit field
+ops, CAS). Paula audio includes hardware low-pass filter modelling. The main
+remaining gaps are AGA sprite width modes (FMODE bits 2-3), hires 8-plane DMA
+scheduling, and IPF/WHDLoad support for copy-protected games.
 
 ---
 
@@ -217,7 +226,7 @@ support for copy-protected games.
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
 | CPU | 100% | 100% | 100% | ~99% (68000 + 68020 MULL/DIVL/EXTB/MOVEC/BFXXX/CAS) |
-| Video modes | 100% | 100% (all 6 modes + scrolling + sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard bitplanes) |
+| Video modes | 100% | 100% (all 6 modes + scrolling + sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~95% (OCS/ECS/AGA bitplanes + HAM6/8 + EHB + 24-bit palette + FMODE) |
 | Audio | 100% (beeper + AY) | ~97% (6581/8580, piecewise filter table, combined waveforms) | ~95% (all 5 channels) | ~90% (hardware LPF modelled) |
 | Storage | TAP + TZX + SNA + Z80 + DSK | PRG + CRT (7 types) + TAP (turbo) + D64 (r/w) | 12 mappers | ADF read/write |
 | Peripherals | Keyboard + Kempston | Keyboard + joystick + REU + paddles | 4-player pads + Zapper | Keyboard + mouse |
@@ -234,7 +243,9 @@ support for copy-protected games.
 7. ~~**68020 bit fields**~~ — Done (all 8 instructions)
 8. ~~**68020 CAS**~~ — Done
 9. ~~**SID 6581 filter accuracy**~~ — Done (lookup table)
-10. **AGA display rendering** — Next major Amiga milestone
+10. ~~**AGA display rendering**~~ — Done (8 bitplanes, 24-bit palette, HAM8, BPLCON4, FMODE)
+11. **AGA sprite width modes** — FMODE bits 2-3 for 32/64-pixel sprites
+12. **IPF/WHDLoad support** — Copy-protected Amiga games
 
 ### v1 exit criteria status
 

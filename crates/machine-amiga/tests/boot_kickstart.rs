@@ -3710,7 +3710,7 @@ fn test_boot_kick204_a500plus_screenshot() {
         actual_line: u16,
         bplcon0: u16,
         bplcon1: u16,
-        bpl_pt: [u32; 6],
+        bpl_pt: [u32; 8],
         bpl1mod: i16,
         bpl2mod: i16,
         palette: [u16; 8], // first 8 colors

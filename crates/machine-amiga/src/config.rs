@@ -21,6 +21,12 @@ impl AmigaChipset {
     pub const fn is_ecs_or_aga(self) -> bool {
         matches!(self, Self::Ecs | Self::Aga)
     }
+
+    /// True only for AGA (8 bitplanes, 24-bit palette, HAM8, FMODE).
+    #[must_use]
+    pub const fn is_aga(self) -> bool {
+        matches!(self, Self::Aga)
+    }
 }
 
 /// Video region (PAL or NTSC) — determines frame timing and raster dimensions.

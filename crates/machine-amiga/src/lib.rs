@@ -287,6 +287,9 @@ impl Amiga {
             AmigaChipset::Ecs | AmigaChipset::Aga => {
                 let mut a = commodore_agnus_ecs::AgnusEcs::new();
                 a.as_inner_mut().lines_per_frame = region_lines;
+                if chipset.is_aga() {
+                    a.as_inner_mut().aga_mode = true;
+                }
                 a
             }
         };
@@ -294,8 +297,12 @@ impl Amiga {
             AmigaChipset::Ocs => commodore_denise_ecs::DeniseEcs::from_ocs(
                 commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height),
             ),
-            AmigaChipset::Ecs | AmigaChipset::Aga => {
+            AmigaChipset::Ecs => {
                 let d = commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height);
+                commodore_denise_ecs::DeniseEcs::from_ocs(d)
+            }
+            AmigaChipset::Aga => {
+                let d = commodore_denise_ocs::DeniseOcs::new_aga(raster_fb_height);
                 commodore_denise_ecs::DeniseEcs::from_ocs(d)
             }
         };
@@ -475,7 +482,11 @@ impl Amiga {
             }
             self.color_pending.retain_mut(|(idx, val, countdown)| {
                 if *countdown <= 1 {
-                    self.denise.set_palette(*idx, *val);
+                    if self.chipset.is_aga() {
+                        self.denise.set_palette_aga(*idx, *val);
+                    } else {
+                        self.denise.set_palette(*idx, *val);
+                    }
                     false
                 } else {
                     *countdown -= 1;
@@ -524,7 +535,23 @@ impl Amiga {
             // Each output call produces two independently-composed hires
             // sub-pixels via `hires_pair_color_idx`. Write all 4 distinct
             // hires pixels per CCK (2 per output call × 2 calls).
-            {
+            if self.chipset.is_aga() {
+                let pair0 = pixel0_debug.hires_pair_color_idx;
+                let rgb0a = self.denise.resolve_color_rgb24(pair0[0]);
+                let rgb0b = self.denise.resolve_color_rgb24(pair0[1]);
+                let rc0a = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb0a);
+                let rc0b = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb0b);
+                self.denise.write_raster_pixel(hpos, vpos, 0, rc0a);
+                self.denise.write_raster_pixel(hpos, vpos, 1, rc0b);
+
+                let pair1 = pixel1_debug.hires_pair_color_idx;
+                let rgb1a = self.denise.resolve_color_rgb24(pair1[0]);
+                let rgb1b = self.denise.resolve_color_rgb24(pair1[1]);
+                let rc1a = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb1a);
+                let rc1b = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb1b);
+                self.denise.write_raster_pixel(hpos, vpos, 2, rc1a);
+                self.denise.write_raster_pixel(hpos, vpos, 3, rc1b);
+            } else {
                 let pair0 = pixel0_debug.hires_pair_color_idx;
                 let rgb0a = self.denise.resolve_color_rgb12(pair0[0]);
                 let rgb0b = self.denise.resolve_color_rgb12(pair0[1]);
@@ -559,12 +586,30 @@ impl Amiga {
             }
             if let Some(plane) = bitplane_dma_fetch_plane {
                 let idx = plane as usize;
+                let fetch_width = self.agnus.bpl_fetch_width() as u32;
                 let addr = self.agnus.bpl_pt[idx];
-                let hi = self.memory.read_chip_byte(addr);
-                let lo = self.memory.read_chip_byte(addr | 1);
-                let val = (u16::from(hi) << 8) | u16::from(lo);
-                self.denise.load_bitplane(idx, val);
-                self.agnus.bpl_pt[idx] = addr.wrapping_add(2);
+                if fetch_width > 1 {
+                    // AGA wider fetch: read `fetch_width` words, queue
+                    // earlier words into the FIFO, load the last word
+                    // into the holding latch.
+                    for w in 0..fetch_width {
+                        let word_addr = addr.wrapping_add(w * 2);
+                        let hi = self.memory.read_chip_byte(word_addr);
+                        let lo = self.memory.read_chip_byte(word_addr | 1);
+                        let val = (u16::from(hi) << 8) | u16::from(lo);
+                        if w < fetch_width - 1 {
+                            self.denise.push_bpl_fifo(idx, val);
+                        } else {
+                            self.denise.load_bitplane(idx, val);
+                        }
+                    }
+                } else {
+                    let hi = self.memory.read_chip_byte(addr);
+                    let lo = self.memory.read_chip_byte(addr | 1);
+                    let val = (u16::from(hi) << 8) | u16::from(lo);
+                    self.denise.load_bitplane(idx, val);
+                }
+                self.agnus.bpl_pt[idx] = addr.wrapping_add(fetch_width * 2);
                 if plane == 0 {
                     fetched_plane_0 = true;
                     self.denise.queue_shift_load_from_bpl1dat();
@@ -1196,7 +1241,7 @@ impl Amiga {
     }
 
     fn playfield_window_active_beam_x(&self, vpos: u16, hpos_cck: u16, beam_x: u16) -> bool {
-        if self.chipset != AmigaChipset::Ecs {
+        if !self.chipset.is_ecs_or_aga() {
             return true;
         }
         if self.agnus.hblank_window_active(hpos_cck) || self.agnus.vblank_window_active(vpos) {
@@ -1241,7 +1286,7 @@ impl Amiga {
     }
 
     fn ecs_display_h_span_cck_and_bounds(&self) -> Option<(u16, u16, u16)> {
-        if self.chipset != AmigaChipset::Ecs {
+        if !self.chipset.is_ecs_or_aga() {
             return None;
         }
         let (_vstart, _vstop, hstart, hstop) = self.ecs_decoded_diw_window();
@@ -1544,7 +1589,7 @@ impl Amiga {
     /// `false`.
     #[must_use]
     pub fn beam_sync_state_at(&self, vpos: u16, hpos_cck: u16) -> BeamSyncState {
-        if self.chipset != AmigaChipset::Ecs {
+        if !self.chipset.is_ecs_or_aga() {
             return BeamSyncState {
                 hsync: false,
                 vsync: false,
@@ -1563,7 +1608,7 @@ impl Amiga {
         vblank: bool,
         composite_sync_active: bool,
     ) -> BeamPinState {
-        if self.chipset != AmigaChipset::Ecs {
+        if !self.chipset.is_ecs_or_aga() {
             return BeamPinState::default();
         }
 
@@ -1595,7 +1640,7 @@ impl Amiga {
         &self,
         sync: BeamSyncState,
     ) -> BeamCompositeSyncDebug {
-        if self.chipset != AmigaChipset::Ecs {
+        if !self.chipset.is_ecs_or_aga() {
             return BeamCompositeSyncDebug::default();
         }
 
@@ -2063,6 +2108,8 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x05E if self.chipset.is_ecs_or_aga() => self.agnus.bltsizh_ecs,
                     0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),
                     0x106 if self.chipset.is_ecs_or_aga() => self.denise.bplcon3,
+                    0x10C if self.chipset.is_aga() => self.denise.bplcon4,
+                    0x1FC if self.chipset.is_aga() => self.agnus.fmode,
                     0x1C0 if self.chipset.is_ecs_or_aga() => self.agnus.htotal(),
                     0x1C2 if self.chipset.is_ecs_or_aga() => self.agnus.hsstop(),
                     0x1C4 if self.chipset.is_ecs_or_aga() => self.agnus.hbstrt(),
@@ -2164,30 +2211,31 @@ fn custom_register_byte_merge_latch(
         0x09A => Some(paula.intena),
         0x09C => Some(paula.intreq),
         0x09E => Some(paula.adkcon),
-        0x05C if chipset == AmigaChipset::Ecs => Some(agnus.bltsizv_ecs),
-        0x05E if chipset == AmigaChipset::Ecs => Some(agnus.bltsizh_ecs),
+        0x05C if chipset.is_ecs_or_aga() => Some(agnus.bltsizv_ecs),
+        0x05E if chipset.is_ecs_or_aga() => Some(agnus.bltsizh_ecs),
         0x100 => Some(agnus.bplcon0),
         0x102 => Some(denise.bplcon1),
         0x104 => Some(denise.bplcon2),
-        0x106 if chipset == AmigaChipset::Ecs => Some(denise.bplcon3),
+        0x106 if chipset.is_ecs_or_aga() => Some(denise.bplcon3),
+        0x10C if chipset.is_aga() => Some(denise.bplcon4),
         0x108 => Some(agnus.bpl1mod as u16),
         0x10A => Some(agnus.bpl2mod as u16),
         0x180..=0x1BE => {
             let idx = ((offset - 0x180) / 2) as usize;
             Some(denise.palette[idx])
         }
-        0x1C0 if chipset == AmigaChipset::Ecs => Some(agnus.htotal()),
-        0x1C2 if chipset == AmigaChipset::Ecs => Some(agnus.hsstop()),
-        0x1C4 if chipset == AmigaChipset::Ecs => Some(agnus.hbstrt()),
-        0x1C6 if chipset == AmigaChipset::Ecs => Some(agnus.hbstop()),
-        0x1C8 if chipset == AmigaChipset::Ecs => Some(agnus.vtotal()),
-        0x1CA if chipset == AmigaChipset::Ecs => Some(agnus.vsstop()),
-        0x1CC if chipset == AmigaChipset::Ecs => Some(agnus.vbstrt()),
-        0x1CE if chipset == AmigaChipset::Ecs => Some(agnus.vbstop()),
-        0x1DC if chipset == AmigaChipset::Ecs => Some(agnus.beamcon0()),
-        0x1DE if chipset == AmigaChipset::Ecs => Some(agnus.hsstrt()),
-        0x1E0 if chipset == AmigaChipset::Ecs => Some(agnus.vsstrt()),
-        0x1E4 if chipset == AmigaChipset::Ecs => Some(agnus.diwhigh()),
+        0x1C0 if chipset.is_ecs_or_aga() => Some(agnus.htotal()),
+        0x1C2 if chipset.is_ecs_or_aga() => Some(agnus.hsstop()),
+        0x1C4 if chipset.is_ecs_or_aga() => Some(agnus.hbstrt()),
+        0x1C6 if chipset.is_ecs_or_aga() => Some(agnus.hbstop()),
+        0x1C8 if chipset.is_ecs_or_aga() => Some(agnus.vtotal()),
+        0x1CA if chipset.is_ecs_or_aga() => Some(agnus.vsstop()),
+        0x1CC if chipset.is_ecs_or_aga() => Some(agnus.vbstrt()),
+        0x1CE if chipset.is_ecs_or_aga() => Some(agnus.vbstop()),
+        0x1DC if chipset.is_ecs_or_aga() => Some(agnus.beamcon0()),
+        0x1DE if chipset.is_ecs_or_aga() => Some(agnus.hsstrt()),
+        0x1E0 if chipset.is_ecs_or_aga() => Some(agnus.vsstrt()),
+        0x1E4 if chipset.is_ecs_or_aga() => Some(agnus.diwhigh()),
         _ => None,
     }
 }
@@ -2257,15 +2305,15 @@ fn write_custom_register(
             agnus.bltsize = val;
             agnus.start_blit();
         }
-        0x05A if chipset == AmigaChipset::Ecs => {
+        0x05A if chipset.is_ecs_or_aga() => {
             // BLTCON0L (ECS): write only the low byte (minterm/LF) of BLTCON0,
             // preserving the upper byte (ASH + channel enables).
             agnus.bltcon0 = (agnus.bltcon0 & 0xFF00) | (val & 0x00FF);
         }
-        0x05C if chipset == AmigaChipset::Ecs => {
+        0x05C if chipset.is_ecs_or_aga() => {
             agnus.bltsizv_ecs = val;
         }
-        0x05E if chipset == AmigaChipset::Ecs => {
+        0x05E if chipset.is_ecs_or_aga() => {
             agnus.bltsizh_ecs = val;
             // ECS big-blit compatibility path: BLTSIZV then BLTSIZH starts the
             // blitter. Until the scheduler/executor use full ECS widths, fold
@@ -2329,18 +2377,18 @@ fn write_custom_register(
         0x02E => copper.danger = val & 0x02 != 0,
 
         // ECS display/beam extensions (latch-only for now, gated off on OCS)
-        0x1C0 if chipset == AmigaChipset::Ecs => agnus.write_htotal(val),
-        0x1C2 if chipset == AmigaChipset::Ecs => agnus.write_hsstop(val),
-        0x1C4 if chipset == AmigaChipset::Ecs => agnus.write_hbstrt(val),
-        0x1C6 if chipset == AmigaChipset::Ecs => agnus.write_hbstop(val),
-        0x1C8 if chipset == AmigaChipset::Ecs => agnus.write_vtotal(val),
-        0x1CA if chipset == AmigaChipset::Ecs => agnus.write_vsstop(val),
-        0x1CC if chipset == AmigaChipset::Ecs => agnus.write_vbstrt(val),
-        0x1CE if chipset == AmigaChipset::Ecs => agnus.write_vbstop(val),
-        0x1DC if chipset == AmigaChipset::Ecs => agnus.write_beamcon0(val),
-        0x1DE if chipset == AmigaChipset::Ecs => agnus.write_hsstrt(val),
-        0x1E0 if chipset == AmigaChipset::Ecs => agnus.write_vsstrt(val),
-        0x1E4 if chipset == AmigaChipset::Ecs => agnus.write_diwhigh(val),
+        0x1C0 if chipset.is_ecs_or_aga() => agnus.write_htotal(val),
+        0x1C2 if chipset.is_ecs_or_aga() => agnus.write_hsstop(val),
+        0x1C4 if chipset.is_ecs_or_aga() => agnus.write_hbstrt(val),
+        0x1C6 if chipset.is_ecs_or_aga() => agnus.write_hbstop(val),
+        0x1C8 if chipset.is_ecs_or_aga() => agnus.write_vtotal(val),
+        0x1CA if chipset.is_ecs_or_aga() => agnus.write_vsstop(val),
+        0x1CC if chipset.is_ecs_or_aga() => agnus.write_vbstrt(val),
+        0x1CE if chipset.is_ecs_or_aga() => agnus.write_vbstop(val),
+        0x1DC if chipset.is_ecs_or_aga() => agnus.write_beamcon0(val),
+        0x1DE if chipset.is_ecs_or_aga() => agnus.write_hsstrt(val),
+        0x1E0 if chipset.is_ecs_or_aga() => agnus.write_vsstrt(val),
+        0x1E4 if chipset.is_ecs_or_aga() => agnus.write_diwhigh(val),
 
         // Bitplane control — Agnus sees BPLCON0 immediately; Denise
         // update is pipelined (2 CCK) via queue_pipelined_write().
@@ -2349,19 +2397,24 @@ fn write_custom_register(
         }
         0x102 => denise.bplcon1 = val,
         0x104 => denise.bplcon2 = val,
-        0x106 if chipset == AmigaChipset::Ecs => denise.bplcon3 = val,
+        0x106 if chipset.is_ecs_or_aga() => denise.bplcon3 = val,
+        0x10C if chipset.is_aga() => denise.bplcon4 = val,
 
         // Bitplane modulos
         0x108 => agnus.bpl1mod = val as i16,
         0x10A => agnus.bpl2mod = val as i16,
 
-        // Bitplane pointers ($0E0-$0EE)
-        0x0E0..=0x0EE => {
+        // Bitplane pointers ($0E0-$0FE): OCS 6 planes, AGA 8 planes.
+        0x0E0..=0x0FE => {
             let idx = ((offset - 0x0E0) / 4) as usize;
-            if offset & 2 == 0 {
-                agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16);
-            } else {
-                agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE);
+            if idx >= 8 {
+                // should not happen given the range, but be defensive
+            } else if idx < 6 || chipset.is_aga() {
+                if offset & 2 == 0 {
+                    agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0x0000FFFF) | (u32::from(val) << 16);
+                } else {
+                    agnus.bpl_pt[idx] = (agnus.bpl_pt[idx] & 0xFFFF0000) | u32::from(val & 0xFFFE);
+                }
             }
         }
 
@@ -2390,6 +2443,9 @@ fn write_custom_register(
 
         // Color palette ($180-$1BE) — pipelined via queue_pipelined_write().
         0x180..=0x1BE => {}
+
+        // AGA FMODE ($1FC) — bitplane/sprite DMA fetch width.
+        0x1FC if chipset.is_aga() => agnus.fmode = val,
 
         // Paula audio channels (AUD0-AUD3)
         0x0A0..=0x0DA => {

@@ -59,6 +59,8 @@ pub struct DeniseShiftLoadDebug {
 
 pub struct DeniseOcs {
     pub palette: [u16; 32],
+    /// AGA 256-entry 24-bit palette (0x00RRGGBB).
+    pub palette_24: [u32; 256],
     /// Full-raster framebuffer at hires resolution, double-height for interlace.
     /// Indexed as `[vpos * 2 + field_row] * RASTER_FB_WIDTH + hpos * 4 + sub`.
     pub framebuffer_raster: Vec<u32>,
@@ -68,13 +70,15 @@ pub struct DeniseOcs {
     pub interlace_active: bool,
     /// Long frame flag — toggles each frame when interlace is active.
     pub lof: bool,
-    pub bpl_data: [u16; 6],  // Holding latches: written by DMA
-    pub bpl_shift: [u16; 6], // Shift registers: loaded from latches on BPL1DAT write
+    /// AGA mode flag — enables 8 bitplanes, 24-bit palette, HAM8, FMODE.
+    pub aga_mode: bool,
+    pub bpl_data: [u16; 8],  // Holding latches: written by DMA
+    pub bpl_shift: [u16; 8], // Shift registers: loaded from latches on BPL1DAT write
     pub shift_count: u8,     // Pixels remaining in shift register (0 -> output COLOR00)
-    bpl_shift_count: [u8; 6],
-    bpl_shift_delay: [u8; 6],
-    bpl_prev_data: [u16; 6],
-    bpl_pending_data: [u16; 6],
+    bpl_shift_count: [u8; 8],
+    bpl_shift_delay: [u8; 8],
+    bpl_prev_data: [u16; 8],
+    bpl_pending_data: [u16; 8],
     // Pending parallel-load flags for odd/even numbered bitplanes (BPL1/3/5 and BPL2/4/6).
     bpl_pending_copy_odd_planes: bool,
     bpl_pending_copy_even_planes: bool,
@@ -83,6 +87,7 @@ pub struct DeniseOcs {
     pub bplcon1: u16,
     pub bplcon2: u16,
     pub bplcon3: u16,
+    pub bplcon4: u16,
     pub clxcon: u16,
     pub clxdat: u16,
     pub spr_pos: [u16; 8],
@@ -102,6 +107,13 @@ pub struct DeniseOcs {
     /// HAM mode: previous pixel's 12-bit RGB (for hold-and-modify).
     /// Reset to COLOR00 at the start of each scanline.
     ham_prev_rgb: u16,
+    /// HAM8 mode: previous pixel's 24-bit RGB (0x00RRGGBB).
+    /// Reset to palette_24[0] at the start of each scanline.
+    ham_prev_rgb24: u32,
+    /// AGA bitplane FIFO for wider FMODE fetches.
+    /// Each plane has up to 4 queued words; `bpl_fifo_len` tracks fill level.
+    bpl_fifo: [[u16; 4]; 8],
+    bpl_fifo_len: [u8; 8],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,7 +136,15 @@ struct PlayfieldPixel {
 
 impl DeniseOcs {
     fn num_bitplanes(&self) -> usize {
-        (((self.bplcon0 >> 12) & 0x7) as usize).min(6)
+        if self.aga_mode {
+            // AGA: 4-bit BPU from bits 14-12 (3 bits) + bit 4 (extra high bit).
+            let bpu_hi3 = ((self.bplcon0 >> 12) & 0x7) as usize;
+            let bpu_bit3 = ((self.bplcon0 >> 4) & 0x1) as usize;
+            let bpu = (bpu_bit3 << 3) | bpu_hi3;
+            bpu.min(8)
+        } else {
+            (((self.bplcon0 >> 12) & 0x7) as usize).min(6)
+        }
     }
 
     /// Create a new Denise with PAL raster dimensions (default).
@@ -134,20 +154,31 @@ impl DeniseOcs {
 
     /// Create a new Denise with explicit raster buffer height.
     pub fn new_with_raster_height(raster_fb_height: u32) -> Self {
+        Self::new_internal(raster_fb_height, false)
+    }
+
+    /// Create a new AGA Denise with explicit raster buffer height.
+    pub fn new_aga(raster_fb_height: u32) -> Self {
+        Self::new_internal(raster_fb_height, true)
+    }
+
+    fn new_internal(raster_fb_height: u32, aga_mode: bool) -> Self {
         Self {
             palette: [0; 32],
+            palette_24: [0; 256],
             framebuffer_raster: vec![0xFF000000; (RASTER_FB_WIDTH * raster_fb_height) as usize],
             raster_fb_width: RASTER_FB_WIDTH,
             raster_fb_height,
             interlace_active: false,
             lof: true,
-            bpl_data: [0; 6],
-            bpl_shift: [0; 6],
+            aga_mode,
+            bpl_data: [0; 8],
+            bpl_shift: [0; 8],
             shift_count: 0,
-            bpl_shift_count: [0; 6],
-            bpl_shift_delay: [0; 6],
-            bpl_prev_data: [0; 6],
-            bpl_pending_data: [0; 6],
+            bpl_shift_count: [0; 8],
+            bpl_shift_delay: [0; 8],
+            bpl_prev_data: [0; 8],
+            bpl_pending_data: [0; 8],
             bpl_pending_copy_odd_planes: false,
             bpl_pending_copy_even_planes: false,
             bpl_scroll_pending_line: true,
@@ -155,6 +186,7 @@ impl DeniseOcs {
             bplcon1: 0,
             bplcon2: 0,
             bplcon3: 0,
+            bplcon4: 0,
             clxcon: 0,
             clxdat: 0,
             spr_pos: [0; 8],
@@ -175,6 +207,9 @@ impl DeniseOcs {
             last_shift_load_debug: DeniseShiftLoadDebug::default(),
             deferred_shift_load_after_source_pixels: None,
             ham_prev_rgb: 0,
+            ham_prev_rgb24: 0,
+            bpl_fifo: [[0; 4]; 8],
+            bpl_fifo_len: [0; 8],
         }
     }
 
@@ -184,10 +219,150 @@ impl DeniseOcs {
         }
     }
 
+    /// AGA palette write with BPLCON3 bank selection and LOCT support.
+    ///
+    /// `base_idx` is the 0-31 register offset from the COLOR register write.
+    /// The full palette index is computed from BPLCON3 bits 15-13 (BANK).
+    /// When LOCT (BPLCON3 bit 9) is clear, the high nibbles of R/G/B are
+    /// written to bits 7-4 of each channel. When LOCT is set, the low
+    /// nibbles are written to bits 3-0.
+    pub fn set_palette_aga(&mut self, base_idx: usize, val: u16) {
+        if base_idx >= 32 {
+            return;
+        }
+        let bank = ((self.bplcon3 >> 13) & 7) as usize;
+        let full_idx = bank * 32 + base_idx;
+        let loct = (self.bplcon3 & 0x0200) != 0;
+
+        let r4 = ((val >> 8) & 0xF) as u32;
+        let g4 = ((val >> 4) & 0xF) as u32;
+        let b4 = (val & 0xF) as u32;
+
+        if loct {
+            // Low nibbles: bits 3-0 of each channel.
+            let existing = self.palette_24[full_idx];
+            let r = (existing & 0x00F00000) | (r4 << 16);
+            let g = (existing & 0x0000F000) | (g4 << 8);
+            let b = (existing & 0x000000F0) | b4;
+            self.palette_24[full_idx] = r | g | b;
+        } else {
+            // High nibbles: bits 7-4 of each channel. Clear low nibbles.
+            self.palette_24[full_idx] = (r4 << 20) | (g4 << 12) | (b4 << 4);
+        }
+
+        // Update OCS 12-bit palette for register readback compatibility.
+        self.palette[base_idx] = val & 0x0FFF;
+    }
+
+    /// Resolve a colour index to 24-bit RGB (0x00RRGGBB) in AGA mode.
+    ///
+    /// Applies BPLCON4 bitplane colour XOR and palette lookup.
+    /// HAM8 and EHB are handled by dedicated paths.
+    pub fn resolve_color_rgb24(&mut self, color_idx: u8) -> u32 {
+        let ham = (self.bplcon0 & 0x0800) != 0;
+        let dual_playfield = (self.bplcon0 & 0x0400) != 0;
+        let num_planes = self.num_bitplanes();
+        let bplcon4_xor = (self.bplcon4 & 0xFF) as u8;
+
+        if ham && !dual_playfield && num_planes >= 5 {
+            if num_planes == 8 {
+                // HAM8: 8-bit value, top 2 bits = control, bottom 6 = data.
+                let control = (color_idx >> 6) & 0x03;
+                let data6 = color_idx & 0x3F;
+                // Expand 6-bit to 8-bit: replicate top 2 bits in low 2.
+                let data8 = ((data6 as u32) << 2) | ((data6 as u32) >> 4);
+                let rgb = match control {
+                    0b00 => {
+                        let idx = (data6 ^ bplcon4_xor) as usize & 0xFF;
+                        self.palette_24[idx]
+                    }
+                    0b01 => {
+                        // Modify blue
+                        (self.ham_prev_rgb24 & 0x00FFFF00) | data8
+                    }
+                    0b10 => {
+                        // Modify red
+                        (self.ham_prev_rgb24 & 0x0000FFFF) | (data8 << 16)
+                    }
+                    0b11 => {
+                        // Modify green
+                        (self.ham_prev_rgb24 & 0x00FF00FF) | (data8 << 8)
+                    }
+                    _ => unreachable!(),
+                };
+                self.ham_prev_rgb24 = rgb;
+                return rgb;
+            }
+            // HAM6 in AGA mode: use OCS HAM6 path, convert 12→24 bit.
+            let rgb12 = self.resolve_color_rgb12(color_idx);
+            return Self::rgb12_to_rgb24(rgb12);
+        }
+
+        if !ham && !dual_playfield && num_planes == 6 {
+            // EHB: 6-bit index, bit 5 = half-brite flag.
+            let effective = (color_idx ^ bplcon4_xor) as usize & 0xFF;
+            if color_idx & 0x20 != 0 {
+                let base = self.palette_24[effective & 0x1F];
+                let r = ((base >> 16) & 0xFF) >> 1;
+                let g = ((base >> 8) & 0xFF) >> 1;
+                let b = (base & 0xFF) >> 1;
+                return (r << 16) | (g << 8) | b;
+            }
+            return self.palette_24[effective];
+        }
+
+        // Normal mode: direct palette lookup with BPLCON4 XOR.
+        let effective = (color_idx ^ bplcon4_xor) as usize & 0xFF;
+        self.palette_24[effective]
+    }
+
+    /// Convert 12-bit RGB (Amiga OCS) to 24-bit RGB (0x00RRGGBB).
+    #[must_use]
+    pub fn rgb12_to_rgb24(rgb12: u16) -> u32 {
+        let r = ((rgb12 >> 8) & 0xF) as u32;
+        let g = ((rgb12 >> 4) & 0xF) as u32;
+        let b = (rgb12 & 0xF) as u32;
+        ((r << 4 | r) << 16) | ((g << 4 | g) << 8) | (b << 4 | b)
+    }
+
+    /// Convert 24-bit RGB (0x00RRGGBB) to ARGB32 (0xFFRRGGBB).
+    #[must_use]
+    pub fn rgb24_to_argb32(rgb24: u32) -> u32 {
+        0xFF000000 | rgb24
+    }
+
     pub fn load_bitplane(&mut self, idx: usize, val: u16) {
-        if idx < 6 {
+        if idx < 8 {
             self.bpl_data[idx] = val;
         }
+    }
+
+    /// Push a word into the AGA bitplane FIFO for wider FMODE fetches.
+    ///
+    /// Words are consumed in FIFO order when the shift register needs
+    /// reloading. Only used when `bpl_fetch_width() > 1`.
+    pub fn push_bpl_fifo(&mut self, idx: usize, val: u16) {
+        if idx < 8 {
+            let len = self.bpl_fifo_len[idx] as usize;
+            if len < 4 {
+                self.bpl_fifo[idx][len] = val;
+                self.bpl_fifo_len[idx] += 1;
+            }
+        }
+    }
+
+    /// Pop one word from the AGA bitplane FIFO, if available.
+    fn pop_bpl_fifo(&mut self, idx: usize) -> Option<u16> {
+        if idx >= 8 || self.bpl_fifo_len[idx] == 0 {
+            return None;
+        }
+        let val = self.bpl_fifo[idx][0];
+        let len = self.bpl_fifo_len[idx] as usize;
+        for i in 1..len {
+            self.bpl_fifo[idx][i - 1] = self.bpl_fifo[idx][i];
+        }
+        self.bpl_fifo_len[idx] -= 1;
+        Some(val)
     }
 
     pub fn read_clxdat(&mut self) -> u16 {
@@ -234,8 +409,9 @@ impl DeniseOcs {
     /// legacy `trigger_shift_load()` path used by unit tests.
     pub fn begin_beam_line(&mut self) {
         self.bpl_scroll_pending_line = true;
-        self.bpl_prev_data = [0; 6];
+        self.bpl_prev_data = [0; 8];
         self.ham_prev_rgb = self.palette[0];
+        self.ham_prev_rgb24 = self.palette_24[0];
     }
 
     /// Write a pixel to the full-raster framebuffer.
@@ -429,8 +605,12 @@ impl DeniseOcs {
                 if code == 0 {
                     continue;
                 }
+                let mut idx = 16 + code;
+                if self.aga_mode {
+                    idx ^= ((self.bplcon4 >> 8) & 0xFF) as usize;
+                }
                 return Some(SpritePixel {
-                    palette_idx: 16 + code,
+                    palette_idx: idx,
                     sprite_group: pair / 2,
                 });
             }
@@ -440,8 +620,12 @@ impl DeniseOcs {
                 continue;
             }
             let base = 16 + (sprite / 2) * 4;
+            let mut idx = base + usize::from(code);
+            if self.aga_mode {
+                idx ^= ((self.bplcon4 >> 8) & 0xFF) as usize;
+            }
             return Some(SpritePixel {
-                palette_idx: base + usize::from(code),
+                palette_idx: idx,
                 sprite_group: sprite / 2,
             });
         }
@@ -627,7 +811,7 @@ impl DeniseOcs {
             num_bitplanes: num_bpl as u8,
             planes: [DeniseShiftLoadPlaneDebug::default(); 3],
         };
-        for i in 0..6 {
+        for i in 0..8 {
             if i >= num_bpl {
                 self.bpl_shift[i] = 0;
                 self.bpl_shift_count[i] = 0;
@@ -828,7 +1012,7 @@ impl DeniseOcs {
         {
             return;
         }
-        self.bpl_shift_count = [self.shift_count; 6];
+        self.bpl_shift_count = [self.shift_count; 8];
     }
 
     fn shift_one_playfield_source_pixel(&mut self) -> (usize, u8, u8, u8) {
@@ -880,6 +1064,14 @@ impl DeniseOcs {
                 }
                 self.bpl_shift[plane] <<= 1;
                 self.bpl_shift_count[plane] -= 1;
+                // AGA FIFO auto-reload: when a plane's shift register drains
+                // and there are queued wider-fetch words, pop the next one.
+                if self.bpl_shift_count[plane] == 0 && self.bpl_fifo_len[plane] > 0 {
+                    if let Some(word) = self.pop_bpl_fifo(plane) {
+                        self.bpl_shift[plane] = word;
+                        self.bpl_shift_count[plane] = 16;
+                    }
+                }
             }
             self.shift_count = self
                 .bpl_shift_count
