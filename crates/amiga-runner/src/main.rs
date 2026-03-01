@@ -652,6 +652,7 @@ fn model_name(model: AmigaModel) -> &'static str {
     match model {
         AmigaModel::A500 => "A500",
         AmigaModel::A500Plus => "A500+",
+        AmigaModel::A1200 => "A1200",
     }
 }
 
@@ -659,6 +660,7 @@ fn chipset_name(chipset: AmigaChipset) -> &'static str {
     match chipset {
         AmigaChipset::Ocs => "OCS",
         AmigaChipset::Ecs => "ECS",
+        AmigaChipset::Aga => "AGA",
     }
 }
 
@@ -679,6 +681,7 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
         chipset: cli.chipset,
         region: AmigaRegion::Pal,
         kickstart,
+        slow_ram_size: 0,
     });
 
     if let Some(adf_path) = &cli.adf_path {

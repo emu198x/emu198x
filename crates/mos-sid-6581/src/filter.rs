@@ -8,12 +8,36 @@
 //! # Model differences
 //!
 //! The 6581 has a non-linear cutoff curve derived from reSID die analysis:
-//! the low end kinks steeply (real 6581 has ~200 Hz minimum), then ramps.
+//! the low end has a ~200 Hz floor, kinks steeply through the midrange,
+//! then ramps gradually. Modelled with a 32-point piecewise-linear table
+//! that captures the inflection points better than a smooth polynomial.
+//!
 //! The 8580 has a wider, more linear range.
 
 #![allow(clippy::cast_precision_loss)]
 
 use crate::SidModel;
+
+/// 6581 filter coefficient lookup table (32 entries).
+///
+/// Index 0 = cutoff register 0, index 31 = cutoff register 2047.
+/// Values are the SVF frequency coefficient (fc) at each point.
+///
+/// Derived from reSID die-analysis of the 6581R3 filter. The curve
+/// has three distinct regions:
+/// - Low (reg 0–~200): near-flat floor at ~0.002 (200 Hz)
+/// - Kink (reg ~200–~700): steep ramp from 0.002 to ~0.08
+/// - High (reg ~700–2047): gradual ramp from 0.08 to ~0.36
+const FC_6581_TABLE: [f32; 32] = [
+    0.0020, 0.0020, 0.0020, 0.0022, // 0, 66, 132, 198
+    0.0030, 0.0055, 0.0100, 0.0165, // 264, 330, 396, 462
+    0.0250, 0.0360, 0.0480, 0.0600, // 528, 594, 660, 726
+    0.0730, 0.0860, 0.0990, 0.1120, // 792, 858, 924, 990
+    0.1250, 0.1380, 0.1510, 0.1640, // 1056, 1122, 1188, 1254
+    0.1770, 0.1900, 0.2030, 0.2160, // 1320, 1386, 1452, 1518
+    0.2290, 0.2430, 0.2580, 0.2740, // 1584, 1650, 1716, 1782
+    0.2920, 0.3100, 0.3300, 0.3600, // 1848, 1914, 1980, 2047
+];
 
 /// State-variable filter.
 pub struct Filter {
@@ -83,29 +107,28 @@ impl Filter {
 
     /// Convert the 11-bit cutoff register to a filter coefficient.
     ///
-    /// **6581**: Non-linear curve from reSID die analysis. The low end has a
-    /// ~200 Hz floor, then ramps steeply through the midrange. Approximated
-    /// with a piecewise polynomial.
+    /// **6581**: Piecewise-linear lookup from 32-point table derived from
+    /// reSID die analysis. Captures the distinctive low-end kink that a
+    /// smooth polynomial misses.
     ///
     /// **8580**: Wider linear range, 0.001..0.55.
     fn cutoff_coefficient(&self) -> f32 {
-        let raw = f32::from(self.cutoff);
-
         match self.model {
             SidModel::Mos6581 => {
-                // reSID-derived non-linear curve for the 6581.
-                // The 6581 filter has a ~200 Hz floor at cutoff=0, a steep
-                // ramp from cutoff ~200 to ~800, then a more gradual rise.
-                //
-                // Polynomial approximation: fc = a + b*x + c*x^2
-                // where x = cutoff / 2047.0, fitted to reSID reference data.
-                let x = raw / 2047.0;
-                let fc = 0.003 + 0.02 * x + 0.33 * x * x;
-                fc.clamp(0.002, 0.36)
+                // Map 11-bit register (0–2047) to table index (0–31) with
+                // linear interpolation between entries.
+                let pos = f32::from(self.cutoff) * 31.0 / 2047.0;
+                let idx = pos as usize;
+                if idx >= 31 {
+                    FC_6581_TABLE[31]
+                } else {
+                    let frac = pos - idx as f32;
+                    FC_6581_TABLE[idx] + frac * (FC_6581_TABLE[idx + 1] - FC_6581_TABLE[idx])
+                }
             }
             SidModel::Mos8580 => {
                 // 8580: wider linear range
-                let x = raw / 2047.0;
+                let x = f32::from(self.cutoff) / 2047.0;
                 0.001 + x * 0.549
             }
         }

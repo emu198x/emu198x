@@ -90,8 +90,9 @@ No blocking gaps remain for the primary C64 target. All major media formats
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| SID per-chip filter calibration | `filter.rs` — polynomial approximation | True per-chip accuracy requires measured data from specific revisions; the reSID-derived polynomial is a significant improvement over linear but not chip-specific |
+| SID per-chip filter calibration | `filter.rs` — 32-point lookup table | Piecewise-linear table from reSID die analysis captures the 6581 kink; per-chip accuracy still needs measured data from specific revisions |
 | SID envelope curve | `envelope.rs` — reSID thresholds | Matches reSID die-analysis values (0x5D, 0x36, 0x1A, 0x0E, 0x06, period 30); bit-exact with reference data |
+| CIA serial shift register | `cia.rs` — stubbed | Register $0C reads 0, writes ignored; not used by standard IEC serial (bit-banged via port) |
 
 ### Assessment
 

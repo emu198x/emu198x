@@ -360,18 +360,51 @@ impl McpServer {
 
         let frames = params.get("frames").and_then(|v| v.as_u64()).unwrap_or(50);
 
+        let mut all_audio: Vec<f32> = Vec::new();
         for _ in 0..frames {
             c64.run_frame();
+            all_audio.extend_from_slice(&c64.take_audio_buffer());
         }
 
-        // SID audio is stubbed — return empty audio
+        if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
+            if let Err(e) =
+                crate::capture::save_audio(&all_audio, std::path::Path::new(save_path))
+            {
+                return RpcResponse::error(id, -32000, format!("Failed to save audio: {e}"));
+            }
+        }
+
+        let b64 = if all_audio.is_empty() {
+            String::new()
+        } else {
+            // Encode as 16-bit PCM WAV in memory, then base64
+            let mut wav_buf = Vec::new();
+            {
+                let cursor = std::io::Cursor::new(&mut wav_buf);
+                let spec = hound::WavSpec {
+                    channels: 1,
+                    sample_rate: 48_000,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                };
+                let mut writer = hound::WavWriter::new(cursor, spec).unwrap();
+                for &s in &all_audio {
+                    let clamped = s.clamp(-1.0, 1.0);
+                    let scaled = (clamped * f32::from(i16::MAX)) as i16;
+                    writer.write_sample(scaled).unwrap();
+                }
+                writer.finalize().unwrap();
+            }
+            base64::engine::general_purpose::STANDARD.encode(&wav_buf)
+        };
+
         RpcResponse::success(
             id,
             serde_json::json!({
                 "format": "wav",
-                "samples": 0,
+                "samples": all_audio.len(),
                 "frames": frames,
-                "data": "",
+                "data": b64,
             }),
         )
     }

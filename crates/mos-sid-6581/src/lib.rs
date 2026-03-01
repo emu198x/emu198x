@@ -66,6 +66,11 @@ pub struct Sid6581 {
     /// a modulation source).
     pub voice3_off: bool,
 
+    /// Paddle X ADC value ($D419 / POTX). Range 0–255, default $80 (centre).
+    pub potx: u8,
+    /// Paddle Y ADC value ($D41A / POTY). Range 0–255, default $80 (centre).
+    pub poty: u8,
+
     // Downsampling state
     /// Accumulated mixed output for downsampling.
     accumulator: f32,
@@ -97,6 +102,8 @@ impl Sid6581 {
             filter: Filter::new(model),
             volume: 0,
             voice3_off: false,
+            potx: 0x80,
+            poty: 0x80,
             accumulator: 0.0,
             sample_count: 0,
             ticks_per_sample: cpu_frequency as f32 / output_sample_rate as f32,
@@ -106,11 +113,13 @@ impl Sid6581 {
 
     /// Read a SID register (addr 0x00–0x1F).
     ///
-    /// Most registers are write-only (return 0). Only $1B (OSC3) and
-    /// $1C (ENV3) return meaningful data. $19/$1A (paddles) return 0.
+    /// Readable registers: $19 (POTX), $1A (POTY), $1B (OSC3), $1C (ENV3).
+    /// All other registers are write-only and return 0.
     #[must_use]
     pub fn read(&self, addr: u8) -> u8 {
         match addr & 0x1F {
+            0x19 => self.potx,
+            0x1A => self.poty,
             // OSC3: top 8 bits of voice 3 waveform output
             0x1B => {
                 let ring_src_msb = self.voices[1].msb();
@@ -119,7 +128,6 @@ impl Sid6581 {
             }
             // ENV3: voice 3 envelope level
             0x1C => self.envelopes[2].level,
-            // All other registers are write-only or paddle ($19/$1A)
             _ => 0,
         }
     }
