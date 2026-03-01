@@ -142,10 +142,10 @@ APU channels including DMC sample playback via DMA. Two-player input.
 
 ### Accuracy gaps
 
-| Gap | Location | Impact |
-|-----|----------|--------|
-| DMC DMA cycle-steal count | `nes.rs` — always 4 cycles | Real hardware steals 1-4 depending on CPU alignment; may shift audio timing slightly |
-| DMC/OAM DMA conflict | `nes.rs` — DMC waits for OAM | Exact halt/realign cycle count not modelled; correct enough for audio |
+No significant accuracy gaps remain. DMC DMA cycle stealing is now
+variable (1 for writes, 2 for even-aligned reads, 3 for odd-aligned
+reads) based on the CPU's last bus operation. DMC DMA can now interrupt
+OAM DMA rather than waiting for it to finish.
 
 ### Assessment
 

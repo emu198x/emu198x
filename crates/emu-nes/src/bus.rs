@@ -41,6 +41,8 @@ pub struct NesBus {
     four_score_idx_2: u8,
     /// OAM DMA pending page (set when $4014 is written).
     pub oam_dma_page: Option<u8>,
+    /// Tracks whether the last CPU bus cycle was a write (for DMC DMA steal count).
+    pub last_cycle_was_write: bool,
 }
 
 impl NesBus {
@@ -66,6 +68,7 @@ impl NesBus {
             four_score_idx_1: 0,
             four_score_idx_2: 0,
             oam_dma_page: None,
+            last_cycle_was_write: false,
         }
     }
 
@@ -78,6 +81,7 @@ impl NesBus {
 
 impl Bus for NesBus {
     fn read(&mut self, addr: u32) -> ReadResult {
+        self.last_cycle_was_write = false;
         let addr = addr as u16;
         let data = match addr {
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize],
@@ -120,6 +124,7 @@ impl Bus for NesBus {
     }
 
     fn write(&mut self, addr: u32, value: u8) -> u8 {
+        self.last_cycle_was_write = true;
         let addr = addr as u16;
         match addr {
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize] = value,
