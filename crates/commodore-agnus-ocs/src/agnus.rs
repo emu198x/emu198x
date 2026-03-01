@@ -349,6 +349,21 @@ impl Agnus {
         }
     }
 
+    /// Sprite DMA fetch width based on FMODE bits 3-2 (AGA only).
+    /// Returns 1 (OCS/ECS: 16-bit), 2 (32-bit), or 4 (64-bit).
+    #[must_use]
+    pub fn spr_fetch_width(&self) -> u8 {
+        if !self.aga_mode {
+            return 1;
+        }
+        match (self.fmode >> 2) & 3 {
+            0 => 1,
+            1 | 2 => 2,
+            3 => 4,
+            _ => unreachable!(),
+        }
+    }
+
     pub fn dma_enabled(&self, bit: u16) -> bool {
         (self.dmacon & 0x0200) != 0 && (self.dmacon & bit) != 0
     }

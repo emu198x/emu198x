@@ -92,12 +92,14 @@ pub struct DeniseOcs {
     pub clxdat: u16,
     pub spr_pos: [u16; 8],
     pub spr_ctl: [u16; 8],
-    pub spr_data: [u16; 8],
-    pub spr_datb: [u16; 8],
+    pub spr_data: [u64; 8],
+    pub spr_datb: [u64; 8],
     spr_armed: [bool; 8],
-    spr_shift_data: [u16; 8],
-    spr_shift_datb: [u16; 8],
+    spr_shift_data: [u64; 8],
+    spr_shift_datb: [u64; 8],
     spr_shift_count: [u8; 8],
+    /// Sprite pixel width: 16 (OCS/ECS), 32, or 64 (AGA via FMODE bits 3-2).
+    pub spr_width: u8,
     spr_current_code: [u8; 8],
     sprite_runtime_line_valid: bool,
     sprite_runtime_beam_x: u32,
@@ -200,6 +202,7 @@ impl DeniseOcs {
             spr_shift_data: [0; 8],
             spr_shift_datb: [0; 8],
             spr_shift_count: [0; 8],
+            spr_width: 16,
             spr_current_code: [0; 8],
             sprite_runtime_line_valid: false,
             sprite_runtime_beam_x: 0,
@@ -389,7 +392,7 @@ impl DeniseOcs {
 
     pub fn write_sprite_data(&mut self, sprite: usize, val: u16) {
         if sprite < 8 {
-            self.spr_data[sprite] = val;
+            self.spr_data[sprite] = u64::from(val);
             // Writing SPRxDATA arms the sprite comparator (manual mode) and is
             // also how DMA refreshes sprite line data before display.
             self.spr_armed[sprite] = true;
@@ -398,8 +401,48 @@ impl DeniseOcs {
 
     pub fn write_sprite_datb(&mut self, sprite: usize, val: u16) {
         if sprite < 8 {
-            self.spr_datb[sprite] = val;
+            self.spr_datb[sprite] = u64::from(val);
         }
+    }
+
+    /// Write 1-4 words (AGA wide fetch) into the sprite DATA holding latch.
+    ///
+    /// Words are packed MSB-first: word[0] occupies the highest bits. The
+    /// number of words must match `spr_width / 16`.
+    pub fn write_sprite_data_wide(&mut self, sprite: usize, words: &[u16]) {
+        if sprite >= 8 || words.is_empty() {
+            return;
+        }
+        let mut packed: u64 = 0;
+        for &w in words {
+            packed = (packed << 16) | u64::from(w);
+        }
+        self.spr_data[sprite] = packed;
+        self.spr_armed[sprite] = true;
+    }
+
+    /// Write 1-4 words (AGA wide fetch) into the sprite DATB holding latch.
+    pub fn write_sprite_datb_wide(&mut self, sprite: usize, words: &[u16]) {
+        if sprite >= 8 || words.is_empty() {
+            return;
+        }
+        let mut packed: u64 = 0;
+        for &w in words {
+            packed = (packed << 16) | u64::from(w);
+        }
+        self.spr_datb[sprite] = packed;
+    }
+
+    /// Set sprite display width from FMODE register value.
+    ///
+    /// FMODE bits 3-2: 00 → 16 pixels, 01/10 → 32 pixels, 11 → 64 pixels.
+    pub fn set_sprite_width_from_fmode(&mut self, fmode: u16) {
+        self.spr_width = match (fmode >> 2) & 3 {
+            0 => 16,
+            1 | 2 => 32,
+            3 => 64,
+            _ => unreachable!(),
+        };
     }
 
     /// Reset per-line state for bitplane shift-load timing.
@@ -533,7 +576,7 @@ impl DeniseOcs {
             if load_pulse {
                 self.spr_shift_data[sprite] = self.spr_data[sprite];
                 self.spr_shift_datb[sprite] = self.spr_datb[sprite];
-                self.spr_shift_count[sprite] = 16;
+                self.spr_shift_count[sprite] = self.spr_width;
             }
 
             // Shift/output phase: emit one low-res sprite pixel.
@@ -541,8 +584,9 @@ impl DeniseOcs {
                 continue;
             }
 
-            let lo = (self.spr_shift_data[sprite] >> 15) & 1;
-            let hi = (self.spr_shift_datb[sprite] >> 15) & 1;
+            let msb = u32::from(self.spr_width) - 1;
+            let lo = (self.spr_shift_data[sprite] >> msb) & 1;
+            let hi = (self.spr_shift_datb[sprite] >> msb) & 1;
             self.spr_current_code[sprite] = (lo | (hi << 1)) as u8;
             self.spr_shift_data[sprite] <<= 1;
             self.spr_shift_datb[sprite] <<= 1;

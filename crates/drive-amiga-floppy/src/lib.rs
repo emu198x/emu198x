@@ -34,7 +34,11 @@ pub struct AmigaFloppyDrive {
     selected: bool,
     disk_changed: bool,
     prev_step: bool,
+    /// Observable capture log — all MFM words written to the drive.
+    /// Cleared only by explicit `clear_write_mfm_capture()`.
     write_mfm_capture: Vec<u16>,
+    /// Pending decode buffer — consumed and cleared by `flush_write_capture()`.
+    write_mfm_pending: Vec<u16>,
 }
 
 impl AmigaFloppyDrive {
@@ -50,6 +54,7 @@ impl AmigaFloppyDrive {
             disk_changed: true, // No disk at power-on
             prev_step: true,    // Active-low: idle = high
             write_mfm_capture: Vec::new(),
+            write_mfm_pending: Vec::new(),
         }
     }
 
@@ -167,6 +172,7 @@ impl AmigaFloppyDrive {
     /// persistence is modeled.
     pub fn note_write_mfm_word(&mut self, word: u16) {
         self.write_mfm_capture.push(word);
+        self.write_mfm_pending.push(word);
     }
 
     pub fn write_mfm_capture(&self) -> &[u16] {
@@ -175,18 +181,19 @@ impl AmigaFloppyDrive {
 
     pub fn clear_write_mfm_capture(&mut self) {
         self.write_mfm_capture.clear();
+        self.write_mfm_pending.clear();
     }
 
     /// Decode captured MFM write data and persist decoded sectors to the ADF image.
     ///
     /// Returns the number of sectors successfully written back.
     pub fn flush_write_capture(&mut self) -> usize {
-        if self.write_mfm_capture.is_empty() {
+        if self.write_mfm_pending.is_empty() {
             return 0;
         }
 
-        let decoded = decode_mfm_track(&self.write_mfm_capture);
-        self.write_mfm_capture.clear();
+        let decoded = decode_mfm_track(&self.write_mfm_pending);
+        self.write_mfm_pending.clear();
 
         let adf = match self.disk.as_mut() {
             Some(adf) => adf,

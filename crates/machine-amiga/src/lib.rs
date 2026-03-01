@@ -1148,15 +1148,25 @@ impl Amiga {
         }
 
         let addr = self.agnus.spr_pt[sprite];
-        let hi = self.memory.read_chip_byte(addr);
-        let lo = self.memory.read_chip_byte(addr | 1);
-        let word = (u16::from(hi) << 8) | u16::from(lo);
+        let fetch_width = self.agnus.spr_fetch_width() as u32;
+
+        // Helper: read one word from chip RAM at `a`.
+        let read_word = |mem: &Memory, a: u32| -> u16 {
+            let hi = mem.read_chip_byte(a);
+            let lo = mem.read_chip_byte(a | 1);
+            (u16::from(hi) << 8) | u16::from(lo)
+        };
+
         match self.sprite_dma_phase[sprite] {
+            // Phases 0/1 (POS/CTL): always single-word fetch.
             0 => {
+                let word = read_word(&self.memory, addr);
                 self.denise.write_sprite_pos(sprite, word);
                 self.sprite_dma_phase[sprite] = 1;
+                self.agnus.spr_pt[sprite] = addr.wrapping_add(2);
             }
             1 => {
+                let word = read_word(&self.memory, addr);
                 self.denise.write_sprite_ctl(sprite, word);
                 let pos = self.denise.spr_pos[sprite];
                 let ctl = self.denise.spr_ctl[sprite];
@@ -1167,13 +1177,25 @@ impl Amiga {
                 } else {
                     4
                 };
+                self.agnus.spr_pt[sprite] = addr.wrapping_add(2);
             }
+            // Phase 2 (DATA): fetch 1-4 words depending on FMODE sprite width.
             2 => {
-                self.denise.write_sprite_data(sprite, word);
+                let mut words = [0u16; 4];
+                for i in 0..fetch_width {
+                    words[i as usize] = read_word(&self.memory, addr.wrapping_add(i * 2));
+                }
+                self.denise.write_sprite_data_wide(sprite, &words[..fetch_width as usize]);
                 self.sprite_dma_phase[sprite] = 3;
+                self.agnus.spr_pt[sprite] = addr.wrapping_add(fetch_width * 2);
             }
+            // Phase 3 (DATB): fetch 1-4 words depending on FMODE sprite width.
             _ => {
-                self.denise.write_sprite_datb(sprite, word);
+                let mut words = [0u16; 4];
+                for i in 0..fetch_width {
+                    words[i as usize] = read_word(&self.memory, addr.wrapping_add(i * 2));
+                }
+                self.denise.write_sprite_datb_wide(sprite, &words[..fetch_width as usize]);
                 let pos = self.denise.spr_pos[sprite];
                 let ctl = self.denise.spr_ctl[sprite];
                 let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
@@ -1185,9 +1207,9 @@ impl Amiga {
                     } else {
                         0
                     };
+                self.agnus.spr_pt[sprite] = addr.wrapping_add(fetch_width * 2);
             }
         }
-        self.agnus.spr_pt[sprite] = addr.wrapping_add(2);
     }
 
     /// Map a beam position to raster framebuffer coordinates.
@@ -2445,7 +2467,10 @@ fn write_custom_register(
         0x180..=0x1BE => {}
 
         // AGA FMODE ($1FC) — bitplane/sprite DMA fetch width.
-        0x1FC if chipset.is_aga() => agnus.fmode = val,
+        0x1FC if chipset.is_aga() => {
+            agnus.fmode = val;
+            denise.set_sprite_width_from_fmode(val);
+        }
 
         // Paula audio channels (AUD0-AUD3)
         0x0A0..=0x0DA => {

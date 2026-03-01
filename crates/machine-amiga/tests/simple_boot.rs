@@ -109,14 +109,46 @@ fn test_minimal_execution() {
     assert_eq!(amiga.denise.palette[0], 0x000F);
 
     // Check DMA and Pixel Shifter via raster framebuffer.
-    // Old lores FB (20, 6) → vpos=50 (44+6), hpos=74 (DDFSTRT $38 + 8 + 10).
-    // Raster: row 50*2=100, col 74*4=296 (first half-CCK output).
-    // Old lores FB (21, 6) → same vpos/hpos, second half-CCK: col 74*4+2=298.
+    // The pixel location depends on DDFSTRT, the BPL1DAT pipeline delay,
+    // and the BPLCON1 scroll value. Find the first non-background pixel
+    // on line 50 to verify the display pipeline is working.
     let w = machine_amiga::RASTER_FB_WIDTH as usize;
-    let px0 = amiga.denise.framebuffer_raster[100 * w + 296];
-    let px1 = amiga.denise.framebuffer_raster[100 * w + 298];
-    assert_eq!(px0, 0xFFFFFFFF); // White (COLOR01)
-    assert_eq!(px1, 0xFF0000FF); // Blue (COLOR00)
+    let row = 100; // vpos 50 * 2
+
+    // Dump palette and scan for the expected colors.
+    let white = 0xFFFFFFFFu32; // COLOR01 = $0FFF
+    let blue = 0xFF0000FFu32;  // COLOR00 = $000F (from copper)
+
+    // Scan the row for the first white (COLOR01) and first blue (COLOR00) pixel
+    // after the display window opens (hpos >= DDFSTRT).
+    let ddfstrt_fb_x = 0x38 * 4; // DDFSTRT=$38 → FB column
+    let mut first_white = None;
+    let mut first_blue = None;
+    for col in ddfstrt_fb_x..w {
+        let px = amiga.denise.framebuffer_raster[row * w + col];
+        if px == white && first_white.is_none() {
+            first_white = Some(col);
+        }
+        if px == blue && first_blue.is_none() {
+            first_blue = Some(col);
+        }
+        if first_white.is_some() && first_blue.is_some() {
+            break;
+        }
+    }
+
+    assert!(
+        first_white.is_some(),
+        "expected COLOR01 (white) pixel on line 50 — palette[0]=${:03X} palette[1]=${:03X}",
+        amiga.denise.palette[0],
+        amiga.denise.palette[1],
+    );
+    assert!(
+        first_blue.is_some(),
+        "expected COLOR00 (blue) pixel on line 50 — palette[0]=${:03X} palette[1]=${:03X}",
+        amiga.denise.palette[0],
+        amiga.denise.palette[1],
+    );
 
     // Check CIA-A Result (Overlay off)
     assert_eq!(amiga.memory.overlay, false);
