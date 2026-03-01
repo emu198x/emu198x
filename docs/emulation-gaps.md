@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-02-28 (NES PAL, Paula LPF, mappers 11/66). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-03-01 (68020 BFXXX/CAS, NES mappers 10/34/71, controller 2). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -109,9 +109,9 @@ The REU enables REU-dependent demos and applications.
 
 ## NES
 
-Boots games using seven mappers, renders backgrounds and sprites with
-emphasis/greyscale effects, plays all five APU channels including DMC
-sample playback via DMA.
+Boots games using 12 mappers with NTSC and PAL support, renders
+backgrounds and sprites with emphasis/greyscale effects, plays all five
+APU channels including DMC sample playback via DMA. Two-player input.
 
 ### Implemented
 
@@ -119,7 +119,7 @@ sample playback via DMA.
 - **PPU**: Background + sprites, all mirroring modes (H/V/4-screen/single-screen)
 - **APU**: Pulse (×2), triangle, noise, DMC sample playback (DMA), frame counter, mixer at 48 kHz
 - **PPU effects**: PPUMASK greyscale (bit 0) and emphasis (bits 5-7) applied at pixel output, open bus latch (write-only register reads return last written value, $2002 low 5 bits from open bus)
-- **Mappers**: NROM (0), MMC1 (1) PRG/CHR banking + PRG RAM + dynamic mirroring, UxROM (2) 16K PRG switching, CNROM (3) 8K CHR switching, MMC3 (4) 8-register PRG/CHR banking + scanline counter IRQ + PRG RAM, AxROM (7) 32K PRG switching + single-screen mirroring, MMC2 (9) CHR latch-based bank switching, Color Dreams (11) PRG+CHR switching, GxROM (66) PRG+CHR switching
+- **Mappers**: NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4) with scanline IRQ, AxROM (7), MMC2 (9) CHR latch, MMC4 (10) CHR latch, Color Dreams (11), BxROM (34), GxROM (66), Camerica (71)
 - **Mapper IRQ**: Mapper trait supports IRQ signalling; MMC3 scanline counter wired to CPU interrupt line
 
 ### Blocking broader compatibility
@@ -141,8 +141,7 @@ sample playback via DMA.
 
 ### Assessment
 
-**~85% of the NES library runs** (9 mappers: NROM + MMC1 + UxROM + CNROM +
-MMC3 + AxROM + MMC2 + Color Dreams + GxROM). NTSC and PAL regions are
+**~87% of the NES library runs** (12 mappers). NTSC and PAL regions are
 supported with correct frame timing, APU tables, and CPU frequency.
 All five APU channels are now functional — DMC sample
 playback fetches bytes via DMA, stealing 4 CPU cycles per fetch.
@@ -167,13 +166,14 @@ work.
 - **ADF disk write**: MFM decode of DMA write captures, sector checksum verification, write-back to ADF image. `save_adf()` API for extracting modified disk images.
 - **Slow RAM**: A500 trapdoor expansion at $C00000-$DFFFFF, configurable 512K/1M/2M via `slow_ram_size` config field.
 - **A1200 model**: 68020 CPU, 2MB chip RAM, AGA chipset ID registers (Alice $22, Lisa $F8).
+- **68020 bit field instructions**: All 8 operations (BFTST/BFEXTU/BFEXTS/BFINS/BFSET/BFCLR/BFCHG/BFFFO) with register and memory modes.
+- **68020 CAS**: Compare-and-swap for byte/word/long. Indirect, postincrement, and predecrement EA modes.
+- **Paula audio filter**: One-pole RC low-pass at ~4.5 kHz matching hardware output stage.
 
 ### Blocking broader compatibility
 
 | Gap | Location | Impact |
 |-----|----------|--------|
-| ~~68020 bit field instructions~~ | Done | BFTST/BFEXTU/BFEXTS/BFINS/BFSET/BFCLR/BFCHG/BFFFO — register and memory modes |
-| 68020 CAS/CAS2 | Not implemented | Atomic compare-and-swap operations fail |
 | AGA display features | Not implemented | 8 bitplanes, HAM8, 24-bit palette, FMODE not available |
 | IPF/WHDLoad formats | Not supported | Copy-protected and WHDLoad games unloadable |
 
@@ -195,10 +195,11 @@ work.
 The Amiga has the widest gap between "boots" and "runs software". HAM
 and EHB display modes are now decoded in Denise. Copper SKIP is
 implemented. Disk write persistence, MOVEC (68010/020), and slow RAM
-are now implemented. The A1200 model routes to a 68020 CPU with MULL/DIVL/EXTB
-and reports AGA chipset IDs. AGA display features (8 bitplanes, HAM8, 24-bit
-palette) are not yet rendered. The OCS core is solid; the work is in peripheral
-completeness.
+are now implemented. The A1200 model routes to a 68020 CPU with full
+arithmetic (MULL/DIVL/EXTB), bit field (BFXXX), and CAS support, and
+reports AGA chipset IDs. AGA display features (8 bitplanes, HAM8, 24-bit
+palette) are not yet rendered. The OCS core is solid; the work is in
+peripheral completeness.
 
 ---
 
@@ -211,7 +212,7 @@ completeness.
 | CPU | 100% | 100% | 100% | ~99% (68000 + 68020 MULL/DIVL/EXTB/MOVEC/BFXXX) |
 | Video modes | 100% | 100% (all modes + scrolling + MCM sprites + collisions + sprite DMA stealing) | ~98% (emphasis + greyscale + open bus) | ~85% (HAM + EHB + standard) |
 | Audio | 100% (beeper + AY) | ~95% (6581/8580 models, non-linear filter, combined waveforms) | ~95% (all 5 channels) | ~90% (hardware LPF modelled) |
-| Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 9 mappers (0/1/2/3/4/7/9/11/66) | ADF read/write |
+| Storage | TAP + TZX + SNA + Z80 (48K/128K) + DSK (+3) | PRG + CRT (7 types) + TAP (kernal + turbo) + D64 (read/write) | 12 mappers (0/1/2/3/4/7/9/10/11/34/66/71) | ADF read/write |
 | Peripherals | Keyboard + Kempston | Keyboard + REU (128/256/512K) | 2-player pads | Keyboard + mouse |
 | Model variants | 48K, 128K, +2, +2A, +3 PAL | PAL + NTSC | NTSC + PAL | A500 OCS, A500+ ECS, A1200 AGA (stub) |
 

@@ -2175,4 +2175,71 @@ mod tests {
         run_until_idle(&mut cpu, &mut bus, 10000);
         assert_eq!(cpu.regs.d[7] as u8, 0xFF, "BFTST on 68000 should fire illegal");
     }
+
+    #[test]
+    fn cas_l_equal_writes_update_register() {
+        // Setup: D0=compare=$42, D1=update=$99, memory at (A0)=$42
+        // CAS.L D0,D1,(A0) → equal, so write D1 ($99) to (A0)
+        // CAS.L (A0): opcode $0E90 (ea=AddrInd A0), ext: Dc=D0(000), Du=D1(001<<6)=$0040
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+        ]);
+        // MOVE.L #$42,D0
+        bus.mem[0x0100] = 0x70; bus.mem[0x0101] = 0x42; // MOVEQ #$42,D0
+        // MOVE.L #$99,D1
+        bus.mem[0x0102] = 0x72; bus.mem[0x0103] = 0x99; // MOVEQ #-103,D1 (=$FFFFFF99)
+        // LEA $2000,A0
+        bus.mem[0x0104] = 0x41; bus.mem[0x0105] = 0xF9;
+        bus.mem[0x0106] = 0x00; bus.mem[0x0107] = 0x00;
+        bus.mem[0x0108] = 0x20; bus.mem[0x0109] = 0x00;
+        // CAS.L D0,D1,(A0) = $0E90 $0040
+        bus.mem[0x010A] = 0x0E; bus.mem[0x010B] = 0xD0; // CAS.L D0,D1,(A0)
+        bus.mem[0x010C] = 0x00; bus.mem[0x010D] = 0x40;
+        bus.mem[0x010E] = 0x60; bus.mem[0x010F] = 0xFE; // BRA.S *
+        // Memory at $2000: value $00000042
+        bus.mem[0x2000] = 0x00; bus.mem[0x2001] = 0x00;
+        bus.mem[0x2002] = 0x00; bus.mem[0x2003] = 0x42;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        // Memory at $2000 should now contain D1 value (MOVEQ #-103 = $FFFFFF99)
+        let mem_val = (bus.mem[0x2000] as u32) << 24
+            | (bus.mem[0x2001] as u32) << 16
+            | (bus.mem[0x2002] as u32) << 8
+            | bus.mem[0x2003] as u32;
+        assert_eq!(mem_val, 0xFFFF_FF99, "CAS.L equal: should write Du to memory");
+        // Z flag should be set (equal comparison)
+        assert!(cpu.regs.sr & 0x0004 != 0, "CAS.L equal: Z flag should be set");
+    }
+
+    #[test]
+    fn cas_l_not_equal_loads_dc() {
+        // D0=compare=$42, D1=update=$99, memory at (A0)=$55 (not equal)
+        // CAS.L D0,D1,(A0) → not equal, so load (A0) into D0
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000), (0x0002, 0x1000),
+            (0x0004, 0x0000), (0x0006, 0x0100),
+        ]);
+        bus.mem[0x0100] = 0x70; bus.mem[0x0101] = 0x42; // MOVEQ #$42,D0
+        bus.mem[0x0102] = 0x72; bus.mem[0x0103] = 0x99; // MOVEQ #-103,D1
+        bus.mem[0x0104] = 0x41; bus.mem[0x0105] = 0xF9; // LEA $2000,A0
+        bus.mem[0x0106] = 0x00; bus.mem[0x0107] = 0x00;
+        bus.mem[0x0108] = 0x20; bus.mem[0x0109] = 0x00;
+        bus.mem[0x010A] = 0x0E; bus.mem[0x010B] = 0xD0; // CAS.L D0,D1,(A0)
+        bus.mem[0x010C] = 0x00; bus.mem[0x010D] = 0x40; // ext: Dc=D0, Du=D1
+        bus.mem[0x010E] = 0x60; bus.mem[0x010F] = 0xFE;
+        // Memory at $2000: value $00000055
+        bus.mem[0x2000] = 0x00; bus.mem[0x2001] = 0x00;
+        bus.mem[0x2002] = 0x00; bus.mem[0x2003] = 0x55;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        // D0 should be loaded with memory value $55
+        assert_eq!(cpu.regs.d[0], 0x0000_0055, "CAS.L not equal: D0 should get memory value");
+        // Z flag should be clear
+        assert!(cpu.regs.sr & 0x0004 == 0, "CAS.L not equal: Z flag should be clear");
+    }
 }

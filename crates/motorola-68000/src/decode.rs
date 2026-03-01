@@ -483,6 +483,17 @@ impl Cpu68000 {
             return;
         }
 
+        // --- CAS.l (68020+): 0000_1110_11_MMMRRR ($0EC0) ---
+        // Must check before dynamic bit ops which also match $0Exx.
+        if (opcode & 0xFFC0) == 0x0EC0 {
+            if !self.capabilities().cas {
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
+            self.decode_cas(bus, opcode);
+            return;
+        }
+
         // --- Bit operations (dynamic form): BTST/BCHG/BCLR/BSET Dn ---
         // 0000 RRR 1TT MMMRRR (bit 8 = 1, bits 11-9 = register)
         if (opcode & 0xF000) == 0x0000 && (opcode & 0x0100) != 0 {
@@ -614,11 +625,12 @@ impl Cpu68000 {
                 1 => Size::Word,
                 2 => Size::Long,
                 _ => {
-                    // Size 3 is invalid for ALU immediate ops → illegal instruction
-                    eprintln!(
-                        "ILLEGAL: ALU-imm size=3 opcode=${:04X} at PC=${:08X}",
-                        opcode, self.instr_start_pc
-                    );
+                    // Size 3: CAS on 68020+ (EORI range=$0Axx, CMPI range=$0Cxx)
+                    let op_type = (opcode >> 9) & 7;
+                    if self.capabilities().cas && (op_type == 5 || op_type == 6) {
+                        self.decode_cas(bus, opcode);
+                        return;
+                    }
                     self.begin_group1_exception(4, self.instr_start_pc);
                     return;
                 }
@@ -2576,6 +2588,156 @@ impl Cpu68000 {
                 self.in_followup = false;
             }
         }
+    }
+
+    /// Decode and execute CAS (compare-and-swap) instruction.
+    /// CAS Dc,Du,<ea>: compare Dc with (EA). If equal, write Du to (EA).
+    /// Otherwise, write (EA) to Dc. Flags set from comparison.
+    fn decode_cas(&mut self, bus: &mut impl M68kBus, opcode: u16) {
+        let ext = self.consume_irc();
+        let dc = (ext & 7) as usize;         // compare register
+        let du = ((ext >> 6) & 7) as usize;  // update register
+
+        // Determine size from opcode bits 10-9
+        let size_bits = (opcode >> 9) & 3;
+        let size = match size_bits {
+            1 => Size::Byte, // CAS.b ($0AC0 range, via EORI path op_type=5)
+            2 => Size::Word, // CAS.w ($0CC0 range, via CMPI path op_type=6)
+            3 => Size::Long, // CAS.l ($0EC0)
+            _ => {
+                // CAS.b comes through the EORI path (op_type=5), size_bits from
+                // the original ALU-imm decode was already 3. We determine CAS
+                // size from the high byte instead.
+                // EORI=$0A00 → CAS.b, CMPI=$0C00 → CAS.w
+                let hi = (opcode >> 8) & 0xFF;
+                match hi {
+                    0x0A => Size::Byte,
+                    0x0C => Size::Word,
+                    _ => Size::Long,
+                }
+            }
+        };
+
+        let ea_mode_bits = ((opcode >> 3) & 7) as u8;
+        let ea_reg = (opcode & 7) as u8;
+        let ea_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+
+        // For CAS, we need to: read EA, compare with Dc, conditionally write.
+        // Synchronous execution for simplicity (matching 68020 cache behaviour).
+        let fc = if self.regs.sr & 0x2000 != 0 {
+            FunctionCode::SupervisorData
+        } else {
+            FunctionCode::UserData
+        };
+
+        // Resolve EA address
+        match ea_mode {
+            Some(AddrMode::DataReg(_)) => {
+                // CAS doesn't work on data registers — illegal
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
+            Some(AddrMode::AddrReg(_)) => {
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
+            Some(AddrMode::AddrInd(r)) => {
+                self.addr = self.regs.a(r as usize);
+            }
+            Some(AddrMode::AddrIndPostInc(r)) => {
+                self.addr = self.regs.a(r as usize);
+                let inc = size.bytes() as u32;
+                self.regs.set_a(r as usize, self.addr.wrapping_add(inc));
+            }
+            Some(AddrMode::AddrIndPreDec(r)) => {
+                let dec = size.bytes() as u32;
+                self.addr = self.regs.a(r as usize).wrapping_sub(dec);
+                self.regs.set_a(r as usize, self.addr);
+            }
+            _ => {
+                // For displacement, absolute, etc. — resolve through normal EA path
+                // For now, treat as simple address modes
+                self.size = size;
+                self.src_mode = ea_mode;
+                self.movem_mask = ext; // stash for later
+                // Fall through to simplified inline resolution
+                // TODO: full EA resolution for complex modes
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
+        }
+
+        let addr = self.addr & 0x00FF_FFFF;
+
+        // Read operand from EA
+        let ea_val = match size {
+            Size::Byte => {
+                if let BusStatus::Ready(w) = bus.poll_cycle(addr, fc, true, false, None) {
+                    w as u32 & 0xFF
+                } else { 0 }
+            }
+            Size::Word => {
+                if let BusStatus::Ready(w) = bus.poll_cycle(addr, fc, true, true, None) {
+                    w as u32
+                } else { 0 }
+            }
+            Size::Long => {
+                let hi = if let BusStatus::Ready(w) = bus.poll_cycle(addr, fc, true, true, None) {
+                    w as u32
+                } else { 0 };
+                let lo = if let BusStatus::Ready(w) = bus.poll_cycle(addr.wrapping_add(2), fc, true, true, None) {
+                    w as u32
+                } else { 0 };
+                (hi << 16) | lo
+            }
+        };
+
+        // Compare Dc with EA value
+        let dc_val = match size {
+            Size::Byte => self.regs.d[dc] & 0xFF,
+            Size::Word => self.regs.d[dc] & 0xFFFF,
+            Size::Long => self.regs.d[dc],
+        };
+
+        // Set flags from subtraction (ea_val - dc_val), same as CMP
+        let result = ea_val.wrapping_sub(dc_val);
+        self.set_flags_sub(dc_val, ea_val, result, size);
+
+        if ea_val == dc_val {
+            // Equal: write Du to EA
+            let du_val = match size {
+                Size::Byte => self.regs.d[du] & 0xFF,
+                Size::Word => self.regs.d[du] & 0xFFFF,
+                Size::Long => self.regs.d[du],
+            };
+            match size {
+                Size::Byte => {
+                    bus.poll_cycle(addr, fc, false, false, Some(du_val as u16));
+                }
+                Size::Word => {
+                    bus.poll_cycle(addr, fc, false, true, Some(du_val as u16));
+                }
+                Size::Long => {
+                    bus.poll_cycle(addr, fc, false, true, Some((du_val >> 16) as u16));
+                    bus.poll_cycle(addr.wrapping_add(2), fc, false, true, Some(du_val as u16));
+                }
+            }
+        } else {
+            // Not equal: write EA value to Dc
+            match size {
+                Size::Byte => {
+                    self.regs.d[dc] = (self.regs.d[dc] & 0xFFFF_FF00) | ea_val;
+                }
+                Size::Word => {
+                    self.regs.d[dc] = (self.regs.d[dc] & 0xFFFF_0000) | ea_val;
+                }
+                Size::Long => {
+                    self.regs.d[dc] = ea_val;
+                }
+            }
+        }
+
+        self.micro_ops.push(MicroOp::Internal(4));
     }
 
     /// Execute a bit field instruction on a memory operand.

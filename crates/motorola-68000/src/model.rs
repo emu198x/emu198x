@@ -30,6 +30,8 @@ pub struct CpuCapabilities {
     pub extb_l: bool,
     /// Bit field instructions (`BFTST`/`BFEXTU`/`BFEXTS`/`BFINS`/`BFSET`/`BFCLR`/`BFCHG`/`BFFFO`).
     pub bitfield: bool,
+    /// `CAS`/`CAS2` compare-and-swap instructions.
+    pub cas: bool,
 }
 
 impl CpuModel {
@@ -44,6 +46,7 @@ impl CpuModel {
                 mull_divl: false,
                 extb_l: false,
                 bitfield: false,
+                cas: false,
             },
             Self::M68010 => CpuCapabilities {
                 movec: true,
@@ -52,6 +55,7 @@ impl CpuModel {
                 mull_divl: false,
                 extb_l: false,
                 bitfield: false,
+                cas: false,
             },
             Self::M68020 => CpuCapabilities {
                 movec: true,
@@ -60,6 +64,7 @@ impl CpuModel {
                 mull_divl: true,
                 extb_l: true,
                 bitfield: true,
+                cas: true,
             },
         }
     }
@@ -86,6 +91,7 @@ mod tests {
                 mull_divl: false,
                 extb_l: false,
                 bitfield: false,
+                cas: false,
             }
         );
         assert_eq!(
@@ -97,6 +103,7 @@ mod tests {
                 mull_divl: false,
                 extb_l: false,
                 bitfield: false,
+                cas: false,
             }
         );
         assert_eq!(
@@ -108,6 +115,7 @@ mod tests {
                 mull_divl: true,
                 extb_l: true,
                 bitfield: true,
+                cas: true,
             }
         );
     }

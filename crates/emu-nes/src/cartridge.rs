@@ -1049,6 +1049,232 @@ impl Mapper for GxRom {
     }
 }
 
+/// MMC4 (Mapper 10, FxROM): CHR latch-based bank switching.
+///
+/// Used by Fire Emblem and Fire Emblem Gaiden. Nearly identical to MMC2
+/// but with 16K PRG banking instead of 8K.
+///
+/// - PRG: 16K switchable at $8000-$BFFF, 16K fixed (last bank) at $C000-$FFFF
+/// - CHR: Two latch-selected 4K banks per pattern table half (same as MMC2)
+struct Mmc4 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    prg_bank: u8,
+    chr_fd_0: u8,
+    chr_fe_0: u8,
+    chr_fd_1: u8,
+    chr_fe_1: u8,
+    latch_0_fe: bool,
+    latch_1_fe: bool,
+    horizontal_mirror: bool,
+}
+
+impl Mmc4 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            prg_bank: 0,
+            chr_fd_0: 0,
+            chr_fe_0: 0,
+            chr_fd_1: 0,
+            chr_fe_1: 0,
+            latch_0_fe: true,
+            latch_1_fe: true,
+            horizontal_mirror: false,
+        }
+    }
+
+    fn prg_16k_count(&self) -> usize {
+        self.prg_rom.len() / 16384
+    }
+
+    fn chr_read_with_latch(&mut self, addr: u16) -> u8 {
+        let addr_usize = (addr & 0x1FFF) as usize;
+        let bank = if addr_usize < 0x1000 {
+            if self.latch_0_fe { self.chr_fe_0 } else { self.chr_fd_0 }
+        } else if self.latch_1_fe {
+            self.chr_fe_1
+        } else {
+            self.chr_fd_1
+        };
+        let offset = addr_usize & 0x0FFF;
+        let index = (bank as usize * 4096 + offset) % self.chr_rom.len().max(1);
+        let data = self.chr_rom.get(index).copied().unwrap_or(0);
+        // Latch triggers — same addresses as MMC2
+        match addr {
+            0x0FD8..=0x0FDF => self.latch_0_fe = false,
+            0x0FE8..=0x0FEF => self.latch_0_fe = true,
+            0x1FD8..=0x1FDF => self.latch_1_fe = false,
+            0x1FE8..=0x1FEF => self.latch_1_fe = true,
+            _ => {}
+        }
+        data
+    }
+}
+
+impl Mapper for Mmc4 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => {
+                let bank = self.prg_bank as usize % self.prg_16k_count();
+                let offset = (addr - 0x8000) as usize;
+                self.prg_rom[bank * 16384 + offset]
+            }
+            0xC000..=0xFFFF => {
+                let last = self.prg_16k_count().saturating_sub(1);
+                let offset = (addr - 0xC000) as usize;
+                self.prg_rom[last * 16384 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0xA000..=0xAFFF => self.prg_bank = value & 0x0F,
+            0xB000..=0xBFFF => self.chr_fd_0 = value & 0x1F,
+            0xC000..=0xCFFF => self.chr_fe_0 = value & 0x1F,
+            0xD000..=0xDFFF => self.chr_fd_1 = value & 0x1F,
+            0xE000..=0xEFFF => self.chr_fe_1 = value & 0x1F,
+            0xF000..=0xFFFF => self.horizontal_mirror = value & 1 != 0,
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_read_with_latch(addr)
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        if self.horizontal_mirror { Mirroring::Horizontal } else { Mirroring::Vertical }
+    }
+}
+
+/// BxROM (Mapper 34): Simple 32K PRG bank switching.
+///
+/// Used by Deadly Towers, Impossible Mission II.
+///
+/// - PRG: 32K switchable at $8000-$FFFF
+/// - CHR: 8K RAM
+/// - Mirroring: fixed from header
+struct BxRom {
+    prg_rom: Vec<u8>,
+    chr_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_bank: u8,
+}
+
+impl BxRom {
+    fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_ram: [0; 8192], mirroring, prg_bank: 0 }
+    }
+}
+
+impl Mapper for BxRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let bank_offset = self.prg_bank as usize * 32768;
+                let index = (bank_offset + (addr as usize - 0x8000)) % self.prg_rom.len();
+                self.prg_rom[index]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.prg_bank = value;
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[(addr as usize) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[(addr as usize) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
+/// Camerica (Mapper 71, Codemasters): 16K PRG bank switching.
+///
+/// Used by Micro Machines, Fire Hawk, Bee 52, and other Codemasters games.
+///
+/// - PRG: 16K switchable at $8000-$BFFF, 16K fixed (last bank) at $C000-$FFFF
+/// - CHR: 8K RAM
+/// - Mirroring: fixed or switchable via $9000-$9FFF (bit 4)
+struct Camerica {
+    prg_rom: Vec<u8>,
+    chr_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_bank: u8,
+}
+
+impl Camerica {
+    fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_ram: [0; 8192], mirroring, prg_bank: 0 }
+    }
+
+    fn prg_16k_count(&self) -> usize {
+        self.prg_rom.len() / 16384
+    }
+}
+
+impl Mapper for Camerica {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => {
+                let bank = self.prg_bank as usize % self.prg_16k_count();
+                let offset = (addr - 0x8000) as usize;
+                self.prg_rom[bank * 16384 + offset]
+            }
+            0xC000..=0xFFFF => {
+                let last = self.prg_16k_count().saturating_sub(1);
+                let offset = (addr - 0xC000) as usize;
+                self.prg_rom[last * 16384 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x9000..=0x9FFF => {
+                // Mirroring control (bit 4): 0 = single-screen low, 1 = single-screen high
+                self.mirroring = if value & 0x10 != 0 {
+                    Mirroring::SingleScreenUpper
+                } else {
+                    Mirroring::SingleScreenLower
+                };
+            }
+            0xC000..=0xFFFF => {
+                self.prg_bank = value;
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[(addr as usize) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[(addr as usize) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 /// Parse an iNES file and return a boxed mapper.
 ///
 /// # Errors
@@ -1121,8 +1347,11 @@ pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
         4 => Ok(Box::new(Mmc3::new(prg_rom, chr_data))),
         7 => Ok(Box::new(AxRom::new(prg_rom))),
         9 => Ok(Box::new(Mmc2::new(prg_rom, chr_data))),
+        10 => Ok(Box::new(Mmc4::new(prg_rom, chr_data))),
         11 => Ok(Box::new(ColorDreams::new(prg_rom, chr_data, mirroring))),
+        34 => Ok(Box::new(BxRom::new(prg_rom, mirroring))),
         66 => Ok(Box::new(GxRom::new(prg_rom, chr_data, mirroring))),
+        71 => Ok(Box::new(Camerica::new(prg_rom, mirroring))),
         n => Err(format!("Unsupported mapper: {n}")),
     }
 }
@@ -2067,11 +2296,95 @@ mod tests {
 
     #[test]
     fn gxrom_parse_ines() {
-        // Mapper 66: flags6 high nibble = 0x20, flags7 high nibble = 0x40
-        // mapper = 0x20 >> 4 | 0x40 = 2 | 64 = 66
-        let mut data = make_ines(2, 1, 0x20); // mapper low nibble = 2
-        data[7] = 0x40; // mapper high nibble = 4 → mapper = 66
+        let mut data = make_ines(2, 1, 0x20);
+        data[7] = 0x40;
         let m = parse_ines(&data);
         assert!(m.is_ok(), "Mapper 66 should parse successfully");
+    }
+
+    // --- MMC4 (Mapper 10) ---
+
+    #[test]
+    fn mmc4_prg_16k_switching() {
+        let mut prg = vec![0u8; 4 * 16384]; // 4 × 16K
+        prg[0] = 0xAA;          // bank 0
+        prg[16384] = 0xBB;      // bank 1
+        let chr = vec![0u8; 8 * 4096]; // 8 × 4K CHR
+        let mut m = Mmc4::new(prg, chr);
+        assert_eq!(m.cpu_read(0x8000), 0xAA);
+        m.cpu_write(0xA000, 1); // switch to bank 1
+        assert_eq!(m.cpu_read(0x8000), 0xBB);
+    }
+
+    #[test]
+    fn mmc4_fixed_last_bank() {
+        let mut prg = vec![0u8; 4 * 16384];
+        prg[3 * 16384] = 0xDD; // last bank
+        let chr = vec![0u8; 4096];
+        let m = Mmc4::new(prg, chr);
+        assert_eq!(m.cpu_read(0xC000), 0xDD);
+    }
+
+    #[test]
+    fn mmc4_chr_latch() {
+        let mut chr = vec![0u8; 8 * 4096];
+        chr[0] = 0x11;        // bank 0 ($FD)
+        chr[4096] = 0x22;     // bank 1 ($FE)
+        let prg = vec![0u8; 16384];
+        let mut m = Mmc4::new(prg, chr);
+        m.cpu_write(0xB000, 0); // FD bank 0 = 0
+        m.cpu_write(0xC000, 1); // FE bank 0 = 1
+        // Default latch = FE, so should read bank 1
+        assert_eq!(m.chr_read(0x0000), 0x22);
+    }
+
+    // --- BxROM (Mapper 34) ---
+
+    #[test]
+    fn bxrom_prg_switching() {
+        let mut prg = vec![0u8; 4 * 32768];
+        prg[0] = 0xAA;
+        prg[32768] = 0xBB;
+        let mut m = BxRom::new(prg, Mirroring::Vertical);
+        assert_eq!(m.cpu_read(0x8000), 0xAA);
+        m.cpu_write(0x8000, 1);
+        assert_eq!(m.cpu_read(0x8000), 0xBB);
+    }
+
+    #[test]
+    fn bxrom_chr_ram() {
+        let mut m = BxRom::new(vec![0u8; 32768], Mirroring::Horizontal);
+        m.chr_write(0x0000, 0xAB);
+        assert_eq!(m.chr_read(0x0000), 0xAB);
+    }
+
+    // --- Camerica (Mapper 71) ---
+
+    #[test]
+    fn camerica_prg_switching() {
+        let mut prg = vec![0u8; 4 * 16384];
+        prg[0] = 0xAA;
+        prg[16384] = 0xBB;
+        let mut m = Camerica::new(prg, Mirroring::Vertical);
+        assert_eq!(m.cpu_read(0x8000), 0xAA);
+        m.cpu_write(0xC000, 1);
+        assert_eq!(m.cpu_read(0x8000), 0xBB);
+    }
+
+    #[test]
+    fn camerica_fixed_last_bank() {
+        let mut prg = vec![0u8; 4 * 16384];
+        prg[3 * 16384] = 0xDD;
+        let m = Camerica::new(prg, Mirroring::Vertical);
+        assert_eq!(m.cpu_read(0xC000), 0xDD);
+    }
+
+    #[test]
+    fn camerica_mirroring_control() {
+        let mut m = Camerica::new(vec![0u8; 32768], Mirroring::Vertical);
+        m.cpu_write(0x9000, 0x10);
+        assert_eq!(m.mirroring(), Mirroring::SingleScreenUpper);
+        m.cpu_write(0x9000, 0x00);
+        assert_eq!(m.mirroring(), Mirroring::SingleScreenLower);
     }
 }
