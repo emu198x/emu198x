@@ -6,7 +6,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use emu_nes::capture::save_screenshot;
-use emu_nes::{Nes, NesConfig};
+use emu_nes::{Nes, NesConfig, NesRegion};
 
 const OUTPUT_DIR: &str = "../../test_output";
 
@@ -45,7 +45,7 @@ fn test_dash_unit01() {
     ensure_output_dir();
 
     let rom_data = std::fs::read(&rom_path).expect("read ROM");
-    let config = NesConfig { rom_data };
+    let config = NesConfig { rom_data, region: NesRegion::Ntsc };
     let mut nes = Nes::new(&config).expect("create NES");
 
     // Run 30 frames — enough for reset sequence (two vblank waits),

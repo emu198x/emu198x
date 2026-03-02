@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use emu_nes::{capture, Nes, NesConfig};
+use emu_nes::{capture, Nes, NesConfig, NesRegion};
 
 /// Build a minimal NROM iNES ROM (32K PRG, 8K CHR).
 fn build_minimal_rom() -> Vec<u8> {
@@ -73,7 +73,7 @@ fn build_minimal_rom() -> Vec<u8> {
 #[ignore] // Slow: runs 3 full frames
 fn test_boot_minimal() {
     let rom_data = build_minimal_rom();
-    let mut nes = Nes::new(&NesConfig { rom_data }).expect("Failed to parse minimal ROM");
+    let mut nes = Nes::new(&NesConfig { rom_data, region: NesRegion::Ntsc }).expect("Failed to parse minimal ROM");
 
     println!("Reset: PC=${:04X}", nes.cpu().regs.pc);
     assert_eq!(nes.cpu().regs.pc, 0x8000, "Reset vector should point to $8000");
@@ -249,7 +249,7 @@ fn build_hello_rom() -> Vec<u8> {
 #[ignore] // Slow: runs 10 frames with rendering
 fn test_background_rendering() {
     let rom_data = build_hello_rom();
-    let mut nes = Nes::new(&NesConfig { rom_data }).expect("Failed to parse hello ROM");
+    let mut nes = Nes::new(&NesConfig { rom_data, region: NesRegion::Ntsc }).expect("Failed to parse hello ROM");
 
     // Run 10 frames: 2 for VBlank waits, 1+ for setup, rest for rendering.
     for frame in 0..10 {
@@ -502,7 +502,7 @@ fn build_sprite_rom() -> Vec<u8> {
 #[ignore] // Slow: runs 10 frames with rendering
 fn test_sprite_rendering() {
     let rom_data = build_sprite_rom();
-    let mut nes = Nes::new(&NesConfig { rom_data }).expect("Failed to parse sprite ROM");
+    let mut nes = Nes::new(&NesConfig { rom_data, region: NesRegion::Ntsc }).expect("Failed to parse sprite ROM");
 
     // Run 10 frames: 2 for VBlank waits, 1+ for setup, rest for rendering.
     for frame in 0..10 {
@@ -641,7 +641,7 @@ fn build_apu_tone_rom() -> Vec<u8> {
 #[ignore] // Slow: runs 30 frames
 fn test_apu_produces_audio() {
     let rom_data = build_apu_tone_rom();
-    let mut nes = Nes::new(&NesConfig { rom_data }).expect("Failed to parse APU tone ROM");
+    let mut nes = Nes::new(&NesConfig { rom_data, region: NesRegion::Ntsc }).expect("Failed to parse APU tone ROM");
 
     let mut all_audio: Vec<f32> = Vec::new();
 

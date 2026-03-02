@@ -931,9 +931,15 @@ impl Amiga {
         let data = if is_write {
             Vec::new()
         } else {
-            self.floppy.encode_mfm_track().unwrap_or_default()
+            // When no disk is inserted, produce a silent MFM stream (all zeros)
+            // so the DMA transfer completes and trackdisk gets its DSKBLK
+            // interrupt. Without this, the DMA hangs forever waiting for data.
+            self.floppy
+                .encode_mfm_track()
+                .unwrap_or_else(|| vec![0u8; 32])
         };
-        let wordsync_enabled = !is_write && (self.paula.adkcon & 0x0400 != 0);
+        let has_disk = self.floppy.has_disk();
+        let wordsync_enabled = !is_write && has_disk && (self.paula.adkcon & 0x0400 != 0);
         self.disk_dma_runtime = Some(DiskDmaRuntime {
             data,
             byte_index: 0,
