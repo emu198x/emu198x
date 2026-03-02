@@ -91,6 +91,11 @@ pub struct DeniseOcs {
     pub clxcon: u16,
     pub clxdat: u16,
     pub spr_pos: [u16; 8],
+    /// Shadow sprite position for the display comparator: trails spr_pos
+    /// by one pixel step to model hardware pipeline delay.
+    spr_pos_display: [u16; 8],
+    /// Flags indicating a position write happened since the last pixel step.
+    spr_pos_dirty: [bool; 8],
     pub spr_ctl: [u16; 8],
     pub spr_data: [u64; 8],
     pub spr_datb: [u64; 8],
@@ -192,6 +197,8 @@ impl DeniseOcs {
             clxcon: 0,
             clxdat: 0,
             spr_pos: [0; 8],
+            spr_pos_display: [0; 8],
+            spr_pos_dirty: [false; 8],
             spr_ctl: [0; 8],
             spr_data: [0; 8],
             spr_datb: [0; 8],
@@ -376,7 +383,10 @@ impl DeniseOcs {
 
     pub fn write_sprite_pos(&mut self, sprite: usize, val: u16) {
         if sprite < 8 {
+            // Register updates immediately for Agnus DMA control (vstart/vstop).
             self.spr_pos[sprite] = val;
+            // Display comparator sees the new value one pixel later.
+            self.spr_pos_dirty[sprite] = true;
         }
     }
 
@@ -550,12 +560,24 @@ impl DeniseOcs {
     fn reset_sprite_line_runtime(&mut self, beam_y: u32) {
         self.spr_shift_count = [0; 8];
         self.spr_current_code = [0; 8];
+        // Latch current positions into the display shadow at line start.
+        self.spr_pos_display = self.spr_pos;
+        self.spr_pos_dirty = [false; 8];
         self.sprite_runtime_line_valid = true;
         self.sprite_runtime_beam_x = 0;
         self.sprite_runtime_beam_y = beam_y;
     }
 
     fn step_sprite_runtime_one_pixel(&mut self, beam_x: u32, beam_y: u32) {
+        // Propagate position writes with a 1-pixel pipeline delay:
+        // the display comparator uses spr_pos_display which trails spr_pos.
+        for sprite in 0..8usize {
+            if self.spr_pos_dirty[sprite] {
+                self.spr_pos_display[sprite] = self.spr_pos[sprite];
+                self.spr_pos_dirty[sprite] = false;
+            }
+        }
+
         self.spr_current_code = [0; 8];
         for sprite in 0..8usize {
             if !self.spr_armed[sprite] {
@@ -563,7 +585,7 @@ impl DeniseOcs {
                 continue;
             }
 
-            let pos = self.spr_pos[sprite];
+            let pos = self.spr_pos_display[sprite];
             let ctl = self.spr_ctl[sprite];
             let hstart = u32::from(Self::sprite_hstart(pos, ctl));
             let vstart = u32::from(Self::sprite_vstart(pos, ctl));

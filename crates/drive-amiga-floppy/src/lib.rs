@@ -9,6 +9,64 @@ pub mod mfm;
 use format_adf::Adf;
 use mfm::{decode_mfm_track, encode_mfm_track};
 
+/// Trait abstracting the disk data source.
+///
+/// Implemented by `AdfDiskImage` and `IpfImage` (in the `format-ipf` crate).
+/// The floppy drive holds a `Box<dyn DiskImage>` and delegates track encoding
+/// and write-back through this interface.
+pub trait DiskImage: Send {
+    /// Encode the specified track as raw MFM bytes for the drive read path.
+    fn encode_mfm_track(&self, cyl: u32, head: u32) -> Option<Vec<u8>>;
+
+    /// Number of sectors per track (11 for DD, 22 for HD).
+    fn sectors_per_track(&self) -> u32;
+
+    /// Whether the image supports writing.
+    fn is_writable(&self) -> bool;
+
+    /// Write a decoded sector back to the image.
+    fn write_sector(&mut self, cyl: u32, head: u32, sector: u32, data: &[u8]);
+
+    /// Serialise the current image state for saving (e.g. ADF bytes).
+    /// Returns `None` for read-only formats like IPF.
+    fn save_data(&self) -> Option<Vec<u8>>;
+}
+
+/// ADF disk image wrapper implementing `DiskImage`.
+pub struct AdfDiskImage {
+    adf: Adf,
+}
+
+impl AdfDiskImage {
+    pub fn new(adf: Adf) -> Self {
+        Self { adf }
+    }
+}
+
+impl DiskImage for AdfDiskImage {
+    fn encode_mfm_track(&self, cyl: u32, head: u32) -> Option<Vec<u8>> {
+        let track_num = (cyl * 2 + head) as u8;
+        let sectors = self.adf.read_track_sectors(cyl, head);
+        Some(encode_mfm_track(sectors, track_num, self.adf.sectors_per_track()))
+    }
+
+    fn sectors_per_track(&self) -> u32 {
+        self.adf.sectors_per_track()
+    }
+
+    fn is_writable(&self) -> bool {
+        true
+    }
+
+    fn write_sector(&mut self, cyl: u32, head: u32, sector: u32, data: &[u8]) {
+        self.adf.write_sector(cyl, head, sector, data);
+    }
+
+    fn save_data(&self) -> Option<Vec<u8>> {
+        Some(self.adf.data().to_vec())
+    }
+}
+
 /// E-clock ticks for motor spin-up (~500ms at 709 kHz).
 const MOTOR_SPINUP_TICKS: u32 = 350_000;
 
@@ -25,7 +83,7 @@ pub struct DriveStatus {
 }
 
 pub struct AmigaFloppyDrive {
-    disk: Option<Adf>,
+    disk: Option<Box<dyn DiskImage>>,
     cylinder: u32,
     head: u32,
     motor_on: bool,
@@ -58,8 +116,15 @@ impl AmigaFloppyDrive {
         }
     }
 
+    /// Insert an ADF disk image (convenience wrapper).
     pub fn insert_disk(&mut self, adf: Adf) {
-        self.disk = Some(adf);
+        self.disk = Some(Box::new(AdfDiskImage::new(adf)));
+        self.disk_changed = true;
+    }
+
+    /// Insert any disk image implementing `DiskImage`.
+    pub fn insert_disk_image(&mut self, image: Box<dyn DiskImage>) {
+        self.disk = Some(image);
         self.disk_changed = true;
     }
 
@@ -140,14 +205,7 @@ impl AmigaFloppyDrive {
 
     /// Encode the current track as raw MFM data. Returns `None` if no disk.
     pub fn encode_mfm_track(&self) -> Option<Vec<u8>> {
-        let adf = self.disk.as_ref()?;
-        let track_num = (self.cylinder * 2 + self.head) as u8;
-        let sectors = adf.read_track_sectors(self.cylinder, self.head);
-        Some(encode_mfm_track(
-            sectors,
-            track_num,
-            adf.sectors_per_track(),
-        ))
+        self.disk.as_ref()?.encode_mfm_track(self.cylinder, self.head)
     }
 
     pub fn has_disk(&self) -> bool {
@@ -184,7 +242,7 @@ impl AmigaFloppyDrive {
         self.write_mfm_pending.clear();
     }
 
-    /// Decode captured MFM write data and persist decoded sectors to the ADF image.
+    /// Decode captured MFM write data and persist decoded sectors to the disk image.
     ///
     /// Returns the number of sectors successfully written back.
     pub fn flush_write_capture(&mut self) -> usize {
@@ -195,27 +253,29 @@ impl AmigaFloppyDrive {
         let decoded = decode_mfm_track(&self.write_mfm_pending);
         self.write_mfm_pending.clear();
 
-        let adf = match self.disk.as_mut() {
-            Some(adf) => adf,
-            None => return 0,
+        let image = match self.disk.as_mut() {
+            Some(img) if img.is_writable() => img,
+            _ => return 0,
         };
 
+        let spt = image.sectors_per_track();
         let mut written = 0;
         for sector in &decoded {
             let track_num = sector.track as u32;
             let cyl = track_num / 2;
             let head = track_num % 2;
-            if cyl < 80 && (sector.sector as u32) < adf.sectors_per_track() {
-                adf.write_sector(cyl, head, sector.sector as u32, &sector.data);
+            if cyl < 80 && (sector.sector as u32) < spt {
+                image.write_sector(cyl, head, sector.sector as u32, &sector.data);
                 written += 1;
             }
         }
         written
     }
 
-    /// Return the current ADF image as raw bytes, or `None` if no disk is inserted.
+    /// Return the current disk image as raw bytes, or `None` if no disk is
+    /// inserted or the format doesn't support saving.
     pub fn save_adf(&self) -> Option<Vec<u8>> {
-        self.disk.as_ref().map(|adf| adf.data().to_vec())
+        self.disk.as_ref().and_then(|img| img.save_data())
     }
 }
 

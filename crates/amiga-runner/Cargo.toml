@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 machine-amiga = { path = "../machine-amiga" }
+format-ipf = { path = "../format-ipf" }
 cpal = "0.15"
 hound = "3.5"
 pixels = "0.15"

@@ -121,21 +121,16 @@ impl Copper {
         let cur_v = vpos & 0xFF;
         let cur_h = (hpos >> 1) & 0x7F;
 
-        let cmp_cur = ((cur_v & mask_v) << 7) | (cur_h & mask_h);
-        let cmp_wait = ((wait_v & mask_v) << 7) | (wait_h & mask_h);
-        let result = cmp_cur >= cmp_wait;
+        // V7 (bit 7 of the vertical beam counter) is always compared on
+        // real hardware even though the mask register has no V7 bit. Force
+        // it into the comparison so WAIT $F4xx never falsely fires at $74
+        // and WAIT $44xx doesn't fire late at $C4.
+        let cmp_cur_v = cur_v & (mask_v | 0x80);
+        let cmp_wait_v = wait_v & (mask_v | 0x80);
 
-        // V7 partial fix: on real hardware V7 (bit 7 of the vertical beam
-        // counter) is always compared, even though it has no mask bit.
-        // Without this, WAIT VP=$F4 falsely triggers at line $74 because
-        // the masked comparison ignores V7. Full V7 emulation requires
-        // fixing copper list overrun issues first; for now we only block
-        // the false-early case: VP has V7=1 but current vpos has V7=0.
-        if result && (wait_v & 0x80 != 0) && (cur_v & 0x80 == 0) {
-            return false;
-        }
-
-        result
+        let cmp_cur = (cmp_cur_v << 7) | (cur_h & mask_h);
+        let cmp_wait = (cmp_wait_v << 7) | (wait_h & mask_h);
+        cmp_cur >= cmp_wait
     }
 }
 
@@ -148,6 +143,59 @@ impl Default for Copper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Helper: build a Copper that has just fetched a WAIT instruction
+    /// with the given VP/HP/mask and is in the Wait state.
+    fn copper_in_wait(wait_v: u16, wait_h: u16, mask_v: u16, mask_h: u16) -> Copper {
+        let mut cop = Copper::new();
+        cop.ir1 = ((wait_v & 0xFF) << 8) | ((wait_h & 0x7F) << 1) | 1;
+        cop.ir2 = ((mask_v & 0x7F) << 8) | ((mask_h & 0x7F) << 1);
+        cop.state = State::Wait;
+        cop.waiting = true;
+        cop
+    }
+
+    #[test]
+    fn v7_wait_at_line_above_128_does_not_trigger_below_128() {
+        // WAIT VP=$F4 (V7=1) with mask=$7F should NOT trigger at line $74.
+        let cop = copper_in_wait(0xF4, 0, 0x7F, 0x7F);
+        assert!(
+            !cop.check_wait(0x74, 0x40),
+            "V7=1 wait must not fire when beam V7=0"
+        );
+    }
+
+    #[test]
+    fn v7_wait_at_line_above_128_triggers_when_reached() {
+        // WAIT VP=$F4 with mask=$7F should trigger at line $F4.
+        let cop = copper_in_wait(0xF4, 0, 0x7F, 0x7F);
+        assert!(
+            cop.check_wait(0xF4, 0x40),
+            "V7=1 wait must fire when beam also V7=1 and position reached"
+        );
+    }
+
+    #[test]
+    fn v7_wait_at_line_below_128_resolves_above_128() {
+        // WAIT VP=$44 (V7=0) at line $C4 (V7=1): beam has passed the target,
+        // so the wait resolves. V7 always-compare doesn't block this because
+        // $C4 > $44.
+        let cop = copper_in_wait(0x44, 0, 0x7F, 0x7F);
+        assert!(
+            cop.check_wait(0xC4, 0x40),
+            "V7=0 wait must resolve when beam is past the target line"
+        );
+    }
+
+    #[test]
+    fn v7_wait_at_line_below_128_triggers_when_reached() {
+        // WAIT VP=$44 with mask=$7F should trigger at line $44.
+        let cop = copper_in_wait(0x44, 0, 0x7F, 0x7F);
+        assert!(
+            cop.check_wait(0x44, 0x40),
+            "V7=0 wait must fire when beam matches"
+        );
+    }
 
     #[test]
     fn skip_advances_pc_when_condition_met() {

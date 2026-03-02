@@ -74,6 +74,7 @@ struct ActiveKeyMapping {
 struct CliArgs {
     rom_path: PathBuf,
     adf_path: Option<PathBuf>,
+    disk_path: Option<PathBuf>,
     model: AmigaModel,
     chipset: AmigaChipset,
     headless: bool,
@@ -183,6 +184,7 @@ fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut rom_path: Option<PathBuf> = None;
     let mut adf_path: Option<PathBuf> = None;
+    let mut disk_path: Option<PathBuf> = None;
     let mut model = AmigaModel::A500;
     let mut chipset: Option<AmigaChipset> = None;
     let mut headless = false;
@@ -210,6 +212,10 @@ fn parse_args() -> CliArgs {
             "--adf" => {
                 i += 1;
                 adf_path = args.get(i).map(PathBuf::from);
+            }
+            "--disk" => {
+                i += 1;
+                disk_path = args.get(i).map(PathBuf::from);
             }
             "--model" => {
                 i += 1;
@@ -361,6 +367,7 @@ fn parse_args() -> CliArgs {
     CliArgs {
         rom_path,
         adf_path,
+        disk_path,
         model,
         chipset,
         headless,
@@ -684,23 +691,40 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
         slow_ram_size: 0,
     });
 
-    if let Some(adf_path) = &cli.adf_path {
-        let adf_bytes = match std::fs::read(adf_path) {
+    // --disk auto-detects format; --adf forces ADF.
+    let disk_to_load = cli.disk_path.as_ref().or(cli.adf_path.as_ref());
+    if let Some(disk_path) = disk_to_load {
+        let disk_bytes = match std::fs::read(disk_path) {
             Ok(data) => data,
             Err(e) => {
-                eprintln!("Failed to read ADF {}: {e}", adf_path.display());
+                eprintln!("Failed to read disk {}: {e}", disk_path.display());
                 process::exit(1);
             }
         };
-        let adf = match Adf::from_bytes(adf_bytes) {
-            Ok(adf) => adf,
-            Err(e) => {
-                eprintln!("Invalid ADF {}: {e}", adf_path.display());
-                process::exit(1);
-            }
-        };
-        amiga.insert_disk(adf);
-        eprintln!("Inserted disk: {}", adf_path.display());
+
+        if cli.adf_path.is_some() || !format_ipf::IpfImage::is_ipf(&disk_bytes) {
+            // ADF path.
+            let adf = match Adf::from_bytes(disk_bytes) {
+                Ok(adf) => adf,
+                Err(e) => {
+                    eprintln!("Invalid ADF {}: {e}", disk_path.display());
+                    process::exit(1);
+                }
+            };
+            amiga.insert_disk(adf);
+            eprintln!("Inserted ADF: {}", disk_path.display());
+        } else {
+            // IPF path.
+            let ipf = match format_ipf::IpfImage::from_bytes(&disk_bytes) {
+                Ok(ipf) => ipf,
+                Err(e) => {
+                    eprintln!("Invalid IPF {}: {e}", disk_path.display());
+                    process::exit(1);
+                }
+            };
+            amiga.insert_disk_image(Box::new(ipf));
+            eprintln!("Inserted IPF: {}", disk_path.display());
+        }
     }
 
     eprintln!(

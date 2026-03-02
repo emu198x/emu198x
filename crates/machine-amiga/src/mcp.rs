@@ -593,12 +593,23 @@ impl McpServer {
             return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
         };
 
-        match Adf::from_bytes(data) {
-            Ok(adf) => {
-                amiga.insert_disk(adf);
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
+        // Auto-detect format by magic bytes.
+        if format_ipf::IpfImage::is_ipf(&data) {
+            match format_ipf::IpfImage::from_bytes(&data) {
+                Ok(ipf) => {
+                    amiga.insert_disk_image(Box::new(ipf));
+                    RpcResponse::success(id, serde_json::json!({"status": "ok", "format": "ipf"}))
+                }
+                Err(e) => RpcResponse::error(id, -32000, format!("IPF load failed: {e}")),
             }
-            Err(e) => RpcResponse::error(id, -32000, format!("ADF load failed: {e}")),
+        } else {
+            match Adf::from_bytes(data) {
+                Ok(adf) => {
+                    amiga.insert_disk(adf);
+                    RpcResponse::success(id, serde_json::json!({"status": "ok", "format": "adf"}))
+                }
+                Err(e) => RpcResponse::error(id, -32000, format!("ADF load failed: {e}")),
+            }
         }
     }
 

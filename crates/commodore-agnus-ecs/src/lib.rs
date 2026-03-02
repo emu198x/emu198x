@@ -38,6 +38,19 @@ pub const BEAMCON0_VSYTRUE: u16 = 0x0004;
 /// `BEAMCON0` bit selecting "true" polarity for horizontal sync output.
 pub const BEAMCON0_HSYTRUE: u16 = 0x0002;
 
+/// Reported sync and blank output pin levels from the ECS sync generator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncPinLevels {
+    /// Horizontal sync output (polarity applied via HSYTRUE).
+    pub hsync: bool,
+    /// Vertical sync output (polarity applied via VSYTRUE).
+    pub vsync: bool,
+    /// Composite sync output (gated by CSCBEN, polarity via CSYTRUE).
+    pub csync: bool,
+    /// Composite blank output (gated by BLANKEN).
+    pub blank: bool,
+}
+
 /// Thin ECS wrapper that currently reuses the OCS Agnus implementation.
 #[derive(Clone)]
 pub struct AgnusEcs {
@@ -474,6 +487,44 @@ impl AgnusEcs {
         }
     }
 
+    /// Reported sync and blank pin levels for the current beam position.
+    ///
+    /// Applies `BEAMCON0` polarity bits (HSYTRUE, VSYTRUE, CSYTRUE),
+    /// BLANKEN blank routing, and CSCBEN composite sync routing.
+    #[must_use]
+    pub fn sync_pin_levels(&self, hpos: u16, vpos: u16) -> SyncPinLevels {
+        // Raw window-active states (active = true).
+        let hsync_raw = self.hsync_window_active(hpos);
+        let vsync_raw = self.vsync_window_active(vpos);
+        let hblank_raw = self.hblank_window_active(hpos);
+        let vblank_raw = self.vblank_window_active(vpos);
+
+        // Apply polarity: "TRUE" polarity means active-high output.
+        // When the bit is clear, the output is inverted (active-low).
+        let hsync = if self.hsytrue_enabled() { hsync_raw } else { !hsync_raw };
+        let vsync = if self.vsytrue_enabled() { vsync_raw } else { !vsync_raw };
+
+        // Composite sync: XOR of HSYNC and VSYNC raw states, then polarity.
+        let csync_raw = hsync_raw ^ vsync_raw;
+        let csync = if self.csytrue_enabled() { csync_raw } else { !csync_raw };
+
+        // Composite blank: OR of HBLANK and VBLANK.
+        let cblank_raw = hblank_raw || vblank_raw;
+
+        // BLANKEN gates composite blank to the external blank output pin.
+        let blank_out = self.blanken_enabled() && cblank_raw;
+
+        // CSCBEN routes composite sync to the external composite sync pin.
+        let csync_out = self.cscben_enabled() && csync;
+
+        SyncPinLevels {
+            hsync,
+            vsync,
+            csync: csync_out,
+            blank: blank_out,
+        }
+    }
+
     fn htotal_highest_count(&self) -> u16 {
         if self.htotal == 0 {
             PAL_CCKS_PER_LINE - 1
@@ -740,5 +791,88 @@ mod tests {
         assert!(agnus.vsync_window_active(301));
         assert!(agnus.vsync_window_active(5));
         assert!(!agnus.vsync_window_active(200));
+    }
+
+    #[test]
+    fn sync_polarity_hsytrue_inverts_output() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hsstrt(30);
+        agnus.write_hsstop(40);
+        // Enable VARHSYEN but NOT HSYTRUE → active-low output.
+        agnus.write_beamcon0(BEAMCON0_VARHSYEN);
+
+        // Inside sync window: raw=true, inverted→false.
+        let pins = agnus.sync_pin_levels(35, 0);
+        assert!(!pins.hsync, "HSYTRUE=0: active-low, inside window → false");
+
+        // Outside sync window: raw=false, inverted→true.
+        let pins = agnus.sync_pin_levels(50, 0);
+        assert!(pins.hsync, "HSYTRUE=0: active-low, outside window → true");
+
+        // Now enable HSYTRUE → active-high.
+        agnus.write_beamcon0(BEAMCON0_VARHSYEN | BEAMCON0_HSYTRUE);
+        let pins = agnus.sync_pin_levels(35, 0);
+        assert!(pins.hsync, "HSYTRUE=1: active-high, inside window → true");
+    }
+
+    #[test]
+    fn sync_polarity_vsytrue_inverts_output() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_vsstrt(100);
+        agnus.write_vsstop(110);
+        agnus.write_beamcon0(BEAMCON0_VARVSYEN | BEAMCON0_VSYTRUE);
+
+        let pins = agnus.sync_pin_levels(0, 105);
+        assert!(pins.vsync, "VSYTRUE=1, inside window → true");
+
+        let pins = agnus.sync_pin_levels(0, 50);
+        assert!(!pins.vsync, "VSYTRUE=1, outside window → false");
+    }
+
+    #[test]
+    fn blanken_gates_composite_blank_output() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(10);
+        agnus.write_hbstop(20);
+        agnus.write_vbstrt(50);
+        agnus.write_vbstop(60);
+
+        // HARDDIS + VARVBEN enable the blank windows, but BLANKEN is clear.
+        agnus.write_beamcon0(BEAMCON0_HARDDIS | BEAMCON0_VARVBEN);
+        let pins = agnus.sync_pin_levels(15, 55);
+        assert!(!pins.blank, "BLANKEN=0: blank output should be gated off");
+
+        // Now enable BLANKEN.
+        agnus.write_beamcon0(BEAMCON0_HARDDIS | BEAMCON0_VARVBEN | BEAMCON0_BLANKEN);
+        let pins = agnus.sync_pin_levels(15, 55);
+        assert!(pins.blank, "BLANKEN=1: blank output should follow composite blank");
+
+        // Outside blank windows.
+        let pins = agnus.sync_pin_levels(5, 30);
+        assert!(!pins.blank, "outside blank windows → blank=false");
+    }
+
+    #[test]
+    fn cscben_gates_composite_sync_output() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hsstrt(30);
+        agnus.write_hsstop(40);
+        agnus.write_vsstrt(100);
+        agnus.write_vsstop(110);
+
+        // Enable sync windows with CSYTRUE but NOT CSCBEN.
+        agnus.write_beamcon0(
+            BEAMCON0_VARHSYEN | BEAMCON0_VARVSYEN | BEAMCON0_CSYTRUE,
+        );
+        let pins = agnus.sync_pin_levels(35, 50);
+        assert!(!pins.csync, "CSCBEN=0: composite sync output should be gated off");
+
+        // Enable CSCBEN.
+        agnus.write_beamcon0(
+            BEAMCON0_VARHSYEN | BEAMCON0_VARVSYEN | BEAMCON0_CSYTRUE | BEAMCON0_CSCBEN,
+        );
+        // Inside hsync (35) but outside vsync (50): csync = hsync XOR vsync = true XOR false = true.
+        let pins = agnus.sync_pin_levels(35, 50);
+        assert!(pins.csync, "CSCBEN=1, CSYTRUE=1, hsync XOR vsync → true");
     }
 }

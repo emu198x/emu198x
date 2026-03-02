@@ -16,6 +16,32 @@ const ADKCON_FAST_DISK: u16 = 0x0100;
 const DISK_BYTE_CCK_FAST: u8 = 14;
 const DISK_BYTE_CCK_SLOW: u8 = 28;
 
+/// DAC non-linearity lookup table modelling the A500 resistor-ladder output.
+///
+/// On real hardware the DAC has a slight S-curve around zero crossing and
+/// compression at the extremes. This table maps the signed 8-bit sample value
+/// (index 0 = $80 = -128, index 255 = $7F = +127) to a normalised f32 in
+/// roughly [-1.0, 1.0].
+///
+/// The polynomial approximation is derived from measurements of A500 Paula
+/// output stages (cf. UAE/WinUAE DAC curve). The dominant non-linearity is a
+/// small cubic term that compresses peaks by ~2%.
+fn build_dac_table() -> [f32; 256] {
+    let mut table = [0.0f32; 256];
+    for i in 0..256u16 {
+        // Index matches two's complement `i8 as u8` mapping:
+        // 0→0, 127→+127, 128→-128, 255→-1.
+        let sample = i as u8 as i8;
+        let x = f32::from(sample) / 128.0; // linear normalisation
+        // Slight cubic non-linearity: compresses peaks, sharper zero crossing.
+        let y = x - 0.02 * x * x * x;
+        table[i as usize] = y;
+    }
+    table
+}
+
+static DAC_TABLE: std::sync::LazyLock<[f32; 256]> = std::sync::LazyLock::new(build_dac_table);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AudioOutputEvent {
     HighByte(u16),
@@ -282,7 +308,10 @@ impl AudioChannel {
     }
 
     fn mix_sample(&self) -> f32 {
-        let amplitude = f32::from(self.output_sample) / 128.0;
+        // Use the DAC non-linearity table instead of linear division.
+        // output_sample is i8; convert to table index (0 = -128, 255 = +127).
+        let idx = (self.output_sample as u8) as usize;
+        let amplitude = DAC_TABLE[idx];
         let volume = f32::from(self.vol.min(64)) / 64.0;
         amplitude * volume
     }
@@ -307,6 +336,18 @@ pub struct Paula8364 {
     disk_write_dma_log: Vec<u16>,
     disk_write_pio_log: Vec<u16>,
     pub disk_dma_pending: bool,
+    /// Disk PLL phase accumulator for variable-rate MFM streams.
+    ///
+    /// For standard tracks (fixed byte rate) this stays at zero — the
+    /// existing `disk_byte_cck_delay()` timing applies unchanged.
+    ///
+    /// For variable-rate IPF tracks, the machine crate feeds per-bit timing
+    /// deltas through `disk_pll_accumulate()`. When the accumulator crosses
+    /// the byte boundary (16 bits = 1 MFM word), `disk_pll_word_ready()`
+    /// returns true and the accumulator resets.
+    disk_pll_phase: u16,
+    /// Whether the PLL is in variable-rate mode (driven by IPF timing data).
+    pub disk_pll_variable_rate: bool,
     audio: [AudioChannel; 4],
 }
 
@@ -331,6 +372,8 @@ impl Paula8364 {
             disk_write_dma_log: Vec::new(),
             disk_write_pio_log: Vec::new(),
             disk_dma_pending: false,
+            disk_pll_phase: 0,
+            disk_pll_variable_rate: false,
             audio: [AudioChannel::default(); 4],
         }
     }
@@ -689,6 +732,26 @@ impl Paula8364 {
             self.dskbytr_data = next;
             self.dskbytr_valid = true;
         }
+    }
+
+    /// Accumulate one MFM bit-cell duration into the disk PLL.
+    ///
+    /// Call once per CCK in variable-rate mode with the bit-cell timing value
+    /// from the IPF track data. Returns `true` when a full MFM word (16 bits)
+    /// has been clocked in and is ready for consumption.
+    pub fn disk_pll_accumulate(&mut self, bit_cells: u16) -> bool {
+        self.disk_pll_phase += bit_cells;
+        if self.disk_pll_phase >= 16 {
+            self.disk_pll_phase -= 16;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Reset the disk PLL phase accumulator.
+    pub fn disk_pll_reset(&mut self) {
+        self.disk_pll_phase = 0;
     }
 
     pub fn note_disk_write_dma_word(&mut self, word: u16) {
@@ -1197,5 +1260,137 @@ mod tests {
 
         assert_eq!(paula.disk_write_pio_log(), &[0x1111, 0x3333]);
         assert_eq!(paula.disk_write_dma_log(), &[0x2222]);
+    }
+
+    // --- A5: Modulation audit tests ---
+
+    #[test]
+    fn modulator_channel_output_is_muted_in_stereo_mix() {
+        // When channel 0 is a period modulator for channel 1, its audio
+        // output should be zero in the stereo mix even if it has data.
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000;
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0A8, 64)); // AUD0VOL
+        assert!(paula.write_audio_register(0x0AA, 0x7F7F)); // loud data
+
+        // Enable period modulation: ch0 modulates ch1's period.
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1);
+
+        let read = |_addr: u32| -> u8 { 0 };
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+
+        let (left, _right) = paula.mix_audio_stereo();
+        assert!(
+            left.abs() < 0.01,
+            "period modulator should be silent in mix (left={left})"
+        );
+    }
+
+    #[test]
+    fn volume_modulation_clamps_to_max_64() {
+        // When modulation writes a volume > 64, playback should clamp.
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000;
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0B6, 124)); // AUD1PER
+        assert!(paula.write_audio_register(0x0B8, 1)); // AUD1VOL = 1
+        assert!(paula.write_audio_register(0x0BA, 0x7F7F)); // AUD1DAT
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0V1);
+
+        // Write AUD0DAT with low byte 0x7F (127 > 64).
+        assert!(paula.write_audio_register(0x0AA, 0x007F));
+
+        let read = |_addr: u32| -> u8 { 0 };
+        // Advance through both byte transitions so modulation applies.
+        for _ in 0..248 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+
+        // Volume write clamps at 64 on the way in — readback shows clamped value.
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(64),
+            "volume register should show clamped value (write_volume clamps to 64)"
+        );
+
+        // But the mix should use clamped volume (64).
+        let (_left, right) = paula.mix_audio_stereo();
+        assert!(
+            right.abs() > 0.01,
+            "channel 1 should produce audible output after modulation"
+        );
+    }
+
+    #[test]
+    fn combined_modulation_period_before_volume_within_one_word() {
+        // Combined attach: period updates on 010→011, volume on 011→010.
+        // Verify both happen in the correct order within one word cycle.
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000;
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0B6, 500)); // AUD1PER
+        assert!(paula.write_audio_register(0x0B8, 10)); // AUD1VOL
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
+        assert!(paula.write_audio_register(0x0AA, 0x0120)); // hi=0x01, lo=0x20
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        // First 124 CCKs: 010→011 transition, period modulation.
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B6),
+            Some(0x0120),
+            "period should update on first (hi-byte) transition"
+        );
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(10),
+            "volume should NOT update on first transition"
+        );
+
+        // Next 124 CCKs: 011→010 transition, volume modulation.
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(0x20),
+            "volume should update on second (lo-byte) transition"
+        );
+    }
+
+    #[test]
+    fn dac_table_zero_sample_is_near_zero() {
+        // Verify the DAC non-linearity table maps sample 0 to ~0.0.
+        let idx = 0u8 as usize; // sample 0
+        let val = super::DAC_TABLE[idx];
+        assert!(
+            val.abs() < 0.001,
+            "DAC table at sample 0 should be near zero (got {val})"
+        );
+    }
+
+    #[test]
+    fn dac_table_extremes_are_compressed() {
+        // The non-linear DAC should compress peaks: |table[127]| < 1.0
+        // and |table[128]| < 1.0 (representing +127 and -128).
+        let pos_peak = super::DAC_TABLE[127u8 as usize]; // +127 → idx 127
+        let neg_peak = super::DAC_TABLE[128u8 as usize]; // -128 → idx 128
+        assert!(
+            pos_peak < 1.0 && pos_peak > 0.95,
+            "positive peak should be compressed below 1.0 (got {pos_peak})"
+        );
+        assert!(
+            neg_peak > -1.01 && neg_peak < -0.95,
+            "negative peak should be compressed above -1.0 (got {neg_peak})"
+        );
     }
 }

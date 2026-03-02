@@ -1,0 +1,16 @@
+[package]
+name = "format-ipf"
+description = "IPF (Interchangeable Preservation Format) disk image parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+drive-amiga-floppy = { path = "../drive-amiga-floppy" }
+
+[lints]
+workspace = true
+
+[lib]
+name = "format_ipf"
+path = "src/lib.rs"
