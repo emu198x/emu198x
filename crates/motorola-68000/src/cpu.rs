@@ -393,6 +393,18 @@ impl Cpu68000 {
         self.model.capabilities()
     }
 
+    /// Return the model-appropriate internal delay. On the 68000 this
+    /// returns `m68k`, on the 68020+ pipeline it returns `m68020`.
+    /// When the 68020 value is 0 this should be elided at the call site
+    /// (don't push a zero-length Internal micro-op).
+    #[inline]
+    pub(crate) fn internal_delay(&self, m68k: u8, m68020: u8) -> u8 {
+        match self.model.timing_class() {
+            crate::model::TimingClass::M68000 => m68k,
+            _ => m68020,
+        }
+    }
+
     /// Reset the CPU to begin executing from a given SSP and PC.
     ///
     /// Sets supervisor mode with interrupts masked, clears the micro-op

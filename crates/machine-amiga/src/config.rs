@@ -2,9 +2,14 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AmigaModel {
+    A1000,
     A500,
     A500Plus,
+    A600,
     A1200,
+    A2000,
+    A3000,
+    A4000,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

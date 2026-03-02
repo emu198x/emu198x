@@ -153,7 +153,10 @@ impl Cpu68000 {
                         Size::Long => result,
                     };
                     if size == Size::Long {
-                        self.micro_ops.push(MicroOp::Internal(4));
+                        let d = self.internal_delay(4, 0);
+                        if d > 0 {
+                            self.micro_ops.push(MicroOp::Internal(d));
+                        }
                     }
                 } else {
                     // Memory mode: -(Ay),-(Ax) — uses followup tags
@@ -206,7 +209,10 @@ impl Cpu68000 {
                     }
                     _ => {}
                 }
-                self.micro_ops.push(MicroOp::Internal(2));
+                let d = self.internal_delay(2, 0);
+                if d > 0 {
+                    self.micro_ops.push(MicroOp::Internal(d));
+                }
                 return;
             }
         }
@@ -234,7 +240,10 @@ impl Cpu68000 {
                     self.regs.d[rx as usize] =
                         (self.regs.d[rx as usize] & 0xFFFF_FF00) | u32::from(result);
                     self.set_bcd_flags(result, carry, overflow);
-                    self.micro_ops.push(MicroOp::Internal(2));
+                    let d = self.internal_delay(2, 0);
+                    if d > 0 {
+                        self.micro_ops.push(MicroOp::Internal(d));
+                    }
                 } else {
                     // Memory mode: -(Ay),-(Ax)
                     let dec_src = if ry == 7 { 2u32 } else { 1 };
@@ -411,7 +420,10 @@ impl Cpu68000 {
                 };
                 self.regs.sr = (self.regs.sr & 0xFF00) | (result as u16 & 0xFF);
             }
-            self.micro_ops.push(MicroOp::Internal(8));
+            let d = self.internal_delay(8, 0);
+            if d > 0 {
+                self.micro_ops.push(MicroOp::Internal(d));
+            }
             return;
         }
 
@@ -443,23 +455,25 @@ impl Cpu68000 {
                     self.regs.d[ea_reg as usize] = result;
                 }
                 let extra = match bit_type {
-                    0 => 2,
+                    0 => self.internal_delay(2, 0),
                     2 => {
                         if bit >= 16 {
-                            6
+                            self.internal_delay(6, 0)
                         } else {
-                            4
+                            self.internal_delay(4, 0)
                         }
                     }
                     _ => {
                         if bit >= 16 {
-                            4
+                            self.internal_delay(4, 0)
                         } else {
-                            2
+                            self.internal_delay(2, 0)
                         }
                     }
                 };
-                self.micro_ops.push(MicroOp::Internal(extra));
+                if extra > 0 {
+                    self.micro_ops.push(MicroOp::Internal(extra));
+                }
             } else {
                 // Memory destination: byte, bit mod 8
                 self.bit_op = match bit_type {
@@ -525,23 +539,25 @@ impl Cpu68000 {
                         self.regs.d[ea_reg as usize] = result;
                     }
                     let extra = match bit_type {
-                        0 => 2,
+                        0 => self.internal_delay(2, 0),
                         2 => {
                             if bit >= 16 {
-                                6
+                                self.internal_delay(6, 0)
                             } else {
-                                4
+                                self.internal_delay(4, 0)
                             }
                         }
                         _ => {
                             if bit >= 16 {
-                                4
+                                self.internal_delay(4, 0)
                             } else {
-                                2
+                                self.internal_delay(2, 0)
                             }
                         }
                     };
-                    self.micro_ops.push(MicroOp::Internal(extra));
+                    if extra > 0 {
+                        self.micro_ops.push(MicroOp::Internal(extra));
+                    }
                 } else {
                     // Memory destination: byte, bit mod 8
                     self.bit_op = match bit_type {
@@ -807,10 +823,17 @@ impl Cpu68000 {
 
                 self.perform_shift(reg, count, direction as u8, shift_type, size);
 
-                // Timing: 6+2n (byte/word), 8+2n (long)
-                let base = if size == Size::Long { 4u8 } else { 2u8 };
-                let delay = base + (count as u8) * 2;
-                self.micro_ops.push(MicroOp::Internal(delay));
+                // 68000: 6+2n (byte/word), 8+2n (long)
+                // 68020+: barrel shifter, constant time
+                let delay = if self.capabilities().barrel_shifter {
+                    0
+                } else {
+                    let base = if size == Size::Long { 4u8 } else { 2u8 };
+                    base + (count as u8) * 2
+                };
+                if delay > 0 {
+                    self.micro_ops.push(MicroOp::Internal(delay));
+                }
             }
             return;
         }
@@ -1051,7 +1074,10 @@ impl Cpu68000 {
                 self.regs.d[ea_reg as usize] =
                     (self.regs.d[ea_reg as usize] & 0xFFFF_FF00) | u32::from(result);
                 self.set_bcd_flags(result, carry, overflow);
-                self.micro_ops.push(MicroOp::Internal(2));
+                let d = self.internal_delay(2, 0);
+                if d > 0 {
+                    self.micro_ops.push(MicroOp::Internal(d));
+                }
                 return;
             }
 
@@ -1084,10 +1110,13 @@ impl Cpu68000 {
                         self.size = Size::Word;
                         self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
                         if ea_mode_bits == 0 {
-                            // Dn: 6 cycles (Internal(2))
+                            // Dn: 68000=6 cycles (Internal(2)), 68020=0
                             self.regs.d[ea_reg as usize] =
                                 (self.regs.d[ea_reg as usize] & 0xFFFF_0000) | (self.data & 0xFFFF);
-                            self.micro_ops.push(MicroOp::Internal(2));
+                            let d = self.internal_delay(2, 0);
+                            if d > 0 {
+                                self.micro_ops.push(MicroOp::Internal(d));
+                            }
                         } else {
                             // Memory: dummy read then write
                             self.in_followup = true;
@@ -2478,9 +2507,15 @@ impl Cpu68000 {
                         }
                         self.regs.sr = sr;
 
-                        // Timing: 38 + 2 * (set bits in source word)
-                        let total = 38 + 2 * src_word.count_ones();
-                        let internal = total.saturating_sub(4) as u8;
+                        // 68000: 38 + 2*(set bits in source) clocks
+                        // 68020 CC: 28 clocks total (best case)
+                        let internal = if self.capabilities().barrel_shifter {
+                            // 68020+: fixed ~28 clocks, minus 4 for bus cycle
+                            24u8
+                        } else {
+                            let total = 38 + 2 * src_word.count_ones();
+                            total.saturating_sub(4) as u8
+                        };
                         self.micro_ops.push(MicroOp::Internal(internal));
                     }
                     (0xC000, 7) => {
@@ -2499,11 +2534,16 @@ impl Cpu68000 {
                         }
                         self.regs.sr = sr;
 
-                        // Timing: Booth encoding transitions in source word
-                        let v = u32::from(src_word);
-                        let transitions = ((v ^ (v << 1)) & 0xFFFF).count_ones();
-                        let total = 38 + 2 * transitions;
-                        let internal = total.saturating_sub(4) as u8;
+                        // 68000: Booth encoding transitions
+                        // 68020 CC: 28 clocks total (best case)
+                        let internal = if self.capabilities().barrel_shifter {
+                            24u8
+                        } else {
+                            let v = u32::from(src_word);
+                            let transitions = ((v ^ (v << 1)) & 0xFFFF).count_ones();
+                            let total = 38 + 2 * transitions;
+                            total.saturating_sub(4) as u8
+                        };
                         self.micro_ops.push(MicroOp::Internal(internal));
                     }
                     (0x8000, 3) => {
@@ -2513,7 +2553,6 @@ impl Cpu68000 {
                             return;
                         }
                         let dividend = self.regs.d[dn];
-                        let total_cycles = Self::divu_cycles(dividend, src_word);
                         let quotient = dividend / u32::from(src_word);
                         let remainder = dividend % u32::from(src_word);
 
@@ -2533,7 +2572,13 @@ impl Cpu68000 {
                             }
                             self.regs.sr = sr;
                         }
-                        let internal = total_cycles.saturating_sub(4);
+                        // 68000: Cwik restoring division. 68020 CC: 44 clocks total.
+                        let internal = if self.capabilities().barrel_shifter {
+                            40u8
+                        } else {
+                            let total_cycles = Self::divu_cycles(dividend, src_word);
+                            total_cycles.saturating_sub(4)
+                        };
                         if internal > 0 {
                             self.micro_ops.push(MicroOp::Internal(internal));
                         }
@@ -2546,7 +2591,6 @@ impl Cpu68000 {
                         }
                         let dividend = self.regs.d[dn] as i32;
                         let divisor = src_word as i16;
-                        let total_cycles = Self::divs_cycles(dividend, divisor);
                         let quotient = dividend / i32::from(divisor);
                         let remainder = dividend % i32::from(divisor);
 
@@ -2568,7 +2612,13 @@ impl Cpu68000 {
                             }
                             self.regs.sr = sr;
                         }
-                        let internal = total_cycles.saturating_sub(4);
+                        // 68000: Cwik restoring division. 68020 CC: 56 clocks total.
+                        let internal = if self.capabilities().barrel_shifter {
+                            52u8
+                        } else {
+                            let total_cycles = Self::divs_cycles(dividend, divisor);
+                            total_cycles.saturating_sub(4)
+                        };
                         if internal > 0 {
                             self.micro_ops.push(MicroOp::Internal(internal));
                         }

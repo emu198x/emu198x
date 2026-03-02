@@ -45,9 +45,11 @@ impl Memory {
             return self.kickstart[(addr & self.kickstart_mask) as usize];
         }
 
-        if addr <= self.chip_ram_mask {
-            // Within installed chip RAM
-            self.chip_ram[addr as usize]
+        // Agnus decodes chip RAM addresses with incomplete address lines,
+        // so $000000-$1FFFFF wraps to the installed size. For example,
+        // on a 512KB machine, $80000 aliases to $00000.
+        if addr < 0x20_0000 {
+            self.chip_ram[(addr & self.chip_ram_mask) as usize]
         } else if (0xC0_0000..0xE0_0000).contains(&addr) && !self.slow_ram.is_empty() {
             let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
             self.slow_ram[offset as usize]
@@ -64,11 +66,9 @@ impl Memory {
 
     pub fn write_byte(&mut self, addr: u32, val: u8) {
         let addr = addr & 0xFFFFFF;
-        // Only addresses within installed chip RAM respond.
-        // Agnus decodes A0-A18 for 512KB, A0-A19 for 1MB, etc.
-        // Addresses above the installed size are unmapped (no DTACK).
-        if addr <= self.chip_ram_mask {
-            self.chip_ram[addr as usize] = val;
+        // Agnus wraps chip RAM addresses to installed size.
+        if addr < 0x20_0000 {
+            self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
         } else if (0xC0_0000..0xE0_0000).contains(&addr) && !self.slow_ram.is_empty() {
             let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
             self.slow_ram[offset as usize] = val;
@@ -83,6 +83,21 @@ mod tests {
 
     fn test_ks() -> Vec<u8> {
         vec![0u8; 256 * 1024]
+    }
+
+    #[test]
+    fn chip_ram_aliasing() {
+        let mut mem = Memory::new(512 * 1024, test_ks(), 0);
+        mem.overlay = false;
+        mem.write_byte(0x001000, 0xAB);
+        assert_eq!(mem.read_byte(0x001000), 0xAB);
+        // $80000 aliases to $00000 on a 512KB machine
+        mem.write_byte(0x080000, 0xCD);
+        assert_eq!(mem.read_byte(0x000000), 0xCD, "should alias to $00000");
+        assert_eq!(mem.read_byte(0x080000), 0xCD, "read from aliased address");
+        // $100000 also aliases to $00000
+        mem.write_byte(0x100000, 0xEF);
+        assert_eq!(mem.read_byte(0x000000), 0xEF, "should alias to $00000");
     }
 
     #[test]

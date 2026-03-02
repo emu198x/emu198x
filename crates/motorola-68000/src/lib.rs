@@ -11,4 +11,4 @@ pub mod model;
 pub mod registers;
 
 pub use cpu::Cpu68000;
-pub use model::{CpuCapabilities, CpuModel};
+pub use model::{CpuCapabilities, CpuModel, TimingClass};

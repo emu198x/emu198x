@@ -1107,11 +1107,11 @@ impl Agnus {
                 // Using +7 here yields the expected word count:
                 //   lowres: ((stop-start)/8) + 1
                 //   hires:  ((stop-start)/4) + 2
-                let fetch_end_extra = 7;
+                let fetch_end_extra: u16 = 7;
                 if self.dma_enabled(0x0100)
                     && num_bpl > 0
                     && self.hpos >= self.ddfstrt
-                    && self.hpos <= self.ddfstop + fetch_end_extra
+                    && u32::from(self.hpos) <= u32::from(self.ddfstop) + u32::from(fetch_end_extra)
                 {
                     let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
                     let plane_slot = if hires {

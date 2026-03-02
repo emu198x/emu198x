@@ -577,10 +577,16 @@ fn dump_display_state(amiga: &Amiga) {
 
 fn parse_model_arg(value: &str) -> Result<AmigaModel, String> {
     match value.to_ascii_lowercase().as_str() {
+        "a1000" => Ok(AmigaModel::A1000),
         "a500" => Ok(AmigaModel::A500),
         "a500+" | "a500plus" => Ok(AmigaModel::A500Plus),
+        "a600" => Ok(AmigaModel::A600),
+        "a1200" => Ok(AmigaModel::A1200),
+        "a2000" => Ok(AmigaModel::A2000),
+        "a3000" => Ok(AmigaModel::A3000),
+        "a4000" => Ok(AmigaModel::A4000),
         other => Err(format!(
-            "Invalid --model value '{other}' (expected 'a500' or 'a500plus')"
+            "Invalid --model value '{other}' (expected 'a1000', 'a500', 'a500plus', 'a600', 'a1200', 'a2000', 'a3000', or 'a4000')"
         )),
     }
 }
@@ -645,21 +651,33 @@ fn resolve_model_chipset(
     model: AmigaModel,
     requested_chipset: Option<AmigaChipset>,
 ) -> Result<AmigaChipset, String> {
-    match (model, requested_chipset) {
-        (AmigaModel::A500Plus, None) => Ok(AmigaChipset::Ecs),
-        (AmigaModel::A500Plus, Some(AmigaChipset::Ocs)) => Err(String::from(
-            "A500+ requires ECS; use --chipset ecs or omit --chipset",
+    let default_chipset = match model {
+        AmigaModel::A1000 | AmigaModel::A500 | AmigaModel::A2000 => AmigaChipset::Ocs,
+        AmigaModel::A500Plus | AmigaModel::A600 | AmigaModel::A3000 => AmigaChipset::Ecs,
+        AmigaModel::A1200 | AmigaModel::A4000 => AmigaChipset::Aga,
+    };
+    match requested_chipset {
+        None => Ok(default_chipset),
+        Some(AmigaChipset::Ocs) if default_chipset != AmigaChipset::Ocs => Err(format!(
+            "{} requires {:?}; use --chipset {:?} or omit --chipset",
+            model_name(model),
+            default_chipset,
+            default_chipset,
         )),
-        (_, Some(chipset)) => Ok(chipset),
-        (_, None) => Ok(AmigaChipset::Ocs),
+        Some(chipset) => Ok(chipset),
     }
 }
 
 fn model_name(model: AmigaModel) -> &'static str {
     match model {
+        AmigaModel::A1000 => "A1000",
         AmigaModel::A500 => "A500",
         AmigaModel::A500Plus => "A500+",
+        AmigaModel::A600 => "A600",
         AmigaModel::A1200 => "A1200",
+        AmigaModel::A2000 => "A2000",
+        AmigaModel::A3000 => "A3000",
+        AmigaModel::A4000 => "A4000",
     }
 }
 
@@ -2089,15 +2107,21 @@ mod tests {
     }
 
     #[test]
-    fn model_arg_parser_accepts_a500_and_a500plus() {
+    fn model_arg_parser_accepts_all_models() {
+        assert_eq!(parse_model_arg("a1000"), Ok(AmigaModel::A1000));
         assert_eq!(parse_model_arg("a500"), Ok(AmigaModel::A500));
         assert_eq!(parse_model_arg("A500+"), Ok(AmigaModel::A500Plus));
         assert_eq!(parse_model_arg("a500plus"), Ok(AmigaModel::A500Plus));
+        assert_eq!(parse_model_arg("a600"), Ok(AmigaModel::A600));
+        assert_eq!(parse_model_arg("a1200"), Ok(AmigaModel::A1200));
+        assert_eq!(parse_model_arg("a2000"), Ok(AmigaModel::A2000));
+        assert_eq!(parse_model_arg("a3000"), Ok(AmigaModel::A3000));
+        assert_eq!(parse_model_arg("a4000"), Ok(AmigaModel::A4000));
     }
 
     #[test]
     fn model_arg_parser_rejects_invalid_values() {
-        assert!(parse_model_arg("a1200").is_err());
+        assert!(parse_model_arg("a9999").is_err());
     }
 
     #[test]

@@ -174,7 +174,10 @@ impl Cpu68000 {
                 // MOVE to SR
                 self.regs.sr = val as u16 & crate::flags::SR_MASK;
             }
-            self.micro_ops.push(MicroOp::Internal(8));
+            let d = self.internal_delay(8, 0);
+            if d > 0 {
+                self.micro_ops.push(MicroOp::Internal(d));
+            }
             return;
         }
 

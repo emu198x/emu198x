@@ -56,6 +56,22 @@ pub const PAL_FRAME_TICKS: u64 = (commodore_agnus_ocs::PAL_CCKS_PER_LINE as u64)
 pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
 const PAL_CCK_HZ: u64 = PAL_CRYSTAL_HZ / TICKS_PER_CCK;
 
+/// CPU clock mode. Models that derive their clock from the system
+/// crystal use `CrystalDerived`; models with an independent CPU
+/// oscillator (A3000, A4000) use `Independent`.
+#[derive(Debug, Clone)]
+enum CpuClockMode {
+    /// CPU clock = master_clock × (4 / divisor). Exact integer ratio.
+    CrystalDerived { divisor: u64 },
+    /// Independent oscillator. Bresenham accumulator ticks the CPU
+    /// at `freq_hz` regardless of the video crystal.
+    Independent {
+        freq_hz: u64,
+        phase: u64,
+        clock: u64,
+    },
+}
+
 #[derive(Debug, Clone)]
 struct DiskDmaRuntime {
     data: Vec<u8>,
@@ -181,10 +197,10 @@ pub struct Amiga {
     pub model: AmigaModel,
     pub chipset: AmigaChipset,
     pub region: AmigaRegion,
-    /// Crystal ticks per CPU cycle. 68000 models = 4 (7 MHz from 28 MHz
-    /// crystal), 68020 A1200 = 2 (14 MHz). The CPU's `tick()` method
-    /// gates on `clock % 4 == 0`, so we scale the clock fed to it.
-    cpu_crystal_divisor: u64,
+    /// How the CPU clock relates to the master crystal. Crystal-derived
+    /// models (A500, A1200) divide the video crystal; independent-clock
+    /// models (A3000, A4000) use a Bresenham accumulator.
+    cpu_clock_mode: CpuClockMode,
     pub cpu: Cpu68000,
     pub agnus: Agnus,
     pub memory: Memory,
@@ -254,9 +270,9 @@ impl Amiga {
             slow_ram_size,
         } = config;
         let chip_ram_size = match model {
-            AmigaModel::A500 => 512 * 1024,
-            AmigaModel::A500Plus => 1024 * 1024,
-            AmigaModel::A1200 => 2 * 1024 * 1024,
+            AmigaModel::A1000 | AmigaModel::A500 | AmigaModel::A2000 => 512 * 1024,
+            AmigaModel::A500Plus | AmigaModel::A600 => 1024 * 1024,
+            AmigaModel::A1200 | AmigaModel::A3000 | AmigaModel::A4000 => 2 * 1024 * 1024,
         };
 
         let region_lines = region.lines_per_frame();
@@ -292,9 +308,33 @@ impl Amiga {
             }
         };
 
-        let (mut cpu, cpu_crystal_divisor) = match model {
-            AmigaModel::A1200 => (Cpu68000::new_with_model(CpuModel::M68020), 2u64),
-            _ => (Cpu68000::new(), TICKS_PER_CPU),
+        let (mut cpu, cpu_clock_mode) = match model {
+            AmigaModel::A1200 => (
+                Cpu68000::new_with_model(CpuModel::M68EC020),
+                CpuClockMode::CrystalDerived { divisor: 2 },
+            ),
+            AmigaModel::A3000 => (
+                Cpu68000::new_with_model(CpuModel::M68030),
+                CpuClockMode::Independent {
+                    freq_hz: 25_000_000,
+                    phase: 0,
+                    clock: 0,
+                },
+            ),
+            AmigaModel::A4000 => (
+                Cpu68000::new_with_model(CpuModel::M68040),
+                CpuClockMode::Independent {
+                    freq_hz: 25_000_000,
+                    phase: 0,
+                    clock: 0,
+                },
+            ),
+            _ => (
+                Cpu68000::new(),
+                CpuClockMode::CrystalDerived {
+                    divisor: TICKS_PER_CPU,
+                },
+            ),
         };
         let memory = Memory::new(chip_ram_size, kickstart, slow_ram_size);
 
@@ -327,7 +367,7 @@ impl Amiga {
             model,
             chipset,
             region,
-            cpu_crystal_divisor,
+            cpu_clock_mode,
             cpu,
             agnus,
             memory,
@@ -763,28 +803,67 @@ impl Amiga {
             }
         }
 
-        // Cpu68000::tick() self-gates to `clock % 4 == 0` boundaries.
-        // Scale the master clock to match the model's CPU frequency:
-        // divisor 4 → pass master_clock as-is (7 MHz 68000),
-        // divisor 2 → pass master_clock * 2 (14 MHz 68020 A1200).
-        let cpu_clock = self.master_clock * (TICKS_PER_CPU / self.cpu_crystal_divisor);
-        let mut bus = AmigaBusWrapper {
-            chipset: self.chipset,
-            agnus: &mut self.agnus,
-            memory: &mut self.memory,
-            denise: &mut self.denise,
-            copper: &mut self.copper,
-            cia_a: &mut self.cia_a,
-            cia_b: &mut self.cia_b,
-            paula: &mut self.paula,
-            floppy: &mut self.floppy,
-            keyboard: &mut self.keyboard,
-            bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
-            ddfstrt_pending: &mut self.ddfstrt_pending,
-            ddfstop_pending: &mut self.ddfstop_pending,
-            color_pending: &mut self.color_pending,
-        };
-        self.cpu.tick(&mut bus, cpu_clock);
+        // Tick the CPU. Crystal-derived clocks scale the master clock to
+        // match the model's frequency. Independent clocks use a Bresenham
+        // accumulator to advance the CPU at the correct rate.
+        match &mut self.cpu_clock_mode {
+            CpuClockMode::CrystalDerived { divisor } => {
+                let cpu_clock = self.master_clock * (TICKS_PER_CPU / *divisor);
+                let mut bus = AmigaBusWrapper {
+                    chipset: self.chipset,
+                    agnus: &mut self.agnus,
+                    memory: &mut self.memory,
+                    denise: &mut self.denise,
+                    copper: &mut self.copper,
+                    cia_a: &mut self.cia_a,
+                    cia_b: &mut self.cia_b,
+                    paula: &mut self.paula,
+                    floppy: &mut self.floppy,
+                    keyboard: &mut self.keyboard,
+                    bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
+                    ddfstrt_pending: &mut self.ddfstrt_pending,
+                    ddfstop_pending: &mut self.ddfstop_pending,
+                    color_pending: &mut self.color_pending,
+                };
+                self.cpu.tick(&mut bus, cpu_clock);
+            }
+            CpuClockMode::Independent {
+                freq_hz,
+                phase,
+                clock,
+            } => {
+                let master_hz = if self.region == AmigaRegion::Pal {
+                    PAL_CRYSTAL_HZ
+                } else {
+                    NTSC_CRYSTAL_HZ
+                };
+                *phase += *freq_hz;
+                while *phase >= master_hz {
+                    *phase -= master_hz;
+                    *clock += 1;
+                    let mut bus = AmigaBusWrapper {
+                        chipset: self.chipset,
+                        agnus: &mut self.agnus,
+                        memory: &mut self.memory,
+                        denise: &mut self.denise,
+                        copper: &mut self.copper,
+                        cia_a: &mut self.cia_a,
+                        cia_b: &mut self.cia_b,
+                        paula: &mut self.paula,
+                        floppy: &mut self.floppy,
+                        keyboard: &mut self.keyboard,
+                        bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
+                        ddfstrt_pending: &mut self.ddfstrt_pending,
+                        ddfstop_pending: &mut self.ddfstop_pending,
+                        color_pending: &mut self.color_pending,
+                    };
+                    // Scale clock to CPU bus-cycle domain: the 68000
+                    // tick() gates on clock % 4 == 0, so multiply by 4
+                    // so every Bresenham step maps to one bus cycle.
+                    self.cpu.tick(&mut bus, *clock * TICKS_PER_CPU);
+                }
+            }
+        }
 
         if self.master_clock.is_multiple_of(TICKS_PER_ECLOCK) {
             self.cia_a.tick();
@@ -1170,7 +1249,8 @@ impl Amiga {
     /// Returns `Some((fb_x, fb_y))` in raster-buffer space when the position
     /// is in the visible (non-blanked, in-window) area. Returns `None` when
     /// blanked by ECS programmable blank windows or outside the ECS display
-    /// window. OCS has no programmable blanking, so all positions are visible.
+    /// window. OCS has no programmable blanking — all positions are visible
+    /// (the playfield gate clips bitplane data separately via DIWSTRT/DIWSTOP).
     fn beam_to_fb_beam_x(&self, vpos: u16, hpos_cck: u16, beam_x: u16) -> Option<(u32, u32)> {
         if self.chipset.is_ecs_or_aga() {
             if self.agnus.hblank_window_active(hpos_cck) {
@@ -1217,7 +1297,28 @@ impl Amiga {
 
     fn playfield_window_active_beam_x(&self, vpos: u16, hpos_cck: u16, beam_x: u16) -> bool {
         if !self.chipset.is_ecs_or_aga() {
-            return true;
+            // OCS: clip to DIWSTRT/DIWSTOP with implicit H8/V8 bits.
+            let vstart = (self.agnus.diwstrt >> 8) & 0x00FF;
+            let stop_v_low = (self.agnus.diwstop >> 8) & 0x00FF;
+            let stop_v8 = ((!((stop_v_low >> 7) & 1)) & 1) << 8;
+            let vstop = stop_v8 | stop_v_low;
+            let hstart = self.agnus.diwstrt & 0x00FF;
+            let hstop = 0x0100 | (self.agnus.diwstop & 0x00FF);
+            let v_active = if vstart == vstop {
+                true // no vertical clipping if start == stop
+            } else if vstart < vstop {
+                vpos >= vstart && vpos < vstop
+            } else {
+                vpos >= vstart || vpos < vstop
+            };
+            let h_active = if hstart == hstop {
+                true
+            } else if hstart < hstop {
+                beam_x >= hstart && beam_x < hstop
+            } else {
+                beam_x >= hstart || beam_x < hstop
+            };
+            return v_active && h_active;
         }
         if self.agnus.hblank_window_active(hpos_cck) || self.agnus.vblank_window_active(vpos) {
             return false;
