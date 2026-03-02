@@ -2654,14 +2654,38 @@ impl Cpu68000 {
                 self.addr = self.regs.a(r as usize).wrapping_sub(dec);
                 self.regs.set_a(r as usize, self.addr);
             }
+            Some(AddrMode::AddrIndDisp(r)) => {
+                let disp = self.consume_irc() as i16 as i32;
+                self.addr = self.regs.a(r as usize).wrapping_add(disp as u32);
+            }
+            Some(AddrMode::AddrIndIndex(r)) => {
+                let ext_w = self.consume_irc();
+                let base = self.regs.a(r as usize);
+                let disp = (ext_w & 0xFF) as i8 as i32;
+                let idx_reg = ((ext_w >> 12) & 7) as usize;
+                let idx_val = if ext_w & 0x8000 != 0 {
+                    self.regs.a(idx_reg)
+                } else {
+                    self.regs.d[idx_reg]
+                };
+                let idx = if ext_w & 0x0800 != 0 {
+                    idx_val
+                } else {
+                    idx_val as i16 as i32 as u32
+                };
+                self.addr = base.wrapping_add(disp as u32).wrapping_add(idx);
+            }
+            Some(AddrMode::AbsShort) => {
+                self.addr = (self.consume_irc() as i16 as i32) as u32;
+            }
+            Some(AddrMode::AbsLong) => {
+                let hi = u32::from(self.consume_irc()) << 16;
+                let lo = u32::from(self.consume_irc());
+                self.addr = hi | lo;
+            }
             _ => {
-                // For displacement, absolute, etc. — resolve through normal EA path
-                // For now, treat as simple address modes
-                self.size = size;
-                self.src_mode = ea_mode;
-                self.movem_mask = ext; // stash for later
-                // Fall through to simplified inline resolution
-                // TODO: full EA resolution for complex modes
+                // Remaining modes (DataReg, AddrReg, Immediate, PC-relative)
+                // are not valid for CAS.
                 self.begin_group1_exception(4, self.instr_start_pc);
                 return;
             }

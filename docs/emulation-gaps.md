@@ -118,9 +118,10 @@ applications. MCP audio capture returns full WAV-encoded SID output.
 
 ## NES
 
-Boots games using 12 mappers with NTSC and PAL support, renders
+Boots games using 14 mappers with NTSC and PAL support, renders
 backgrounds and sprites with emphasis/greyscale effects, plays all five
 APU channels including DMC sample playback via DMA. Two-player input.
+Battery-backed save RAM for RPGs.
 
 ### Implemented
 
@@ -128,9 +129,10 @@ APU channels including DMC sample playback via DMA. Two-player input.
 - **PPU**: Background + sprites, all mirroring modes (H/V/4-screen/single-screen)
 - **APU**: Pulse (×2), triangle, noise, DMC sample playback (DMA), frame counter, mixer at 48 kHz
 - **PPU effects**: PPUMASK greyscale (bit 0) and emphasis (bits 5-7) applied at pixel output, open bus latch (write-only register reads return last written value, $2002 low 5 bits from open bus)
-- **Mappers**: NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4) with scanline IRQ, AxROM (7), MMC2 (9) CHR latch, MMC4 (10) CHR latch, Color Dreams (11), BxROM (34), GxROM (66), Camerica (71)
+- **Mappers**: NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4) with scanline IRQ, AxROM (7), MMC2 (9) CHR latch, MMC4 (10) CHR latch, Color Dreams (11), BxROM (34), GxROM (66), Camerica (71), Mapper 87, Mapper 206 (simplified MMC3)
 - **Mapper IRQ**: Mapper trait supports IRQ signalling; MMC3 scanline counter wired to CPU interrupt line
 - **Input**: Two standard controllers ($4016/$4017), Four-Score 4-player adapter ($4016/$4017 extended read with P3/P4 and signature), Zapper light gun (port 2, light sense from framebuffer brightness, trigger)
+- **Battery save**: PRG RAM persistence via `save_battery`/`load_battery` (MMC1, MMC3 mappers). MCP commands for save/load round-trip.
 - **Bus conflicts**: UxROM, CNROM, AxROM, BxROM — written value ANDed with ROM data at write address
 - **Region**: NTSC (262 scanlines, 1.79 MHz CPU) and PAL (312 scanlines, 1.66 MHz CPU) with region-specific APU noise period, DMC rate, and frame counter tables
 
@@ -144,19 +146,20 @@ APU channels including DMC sample playback via DMA. Two-player input.
 
 No significant accuracy gaps remain. DMC DMA cycle stealing is now
 variable (1 for writes, 2 for even-aligned reads, 3 for odd-aligned
-reads) based on the CPU's last bus operation. DMC DMA can now interrupt
-OAM DMA rather than waiting for it to finish.
+reads) based on the CPU's last bus operation. DMC DMA waits for any
+active OAM DMA to finish before stealing cycles.
 
 ### Assessment
 
-**~87% of the NES library runs** (12 mappers). NTSC and PAL regions are
+**~89% of the NES library runs** (14 mappers). NTSC and PAL regions are
 supported with correct frame timing, APU tables, and CPU frequency.
+Battery-backed PRG RAM enables save data for RPGs (Zelda, Final Fantasy).
 All five APU channels are functional — DMC sample playback fetches bytes
-via DMA, stealing 4 CPU cycles per fetch. Two-player controller input is
-wired through both $4016 and $4017. The DMA/OAM conflict timing is
-simplified (DMC waits for OAM DMA to finish rather than interleaving),
-which is correct enough for audio but not cycle-exact for timing-sensitive
-demos.
+via DMA, stealing 1-3 CPU cycles per fetch depending on the CPU's
+previous bus operation. Two-player controller input is wired through both
+$4016 and $4017. DMC DMA waits for any active OAM DMA to finish rather
+than interleaving — correct for audio but not cycle-exact for
+timing-sensitive demos.
 
 ---
 
@@ -231,10 +234,10 @@ IDE/filesystem/autoconfig).
 
 | Category | Spectrum | C64 | NES | Amiga |
 |----------|----------|-----|-----|-------|
-| CPU | 100% | 100% | 100% | ~99% (68000 + 68020 MULL/DIVL/EXTB/MOVEC/BFXXX/CAS) |
+| CPU | 100% | 100% | 100% | ~99% (68000 + 68020 MULL/DIVL/EXTB/MOVEC/BFXXX/CAS with all EA modes) |
 | Video modes | 100% | 100% (all 6 modes + scrolling + sprites + collisions) | ~98% (emphasis + greyscale + open bus) | ~97% (OCS/ECS/AGA bitplanes + HAM6/8 + EHB + 24-bit palette + FMODE + sprite widths) |
 | Audio | 100% (beeper + AY) | ~97% (6581/8580, piecewise filter table, combined waveforms) | ~95% (all 5 channels) | ~93% (hardware LPF + DAC non-linearity) |
-| Storage | TAP + TZX + SNA + Z80 + DSK | PRG + CRT (7 types) + TAP (turbo) + D64 (r/w) | 12 mappers | ADF read/write + IPF read |
+| Storage | TAP + TZX + SNA + Z80 + DSK | PRG + CRT (7 types) + TAP (turbo) + D64 (r/w) | 14 mappers + battery save | ADF read/write + IPF read |
 | Peripherals | Keyboard + Kempston | Keyboard + joystick + REU + paddles | 4-player pads + Zapper | Keyboard + mouse |
 | Model variants | 48K, 128K, +2, +2A, +3 | PAL + NTSC | NTSC + PAL | A500, A500+, A1200 |
 

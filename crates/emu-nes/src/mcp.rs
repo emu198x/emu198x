@@ -176,6 +176,8 @@ impl McpServer {
             "enable_zapper" => self.handle_enable_zapper(id),
             "zapper_aim" => self.handle_zapper_aim(params, id),
             "zapper_trigger" => self.handle_zapper_trigger(params, id),
+            "save_battery" => self.handle_save_battery(id),
+            "load_battery" => self.handle_load_battery(params, id),
             _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
         }
     }
@@ -692,6 +694,64 @@ impl McpServer {
         let pulled = params.get("pulled").and_then(|v| v.as_bool()).unwrap_or(true);
         nes.set_zapper_trigger(pulled);
         RpcResponse::success(id, serde_json::json!({"trigger": pulled}))
+    }
+
+    fn handle_save_battery(&mut self, id: JsonValue) -> RpcResponse {
+        let nes = match self.require_nes(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        match nes.save_battery() {
+            Some(data) => {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(data);
+                RpcResponse::success(
+                    id,
+                    serde_json::json!({
+                        "size": data.len(),
+                        "data": b64,
+                    }),
+                )
+            }
+            None => RpcResponse::error(
+                id,
+                -32000,
+                "No battery save: cartridge has no battery flag or mapper has no PRG RAM".to_string(),
+            ),
+        }
+    }
+
+    fn handle_load_battery(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+        let nes = match self.require_nes(&id) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
+            }
+        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+            match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
+            }
+        } else {
+            return RpcResponse::error(
+                id,
+                -32602,
+                "Provide 'data' (base64) or 'path'".to_string(),
+            );
+        };
+
+        match nes.load_battery(&data) {
+            Ok(()) => RpcResponse::success(
+                id,
+                serde_json::json!({"status": "ok", "size": data.len()}),
+            ),
+            Err(e) => RpcResponse::error(id, -32000, e),
+        }
     }
 
     /// Run a script file: read a JSON array of simplified RPC requests, dispatch

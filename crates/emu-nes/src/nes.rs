@@ -45,6 +45,8 @@ pub struct Nes {
     dmc_dma_cycles: u8,
     /// Video region.
     region: NesRegion,
+    /// Whether the cartridge has battery-backed save RAM.
+    has_battery: bool,
 }
 
 impl Nes {
@@ -54,8 +56,10 @@ impl Nes {
     ///
     /// Returns an error if the ROM data is invalid.
     pub fn new(config: &NesConfig) -> Result<Self, String> {
-        let mapper = cartridge::parse_ines(&config.rom_data)?;
-        Ok(Self::from_mapper(mapper, config.region))
+        let cart = cartridge::parse_ines(&config.rom_data)?;
+        let mut nes = Self::from_mapper(cart.mapper, config.region);
+        nes.has_battery = cart.has_battery;
+        Ok(nes)
     }
 
     /// Create a new NES from a pre-parsed mapper.
@@ -85,6 +89,7 @@ impl Nes {
             dma_odd_cycle: false,
             dmc_dma_cycles: 0,
             region,
+            has_battery: false,
         }
     }
 
@@ -248,6 +253,39 @@ impl Nes {
         if let Some(ref mut z) = self.bus.zapper {
             z.trigger = pulled;
         }
+    }
+
+    /// Whether the cartridge has battery-backed save RAM.
+    #[must_use]
+    pub fn has_battery(&self) -> bool {
+        self.has_battery
+    }
+
+    /// Read battery-backed PRG RAM. Returns `None` if the mapper has no
+    /// PRG RAM or the cartridge has no battery flag.
+    #[must_use]
+    pub fn save_battery(&self) -> Option<&[u8]> {
+        if !self.has_battery {
+            return None;
+        }
+        self.bus.cartridge.prg_ram()
+    }
+
+    /// Restore battery-backed PRG RAM from saved data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cartridge has no battery flag or the mapper
+    /// has no PRG RAM.
+    pub fn load_battery(&mut self, data: &[u8]) -> Result<(), String> {
+        if !self.has_battery {
+            return Err("Cartridge has no battery".to_string());
+        }
+        if self.bus.cartridge.prg_ram().is_none() {
+            return Err("Mapper does not support PRG RAM".to_string());
+        }
+        self.bus.cartridge.set_prg_ram(data);
+        Ok(())
     }
 
     /// Get controller 1 reference.

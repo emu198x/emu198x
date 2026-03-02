@@ -1,9 +1,10 @@
 //! iNES cartridge parser and mapper implementations.
 //!
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
-//! a `Mapper` trait for address translation. Supports NROM (Mapper 0),
-//! MMC1 (Mapper 1), UxROM (Mapper 2), CNROM (Mapper 3), MMC3 (Mapper 4),
-//! AxROM (Mapper 7), and MMC2 (Mapper 9).
+//! a `Mapper` trait for address translation. Supports 14 mappers: NROM (0),
+//! MMC1 (1), UxROM (2), CNROM (3), MMC3 (4), AxROM (7), MMC2 (9),
+//! MMC4 (10), Color Dreams (11), BxROM (34), GxROM (66), Camerica (71),
+//! Mapper 87, and Mapper 206 (simplified MMC3).
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -42,6 +43,16 @@ pub trait Mapper {
     fn irq_pending(&self) -> bool {
         false
     }
+
+    /// Read battery-backed PRG RAM contents. Returns `None` if the mapper
+    /// has no PRG RAM (e.g. NROM, UxROM).
+    fn prg_ram(&self) -> Option<&[u8]> {
+        None
+    }
+
+    /// Restore battery-backed PRG RAM from a save file. No-op if the
+    /// mapper has no PRG RAM.
+    fn set_prg_ram(&mut self, _data: &[u8]) {}
 }
 
 /// NROM (Mapper 0): no bank switching.
@@ -310,6 +321,15 @@ impl Mapper for Mmc1 {
             3 => Mirroring::Horizontal,
             _ => unreachable!(),
         }
+    }
+
+    fn prg_ram(&self) -> Option<&[u8]> {
+        Some(&self.prg_ram)
+    }
+
+    fn set_prg_ram(&mut self, data: &[u8]) {
+        let len = data.len().min(self.prg_ram.len());
+        self.prg_ram[..len].copy_from_slice(&data[..len]);
     }
 }
 
@@ -794,6 +814,15 @@ impl Mapper for Mmc3 {
 
     fn irq_pending(&self) -> bool {
         self.irq_pending
+    }
+
+    fn prg_ram(&self) -> Option<&[u8]> {
+        Some(&self.prg_ram)
+    }
+
+    fn set_prg_ram(&mut self, data: &[u8]) {
+        let len = data.len().min(self.prg_ram.len());
+        self.prg_ram[..len].copy_from_slice(&data[..len]);
     }
 }
 
@@ -1281,12 +1310,212 @@ impl Mapper for Camerica {
     }
 }
 
-/// Parse an iNES file and return a boxed mapper.
+/// Mapper 87: simple CHR bank swap via $6000-$7FFF.
+///
+/// Used by ~10 games (City Connection, Ninja Jajamaru-kun). Writes to
+/// $6000-$7FFF select an 8K CHR bank. Bits are swapped: written bit 0
+/// drives CHR A15, written bit 1 drives CHR A14.
+///
+/// - PRG: 16K or 32K, no banking
+/// - CHR: 8K switchable ROM
+/// - Mirroring: fixed from header
+struct Mapper87 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+    chr_bank: u8,
+}
+
+impl Mapper87 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            mirroring,
+            chr_bank: 0,
+        }
+    }
+}
+
+impl Mapper for Mapper87 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let offset = (addr - 0x8000) as usize;
+                self.prg_rom[offset % self.prg_rom.len()]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if (0x6000..=0x7FFF).contains(&addr) {
+            // Bit swap: written bit 1 → CHR A14, written bit 0 → CHR A15
+            self.chr_bank = ((value & 1) << 1) | ((value >> 1) & 1);
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank_offset = self.chr_bank as usize * 8192;
+        let index = (bank_offset + (addr as usize & 0x1FFF)) % self.chr_rom.len().max(1);
+        self.chr_rom.get(index).copied().unwrap_or(0)
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {
+        // CHR ROM — no writes
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
+/// Mapper 206 (Namco 118 / MIMIC-1): simplified MMC3.
+///
+/// Used by ~30-50 games (Mappy-Land, Dragon Spirit, Gauntlet).
+/// Same banking register interface as MMC3 ($8000/$8001) but:
+/// - No scanline IRQ counter
+/// - No PRG RAM at $6000-$7FFF
+/// - No mirroring control ($A000 ignored) — fixed from iNES header
+/// - CHR: 2×2K + 4×1K banks via R0-R5
+/// - PRG: 2 switchable 8K banks via R6-R7, last two fixed
+struct Mapper206 {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    mirroring: Mirroring,
+    bank_select: u8,
+    registers: [u8; 8],
+}
+
+impl Mapper206 {
+    fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr,
+            chr_is_ram,
+            mirroring,
+            bank_select: 0,
+            registers: [0; 8],
+        }
+    }
+
+    fn prg_8k_count(&self) -> usize {
+        self.prg_rom.len() / 8192
+    }
+
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+}
+
+impl Mapper for Mapper206 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0x9FFF => {
+                let offset = (addr - 0x8000) as usize;
+                self.read_prg_8k(self.registers[6] as usize & 0x0F, offset)
+            }
+            0xA000..=0xBFFF => {
+                let offset = (addr - 0xA000) as usize;
+                self.read_prg_8k(self.registers[7] as usize & 0x0F, offset)
+            }
+            0xC000..=0xDFFF => {
+                let offset = (addr - 0xC000) as usize;
+                self.read_prg_8k(self.prg_8k_count().saturating_sub(2), offset)
+            }
+            0xE000..=0xFFFF => {
+                let offset = (addr - 0xE000) as usize;
+                self.read_prg_8k(self.prg_8k_count().saturating_sub(1), offset)
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x8000..=0x9FFF => {
+                if addr & 1 == 0 {
+                    self.bank_select = value;
+                } else {
+                    let reg = (self.bank_select & 0x07) as usize;
+                    self.registers[reg] = value;
+                }
+            }
+            // $A000-$FFFF: no mirroring control, no IRQ — all ignored
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let addr_usize = (addr & 0x1FFF) as usize;
+        let chr_mode = self.bank_select & 0x80 != 0;
+
+        let bank_1k = if !chr_mode {
+            // Mode 0: 2K,2K,1K,1K,1K,1K
+            match addr_usize >> 10 {
+                0 => (self.registers[0] & 0x3E) as usize,
+                1 => (self.registers[0] | 1) as usize & 0x3F,
+                2 => (self.registers[1] & 0x3E) as usize,
+                3 => (self.registers[1] | 1) as usize & 0x3F,
+                4 => self.registers[2] as usize & 0x3F,
+                5 => self.registers[3] as usize & 0x3F,
+                6 => self.registers[4] as usize & 0x3F,
+                7 => self.registers[5] as usize & 0x3F,
+                _ => unreachable!(),
+            }
+        } else {
+            // Mode 1: 1K,1K,1K,1K,2K,2K (inverted)
+            match addr_usize >> 10 {
+                0 => self.registers[2] as usize & 0x3F,
+                1 => self.registers[3] as usize & 0x3F,
+                2 => self.registers[4] as usize & 0x3F,
+                3 => self.registers[5] as usize & 0x3F,
+                4 => (self.registers[0] & 0x3E) as usize,
+                5 => (self.registers[0] | 1) as usize & 0x3F,
+                6 => (self.registers[1] & 0x3E) as usize,
+                7 => (self.registers[1] | 1) as usize & 0x3F,
+                _ => unreachable!(),
+            }
+        };
+
+        let offset = addr_usize & 0x3FF;
+        let index = (bank_1k * 1024 + offset) % self.chr.len();
+        self.chr[index]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let addr_usize = (addr & 0x1FFF) as usize;
+            // For CHR RAM, write directly (banking not typically used with RAM)
+            self.chr[addr_usize] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
+/// Parsed cartridge: mapper implementation and header metadata.
+pub struct ParsedCartridge {
+    pub mapper: Box<dyn Mapper>,
+    pub has_battery: bool,
+}
+
+/// Parse an iNES file and return a parsed cartridge (mapper + metadata).
 ///
 /// # Errors
 ///
 /// Returns an error string if the header is invalid or the mapper is unsupported.
-pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
+pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
     if data.len() < 16 {
         return Err("iNES file too short (< 16 bytes)".to_string());
     }
@@ -1345,21 +1574,25 @@ pub fn parse_ines(data: &[u8]) -> Result<Box<dyn Mapper>, String> {
         Vec::new() // CHR RAM
     };
 
-    match header.mapper_number {
-        0 => Ok(Box::new(Nrom::new(prg_rom, chr_data, mirroring))),
-        1 => Ok(Box::new(Mmc1::new(prg_rom, chr_data))),
-        2 => Ok(Box::new(UxRom::new(prg_rom, chr_data, mirroring))),
-        3 => Ok(Box::new(CnRom::new(prg_rom, chr_data, mirroring))),
-        4 => Ok(Box::new(Mmc3::new(prg_rom, chr_data))),
-        7 => Ok(Box::new(AxRom::new(prg_rom))),
-        9 => Ok(Box::new(Mmc2::new(prg_rom, chr_data))),
-        10 => Ok(Box::new(Mmc4::new(prg_rom, chr_data))),
-        11 => Ok(Box::new(ColorDreams::new(prg_rom, chr_data, mirroring))),
-        34 => Ok(Box::new(BxRom::new(prg_rom, mirroring))),
-        66 => Ok(Box::new(GxRom::new(prg_rom, chr_data, mirroring))),
-        71 => Ok(Box::new(Camerica::new(prg_rom, mirroring))),
-        n => Err(format!("Unsupported mapper: {n}")),
-    }
+    let mapper: Box<dyn Mapper> = match header.mapper_number {
+        0 => Box::new(Nrom::new(prg_rom, chr_data, mirroring)),
+        1 => Box::new(Mmc1::new(prg_rom, chr_data)),
+        2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
+        3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
+        4 => Box::new(Mmc3::new(prg_rom, chr_data)),
+        7 => Box::new(AxRom::new(prg_rom)),
+        9 => Box::new(Mmc2::new(prg_rom, chr_data)),
+        10 => Box::new(Mmc4::new(prg_rom, chr_data)),
+        11 => Box::new(ColorDreams::new(prg_rom, chr_data, mirroring)),
+        34 => Box::new(BxRom::new(prg_rom, mirroring)),
+        66 => Box::new(GxRom::new(prg_rom, chr_data, mirroring)),
+        71 => Box::new(Camerica::new(prg_rom, mirroring)),
+        87 => Box::new(Mapper87::new(prg_rom, chr_data, mirroring)),
+        206 => Box::new(Mapper206::new(prg_rom, chr_data, mirroring)),
+        n => return Err(format!("Unsupported mapper: {n}")),
+    };
+
+    Ok(ParsedCartridge { mapper, has_battery })
 }
 
 #[cfg(test)]
@@ -1388,7 +1621,7 @@ mod tests {
     #[test]
     fn parse_valid_nrom_16k() {
         let data = make_ines(1, 1, 0x00); // Horizontal mirroring
-        let mapper = parse_ines(&data).expect("parse failed");
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
         assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
         // PRG at $8000 should be byte 0 of PRG ROM
         assert_eq!(mapper.cpu_read(0x8000), 0x00);
@@ -1399,7 +1632,7 @@ mod tests {
     #[test]
     fn parse_valid_nrom_32k() {
         let data = make_ines(2, 1, 0x01); // Vertical mirroring
-        let mapper = parse_ines(&data).expect("parse failed");
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
         assert_eq!(mapper.mirroring(), Mirroring::Vertical);
         assert_eq!(mapper.cpu_read(0x8000), 0x00);
         // $C000 maps to bank 1 start
@@ -1409,7 +1642,7 @@ mod tests {
     #[test]
     fn chr_read_write_ram() {
         let data = make_ines(1, 0, 0x00); // CHR RAM (0 banks)
-        let mut mapper = parse_ines(&data).expect("parse failed");
+        let mut mapper = parse_ines(&data).expect("parse failed").mapper;
         assert_eq!(mapper.chr_read(0x0000), 0);
         mapper.chr_write(0x0000, 0xAB);
         assert_eq!(mapper.chr_read(0x0000), 0xAB);
@@ -1418,7 +1651,7 @@ mod tests {
     #[test]
     fn chr_rom_not_writable() {
         let data = make_ines(1, 1, 0x00); // CHR ROM (1 bank)
-        let mut mapper = parse_ines(&data).expect("parse failed");
+        let mut mapper = parse_ines(&data).expect("parse failed").mapper;
         let original = mapper.chr_read(0x0000);
         mapper.chr_write(0x0000, 0xFF);
         assert_eq!(mapper.chr_read(0x0000), original); // Unchanged
@@ -1477,7 +1710,7 @@ mod tests {
     fn mmc1_parse_ines() {
         // flags6 low nibble = 1 (mapper 1)
         let data = make_ines(8, 2, 0x10);
-        let mapper = parse_ines(&data).expect("parse failed");
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
         // Should be MMC1 — default mirroring from control=0x0C → bits 1:0 = 0
         // = SingleScreenLower
         assert_eq!(mapper.mirroring(), Mirroring::SingleScreenLower);
@@ -1584,6 +1817,32 @@ mod tests {
     }
 
     #[test]
+    fn mmc1_prg_ram_trait() {
+        let mut m = make_mmc1(2, 0);
+        // prg_ram() should return zeroed 8K
+        let ram = m.prg_ram().expect("MMC1 should have PRG RAM");
+        assert_eq!(ram.len(), 8192);
+        assert!(ram.iter().all(|&b| b == 0));
+        // Write some data via cpu_write, then read back through trait
+        m.cpu_write(0x6000, 0x42);
+        m.cpu_write(0x7FFF, 0xAB);
+        let ram = m.prg_ram().expect("MMC1 PRG RAM");
+        assert_eq!(ram[0], 0x42);
+        assert_eq!(ram[8191], 0xAB);
+        // set_prg_ram() restores data
+        let mut save = vec![0u8; 8192];
+        save[100] = 0xCC;
+        m.set_prg_ram(&save);
+        assert_eq!(m.cpu_read(0x6000 + 100), 0xCC);
+    }
+
+    #[test]
+    fn nrom_prg_ram_none() {
+        let m = Nrom::new(vec![0u8; 16384], vec![0u8; 8192], Mirroring::Horizontal);
+        assert!(m.prg_ram().is_none());
+    }
+
+    #[test]
     fn mmc1_prg_ram() {
         let mut m = make_mmc1(2, 0);
         // Write and read PRG RAM at $6000-$7FFF
@@ -1619,7 +1878,7 @@ mod tests {
     fn uxrom_parse_ines() {
         // Mapper 2: flags6 high nibble = 0x2_, so flags6 = 0x20
         let data = make_ines(8, 0, 0x20);
-        let mapper = parse_ines(&data).expect("parse failed");
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
         assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
     }
 
@@ -1672,7 +1931,7 @@ mod tests {
     fn cnrom_parse_ines() {
         // Mapper 3: flags6 high nibble = 0x3_, so flags6 = 0x30
         let data = make_ines(2, 4, 0x30);
-        let mapper = parse_ines(&data).expect("parse failed");
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
         assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
     }
 
@@ -1766,7 +2025,7 @@ mod tests {
     fn mmc2_parse_ines() {
         // Mapper 9: flags6 high nibble = 0x9_, so flags6 = 0x90
         let data = make_ines(8, 2, 0x90);
-        let mapper = parse_ines(&data).expect("parse failed");
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
         // Default mirroring is vertical
         assert_eq!(mapper.mirroring(), Mirroring::Vertical);
     }
@@ -1949,7 +2208,7 @@ mod tests {
     fn mmc3_parse_ines() {
         // Mapper 4: flags6 high nibble = 0x4_, so flags6 = 0x40
         let data = make_ines(8, 4, 0x40);
-        let mapper = parse_ines(&data).expect("parse failed");
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
         // MMC3 default mirroring is vertical
         assert_eq!(mapper.mirroring(), Mirroring::Vertical);
     }
@@ -2175,7 +2434,7 @@ mod tests {
     fn axrom_parse_ines() {
         // Mapper 7: flags6 high nibble = 0x7_, so flags6 = 0x70
         let data = make_ines(2, 0, 0x70);
-        let mapper = parse_ines(&data).expect("parse failed");
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
         assert_eq!(mapper.mirroring(), Mirroring::SingleScreenLower);
     }
 
@@ -2399,5 +2658,127 @@ mod tests {
         assert_eq!(m.mirroring(), Mirroring::SingleScreenUpper);
         m.cpu_write(0x9000, 0x00);
         assert_eq!(m.mirroring(), Mirroring::SingleScreenLower);
+    }
+
+    // --- Mapper 87 tests ---
+
+    #[test]
+    fn mapper87_parse_ines() {
+        // Mapper 87 = 0x57 → flags6 high nibble = 0x70, flags7 high nibble = 0x50
+        let mut data = make_ines(1, 2, 0x70);
+        data[7] = 0x50; // mapper high nibble
+        let m = parse_ines(&data);
+        assert!(m.is_ok(), "Mapper 87 should parse successfully");
+    }
+
+    #[test]
+    fn mapper87_chr_bank_swap() {
+        // 2 × 8K CHR banks: bank 0 filled with 0, bank 1 filled with 1
+        let mut chr = vec![0u8; 16384];
+        for b in &mut chr[8192..] {
+            *b = 1;
+        }
+        let mut m = Mapper87::new(vec![0u8; 16384], chr, Mirroring::Horizontal);
+
+        // Default: bank 0
+        assert_eq!(m.chr_read(0x0000), 0);
+
+        // Write 0x01 → swapped: bank = (0<<0)|(1<<1) = 0 — wait, let's think:
+        // Written value 0x01: bit0=1, bit1=0.
+        // Swapped: (bit0<<1)|(bit1>>1) = (1<<1)|(0) = 2
+        m.cpu_write(0x6000, 0x01);
+        // chr_bank = ((1)<<1) | ((0>>1)&1) = 2
+        // With 2 banks, bank 2 % 2 = bank 0 → still bank 0
+        // Let's use write 0x02 instead: bit0=0, bit1=1 → swap: (0<<1)|(1) = 1
+        m.cpu_write(0x6000, 0x02);
+        assert_eq!(m.chr_read(0x0000), 1); // bank 1
+
+        // Write 0x00 → bank 0
+        m.cpu_write(0x6000, 0x00);
+        assert_eq!(m.chr_read(0x0000), 0);
+    }
+
+    #[test]
+    fn mapper87_prg_unbanked() {
+        let mut prg = vec![0u8; 16384];
+        prg[0] = 0xAA;
+        let m = Mapper87::new(prg, vec![0u8; 8192], Mirroring::Vertical);
+        assert_eq!(m.cpu_read(0x8000), 0xAA);
+        // 16K mirrored
+        assert_eq!(m.cpu_read(0xC000), 0xAA);
+    }
+
+    // --- Mapper 206 tests ---
+
+    #[test]
+    fn mapper206_parse_ines() {
+        // Mapper 206 = 0xCE → flags6 high nibble = 0xE0, flags7 high nibble = 0xC0
+        let mut data = make_ines(4, 4, 0xE0);
+        data[7] = 0xC0;
+        let m = parse_ines(&data);
+        assert!(m.is_ok(), "Mapper 206 should parse successfully");
+    }
+
+    #[test]
+    fn mapper206_prg_banking() {
+        // 4 × 8K PRG banks, each filled with bank number
+        let mut prg = vec![0u8; 32768];
+        for bank in 0..4usize {
+            for i in 0..8192 {
+                prg[bank * 8192 + i] = bank as u8;
+            }
+        }
+        let mut m = Mapper206::new(prg, vec![0u8; 32768], Mirroring::Vertical);
+
+        // Default: R6=0, R7=0. $C000=bank 2, $E000=bank 3 (fixed).
+        assert_eq!(m.cpu_read(0x8000), 0); // R6=0 → bank 0
+        assert_eq!(m.cpu_read(0xC000), 2); // second-to-last
+        assert_eq!(m.cpu_read(0xE000), 3); // last
+
+        // Select R6=1 (bank 1 at $8000)
+        m.cpu_write(0x8000, 6); // bank_select = 6 → target R6
+        m.cpu_write(0x8001, 1); // R6 = 1
+        assert_eq!(m.cpu_read(0x8000), 1);
+
+        // Select R7=2 (bank 2 at $A000)
+        m.cpu_write(0x8000, 7); // target R7
+        m.cpu_write(0x8001, 2); // R7 = 2
+        assert_eq!(m.cpu_read(0xA000), 2);
+    }
+
+    #[test]
+    fn mapper206_no_irq() {
+        let m = Mapper206::new(vec![0u8; 32768], vec![0u8; 8192], Mirroring::Horizontal);
+        assert!(!m.irq_pending());
+    }
+
+    #[test]
+    fn mapper206_fixed_mirroring() {
+        let mut m = Mapper206::new(vec![0u8; 32768], vec![0u8; 8192], Mirroring::Horizontal);
+        // Write to $A000 (mirroring control on MMC3) should be ignored
+        m.cpu_write(0xA000, 0x01);
+        assert_eq!(m.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn mapper206_chr_banking() {
+        // 32K CHR: 32 × 1K pages, each filled with page index
+        let mut chr = vec![0u8; 32768];
+        for page in 0..32usize {
+            for i in 0..1024 {
+                chr[page * 1024 + i] = page as u8;
+            }
+        }
+        let mut m = Mapper206::new(vec![0u8; 32768], chr, Mirroring::Vertical);
+
+        // Mode 0 (default): R0 selects 2K at $0000, R2 selects 1K at $1000
+        m.cpu_write(0x8000, 0); // target R0
+        m.cpu_write(0x8001, 4); // R0=4 → 2K-aligned → pages 4,5
+        assert_eq!(m.chr_read(0x0000), 4); // page 4
+        assert_eq!(m.chr_read(0x0400), 5); // page 5
+
+        m.cpu_write(0x8000, 2); // target R2
+        m.cpu_write(0x8001, 10); // R2=10 → 1K page 10 at $1000
+        assert_eq!(m.chr_read(0x1000), 10);
     }
 }
