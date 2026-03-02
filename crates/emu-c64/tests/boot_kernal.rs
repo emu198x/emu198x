@@ -424,6 +424,7 @@ fn test_multicolour_text_mode() {
         fb[idx0 + 1],
         "MCM pair pixels should be the same colour"
     );
+
 }
 
 #[test]

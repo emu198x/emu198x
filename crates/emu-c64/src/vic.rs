@@ -51,7 +51,11 @@ pub const FB_HEIGHT: u32 = (PAL_LAST_VISIBLE_LINE - PAL_FIRST_VISIBLE_LINE) as u
 /// First line of the display window (where characters are rendered).
 const DISPLAY_START_LINE: u16 = 0x30;
 
-/// Last line of the display window (exclusive).
+/// Last line where the VIC-II can start a new badline (exclusive).
+///
+/// Badlines occur in the $30-$F7 range. Outside this range the data
+/// sequencer continues outputting from the current text row but no new
+/// screen-row fetches are triggered.
 const DISPLAY_END_LINE: u16 = 0xF8;
 
 /// First cycle of the display window (character data fetch area).
@@ -273,8 +277,10 @@ impl Vic {
             // The real VIC-II increments RC at cycle 58. Badlines reset it to 0
             // (handled above at cycle 15). This gives a 0-7 count per text line
             // that's correct regardless of YSCROLL.
+            // The range extends to $FB (RSEL=1 border close) so the last text
+            // row's char_rows 5-7 on lines $F8-$FA render correctly.
             if self.den_latch
-                && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
+                && (DISPLAY_START_LINE..0xFBu16).contains(&self.raster_line)
             {
                 self.char_row = (self.char_row + 1) & 7;
             }
@@ -382,9 +388,14 @@ impl Vic {
 
         let border_colour = PALETTE[(self.regs[0x20] & 0x0F) as usize];
 
-        // Are we in the character data area? (always 40 columns, lines $30-$F7)
+        // Are we in the character data area? The data sequencer runs whenever
+        // the vertical border flip-flop is off. With RSEL=1 that's $33-$FA,
+        // with RSEL=0 it's $37-$F6. Use the same vstart/vstop as the border.
+        let rsel = self.regs[0x11] & 0x08 != 0;
+        let char_vstart = if rsel { 0x33u16 } else { 0x37u16 };
+        let char_vstop = if rsel { 0xFBu16 } else { 0xF7u16 };
         let in_char_area = self.den_latch
-            && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
+            && (char_vstart..char_vstop).contains(&self.raster_line)
             && (DISPLAY_START_CYCLE..DISPLAY_END_CYCLE).contains(&self.raster_cycle);
 
         // Track which of the 8 pixels are character foreground (for sprite priority)
