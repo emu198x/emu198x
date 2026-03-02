@@ -1324,8 +1324,8 @@ impl Cpu68000 {
 
         // --- MOVEC (0x4E7A/0x4E7B, 68010+) ---
         //
-        // 68000 treats this opcode family as illegal. Later models support it,
-        // but execution is not implemented in this core yet.
+        // 68000 treats this opcode family as illegal. Later models support it.
+        // Implemented for VBR, SFC, DFC, and CACR.
         if opcode == 0x4E7A || opcode == 0x4E7B {
             if !self.capabilities().movec {
                 self.begin_group1_exception(4, self.instr_start_pc);

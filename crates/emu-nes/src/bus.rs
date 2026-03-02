@@ -20,7 +20,7 @@ pub struct NesBus {
     pub ram: [u8; 2048],
     /// PPU (2C02).
     pub ppu: Ppu,
-    /// APU (stub).
+    /// APU (2A03).
     pub apu: Apu,
     /// Cartridge mapper.
     pub cartridge: Box<dyn Mapper>,
@@ -117,7 +117,7 @@ impl Bus for NesBus {
                 }
             }
             0x4000..=0x4015 => self.apu.read(addr),
-            0x4018..=0x401F => 0, // Normally disabled APU test mode
+            0x4018..=0x401F => 0xFF, // APU test mode disabled — open bus
             0x4020..=0xFFFF => self.cartridge.cpu_read(addr),
         };
         ReadResult::new(data)

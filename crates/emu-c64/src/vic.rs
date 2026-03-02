@@ -167,6 +167,11 @@ pub struct Vic {
     first_visible_line: u16,
     /// Last visible raster line (exclusive).
     last_visible_line: u16,
+
+    /// Light pen triggered this frame (cleared at frame start).
+    lp_triggered: bool,
+    /// Last byte fetched by VIC from memory (for floating bus reads).
+    last_bus_data: u8,
 }
 
 impl Vic {
@@ -210,6 +215,8 @@ impl Vic {
             cycles_per_line: model.cycles_per_line(),
             first_visible_line: first_vis,
             last_visible_line: last_vis,
+            lp_triggered: false,
+            last_bus_data: 0,
         }
     }
 
@@ -259,6 +266,7 @@ impl Vic {
                 self.raster_line = 0;
                 self.frame_complete = true;
                 self.den_latch = false;
+                self.lp_triggered = false;
             }
 
             // Increment the row counter (RC) at each line wrap within the display.
@@ -307,7 +315,9 @@ impl Vic {
         for col in 0u16..40 {
             let screen_addr = screen_base + text_row * 40 + col;
             // VIC-II reads through its own bus (sees char ROM, not I/O)
-            self.screen_row[col as usize] = memory.vic_read(self.vic_bank, screen_addr & 0x3FFF);
+            let byte = memory.vic_read(self.vic_bank, screen_addr & 0x3FFF);
+            self.screen_row[col as usize] = byte;
+            self.last_bus_data = byte;
             self.colour_row[col as usize] = memory.colour_ram_read(text_row * 40 + col);
         }
     }
@@ -344,12 +354,14 @@ impl Vic {
             // Sprite pointer at screen_base + $3F8 + sprite_num
             let ptr_addr = screen_base + 0x03F8 + i as u16;
             let sprite_ptr = memory.vic_read(self.vic_bank, ptr_addr & 0x3FFF);
+            self.last_bus_data = sprite_ptr;
 
             // Sprite data at pointer * 64 + data_line * 3
             let data_base = u16::from(sprite_ptr) * 64 + data_line * 3;
             self.sprite_data[i][0] = memory.vic_read(self.vic_bank, data_base & 0x3FFF);
             self.sprite_data[i][1] = memory.vic_read(self.vic_bank, (data_base + 1) & 0x3FFF);
             self.sprite_data[i][2] = memory.vic_read(self.vic_bank, (data_base + 2) & 0x3FFF);
+            self.last_bus_data = self.sprite_data[i][2];
             self.sprite_active[i] = true;
         }
     }
@@ -906,8 +918,9 @@ impl Vic {
                 val
             }
             r if r <= 0x2E => self.regs[r as usize],
-            // Unused registers return $FF
-            _ => 0xFF,
+            // Unmapped registers ($2F-$3F) return the last byte VIC fetched
+            // from memory (floating bus behaviour).
+            _ => self.last_bus_data,
         }
     }
 
@@ -938,7 +951,7 @@ impl Vic {
             0x1E => self.sprite_sprite_collision,
             0x1F => self.sprite_bg_collision,
             r if r <= 0x2E => self.regs[r as usize],
-            _ => 0xFF,
+            _ => self.last_bus_data,
         }
     }
 
@@ -985,6 +998,21 @@ impl Vic {
     #[must_use]
     pub fn bank(&self) -> u8 {
         self.vic_bank
+    }
+
+    /// Trigger light pen latch on LP pin falling edge.
+    ///
+    /// Latches the beam position into $D013 (LPX) and $D014 (LPY). Once
+    /// latched, the values stay until the start of the next frame.
+    pub fn trigger_light_pen(&mut self) {
+        if self.lp_triggered {
+            return;
+        }
+        self.lp_triggered = true;
+        // LPX: raster cycle converted to pixel-pair units (divide X pixel by 2).
+        // Each cycle = 8 pixels, so pixel-pair = cycle * 4.
+        self.regs[0x13] = (self.raster_cycle as u16 * 4) as u8;
+        self.regs[0x14] = self.raster_line as u8;
     }
 
     /// Reference to the framebuffer (ARGB32).

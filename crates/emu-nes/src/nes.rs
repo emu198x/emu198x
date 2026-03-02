@@ -362,19 +362,26 @@ impl Tickable for Nes {
             }
 
             // DMC DMA: steal cycles from CPU (or OAM DMA).
-            // The steal count depends on what the CPU was doing on the
-            // previous cycle:
-            //   - Write cycle: 1 cycle (write completes, then DMC reads)
+            // The steal count depends on what was happening on the previous
+            // cycle. When stealing from the CPU:
+            //   - Write cycle: 1 cycle
             //   - Read cycle, even alignment: 2 cycles
             //   - Read cycle, odd alignment: 3 cycles
+            // When stealing from OAM DMA, the cadence is predictable
+            // (alternating read/write), so the steal is always 1 cycle.
             if self.dmc_dma_cycles == 0 && self.bus.apu.dmc.dma_pending {
-                let cpu_cycle = self.master_clock / CPU_DIVISOR;
-                if self.bus.last_cycle_was_write {
+                if self.dma_cycles_remaining > 0 {
+                    // Stealing from OAM DMA — always 1 cycle.
                     self.dmc_dma_cycles = 1;
-                } else if cpu_cycle % 2 == 0 {
-                    self.dmc_dma_cycles = 2;
                 } else {
-                    self.dmc_dma_cycles = 3;
+                    let cpu_cycle = self.master_clock / CPU_DIVISOR;
+                    if self.bus.last_cycle_was_write {
+                        self.dmc_dma_cycles = 1;
+                    } else if cpu_cycle % 2 == 0 {
+                        self.dmc_dma_cycles = 2;
+                    } else {
+                        self.dmc_dma_cycles = 3;
+                    }
                 }
             }
 

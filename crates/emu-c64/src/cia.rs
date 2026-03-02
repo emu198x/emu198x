@@ -93,6 +93,12 @@ pub struct Cia {
     tod_counter: u32,
     /// Previous FLAG pin level (for negative-edge detection).
     prev_flag: bool,
+    /// Serial shift register ($0C).
+    shift_register: u8,
+    /// Bits shifted so far (0-8). ICR bit 3 set when count reaches 8.
+    shift_count: u8,
+    /// CRA bit 6: true = output mode (shift out under Timer A).
+    sp_output: bool,
 }
 
 impl Cia {
@@ -135,6 +141,9 @@ impl Cia {
             tod_divider,
             tod_counter: 0,
             prev_flag: true,
+            shift_register: 0,
+            shift_count: 0,
+            sp_output: false,
         }
     }
 
@@ -163,6 +172,16 @@ impl Cia {
                 }
             } else {
                 self.timer_a -= 1;
+            }
+        }
+
+        // Serial shift register: shift one bit on each Timer A underflow.
+        if ta_underflowed && self.sp_output && self.shift_count < 8 {
+            // Shift MSB out (not modelled electrically, but count is tracked).
+            self.shift_register = self.shift_register.wrapping_shl(1);
+            self.shift_count += 1;
+            if self.shift_count == 8 {
+                self.icr_status |= 0x08; // Serial shift register complete
             }
         }
 
@@ -332,8 +351,7 @@ impl Cia {
                     self.tod[3]
                 }
             }
-            // Serial shift register: return 0 (stubbed)
-            0x0C => 0,
+            0x0C => self.shift_register,
             0x0D => {
                 // ICR read: returns status with bit 7 = any active, then clears status.
                 // Note: we return a snapshot; the actual clear happens in read_icr_and_clear().
@@ -425,8 +443,10 @@ impl Cia {
                 self.tod[3] = value & 0x9F;
                 self.tod_halted = true; // Halt until 10ths written
             }
-            // Serial shift register: ignored
-            0x0C => {}
+            0x0C => {
+                self.shift_register = value;
+                self.shift_count = 0;
+            }
             0x0D => {
                 // ICR write: bit 7 = set(1) or clear(0) the mask bits
                 if value & 0x80 != 0 {
@@ -439,6 +459,7 @@ impl Cia {
                 self.cra = value;
                 self.timer_a_running = value & 0x01 != 0;
                 self.timer_a_oneshot = value & 0x08 != 0;
+                self.sp_output = value & 0x40 != 0;
                 if value & 0x10 != 0 {
                     // Force load: copy latch → counter
                     self.timer_a_force_load = true;

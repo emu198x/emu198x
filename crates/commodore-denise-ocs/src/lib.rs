@@ -3,8 +3,6 @@
 //! Denise receives bitplane data from Agnus DMA and shifts it out pixel by
 //! pixel, combining with the colour palette to produce the final framebuffer.
 
-use std::sync::OnceLock;
-
 /// Raster framebuffer width: 227 CCKs x 4 hires pixels.
 pub const RASTER_FB_WIDTH: u32 = 908;
 /// PAL raster framebuffer height: 312 lines x 2 (interlace double-height).
@@ -854,14 +852,8 @@ impl DeniseOcs {
         // BPL DMA words. The combined (prev << 16 | raw) >> scroll window
         // works identically for lowres and hires — only the scroll value
         // range differs (lowres 0-15, hires 0-14 even).
-        let line_delay_only_scroll = denise_experiment_bplcon1_line_delay_only();
-        let first_shift_load_this_line = self.bpl_scroll_pending_line;
         let mut odd_scroll = ((self.bplcon1 >> 4) & 0x000F) as u8;
         let mut even_scroll = (self.bplcon1 & 0x000F) as u8;
-        if denise_experiment_ignore_bplcon1() {
-            odd_scroll = 0;
-            even_scroll = 0;
-        }
         if hires {
             // HRM: in hires mode horizontal scrolling is in 2-pixel increments.
             // Model this as ignoring the low bit of each delay nibble.
@@ -888,20 +880,12 @@ impl DeniseOcs {
             let raw = self.bpl_data[i];
             let prev = self.bpl_prev_data[i];
             let scroll = if i & 1 == 0 { odd_scroll } else { even_scroll };
-            let combined = if denise_experiment_reverse_bplcon1_carry() {
-                (u32::from(raw) << 16) | u32::from(prev)
+            let combined = (u32::from(prev) << 16) | u32::from(raw);
+            self.bpl_shift[i] = if scroll == 0 {
+                raw
             } else {
-                (u32::from(prev) << 16) | u32::from(raw)
+                (combined >> scroll) as u16
             };
-            if line_delay_only_scroll {
-                self.bpl_shift[i] = raw;
-            } else {
-                self.bpl_shift[i] = if scroll == 0 {
-                    raw
-                } else {
-                    (combined >> scroll) as u16
-                };
-            }
             if i < 3 {
                 shift_dbg.planes[i] = DeniseShiftLoadPlaneDebug {
                     raw,
@@ -913,11 +897,7 @@ impl DeniseOcs {
                 };
             }
             self.bpl_shift_count[i] = 16;
-            self.bpl_shift_delay[i] = if line_delay_only_scroll && first_shift_load_this_line {
-                scroll
-            } else {
-                0
-            };
+            self.bpl_shift_delay[i] = 0;
             self.bpl_prev_data[i] = raw;
         }
         self.last_shift_load_debug = shift_dbg;
@@ -928,10 +908,6 @@ impl DeniseOcs {
         let hires = (self.bplcon0 & 0x8000) != 0;
         let mut odd_scroll = ((self.bplcon1 >> 4) & 0x000F) as u8;
         let mut even_scroll = (self.bplcon1 & 0x000F) as u8;
-        if denise_experiment_ignore_bplcon1() {
-            odd_scroll = 0;
-            even_scroll = 0;
-        }
         if hires {
             // HRM: hires fine scroll is in 2-pixel increments.
             odd_scroll &= !1;
@@ -1211,12 +1187,6 @@ impl DeniseOcs {
         // pending-load comparator phase.
         let comparator_phase = beam_x as u16;
 
-        let copy_before_shift = hires && denise_experiment_hires_copy_before_shift();
-        let comparator_tick_this_call = true;
-        if copy_before_shift && comparator_tick_this_call {
-            self.apply_pending_shift_load_if_due(comparator_phase);
-        }
-
         for sample_idx in 0..source_pixels_per_fb_pixel {
             let (raw, pf1, pf2, mask) = self.shift_one_playfield_render_sample(hires);
             if sample_idx < 2 {
@@ -1240,9 +1210,7 @@ impl DeniseOcs {
         // not a "source pixels shifted so far on this line" counter. Queue
         // BPL1DAT-triggered loads and commit them on the comparator match using
         // the absolute beam phase of this output step.
-        if !copy_before_shift && comparator_tick_this_call {
-            self.apply_pending_shift_load_if_due(comparator_phase);
-        }
+        self.apply_pending_shift_load_if_due(comparator_phase);
 
         // Compose playfield pixel for the "last" sample (used for final_color_idx
         // and lores output). In hires mode we also compose the first sample
@@ -1349,28 +1317,6 @@ impl DeniseOcs {
     ) -> DeniseOutputPixelDebug {
         self.output_pixel_with_beam_and_playfield_gate(x, y, beam_x, beam_y, true)
     }
-}
-
-fn denise_experiment_reverse_bplcon1_carry() -> bool {
-    static REVERSE: OnceLock<bool> = OnceLock::new();
-    *REVERSE.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_REVERSE_BPLCON1_CARRY").is_some())
-}
-
-fn denise_experiment_ignore_bplcon1() -> bool {
-    static IGNORE: OnceLock<bool> = OnceLock::new();
-    *IGNORE.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_IGNORE_BPLCON1").is_some())
-}
-
-fn denise_experiment_bplcon1_line_delay_only() -> bool {
-    static LINE_DELAY_ONLY: OnceLock<bool> = OnceLock::new();
-    *LINE_DELAY_ONLY
-        .get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_BPLCON1_LINE_DELAY_ONLY").is_some())
-}
-
-fn denise_experiment_hires_copy_before_shift() -> bool {
-    static COPY_BEFORE: OnceLock<bool> = OnceLock::new();
-    *COPY_BEFORE
-        .get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_HIRES_COPY_BEFORE_SHIFT").is_some())
 }
 
 /// Viewport presets for cropping the raster framebuffer to displayable area.

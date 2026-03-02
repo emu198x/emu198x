@@ -1,7 +1,5 @@
 //! Agnus - Beam counter and DMA slot allocation.
 
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
@@ -454,7 +452,6 @@ impl Agnus {
     /// This preserves `blitter_busy` across CCKs so bus arbitration can react
     /// to the blitter before the existing synchronous blit implementation runs.
     pub fn start_blit(&mut self) {
-        maybe_trace_blit_start(self);
         self.blitter_busy = true;
         self.blitter_exec_pending = true;
         self.init_incremental_blitter_runtime();
@@ -1110,11 +1107,7 @@ impl Agnus {
                 // Using +7 here yields the expected word count:
                 //   lowres: ((stop-start)/8) + 1
                 //   hires:  ((stop-start)/4) + 2
-                let fetch_end_extra = if hires {
-                    agnus_experiment_hires_fetch_end_extra().unwrap_or(7)
-                } else {
-                    7
-                };
+                let fetch_end_extra = 7;
                 if self.dma_enabled(0x0100)
                     && num_bpl > 0
                     && self.hpos >= self.ddfstrt
@@ -1189,86 +1182,6 @@ impl Agnus {
             paula_return_progress_policy,
         }
     }
-}
-
-fn maybe_trace_blit_start(agnus: &Agnus) {
-    static TRACE_LIMIT: OnceLock<Option<usize>> = OnceLock::new();
-    static TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-    let Some(limit) = *TRACE_LIMIT.get_or_init(|| {
-        std::env::var("AMIGA_TRACE_BLITS")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-    }) else {
-        return;
-    };
-
-    let idx = TRACE_COUNT.fetch_add(1, Ordering::Relaxed);
-    if idx >= limit {
-        return;
-    }
-
-    let line_mode = (agnus.bltcon1 & 0x0001) != 0;
-    let desc = (agnus.bltcon1 & 0x0002) != 0;
-    let fci = (agnus.bltcon1 & 0x0004) != 0;
-    let ife = (agnus.bltcon1 & 0x0008) != 0;
-    let efe = (agnus.bltcon1 & 0x0010) != 0;
-    let height = u32::from((agnus.bltsize >> 6) & 0x03FF);
-    let width_words = u32::from(agnus.bltsize & 0x003F);
-    let height = if height == 0 { 1024 } else { height };
-    let width_words = if width_words == 0 { 64 } else { width_words };
-    let use_a = (agnus.bltcon0 & 0x0800) != 0;
-    let use_b = (agnus.bltcon0 & 0x0400) != 0;
-    let use_c = (agnus.bltcon0 & 0x0200) != 0;
-    let use_d = (agnus.bltcon0 & 0x0100) != 0;
-    let a_shift = (agnus.bltcon0 >> 12) & 0xF;
-    let b_shift = (agnus.bltcon1 >> 12) & 0xF;
-    let lf = (agnus.bltcon0 & 0x00FF) as u8;
-
-    eprintln!(
-        "[blittrace #{idx}] mode={} size={}x{} use={}{}{}{} desc={} fill=({},{},{}) ash={} bsh={} lf={:02X} bltcon0={:04X} bltcon1={:04X} bltsize={:04X} bltsizv={:04X} bltsizh={:04X} adat={:04X} bdat={:04X} cdat={:04X} afwm={:04X} alwm={:04X} apt={:06X} bpt={:06X} cpt={:06X} dpt={:06X} amod={} bmod={} cmod={} dmod={}",
-        if line_mode { "line" } else { "area" },
-        width_words,
-        height,
-        if use_a { "A" } else { "" },
-        if use_b { "B" } else { "" },
-        if use_c { "C" } else { "" },
-        if use_d { "D" } else { "" },
-        desc,
-        fci,
-        ife,
-        efe,
-        a_shift,
-        b_shift,
-        lf,
-        agnus.bltcon0,
-        agnus.bltcon1,
-        agnus.bltsize,
-        agnus.bltsizv_ecs,
-        agnus.bltsizh_ecs,
-        agnus.blt_adat,
-        agnus.blt_bdat,
-        agnus.blt_cdat,
-        agnus.blt_afwm,
-        agnus.blt_alwm,
-        agnus.blt_apt,
-        agnus.blt_bpt,
-        agnus.blt_cpt,
-        agnus.blt_dpt,
-        agnus.blt_amod,
-        agnus.blt_bmod,
-        agnus.blt_cmod,
-        agnus.blt_dmod,
-    );
-}
-
-fn agnus_experiment_hires_fetch_end_extra() -> Option<u16> {
-    static OVERRIDE: OnceLock<Option<u16>> = OnceLock::new();
-    *OVERRIDE.get_or_init(|| {
-        std::env::var("AMIGA_EXPERIMENT_HIRES_FETCH_END_EXTRA")
-            .ok()
-            .and_then(|s| s.parse::<u16>().ok())
-    })
 }
 
 impl Default for Agnus {

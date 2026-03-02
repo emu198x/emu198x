@@ -2,7 +2,7 @@
 //!
 //! Paula manages the Amiga's interrupt priority system, mapping 14 interrupt
 //! sources to 6 CPU interrupt levels. It also handles audio channel DMA and
-//! floppy disk DMA (currently stubbed for boot-level emulation).
+//! floppy disk DMA.
 
 use std::collections::VecDeque;
 

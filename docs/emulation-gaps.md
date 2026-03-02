@@ -1,6 +1,6 @@
 # Emulation Gaps: Road to Complete v1 Systems
 
-Audit date: 2026-02-27. Updated: 2026-03-01 (blitter DMA interleaving, close remaining Amiga gaps). Covers all four primary systems.
+Audit date: 2026-02-27. Updated: 2026-03-02 (close accuracy gaps, remove experiment env vars). Covers all four primary systems.
 
 This document catalogues every known simplification, stub, workaround, and
 missing feature across the four emulated systems. It is organised by system,
@@ -93,13 +93,19 @@ No blocking gaps remain for the primary C64 target. All major media formats
 | SID per-chip filter calibration | `filter.rs` — 32-point lookup table | Table captures the 6581 kink shape from reSID die analysis; true per-chip accuracy needs measured data from specific revisions |
 | SID envelope curve | `envelope.rs` — reSID thresholds | Matches reSID die-analysis values (0x5D, 0x36, 0x1A, 0x0E, 0x06, period 30); bit-exact with reference data |
 
+### Recently resolved
+
+| Item | Resolution |
+|------|-----------|
+| CIA serial shift register | Shift register driven by Timer A underflows in output mode (CRA bit 6). ICR bit 3 fires after 8 bits shifted. Read/write $0C. |
+| Light pen input | `trigger_light_pen()` latches beam position into $D013/$D014 on LP pin falling edge. Once-per-frame latch. |
+| VIC-II floating bus | Unmapped register reads ($2F-$3F) return last byte fetched by VIC from memory instead of $FF. |
+
 ### Not planned
 
 | Item | Reason |
 |------|--------|
-| CIA serial shift register | $0C reads 0, writes ignored. Not used by standard IEC serial (bit-banged via CIA2 port). Only matters for non-standard hardware |
-| Light pen input | $D013-$D014 register values stored but not wired to input. Very few C64 games use light pen |
-| VIC-II floating bus | CPU port $01 undriven inputs return high (pull-up), not last-read-on-bus. Affects a handful of copy-protection schemes |
+| SID per-chip filter calibration | Requires measured data from specific chip revisions; current 32-point table captures the 6581 kink shape |
 
 ### Assessment
 
@@ -144,10 +150,12 @@ Battery-backed save RAM for RPGs.
 
 ### Accuracy gaps
 
-No significant accuracy gaps remain. DMC DMA cycle stealing is now
+No significant accuracy gaps remain. DMC DMA cycle stealing is
 variable (1 for writes, 2 for even-aligned reads, 3 for odd-aligned
-reads) based on the CPU's last bus operation. DMC DMA waits for any
-active OAM DMA to finish before stealing cycles.
+reads) based on the CPU's last bus operation. When DMC steals from an
+active OAM DMA, the steal count is always 1 cycle (OAM DMA has a
+predictable read/write cadence). APU test mode registers ($4018-$401F)
+return open bus ($FF) when test mode is disabled.
 
 ### Assessment
 
@@ -156,10 +164,9 @@ supported with correct frame timing, APU tables, and CPU frequency.
 Battery-backed PRG RAM enables save data for RPGs (Zelda, Final Fantasy).
 All five APU channels are functional — DMC sample playback fetches bytes
 via DMA, stealing 1-3 CPU cycles per fetch depending on the CPU's
-previous bus operation. Two-player controller input is wired through both
-$4016 and $4017. DMC DMA waits for any active OAM DMA to finish rather
-than interleaving — correct for audio but not cycle-exact for
-timing-sensitive demos.
+previous bus operation. DMC DMA correctly interleaves with OAM DMA
+(1-cycle steal when stealing from OAM, variable when stealing from CPU).
+Two-player controller input is wired through both $4016 and $4017.
 
 ---
 
@@ -191,6 +198,8 @@ Three model variants: A500 (OCS), A500+ (ECS), A1200 (AGA).
 ### Accuracy gaps
 
 No significant accuracy gaps remain for any in-scope Amiga model.
+All experiment/debug env vars have been removed; blitter execution uses
+the default incremental DMA-interleaved path exclusively.
 
 ### Recently resolved
 
@@ -203,6 +212,8 @@ No significant accuracy gaps remain for any in-scope Amiga model.
 | Paula audio DAC non-linearity | 256-entry lookup table models A500 resistor-ladder S-curve |
 | Paula disk PLL timing | Phase accumulator for variable-rate IPF tracks |
 | ECS BEAMCON0 activation | Sync polarity (HSYTRUE/VSYTRUE/CSYTRUE), BLANKEN blank gating, CSCBEN composite sync routing |
+| ECS composite sync XOR | Variable composite sync now uses HSYNC XOR VSYNC (not OR) matching real Agnus. Hardwired mode retains H|V OR. |
+| Experiment env var removal | All 14 AMIGA_EXPERIMENT/AMIGA_COMPARE/AMIGA_TRACE env vars removed; blitter uses incremental DMA path only |
 | Sprite mid-line register timing | 1-pixel pipeline delay via `spr_pos_pending` array |
 | Blitter fill exclusive mode | 6 integration tests cover IFE, EFE, carry propagation, FCI seed, descending mode |
 | Paula modulation coverage | Additional tests for attach-period, attach-volume, combined modulation, modulator muting |

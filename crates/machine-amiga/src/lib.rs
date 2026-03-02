@@ -20,7 +20,6 @@ use mos_cia_8520::Cia8520;
 use motorola_68000::cpu::Cpu68000;
 use motorola_68000::model::CpuModel;
 use peripheral_amiga_keyboard::AmigaKeyboard;
-use std::sync::OnceLock;
 
 // Re-export chip crates so tests and downstream users can access types.
 pub use crate::config::{
@@ -131,9 +130,8 @@ pub enum BeamCompositeSyncMode {
     /// Hardwired composite sync derived from H/V sync activity.
     #[default]
     HardwiredHvOr,
-    /// ECS variable composite sync enabled, but still using H/V OR as a
-    /// conservative placeholder until full CS timing is modeled.
-    VariablePlaceholderHvOr,
+    /// ECS variable composite sync enabled — uses real HSYNC XOR VSYNC.
+    VariableXorSync,
 }
 
 /// Debug/test-facing beam snapshot in the emulator's current beam units.
@@ -178,23 +176,6 @@ pub struct BlitterProgressDebugStats {
     pub max_queue_len_seen: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BlitShadowCompareMode {
-    Area,
-    Line,
-}
-
-#[derive(Clone)]
-struct BlitShadowCompareSnapshot {
-    mode: BlitShadowCompareMode,
-    seq: usize,
-    captured_master_clock: u64,
-    captured_vpos: u16,
-    captured_hpos: u16,
-    agnus: Agnus,
-    memory: Memory,
-}
-
 pub struct Amiga {
     pub master_clock: u64,
     pub model: AmigaModel,
@@ -223,9 +204,6 @@ pub struct Amiga {
     beam_edge_flags: BeamEdgeFlags,
     beam_pixel_outputs_debug: BeamPixelOutputDebug,
     blitter_progress_debug: BlitterProgressDebugStats,
-    blitter_shadow_compare_snapshot: Option<BlitShadowCompareSnapshot>,
-    blitter_area_shadow_compare_started: usize,
-    blitter_line_shadow_compare_started: usize,
     /// Pending BPLCON0 write to Denise (value, CCK countdown).
     /// Agnus sees the new value immediately; Denise sees it after 2 CCK.
     pub bplcon0_denise_pending: Option<(u16, u8)>,
@@ -371,9 +349,6 @@ impl Amiga {
             beam_edge_flags: BeamEdgeFlags::default(),
             beam_pixel_outputs_debug: BeamPixelOutputDebug::default(),
             blitter_progress_debug: BlitterProgressDebugStats::default(),
-            blitter_shadow_compare_snapshot: None,
-            blitter_area_shadow_compare_started: 0,
-            blitter_line_shadow_compare_started: 0,
             bplcon0_denise_pending: None,
             ddfstrt_pending: None,
             ddfstop_pending: None,
@@ -731,8 +706,6 @@ impl Amiga {
             // arbitration (including nasty-mode CPU steals) affects machine
             // timing before the existing synchronous blit implementation runs.
             // Progress now advances only on explicit Agnus free-slot grants.
-            self.maybe_capture_area_blit_shadow_compare();
-            self.maybe_capture_line_blit_shadow_compare();
             let blitter_progress_this_cck = bus_plan.blitter_dma_progress_granted
                 || (matches!(bus_plan.slot_owner, SlotOwner::Copper)
                     && self.agnus.blitter_busy
@@ -750,66 +723,16 @@ impl Amiga {
                 .agnus
                 .tick_blitter_scheduler_op(blitter_progress_this_cck)
             {
-                let line_mode = (self.agnus.bltcon1 & 0x0001) != 0;
-                let sync_now = (line_mode && machine_experiment_sync_line_blitter())
-                    || (!line_mode && machine_experiment_sync_area_blitter());
-                if sync_now {
+                let incremental_completed =
+                    execute_incremental_blitter_op(&mut self.agnus, &mut self.memory, blit_op);
+                self.blitter_progress_debug.granted_ops += 1;
+                if incremental_completed {
                     self.agnus.clear_blitter_scheduler();
-                    execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
-                } else {
-                    let drain_incremental_area = (self.agnus.bltcon1 & 0x0001) == 0
-                        && machine_experiment_drain_incremental_area_blitter();
-                    let burst_incremental_area_ops = if (self.agnus.bltcon1 & 0x0001) == 0 {
-                        machine_experiment_burst_incremental_area_blitter_ops()
-                    } else {
-                        0
-                    };
-                    let mut incremental_completed =
-                        execute_incremental_blitter_op(&mut self.agnus, &mut self.memory, blit_op);
-                    self.blitter_progress_debug.granted_ops += 1;
-                    if burst_incremental_area_ops > 0 && !incremental_completed {
-                        for _ in 0..burst_incremental_area_ops {
-                            let Some(next_op) = self.agnus.tick_blitter_scheduler_op(true) else {
-                                break;
-                            };
-                            incremental_completed = execute_incremental_blitter_op(
-                                &mut self.agnus,
-                                &mut self.memory,
-                                next_op,
-                            );
-                            self.blitter_progress_debug.granted_ops += 1;
-                            if incremental_completed {
-                                break;
-                            }
-                        }
-                    }
-                    if drain_incremental_area && !incremental_completed {
-                        while let Some(next_op) = self.agnus.tick_blitter_scheduler_op(true) {
-                            incremental_completed = execute_incremental_blitter_op(
-                                &mut self.agnus,
-                                &mut self.memory,
-                                next_op,
-                            );
-                            self.blitter_progress_debug.granted_ops += 1;
-                            if incremental_completed {
-                                break;
-                            }
-                        }
-                    }
-                    if incremental_completed {
-                        if line_mode {
-                            self.finish_line_blit_shadow_compare();
-                        } else {
-                            self.finish_area_blit_shadow_compare();
-                        }
-                        self.agnus.clear_blitter_scheduler();
-                        self.agnus.blitter_busy = false;
-                        self.paula.request_interrupt(6);
-                    }
+                    self.agnus.blitter_busy = false;
+                    self.paula.request_interrupt(6);
                 }
             }
             if self.agnus.blitter_exec_ready() {
-                self.blitter_shadow_compare_snapshot = None;
                 execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
             }
 
@@ -1384,243 +1307,6 @@ impl Amiga {
         }
     }
 
-    fn maybe_capture_area_blit_shadow_compare(&mut self) {
-        if self.blitter_shadow_compare_snapshot.is_some() {
-            return;
-        }
-        let Some(limit) = machine_debug_compare_area_blits_limit() else {
-            return;
-        };
-        if self.blitter_area_shadow_compare_started >= limit {
-            return;
-        }
-        if !self.agnus.blitter_busy || (self.agnus.bltcon1 & 0x0001) != 0 {
-            return;
-        }
-        if (self.agnus.bltcon0 & 0x0100) == 0 {
-            return;
-        }
-        if !self.agnus.has_incremental_blitter_runtime() {
-            return;
-        }
-
-        let seq = self.blitter_area_shadow_compare_started;
-        self.blitter_area_shadow_compare_started += 1;
-        self.blitter_shadow_compare_snapshot = Some(BlitShadowCompareSnapshot {
-            mode: BlitShadowCompareMode::Area,
-            seq,
-            captured_master_clock: self.master_clock,
-            captured_vpos: self.agnus.vpos,
-            captured_hpos: self.agnus.hpos,
-            agnus: self.agnus.clone(),
-            memory: self.memory.clone(),
-        });
-    }
-
-    fn maybe_capture_line_blit_shadow_compare(&mut self) {
-        if self.blitter_shadow_compare_snapshot.is_some() {
-            return;
-        }
-        let Some(limit) = machine_debug_compare_line_blits_limit() else {
-            return;
-        };
-        if self.blitter_line_shadow_compare_started >= limit {
-            return;
-        }
-        if !self.agnus.blitter_busy || (self.agnus.bltcon1 & 0x0001) == 0 {
-            return;
-        }
-        if !self.agnus.has_incremental_blitter_runtime() {
-            return;
-        }
-
-        let seq = self.blitter_line_shadow_compare_started;
-        self.blitter_line_shadow_compare_started += 1;
-        self.blitter_shadow_compare_snapshot = Some(BlitShadowCompareSnapshot {
-            mode: BlitShadowCompareMode::Line,
-            seq,
-            captured_master_clock: self.master_clock,
-            captured_vpos: self.agnus.vpos,
-            captured_hpos: self.agnus.hpos,
-            agnus: self.agnus.clone(),
-            memory: self.memory.clone(),
-        });
-    }
-
-    fn finish_area_blit_shadow_compare(&mut self) {
-        let Some(snapshot) = self.blitter_shadow_compare_snapshot.take() else {
-            return;
-        };
-        if snapshot.mode != BlitShadowCompareMode::Area {
-            self.blitter_shadow_compare_snapshot = Some(snapshot);
-            return;
-        }
-        let seq = snapshot.seq;
-
-        let mut agnus_ref = snapshot.agnus.clone();
-        let mut paula_ref = Paula8364::new();
-        let mut memory_ref = snapshot.memory.clone();
-        execute_blit(&mut agnus_ref, &mut paula_ref, &mut memory_ref);
-
-        let d_words = area_blit_expected_d_words(&snapshot.agnus);
-        let mut first_mismatch = None;
-        for (idx, addr) in d_words.iter().copied().enumerate() {
-            let expected = chip_word_at(&memory_ref.chip_ram, memory_ref.chip_ram_mask, addr);
-            let actual = chip_word_at(&self.memory.chip_ram, self.memory.chip_ram_mask, addr);
-            if expected != actual {
-                first_mismatch = Some((idx, addr, expected, actual));
-                break;
-            }
-        }
-
-        let ptr_mismatch = (agnus_ref.blt_apt != self.agnus.blt_apt)
-            || (agnus_ref.blt_bpt != self.agnus.blt_bpt)
-            || (agnus_ref.blt_cpt != self.agnus.blt_cpt)
-            || (agnus_ref.blt_dpt != self.agnus.blt_dpt);
-
-        if let Some((idx, addr, expected, actual)) = first_mismatch {
-            let (width_words, height) = blit_size_dims(&snapshot.agnus);
-            let width_words_usize = width_words.max(1) as usize;
-            let row = idx / width_words_usize;
-            let col = idx % width_words_usize;
-            eprintln!(
-                "[blitcmp #{seq}] MISMATCH mode=area size={}x{} desc={} lf={:02X} row={} col={} addr={:06X} expected={:04X} actual={:04X} start_pc? mc={} beam={:03}/{:03} ptrs_ref=({:06X},{:06X},{:06X},{:06X}) ptrs_live=({:06X},{:06X},{:06X},{:06X})",
-                width_words,
-                height,
-                (snapshot.agnus.bltcon1 & 0x0002) != 0,
-                (snapshot.agnus.bltcon0 & 0x00FF) as u8,
-                row,
-                col,
-                addr & 0xFFFFFF,
-                expected,
-                actual,
-                snapshot.captured_master_clock,
-                snapshot.captured_vpos,
-                snapshot.captured_hpos,
-                agnus_ref.blt_apt,
-                agnus_ref.blt_bpt,
-                agnus_ref.blt_cpt,
-                agnus_ref.blt_dpt,
-                self.agnus.blt_apt,
-                self.agnus.blt_bpt,
-                self.agnus.blt_cpt,
-                self.agnus.blt_dpt,
-            );
-        } else if ptr_mismatch {
-            let (width_words, height) = blit_size_dims(&snapshot.agnus);
-            eprintln!(
-                "[blitcmp #{seq}] PTR-MISMATCH mode=area size={}x{} desc={} lf={:02X} ptrs_ref=({:06X},{:06X},{:06X},{:06X}) ptrs_live=({:06X},{:06X},{:06X},{:06X})",
-                width_words,
-                height,
-                (snapshot.agnus.bltcon1 & 0x0002) != 0,
-                (snapshot.agnus.bltcon0 & 0x00FF) as u8,
-                agnus_ref.blt_apt,
-                agnus_ref.blt_bpt,
-                agnus_ref.blt_cpt,
-                agnus_ref.blt_dpt,
-                self.agnus.blt_apt,
-                self.agnus.blt_bpt,
-                self.agnus.blt_cpt,
-                self.agnus.blt_dpt,
-            );
-        } else if machine_debug_compare_area_blits_verbose() {
-            let (width_words, height) = blit_size_dims(&snapshot.agnus);
-            eprintln!(
-                "[blitcmp #{}] ok size={}x{} desc={} lf={:02X}",
-                snapshot.seq,
-                width_words,
-                height,
-                (snapshot.agnus.bltcon1 & 0x0002) != 0,
-                (snapshot.agnus.bltcon0 & 0x00FF) as u8
-            );
-        }
-    }
-
-    fn finish_line_blit_shadow_compare(&mut self) {
-        let Some(snapshot) = self.blitter_shadow_compare_snapshot.take() else {
-            return;
-        };
-        if snapshot.mode != BlitShadowCompareMode::Line {
-            self.blitter_shadow_compare_snapshot = Some(snapshot);
-            return;
-        }
-        let seq = snapshot.seq;
-
-        let mut agnus_ref = snapshot.agnus.clone();
-        let mut paula_ref = Paula8364::new();
-        let mut memory_ref = snapshot.memory.clone();
-        execute_blit(&mut agnus_ref, &mut paula_ref, &mut memory_ref);
-
-        let d_words = line_blit_expected_d_words(&snapshot.agnus);
-        let mut first_mismatch = None;
-        for (step, addr) in d_words.iter().copied().enumerate() {
-            let expected = chip_word_at(&memory_ref.chip_ram, memory_ref.chip_ram_mask, addr);
-            let actual = chip_word_at(&self.memory.chip_ram, self.memory.chip_ram_mask, addr);
-            if expected != actual {
-                first_mismatch = Some((step, addr, expected, actual));
-                break;
-            }
-        }
-
-        let ptr_mismatch = (agnus_ref.blt_apt != self.agnus.blt_apt)
-            || (agnus_ref.blt_bpt != self.agnus.blt_bpt)
-            || (agnus_ref.blt_cpt != self.agnus.blt_cpt)
-            || (agnus_ref.blt_dpt != self.agnus.blt_dpt)
-            || (agnus_ref.blt_bdat != self.agnus.blt_bdat);
-
-        let steps = line_blit_steps(&snapshot.agnus);
-        if let Some((step, addr, expected, actual)) = first_mismatch {
-            eprintln!(
-                "[blitcmp #{seq}] MISMATCH mode=line steps={} desc={} lf={:02X} step={} addr={:06X} expected={:04X} actual={:04X} mc={} beam={:03}/{:03} ptrs_ref=({:06X},{:06X},{:06X},{:06X}) ptrs_live=({:06X},{:06X},{:06X},{:06X}) bdat_ref={:04X} bdat_live={:04X}",
-                steps,
-                (snapshot.agnus.bltcon1 & 0x0002) != 0,
-                (snapshot.agnus.bltcon0 & 0x00FF) as u8,
-                step,
-                addr & 0xFFFFFF,
-                expected,
-                actual,
-                snapshot.captured_master_clock,
-                snapshot.captured_vpos,
-                snapshot.captured_hpos,
-                agnus_ref.blt_apt,
-                agnus_ref.blt_bpt,
-                agnus_ref.blt_cpt,
-                agnus_ref.blt_dpt,
-                self.agnus.blt_apt,
-                self.agnus.blt_bpt,
-                self.agnus.blt_cpt,
-                self.agnus.blt_dpt,
-                agnus_ref.blt_bdat,
-                self.agnus.blt_bdat,
-            );
-        } else if ptr_mismatch {
-            eprintln!(
-                "[blitcmp #{seq}] PTR-MISMATCH mode=line steps={} desc={} lf={:02X} ptrs_ref=({:06X},{:06X},{:06X},{:06X}) ptrs_live=({:06X},{:06X},{:06X},{:06X}) bdat_ref={:04X} bdat_live={:04X}",
-                steps,
-                (snapshot.agnus.bltcon1 & 0x0002) != 0,
-                (snapshot.agnus.bltcon0 & 0x00FF) as u8,
-                agnus_ref.blt_apt,
-                agnus_ref.blt_bpt,
-                agnus_ref.blt_cpt,
-                agnus_ref.blt_dpt,
-                self.agnus.blt_apt,
-                self.agnus.blt_bpt,
-                self.agnus.blt_cpt,
-                self.agnus.blt_dpt,
-                agnus_ref.blt_bdat,
-                self.agnus.blt_bdat,
-            );
-        } else if machine_debug_compare_line_blits_verbose() {
-            eprintln!(
-                "[blitcmp #{}] ok mode=line steps={} desc={} lf={:02X}",
-                snapshot.seq,
-                steps,
-                (snapshot.agnus.bltcon1 & 0x0002) != 0,
-                (snapshot.agnus.bltcon0 & 0x00FF) as u8
-            );
-        }
-    }
-
     /// Report coarse ECS sync-window state at a specific beam position.
     ///
     /// On OCS, or before ECS sync-window behavior is enabled, both fields are
@@ -1677,22 +1363,24 @@ impl Amiga {
     fn beam_composite_sync_debug_from_components(
         &self,
         sync: BeamSyncState,
+        hpos_cck: u16,
+        vpos: u16,
     ) -> BeamCompositeSyncDebug {
         if !self.chipset.is_ecs_or_aga() {
             return BeamCompositeSyncDebug::default();
         }
 
-        // Conservative ECS Phase 3 model: `VARCSYEN` changes the modeled
-        // source mode, but timing still reuses the H/V sync OR until dedicated
-        // composite-sync timing/HCENTER behavior is implemented.
-        let mode = if self.agnus.varcsyen_enabled() {
-            BeamCompositeSyncMode::VariablePlaceholderHvOr
+        let (active, mode) = if self.agnus.varcsyen_enabled() {
+            // ECS/AGA variable composite sync: HSYNC XOR VSYNC.
+            let csync_raw = sync.hsync ^ sync.vsync;
+            (csync_raw, BeamCompositeSyncMode::VariableXorSync)
         } else {
-            BeamCompositeSyncMode::HardwiredHvOr
+            // Hardwired mode: simple OR of H and V sync.
+            (sync.hsync || sync.vsync, BeamCompositeSyncMode::HardwiredHvOr)
         };
 
         BeamCompositeSyncDebug {
-            active: sync.hsync || sync.vsync,
+            active,
             redirected: self.agnus.cscben_enabled(),
             mode,
         }
@@ -1719,7 +1407,7 @@ impl Amiga {
             (false, false)
         };
         let sync = self.beam_sync_state_at(vpos, hpos_cck);
-        let composite_sync = self.beam_composite_sync_debug_from_components(sync);
+        let composite_sync = self.beam_composite_sync_debug_from_components(sync, hpos_cck, vpos);
         BeamDebugSnapshot {
             vpos,
             hpos_cck,
@@ -1863,63 +1551,6 @@ impl emu_core::Observable for Amiga {
             "master_clock",
         ]
     }
-}
-
-fn machine_experiment_sync_line_blitter() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_SYNC_LINE_BLITTER").is_some())
-}
-
-fn machine_experiment_sync_area_blitter() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("AMIGA_EXPERIMENT_SYNC_AREA_BLITTER").is_some())
-}
-
-fn machine_experiment_drain_incremental_area_blitter() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        std::env::var_os("AMIGA_EXPERIMENT_DRAIN_INCREMENTAL_AREA_BLITTER").is_some()
-    })
-}
-
-fn machine_experiment_burst_incremental_area_blitter_ops() -> u32 {
-    static OPS: OnceLock<u32> = OnceLock::new();
-    *OPS.get_or_init(|| {
-        std::env::var("AMIGA_EXPERIMENT_BURST_INCREMENTAL_AREA_BLITTER_OPS")
-            .ok()
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(0)
-    })
-}
-
-fn machine_debug_compare_area_blits_limit() -> Option<usize> {
-    static LIMIT: OnceLock<Option<usize>> = OnceLock::new();
-    *LIMIT.get_or_init(|| {
-        std::env::var("AMIGA_COMPARE_AREA_BLITS")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .filter(|&n| n > 0)
-    })
-}
-
-fn machine_debug_compare_area_blits_verbose() -> bool {
-    static VERBOSE: OnceLock<bool> = OnceLock::new();
-    *VERBOSE.get_or_init(|| std::env::var_os("AMIGA_COMPARE_AREA_BLITS_VERBOSE").is_some())
-}
-
-fn machine_debug_compare_line_blits_limit() -> Option<usize> {
-    static LIMIT: OnceLock<Option<usize>> = OnceLock::new();
-    *LIMIT.get_or_init(|| {
-        std::env::var("AMIGA_COMPARE_LINE_BLITS")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .filter(|&n| n > 0)
-    })
-}
-
-fn machine_debug_compare_line_blits_verbose() -> bool {
-    static VERBOSE: OnceLock<bool> = OnceLock::new();
-    *VERBOSE.get_or_init(|| std::env::var_os("AMIGA_COMPARE_LINE_BLITS_VERBOSE").is_some())
 }
 
 pub struct AmigaBusWrapper<'a> {
@@ -2536,127 +2167,6 @@ pub fn execute_incremental_blitter_op(
             }
         },
     )
-}
-
-fn blit_size_dims(agnus: &Agnus) -> (u32, u32) {
-    let height = (agnus.bltsize >> 6) & 0x03FF;
-    let width_words = agnus.bltsize & 0x003F;
-    let height = if height == 0 { 1024 } else { height } as u32;
-    let width_words = if width_words == 0 { 64 } else { width_words } as u32;
-    (width_words, height)
-}
-
-fn area_blit_expected_d_words(agnus: &Agnus) -> Vec<u32> {
-    let (width_words, height) = blit_size_dims(agnus);
-    let mut d_words = Vec::with_capacity((width_words * height) as usize);
-    let desc = (agnus.bltcon1 & 0x0002) != 0;
-    let ptr_step: i32 = if desc { -2 } else { 2 };
-    let mod_dir: i32 = if desc { -1 } else { 1 };
-    let mut dpt = agnus.blt_dpt;
-    for _ in 0..height {
-        for _ in 0..width_words {
-            d_words.push(dpt & 0x1FFFFE);
-            dpt = (dpt as i32 + ptr_step) as u32;
-        }
-        dpt = (dpt as i32 + i32::from(agnus.blt_dmod) * mod_dir) as u32;
-    }
-    d_words
-}
-
-fn line_blit_steps(agnus: &Agnus) -> u32 {
-    let length = ((agnus.bltsize >> 6) & 0x03FF) as u32;
-    if length == 0 { 1024 } else { length }
-}
-
-fn line_blit_expected_d_words(agnus: &Agnus) -> Vec<u32> {
-    let length = line_blit_steps(agnus);
-    let ash = (agnus.bltcon0 >> 12) & 0xF;
-    let sud = agnus.bltcon1 & 0x0010 != 0;
-    let sul = agnus.bltcon1 & 0x0008 != 0;
-    let aul = agnus.bltcon1 & 0x0004 != 0;
-    let oct_code = ((sud as u8) << 2) | ((sul as u8) << 1) | (aul as u8);
-    let octant = match oct_code {
-        0b000 => 6,
-        0b001 => 1,
-        0b010 => 5,
-        0b011 => 2,
-        0b100 => 7,
-        0b101 => 4,
-        0b110 => 0,
-        0b111 => 3,
-        _ => unreachable!(),
-    };
-    let (major_is_y, x_neg, y_neg) = match octant {
-        0 => (false, false, false),
-        1 => (true, false, false),
-        2 => (true, true, false),
-        3 => (false, true, false),
-        4 => (false, true, true),
-        5 => (true, true, true),
-        6 => (true, false, true),
-        7 => (false, false, true),
-        _ => unreachable!(),
-    };
-
-    let mut error = agnus.blt_apt as i16;
-    let error_add = agnus.blt_bmod;
-    let error_sub = agnus.blt_amod;
-    let mut dpt = agnus.blt_dpt;
-    let mut pixel_bit = ash;
-    let row_mod = agnus.blt_cmod;
-    let mut out = Vec::with_capacity(length as usize);
-
-    for _ in 0..length {
-        out.push(dpt & 0x1FFFFE);
-
-        let step_x = |dpt: &mut u32, pixel_bit: &mut u16| {
-            if x_neg {
-                *pixel_bit = pixel_bit.wrapping_sub(1) & 0xF;
-                if *pixel_bit == 15 {
-                    *dpt = dpt.wrapping_sub(2);
-                }
-            } else {
-                *pixel_bit = (*pixel_bit + 1) & 0xF;
-                if *pixel_bit == 0 {
-                    *dpt = dpt.wrapping_add(2);
-                }
-            }
-        };
-        let step_y = |dpt: &mut u32| {
-            if y_neg {
-                *dpt = (*dpt as i32 + row_mod as i32) as u32;
-            } else {
-                *dpt = (*dpt as i32 - row_mod as i32) as u32;
-            }
-        };
-
-        if error >= 0 {
-            if major_is_y {
-                step_y(&mut dpt);
-                step_x(&mut dpt, &mut pixel_bit);
-            } else {
-                step_x(&mut dpt, &mut pixel_bit);
-                step_y(&mut dpt);
-            }
-            error = error.wrapping_add(error_sub);
-        } else {
-            if major_is_y {
-                step_y(&mut dpt);
-            } else {
-                step_x(&mut dpt, &mut pixel_bit);
-            }
-            error = error.wrapping_add(error_add);
-        }
-    }
-
-    out
-}
-
-fn chip_word_at(chip_ram: &[u8], chip_ram_mask: u32, addr: u32) -> u16 {
-    let base = (addr & chip_ram_mask & !1) as usize;
-    let hi = chip_ram[base % chip_ram.len()];
-    let lo = chip_ram[(base + 1) % chip_ram.len()];
-    (u16::from(hi) << 8) | u16::from(lo)
 }
 
 /// Execute a blitter operation synchronously when the coarse scheduler matures.
@@ -3848,13 +3358,15 @@ mod tests {
                 | commodore_agnus_ecs::BEAMCON0_VARCSYEN,
         );
 
+        // At (105, 35): both hsync and vsync are active.
+        // XOR composite sync: true ^ true = false (sync cancels when both active).
         let true_polarity_sync = amiga.beam_debug_snapshot_at(105, 35);
         assert_eq!(
             true_polarity_sync.composite_sync,
             BeamCompositeSyncDebug {
-                active: true,
+                active: false,
                 redirected: true,
-                mode: BeamCompositeSyncMode::VariablePlaceholderHvOr,
+                mode: BeamCompositeSyncMode::VariableXorSync,
             }
         );
         assert_eq!(
@@ -3862,7 +3374,7 @@ mod tests {
             BeamPinState {
                 hsync_high: true,
                 vsync_high: true,
-                csync_high: true,
+                csync_high: false,
                 blank_active: false,
             }
         );
@@ -3873,7 +3385,7 @@ mod tests {
             BeamCompositeSyncDebug {
                 active: false,
                 redirected: true,
-                mode: BeamCompositeSyncMode::VariablePlaceholderHvOr,
+                mode: BeamCompositeSyncMode::VariableXorSync,
             }
         );
         assert_eq!(
