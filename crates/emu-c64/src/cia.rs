@@ -765,6 +765,68 @@ mod tests {
     }
 
     #[test]
+    fn shift_register_read_write() {
+        let mut cia = Cia::new();
+        cia.write(0x0C, 0xA5);
+        assert_eq!(cia.read(0x0C), 0xA5);
+    }
+
+    #[test]
+    fn shift_register_write_resets_count() {
+        let mut cia = Cia::new();
+        // Enable output mode (CRA bit 6) and start Timer A
+        cia.write(0x04, 2); // Timer A latch low
+        cia.write(0x05, 0); // Timer A latch high (loads counter)
+        cia.write(0x0E, 0x41); // Start + SP output mode
+        cia.write(0x0C, 0xFF); // Load shift register
+
+        // Tick until Timer A underflows (3 ticks: 2→1→0)
+        for _ in 0..3 {
+            cia.tick();
+        }
+        // One bit shifted, count = 1. Re-writing $0C resets count.
+        cia.write(0x0C, 0xAA);
+        assert_eq!(cia.read(0x0C), 0xAA);
+        // ICR bit 3 should NOT be set (count was reset)
+        assert_eq!(cia.icr_status() & 0x08, 0);
+    }
+
+    #[test]
+    fn shift_register_output_fires_icr_after_8_bits() {
+        let mut cia = Cia::new();
+        // Timer A latch = 0 → underflows every tick (0→underflow, reload 0, ...)
+        cia.write(0x04, 0);
+        cia.write(0x05, 0);
+        cia.write(0x0E, 0x41); // Start + SP output mode
+        cia.write(0x0C, 0xFF); // Load shift register
+
+        // After 8 Timer A underflows, ICR bit 3 should fire.
+        // Timer A = 0, so each tick: detect 0 → underflow → reload 0.
+        for i in 0..8 {
+            cia.tick();
+            if i < 7 {
+                assert_eq!(cia.icr_status() & 0x08, 0, "ICR bit 3 too early at tick {i}");
+            }
+        }
+        assert_ne!(cia.icr_status() & 0x08, 0, "ICR bit 3 should be set after 8 shifts");
+    }
+
+    #[test]
+    fn shift_register_input_mode_does_not_shift() {
+        let mut cia = Cia::new();
+        cia.write(0x04, 0);
+        cia.write(0x05, 0);
+        cia.write(0x0E, 0x01); // Start, SP output mode OFF (input)
+        cia.write(0x0C, 0xFF);
+
+        // 10 Timer A underflows — input mode does nothing
+        for _ in 0..10 {
+            cia.tick();
+        }
+        assert_eq!(cia.icr_status() & 0x08, 0);
+    }
+
+    #[test]
     fn bcd_increment_works() {
         assert_eq!(super::bcd_increment(0x00), 0x01);
         assert_eq!(super::bcd_increment(0x09), 0x10);

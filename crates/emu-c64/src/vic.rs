@@ -1788,4 +1788,91 @@ mod tests {
             "RSEL=0: line $33 should show border"
         );
     }
+
+    #[test]
+    fn light_pen_latches_beam_position() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Advance to a known beam position
+        for _ in 0..20 {
+            vic.tick(&memory);
+        }
+        let cycle = vic.raster_cycle();
+        let line = vic.raster_line();
+
+        vic.trigger_light_pen();
+        assert_eq!(vic.peek(0x14), line as u8, "LPY should match raster line");
+        // LPX = cycle * 4 (pixel-pair units)
+        let expected_lpx = (cycle as u16 * 4) as u8;
+        assert_eq!(vic.peek(0x13), expected_lpx, "LPX should match cycle * 4");
+    }
+
+    #[test]
+    fn light_pen_latches_once_per_frame() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Advance to line 50, trigger light pen
+        while vic.raster_line() < 50 {
+            vic.tick(&memory);
+        }
+        vic.trigger_light_pen();
+        let first_lpy = vic.peek(0x14);
+
+        // Advance further, try triggering again
+        for _ in 0..200 {
+            vic.tick(&memory);
+        }
+        vic.trigger_light_pen();
+        // LPY should not change (once per frame)
+        assert_eq!(vic.peek(0x14), first_lpy, "Second trigger should be ignored");
+    }
+
+    #[test]
+    fn light_pen_resets_at_frame_start() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Advance to line 50, trigger
+        while vic.raster_line() < 50 {
+            vic.tick(&memory);
+        }
+        vic.trigger_light_pen();
+
+        // Run to next frame
+        while !vic.take_frame_complete() {
+            vic.tick(&memory);
+        }
+
+        // Now advance into the new frame and trigger again
+        while vic.raster_line() < 100 {
+            vic.tick(&memory);
+        }
+        vic.trigger_light_pen();
+        assert_eq!(vic.peek(0x14), 100, "New frame should allow new latch");
+    }
+
+    #[test]
+    fn unmapped_registers_return_last_bus_data() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Run enough ticks for VIC to fetch some data from memory
+        // (past display start so screen row fetch occurs)
+        for _ in 0..(CYCLES_PER_LINE as u32 * (DISPLAY_START_LINE as u32 + 2)) {
+            vic.tick(&memory);
+        }
+        // Read an unmapped register ($2F)
+        let val = vic.read(0x2F);
+        // Should return last_bus_data, not $FF. Since the chargen is 0xFF
+        // and screen RAM is zeroed, the value depends on what was fetched.
+        // The key assertion: it should equal last_bus_data field.
+        assert_eq!(val, vic.peek(0x2F), "Read and peek should agree on floating bus value");
+    }
+
+    #[test]
+    fn unmapped_registers_mirrors_return_same_value() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Run VIC to fetch some data
+        for _ in 0..(CYCLES_PER_LINE as u32 * (DISPLAY_START_LINE as u32 + 2)) {
+            vic.tick(&memory);
+        }
+        // All unmapped registers ($2F-$3F) should return the same value
+        let val_2f = vic.read(0x2F);
+        assert_eq!(vic.read(0x30), val_2f);
+        assert_eq!(vic.read(0x3F), val_2f);
+    }
 }

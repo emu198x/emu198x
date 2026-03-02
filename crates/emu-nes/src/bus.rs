@@ -204,4 +204,21 @@ mod tests {
         bus.write(0x4014, 0x02);
         assert_eq!(bus.oam_dma_page, Some(0x02));
     }
+
+    #[test]
+    fn apu_test_mode_reads_return_open_bus() {
+        let mut bus = make_bus();
+        // $4018-$401F are APU test mode registers — disabled, should return $FF
+        for addr in 0x4018..=0x401F {
+            assert_eq!(bus.read(addr).data, 0xFF, "test mode reg ${addr:04X} should return $FF");
+        }
+    }
+
+    #[test]
+    fn apu_test_mode_writes_are_ignored() {
+        let mut bus = make_bus();
+        // Writes to test mode registers should be silently ignored
+        bus.write(0x4018, 0x42);
+        assert_eq!(bus.read(0x4018).data, 0xFF);
+    }
 }
