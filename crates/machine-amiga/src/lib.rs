@@ -1977,6 +1977,14 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             };
             BusStatus::Ready(val)
         } else {
+            // Write to non-chip-RAM space (expansion, ROM area, etc.)
+            let val = data.unwrap_or(0);
+            if is_word {
+                self.memory.write_byte(addr, (val >> 8) as u8);
+                self.memory.write_byte(addr | 1, val as u8);
+            } else {
+                self.memory.write_byte(addr, val as u8);
+            }
             BusStatus::Ready(0)
         }
     }

@@ -15,6 +15,18 @@ pub struct Memory {
     pub overlay: bool,
     pub slow_ram: Vec<u8>,
     pub slow_ram_mask: u32,
+    /// Write-through cache for unmapped expansion space ($C00000-$DFFFFF).
+    ///
+    /// On a real A500, Gary always asserts DTACK for this range even
+    /// without expansion RAM. Reads return bus residue (the last driven
+    /// value). The KS 1.2+ expansion probe detects "phantom" boards
+    /// from this residue, then exec init temporarily uses the space as
+    /// stack. Bus capacitance holds written values long enough for the
+    /// few BSR/RTS pairs before SP moves to chip RAM.
+    ///
+    /// We model this with a small write cache. Writes store values;
+    /// reads return the stored value or 0 if never written.
+    pub expansion_bus_cache: Vec<u8>,
 }
 
 impl Memory {
@@ -34,6 +46,8 @@ impl Memory {
             overlay: true, // Amiga starts with ROM overlay at $0
             slow_ram: vec![0; slow_ram_size],
             slow_ram_mask,
+            // 2MB covers the full $C00000-$DFFFFF range
+            expansion_bus_cache: vec![0u8; 0x20_0000],
         }
     }
 
@@ -50,9 +64,15 @@ impl Memory {
         // on a 512KB machine, $80000 aliases to $00000.
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize]
-        } else if (0xC0_0000..0xE0_0000).contains(&addr) && !self.slow_ram.is_empty() {
-            let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
-            self.slow_ram[offset as usize]
+        } else if (0xC0_0000..0xE0_0000).contains(&addr) {
+            if !self.slow_ram.is_empty() {
+                let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
+                self.slow_ram[offset as usize]
+            } else {
+                // Bus capacitance: return last written value.
+                let offset = (addr - 0xC0_0000) as usize;
+                self.expansion_bus_cache[offset]
+            }
         } else if addr >= ROM_BASE {
             self.kickstart[(addr & self.kickstart_mask) as usize]
         } else {
@@ -69,9 +89,15 @@ impl Memory {
         // Agnus wraps chip RAM addresses to installed size.
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
-        } else if (0xC0_0000..0xE0_0000).contains(&addr) && !self.slow_ram.is_empty() {
-            let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
-            self.slow_ram[offset as usize] = val;
+        } else if (0xC0_0000..0xE0_0000).contains(&addr) {
+            if !self.slow_ram.is_empty() {
+                let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
+                self.slow_ram[offset as usize] = val;
+            } else {
+                // Bus capacitance: store for later reads.
+                let offset = (addr - 0xC0_0000) as usize;
+                self.expansion_bus_cache[offset] = val;
+            }
         }
         // ROM is read-only; addresses above chip/slow RAM are open bus.
     }
@@ -101,6 +127,22 @@ mod tests {
     }
 
     #[test]
+    fn expansion_bus_capacitance() {
+        let mut mem = Memory::new(512 * 1024, test_ks(), 0);
+        // Empty expansion returns 0 initially
+        assert_eq!(mem.read_byte(0xC0_0000), 0x00);
+        // Writes persist and reads return the written value
+        mem.write_byte(0xC0_1000, 0x3F);
+        mem.write_byte(0xC0_1001, 0xFF);
+        assert_eq!(mem.read_byte(0xC0_1000), 0x3F);
+        assert_eq!(mem.read_byte(0xC0_1001), 0xFF);
+        // Different addresses are independent (like real RAM)
+        mem.write_byte(0xDB_FFF0, 0xAB);
+        assert_eq!(mem.read_byte(0xDB_FFF0), 0xAB);
+        assert_eq!(mem.read_byte(0xC0_1000), 0x3F, "other addr unchanged");
+    }
+
+    #[test]
     fn slow_ram_read_write_roundtrip() {
         let mut mem = Memory::new(512 * 1024, test_ks(), 512 * 1024);
         mem.overlay = false;
@@ -108,12 +150,6 @@ mod tests {
         mem.write_byte(0xC0_0001, 0xAB);
         assert_eq!(mem.read_byte(0xC0_0000), 0x42);
         assert_eq!(mem.read_byte(0xC0_0001), 0xAB);
-    }
-
-    #[test]
-    fn slow_ram_unmapped_when_disabled() {
-        let mem = Memory::new(512 * 1024, test_ks(), 0);
-        assert_eq!(mem.read_byte(0xC0_0000), 0xFF, "should be open bus");
     }
 
     #[test]

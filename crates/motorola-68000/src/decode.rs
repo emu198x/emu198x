@@ -1832,6 +1832,13 @@ impl Cpu68000 {
                     self.micro_ops.push(MicroOp::PushLongLo);
                 }
                 self.micro_ops.push(MicroOp::PromoteIRC);
+                // Trace JMP from $FC05B2 (RAM test exit)
+                if self.instr_start_pc == 0xFC05B2 {
+                    eprintln!(
+                        "  [jmp] $FC05B2 → ${:08X} A3=${:08X} A5=${:08X}",
+                        self.addr, self.regs.a(3), self.regs.a(5),
+                    );
+                }
                 self.in_followup = false;
             }
 

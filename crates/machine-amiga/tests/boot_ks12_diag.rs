@@ -1,6 +1,7 @@
-//! Diagnostic: trace exec init between RAM test exit and alert.
+//! KS 1.2 diagnostic: trace exec init after RAM test.
 
 use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
+use std::collections::VecDeque;
 use std::fs;
 
 #[test]
@@ -22,11 +23,12 @@ fn test_kick12_boot_trace() {
         slow_ram_size: 0,
     });
 
-    let total_ticks: u64 = 28_375_160 * 5;
+    let total_ticks: u64 = 28_375_160 * 10;
+    let trace_start: u64 = (28_375_160.0 * 1.77) as u64;
+    let mut tracing = false;
+    let mut pc_ring: VecDeque<(u64, u32)> = VecDeque::with_capacity(300);
+    let mut last_ring_pc: u32 = 0;
     let mut alert_count: u32 = 0;
-    let mut saw_fc0222 = false;
-    let mut exec_init_pcs: Vec<(u64, u32)> = Vec::new();
-    let mut last_exec_pc: u32 = 0;
 
     for i in 0..total_ticks {
         amiga.tick();
@@ -42,65 +44,71 @@ fn test_kick12_boot_trace() {
             continue;
         }
 
+        if !tracing && i >= trace_start {
+            tracing = true;
+        }
+        if !tracing {
+            continue;
+        }
+
         let pc = amiga.cpu.regs.pc;
 
-        // Trace A3 at $FC021A — ALL hits, with IR for context
-        if pc == 0xFC021A && alert_count < 2 {
-            static HIT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            let n = HIT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if n < 5 || (n > 0 && amiga.cpu.regs.a(3) != 0) {
-                println!(
-                    "  tick={} @FC021A #{}: A3=${:08X} A0=${:08X} IR=${:04X}",
-                    i, n + 1, amiga.cpu.regs.a(3), amiga.cpu.regs.a(0), amiga.cpu.ir,
-                );
+        if pc != last_ring_pc {
+            last_ring_pc = pc;
+            if pc_ring.len() >= 250 {
+                pc_ring.pop_front();
             }
+            pc_ring.push_back((i, pc));
         }
 
-        // Detect exec init success path
-        if pc == 0xFC0222 && !saw_fc0222 {
-            saw_fc0222 = true;
-            let elapsed_s = i as f64 / 28_375_160.0;
-            println!(
-                "[{:.3}s] @FC0222 EXEC INIT START: A3=${:08X} D0=${:08X}",
-                elapsed_s,
-                amiga.cpu.regs.a(3),
-                amiga.cpu.regs.d[0],
-            );
-        }
-
-        // Log exec init PCs (outside RAM test range)
-        if saw_fc0222 && pc != last_exec_pc {
-            last_exec_pc = pc;
-            exec_init_pcs.push((i, pc));
-        }
-
-        if pc == 0xFC05B4 {
+        // Trigger on COLOR00 changing to yellow ($CC0) — definitive
+        // alert indicator, happens AFTER the alert handler writes it.
+        if amiga.denise.palette[0] == 0x0CC0 {
             alert_count += 1;
             if alert_count <= 2 {
                 let elapsed_s = i as f64 / 28_375_160.0;
                 println!(
-                    "[{:.3}s] *** ALERT #{} *** A3=${:08X} D0=${:08X} SP=${:08X}",
-                    elapsed_s,
-                    alert_count,
+                    "\n=== Alert #{} at {:.3}s (COLOR00=$CC0) ===",
+                    alert_count, elapsed_s,
+                );
+                println!(
+                    "A3=${:08X} D0=${:08X} SP=${:08X} A5=${:08X}",
                     amiga.cpu.regs.a(3),
                     amiga.cpu.regs.d[0],
                     amiga.cpu.regs.a(7),
+                    amiga.cpu.regs.a(5),
                 );
-                if saw_fc0222 {
-                    // Print the exec init PCs that led here
-                    let n = exec_init_pcs.len();
-                    let start = n.saturating_sub(30);
-                    println!("  {} exec init PCs recorded, last {}:", n, n - start);
-                    for &(tick, addr) in &exec_init_pcs[start..] {
-                        println!("    tick={} PC=${:08X}", tick, addr);
-                    }
+                // Print filtered ring buffer (exclude RAM test loop $FC059E-$FC05AE
+                // AND alert blink loop $FC05CE-$FC05FA)
+                let filtered: Vec<_> = pc_ring
+                    .iter()
+                    .filter(|&&(_, p)| {
+                        !((p >= 0xFC059E && p <= 0xFC05AE)
+                            || (p >= 0xFC05CE && p <= 0xFC05FA))
+                    })
+                    .copied()
+                    .collect();
+                let start = filtered.len().saturating_sub(50);
+                println!("  Last {} non-loop PCs:", filtered.len() - start);
+                for &(tick, addr) in &filtered[start..] {
+                    let label = match addr {
+                        0xFC0222 => " ← EXEC INIT",
+                        0xFC021A => " ← post-RAM cmpa",
+                        0xFC0220 => " ← bcs (RAM too small?)",
+                        0xFC0238 => " ← RAM too small!",
+                        0xFC05B0 => " ← movea a0,a3",
+                        0xFC05B2 => " ← jmp (a5)",
+                        0xFC05B4 => " ← alert move.w",
+                        0xFC05B8 => " ← alert lea DFF000",
+                        0xFC05BC => " ← alert cont",
+                        _ => "",
+                    };
+                    println!("    tick={:>10} PC=${:08X}{}", tick, addr, label);
                 }
-                // Reset for next cycle
-                saw_fc0222 = false;
-                exec_init_pcs.clear();
-                last_exec_pc = 0;
+                pc_ring.clear();
+                last_ring_pc = 0;
             }
-            if alert_count >= 3 {
+            if alert_count >= 2 {
                 break;
             }
         }

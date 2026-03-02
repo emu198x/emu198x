@@ -543,7 +543,8 @@ impl Cpu68000 {
             } => {
                 *cycle_count = cycle_count.saturating_add(1);
                 if *cycle_count >= 4 {
-                    match bus.poll_cycle(*addr, *fc, *is_read, *is_word, *data) {
+                    let result = bus.poll_cycle(*addr, *fc, *is_read, *is_word, *data);
+                    match result {
                         BusStatus::Ready(read_data) => {
                             let completed_op = *op;
                             self.finish_bus_cycle(completed_op, read_data);
