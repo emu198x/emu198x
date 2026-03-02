@@ -181,6 +181,10 @@ pub struct Amiga {
     pub model: AmigaModel,
     pub chipset: AmigaChipset,
     pub region: AmigaRegion,
+    /// Crystal ticks per CPU cycle. 68000 models = 4 (7 MHz from 28 MHz
+    /// crystal), 68020 A1200 = 2 (14 MHz). The CPU's `tick()` method
+    /// gates on `clock % 4 == 0`, so we scale the clock fed to it.
+    cpu_crystal_divisor: u64,
     pub cpu: Cpu68000,
     pub agnus: Agnus,
     pub memory: Memory,
@@ -288,9 +292,9 @@ impl Amiga {
             }
         };
 
-        let mut cpu = match model {
-            AmigaModel::A1200 => Cpu68000::new_with_model(CpuModel::M68020),
-            _ => Cpu68000::new(),
+        let (mut cpu, cpu_crystal_divisor) = match model {
+            AmigaModel::A1200 => (Cpu68000::new_with_model(CpuModel::M68020), 2u64),
+            _ => (Cpu68000::new(), TICKS_PER_CPU),
         };
         let memory = Memory::new(chip_ram_size, kickstart, slow_ram_size);
 
@@ -323,6 +327,7 @@ impl Amiga {
             model,
             chipset,
             region,
+            cpu_crystal_divisor,
             cpu,
             agnus,
             memory,
@@ -758,8 +763,11 @@ impl Amiga {
             }
         }
 
-        // Cpu68000::tick() already self-gates to 4-crystal boundaries.
-        // Call it every master tick so we don't double-apply the divide-by-4.
+        // Cpu68000::tick() self-gates to `clock % 4 == 0` boundaries.
+        // Scale the master clock to match the model's CPU frequency:
+        // divisor 4 → pass master_clock as-is (7 MHz 68000),
+        // divisor 2 → pass master_clock * 2 (14 MHz 68020 A1200).
+        let cpu_clock = self.master_clock * (TICKS_PER_CPU / self.cpu_crystal_divisor);
         let mut bus = AmigaBusWrapper {
             chipset: self.chipset,
             agnus: &mut self.agnus,
@@ -776,7 +784,7 @@ impl Amiga {
             ddfstop_pending: &mut self.ddfstop_pending,
             color_pending: &mut self.color_pending,
         };
-        self.cpu.tick(&mut bus, self.master_clock);
+        self.cpu.tick(&mut bus, cpu_clock);
 
         if self.master_clock.is_multiple_of(TICKS_PER_ECLOCK) {
             self.cia_a.tick();
@@ -1776,7 +1784,13 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x00E => self.denise.read_clxdat(),
                     0x010 => self.paula.adkcon,
                     0x016 => 0xFF00,
-                    0x018 => 0x39FF,
+                    // SERDATR: TBE(13)+TSRE(12) always set (no serial
+                    // transmitter), RBF(14) set = receive buffer full.
+                    // With no serial hardware, returning RBF high mimics an
+                    // unconnected port (floating data line). This lets the
+                    // KS 3.x serial diagnostic loop exit immediately instead
+                    // of spinning for its full timeout.
+                    0x018 => 0x79FF,
                     0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x01C => self.paula.intena,
                     0x01E => self.paula.intreq,
