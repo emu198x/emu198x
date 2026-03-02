@@ -790,7 +790,7 @@ fn test_paula_audio_dma_capture() {
     );
 
     // Save as stereo WAV.
-    let out_dir = Path::new("../../test_output");
+    let out_dir = Path::new("../../test_output/amiga");
     fs::create_dir_all(out_dir).ok();
     let wav_path = out_dir.join("amiga_paula_tone.wav");
     save_stereo_wav(&all_audio, &wav_path).expect("failed to save stereo WAV");

@@ -60,7 +60,7 @@ fn test_boot_kernal() {
             }
 
             // Save screenshot
-            let out_dir = Path::new("../../test_output");
+            let out_dir = Path::new("../../test_output/c64");
             fs::create_dir_all(out_dir).ok();
             let screenshot_path = out_dir.join("c64_boot_ready.png");
             emu_c64::capture::save_screenshot(&c64, &screenshot_path)
@@ -129,7 +129,7 @@ fn test_sid_produces_audio() {
     );
 
     // Save as WAV for manual verification
-    let out_dir = Path::new("../../test_output");
+    let out_dir = Path::new("../../test_output/c64");
     fs::create_dir_all(out_dir).ok();
     let audio_path = out_dir.join("c64_sid_tone.wav");
     emu_c64::capture::save_audio(&audio, &audio_path).expect("Failed to save audio");
@@ -190,7 +190,7 @@ fn test_badline_border_timing() {
     }
 
     // Save screenshot
-    let out_dir = Path::new("../../test_output");
+    let out_dir = Path::new("../../test_output/c64");
     fs::create_dir_all(out_dir).ok();
     let screenshot_path = out_dir.join("c64_badline_raster.png");
     emu_c64::capture::save_screenshot(&c64, &screenshot_path)
@@ -331,7 +331,7 @@ fn test_hires_bitmap_mode() {
     }
 
     // Save screenshot
-    let out_dir = Path::new("../../test_output");
+    let out_dir = Path::new("../../test_output/c64");
     fs::create_dir_all(out_dir).ok();
     let screenshot_path = out_dir.join("c64_hires_bitmap.png");
     emu_c64::capture::save_screenshot(&c64, &screenshot_path)
@@ -403,7 +403,7 @@ fn test_multicolour_text_mode() {
     }
 
     // Save screenshot
-    let out_dir = Path::new("../../test_output");
+    let out_dir = Path::new("../../test_output/c64");
     fs::create_dir_all(out_dir).ok();
     let screenshot_path = out_dir.join("c64_mcm_text.png");
     emu_c64::capture::save_screenshot(&c64, &screenshot_path)

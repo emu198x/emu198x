@@ -1293,7 +1293,10 @@ fn test_boot_kick13() {
         let viewport = amiga
             .denise
             .extract_viewport(ViewportPreset::Standard, true, true);
-        let raster_path = std::path::Path::new("../../test_output/amiga_boot_kick13_raster.png");
+        let raster_path = std::path::Path::new("../../test_output/amiga/boot_kick13_raster.png");
+        if let Some(parent) = raster_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let file = fs::File::create(raster_path).expect("create raster screenshot file");
         let ref mut w = std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
@@ -4221,7 +4224,10 @@ fn test_boot_kick204_a500plus_screenshot() {
         let viewport = amiga
             .denise
             .extract_viewport(ViewportPreset::Standard, true, true);
-        let raster_path = std::path::Path::new("../../test_output/amiga_boot_kick204_raster.png");
+        let raster_path = std::path::Path::new("../../test_output/amiga/boot_kick204_raster.png");
+        if let Some(parent) = raster_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let file = fs::File::create(raster_path).expect("create raster screenshot file");
         let ref mut w = std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
@@ -4250,7 +4256,10 @@ fn test_boot_kick204_a500plus_screenshot() {
             .denise
             .extract_viewport(ViewportPreset::Full, true, true);
         let full_path =
-            std::path::Path::new("../../test_output/amiga_boot_kick204_raster_full.png");
+            std::path::Path::new("../../test_output/amiga/boot_kick204_raster_full.png");
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let file = fs::File::create(full_path).expect("create full raster screenshot file");
         let ref mut w = std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, full.width, full.height);
@@ -4673,7 +4682,10 @@ fn test_boot_kick205_a600hd_screenshot() {
         let viewport = amiga
             .denise
             .extract_viewport(ViewportPreset::Standard, true, true);
-        let raster_path = std::path::Path::new("../../test_output/amiga_boot_kick205_raster.png");
+        let raster_path = std::path::Path::new("../../test_output/amiga/boot_kick205_raster.png");
+        if let Some(parent) = raster_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let file = fs::File::create(raster_path).expect("create raster screenshot file");
         let ref mut w = std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
@@ -4753,7 +4765,10 @@ fn test_boot_kick31_a500_screenshot() {
         let viewport = amiga
             .denise
             .extract_viewport(ViewportPreset::Standard, true, true);
-        let raster_path = std::path::Path::new("../../test_output/amiga_boot_kick31_raster.png");
+        let raster_path = std::path::Path::new("../../test_output/amiga/boot_kick31_raster.png");
+        if let Some(parent) = raster_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let file = fs::File::create(raster_path).expect("create raster screenshot file");
         let ref mut w = std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
@@ -4835,7 +4850,10 @@ fn test_boot_kick31_a1200_screenshot() {
             .denise
             .extract_viewport(ViewportPreset::Standard, true, true);
         let raster_path =
-            std::path::Path::new("../../test_output/amiga_boot_kick31_a1200_raster.png");
+            std::path::Path::new("../../test_output/amiga/boot_kick31_a1200_raster.png");
+        if let Some(parent) = raster_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let file = fs::File::create(raster_path).expect("create raster screenshot file");
         let ref mut w = std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);

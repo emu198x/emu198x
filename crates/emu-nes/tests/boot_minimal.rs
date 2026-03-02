@@ -289,7 +289,7 @@ fn test_background_rendering() {
     );
 
     // Save screenshot for visual inspection (repo root's test_output/).
-    let output_dir = Path::new("../../test_output");
+    let output_dir = Path::new("../../test_output/nes");
     std::fs::create_dir_all(output_dir).ok();
     let screenshot_path = output_dir.join("nes_hello.png");
     capture::save_screenshot(&nes, &screenshot_path).expect("Failed to save screenshot");
@@ -558,7 +558,7 @@ fn test_sprite_rendering() {
     );
 
     // Save screenshot.
-    let output_dir = Path::new("../../test_output");
+    let output_dir = Path::new("../../test_output/nes");
     std::fs::create_dir_all(output_dir).ok();
     let screenshot_path = output_dir.join("nes_sprites.png");
     capture::save_screenshot(&nes, &screenshot_path).expect("Failed to save screenshot");
@@ -680,7 +680,7 @@ fn test_apu_produces_audio() {
     );
 
     // Save WAV for manual inspection
-    let output_dir = Path::new("../../test_output");
+    let output_dir = Path::new("../../test_output/nes");
     std::fs::create_dir_all(output_dir).ok();
     let wav_path = output_dir.join("nes_apu_tone.wav");
     capture::save_audio(&all_audio, &wav_path).expect("Failed to save WAV");

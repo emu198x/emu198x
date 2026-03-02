@@ -34,7 +34,7 @@ fn make_spectrum_custom_rom(rom: &[u8]) -> Spectrum {
 }
 
 /// Output directory for test artefacts (repo root's test_output/).
-const OUTPUT_DIR: &str = "../../test_output";
+const OUTPUT_DIR: &str = "../../test_output/spectrum";
 
 fn ensure_output_dir() {
     let _ = std::fs::create_dir_all(OUTPUT_DIR);

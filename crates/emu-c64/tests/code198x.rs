@@ -8,7 +8,7 @@
 use emu_c64::capture::save_screenshot;
 use emu_c64::{C64, C64Config, C64Model};
 
-const OUTPUT_DIR: &str = "../../test_output";
+const OUTPUT_DIR: &str = "../../test_output/c64";
 
 fn load_c64() -> Option<C64> {
     let kernal = std::fs::read("../../roms/kernal.rom").ok()?;

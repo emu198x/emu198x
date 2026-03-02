@@ -11,7 +11,7 @@ use emu_spectrum::sna::load_sna;
 use emu_spectrum::{Spectrum, SpectrumConfig, SpectrumModel};
 
 const ROM_48K: &[u8] = include_bytes!("../../../roms/48.rom");
-const OUTPUT_DIR: &str = "../../test_output";
+const OUTPUT_DIR: &str = "../../test_output/spectrum";
 
 fn make_spectrum() -> Spectrum {
     let config = SpectrumConfig {

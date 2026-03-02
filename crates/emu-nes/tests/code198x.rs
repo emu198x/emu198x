@@ -8,7 +8,7 @@
 use emu_nes::capture::save_screenshot;
 use emu_nes::{Nes, NesConfig, NesRegion};
 
-const OUTPUT_DIR: &str = "../../test_output";
+const OUTPUT_DIR: &str = "../../test_output/nes";
 
 fn ensure_output_dir() {
     let _ = std::fs::create_dir_all(OUTPUT_DIR);

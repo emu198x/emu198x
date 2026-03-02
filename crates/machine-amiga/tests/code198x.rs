@@ -7,7 +7,7 @@
 use machine_amiga::commodore_denise_ocs::ViewportPreset;
 use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 
-const OUTPUT_DIR: &str = "../../test_output";
+const OUTPUT_DIR: &str = "../../test_output/amiga";
 
 fn ensure_output_dir() {
     let _ = std::fs::create_dir_all(OUTPUT_DIR);
