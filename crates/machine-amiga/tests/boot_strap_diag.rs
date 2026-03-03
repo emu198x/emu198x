@@ -26,12 +26,13 @@ fn test_strap_hang() {
     let total_ticks: u64 = (28_375_160.0 * 3.35) as u64;
     for i in 0..total_ticks {
         amiga.tick();
-        if i >= 2 * 28_375_160 {
-            let tod = amiga.cia_a.tod_counter();
-            if tod < 0x010000 {
-                amiga.cia_a.set_tod_counter(0x010000 | tod);
-            }
-        }
+        // Battclock disabled for testing
+        // if i >= 2 * 28_375_160 {
+        //     let tod = amiga.cia_a.tod_counter();
+        //     if tod < 0x010000 {
+        //         amiga.cia_a.set_tod_counter(0x010000 | tod);
+        //     }
+        // }
     }
 
     let read_mem = |addr: u32| -> u8 {

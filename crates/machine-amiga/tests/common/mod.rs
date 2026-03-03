@@ -47,15 +47,13 @@ pub fn boot_screenshot_test(
     for i in 0..total_ticks {
         amiga.tick();
 
-        // Battclock simulation: after ~2s, keep CIA-A TOD high byte
-        // non-zero. KS 1.2+ timer.device reads TOD during init and
-        // hangs without a valid value.
-        if i >= battclock_threshold {
-            let tod = amiga.cia_a.tod_counter();
-            if tod < 0x010000 {
-                amiga.cia_a.set_tod_counter(0x010000 | tod);
-            }
-        }
+        // Battclock simulation disabled — it corrupts the CIA-A TOD
+        // counter, preventing timer.device from calibrating the EClock
+        // frequency. The divisor at GfxBase+$22 stays 0, causing a
+        // DIVU by zero in the STRAP display routine.
+        // TODO: implement proper battclock.resource instead of
+        // force-setting the TOD counter.
+        let _ = battclock_threshold;
 
         // Capture a video frame periodically
         if i >= next_capture {
