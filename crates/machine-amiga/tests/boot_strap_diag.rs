@@ -189,5 +189,36 @@ fn test_strap_hang() {
         }
         println!();
     }
+    // Dump chip RAM at $200 (the FP structure)
+    println!("\nStructure at $200 (FP at guru):");
+    for row in 0..4 {
+        let base = 0x200 + row * 16;
+        print!("  ${:04X}:", base);
+        for j in 0..16 {
+            print!(" {:02X}", amiga.memory.chip_ram[base + j]);
+        }
+        println!();
+    }
+
+    // Also check: what does GfxBase point to?
+    // ExecBase->LibList is a doubly-linked list. GfxBase is opened by name.
+    // For now, just check if $200 is a Node structure.
+    let node_type = amiga.memory.chip_ram[0x200 + 8]; // ln_Type at offset 8
+    let node_pri = amiga.memory.chip_ram[0x200 + 9] as i8; // ln_Pri at offset 9
+    let name_ptr = read32(0x200 + 10); // ln_Name at offset 10
+    println!("  Node: type={} pri={} name_ptr=${:08X}", node_type, node_pri, name_ptr);
+
+    // Read name string if it's in ROM
+    if name_ptr >= 0xFC0000 && name_ptr < 0x1000000 {
+        let rom_off = (name_ptr & amiga.memory.kickstart_mask) as usize;
+        let mut name = String::new();
+        for i in 0..30 {
+            let ch = amiga.memory.kickstart[rom_off + i];
+            if ch == 0 { break; }
+            name.push(ch as char);
+        }
+        println!("  Name: \"{}\"", name);
+    }
+
     println!("\nTotal resets: {}", reset_count);
 }
