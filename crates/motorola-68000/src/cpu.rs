@@ -405,6 +405,18 @@ impl Cpu68000 {
         }
     }
 
+    /// Minimum number of CPU clocks per bus cycle. The 68000 uses 4-clock
+    /// bus cycles (S0-S7). The 68020 uses 3-clock cycles for fast memory
+    /// (ROM, fast RAM); chip RAM still synchronises to the DMA slot grid
+    /// via BusStatus::Wait from the Amiga bus.
+    #[inline]
+    fn min_bus_cycles(&self) -> u8 {
+        match self.model.timing_class() {
+            crate::model::TimingClass::M68000 => 4,
+            _ => 3,
+        }
+    }
+
     /// Reset the CPU to begin executing from a given SSP and PC.
     ///
     /// Sets supervisor mode with interrupts masked, clears the micro-op
@@ -523,6 +535,7 @@ impl Cpu68000 {
         }
 
         // --- Advance current state ---
+        let min_bus = self.min_bus_cycles();
         match &mut self.state {
             State::Idle => {}
             State::Internal { cycles } => {
@@ -542,7 +555,7 @@ impl Cpu68000 {
                 cycle_count,
             } => {
                 *cycle_count = cycle_count.saturating_add(1);
-                if *cycle_count >= 4 {
+                if *cycle_count >= min_bus {
                     let result = bus.poll_cycle(*addr, *fc, *is_read, *is_word, *data);
                     match result {
                         BusStatus::Ready(read_data) => {

@@ -63,7 +63,7 @@ impl Cpu68000 {
 
             // Pre-decrement: decrement register first, then use new value.
             // The 68000 spends 2 CPU clocks on the decrement calculation
-            // before starting the bus read.
+            // before starting the bus read. The 68020 pipelines this.
             AddrMode::AddrIndPreDec(r) => {
                 let decrement = if r == 7 && self.size == Size::Byte {
                     2
@@ -73,7 +73,8 @@ impl Cpu68000 {
                 self.addr = self.regs.a(r as usize).wrapping_sub(decrement);
                 self.regs.set_a(r as usize, self.addr);
                 self.ae_undo_reg = Some((r, decrement, false, !is_src));
-                self.micro_ops.push(MicroOp::Internal(2));
+                let d = self.internal_delay(2, 0);
+                if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                 true
             }
 
@@ -129,7 +130,7 @@ impl Cpu68000 {
             //   bits 7-0: signed 8-bit displacement
             // Address register indirect with index: d8(An,Xn)
             // The 68000 spends 2 CPU clocks computing base+disp+index
-            // after fetching the extension word.
+            // after fetching the extension word. The 68020 pipelines this.
             AddrMode::AddrIndIndex(r) => {
                 let ext = self.consume_irc();
                 let base = self.regs.a(r as usize);
@@ -146,13 +147,14 @@ impl Cpu68000 {
                     idx_val as i16 as i32 as u32 // sign-extend word index
                 };
                 self.addr = base.wrapping_add(disp as u32).wrapping_add(idx);
-                self.micro_ops.push(MicroOp::Internal(2));
+                let d = self.internal_delay(2, 0);
+                if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                 true
             }
 
             // PC-relative with index: d8(PC,Xn)
             // The 68000 spends 2 CPU clocks computing base+disp+index
-            // after fetching the extension word.
+            // after fetching the extension word. The 68020 pipelines this.
             AddrMode::PcIndex => {
                 self.program_space_access = true;
                 let ext = self.consume_irc();
@@ -172,7 +174,8 @@ impl Cpu68000 {
                     idx_val as i16 as i32 as u32 // sign-extend word index
                 };
                 self.addr = base.wrapping_add(disp as u32).wrapping_add(idx);
-                self.micro_ops.push(MicroOp::Internal(2));
+                let d = self.internal_delay(2, 0);
+                if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                 true
             } // All modes handled — DataReg/AddrReg/Immediate are instant,
               // all memory modes compute an address above.

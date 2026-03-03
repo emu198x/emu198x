@@ -174,7 +174,8 @@ impl Cpu68000 {
                     self.addr = self.regs.a(ry as usize).wrapping_sub(dec);
                     self.regs.set_a(ry as usize, self.addr);
                     self.ae_undo_reg = Some((ry, dec, false, false));
-                    self.micro_ops.push(MicroOp::Internal(2));
+                    let d = self.internal_delay(2, 0);
+                    if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                     self.followup_tag = TAG_ADDX_READ_SRC;
                     self.queue_read_ops(size);
                     self.micro_ops.push(MicroOp::Execute);
@@ -255,7 +256,8 @@ impl Cpu68000 {
                     self.movem_is_write = is_add;
                     self.ea_reg = rx;
 
-                    self.micro_ops.push(MicroOp::Internal(2));
+                    let d = self.internal_delay(2, 0);
+                    if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                     self.micro_ops.push(MicroOp::ReadByte);
                     self.in_followup = true;
                     self.followup_tag = TAG_BCD_SRC_READ;
@@ -772,8 +774,9 @@ impl Cpu68000 {
                                 }
                                 _ => unreachable!(),
                             }
-                            // ~6 cycles for register bit fields
-                            self.micro_ops.push(MicroOp::Internal(2));
+                            // ~6 cycles for register bit fields (barrel shifter on 68020)
+                            let d = self.internal_delay(2, 0);
+                            if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                         }
                         _ => {
                             // Memory bit field: resolve EA, then execute
@@ -1419,10 +1422,10 @@ impl Cpu68000 {
                     self.regs.d[reg_idx & 7] = val;
                 }
             }
-            // MOVEC takes 12 cycles total (2 words fetched = 8 cycles + 4 internal).
-            // consume_irc already queued 4 cycles for the extension word fetch.
-            // The initial IR decode took 4 cycles. Add 4 internal cycles.
-            self.micro_ops.push(MicroOp::Internal(4));
+            // MOVEC takes 12 cycles total on 68000 (2 words fetched = 8 cycles
+            // + 4 internal). The 68020 pipelines the internal work.
+            let d = self.internal_delay(4, 0);
+            if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
             return;
         }
 
@@ -2240,7 +2243,8 @@ impl Cpu68000 {
                 } else {
                     // In bounds: clear NZVC, no trap
                     self.regs.sr &= 0xFFF0;
-                    self.micro_ops.push(MicroOp::Internal(6));
+                    let d = self.internal_delay(6, 0);
+                    if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                     self.in_followup = false;
                 }
             }
@@ -2828,7 +2832,8 @@ impl Cpu68000 {
             }
         }
 
-        self.micro_ops.push(MicroOp::Internal(4));
+        let d = self.internal_delay(4, 0);
+        if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
     }
 
     /// Execute a bit field instruction on a memory operand.
@@ -2947,8 +2952,9 @@ impl Cpu68000 {
             _ => unreachable!(),
         }
 
-        // ~12 cycles for memory bit field operations
-        self.micro_ops.push(MicroOp::Internal(8));
+        // ~12 cycles for memory bit field operations (barrel shifter on 68020)
+        let d = self.internal_delay(8, 0);
+        if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
         self.in_followup = false;
     }
 
