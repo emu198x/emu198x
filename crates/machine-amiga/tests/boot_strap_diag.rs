@@ -1,4 +1,4 @@
-//! STRAP diag: track resident module init progress.
+//! STRAP diag: check GfxBase fields at crash time.
 
 use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 use std::fs;
@@ -22,12 +22,20 @@ fn test_strap_hang() {
         slow_ram_size: 512 * 1024,
     });
 
-    // Run 4 seconds, tracking the library list size every 0.1s
-    let total_ticks: u64 = 28_375_160 * 4;
-    let mut last_report: u64 = 0;
+    // Run 3.35 seconds — right at the crash
+    let total_ticks: u64 = (28_375_160.0 * 3.35) as u64;
+    for i in 0..total_ticks {
+        amiga.tick();
+        if i >= 2 * 28_375_160 {
+            let tod = amiga.cia_a.tod_counter();
+            if tod < 0x010000 {
+                amiga.cia_a.set_tod_counter(0x010000 | tod);
+            }
+        }
+    }
 
-    let read_mem = |amiga: &Amiga, addr: u32| -> u8 {
-        if addr < 0x80000 {
+    let read_mem = |addr: u32| -> u8 {
+        if (addr as usize) < amiga.memory.chip_ram.len() {
             amiga.memory.chip_ram[addr as usize]
         } else if addr >= 0xC0_0000 && addr < 0xE0_0000 {
             let off = ((addr - 0xC0_0000) & amiga.memory.slow_ram_mask) as usize;
@@ -38,62 +46,55 @@ fn test_strap_hang() {
             0
         }
     };
-    let read32m = |amiga: &Amiga, addr: u32| -> u32 {
-        (u32::from(read_mem(amiga, addr)) << 24)
-            | (u32::from(read_mem(amiga, addr + 1)) << 16)
-            | (u32::from(read_mem(amiga, addr + 2)) << 8)
-            | u32::from(read_mem(amiga, addr + 3))
+    let read32m = |addr: u32| -> u32 {
+        (u32::from(read_mem(addr)) << 24)
+            | (u32::from(read_mem(addr + 1)) << 16)
+            | (u32::from(read_mem(addr + 2)) << 8)
+            | u32::from(read_mem(addr + 3))
+    };
+    let read16m = |addr: u32| -> u16 {
+        (u16::from(read_mem(addr)) << 8) | u16::from(read_mem(addr + 1))
     };
 
-    for i in 0..total_ticks {
-        amiga.tick();
-        if i >= 2 * 28_375_160 {
-            let tod = amiga.cia_a.tod_counter();
-            if tod < 0x010000 {
-                amiga.cia_a.set_tod_counter(0x010000 | tod);
+    // Find graphics.library in the list
+    let eb = read32m(4);
+    let lib_list = eb + 0x17A;
+    let mut node = read32m(lib_list);
+    println!("ExecBase = ${:08X}", eb);
+    for _ in 0..50 {
+        let succ = read32m(node);
+        if succ == 0 { break; }
+        let name_ptr = read32m(node + 10);
+        let mut name = String::new();
+        if name_ptr > 0 && name_ptr < 0x1000000 {
+            for j in 0..30u32 {
+                let ch = read_mem(name_ptr + j);
+                if ch == 0 { break; }
+                name.push(ch as char);
             }
         }
-
-        if i - last_report < 28_375_160 / 10 {
-            continue;
-        }
-        last_report = i;
-
-        let elapsed_s = i as f64 / 28_375_160.0;
-        let eb = read32m(&amiga, 4);
-        if eb == 0 || eb >= 0xF00000 {
-            continue; // ExecBase not set up yet
-        }
-
-        // Count libraries in the list
-        let lib_list = eb + 0x17A;
-        let mut node = read32m(&amiga, lib_list);
-        let mut count = 0;
-        let mut last_name = String::new();
-        for _ in 0..50 {
-            let succ = read32m(&amiga, node);
-            if succ == 0 { break; }
-            let name_ptr = read32m(&amiga, node + 10);
-            let mut name = String::new();
-            if name_ptr > 0 && name_ptr < 0x1000000 {
-                for j in 0..30 {
-                    let ch = read_mem(&amiga, name_ptr + j);
-                    if ch == 0 { break; }
-                    name.push(ch as char);
+        let version = read16m(node + 0x14);
+        println!("  ${:08X}: \"{}\" v{}", node, name, version);
+        if name == "graphics.library" {
+            println!("    GfxBase = ${:08X}", node);
+            // Dump first 48 bytes of graphics-specific data (after library header)
+            println!("    Library header ends at +$22. Graphics data:");
+            for row in 0..3 {
+                let off = 0x22 + row * 16;
+                print!("      +${:02X}:", off);
+                for j in 0..16 {
+                    print!(" {:02X}", read_mem(node + off as u32 + j as u32));
                 }
+                println!();
             }
-            last_name = name;
-            count += 1;
-            node = succ;
+            println!("    +$22 (ActiView) = ${:08X}", read32m(node + 0x22));
+            println!("    +$26 (copinit)  = ${:08X}", read32m(node + 0x26));
+            println!("    +$2A (cia)      = ${:08X}", read32m(node + 0x2A));
         }
-
-        println!(
-            "[{:.1}s] PC=${:08X} libs={} last=\"{}\" DMACON=${:04X}",
-            elapsed_s,
-            amiga.cpu.regs.pc,
-            count,
-            last_name,
-            amiga.agnus.dmacon,
-        );
+        node = succ;
     }
+
+    // Also check the guru saved A6
+    let saved_a6 = read32m(0x1B8);
+    println!("\nGuru saved A6 = ${:08X}", saved_a6);
 }
