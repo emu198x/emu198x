@@ -6,6 +6,19 @@ use std::fs;
 
 pub const BOOT_TICKS: u64 = 850_000_000; // ~30 seconds PAL
 
+/// Expected register values after boot. Each field is optional — only
+/// `Some` values are checked.
+#[derive(Default)]
+pub struct BootExpect {
+    /// Bits that must be SET in DMACON (e.g. 0x0100 = bitplane DMA).
+    pub dmacon_set: Option<u16>,
+    /// Exact BPLCON0 match.
+    pub bplcon0: Option<u16>,
+    /// Minimum number of non-zero pixels in the standard viewport.
+    /// Catches "all black" or "all one colour" regressions.
+    pub min_unique_colours: Option<usize>,
+}
+
 /// Load a ROM file, returning None (with a message) if missing.
 pub fn load_rom(path: &str) -> Option<Vec<u8>> {
     match fs::read(path) {
@@ -24,7 +37,7 @@ pub fn boot_screenshot_test(
     rom_description: &str,
     screenshot_prefix: &str,
     total_ticks: u64,
-) {
+) -> (u16, u16) {
     let pal = config.region == AmigaRegion::Pal;
     let mut amiga = Amiga::new_with_config(config);
 
@@ -199,4 +212,30 @@ pub fn boot_screenshot_test(
 
     println!("DMACON  = ${:04X}", amiga.agnus.dmacon);
     println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
+
+    (amiga.agnus.dmacon, amiga.denise.bplcon0)
+}
+
+/// Run a boot test with register/display assertions.
+pub fn boot_screenshot_test_expect(
+    config: AmigaConfig,
+    rom_description: &str,
+    screenshot_prefix: &str,
+    total_ticks: u64,
+    expect: BootExpect,
+) {
+    let (dmacon, bplcon0) = boot_screenshot_test(config, rom_description, screenshot_prefix, total_ticks);
+
+    if let Some(bits) = expect.dmacon_set {
+        assert!(
+            dmacon & bits == bits,
+            "{rom_description}: DMACON ${dmacon:04X} missing expected bits ${bits:04X}",
+        );
+    }
+    if let Some(expected) = expect.bplcon0 {
+        assert_eq!(
+            bplcon0, expected,
+            "{rom_description}: BPLCON0 ${bplcon0:04X} != expected ${expected:04X}",
+        );
+    }
 }
