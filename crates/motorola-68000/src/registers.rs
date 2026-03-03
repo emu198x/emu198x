@@ -17,7 +17,12 @@ pub struct Registers {
     /// User stack pointer (active A7 when in user mode).
     pub usp: u32,
     /// Supervisor stack pointer (active A7 when in supervisor mode).
+    /// On 68020+, this serves as the Interrupt Stack Pointer (ISP).
     pub ssp: u32,
+    /// Master Stack Pointer (68020+, selected when SR M-flag is set).
+    pub msp: u32,
+    /// Cache Address Register (68020+).
+    pub caar: u32,
     /// Program counter.
     pub pc: u32,
     /// Status register.
@@ -49,6 +54,8 @@ impl Registers {
             a: [0; 7],
             usp: 0,
             ssp: 0,
+            msp: 0,
+            caar: 0,
             pc: 0,
             sr: 0x2700, // Supervisor mode, interrupt level 7
             vbr: 0,

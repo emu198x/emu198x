@@ -918,6 +918,14 @@ impl Cpu68000 {
             return false;
         }
 
+        // 68020+ only generates Address Error for instruction fetches.
+        // Data accesses to odd addresses are handled by the CPU hardware.
+        if !matches!(self.model.timing_class(), crate::model::TimingClass::M68000)
+            && !matches!(op, MicroOp::FetchIRC)
+        {
+            return false;
+        }
+
         // Double address error: halt the CPU
         if self.ae_in_progress {
             self.state = State::Halted;

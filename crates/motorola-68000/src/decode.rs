@@ -1392,6 +1392,27 @@ impl Cpu68000 {
                     }
                     0x800 => self.regs.usp = val,
                     0x801 => self.regs.vbr = val,
+                    0x802 => {
+                        if !self.capabilities().cacr {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.caar = val;
+                    }
+                    0x803 => {
+                        if !self.capabilities().cacr {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.msp = val;
+                    }
+                    0x804 => {
+                        if !self.capabilities().cacr {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.ssp = val;
+                    }
                     _ => {
                         self.begin_group1_exception(4, self.instr_start_pc);
                         return;
@@ -1411,6 +1432,27 @@ impl Cpu68000 {
                     }
                     0x800 => self.regs.usp,
                     0x801 => self.regs.vbr,
+                    0x802 => {
+                        if !self.capabilities().cacr {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.caar
+                    }
+                    0x803 => {
+                        if !self.capabilities().cacr {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.msp
+                    }
+                    0x804 => {
+                        if !self.capabilities().cacr {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.ssp
+                    }
                     _ => {
                         self.begin_group1_exception(4, self.instr_start_pc);
                         return;

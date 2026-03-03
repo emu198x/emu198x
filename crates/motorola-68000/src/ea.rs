@@ -146,7 +146,9 @@ impl Cpu68000 {
                 } else {
                     idx_val as i16 as i32 as u32 // sign-extend word index
                 };
-                self.addr = base.wrapping_add(disp as u32).wrapping_add(idx);
+                // Bits 9-10: scale factor (1/2/4/8). Always 0 on 68000.
+                let scale = 1u32 << ((ext >> 9) & 3);
+                self.addr = base.wrapping_add(disp as u32).wrapping_add(idx.wrapping_mul(scale));
                 let d = self.internal_delay(2, 0);
                 if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                 true
@@ -173,7 +175,9 @@ impl Cpu68000 {
                 } else {
                     idx_val as i16 as i32 as u32 // sign-extend word index
                 };
-                self.addr = base.wrapping_add(disp as u32).wrapping_add(idx);
+                // Bits 9-10: scale factor (1/2/4/8). Always 0 on 68000.
+                let scale = 1u32 << ((ext >> 9) & 3);
+                self.addr = base.wrapping_add(disp as u32).wrapping_add(idx.wrapping_mul(scale));
                 let d = self.internal_delay(2, 0);
                 if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
                 true
