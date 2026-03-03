@@ -8,6 +8,10 @@ license = "MIT"
 [dependencies]
 emu-core = { path = "../emu-core" }
 
+[dev-dependencies]
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+
 [lib]
 name = "motorola_68000"
 path = "src/lib.rs"

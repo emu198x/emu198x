@@ -1,0 +1,18 @@
+[package]
+name = "m68k-test-gen"
+description = "Test vector generator for Motorola 680x0 CPUs using Musashi as reference"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "m68k-test-gen"
+path = "src/main.rs"
+
+[dependencies]
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+rand = "0.9"
+
+[build-dependencies]
+cc = "1"
