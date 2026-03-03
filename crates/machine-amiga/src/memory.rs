@@ -15,19 +15,6 @@ pub struct Memory {
     pub overlay: bool,
     pub slow_ram: Vec<u8>,
     pub slow_ram_mask: u32,
-    /// Backing store for unmapped expansion space ($C00000-$DFFFFF).
-    ///
-    /// On a real A500, Gary always asserts DTACK for this range even
-    /// without expansion RAM. Bus capacitance on the data bus holds
-    /// recently written values. The KS 1.2+ boot code uses this space
-    /// for the initial stack and ExecBase when no expansion is found,
-    /// relying on the values persisting briefly.
-    ///
-    /// We model this as full RAM-like storage. On real hardware the
-    /// values would decay, but the boot code only uses a small region
-    /// near $DC0000 for the stack and ExecBase, and all accesses are
-    /// sequential enough that decay doesn't matter.
-    pub expansion_bus_cache: Vec<u8>,
 }
 
 impl Memory {
@@ -46,7 +33,6 @@ impl Memory {
             overlay: true,
             slow_ram: vec![0; slow_ram_size],
             slow_ram_mask,
-            expansion_bus_cache: vec![0u8; 0x20_0000],
         }
     }
 
@@ -57,20 +43,20 @@ impl Memory {
             return self.kickstart[(addr & self.kickstart_mask) as usize];
         }
 
+        // Agnus wraps chip RAM addresses to the installed size.
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize]
-        } else if (0xC0_0000..0xE0_0000).contains(&addr) {
-            if !self.slow_ram.is_empty() {
-                let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
-                self.slow_ram[offset as usize]
-            } else {
-                let offset = (addr - 0xC0_0000) as usize;
-                self.expansion_bus_cache[offset]
-            }
+        } else if (0xC0_0000..0xE0_0000).contains(&addr) && !self.slow_ram.is_empty() {
+            let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
+            self.slow_ram[offset as usize]
         } else if addr >= ROM_BASE {
             self.kickstart[(addr & self.kickstart_mask) as usize]
         } else {
-            0xFF
+            // Non-existing memory returns 0, matching WinUAE's
+            // NONEXISTINGDATA behaviour. On real hardware the data
+            // bus floats; returning 0 is the pragmatic choice that
+            // makes KS 1.2+ expansion probes work correctly.
+            0x00
         }
     }
 
@@ -82,15 +68,11 @@ impl Memory {
         let addr = addr & 0xFFFFFF;
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
-        } else if (0xC0_0000..0xE0_0000).contains(&addr) {
-            if !self.slow_ram.is_empty() {
-                let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
-                self.slow_ram[offset as usize] = val;
-            } else {
-                let offset = (addr - 0xC0_0000) as usize;
-                self.expansion_bus_cache[offset] = val;
-            }
+        } else if (0xC0_0000..0xE0_0000).contains(&addr) && !self.slow_ram.is_empty() {
+            let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
+            self.slow_ram[offset as usize] = val;
         }
+        // Everything else (ROM, unmapped space) silently drops writes.
     }
 }
 
@@ -115,25 +97,19 @@ mod tests {
     }
 
     #[test]
-    fn expansion_bus_cache() {
-        let mut mem = Memory::new(512 * 1024, test_ks(), 0);
+    fn unmapped_expansion_returns_zero() {
+        let mem = Memory::new(512 * 1024, test_ks(), 0);
+        // No slow RAM: expansion space returns 0 (not $FF)
         assert_eq!(mem.read_byte(0xC0_0000), 0x00);
-        // Writes persist at the written address
-        mem.write_byte(0xC0_1000, 0x3F);
-        mem.write_byte(0xC0_1001, 0xFF);
-        assert_eq!(mem.read_byte(0xC0_1000), 0x3F);
-        assert_eq!(mem.read_byte(0xC0_1001), 0xFF);
-        // Other addresses remain 0
-        assert_eq!(mem.read_byte(0xC5_0000), 0x00);
-        // Stack-like operations work (push then pop)
-        mem.write_byte(0xDB_FFFC, 0x00);
-        mem.write_byte(0xDB_FFFD, 0xFC);
-        mem.write_byte(0xDB_FFFE, 0x02);
-        mem.write_byte(0xDB_FFFF, 0xA8);
-        assert_eq!(mem.read_byte(0xDB_FFFE), 0x02);
-        assert_eq!(mem.read_byte(0xDB_FFFF), 0xA8);
-        assert_eq!(mem.read_byte(0xDB_FFFC), 0x00);
-        assert_eq!(mem.read_byte(0xDB_FFFD), 0xFC);
+        assert_eq!(mem.read_byte(0xDB_FFFF), 0x00);
+    }
+
+    #[test]
+    fn unmapped_other_returns_zero() {
+        let mem = Memory::new(512 * 1024, test_ks(), 0);
+        // Other unmapped ranges also return 0
+        assert_eq!(mem.read_byte(0x20_0000), 0x00);
+        assert_eq!(mem.read_byte(0xA0_0000), 0x00);
     }
 
     #[test]
