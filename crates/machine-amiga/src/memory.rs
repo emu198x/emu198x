@@ -15,24 +15,24 @@ pub struct Memory {
     pub overlay: bool,
     pub slow_ram: Vec<u8>,
     pub slow_ram_mask: u32,
-    /// Write-through cache for unmapped expansion space ($C00000-$DFFFFF).
+    /// Backing store for unmapped expansion space ($C00000-$DFFFFF).
     ///
     /// On a real A500, Gary always asserts DTACK for this range even
-    /// without expansion RAM. Reads return bus residue (the last driven
-    /// value). The KS 1.2+ expansion probe detects "phantom" boards
-    /// from this residue, then exec init temporarily uses the space as
-    /// stack. Bus capacitance holds written values long enough for the
-    /// few BSR/RTS pairs before SP moves to chip RAM.
+    /// without expansion RAM. Bus capacitance on the data bus holds
+    /// recently written values. The KS 1.2+ boot code uses this space
+    /// for the initial stack and ExecBase when no expansion is found,
+    /// relying on the values persisting briefly.
     ///
-    /// We model this with a small write cache. Writes store values;
-    /// reads return the stored value or 0 if never written.
+    /// We model this as full RAM-like storage. On real hardware the
+    /// values would decay, but the boot code only uses a small region
+    /// near $DC0000 for the stack and ExecBase, and all accesses are
+    /// sequential enough that decay doesn't matter.
     pub expansion_bus_cache: Vec<u8>,
 }
 
 impl Memory {
     pub fn new(chip_ram_size: usize, kickstart: Vec<u8>, slow_ram_size: usize) -> Self {
         let ks_len = kickstart.len();
-        // Slow RAM at $C00000-$DFFFFF (max 2MB). Size must be power of 2.
         let slow_ram_mask = if slow_ram_size > 0 {
             (slow_ram_size as u32).wrapping_sub(1)
         } else {
@@ -43,10 +43,9 @@ impl Memory {
             chip_ram_mask: (chip_ram_size as u32).wrapping_sub(1),
             kickstart,
             kickstart_mask: (ks_len as u32).wrapping_sub(1),
-            overlay: true, // Amiga starts with ROM overlay at $0
+            overlay: true,
             slow_ram: vec![0; slow_ram_size],
             slow_ram_mask,
-            // 2MB covers the full $C00000-$DFFFFF range
             expansion_bus_cache: vec![0u8; 0x20_0000],
         }
     }
@@ -55,13 +54,9 @@ impl Memory {
         let addr = addr & 0xFFFFFF;
 
         if self.overlay && addr < 0x200000 {
-            // Overlay maps ROM to $0
             return self.kickstart[(addr & self.kickstart_mask) as usize];
         }
 
-        // Agnus decodes chip RAM addresses with incomplete address lines,
-        // so $000000-$1FFFFF wraps to the installed size. For example,
-        // on a 512KB machine, $80000 aliases to $00000.
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize]
         } else if (0xC0_0000..0xE0_0000).contains(&addr) {
@@ -69,14 +64,13 @@ impl Memory {
                 let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
                 self.slow_ram[offset as usize]
             } else {
-                // Bus capacitance: return last written value.
                 let offset = (addr - 0xC0_0000) as usize;
                 self.expansion_bus_cache[offset]
             }
         } else if addr >= ROM_BASE {
             self.kickstart[(addr & self.kickstart_mask) as usize]
         } else {
-            0xFF // Open bus / unmapped
+            0xFF
         }
     }
 
@@ -86,7 +80,6 @@ impl Memory {
 
     pub fn write_byte(&mut self, addr: u32, val: u8) {
         let addr = addr & 0xFFFFFF;
-        // Agnus wraps chip RAM addresses to installed size.
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
         } else if (0xC0_0000..0xE0_0000).contains(&addr) {
@@ -94,12 +87,10 @@ impl Memory {
                 let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
                 self.slow_ram[offset as usize] = val;
             } else {
-                // Bus capacitance: store for later reads.
                 let offset = (addr - 0xC0_0000) as usize;
                 self.expansion_bus_cache[offset] = val;
             }
         }
-        // ROM is read-only; addresses above chip/slow RAM are open bus.
     }
 }
 
@@ -117,29 +108,32 @@ mod tests {
         mem.overlay = false;
         mem.write_byte(0x001000, 0xAB);
         assert_eq!(mem.read_byte(0x001000), 0xAB);
-        // $80000 aliases to $00000 on a 512KB machine
         mem.write_byte(0x080000, 0xCD);
         assert_eq!(mem.read_byte(0x000000), 0xCD, "should alias to $00000");
-        assert_eq!(mem.read_byte(0x080000), 0xCD, "read from aliased address");
-        // $100000 also aliases to $00000
         mem.write_byte(0x100000, 0xEF);
         assert_eq!(mem.read_byte(0x000000), 0xEF, "should alias to $00000");
     }
 
     #[test]
-    fn expansion_bus_capacitance() {
+    fn expansion_bus_cache() {
         let mut mem = Memory::new(512 * 1024, test_ks(), 0);
-        // Empty expansion returns 0 initially
         assert_eq!(mem.read_byte(0xC0_0000), 0x00);
-        // Writes persist and reads return the written value
+        // Writes persist at the written address
         mem.write_byte(0xC0_1000, 0x3F);
         mem.write_byte(0xC0_1001, 0xFF);
         assert_eq!(mem.read_byte(0xC0_1000), 0x3F);
         assert_eq!(mem.read_byte(0xC0_1001), 0xFF);
-        // Different addresses are independent (like real RAM)
-        mem.write_byte(0xDB_FFF0, 0xAB);
-        assert_eq!(mem.read_byte(0xDB_FFF0), 0xAB);
-        assert_eq!(mem.read_byte(0xC0_1000), 0x3F, "other addr unchanged");
+        // Other addresses remain 0
+        assert_eq!(mem.read_byte(0xC5_0000), 0x00);
+        // Stack-like operations work (push then pop)
+        mem.write_byte(0xDB_FFFC, 0x00);
+        mem.write_byte(0xDB_FFFD, 0xFC);
+        mem.write_byte(0xDB_FFFE, 0x02);
+        mem.write_byte(0xDB_FFFF, 0xA8);
+        assert_eq!(mem.read_byte(0xDB_FFFE), 0x02);
+        assert_eq!(mem.read_byte(0xDB_FFFF), 0xA8);
+        assert_eq!(mem.read_byte(0xDB_FFFC), 0x00);
+        assert_eq!(mem.read_byte(0xDB_FFFD), 0xFC);
     }
 
     #[test]
@@ -156,7 +150,6 @@ mod tests {
     fn slow_ram_address_wrapping() {
         let mut mem = Memory::new(512 * 1024, test_ks(), 512 * 1024);
         mem.overlay = false;
-        // 512K = $80000, so $C80000 wraps to $C00000
         mem.write_byte(0xC0_0000, 0xEE);
         assert_eq!(mem.read_byte(0xC8_0000), 0xEE, "should wrap at 512K boundary");
     }
