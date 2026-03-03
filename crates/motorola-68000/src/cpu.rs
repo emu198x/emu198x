@@ -648,6 +648,14 @@ impl Cpu68000 {
     /// stack (SSP). The old SR (with the user-mode S bit) is saved first
     /// so it can be pushed in the frame.
     fn initiate_interrupt_exception(&mut self, level: u8) {
+        // DIAG: trace all interrupts after exec init
+        if self.regs.a(6) >= 0xC00000 {
+            eprintln!(
+                "  [exc] irq level={} pc=${:08X} from=${:08X} SR=${:04X} SP=${:08X}",
+                level, self.irc_addr, self.instr_start_pc, self.regs.sr,
+                self.regs.a(7),
+            );
+        }
         self.target_ipl = level;
         // Save old SR before changing mode (for pushing in the exception frame).
         self.ae_saved_sr = self.regs.sr;
@@ -672,6 +680,14 @@ impl Cpu68000 {
     /// there is no InterruptAck bus cycle. The PC to push in the frame
     /// is passed as a parameter (differs per instruction type).
     pub fn begin_group1_exception(&mut self, vector: u8, pc_to_push: u32) {
+        // DIAG: trace all group1 exceptions after 3s
+        if self.regs.a(6) >= 0xC00000 {
+            eprintln!(
+                "  [exc] group1 vec={} pc=${:08X} from=${:08X} SR=${:04X} SP=${:08X}",
+                vector, pc_to_push, self.instr_start_pc, self.regs.sr,
+                self.regs.a(7),
+            );
+        }
         self.ae_saved_sr = self.regs.sr;
         self.regs.set_supervisor(true);
         self.regs.sr &= !0x8000; // Clear trace

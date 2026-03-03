@@ -1817,6 +1817,15 @@ impl Cpu68000 {
             // --- Subroutine handlers ---
             TAG_JSR_EXECUTE => {
                 let is_jsr = (self.ir & 0x40) == 0;
+                // DIAG: trace jumps to suspicious chip RAM addresses
+                if self.addr >= 0x50000 && self.addr < 0x80000 {
+                    eprintln!(
+                        "  [cpu] {} to ${:08X} from ${:08X} IR=${:04X} A6=${:08X}",
+                        if is_jsr { "JSR" } else { "JMP" },
+                        self.addr, self.instr_start_pc, self.ir,
+                        self.regs.a(6),
+                    );
+                }
                 // Set PC to target and start the pipeline refill.
                 self.regs.pc = self.addr;
                 self.next_fetch_addr = self.regs.pc;

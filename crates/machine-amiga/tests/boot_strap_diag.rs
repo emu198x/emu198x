@@ -141,5 +141,53 @@ fn test_strap_hang() {
         }
     }
 
+    // Check ExecBase fields in expansion cache
+    let eb = u32::from(amiga.memory.chip_ram[4]) << 24
+        | u32::from(amiga.memory.chip_ram[5]) << 16
+        | u32::from(amiga.memory.chip_ram[6]) << 8
+        | u32::from(amiga.memory.chip_ram[7]);
+    // Read saved registers from $180 (guru handler saves D0-A7 there)
+    // D0 at $180, D1 at $184, ..., D7 at $19C, A0 at $1A0, ..., A6 at $1B8
+    let read32 = |addr: usize| -> u32 {
+        (u32::from(amiga.memory.chip_ram[addr]) << 24)
+            | (u32::from(amiga.memory.chip_ram[addr + 1]) << 16)
+            | (u32::from(amiga.memory.chip_ram[addr + 2]) << 8)
+            | u32::from(amiga.memory.chip_ram[addr + 3])
+    };
+    let saved_a5 = read32(0x1B4);
+    let saved_a6 = read32(0x1B8);
+    let saved_d0 = read32(0x180);
+    println!("Saved regs at guru: D0=${:08X} A5=${:08X} A6/FP=${:08X}", saved_d0, saved_a5, saved_a6);
+    // FP+$22 is the divisor — read it
+    if saved_a6 >= 0xC0_0000 && saved_a6 < 0xE0_0000 {
+        let fp_off = (saved_a6 - 0xC0_0000) as usize;
+        let divisor = (u16::from(amiga.memory.expansion_bus_cache[fp_off + 0x22]) << 8)
+            | u16::from(amiga.memory.expansion_bus_cache[fp_off + 0x23]);
+        println!("FP+$22 (divisor) = ${:04X}", divisor);
+    } else if saved_a6 < 0x80000 {
+        let divisor = (u16::from(amiga.memory.chip_ram[saved_a6 as usize + 0x22]) << 8)
+            | u16::from(amiga.memory.chip_ram[saved_a6 as usize + 0x23]);
+        println!("FP+$22 (divisor) = ${:04X} (chip RAM)", divisor);
+    }
+
+    println!("\nExecBase = ${:08X}", eb);
+    if eb >= 0xC0_0000 && eb < 0xE0_0000 {
+        let cache = &amiga.memory.expansion_bus_cache;
+        let off = (eb - 0xC0_0000) as usize;
+        println!("  +$22 SoftVer = ${:04X}",
+            (u16::from(cache[off + 0x22]) << 8) | u16::from(cache[off + 0x23]));
+        println!("  +$26 ChkBase = ${:08X}",
+            (u32::from(cache[off + 0x26]) << 24)
+            | (u32::from(cache[off + 0x27]) << 16)
+            | (u32::from(cache[off + 0x28]) << 8)
+            | u32::from(cache[off + 0x29]));
+        // Dump first 64 bytes of ExecBase
+        print!("  ExecBase dump:");
+        for i in 0..64 {
+            if i % 16 == 0 { print!("\n    +${:02X}:", i); }
+            print!(" {:02X}", cache[off + i]);
+        }
+        println!();
+    }
     println!("\nTotal resets: {}", reset_count);
 }
