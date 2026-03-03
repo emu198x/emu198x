@@ -19,7 +19,7 @@ fn test_kick12_boot_trace() {
         chipset: AmigaChipset::Ocs,
         region: AmigaRegion::Pal,
         kickstart: rom,
-        slow_ram_size: 0,
+        slow_ram_size: 512 * 1024,
     });
 
     let total_ticks: u64 = 28_375_160 * 30;
