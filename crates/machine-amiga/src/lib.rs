@@ -1891,7 +1891,18 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     // unconnected port (floating data line). This lets the
                     // KS 3.x serial diagnostic loop exit immediately instead
                     // of spinning for its full timeout.
-                    0x018 => 0x79FF,
+                    0x018 => {
+                        // DIAG: trace ALL SERDATR reads
+                        static COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                        let n = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if n < 5 {
+                            eprintln!(
+                                "  [serdatr] addr=${:06X} is_word={} is_read={} offset=${:03X}",
+                                addr, is_word, is_read, offset,
+                            );
+                        }
+                        0x79FF
+                    }
                     0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x01C => self.paula.intena,
                     0x01E => self.paula.intreq,
