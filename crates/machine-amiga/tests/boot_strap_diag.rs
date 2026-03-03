@@ -156,8 +156,10 @@ fn test_strap_hang() {
     };
     let saved_a5 = read32(0x1B4);
     let saved_a6 = read32(0x1B8);
+    let saved_a7 = read32(0x1BC);
     let saved_d0 = read32(0x180);
-    println!("Saved regs at guru: D0=${:08X} A5=${:08X} A6/FP=${:08X}", saved_d0, saved_a5, saved_a6);
+    println!("Saved regs at guru: D0=${:08X} A5=${:08X} A6/FP=${:08X} SP=${:08X}", saved_d0, saved_a5, saved_a6, saved_a7);
+    println!("  SSP=${:08X} USP (from regs)=${:08X}", amiga.cpu.regs.ssp, amiga.cpu.regs.usp);
     // FP+$22 is the divisor — read it
     if saved_a6 >= 0xC0_0000 && saved_a6 < 0xE0_0000 {
         let fp_off = (saved_a6 - 0xC0_0000) as usize;
