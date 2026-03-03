@@ -1,8 +1,11 @@
 //! Instruction catalogue for 680x0 test generation.
 //!
-//! Each entry describes how to encode an instruction variant and what
-//! memory/register constraints apply. Starting with NOP for Phase 1;
-//! subsequent phases add the full 68000 set and 68020 extensions.
+//! Each entry describes how to encode one instruction variant. Register
+//! fields are baked into the opcode (typically D0 source, D1 destination)
+//! and register *values* are randomised by the generator.
+//!
+//! For instructions needing extension words, the setup type tells the
+//! generator how many random words to append.
 
 use crate::musashi;
 
@@ -11,7 +14,7 @@ use crate::musashi;
 pub struct InstructionDef {
     /// Human-readable name (used in filenames and test names).
     pub name: &'static str,
-    /// Base opcode word(s). The generator may randomise EA fields.
+    /// Base opcode word.
     pub opcode: u16,
     /// Number of extension words after the opcode.
     pub ext_words: u8,
@@ -24,34 +27,248 @@ pub struct InstructionDef {
 /// How the generator should set up memory and registers for this instruction.
 #[derive(Debug, Clone, Copy)]
 pub enum InstructionSetup {
-    /// Fixed opcode, no operands (NOP, RTS, etc.)
+    /// Fixed opcode, no extension words (NOP, SWAP D0, etc.)
     Fixed,
-    /// Instruction has EA in bits 5:0 — generator picks valid modes.
+    /// Opcode + 1 random extension word (byte immediate, word immediate).
+    RandExt1,
+    /// Opcode + 2 random extension words (long immediate).
+    RandExt2,
+    /// Instruction needs a valid stack frame (RTS, RTE, RTR, UNLK).
     #[allow(dead_code)]
-    EaBits0,
-    /// Instruction has source EA in bits 5:0 and dest EA in bits 11:6.
-    #[allow(dead_code)]
-    EaSrcDst,
-    /// Custom setup (instruction-specific logic, identified by name).
+    NeedsStack,
+    /// Custom setup (instruction-specific logic).
     #[allow(dead_code)]
     Custom,
+}
+
+const M68K: u32 = musashi::M68K_CPU_TYPE_68000;
+
+/// Helper to define a fixed instruction (no extension words).
+const fn fixed(name: &'static str, opcode: u16) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words: 0,
+        setup: InstructionSetup::Fixed,
+        min_cpu: M68K,
+    }
+}
+
+/// Helper to define an instruction with 1 random extension word.
+const fn rand1(name: &'static str, opcode: u16) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: M68K,
+    }
+}
+
+/// Helper to define an instruction with 2 random extension words.
+const fn rand2(name: &'static str, opcode: u16) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words: 2,
+        setup: InstructionSetup::RandExt2,
+        min_cpu: M68K,
+    }
 }
 
 /// Return all instruction definitions for the given CPU type.
 pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
     let mut defs = Vec::new();
 
-    // -- 68000 instructions --
-    defs.push(InstructionDef {
-        name: "NOP",
-        opcode: 0x4E71,
-        ext_words: 0,
-        setup: InstructionSetup::Fixed,
-        min_cpu: musashi::M68K_CPU_TYPE_68000,
-    });
+    // ===== Fixed instructions (no operands / operands in opcode) =====
+    defs.push(fixed("NOP", 0x4E71));
 
-    // TODO (Phase 2): Add remaining 68000 instructions
-    // TODO (Phase 3): Add 68020-only instructions
+    // --- MOVE.q #imm,Dn (immediate in opcode bits 7:0, Dn in bits 11:9) ---
+    // MOVEQ #0,D1 — the immediate will vary via random SR/data, but the
+    // instruction effect is "D1 = sign-extend(imm8), set flags".
+    // We use D1 and a zero immediate; the generator randomises D1's value.
+    defs.push(fixed("MOVE.q", 0x7200)); // MOVEQ #0,D1
+
+    // --- Register-to-register ALU (Dn op Dn → Dn) ---
+    // Format: base | (Dn_dst << 9) | (000 << 3) | Dn_src
+    // Using D0 as source, D1 as destination.
+
+    // ADD Dn,Dn
+    defs.push(fixed("ADD.b", 0xD200)); // ADD.b D0,D1
+    defs.push(fixed("ADD.w", 0xD240)); // ADD.w D0,D1
+    defs.push(fixed("ADD.l", 0xD280)); // ADD.l D0,D1
+
+    // SUB Dn,Dn
+    defs.push(fixed("SUB.b", 0x9200)); // SUB.b D0,D1
+    defs.push(fixed("SUB.w", 0x9240)); // SUB.w D0,D1
+    defs.push(fixed("SUB.l", 0x9280)); // SUB.l D0,D1
+
+    // AND Dn,Dn (AND <ea>,Dn direction)
+    defs.push(fixed("AND.b", 0xC200)); // AND.b D0,D1
+    defs.push(fixed("AND.w", 0xC240)); // AND.w D0,D1
+    defs.push(fixed("AND.l", 0xC280)); // AND.l D0,D1
+
+    // OR Dn,Dn (OR <ea>,Dn direction)
+    defs.push(fixed("OR.b", 0x8200)); // OR.b D0,D1
+    defs.push(fixed("OR.w", 0x8240)); // OR.w D0,D1
+    defs.push(fixed("OR.l", 0x8280)); // OR.l D0,D1
+
+    // EOR Dn,<ea> (EOR always goes Dn→EA; use D1→D0)
+    defs.push(fixed("EOR.b", 0xB300)); // EOR.b D1,D0
+    defs.push(fixed("EOR.w", 0xB340)); // EOR.w D1,D0
+    defs.push(fixed("EOR.l", 0xB380)); // EOR.l D1,D0
+
+    // CMP Dn,Dn
+    defs.push(fixed("CMP.b", 0xB200)); // CMP.b D0,D1
+    defs.push(fixed("CMP.w", 0xB240)); // CMP.w D0,D1
+    defs.push(fixed("CMP.l", 0xB280)); // CMP.l D0,D1
+
+    // CMPA An,An (CMPA <ea>,An)
+    defs.push(fixed("CMPA.w", 0xB2C8)); // CMPA.w A0,A1 (word)
+    defs.push(fixed("CMPA.l", 0xB3C8)); // CMPA.l A0,A1 (long)
+
+    // ADDA / SUBA (EA,An)
+    defs.push(fixed("ADDA.w", 0xD2C0)); // ADDA.w D0,A1
+    defs.push(fixed("ADDA.l", 0xD3C0)); // ADDA.l D0,A1
+    defs.push(fixed("SUBA.w", 0x92C0)); // SUBA.w D0,A1
+    defs.push(fixed("SUBA.l", 0x93C0)); // SUBA.l D0,A1
+
+    // --- Unary register ops (operate on Dn) ---
+    // Format: base | (000 << 3) | Dn
+    // Using D0 as operand.
+
+    defs.push(fixed("CLR.b", 0x4200)); // CLR.b D0
+    defs.push(fixed("CLR.w", 0x4240)); // CLR.w D0
+    defs.push(fixed("CLR.l", 0x4280)); // CLR.l D0
+
+    defs.push(fixed("NEG.b", 0x4400)); // NEG.b D0
+    defs.push(fixed("NEG.w", 0x4440)); // NEG.w D0
+    defs.push(fixed("NEG.l", 0x4480)); // NEG.l D0
+
+    defs.push(fixed("NEGX.b", 0x4000)); // NEGX.b D0
+    defs.push(fixed("NEGX.w", 0x4040)); // NEGX.w D0
+    defs.push(fixed("NEGX.l", 0x4080)); // NEGX.l D0
+
+    defs.push(fixed("NOT.b", 0x4600)); // NOT.b D0
+    defs.push(fixed("NOT.w", 0x4640)); // NOT.w D0
+    defs.push(fixed("NOT.l", 0x4680)); // NOT.l D0
+
+    defs.push(fixed("TST.b", 0x4A00)); // TST.b D0
+    defs.push(fixed("TST.w", 0x4A40)); // TST.w D0
+    defs.push(fixed("TST.l", 0x4A80)); // TST.l D0
+
+    defs.push(fixed("EXT.w", 0x4880)); // EXT.w D0
+    defs.push(fixed("EXT.l", 0x48C0)); // EXT.l D0
+
+    defs.push(fixed("SWAP", 0x4840)); // SWAP D0
+
+    defs.push(fixed("Scc", 0x57C0)); // SEQ D0 (condition = EQ)
+
+    // --- MOVE register-to-register ---
+    // MOVE.b D0,D1: 0001 [D1=001] [000] [000] [D0=000]
+    defs.push(fixed("MOVE.b", 0x1200)); // MOVE.b D0,D1
+    defs.push(fixed("MOVE.w", 0x3200)); // MOVE.w D0,D1
+    defs.push(fixed("MOVE.l", 0x2200)); // MOVE.l D0,D1
+
+    // MOVEA Dn,An
+    defs.push(fixed("MOVEA.w", 0x3240)); // MOVEA.w D0,A1
+    defs.push(fixed("MOVEA.l", 0x2240)); // MOVEA.l D0,A1
+
+    // --- Shifts and rotates (register count, Dn) ---
+    // Format: 1110 [count/Dn] [direction] [size] [i/r] [type] [Dn]
+    // Using shift count = 1 (encoded as Dn=D1), register D0.
+    // count=1 is bits 11:9 = 001.
+
+    // ASL/ASR: type = 00
+    defs.push(fixed("ASL.b", 0xE300)); // ASL.b #1,D0
+    defs.push(fixed("ASL.w", 0xE340)); // ASL.w #1,D0
+    defs.push(fixed("ASL.l", 0xE380)); // ASL.l #1,D0
+    defs.push(fixed("ASR.b", 0xE200)); // ASR.b #1,D0
+    defs.push(fixed("ASR.w", 0xE240)); // ASR.w #1,D0
+    defs.push(fixed("ASR.l", 0xE280)); // ASR.l #1,D0
+
+    // LSL/LSR: type = 01
+    defs.push(fixed("LSL.b", 0xE308)); // LSL.b #1,D0
+    defs.push(fixed("LSL.w", 0xE348)); // LSL.w #1,D0
+    defs.push(fixed("LSL.l", 0xE388)); // LSL.l #1,D0
+    defs.push(fixed("LSR.b", 0xE208)); // LSR.b #1,D0
+    defs.push(fixed("LSR.w", 0xE248)); // LSR.w #1,D0
+    defs.push(fixed("LSR.l", 0xE288)); // LSR.l #1,D0
+
+    // ROL/ROR: type = 11
+    defs.push(fixed("ROL.b", 0xE318)); // ROL.b #1,D0
+    defs.push(fixed("ROL.w", 0xE358)); // ROL.w #1,D0
+    defs.push(fixed("ROL.l", 0xE398)); // ROL.l #1,D0
+    defs.push(fixed("ROR.b", 0xE218)); // ROR.b #1,D0
+    defs.push(fixed("ROR.w", 0xE258)); // ROR.w #1,D0
+    defs.push(fixed("ROR.l", 0xE298)); // ROR.l #1,D0
+
+    // ROXL/ROXR: type = 10
+    defs.push(fixed("ROXL.b", 0xE310)); // ROXL.b #1,D0
+    defs.push(fixed("ROXL.w", 0xE350)); // ROXL.w #1,D0
+    defs.push(fixed("ROXL.l", 0xE390)); // ROXL.l #1,D0
+    defs.push(fixed("ROXR.b", 0xE210)); // ROXR.b #1,D0
+    defs.push(fixed("ROXR.w", 0xE250)); // ROXR.w #1,D0
+    defs.push(fixed("ROXR.l", 0xE290)); // ROXR.l #1,D0
+
+    // --- BCD register-to-register ---
+    defs.push(fixed("ABCD", 0xC300)); // ABCD D0,D1
+    defs.push(fixed("SBCD", 0x8300)); // SBCD D0,D1
+    defs.push(fixed("NBCD", 0x4800)); // NBCD D0
+
+    // --- Bit operations (register, Dn) ---
+    // BTST Dn,Dn / BCHG Dn,Dn / BCLR Dn,Dn / BSET Dn,Dn
+    defs.push(fixed("BTST", 0x0300)); // BTST D1,D0
+    defs.push(fixed("BCHG", 0x0340)); // BCHG D1,D0
+    defs.push(fixed("BCLR", 0x0380)); // BCLR D1,D0
+    defs.push(fixed("BSET", 0x03C0)); // BSET D1,D0
+
+    // --- MUL/DIV (Dn,Dn) ---
+    defs.push(fixed("MULU", 0xC2C0)); // MULU D0,D1
+    defs.push(fixed("MULS", 0xC3C0)); // MULS D0,D1
+    // DIVU/DIVS: risk of division by zero when D0=0.
+    // The generator randomises D0 so ~1/2^32 chance of zero — acceptable.
+    // Division by zero takes an exception vector, which we set up.
+    defs.push(fixed("DIVU", 0x82C0)); // DIVU D0,D1
+    defs.push(fixed("DIVS", 0x83C0)); // DIVS D0,D1
+
+    // --- EXG ---
+    defs.push(fixed("EXG", 0xC141)); // EXG D0,D1
+
+    // --- ADDX/SUBX register-to-register ---
+    defs.push(fixed("ADDX.b", 0xD300)); // ADDX.b D0,D1
+    defs.push(fixed("ADDX.w", 0xD340)); // ADDX.w D0,D1
+    defs.push(fixed("ADDX.l", 0xD380)); // ADDX.l D0,D1
+    defs.push(fixed("SUBX.b", 0x9300)); // SUBX.b D0,D1
+    defs.push(fixed("SUBX.w", 0x9340)); // SUBX.w D0,D1
+    defs.push(fixed("SUBX.l", 0x9380)); // SUBX.l D0,D1
+
+    // --- TAS ---
+    defs.push(fixed("TAS", 0x4AC0)); // TAS D0
+
+    // --- MOVE to/from SR/CCR/USP ---
+    defs.push(fixed("MOVEfromSR", 0x40C0)); // MOVE SR,D0
+    defs.push(fixed("MOVEtoCCR", 0x44C0)); // MOVE D0,CCR
+    defs.push(fixed("MOVEtoSR", 0x46C0)); // MOVE D0,SR
+
+    // --- Immediate to CCR/SR (need 1 extension word) ---
+    defs.push(rand1("ANDItoCCR", 0x023C));
+    defs.push(rand1("ORItoCCR", 0x003C));
+    defs.push(rand1("EORItoCCR", 0x0A3C));
+    defs.push(rand1("ANDItoSR", 0x027C));
+    defs.push(rand1("ORItoSR", 0x007C));
+    defs.push(rand1("EORItoSR", 0x0A7C));
+
+    // --- CHK (Dn,Dn) ---
+    defs.push(fixed("CHK", 0x4380)); // CHK D0,D1
+
+    // TODO: Add remaining instructions that need special setup:
+    // Bcc, BSR, DBcc, JMP, JSR, RTS, RTE, RTR
+    // LINK, UNLINK, TRAP, TRAPV, STOP
+    // MOVEM, MOVEP, PEA, LEA
+    // ILLEGAL, LINEA, LINEF
+    // MOVEfromUSP, MOVEtoUSP
+    // RESET
 
     // Filter by CPU type
     let min_order = cpu_type_order(cpu_type);

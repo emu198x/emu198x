@@ -148,14 +148,22 @@ fn generate_one(
 }
 
 /// Encode an instruction at the given PC.
-fn encode_instruction(def: &InstructionDef, pc: u32, _rng: &mut impl Rng) {
+fn encode_instruction(def: &InstructionDef, pc: u32, rng: &mut impl Rng) {
+    memory::poke_word(pc, def.opcode);
     match def.setup {
-        InstructionSetup::Fixed => {
-            memory::poke_word(pc, def.opcode);
+        InstructionSetup::Fixed => {}
+        InstructionSetup::RandExt1 => {
+            let ext: u16 = rng.random();
+            memory::poke_word(pc.wrapping_add(2), ext);
         }
-        InstructionSetup::EaBits0 | InstructionSetup::EaSrcDst | InstructionSetup::Custom => {
-            // TODO (Phase 2): randomise EA fields
-            memory::poke_word(pc, def.opcode);
+        InstructionSetup::RandExt2 => {
+            let ext1: u16 = rng.random();
+            let ext2: u16 = rng.random();
+            memory::poke_word(pc.wrapping_add(2), ext1);
+            memory::poke_word(pc.wrapping_add(4), ext2);
+        }
+        InstructionSetup::NeedsStack | InstructionSetup::Custom => {
+            // TODO: instruction-specific setup
         }
     }
 }
