@@ -16,6 +16,7 @@ format-adf = { path = "../format-adf" }
 drive-amiga-floppy = { path = "../drive-amiga-floppy" }
 format-ipf = { path = "../format-ipf" }
 peripheral-amiga-keyboard = { path = "../peripheral-amiga-keyboard" }
+commodore-gayle = { path = "../commodore-gayle" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"

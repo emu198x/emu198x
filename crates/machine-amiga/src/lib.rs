@@ -20,6 +20,7 @@ use mos_cia_8520::Cia8520;
 use motorola_68000::cpu::Cpu68000;
 use motorola_68000::model::CpuModel;
 use peripheral_amiga_keyboard::AmigaKeyboard;
+use commodore_gayle::Gayle;
 
 // Re-export chip crates so tests and downstream users can access types.
 pub use crate::config::{
@@ -36,6 +37,7 @@ pub use format_adf;
 pub use mos_cia_8520;
 use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 pub use peripheral_amiga_keyboard;
+pub use commodore_gayle;
 
 /// Standard Amiga PAL Master Crystal Frequency (Hz)
 pub const PAL_CRYSTAL_HZ: u64 = 28_375_160;
@@ -211,6 +213,8 @@ pub struct Amiga {
     pub paula: Paula8364,
     pub floppy: AmigaFloppyDrive,
     pub keyboard: AmigaKeyboard,
+    /// Gayle gate array (IDE + address decode). Present only on A600/A1200.
+    pub gayle: Option<Gayle>,
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
     /// RC low-pass filter state (left, right) for hardware output stage.
@@ -378,6 +382,10 @@ impl Amiga {
             paula: Paula8364::new(),
             floppy: AmigaFloppyDrive::new(),
             keyboard: AmigaKeyboard::new(),
+            gayle: match model {
+                AmigaModel::A600 | AmigaModel::A1200 => Some(Gayle::new()),
+                _ => None,
+            },
             audio_sample_phase: 0,
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
             audio_lpf_left: 0.0,
@@ -820,6 +828,7 @@ impl Amiga {
                     paula: &mut self.paula,
                     floppy: &mut self.floppy,
                     keyboard: &mut self.keyboard,
+                    gayle: &mut self.gayle,
                     bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                     ddfstrt_pending: &mut self.ddfstrt_pending,
                     ddfstop_pending: &mut self.ddfstop_pending,
@@ -852,6 +861,7 @@ impl Amiga {
                         paula: &mut self.paula,
                         floppy: &mut self.floppy,
                         keyboard: &mut self.keyboard,
+                        gayle: &mut self.gayle,
                         bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                         ddfstrt_pending: &mut self.ddfstrt_pending,
                         ddfstop_pending: &mut self.ddfstop_pending,
@@ -1679,6 +1689,7 @@ pub struct AmigaBusWrapper<'a> {
     pub paula: &'a mut Paula8364,
     pub floppy: &'a mut AmigaFloppyDrive,
     pub keyboard: &'a mut AmigaKeyboard,
+    pub gayle: &'a mut Option<Gayle>,
     // Pipeline state for delayed register writes (Agnus→Denise propagation).
     pub bplcon0_denise_pending: &'a mut Option<(u16, u8)>,
     pub ddfstrt_pending: &'a mut Option<(u16, u8)>,
@@ -1946,6 +1957,18 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                 return BusStatus::Ready(word);
             }
             return BusStatus::Ready(0);
+        }
+
+        // Gayle gate array ($D80000-$DFFFFF) on A600/A1200.
+        if let Some(gayle) = self.gayle {
+            if addr >= 0xD8_0000 && addr < 0xE0_0000 {
+                if is_read {
+                    let byte = gayle.read(addr);
+                    return BusStatus::Ready(u16::from(byte));
+                }
+                gayle.write(addr, data.unwrap_or(0) as u8);
+                return BusStatus::Ready(0);
+            }
         }
 
         if addr < 0x200000 {
@@ -2722,6 +2745,7 @@ mod tests {
             paula: &mut amiga.paula,
             floppy: &mut amiga.floppy,
             keyboard: &mut amiga.keyboard,
+            gayle: &mut amiga.gayle,
             bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,

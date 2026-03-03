@@ -1,0 +1,10 @@
+[package]
+name = "commodore-gayle"
+description = "Commodore Gayle gate array — IDE and address decoding for A600/A1200"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "commodore_gayle"
+path = "src/lib.rs"
