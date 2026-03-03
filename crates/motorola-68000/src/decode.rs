@@ -68,6 +68,7 @@ impl Cpu68000 {
 
         let opcode = self.ir;
 
+
         // --- MOVE.b/w/l (0x1xxx, 0x2xxx, 0x3xxx) ---
         // Top 2 bits = 00, next 2 bits encode size (non-zero)
         if (opcode & 0xC000) == 0 && (opcode & 0x3000) != 0 {

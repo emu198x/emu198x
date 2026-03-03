@@ -94,7 +94,18 @@ fn test_strap_hang() {
         node = succ;
     }
 
-    // Also check the guru saved A6
-    let saved_a6 = read32m(0x1B8);
-    println!("\nGuru saved A6 = ${:08X}", saved_a6);
+    // Check FP=$C022EE (the actual A6 at the DIVU)
+    let fp: u32 = 0xC022EE;
+    let fp_off = ((fp - 0xC0_0000) & amiga.memory.slow_ram_mask) as usize;
+    println!("\nStructure at FP=${:08X} (slow_ram offset ${:X}):", fp, fp_off);
+    for row in 0..4 {
+        let off = row * 16;
+        print!("  +${:02X}:", off);
+        for j in 0..16 {
+            print!(" {:02X}", amiga.memory.slow_ram[fp_off + off + j]);
+        }
+        println!();
+    }
+    let divisor = read16m(fp + 0x22);
+    println!("  +$22 (divisor) = ${:04X} = {}", divisor, divisor);
 }
