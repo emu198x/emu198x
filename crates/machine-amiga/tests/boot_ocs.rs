@@ -1,4 +1,8 @@
 //! Boot screenshot tests for OCS (Original Chip Set) Amiga models.
+//!
+//! A500 and A2000 tests include 512KB slow RAM ($C00000) matching
+//! the standard trapdoor expansion. Without it, KS 1.2+ exec init
+//! crashes because it uses expansion space for the initial stack.
 
 mod common;
 
@@ -57,7 +61,7 @@ fn test_boot_kick12_a500() {
             chipset: AmigaChipset::Ocs,
             region: AmigaRegion::Pal,
             kickstart: rom,
-            slow_ram_size: 0,
+            slow_ram_size: 512 * 1024,
         },
         "KS 1.2 A500",
         "boot_kick12_a500",
@@ -77,7 +81,7 @@ fn test_boot_kick12_a2000() {
             chipset: AmigaChipset::Ocs,
             region: AmigaRegion::Pal,
             kickstart: rom,
-            slow_ram_size: 0,
+            slow_ram_size: 512 * 1024,
         },
         "KS 1.2 A2000",
         "boot_kick12_a2000",
@@ -97,7 +101,7 @@ fn test_boot_kick13_a500() {
             chipset: AmigaChipset::Ocs,
             region: AmigaRegion::Pal,
             kickstart: rom,
-            slow_ram_size: 0,
+            slow_ram_size: 512 * 1024,
         },
         "KS 1.3 A500",
         "boot_kick13_a500",
@@ -117,7 +121,7 @@ fn test_boot_kick13_a2000() {
             chipset: AmigaChipset::Ocs,
             region: AmigaRegion::Pal,
             kickstart: rom,
-            slow_ram_size: 0,
+            slow_ram_size: 512 * 1024,
         },
         "KS 1.3 A2000",
         "boot_kick13_a2000",
@@ -137,7 +141,7 @@ fn test_boot_kick31_a2000() {
             chipset: AmigaChipset::Ocs,
             region: AmigaRegion::Pal,
             kickstart: rom,
-            slow_ram_size: 0,
+            slow_ram_size: 512 * 1024,
         },
         "KS 3.1 A2000",
         "boot_kick31_a2000",
