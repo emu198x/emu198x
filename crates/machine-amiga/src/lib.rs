@@ -1885,24 +1885,19 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x00E => self.denise.read_clxdat(),
                     0x010 => self.paula.adkcon,
                     0x016 => 0xFF00,
-                    // SERDATR: TBE(13)+TSRE(12) always set (no serial
-                    // transmitter), RBF(14) set = receive buffer full.
-                    // With no serial hardware, returning RBF high mimics an
-                    // unconnected port (floating data line). This lets the
-                    // KS 3.x serial diagnostic loop exit immediately instead
-                    // of spinning for its full timeout.
-                    0x018 => {
-                        // DIAG: trace ALL SERDATR reads
-                        static COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                        let n = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if n < 5 {
-                            eprintln!(
-                                "  [serdatr] addr=${:06X} is_word={} is_read={} offset=${:03X}",
-                                addr, is_word, is_read, offset,
-                            );
-                        }
-                        0x79FF
-                    }
+                    // SERDATR: power-on state with no serial device.
+                    // Bit 14 RBF=0 (no data received — UART never sees
+                    //   a start bit with RX floating high/idle).
+                    // Bit 13 TBE=1, Bit 12 TSRE=1 (transmitter empty).
+                    // Bits 0-8 data=0 (shift register uninitialised).
+                    //
+                    // Critical: data must NOT be $FF/$7F. The KS 3.x
+                    // LED-blink serial diagnostic reads data bits and
+                    // checks (data & $7F) == $7F as a magic handshake.
+                    // $FF data would falsely match, causing the ROM to
+                    // enter the serial debug handler instead of timing
+                    // out and continuing to normal boot.
+                    0x018 => 0x3000,
                     0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x01C => self.paula.intena,
                     0x01E => self.paula.intreq,
