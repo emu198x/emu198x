@@ -1,8 +1,6 @@
-//! STRAP display hang diagnostic — where does the insert-disk drawing get stuck?
-//! Uses KS 1.3 as the reference (best documented).
+//! STRAP hang diagnostic: trace what triggers the first warm restart.
 
 use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
-use std::collections::BTreeMap;
 use std::fs;
 
 #[test]
@@ -24,17 +22,16 @@ fn test_strap_hang() {
         slow_ram_size: 0,
     });
 
-    // Run 15 seconds — STRAP should be reached by ~10s
-    let total_ticks: u64 = 28_375_160 * 15;
-    let strap_trace_start: u64 = 28_375_160 * 8; // start tracing at 8s
-
-    let mut tracing = false;
-    let mut last_pc: u32 = 0;
-    let mut pc_histogram: BTreeMap<u32, u64> = BTreeMap::new();
+    // Run up to 10s. Track key events:
+    // 1. When "HELP" ($48454C50) first appears at address 0
+    // 2. When the reset() handler fires (overlay turns on)
+    // 3. What PC is at each event
+    let total_ticks: u64 = 28_375_160 * 10;
+    let mut help_detected = false;
+    let mut overlay_was_off = false;
+    let mut reset_count = 0u32;
     let mut last_report: u64 = 0;
 
-    // Track the PC every CPU cycle and build a histogram
-    // of where the CPU spends time in the STRAP area
     for i in 0..total_ticks {
         amiga.tick();
 
@@ -50,64 +47,99 @@ fn test_strap_hang() {
             continue;
         }
 
-        if !tracing && i >= strap_trace_start {
-            tracing = true;
-        }
-
-        if !tracing {
-            continue;
-        }
-
         let pc = amiga.cpu.regs.pc;
 
-        // Count time at each PC
-        *pc_histogram.entry(pc).or_insert(0) += 1;
+        // Track overlay transitions (reset handler sets overlay=true)
+        if !amiga.memory.overlay {
+            overlay_was_off = true;
+        }
+        if overlay_was_off && amiga.memory.overlay {
+            overlay_was_off = false;
+            reset_count += 1;
+            let elapsed_s = i as f64 / 28_375_160.0;
+            if reset_count <= 3 {
+                println!(
+                    "[{:.3}s] RESET #{} detected (overlay on): PC=${:08X}",
+                    elapsed_s, reset_count, pc,
+                );
+            }
+        }
 
-        // Periodic report of current PC
+        // Detect "HELP" at address 0
+        if !help_detected
+            && amiga.memory.chip_ram[0] == 0x48
+            && amiga.memory.chip_ram[1] == 0x45
+            && amiga.memory.chip_ram[2] == 0x4C
+            && amiga.memory.chip_ram[3] == 0x50
+        {
+            help_detected = true;
+            let elapsed_s = i as f64 / 28_375_160.0;
+            let sp = amiga.cpu.regs.a(7) as usize;
+            // Read the exception frame from the expansion bus cache
+            // (SP is in expansion space $C00000-$DFFFFF)
+            let read_exp = |addr: usize| -> u8 {
+                if addr >= 0xC0_0000 && addr < 0xE0_0000 {
+                    amiga.memory.expansion_bus_cache[addr - 0xC0_0000]
+                } else if addr < amiga.memory.chip_ram.len() {
+                    amiga.memory.chip_ram[addr]
+                } else {
+                    0
+                }
+            };
+            // The exec guru handler at $FC2FF0 saves registers to $180,
+            // then at $FC300A reads D7 from (SP). SP points to the
+            // original exception frame (before the handler pushed).
+            // The handler's movem pushed 16 regs, so the original
+            // exception frame is at SP + 16*4 = SP + 64.
+            let orig_sp = sp;
+            let frame_sr = (u16::from(read_exp(orig_sp)) << 8) | u16::from(read_exp(orig_sp + 1));
+            let frame_pc = (u32::from(read_exp(orig_sp + 2)) << 24)
+                | (u32::from(read_exp(orig_sp + 3)) << 16)
+                | (u32::from(read_exp(orig_sp + 4)) << 8)
+                | u32::from(read_exp(orig_sp + 5));
+            println!(
+                "[{:.3}s] GURU MEDITATION! PC=${:08X} SP=${:08X}",
+                elapsed_s, pc, amiga.cpu.regs.a(7),
+            );
+            println!(
+                "  Exception frame at ${:06X}: SR=${:04X} PC=${:08X}",
+                orig_sp, frame_sr, frame_pc,
+            );
+            println!(
+                "  D7=${:08X} A5=${:08X} A6=${:08X}",
+                amiga.cpu.regs.d[7],
+                amiga.cpu.regs.a(5),
+                amiga.cpu.regs.a(6),
+            );
+            // Dump chip RAM at the faulting PC
+            if frame_pc < 0x80000 {
+                let a = frame_pc as usize;
+                print!("  Code at ${:06X}:", frame_pc);
+                for j in 0..8 {
+                    print!(" {:02X}", amiga.memory.chip_ram[a + j]);
+                }
+                println!();
+            }
+        }
+
+        // Clear help_detected when address 0 is cleared (for next cycle)
+        if help_detected
+            && amiga.memory.chip_ram[0] == 0
+            && amiga.memory.chip_ram[1] == 0
+        {
+            help_detected = false;
+        }
+
+        // Periodic report
         if i - last_report >= 28_375_160 {
             last_report = i;
             let elapsed_s = i as f64 / 28_375_160.0;
             println!(
-                "[{:.0}s] PC=${:08X} SR=${:04X} DMACON=${:04X} BPLCON0=${:04X}",
-                elapsed_s,
-                pc,
-                amiga.cpu.regs.sr,
-                amiga.agnus.dmacon,
-                amiga.denise.bplcon0,
+                "[{:.0}s] PC=${:08X} DMACON=${:04X} INTENA=${:04X}",
+                elapsed_s, pc, amiga.agnus.dmacon, amiga.paula.intena,
             );
         }
-
-        last_pc = pc;
     }
 
-    // Print top 20 hotspots
-    let mut hot: Vec<_> = pc_histogram.iter().collect();
-    hot.sort_by(|a, b| b.1.cmp(a.1));
-    println!("\nTop 20 PC hotspots (8-15s):");
-    for (i, &(pc, count)) in hot.iter().take(20).enumerate() {
-        let (pc, count) = (*pc, *count);
-        let rom_off = if pc >= 0xFC0000 {
-            format!("ROM+${:05X}", pc - 0xFC0000)
-        } else {
-            format!("chip ${:06X}", pc)
-        };
-        println!("  {:2}. PC=${:08X} ({}) count={}", i + 1, pc, rom_off, count);
-    }
-
-    println!("\nFinal state:");
-    println!("  PC=${:08X}", last_pc);
-    println!("  DMACON=${:04X} BPLCON0=${:04X}", amiga.agnus.dmacon, amiga.denise.bplcon0);
-    println!("  COP1LC=${:08X} COP2LC=${:08X}", amiga.copper.cop1lc, amiga.copper.cop2lc);
-    let mask = amiga.memory.chip_ram_mask;
-    let exec_base = u32::from(amiga.memory.chip_ram[4]) << 24
-        | u32::from(amiga.memory.chip_ram[5]) << 16
-        | u32::from(amiga.memory.chip_ram[6]) << 8
-        | u32::from(amiga.memory.chip_ram[7]);
-    println!("  ExecBase (addr 4) = ${:08X}", exec_base);
-    let addr0 = u32::from(amiga.memory.chip_ram[0]) << 24
-        | u32::from(amiga.memory.chip_ram[1]) << 16
-        | u32::from(amiga.memory.chip_ram[2]) << 8
-        | u32::from(amiga.memory.chip_ram[3]);
-    println!("  Address 0 = ${:08X}", addr0);
-    println!("  overlay = {}", amiga.memory.overlay);
+    println!("\nTotal resets: {}", reset_count);
 }
