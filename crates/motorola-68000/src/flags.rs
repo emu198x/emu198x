@@ -41,8 +41,12 @@ pub const T: u16 = 0x8000;
 pub const CCR_MASK: u16 = 0x001F;
 /// Mask for the system byte (bits 8-15).
 pub const SYSTEM_MASK: u16 = 0xFF00;
-/// Mask for valid SR bits (excluding reserved bits).
+/// Mask for valid SR bits on the 68000/68010 (excluding reserved bits).
+/// T1, S, IPL, CCR. Bits 14 (T0), 12 (M), 11, 7-5 are reserved/zero.
 pub const SR_MASK: u16 = 0xA71F;
+/// Mask for valid SR bits on the 68020+ (T1, T0, S, M, IPL, CCR).
+/// Bits 11, 7-5 remain reserved/zero.
+pub const SR_MASK_020: u16 = 0xF71F;
 
 /// Status register helper functions.
 pub struct Status;

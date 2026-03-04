@@ -403,6 +403,13 @@ fn run_all_68000_musashi() {
     run_all_in_dir("m68000-musashi");
 }
 
+/// Run all Musashi-generated 68010 tests.
+#[test]
+#[ignore]
+fn run_all_68010_musashi() {
+    run_all_in_dir("m68010");
+}
+
 /// Run all Musashi-generated 68020 tests.
 #[test]
 #[ignore]

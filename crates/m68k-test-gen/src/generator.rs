@@ -84,12 +84,16 @@ fn generate_one(
         memory::poke_word(after_instr + offset * 2, 0x4E71); // NOP
     }
 
-    // Set up exception vectors so address errors don't crash.
-    // Vector 3 (address error) → a NOP sled at 0x002000
-    for v in 0..64 {
-        memory::poke_long(v * 4, STACK_TOP); // All vectors point to NOP sled
+    // Set up exception vectors and handler NOP sled.
+    // Exception handler target at 0x002000 (NOP sled).
+    let exc_handler: u32 = 0x002000;
+    for offset in 0..16 {
+        memory::poke_word(exc_handler + offset * 2, 0x4E71); // NOP sled
     }
-    // Except: SSP at vector 0, PC at vector 1 (but we don't pulse_reset)
+    for v in 0..64 {
+        memory::poke_long(v * 4, exc_handler);
+    }
+    // Vector 0 = initial SSP, vector 1 = initial PC (for pulse_reset)
     memory::poke_long(0x000000, STACK_TOP);
     memory::poke_long(0x000004, CODE_BASE);
 
@@ -162,8 +166,31 @@ fn encode_instruction(def: &InstructionDef, pc: u32, rng: &mut impl Rng) {
             memory::poke_word(pc.wrapping_add(2), ext1);
             memory::poke_word(pc.wrapping_add(4), ext2);
         }
-        InstructionSetup::NeedsStack | InstructionSetup::Custom => {
-            // TODO: instruction-specific setup
+        InstructionSetup::NeedsStack => {
+            // Place a valid even return address on the stack so RTS/RTD
+            // can pop it without taking an address error. The return
+            // address points to a NOP sled at 0x002000.
+            let ret_addr: u32 = 0x002000;
+            // NOP sled at return target
+            for offset in 0..8 {
+                memory::poke_word(ret_addr + offset * 2, 0x4E71); // NOP
+            }
+            // The 68000 stack: SP points at the top item. Pop reads from
+            // SP and increments. Write the return address at STACK_TOP
+            // (where SP points) and set ISP to STACK_TOP. But Musashi
+            // was told ISP = STACK_TOP by the register setup, so write
+            // the return address starting at STACK_TOP.
+            let sp = STACK_TOP;
+            memory::poke_word(sp, (ret_addr >> 16) as u16);       // hi word at SP
+            memory::poke_word(sp.wrapping_add(2), (ret_addr & 0xFFFF) as u16); // lo word at SP+2
+            // Write extension words for the instruction
+            for ext_idx in 0..def.ext_words {
+                let ext: u16 = rng.random();
+                memory::poke_word(pc.wrapping_add(2 + u32::from(ext_idx) * 2), ext);
+            }
+        }
+        InstructionSetup::Custom => {
+            // Instruction-specific setup (not yet used)
         }
     }
 }

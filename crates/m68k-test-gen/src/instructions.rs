@@ -76,6 +76,30 @@ const fn rand2(name: &'static str, opcode: u16) -> InstructionDef {
     }
 }
 
+const M68010: u32 = musashi::M68K_CPU_TYPE_68010;
+
+/// Helper for a 68010+ fixed instruction.
+const fn fixed_010(name: &'static str, opcode: u16) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words: 0,
+        setup: InstructionSetup::Fixed,
+        min_cpu: M68010,
+    }
+}
+
+/// Helper for a 68010+ instruction needing a valid stack frame.
+const fn needs_stack_010(name: &'static str, opcode: u16, ext_words: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words,
+        setup: InstructionSetup::NeedsStack,
+        min_cpu: M68010,
+    }
+}
+
 /// Return all instruction definitions for the given CPU type.
 pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
     let mut defs = Vec::new();
@@ -269,6 +293,146 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
     // ILLEGAL, LINEA, LINEF
     // MOVEfromUSP, MOVEtoUSP
     // RESET
+
+    // ===== 68010+ instructions =====
+
+    // RTD: return and deallocate (pop PC, add d16 to SP)
+    defs.push(needs_stack_010("RTD", 0x4E74, 1));
+
+    // MOVE from CCR: read CCR to Dn (not privileged)
+    defs.push(fixed_010("MOVEfromCCR", 0x42C0)); // MOVE CCR,D0
+
+    // BKPT: breakpoint (takes illegal instruction exception on 68010)
+    defs.push(fixed_010("BKPT", 0x4848)); // BKPT #0
+
+    // MOVEC: already tested via 68000 Musashi tests (gated by model),
+    // but add explicit 68010 entry for completeness
+    defs.push(InstructionDef {
+        name: "MOVEC_010",
+        opcode: 0x4E7A,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: M68010,
+    });
+
+    // ===== 68020+ instructions =====
+
+    let m68020 = musashi::M68K_CPU_TYPE_68020;
+
+    // EXTB.L: sign-extend byte to long (register only)
+    defs.push(InstructionDef {
+        name: "EXTB.l",
+        opcode: 0x49C0, // EXTB.L D0
+        ext_words: 0,
+        setup: InstructionSetup::Fixed,
+        min_cpu: m68020,
+    });
+
+    // MULL: 32×32 multiply (register mode, D0 × D1)
+    // Opcode $4C00 + extension word with register encoding.
+    // Extension word: bit 11 = signed, bits 14-12 = Dh (64-bit hi), bits 2-0 = Dl
+    // MULU.L D0,D1: ext = 0x0001 (unsigned, Dl=D1)
+    defs.push(InstructionDef {
+        name: "MULL",
+        opcode: 0x4C00, // MULL D0,...
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // DIVL: 32÷32 divide (register mode, D0 / D1)
+    // Opcode $4C40 + extension word
+    defs.push(InstructionDef {
+        name: "DIVL",
+        opcode: 0x4C40, // DIVL D0,...
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // Bitfield instructions (register mode, Dn)
+    // Opcode format: 1110_1xxx_11_000_rrr (EA mode=000 for Dn, reg in bits 2-0)
+    // Extension word encodes offset/width and optional Dn destination.
+    // Using D0 as the target register.
+
+    // BFTST D0{...}: 1110_1000_1100_0000 = $E8C0
+    defs.push(InstructionDef {
+        name: "BFTST",
+        opcode: 0xE8C0, // BFTST D0{offset:width}
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // BFCHG D0{...}: 1110_1010_1100_0000 = $EAC0
+    defs.push(InstructionDef {
+        name: "BFCHG",
+        opcode: 0xEAC0,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // BFCLR D0{...}: 1110_1100_1100_0000 = $ECC0
+    defs.push(InstructionDef {
+        name: "BFCLR",
+        opcode: 0xECC0,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // BFSET D0{...}: 1110_1110_1100_0000 = $EEC0
+    defs.push(InstructionDef {
+        name: "BFSET",
+        opcode: 0xEEC0,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // BFEXTU D0{...},D1: 1110_1001_1100_0000 = $E9C0
+    // Extension word bits 14-12 = dest register D1 (001)
+    // We use RandExt1 — random ext word; the dest reg is random but that's fine.
+    defs.push(InstructionDef {
+        name: "BFEXTU",
+        opcode: 0xE9C0,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // BFEXTS D0{...},D1: 1110_1011_1100_0000 = $EBC0
+    defs.push(InstructionDef {
+        name: "BFEXTS",
+        opcode: 0xEBC0,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // BFFFO D0{...},D1: 1110_1101_1100_0000 = $EDC0
+    defs.push(InstructionDef {
+        name: "BFFFO",
+        opcode: 0xEDC0,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // BFINS D1,D0{...}: 1110_1111_1100_0000 = $EFC0
+    defs.push(InstructionDef {
+        name: "BFINS",
+        opcode: 0xEFC0,
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
+    // CAS.l Dc,Du,D0: $0EC0 + extension word
+    // For register-mode testing only. CAS compares Dc with (EA).
+    // But CAS only works with memory EA — Dn is invalid for CAS.
+    // Skip CAS in the register-mode catalogue for now.
 
     // Filter by CPU type
     let min_order = cpu_type_order(cpu_type);

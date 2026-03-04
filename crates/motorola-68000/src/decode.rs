@@ -23,12 +23,14 @@ use crate::cpu::{
     TAG_AE_PUSH_SR, TAG_BCC_EXECUTE, TAG_BCD_DST_READ, TAG_BCD_SRC_READ, TAG_BSR_EXECUTE,
     TAG_CHK_EXECUTE, TAG_DATA_DST_LONG, TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE, TAG_EA_DST_DISP,
     TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
-    TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_PC_HI, TAG_EXC_STACK_PC_LO,
-    TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA,
+    TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT, TAG_EXC_STACK_PC_HI,
+    TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA,
+    TAG_FETCH_SRC_DATA,
     TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
     TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_PC_HI,
     TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
-    TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_RTD_PC_HI, TAG_RTD_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT,
+    TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -412,7 +414,7 @@ impl Cpu68000 {
                     5 => sr32 ^ imm, // EORI
                     _ => sr32,
                 };
-                self.regs.sr = (result as u16) & crate::flags::SR_MASK;
+                self.regs.sr = (result as u16) & self.sr_mask();
             } else {
                 let ccr = u32::from(self.regs.sr & 0xFF);
                 let result = match op_type {
@@ -749,11 +751,13 @@ impl Cpu68000 {
                                 }
                                 5 => {  // BFFFO — find first one
                                     let dn = ((ext >> 12) & 7) as usize;
+                                    // Register mode: use the effective offset (modulo 32),
+                                    // not the raw register value.
                                     let first_one = if result == 0 {
-                                        offset as u32 + width
+                                        off + width
                                     } else {
                                         let leading = (result << (32 - width)).leading_zeros();
-                                        offset as u32 + leading
+                                        off + leading
                                     };
                                     self.regs.d[dn] = first_one;
                                 }
@@ -939,6 +943,15 @@ impl Cpu68000 {
             let result = (val >> 16) | (val << 16);
             self.regs.d[r] = result;
             self.set_flags_move(result, Size::Long);
+            return;
+        }
+
+        // --- BKPT (0x4848-0x484F, 68010+) ---
+        // On 68010, BKPT takes an illegal instruction exception.
+        // On 68020+, a breakpoint acknowledge bus cycle would occur.
+        // For now, both paths take an illegal instruction exception.
+        if (opcode & 0xFFF8) == 0x4848 {
+            self.begin_group1_exception(4, self.instr_start_pc);
             return;
         }
 
@@ -1152,8 +1165,31 @@ impl Cpu68000 {
                         self.continue_instruction(bus);
                         return;
                     }
+                    1 => {
+                        // MOVE from CCR (0x42C0, 68010+)
+                        // On 68000, this opcode space is invalid.
+                        if !self.capabilities().movec {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        // Read CCR (low byte of SR, zero-extended to word)
+                        self.data = u32::from(self.regs.sr & 0xFF);
+                        self.size = Size::Word;
+                        self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                        if ea_mode_bits == 0 {
+                            // Dn: write low word
+                            self.regs.d[ea_reg as usize] =
+                                (self.regs.d[ea_reg as usize] & 0xFFFF_0000) | (self.data & 0xFFFF);
+                        } else {
+                            // Memory: write word to EA
+                            self.in_followup = true;
+                            self.followup_tag = TAG_FETCH_DST_EA;
+                            self.continue_instruction(bus);
+                        }
+                        return;
+                    }
                     _ => {
-                        // size=3 for CLR (sub_op=1) is invalid
+                        // No other sub_op values reach here
                         self.begin_group1_exception(4, self.instr_start_pc);
                         return;
                     }
@@ -1259,6 +1295,24 @@ impl Cpu68000 {
         if opcode == 0x4E75 {
             self.in_followup = true;
             self.followup_tag = TAG_RTS_PC_HI;
+            self.micro_ops.push(MicroOp::PopLongHi);
+            self.micro_ops.push(MicroOp::Execute);
+            return;
+        }
+
+        // --- RTD (0x4E74, 68010+) ---
+        // Return and Deallocate: pop PC, then add sign-extended d16 to SP.
+        // The displacement is in IRC (consumed before the stack pops).
+        if opcode == 0x4E74 {
+            if !self.capabilities().movec {
+                // 68000 doesn't have RTD — illegal instruction
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
+            // Save displacement from IRC before FetchIRC overwrites it
+            self.src_val = u32::from(self.consume_irc());
+            self.in_followup = true;
+            self.followup_tag = TAG_RTD_PC_HI;
             self.micro_ops.push(MicroOp::PopLongHi);
             self.micro_ops.push(MicroOp::Execute);
             return;
@@ -1481,7 +1535,7 @@ impl Cpu68000 {
                 return;
             }
             let new_sr = self.consume_irc();
-            self.regs.sr = new_sr & crate::flags::SR_MASK;
+            self.regs.sr = new_sr & self.sr_mask();
             // Clear the FetchIRC that consume_irc queued — STOP doesn't
             // complete the pipeline refill.
             self.micro_ops.clear();
@@ -1928,7 +1982,38 @@ impl Cpu68000 {
                 self.in_followup = false;
             }
 
+            TAG_RTD_PC_HI => {
+                // PopLongHi stored hi word in self.data.
+                self.followup_tag = TAG_RTD_PC_LO;
+                self.micro_ops.push(MicroOp::PopLongLo);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
+            TAG_RTD_PC_LO => {
+                // self.data has the complete 32-bit return address.
+                // Apply displacement to SP before jumping.
+                let disp = self.src_val as u16 as i16 as i32;
+                let sp = self.regs.active_sp().wrapping_add(disp as u32);
+                self.regs.set_active_sp(sp);
+                self.regs.pc = self.data;
+                self.next_fetch_addr = self.regs.pc;
+                self.micro_ops.clear();
+                self.micro_ops.push(MicroOp::FetchIRC);
+                self.micro_ops.push(MicroOp::PromoteIRC);
+                self.in_followup = false;
+            }
+
             // --- Exception handlers ---
+
+            TAG_EXC_STACK_FORMAT => {
+                // 68010+: format/vector word has been pushed.
+                // Restore the saved PC and continue with PC push.
+                self.data = self.src_val;
+                self.followup_tag = TAG_EXC_STACK_PC_HI;
+                self.micro_ops.push(MicroOp::PushLongHi);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
             TAG_EXC_STACK_PC_HI => {
                 self.followup_tag = TAG_EXC_STACK_PC_LO;
                 self.micro_ops.push(MicroOp::PushLongLo);
@@ -1995,7 +2080,7 @@ impl Cpu68000 {
             // position in self.addr and update regs.ssp directly because
             // restoring SR may switch to user mode (making active_sp = USP).
             TAG_RTE_READ_SR => {
-                let new_sr = (self.data as u16) & crate::flags::SR_MASK;
+                let new_sr = (self.data as u16) & self.sr_mask();
                 self.addr = self.addr.wrapping_add(2);
                 self.regs.sr = new_sr;
                 self.regs.ssp = self.addr;
@@ -2428,22 +2513,24 @@ impl Cpu68000 {
                         }
                     }
                     let ext = self.movem_mask; // stashed during decode
-                    let dq = ((ext >> 12) & 7) as usize;
+                    // Extension word: bits 14-12 = Dl (low/single result),
+                    // bits 2-0 = Dh (high word for 64-bit).
+                    let dl = ((ext >> 12) & 7) as usize;
                     let is_signed = ext & 0x0800 != 0;
                     let is_64bit = ext & 0x0400 != 0;
-                    let dr = (ext & 7) as usize;
+                    let dh = (ext & 7) as usize;
                     let src = self.src_val;
 
                     if (opcode & 0xFFC0) == 0x4C00 {
-                        // MULL: 32x32 multiply
+                        // MULL: 32x32 multiply. Source × Dl → Dh:Dl (64) or Dl (32).
                         if is_signed {
-                            let result = (src as i32 as i64) * (self.regs.d[dq] as i32 as i64);
+                            let result = (src as i32 as i64) * (self.regs.d[dl] as i32 as i64);
                             let result_u = result as u64;
                             if is_64bit {
-                                self.regs.d[dr] = result_u as u32; // low
-                                self.regs.d[dq] = (result_u >> 32) as u32; // high
+                                self.regs.d[dl] = result_u as u32;         // low → Dl
+                                self.regs.d[dh] = (result_u >> 32) as u32; // high → Dh
                             } else {
-                                self.regs.d[dq] = result_u as u32;
+                                self.regs.d[dl] = result_u as u32;
                             }
                             let mut sr = self.regs.sr & !0x000F;
                             if is_64bit {
@@ -2463,12 +2550,12 @@ impl Cpu68000 {
                             }
                             self.regs.sr = sr;
                         } else {
-                            let result = u64::from(src) * u64::from(self.regs.d[dq]);
+                            let result = u64::from(src) * u64::from(self.regs.d[dl]);
                             if is_64bit {
-                                self.regs.d[dr] = result as u32; // low
-                                self.regs.d[dq] = (result >> 32) as u32; // high
+                                self.regs.d[dl] = result as u32;         // low → Dl
+                                self.regs.d[dh] = (result >> 32) as u32; // high → Dh
                             } else {
-                                self.regs.d[dq] = result as u32;
+                                self.regs.d[dl] = result as u32;
                             }
                             let mut sr = self.regs.sr & !0x000F;
                             if is_64bit {
@@ -2485,7 +2572,9 @@ impl Cpu68000 {
                         // ~44 cycles for 32-bit multiply
                         self.micro_ops.push(MicroOp::Internal(40));
                     } else {
-                        // DIVL: 32/32 divide (or 64/32 when is_64bit)
+                        // DIVL: Dividend / Source → Dq:Dr (quotient:remainder).
+                        // 64-bit dividend: Dh:Dl. 32-bit dividend: Dl.
+                        // Result: quotient → Dl, remainder → Dh.
                         if src == 0 {
                             self.begin_group1_exception(5, self.irc_addr);
                             return;
@@ -2493,9 +2582,9 @@ impl Cpu68000 {
                         if is_signed {
                             let divisor = src as i32;
                             let dividend = if is_64bit {
-                                ((self.regs.d[dq] as i64) << 32) | (self.regs.d[dr] as u32 as i64)
+                                ((self.regs.d[dh] as i64) << 32) | (self.regs.d[dl] as u32 as i64)
                             } else {
-                                self.regs.d[dq] as i32 as i64
+                                self.regs.d[dl] as i32 as i64
                             };
                             let quotient = dividend / i64::from(divisor);
                             let remainder = dividend % i64::from(divisor);
@@ -2504,8 +2593,8 @@ impl Cpu68000 {
                                 sr |= 0x000A; // V + N
                                 self.regs.sr = sr;
                             } else {
-                                self.regs.d[dr] = remainder as u32;
-                                self.regs.d[dq] = quotient as u32;
+                                self.regs.d[dh] = remainder as u32;
+                                self.regs.d[dl] = quotient as u32;
                                 let mut sr = self.regs.sr & !0x000F;
                                 if quotient as u32 & 0x8000_0000 != 0 { sr |= 0x0008; }
                                 if quotient as u32 == 0 { sr |= 0x0004; }
@@ -2514,9 +2603,9 @@ impl Cpu68000 {
                         } else {
                             let divisor = src as u64;
                             let dividend = if is_64bit {
-                                ((self.regs.d[dq] as u64) << 32) | (self.regs.d[dr] as u64)
+                                ((self.regs.d[dh] as u64) << 32) | (self.regs.d[dl] as u64)
                             } else {
-                                self.regs.d[dq] as u64
+                                self.regs.d[dl] as u64
                             };
                             let quotient = dividend / divisor;
                             let remainder = dividend % divisor;
@@ -2525,8 +2614,8 @@ impl Cpu68000 {
                                 sr |= 0x000A; // V + N
                                 self.regs.sr = sr;
                             } else {
-                                self.regs.d[dr] = remainder as u32;
-                                self.regs.d[dq] = quotient as u32;
+                                self.regs.d[dh] = remainder as u32;
+                                self.regs.d[dl] = quotient as u32;
                                 let mut sr = self.regs.sr & !0x000F;
                                 if quotient as u32 & 0x8000_0000 != 0 { sr |= 0x0008; }
                                 if quotient as u32 == 0 { sr |= 0x0004; }

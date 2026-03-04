@@ -109,6 +109,7 @@ fn output_dir_for_cpu(cpu_name: &str) -> PathBuf {
 
     match cpu_name {
         "68000" => base.join("test-data/m68000-musashi/v1"),
+        "68010" => base.join("test-data/m68010/v1"),
         "68020" | "68EC020" | "68ec020" => base.join("test-data/m68020/v1"),
         other => base.join(format!("test-data/m68k-{other}/v1")),
     }

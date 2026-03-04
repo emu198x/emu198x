@@ -172,7 +172,7 @@ impl Cpu68000 {
                 self.regs.sr = (self.regs.sr & 0xFF00) | (val as u16 & 0x001F);
             } else {
                 // MOVE to SR
-                self.regs.sr = val as u16 & crate::flags::SR_MASK;
+                self.regs.sr = val as u16 & self.sr_mask();
             }
             let d = self.internal_delay(8, 0);
             if d > 0 {
