@@ -33,9 +33,14 @@ fn main() {
         "68010" => musashi::M68K_CPU_TYPE_68010,
         "68EC020" | "68ec020" => musashi::M68K_CPU_TYPE_68EC020,
         "68020" => musashi::M68K_CPU_TYPE_68020,
+        "68EC030" | "68ec030" => musashi::M68K_CPU_TYPE_68EC030,
+        "68030" => musashi::M68K_CPU_TYPE_68030,
+        "68EC040" | "68ec040" => musashi::M68K_CPU_TYPE_68EC040,
+        // 68LC040 intentionally omitted: Musashi's implementation is broken.
+        "68040" => musashi::M68K_CPU_TYPE_68040,
         other => {
             eprintln!("Unknown CPU type: {other}");
-            eprintln!("Supported: 68000, 68010, 68EC020, 68020");
+            eprintln!("Supported: 68000, 68010, 68EC020, 68020, 68EC030, 68030, 68EC040, 68040");
             std::process::exit(1);
         }
     };
@@ -110,7 +115,13 @@ fn output_dir_for_cpu(cpu_name: &str) -> PathBuf {
     match cpu_name {
         "68000" => base.join("test-data/m68000-musashi/v1"),
         "68010" => base.join("test-data/m68010/v1"),
-        "68020" | "68EC020" | "68ec020" => base.join("test-data/m68020/v1"),
+        "68EC020" | "68ec020" => base.join("test-data/m68ec020/v1"),
+        "68020" => base.join("test-data/m68020/v1"),
+        "68EC030" | "68ec030" => base.join("test-data/m68ec030/v1"),
+        "68030" => base.join("test-data/m68030/v1"),
+        "68EC040" | "68ec040" => base.join("test-data/m68ec040/v1"),
+        // 68LC040 omitted: Musashi's implementation is broken for this variant
+        "68040" => base.join("test-data/m68040/v1"),
         other => base.join(format!("test-data/m68k-{other}/v1")),
     }
 }

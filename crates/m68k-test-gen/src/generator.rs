@@ -155,7 +155,7 @@ fn generate_one(
     musashi::set_reg(musashi::M68K_REG_SR, u32::from(sr));
     musashi::set_reg(musashi::M68K_REG_PC, CODE_BASE);
 
-    if cpu_type >= musashi::M68K_CPU_TYPE_68020 {
+    if cpu_type >= musashi::M68K_CPU_TYPE_68EC020 {
         musashi::set_reg(musashi::M68K_REG_MSP, 0);
         musashi::set_reg(musashi::M68K_REG_VBR, 0);
         musashi::set_reg(musashi::M68K_REG_CACR, 0);
@@ -309,7 +309,7 @@ fn capture_state(cpu_type: u32) -> CpuState {
     let ir = musashi::get_reg(musashi::M68K_REG_IR) as u16;
     let pref_data = musashi::get_reg(musashi::M68K_REG_PREF_DATA) as u16;
 
-    let (msp, vbr, cacr, caar) = if cpu_type >= musashi::M68K_CPU_TYPE_68020 {
+    let (msp, vbr, cacr, caar) = if cpu_type >= musashi::M68K_CPU_TYPE_68EC020 {
         (
             musashi::get_reg(musashi::M68K_REG_MSP),
             musashi::get_reg(musashi::M68K_REG_VBR),
@@ -447,7 +447,7 @@ fn generate_brief_ext_word(cpu_type: u32, rng: &mut impl Rng) -> u16 {
     let da: u16 = rng.random_range(0..=1);
     let reg: u16 = rng.random_range(0..=7);
     let wl: u16 = rng.random_range(0..=1);
-    let scale: u16 = if cpu_type >= musashi::M68K_CPU_TYPE_68020 {
+    let scale: u16 = if cpu_type >= musashi::M68K_CPU_TYPE_68EC020 {
         rng.random_range(0..=3)
     } else {
         0
@@ -611,7 +611,7 @@ fn compute_indexed_ea(
     let da = (brief >> 15) & 1;
     let xn_reg = ((brief >> 12) & 7) as usize;
     let wl = (brief >> 11) & 1;
-    let scale = if cpu_type >= musashi::M68K_CPU_TYPE_68020 {
+    let scale = if cpu_type >= musashi::M68K_CPU_TYPE_68EC020 {
         ((brief >> 9) & 3) as u32
     } else {
         0 // 68000 ignores scale bits

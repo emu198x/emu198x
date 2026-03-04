@@ -8,6 +8,7 @@ use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::cpu::{AluOp, BitOp, Cpu68000};
 use crate::microcode::MicroOp;
+use crate::model::CpuModel;
 
 impl Cpu68000 {
     /// Execute the ALU operation for the current instruction.
@@ -946,7 +947,8 @@ impl Cpu68000 {
         } else {
             self.regs.sr &= !0x0008;
         }
-        if overflow {
+        // WinUAE: 68010+ always clears V for BCD (xBCD_KEEPS_V_FLAG)
+        if overflow && self.model == CpuModel::M68000 {
             self.regs.sr |= V;
         } else {
             self.regs.sr &= !V;

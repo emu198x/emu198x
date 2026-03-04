@@ -676,12 +676,22 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
 }
 
 /// Map CPU type constants to an ordering for filtering.
+///
+/// The 68020/030/040 families share the same base integer instruction set
+/// (MULL, DIVL, bitfields, EXTB, etc.). EC/LC variants only remove
+/// FPU and/or MMU, which aren't in our catalogue. Give them all the
+/// same order so every variant gets the full instruction set.
 fn cpu_type_order(cpu_type: u32) -> u32 {
     match cpu_type {
         musashi::M68K_CPU_TYPE_68000 => 0,
         musashi::M68K_CPU_TYPE_68010 => 1,
-        musashi::M68K_CPU_TYPE_68EC020 => 2,
-        musashi::M68K_CPU_TYPE_68020 => 3,
+        musashi::M68K_CPU_TYPE_68EC020
+        | musashi::M68K_CPU_TYPE_68020
+        | musashi::M68K_CPU_TYPE_68EC030
+        | musashi::M68K_CPU_TYPE_68030
+        | musashi::M68K_CPU_TYPE_68EC040
+        | musashi::M68K_CPU_TYPE_68LC040
+        | musashi::M68K_CPU_TYPE_68040 => 2,
         _ => 99,
     }
 }

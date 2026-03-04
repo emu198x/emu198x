@@ -12,6 +12,11 @@ pub const M68K_CPU_TYPE_68000: c_uint = 1;
 pub const M68K_CPU_TYPE_68010: c_uint = 2;
 pub const M68K_CPU_TYPE_68EC020: c_uint = 3;
 pub const M68K_CPU_TYPE_68020: c_uint = 4;
+pub const M68K_CPU_TYPE_68EC030: c_uint = 5;
+pub const M68K_CPU_TYPE_68030: c_uint = 6;
+pub const M68K_CPU_TYPE_68EC040: c_uint = 7;
+pub const M68K_CPU_TYPE_68LC040: c_uint = 8;
+pub const M68K_CPU_TYPE_68040: c_uint = 9;
 
 // --- Register enum values (match m68k_register_t order in m68k.h) ---
 pub const M68K_REG_D0: c_uint = 0;

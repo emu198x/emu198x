@@ -2589,6 +2589,8 @@ impl Cpu68000 {
                             let quotient = dividend / i64::from(divisor);
                             let remainder = dividend % i64::from(divisor);
                             if quotient > i32::MAX as i64 || quotient < i32::MIN as i64 {
+                                // TODO: WinUAE divsl_overflow has complex sign-dependent
+                                // flag logic. Test runner masks overflow flags for now.
                                 let mut sr = self.regs.sr & !0x000F;
                                 sr |= 0x000A; // V + N
                                 self.regs.sr = sr;
@@ -2610,6 +2612,8 @@ impl Cpu68000 {
                             let quotient = dividend / divisor;
                             let remainder = dividend % divisor;
                             if quotient > u32::MAX as u64 {
+                                // TODO: WinUAE divul_overflow has complex flag logic.
+                                // Test runner masks overflow flags for now.
                                 let mut sr = self.regs.sr & !0x000F;
                                 sr |= 0x000A; // V + N
                                 self.regs.sr = sr;
@@ -2709,10 +2713,18 @@ impl Cpu68000 {
                         let remainder = dividend % u32::from(src_word);
 
                         if quotient > 0xFFFF {
-                            // Overflow: V=1, N=1, C=0, Z=0, X unchanged
-                            let mut sr = self.regs.sr & !0x000F;
-                            sr |= 0x000A; // V + N
-                            self.regs.sr = sr;
+                            if self.capabilities().barrel_shifter {
+                                // 68020+: set V, set N only if dividend negative, C/Z unchanged
+                                self.regs.sr |= 0x0002; // V
+                                if dividend & 0x8000_0000 != 0 {
+                                    self.regs.sr |= 0x0008; // N
+                                }
+                            } else {
+                                // 68000/010: V=1, N=1, C=0, Z=0, X unchanged
+                                let mut sr = self.regs.sr & !0x000F;
+                                sr |= 0x000A; // V + N
+                                self.regs.sr = sr;
+                            }
                         } else {
                             self.regs.d[dn] = (remainder << 16) | (quotient & 0xFFFF);
                             let mut sr = self.regs.sr & !0x000F;
@@ -2747,10 +2759,24 @@ impl Cpu68000 {
                         let remainder = dividend % i32::from(divisor);
 
                         if quotient > 32767 || quotient < -32768 {
-                            // Overflow: V=1, N=1, C=0, Z=0, X unchanged
-                            let mut sr = self.regs.sr & !0x000F;
-                            sr |= 0x000A; // V + N
-                            self.regs.sr = sr;
+                            if self.capabilities().barrel_shifter {
+                                // 68020+: WinUAE setdivsflags
+                                self.regs.sr &= !0x000F; // clear CZNV
+                                self.regs.sr |= 0x0002; // V
+                                let abs_dvd = (dividend as i64).unsigned_abs() as u32;
+                                let abs_dvs = (divisor as i32).unsigned_abs() as u16;
+                                if (abs_dvd >> 16) < u32::from(abs_dvs) {
+                                    // Non-absolute overflow: N/Z from byte-sized quotient
+                                    let aquot = (abs_dvd / u32::from(abs_dvs)) as u8 as i8;
+                                    if aquot == 0 { self.regs.sr |= 0x0004; }
+                                    if aquot < 0  { self.regs.sr |= 0x0008; }
+                                }
+                            } else {
+                                // 68000/010: V=1, N=1, C=0, Z=0, X unchanged
+                                let mut sr = self.regs.sr & !0x000F;
+                                sr |= 0x000A; // V + N
+                                self.regs.sr = sr;
+                            }
                         } else {
                             let q16 = quotient as u16;
                             let r16 = remainder as u16;
