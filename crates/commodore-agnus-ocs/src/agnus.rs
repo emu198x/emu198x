@@ -1096,22 +1096,23 @@ impl Agnus {
 
             // Variable slots (Bitplane, Copper, CPU)
             0x1C..=0xE2 => {
-                // Bitplane DMA: fetch window runs from DDFSTRT through the
-                // final fetch slot of the last group. Hires mode uses 4-CCK
-                // groups (vs 8-CCK lowres) to double the fetch frequency.
+                // Bitplane DMA: the OCS/ECS fetch sequencer runs in
+                // indivisible 8-CCK "fetchunit" blocks (matching WinUAE).
+                // When DDFSTOP is reached, the current block finishes and
+                // one extra complete block runs before stopping. The fetch
+                // window end is therefore aligned to the next fetchunit
+                // boundary after DDFSTOP, plus one more fetchunit block.
                 let num_bpl = self.num_bitplanes();
                 let hires = (self.bplcon0 & 0x8000) != 0;
                 let group_len = if hires { 4 } else { 8 };
-                // HRM: hires fetch timing effectively spans one additional
-                // 4-CCK fetch group relative to the simple lowres mapping.
-                // Using +7 here yields the expected word count:
-                //   lowres: ((stop-start)/8) + 1
-                //   hires:  ((stop-start)/4) + 2
-                let fetch_end_extra: u16 = 7;
+                let fetchunit: u32 = 8;
+                let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
+                let blocks = (ddf_span + fetchunit - 1) / fetchunit + 1;
+                let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
                 if self.dma_enabled(0x0100)
                     && num_bpl > 0
                     && self.hpos >= self.ddfstrt
-                    && u32::from(self.hpos) <= u32::from(self.ddfstop) + u32::from(fetch_end_extra)
+                    && u32::from(self.hpos) <= fetch_window_end
                 {
                     let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
                     let plane_slot = if hires {

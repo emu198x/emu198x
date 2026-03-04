@@ -1186,6 +1186,13 @@ impl DeniseOcs {
         // pending-load comparator phase.
         let comparator_phase = beam_x as u16;
 
+        // Denise's BPLCON1 scroll comparator uses a horizontal counter phase,
+        // not a "source pixels shifted so far on this line" counter. Commit
+        // BPL1DAT-triggered pending loads BEFORE shifting pixels out, matching
+        // real hardware where the parallel load replaces the shift register
+        // contents before the next serial output.
+        self.apply_pending_shift_load_if_due(comparator_phase);
+
         for sample_idx in 0..source_pixels_per_fb_pixel {
             let (raw, pf1, pf2, mask) = self.shift_one_playfield_render_sample(hires);
             if sample_idx < 2 {
@@ -1204,12 +1211,6 @@ impl DeniseOcs {
             pf2_code = pf2;
             plane_bits_mask |= mask;
         }
-
-        // Denise's BPLCON1 scroll comparator uses a horizontal counter phase,
-        // not a "source pixels shifted so far on this line" counter. Queue
-        // BPL1DAT-triggered loads and commit them on the comparator match using
-        // the absolute beam phase of this output step.
-        self.apply_pending_shift_load_if_due(comparator_phase);
 
         // Compose playfield pixel for the "last" sample (used for final_color_idx
         // and lores output). In hires mode we also compose the first sample
