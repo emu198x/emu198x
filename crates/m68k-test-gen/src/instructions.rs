@@ -39,6 +39,15 @@ pub enum InstructionSetup {
     /// Custom setup (instruction-specific logic).
     #[allow(dead_code)]
     Custom,
+    /// Memory EA in bits 5-0. Generator computes EA, seeds test data.
+    MemoryEA { size: u8 }, // 1=byte, 2=word, 4=long
+    /// Destination EA in bits 11-6 (MOVE encoding). Generator seeds data at EA.
+    MemoryEADst { size: u8 },
+    /// Immediate value(s) followed by memory EA in bits 5-0.
+    /// imm_words=1 for byte/word, 2 for long. EA ext words follow the immediate.
+    ImmMemoryEA { imm_words: u8, size: u8 },
+    /// MOVEM: register mask at pc+2, then EA ext words at pc+4.
+    Movem { size: u8 },
 }
 
 const M68K: u32 = musashi::M68K_CPU_TYPE_68000;
@@ -72,6 +81,56 @@ const fn rand2(name: &'static str, opcode: u16) -> InstructionDef {
         opcode,
         ext_words: 2,
         setup: InstructionSetup::RandExt2,
+        min_cpu: M68K,
+    }
+}
+
+/// Helper to define a memory-EA instruction (EA in bits 5-0).
+const fn mem_ea(name: &'static str, opcode: u16, ext_words: u8, size: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words,
+        setup: InstructionSetup::MemoryEA { size },
+        min_cpu: M68K,
+    }
+}
+
+/// Helper for memory-EA destination (MOVE encoding, EA in bits 11-6).
+const fn mem_ea_dst(name: &'static str, opcode: u16, ext_words: u8, size: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words,
+        setup: InstructionSetup::MemoryEADst { size },
+        min_cpu: M68K,
+    }
+}
+
+/// Helper for immediate-to-memory-EA instructions (ADDI, CMPI, etc.).
+const fn imm_mem_ea(
+    name: &'static str,
+    opcode: u16,
+    ext_words: u8,
+    imm_words: u8,
+    size: u8,
+) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words,
+        setup: InstructionSetup::ImmMemoryEA { imm_words, size },
+        min_cpu: M68K,
+    }
+}
+
+/// Helper for MOVEM instructions.
+const fn movem(name: &'static str, opcode: u16, ext_words: u8, size: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode,
+        ext_words,
+        setup: InstructionSetup::Movem { size },
         min_cpu: M68K,
     }
 }
@@ -286,13 +345,189 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
     // --- CHK (Dn,Dn) ---
     defs.push(fixed("CHK", 0x4380)); // CHK D0,D1
 
-    // TODO: Add remaining instructions that need special setup:
-    // Bcc, BSR, DBcc, JMP, JSR, RTS, RTE, RTR
+    // ===== Memory EA instructions =====
+    //
+    // These test address computation, bus read/write ordering, prefetch
+    // consumption, and register side-effects for each EA mode.
+
+    // --- Source EA: ADD <ea>,D1 ---
+    // (An) indirect
+    defs.push(mem_ea("ADD.b_(A0)_D1", 0xD210, 0, 1));
+    defs.push(mem_ea("ADD.w_(A0)_D1", 0xD250, 0, 2));
+    defs.push(mem_ea("ADD.l_(A0)_D1", 0xD290, 0, 4));
+    // (An)+ post-increment
+    defs.push(mem_ea("ADD.b_(A0)+_D1", 0xD218, 0, 1));
+    defs.push(mem_ea("ADD.w_(A0)+_D1", 0xD258, 0, 2));
+    defs.push(mem_ea("ADD.l_(A0)+_D1", 0xD298, 0, 4));
+    // -(An) pre-decrement
+    defs.push(mem_ea("ADD.b_-(A0)_D1", 0xD220, 0, 1));
+    defs.push(mem_ea("ADD.w_-(A0)_D1", 0xD260, 0, 2));
+    defs.push(mem_ea("ADD.l_-(A0)_D1", 0xD2A0, 0, 4));
+    // d16(An) displacement
+    defs.push(mem_ea("ADD.b_d16(A0)_D1", 0xD228, 1, 1));
+    defs.push(mem_ea("ADD.w_d16(A0)_D1", 0xD268, 1, 2));
+    defs.push(mem_ea("ADD.l_d16(A0)_D1", 0xD2A8, 1, 4));
+    // d8(An,Xn) indexed
+    defs.push(mem_ea("ADD.b_idx(A0)_D1", 0xD230, 1, 1));
+    defs.push(mem_ea("ADD.w_idx(A0)_D1", 0xD270, 1, 2));
+    defs.push(mem_ea("ADD.l_idx(A0)_D1", 0xD2B0, 1, 4));
+
+    // --- Destination EA: CLR <ea> ---
+    // (An) indirect
+    defs.push(mem_ea("CLR.b_(A0)", 0x4210, 0, 1));
+    defs.push(mem_ea("CLR.w_(A0)", 0x4250, 0, 2));
+    defs.push(mem_ea("CLR.l_(A0)", 0x4290, 0, 4));
+    // (An)+
+    defs.push(mem_ea("CLR.b_(A0)+", 0x4218, 0, 1));
+    defs.push(mem_ea("CLR.w_(A0)+", 0x4258, 0, 2));
+    defs.push(mem_ea("CLR.l_(A0)+", 0x4298, 0, 4));
+    // -(An)
+    defs.push(mem_ea("CLR.b_-(A0)", 0x4220, 0, 1));
+    defs.push(mem_ea("CLR.w_-(A0)", 0x4260, 0, 2));
+    defs.push(mem_ea("CLR.l_-(A0)", 0x42A0, 0, 4));
+    // d16(An)
+    defs.push(mem_ea("CLR.b_d16(A0)", 0x4228, 1, 1));
+    defs.push(mem_ea("CLR.w_d16(A0)", 0x4268, 1, 2));
+    defs.push(mem_ea("CLR.l_d16(A0)", 0x42A8, 1, 4));
+    // d8(An,Xn)
+    defs.push(mem_ea("CLR.b_idx(A0)", 0x4230, 1, 1));
+    defs.push(mem_ea("CLR.w_idx(A0)", 0x4270, 1, 2));
+    defs.push(mem_ea("CLR.l_idx(A0)", 0x42B0, 1, 4));
+
+    // --- Read-modify-write: ADD D0,<ea> (Dn→EA direction) ---
+    // Uses A1 to avoid conflict with source-EA entries using A0.
+    // (A1)
+    defs.push(mem_ea("ADD.b_D0_(A1)", 0xD111, 0, 1));
+    defs.push(mem_ea("ADD.w_D0_(A1)", 0xD151, 0, 2));
+    defs.push(mem_ea("ADD.l_D0_(A1)", 0xD191, 0, 4));
+    // d16(A1)
+    defs.push(mem_ea("ADD.b_D0_d16(A1)", 0xD129, 1, 1));
+    defs.push(mem_ea("ADD.w_D0_d16(A1)", 0xD169, 1, 2));
+    defs.push(mem_ea("ADD.l_D0_d16(A1)", 0xD1A9, 1, 4));
+    // d8(A1,Xn)
+    defs.push(mem_ea("ADD.b_D0_idx(A1)", 0xD131, 1, 1));
+    defs.push(mem_ea("ADD.w_D0_idx(A1)", 0xD171, 1, 2));
+    defs.push(mem_ea("ADD.l_D0_idx(A1)", 0xD1B1, 1, 4));
+
+    // --- MOVE with memory source EA ---
+    defs.push(mem_ea("MOVE.l_(A0)_D1", 0x2210, 0, 4));
+    defs.push(mem_ea("MOVE.l_(A0)+_D1", 0x2218, 0, 4));
+    defs.push(mem_ea("MOVE.l_d16(A0)_D1", 0x2228, 1, 4));
+    defs.push(mem_ea("MOVE.l_idx(A0)_D1", 0x2230, 1, 4));
+
+    // --- MOVE with memory destination EA ---
+    // Destination EA uses bits 11-6 (mode=8:6, reg=11:9).
+    defs.push(mem_ea_dst("MOVE.l_D0_(A1)", 0x2280, 0, 4));
+    defs.push(mem_ea_dst("MOVE.l_D0_d16(A1)", 0x2340, 1, 4));
+    defs.push(mem_ea_dst("MOVE.l_D0_idx(A1)", 0x2380, 1, 4));
+
+    // --- A. Absolute short: ADD <abs.W>,D1 / CLR <abs.W> ---
+    defs.push(mem_ea("ADD.b_absW_D1", 0xD238, 1, 1));
+    defs.push(mem_ea("ADD.w_absW_D1", 0xD278, 1, 2));
+    defs.push(mem_ea("ADD.l_absW_D1", 0xD2B8, 1, 4));
+    defs.push(mem_ea("CLR.b_absW", 0x4238, 1, 1));
+    defs.push(mem_ea("CLR.w_absW", 0x4278, 1, 2));
+    defs.push(mem_ea("CLR.l_absW", 0x42B8, 1, 4));
+
+    // --- B. Absolute long: ADD <abs.L>,D1 / CLR <abs.L> ---
+    defs.push(mem_ea("ADD.b_absL_D1", 0xD239, 2, 1));
+    defs.push(mem_ea("ADD.w_absL_D1", 0xD279, 2, 2));
+    defs.push(mem_ea("ADD.l_absL_D1", 0xD2B9, 2, 4));
+    defs.push(mem_ea("CLR.b_absL", 0x4239, 2, 1));
+    defs.push(mem_ea("CLR.w_absL", 0x4279, 2, 2));
+    defs.push(mem_ea("CLR.l_absL", 0x42B9, 2, 4));
+
+    // --- C. PC-relative: ADD <d16(PC)>,D1 / ADD <d8(PC,Xn)>,D1 ---
+    defs.push(mem_ea("ADD.b_d16PC_D1", 0xD23A, 1, 1));
+    defs.push(mem_ea("ADD.w_d16PC_D1", 0xD27A, 1, 2));
+    defs.push(mem_ea("ADD.l_d16PC_D1", 0xD2BA, 1, 4));
+    defs.push(mem_ea("ADD.b_idxPC_D1", 0xD23B, 1, 1));
+    defs.push(mem_ea("ADD.w_idxPC_D1", 0xD27B, 1, 2));
+    defs.push(mem_ea("ADD.l_idxPC_D1", 0xD2BB, 1, 4));
+
+    // --- D. Immediate-to-memory: ADDI/CMPI ---
+    defs.push(imm_mem_ea("ADDI.b_(A0)", 0x0610, 1, 1, 1));
+    defs.push(imm_mem_ea("ADDI.w_(A0)", 0x0650, 1, 1, 2));
+    defs.push(imm_mem_ea("ADDI.l_(A0)", 0x0690, 2, 2, 4));
+    defs.push(imm_mem_ea("ADDI.b_d16(A0)", 0x0628, 2, 1, 1));
+    defs.push(imm_mem_ea("ADDI.w_d16(A0)", 0x0668, 2, 1, 2));
+    defs.push(imm_mem_ea("ADDI.l_d16(A0)", 0x06A8, 3, 2, 4));
+    defs.push(imm_mem_ea("ADDI.b_idx(A0)", 0x0630, 2, 1, 1));
+    defs.push(imm_mem_ea("ADDI.w_idx(A0)", 0x0670, 2, 1, 2));
+    defs.push(imm_mem_ea("ADDI.l_idx(A0)", 0x06B0, 3, 2, 4));
+    defs.push(imm_mem_ea("CMPI.b_(A0)", 0x0C10, 1, 1, 1));
+    defs.push(imm_mem_ea("CMPI.w_(A0)", 0x0C50, 1, 1, 2));
+    defs.push(imm_mem_ea("CMPI.l_(A0)", 0x0C90, 2, 2, 4));
+
+    // --- E. MOVEM ---
+    defs.push(movem("MOVEM.w_to_(A0)", 0x4890, 1, 2));
+    defs.push(movem("MOVEM.l_to_(A0)", 0x48D0, 1, 4));
+    defs.push(movem("MOVEM.w_to_-(A0)", 0x48A0, 1, 2));
+    defs.push(movem("MOVEM.l_to_-(A0)", 0x48E0, 1, 4));
+    defs.push(movem("MOVEM.w_from_(A0)+", 0x4C98, 1, 2));
+    defs.push(movem("MOVEM.l_from_(A0)+", 0x4CD8, 1, 4));
+    defs.push(movem("MOVEM.l_to_d16(A0)", 0x48E8, 2, 4));
+    defs.push(movem("MOVEM.l_from_d16(A0)", 0x4CE8, 2, 4));
+
+    // --- F. LEA <ea>,A1 ---
+    defs.push(mem_ea("LEA_d16(A0)_A1", 0x43E8, 1, 0));
+    defs.push(mem_ea("LEA_idx(A0)_A1", 0x43F0, 1, 0));
+    defs.push(mem_ea("LEA_absW_A1", 0x43F8, 1, 0));
+    defs.push(mem_ea("LEA_d16PC_A1", 0x43FA, 1, 0));
+
+    // --- G. PEA <ea> ---
+    defs.push(mem_ea("PEA_d16(A0)", 0x4868, 1, 0));
+    defs.push(mem_ea("PEA_idx(A0)", 0x4870, 1, 0));
+    defs.push(mem_ea("PEA_absW", 0x4878, 1, 0));
+    defs.push(mem_ea("PEA_d16PC", 0x487A, 1, 0));
+
+    // JMP/JSR omitted: Musashi's prefetch model doesn't refresh the pipeline
+    // on control flow changes, so PREF_DATA stays stale after a jump. Our
+    // emulator correctly updates IR/IRC at the target, causing 100% mismatches.
+    // These instructions need a different test format.
+
+    // --- I. Unary memory ops (A0 indirect) ---
+    defs.push(mem_ea("NEG.b_(A0)", 0x4410, 0, 1));
+    defs.push(mem_ea("NEG.w_(A0)", 0x4450, 0, 2));
+    defs.push(mem_ea("NEG.l_(A0)", 0x4490, 0, 4));
+    defs.push(mem_ea("NOT.b_(A0)", 0x4610, 0, 1));
+    defs.push(mem_ea("NOT.w_(A0)", 0x4650, 0, 2));
+    defs.push(mem_ea("NOT.l_(A0)", 0x4690, 0, 4));
+    defs.push(mem_ea("TST.b_(A0)", 0x4A10, 0, 1));
+    defs.push(mem_ea("TST.w_(A0)", 0x4A50, 0, 2));
+    defs.push(mem_ea("TST.l_(A0)", 0x4A90, 0, 4));
+    defs.push(mem_ea("NEGX.b_(A0)", 0x4010, 0, 1));
+    defs.push(mem_ea("NEGX.w_(A0)", 0x4050, 0, 2));
+    defs.push(mem_ea("NEGX.l_(A0)", 0x4090, 0, 4));
+
+    // --- J. ADDQ/SUBQ #1,<ea> memory ---
+    defs.push(mem_ea("ADDQ.b_1_(A0)", 0x5210, 0, 1));
+    defs.push(mem_ea("ADDQ.w_1_(A0)", 0x5250, 0, 2));
+    defs.push(mem_ea("ADDQ.l_1_(A0)", 0x5290, 0, 4));
+    defs.push(mem_ea("SUBQ.b_1_(A0)", 0x5310, 0, 1));
+    defs.push(mem_ea("SUBQ.w_1_(A0)", 0x5350, 0, 2));
+    defs.push(mem_ea("SUBQ.l_1_(A0)", 0x5390, 0, 4));
+
+    // --- K. Bit ops on memory (byte-sized) ---
+    defs.push(mem_ea("BTST_D1_(A0)", 0x0310, 0, 1));
+    defs.push(mem_ea("BCHG_D1_(A0)", 0x0350, 0, 1));
+    defs.push(mem_ea("BCLR_D1_(A0)", 0x0390, 0, 1));
+    defs.push(mem_ea("BSET_D1_(A0)", 0x03D0, 0, 1));
+
+    // --- L. Shifts/rotates on memory (word-sized, single-bit) ---
+    defs.push(mem_ea("ASL_(A0)", 0xE1D0, 0, 2));
+    defs.push(mem_ea("ASR_(A0)", 0xE0D0, 0, 2));
+    defs.push(mem_ea("LSL_(A0)", 0xE3D0, 0, 2));
+    defs.push(mem_ea("LSR_(A0)", 0xE2D0, 0, 2));
+    defs.push(mem_ea("ROL_(A0)", 0xE7D0, 0, 2));
+    defs.push(mem_ea("ROR_(A0)", 0xE6D0, 0, 2));
+    defs.push(mem_ea("ROXL_(A0)", 0xE5D0, 0, 2));
+    defs.push(mem_ea("ROXR_(A0)", 0xE4D0, 0, 2));
+
+    // TODO: Bcc, BSR, DBcc, RTS, RTE, RTR
     // LINK, UNLINK, TRAP, TRAPV, STOP
-    // MOVEM, MOVEP, PEA, LEA
-    // ILLEGAL, LINEA, LINEF
-    // MOVEfromUSP, MOVEtoUSP
-    // RESET
+    // MOVEP, ILLEGAL, LINEA, LINEF
+    // MOVEfromUSP, MOVEtoUSP, RESET
 
     // ===== 68010+ instructions =====
 

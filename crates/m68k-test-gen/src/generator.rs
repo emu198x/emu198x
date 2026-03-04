@@ -39,6 +39,23 @@ pub extern "C" fn testgen_instruction_hook(_pc: c_uint) {
     musashi::end_timeslice();
 }
 
+/// Metadata returned by encode_instruction for memory EA modes.
+/// Used after register randomisation to seed test data at the computed EA.
+struct MemoryEAInfo {
+    mode: u8,
+    /// An register number (modes 2-6) or mode-7 sub-type (0=abs.W, 1=abs.L, 2=d16PC, 3=idxPC).
+    reg: u8,
+    size: u8,
+    ext_word: Option<u16>,
+    /// For abs.L mode: the full 32-bit address.
+    abs_long_addr: Option<u32>,
+    /// PC value at the extension word (for PC-relative EA computation).
+    ext_word_pc: u32,
+    /// For MOVEM: the register mask word.
+    movem_mask: Option<u16>,
+    cpu_type: u32,
+}
+
 /// Memory regions used by the test generator.
 ///
 /// We partition 16 MB into zones to avoid code/stack/data overlap:
@@ -74,7 +91,7 @@ fn generate_one(
     memory::clear();
 
     // Encode the instruction at CODE_BASE
-    encode_instruction(def, CODE_BASE, rng);
+    let ea_info = encode_instruction(def, CODE_BASE, cpu_type, rng);
 
     // Fill area after instruction with NOPs so Musashi doesn't crash
     // if the instruction reads extension words or the execute loop
@@ -108,6 +125,21 @@ fn generate_one(
         *reg = random_data_addr(rng);
     }
     let usp = random_stack_addr(rng);
+
+    // For word/long memory EA, ensure the effective address is even.
+    // Musashi doesn't emulate address errors, so odd EAs cause 100%
+    // mismatches (our CPU takes an exception, Musashi doesn't).
+    if let Some(ref info) = ea_info {
+        if info.size >= 2 {
+            ensure_even_ea(info, &mut d, &mut a, STACK_TOP);
+        }
+    }
+
+    // Seed test data at the memory EA so address-computation bugs are
+    // detectable (wrong address reads zero instead of the seeded value).
+    if let Some(ref info) = ea_info {
+        seed_ea_data(info, &d, &a, STACK_TOP, rng);
+    }
 
     // Set CPU type and load registers into Musashi
     musashi::set_cpu_type(cpu_type);
@@ -152,19 +184,30 @@ fn generate_one(
 }
 
 /// Encode an instruction at the given PC.
-fn encode_instruction(def: &InstructionDef, pc: u32, rng: &mut impl Rng) {
+///
+/// Returns `Some(MemoryEAInfo)` for memory-EA setups so that `generate_one`
+/// can seed test data at the computed effective address after registers are
+/// randomised.
+fn encode_instruction(
+    def: &InstructionDef,
+    pc: u32,
+    cpu_type: u32,
+    rng: &mut impl Rng,
+) -> Option<MemoryEAInfo> {
     memory::poke_word(pc, def.opcode);
     match def.setup {
-        InstructionSetup::Fixed => {}
+        InstructionSetup::Fixed => None,
         InstructionSetup::RandExt1 => {
             let ext: u16 = rng.random();
             memory::poke_word(pc.wrapping_add(2), ext);
+            None
         }
         InstructionSetup::RandExt2 => {
             let ext1: u16 = rng.random();
             let ext2: u16 = rng.random();
             memory::poke_word(pc.wrapping_add(2), ext1);
             memory::poke_word(pc.wrapping_add(4), ext2);
+            None
         }
         InstructionSetup::NeedsStack => {
             // Place a valid even return address on the stack so RTS/RTD
@@ -188,9 +231,55 @@ fn encode_instruction(def: &InstructionDef, pc: u32, rng: &mut impl Rng) {
                 let ext: u16 = rng.random();
                 memory::poke_word(pc.wrapping_add(2 + u32::from(ext_idx) * 2), ext);
             }
+            None
         }
-        InstructionSetup::Custom => {
-            // Instruction-specific setup (not yet used)
+        InstructionSetup::Custom => None,
+        InstructionSetup::MemoryEA { size } => {
+            let ea_mode = ((def.opcode >> 3) & 7) as u8;
+            let ea_reg = (def.opcode & 7) as u8;
+            let (ext_word, abs_long_addr) = encode_memory_ea(pc, ea_mode, ea_reg, 2, cpu_type, rng);
+            Some(MemoryEAInfo {
+                mode: ea_mode, reg: ea_reg, size, ext_word, abs_long_addr,
+                ext_word_pc: pc + 2, movem_mask: None, cpu_type,
+            })
+        }
+        InstructionSetup::MemoryEADst { size } => {
+            let ea_mode = ((def.opcode >> 6) & 7) as u8;
+            let ea_reg = ((def.opcode >> 9) & 7) as u8;
+            let (ext_word, abs_long_addr) = encode_memory_ea(pc, ea_mode, ea_reg, 2, cpu_type, rng);
+            Some(MemoryEAInfo {
+                mode: ea_mode, reg: ea_reg, size, ext_word, abs_long_addr,
+                ext_word_pc: pc + 2, movem_mask: None, cpu_type,
+            })
+        }
+        InstructionSetup::ImmMemoryEA { imm_words, size } => {
+            // Write random immediate word(s) after opcode
+            for i in 0..imm_words {
+                let imm: u16 = rng.random();
+                memory::poke_word(pc + 2 + u32::from(i) * 2, imm);
+            }
+            // EA extension word follows the immediate
+            let ea_mode = ((def.opcode >> 3) & 7) as u8;
+            let ea_reg = (def.opcode & 7) as u8;
+            let ext_offset = 2 + u32::from(imm_words) * 2;
+            let (ext_word, abs_long_addr) = encode_memory_ea(pc, ea_mode, ea_reg, ext_offset, cpu_type, rng);
+            Some(MemoryEAInfo {
+                mode: ea_mode, reg: ea_reg, size, ext_word, abs_long_addr,
+                ext_word_pc: pc + ext_offset, movem_mask: None, cpu_type,
+            })
+        }
+        InstructionSetup::Movem { size } => {
+            // Register mask at pc+2
+            let mask: u16 = rng.random();
+            memory::poke_word(pc + 2, mask);
+            // EA from bits 5-0; extension words start at pc+4
+            let ea_mode = ((def.opcode >> 3) & 7) as u8;
+            let ea_reg = (def.opcode & 7) as u8;
+            let (ext_word, abs_long_addr) = encode_memory_ea(pc, ea_mode, ea_reg, 4, cpu_type, rng);
+            Some(MemoryEAInfo {
+                mode: ea_mode, reg: ea_reg, size, ext_word, abs_long_addr,
+                ext_word_pc: pc + 4, movem_mask: Some(mask), cpu_type,
+            })
         }
     }
 }
@@ -281,4 +370,269 @@ fn random_data_addr(rng: &mut impl Rng) -> u32 {
 fn random_stack_addr(rng: &mut impl Rng) -> u32 {
     let addr: u32 = rng.random_range(0x010800..STACK_TOP);
     addr & !1
+}
+
+// --- Memory EA helpers ---
+
+/// Generate extension word(s) for a memory EA mode and write at `pc + ext_offset`.
+///
+/// Returns `(ext_word, abs_long_addr)`:
+/// - `ext_word`: the 16-bit extension word (d16, brief, abs.W address, etc.)
+/// - `abs_long_addr`: for abs.L mode, the full 32-bit address
+fn encode_memory_ea(
+    pc: u32,
+    ea_mode: u8,
+    ea_reg: u8,
+    ext_offset: u32,
+    cpu_type: u32,
+    rng: &mut impl Rng,
+) -> (Option<u16>, Option<u32>) {
+    let ext_addr = pc + ext_offset;
+    match ea_mode {
+        0b010 | 0b011 | 0b100 => (None, None), // (An), (An)+, -(An)
+        0b101 => {
+            // d16(An): random 16-bit signed displacement
+            let d16: u16 = rng.random();
+            memory::poke_word(ext_addr, d16);
+            (Some(d16), None)
+        }
+        0b110 => {
+            // d8(An,Xn): brief extension word
+            let brief = generate_brief_ext_word(cpu_type, rng);
+            memory::poke_word(ext_addr, brief);
+            (Some(brief), None)
+        }
+        0b111 => match ea_reg {
+            0 => {
+                // abs.W: even address in $3000-$7FFE (avoids vectors/code/stack)
+                let addr = rng.random_range(0x3000u32..0x7FFFu32) & !1;
+                memory::poke_word(ext_addr, addr as u16);
+                (Some(addr as u16), None)
+            }
+            1 => {
+                // abs.L: full 32-bit address in data region
+                let addr = random_data_addr(rng);
+                memory::poke_word(ext_addr, (addr >> 16) as u16);
+                memory::poke_word(ext_addr + 2, (addr & 0xFFFF) as u16);
+                (None, Some(addr))
+            }
+            2 => {
+                // d16(PC): compute displacement to land in $3000-$7FFE
+                let target = rng.random_range(0x3000u32..0x7FFFu32) & !1;
+                let d16 = target.wrapping_sub(ext_addr) as u16;
+                memory::poke_word(ext_addr, d16);
+                (Some(d16), None)
+            }
+            3 => {
+                // d8(PC,Xn): brief extension word (index register dominates EA)
+                let brief = generate_brief_ext_word(cpu_type, rng);
+                memory::poke_word(ext_addr, brief);
+                (Some(brief), None)
+            }
+            _ => (None, None),
+        },
+        _ => (None, None),
+    }
+}
+
+/// Generate a brief extension word for d8(An,Xn) addressing.
+///
+/// Format: D/A | Reg(3) | W/L | Scale(2) | 0 | d8(8)
+/// - D/A: 0=data register, 1=address register
+/// - Reg: index register number (0-7)
+/// - W/L: 0=word (sign-extended), 1=long
+/// - Scale: 0-3 on 68020+ (×1/×2/×4/×8), always 0 on 68000
+/// - d8: signed 8-bit displacement
+fn generate_brief_ext_word(cpu_type: u32, rng: &mut impl Rng) -> u16 {
+    let da: u16 = rng.random_range(0..=1);
+    let reg: u16 = rng.random_range(0..=7);
+    let wl: u16 = rng.random_range(0..=1);
+    let scale: u16 = if cpu_type >= musashi::M68K_CPU_TYPE_68020 {
+        rng.random_range(0..=3)
+    } else {
+        0
+    };
+    // Even d8 prevents odd EAs when index register equals base register.
+    // For byte-sized ops this is harmless; for word/long it avoids address
+    // errors that Musashi doesn't emulate.
+    let d8: u16 = u16::from(rng.random::<u8>()) & 0xFE;
+
+    (da << 15) | (reg << 12) | (wl << 11) | (scale << 9) | d8
+}
+
+/// Read An (or SSP for A7 in supervisor mode).
+fn reg_an(reg: u8, a: &[u32; 7], ssp: u32) -> u32 {
+    if (reg as usize) < 7 { a[reg as usize] } else { ssp }
+}
+
+/// Compute the effective address from MemoryEAInfo and register values.
+fn compute_ea(
+    info: &MemoryEAInfo,
+    d: &[u32; 8],
+    a: &[u32; 7],
+    ssp: u32,
+) -> Option<u32> {
+    match info.mode {
+        0b010 | 0b011 => Some(reg_an(info.reg, a, ssp)),         // (An), (An)+
+        0b100 => {
+            // -(An): pre-decrement
+            let an = reg_an(info.reg, a, ssp);
+            Some(an.wrapping_sub(u32::from(info.size)))
+        }
+        0b101 => {
+            // d16(An)
+            let an = reg_an(info.reg, a, ssp);
+            let d16 = info.ext_word? as i16;
+            Some(an.wrapping_add(d16 as i32 as u32))
+        }
+        0b110 => {
+            // d8(An,Xn)
+            let an = reg_an(info.reg, a, ssp);
+            let brief = info.ext_word?;
+            Some(compute_indexed_ea(brief, an, d, a, ssp, info.cpu_type))
+        }
+        0b111 => match info.reg {
+            0 => {
+                // abs.W: sign-extend 16-bit address
+                let addr = info.ext_word? as i16 as i32 as u32;
+                Some(addr)
+            }
+            1 => {
+                // abs.L: full 32-bit address
+                Some(info.abs_long_addr?)
+            }
+            2 => {
+                // d16(PC): PC at ext word + sign-extend(d16)
+                let d16 = info.ext_word? as i16;
+                Some(info.ext_word_pc.wrapping_add(d16 as i32 as u32))
+            }
+            3 => {
+                // d8(PC,Xn): indexed from PC at ext word
+                let brief = info.ext_word?;
+                Some(compute_indexed_ea(brief, info.ext_word_pc, d, a, ssp, info.cpu_type))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Ensure the effective address is even for word/long operations.
+///
+/// Musashi doesn't emulate address errors, so when our CPU and Musashi both
+/// compute an odd EA, our CPU takes an exception while Musashi proceeds
+/// normally. This causes ~50% mismatches for random displacements.
+///
+/// Fix: toggle the base register's bit 0 (for An-based modes) or the index
+/// register's bit 0 (for PC-relative indexed) to flip EA parity.
+fn ensure_even_ea(
+    info: &MemoryEAInfo,
+    d: &mut [u32; 8],
+    a: &mut [u32; 7],
+    ssp: u32,
+) {
+    let Some(ea) = compute_ea(info, d, a, ssp) else { return };
+    if ea & 1 == 0 { return; }
+
+    match info.mode {
+        // An-based modes: toggle An's bit 0
+        0b010..=0b110 => {
+            if (info.reg as usize) < 7 {
+                a[info.reg as usize] ^= 1;
+            }
+        }
+        // Mode 7: only d8(PC,Xn) can produce odd EA from our generators
+        0b111 if info.reg == 3 => {
+            // Toggle the index register's bit 0
+            if let Some(brief) = info.ext_word {
+                let da = (brief >> 15) & 1;
+                let xn_reg = ((brief >> 12) & 7) as usize;
+                if da == 0 {
+                    d[xn_reg] ^= 1;
+                } else if xn_reg < 7 {
+                    a[xn_reg] ^= 1;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Seed random test data at the effective address computed from register values.
+///
+/// Called after register randomisation so the EA computation uses actual
+/// register values. Seeding makes address-computation bugs detectable:
+/// if the CPU computes a different EA, it reads zero instead of the
+/// seeded value, causing a mismatch.
+fn seed_ea_data(
+    info: &MemoryEAInfo,
+    d: &[u32; 8],
+    a: &[u32; 7],
+    ssp: u32,
+    rng: &mut impl Rng,
+) {
+    let Some(ea) = compute_ea(info, d, a, ssp) else { return };
+    let ea = ea & 0x00FF_FFFF;
+
+    // MOVEM: seed enough data for all 16 registers
+    if info.movem_mask.is_some() {
+        let total = 16 * u32::from(info.size);
+        let base = if info.mode == 0b100 {
+            // -(An): data extends downward from An
+            let an = reg_an(info.reg, a, ssp) & 0x00FF_FFFF;
+            an.wrapping_sub(total)
+        } else {
+            ea
+        };
+        for offset in (0..total).step_by(2) {
+            let addr = base.wrapping_add(offset) & 0x00FF_FFFF;
+            memory::poke_word(addr, rng.random());
+        }
+        return;
+    }
+
+    match info.size {
+        1 => memory::poke(ea, rng.random()),
+        2 => memory::poke_word(ea, rng.random()),
+        4 => memory::poke_long(ea, rng.random()),
+        _ => {} // size 0 = address-only (LEA, PEA, JMP, JSR)
+    }
+}
+
+/// Compute effective address for d8(An,Xn) brief extension word.
+fn compute_indexed_ea(
+    brief: u16,
+    an: u32,
+    d: &[u32; 8],
+    a: &[u32; 7],
+    ssp: u32,
+    cpu_type: u32,
+) -> u32 {
+    let da = (brief >> 15) & 1;
+    let xn_reg = ((brief >> 12) & 7) as usize;
+    let wl = (brief >> 11) & 1;
+    let scale = if cpu_type >= musashi::M68K_CPU_TYPE_68020 {
+        ((brief >> 9) & 3) as u32
+    } else {
+        0 // 68000 ignores scale bits
+    };
+    let d8 = (brief & 0xFF) as u8 as i8;
+
+    let xn_value = if da == 0 {
+        d[xn_reg]
+    } else if xn_reg < 7 {
+        a[xn_reg]
+    } else {
+        ssp
+    };
+
+    let index = if wl == 1 {
+        xn_value // long: full 32-bit value
+    } else {
+        (xn_value as u16 as i16 as i32) as u32 // word: sign-extend low 16 bits
+    };
+
+    let scaled_index = index.wrapping_mul(1u32 << scale);
+    an.wrapping_add(d8 as i32 as u32)
+        .wrapping_add(scaled_index)
 }
