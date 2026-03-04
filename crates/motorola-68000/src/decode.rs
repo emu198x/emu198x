@@ -100,7 +100,7 @@ impl Cpu68000 {
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
 
             // CMPM: opmodes 4-6 with EA mode 001 (postincrement)
-            if opmode >= 4 && opmode <= 6 && ea_mode_bits == 1 {
+            if (4..=6).contains(&opmode) && ea_mode_bits == 1 {
                 let rx = ((opcode >> 9) & 7) as u8;
                 let ry = (opcode & 7) as u8;
                 let size = match opmode {
@@ -127,7 +127,7 @@ impl Cpu68000 {
             let opmode = (opcode >> 6) & 7;
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
             // Opmodes 4-6 with ea_mode 0 (Dy,Dx) or 1 (-(Ay),-(Ax))
-            if opmode >= 4 && opmode <= 6 && ea_mode_bits <= 1 {
+            if (4..=6).contains(&opmode) && ea_mode_bits <= 1 {
                 let is_add = (opcode & 0xF000) == 0xD000;
                 let rx = ((opcode >> 9) & 7) as u8;
                 let ry = (opcode & 7) as u8;
@@ -195,9 +195,7 @@ impl Cpu68000 {
                 match opmode5 {
                     0x08 => {
                         // EXG Dx,Dy
-                        let tmp = self.regs.d[rx];
-                        self.regs.d[rx] = self.regs.d[ry];
-                        self.regs.d[ry] = tmp;
+                        self.regs.d.swap(rx, ry);
                     }
                     0x09 => {
                         // EXG Ax,Ay
@@ -294,7 +292,7 @@ impl Cpu68000 {
                 0xD000 => AluOp::Add,
                 0x9000 => AluOp::Sub,
                 0xB000 => {
-                    if opmode >= 4 && opmode <= 6 {
+                    if (4..=6).contains(&opmode) {
                         AluOp::Eor
                     } else {
                         AluOp::Cmp
@@ -709,7 +707,7 @@ impl Cpu68000 {
                         self.regs.d[(ext & 7) as usize] & 31
                     } else {
                         let w = ext & 0x1F;
-                        if w == 0 { 32 } else { u16::from(w) as u32 }
+                        if w == 0 { 32 } else { w as u32 }
                     };
                     let width = if width_raw == 0 { 32 } else { width_raw };
 
@@ -940,7 +938,7 @@ impl Cpu68000 {
         if (opcode & 0xFFF8) == 0x4840 {
             let r = (opcode & 7) as usize;
             let val = self.regs.d[r];
-            let result = (val >> 16) | (val << 16);
+            let result = val.rotate_left(16);
             self.regs.d[r] = result;
             self.set_flags_move(result, Size::Long);
             return;
@@ -1224,9 +1222,9 @@ impl Cpu68000 {
             if ea_mode_bits == 0 {
                 // TAS Dn: test and set bit 7
                 let val = self.regs.d[ea_reg as usize] & 0xFF;
-                self.set_flags_logic(val as u32, Size::Byte);
+                self.set_flags_logic(val, Size::Byte);
                 self.regs.d[ea_reg as usize] =
-                    (self.regs.d[ea_reg as usize] & 0xFFFF_FF00) | ((val | 0x80) as u32);
+                    (self.regs.d[ea_reg as usize] & 0xFFFF_FF00) | (val | 0x80);
                 return;
             }
 
@@ -1721,14 +1719,13 @@ impl Cpu68000 {
             TAG_FETCH_DST_EA => {
                 // If source was a memory read, the result is in self.data.
                 // Copy it to src_val now, before the dst read can overwrite data.
-                if let Some(mode) = self.src_mode {
-                    if !matches!(
+                if let Some(mode) = self.src_mode
+                    && !matches!(
                         mode,
                         AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate
                     ) {
                         self.src_val = self.data;
                     }
-                }
 
                 // Source phase is complete — any source EA side effects (postinc,
                 // predec) are committed. Clear ae_undo_reg so only destination
@@ -1791,14 +1788,13 @@ impl Cpu68000 {
                 // Copy to dst_val before execute uses it. Skip for registers
                 // (already loaded from register file) and Immediate (loaded
                 // from IRC in TAG_FETCH_DST_DATA).
-                if let Some(mode) = self.dst_mode {
-                    if !matches!(
+                if let Some(mode) = self.dst_mode
+                    && !matches!(
                         mode,
                         AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate
                     ) {
                         self.dst_val = self.data;
                     }
-                }
 
                 self.perform_execute();
                 self.followup_tag = TAG_WRITEBACK;
@@ -2332,11 +2328,10 @@ impl Cpu68000 {
             // Source operand has been read. Compare Dn.w against [0, src.w].
             TAG_CHK_EXECUTE => {
                 // For memory modes, the bus read result is in self.data.
-                if let Some(mode) = self.src_mode {
-                    if !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
+                if let Some(mode) = self.src_mode
+                    && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
                         self.src_val = self.data & 0xFFFF;
                     }
-                }
 
                 let dn_idx = ((self.ir >> 9) & 7) as usize;
                 let dn_val = (self.regs.d[dn_idx] & 0xFFFF) as u16;
@@ -2507,11 +2502,10 @@ impl Cpu68000 {
                 // --- 68020 MULL/DIVL (opcode $4Cxx) ---
                 if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
                     // For memory modes, bus read result (32-bit) is in self.data
-                    if let Some(mode) = self.src_mode {
-                        if !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
+                    if let Some(mode) = self.src_mode
+                        && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
                             self.src_val = self.data;
                         }
-                    }
                     let ext = self.movem_mask; // stashed during decode
                     // Extension word: bits 14-12 = Dl (low/single result),
                     // bits 2-0 = Dh (high word for 64-bit).
@@ -2582,7 +2576,7 @@ impl Cpu68000 {
                         if is_signed {
                             let divisor = src as i32;
                             let dividend = if is_64bit {
-                                ((self.regs.d[dh] as i64) << 32) | (self.regs.d[dl] as u32 as i64)
+                                ((self.regs.d[dh] as i64) << 32) | (self.regs.d[dl] as i64)
                             } else {
                                 self.regs.d[dl] as i32 as i64
                             };
@@ -2635,11 +2629,10 @@ impl Cpu68000 {
 
                 // --- 68000 16-bit MULU/MULS/DIVU/DIVS ---
                 // For memory modes, bus read result is in self.data
-                if let Some(mode) = self.src_mode {
-                    if !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
+                if let Some(mode) = self.src_mode
+                    && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
                         self.src_val = self.data & 0xFFFF;
                     }
-                }
 
                 let dn = ((opcode >> 9) & 7) as usize;
                 let src_word = (self.src_val & 0xFFFF) as u16;
@@ -2758,7 +2751,7 @@ impl Cpu68000 {
                         let quotient = dividend / i32::from(divisor);
                         let remainder = dividend % i32::from(divisor);
 
-                        if quotient > 32767 || quotient < -32768 {
+                        if !(-32768..=32767).contains(&quotient) {
                             if self.capabilities().barrel_shifter {
                                 // 68020+: WinUAE setdivsflags
                                 self.regs.sr &= !0x000F; // clear CZNV
@@ -2874,11 +2867,11 @@ impl Cpu68000 {
             }
             Some(AddrMode::AddrIndPostInc(r)) => {
                 self.addr = self.regs.a(r as usize);
-                let inc = size.bytes() as u32;
+                let inc = size.bytes();
                 self.regs.set_a(r as usize, self.addr.wrapping_add(inc));
             }
             Some(AddrMode::AddrIndPreDec(r)) => {
-                let dec = size.bytes() as u32;
+                let dec = size.bytes();
                 self.addr = self.regs.a(r as usize).wrapping_sub(dec);
                 self.regs.set_a(r as usize, self.addr);
             }
@@ -3029,7 +3022,7 @@ impl Cpu68000 {
 
         // Total bytes to read: ceil((bit_offset + width) / 8)
         let total_bits = bit_offset + width;
-        let num_bytes = ((total_bits + 7) / 8).min(5) as usize;
+        let num_bytes = total_bits.div_ceil(8).min(5) as usize;
 
         // Read bytes from memory. Synchronous poll — the 68020 has an
         // instruction cache so byte reads complete in one shot.
@@ -3039,17 +3032,17 @@ impl Cpu68000 {
             FunctionCode::UserData
         };
         let mut bytes = [0u8; 5];
-        for i in 0..num_bytes {
+        for (i, byte) in bytes.iter_mut().enumerate().take(num_bytes) {
             let addr = first_byte_addr.wrapping_add(i as u32);
             if let BusStatus::Ready(w) = bus.poll_cycle(addr & 0x00FF_FFFF, fc, true, false, None) {
-                bytes[i] = (w & 0xFF) as u8;
+                *byte = (w & 0xFF) as u8;
             }
         }
 
         // Assemble into a u64 for easy bit manipulation
         let mut bits: u64 = 0;
-        for i in 0..num_bytes {
-            bits |= (bytes[i] as u64) << ((4 - i) * 8);
+        for (i, &byte) in bytes.iter().enumerate().take(num_bytes) {
+            bits |= (byte as u64) << ((4 - i) * 8);
         }
 
         // Extract the field: starts at bit (39 - bit_offset), width bits
@@ -3116,6 +3109,7 @@ impl Cpu68000 {
     }
 
     /// Write a modified bit field back to memory.
+    #[allow(clippy::too_many_arguments)]
     fn write_bitfield_memory(
         &mut self,
         bus: &mut impl M68kBus,
@@ -3131,8 +3125,8 @@ impl Cpu68000 {
 
         // Reassemble original bytes into u64
         let mut bits: u64 = 0;
-        for i in 0..num_bytes {
-            bits |= (orig_bytes[i] as u64) << ((4 - i) * 8);
+        for (i, &byte) in orig_bytes.iter().enumerate().take(num_bytes) {
+            bits |= (byte as u64) << ((4 - i) * 8);
         }
 
         // Clear old field, insert new
@@ -3146,9 +3140,9 @@ impl Cpu68000 {
         };
 
         // Write back modified bytes
-        for i in 0..num_bytes {
+        for (i, &orig) in orig_bytes.iter().enumerate().take(num_bytes) {
             let byte_val = ((bits >> ((4 - i) * 8)) & 0xFF) as u8;
-            if byte_val != orig_bytes[i] {
+            if byte_val != orig {
                 let addr = first_byte_addr.wrapping_add(i as u32);
                 bus.poll_cycle(addr & 0x00FF_FFFF, fc, false, false, Some(u16::from(byte_val)));
             }

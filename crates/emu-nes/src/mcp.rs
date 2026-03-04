@@ -52,8 +52,8 @@ impl NesMcp {
     }
 
     fn require_nes(&mut self) -> Result<&mut Nes, ToolResult> {
-        if self.nes.is_some() {
-            Ok(self.nes.as_mut().expect("checked is_some"))
+        if let Some(ref mut nes) = self.nes {
+            Ok(nes)
         } else {
             Err(ToolResult::Error {
                 code: -32000,
@@ -77,11 +77,11 @@ fn parse_region(params: &JsonValue) -> NesRegion {
 }
 
 impl McpEmulator for NesMcp {
-    fn server_name(&self) -> &str {
+    fn server_name(&self) -> &'static str {
         "emu-nes"
     }
 
-    fn server_version(&self) -> &str {
+    fn server_version(&self) -> &'static str {
         env!("CARGO_PKG_VERSION")
     }
 
@@ -496,14 +496,11 @@ impl NesMcp {
             Err(e) => return e,
         };
 
-        let path = match params.get("path").and_then(|v| v.as_str()) {
-            Some(p) => p,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'path' parameter".to_string(),
-                };
-            }
+        let Some(path) = params.get("path").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'path' parameter".to_string(),
+            };
         };
 
         match nes.query(path) {
@@ -554,14 +551,11 @@ impl NesMcp {
             Err(e) => return e,
         };
 
-        let name = match params.get("button").and_then(|v| v.as_str()) {
-            Some(n) => n,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'button' parameter".to_string(),
-                };
-            }
+        let Some(name) = params.get("button").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'button' parameter".to_string(),
+            };
         };
 
         let player = params.get("player").and_then(|v| v.as_u64()).unwrap_or(1);
@@ -590,14 +584,11 @@ impl NesMcp {
             Err(e) => return e,
         };
 
-        let name = match params.get("button").and_then(|v| v.as_str()) {
-            Some(n) => n,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'button' parameter".to_string(),
-                };
-            }
+        let Some(name) = params.get("button").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'button' parameter".to_string(),
+            };
         };
 
         let player = params.get("player").and_then(|v| v.as_u64()).unwrap_or(1);
@@ -626,14 +617,11 @@ impl NesMcp {
             Err(e) => return e,
         };
 
-        let sequence = match params.get("sequence").and_then(|v| v.as_array()) {
-            Some(s) => s,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'sequence' array parameter".to_string(),
-                };
-            }
+        let Some(sequence) = params.get("sequence").and_then(|v| v.as_array()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'sequence' array parameter".to_string(),
+            };
         };
 
         let hold_frames = params
@@ -655,9 +643,8 @@ impl NesMcp {
         let mut count = 0u64;
 
         for item in sequence {
-            let name = match item.as_str() {
-                Some(n) => n,
-                None => continue,
+            let Some(name) = item.as_str() else {
+                continue;
             };
             if let Some(button) = parse_button_name(name) {
                 nes.input_queue().enqueue_button(button, frame, hold_frames);

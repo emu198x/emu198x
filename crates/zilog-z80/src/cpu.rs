@@ -68,7 +68,7 @@ pub struct Z80 {
     /// 0 means last instruction did not modify flags.
     pub last_q: u8,
     /// Previous instruction's Q value, preserved for SCF/CCF to read during
-    /// execution (since last_q is cleared to 0 at the start of each instruction).
+    /// execution (since `last_q` is cleared to 0 at the start of each instruction).
     prev_q: u8,
 
     // === Timing ===
@@ -243,21 +243,25 @@ impl Z80 {
     }
 
     /// Get the C register.
+    #[must_use] 
     pub fn c(&self) -> u8 {
         self.regs.c
     }
 
     /// Get the E register.
+    #[must_use] 
     pub fn e(&self) -> u8 {
         self.regs.e
     }
 
     /// Get the DE register pair.
+    #[must_use] 
     pub fn de(&self) -> u16 {
         self.regs.de()
     }
 
     /// Get the stack pointer.
+    #[must_use] 
     pub fn sp(&self) -> u16 {
         self.regs.sp
     }
@@ -616,7 +620,7 @@ impl Z80 {
     }
 
     /// T-states for memory write low byte of word (3 T-states).
-    /// Writes data_lo to addr, then increments addr for the high byte.
+    /// Writes `data_lo` to addr, then increments addr for the high byte.
     #[allow(clippy::match_same_arms)]
     fn tick_write_mem16_lo<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {
@@ -635,7 +639,7 @@ impl Z80 {
     }
 
     /// T-states for memory write high byte of word (3 T-states).
-    /// Writes data_hi to addr.
+    /// Writes `data_hi` to addr.
     #[allow(clippy::match_same_arms)]
     fn tick_write_mem16_hi<B: Bus>(&mut self, bus: &mut B) {
         match self.t_state {

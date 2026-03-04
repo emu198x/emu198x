@@ -245,22 +245,7 @@ impl TzxSignal {
                 pause_ms,
             } => {
                 self.level = !self.level;
-                if !second_half {
-                    // First half done, start second half with same pulse length
-                    let bit = (data[byte_idx] >> bit_idx) & 1;
-                    let pulse = if bit == 1 { one_pulse } else { zero_pulse };
-                    self.phase = SignalPhase::Data {
-                        zero_pulse,
-                        one_pulse,
-                        data: data.clone(),
-                        byte_idx,
-                        bit_idx,
-                        used_bits_last,
-                        second_half: true,
-                        pause_ms,
-                    };
-                    self.pulse_remaining = u32::from(pulse);
-                } else {
+                if second_half {
                     // Second half done — advance to next bit
                     let is_last_byte = byte_idx == data.len() - 1;
                     if bit_idx == 0 {
@@ -305,6 +290,21 @@ impl TzxSignal {
                         };
                         self.pulse_remaining = u32::from(pulse);
                     }
+                } else {
+                    // First half done, start second half with same pulse length
+                    let bit = (data[byte_idx] >> bit_idx) & 1;
+                    let pulse = if bit == 1 { one_pulse } else { zero_pulse };
+                    self.phase = SignalPhase::Data {
+                        zero_pulse,
+                        one_pulse,
+                        data: data.clone(),
+                        byte_idx,
+                        bit_idx,
+                        used_bits_last,
+                        second_half: true,
+                        pause_ms,
+                    };
+                    self.pulse_remaining = u32::from(pulse);
                 }
             }
             SignalPhase::Tone {
@@ -378,7 +378,7 @@ impl TzxSignal {
         }
     }
 
-    /// Start the Data phase from the current block (block_index - 1).
+    /// Start the Data phase from the current block (`block_index` - 1).
     fn start_data_from_current_block(&mut self) {
         let idx = self.block_index - 1;
         let (zero_pulse, one_pulse, used_bits, pause_ms, data) = match &self.blocks[idx] {
@@ -539,12 +539,11 @@ impl TzxSignal {
                 self.phase = SignalPhase::Idle;
             }
             TzxBlock::LoopEnd => {
-                if let Some((loop_start, remaining)) = self.loop_stack.pop() {
-                    if remaining > 1 {
+                if let Some((loop_start, remaining)) = self.loop_stack.pop()
+                    && remaining > 1 {
                         self.loop_stack.push((loop_start, remaining - 1));
                         self.block_index = loop_start;
                     }
-                }
                 self.phase = SignalPhase::Idle;
             }
             TzxBlock::StopIf48K => {

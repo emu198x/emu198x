@@ -98,6 +98,7 @@ pub struct MicroOpQueue {
 impl MicroOpQueue {
     /// Create an empty queue.
     #[must_use]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             ops: [MicroOp::Internal(0); QUEUE_CAPACITY],

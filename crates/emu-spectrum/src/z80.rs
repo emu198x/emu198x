@@ -36,7 +36,10 @@ pub fn load_z80(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
 
     let version = detect_version(data);
     match version {
-        1 => load_v1(spectrum, data),
+        1 => {
+            load_v1(spectrum, data);
+            Ok(())
+        }
         _ => load_v2v3(spectrum, data, version),
     }
 }
@@ -107,7 +110,7 @@ fn load_base_header(spectrum: &mut Spectrum, data: &[u8]) -> u8 {
 }
 
 /// Load a version 1 .Z80 snapshot (48K only).
-fn load_v1(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
+fn load_v1(spectrum: &mut Spectrum, data: &[u8]) {
     let flags1 = load_base_header(spectrum, data);
 
     let pc = u16::from(data[6]) | (u16::from(data[7]) << 8);
@@ -123,7 +126,7 @@ fn load_v1(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
     let mut ram = vec![0u8; 0xC000]; // 48K: $4000-$FFFF
 
     if compressed {
-        decompress_z80(mem_data, &mut ram)?;
+        decompress_z80(mem_data, &mut ram);
     } else {
         let len = mem_data.len().min(ram.len());
         ram[..len].copy_from_slice(&mem_data[..len]);
@@ -134,8 +137,6 @@ fn load_v1(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
     for (i, &byte) in ram.iter().enumerate() {
         bus.memory.write(0x4000u16 + i as u16, byte);
     }
-
-    Ok(())
 }
 
 /// Load a version 2 or 3 .Z80 snapshot.
@@ -152,8 +153,7 @@ fn load_v2v3(spectrum: &mut Spectrum, data: &[u8], _version: u8) -> Result<(), S
 
     if data.len() < ext_header_end {
         return Err(format!(
-            "Z80 file too short: extended header needs {} bytes",
-            ext_header_end
+            "Z80 file too short: extended header needs {ext_header_end} bytes"
         ));
     }
 
@@ -218,7 +218,7 @@ fn load_v2v3(spectrum: &mut Spectrum, data: &[u8], _version: u8) -> Result<(), S
 
         let mut page_ram = vec![0u8; 0x4000];
         if compressed {
-            decompress_z80(block_data, &mut page_ram)?;
+            decompress_z80(block_data, &mut page_ram);
         } else {
             let len = block_data.len().min(0x4000);
             page_ram[..len].copy_from_slice(&block_data[..len]);
@@ -226,9 +226,9 @@ fn load_v2v3(spectrum: &mut Spectrum, data: &[u8], _version: u8) -> Result<(), S
 
         // Map page number to address or bank.
         if is_128k {
-            load_128k_page(spectrum, page, &page_ram, port_7ffd)?;
+            load_128k_page(spectrum, page, &page_ram, port_7ffd);
         } else {
-            load_48k_page(spectrum, page, &page_ram)?;
+            load_48k_page(spectrum, page, &page_ram);
         }
 
         if block_len == 0xFFFF {
@@ -258,19 +258,18 @@ fn is_128k_hardware(hw_mode: u8, ext_len: u16) -> bool {
 ///   4 → $8000–$BFFF
 ///   5 → $C000–$FFFF
 ///   8 → $4000–$7FFF
-fn load_48k_page(spectrum: &mut Spectrum, page: u8, ram: &[u8]) -> Result<(), String> {
+fn load_48k_page(spectrum: &mut Spectrum, page: u8, ram: &[u8]) {
     let base_addr: u16 = match page {
         4 => 0x8000,
         5 => 0xC000,
         8 => 0x4000,
-        _ => return Ok(()), // Skip unknown pages (ROM pages, etc.)
+        _ => return, // Skip unknown pages (ROM pages, etc.)
     };
 
     let bus = spectrum.bus_mut();
     for (i, &byte) in ram.iter().enumerate() {
         bus.memory.write(base_addr + i as u16, byte);
     }
-    Ok(())
 }
 
 /// Load a 128K page into the correct bank.
@@ -283,7 +282,7 @@ fn load_128k_page(
     page: u8,
     ram: &[u8],
     port_7ffd: u8,
-) -> Result<(), String> {
+) {
     let bank = match page {
         3 => 0,
         4 => 1,
@@ -293,7 +292,7 @@ fn load_128k_page(
         8 => 5,
         9 => 6,
         10 => 7,
-        _ => return Ok(()), // Skip ROM pages
+        _ => return, // Skip ROM pages
     };
 
     // Bank 5 is always at $4000, bank 2 at $8000. Other banks need to be
@@ -320,14 +319,12 @@ fn load_128k_page(
             bus.memory.write_bank_register(port_7ffd);
         }
     }
-
-    Ok(())
 }
 
 /// Decompress Z80-format RLE data.
 ///
 /// Escape sequence: `ED ED xx yy` = repeat byte `yy` × `xx` times.
-fn decompress_z80(src: &[u8], dst: &mut [u8]) -> Result<(), String> {
+fn decompress_z80(src: &[u8], dst: &mut [u8]) {
     let mut si = 0;
     let mut di = 0;
 
@@ -348,8 +345,6 @@ fn decompress_z80(src: &[u8], dst: &mut [u8]) -> Result<(), String> {
             si += 1;
         }
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -630,7 +625,7 @@ mod tests {
     fn decompress_z80_rle() {
         let src = [0xED, 0xED, 5, 0xAA, 0x11, 0x22];
         let mut dst = [0u8; 8];
-        decompress_z80(&src, &mut dst).unwrap();
+        decompress_z80(&src, &mut dst);
         assert_eq!(&dst[..7], &[0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x11, 0x22]);
     }
 
@@ -639,7 +634,7 @@ mod tests {
         // A single ED byte followed by a non-ED byte should pass through literally.
         let src = [0xED, 0x55, 0x66];
         let mut dst = [0u8; 3];
-        decompress_z80(&src, &mut dst).unwrap();
+        decompress_z80(&src, &mut dst);
         assert_eq!(dst, [0xED, 0x55, 0x66]);
     }
 }

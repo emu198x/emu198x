@@ -277,9 +277,7 @@ impl AudioChannel {
             self.next_byte_is_hi = true;
         }
 
-        let Some(word) = self.current_word else {
-            return None;
-        };
+        let word = self.current_word?;
 
         let sample_byte = if self.next_byte_is_hi {
             (word >> 8) as u8
@@ -290,11 +288,10 @@ impl AudioChannel {
 
         if self.next_byte_is_hi {
             self.next_byte_is_hi = false;
-            if consume_word_each_transition {
-                if let Some(next) = self.next_word.take() {
+            if consume_word_each_transition
+                && let Some(next) = self.next_word.take() {
                     self.current_word = Some(next);
                 }
-            }
             return Some(AudioOutputEvent::HighByte(word));
         }
 

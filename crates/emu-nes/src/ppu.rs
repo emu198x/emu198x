@@ -428,7 +428,7 @@ impl Ppu {
         self.sprite_zero_on_line = false;
 
         for i in 0..64u8 {
-            let y = self.oam[i as usize * 4] as u16;
+            let y = u16::from(self.oam[i as usize * 4]);
             let diff = next_scanline.wrapping_sub(y);
 
             if diff < sprite_height {
@@ -454,7 +454,7 @@ impl Ppu {
                     let mut n = (i + 1) as usize;
                     let mut m: usize = 0;
                     while n < 64 {
-                        let byte = self.oam[(n * 4 + m) & 0xFF] as u16;
+                        let byte = u16::from(self.oam[(n * 4 + m) & 0xFF]);
                         if next_scanline.wrapping_sub(byte) < sprite_height {
                             self.status |= 0x20;
                             break;
@@ -470,7 +470,7 @@ impl Ppu {
         // Fetch sprite patterns
         for i in 0..8usize {
             if i < self.sprite_count as usize {
-                let sprite_y = self.secondary_oam[i * 4] as u16;
+                let sprite_y = u16::from(self.secondary_oam[i * 4]);
                 let tile_index = self.secondary_oam[i * 4 + 1];
                 let attribs = self.secondary_oam[i * 4 + 2];
                 let sprite_x = self.secondary_oam[i * 4 + 3];
@@ -538,9 +538,7 @@ impl Ppu {
         if !self.rendering_enabled() {
             return;
         }
-        if (self.v & 0x7000) != 0x7000 {
-            self.v += 0x1000; // Increment fine Y
-        } else {
+        if (self.v & 0x7000) == 0x7000 {
             self.v &= !0x7000; // Fine Y = 0
             let mut coarse_y = (self.v & 0x03E0) >> 5;
             if coarse_y == 29 {
@@ -552,6 +550,8 @@ impl Ppu {
                 coarse_y += 1;
             }
             self.v = (self.v & !0x03E0) | (coarse_y << 5);
+        } else {
+            self.v += 0x1000; // Increment fine Y
         }
     }
 
@@ -635,27 +635,27 @@ impl Ppu {
             }
             // $2005 - PPUSCROLL
             5 => {
-                if !self.w {
-                    // First write: X scroll
-                    self.t = (self.t & !0x001F) | (u16::from(val) >> 3);
-                    self.fine_x = val & 0x07;
-                } else {
+                if self.w {
                     // Second write: Y scroll
                     self.t = (self.t & !0x73E0)
                         | (u16::from(val & 0x07) << 12)
                         | (u16::from(val >> 3) << 5);
+                } else {
+                    // First write: X scroll
+                    self.t = (self.t & !0x001F) | (u16::from(val) >> 3);
+                    self.fine_x = val & 0x07;
                 }
                 self.w = !self.w;
             }
             // $2006 - PPUADDR
             6 => {
-                if !self.w {
-                    // First write: high byte
-                    self.t = (self.t & 0x00FF) | (u16::from(val & 0x3F) << 8);
-                } else {
+                if self.w {
                     // Second write: low byte, copy t to v
                     self.t = (self.t & 0xFF00) | u16::from(val);
                     self.v = self.t;
+                } else {
+                    // First write: high byte
+                    self.t = (self.t & 0x00FF) | (u16::from(val & 0x3F) << 8);
                 }
                 self.w = !self.w;
             }

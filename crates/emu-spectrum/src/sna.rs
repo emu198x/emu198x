@@ -40,7 +40,10 @@ const RAM_SIZE: usize = 49_152;
 pub fn load_sna(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
     match data.len() {
         SNA_48K_SIZE => load_sna_48k(spectrum, data),
-        SNA_128K_SIZE => load_sna_128k(spectrum, data),
+        SNA_128K_SIZE => {
+            load_sna_128k(spectrum, data);
+            Ok(())
+        }
         n => Err(format!(
             "SNA file must be {SNA_48K_SIZE} (48K) or {SNA_128K_SIZE} (128K) bytes, got {n}"
         )),
@@ -117,7 +120,7 @@ fn load_sna_48k(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
 }
 
 /// Load a 128K SNA snapshot.
-fn load_sna_128k(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
+fn load_sna_128k(spectrum: &mut Spectrum, data: &[u8]) {
     let border = load_sna_header(spectrum, data);
 
     // The first 48K of RAM in the file is banks 5, 2, and the currently paged bank.
@@ -179,8 +182,6 @@ fn load_sna_128k(spectrum: &mut Spectrum, data: &[u8]) -> Result<(), String> {
     }
 
     spectrum.cpu_mut().regs.pc = pc;
-
-    Ok(())
 }
 
 #[cfg(test)]

@@ -28,7 +28,7 @@ const GCR_ENCODE: [u8; 16] = [
     0x09, 0x19, 0x1A, 0x1B, 0x0D, 0x1D, 0x1E, 0x15,
 ];
 
-/// 5-bit to 4-bit GCR decoding table (inverse of GCR_ENCODE).
+/// 5-bit to 4-bit GCR decoding table (inverse of `GCR_ENCODE`).
 /// Invalid codes map to 0x00.
 const GCR_DECODE: [u8; 32] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 00-07: invalid
@@ -66,6 +66,7 @@ pub fn cycles_per_byte(track: u8) -> u32 {
 /// Decode 5 GCR bytes into 4 raw bytes.
 ///
 /// Returns `None` if any GCR nybble is invalid.
+#[must_use] 
 pub fn decode_gcr_group(input: &[u8; 5]) -> Option<[u8; 4]> {
     // Unpack 40 bits (5 bytes) into 8 x 5-bit GCR nybbles
     let g0 = (input[0] >> 3) & 0x1F;
@@ -89,7 +90,7 @@ pub fn decode_gcr_group(input: &[u8; 5]) -> Option<[u8; 4]> {
     ];
 
     // Check for invalid codes
-    if d.iter().any(|&b| b == 0xFF) {
+    if d.contains(&0xFF) {
         return None;
     }
 
@@ -105,6 +106,7 @@ pub fn decode_gcr_group(input: &[u8; 5]) -> Option<[u8; 4]> {
 ///
 /// Returns the 256 data bytes (skipping the marker byte, checksum, and
 /// padding), or `None` on decode error or checksum mismatch.
+#[must_use] 
 pub fn decode_data_block(gcr: &[u8]) -> Option<Vec<u8>> {
     if gcr.len() < 325 {
         return None;

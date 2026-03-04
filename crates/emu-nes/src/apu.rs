@@ -1008,11 +1008,11 @@ impl Apu {
 
     /// Non-linear mixer (nesdev formula).
     fn mix(&self) -> f32 {
-        let p1 = self.pulse1.output() as f32;
-        let p2 = self.pulse2.output() as f32;
-        let tri = self.triangle.output() as f32;
-        let noi = self.noise.output() as f32;
-        let dmc = self.dmc.output_level as f32;
+        let p1 = f32::from(self.pulse1.output());
+        let p2 = f32::from(self.pulse2.output());
+        let tri = f32::from(self.triangle.output());
+        let noi = f32::from(self.noise.output());
+        let dmc = f32::from(self.dmc.output_level);
 
         let pulse_out = if p1 + p2 > 0.0 {
             95.88 / (8128.0 / (p1 + p2) + 100.0)

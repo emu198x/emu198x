@@ -148,15 +148,15 @@ fn decode_bits(pulses: &[Pulse]) -> Vec<u8> {
 }
 
 /// Decode 8 data bits + 1 parity bit into a byte.
-/// Returns (byte, bits_consumed) or None if insufficient bits.
+/// Returns (byte, `bits_consumed`) or None if insufficient bits.
 fn decode_byte(bits: &[u8]) -> Option<(u8, usize)> {
     if bits.len() < 9 {
         return None;
     }
     // LSB first, 8 data bits
     let mut byte = 0u8;
-    for i in 0..8 {
-        if bits[i] != 0 {
+    for (i, &bit) in bits[..8].iter().enumerate() {
+        if bit != 0 {
             byte |= 1 << i;
         }
     }
@@ -194,8 +194,8 @@ fn find_data_start(bits: &[u8], offset: usize) -> Option<usize> {
 
     // Skip until we find the header marker byte $89
     while i + 9 <= bits.len() {
-        if let Some((byte, _)) = decode_byte(&bits[i..]) {
-            if byte == 0x89 {
+        if let Some((byte, _)) = decode_byte(&bits[i..])
+            && byte == 0x89 {
                 // Found the start of countdown — skip all 9 countdown bytes
                 // ($89 through $81 = 9 bytes × 9 bits = 81 bits)
                 let skip = 9 * 9;
@@ -204,7 +204,6 @@ fn find_data_start(bits: &[u8], offset: usize) -> Option<usize> {
                 }
                 return None;
             }
-        }
         i += 1;
     }
     None

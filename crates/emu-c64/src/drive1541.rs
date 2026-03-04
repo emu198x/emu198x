@@ -40,7 +40,7 @@ pub struct Drive1541 {
     d64: Option<D64>,
     /// Current head position (track 1-35).
     current_track: u8,
-    /// Half-track position (0-69, track = half_track / 2 + 1).
+    /// Half-track position (0-69, track = `half_track` / 2 + 1).
     half_track: u8,
     /// Motor running.
     motor_on: bool,
@@ -188,9 +188,9 @@ impl Drive1541 {
     fn update_via1_from_iec(&mut self, iec: &IecBus) {
         let mut ext = self.bus.via1.external_b;
         // DATA IN: bit 0 = inverted bus DATA (1 when line is low)
-        ext = (ext & !0x01) | if !iec.data() { 0x01 } else { 0x00 };
+        ext = (ext & !0x01) | u8::from(!iec.data());
         // CLK IN: bit 2 = inverted bus CLK (1 when line is low)
-        ext = (ext & !0x04) | if !iec.clk() { 0x04 } else { 0x00 };
+        ext = (ext & !0x04) | if iec.clk() { 0x00 } else { 0x04 };
         // ATN IN: bit 7 = bus ATN level (0 = asserted/low, 1 = released/high)
         ext = (ext & !0x80) | if iec.atn() { 0x80 } else { 0x00 };
         self.bus.via1.external_b = ext;
@@ -318,13 +318,11 @@ impl Drive1541 {
         while i + 5 + 325 <= buf.len() {
             if buf[i..i + 5].iter().all(|&b| b == 0xFF) {
                 let gcr_start = i + 5;
-                if gcr_start + 325 <= buf.len() {
-                    if let Some(sector_data) = gcr::decode_data_block(&buf[gcr_start..gcr_start + 325]) {
-                        if let Some(sector) = sector_num {
+                if gcr_start + 325 <= buf.len()
+                    && let Some(sector_data) = gcr::decode_data_block(&buf[gcr_start..gcr_start + 325])
+                        && let Some(sector) = sector_num {
                             writes.push((sector, sector_data));
                         }
-                    }
-                }
                 i = gcr_start + 325;
             } else {
                 i += 1;
@@ -430,8 +428,8 @@ impl Drive1541 {
 
     /// Re-encode the GCR track data for the current head position.
     ///
-    /// On whole tracks (even half_track values), encodes from D64.
-    /// On half-tracks (odd half_track values), fills with $00 — the
+    /// On whole tracks (even `half_track` values), encodes from D64.
+    /// On half-tracks (odd `half_track` values), fills with $00 — the
     /// drive ROM fails to find sync marks, which is correct behaviour
     /// and matches real hardware.
     fn encode_current_track(&mut self) {

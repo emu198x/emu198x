@@ -78,7 +78,7 @@ impl Bus for SpectrumBus {
         let wait = self.ula.contention(self.memory.contended_page(addr16));
 
         // Snow: CPU read from display memory during ULA fetch → corrupts ULA's bitmap
-        if addr16 >= 0x4000 && addr16 <= 0x5AFF && self.ula.is_screen_fetch_phase() {
+        if (0x4000..=0x5AFF).contains(&addr16) && self.ula.is_screen_fetch_phase() {
             self.ula.set_snow_byte(data);
         }
 
@@ -104,18 +104,16 @@ impl Bus for SpectrumBus {
         }
 
         // Port $2FFD: FDC main status register (+3 only)
-        if port & 0xF002 == 0x2000 {
-            if let Some(ref fdc) = self.fdc {
+        if port & 0xF002 == 0x2000
+            && let Some(ref fdc) = self.fdc {
                 return ReadResult::with_wait(fdc.read_msr(), wait);
             }
-        }
 
         // Port $3FFD: FDC data register read (+3 only)
-        if port & 0xF002 == 0x3000 {
-            if let Some(ref mut fdc) = self.fdc {
+        if port & 0xF002 == 0x3000
+            && let Some(ref mut fdc) = self.fdc {
                 return ReadResult::with_wait(fdc.read_data(), wait);
             }
-        }
 
         // Port $FE (active when bit 0 is clear)
         let data = if ula_port {
@@ -173,11 +171,10 @@ impl Bus for SpectrumBus {
         }
 
         // Port $3FFD: FDC data register write (+3 only)
-        if port & 0xF002 == 0x3000 {
-            if let Some(ref mut fdc) = self.fdc {
+        if port & 0xF002 == 0x3000
+            && let Some(ref mut fdc) = self.fdc {
                 fdc.write_data(value);
             }
-        }
 
         // Port $FFFD: AY register select
         if port & 0xC002 == 0xC000 && let Some(ay) = &mut self.ay {

@@ -361,12 +361,11 @@ impl ApplicationHandler for App {
                     self.last_frame_time = now;
                 }
 
-                if let Some(pixels) = self.pixels.as_ref() {
-                    if let Err(e) = pixels.render() {
+                if let Some(pixels) = self.pixels.as_ref()
+                    && let Err(e) = pixels.render() {
                         eprintln!("Render error: {e}");
                         event_loop.exit();
                     }
-                }
             }
             _ => {}
         }

@@ -20,7 +20,7 @@ impl NesRegion {
         }
     }
 
-    /// Total scanlines per frame (including pre-render and VBlank).
+    /// Total scanlines per frame (including pre-render and `VBlank`).
     #[must_use]
     pub const fn scanlines_per_frame(self) -> u16 {
         match self {

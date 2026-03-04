@@ -21,6 +21,7 @@ const CMD_FORMAT_TRACK: u8 = 0x0D;
 const CMD_SEEK: u8 = 0x0F;
 
 /// How many parameter bytes each command expects (total including the command byte).
+#[must_use] 
 pub fn command_length(cmd_byte: u8) -> usize {
     match cmd_byte & 0x1F {
         CMD_SPECIFY => 3,
@@ -36,7 +37,7 @@ pub fn command_length(cmd_byte: u8) -> usize {
     }
 }
 
-/// Execute a fully-received command. Returns (result_bytes, interrupt_pending).
+/// Execute a fully-received command. Returns (`result_bytes`, `interrupt_pending`).
 pub fn execute(
     cmd_buf: &[u8],
     st0: &mut u8,
@@ -93,7 +94,7 @@ fn exec_sense_drive(
     // ST3: bits 0-1 = drive, bit 2 = head, bit 3 = two-side, bit 4 = track 0,
     //       bit 5 = ready, bit 6 = write protect (always 0)
     let mut st3 = (drive as u8) | (head << 2);
-    if disks.get(drive).is_some_and(|d| d.is_some()) {
+    if disks.get(drive).is_some_and(std::option::Option::is_some) {
         st3 |= 0x20; // Ready
         st3 |= 0x08; // Two-side (assume double-sided)
     }
@@ -173,14 +174,12 @@ fn exec_read_data(
 ) -> (Vec<u8>, bool) {
     let drive = (cmd_buf[1] & 0x03) as usize;
     let head = (cmd_buf[1] >> 2) & 0x01;
-    let _c = cmd_buf[2];
-    let _h = cmd_buf[3];
     let r = cmd_buf[4];
     let n = cmd_buf[5];
     let eot = cmd_buf[6];
-    // cmd_buf[7] = GPL, cmd_buf[8] = DTL
+    // cmd_buf[2] = C, cmd_buf[3] = H, cmd_buf[7] = GPL, cmd_buf[8] = DTL
 
-    *st0 = drive as u8 | ((head as u8) << 2);
+    *st0 = drive as u8 | (head << 2);
     *st1 = 0;
     *st2 = 0;
 
@@ -241,13 +240,11 @@ fn exec_write_data(
 ) -> (Vec<u8>, bool) {
     let drive = (cmd_buf[1] & 0x03) as usize;
     let head = (cmd_buf[1] >> 2) & 0x01;
-    let _c = cmd_buf[2];
-    let _h = cmd_buf[3];
     let r = cmd_buf[4];
     let n = cmd_buf[5];
-    // eot, gpl, dtl in remaining bytes
+    // cmd_buf[2] = C, cmd_buf[3] = H, eot/gpl/dtl in remaining bytes
 
-    *st0 = drive as u8 | ((head as u8) << 2);
+    *st0 = drive as u8 | (head << 2);
     *st1 = 0;
     *st2 = 0;
 
@@ -265,7 +262,7 @@ fn exec_write_data(
     // This stub sets up the result for after the transfer completes.
     // The sector size for write is 128 << n bytes.
 
-    let _sector_size = 128usize << (n as u32);
+    let _sector_size = 128usize << u32::from(n);
     // Write will be handled by the data register write path.
     // For now, just signal success.
 
@@ -289,7 +286,7 @@ fn exec_read_id(
     let drive = (cmd_buf[1] & 0x03) as usize;
     let head = (cmd_buf[1] >> 2) & 0x01;
 
-    *st0 = drive as u8 | ((head as u8) << 2);
+    *st0 = drive as u8 | (head << 2);
     *st1 = 0;
     *st2 = 0;
 
@@ -330,7 +327,7 @@ fn exec_format_track(
 
     let track = pcn[drive];
 
-    *st0 = drive as u8 | ((head as u8) << 2);
+    *st0 = drive as u8 | (head << 2);
     *st1 = 0;
     *st2 = 0;
 

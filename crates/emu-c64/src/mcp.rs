@@ -37,8 +37,8 @@ impl C64Mcp {
     }
 
     fn require_c64(&mut self) -> Result<&mut C64, ToolResult> {
-        if self.c64.is_some() {
-            Ok(self.c64.as_mut().expect("checked is_some"))
+        if let Some(ref mut c64) = self.c64 {
+            Ok(c64)
         } else {
             Err(ToolResult::Error {
                 code: -32000,
@@ -55,11 +55,11 @@ impl Default for C64Mcp {
 }
 
 impl McpEmulator for C64Mcp {
-    fn server_name(&self) -> &str {
+    fn server_name(&self) -> &'static str {
         "emu-c64"
     }
 
-    fn server_version(&self) -> &str {
+    fn server_version(&self) -> &'static str {
         env!("CARGO_PKG_VERSION")
     }
 
@@ -335,8 +335,8 @@ impl C64Mcp {
 
         let count = params
             .get("count")
-            .and_then(|v| v.as_u64())
-            .or_else(|| params.get("frames").and_then(|v| v.as_u64()))
+            .and_then(serde_json::Value::as_u64)
+            .or_else(|| params.get("frames").and_then(serde_json::Value::as_u64))
             .unwrap_or(1);
 
         let mut total_cycles = 0u64;
@@ -390,7 +390,7 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
+        let count = params.get("count").and_then(serde_json::Value::as_u64).unwrap_or(1);
         for _ in 0..count {
             c64.tick();
         }
@@ -421,7 +421,7 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let frames = params.get("frames").and_then(|v| v.as_u64()).unwrap_or(50);
+        let frames = params.get("frames").and_then(serde_json::Value::as_u64).unwrap_or(50);
 
         let mut all_audio: Vec<f32> = Vec::new();
         for _ in 0..frames {
@@ -429,8 +429,8 @@ impl C64Mcp {
             all_audio.extend_from_slice(&c64.take_audio_buffer());
         }
 
-        if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
-            if let Err(e) =
+        if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str())
+            && let Err(e) =
                 crate::capture::save_audio(&all_audio, std::path::Path::new(save_path))
             {
                 return ToolResult::Error {
@@ -438,7 +438,6 @@ impl C64Mcp {
                     message: format!("Failed to save audio: {e}"),
                 };
             }
-        }
 
         let b64 = if all_audio.is_empty() {
             String::new()
@@ -477,14 +476,11 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let path = match params.get("path").and_then(|v| v.as_str()) {
-            Some(p) => p,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'path' parameter".to_string(),
-                };
-            }
+        let Some(path) = params.get("path").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'path' parameter".to_string(),
+            };
         };
 
         match c64.query(path) {
@@ -505,7 +501,7 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let addr = match params.get("address").and_then(|v| v.as_u64()) {
+        let addr = match params.get("address").and_then(serde_json::Value::as_u64) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
                 return ToolResult::Error {
@@ -515,7 +511,7 @@ impl C64Mcp {
             }
         };
 
-        let value = match params.get("value").and_then(|v| v.as_u64()) {
+        let value = match params.get("value").and_then(serde_json::Value::as_u64) {
             Some(v) if v <= 0xFF => v as u8,
             _ => {
                 return ToolResult::Error {
@@ -535,14 +531,11 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let key_name = match params.get("key").and_then(|v| v.as_str()) {
-            Some(k) => k,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'key' parameter".to_string(),
-                };
-            }
+        let Some(key_name) = params.get("key").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'key' parameter".to_string(),
+            };
         };
 
         match parse_key_name(key_name) {
@@ -563,14 +556,11 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let key_name = match params.get("key").and_then(|v| v.as_str()) {
-            Some(k) => k,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'key' parameter".to_string(),
-                };
-            }
+        let Some(key_name) = params.get("key").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'key' parameter".to_string(),
+            };
         };
 
         match parse_key_name(key_name) {
@@ -603,7 +593,7 @@ impl C64Mcp {
 
         let at_frame = params
             .get("at_frame")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or_else(|| c64.frame_count());
 
         let end_frame = c64.input_queue().enqueue_text(&text, at_frame);
@@ -620,7 +610,7 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let addr = match params.get("address").and_then(|v| v.as_u64()) {
+        let addr = match params.get("address").and_then(serde_json::Value::as_u64) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
                 return ToolResult::Error {
@@ -632,7 +622,7 @@ impl C64Mcp {
 
         let max_frames = params
             .get("max_frames")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(10_000);
 
         let mut frames_run = 0u64;
@@ -711,7 +701,7 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let address = match params.get("address").and_then(|v| v.as_u64()) {
+        let address = match params.get("address").and_then(serde_json::Value::as_u64) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
                 return ToolResult::Error {
@@ -721,7 +711,7 @@ impl C64Mcp {
             }
         };
 
-        let length = match params.get("length").and_then(|v| v.as_u64()) {
+        let length = match params.get("length").and_then(serde_json::Value::as_u64) {
             Some(l) if (1..=65536).contains(&l) => l as usize,
             Some(_) => {
                 return ToolResult::Error {

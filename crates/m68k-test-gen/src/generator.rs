@@ -129,11 +129,10 @@ fn generate_one(
     // For word/long memory EA, ensure the effective address is even.
     // Musashi doesn't emulate address errors, so odd EAs cause 100%
     // mismatches (our CPU takes an exception, Musashi doesn't).
-    if let Some(ref info) = ea_info {
-        if info.size >= 2 {
+    if let Some(ref info) = ea_info
+        && info.size >= 2 {
             ensure_even_ea(info, &mut d, &mut a, STACK_TOP);
         }
-    }
 
     // Seed test data at the memory EA so address-computation bugs are
     // detectable (wrong address reads zero instead of the seeded value).
@@ -144,11 +143,11 @@ fn generate_one(
     // Set CPU type and load registers into Musashi
     musashi::set_cpu_type(cpu_type);
 
-    for i in 0..8 {
-        musashi::set_reg(musashi::M68K_REG_D0 + i as u32, d[i]);
+    for (i, &val) in d.iter().enumerate() {
+        musashi::set_reg(musashi::M68K_REG_D0 + i as u32, val);
     }
-    for i in 0..7 {
-        musashi::set_reg(musashi::M68K_REG_A0 + i as u32, a[i]);
+    for (i, &val) in a.iter().enumerate() {
+        musashi::set_reg(musashi::M68K_REG_A0 + i as u32, val);
     }
     musashi::set_reg(musashi::M68K_REG_USP, usp);
     musashi::set_reg(musashi::M68K_REG_ISP, STACK_TOP);
@@ -200,13 +199,6 @@ fn encode_instruction(
         InstructionSetup::RandExt1 => {
             let ext: u16 = rng.random();
             memory::poke_word(pc.wrapping_add(2), ext);
-            None
-        }
-        InstructionSetup::RandExt2 => {
-            let ext1: u16 = rng.random();
-            let ext2: u16 = rng.random();
-            memory::poke_word(pc.wrapping_add(2), ext1);
-            memory::poke_word(pc.wrapping_add(4), ext2);
             None
         }
         InstructionSetup::NeedsStack => {
@@ -297,11 +289,11 @@ fn capture_state(cpu_type: u32) -> CpuState {
     let mut d = [0u32; 8];
     let mut a = [0u32; 7];
 
-    for i in 0..8 {
-        d[i] = musashi::get_reg(musashi::M68K_REG_D0 + i as u32);
+    for (i, reg) in d.iter_mut().enumerate() {
+        *reg = musashi::get_reg(musashi::M68K_REG_D0 + i as u32);
     }
-    for i in 0..7 {
-        a[i] = musashi::get_reg(musashi::M68K_REG_A0 + i as u32);
+    for (i, reg) in a.iter_mut().enumerate() {
+        *reg = musashi::get_reg(musashi::M68K_REG_A0 + i as u32);
     }
 
     let sr = musashi::get_reg(musashi::M68K_REG_SR) as u16;
@@ -389,7 +381,7 @@ fn encode_memory_ea(
 ) -> (Option<u16>, Option<u32>) {
     let ext_addr = pc + ext_offset;
     match ea_mode {
-        0b010 | 0b011 | 0b100 => (None, None), // (An), (An)+, -(An)
+        0b010..=0b100 => (None, None), // (An), (An)+, -(An)
         0b101 => {
             // d16(An): random 16-bit signed displacement
             let d16: u16 = rng.random();

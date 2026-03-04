@@ -295,7 +295,7 @@ impl Spectrum {
     pub fn is_tzx_playing(&self) -> bool {
         self.tzx_signal
             .as_ref()
-            .is_some_and(|s| s.is_playing())
+            .is_some_and(super::tzx_signal::TzxSignal::is_playing)
     }
 
     /// Load a DSK disk image into the +3's floppy drive.

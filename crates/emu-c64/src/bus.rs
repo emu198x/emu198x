@@ -134,7 +134,7 @@ impl Bus for C64Bus {
                 0xDD00..=0xDDFF => {
                     self.cia2.write((addr16 & 0x0F) as u8, value);
                     // Update VIC bank when CIA2 port A changes
-                    if (addr16 & 0x0F) == 0x00 || (addr16 & 0x0F) == 0x02 {
+                    if addr16.trailing_zeros() >= 4 || (addr16 & 0x0F) == 0x02 {
                         self.update_vic_bank();
                     }
                 }
@@ -146,11 +146,10 @@ impl Bus for C64Bus {
                 }
                 0xDF00..=0xDFFF => {
                     // I/O expansion 2 — REU ($DF00-$DF0A) or cartridge
-                    if addr16 <= 0xDF0A {
-                        if let Some(ref mut reu) = self.reu {
+                    if addr16 <= 0xDF0A
+                        && let Some(ref mut reu) = self.reu {
                             reu.write(addr16, value, &mut self.memory.ram);
                         }
-                    }
                     if let Some(ref mut cart) = self.memory.cartridge {
                         cart.write_io(addr16, value);
                     }

@@ -84,7 +84,7 @@ impl C64Memory {
         self.effective_port() & 0x01 != 0
     }
 
-    /// Effective port value: (data & ddr) | (external_pullups & !ddr).
+    /// Effective port value: (data & ddr) | (`external_pullups` & !ddr).
     /// Undriven inputs float high due to pull-up resistors.
     fn effective_port(&self) -> u8 {
         (self.port_data & self.port_ddr) | (0x37 & !self.port_ddr)
@@ -104,12 +104,12 @@ impl C64Memory {
 
     /// Cartridge EXROM line: true when inactive (no cartridge, or EXROM=1).
     fn cart_exrom(&self) -> bool {
-        self.cartridge.as_ref().map_or(true, |c| c.exrom)
+        self.cartridge.as_ref().is_none_or(|c| c.exrom)
     }
 
     /// Cartridge GAME line: true when inactive (no cartridge, or GAME=1).
     fn cart_game(&self) -> bool {
-        self.cartridge.as_ref().map_or(true, |c| c.game)
+        self.cartridge.as_ref().is_none_or(|c| c.game)
     }
 
     /// CPU read: applies banking rules, handles $00/$01 port.

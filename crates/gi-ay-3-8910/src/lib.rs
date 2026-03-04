@@ -353,7 +353,7 @@ impl Ay3_8910 {
             StereoMode::Abc => [(1.0, 0.0), (0.5, 0.5), (0.0, 1.0)], // A=left, B=centre, C=right
         };
 
-        for ch in 0..3 {
+        for (ch, &(pan_l, pan_r)) in pan.iter().enumerate() {
             let tone_disabled = mixer & (1 << ch) != 0;
             let noise_disabled = mixer & (1 << (ch + 3)) != 0;
 
@@ -376,8 +376,8 @@ impl Ay3_8910 {
 
             // Centre each channel around 0.
             let centred = channel_sample - amplitude * 0.5;
-            left += centred * pan[ch].0;
-            right += centred * pan[ch].1;
+            left += centred * pan_l;
+            right += centred * pan_r;
         }
 
         // Normalise. Mono: max excursion = 3 × 0.5 × 0.5 = 0.75.

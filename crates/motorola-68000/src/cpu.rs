@@ -334,6 +334,7 @@ impl Cpu68000 {
     ///
     /// Supervisor mode, interrupt mask level 7, all registers zero.
     #[must_use]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self::new_with_model(CpuModel::M68000)
     }
@@ -485,6 +486,7 @@ impl Cpu68000 {
     }
 
     /// Halt the CPU (unimplemented instruction or double fault).
+    #[allow(dead_code)]
     pub(crate) fn halt(&mut self) {
         self.state = State::Halted;
     }
@@ -513,7 +515,7 @@ impl Cpu68000 {
     /// 5. Advance the current state (bus polling, delay countdown)
     pub fn tick<B: M68kBus>(&mut self, bus: &mut B, crystal_clock: u64) {
         // 68000 minimum bus cycle = 4 clock cycles
-        if crystal_clock % 4 != 0 {
+        if !crystal_clock.is_multiple_of(4) {
             return;
         }
 
@@ -537,8 +539,8 @@ impl Cpu68000 {
             }
 
             // Dispatch next non-instant op
-            if matches!(self.state, State::Idle) {
-                if let Some(op) = self.micro_ops.pop() {
+            if matches!(self.state, State::Idle)
+                && let Some(op) = self.micro_ops.pop() {
                     if op.is_bus() {
                         if self.check_address_error(op) {
                             // Address error detected; exception sequence started
@@ -549,7 +551,6 @@ impl Cpu68000 {
                         self.state = State::Internal { cycles };
                     }
                 }
-            }
         }
 
         // --- Advance current state ---
@@ -599,8 +600,8 @@ impl Cpu68000 {
                     self.initiate_interrupt_exception(ipl);
                     self.process_instant_ops(bus);
                     // Dispatch bus cycle if needed
-                    if matches!(self.state, State::Idle) {
-                        if let Some(op) = self.micro_ops.pop() {
+                    if matches!(self.state, State::Idle)
+                        && let Some(op) = self.micro_ops.pop() {
                             if op.is_bus() {
                                 if !self.check_address_error(op) {
                                     self.state = self.initiate_bus_cycle(op);
@@ -609,7 +610,6 @@ impl Cpu68000 {
                                 self.state = State::Internal { cycles };
                             }
                         }
-                    }
                 }
             }
         }
@@ -1085,12 +1085,11 @@ impl Cpu68000 {
         }
 
         // DBcc: undo the Dn.w decrement when branch target is odd.
-        if is_read {
-            if let Some((r, original_w)) = self.dbcc_dn_undo.take() {
+        if is_read
+            && let Some((r, original_w)) = self.dbcc_dn_undo.take() {
                 self.regs.d[r as usize] =
                     (self.regs.d[r as usize] & 0xFFFF_0000) | u32::from(original_w);
             }
-        }
         self.dbcc_dn_undo = None;
 
         // For MOVE write AE: restore flags to match the 68000's flag
@@ -1157,7 +1156,7 @@ impl Cpu68000 {
         let top = (self.ir >> 12) & 0xF;
 
         // MOVE instructions have a separate, more complex formula
-        if matches!(top, 1 | 2 | 3) {
+        if matches!(top, 1..=3) {
             return self.compute_ae_frame_pc_move(is_read);
         }
 
@@ -1209,7 +1208,7 @@ impl Cpu68000 {
         // CMPM (An)+,(An)+ and ADDX/SUBX -(An),-(An): always ISP + 4
         if matches!(top, 0x9 | 0xB | 0xD) {
             let opmode = (self.ir >> 6) & 7;
-            if opmode >= 4 && opmode <= 6 && ea_mode == 1 {
+            if (4..=6).contains(&opmode) && ea_mode == 1 {
                 return self.instr_start_pc.wrapping_add(4);
             }
         }
@@ -1357,7 +1356,7 @@ impl Cpu68000 {
             let top = (self.ir >> 12) & 0xF;
             let opmode = (self.ir >> 6) & 7;
             let ea_mode = ((self.ir >> 3) & 7) as u8;
-            if matches!(top, 0x9 | 0xD) && opmode >= 4 && opmode <= 6 && ea_mode == 1 {
+            if matches!(top, 0x9 | 0xD) && (4..=6).contains(&opmode) && ea_mode == 1 {
                 return addr.wrapping_add(2);
             }
         }
@@ -1377,7 +1376,7 @@ impl Cpu68000 {
         }
 
         let top = (self.ir >> 12) & 0xF;
-        if !matches!(top, 1 | 2 | 3) {
+        if !matches!(top, 1..=3) {
             return addr;
         }
         let size = match top {

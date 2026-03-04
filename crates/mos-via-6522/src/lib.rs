@@ -348,7 +348,7 @@ impl Via6522 {
     /// Read port B output value (combines port register and DDR).
     ///
     /// If ACR bits 7-6 indicate PB7 output mode (free-run + PB7 toggle),
-    /// bit 7 reflects the PB7 toggle output instead of port_b bit 7.
+    /// bit 7 reflects the PB7 toggle output instead of `port_b` bit 7.
     #[must_use]
     pub fn port_b_output(&self) -> u8 {
         let mut out = self.port_b & self.ddr_b;

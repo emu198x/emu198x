@@ -48,7 +48,7 @@ impl C64TapeDeck {
 
     /// Insert a TAP file into the deck.
     pub fn insert(&mut self, tap: C64TapFile) {
-        self.raw_pulses = tap.raw_pulses.clone();
+        self.raw_pulses.clone_from(&tap.raw_pulses);
         self.tap = Some(tap);
         self.block_index = 0;
         self.pulse_index = 0;

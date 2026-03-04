@@ -44,8 +44,8 @@ impl SpectrumMcp {
     }
 
     fn require_spectrum(&mut self) -> Result<&mut Spectrum, ToolResult> {
-        if self.spectrum.is_some() {
-            Ok(self.spectrum.as_mut().expect("checked is_some"))
+        if let Some(ref mut spectrum) = self.spectrum {
+            Ok(spectrum)
         } else {
             Err(ToolResult::Error {
                 code: -32000,
@@ -62,11 +62,11 @@ impl Default for SpectrumMcp {
 }
 
 impl McpEmulator for SpectrumMcp {
-    fn server_name(&self) -> &str {
+    fn server_name(&self) -> &'static str {
         "emu-spectrum"
     }
 
-    fn server_version(&self) -> &str {
+    fn server_version(&self) -> &'static str {
         env!("CARGO_PKG_VERSION")
     }
 
@@ -534,7 +534,7 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
+        let count = params.get("count").and_then(serde_json::Value::as_u64).unwrap_or(1);
 
         let mut total_tstates = 0u64;
         for _ in 0..count {
@@ -582,7 +582,7 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
+        let count = params.get("count").and_then(serde_json::Value::as_u64).unwrap_or(1);
 
         // Each CPU T-state = 4 master clock ticks
         for _ in 0..(count * 4) {
@@ -615,7 +615,7 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let frames = params.get("frames").and_then(|v| v.as_u64()).unwrap_or(50);
+        let frames = params.get("frames").and_then(serde_json::Value::as_u64).unwrap_or(50);
 
         let mut all_audio: Vec<[f32; 2]> = Vec::new();
         for _ in 0..frames {
@@ -623,8 +623,8 @@ impl SpectrumMcp {
             all_audio.extend_from_slice(&spec.take_audio_buffer());
         }
 
-        if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
-            if let Err(e) =
+        if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str())
+            && let Err(e) =
                 crate::capture::save_audio(&all_audio, std::path::Path::new(save_path))
             {
                 return ToolResult::Error {
@@ -632,7 +632,6 @@ impl SpectrumMcp {
                     message: format!("Failed to save audio: {e}"),
                 };
             }
-        }
 
         // Encode as WAV in memory (stereo)
         let b64 = if all_audio.is_empty() {
@@ -673,14 +672,11 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let path = match params.get("path").and_then(|v| v.as_str()) {
-            Some(p) => p,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'path' parameter".to_string(),
-                };
-            }
+        let Some(path) = params.get("path").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'path' parameter".to_string(),
+            };
         };
 
         match spec.query(path) {
@@ -701,7 +697,7 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let addr = match params.get("address").and_then(|v| v.as_u64()) {
+        let addr = match params.get("address").and_then(serde_json::Value::as_u64) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
                 return ToolResult::Error {
@@ -711,7 +707,7 @@ impl SpectrumMcp {
             }
         };
 
-        let value = match params.get("value").and_then(|v| v.as_u64()) {
+        let value = match params.get("value").and_then(serde_json::Value::as_u64) {
             Some(v) if v <= 0xFF => v as u8,
             _ => {
                 return ToolResult::Error {
@@ -731,14 +727,11 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let key_name = match params.get("key").and_then(|v| v.as_str()) {
-            Some(k) => k,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'key' parameter".to_string(),
-                };
-            }
+        let Some(key_name) = params.get("key").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'key' parameter".to_string(),
+            };
         };
 
         match parse_key_name(key_name) {
@@ -759,14 +752,11 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let key_name = match params.get("key").and_then(|v| v.as_str()) {
-            Some(k) => k,
-            None => {
-                return ToolResult::Error {
-                    code: -32602,
-                    message: "Missing 'key' parameter".to_string(),
-                };
-            }
+        let Some(key_name) = params.get("key").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'key' parameter".to_string(),
+            };
         };
 
         match parse_key_name(key_name) {
@@ -799,7 +789,7 @@ impl SpectrumMcp {
 
         let at_frame = params
             .get("at_frame")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or_else(|| spec.frame_count());
 
         let end_frame = spec.input_queue().enqueue_text(&text, at_frame);
@@ -816,7 +806,7 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let addr = match params.get("address").and_then(|v| v.as_u64()) {
+        let addr = match params.get("address").and_then(serde_json::Value::as_u64) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
                 return ToolResult::Error {
@@ -828,7 +818,7 @@ impl SpectrumMcp {
 
         let max_frames = params
             .get("max_frames")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(10_000);
 
         let mut frames_run = 0u64;
@@ -884,7 +874,7 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let address = match params.get("address").and_then(|v| v.as_u64()) {
+        let address = match params.get("address").and_then(serde_json::Value::as_u64) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
                 return ToolResult::Error {
@@ -894,7 +884,7 @@ impl SpectrumMcp {
             }
         };
 
-        let length = match params.get("length").and_then(|v| v.as_u64()) {
+        let length = match params.get("length").and_then(serde_json::Value::as_u64) {
             Some(l) if (1..=65536).contains(&l) => l as usize,
             Some(_) => {
                 return ToolResult::Error {
@@ -1032,14 +1022,14 @@ fn read_screen_char(spectrum: &Spectrum, row: u8, col: u8) -> char {
         let mut matching_bits = 0u32;
         let mut all_match = true;
 
-        for py in 0..8usize {
+        for (py, &cell_byte) in cell.iter().enumerate() {
             let rom_byte = mem.peek(rom_addr + py as u16);
-            if rom_byte == cell[py] {
+            if rom_byte == cell_byte {
                 matching_bits += 8;
             } else {
                 all_match = false;
                 // Count matching bits
-                let diff = rom_byte ^ cell[py];
+                let diff = rom_byte ^ cell_byte;
                 matching_bits += 8 - u32::from(diff.count_ones() as u8);
             }
         }

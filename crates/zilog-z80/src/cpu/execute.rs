@@ -149,7 +149,7 @@ impl Z80 {
 
             // RLA
             0x17 => {
-                let old_carry = if self.regs.f & CF != 0 { 1 } else { 0 };
+                let old_carry = u8::from(self.regs.f & CF != 0);
                 let new_carry = self.regs.a >> 7;
                 self.regs.a = (self.regs.a << 1) | old_carry;
                 self.set_f(
@@ -451,25 +451,13 @@ impl Z80 {
 
             // EXX
             0xD9 => {
-                let tmp;
-                tmp = self.regs.b;
-                self.regs.b = self.regs.b_alt;
-                self.regs.b_alt = tmp;
-                let tmp2 = self.regs.c;
-                self.regs.c = self.regs.c_alt;
-                self.regs.c_alt = tmp2;
-                let tmp3 = self.regs.d;
-                self.regs.d = self.regs.d_alt;
-                self.regs.d_alt = tmp3;
-                let tmp4 = self.regs.e;
-                self.regs.e = self.regs.e_alt;
-                self.regs.e_alt = tmp4;
-                let tmp5 = self.regs.h;
-                self.regs.h = self.regs.h_alt;
-                self.regs.h_alt = tmp5;
-                let tmp6 = self.regs.l;
-                self.regs.l = self.regs.l_alt;
-                self.regs.l_alt = tmp6;
+                
+                std::mem::swap(&mut self.regs.b, &mut self.regs.b_alt);
+                std::mem::swap(&mut self.regs.c, &mut self.regs.c_alt);
+                std::mem::swap(&mut self.regs.d, &mut self.regs.d_alt);
+                std::mem::swap(&mut self.regs.e, &mut self.regs.e_alt);
+                std::mem::swap(&mut self.regs.h, &mut self.regs.h_alt);
+                std::mem::swap(&mut self.regs.l, &mut self.regs.l_alt);
             }
 
             // DD prefix — handled by fetch
@@ -1032,7 +1020,6 @@ impl Z80 {
     /// Execute DD/FD-prefixed instruction.
     pub(super) fn execute_dd_fd(&mut self) {
         let op = self.opcode;
-        let _is_iy = self.prefix == 0xFD;
 
         match op {
             // ADD IX/IY, rr (09=BC, 19=DE, 29=IX/IY, 39=SP)
@@ -1229,7 +1216,6 @@ impl Z80 {
     /// Execute DD/FD followup.
     fn execute_dd_fd_followup(&mut self) {
         let op = self.opcode;
-        let _is_iy = self.prefix == 0xFD;
 
         match op {
             // POP IX/IY
@@ -1791,7 +1777,7 @@ impl Z80 {
                 self.regs.wz = self.regs.wz.wrapping_add(1);
                 let result = self.regs.a.wrapping_sub(value);
                 let hf = (self.regs.a & 0x0F) < (value & 0x0F);
-                let n = result.wrapping_sub(if hf { 1 } else { 0 });
+                let n = result.wrapping_sub(u8::from(hf));
                 self.regs.set_hl(self.regs.hl().wrapping_add(1));
                 self.regs.set_bc(self.regs.bc().wrapping_sub(1));
                 self.set_f(
@@ -1877,7 +1863,7 @@ impl Z80 {
                 self.regs.wz = self.regs.wz.wrapping_sub(1);
                 let result = self.regs.a.wrapping_sub(value);
                 let hf = (self.regs.a & 0x0F) < (value & 0x0F);
-                let n = result.wrapping_sub(if hf { 1 } else { 0 });
+                let n = result.wrapping_sub(u8::from(hf));
                 self.regs.set_hl(self.regs.hl().wrapping_sub(1));
                 self.regs.set_bc(self.regs.bc().wrapping_sub(1));
                 self.set_f(
@@ -1971,7 +1957,7 @@ impl Z80 {
                 self.regs.wz = self.regs.wz.wrapping_add(1);
                 let result = self.regs.a.wrapping_sub(value);
                 let hf = (self.regs.a & 0x0F) < (value & 0x0F);
-                let n = result.wrapping_sub(if hf { 1 } else { 0 });
+                let n = result.wrapping_sub(u8::from(hf));
                 self.regs.set_hl(self.regs.hl().wrapping_add(1));
                 self.regs.set_bc(self.regs.bc().wrapping_sub(1));
                 let base_f = (self.regs.f & CF)
@@ -2013,7 +1999,7 @@ impl Z80 {
                     let (hf, pf) = if hcf {
                         if nf {
                             (
-                                if self.regs.b & 0x0F == 0 { HF } else { 0 },
+                                if self.regs.b.trailing_zeros() >= 4 { HF } else { 0 },
                                 sz53p(p ^ (self.regs.b.wrapping_sub(1) & 7)) & PF,
                             )
                         } else {
@@ -2064,7 +2050,7 @@ impl Z80 {
                     let (hf, pf) = if hcf {
                         if nf {
                             (
-                                if self.regs.b & 0x0F == 0 { HF } else { 0 },
+                                if self.regs.b.trailing_zeros() >= 4 { HF } else { 0 },
                                 sz53p(p ^ (self.regs.b.wrapping_sub(1) & 7)) & PF,
                             )
                         } else {
@@ -2127,7 +2113,7 @@ impl Z80 {
                 self.regs.wz = self.regs.wz.wrapping_sub(1);
                 let result = self.regs.a.wrapping_sub(value);
                 let hf = (self.regs.a & 0x0F) < (value & 0x0F);
-                let n = result.wrapping_sub(if hf { 1 } else { 0 });
+                let n = result.wrapping_sub(u8::from(hf));
                 self.regs.set_hl(self.regs.hl().wrapping_sub(1));
                 self.regs.set_bc(self.regs.bc().wrapping_sub(1));
                 let base_f = (self.regs.f & CF)
@@ -2169,7 +2155,7 @@ impl Z80 {
                     let (hf, pf) = if hcf {
                         if nf {
                             (
-                                if self.regs.b & 0x0F == 0 { HF } else { 0 },
+                                if self.regs.b.trailing_zeros() >= 4 { HF } else { 0 },
                                 sz53p(p ^ (self.regs.b.wrapping_sub(1) & 7)) & PF,
                             )
                         } else {
@@ -2220,7 +2206,7 @@ impl Z80 {
                     let (hf, pf) = if hcf {
                         if nf {
                             (
-                                if self.regs.b & 0x0F == 0 { HF } else { 0 },
+                                if self.regs.b.trailing_zeros() >= 4 { HF } else { 0 },
                                 sz53p(p ^ (self.regs.b.wrapping_sub(1) & 7)) & PF,
                             )
                         } else {

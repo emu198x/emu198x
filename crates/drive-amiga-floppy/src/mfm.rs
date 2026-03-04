@@ -20,10 +20,10 @@
 /// bytes (or 6,334 words / 3,167 longs). We use a fixed buffer to hold
 /// the encoded track.
 ///
-/// Per sector: 2 gap words + 2 sync words + 2 info words + 8 label words
-///   + 2 hdr_cksum words + 2 data_cksum words + 512 data words = 530 words
-///   = 1,060 bytes per sector. 11 sectors = 11,660 bytes. Plus inter-sector
-///   gaps. In practice the track is ~12,668 bytes. We'll compute exactly.
+/// Per sector: 2 gap words + 2 sync words + 2 info words + 8 label words +
+/// 2 hdr_cksum words + 2 data_cksum words + 512 data words = 530 words =
+/// 1,060 bytes per sector. 11 sectors = 11,660 bytes. Plus inter-sector gaps.
+/// In practice the track is ~12,668 bytes. We'll compute exactly.
 ///
 /// Actual breakdown per sector (in MFM words, i.e. 16-bit units):
 ///   - Gap: 2 words
@@ -33,8 +33,8 @@
 ///   - Header checksum: 1 MFM long = 2 words (odd) + 2 words (even) = 4 words
 ///   - Data checksum: similarly 4 words
 ///   - Data (odd + even): 512 bytes → 256 words (odd) + 256 words (even) = 512 words
-///   Total: 2 + 2 + 4 + 16 + 4 + 4 + 512 = 544 words = 1,088 bytes per sector.
-///   11 sectors = 11,968 bytes. Real tracks have additional gap filler.
+///   - Total: 2 + 2 + 4 + 16 + 4 + 4 + 512 = 544 words = 1,088 bytes per sector.
+///     11 sectors = 11,968 bytes. Real tracks have additional gap filler.
 pub const MFM_TRACK_BYTES: usize = 13_630;
 
 /// Encode a full track of sector data into Amiga raw MFM format.
@@ -116,9 +116,9 @@ fn encode_sector(buf: &mut Vec<u8>, track: u8, sector: u8, sectors_per_track: u8
 
     // 6-7. Data: 512 bytes as 128 longs, odd/even split + MFM
     let mut data_longs = [0u32; 128];
-    for i in 0..128 {
+    for (i, long) in data_longs.iter_mut().enumerate() {
         let offset = i * 4;
-        data_longs[i] = u32::from_be_bytes([
+        *long = u32::from_be_bytes([
             data[offset],
             data[offset + 1],
             data[offset + 2],
@@ -271,14 +271,14 @@ pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
         let mut computed_data_cksum: u32 = 0;
         let mut data_odd_mfm = [0u32; 128];
         let mut data_even_mfm = [0u32; 128];
-        for j in 0..128 {
-            data_odd_mfm[j] = read_mfm_long(i + j * 2);
-            computed_data_cksum ^= data_odd_mfm[j];
+        for (j, odd) in data_odd_mfm.iter_mut().enumerate() {
+            *odd = read_mfm_long(i + j * 2);
+            computed_data_cksum ^= *odd;
         }
         i += 256;
-        for j in 0..128 {
-            data_even_mfm[j] = read_mfm_long(i + j * 2);
-            computed_data_cksum ^= data_even_mfm[j];
+        for (j, even) in data_even_mfm.iter_mut().enumerate() {
+            *even = read_mfm_long(i + j * 2);
+            computed_data_cksum ^= *even;
         }
         i += 256;
 

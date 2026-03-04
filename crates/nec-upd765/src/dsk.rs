@@ -171,7 +171,7 @@ fn parse_track_info(data: &[u8], extended: bool) -> Result<DskTrack, String> {
             u16::from_le_bytes([data[info_offset + 6], data[info_offset + 7]]) as usize
         } else {
             // Standard: all sectors use the track's sector size code
-            128usize << (sector_size_code as u32)
+            128usize << u32::from(sector_size_code)
         };
 
         let sector_data = if sector_data_offset + actual_size <= data.len() {
@@ -288,7 +288,7 @@ impl DskImage {
             // Standard: uniform track size
             let track_data: Vec<Vec<u8>> = self.tracks.iter().map(serialise_track).collect();
             let max_size = track_data.iter().map(Vec::len).max().unwrap_or(0);
-            let track_size = ((max_size + 255) / 256) * 256;
+            let track_size = max_size.div_ceil(256) * 256;
             header[0x32] = (track_size & 0xFF) as u8;
             header[0x33] = ((track_size >> 8) & 0xFF) as u8;
 
@@ -341,7 +341,7 @@ fn serialise_track(trk: &DskTrack) -> Vec<u8> {
     }
 
     // Pad to 256-byte boundary
-    let padded = ((buf.len() + 255) / 256) * 256;
+    let padded = buf.len().div_ceil(256) * 256;
     buf.resize(padded, 0);
 
     buf

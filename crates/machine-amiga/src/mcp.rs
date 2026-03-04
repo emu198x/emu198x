@@ -37,8 +37,8 @@ impl AmigaMcp {
     }
 
     fn require_amiga(&mut self) -> Result<&mut Amiga, ToolResult> {
-        if self.amiga.is_some() {
-            Ok(self.amiga.as_mut().expect("checked is_some"))
+        if let Some(ref mut amiga) = self.amiga {
+            Ok(amiga)
         } else {
             Err(ToolResult::Error {
                 code: -32000,

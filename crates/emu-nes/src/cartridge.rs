@@ -2,8 +2,8 @@
 //!
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
 //! a `Mapper` trait for address translation. Supports 14 mappers: NROM (0),
-//! MMC1 (1), UxROM (2), CNROM (3), MMC3 (4), AxROM (7), MMC2 (9),
-//! MMC4 (10), Color Dreams (11), BxROM (34), GxROM (66), Camerica (71),
+//! MMC1 (1), `UxROM` (2), CNROM (3), MMC3 (4), `AxROM` (7), MMC2 (9),
+//! MMC4 (10), Color Dreams (11), `BxROM` (34), `GxROM` (66), Camerica (71),
 //! Mapper 87, and Mapper 206 (simplified MMC3).
 
 #![allow(clippy::cast_possible_truncation)]
@@ -45,7 +45,7 @@ pub trait Mapper {
     }
 
     /// Read battery-backed PRG RAM contents. Returns `None` if the mapper
-    /// has no PRG RAM (e.g. NROM, UxROM).
+    /// has no PRG RAM (e.g. NROM, `UxROM`).
     fn prg_ram(&self) -> Option<&[u8]> {
         None
     }
@@ -333,10 +333,10 @@ impl Mapper for Mmc1 {
     }
 }
 
-/// UxROM (Mapper 2): simple 16K PRG bank switching.
+/// `UxROM` (Mapper 2): simple 16K PRG bank switching.
 ///
 /// One of the most common NES mappers, used by Mega Man, Castlevania,
-/// Contra, and DuckTales.
+/// Contra, and `DuckTales`.
 ///
 /// - PRG: 16K switchable at $8000-$BFFF, 16K fixed (last bank) at $C000-$FFFF
 /// - CHR: 8K RAM (most boards) or ROM
@@ -469,7 +469,7 @@ impl Mapper for CnRom {
     }
 }
 
-/// AxROM (Mapper 7): 32K PRG bank switching with single-screen mirroring.
+/// `AxROM` (Mapper 7): 32K PRG bank switching with single-screen mirroring.
 ///
 /// Used by Battletoads, Marble Madness, and Wizards & Warriors.
 ///
@@ -729,20 +729,7 @@ impl Mapper for Mmc3 {
         let chr_mode = self.bank_select & 0x80 != 0;
 
         // Resolve 1K bank index for this address
-        let bank_1k = if !chr_mode {
-            // Mode 0: 2K,2K,1K,1K,1K,1K
-            match addr_usize >> 10 {
-                0 => (self.registers[0] & 0xFE) as usize,     // R0 (2K-aligned)
-                1 => (self.registers[0] | 1) as usize,        // R0+1
-                2 => (self.registers[1] & 0xFE) as usize,     // R1 (2K-aligned)
-                3 => (self.registers[1] | 1) as usize,        // R1+1
-                4 => self.registers[2] as usize,               // R2
-                5 => self.registers[3] as usize,               // R3
-                6 => self.registers[4] as usize,               // R4
-                7 => self.registers[5] as usize,               // R5
-                _ => unreachable!(),
-            }
-        } else {
+        let bank_1k = if chr_mode {
             // Mode 1: 1K,1K,1K,1K,2K,2K (inverted)
             match addr_usize >> 10 {
                 0 => self.registers[2] as usize,               // R2
@@ -753,6 +740,19 @@ impl Mapper for Mmc3 {
                 5 => (self.registers[0] | 1) as usize,        // R0+1
                 6 => (self.registers[1] & 0xFE) as usize,     // R1 (2K-aligned)
                 7 => (self.registers[1] | 1) as usize,        // R1+1
+                _ => unreachable!(),
+            }
+        } else {
+            // Mode 0: 2K,2K,1K,1K,1K,1K
+            match addr_usize >> 10 {
+                0 => (self.registers[0] & 0xFE) as usize,     // R0 (2K-aligned)
+                1 => (self.registers[0] | 1) as usize,        // R0+1
+                2 => (self.registers[1] & 0xFE) as usize,     // R1 (2K-aligned)
+                3 => (self.registers[1] | 1) as usize,        // R1+1
+                4 => self.registers[2] as usize,               // R2
+                5 => self.registers[3] as usize,               // R3
+                6 => self.registers[4] as usize,               // R4
+                7 => self.registers[5] as usize,               // R5
                 _ => unreachable!(),
             }
         };
@@ -777,19 +777,7 @@ impl Mapper for Mmc3 {
         let addr_usize = (addr & 0x1FFF) as usize;
         let chr_mode = self.bank_select & 0x80 != 0;
 
-        let bank_1k = if !chr_mode {
-            match addr_usize >> 10 {
-                0 => (self.registers[0] & 0xFE) as usize,
-                1 => (self.registers[0] | 1) as usize,
-                2 => (self.registers[1] & 0xFE) as usize,
-                3 => (self.registers[1] | 1) as usize,
-                4 => self.registers[2] as usize,
-                5 => self.registers[3] as usize,
-                6 => self.registers[4] as usize,
-                7 => self.registers[5] as usize,
-                _ => unreachable!(),
-            }
-        } else {
+        let bank_1k = if chr_mode {
             match addr_usize >> 10 {
                 0 => self.registers[2] as usize,
                 1 => self.registers[3] as usize,
@@ -799,6 +787,18 @@ impl Mapper for Mmc3 {
                 5 => (self.registers[0] | 1) as usize,
                 6 => (self.registers[1] & 0xFE) as usize,
                 7 => (self.registers[1] | 1) as usize,
+                _ => unreachable!(),
+            }
+        } else {
+            match addr_usize >> 10 {
+                0 => (self.registers[0] & 0xFE) as usize,
+                1 => (self.registers[0] | 1) as usize,
+                2 => (self.registers[1] & 0xFE) as usize,
+                3 => (self.registers[1] | 1) as usize,
+                4 => self.registers[2] as usize,
+                5 => self.registers[3] as usize,
+                6 => self.registers[4] as usize,
+                7 => self.registers[5] as usize,
                 _ => unreachable!(),
             }
         };
@@ -1025,7 +1025,7 @@ impl Mapper for ColorDreams {
     }
 }
 
-/// GxROM (Mapper 66): Simple PRG + CHR bank switching.
+/// `GxROM` (Mapper 66): Simple PRG + CHR bank switching.
 ///
 /// Used by Super Mario Bros / Duck Hunt multicart, Dragon Power.
 ///
@@ -1188,7 +1188,7 @@ impl Mapper for Mmc4 {
     }
 }
 
-/// BxROM (Mapper 34): Simple 32K PRG bank switching.
+/// `BxROM` (Mapper 34): Simple 32K PRG bank switching.
 ///
 /// Used by Deadly Towers, Impossible Mission II.
 ///
@@ -1440,17 +1440,13 @@ impl Mapper for Mapper206 {
     }
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
-        match addr {
-            0x8000..=0x9FFF => {
-                if addr & 1 == 0 {
-                    self.bank_select = value;
-                } else {
-                    let reg = (self.bank_select & 0x07) as usize;
-                    self.registers[reg] = value;
-                }
+        if let 0x8000..=0x9FFF = addr {
+            if addr & 1 == 0 {
+                self.bank_select = value;
+            } else {
+                let reg = (self.bank_select & 0x07) as usize;
+                self.registers[reg] = value;
             }
-            // $A000-$FFFF: no mirroring control, no IRQ — all ignored
-            _ => {}
         }
     }
 
@@ -1458,20 +1454,7 @@ impl Mapper for Mapper206 {
         let addr_usize = (addr & 0x1FFF) as usize;
         let chr_mode = self.bank_select & 0x80 != 0;
 
-        let bank_1k = if !chr_mode {
-            // Mode 0: 2K,2K,1K,1K,1K,1K
-            match addr_usize >> 10 {
-                0 => (self.registers[0] & 0x3E) as usize,
-                1 => (self.registers[0] | 1) as usize & 0x3F,
-                2 => (self.registers[1] & 0x3E) as usize,
-                3 => (self.registers[1] | 1) as usize & 0x3F,
-                4 => self.registers[2] as usize & 0x3F,
-                5 => self.registers[3] as usize & 0x3F,
-                6 => self.registers[4] as usize & 0x3F,
-                7 => self.registers[5] as usize & 0x3F,
-                _ => unreachable!(),
-            }
-        } else {
+        let bank_1k = if chr_mode {
             // Mode 1: 1K,1K,1K,1K,2K,2K (inverted)
             match addr_usize >> 10 {
                 0 => self.registers[2] as usize & 0x3F,
@@ -1482,6 +1465,19 @@ impl Mapper for Mapper206 {
                 5 => (self.registers[0] | 1) as usize & 0x3F,
                 6 => (self.registers[1] & 0x3E) as usize,
                 7 => (self.registers[1] | 1) as usize & 0x3F,
+                _ => unreachable!(),
+            }
+        } else {
+            // Mode 0: 2K,2K,1K,1K,1K,1K
+            match addr_usize >> 10 {
+                0 => (self.registers[0] & 0x3E) as usize,
+                1 => (self.registers[0] | 1) as usize & 0x3F,
+                2 => (self.registers[1] & 0x3E) as usize,
+                3 => (self.registers[1] | 1) as usize & 0x3F,
+                4 => self.registers[2] as usize & 0x3F,
+                5 => self.registers[3] as usize & 0x3F,
+                6 => self.registers[4] as usize & 0x3F,
+                7 => self.registers[5] as usize & 0x3F,
                 _ => unreachable!(),
             }
         };

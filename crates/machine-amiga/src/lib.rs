@@ -1488,8 +1488,8 @@ impl Amiga {
     fn beam_composite_sync_debug_from_components(
         &self,
         sync: BeamSyncState,
-        hpos_cck: u16,
-        vpos: u16,
+        _hpos_cck: u16,
+        _vpos: u16,
     ) -> BeamCompositeSyncDebug {
         if !self.chipset.is_ecs_or_aga() {
             return BeamCompositeSyncDebug::default();
@@ -1960,8 +1960,8 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         }
 
         // Gayle gate array ($D80000-$DFFFFF) on A600/A1200.
-        if let Some(gayle) = self.gayle {
-            if addr >= 0xD8_0000 && addr < 0xE0_0000 {
+        if let Some(gayle) = self.gayle
+            && (0xD8_0000..0xE0_0000).contains(&addr) {
                 if is_read {
                     let byte = gayle.read(addr);
                     return BusStatus::Ready(u16::from(byte));
@@ -1969,7 +1969,6 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                 gayle.write(addr, data.unwrap_or(0) as u8);
                 return BusStatus::Ready(0);
             }
-        }
 
         if addr < 0x200000 {
             let bus_plan = self.agnus.cck_bus_plan();

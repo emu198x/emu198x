@@ -377,7 +377,7 @@ impl Tickable for Nes {
                     let cpu_cycle = self.master_clock / CPU_DIVISOR;
                     if self.bus.last_cycle_was_write {
                         self.dmc_dma_cycles = 1;
-                    } else if cpu_cycle % 2 == 0 {
+                    } else if cpu_cycle.is_multiple_of(2) {
                         self.dmc_dma_cycles = 2;
                     } else {
                         self.dmc_dma_cycles = 3;

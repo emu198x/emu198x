@@ -46,9 +46,9 @@ pub struct Upd765 {
     command_len: usize,
     /// Result bytes to return during result phase.
     result_buf: Vec<u8>,
-    /// Current read position in result_buf (including any data transfer bytes).
+    /// Current read position in `result_buf` (including any data transfer bytes).
     result_index: usize,
-    /// Number of bytes in result_buf that are sector data (before the 7 status bytes).
+    /// Number of bytes in `result_buf` that are sector data (before the 7 status bytes).
     data_len: usize,
     /// Status registers.
     st0: u8,

@@ -124,7 +124,7 @@ impl Voice {
         let count = non_noise.count_ones();
 
         // Single waveform: return it directly
-        if waveform_bits.count_ones() == 1 {
+        if waveform_bits.is_power_of_two() {
             return match waveform_bits {
                 0x01 => tri12,
                 0x02 => saw12,

@@ -100,9 +100,9 @@ impl Reu {
             }
             0xDF02 => self.c64_addr = (self.c64_addr & 0xFF00) | u16::from(value),
             0xDF03 => self.c64_addr = (self.c64_addr & 0x00FF) | (u16::from(value) << 8),
-            0xDF04 => self.reu_addr = (self.reu_addr & 0x07FF00) | u32::from(value),
-            0xDF05 => self.reu_addr = (self.reu_addr & 0x0700FF) | (u32::from(value) << 8),
-            0xDF06 => self.reu_addr = (self.reu_addr & 0x00FFFF) | ((u32::from(value) & 0x07) << 16),
+            0xDF04 => self.reu_addr = (self.reu_addr & 0x07_FF00) | u32::from(value),
+            0xDF05 => self.reu_addr = (self.reu_addr & 0x07_00FF) | (u32::from(value) << 8),
+            0xDF06 => self.reu_addr = (self.reu_addr & 0x00_FFFF) | ((u32::from(value) & 0x07) << 16),
             0xDF07 => self.length = (self.length & 0xFF00) | u16::from(value),
             0xDF08 => self.length = (self.length & 0x00FF) | (u16::from(value) << 8),
             0xDF09 => self.irq_mask = value & 0xE0,
@@ -142,9 +142,7 @@ impl Reu {
                 2 => {
                     // SWAP: exchange bytes
                     if reu_idx < self.ram.len() {
-                        let tmp = c64_ram[c64_idx];
-                        c64_ram[c64_idx] = self.ram[reu_idx];
-                        self.ram[reu_idx] = tmp;
+                        std::mem::swap(&mut c64_ram[c64_idx], &mut self.ram[reu_idx]);
                     }
                 }
                 3 => {
@@ -168,7 +166,7 @@ impl Reu {
         // Update registers (unless autoload is set for next transfer)
         if self.command & 0x20 == 0 {
             self.c64_addr = (c64_ptr & 0xFFFF) as u16;
-            self.reu_addr = reu_ptr & 0x07FFFF;
+            self.reu_addr = reu_ptr & 0x07_FFFF;
             self.length = 1; // DMA sets length to 1 after completion
         }
 

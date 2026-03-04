@@ -96,7 +96,7 @@ pub enum TzxBlock {
     },
 }
 
-/// TZX header magic: "ZXTape!" + 0x1A.
+/// TZX header magic: "`ZXTape`!" + 0x1A.
 const MAGIC: &[u8; 8] = b"ZXTape!\x1A";
 
 impl TzxFile {

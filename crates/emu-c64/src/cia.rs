@@ -320,14 +320,14 @@ impl Cia {
             // TOD registers: latched on hours read, released on 10ths read
             0x08 => {
                 // 10ths: release latch
-                let val = if self.tod_latched {
+                
+                // Cannot release here — read_internal is &self.
+                // Latch release handled by caller via read_tod_10ths_release().
+                if self.tod_latched {
                     self.tod_latch[0]
                 } else {
                     self.tod[0]
-                };
-                // Cannot release here — read_internal is &self.
-                // Latch release handled by caller via read_tod_10ths_release().
-                val
+                }
             }
             0x09 => {
                 if self.tod_latched {

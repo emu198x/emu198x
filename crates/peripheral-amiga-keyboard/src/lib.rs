@@ -90,13 +90,12 @@ impl AmigaKeyboard {
                 None
             }
             State::Idle => {
-                if self.timer >= BYTE_INTERVAL_TICKS {
-                    if let Some(byte) = self.key_queue.pop_front() {
+                if self.timer >= BYTE_INTERVAL_TICKS
+                    && let Some(byte) = self.key_queue.pop_front() {
                         self.state = State::WaitHandshakeKey;
                         self.timer = 0;
                         return Some(rotate_byte(byte));
                     }
-                }
                 None
             }
             State::WaitHandshakeKey => {
@@ -173,7 +172,7 @@ impl Default for AmigaKeyboard {
 /// Amiga keycodes are rotated left 1 bit before serial transmission.
 /// The ROM's keyboard interrupt handler rotates right to recover.
 fn rotate_byte(byte: u8) -> u8 {
-    (byte << 1) | (byte >> 7)
+    byte.rotate_left(1)
 }
 
 #[cfg(test)]

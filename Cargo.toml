@@ -12,6 +12,47 @@ repository = "https://github.com/stevehill/emu198x"
 unsafe_code = "warn"
 
 [workspace.lints.clippy]
-all = "warn"
-pedantic = "warn"
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
 unwrap_used = "warn"
+
+# Emulator code: intentional truncation and sign casts are pervasive
+# (e.g. extracting byte from u16 register, signed↔unsigned for arithmetic)
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+
+# Hardware state structs naturally have many boolean fields
+struct_excessive_bools = "allow"
+
+# Decode and tick functions are inherently long
+too_many_lines = "allow"
+
+# Internal crate functions don't need doc sections
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+# Match arms with identical bodies often represent distinct opcodes for clarity
+match_same_arms = "allow"
+
+# Register names like b/b_alt, d/a are natural in emulator code
+similar_names = "allow"
+
+# Small types passed by ref for API consistency across trait impls
+trivially_copy_pass_by_ref = "allow"
+
+# Hardware struct fields naturally echo the struct name
+struct_field_names = "allow"
+
+# Single-char register variables (a, d, x, y) are standard in emulators
+many_single_char_names = "allow"
+
+# Hardware setup functions have many parameters
+too_many_arguments = "allow"
+
+# Framebuffers and lookup tables are intentionally large
+large_stack_arrays = "allow"
+
+# Decode blocks define helpers after initial state reads
+items_after_statements = "allow"

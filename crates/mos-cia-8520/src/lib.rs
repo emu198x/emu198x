@@ -7,7 +7,7 @@
 
 /// MOS 8520 Complex Interface Adapter.
 pub struct Cia8520 {
-    label: &'static str,
+    _label: &'static str,
     port_a: u8,
     port_b: u8,
     ddr_a: u8,
@@ -59,7 +59,7 @@ pub struct Cia8520 {
 impl Cia8520 {
     pub fn new(label: &'static str) -> Self {
         Self {
-            label,
+            _label: label,
             port_a: 0xFF,
             port_b: 0xFF,
             ddr_a: 0,

@@ -103,7 +103,6 @@ impl Gayle {
                 3 => self.gayle_cfg = val & 0x0F,
                 _ => unreachable!(),
             }
-            return;
         }
 
         // IDE task-file writes are ignored when no drive is present.

@@ -15,7 +15,7 @@ mod musashi;
 mod testcase;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use testcase::TestFile;
 
 fn main() {
@@ -84,7 +84,7 @@ fn generate_and_write(
     cpu_type: u32,
     cpu_name: &str,
     count: usize,
-    output_dir: &PathBuf,
+    output_dir: &Path,
 ) {
     print!("  {} ... ", def.name);
     let tests = generator::generate(def, cpu_type, count);

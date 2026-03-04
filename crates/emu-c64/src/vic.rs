@@ -67,8 +67,8 @@ const DISPLAY_END_CYCLE: u8 = 56;
 /// Offset to convert sprite X coordinate to framebuffer X coordinate.
 ///
 /// Sprite X=24 corresponds to the left edge of the display window.
-/// The display window starts at fb_x = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) * 8 = 48.
-/// So fb_x = sprite_x - 24 + 48 = sprite_x + 24.
+/// The display window starts at `fb_x` = (`DISPLAY_START_CYCLE` - `FIRST_VISIBLE_CYCLE`) * 8 = 48.
+/// So `fb_x` = `sprite_x` - 24 + 48 = `sprite_x` + 24.
 const SPRITE_X_TO_FB: i16 = 24;
 
 /// 8 pixels of rendered cell data, returned by each render method.
@@ -112,7 +112,7 @@ pub struct Vic {
     /// Whether the current line is a badline (re-evaluated every cycle).
     is_badline: bool,
 
-    /// DEN (Display ENable) latch — set when DEN=1 seen during line $30.
+    /// DEN (Display `ENable`) latch — set when DEN=1 seen during line $30.
     den_latch: bool,
 
     /// Frame complete flag (set at end of frame, cleared by `take_frame_complete`).
@@ -151,12 +151,12 @@ pub struct Vic {
     /// Edge-detect: suppress re-triggering IRQ until register is read.
     sprite_sprite_irq_latched: bool,
     sprite_bg_irq_latched: bool,
-    /// Text row index (0-24), set during fetch_screen_row for bitmap modes.
+    /// Text row index (0-24), set during `fetch_screen_row` for bitmap modes.
     text_row: u16,
 
     /// XSCROLL carry: 8 pixels of ARGB colour from the previous column.
     xscroll_carry_pixels: [u32; 8],
-    /// XSCROLL carry: fg_mask bits from the previous column.
+    /// XSCROLL carry: `fg_mask` bits from the previous column.
     xscroll_carry_fg: u8,
     /// XSCROLL value latched at the start of each display line.
     xscroll_latch: u8,
@@ -186,7 +186,7 @@ impl Vic {
             C64Model::C64Pal => (PAL_FIRST_VISIBLE_LINE, PAL_LAST_VISIBLE_LINE),
             C64Model::C64Ntsc => (NTSC_FIRST_VISIBLE_LINE, NTSC_LAST_VISIBLE_LINE),
         };
-        let visible_lines = (last_vis - first_vis) as u32;
+        let visible_lines = u32::from(last_vis - first_vis);
         let fb_size = FB_WIDTH as usize * visible_lines as usize;
 
         Self {
@@ -315,7 +315,7 @@ impl Vic {
     /// Fetch the 40 screen codes and colours for the current row.
     fn fetch_screen_row(&mut self, memory: &C64Memory) {
         let screen_base = self.screen_base();
-        let text_row = ((self.raster_line - DISPLAY_START_LINE) / 8) as u16;
+        let text_row = (self.raster_line - DISPLAY_START_LINE) / 8;
         self.text_row = text_row;
 
         for col in 0u16..40 {
@@ -355,7 +355,7 @@ impl Vic {
                 line_in_sprite / 2
             } else {
                 line_in_sprite
-            } as u16;
+            };
 
             // Sprite pointer at screen_base + $3F8 + sprite_num
             let ptr_addr = screen_base + 0x03F8 + i as u16;
@@ -787,8 +787,7 @@ impl Vic {
         }
 
         // Pass 2: collision detection (independent of priority/rendering)
-        for px in 0..8usize {
-            let cov = sprite_coverage[px];
+        for (px, &cov) in sprite_coverage.iter().enumerate() {
             if cov.count_ones() >= 2 {
                 self.sprite_sprite_collision |= cov;
             }
@@ -1022,7 +1021,7 @@ impl Vic {
         self.lp_triggered = true;
         // LPX: raster cycle converted to pixel-pair units (divide X pixel by 2).
         // Each cycle = 8 pixels, so pixel-pair = cycle * 4.
-        self.regs[0x13] = (self.raster_cycle as u16 * 4) as u8;
+        self.regs[0x13] = (u16::from(self.raster_cycle) * 4) as u8;
         self.regs[0x14] = self.raster_line as u8;
     }
 
@@ -1041,7 +1040,7 @@ impl Vic {
     /// Framebuffer height in pixels.
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        (self.last_visible_line - self.first_visible_line) as u32
+        u32::from(self.last_visible_line - self.first_visible_line)
     }
 
     /// Check and clear the frame-complete flag.

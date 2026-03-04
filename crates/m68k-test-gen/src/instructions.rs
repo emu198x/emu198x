@@ -31,8 +31,6 @@ pub enum InstructionSetup {
     Fixed,
     /// Opcode + 1 random extension word (byte immediate, word immediate).
     RandExt1,
-    /// Opcode + 2 random extension words (long immediate).
-    RandExt2,
     /// Instruction needs a valid stack frame (RTS, RTE, RTR, UNLK).
     #[allow(dead_code)]
     NeedsStack,
@@ -70,17 +68,6 @@ const fn rand1(name: &'static str, opcode: u16) -> InstructionDef {
         opcode,
         ext_words: 1,
         setup: InstructionSetup::RandExt1,
-        min_cpu: M68K,
-    }
-}
-
-/// Helper to define an instruction with 2 random extension words.
-const fn rand2(name: &'static str, opcode: u16) -> InstructionDef {
-    InstructionDef {
-        name,
-        opcode,
-        ext_words: 2,
-        setup: InstructionSetup::RandExt2,
         min_cpu: M68K,
     }
 }
@@ -161,10 +148,10 @@ const fn needs_stack_010(name: &'static str, opcode: u16, ext_words: u8) -> Inst
 
 /// Return all instruction definitions for the given CPU type.
 pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
-    let mut defs = Vec::new();
-
-    // ===== Fixed instructions (no operands / operands in opcode) =====
-    defs.push(fixed("NOP", 0x4E71));
+    let mut defs = vec![
+        // ===== Fixed instructions (no operands / operands in opcode) =====
+        fixed("NOP", 0x4E71),
+    ];
 
     // --- MOVE.q #imm,Dn (immediate in opcode bits 7:0, Dn in bits 11:9) ---
     // MOVEQ #0,D1 — the immediate will vary via random SR/data, but the

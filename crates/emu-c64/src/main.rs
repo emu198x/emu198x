@@ -74,7 +74,7 @@ fn parse_args() -> CliArgs {
             "--sid" => {
                 i += 1;
                 if let Some(s) = args.get(i) {
-                    cli.sid_model = s.clone();
+                    cli.sid_model.clone_from(s);
                 }
             }
             "--reu" => {
@@ -340,12 +340,11 @@ impl ApplicationHandler for App {
                     self.last_frame_time = now;
                 }
 
-                if let Some(pixels) = self.pixels.as_ref() {
-                    if let Err(e) = pixels.render() {
+                if let Some(pixels) = self.pixels.as_ref()
+                    && let Err(e) = pixels.render() {
                         eprintln!("Render error: {e}");
                         event_loop.exit();
                     }
-                }
             }
             _ => {}
         }
@@ -446,11 +445,11 @@ fn load_c64_config(cli: &CliArgs) -> C64Config {
 
 fn make_c64(cli: &CliArgs) -> C64 {
     let config = load_c64_config(cli);
-    make_c64_from_config(config, cli)
+    make_c64_from_config(&config, cli)
 }
 
-fn make_c64_from_config(config: C64Config, cli: &CliArgs) -> C64 {
-    let mut c64 = C64::new(&config);
+fn make_c64_from_config(config: &C64Config, cli: &CliArgs) -> C64 {
+    let mut c64 = C64::new(config);
 
     // Load D64 disk image if specified
     if let Some(ref path) = cli.d64_path {
@@ -524,7 +523,7 @@ fn main() {
 
     let config = load_c64_config(&cli);
     let is_ntsc = config.model == C64Model::C64Ntsc;
-    let c64 = make_c64_from_config(config, &cli);
+    let c64 = make_c64_from_config(&config, &cli);
     let mut app = App::new(c64);
     if is_ntsc {
         app.frame_duration = Duration::from_micros(16_667); // ~60 Hz NTSC

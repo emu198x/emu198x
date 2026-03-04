@@ -206,7 +206,6 @@ impl CpuModel {
                 instruction_cache: true,
                 data_cache: true,
                 burst_mode: true,
-                ..BASE
             },
 
             // 68040 family: deeper pipeline, on-chip FPU
@@ -256,7 +255,6 @@ impl CpuModel {
                 instruction_cache: true,
                 data_cache: true,
                 burst_mode: true,
-                ..BASE
             },
 
             // 68060 family: superscalar
@@ -306,7 +304,6 @@ impl CpuModel {
                 instruction_cache: true,
                 data_cache: true,
                 burst_mode: true,
-                ..BASE
             },
         }
     }

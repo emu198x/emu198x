@@ -939,7 +939,7 @@ impl Mos6502 {
                 let lo = (self.addr as u8).wrapping_add(self.regs.x);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
                 // Check if page crossed
-                self.data = if lo < self.regs.x { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.x);
                 self.cycle = 3;
             }
             3 => {
@@ -978,7 +978,7 @@ impl Mos6502 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
-                self.data = if lo < self.regs.y { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.y);
                 self.cycle = 3;
             }
             3 => {
@@ -1058,7 +1058,7 @@ impl Mos6502 {
                     .data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
-                self.data = if lo < self.regs.y { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.y);
                 self.cycle = 4;
             }
             4 => {
@@ -1178,7 +1178,7 @@ impl Mos6502 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.x);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
-                self.data = if lo < self.regs.x { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.x);
                 self.cycle = 3;
             }
             3 => {
@@ -1210,7 +1210,7 @@ impl Mos6502 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
-                self.data = if lo < self.regs.y { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.y);
                 self.cycle = 3;
             }
             3 => {
@@ -1278,7 +1278,7 @@ impl Mos6502 {
                     .data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
-                self.data = if lo < self.regs.y { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.y);
                 self.cycle = 4;
             }
             4 => {
@@ -1400,7 +1400,7 @@ impl Mos6502 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.x);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
-                self.data = if lo < self.regs.x { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.x);
                 self.cycle = 3;
             }
             3 => {
@@ -1440,7 +1440,7 @@ impl Mos6502 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
-                self.data = if lo < self.regs.y { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.y);
                 self.cycle = 3;
             }
             3 => {
@@ -1526,7 +1526,7 @@ impl Mos6502 {
                     .data;
                 let lo = (self.addr as u8).wrapping_add(self.regs.y);
                 self.addr = u16::from(lo) | (u16::from(hi) << 8);
-                self.data = if lo < self.regs.y { 1 } else { 0 };
+                self.data = u8::from(lo < self.regs.y);
                 self.cycle = 4;
             }
             4 => {
@@ -1597,7 +1597,7 @@ impl Mos6502 {
 
     fn do_adc_binary(&mut self, val: u8) {
         let a = self.regs.a;
-        let carry = if self.regs.p.is_set(C) { 1u16 } else { 0 };
+        let carry = u16::from(self.regs.p.is_set(C));
         let sum = u16::from(a) + u16::from(val) + carry;
         let result = sum as u8;
 
@@ -1611,7 +1611,7 @@ impl Mos6502 {
 
     fn do_adc_decimal(&mut self, val: u8) {
         let a = self.regs.a;
-        let carry: u16 = if self.regs.p.is_set(C) { 1 } else { 0 };
+        let carry: u16 = u16::from(self.regs.p.is_set(C));
 
         // Z flag is based on binary result (NMOS 6502 quirk)
         let bin_sum = u16::from(a) + u16::from(val) + carry;
@@ -1652,7 +1652,7 @@ impl Mos6502 {
 
     fn do_sbc_decimal(&mut self, val: u8) {
         let a = self.regs.a;
-        let borrow = if self.regs.p.is_set(C) { 0i16 } else { 1 };
+        let borrow = i16::from(!self.regs.p.is_set(C));
 
         // Binary result for flags (NMOS behavior)
         let bin_result = i16::from(a) - i16::from(val) - borrow;
@@ -1718,7 +1718,7 @@ impl Mos6502 {
     }
 
     fn do_rol(&mut self, val: u8) -> u8 {
-        let carry = if self.regs.p.is_set(C) { 1 } else { 0 };
+        let carry = u8::from(self.regs.p.is_set(C));
         self.regs.p.set_if(C, val & 0x80 != 0);
         let result = (val << 1) | carry;
         self.regs.p.update_nz(result);
@@ -1772,7 +1772,7 @@ impl Mos6502 {
 
     /// RLA - Rotate Left then AND with accumulator
     fn do_rla(&mut self, val: u8) -> u8 {
-        let carry = if self.regs.p.is_set(C) { 1 } else { 0 };
+        let carry = u8::from(self.regs.p.is_set(C));
         self.regs.p.set_if(C, val & 0x80 != 0);
         let result = (val << 1) | carry;
         self.regs.a &= result;
@@ -2279,16 +2279,16 @@ impl Mos6502 {
                 // Read offset
                 self.data = self.read_mem(bus, self.regs.pc);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                if !taken {
-                    self.finish();
-                } else {
+                if taken {
                     self.cycle = 2;
+                } else {
+                    self.finish();
                 }
             }
             2 => {
                 // Branch taken - calculate target
                 let _ = self.read_mem_result(bus, self.regs.pc); // Dummy read
-                let offset = self.data as i8 as i16;
+                let offset = i16::from(self.data as i8);
                 let new_pc = (self.regs.pc as i16).wrapping_add(offset) as u16;
                 // Check for page crossing
                 if (new_pc ^ self.regs.pc) & 0xFF00 != 0 {
@@ -2560,11 +2560,11 @@ impl Cpu for Mos6502 {
     }
 
     fn interrupt(&mut self) -> bool {
-        if !self.regs.p.is_set(I) {
+        if self.regs.p.is_set(I) {
+            false
+        } else {
             self.irq_pending = true;
             true
-        } else {
-            false
         }
     }
 

@@ -1108,12 +1108,11 @@ impl DeniseOcs {
                 self.bpl_shift_count[plane] -= 1;
                 // AGA FIFO auto-reload: when a plane's shift register drains
                 // and there are queued wider-fetch words, pop the next one.
-                if self.bpl_shift_count[plane] == 0 && self.bpl_fifo_len[plane] > 0 {
-                    if let Some(word) = self.pop_bpl_fifo(plane) {
+                if self.bpl_shift_count[plane] == 0 && self.bpl_fifo_len[plane] > 0
+                    && let Some(word) = self.pop_bpl_fifo(plane) {
                         self.bpl_shift[plane] = word;
                         self.bpl_shift_count[plane] = 16;
                     }
-                }
             }
             self.shift_count = self
                 .bpl_shift_count

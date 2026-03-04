@@ -232,7 +232,7 @@ impl IpfImage {
                         let mfm_len = if data_length > 0 {
                             data_length
                         } else {
-                            (data_bits + 7) / 8
+                            data_bits.div_ceil(8)
                         };
                         data_records.push(DataRecord {
                             data_key,
@@ -294,22 +294,26 @@ impl IpfImage {
     }
 
     /// Check whether the first 4 bytes of `data` are the "CAPS" magic.
+    #[must_use] 
     pub fn is_ipf(data: &[u8]) -> bool {
         data.len() >= 4 && &data[0..4] == IPF_MAGIC
     }
 
     /// Number of populated tracks.
+    #[must_use] 
     pub fn track_count(&self) -> usize {
         self.tracks.iter().filter(|t| t.is_some()).count()
     }
 
     /// Access the raw MFM data for a specific track.
+    #[must_use] 
     pub fn track_mfm(&self, cyl: u32, head: u32) -> Option<&[u8]> {
         let idx = (cyl as usize) * 2 + (head as usize);
         self.tracks.get(idx)?.as_ref().map(|t| t.mfm_data.as_slice())
     }
 
     /// Track data type.
+    #[must_use] 
     pub fn track_data_type(&self, cyl: u32, head: u32) -> Option<IpfDataType> {
         let idx = (cyl as usize) * 2 + (head as usize);
         self.tracks.get(idx)?.as_ref().map(|t| t.data_type)
@@ -318,7 +322,7 @@ impl IpfImage {
 
 impl DiskImage for IpfImage {
     fn encode_mfm_track(&self, cyl: u32, head: u32) -> Option<Vec<u8>> {
-        self.track_mfm(cyl, head).map(|d| d.to_vec())
+        self.track_mfm(cyl, head).map(<[u8]>::to_vec)
     }
 
     fn sectors_per_track(&self) -> u32 {

@@ -32,7 +32,7 @@ pub enum CartridgeType {
     FunPlay,
     /// Type 19: up to 128 x 8K banks at $8000, selected via $DE00.
     MagicDesk,
-    /// Type 32: EasyFlash — 64x8K dual banks, 256B RAM, control regs.
+    /// Type 32: `EasyFlash` — 64x8K dual banks, 256B RAM, control regs.
     EasyFlash,
 }
 
@@ -51,9 +51,9 @@ pub struct Cartridge {
     pub romh: Vec<Vec<u8>>,
     /// Current bank index (for bankswitched types).
     pub bank: u8,
-    /// EasyFlash: 256 bytes of on-cartridge RAM at $DF00-$DFFF.
+    /// `EasyFlash`: 256 bytes of on-cartridge RAM at $DF00-$DFFF.
     pub ef_ram: [u8; 256],
-    /// EasyFlash: control register ($DE02) value.
+    /// `EasyFlash`: control register ($DE02) value.
     pub ef_control: u8,
 }
 

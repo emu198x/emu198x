@@ -123,9 +123,8 @@ impl<T: McpEmulator> McpServer<T> {
         let mut stdout = stdout.lock();
 
         for line in stdin.lock().lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => break,
+            let Ok(line) = line else {
+                break;
             };
 
             let line = line.trim().to_string();
@@ -169,7 +168,7 @@ impl<T: McpEmulator> McpServer<T> {
             let params = step
                 .params
                 .clone()
-                .unwrap_or(JsonValue::Object(Default::default()));
+                .unwrap_or(JsonValue::Object(serde_json::Map::default()));
 
             let response = match self.inner.dispatch_tool(&step.method, &params) {
                 ToolResult::Success(val) => RpcResponse::success(id, val.clone()),
@@ -179,17 +178,15 @@ impl<T: McpEmulator> McpServer<T> {
             write_response(&mut stdout, &response);
 
             // Script mode: if save_path was provided, save base64 data to file.
-            if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
-                if let Some(ref result) = response.result {
-                    if let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
+            if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str())
+                && let Some(ref result) = response.result
+                    && let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
                         if let Err(e) = save_base64_to_file(save_path, data_b64) {
                             eprintln!("Failed to save {save_path}: {e}");
                         } else {
                             eprintln!("Saved {save_path}");
                         }
                     }
-                }
-            }
         }
 
         Ok(())
@@ -238,21 +235,18 @@ impl<T: McpEmulator> McpServer<T> {
     }
 
     fn handle_tools_call(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let name = match params.get("name").and_then(|v| v.as_str()) {
-            Some(n) => n,
-            None => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing 'name' in tools/call params".to_string(),
-                );
-            }
+        let Some(name) = params.get("name").and_then(|v| v.as_str()) else {
+            return RpcResponse::error(
+                id,
+                -32602,
+                "Missing 'name' in tools/call params".to_string(),
+            );
         };
 
         let arguments = params
             .get("arguments")
             .cloned()
-            .unwrap_or(JsonValue::Object(Default::default()));
+            .unwrap_or(JsonValue::Object(serde_json::Map::default()));
 
         match self.inner.dispatch_tool(name, &arguments) {
             ToolResult::Success(val) => {
@@ -354,6 +348,7 @@ pub fn encode_png(width: u32, height: u32, pixels: &[u32]) -> Result<Vec<u8>, St
 ///
 /// If `save_path` is `Some`, writes PNG to that path and returns metadata only.
 /// Otherwise returns base64-encoded PNG data in the response.
+#[must_use] 
 pub fn screenshot_result(
     width: u32,
     height: u32,
