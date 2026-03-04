@@ -32,14 +32,11 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
 #[test]
 #[ignore] // Requires Code198x repo
 fn test_dash_unit01() {
-    let rom_path = match code198x_path(
+    let Some(rom_path) = code198x_path(
         "nintendo-entertainment-system/game-01-dash/unit-01/dash.nes",
-    ) {
-        Some(p) => p,
-        None => {
-            eprintln!("Skipping: Code198x repo not found");
-            return;
-        }
+    ) else {
+        eprintln!("Skipping: Code198x repo not found");
+        return;
     };
 
     ensure_output_dir();
@@ -68,7 +65,7 @@ fn test_dash_unit01() {
 
     // Verify: framebuffer has non-black pixels (the sprite should be visible)
     let fb = nes.bus().ppu.framebuffer();
-    let non_black = fb.iter().filter(|&&p| p != 0 && p != 0xFF000000).count();
+    let non_black = fb.iter().filter(|&&p| p != 0 && p != 0xFF00_0000).count();
     assert!(
         non_black > 10,
         "Framebuffer should have non-black pixels from the sprite (found {non_black})"

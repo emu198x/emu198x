@@ -157,7 +157,7 @@ fn aud0_dma_irq_cadence_and_audio_output() {
     tick_ccks(&mut amiga, 4_000);
     let audio = amiga.take_audio_buffer();
     assert!(
-        audio.len() >= 32 && audio.len() % 2 == 0,
+        audio.len() >= 32 && audio.len().is_multiple_of(2),
         "expected interleaved stereo audio samples"
     );
 
@@ -765,7 +765,7 @@ fn test_paula_audio_dma_capture() {
     // Stereo frames = total samples / 2 (interleaved L, R).
     let stereo_frames = all_audio.len() / 2;
     assert!(
-        all_audio.len() % 2 == 0,
+        all_audio.len().is_multiple_of(2),
         "audio buffer should contain interleaved stereo pairs"
     );
     assert!(

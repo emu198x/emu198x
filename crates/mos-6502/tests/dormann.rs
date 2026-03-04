@@ -26,9 +26,9 @@ fn run_dormann(binary: &[u8]) -> bool {
 
     let mut cycles: u64 = 0;
     let mut instructions: u64 = 0;
-    let mut last_good_pc: u16 = 0x0400;
+    let mut last_good_pc: u32 = 0x0400;
 
-    let mut prev_pc: u16 = 0xFFFF;
+    let mut prev_pc: u32 = 0xFFFF;
     let mut same_pc_count = 0;
 
     loop {
@@ -39,8 +39,7 @@ fn run_dormann(binary: &[u8]) -> bool {
             same_pc_count += 1;
             if same_pc_count > 2 {
                 eprintln!(
-                    "\nTrapped at ${:04X} after {} instructions ({} cycles)",
-                    start_pc, instructions, cycles
+                    "\nTrapped at ${start_pc:04X} after {instructions} instructions ({cycles} cycles)"
                 );
                 // Success address for the standard test
                 return start_pc == 0x3469;
@@ -53,8 +52,7 @@ fn run_dormann(binary: &[u8]) -> bool {
         // Detect if we've jumped to $FF00+ region (usually indicates bad vector read)
         if start_pc >= 0xFF00 && last_good_pc < 0xFF00 {
             eprintln!(
-                "\n!!! Jumped to ${:04X} from ${:04X} after {} instructions",
-                start_pc, last_good_pc, instructions
+                "\n!!! Jumped to ${start_pc:04X} from ${last_good_pc:04X} after {instructions} instructions"
             );
             return false;
         }
@@ -79,7 +77,7 @@ fn run_dormann(binary: &[u8]) -> bool {
         instructions += 1;
 
         // Progress every 100K instructions
-        if instructions % 100_000 == 0 {
+        if instructions.is_multiple_of(100_000) {
             eprint!("\r[{} instructions, PC=${:04X}]", instructions, cpu.pc());
         }
 
@@ -106,7 +104,7 @@ fn run_decimal_test(binary: &[u8]) -> bool {
     let mut cycles: u64 = 0;
     let mut instructions: u64 = 0;
 
-    let mut prev_pc: u16 = 0xFFFF;
+    let mut prev_pc: u32 = 0xFFFF;
     let mut same_pc_count = 0;
 
     // Zero-page layout from test:
@@ -121,12 +119,11 @@ fn run_decimal_test(binary: &[u8]) -> bool {
             same_pc_count += 1;
             if same_pc_count > 2 {
                 eprintln!(
-                    "\nTrapped at ${:04X} after {} instructions ({} cycles)",
-                    start_pc, instructions, cycles
+                    "\nTrapped at ${start_pc:04X} after {instructions} instructions ({cycles} cycles)"
                 );
                 // Check error flag location
                 let error = bus.peek(0x000B);
-                eprintln!("Error flag at $000B: ${:02X}", error);
+                eprintln!("Error flag at $000B: ${error:02X}");
 
                 // Dump test state on failure
                 if error != 0 {
@@ -139,14 +136,14 @@ fn run_decimal_test(binary: &[u8]) -> bool {
                     let y_reg = cpu.regs.y; // Carry input (Y=1 means carry set)
 
                     eprintln!("Test state at failure:");
-                    eprintln!("  N1=${:02X}, N2=${:02X}, Y(carry_in)={}", n1, n2, y_reg);
-                    eprintln!("  Actual: A=${:02X}, Flags=${:02X}", da, dnvzc);
-                    eprintln!("  Predicted: A=${:02X}, C_flag=${:02X}", ar, cf);
+                    eprintln!("  N1=${n1:02X}, N2=${n2:02X}, Y(carry_in)={y_reg}");
+                    eprintln!("  Actual: A=${da:02X}, Flags=${dnvzc:02X}");
+                    eprintln!("  Predicted: A=${ar:02X}, C_flag=${cf:02X}");
 
                     // Decode flags
                     let actual_c = dnvzc & 1;
                     let pred_c = cf & 1;
-                    eprintln!("  Carry: actual={}, predicted={}", actual_c, pred_c);
+                    eprintln!("  Carry: actual={actual_c}, predicted={pred_c}");
 
                     if da != ar {
                         eprintln!("  >>> ACCUMULATOR MISMATCH <<<");
@@ -179,7 +176,7 @@ fn run_decimal_test(binary: &[u8]) -> bool {
         instructions += 1;
 
         // Progress every 100K instructions
-        if instructions % 100_000 == 0 {
+        if instructions.is_multiple_of(100_000) {
             eprint!("\r[{} instructions, PC=${:04X}]", instructions, cpu.pc());
         }
 

@@ -606,7 +606,7 @@ mod tests {
         // Should be close to CYCLES_PER_FRAME (may vary slightly due to
         // instruction boundaries and badlines)
         assert!(
-            cycles >= CYCLES_PER_FRAME - 100 && cycles <= CYCLES_PER_FRAME + 100,
+            (CYCLES_PER_FRAME - 100..=CYCLES_PER_FRAME + 100).contains(&cycles),
             "Expected ~{CYCLES_PER_FRAME} cycles, got {cycles}"
         );
     }

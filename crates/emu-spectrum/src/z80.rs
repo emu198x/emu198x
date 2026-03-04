@@ -348,6 +348,7 @@ fn decompress_z80(src: &[u8], dst: &mut [u8]) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::config::{SpectrumConfig, SpectrumModel};

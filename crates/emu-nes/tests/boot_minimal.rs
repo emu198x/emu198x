@@ -1,8 +1,8 @@
-//! Minimal NES boot test — verify reset vector read and $2002 VBlank polling.
+//! Minimal NES boot test — verify reset vector read and $2002 `VBlank` polling.
 //!
 //! Builds a minimal NROM (mapper 0) test ROM as a byte array. The code:
 //! 1. SEI, CLD, LDX #$FF, TXS (standard init)
-//! 2. Poll $2002 for VBlank flag (bit 7) — twice, per standard NES init
+//! 2. Poll $2002 for `VBlank` flag (bit 7) — twice, per standard NES init
 //! 3. JMP to self (infinite loop)
 //!
 //! If the CPU reaches the infinite loop within 3 frames, the NES boots.
@@ -104,7 +104,7 @@ fn test_boot_minimal() {
 
 /// Build an NROM ROM that writes "HELLO NES" to the background.
 ///
-/// PRG: standard init → 2× VBlank wait → load palette → write nametable →
+/// PRG: standard init → 2× `VBlank` wait → load palette → write nametable →
 /// reset scroll → enable rendering → idle.
 /// CHR: 7 hand-drawn 8×8 tiles (space, H, E, L, O, N, S) in pattern table 0.
 fn build_hello_rom() -> Vec<u8> {
@@ -271,10 +271,10 @@ fn test_background_rendering() {
 
     // Background colour at (0, 0): palette $0F = NES black = 0xFF000000.
     // Tile 0 (space) covers entire nametable except where we wrote text.
-    let bg_pixel = fb[0 * fb_w + 0];
+    let bg_pixel = fb[0];
     println!("Pixel (0,0) = 0x{bg_pixel:08X}");
     assert_eq!(
-        bg_pixel, 0xFF000000,
+        bg_pixel, 0xFF00_0000,
         "Top-left pixel should be NES black ($0F), got 0x{bg_pixel:08X}"
     );
 
@@ -284,7 +284,7 @@ fn test_background_rendering() {
     let h_pixel = fb[112 * fb_w + 96];
     println!("Pixel (96,112) = 0x{h_pixel:08X}");
     assert_eq!(
-        h_pixel, 0xFFFFFEFF,
+        h_pixel, 0xFFFF_FEFF,
         "Top-left of 'H' tile should be white ($30 = 0xFFFFFEFF), got 0x{h_pixel:08X}"
     );
 
@@ -523,10 +523,10 @@ fn test_sprite_rendering() {
     let fb_w = nes.framebuffer_width() as usize;
 
     // 1. Background colour at (0, 0): palette $0F = NES black.
-    let bg_pixel = fb[0 * fb_w + 0];
+    let bg_pixel = fb[0];
     println!("Pixel (0,0) = 0x{bg_pixel:08X}");
     assert_eq!(
-        bg_pixel, 0xFF000000,
+        bg_pixel, 0xFF00_0000,
         "Top-left pixel should be NES black ($0F), got 0x{bg_pixel:08X}"
     );
 
@@ -535,8 +535,8 @@ fn test_sprite_rendering() {
     let sprite_clear = fb[152 * fb_w + 124];
     println!("Pixel (124,152) = 0x{sprite_clear:08X}");
     assert_eq!(
-        sprite_clear, 0xFFB53120,
-        "Sprite 0 in clear area should be red ($16 = 0xFFB53120), got 0x{sprite_clear:08X}"
+        sprite_clear, 0xFFB5_3120,
+        "Sprite 0 in clear area should be red ($16 = 0xFFB5_3120), got 0x{sprite_clear:08X}"
     );
 
     // 3. Sprite over BG: sprite 1 at (96, 112) overlaps "H" tile.
@@ -544,8 +544,8 @@ fn test_sprite_rendering() {
     let sprite_over_bg = fb[112 * fb_w + 96];
     println!("Pixel (96,112) = 0x{sprite_over_bg:08X}");
     assert_eq!(
-        sprite_over_bg, 0xFFB53120,
-        "Sprite 1 over 'H' should be red ($16 = 0xFFB53120), got 0x{sprite_over_bg:08X}"
+        sprite_over_bg, 0xFFB5_3120,
+        "Sprite 1 over 'H' should be red ($16 = 0xFFB5_3120), got 0x{sprite_over_bg:08X}"
     );
 
     // 4. BG without sprite: second "L" at (120, 112) — no sprite overlap.
@@ -553,7 +553,7 @@ fn test_sprite_rendering() {
     let bg_text = fb[112 * fb_w + 120];
     println!("Pixel (120,112) = 0x{bg_text:08X}");
     assert_eq!(
-        bg_text, 0xFFFFFEFF,
+        bg_text, 0xFFFF_FEFF,
         "BG 'L' without sprite should be white ($30 = 0xFFFFFEFF), got 0x{bg_text:08X}"
     );
 
@@ -655,10 +655,11 @@ fn test_apu_produces_audio() {
         all_audio.extend_from_slice(&buf);
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    let audio_duration_s = all_audio.len() as f64 / 48_000.0;
     println!(
-        "Total audio samples: {} ({:.2}s at 48 kHz)",
+        "Total audio samples: {} ({audio_duration_s:.2}s at 48 kHz)",
         all_audio.len(),
-        all_audio.len() as f64 / 48_000.0
     );
 
     // Verify we got a reasonable amount of audio (~800 samples per frame)

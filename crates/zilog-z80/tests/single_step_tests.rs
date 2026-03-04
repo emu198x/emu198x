@@ -249,7 +249,7 @@ fn check_u16(errors: &mut Vec<String>, name: &str, actual: u16, expected: u16) {
     }
 }
 
-/// Run all Z80 SingleStepTests.
+/// Run all Z80 `SingleStepTests`.
 ///
 /// Iterates through all 1,604 test files covering unprefixed, CB, DD, ED, and FD opcodes.
 #[test]

@@ -1127,7 +1127,7 @@ mod tests {
         // Timer period low = $FD (A4 = 440 Hz → period ≈ 253)
         apu.write(0x4002, 0xFD);
         // Timer period high + length load
-        apu.write(0x4003, 0x00 | (0x01 << 3)); // period high = 0, length index = 1
+        apu.write(0x4003, 0x01 << 3); // period high = 0, length index = 1
 
         // Need enough ticks for multiple full 8-step duty cycles.
         // One duty cycle = 8 * (period+1) * 2 CPU ticks = 8 * 254 * 2 = 4064.
@@ -1158,7 +1158,7 @@ mod tests {
         apu.write(0x4008, 0xFF);
         // Timer period
         apu.write(0x400A, 0xFD);
-        apu.write(0x400B, 0x00 | (0x01 << 3)); // length index = 1
+        apu.write(0x400B, 0x01 << 3); // length index = 1
 
         // Triangle needs a quarter-frame event (7457 CPU cycles) to load
         // its linear counter from the reload value. Run 10000 ticks to

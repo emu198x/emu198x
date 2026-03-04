@@ -1049,6 +1049,7 @@ fn read_screen_char(spectrum: &Spectrum, row: u8, col: u8) -> char {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -1186,8 +1187,7 @@ mod tests {
                 let all_text = lines.join("\n");
                 assert!(
                     all_text.contains("1982"),
-                    "Screen should show copyright year: {}",
-                    all_text
+                    "Screen should show copyright year: {all_text}"
                 );
             }
             ToolResult::Error { message, .. } => panic!("Expected success, got error: {message}"),

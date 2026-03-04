@@ -105,7 +105,7 @@ mod tests {
         // Toggle every 50 ticks for a few hundred ticks
         for i in 0..500 {
             if i % 50 == 0 {
-                beeper.set_level(if beeper.level() == 0 { 1 } else { 0 });
+                beeper.set_level(u8::from(beeper.level() == 0));
             }
             beeper.sample();
         }

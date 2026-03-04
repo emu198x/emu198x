@@ -151,5 +151,5 @@ fn test_minimal_execution() {
     );
 
     // Check CIA-A Result (Overlay off)
-    assert_eq!(amiga.memory.overlay, false);
+    assert!(!amiga.memory.overlay);
 }

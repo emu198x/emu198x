@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 //! C64 Kernal boot test — verify the machine boots to BASIC READY. prompt.
 
 use emu_core::Bus;
@@ -116,7 +117,9 @@ fn test_sid_produces_audio() {
         audio.extend_from_slice(&c64.take_audio_buffer());
     }
 
-    println!("SID audio buffer: {} samples ({:.2}s)", audio.len(), audio.len() as f64 / 48_000.0);
+    #[allow(clippy::cast_precision_loss)]
+    let audio_duration_s = audio.len() as f64 / 48_000.0;
+    println!("SID audio buffer: {} samples ({audio_duration_s:.2}s)", audio.len());
 
     assert!(!audio.is_empty(), "SID should produce audio samples");
 
@@ -616,9 +619,7 @@ fn test_d64_load() {
 
             if frame % 100 == 0 {
                 let drive_info = c64
-                    .drive()
-                    .map(|d| format!("track={} motor={} led={}", d.track(), d.motor_on(), d.led_on()))
-                    .unwrap_or_else(|| "no drive".to_string());
+                    .drive().map_or_else(|| "no drive".to_string(), |d| format!("track={} motor={} led={}", d.track(), d.motor_on(), d.led_on()));
                 println!("Frame {frame}: PC=${:04X} {drive_info}", c64.cpu().regs.pc);
             }
 

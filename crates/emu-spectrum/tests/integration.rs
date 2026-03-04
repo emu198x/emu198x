@@ -33,7 +33,7 @@ fn make_spectrum_custom_rom(rom: &[u8]) -> Spectrum {
     Spectrum::new(&config)
 }
 
-/// Output directory for test artefacts (repo root's test_output/).
+/// Output directory for test artefacts (repo root's `test_output`/).
 const OUTPUT_DIR: &str = "../../test_output/spectrum";
 
 fn ensure_output_dir() {

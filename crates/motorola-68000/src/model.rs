@@ -317,7 +317,7 @@ impl CpuModel {
 
 #[cfg(test)]
 mod tests {
-    use super::{CpuCapabilities, CpuModel, TimingClass};
+    use super::{CpuModel, TimingClass};
 
     #[test]
     fn timing_classes() {

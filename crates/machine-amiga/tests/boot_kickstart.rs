@@ -74,7 +74,7 @@ fn test_boot_kick13() {
     let mut stuck_count = 0u32;
     let mut strap_trace_active = false;
     let mut strap_trace_count = 0u32;
-    let mut strap_prev_pc: u32 = 0;
+    let _strap_prev_pc: u32 = 0;
     let mut prev_sig_wait_lo: u16 = 0;
     let mut doio3_seen = false;
     let mut loadview_trace = false;
@@ -107,7 +107,7 @@ fn test_boot_kick13() {
         }
 
         // Snapshot PC after Draw() should have returned
-        if (i >= 90_061_000 && i <= 90_065_000 && i % 200 == 0) || i == 90_100_000 {
+        if ((90_061_000..=90_065_000).contains(&i) && i % 200 == 0) || i == 90_100_000 {
             eprintln!(
                 "[tick {}] SNAPSHOT: PC=${:08X} ipc=${:08X} SR=${:04X} SP=${:08X} D0=${:08X} D1=${:08X} A6=${:08X}",
                 i,
@@ -305,7 +305,7 @@ fn test_boot_kick13() {
                         let a1 = amiga.cpu.regs.a(1) as usize;
                         let r = &amiga.memory.chip_ram;
                         let cmd = if a1 + 0x1D < r.len() {
-                            ((r[a1 + 0x1C] as u16) << 8 | r[a1 + 0x1D] as u16)
+                            (r[a1 + 0x1C] as u16) << 8 | r[a1 + 0x1D] as u16
                         } else {
                             0xFFFF
                         };
@@ -336,31 +336,31 @@ fn test_boot_kick13() {
                         let a1 = amiga.cpu.regs.a(1) as usize;
                         let r = &amiga.memory.chip_ram;
                         let cmd = if a1 + 0x1D < r.len() {
-                            ((r[a1 + 0x1C] as u16) << 8 | r[a1 + 0x1D] as u16)
+                            (r[a1 + 0x1C] as u16) << 8 | r[a1 + 0x1D] as u16
                         } else {
                             0xFFFF
                         };
                         let io_unit = if a1 + 0x1B < r.len() {
-                            ((r[a1 + 0x18] as u32) << 24
+                            (r[a1 + 0x18] as u32) << 24
                                 | (r[a1 + 0x19] as u32) << 16
                                 | (r[a1 + 0x1A] as u32) << 8
-                                | r[a1 + 0x1B] as u32)
+                                | r[a1 + 0x1B] as u32
                         } else {
                             0xDEAD
                         };
                         let tv_secs = if a1 + 0x23 < r.len() {
-                            ((r[a1 + 0x20] as u32) << 24
+                            (r[a1 + 0x20] as u32) << 24
                                 | (r[a1 + 0x21] as u32) << 16
                                 | (r[a1 + 0x22] as u32) << 8
-                                | r[a1 + 0x23] as u32)
+                                | r[a1 + 0x23] as u32
                         } else {
                             0
                         };
                         let tv_micro = if a1 + 0x27 < r.len() {
-                            ((r[a1 + 0x24] as u32) << 24
+                            (r[a1 + 0x24] as u32) << 24
                                 | (r[a1 + 0x25] as u32) << 16
                                 | (r[a1 + 0x26] as u32) << 8
-                                | r[a1 + 0x27] as u32)
+                                | r[a1 + 0x27] as u32
                         } else {
                             0
                         };
@@ -585,7 +585,7 @@ fn test_boot_kick13() {
         // Sample PC every 256 ticks for range tracking
         if i & 0xFF == 0 {
             let pc = amiga.cpu.regs.pc;
-            let range = if pc >= 0x00FC0000 && pc < 0x00FD0000 {
+            let range = if (0x00FC0000..0x00FD0000).contains(&pc) {
                 ((pc - 0x00FC0000) >> 12) as usize // 4KB buckets within ROM
             } else if pc < 0x00080000 {
                 15 // Chip RAM
@@ -798,7 +798,7 @@ fn test_boot_kick13() {
         let this_task = read_long(&amiga.memory.chip_ram, exec_base + 0x114) as usize;
         println!("  ThisTask = ${:08X}", this_task);
         if this_task > 0 && this_task + 0x20 < amiga.memory.chip_ram.len() {
-            let task_name = read_long(&amiga.memory.chip_ram, this_task + 10) as u32;
+            let task_name = read_long(&amiga.memory.chip_ram, this_task + 10);
             if task_name > 0 {
                 println!(
                     "    Name: \"{}\"",
@@ -901,7 +901,7 @@ fn test_boot_kick13() {
             && count < 20
         {
             let next = read_long(&amiga.memory.chip_ram, node) as usize;
-            let name_ptr = read_long(&amiga.memory.chip_ram, node + 10) as u32;
+            let name_ptr = read_long(&amiga.memory.chip_ram, node + 10);
             let name = if name_ptr > 0 {
                 read_string_from_mem(&amiga.memory, name_ptr)
             } else {
@@ -930,7 +930,7 @@ fn test_boot_kick13() {
             && count < 20
         {
             let next = read_long(&amiga.memory.chip_ram, node) as usize;
-            let name_ptr = read_long(&amiga.memory.chip_ram, node + 10) as u32;
+            let name_ptr = read_long(&amiga.memory.chip_ram, node + 10);
             let name = if name_ptr > 0 {
                 read_string_from_mem(&amiga.memory, name_ptr)
             } else {
@@ -959,7 +959,7 @@ fn test_boot_kick13() {
             && count < 20
         {
             let next = read_long(&amiga.memory.chip_ram, node) as usize;
-            let name_ptr = read_long(&amiga.memory.chip_ram, node + 10) as u32;
+            let name_ptr = read_long(&amiga.memory.chip_ram, node + 10);
             let name = if name_ptr > 0 {
                 read_string_from_mem(&amiga.memory, name_ptr)
             } else {
@@ -1009,7 +1009,7 @@ fn test_boot_kick13() {
                 && count < 10
             {
                 let next = read_long(&amiga.memory.chip_ram, node as usize);
-                let name_ptr = read_long(&amiga.memory.chip_ram, node as usize + 10) as u32;
+                let name_ptr = read_long(&amiga.memory.chip_ram, node as usize + 10);
                 let name = if name_ptr > 0 {
                     read_string_from_mem(&amiga.memory, name_ptr)
                 } else {
@@ -1067,7 +1067,7 @@ fn test_boot_kick13() {
                 && count_e < 10
             {
                 let next = read_long(&amiga.memory.chip_ram, node_e as usize);
-                let name_ptr = read_long(&amiga.memory.chip_ram, node_e as usize + 10) as u32;
+                let name_ptr = read_long(&amiga.memory.chip_ram, node_e as usize + 10);
                 let name = if name_ptr > 0 {
                     read_string_from_mem(&amiga.memory, name_ptr)
                 } else {
@@ -1270,9 +1270,9 @@ fn test_boot_kick13() {
 
     // Print PC range heat map
     println!("\nPC range heat map (% of sampled ticks):");
-    for i in 0..14 {
-        if pc_ranges[i] > 0 {
-            let pct = (pc_ranges[i] as f64 / range_ticks as f64) * 100.0;
+    for (i, &count) in pc_ranges[..14].iter().enumerate() {
+        if count > 0 {
+            let pct = (count as f64 / range_ticks as f64) * 100.0;
             println!("  $FC{:X}000-$FC{:X}FFF: {:6.2}%", i, i, pct);
         }
     }
@@ -1297,7 +1297,7 @@ fn test_boot_kick13() {
             fs::create_dir_all(parent).ok();
         }
         let file = fs::File::create(raster_path).expect("create raster screenshot file");
-        let ref mut w = std::io::BufWriter::new(file);
+        let w = &mut std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
@@ -1334,7 +1334,7 @@ fn test_boot_kick13() {
             let mut count = 0;
             while node != lib_sentinel && node != 0 && node < ram.len() - 0x40 && count < 20 {
                 let next = read_long(ram, node) as usize;
-                let name_ptr = read_long(ram, node + 10) as u32;
+                let name_ptr = read_long(ram, node + 10);
                 if name_ptr > 0 {
                     let name = read_string_from_mem(&amiga.memory, name_ptr);
                     if name.starts_with("graphics") {
@@ -1581,7 +1581,7 @@ fn test_boot_kick13() {
         let mut set_bits = 0u32;
         for i in 0..40 {
             let b = ram[start + i];
-            set_bits += b.count_ones() as u32;
+            set_bits += b.count_ones();
             print!("{:02X}", b);
         }
         println!("  [{}/320 bits set]", set_bits);
@@ -2034,7 +2034,7 @@ fn test_warm_restart_path() {
         }
 
         // Capture state at Guru alert code points (BEFORE prev_pc update)
-        if pc >= 0xFC3040 && pc <= 0xFC3070 && pc != prev_pc {
+        if (0xFC3040..=0xFC3070).contains(&pc) && pc != prev_pc {
             let ms = i / (PAL_CRYSTAL_HZ / 1000);
             println!(
                 "[{:4}ms] ALERT PC=${:08X} IR=${:04X} D7=${:08X} D0=${:08X} A5=${:08X} A6=${:08X} SR=${:04X}",
@@ -2103,10 +2103,10 @@ fn test_alert_trigger_trace() {
 
     let mut prev_pc: u32 = 0;
     let mut prev_d7: u32 = 0;
-    let mut prev_d0: u32 = 0;
+    let mut _prev_d0: u32 = 0;
 
     // Track InitResident calls and results
-    let mut in_resident_init = false;
+    let mut _in_resident_init = false;
     let mut resident_init_count = 0u32;
 
     // Find ExecBase for computing LVOs
@@ -2178,7 +2178,7 @@ fn test_alert_trigger_trace() {
                 amiga.cpu.regs.d[1],
                 amiga.cpu.regs.a(2)
             );
-            in_resident_init = true;
+            _in_resident_init = true;
         }
 
         // Track InitResident (LVO -102 = -$66). It's called at $FC0B58.
@@ -2239,15 +2239,15 @@ fn test_alert_trigger_trace() {
                 "[{:4}ms] ResidentInit loop done, {} modules initialized",
                 ms, resident_init_count
             );
-            in_resident_init = false;
+            _in_resident_init = false;
         }
 
         // Log all unique PCs in the 1710-1716ms window to find the code path
-        if ms >= 1710 && ms <= 1716 && pc != prev_pc && pc >= 0xFC0000 {
+        if (1710..=1716).contains(&ms) && pc != prev_pc && pc >= 0xFC0000 {
             // Only log ROM PCs to avoid flooding with jump-table entries
             let rom_offset = pc - 0xFC0000;
             // Skip if we're in the alert handler area (logged separately)
-            if rom_offset < 0x3020 || rom_offset > 0x3200 {
+            if !(0x3020..=0x3200).contains(&rom_offset) {
                 println!(
                     "[{:4}ms] ROM PC=${:08X} IR=${:04X} D0=${:08X} D7=${:08X} A6=${:08X} A7=${:08X}",
                     ms,
@@ -2262,7 +2262,7 @@ fn test_alert_trigger_trace() {
         }
 
         // Capture entry to alert handler area
-        if pc >= 0xFC3020 && pc <= 0xFC3070 && pc != prev_pc {
+        if (0xFC3020..=0xFC3070).contains(&pc) && pc != prev_pc {
             println!(
                 "[{:4}ms] ALERT HANDLER PC=${:08X} IR=${:04X} D0=${:08X} D7=${:08X} A5=${:08X} A6=${:08X} A7=${:08X}",
                 ms,
@@ -2340,7 +2340,7 @@ fn test_alert_trigger_trace() {
         }
 
         prev_d7 = d7;
-        prev_d0 = d0;
+        _prev_d0 = d0;
         prev_pc = pc;
     }
 }
@@ -2763,8 +2763,8 @@ fn test_idle_loop_diagnosis() {
 
         // Detailed trace around keyboard.device init (~1759ms)
         // Log every unique instruction in $FC0B30-$FC0BC0 and the init function
-        if ms >= 1755 && ms <= 1770 && ipc != prev_pc {
-            if (ipc >= 0xFC0B30 && ipc <= 0xFC0BC0) || ipc >= 0xFE4F40 && ipc <= 0xFE4F60 {
+        if (1755..=1770).contains(&ms) && ipc != prev_pc
+            && ((0xFC0B30..=0xFC0BC0).contains(&ipc) || (0xFE4F40..=0xFE4F60).contains(&ipc)) {
                 let ir = amiga.cpu.ir;
                 let sr = amiga.cpu.regs.sr;
                 let d0 = amiga.cpu.regs.d[0];
@@ -2776,7 +2776,6 @@ fn test_idle_loop_diagnosis() {
                     ms, ipc, ir, sr, d0, a1, a2, sp
                 );
             }
-        }
 
         // Track InitResident calls at $FC0B58
         if pc == 0xFC0B58 && pc != prev_pc {
@@ -2803,7 +2802,7 @@ fn test_idle_loop_diagnosis() {
 
         // After last known InitResident (intuition at ~2430ms) and before STOP,
         // trace page transitions to see what code runs in the gap
-        if ms >= 2400 && ms <= 3300 && !first_stop {
+        if (2400..=3300).contains(&ms) && !first_stop {
             let page = pc >> 12;
             let prev_page = prev_pc >> 12;
             if page != prev_page && pc != prev_pc {
@@ -2945,11 +2944,10 @@ fn test_idle_loop_diagnosis() {
         }
 
         // After first STOP, collect unique PCs for a while
-        if first_stop && ms < 5000 {
-            if pc != prev_pc {
+        if first_stop && ms < 5000
+            && pc != prev_pc {
                 unique_pcs.insert(pc);
             }
-        }
 
         // Track VERTB handler: when JSR (A5) at $FC0E94 executes
         if pc == 0xFC0E94 && pc != prev_pc && stop_count <= 3 {
@@ -2964,7 +2962,7 @@ fn test_idle_loop_diagnosis() {
 
         // Track server chain walker calls: JSR (A5) at various offsets in $FC1338-$FC135E
         // The server walker loads A5 from the server node and calls it
-        if (pc >= 0xFC1340 && pc <= 0xFC1360) && pc != prev_pc && stop_count <= 3 {
+        if (0xFC1340..=0xFC1360).contains(&pc) && pc != prev_pc && stop_count <= 3 {
             let a5 = amiga.cpu.regs.a(5);
             let a1 = amiga.cpu.regs.a(1);
             println!(
@@ -3024,7 +3022,7 @@ fn walk_task_list(ram: &[u8], rom: &[u8], head: usize) {
 }
 
 fn read_string(ram: &[u8], rom: &[u8], addr: u32) -> String {
-    let buf = if addr >= 0xFC0000 && addr < 0xFE0000 {
+    let buf = if (0xFC0000..0xFE0000).contains(&addr) {
         let off = (addr - 0xFC0000) as usize;
         &rom[off..]
     } else if (addr as usize) < ram.len() {
@@ -3176,7 +3174,7 @@ fn test_triple_init_trace() {
         }
 
         // After intuition entry, trace page transitions and key events
-        if ms >= 2430 && ms <= 3300 && ipc != prev_ipc {
+        if (2430..=3300).contains(&ms) && ipc != prev_ipc {
             // Intuition init wrapper entry/exit
             if ipc == 0xFD3DB6 {
                 println!(
@@ -3200,7 +3198,7 @@ fn test_triple_init_trace() {
             // Track page transitions (256-byte pages)
             let page = ipc >> 8;
             let prev_page = prev_ipc >> 8;
-            if page != prev_page && ms >= 2490 && ms <= 2700 {
+            if page != prev_page && (2490..=2700).contains(&ms) {
                 let sr = amiga.cpu.regs.sr;
                 let sp = amiga.cpu.regs.a(7);
                 let mode = if sr & 0x2000 != 0 { "SUP" } else { "USR" };
@@ -3218,7 +3216,7 @@ fn test_triple_init_trace() {
 
             // Detect when execution leaves intuition code ($FD3xxx-$FDFxxx)
             // and enters exec idle area ($FC0Fxx)
-            if ipc >= 0xFC0F70 && ipc <= 0xFC0FA0 && prev_ipc >= 0xFD0000 {
+            if (0xFC0F70..=0xFC0FA0).contains(&ipc) && prev_ipc >= 0xFD0000 {
                 println!(
                     "[{:4}ms] !! Intuition -> Idle loop: ipc=${:08X} prev=${:08X} SR=${:04X} SP=${:08X}",
                     ms,
@@ -3232,7 +3230,7 @@ fn test_triple_init_trace() {
 
         // Periodic progress
         let ms_u32 = ms as u32;
-        if ms_u32 >= 2400 && ms_u32 <= 3400 && ms_u32 >= last_progress_ms + 200 {
+        if (2400..=3400).contains(&ms_u32) && ms_u32 >= last_progress_ms + 200 {
             last_progress_ms = ms_u32;
             println!(
                 "[{:4}ms] Progress: ipc=${:08X} IR=${:04X} SR=${:04X} SP=${:08X}",
@@ -3316,7 +3314,7 @@ fn test_intuition_init_trace() {
     let mut intuition_init_ms: u32 = 0;
 
     // Track the SSP at intuition init entry to detect stack corruption
-    let mut init_entry_ssp: u32 = 0;
+    let mut _init_entry_ssp: u32 = 0;
 
     for i in 0..total_ticks {
         amiga.tick();
@@ -3340,7 +3338,7 @@ fn test_intuition_init_trace() {
             intuition_entered = true;
             tracing = true;
             intuition_init_ms = ms;
-            init_entry_ssp = if sr & 0x2000 != 0 {
+            _init_entry_ssp = if sr & 0x2000 != 0 {
                 amiga.cpu.regs.a(7)
             } else {
                 amiga.cpu.regs.ssp
@@ -3393,7 +3391,7 @@ fn test_intuition_init_trace() {
         if ipc != prev_ipc {
             // --- TRAP instructions (0x4E40-0x4E4F) ---
             // On Amiga, TRAP #0 = Supervisor(), TRAP #15 = KPutStr (debug)
-            if ir >= 0x4E40 && ir <= 0x4E4F {
+            if (0x4E40..=0x4E4F).contains(&ir) {
                 let trap_num = ir & 0xF;
                 println!(
                     "[{:4}ms] TRAP #{} at ipc=${:08X} SR=${:04X} SP=${:08X} D0=${:08X}",
@@ -3423,15 +3421,15 @@ fn test_intuition_init_trace() {
                 };
 
                 // Identify the region
-                let region = if ipc >= 0xFD0000 && ipc < 0xFE0000 {
+                let region = if (0xFD0000..0xFE0000).contains(&ipc) {
                     "INTUI"
-                } else if ipc >= 0xFC0000 && ipc < 0xFC2000 {
+                } else if (0xFC0000..0xFC2000).contains(&ipc) {
                     "EXEC-low"
-                } else if ipc >= 0xFC0E00 && ipc < 0xFC1000 {
+                } else if (0xFC0E00..0xFC1000).contains(&ipc) {
                     "EXEC-int"
-                } else if ipc >= 0xFC1000 && ipc < 0xFC2000 {
+                } else if (0xFC1000..0xFC2000).contains(&ipc) {
                     "EXEC-hi"
-                } else if ipc >= 0xFC2000 && ipc < 0xFD0000 {
+                } else if (0xFC2000..0xFD0000).contains(&ipc) {
                     "ROM-other"
                 } else if ipc < 0x80000 {
                     "CHIPRAM"
@@ -3441,10 +3439,10 @@ fn test_intuition_init_trace() {
 
                 // Only log transitions involving intuition code or notable areas
                 // (suppress exec interrupt handler chatter when not near intuition)
-                let prev_region_intui = prev_ipc >= 0xFD0000 && prev_ipc < 0xFE0000;
-                let curr_region_intui = ipc >= 0xFD0000 && ipc < 0xFE0000;
+                let prev_region_intui = (0xFD0000..0xFE0000).contains(&prev_ipc);
+                let curr_region_intui = (0xFD0000..0xFE0000).contains(&ipc);
                 let notable = prev_region_intui || curr_region_intui
-                    || (ipc >= 0xFC0E00 && ipc < 0xFC1000) // exec interrupt handler
+                    || (0xFC0E00..0xFC1000).contains(&ipc) // exec interrupt handler
                     || ipc < 0x80000  // chip RAM execution
                     || page_transition_count <= 50; // first 50 transitions always
 
@@ -3495,7 +3493,7 @@ fn test_intuition_init_trace() {
             }
 
             // --- Detect first entry to exec idle loop ($FC0F70-$FC0FA0) ---
-            if ipc >= 0xFC0F70 && ipc <= 0xFC0FA0 {
+            if (0xFC0F70..=0xFC0FA0).contains(&ipc) {
                 println!(
                     "[{:4}ms] IDLE LOOP entry at ipc=${:08X} IR=${:04X} SR=${:04X}",
                     ms, ipc, ir, sr
@@ -3562,9 +3560,9 @@ fn test_intuition_init_trace() {
             } else {
                 amiga.cpu.regs.ssp
             };
-            let region = if ipc >= 0xFD0000 && ipc < 0xFE0000 {
+            let region = if (0xFD0000..0xFE0000).contains(&ipc) {
                 "INTUI"
-            } else if ipc >= 0xFC0000 && ipc < 0xFD0000 {
+            } else if (0xFC0000..0xFD0000).contains(&ipc) {
                 "EXEC/ROM"
             } else if ipc < 0x80000 {
                 "CHIPRAM"

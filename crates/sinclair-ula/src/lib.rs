@@ -778,7 +778,7 @@ mod tests {
         // d1 = pattern[1+1+5] = pattern[7] = 0
         // d2 = pattern[1+2+5+0] = pattern[0] = 6
         // d3 = pattern[1+3+5+0+6] = pattern[15%8] = pattern[7] = 0
-        assert_eq!(delay, 5 + 0 + 6 + 0);
+        assert_eq!(delay, (5 + 6));
     }
 
     #[test]

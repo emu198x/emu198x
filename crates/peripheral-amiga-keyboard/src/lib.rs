@@ -249,7 +249,7 @@ mod tests {
     fn rotate_byte_round_trip() {
         for byte in 0..=255u8 {
             let rotated = rotate_byte(byte);
-            let recovered = (rotated >> 1) | (rotated << 7);
+            let recovered = rotated.rotate_right(1);
             assert_eq!(recovered, byte);
         }
     }

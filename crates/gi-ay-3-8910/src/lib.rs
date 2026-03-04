@@ -507,8 +507,8 @@ mod tests {
 
         let buf = ay.take_buffer();
         let l = left(&buf);
-        let max = l.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let min = l.iter().cloned().fold(f32::INFINITY, f32::min);
+        let max = l.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let min = l.iter().copied().fold(f32::INFINITY, f32::min);
         let range = max - min;
         assert!(
             range > 0.1,
@@ -544,8 +544,8 @@ mod tests {
 
         let buf = ay.take_buffer();
         let l = left(&buf);
-        let max = l.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let min = l.iter().cloned().fold(f32::INFINITY, f32::min);
+        let max = l.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let min = l.iter().copied().fold(f32::INFINITY, f32::min);
         let range = max - min;
         assert!(
             range > 0.1,

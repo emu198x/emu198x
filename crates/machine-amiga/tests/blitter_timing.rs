@@ -147,6 +147,7 @@ fn enable_display_dma_contention(amiga: &mut Amiga) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn start_area_blit_copy_c(
     amiga: &mut Amiga,
     width_words: u16,
@@ -296,6 +297,7 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
         paula: &mut amiga.paula,
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
+        gayle: &mut amiga.gayle,
         bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
@@ -323,6 +325,7 @@ fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
         paula: &mut amiga.paula,
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
+        gayle: &mut amiga.gayle,
         bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
@@ -343,6 +346,7 @@ fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
         paula: &mut amiga.paula,
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
+        gayle: &mut amiga.gayle,
         bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,

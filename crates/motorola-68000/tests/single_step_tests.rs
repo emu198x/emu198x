@@ -226,11 +226,11 @@ fn read_state(content: &[u8], mut ptr: usize) -> Result<(usize, CpuState), Strin
 
     let mut d = [0u32; 8];
     let mut a = [0u32; 7];
-    for i in 0..8 {
-        d[i] = read_u32(ptr + i * 4);
+    for (i, d_reg) in d.iter_mut().enumerate() {
+        *d_reg = read_u32(ptr + i * 4);
     }
-    for i in 0..7 {
-        a[i] = read_u32(ptr + 32 + i * 4);
+    for (i, a_reg) in a.iter_mut().enumerate() {
+        *a_reg = read_u32(ptr + 32 + i * 4);
     }
 
     let usp = read_u32(ptr + 60);
@@ -431,7 +431,7 @@ fn run_test(test: &TestCase) -> Result<(), Vec<String>> {
         if i > 0
             && !cpu.in_followup
             && cpu.is_idle()
-            && cpu.micro_ops.front().map_or(false, |op| {
+            && cpu.micro_ops.front().is_some_and(|op| {
                 matches!(op, motorola_68000::microcode::MicroOp::Execute)
             })
         {

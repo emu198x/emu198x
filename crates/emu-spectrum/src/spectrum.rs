@@ -516,7 +516,7 @@ mod tests {
         // Should be close to 69888 (may vary by a few due to instruction
         // boundaries not aligning exactly with frame boundaries)
         assert!(
-            tstates >= 69_888 && tstates <= 69_900,
+            (69_888..=69_900).contains(&tstates),
             "Expected ~69888 T-states, got {tstates}"
         );
     }

@@ -1,5 +1,4 @@
 // Test ULA rendering by writing known data directly to VRAM
-use emu_core::Observable;
 use emu_spectrum::{Spectrum, SpectrumConfig, SpectrumModel};
 
 fn main() {
@@ -38,9 +37,9 @@ fn main() {
     let p_border = fb[10 * fb_w + 10];
 
     println!("=== Test 1: All $FF bitmap, $38 attributes ===");
-    println!("Screen top-left pixel: 0x{:08X}", p_top_left);
-    println!("Screen center pixel:   0x{:08X}", p_center);
-    println!("Border pixel:          0x{:08X}", p_border);
+    println!("Screen top-left pixel: 0x{p_top_left:08X}");
+    println!("Screen center pixel:   0x{p_center:08X}");
+    println!("Border pixel:          0x{p_border:08X}");
 
     // With $FF bitmap and $38 attr (paper=white, ink=black), pixel=1 → ink (black)
     // Wait, FBPPPIII: attr $38 = 00 111 000 → paper=7(white), ink=0(black)
@@ -48,8 +47,8 @@ fn main() {
     // So screen pixels should be BLACK (ink colour = 0 = black)
     let expected_ink = 0xFF00_0000u32; // black from palette
     let expected_paper = 0xFFCD_CDCDu32; // white from palette
-    println!("Expected ink (black):  0x{:08X}", expected_ink);
-    println!("Expected paper (white): 0x{:08X}", expected_paper);
+    println!("Expected ink (black):  0x{expected_ink:08X}");
+    println!("Expected paper (white): 0x{expected_paper:08X}");
 
     if p_top_left == expected_ink && p_center == expected_ink {
         println!("PASS: bitmap $FF + attr $38 → all ink (black)");
@@ -66,13 +65,12 @@ fn main() {
     let fb = spectrum.framebuffer();
     let p2 = fb[48 * fb_w + 32];
     println!("\n=== Test 2: All $00 bitmap, $38 attributes ===");
-    println!("Screen top-left pixel: 0x{:08X}", p2);
+    println!("Screen top-left pixel: 0x{p2:08X}");
     if p2 == expected_paper {
         println!("PASS: bitmap $00 + attr $38 → all paper (white)");
     } else {
         println!(
-            "FAIL: expected paper 0x{:08X}, got 0x{:08X}",
-            expected_paper, p2
+            "FAIL: expected paper 0x{expected_paper:08X}, got 0x{p2:08X}"
         );
     }
 
@@ -92,13 +90,13 @@ fn main() {
     // Second pixel (bit 6 of bitmap = 0 → paper = blue)
     let p3_paper = fb[48 * fb_w + 33];
     println!("\n=== Test 3: Checkerboard $AA, attr $0A (ink=red, paper=blue) ===");
-    println!("Pixel 0 (bit 7=1, ink): 0x{:08X}", p3_ink);
-    println!("Pixel 1 (bit 6=0, paper): 0x{:08X}", p3_paper);
+    println!("Pixel 0 (bit 7=1, ink): 0x{p3_ink:08X}");
+    println!("Pixel 1 (bit 6=0, paper): 0x{p3_paper:08X}");
 
     let red = 0xFFCD_0000u32; // palette[2] = red
     let blue = 0xFF00_00CDu32; // palette[1] = blue
-    println!("Expected ink (red):   0x{:08X}", red);
-    println!("Expected paper (blue): 0x{:08X}", blue);
+    println!("Expected ink (red):   0x{red:08X}");
+    println!("Expected paper (blue): 0x{blue:08X}");
 
     if p3_ink == red && p3_paper == blue {
         println!("PASS: checkerboard renders correctly");
@@ -129,9 +127,9 @@ fn main() {
     let p4_pixel8 = fb[48 * fb_w + 40]; // x=8 (next byte, which is $00)
 
     println!("\n=== Test 4: Single byte at $4000 ===");
-    println!("Pixel 0 (ink):   0x{:08X}", p4_pixel0);
-    println!("Pixel 7 (ink):   0x{:08X}", p4_pixel7);
-    println!("Pixel 8 (paper): 0x{:08X}", p4_pixel8);
+    println!("Pixel 0 (ink):   0x{p4_pixel0:08X}");
+    println!("Pixel 7 (ink):   0x{p4_pixel7:08X}");
+    println!("Pixel 8 (paper): 0x{p4_pixel8:08X}");
 
     let white = 0xFFCD_CDCDu32;
     let black = 0xFF00_0000u32;
@@ -146,13 +144,13 @@ fn main() {
     // Our test ROM has $F3 at $0000 and $76 at $0001
     let rom_byte0 = spectrum.bus().memory.peek(0x0000);
     let rom_byte1 = spectrum.bus().memory.peek(0x0001);
-    println!("ROM[$0000] = 0x{:02X} (expected 0xF3)", rom_byte0);
-    println!("ROM[$0001] = 0x{:02X} (expected 0x76)", rom_byte1);
+    println!("ROM[$0000] = 0x{rom_byte0:02X} (expected 0xF3)");
+    println!("ROM[$0001] = 0x{rom_byte1:02X} (expected 0x76)");
 
     // Check RAM is accessible
     spectrum.bus_mut().memory.write(0xC000, 0x42);
     let ram_byte = spectrum.bus().memory.peek(0xC000);
-    println!("RAM[$C000] = 0x{:02X} (expected 0x42)", ram_byte);
+    println!("RAM[$C000] = 0x{ram_byte:02X} (expected 0x42)");
 
     // === Test 6: Check that real ROM boots and modifies RAM ===
     println!("\n=== Test 6: Real ROM boot check ===");
@@ -178,10 +176,9 @@ fn main() {
 
     println!("After 100 frames:");
     println!(
-        "  PC={:04X} SP={:04X} IM={} IY={:04X} IFF1={}",
-        pc, sp, im, iy, iff1
+        "  PC={pc:04X} SP={sp:04X} IM={im} IY={iy:04X} IFF1={iff1}"
     );
-    println!("  ERR_NR=0x{:02X}", err_nr);
+    println!("  ERR_NR=0x{err_nr:02X}");
 
     // Check some RAM contents
     let mut nonzero_bitmap = 0u32;
@@ -190,7 +187,7 @@ fn main() {
             nonzero_bitmap += 1;
         }
     }
-    println!("  Non-zero bitmap bytes: {}/6144", nonzero_bitmap);
+    println!("  Non-zero bitmap bytes: {nonzero_bitmap}/6144");
 
     let mut attrs_38 = 0u32;
     for addr in 0x5800..0x5B00u16 {
@@ -198,12 +195,12 @@ fn main() {
             attrs_38 += 1;
         }
     }
-    println!("  Attributes == $38: {}/768", attrs_38);
+    println!("  Attributes == $38: {attrs_38}/768");
 
     // Check DF_CC (display file cursor)
     let df_cc = u16::from(spectrum2.bus().memory.peek(0x5C84))
         | (u16::from(spectrum2.bus().memory.peek(0x5C85)) << 8);
-    println!("  DF_CC = ${:04X}", df_cc);
+    println!("  DF_CC = ${df_cc:04X}");
 
     // Check what the copyright message location looks like in memory
     // The copyright message starts at ROM address $1539 (varies by ROM version)
@@ -223,8 +220,7 @@ fn main() {
             }
         }
         println!(
-            "    Line {}: base=${:04X}, non-zero bytes: {}/32",
-            row, base, nonzero
+            "    Line {row}: base=${base:04X}, non-zero bytes: {nonzero}/32"
         );
     }
 
@@ -243,8 +239,7 @@ fn main() {
             }
         }
         println!(
-            "    Line {}: base=${:04X}, non-zero bytes: {}/32",
-            row, base, nonzero
+            "    Line {row}: base=${base:04X}, non-zero bytes: {nonzero}/32"
         );
     }
 }

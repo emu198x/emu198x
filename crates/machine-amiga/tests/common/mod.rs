@@ -9,6 +9,7 @@ pub const BOOT_TICKS: u64 = 850_000_000; // ~30 seconds PAL
 /// Expected register values after boot. Each field is optional — only
 /// `Some` values are checked.
 #[derive(Default)]
+#[allow(dead_code)]
 pub struct BootExpect {
     /// Bits that must be SET in DMACON (e.g. 0x0100 = bitplane DMA).
     pub dmacon_set: Option<u16>,
@@ -110,7 +111,7 @@ pub fn boot_screenshot_test(
             fs::create_dir_all(parent).ok();
         }
         let file = fs::File::create(std_path).expect("create screenshot file");
-        let ref mut w = std::io::BufWriter::new(file);
+        let w = &mut std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
@@ -136,7 +137,7 @@ pub fn boot_screenshot_test(
         let full_path_str = format!("../../test_output/amiga/{screenshot_prefix}_full.png");
         let full_path = std::path::Path::new(&full_path_str);
         let file = fs::File::create(full_path).expect("create full screenshot file");
-        let ref mut w = std::io::BufWriter::new(file);
+        let w = &mut std::io::BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, full.width, full.height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
@@ -217,6 +218,7 @@ pub fn boot_screenshot_test(
 }
 
 /// Run a boot test with register/display assertions.
+#[allow(dead_code)]
 pub fn boot_screenshot_test_expect(
     config: AmigaConfig,
     rom_description: &str,

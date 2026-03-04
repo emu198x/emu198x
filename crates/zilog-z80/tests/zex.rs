@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 //! Minimal CP/M harness for ZEXDOC/ZEXALL.
 //!
 //! CP/M memory layout:
@@ -43,20 +44,20 @@ fn run_zex(binary: &[u8]) -> bool {
             instructions += 1;
 
             // Progress every 1M instructions
-            if instructions % 1_000_000 == 0 {
-                eprintln!("[{} instructions]", instructions);
+            if instructions.is_multiple_of(1_000_000) {
+                eprintln!("[{instructions} instructions]");
             }
         }
 
         // Exit on warm boot (PC=0x0000)
         if pc == 0x0000 && at_instruction_start {
-            eprintln!("Warm boot at instruction {}", instructions);
+            eprintln!("Warm boot at instruction {instructions}");
             break;
         }
 
         // Exit on HALT
         if cpu.is_halted() {
-            eprintln!("HALT at instruction {}", instructions);
+            eprintln!("HALT at instruction {instructions}");
             break;
         }
 
@@ -67,7 +68,7 @@ fn run_zex(binary: &[u8]) -> bool {
                 2 => {
                     // Print character in E
                     let ch = cpu.e() as char;
-                    eprint!("{}", ch);
+                    eprint!("{ch}");
                     std::io::stderr().flush().unwrap();
                     output.push(ch);
                 }
@@ -86,7 +87,7 @@ fn run_zex(binary: &[u8]) -> bool {
                     std::io::stderr().flush().unwrap();
                 }
                 _ => {
-                    eprintln!("\nUnknown BDOS function: {}", func);
+                    eprintln!("\nUnknown BDOS function: {func}");
                 }
             }
             // Simulate RET - pop return address from stack
@@ -97,7 +98,7 @@ fn run_zex(binary: &[u8]) -> bool {
         cpu.tick(&mut bus);
     }
 
-    eprintln!("\nTotal: {} instructions", instructions);
+    eprintln!("\nTotal: {instructions} instructions");
     eprintln!("Output length: {} chars", output.len());
 
     // ZEXDOC outputs "ERROR" on failure

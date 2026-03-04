@@ -50,22 +50,16 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
 #[test]
 #[ignore] // Requires C64 ROMs and Code198x repo
 fn test_sid_symphony_unit01() {
-    let prg_path = match code198x_path(
+    let Some(prg_path) = code198x_path(
         "commodore-64/game-01-sid-symphony/unit-01/symphony.prg",
-    ) {
-        Some(p) => p,
-        None => {
-            eprintln!("Skipping: Code198x repo not found");
-            return;
-        }
+    ) else {
+        eprintln!("Skipping: Code198x repo not found");
+        return;
     };
 
-    let mut c64 = match load_c64() {
-        Some(c) => c,
-        None => {
-            eprintln!("Skipping: C64 ROMs not found");
-            return;
-        }
+    let Some(mut c64) = load_c64() else {
+        eprintln!("Skipping: C64 ROMs not found");
+        return;
     };
 
     ensure_output_dir();
@@ -133,22 +127,16 @@ fn test_sid_symphony_unit01() {
 #[test]
 #[ignore] // Requires C64 ROMs and Code198x repo
 fn test_starfield_unit01_sprite() {
-    let prg_path = match code198x_path(
+    let Some(prg_path) = code198x_path(
         "commodore-64/game-01-starfield/unit-01/starfield.prg",
-    ) {
-        Some(p) => p,
-        None => {
-            eprintln!("Skipping: Code198x repo not found");
-            return;
-        }
+    ) else {
+        eprintln!("Skipping: Code198x repo not found");
+        return;
     };
 
-    let mut c64 = match load_c64() {
-        Some(c) => c,
-        None => {
-            eprintln!("Skipping: C64 ROMs not found");
-            return;
-        }
+    let Some(mut c64) = load_c64() else {
+        eprintln!("Skipping: C64 ROMs not found");
+        return;
     };
 
     ensure_output_dir();

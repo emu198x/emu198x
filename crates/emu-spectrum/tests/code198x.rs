@@ -44,14 +44,11 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
 #[test]
 #[ignore] // Requires Code198x repo adjacent to Emu198x
 fn test_shadowkeep_unit01() {
-    let sna_path = match code198x_path(
+    let Some(sna_path) = code198x_path(
         "sinclair-zx-spectrum/game-01-shadowkeep/unit-01/shadowkeep.sna",
-    ) {
-        Some(p) => p,
-        None => {
-            eprintln!("Skipping: Code198x repo not found");
-            return;
-        }
+    ) else {
+        eprintln!("Skipping: Code198x repo not found");
+        return;
     };
 
     ensure_output_dir();
@@ -101,14 +98,11 @@ fn test_shadowkeep_unit01() {
 #[test]
 #[ignore]
 fn test_shadowkeep_unit03() {
-    let sna_path = match code198x_path(
+    let Some(sna_path) = code198x_path(
         "sinclair-zx-spectrum/game-01-shadowkeep/unit-03/shadowkeep.sna",
-    ) {
-        Some(p) => p,
-        None => {
-            eprintln!("Skipping: Code198x repo not found or unit-03 missing");
-            return;
-        }
+    ) else {
+        eprintln!("Skipping: Code198x repo not found or unit-03 missing");
+        return;
     };
 
     ensure_output_dir();

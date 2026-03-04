@@ -58,8 +58,7 @@ fn main() {
             // Log if PC enters the error handler
             if pc == 0x0053 {
                 println!(
-                    "\n*** PC reached $0053 (error handler) at tick {} ***",
-                    tick_count
+                    "\n*** PC reached $0053 (error handler) at tick {tick_count} ***"
                 );
                 println!(
                     "Registers: A={:02X} F={:02X} B={:02X} C={:02X} D={:02X} E={:02X} H={:02X} L={:02X}",
@@ -85,13 +84,13 @@ fn main() {
                     let lo = spectrum.bus().memory.peek(sp.wrapping_add(i));
                     let hi = spectrum.bus().memory.peek(sp.wrapping_add(i + 1));
                     let addr = u16::from(lo) | (u16::from(hi) << 8);
-                    println!("  SP+{}: ${:04X} ({:02X} {:02X})", i, addr, lo, hi);
+                    println!("  SP+{i}: ${addr:04X} ({lo:02X} {hi:02X})");
                 }
 
                 // Show last 50 PCs
                 println!("\nLast 50 instruction PCs:");
                 for (i, &p) in last_pcs.iter().enumerate() {
-                    print!("{:04X} ", p);
+                    print!("{p:04X} ");
                     if (i + 1) % 10 == 0 {
                         println!();
                     }
@@ -104,22 +103,20 @@ fn main() {
             // Log if PC reaches RST 8 locations with error $0B
             if pc == 0x1C8A || pc == 0x21CE {
                 println!(
-                    "*** PC at ${:04X} (RST 8 + $0B site) at tick {} ***",
-                    pc, tick_count
+                    "*** PC at ${pc:04X} (RST 8 + $0B site) at tick {tick_count} ***"
                 );
             }
 
             // Log if PC reaches RST 8 handler
             if pc == 0x0008 {
                 println!(
-                    "*** RST 8 called at tick {} (from PC={:04X}) ***",
-                    tick_count, prev_pc
+                    "*** RST 8 called at tick {tick_count} (from PC={prev_pc:04X}) ***"
                 );
                 let sp = spectrum.cpu().regs.sp;
                 let lo = spectrum.bus().memory.peek(sp);
                 let hi = spectrum.bus().memory.peek(sp.wrapping_add(1));
                 let ret = u16::from(lo) | (u16::from(hi) << 8);
-                println!("    Return address: ${:04X}", ret);
+                println!("    Return address: ${ret:04X}");
             }
 
             // Log first 200 instruction boundaries after IM is set
@@ -150,15 +147,14 @@ fn main() {
         // Check ERR_NR change
         if err != prev_err {
             println!(
-                "\n*** ERR_NR changed from ${:02X} to ${:02X} at tick {} ***",
-                prev_err, err, tick_count
+                "\n*** ERR_NR changed from ${prev_err:02X} to ${err:02X} at tick {tick_count} ***"
             );
-            println!("PC={:04X}", pc);
+            println!("PC={pc:04X}");
             if !found {
                 // Show last 50 PCs
                 println!("Last 50 instruction PCs:");
                 for (i, &p) in last_pcs.iter().enumerate() {
-                    print!("{:04X} ", p);
+                    print!("{p:04X} ");
                     if (i + 1) % 10 == 0 {
                         println!();
                     }
@@ -171,12 +167,12 @@ fn main() {
         prev_err = err;
 
         if tick_count >= max_ticks {
-            println!("Timeout after {} ticks", tick_count);
+            println!("Timeout after {tick_count} ticks");
             break;
         }
     }
 
     if !found {
-        println!("No error detected within {} ticks", tick_count);
+        println!("No error detected within {tick_count} ticks");
     }
 }

@@ -16,12 +16,7 @@ fn run_until_halt(cpu: &mut Z80, bus: &mut SimpleBus) -> u64 {
     count
 }
 
-/// Run a specific number of ticks.
-fn run_ticks(cpu: &mut Z80, bus: &mut SimpleBus, ticks: u64) {
-    for _ in 0..ticks {
-        cpu.tick(bus);
-    }
-}
+
 
 #[test]
 fn test_nop() {

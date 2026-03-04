@@ -130,6 +130,7 @@ fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
         paula: &mut amiga.paula,
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
+        gayle: &mut amiga.gayle,
         bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
@@ -152,7 +153,7 @@ fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
 fn sprite0_dma_renders_pixel_into_framebuffer() {
     let mut amiga = make_test_amiga();
     let spr0_addr = 0x0000_3000u32;
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
     write_word(&mut amiga, spr0_addr, pos);
@@ -178,7 +179,7 @@ fn sprite0_dma_renders_pixel_into_framebuffer() {
 #[test]
 fn manual_sprite_ctl_disarms_and_data_rearms_output() {
     let mut amiga = make_test_amiga();
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART + 1, DISPLAY_VSTART + 2);
 
     amiga.denise.set_palette(0, 0x000);
@@ -230,7 +231,7 @@ fn attached_sprite_pair_renders_4bit_color_at_machine_level() {
     let mut amiga = make_test_amiga();
     let spr0_addr = 0x0000_3000u32;
     let spr1_addr = 0x0000_3040u32;
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
     write_word(&mut amiga, spr0_addr, pos);
@@ -265,7 +266,7 @@ fn misaligned_attached_sprite_pair_uses_shifted_colors_at_machine_level() {
     let mut amiga = make_test_amiga();
     let spr0_addr = 0x0000_3000u32;
     let spr1_addr = 0x0000_3040u32;
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos0, ctl0) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
     let (pos1, ctl1) = encode_sprite_pos_ctl(beam_x + 1, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
@@ -308,7 +309,7 @@ fn misaligned_attached_sprite_pair_uses_shifted_colors_at_machine_level() {
 fn render_sprite_vs_playfield_pixel(pf1_priority_pos: u16) -> u32 {
     let mut amiga = make_test_amiga();
     let spr0_addr = 0x0000_3000u32;
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
     write_word(&mut amiga, spr0_addr, pos);
@@ -347,7 +348,7 @@ fn bplcon2_priority_affects_sprite_visibility_at_machine_level() {
 fn render_dual_playfield_sprite_priority_pixel(bplcon2: u16) -> u32 {
     let mut amiga = make_test_amiga();
     let spr0_addr = 0x0000_3000u32;
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
     write_word(&mut amiga, spr0_addr, pos);
@@ -387,7 +388,7 @@ fn dual_playfield_pf2pri_and_pf2p_priority_affect_sprite_visibility() {
 #[test]
 fn clxdat_latches_pf_and_sprite_collisions_and_clears_on_read() {
     let mut amiga = make_test_amiga();
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
     amiga.denise.spr_pos[0] = pos;
@@ -417,7 +418,7 @@ fn clxdat_latches_pf_and_sprite_collisions_and_clears_on_read() {
 
 fn sprite_group_collision_bit_with_odd_sprite_enabled(enable_ensp1: bool) -> u16 {
     let mut amiga = make_test_amiga();
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
     // Group 0 collision source: sprite 1 only (odd sprite)
@@ -465,7 +466,7 @@ fn clxdat_for_sprite0_with_playfield_bits(
     even_plane2_set: bool,
 ) -> u16 {
     let mut amiga = make_test_amiga();
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos, ctl) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
     amiga.denise.spr_pos[0] = pos;
@@ -529,7 +530,7 @@ fn clxdat_for_misaligned_attached_odd_only_pixel(
     with_odd_bitplane: bool,
 ) -> u16 {
     let mut amiga = make_test_amiga();
-    let beam_x = u16::from(TARGET_HPOS) * 2;
+    let beam_x = TARGET_HPOS * 2;
     let (pos_odd, ctl_odd) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
     let (pos_even_misaligned, ctl_even_misaligned) =
         encode_sprite_pos_ctl(beam_x + 2, DISPLAY_VSTART, DISPLAY_VSTART + 2);

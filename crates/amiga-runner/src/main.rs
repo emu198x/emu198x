@@ -2071,6 +2071,56 @@ fn map_printable_physical_key(code: KeyCode) -> Option<u8> {
     Some(raw)
 }
 
+fn main() {
+    let cli = parse_args();
+
+    if cli.mcp {
+        AmigaMcpServer::new(AmigaMcp::new()).run();
+        return;
+    }
+
+    if let Some(ref path) = cli.script_path {
+        let mut server = AmigaMcpServer::new(AmigaMcp::new());
+        if let Err(e) = server.run_script(path) {
+            eprintln!("Script error: {e}");
+            process::exit(1);
+        }
+        return;
+    }
+
+    if cli.headless {
+        run_headless(&cli);
+        return;
+    }
+
+    let amiga = make_amiga(&cli);
+    let audio = if cli.mute {
+        None
+    } else {
+        match AudioOutput::new() {
+            Ok(output) => Some(output),
+            Err(e) => {
+                eprintln!("Audio disabled: {e}");
+                None
+            }
+        }
+    };
+    let mut app = App::new(amiga, audio);
+
+    let event_loop = match EventLoop::new() {
+        Ok(loop_) => loop_,
+        Err(e) => {
+            eprintln!("Failed to create event loop: {e}");
+            process::exit(1);
+        }
+    };
+
+    if let Err(e) = event_loop.run_app(&mut app) {
+        eprintln!("Event loop error: {e}");
+        process::exit(1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2214,55 +2264,5 @@ mod tests {
                 blank_pin: false,
             })
         );
-    }
-}
-
-fn main() {
-    let cli = parse_args();
-
-    if cli.mcp {
-        AmigaMcpServer::new(AmigaMcp::new()).run();
-        return;
-    }
-
-    if let Some(ref path) = cli.script_path {
-        let mut server = AmigaMcpServer::new(AmigaMcp::new());
-        if let Err(e) = server.run_script(path) {
-            eprintln!("Script error: {e}");
-            process::exit(1);
-        }
-        return;
-    }
-
-    if cli.headless {
-        run_headless(&cli);
-        return;
-    }
-
-    let amiga = make_amiga(&cli);
-    let audio = if cli.mute {
-        None
-    } else {
-        match AudioOutput::new() {
-            Ok(output) => Some(output),
-            Err(e) => {
-                eprintln!("Audio disabled: {e}");
-                None
-            }
-        }
-    };
-    let mut app = App::new(amiga, audio);
-
-    let event_loop = match EventLoop::new() {
-        Ok(loop_) => loop_,
-        Err(e) => {
-            eprintln!("Failed to create event loop: {e}");
-            process::exit(1);
-        }
-    };
-
-    if let Err(e) = event_loop.run_app(&mut app) {
-        eprintln!("Event loop error: {e}");
-        process::exit(1);
     }
 }

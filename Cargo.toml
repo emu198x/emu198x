@@ -56,3 +56,6 @@ large_stack_arrays = "allow"
 
 # Decode blocks define helpers after initial state reads
 items_after_statements = "allow"
+
+# Ignored tests need ROM files — reason is self-evident from context
+ignore_without_reason = "allow"

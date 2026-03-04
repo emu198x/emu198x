@@ -133,8 +133,7 @@ fn test_brk_stack_layout() {
 
     eprintln!("BRK test: PC=${:04X}, SP=${:02X}", cpu.pc(), cpu.regs.s);
     eprintln!(
-        "Stack: PCH=${:02X}, PCL=${:02X}, P=${:02X}",
-        pushed_pch, pushed_pcl, pushed_p
+        "Stack: PCH=${pushed_pch:02X}, PCL=${pushed_pcl:02X}, P=${pushed_p:02X}"
     );
 }
 
@@ -204,7 +203,7 @@ fn test_brk_dormann_sequence() {
 
     // The pushed status from BRK should be at $01FD
     let brk_pushed_p = bus.peek(0x01FD);
-    eprintln!("BRK pushed P (at $01FD): ${:02X}", brk_pushed_p);
+    eprintln!("BRK pushed P (at $01FD): ${brk_pushed_p:02X}");
 
     // Since PLP restored status from the 0x00 we pushed, the status at BRK
     // should have been $00 | U = $20 (PLP ignores B, sets U)

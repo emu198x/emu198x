@@ -24,7 +24,7 @@ fn test_strap_hang() {
 
     // Run 3.35 seconds — right at the crash
     let total_ticks: u64 = (28_375_160.0 * 3.35) as u64;
-    for i in 0..total_ticks {
+    for _i in 0..total_ticks {
         amiga.tick();
         // Battclock disabled for testing
         // if i >= 2 * 28_375_160 {
@@ -38,7 +38,7 @@ fn test_strap_hang() {
     let read_mem = |addr: u32| -> u8 {
         if (addr as usize) < amiga.memory.chip_ram.len() {
             amiga.memory.chip_ram[addr as usize]
-        } else if addr >= 0xC0_0000 && addr < 0xE0_0000 {
+        } else if (0xC0_0000..0xE0_0000).contains(&addr) {
             let off = ((addr - 0xC0_0000) & amiga.memory.slow_ram_mask) as usize;
             amiga.memory.slow_ram[off]
         } else if addr >= 0xFC0000 {

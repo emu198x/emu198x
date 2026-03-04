@@ -1352,7 +1352,7 @@ mod tests {
         let basic = vec![0; 8192];
         // Chargen: char 0 = alternating bits for easy visual check
         let mut chargen = vec![0x00; 4096];
-        chargen[0] = 0b10101010; // Char 0, row 0: bits 10 10 10 10
+        chargen[0] = 0b1010_1010; // Char 0, row 0: bits 10 10 10 10
 
         let memory = C64Memory::new(&kernal, &basic, &chargen);
         let mut vic = Vic::new(C64Model::C64Pal);
@@ -1578,7 +1578,7 @@ mod tests {
         }
     }
 
-    /// Helper: get the framebuffer pixel at (fb_x, fb_y).
+    /// Helper: get the framebuffer pixel at (`fb_x`, `fb_y`).
     fn fb_pixel(vic: &Vic, fb_x: usize, fb_y: usize) -> u32 {
         vic.framebuffer()[fb_y * FB_WIDTH as usize + fb_x]
     }
