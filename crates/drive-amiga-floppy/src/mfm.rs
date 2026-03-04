@@ -100,7 +100,8 @@ fn encode_sector(buf: &mut Vec<u8>, track: u8, sector: u8, sectors_per_track: u8
         buf.extend_from_slice(&l.to_be_bytes());
     }
 
-    // 5. Header checksum: XOR of all MFM header longs (info + label)
+    // 5. Header checksum: XOR of all MFM header longs (info + label),
+    //    masked with $55555555 to strip clock bits (HRM Appendix C).
     let mut hdr_cksum: u32 = 0;
     hdr_cksum ^= info_odd;
     hdr_cksum ^= info_even;
@@ -108,6 +109,7 @@ fn encode_sector(buf: &mut Vec<u8>, track: u8, sector: u8, sectors_per_track: u8
         hdr_cksum ^= label_mfm_odd[i];
         hdr_cksum ^= label_mfm_even[i];
     }
+    hdr_cksum &= 0x5555_5555;
     // The checksum itself is stored odd/even split + MFM
     let hdr_cksum_odd = mfm_encode_long(odd_bits(hdr_cksum));
     let hdr_cksum_even = mfm_encode_long(even_bits(hdr_cksum));
@@ -126,7 +128,8 @@ fn encode_sector(buf: &mut Vec<u8>, track: u8, sector: u8, sectors_per_track: u8
         ]);
     }
 
-    // Data checksum: XOR of all MFM data longs (computed from both halves)
+    // Data checksum: XOR of all MFM data longs (computed from both halves),
+    // masked with $55555555 to strip clock bits (HRM Appendix C).
     let mut data_cksum: u32 = 0;
     let mut data_mfm_odd = [0u32; 128];
     let mut data_mfm_even = [0u32; 128];
@@ -136,6 +139,7 @@ fn encode_sector(buf: &mut Vec<u8>, track: u8, sector: u8, sectors_per_track: u8
         data_cksum ^= data_mfm_odd[i];
         data_cksum ^= data_mfm_even[i];
     }
+    data_cksum &= 0x5555_5555;
 
     // Data checksum (odd/even + MFM)
     let data_cksum_odd = mfm_encode_long(odd_bits(data_cksum));
@@ -282,7 +286,9 @@ pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
         }
         i += 256;
 
-        // Verify: XOR of all raw MFM data longs should equal stored checksum
+        // Verify: XOR of all raw MFM data longs, masked with $55555555
+        // to strip clock bits, should equal stored checksum.
+        computed_data_cksum &= 0x5555_5555;
         if computed_data_cksum != stored_data_cksum {
             continue; // Bad checksum — skip sector
         }
