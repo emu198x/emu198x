@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu_c64::{C64, C64Config, C64Model, capture, keyboard_map, mcp::McpServer};
+use emu_c64::{C64, C64Config, C64Model, capture, keyboard_map};
+use emu_c64::mcp::{C64Mcp, McpServer};
 use emu_c64::config::SidModel;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -502,13 +503,13 @@ fn main() {
     let cli = parse_args();
 
     if cli.mcp {
-        let mut server = McpServer::new();
+        let mut server = McpServer::new(C64Mcp::new());
         server.run();
         return;
     }
 
     if let Some(ref path) = cli.script_path {
-        let mut server = McpServer::new();
+        let mut server = McpServer::new(C64Mcp::new());
         if let Err(e) = server.run_script(path) {
             eprintln!("Script error: {e}");
             process::exit(1);

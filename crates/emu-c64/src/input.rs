@@ -398,17 +398,18 @@ mod tests {
 
         queue.enqueue_key(C64Key::A, 5, 3);
 
+        // A is at (row=2, col=1). Select col 1 → mask $FD, check row 2 → bit 0x04.
         // Frame 4: nothing
         queue.process(4, &mut kbd);
-        assert_eq!(kbd.scan(0xFB) & 0x02, 0x02); // A not pressed (row 2, col 1)
+        assert_eq!(kbd.scan(0xFD) & 0x04, 0x04); // A not pressed
 
         // Frame 5: press
         queue.process(5, &mut kbd);
-        assert_eq!(kbd.scan(0xFB) & 0x02, 0x00); // A pressed
+        assert_eq!(kbd.scan(0xFD) & 0x04, 0x00); // A pressed
 
         // Frame 8: release
         queue.process(8, &mut kbd);
-        assert_eq!(kbd.scan(0xFB) & 0x02, 0x02); // A released
+        assert_eq!(kbd.scan(0xFD) & 0x04, 0x04); // A released
     }
 
     #[test]

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-emu-core = { path = "../emu-core" }
+emu-core = { path = "../emu-core", features = ["mcp"] }
 motorola-68000 = { path = "../motorola-68000" }
 mos-cia-8520 = { path = "../mos-cia-8520" }
 commodore-paula-8364 = { path = "../commodore-paula-8364" }

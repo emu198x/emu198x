@@ -10,7 +10,8 @@ use std::process;
 use std::time::{Duration, Instant};
 
 use emu_nes::ppu;
-use emu_nes::{Nes, NesConfig, NesRegion, capture, controller_map, mcp::McpServer};
+use emu_nes::{Nes, NesConfig, NesRegion, capture, controller_map};
+use emu_nes::mcp::{NesMcp, McpServer};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -322,19 +323,21 @@ fn main() {
     let cli = parse_args();
 
     if cli.mcp {
-        let mut server = McpServer::new();
+        let mut inner = NesMcp::new();
         if let Some(ref path) = cli.rom_path {
-            server.set_rom_path(path.clone());
+            inner.set_rom_path(path.clone());
         }
+        let mut server = McpServer::new(inner);
         server.run();
         return;
     }
 
     if let Some(ref path) = cli.script_path {
-        let mut server = McpServer::new();
+        let mut inner = NesMcp::new();
         if let Some(ref rom) = cli.rom_path {
-            server.set_rom_path(rom.clone());
+            inner.set_rom_path(rom.clone());
         }
+        let mut server = McpServer::new(inner);
         if let Err(e) = server.run_script(path) {
             eprintln!("Script error: {e}");
             process::exit(1);

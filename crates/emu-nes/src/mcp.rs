@@ -1,8 +1,8 @@
 //! MCP (Model Context Protocol) server for the NES emulator.
 //!
-//! Exposes the emulator as a JSON-RPC 2.0 server over stdin/stdout.
-//! Tools allow AI agents and scripts to boot, control, observe, and
-//! capture the emulator programmatically.
+//! Implements `McpEmulator` to expose the NES as tool calls over the
+//! shared MCP protocol layer. Run with `--mcp` for MCP mode or
+//! `--script` for batch mode.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -10,86 +10,34 @@
 )]
 #![allow(clippy::too_many_lines, clippy::match_same_arms)]
 
-use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use base64::Engine;
-use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use emu_core::mcp::{self, McpEmulator, ToolDefinition, ToolResult};
 use emu_core::{Cpu, Observable, Tickable};
 
 use crate::Nes;
 use crate::config::{NesConfig, NesRegion};
 use crate::input::NesButton;
 
-fn parse_region(params: &JsonValue) -> NesRegion {
-    match params.get("region").and_then(|v| v.as_str()) {
-        Some("pal") => NesRegion::Pal,
-        _ => NesRegion::Ntsc,
-    }
-}
-
 // ---------------------------------------------------------------------------
-// JSON-RPC types
+// Public re-export: the MCP server type for main.rs
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-struct RpcRequest {
-    jsonrpc: String,
-    method: String,
-    #[serde(default)]
-    params: JsonValue,
-    id: JsonValue,
-}
-
-#[derive(Serialize)]
-struct RpcResponse {
-    jsonrpc: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<JsonValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<RpcError>,
-    id: JsonValue,
-}
-
-#[derive(Serialize)]
-struct RpcError {
-    code: i32,
-    message: String,
-}
-
-impl RpcResponse {
-    fn success(id: JsonValue, result: JsonValue) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: Some(result),
-            error: None,
-            id,
-        }
-    }
-
-    fn error(id: JsonValue, code: i32, message: String) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: None,
-            error: Some(RpcError { code, message }),
-            id,
-        }
-    }
-}
+pub type McpServer = mcp::McpServer<NesMcp>;
 
 // ---------------------------------------------------------------------------
-// MCP Server
+// NES MCP implementation
 // ---------------------------------------------------------------------------
 
-/// MCP server wrapping a headless NES instance.
-pub struct McpServer {
+pub struct NesMcp {
     nes: Option<Nes>,
     rom_path: Option<PathBuf>,
 }
 
-impl McpServer {
+impl NesMcp {
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -103,105 +51,287 @@ impl McpServer {
         self.rom_path = Some(path);
     }
 
-    /// Run the server loop: read JSON-RPC from stdin, write responses to stdout.
-    pub fn run(&mut self) {
-        let stdin = io::stdin();
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
-
-        for line in stdin.lock().lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => break,
-            };
-
-            let line = line.trim().to_string();
-            if line.is_empty() {
-                continue;
-            }
-
-            let request: RpcRequest = match serde_json::from_str(&line) {
-                Ok(r) => r,
-                Err(e) => {
-                    let resp =
-                        RpcResponse::error(JsonValue::Null, -32700, format!("Parse error: {e}"));
-                    let _ = writeln!(
-                        stdout,
-                        "{}",
-                        serde_json::to_string(&resp).unwrap_or_default()
-                    );
-                    let _ = stdout.flush();
-                    continue;
-                }
-            };
-
-            if request.jsonrpc != "2.0" {
-                let resp =
-                    RpcResponse::error(request.id, -32600, "Invalid JSON-RPC version".to_string());
-                let _ = writeln!(
-                    stdout,
-                    "{}",
-                    serde_json::to_string(&resp).unwrap_or_default()
-                );
-                let _ = stdout.flush();
-                continue;
-            }
-
-            let response = self.dispatch(&request.method, &request.params, request.id.clone());
-            let _ = writeln!(
-                stdout,
-                "{}",
-                serde_json::to_string(&response).unwrap_or_default()
-            );
-            let _ = stdout.flush();
-        }
-    }
-
-    fn dispatch(&mut self, method: &str, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        match method {
-            "boot" => self.handle_boot(params, id),
-            "reset" => self.handle_reset(id),
-            "load_rom" => self.handle_load_rom(params, id),
-            "run_frames" => self.handle_run_frames(params, id),
-            "step_instruction" => self.handle_step_instruction(id),
-            "step_ticks" => self.handle_step_ticks(params, id),
-            "screenshot" => self.handle_screenshot(id),
-            "query" => self.handle_query(params, id),
-            "poke" => self.handle_poke(params, id),
-            "press_button" => self.handle_press_button(params, id),
-            "release_button" => self.handle_release_button(params, id),
-            "input_sequence" => self.handle_input_sequence(params, id),
-            "set_breakpoint" => self.handle_set_breakpoint(params, id),
-            "query_memory" => self.handle_query_memory(params, id),
-            "enable_zapper" => self.handle_enable_zapper(id),
-            "zapper_aim" => self.handle_zapper_aim(params, id),
-            "zapper_trigger" => self.handle_zapper_trigger(params, id),
-            "save_battery" => self.handle_save_battery(id),
-            "load_battery" => self.handle_load_battery(params, id),
-            _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
-        }
-    }
-
-    fn require_nes(&mut self, id: &JsonValue) -> Result<&mut Nes, RpcResponse> {
+    fn require_nes(&mut self) -> Result<&mut Nes, ToolResult> {
         if self.nes.is_some() {
             Ok(self.nes.as_mut().expect("checked is_some"))
         } else {
-            Err(RpcResponse::error(
-                id.clone(),
-                -32000,
-                "No NES instance. Call 'boot' first.".to_string(),
-            ))
+            Err(ToolResult::Error {
+                code: -32000,
+                message: "No NES instance. Call 'boot' first.".to_string(),
+            })
         }
     }
+}
 
-    // === Tool handlers ===
+impl Default for NesMcp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    fn handle_boot(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        // Load ROM from params, path, or default
+fn parse_region(params: &JsonValue) -> NesRegion {
+    match params.get("region").and_then(|v| v.as_str()) {
+        Some("pal") => NesRegion::Pal,
+        _ => NesRegion::Ntsc,
+    }
+}
+
+impl McpEmulator for NesMcp {
+    fn server_name(&self) -> &str {
+        "emu-nes"
+    }
+
+    fn server_version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    fn tool_definitions(&self) -> Vec<ToolDefinition> {
+        vec![
+            ToolDefinition {
+                name: "boot",
+                description: "Boot the NES with a ROM (from data, path, or CLI --rom)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to .nes ROM file" },
+                        "data": { "type": "string", "description": "Base64-encoded iNES ROM data" },
+                        "region": { "type": "string", "description": "ntsc or pal (default: ntsc)" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "reset",
+                description: "Reset the CPU",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+            ToolDefinition {
+                name: "load_rom",
+                description: "Load a new ROM into the NES (replaces current cartridge)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to .nes ROM file" },
+                        "data": { "type": "string", "description": "Base64-encoded iNES ROM data" },
+                        "region": { "type": "string", "description": "ntsc or pal (default: ntsc)" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "run_frames",
+                description: "Run the emulator for N frames (60fps NTSC / 50fps PAL)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "description": "Number of frames to run", "default": 1 }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "step_instruction",
+                description: "Execute one CPU instruction",
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "step_ticks",
+                description: "Advance the master clock by N ticks",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "default": 1 }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "screenshot",
+                description: "Capture the current screen as PNG",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "query",
+                description: "Query an observable value (e.g. cpu.pc, ppu.scanline)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Dot-separated query path" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "poke",
+                description: "Write a byte to RAM (0-2047)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer", "description": "0-2047 (NES RAM)" },
+                        "value": { "type": "integer", "description": "0-255" }
+                    },
+                    "required": ["address", "value"]
+                }),
+            },
+            ToolDefinition {
+                name: "press_button",
+                description: "Press a button on the NES controller",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "button": { "type": "string", "description": "Button name (a, b, select, start, up, down, left, right)" },
+                        "player": { "type": "integer", "description": "Player number (1 or 2, default: 1)" }
+                    },
+                    "required": ["button"]
+                }),
+            },
+            ToolDefinition {
+                name: "release_button",
+                description: "Release a button on the NES controller",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "button": { "type": "string", "description": "Button name" },
+                        "player": { "type": "integer", "description": "Player number (1 or 2, default: 1)" }
+                    },
+                    "required": ["button"]
+                }),
+            },
+            ToolDefinition {
+                name: "input_sequence",
+                description: "Queue a sequence of button presses with hold/gap timing",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "sequence": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Array of button names to press in order"
+                        },
+                        "hold_frames": { "type": "integer", "description": "Frames to hold each button (default: 3)" },
+                        "gap_frames": { "type": "integer", "description": "Frames between presses (default: 3)" },
+                        "at_frame": { "type": "integer", "description": "Frame to start at (default: current)" }
+                    },
+                    "required": ["sequence"]
+                }),
+            },
+            ToolDefinition {
+                name: "set_breakpoint",
+                description: "Run until PC reaches an address (or max frames elapsed)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer" },
+                        "max_frames": { "type": "integer", "default": 10000 }
+                    },
+                    "required": ["address"]
+                }),
+            },
+            ToolDefinition {
+                name: "query_memory",
+                description: "Read a range of bytes from RAM",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer" },
+                        "length": { "type": "integer", "description": "1-65536" }
+                    },
+                    "required": ["address", "length"]
+                }),
+            },
+            ToolDefinition {
+                name: "enable_zapper",
+                description: "Enable the Zapper light gun on port 2",
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "zapper_aim",
+                description: "Set the Zapper aim coordinates",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "integer", "description": "X coordinate (default: 128)" },
+                        "y": { "type": "integer", "description": "Y coordinate (default: 120)" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "zapper_trigger",
+                description: "Pull or release the Zapper trigger",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "pulled": { "type": "boolean", "description": "true to pull, false to release (default: true)" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "save_battery",
+                description: "Read battery-backed PRG RAM as base64",
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "load_battery",
+                description: "Restore battery-backed PRG RAM from data or file",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to battery save file" },
+                        "data": { "type": "string", "description": "Base64-encoded battery save data" }
+                    }
+                }),
+            },
+        ]
+    }
+
+    fn dispatch_tool(&mut self, name: &str, arguments: &JsonValue) -> ToolResult {
+        match name {
+            "boot" => self.handle_boot(arguments),
+            "reset" => self.handle_reset(),
+            "load_rom" => self.handle_load_rom(arguments),
+            "run_frames" => self.handle_run_frames(arguments),
+            "step_instruction" => self.handle_step_instruction(),
+            "step_ticks" => self.handle_step_ticks(arguments),
+            "screenshot" => self.handle_screenshot(arguments),
+            "query" => self.handle_query(arguments),
+            "poke" => self.handle_poke(arguments),
+            "press_button" => self.handle_press_button(arguments),
+            "release_button" => self.handle_release_button(arguments),
+            "input_sequence" => self.handle_input_sequence(arguments),
+            "set_breakpoint" => self.handle_set_breakpoint(arguments),
+            "query_memory" => self.handle_query_memory(arguments),
+            "enable_zapper" => self.handle_enable_zapper(),
+            "zapper_aim" => self.handle_zapper_aim(arguments),
+            "zapper_trigger" => self.handle_zapper_trigger(arguments),
+            "save_battery" => self.handle_save_battery(),
+            "load_battery" => self.handle_load_battery(arguments),
+            _ => ToolResult::Error {
+                code: -32601,
+                message: format!("Unknown tool: {name}"),
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tool handlers
+// ---------------------------------------------------------------------------
+
+impl NesMcp {
+    fn handle_boot(&mut self, params: &JsonValue) -> ToolResult {
         let rom_data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
             match base64::engine::general_purpose::STANDARD.decode(b64) {
                 Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
+                Err(e) => {
+                    return ToolResult::Error {
+                        code: -32602,
+                        message: format!("Invalid base64: {e}"),
+                    };
+                }
             }
         } else if let Some(path) = params
             .get("path")
@@ -211,64 +341,70 @@ impl McpServer {
         {
             match std::fs::read(&path) {
                 Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32000, format!("Cannot read ROM: {e}")),
+                Err(e) => {
+                    return ToolResult::Error {
+                        code: -32000,
+                        message: format!("Cannot read ROM: {e}"),
+                    };
+                }
             }
         } else {
-            return RpcResponse::error(
-                id,
-                -32602,
-                "Provide 'data' (base64), 'path', or --rom CLI argument".to_string(),
-            );
+            return ToolResult::Error {
+                code: -32602,
+                message: "Provide 'data' (base64), 'path', or --rom CLI argument".to_string(),
+            };
         };
 
-        let config = NesConfig { rom_data, region: parse_region(params) };
+        let config = NesConfig {
+            rom_data,
+            region: parse_region(params),
+        };
         match Nes::new(&config) {
             Ok(nes) => {
                 self.nes = Some(nes);
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
+                ToolResult::Success(serde_json::json!({"status": "ok"}))
             }
-            Err(e) => RpcResponse::error(id, -32000, format!("Boot failed: {e}")),
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: format!("Boot failed: {e}"),
+            },
         }
     }
 
-    fn handle_reset(&mut self, id: JsonValue) -> RpcResponse {
-        match self.require_nes(&id) {
-            Ok(nes) => {
-                nes.cpu_mut().reset();
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
-            }
-            Err(e) => e,
-        }
+    fn handle_reset(&mut self) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
+            Err(e) => return e,
+        };
+        nes.cpu_mut().reset();
+        ToolResult::Success(serde_json::json!({"status": "ok"}))
     }
 
-    fn handle_load_rom(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let rom_data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
-            match base64::engine::general_purpose::STANDARD.decode(b64) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
-            }
-        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
-            match std::fs::read(path) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
-            }
-        } else {
-            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+    fn handle_load_rom(&mut self, params: &JsonValue) -> ToolResult {
+        let rom_data = match load_binary_param(params) {
+            Ok(d) => d,
+            Err(e) => return e,
         };
 
-        let config = NesConfig { rom_data, region: parse_region(params) };
+        let config = NesConfig {
+            rom_data,
+            region: parse_region(params),
+        };
         match Nes::new(&config) {
             Ok(nes) => {
                 self.nes = Some(nes);
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
+                ToolResult::Success(serde_json::json!({"status": "ok"}))
             }
-            Err(e) => RpcResponse::error(id, -32000, format!("ROM load failed: {e}")),
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: format!("ROM load failed: {e}"),
+            },
         }
     }
 
-    fn handle_run_frames(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_run_frames(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
@@ -283,19 +419,16 @@ impl McpServer {
             total_ticks += nes.run_frame();
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "frames": count,
-                "ticks": total_ticks,
-                "frame_count": nes.frame_count(),
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "frames": count,
+            "ticks": total_ticks,
+            "frame_count": nes.frame_count(),
+        }))
     }
 
-    fn handle_step_instruction(&mut self, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_step_instruction(&mut self) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
@@ -320,142 +453,114 @@ impl McpServer {
             }
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "pc": format!("${:04X}", nes.cpu().regs.pc),
-                "ticks": ticks,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "pc": format!("${:04X}", nes.cpu().regs.pc),
+            "ticks": ticks,
+        }))
     }
 
-    fn handle_step_ticks(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_step_ticks(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
-
         for _ in 0..count {
             nes.tick();
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "pc": format!("${:04X}", nes.cpu().regs.pc),
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "pc": format!("${:04X}", nes.cpu().regs.pc),
+        }))
     }
 
-    fn handle_screenshot(&mut self, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_screenshot(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
-        let width = nes.framebuffer_width();
-        let height = nes.framebuffer_height();
-        let fb = nes.framebuffer();
-
-        let mut png_buf = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut png_buf, width, height);
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = match encoder.write_header() {
-                Ok(w) => w,
-                Err(e) => return RpcResponse::error(id, -32000, format!("PNG encode error: {e}")),
-            };
-
-            let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-            for &pixel in fb {
-                rgba.push(((pixel >> 16) & 0xFF) as u8);
-                rgba.push(((pixel >> 8) & 0xFF) as u8);
-                rgba.push((pixel & 0xFF) as u8);
-                rgba.push(0xFF);
-            }
-
-            if let Err(e) = writer.write_image_data(&rgba) {
-                return RpcResponse::error(id, -32000, format!("PNG write error: {e}"));
-            }
-        }
-
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&png_buf);
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "format": "png",
-                "width": width,
-                "height": height,
-                "data": b64,
-            }),
+        let save_path = params.get("save_path").and_then(|v| v.as_str());
+        mcp::screenshot_result(
+            nes.framebuffer_width(),
+            nes.framebuffer_height(),
+            nes.framebuffer(),
+            save_path,
         )
     }
 
-    fn handle_query(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_query(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         let path = match params.get("path").and_then(|v| v.as_str()) {
             Some(p) => p,
-            None => return RpcResponse::error(id, -32602, "Missing 'path' parameter".to_string()),
+            None => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'path' parameter".to_string(),
+                };
+            }
         };
 
         match nes.query(path) {
             Some(value) => {
-                let json_val = observable_to_json(&value);
-                RpcResponse::success(id, serde_json::json!({"path": path, "value": json_val}))
+                let json_val = mcp::observable_to_json(&value);
+                ToolResult::Success(serde_json::json!({"path": path, "value": json_val}))
             }
-            None => RpcResponse::error(id, -32000, format!("Unknown query path: {path}")),
+            None => ToolResult::Error {
+                code: -32000,
+                message: format!("Unknown query path: {path}"),
+            },
         }
     }
 
-    fn handle_poke(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_poke(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         let addr = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0x07FF => a as u16,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-2047, RAM only)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-2047, RAM only)".to_string(),
+                };
             }
         };
 
         let value = match params.get("value").and_then(|v| v.as_u64()) {
             Some(v) if v <= 0xFF => v as u8,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'value' (0-255)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'value' (0-255)".to_string(),
+                };
             }
         };
 
         nes.bus_mut().ram[addr as usize] = value;
-        RpcResponse::success(id, serde_json::json!({"address": addr, "value": value}))
+        ToolResult::Success(serde_json::json!({"address": addr, "value": value}))
     }
 
-    fn handle_press_button(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_press_button(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         let name = match params.get("button").and_then(|v| v.as_str()) {
             Some(n) => n,
             None => {
-                return RpcResponse::error(id, -32602, "Missing 'button' parameter".to_string());
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'button' parameter".to_string(),
+                };
             }
         };
 
@@ -468,22 +573,30 @@ impl McpServer {
                 } else {
                     nes.press_button(button);
                 }
-                RpcResponse::success(id, serde_json::json!({"button": name, "player": player, "pressed": true}))
+                ToolResult::Success(
+                    serde_json::json!({"button": name, "player": player, "pressed": true}),
+                )
             }
-            None => RpcResponse::error(id, -32602, format!("Unknown button: {name}")),
+            None => ToolResult::Error {
+                code: -32602,
+                message: format!("Unknown button: {name}"),
+            },
         }
     }
 
-    fn handle_release_button(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_release_button(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         let name = match params.get("button").and_then(|v| v.as_str()) {
             Some(n) => n,
             None => {
-                return RpcResponse::error(id, -32602, "Missing 'button' parameter".to_string());
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'button' parameter".to_string(),
+                };
             }
         };
 
@@ -496,26 +609,30 @@ impl McpServer {
                 } else {
                     nes.release_button(button);
                 }
-                RpcResponse::success(id, serde_json::json!({"button": name, "player": player, "pressed": false}))
+                ToolResult::Success(
+                    serde_json::json!({"button": name, "player": player, "pressed": false}),
+                )
             }
-            None => RpcResponse::error(id, -32602, format!("Unknown button: {name}")),
+            None => ToolResult::Error {
+                code: -32602,
+                message: format!("Unknown button: {name}"),
+            },
         }
     }
 
-    fn handle_input_sequence(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_input_sequence(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         let sequence = match params.get("sequence").and_then(|v| v.as_array()) {
             Some(s) => s,
             None => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing 'sequence' array parameter".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'sequence' array parameter".to_string(),
+                };
             }
         };
 
@@ -549,30 +666,26 @@ impl McpServer {
             }
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "buttons_queued": count,
-                "start_frame": start_frame,
-                "end_frame": frame,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "buttons_queued": count,
+            "start_frame": start_frame,
+            "end_frame": frame,
+        }))
     }
 
-    fn handle_set_breakpoint(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_set_breakpoint(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         let addr = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-65535)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-65535)".to_string(),
+                };
             }
         };
 
@@ -599,55 +712,42 @@ impl McpServer {
 
         let frames_run = ticks_run / ticks_per_frame;
 
-        if hit {
-            RpcResponse::success(
-                id,
-                serde_json::json!({
-                    "hit": true,
-                    "pc": format!("${:04X}", addr),
-                    "frames_run": frames_run,
-                }),
-            )
-        } else {
-            RpcResponse::success(
-                id,
-                serde_json::json!({
-                    "hit": false,
-                    "pc": format!("${:04X}", nes.cpu().regs.pc),
-                    "frames_run": frames_run,
-                }),
-            )
-        }
+        ToolResult::Success(serde_json::json!({
+            "hit": hit,
+            "pc": format!("${:04X}", if hit { addr } else { nes.cpu().regs.pc }),
+            "frames_run": frames_run,
+        }))
     }
 
-    fn handle_query_memory(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_query_memory(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         let address = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-65535)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-65535)".to_string(),
+                };
             }
         };
 
         let length = match params.get("length").and_then(|v| v.as_u64()) {
-            Some(l) if l >= 1 && l <= 65536 => l as usize,
+            Some(l) if (1..=65536).contains(&l) => l as usize,
             Some(_) => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Invalid 'length' (1-65536)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Invalid 'length' (1-65536)".to_string(),
+                };
             }
             None => {
-                return RpcResponse::error(id, -32602, "Missing 'length' parameter".to_string());
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'length' parameter".to_string(),
+                };
             }
         };
 
@@ -655,168 +755,116 @@ impl McpServer {
             .map(|i| nes.bus().peek_ram(address.wrapping_add(i as u16)))
             .collect();
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "address": address,
-                "length": length,
-                "data": bytes,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "address": address,
+            "length": length,
+            "data": bytes,
+        }))
     }
 
-    fn handle_enable_zapper(&mut self, id: JsonValue) -> RpcResponse {
-        match self.require_nes(&id) {
-            Ok(nes) => {
-                nes.enable_zapper();
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
-            }
-            Err(e) => e,
-        }
+    fn handle_enable_zapper(&mut self) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
+            Err(e) => return e,
+        };
+        nes.enable_zapper();
+        ToolResult::Success(serde_json::json!({"status": "ok"}))
     }
 
-    fn handle_zapper_aim(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_zapper_aim(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
         let x = params.get("x").and_then(|v| v.as_u64()).unwrap_or(128) as u16;
         let y = params.get("y").and_then(|v| v.as_u64()).unwrap_or(120) as u16;
         nes.set_zapper_aim(x, y);
-        RpcResponse::success(id, serde_json::json!({"x": x, "y": y}))
+        ToolResult::Success(serde_json::json!({"x": x, "y": y}))
     }
 
-    fn handle_zapper_trigger(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_zapper_trigger(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
-        let pulled = params.get("pulled").and_then(|v| v.as_bool()).unwrap_or(true);
+        let pulled = params
+            .get("pulled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         nes.set_zapper_trigger(pulled);
-        RpcResponse::success(id, serde_json::json!({"trigger": pulled}))
+        ToolResult::Success(serde_json::json!({"trigger": pulled}))
     }
 
-    fn handle_save_battery(&mut self, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_save_battery(&mut self) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
         match nes.save_battery() {
             Some(data) => {
                 let b64 = base64::engine::general_purpose::STANDARD.encode(data);
-                RpcResponse::success(
-                    id,
-                    serde_json::json!({
-                        "size": data.len(),
-                        "data": b64,
-                    }),
-                )
+                ToolResult::Success(serde_json::json!({
+                    "size": data.len(),
+                    "data": b64,
+                }))
             }
-            None => RpcResponse::error(
-                id,
-                -32000,
-                "No battery save: cartridge has no battery flag or mapper has no PRG RAM".to_string(),
-            ),
+            None => ToolResult::Error {
+                code: -32000,
+                message: "No battery save: cartridge has no battery flag or mapper has no PRG RAM"
+                    .to_string(),
+            },
         }
     }
 
-    fn handle_load_battery(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let nes = match self.require_nes(&id) {
-            Ok(s) => s,
+    fn handle_load_battery(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
             Err(e) => return e,
         };
 
-        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
-            match base64::engine::general_purpose::STANDARD.decode(b64) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
-            }
-        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
-            match std::fs::read(path) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
-            }
-        } else {
-            return RpcResponse::error(
-                id,
-                -32602,
-                "Provide 'data' (base64) or 'path'".to_string(),
-            );
+        let data = match load_binary_param(params) {
+            Ok(d) => d,
+            Err(e) => return e,
         };
 
         match nes.load_battery(&data) {
-            Ok(()) => RpcResponse::success(
-                id,
-                serde_json::json!({"status": "ok", "size": data.len()}),
-            ),
-            Err(e) => RpcResponse::error(id, -32000, e),
-        }
-    }
-
-    /// Run a script file: read a JSON array of simplified RPC requests, dispatch
-    /// each in order, and write JSON-line responses to stdout.
-    pub fn run_script(&mut self, path: &Path) -> io::Result<()> {
-        let data = std::fs::read_to_string(path)?;
-        let steps: Vec<ScriptStep> = serde_json::from_str(&data)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
-
-        for (i, step) in steps.iter().enumerate() {
-            let id = JsonValue::from(i as u64 + 1);
-            let params = step.params.clone().unwrap_or(JsonValue::Object(Default::default()));
-            let response = self.dispatch(&step.method, &params, id);
-
-            let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap_or_default());
-            let _ = stdout.flush();
-
-            if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
-                if let Some(ref result) = response.result {
-                    if let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
-                        if let Err(e) = save_capture_data(save_path, data_b64) {
-                            eprintln!("Failed to save {save_path}: {e}");
-                        } else {
-                            eprintln!("Saved {save_path}");
-                        }
-                    }
-                }
+            Ok(()) => {
+                ToolResult::Success(serde_json::json!({"status": "ok", "size": data.len()}))
             }
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: e,
+            },
         }
-
-        Ok(())
-    }
-}
-
-/// A single step in a script file.
-#[derive(Deserialize)]
-struct ScriptStep {
-    method: String,
-    #[serde(default)]
-    params: Option<JsonValue>,
-}
-
-/// Decode base64 capture data and write to a file.
-fn save_capture_data(path: &str, data_b64: &str) -> io::Result<()> {
-    if data_b64.is_empty() {
-        return Ok(());
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(data_b64)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, bytes)
-}
-
-impl Default for McpServer {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Load binary data from a `data` (base64) or `path` parameter.
+fn load_binary_param(params: &JsonValue) -> Result<Vec<u8>, ToolResult> {
+    if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+        base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| ToolResult::Error {
+                code: -32602,
+                message: format!("Invalid base64: {e}"),
+            })
+    } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+        std::fs::read(path).map_err(|e| ToolResult::Error {
+            code: -32602,
+            message: format!("Cannot read file: {e}"),
+        })
+    } else {
+        Err(ToolResult::Error {
+            code: -32602,
+            message: "Provide 'data' (base64) or 'path'".to_string(),
+        })
+    }
+}
 
 fn parse_button_name(name: &str) -> Option<NesButton> {
     match name.to_lowercase().as_str() {
@@ -829,20 +877,6 @@ fn parse_button_name(name: &str) -> Option<NesButton> {
         "left" => Some(NesButton::Left),
         "right" => Some(NesButton::Right),
         _ => None,
-    }
-}
-
-fn observable_to_json(value: &emu_core::Value) -> JsonValue {
-    match value {
-        emu_core::Value::U8(v) => serde_json::json!(v),
-        emu_core::Value::U16(v) => serde_json::json!(v),
-        emu_core::Value::U32(v) => serde_json::json!(v),
-        emu_core::Value::U64(v) => serde_json::json!(v),
-        emu_core::Value::I8(v) => serde_json::json!(v),
-        emu_core::Value::Bool(v) => serde_json::json!(v),
-        emu_core::Value::String(v) => serde_json::json!(v),
-        emu_core::Value::Array(v) => serde_json::json!(format!("{v:?}")),
-        emu_core::Value::Map(v) => serde_json::json!(format!("{v:?}")),
     }
 }
 
@@ -861,21 +895,16 @@ mod tests {
     }
 
     #[test]
-    fn unknown_method_returns_error() {
-        let mut server = McpServer::new();
-        let resp = server.dispatch("nonexistent", &JsonValue::Null, JsonValue::from(1));
-        assert!(resp.error.is_some());
-        assert_eq!(resp.error.as_ref().map(|e| e.code), Some(-32601));
+    fn unknown_tool_returns_error() {
+        let mut mcp = NesMcp::new();
+        let result = mcp.dispatch_tool("nonexistent", &JsonValue::Null);
+        assert!(matches!(result, ToolResult::Error { code: -32601, .. }));
     }
 
     #[test]
     fn run_frames_without_boot_returns_error() {
-        let mut server = McpServer::new();
-        let resp = server.dispatch(
-            "run_frames",
-            &serde_json::json!({"count": 1}),
-            JsonValue::from(1),
-        );
-        assert!(resp.error.is_some());
+        let mut mcp = NesMcp::new();
+        let result = mcp.dispatch_tool("run_frames", &serde_json::json!({"count": 1}));
+        assert!(matches!(result, ToolResult::Error { .. }));
     }
 }

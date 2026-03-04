@@ -1,18 +1,15 @@
 //! MCP (Model Context Protocol) server for the Amiga emulator.
 //!
-//! Exposes the emulator as a JSON-RPC 2.0 server over stdin/stdout.
-//! Tools allow AI agents and scripts to boot, control, observe, and
-//! capture the emulator programmatically.
+//! Implements `McpEmulator` to expose the Amiga as tool calls over the
+//! shared MCP protocol layer. Run with `--mcp` for MCP mode or
+//! `--script` for batch mode.
 
 #![allow(clippy::cast_possible_truncation)]
 
-use std::io::{self, BufRead, Write};
-use std::path::Path;
-
 use base64::Engine;
-use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use emu_core::mcp::{self, McpEmulator, ToolDefinition, ToolResult};
 use emu_core::Observable;
 
 use crate::config::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
@@ -20,161 +17,244 @@ use crate::format_adf::Adf;
 use crate::{Amiga, PAL_FRAME_TICKS};
 
 // ---------------------------------------------------------------------------
-// JSON-RPC types
+// Public re-export: the MCP server type for main.rs
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-struct RpcRequest {
-    jsonrpc: String,
-    method: String,
-    #[serde(default)]
-    params: JsonValue,
-    id: JsonValue,
-}
-
-#[derive(Serialize)]
-struct RpcResponse {
-    jsonrpc: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<JsonValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<RpcError>,
-    id: JsonValue,
-}
-
-#[derive(Serialize)]
-struct RpcError {
-    code: i32,
-    message: String,
-}
-
-impl RpcResponse {
-    fn success(id: JsonValue, result: JsonValue) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: Some(result),
-            error: None,
-            id,
-        }
-    }
-
-    fn error(id: JsonValue, code: i32, message: String) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: None,
-            error: Some(RpcError { code, message }),
-            id,
-        }
-    }
-}
+pub type McpServer = mcp::McpServer<AmigaMcp>;
 
 // ---------------------------------------------------------------------------
-// MCP Server
+// Amiga MCP implementation
 // ---------------------------------------------------------------------------
 
-/// MCP server wrapping a headless Amiga instance.
-pub struct McpServer {
+pub struct AmigaMcp {
     amiga: Option<Amiga>,
 }
 
-impl McpServer {
+impl AmigaMcp {
     #[must_use]
     pub fn new() -> Self {
         Self { amiga: None }
     }
 
-    /// Run the server loop: read JSON-RPC from stdin, write responses to stdout.
-    pub fn run(&mut self) {
-        let stdin = io::stdin();
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
-
-        for line in stdin.lock().lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => break,
-            };
-
-            let line = line.trim().to_string();
-            if line.is_empty() {
-                continue;
-            }
-
-            let request: RpcRequest = match serde_json::from_str(&line) {
-                Ok(r) => r,
-                Err(e) => {
-                    let resp =
-                        RpcResponse::error(JsonValue::Null, -32700, format!("Parse error: {e}"));
-                    let _ = writeln!(
-                        stdout,
-                        "{}",
-                        serde_json::to_string(&resp).unwrap_or_default()
-                    );
-                    let _ = stdout.flush();
-                    continue;
-                }
-            };
-
-            if request.jsonrpc != "2.0" {
-                let resp =
-                    RpcResponse::error(request.id, -32600, "Invalid JSON-RPC version".to_string());
-                let _ = writeln!(
-                    stdout,
-                    "{}",
-                    serde_json::to_string(&resp).unwrap_or_default()
-                );
-                let _ = stdout.flush();
-                continue;
-            }
-
-            let response = self.dispatch(&request.method, &request.params, request.id.clone());
-            let _ = writeln!(
-                stdout,
-                "{}",
-                serde_json::to_string(&response).unwrap_or_default()
-            );
-            let _ = stdout.flush();
-        }
-    }
-
-    fn dispatch(&mut self, method: &str, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        match method {
-            "boot" => self.handle_boot(params, id),
-            "reset" => self.handle_reset(id),
-            "run_frames" => self.handle_run_frames(params, id),
-            "step_instruction" => self.handle_step_instruction(id),
-            "step_ticks" => self.handle_step_ticks(params, id),
-            "screenshot" => self.handle_screenshot(id),
-            "audio_capture" => self.handle_audio_capture(params, id),
-            "query" => self.handle_query(params, id),
-            "query_memory" => self.handle_query_memory(params, id),
-            "poke" => self.handle_poke(params, id),
-            "set_breakpoint" => self.handle_set_breakpoint(params, id),
-            "insert_disk" => self.handle_insert_disk(params, id),
-            "press_key" => self.handle_press_key(params, id),
-            "release_key" => self.handle_release_key(params, id),
-            _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
-        }
-    }
-
-    fn require_amiga(&mut self, id: &JsonValue) -> Result<&mut Amiga, RpcResponse> {
+    fn require_amiga(&mut self) -> Result<&mut Amiga, ToolResult> {
         if self.amiga.is_some() {
             Ok(self.amiga.as_mut().expect("checked is_some"))
         } else {
-            Err(RpcResponse::error(
-                id.clone(),
-                -32000,
-                "No Amiga instance. Call 'boot' first.".to_string(),
-            ))
+            Err(ToolResult::Error {
+                code: -32000,
+                message: "No Amiga instance. Call 'boot' first.".to_string(),
+            })
         }
     }
+}
 
-    // === Tool handlers ===
+impl Default for AmigaMcp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    fn handle_boot(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
+impl McpEmulator for AmigaMcp {
+    fn server_name(&self) -> &str {
+        "emu-amiga"
+    }
+
+    fn server_version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    fn tool_definitions(&self) -> Vec<ToolDefinition> {
+        vec![
+            ToolDefinition {
+                name: "boot",
+                description: "Boot the Amiga with a Kickstart ROM",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "kickstart": { "type": "string", "description": "Base64-encoded Kickstart ROM" },
+                        "kickstart_path": { "type": "string", "description": "Path to Kickstart ROM file" },
+                        "model": { "type": "string", "description": "a500 (default), a500plus, or a1200" },
+                        "chipset": { "type": "string", "description": "ocs (default), ecs, or aga" },
+                        "region": { "type": "string", "description": "pal (default) or ntsc" },
+                        "slow_ram": { "type": "integer", "description": "Slow RAM in KB (default 0)" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "reset",
+                description: "Reset the CPU (read SSP/PC from vectors 0/4)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+            ToolDefinition {
+                name: "run_frames",
+                description: "Run the emulator for N frames (50fps PAL)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "description": "Number of frames to run", "default": 1 }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "step_instruction",
+                description: "Execute one CPU instruction (tick until idle)",
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "step_ticks",
+                description: "Advance the master clock by N ticks",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "default": 1 }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "screenshot",
+                description: "Capture the current screen as PNG (viewport extraction)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "audio_capture",
+                description: "Run N frames and capture stereo audio as WAV",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "frames": { "type": "integer", "default": 50 },
+                        "save_path": { "type": "string", "description": "Save WAV to this path" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "query",
+                description: "Query an observable value (e.g. cpu.pc, denise.color0)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Dot-separated query path" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "query_memory",
+                description: "Read a range of bytes from memory (24-bit address space)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer", "description": "0-16777215 (24-bit)" },
+                        "length": { "type": "integer", "description": "1-65536" }
+                    },
+                    "required": ["address", "length"]
+                }),
+            },
+            ToolDefinition {
+                name: "poke",
+                description: "Write a byte to memory",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer", "description": "0-16777215 (24-bit)" },
+                        "value": { "type": "integer", "description": "0-255" }
+                    },
+                    "required": ["address", "value"]
+                }),
+            },
+            ToolDefinition {
+                name: "set_breakpoint",
+                description: "Run until PC reaches an address (or max frames elapsed)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer", "description": "24-bit address" },
+                        "max_frames": { "type": "integer", "default": 10000 }
+                    },
+                    "required": ["address"]
+                }),
+            },
+            ToolDefinition {
+                name: "insert_disk",
+                description: "Insert an ADF or IPF disk image into DF0:",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to ADF/IPF file" },
+                        "data": { "type": "string", "description": "Base64-encoded disk image" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "press_key",
+                description: "Press a key on the Amiga keyboard",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string", "description": "Key name (a-z, 0-9, return, space, f1, etc.)" }
+                    },
+                    "required": ["key"]
+                }),
+            },
+            ToolDefinition {
+                name: "release_key",
+                description: "Release a key on the Amiga keyboard",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string" }
+                    },
+                    "required": ["key"]
+                }),
+            },
+        ]
+    }
+
+    fn dispatch_tool(&mut self, name: &str, arguments: &JsonValue) -> ToolResult {
+        match name {
+            "boot" => self.handle_boot(arguments),
+            "reset" => self.handle_reset(),
+            "run_frames" => self.handle_run_frames(arguments),
+            "step_instruction" => self.handle_step_instruction(),
+            "step_ticks" => self.handle_step_ticks(arguments),
+            "screenshot" => self.handle_screenshot(arguments),
+            "audio_capture" => self.handle_audio_capture(arguments),
+            "query" => self.handle_query(arguments),
+            "query_memory" => self.handle_query_memory(arguments),
+            "poke" => self.handle_poke(arguments),
+            "set_breakpoint" => self.handle_set_breakpoint(arguments),
+            "insert_disk" => self.handle_insert_disk(arguments),
+            "press_key" => self.handle_press_key(arguments),
+            "release_key" => self.handle_release_key(arguments),
+            _ => ToolResult::Error {
+                code: -32601,
+                message: format!("Unknown tool: {name}"),
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tool handlers
+// ---------------------------------------------------------------------------
+
+impl AmigaMcp {
+    fn handle_boot(&mut self, params: &JsonValue) -> ToolResult {
         let kickstart = match load_kickstart(params) {
             Ok(data) => data,
-            Err(e) => return RpcResponse::error(id, -32000, e),
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: e,
+                };
+            }
         };
 
         let model = match params.get("model").and_then(|v| v.as_str()) {
@@ -209,31 +289,31 @@ impl McpServer {
         };
 
         self.amiga = Some(Amiga::new_with_config(config));
-        RpcResponse::success(id, serde_json::json!({"status": "ok"}))
+        ToolResult::Success(serde_json::json!({"status": "ok"}))
     }
 
-    fn handle_reset(&mut self, id: JsonValue) -> RpcResponse {
-        match self.require_amiga(&id) {
-            Ok(amiga) => {
-                // 68000 reset: read SSP from vector 0, PC from vector 4
-                let ssp = u32::from(amiga.memory.read_byte(0)) << 24
-                    | u32::from(amiga.memory.read_byte(1)) << 16
-                    | u32::from(amiga.memory.read_byte(2)) << 8
-                    | u32::from(amiga.memory.read_byte(3));
-                let pc = u32::from(amiga.memory.read_byte(4)) << 24
-                    | u32::from(amiga.memory.read_byte(5)) << 16
-                    | u32::from(amiga.memory.read_byte(6)) << 8
-                    | u32::from(amiga.memory.read_byte(7));
-                amiga.cpu.reset_to(ssp, pc);
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
-            }
-            Err(e) => e,
-        }
+    fn handle_reset(&mut self) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+
+        // 68000 reset: read SSP from vector 0, PC from vector 4
+        let ssp = u32::from(amiga.memory.read_byte(0)) << 24
+            | u32::from(amiga.memory.read_byte(1)) << 16
+            | u32::from(amiga.memory.read_byte(2)) << 8
+            | u32::from(amiga.memory.read_byte(3));
+        let pc = u32::from(amiga.memory.read_byte(4)) << 24
+            | u32::from(amiga.memory.read_byte(5)) << 16
+            | u32::from(amiga.memory.read_byte(6)) << 8
+            | u32::from(amiga.memory.read_byte(7));
+        amiga.cpu.reset_to(ssp, pc);
+        ToolResult::Success(serde_json::json!({"status": "ok"}))
     }
 
-    fn handle_run_frames(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_run_frames(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
@@ -247,18 +327,15 @@ impl McpServer {
             amiga.run_frame();
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "frames": count,
-                "master_clock": amiga.master_clock,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "frames": count,
+            "master_clock": amiga.master_clock,
+        }))
     }
 
-    fn handle_step_instruction(&mut self, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_step_instruction(&mut self) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
@@ -285,186 +362,158 @@ impl McpServer {
             }
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "pc": format!("${:08X}", amiga.cpu.regs.pc),
-                "ticks": ticks,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "pc": format!("${:08X}", amiga.cpu.regs.pc),
+            "ticks": ticks,
+        }))
     }
 
-    fn handle_step_ticks(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_step_ticks(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
-
         for _ in 0..count {
             amiga.tick();
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "pc": format!("${:08X}", amiga.cpu.regs.pc),
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "pc": format!("${:08X}", amiga.cpu.regs.pc),
+        }))
     }
 
-    fn handle_screenshot(&mut self, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_screenshot(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let pal = matches!(amiga.region, AmigaRegion::Pal);
-        let viewport = amiga
-            .denise
-            .as_inner()
-            .extract_viewport(crate::commodore_denise_ocs::ViewportPreset::Standard, pal, true);
+        let viewport = amiga.denise.as_inner().extract_viewport(
+            crate::commodore_denise_ocs::ViewportPreset::Standard,
+            pal,
+            true,
+        );
 
-        let width = viewport.width;
-        let height = viewport.height;
-
-        let mut png_buf = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut png_buf, width, height);
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = match encoder.write_header() {
-                Ok(w) => w,
-                Err(e) => return RpcResponse::error(id, -32000, format!("PNG encode error: {e}")),
-            };
-
-            let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-            for &pixel in &viewport.pixels {
-                rgba.push(((pixel >> 16) & 0xFF) as u8);
-                rgba.push(((pixel >> 8) & 0xFF) as u8);
-                rgba.push((pixel & 0xFF) as u8);
-                rgba.push(0xFF);
-            }
-
-            if let Err(e) = writer.write_image_data(&rgba) {
-                return RpcResponse::error(id, -32000, format!("PNG write error: {e}"));
-            }
-        }
-
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&png_buf);
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "format": "png",
-                "width": width,
-                "height": height,
-                "data": b64,
-            }),
-        )
+        let save_path = params.get("save_path").and_then(|v| v.as_str());
+        mcp::screenshot_result(viewport.width, viewport.height, &viewport.pixels, save_path)
     }
 
-    fn handle_audio_capture(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_audio_capture(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let frames = params.get("frames").and_then(|v| v.as_u64()).unwrap_or(50);
 
-        let mut all_audio = Vec::new();
+        let mut all_audio: Vec<f32> = Vec::new();
         for _ in 0..frames {
             amiga.run_frame();
             all_audio.extend_from_slice(&amiga.take_audio_buffer());
         }
 
-        // Encode as WAV (stereo interleaved from Paula)
-        let wav_spec = hound::WavSpec {
-            channels: 2,
-            sample_rate: crate::AUDIO_SAMPLE_RATE,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        };
-
-        let mut wav_buf = Vec::new();
-        {
-            let cursor = io::Cursor::new(&mut wav_buf);
-            let mut writer = match hound::WavWriter::new(cursor, wav_spec) {
-                Ok(w) => w,
-                Err(e) => return RpcResponse::error(id, -32000, format!("WAV encode error: {e}")),
-            };
-            for &sample in &all_audio {
-                let clamped = sample.clamp(-1.0, 1.0);
-                let scaled = (clamped * f32::from(i16::MAX)) as i16;
-                if let Err(e) = writer.write_sample(scaled) {
-                    return RpcResponse::error(id, -32000, format!("WAV write error: {e}"));
+        if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
+            // Encode as WAV and save directly
+            let wav_bytes = match encode_wav_stereo(&all_audio) {
+                Ok(b) => b,
+                Err(e) => {
+                    return ToolResult::Error {
+                        code: -32000,
+                        message: format!("WAV encode error: {e}"),
+                    };
                 }
-            }
-            if let Err(e) = writer.finalize() {
-                return RpcResponse::error(id, -32000, format!("WAV finalize error: {e}"));
+            };
+            if let Err(e) = std::fs::write(save_path, &wav_bytes) {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Failed to save audio: {e}"),
+                };
             }
         }
 
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&wav_buf);
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "format": "wav",
-                "samples": all_audio.len() / 2, // stereo pairs
-                "frames": frames,
-                "data": b64,
-            }),
-        )
+        let b64 = if all_audio.is_empty() {
+            String::new()
+        } else {
+            let wav_bytes = match encode_wav_stereo(&all_audio) {
+                Ok(b) => b,
+                Err(e) => {
+                    return ToolResult::Error {
+                        code: -32000,
+                        message: format!("WAV encode error: {e}"),
+                    };
+                }
+            };
+            base64::engine::general_purpose::STANDARD.encode(&wav_bytes)
+        };
+
+        ToolResult::Success(serde_json::json!({
+            "format": "wav",
+            "samples": all_audio.len() / 2, // stereo pairs
+            "frames": frames,
+            "data": b64,
+        }))
     }
 
-    fn handle_query(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_query(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let path = match params.get("path").and_then(|v| v.as_str()) {
             Some(p) => p,
-            None => return RpcResponse::error(id, -32602, "Missing 'path' parameter".to_string()),
+            None => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'path' parameter".to_string(),
+                };
+            }
         };
 
         match amiga.query(path) {
             Some(value) => {
-                let json_val = observable_to_json(&value);
-                RpcResponse::success(id, serde_json::json!({"path": path, "value": json_val}))
+                let json_val = mcp::observable_to_json(&value);
+                ToolResult::Success(serde_json::json!({"path": path, "value": json_val}))
             }
-            None => RpcResponse::error(id, -32000, format!("Unknown query path: {path}")),
+            None => ToolResult::Error {
+                code: -32000,
+                message: format!("Unknown query path: {path}"),
+            },
         }
     }
 
-    fn handle_query_memory(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_query_memory(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let address = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0x00FF_FFFF => a as u32,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
+                };
             }
         };
 
         let length = match params.get("length").and_then(|v| v.as_u64()) {
-            Some(l) if l >= 1 && l <= 65536 => l as usize,
+            Some(l) if (1..=65536).contains(&l) => l as usize,
             Some(_) => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Invalid 'length' (1-65536)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Invalid 'length' (1-65536)".to_string(),
+                };
             }
             None => {
-                return RpcResponse::error(id, -32602, "Missing 'length' parameter".to_string());
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'length' parameter".to_string(),
+                };
             }
         };
 
@@ -472,62 +521,56 @@ impl McpServer {
             .map(|i| amiga.memory.read_byte(address.wrapping_add(i as u32) & 0x00FF_FFFF))
             .collect();
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "address": address,
-                "length": length,
-                "data": bytes,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "address": address,
+            "length": length,
+            "data": bytes,
+        }))
     }
 
-    fn handle_poke(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_poke(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let addr = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0x00FF_FFFF => a as u32,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
+                };
             }
         };
 
         let value = match params.get("value").and_then(|v| v.as_u64()) {
             Some(v) if v <= 0xFF => v as u8,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'value' (0-255)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'value' (0-255)".to_string(),
+                };
             }
         };
 
         amiga.memory.write_byte(addr, value);
-        RpcResponse::success(id, serde_json::json!({"address": addr, "value": value}))
+        ToolResult::Success(serde_json::json!({"address": addr, "value": value}))
     }
 
-    fn handle_set_breakpoint(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_set_breakpoint(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let addr = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0x00FF_FFFF => a as u32,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-16777215, 24-bit)".to_string(),
+                };
             }
         };
 
@@ -552,45 +595,22 @@ impl McpServer {
 
         let frames_run = ticks_run / PAL_FRAME_TICKS;
 
-        if hit {
-            RpcResponse::success(
-                id,
-                serde_json::json!({
-                    "hit": true,
-                    "pc": format!("${:08X}", addr),
-                    "frames_run": frames_run,
-                }),
-            )
-        } else {
-            RpcResponse::success(
-                id,
-                serde_json::json!({
-                    "hit": false,
-                    "pc": format!("${:08X}", amiga.cpu.regs.pc),
-                    "frames_run": frames_run,
-                }),
-            )
-        }
+        ToolResult::Success(serde_json::json!({
+            "hit": hit,
+            "pc": format!("${:08X}", if hit { addr } else { amiga.cpu.regs.pc }),
+            "frames_run": frames_run,
+        }))
     }
 
-    fn handle_insert_disk(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_insert_disk(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
-        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
-            match base64::engine::general_purpose::STANDARD.decode(b64) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
-            }
-        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
-            match std::fs::read(path) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
-            }
-        } else {
-            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+        let data = match load_binary_param(params) {
+            Ok(d) => d,
+            Err(e) => return e,
         };
 
         // Auto-detect format by magic bytes.
@@ -598,124 +618,113 @@ impl McpServer {
             match format_ipf::IpfImage::from_bytes(&data) {
                 Ok(ipf) => {
                     amiga.insert_disk_image(Box::new(ipf));
-                    RpcResponse::success(id, serde_json::json!({"status": "ok", "format": "ipf"}))
+                    ToolResult::Success(
+                        serde_json::json!({"status": "ok", "format": "ipf"}),
+                    )
                 }
-                Err(e) => RpcResponse::error(id, -32000, format!("IPF load failed: {e}")),
+                Err(e) => ToolResult::Error {
+                    code: -32000,
+                    message: format!("IPF load failed: {e}"),
+                },
             }
         } else {
             match Adf::from_bytes(data) {
                 Ok(adf) => {
                     amiga.insert_disk(adf);
-                    RpcResponse::success(id, serde_json::json!({"status": "ok", "format": "adf"}))
+                    ToolResult::Success(
+                        serde_json::json!({"status": "ok", "format": "adf"}),
+                    )
                 }
-                Err(e) => RpcResponse::error(id, -32000, format!("ADF load failed: {e}")),
+                Err(e) => ToolResult::Error {
+                    code: -32000,
+                    message: format!("ADF load failed: {e}"),
+                },
             }
         }
     }
 
-    fn handle_press_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_press_key(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let key_name = match params.get("key").and_then(|v| v.as_str()) {
             Some(k) => k,
-            None => return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string()),
+            None => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'key' parameter".to_string(),
+                };
+            }
         };
 
         match parse_key_name(key_name) {
             Some(keycode) => {
                 amiga.key_event(keycode, true);
-                RpcResponse::success(id, serde_json::json!({"key": key_name, "pressed": true}))
+                ToolResult::Success(serde_json::json!({"key": key_name, "pressed": true}))
             }
-            None => RpcResponse::error(id, -32602, format!("Unknown key: {key_name}")),
+            None => ToolResult::Error {
+                code: -32602,
+                message: format!("Unknown key: {key_name}"),
+            },
         }
     }
 
-    fn handle_release_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let amiga = match self.require_amiga(&id) {
-            Ok(s) => s,
+    fn handle_release_key(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
             Err(e) => return e,
         };
 
         let key_name = match params.get("key").and_then(|v| v.as_str()) {
             Some(k) => k,
-            None => return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string()),
+            None => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'key' parameter".to_string(),
+                };
+            }
         };
 
         match parse_key_name(key_name) {
             Some(keycode) => {
                 amiga.key_event(keycode, false);
-                RpcResponse::success(id, serde_json::json!({"key": key_name, "pressed": false}))
+                ToolResult::Success(serde_json::json!({"key": key_name, "pressed": false}))
             }
-            None => RpcResponse::error(id, -32602, format!("Unknown key: {key_name}")),
+            None => ToolResult::Error {
+                code: -32602,
+                message: format!("Unknown key: {key_name}"),
+            },
         }
-    }
-
-    /// Run a script file: read a JSON array of simplified RPC requests, dispatch
-    /// each in order, and write JSON-line responses to stdout.
-    pub fn run_script(&mut self, path: &Path) -> io::Result<()> {
-        let data = std::fs::read_to_string(path)?;
-        let steps: Vec<ScriptStep> = serde_json::from_str(&data)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
-
-        for (i, step) in steps.iter().enumerate() {
-            let id = JsonValue::from(i as u64 + 1);
-            let params = step.params.clone().unwrap_or(JsonValue::Object(Default::default()));
-            let response = self.dispatch(&step.method, &params, id);
-
-            let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap_or_default());
-            let _ = stdout.flush();
-
-            if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
-                if let Some(ref result) = response.result {
-                    if let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
-                        if let Err(e) = save_capture_data(save_path, data_b64) {
-                            eprintln!("Failed to save {save_path}: {e}");
-                        } else {
-                            eprintln!("Saved {save_path}");
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
-/// A single step in a script file.
-#[derive(Deserialize)]
-struct ScriptStep {
-    method: String,
-    #[serde(default)]
-    params: Option<JsonValue>,
-}
-
-/// Decode base64 capture data and write to a file.
-fn save_capture_data(path: &str, data_b64: &str) -> io::Result<()> {
-    if data_b64.is_empty() {
-        return Ok(());
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(data_b64)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, bytes)
-}
-
-impl Default for McpServer {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Load binary data from a `data` (base64) or `path` parameter.
+fn load_binary_param(params: &JsonValue) -> Result<Vec<u8>, ToolResult> {
+    if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+        base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| ToolResult::Error {
+                code: -32602,
+                message: format!("Invalid base64: {e}"),
+            })
+    } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+        std::fs::read(path).map_err(|e| ToolResult::Error {
+            code: -32602,
+            message: format!("Cannot read file: {e}"),
+        })
+    } else {
+        Err(ToolResult::Error {
+            code: -32602,
+            message: "Provide 'data' (base64) or 'path'".to_string(),
+        })
+    }
+}
 
 /// Map a key name string to an Amiga raw keycode.
 fn parse_key_name(name: &str) -> Option<u8> {
@@ -854,18 +863,29 @@ fn find_roms_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("roms")
 }
 
-fn observable_to_json(value: &emu_core::Value) -> JsonValue {
-    match value {
-        emu_core::Value::U8(v) => serde_json::json!(v),
-        emu_core::Value::U16(v) => serde_json::json!(v),
-        emu_core::Value::U32(v) => serde_json::json!(v),
-        emu_core::Value::U64(v) => serde_json::json!(v),
-        emu_core::Value::I8(v) => serde_json::json!(v),
-        emu_core::Value::Bool(v) => serde_json::json!(v),
-        emu_core::Value::String(v) => serde_json::json!(v),
-        emu_core::Value::Array(v) => serde_json::json!(format!("{v:?}")),
-        emu_core::Value::Map(v) => serde_json::json!(format!("{v:?}")),
+/// Encode stereo audio samples as WAV bytes.
+fn encode_wav_stereo(samples: &[f32]) -> Result<Vec<u8>, String> {
+    let mut wav_buf = Vec::new();
+    let cursor = std::io::Cursor::new(&mut wav_buf);
+    let spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: crate::AUDIO_SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer =
+        hound::WavWriter::new(cursor, spec).map_err(|e| format!("WAV encode error: {e}"))?;
+    for &s in samples {
+        let clamped = s.clamp(-1.0, 1.0);
+        let scaled = (clamped * f32::from(i16::MAX)) as i16;
+        writer
+            .write_sample(scaled)
+            .map_err(|e| format!("WAV write error: {e}"))?;
     }
+    writer
+        .finalize()
+        .map_err(|e| format!("WAV finalize error: {e}"))?;
+    Ok(wav_buf)
 }
 
 #[cfg(test)]
@@ -873,33 +893,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unknown_method_returns_error() {
-        let mut server = McpServer::new();
-        let resp = server.dispatch("nonexistent", &JsonValue::Null, JsonValue::from(1));
-        assert!(resp.error.is_some());
-        assert_eq!(resp.error.as_ref().map(|e| e.code), Some(-32601));
+    fn unknown_tool_returns_error() {
+        let mut mcp = AmigaMcp::new();
+        let result = mcp.dispatch_tool("nonexistent", &JsonValue::Null);
+        assert!(matches!(result, ToolResult::Error { code: -32601, .. }));
     }
 
     #[test]
     fn run_frames_without_boot_returns_error() {
-        let mut server = McpServer::new();
-        let resp = server.dispatch(
-            "run_frames",
-            &serde_json::json!({"count": 1}),
-            JsonValue::from(1),
-        );
-        assert!(resp.error.is_some());
+        let mut mcp = AmigaMcp::new();
+        let result = mcp.dispatch_tool("run_frames", &serde_json::json!({"count": 1}));
+        assert!(matches!(result, ToolResult::Error { .. }));
     }
 
     #[test]
     fn query_without_boot_returns_error() {
-        let mut server = McpServer::new();
-        let resp = server.dispatch(
-            "query",
-            &serde_json::json!({"path": "cpu.pc"}),
-            JsonValue::from(1),
-        );
-        assert!(resp.error.is_some());
+        let mut mcp = AmigaMcp::new();
+        let result = mcp.dispatch_tool("query", &serde_json::json!({"path": "cpu.pc"}));
+        assert!(matches!(result, ToolResult::Error { .. }));
     }
 
     #[test]

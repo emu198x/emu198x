@@ -6,6 +6,8 @@
 mod bus;
 mod clock;
 mod cpu;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 mod observable;
 mod tickable;
 mod ticks;

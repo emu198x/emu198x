@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use commodore_denise_ocs::ViewportPreset;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use machine_amiga::format_adf::Adf;
+use machine_amiga::mcp::{AmigaMcp, McpServer as AmigaMcpServer};
 use machine_amiga::{
     Amiga, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion, BeamDebugSnapshot, RASTER_FB_WIDTH,
     commodore_denise_ocs,
@@ -2220,12 +2221,12 @@ fn main() {
     let cli = parse_args();
 
     if cli.mcp {
-        machine_amiga::mcp::McpServer::new().run();
+        AmigaMcpServer::new(AmigaMcp::new()).run();
         return;
     }
 
     if let Some(ref path) = cli.script_path {
-        let mut server = machine_amiga::mcp::McpServer::new();
+        let mut server = AmigaMcpServer::new(AmigaMcp::new());
         if let Err(e) = server.run_script(path) {
             eprintln!("Script error: {e}");
             process::exit(1);

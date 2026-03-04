@@ -1,18 +1,15 @@
 //! MCP (Model Context Protocol) server for the C64 emulator.
 //!
-//! Exposes the emulator as a JSON-RPC 2.0 server over stdin/stdout.
-//! Tools allow AI agents and scripts to boot, control, observe, and
-//! capture the emulator programmatically.
+//! Implements `McpEmulator` to expose the C64 as tool calls over the
+//! shared MCP protocol layer. Run with `--mcp` for MCP mode or
+//! `--script` for batch mode.
 
 #![allow(clippy::cast_possible_truncation)]
 
-use std::io::{self, BufRead, Write};
-use std::path::Path;
-
 use base64::Engine;
-use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use emu_core::mcp::{self, McpEmulator, ToolDefinition, ToolResult};
 use emu_core::{Cpu, Observable, Tickable};
 
 use crate::C64;
@@ -20,213 +17,319 @@ use crate::config::{C64Config, C64Model};
 use crate::input::C64Key;
 
 // ---------------------------------------------------------------------------
-// JSON-RPC types
+// Public re-export: the MCP server type for main.rs
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-struct RpcRequest {
-    jsonrpc: String,
-    method: String,
-    #[serde(default)]
-    params: JsonValue,
-    id: JsonValue,
-}
-
-#[derive(Serialize)]
-struct RpcResponse {
-    jsonrpc: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<JsonValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<RpcError>,
-    id: JsonValue,
-}
-
-#[derive(Serialize)]
-struct RpcError {
-    code: i32,
-    message: String,
-}
-
-impl RpcResponse {
-    fn success(id: JsonValue, result: JsonValue) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: Some(result),
-            error: None,
-            id,
-        }
-    }
-
-    fn error(id: JsonValue, code: i32, message: String) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: None,
-            error: Some(RpcError { code, message }),
-            id,
-        }
-    }
-}
+pub type McpServer = mcp::McpServer<C64Mcp>;
 
 // ---------------------------------------------------------------------------
-// MCP Server
+// C64 MCP implementation
 // ---------------------------------------------------------------------------
 
-/// MCP server wrapping a headless C64 instance.
-pub struct McpServer {
+pub struct C64Mcp {
     c64: Option<C64>,
 }
 
-impl McpServer {
+impl C64Mcp {
     #[must_use]
     pub fn new() -> Self {
         Self { c64: None }
     }
 
-    /// Run the server loop: read JSON-RPC from stdin, write responses to stdout.
-    pub fn run(&mut self) {
-        let stdin = io::stdin();
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
-
-        for line in stdin.lock().lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => break,
-            };
-
-            let line = line.trim().to_string();
-            if line.is_empty() {
-                continue;
-            }
-
-            let request: RpcRequest = match serde_json::from_str(&line) {
-                Ok(r) => r,
-                Err(e) => {
-                    let resp =
-                        RpcResponse::error(JsonValue::Null, -32700, format!("Parse error: {e}"));
-                    let _ = writeln!(
-                        stdout,
-                        "{}",
-                        serde_json::to_string(&resp).unwrap_or_default()
-                    );
-                    let _ = stdout.flush();
-                    continue;
-                }
-            };
-
-            if request.jsonrpc != "2.0" {
-                let resp =
-                    RpcResponse::error(request.id, -32600, "Invalid JSON-RPC version".to_string());
-                let _ = writeln!(
-                    stdout,
-                    "{}",
-                    serde_json::to_string(&resp).unwrap_or_default()
-                );
-                let _ = stdout.flush();
-                continue;
-            }
-
-            let response = self.dispatch(&request.method, &request.params, request.id.clone());
-            let _ = writeln!(
-                stdout,
-                "{}",
-                serde_json::to_string(&response).unwrap_or_default()
-            );
-            let _ = stdout.flush();
-        }
-    }
-
-    fn dispatch(&mut self, method: &str, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        match method {
-            "boot" => self.handle_boot(id),
-            "reset" => self.handle_reset(id),
-            "load_prg" => self.handle_load_prg(params, id),
-            "run_frames" => self.handle_run_frames(params, id),
-            "step_instruction" => self.handle_step_instruction(id),
-            "step_ticks" => self.handle_step_ticks(params, id),
-            "screenshot" => self.handle_screenshot(id),
-            "audio_capture" => self.handle_audio_capture(params, id),
-            "query" => self.handle_query(params, id),
-            "boot_detected" => self.handle_boot_detected(id),
-            "boot_status" => self.handle_boot_status(id),
-            "poke" => self.handle_poke(params, id),
-            "press_key" => self.handle_press_key(params, id),
-            "release_key" => self.handle_release_key(params, id),
-            "type_text" => self.handle_type_text(params, id),
-            "set_breakpoint" => self.handle_set_breakpoint(params, id),
-            "get_screen_text" => self.handle_get_screen_text(id),
-            "query_memory" => self.handle_query_memory(params, id),
-            "load_d64" => self.handle_load_d64(params, id),
-            _ => RpcResponse::error(id, -32601, format!("Unknown method: {method}")),
-        }
-    }
-
-    fn require_c64(&mut self, id: &JsonValue) -> Result<&mut C64, RpcResponse> {
+    fn require_c64(&mut self) -> Result<&mut C64, ToolResult> {
         if self.c64.is_some() {
             Ok(self.c64.as_mut().expect("checked is_some"))
         } else {
-            Err(RpcResponse::error(
-                id.clone(),
-                -32000,
-                "No C64 instance. Call 'boot' first.".to_string(),
-            ))
+            Err(ToolResult::Error {
+                code: -32000,
+                message: "No C64 instance. Call 'boot' first.".to_string(),
+            })
         }
     }
+}
 
-    // === Tool handlers ===
+impl Default for C64Mcp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    fn handle_boot(&mut self, id: JsonValue) -> RpcResponse {
+impl McpEmulator for C64Mcp {
+    fn server_name(&self) -> &str {
+        "emu-c64"
+    }
+
+    fn server_version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    fn tool_definitions(&self) -> Vec<ToolDefinition> {
+        vec![
+            ToolDefinition {
+                name: "boot",
+                description: "Boot the Commodore 64 with PAL ROMs",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+            ToolDefinition {
+                name: "reset",
+                description: "Reset the CPU",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+            ToolDefinition {
+                name: "load_prg",
+                description: "Load a PRG file into C64 memory",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to .prg file" },
+                        "data": { "type": "string", "description": "Base64-encoded PRG data" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "run_frames",
+                description: "Run the emulator for N frames (50fps PAL)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "description": "Number of frames to run", "default": 1 }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "screenshot",
+                description: "Capture the current screen as PNG",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "step_instruction",
+                description: "Execute one CPU instruction",
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "step_ticks",
+                description: "Advance the master clock by N ticks",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "count": { "type": "integer", "default": 1 }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "audio_capture",
+                description: "Run N frames and capture audio as WAV",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "frames": { "type": "integer", "default": 50 },
+                        "save_path": { "type": "string", "description": "Save WAV to this path" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "query",
+                description: "Query an observable value (e.g. cpu.pc, vic.raster)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Dot-separated query path" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "poke",
+                description: "Write a byte to RAM",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer", "description": "0-65535" },
+                        "value": { "type": "integer", "description": "0-255" }
+                    },
+                    "required": ["address", "value"]
+                }),
+            },
+            ToolDefinition {
+                name: "press_key",
+                description: "Press a key on the C64 keyboard",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string", "description": "Key name (a-z, 0-9, return, space, f1, etc.)" }
+                    },
+                    "required": ["key"]
+                }),
+            },
+            ToolDefinition {
+                name: "release_key",
+                description: "Release a key on the C64 keyboard",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string" }
+                    },
+                    "required": ["key"]
+                }),
+            },
+            ToolDefinition {
+                name: "type_text",
+                description: "Queue text to be typed into the C64",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "text": { "type": "string" },
+                        "at_frame": { "type": "integer", "description": "Frame at which to start typing" }
+                    },
+                    "required": ["text"]
+                }),
+            },
+            ToolDefinition {
+                name: "set_breakpoint",
+                description: "Run until PC reaches an address (or max frames elapsed)",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer" },
+                        "max_frames": { "type": "integer", "default": 10000 }
+                    },
+                    "required": ["address"]
+                }),
+            },
+            ToolDefinition {
+                name: "get_screen_text",
+                description: "Read the 25x40 text screen as strings",
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "boot_detected",
+                description: "Check if the BASIC boot screen is visible",
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "boot_status",
+                description: "Get boot detection status plus screen text",
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "query_memory",
+                description: "Read a range of bytes from RAM",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "address": { "type": "integer" },
+                        "length": { "type": "integer", "description": "1-65536" }
+                    },
+                    "required": ["address", "length"]
+                }),
+            },
+            ToolDefinition {
+                name: "load_d64",
+                description: "Insert a D64 disk image",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "data": { "type": "string", "description": "Base64-encoded D64" }
+                    }
+                }),
+            },
+        ]
+    }
+
+    fn dispatch_tool(&mut self, name: &str, arguments: &JsonValue) -> ToolResult {
+        match name {
+            "boot" => self.handle_boot(),
+            "reset" => self.handle_reset(),
+            "load_prg" => self.handle_load_prg(arguments),
+            "run_frames" => self.handle_run_frames(arguments),
+            "step_instruction" => self.handle_step_instruction(),
+            "step_ticks" => self.handle_step_ticks(arguments),
+            "screenshot" => self.handle_screenshot(arguments),
+            "audio_capture" => self.handle_audio_capture(arguments),
+            "query" => self.handle_query(arguments),
+            "boot_detected" => self.handle_boot_detected(),
+            "boot_status" => self.handle_boot_status(),
+            "poke" => self.handle_poke(arguments),
+            "press_key" => self.handle_press_key(arguments),
+            "release_key" => self.handle_release_key(arguments),
+            "type_text" => self.handle_type_text(arguments),
+            "set_breakpoint" => self.handle_set_breakpoint(arguments),
+            "get_screen_text" => self.handle_get_screen_text(),
+            "query_memory" => self.handle_query_memory(arguments),
+            "load_d64" => self.handle_load_d64(arguments),
+            _ => ToolResult::Error {
+                code: -32601,
+                message: format!("Unknown tool: {name}"),
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tool handlers
+// ---------------------------------------------------------------------------
+
+impl C64Mcp {
+    fn handle_boot(&mut self) -> ToolResult {
         let config = match load_c64_config() {
             Ok(c) => c,
-            Err(e) => return RpcResponse::error(id, -32000, e),
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: e,
+                };
+            }
         };
         self.c64 = Some(C64::new(&config));
-        RpcResponse::success(id, serde_json::json!({"status": "ok"}))
+        ToolResult::Success(serde_json::json!({"status": "ok"}))
     }
 
-    fn handle_reset(&mut self, id: JsonValue) -> RpcResponse {
-        match self.require_c64(&id) {
-            Ok(c64) => {
-                c64.cpu_mut().reset();
-                RpcResponse::success(id, serde_json::json!({"status": "ok"}))
-            }
-            Err(e) => e,
-        }
+    fn handle_reset(&mut self) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+        c64.cpu_mut().reset();
+        ToolResult::Success(serde_json::json!({"status": "ok"}))
     }
 
-    fn handle_load_prg(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_load_prg(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
-        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
-            match base64::engine::general_purpose::STANDARD.decode(b64) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
-            }
-        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
-            match std::fs::read(path) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
-            }
-        } else {
-            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+        let data = match load_binary_param(params) {
+            Ok(d) => d,
+            Err(e) => return e,
         };
 
         match c64.load_prg(&data) {
-            Ok(addr) => RpcResponse::success(
-                id,
+            Ok(addr) => ToolResult::Success(
                 serde_json::json!({"status": "ok", "load_address": format!("${addr:04X}")}),
             ),
-            Err(e) => RpcResponse::error(id, -32000, format!("PRG load failed: {e}")),
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: format!("PRG load failed: {e}"),
+            },
         }
     }
 
-    fn handle_run_frames(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_run_frames(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
@@ -241,19 +344,16 @@ impl McpServer {
             total_cycles += c64.run_frame();
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "frames": count,
-                "cycles": total_cycles,
-                "frame_count": c64.frame_count(),
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "frames": count,
+            "cycles": total_cycles,
+            "frame_count": c64.frame_count(),
+        }))
     }
 
-    fn handle_step_instruction(&mut self, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_step_instruction(&mut self) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
@@ -278,83 +378,46 @@ impl McpServer {
             }
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "pc": format!("${:04X}", c64.cpu().regs.pc),
-                "cycles": cycles,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "pc": format!("${:04X}", c64.cpu().regs.pc),
+            "cycles": cycles,
+        }))
     }
 
-    fn handle_step_ticks(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_step_ticks(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
-
         for _ in 0..count {
             c64.tick();
         }
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "pc": format!("${:04X}", c64.cpu().regs.pc),
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "pc": format!("${:04X}", c64.cpu().regs.pc),
+        }))
     }
 
-    fn handle_screenshot(&mut self, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_screenshot(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
-        let width = c64.framebuffer_width();
-        let height = c64.framebuffer_height();
-        let fb = c64.framebuffer();
-
-        let mut png_buf = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut png_buf, width, height);
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = match encoder.write_header() {
-                Ok(w) => w,
-                Err(e) => return RpcResponse::error(id, -32000, format!("PNG encode error: {e}")),
-            };
-
-            let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-            for &pixel in fb {
-                rgba.push(((pixel >> 16) & 0xFF) as u8);
-                rgba.push(((pixel >> 8) & 0xFF) as u8);
-                rgba.push((pixel & 0xFF) as u8);
-                rgba.push(0xFF);
-            }
-
-            if let Err(e) = writer.write_image_data(&rgba) {
-                return RpcResponse::error(id, -32000, format!("PNG write error: {e}"));
-            }
-        }
-
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&png_buf);
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "format": "png",
-                "width": width,
-                "height": height,
-                "data": b64,
-            }),
+        let save_path = params.get("save_path").and_then(|v| v.as_str());
+        mcp::screenshot_result(
+            c64.framebuffer_width(),
+            c64.framebuffer_height(),
+            c64.framebuffer(),
+            save_path,
         )
     }
 
-    fn handle_audio_capture(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_audio_capture(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
@@ -370,14 +433,16 @@ impl McpServer {
             if let Err(e) =
                 crate::capture::save_audio(&all_audio, std::path::Path::new(save_path))
             {
-                return RpcResponse::error(id, -32000, format!("Failed to save audio: {e}"));
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Failed to save audio: {e}"),
+                };
             }
         }
 
         let b64 = if all_audio.is_empty() {
             String::new()
         } else {
-            // Encode as 16-bit PCM WAV in memory, then base64
             let mut wav_buf = Vec::new();
             {
                 let cursor = std::io::Cursor::new(&mut wav_buf);
@@ -387,139 +452,153 @@ impl McpServer {
                     bits_per_sample: 16,
                     sample_format: hound::SampleFormat::Int,
                 };
-                let mut writer = hound::WavWriter::new(cursor, spec).unwrap();
+                let mut writer = hound::WavWriter::new(cursor, spec).expect("WAV writer");
                 for &s in &all_audio {
                     let clamped = s.clamp(-1.0, 1.0);
                     let scaled = (clamped * f32::from(i16::MAX)) as i16;
-                    writer.write_sample(scaled).unwrap();
+                    writer.write_sample(scaled).expect("WAV sample");
                 }
-                writer.finalize().unwrap();
+                writer.finalize().expect("WAV finalize");
             }
             base64::engine::general_purpose::STANDARD.encode(&wav_buf)
         };
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "format": "wav",
-                "samples": all_audio.len(),
-                "frames": frames,
-                "data": b64,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "format": "wav",
+            "samples": all_audio.len(),
+            "frames": frames,
+            "data": b64,
+        }))
     }
 
-    fn handle_query(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_query(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let path = match params.get("path").and_then(|v| v.as_str()) {
             Some(p) => p,
-            None => return RpcResponse::error(id, -32602, "Missing 'path' parameter".to_string()),
+            None => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'path' parameter".to_string(),
+                };
+            }
         };
 
         match c64.query(path) {
             Some(value) => {
-                let json_val = match value {
-                    emu_core::Value::U8(v) => serde_json::json!(v),
-                    emu_core::Value::U16(v) => serde_json::json!(v),
-                    emu_core::Value::U32(v) => serde_json::json!(v),
-                    emu_core::Value::U64(v) => serde_json::json!(v),
-                    emu_core::Value::I8(v) => serde_json::json!(v),
-                    emu_core::Value::Bool(v) => serde_json::json!(v),
-                    emu_core::Value::String(v) => serde_json::json!(v),
-                    emu_core::Value::Array(v) => serde_json::json!(format!("{v:?}")),
-                    emu_core::Value::Map(v) => serde_json::json!(format!("{v:?}")),
-                };
-                RpcResponse::success(id, serde_json::json!({"path": path, "value": json_val}))
+                let json_val = mcp::observable_to_json(&value);
+                ToolResult::Success(serde_json::json!({"path": path, "value": json_val}))
             }
-            None => RpcResponse::error(id, -32000, format!("Unknown query path: {path}")),
+            None => ToolResult::Error {
+                code: -32000,
+                message: format!("Unknown query path: {path}"),
+            },
         }
     }
 
-    fn handle_poke(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_poke(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let addr = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-65535)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-65535)".to_string(),
+                };
             }
         };
 
         let value = match params.get("value").and_then(|v| v.as_u64()) {
             Some(v) if v <= 0xFF => v as u8,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'value' (0-255)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'value' (0-255)".to_string(),
+                };
             }
         };
 
         c64.bus_mut().memory.ram_write(addr, value);
-        RpcResponse::success(id, serde_json::json!({"address": addr, "value": value}))
+        ToolResult::Success(serde_json::json!({"address": addr, "value": value}))
     }
 
-    fn handle_press_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_press_key(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let key_name = match params.get("key").and_then(|v| v.as_str()) {
             Some(k) => k,
-            None => return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string()),
+            None => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'key' parameter".to_string(),
+                };
+            }
         };
 
         match parse_key_name(key_name) {
             Some(key) => {
                 c64.press_key(key);
-                RpcResponse::success(id, serde_json::json!({"key": key_name, "pressed": true}))
+                ToolResult::Success(serde_json::json!({"key": key_name, "pressed": true}))
             }
-            None => RpcResponse::error(id, -32602, format!("Unknown key: {key_name}")),
+            None => ToolResult::Error {
+                code: -32602,
+                message: format!("Unknown key: {key_name}"),
+            },
         }
     }
 
-    fn handle_release_key(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_release_key(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let key_name = match params.get("key").and_then(|v| v.as_str()) {
             Some(k) => k,
-            None => return RpcResponse::error(id, -32602, "Missing 'key' parameter".to_string()),
+            None => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'key' parameter".to_string(),
+                };
+            }
         };
 
         match parse_key_name(key_name) {
             Some(key) => {
                 c64.release_key(key);
-                RpcResponse::success(id, serde_json::json!({"key": key_name, "pressed": false}))
+                ToolResult::Success(serde_json::json!({"key": key_name, "pressed": false}))
             }
-            None => RpcResponse::error(id, -32602, format!("Unknown key: {key_name}")),
+            None => ToolResult::Error {
+                code: -32602,
+                message: format!("Unknown key: {key_name}"),
+            },
         }
     }
 
-    fn handle_type_text(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_type_text(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let text = match params.get("text").and_then(|v| v.as_str()) {
             Some(t) => t.to_string(),
-            None => return RpcResponse::error(id, -32602, "Missing 'text' parameter".to_string()),
+            None => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'text' parameter".to_string(),
+                };
+            }
         };
 
         let at_frame = params
@@ -528,30 +607,26 @@ impl McpServer {
             .unwrap_or_else(|| c64.frame_count());
 
         let end_frame = c64.input_queue().enqueue_text(&text, at_frame);
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "text": text,
-                "start_frame": at_frame,
-                "end_frame": end_frame,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "text": text,
+            "start_frame": at_frame,
+            "end_frame": end_frame,
+        }))
     }
 
-    fn handle_set_breakpoint(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_set_breakpoint(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let addr = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-65535)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-65535)".to_string(),
+                };
             }
         };
 
@@ -577,113 +652,88 @@ impl McpServer {
             }
         }
 
-        if hit {
-            RpcResponse::success(
-                id,
-                serde_json::json!({
-                    "hit": true,
-                    "pc": format!("${:04X}", addr),
-                    "frames_run": frames_run,
-                }),
-            )
-        } else {
-            RpcResponse::success(
-                id,
-                serde_json::json!({
-                    "hit": false,
-                    "pc": format!("${:04X}", c64.cpu().regs.pc),
-                    "frames_run": frames_run,
-                }),
-            )
-        }
+        ToolResult::Success(serde_json::json!({
+            "hit": hit,
+            "pc": format!("${:04X}", if hit { addr } else { c64.cpu().regs.pc }),
+            "frames_run": frames_run,
+        }))
     }
 
-    fn handle_get_screen_text(&mut self, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_get_screen_text(&mut self) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let lines = read_screen_lines(c64);
-
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "rows": 25,
-                "cols": 40,
-                "lines": lines,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "rows": 25,
+            "cols": 40,
+            "lines": lines,
+        }))
     }
 
-    fn handle_boot_detected(&mut self, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_boot_detected(&mut self) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let lines = read_screen_lines(c64);
         let (detected, reason) = detect_boot(&lines);
-
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "boot_detected": detected,
-                "reason": reason,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "boot_detected": detected,
+            "reason": reason,
+        }))
     }
 
-    fn handle_boot_status(&mut self, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_boot_status(&mut self) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let lines = read_screen_lines(c64);
         let (detected, reason) = detect_boot(&lines);
-
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "boot_detected": detected,
-                "reason": reason,
-                "frame_count": c64.frame_count(),
-                "rows": 25,
-                "cols": 40,
-                "lines": lines,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "boot_detected": detected,
+            "reason": reason,
+            "frame_count": c64.frame_count(),
+            "rows": 25,
+            "cols": 40,
+            "lines": lines,
+        }))
     }
 
-    fn handle_query_memory(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_query_memory(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
         let address = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) if a <= 0xFFFF => a as u16,
             _ => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Missing or invalid 'address' (0-65535)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'address' (0-65535)".to_string(),
+                };
             }
         };
 
         let length = match params.get("length").and_then(|v| v.as_u64()) {
-            Some(l) if l >= 1 && l <= 65536 => l as usize,
+            Some(l) if (1..=65536).contains(&l) => l as usize,
             Some(_) => {
-                return RpcResponse::error(
-                    id,
-                    -32602,
-                    "Invalid 'length' (1-65536)".to_string(),
-                );
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Invalid 'length' (1-65536)".to_string(),
+                };
             }
             None => {
-                return RpcResponse::error(id, -32602, "Missing 'length' parameter".to_string());
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing 'length' parameter".to_string(),
+                };
             }
         };
 
@@ -691,108 +741,61 @@ impl McpServer {
             .map(|i| c64.bus().memory.peek(address.wrapping_add(i as u16)))
             .collect();
 
-        RpcResponse::success(
-            id,
-            serde_json::json!({
-                "address": address,
-                "length": length,
-                "data": bytes,
-            }),
-        )
+        ToolResult::Success(serde_json::json!({
+            "address": address,
+            "length": length,
+            "data": bytes,
+        }))
     }
 
-    fn handle_load_d64(&mut self, params: &JsonValue, id: JsonValue) -> RpcResponse {
-        let c64 = match self.require_c64(&id) {
-            Ok(s) => s,
+    fn handle_load_d64(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
             Err(e) => return e,
         };
 
-        let data = if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
-            match base64::engine::general_purpose::STANDARD.decode(b64) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Invalid base64: {e}")),
-            }
-        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
-            match std::fs::read(path) {
-                Ok(d) => d,
-                Err(e) => return RpcResponse::error(id, -32602, format!("Cannot read file: {e}")),
-            }
-        } else {
-            return RpcResponse::error(id, -32602, "Provide 'data' (base64) or 'path'".to_string());
+        let data = match load_binary_param(params) {
+            Ok(d) => d,
+            Err(e) => return e,
         };
 
         match c64.load_d64(&data) {
-            Ok(()) => RpcResponse::success(
-                id,
-                serde_json::json!({"status": "ok", "size": data.len()}),
-            ),
-            Err(e) => RpcResponse::error(id, -32000, format!("D64 load failed: {e}")),
-        }
-    }
-
-    /// Run a script file: read a JSON array of simplified RPC requests, dispatch
-    /// each in order, and write JSON-line responses to stdout.
-    pub fn run_script(&mut self, path: &Path) -> io::Result<()> {
-        let data = std::fs::read_to_string(path)?;
-        let steps: Vec<ScriptStep> = serde_json::from_str(&data)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
-
-        for (i, step) in steps.iter().enumerate() {
-            let id = JsonValue::from(i as u64 + 1);
-            let params = step.params.clone().unwrap_or(JsonValue::Object(Default::default()));
-            let response = self.dispatch(&step.method, &params, id);
-
-            let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap_or_default());
-            let _ = stdout.flush();
-
-            if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) {
-                if let Some(ref result) = response.result {
-                    if let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
-                        if let Err(e) = save_capture_data(save_path, data_b64) {
-                            eprintln!("Failed to save {save_path}: {e}");
-                        } else {
-                            eprintln!("Saved {save_path}");
-                        }
-                    }
-                }
+            Ok(()) => {
+                ToolResult::Success(serde_json::json!({"status": "ok", "size": data.len()}))
             }
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: format!("D64 load failed: {e}"),
+            },
         }
-
-        Ok(())
-    }
-}
-
-/// A single step in a script file.
-#[derive(Deserialize)]
-struct ScriptStep {
-    method: String,
-    #[serde(default)]
-    params: Option<JsonValue>,
-}
-
-/// Decode base64 capture data and write to a file.
-fn save_capture_data(path: &str, data_b64: &str) -> io::Result<()> {
-    if data_b64.is_empty() {
-        return Ok(());
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(data_b64)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, bytes)
-}
-
-impl Default for McpServer {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Load binary data from a `data` (base64) or `path` parameter.
+fn load_binary_param(params: &JsonValue) -> Result<Vec<u8>, ToolResult> {
+    if let Some(b64) = params.get("data").and_then(|v| v.as_str()) {
+        base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| ToolResult::Error {
+                code: -32602,
+                message: format!("Invalid base64: {e}"),
+            })
+    } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+        std::fs::read(path).map_err(|e| ToolResult::Error {
+            code: -32602,
+            message: format!("Cannot read file: {e}"),
+        })
+    } else {
+        Err(ToolResult::Error {
+            code: -32602,
+            message: "Provide 'data' (base64) or 'path'".to_string(),
+        })
+    }
+}
 
 /// Parse a key name string into a `C64Key`.
 fn parse_key_name(name: &str) -> Option<C64Key> {
@@ -913,9 +916,6 @@ fn load_rom_file(
 }
 
 /// Convert a C64 screen code to an ASCII character.
-///
-/// Screen codes differ from PETSCII: 0-31 = @A-Z[\]^_, 32-63 = space to ?,
-/// etc. This handles the common printable range.
 fn screen_code_to_ascii(code: u8) -> char {
     match code {
         0x00 => '@',
@@ -927,12 +927,11 @@ fn screen_code_to_ascii(code: u8) -> char {
         0x1F => '_',
         0x20 => ' ',
         0x21..=0x3F => (b'!' + code - 0x21) as char,
-        // Reverse video versions (same characters)
         0x80 => '@',
         0x81..=0x9A => (b'A' + code - 0x81) as char,
         0xA0 => ' ',
         0xA1..=0xBF => (b'!' + code - 0xA1) as char,
-        _ => ' ', // Graphics characters → space
+        _ => ' ',
     }
 }
 
@@ -999,22 +998,17 @@ mod tests {
     }
 
     #[test]
-    fn unknown_method_returns_error() {
-        let mut server = McpServer::new();
-        let resp = server.dispatch("nonexistent", &JsonValue::Null, JsonValue::from(1));
-        assert!(resp.error.is_some());
-        assert_eq!(resp.error.as_ref().map(|e| e.code), Some(-32601));
+    fn unknown_tool_returns_error() {
+        let mut mcp = C64Mcp::new();
+        let result = mcp.dispatch_tool("nonexistent", &JsonValue::Null);
+        assert!(matches!(result, ToolResult::Error { code: -32601, .. }));
     }
 
     #[test]
     fn run_frames_without_boot_returns_error() {
-        let mut server = McpServer::new();
-        let resp = server.dispatch(
-            "run_frames",
-            &serde_json::json!({"count": 1}),
-            JsonValue::from(1),
-        );
-        assert!(resp.error.is_some());
+        let mut mcp = C64Mcp::new();
+        let result = mcp.dispatch_tool("run_frames", &serde_json::json!({"count": 1}));
+        assert!(matches!(result, ToolResult::Error { .. }));
     }
 
     #[test]

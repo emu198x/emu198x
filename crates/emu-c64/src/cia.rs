@@ -677,16 +677,16 @@ mod tests {
         let mut cia = Cia::new();
         let mut kbd = KeyboardMatrix::new();
 
-        // CIA1: Port A is output (rows), Port B is input (columns)
+        // CIA1: Port A selects columns (output), Port B reads rows (input)
         cia.write(0x02, 0xFF); // DDR A: all output
         cia.write(0x03, 0x00); // DDR B: all input
-        cia.write(0x00, 0xFD); // Select row 1 (bit 1 = 0)
+        cia.write(0x00, 0xFD); // Select column 1 (bit 1 = 0)
 
-        // Press key at row=1, col=1
+        // Press key at (row=1, col=1) — the W key
         kbd.set_key(1, 1, true);
 
         let result = cia.read_with_keyboard(0x01, &kbd);
-        assert_eq!(result & 0x02, 0x00); // Col 1 should be low (pressed)
+        assert_eq!(result & 0x02, 0x00); // Row 1 should be low (pressed)
     }
 
     #[test]

@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 
 use emu_spectrum::{
     Spectrum, SpectrumConfig, SpectrumModel, TapFile, TzxFile, capture, keyboard_map, load_sna,
-    load_z80, mcp::McpServer,
+    load_z80,
 };
+use emu_spectrum::mcp::{SpectrumMcp, McpServer};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -540,13 +541,13 @@ fn main() {
     let cli = parse_args();
 
     if cli.mcp {
-        let mut server = McpServer::new();
+        let mut server = McpServer::new(SpectrumMcp::new());
         server.run();
         return;
     }
 
     if let Some(ref path) = cli.script_path {
-        let mut server = McpServer::new();
+        let mut server = McpServer::new(SpectrumMcp::new());
         if let Err(e) = server.run_script(path) {
             eprintln!("Script error: {e}");
             process::exit(1);
