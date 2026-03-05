@@ -1,0 +1,9 @@
+[package]
+name = "format-d64"
+description = "D64 disk image parser for Commodore 1541"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

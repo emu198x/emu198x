@@ -1,0 +1,9 @@
+[package]
+name = "format-c64-tap"
+description = "C64 TAP tape image parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

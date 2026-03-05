@@ -1,0 +1,9 @@
+[package]
+name = "nes-cartridge"
+description = "iNES cartridge parser and mapper implementations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

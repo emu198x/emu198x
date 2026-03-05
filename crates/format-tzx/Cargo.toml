@@ -1,0 +1,9 @@
+[package]
+name = "format-tzx"
+description = "TZX tape image parser for ZX Spectrum"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

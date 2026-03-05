@@ -1,0 +1,9 @@
+[package]
+name = "format-sna"
+description = "ZX Spectrum SNA snapshot parser and loader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

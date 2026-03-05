@@ -312,6 +312,15 @@ impl C64Memory {
     }
 }
 
+impl format_prg::RamAccess for C64Memory {
+    fn ram_read(&self, addr: u16) -> u8 {
+        self.ram_read(addr)
+    }
+    fn ram_write(&mut self, addr: u16, val: u8) {
+        self.ram_write(addr, val);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

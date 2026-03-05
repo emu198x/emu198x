@@ -66,8 +66,10 @@ NES NTSC:     21.477272 MHz / 12 = 1.790 MHz (CPU), / 4 = 5.369 MHz (PPU)
 |-------|------|--------|
 | `commodore-agnus-ocs` | Agnus 8361/8367/8370/8371 | Complete |
 | `commodore-agnus-ecs` | Super Agnus 8372A | Complete (wraps OCS) |
+| `commodore-agnus-aga` | Alice (AGA Agnus) | Complete (wraps ECS; FMODE fetch, 8-plane lowres) |
 | `commodore-denise-ocs` | Denise 8362 | Complete |
-| `commodore-denise-ecs` | Super Denise 8373 | Complete (wraps OCS; partial AGA framework) |
+| `commodore-denise-ecs` | Super Denise 8373 | Complete (wraps OCS) |
+| `commodore-denise-aga` | Lisa (AGA Denise) | Complete (wraps ECS; 24-bit palette, HAM8, FMODE sprites) |
 | `commodore-paula-8364` | Paula 8364 | Complete |
 | `mos-cia-8520` | CIA 8520 | Complete |
 
@@ -108,6 +110,15 @@ NES NTSC:     21.477272 MHz / 12 = 1.790 MHz (CPU), / 4 = 5.369 MHz (PPU)
 |-------|--------|--------|
 | `format-adf` | Amiga Disk File | Complete |
 | `format-ipf` | Interchangeable Preservation Format | Complete |
+| `format-d64` | Commodore D64 disk image | Complete |
+| `format-gcr` | Commodore 1541 GCR encoding | Complete |
+| `format-c64-tap` | C64 TAP tape image | Complete |
+| `format-spectrum-tap` | Spectrum TAP tape image | Complete |
+| `format-tzx` | TZX tape image | Complete |
+| `format-prg` | C64 PRG file loader | Complete |
+| `format-sna` | Spectrum SNA snapshot | Complete |
+| `format-z80` | Spectrum .Z80 snapshot | Complete |
+| `nes-cartridge` | iNES cartridge + 14 mappers | Complete |
 
 ### System crates
 
@@ -116,7 +127,7 @@ NES NTSC:     21.477272 MHz / 12 = 1.790 MHz (CPU), / 4 = 5.369 MHz (PPU)
 | `emu-spectrum` | ZX Spectrum (48K, 128K, +2, +2A, +3) | Complete |
 | `emu-c64` | Commodore 64 (PAL, NTSC) | Feature-complete |
 | `emu-nes` | NES/Famicom (NTSC, PAL) | Complete |
-| `machine-amiga` | Amiga (A500–A4000) | OCS/ECS working, AGA in progress |
+| `machine-amiga` | Amiga (A500–A4000) | OCS/ECS working, AGA crates extracted (boot in progress) |
 
 ---
 
@@ -210,31 +221,33 @@ assumptions that were invisible when everything lived in one struct.
 
 | Chip | Current location | Target crate | Why first |
 |------|-----------------|--------------|-----------|
-| AGA Agnus (Alice) | `commodore-denise-ecs` / `machine-amiga` | `commodore-agnus-aga` | AGA display blocked on this |
-| AGA Denise (Lisa) | `commodore-denise-ecs` | `commodore-denise-aga` | AGA display blocked on this |
+| ~~AGA Agnus (Alice)~~ | ~~`machine-amiga`~~ | ~~`commodore-agnus-aga`~~ | Done |
+| ~~AGA Denise (Lisa)~~ | ~~`machine-amiga`~~ | ~~`commodore-denise-aga`~~ | Done |
 | VIC-II (PAL) | `emu-c64` | `mos-vic-ii-pal` | Enables C128, reveals accuracy gaps |
 | VIC-II (NTSC) | `emu-c64` | `mos-vic-ii-ntsc` | Same |
 | CIA 6526 | `emu-c64` | `mos-cia-6526` | Enables C128, timer edge-case audit |
 
-**Format crates (mechanical, lower risk):**
+**Format crates (all extracted):**
 
-| Format | Current location | Target crate |
-|--------|-----------------|--------------|
-| D64 | `emu-c64` | `format-d64` |
-| TAP | `emu-c64`/`emu-spectrum` | `format-tap` |
-| TZX | `emu-spectrum` | `format-tzx` |
-| SNA | `emu-spectrum` | `format-sna` |
-| Z80 | `emu-spectrum` | `format-z80` |
-| PRG | `emu-c64` | `format-prg` |
-| iNES | `emu-nes` | `format-ines` |
+| Format | Target crate | Status |
+|--------|-------------|--------|
+| ~~D64~~ | `format-d64` | Done |
+| ~~GCR~~ | `format-gcr` | Done |
+| ~~C64 TAP~~ | `format-c64-tap` | Done |
+| ~~Spectrum TAP~~ | `format-spectrum-tap` | Done |
+| ~~TZX~~ | `format-tzx` | Done |
+| ~~PRG~~ | `format-prg` | Done |
+| ~~SNA~~ | `format-sna` | Done |
+| ~~Z80~~ | `format-z80` | Done |
+| ~~iNES~~ | `nes-cartridge` | Done |
 
 ### Amiga completion
 
-Depends on AGA chip extraction above.
+AGA chip extraction is done. Remaining work is boot pipeline and peripheral stubs.
 
 | Item | Notes |
 |------|-------|
-| A1200/A4000 boot | Depends on AGA crate separation |
+| A1200/A4000 boot | AGA crates extracted; debug the AGA boot pipeline to reach insert-disk |
 | A3000 device init | SCSI controller ($DD0000) / Super Buster stubs needed for insert-disk |
 | WHDLoad | IDE, filesystem, autoconfig — enables hard-drive game installs |
 
@@ -247,7 +260,7 @@ Depends on AGA chip extraction above.
 | A500+ | ✅ |
 | A600 | ✅ |
 | A1000 | Partial (yellow screen — no slow RAM) |
-| A1200 | Partial (AGA display incomplete — blocked on AGA extraction) |
+| A1200 | Partial (AGA display incomplete — crates extracted, boot pipeline needs work) |
 | A3000 | Partial (STRAP reached, stalls on device init) |
 | A4000 / CDTV / CD32 | Not started |
 
@@ -276,18 +289,17 @@ until the four primary systems are complete.
 
 ### Prioritised work items
 
+**Amiga completion:**
+
+1. **A1200/A4000 boot** — debug AGA boot pipeline to reach insert-disk (crates extracted)
+2. **A3000 SCSI stubs** — unblock insert-disk screen
+3. **WHDLoad support** — IDE/filesystem/autoconfig infrastructure
+
 **Chip extractions (accuracy + reuse):**
 
-1. **AGA crate separation** — extract Alice and Lisa from ECS crates; unblocks A1200/A4000
-2. **VIC-II extraction** — standalone crate with pin-level tests; reveals hidden accuracy gaps
-3. **CIA 6526 extraction** — standalone crate; timer edge-case audit
-4. **Format crate extractions** — D64, TAP, SNA, iNES etc. (mechanical, lower risk)
-
-**Amiga completion (depends on #1):**
-
-5. **A1200/A4000 boot** — AGA display pipeline through proper Alice/Lisa crates
-6. **A3000 SCSI stubs** — unblock insert-disk screen
-7. **WHDLoad support** — IDE/filesystem/autoconfig infrastructure
+4. **VIC-II extraction** — standalone crate with pin-level tests; reveals hidden accuracy gaps
+5. **CIA 6526 extraction** — standalone crate; timer edge-case audit
+6. ~~**Format crate extractions**~~ — Done (9 crates: format-d64, format-gcr, format-c64-tap, format-spectrum-tap, format-tzx, format-prg, format-sna, format-z80, nes-cartridge)
 
 **Tooling:**
 

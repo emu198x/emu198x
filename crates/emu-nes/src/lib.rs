@@ -9,7 +9,7 @@
 mod apu;
 mod bus;
 pub mod capture;
-mod cartridge;
+use nes_cartridge as cartridge;
 mod config;
 mod controller;
 pub mod controller_map;

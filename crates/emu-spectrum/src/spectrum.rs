@@ -391,6 +391,67 @@ impl Spectrum {
     }
 }
 
+impl format_sna::SnapshotTarget for Spectrum {
+    fn set_registers(&mut self, regs: &format_sna::Z80Registers) {
+        self.cpu.reset();
+        let r = &mut self.cpu.regs;
+        r.a = regs.a;
+        r.f = regs.f;
+        r.b = regs.b;
+        r.c = regs.c;
+        r.d = regs.d;
+        r.e = regs.e;
+        r.h = regs.h;
+        r.l = regs.l;
+        r.a_alt = regs.a_alt;
+        r.f_alt = regs.f_alt;
+        r.b_alt = regs.b_alt;
+        r.c_alt = regs.c_alt;
+        r.d_alt = regs.d_alt;
+        r.e_alt = regs.e_alt;
+        r.h_alt = regs.h_alt;
+        r.l_alt = regs.l_alt;
+        r.ix = regs.ix;
+        r.iy = regs.iy;
+        r.sp = regs.sp;
+        r.pc = regs.pc;
+        r.i = regs.i;
+        r.r = regs.r;
+        r.im = regs.im;
+        r.iff1 = regs.iff1;
+        r.iff2 = regs.iff2;
+    }
+
+    fn write_ram(&mut self, addr: u16, val: u8) {
+        self.bus.memory.write(addr, val);
+    }
+
+    fn read_ram(&self, addr: u16) -> u8 {
+        self.bus.memory.read(addr)
+    }
+
+    fn set_border(&mut self, colour: u8) {
+        self.bus.ula.set_border_colour(colour);
+    }
+
+    fn write_bank_register(&mut self, val: u8) {
+        self.bus.memory.write_bank_register(val);
+    }
+
+    fn set_ay_register(&mut self, reg: u8, val: u8) {
+        if let Some(ay) = &mut self.bus.ay {
+            ay.select_register(reg);
+            ay.write_data(val);
+        }
+    }
+
+    fn select_ay_register(&mut self, reg: u8) {
+        if let Some(ay) = &mut self.bus.ay {
+            ay.select_register(reg);
+        }
+    }
+}
+
 impl Tickable for Spectrum {
     fn tick(&mut self) {
         self.master_clock += 1;

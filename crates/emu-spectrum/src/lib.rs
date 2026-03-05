@@ -14,13 +14,13 @@ mod keyboard;
 pub mod keyboard_map;
 pub mod mcp;
 mod memory;
-pub mod sna;
+pub use format_sna as sna;
 mod spectrum;
-pub mod tap;
+pub use format_spectrum_tap as tap;
 pub mod tape;
-pub mod tzx;
+pub use format_tzx as tzx;
 pub mod tzx_signal;
-pub mod z80;
+pub use format_z80 as z80;
 
 pub use beeper::BeeperState;
 pub use bus::SpectrumBus;

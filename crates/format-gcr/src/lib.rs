@@ -20,7 +20,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use crate::d64::D64;
+use format_d64::D64;
 
 /// 4-bit to 5-bit GCR encoding table.
 const GCR_ENCODE: [u8; 16] = [

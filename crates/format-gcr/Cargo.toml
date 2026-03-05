@@ -1,0 +1,12 @@
+[package]
+name = "format-gcr"
+description = "GCR encoding/decoding for Commodore 1541 disk drives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+format-d64 = { path = "../format-d64" }
+
+[lints]
+workspace = true

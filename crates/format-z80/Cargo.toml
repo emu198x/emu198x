@@ -1,0 +1,12 @@
+[package]
+name = "format-z80"
+description = "ZX Spectrum .Z80 snapshot parser and loader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+format-sna = { path = "../format-sna" }
+
+[lints]
+workspace = true
