@@ -13,11 +13,12 @@ Recorded with a Zoom H1 at 24-bit/44.1 kHz, December 2014.
 
 The original 35-second field recording was processed to extract:
 
-- `drive_click.raw` — Single step click (~150 ms), extracted from the
-  first seek event at ~950 ms. Normalised, fade-out applied, resampled
-  to 48 kHz mono 16-bit signed little-endian PCM.
+- `drive_click.raw` — Single step click (~250 ms), extracted from the
+  first seek event at ~950 ms with full resonance tail. Normalised,
+  fade-out applied, resampled to 48 kHz mono 16-bit signed
+  little-endian PCM.
 
-- `drive_motor.raw` — Motor hum loop (~300 ms), extracted from the
-  quiet motor-only section at ~200 ms before any head seeks begin.
-  Normalised, crossfaded at loop points, resampled to 48 kHz mono
-  16-bit signed little-endian PCM.
+- `drive_motor.raw` — Motor hum loop (~500 ms), extracted from the
+  quietest motor-only section at ~79 ms before any head seeks begin.
+  Normalised, crossfaded at loop points (30 ms), resampled to 48 kHz
+  mono 16-bit signed little-endian PCM.
