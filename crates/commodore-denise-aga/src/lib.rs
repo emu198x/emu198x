@@ -1,0 +1,213 @@
+//! Commodore Lisa (AGA Denise) — wraps ECS Denise with AGA video extensions.
+//!
+//! Lisa adds 256-colour palette (24-bit per entry), HAM8, BPLCON4 bitplane
+//! colour XOR, FMODE-based sprite widths, and wider sprite data writes.
+//! All state lives in the inner OCS Denise; this crate provides the methods
+//! that interpret that state in AGA mode.
+
+use std::ops::{Deref, DerefMut};
+
+pub use commodore_denise_ecs::DeniseEcs as InnerDeniseEcs;
+pub use commodore_denise_ocs::DeniseOcs as InnerDeniseOcs;
+
+/// AGA Lisa wrapper around the ECS Denise core.
+pub struct DeniseAga {
+    inner: InnerDeniseEcs,
+}
+
+impl DeniseAga {
+    /// Create a new AGA Denise wrapper.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: InnerDeniseEcs::new(),
+        }
+    }
+
+    /// Wrap an existing ECS Denise core.
+    #[must_use]
+    pub fn from_ecs(inner: InnerDeniseEcs) -> Self {
+        Self { inner }
+    }
+
+    /// Borrow the wrapped ECS Denise core.
+    #[must_use]
+    pub const fn as_inner(&self) -> &InnerDeniseEcs {
+        &self.inner
+    }
+
+    /// Mutably borrow the wrapped ECS Denise core.
+    #[must_use]
+    pub fn as_inner_mut(&mut self) -> &mut InnerDeniseEcs {
+        &mut self.inner
+    }
+
+    /// Consume the wrapper and return the wrapped ECS Denise core.
+    #[must_use]
+    pub fn into_inner(self) -> InnerDeniseEcs {
+        self.inner
+    }
+
+    /// AGA palette write with BPLCON3 bank selection and LOCT support.
+    ///
+    /// `base_idx` is the 0-31 register offset from the COLOR register write.
+    /// The full palette index is computed from BPLCON3 bits 15-13 (BANK).
+    /// When LOCT (BPLCON3 bit 9) is clear, the high nibbles of R/G/B are
+    /// written to bits 7-4 of each channel. When LOCT is set, the low
+    /// nibbles are written to bits 3-0.
+    pub fn set_palette_aga(&mut self, base_idx: usize, val: u16) {
+        if base_idx >= 32 {
+            return;
+        }
+        let bank = ((self.bplcon3 >> 13) & 7) as usize;
+        let full_idx = bank * 32 + base_idx;
+        let loct = (self.bplcon3 & 0x0200) != 0;
+
+        let r4 = ((val >> 8) & 0xF) as u32;
+        let g4 = ((val >> 4) & 0xF) as u32;
+        let b4 = (val & 0xF) as u32;
+
+        if loct {
+            // Low nibbles: bits 3-0 of each channel.
+            let existing = self.palette_24[full_idx];
+            let r = (existing & 0x00F00000) | (r4 << 16);
+            let g = (existing & 0x0000F000) | (g4 << 8);
+            let b = (existing & 0x000000F0) | b4;
+            self.palette_24[full_idx] = r | g | b;
+        } else {
+            // High nibbles: bits 7-4 of each channel. Clear low nibbles.
+            self.palette_24[full_idx] = (r4 << 20) | (g4 << 12) | (b4 << 4);
+        }
+
+        // Update OCS 12-bit palette for register readback compatibility.
+        self.palette[base_idx] = val & 0x0FFF;
+    }
+
+    /// Resolve a colour index to 24-bit RGB (0x00RRGGBB) in AGA mode.
+    ///
+    /// Applies BPLCON4 bitplane colour XOR and palette lookup.
+    /// HAM8 and EHB are handled by dedicated paths.
+    pub fn resolve_color_rgb24(&mut self, color_idx: u8) -> u32 {
+        let ham = (self.bplcon0 & 0x0800) != 0;
+        let dual_playfield = (self.bplcon0 & 0x0400) != 0;
+        let num_planes = self.num_bitplanes();
+        let bplcon4_xor = (self.bplcon4 & 0xFF) as u8;
+
+        if ham && !dual_playfield && num_planes >= 5 {
+            if num_planes == 8 {
+                // HAM8: 8-bit value, top 2 bits = control, bottom 6 = data.
+                let control = (color_idx >> 6) & 0x03;
+                let data6 = color_idx & 0x3F;
+                // Expand 6-bit to 8-bit: replicate top 2 bits in low 2.
+                let data8 = ((data6 as u32) << 2) | ((data6 as u32) >> 4);
+                let rgb = match control {
+                    0b00 => {
+                        let idx = (data6 ^ bplcon4_xor) as usize & 0xFF;
+                        self.palette_24[idx]
+                    }
+                    0b01 => {
+                        // Modify blue
+                        (self.ham_prev_rgb24 & 0x00FFFF00) | data8
+                    }
+                    0b10 => {
+                        // Modify red
+                        (self.ham_prev_rgb24 & 0x0000FFFF) | (data8 << 16)
+                    }
+                    0b11 => {
+                        // Modify green
+                        (self.ham_prev_rgb24 & 0x00FF00FF) | (data8 << 8)
+                    }
+                    _ => unreachable!(),
+                };
+                self.ham_prev_rgb24 = rgb;
+                return rgb;
+            }
+            // HAM6 in AGA mode: use OCS HAM6 path, convert 12→24 bit.
+            let rgb12 = self.resolve_color_rgb12(color_idx);
+            return InnerDeniseOcs::rgb12_to_rgb24(rgb12);
+        }
+
+        if !ham && !dual_playfield && num_planes == 6 {
+            // EHB: 6-bit index, bit 5 = half-brite flag.
+            let effective = (color_idx ^ bplcon4_xor) as usize & 0xFF;
+            if color_idx & 0x20 != 0 {
+                let base = self.palette_24[effective & 0x1F];
+                let r = ((base >> 16) & 0xFF) >> 1;
+                let g = ((base >> 8) & 0xFF) >> 1;
+                let b = (base & 0xFF) >> 1;
+                return (r << 16) | (g << 8) | b;
+            }
+            return self.palette_24[effective];
+        }
+
+        // Normal mode: direct palette lookup with BPLCON4 XOR.
+        let effective = (color_idx ^ bplcon4_xor) as usize & 0xFF;
+        self.palette_24[effective]
+    }
+
+    /// Set sprite display width from FMODE register value.
+    ///
+    /// FMODE bits 3-2: 00 → 16 pixels, 01/10 → 32 pixels, 11 → 64 pixels.
+    pub fn set_sprite_width_from_fmode(&mut self, fmode: u16) {
+        self.spr_width = match (fmode >> 2) & 3 {
+            0 => 16,
+            1 | 2 => 32,
+            3 => 64,
+            _ => unreachable!(),
+        };
+    }
+
+    /// Write 1-4 words (AGA wide fetch) into the sprite DATA holding latch.
+    ///
+    /// Words are packed MSB-first: word[0] occupies the highest bits. The
+    /// number of words must match `spr_width / 16`.
+    pub fn write_sprite_data_wide(&mut self, sprite: usize, words: &[u16]) {
+        if sprite >= 8 || words.is_empty() {
+            return;
+        }
+        let mut packed: u64 = 0;
+        for &w in words {
+            packed = (packed << 16) | u64::from(w);
+        }
+        self.spr_data[sprite] = packed;
+        self.spr_armed[sprite] = true;
+    }
+
+    /// Write 1-4 words (AGA wide fetch) into the sprite DATB holding latch.
+    pub fn write_sprite_datb_wide(&mut self, sprite: usize, words: &[u16]) {
+        if sprite >= 8 || words.is_empty() {
+            return;
+        }
+        let mut packed: u64 = 0;
+        for &w in words {
+            packed = (packed << 16) | u64::from(w);
+        }
+        self.spr_datb[sprite] = packed;
+    }
+}
+
+impl Default for DeniseAga {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Deref for DeniseAga {
+    type Target = InnerDeniseEcs;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for DeniseAga {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl From<DeniseAga> for InnerDeniseEcs {
+    fn from(denise: DeniseAga) -> Self {
+        denise.into_inner()
+    }
+}

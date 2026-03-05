@@ -10,9 +10,9 @@ pub mod mcp;
 pub mod memory;
 
 use crate::memory::Memory;
-use commodore_agnus_ecs::AgnusEcs as Agnus;
+use commodore_agnus_aga::AgnusAga as Agnus;
 use commodore_agnus_ocs::{BlitterDmaOp, Copper, SlotOwner};
-use commodore_denise_ecs::DeniseEcs as DeniseOcs;
+use commodore_denise_aga::DeniseAga as DeniseOcs;
 use commodore_paula_8364::Paula8364;
 use drive_amiga_floppy::AmigaFloppyDrive;
 use format_adf::Adf;
@@ -27,8 +27,10 @@ pub use crate::config::{
     AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion, NTSC_RASTER_FB_HEIGHT,
     PAL_RASTER_FB_HEIGHT, RASTER_FB_WIDTH,
 };
+pub use commodore_agnus_aga;
 pub use commodore_agnus_ecs;
 pub use commodore_agnus_ocs;
+pub use commodore_denise_aga;
 pub use commodore_denise_ecs;
 pub use commodore_denise_ocs;
 pub use commodore_paula_8364;
@@ -424,31 +426,21 @@ impl Amiga {
             AmigaRegion::Ntsc => NTSC_RASTER_FB_HEIGHT,
         };
 
-        let agnus = match chipset {
-            AmigaChipset::Ocs => commodore_agnus_ecs::AgnusEcs::from_ocs(
-                commodore_agnus_ocs::Agnus::new_with_region_lines(region_lines),
-            ),
-            AmigaChipset::Ecs | AmigaChipset::Aga => {
-                let mut a = commodore_agnus_ecs::AgnusEcs::new();
-                a.as_inner_mut().lines_per_frame = region_lines;
-                if chipset.is_aga() {
-                    a.as_inner_mut().aga_mode = true;
-                }
-                a
+        let agnus = {
+            let mut ocs = commodore_agnus_ocs::Agnus::new_with_region_lines(region_lines);
+            if chipset.is_aga() {
+                ocs.max_bitplanes = 8;
             }
+            let ecs = commodore_agnus_ecs::AgnusEcs::from_ocs(ocs);
+            commodore_agnus_aga::AgnusAga::from_ecs(ecs)
         };
-        let denise = match chipset {
-            AmigaChipset::Ocs => commodore_denise_ecs::DeniseEcs::from_ocs(
-                commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height),
-            ),
-            AmigaChipset::Ecs => {
-                let d = commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height);
-                commodore_denise_ecs::DeniseEcs::from_ocs(d)
+        let denise = {
+            let mut ocs = commodore_denise_ocs::DeniseOcs::new_with_raster_height(raster_fb_height);
+            if chipset.is_aga() {
+                ocs.max_bitplanes = 8;
             }
-            AmigaChipset::Aga => {
-                let d = commodore_denise_ocs::DeniseOcs::new_aga(raster_fb_height);
-                commodore_denise_ecs::DeniseEcs::from_ocs(d)
-            }
+            let ecs = commodore_denise_ecs::DeniseEcs::from_ocs(ocs);
+            commodore_denise_aga::DeniseAga::from_ecs(ecs)
         };
 
         let (mut cpu, cpu_clock_mode) = match model {

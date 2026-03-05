@@ -12,6 +12,8 @@ commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
 commodore-denise-ocs = { path = "../commodore-denise-ocs" }
 commodore-agnus-ecs = { path = "../commodore-agnus-ecs" }
 commodore-denise-ecs = { path = "../commodore-denise-ecs" }
+commodore-agnus-aga = { path = "../commodore-agnus-aga" }
+commodore-denise-aga = { path = "../commodore-denise-aga" }
 format-adf = { path = "../format-adf" }
 drive-amiga-floppy = { path = "../drive-amiga-floppy" }
 format-ipf = { path = "../format-ipf" }

@@ -1,0 +1,14 @@
+[package]
+name = "commodore-denise-aga"
+description = "Commodore Lisa (AGA Denise) wrapper over commodore-denise-ecs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+commodore-denise-ecs = { path = "../commodore-denise-ecs" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+
+[lints]
+workspace = true

@@ -105,17 +105,6 @@ pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
     Some(0), // 7: BPL1 (triggers shift register load)
 ];
 
-/// AGA lowres bitplane fetch order: adds BPL7 and BPL8 to the two free slots.
-pub const LOWRES_DDF_TO_PLANE_AGA: [Option<u8>; 8] = [
-    Some(6), // 0: BPL7 (was free in OCS)
-    Some(3), // 1: BPL4
-    Some(5), // 2: BPL6
-    Some(1), // 3: BPL2
-    Some(7), // 4: BPL8 (was free in OCS)
-    Some(2), // 5: BPL3
-    Some(4), // 6: BPL5
-    Some(0), // 7: BPL1 (triggers shift register load)
-];
 
 /// Hires bitplane fetch order within a 4-CCK group.
 ///
@@ -253,7 +242,11 @@ pub struct Agnus {
     // DMA Registers
     pub dmacon: u16,
     pub bplcon0: u16,
-    pub aga_mode: bool,
+    /// Maximum bitplane count: 6 for OCS/ECS, 8 for AGA.
+    ///
+    /// Controls whether BPLCON0 bit 4 extends the BPU field to 4 bits (8 planes).
+    /// Set at construction time by the outermost chipset wrapper.
+    pub max_bitplanes: u8,
     pub bpl_pt: [u32; 8],
     pub ddfstrt: u16,
     pub ddfstop: u16,
@@ -319,7 +312,7 @@ impl Agnus {
             hpos: 0,
             dmacon: 0,
             bplcon0: 0,
-            aga_mode: false,
+            max_bitplanes: 6,
             bpl_pt: [0; 8],
             ddfstrt: 0,
             ddfstop: 0,
@@ -370,45 +363,32 @@ impl Agnus {
     }
 
     pub fn num_bitplanes(&self) -> u8 {
-        if self.aga_mode {
+        if self.max_bitplanes > 6 {
+            // AGA: 4-bit BPU from bits 14-12 (3 bits) + bit 4 (extra high bit).
             let bpu_hi3 = ((self.bplcon0 >> 12) & 0x07) as u8;
             let bpu_bit3 = ((self.bplcon0 >> 4) & 0x01) as u8;
             let bpu = (bpu_bit3 << 3) | bpu_hi3;
-            bpu.min(8)
+            bpu.min(self.max_bitplanes)
         } else {
             let bpl_bits = (self.bplcon0 >> 12) & 0x07;
             if bpl_bits > 6 { 6 } else { bpl_bits as u8 }
         }
     }
 
-    /// Bitplane DMA fetch width based on FMODE (AGA only).
-    /// Returns 1 (OCS/ECS: 16-bit), 2 (32-bit), or 4 (64-bit).
+    /// Bitplane DMA fetch width: always 1 (16-bit) for OCS/ECS.
+    ///
+    /// The AGA wrapper crate shadows this to decode FMODE.
     #[must_use]
     pub fn bpl_fetch_width(&self) -> u8 {
-        if !self.aga_mode {
-            return 1;
-        }
-        match self.fmode & 3 {
-            0 => 1,
-            1 | 2 => 2,
-            3 => 4,
-            _ => unreachable!(),
-        }
+        1
     }
 
-    /// Sprite DMA fetch width based on FMODE bits 3-2 (AGA only).
-    /// Returns 1 (OCS/ECS: 16-bit), 2 (32-bit), or 4 (64-bit).
+    /// Sprite DMA fetch width: always 1 (16-bit) for OCS/ECS.
+    ///
+    /// The AGA wrapper crate shadows this to decode FMODE bits 3-2.
     #[must_use]
     pub fn spr_fetch_width(&self) -> u8 {
-        if !self.aga_mode {
-            return 1;
-        }
-        match (self.fmode >> 2) & 3 {
-            0 => 1,
-            1 | 2 => 2,
-            3 => 4,
-            _ => unreachable!(),
-        }
+        1
     }
 
     pub fn dma_enabled(&self, bit: u16) -> bool {
@@ -1117,8 +1097,6 @@ impl Agnus {
                     let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
                     let plane_slot = if hires {
                         HIRES_DDF_TO_PLANE[pos_in_group]
-                    } else if self.aga_mode {
-                        LOWRES_DDF_TO_PLANE_AGA[pos_in_group]
                     } else {
                         LOWRES_DDF_TO_PLANE[pos_in_group]
                     };

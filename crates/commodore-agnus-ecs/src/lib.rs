@@ -8,8 +8,8 @@ use std::ops::{Deref, DerefMut};
 
 pub use commodore_agnus_ocs::Agnus as InnerAgnusOcs;
 pub use commodore_agnus_ocs::{
-    BlitterDmaOp, CckBusPlan, Copper, CopperState, LOWRES_DDF_TO_PLANE, PAL_CCKS_PER_LINE,
-    PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
+    BlitterDmaOp, CckBusPlan, Copper, CopperState, HIRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE,
+    PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
 };
 
 /// `BEAMCON0` bit enabling programmable beam counter comparator limits.
