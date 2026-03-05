@@ -215,6 +215,69 @@ pub enum BitOp {
     Bchg,
 }
 
+// --- 68030 instruction cache ---
+
+const ICACHE_LINES: usize = 16;
+const ICACHE_WORDS_PER_LINE: usize = 8;
+
+/// One line of the 68030 instruction cache (16 bytes = 8 words).
+///
+/// Tag includes function code bits so supervisor and user fetches are
+/// cached separately, matching the real 68030.
+#[derive(Clone, Copy)]
+struct ICacheLine {
+    tag: u32,
+    words: [u16; ICACHE_WORDS_PER_LINE],
+    valid: [bool; ICACHE_WORDS_PER_LINE],
+}
+
+impl ICacheLine {
+    const fn new() -> Self {
+        Self {
+            tag: 0xFFFF_FFFF, // impossible tag — never matches
+            words: [0; ICACHE_WORDS_PER_LINE],
+            valid: [false; ICACHE_WORDS_PER_LINE],
+        }
+    }
+}
+
+/// 68030-style direct-mapped instruction cache: 16 lines × 8 words = 256 bytes.
+pub(crate) struct ICache {
+    lines: [ICacheLine; ICACHE_LINES],
+}
+
+impl ICache {
+    fn new() -> Self {
+        Self {
+            lines: [ICacheLine::new(); ICACHE_LINES],
+        }
+    }
+
+    /// Invalidate all lines.
+    pub(crate) fn clear(&mut self) {
+        for line in &mut self.lines {
+            line.valid = [false; ICACHE_WORDS_PER_LINE];
+        }
+    }
+
+    /// Address decomposition helpers.
+    #[inline]
+    fn line_index(addr: u32) -> usize {
+        ((addr >> 4) & 0xF) as usize
+    }
+
+    #[inline]
+    fn word_offset(addr: u32) -> usize {
+        ((addr >> 1) & 0x7) as usize
+    }
+
+    /// Tag = upper address bits (A31-A8) with function code in bits 26-24.
+    #[inline]
+    fn tag(addr: u32, fc: u8) -> u32 {
+        (addr >> 8) | ((fc as u32 & 0x7) << 24)
+    }
+}
+
 /// Motorola 68000 CPU with reactive bus state machine.
 ///
 /// Call [`tick`](Cpu68000::tick) every crystal clock cycle. The CPU only
@@ -327,6 +390,10 @@ pub struct Cpu68000 {
     /// If the read faults, the real 68000 undoes the A7 modification.
     /// Tuple: (was_supervisor, original_sp).
     pub(crate) sp_undo: Option<(bool, u32)>,
+
+    // --- Instruction cache (68020+) ---
+    /// 68030-style direct-mapped instruction cache (16 lines × 8 words).
+    pub(crate) icache: ICache,
 }
 
 impl Cpu68000 {
@@ -387,6 +454,7 @@ impl Cpu68000 {
             program_space_access: false,
             ae_undo_reg: None,
             sp_undo: None,
+            icache: ICache::new(),
         }
     }
 
@@ -434,6 +502,65 @@ impl Cpu68000 {
             crate::model::TimingClass::M68000 => 4,
             _ => 3,
         }
+    }
+
+    /// Try to serve a FetchIRC from the instruction cache.
+    ///
+    /// Returns `true` if the cache hit and IRC/PC were updated (no bus
+    /// cycle needed). Returns `false` on miss or if the cache is
+    /// disabled/not present.
+    fn icache_lookup(&mut self) -> bool {
+        if !self.capabilities().instruction_cache {
+            return false;
+        }
+        // CACR bit 0 (EI): cache enable
+        if self.regs.cacr & 0x01 == 0 {
+            return false;
+        }
+        let addr = self.next_fetch_addr;
+        let fc = if self.regs.is_supervisor() { 6u8 } else { 2u8 };
+        let tag = ICache::tag(addr, fc);
+        let index = ICache::line_index(addr);
+        let word = ICache::word_offset(addr);
+        let line = &self.icache.lines[index];
+        if line.tag == tag && line.valid[word] {
+            self.irc = line.words[word];
+            self.irc_addr = addr;
+            self.next_fetch_addr = addr.wrapping_add(2);
+            self.regs.pc = self.next_fetch_addr;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Fill the instruction cache after a FetchIRC bus read.
+    ///
+    /// Skipped when the cache is disabled (EI=0) or frozen (FI=1).
+    fn icache_fill(&mut self, addr: u32, data: u16) {
+        if !self.capabilities().instruction_cache {
+            return;
+        }
+        // EI=0: disabled, don't fill
+        if self.regs.cacr & 0x01 == 0 {
+            return;
+        }
+        // FI=1 (bit 1): frozen — hits work, misses don't fill
+        if self.regs.cacr & 0x02 != 0 {
+            return;
+        }
+        let fc = if self.regs.is_supervisor() { 6u8 } else { 2u8 };
+        let tag = ICache::tag(addr, fc);
+        let index = ICache::line_index(addr);
+        let word = ICache::word_offset(addr);
+        let line = &mut self.icache.lines[index];
+        if line.tag != tag {
+            // Tag mismatch: replace line
+            line.tag = tag;
+            line.valid = [false; ICACHE_WORDS_PER_LINE];
+        }
+        line.words[word] = data;
+        line.valid[word] = true;
     }
 
     /// Reset the CPU to begin executing from a given SSP and PC.
@@ -541,7 +668,12 @@ impl Cpu68000 {
             // Dispatch next non-instant op
             if matches!(self.state, State::Idle)
                 && let Some(op) = self.micro_ops.pop() {
-                    if op.is_bus() {
+                    // Fast-path: FetchIRC served from instruction cache
+                    if matches!(op, MicroOp::FetchIRC) && self.icache_lookup() {
+                        // Hit — IRC updated, no bus cycle needed. Stay Idle
+                        // so instant ops (Execute) run immediately this tick.
+                        self.process_instant_ops(bus);
+                    } else if op.is_bus() {
                         if self.check_address_error(op) {
                             // Address error detected; exception sequence started
                         } else {
@@ -915,6 +1047,7 @@ impl Cpu68000 {
             MicroOp::FetchIRC => {
                 self.irc = read_data;
                 self.irc_addr = self.next_fetch_addr;
+                self.icache_fill(self.next_fetch_addr, read_data);
                 self.next_fetch_addr = self.next_fetch_addr.wrapping_add(2);
                 // PC tracks the fetch address (like real 68000)
                 self.regs.pc = self.next_fetch_addr;
@@ -1798,6 +1931,9 @@ mod tests {
     #[test]
     fn movec_cacr_68020_only() {
         // On 68020: MOVEC D0,CACR should work.
+        // Write $0B = EI | FI | CI | CEI. CI/CEI (bits 3,2) are
+        // write-only: they trigger actions but read back as 0.
+        // Stored/readable value = $0B & !$0C = $03 (EI + FI).
         // MOVE.L #$0B,D0 ; MOVEC D0,CACR ; MOVEC CACR,D1 ; BRA.S *
         let mut bus = SimpleBus::new(&[
             (0x0000, 0x0000), (0x0002, 0x1000),
@@ -1810,8 +1946,8 @@ mod tests {
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 5000);
-        assert_eq!(cpu.regs.cacr, 0x0B, "CACR should hold written value on 68020");
-        assert_eq!(cpu.regs.d[1], 0x0B, "D1 should read back CACR");
+        assert_eq!(cpu.regs.cacr, 0x03, "CACR should store EI+FI (CI/CEI write-only)");
+        assert_eq!(cpu.regs.d[1], 0x03, "D1 should read back CACR without write-only bits");
     }
 
     #[test]

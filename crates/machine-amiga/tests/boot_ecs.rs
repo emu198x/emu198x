@@ -5,6 +5,9 @@ mod common;
 use common::{boot_screenshot_test, boot_screenshot_test_expect, load_rom, BootExpect, BOOT_TICKS};
 use machine_amiga::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 
+/// A3000/A4000 need extra time: 68030 RomTag scan covers 4 MB via chip bus.
+const A3000_BOOT_TICKS: u64 = 2_550_000_000; // ~90 seconds PAL
+
 /// ECS insert-disk screen: hires, 3 planes (KS 2.x/3.x).
 const EXPECT_INSERT_DISK_HIRES: BootExpect = BootExpect {
     dmacon_set: Some(0x0180),
@@ -104,9 +107,7 @@ fn test_boot_kick31_a600() {
 }
 
 // A3000 variants: RAMSEY/Fat Gary at $DE0000, PMOVE stub, 32-bit
-// address fallthrough. No assertions — exec's multi-pass RomTag scan
-// takes >120s emulated time without 68030 instruction cache emulation.
-// Blocked on I-cache implementation for boot to complete.
+// address fallthrough, 68030 instruction cache, 2 MB fast RAM.
 
 #[test]
 #[ignore]
@@ -124,7 +125,7 @@ fn test_boot_kick13_a3000() {
         },
         "KS 1.3 A3000",
         "boot_kick13_a3000",
-        BOOT_TICKS,
+        A3000_BOOT_TICKS,
     );
 }
 
@@ -134,6 +135,10 @@ fn test_boot_kick202_a3000() {
     let Some(rom) = load_rom("../../roms/kick202_36_207_a3000.rom") else {
         return;
     };
+    // No display assertions — boot reaches STRAP but stalls in device
+    // init (likely SCSI controller timeout at $DD0000). The I-cache
+    // gets the boot past the RomTag scan; full insert-disk needs SCSI
+    // or Super Buster stubs.
     boot_screenshot_test(
         AmigaConfig {
             model: AmigaModel::A3000,
@@ -144,7 +149,7 @@ fn test_boot_kick202_a3000() {
         },
         "KS 2.02 A3000",
         "boot_kick202_a3000",
-        BOOT_TICKS,
+        A3000_BOOT_TICKS,
     );
 }
 
@@ -154,6 +159,7 @@ fn test_boot_kick31_a3000() {
     let Some(rom) = load_rom("../../roms/kick31_40_068_a3000.rom") else {
         return;
     };
+    // Same as KS 2.02 — STRAP reached, insert-disk blocked on device init.
     boot_screenshot_test(
         AmigaConfig {
             model: AmigaModel::A3000,
@@ -164,6 +170,6 @@ fn test_boot_kick31_a3000() {
         },
         "KS 3.1 A3000",
         "boot_kick31_a3000",
-        BOOT_TICKS,
+        A3000_BOOT_TICKS,
     );
 }

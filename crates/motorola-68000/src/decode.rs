@@ -1449,7 +1449,16 @@ impl Cpu68000 {
                             self.begin_group1_exception(4, self.instr_start_pc);
                             return;
                         }
-                        self.regs.cacr = val;
+                        // CI (bit 3): clear entire instruction cache
+                        if val & 0x08 != 0 {
+                            self.icache.clear();
+                        }
+                        // Disabling cache (EI 1→0) also clears it
+                        if val & 0x01 == 0 && self.regs.cacr & 0x01 != 0 {
+                            self.icache.clear();
+                        }
+                        // CI/CEI (bits 3,2) are write-only — read back as 0
+                        self.regs.cacr = val & !0x0C;
                     }
                     0x800 => self.regs.usp = val,
                     0x801 => self.regs.vbr = val,
@@ -1489,7 +1498,8 @@ impl Cpu68000 {
                             self.begin_group1_exception(4, self.instr_start_pc);
                             return;
                         }
-                        self.regs.cacr
+                        // CI/CEI (bits 3,2) are write-only — always read as 0
+                        self.regs.cacr & !0x0C
                     }
                     0x800 => self.regs.usp,
                     0x801 => self.regs.vbr,

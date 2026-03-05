@@ -348,11 +348,12 @@ impl Amiga {
                 },
             ),
         };
-        // Motherboard fast RAM (RAMSEY) is disabled for now. Without
-        // instruction cache emulation, the 68030 scans the 128 MB range
-        // from $000000 to $08000000 far too slowly (RomTag scan × priority
-        // passes). Enable once I-cache simulation reduces loop overhead.
-        let (fast_ram_size, fast_ram_base) = (0usize, 0u32);
+        // A3000/A4000 motherboard fast RAM (RAMSEY): 2 MB at $07E00000.
+        // The 68030 instruction cache makes the RomTag scan fast enough.
+        let (fast_ram_size, fast_ram_base) = match model {
+            AmigaModel::A3000 | AmigaModel::A4000 => (2 * 1024 * 1024, 0x07E0_0000u32),
+            _ => (0usize, 0u32),
+        };
         let memory = Memory::new_with_fast_ram(
             chip_ram_size,
             kickstart,
@@ -1804,10 +1805,20 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             }
         }
 
-        // Everything else uses 24-bit decode. On 32-bit CPUs (68030/040),
-        // addresses outside specific 32-bit devices fall through to the
-        // legacy 24-bit bus — matching how Fat Gary routes non-32bit
-        // accesses on the A3000/A4000.
+        // On A3000/A4000, Fat Gary only forwards $000000-$FFFFFF to the
+        // 24-bit bus. Addresses $01000000+ that didn't match fast RAM
+        // above are unmapped — the real hardware bus-times-out (BERR).
+        // We return 0 for reads and sink writes (matching the
+        // NONEXISTINGDATA=0 convention). This prevents exec's memory
+        // probe from seeing chip RAM aliases at every 16 MB boundary.
+        if matches!(self.model, AmigaModel::A3000 | AmigaModel::A4000)
+            && addr >= 0x0100_0000
+        {
+            return BusStatus::Ready(0);
+        }
+
+        // Everything else uses 24-bit decode. On 24-bit CPUs (68000)
+        // only A0-A23 are wired, so the mask is a no-op.
         let addr = addr & 0xFFFFFF;
 
         // CIA-A ($BFE001, odd bytes, accent on D0-D7)
