@@ -129,19 +129,27 @@ pub struct IndicatorState {
 /// Synthesises mechanical floppy drive sounds: motor hum, step clicks,
 /// and head-settle rattle. Added to the audio output *after* the Paula
 /// low-pass filter so transients aren't dulled.
+///
+/// Parameters tuned by analysing WinUAE's drive_click.wav / drive_spin.wav
+/// recordings: the real click is ~80 ms of complex mechanical resonance
+/// (not a brief burst), and the motor hum is ~31 Hz (not 62 Hz).
 pub struct DriveSoundGenerator {
     sample_rate: f32,
 
-    // Motor hum: two-harmonic sine (62 Hz fundamental + 124 Hz overtone)
+    // Motor hum: 31 Hz fundamental + ~79 Hz overtone (from spectral
+    // analysis of WinUAE's drive_spin.wav recording)
     motor_phase: f32,
     motor_envelope: f32,
     motor_target: f32,
 
-    // Step click: sharp impulse into a damped resonance (~2 ms)
+    // Step click: multi-phase mechanical impact (~80 ms total)
+    //   Phase 1 (0–5 ms): sharp attack ramp
+    //   Phase 2 (5–25 ms): sustained resonance at ~1500 Hz
+    //   Phase 3 (25–80 ms): decay with secondary bumps at ~500 Hz
     click_remaining: u32,
     click_duration: u32,
 
-    // Head settle: burst of rapid damped impacts (~12 ms), fires after seek ends
+    // Head settle: brief rattle after seek completes (~15 ms)
     settle_remaining: u32,
     settle_duration: u32,
     settle_timeout: u32,
@@ -163,9 +171,9 @@ impl DriveSoundGenerator {
             motor_envelope: 0.0,
             motor_target: 0.0,
             click_remaining: 0,
-            click_duration: (sr * 0.002) as u32, // ~2 ms
+            click_duration: (sr * 0.080) as u32, // ~80 ms
             settle_remaining: 0,
-            settle_duration: (sr * 0.012) as u32, // ~12 ms
+            settle_duration: (sr * 0.015) as u32, // ~15 ms
             settle_timeout: 0,
             settle_armed: false,
             prev_step_counter: 0,
@@ -180,12 +188,12 @@ impl DriveSoundGenerator {
 
         if step_counter != self.prev_step_counter {
             self.prev_step_counter = step_counter;
-            // Fire step click
+            // Fire step click (restarts if already playing)
             self.click_remaining = self.click_duration;
-            // Arm settle rattle and reset timeout (~10 ms = 480 samples at 48 kHz)
+            // Arm settle rattle and reset timeout (~12 ms gap after last step)
             self.settle_armed = true;
-            self.settle_timeout = (self.sample_rate * 0.010) as u32;
-            self.settle_remaining = 0; // cancel any in-progress settle
+            self.settle_timeout = (self.sample_rate * 0.012) as u32;
+            self.settle_remaining = 0;
         }
 
         // Settle fires when armed and no new step arrives within the timeout
@@ -205,9 +213,12 @@ impl DriveSoundGenerator {
             return 0.0;
         }
 
+        let tau = std::f32::consts::TAU;
         let mut out = 0.0f32;
 
-        // Motor hum: ramp envelope toward target over ~50 ms (2400 samples)
+        // Motor hum: ~31 Hz fundamental with harmonic at ~79 Hz.
+        // Amplitude ~16% of full scale (matching drive_spin.wav peak of 5330/32768).
+        // Ramp envelope over ~50 ms for smooth on/off transitions.
         let ramp_rate = 1.0 / (self.sample_rate * 0.05);
         if self.motor_envelope < self.motor_target {
             self.motor_envelope = (self.motor_envelope + ramp_rate).min(self.motor_target);
@@ -215,53 +226,75 @@ impl DriveSoundGenerator {
             self.motor_envelope = (self.motor_envelope - ramp_rate).max(self.motor_target);
         }
         if self.motor_envelope > 0.001 {
-            let tau = std::f32::consts::TAU;
             let phase = self.motor_phase;
-            let hum = (phase * tau).sin() * 0.7 + (phase * 2.0 * tau).sin() * 0.3;
-            out += hum * self.motor_envelope * 0.04;
-            self.motor_phase += 62.0 / self.sample_rate;
+            let hum = (phase * tau).sin() * 0.6
+                + (phase * (79.0 / 31.0) * tau).sin() * 0.3
+                + self.next_noise() * 0.1; // slight mechanical noise texture
+            out += hum * self.motor_envelope * 0.03;
+            self.motor_phase += 31.0 / self.sample_rate;
             if self.motor_phase >= 1.0 {
                 self.motor_phase -= 1.0;
             }
         }
 
-        // Step click: sharp impulse decaying into a damped metallic ring.
-        // The first sample is a hard transient; the tail rings at ~3.5 kHz
-        // to mimic the stepper solenoid hitting the head carriage.
+        // Step click: multi-phase mechanical impact, ~80 ms.
+        // Modelled from WinUAE's drive_click.wav envelope analysis:
+        //   0–5 ms:  attack ramp to full amplitude
+        //   5–25 ms: sustained resonance (~1500 Hz) at high amplitude
+        //   25–60 ms: decay with secondary bumps (~600 Hz resonance)
+        //   60–80 ms: long low-amplitude tail
         if self.click_remaining > 0 {
             let elapsed = self.click_duration - self.click_remaining;
             let t = elapsed as f32 / self.sample_rate;
-            let tau = std::f32::consts::TAU;
-            if elapsed == 0 {
-                // Hard initial transient
-                out += 0.25;
+            let t_ms = t * 1000.0;
+
+            let (resonance, envelope) = if t_ms < 5.0 {
+                // Phase 1: attack ramp with broadband content
+                let attack = t_ms / 5.0;
+                let sig = (t * 1500.0 * tau).sin() * 0.6
+                    + (t * 2200.0 * tau).sin() * 0.3
+                    + self.next_noise() * 0.4;
+                (sig, attack)
+            } else if t_ms < 25.0 {
+                // Phase 2: sustained resonance at ~1500 Hz with harmonics
+                let sig = (t * 1500.0 * tau).sin() * 0.5
+                    + (t * 1000.0 * tau).sin() * 0.25
+                    + (t * 2200.0 * tau).sin() * 0.15
+                    + self.next_noise() * 0.1;
+                let env = 1.0 - (t_ms - 5.0) / 60.0; // slow linear fade
+                (sig, env)
+            } else if t_ms < 60.0 {
+                // Phase 3: decaying lower-frequency resonance with bumps
+                let sig = (t * 600.0 * tau).sin() * 0.4
+                    + (t * 1200.0 * tau).sin() * 0.2
+                    + self.next_noise() * 0.15;
+                // Bumpy decay — secondary resonances at ~33ms and ~55ms
+                let bump1 = (-((t_ms - 35.0) / 4.0).powi(2)).exp() * 0.4;
+                let bump2 = (-((t_ms - 55.0) / 5.0).powi(2)).exp() * 0.3;
+                let env = (-(t_ms - 25.0) / 30.0).exp() + bump1 + bump2;
+                (sig, env.min(1.0))
             } else {
-                // Damped resonance at ~3.5 kHz + noise texture
-                let ring = (t * 3500.0 * tau).sin() * (-t * 2500.0).exp();
-                let noise = self.next_noise() * (-t * 4000.0).exp() * 0.3;
-                out += (ring + noise) * 0.18;
-            }
+                // Phase 4: long low-amplitude tail
+                let sig = (t * 400.0 * tau).sin() * 0.3
+                    + self.next_noise() * 0.2;
+                let env = (-(t_ms - 60.0) / 15.0).exp() * 0.15;
+                (sig, env)
+            };
+
+            out += resonance * envelope * 0.15;
             self.click_remaining -= 1;
         }
 
-        // Head settle: burst of rapid damped impacts as the head bounces
-        // into position. Sounds like a brief metallic rattle.
+        // Head settle: brief rattle after last step, ~15 ms.
+        // Models the head carriage locking into position.
         if self.settle_remaining > 0 {
             let elapsed = self.settle_duration - self.settle_remaining;
             let t = elapsed as f32 / self.sample_rate;
-            let tau = std::f32::consts::TAU;
-            // Rapid impacts at ~600 Hz modulated by an envelope
-            let impact_phase = t * 600.0 * tau;
-            // Each half-cycle peak triggers a mini-click
-            let impact = impact_phase.sin();
-            let is_peak = impact.abs() > 0.95;
-            let rattle = if is_peak {
-                self.next_noise() * 0.5
-            } else {
-                // Ring between impacts at ~2.8 kHz
-                (t * 2800.0 * tau).sin() * 0.15
-            };
-            out += rattle * (-t * 250.0).exp() * 0.10;
+            let sig = (t * 800.0 * tau).sin() * 0.4
+                + (t * 1800.0 * tau).sin() * 0.3
+                + self.next_noise() * 0.3;
+            let env = (-t * 200.0).exp();
+            out += sig * env * 0.10;
             self.settle_remaining -= 1;
         }
 
