@@ -16,6 +16,9 @@ Cargo.lock
 /test-data/
 /docs/Reference/
 
+# Scanned/OCR'd reference books (large text dumps, not for distribution)
+docs/**/*.txt
+
 # Test ROMs (not for distribution)
 /roms/
 *.rom
