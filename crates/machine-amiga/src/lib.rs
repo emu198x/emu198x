@@ -126,58 +126,66 @@ pub struct IndicatorState {
     pub drive_dma_active: bool,
 }
 
-/// Synthesises mechanical floppy drive sounds: motor hum, step clicks,
-/// and head-settle rattle. Added to the audio output *after* the Paula
-/// low-pass filter so transients aren't dulled.
+/// Plays recorded floppy drive samples for step clicks and motor hum.
+/// Added to the audio output *after* the Paula low-pass filter so
+/// mechanical transients aren't dulled.
 ///
-/// Parameters tuned by analysing WinUAE's drive_click.wav / drive_spin.wav
-/// recordings: the real click is ~80 ms of complex mechanical resonance
-/// (not a brief burst), and the motor hum is ~31 Hz (not 62 Hz).
+/// Samples extracted from "Floppy disk drive" recordings by MrAuralization
+/// on Freesound.org, licensed CC BY 4.0. See `sounds/ATTRIBUTION.md`.
 pub struct DriveSoundGenerator {
-    sample_rate: f32,
+    // Click sample: mono i16 at 48 kHz, ~150 ms
+    click_pos: usize,
+    click_playing: bool,
 
-    // Motor hum: 31 Hz fundamental + ~79 Hz overtone (from spectral
-    // analysis of WinUAE's drive_spin.wav recording)
-    motor_phase: f32,
+    // Motor loop: mono i16 at 48 kHz, ~300 ms, crossfaded for seamless loop
+    motor_pos: usize,
     motor_envelope: f32,
     motor_target: f32,
 
-    // Step click: multi-phase mechanical impact (~80 ms total)
-    //   Phase 1 (0–5 ms): sharp attack ramp
-    //   Phase 2 (5–25 ms): sustained resonance at ~1500 Hz
-    //   Phase 3 (25–80 ms): decay with secondary bumps at ~500 Hz
-    click_remaining: u32,
-    click_duration: u32,
-
-    // Head settle: brief rattle after seek completes (~15 ms)
-    settle_remaining: u32,
-    settle_duration: u32,
-    settle_timeout: u32,
-    settle_armed: bool,
-
     // Event tracking
     prev_step_counter: u32,
-    noise_state: u32,
 
     pub enabled: bool,
 }
 
+/// Embedded raw PCM samples (mono i16 little-endian, 48 kHz).
+mod drive_samples {
+    static CLICK_RAW: &[u8] = include_bytes!("sounds/drive_click.raw");
+    static MOTOR_RAW: &[u8] = include_bytes!("sounds/drive_motor.raw");
+
+    /// Decode i16le bytes to f32 sample, bounds-checked.
+    fn sample_at(data: &[u8], index: usize) -> f32 {
+        let byte_pos = index * 2;
+        if byte_pos + 1 >= data.len() {
+            return 0.0;
+        }
+        let val = i16::from_le_bytes([data[byte_pos], data[byte_pos + 1]]);
+        val as f32 / 32768.0
+    }
+
+    pub fn click_len() -> usize {
+        CLICK_RAW.len() / 2
+    }
+    pub fn click_sample(index: usize) -> f32 {
+        sample_at(CLICK_RAW, index)
+    }
+    pub fn motor_len() -> usize {
+        MOTOR_RAW.len() / 2
+    }
+    pub fn motor_sample(index: usize) -> f32 {
+        sample_at(MOTOR_RAW, index)
+    }
+}
+
 impl DriveSoundGenerator {
-    fn new(sample_rate: u32) -> Self {
-        let sr = sample_rate as f32;
+    fn new(_sample_rate: u32) -> Self {
         Self {
-            sample_rate: sr,
-            motor_phase: 0.0,
+            click_pos: 0,
+            click_playing: false,
+            motor_pos: 0,
             motor_envelope: 0.0,
             motor_target: 0.0,
-            click_remaining: 0,
-            click_duration: (sr * 0.080) as u32, // ~80 ms
-            settle_remaining: 0,
-            settle_duration: (sr * 0.015) as u32, // ~15 ms
-            settle_timeout: 0,
-            settle_armed: false,
             prev_step_counter: 0,
-            noise_state: 0x12345678,
             enabled: true,
         }
     }
@@ -188,22 +196,9 @@ impl DriveSoundGenerator {
 
         if step_counter != self.prev_step_counter {
             self.prev_step_counter = step_counter;
-            // Fire step click (restarts if already playing)
-            self.click_remaining = self.click_duration;
-            // Arm settle rattle and reset timeout (~12 ms gap after last step)
-            self.settle_armed = true;
-            self.settle_timeout = (self.sample_rate * 0.012) as u32;
-            self.settle_remaining = 0;
-        }
-
-        // Settle fires when armed and no new step arrives within the timeout
-        if self.settle_armed {
-            if self.settle_timeout > 0 {
-                self.settle_timeout -= 1;
-            } else {
-                self.settle_armed = false;
-                self.settle_remaining = self.settle_duration;
-            }
+            // Restart click sample from the beginning
+            self.click_pos = 0;
+            self.click_playing = true;
         }
     }
 
@@ -213,98 +208,40 @@ impl DriveSoundGenerator {
             return 0.0;
         }
 
-        let tau = std::f32::consts::TAU;
         let mut out = 0.0f32;
 
-        // Motor hum: ~31 Hz fundamental with harmonic at ~79 Hz.
-        // Amplitude ~16% of full scale (matching drive_spin.wav peak of 5330/32768).
-        // Ramp envelope over ~50 ms for smooth on/off transitions.
-        let ramp_rate = 1.0 / (self.sample_rate * 0.05);
+        // Motor hum: loop the recorded sample with envelope ramp (~50 ms
+        // at 48 kHz = 2400 samples for smooth on/off).
+        let ramp_rate = 1.0 / 2400.0;
         if self.motor_envelope < self.motor_target {
             self.motor_envelope = (self.motor_envelope + ramp_rate).min(self.motor_target);
         } else if self.motor_envelope > self.motor_target {
             self.motor_envelope = (self.motor_envelope - ramp_rate).max(self.motor_target);
         }
         if self.motor_envelope > 0.001 {
-            let phase = self.motor_phase;
-            let hum = (phase * tau).sin() * 0.6
-                + (phase * (79.0 / 31.0) * tau).sin() * 0.3
-                + self.next_noise() * 0.1; // slight mechanical noise texture
-            out += hum * self.motor_envelope * 0.03;
-            self.motor_phase += 31.0 / self.sample_rate;
-            if self.motor_phase >= 1.0 {
-                self.motor_phase -= 1.0;
+            let motor_len = drive_samples::motor_len();
+            if motor_len > 0 {
+                out += drive_samples::motor_sample(self.motor_pos % motor_len)
+                    * self.motor_envelope;
+                self.motor_pos += 1;
+                if self.motor_pos >= motor_len {
+                    self.motor_pos = 0;
+                }
             }
         }
 
-        // Step click: multi-phase mechanical impact, ~80 ms.
-        // Modelled from WinUAE's drive_click.wav envelope analysis:
-        //   0–5 ms:  attack ramp to full amplitude
-        //   5–25 ms: sustained resonance (~1500 Hz) at high amplitude
-        //   25–60 ms: decay with secondary bumps (~600 Hz resonance)
-        //   60–80 ms: long low-amplitude tail
-        if self.click_remaining > 0 {
-            let elapsed = self.click_duration - self.click_remaining;
-            let t = elapsed as f32 / self.sample_rate;
-            let t_ms = t * 1000.0;
-
-            let (resonance, envelope) = if t_ms < 5.0 {
-                // Phase 1: attack ramp with broadband content
-                let attack = t_ms / 5.0;
-                let sig = (t * 1500.0 * tau).sin() * 0.6
-                    + (t * 2200.0 * tau).sin() * 0.3
-                    + self.next_noise() * 0.4;
-                (sig, attack)
-            } else if t_ms < 25.0 {
-                // Phase 2: sustained resonance at ~1500 Hz with harmonics
-                let sig = (t * 1500.0 * tau).sin() * 0.5
-                    + (t * 1000.0 * tau).sin() * 0.25
-                    + (t * 2200.0 * tau).sin() * 0.15
-                    + self.next_noise() * 0.1;
-                let env = 1.0 - (t_ms - 5.0) / 60.0; // slow linear fade
-                (sig, env)
-            } else if t_ms < 60.0 {
-                // Phase 3: decaying lower-frequency resonance with bumps
-                let sig = (t * 600.0 * tau).sin() * 0.4
-                    + (t * 1200.0 * tau).sin() * 0.2
-                    + self.next_noise() * 0.15;
-                // Bumpy decay — secondary resonances at ~33ms and ~55ms
-                let bump1 = (-((t_ms - 35.0) / 4.0).powi(2)).exp() * 0.4;
-                let bump2 = (-((t_ms - 55.0) / 5.0).powi(2)).exp() * 0.3;
-                let env = (-(t_ms - 25.0) / 30.0).exp() + bump1 + bump2;
-                (sig, env.min(1.0))
+        // Step click: play once from start to end, then stop.
+        if self.click_playing {
+            let click_len = drive_samples::click_len();
+            if self.click_pos < click_len {
+                out += drive_samples::click_sample(self.click_pos);
+                self.click_pos += 1;
             } else {
-                // Phase 4: long low-amplitude tail
-                let sig = (t * 400.0 * tau).sin() * 0.3
-                    + self.next_noise() * 0.2;
-                let env = (-(t_ms - 60.0) / 15.0).exp() * 0.15;
-                (sig, env)
-            };
-
-            out += resonance * envelope * 0.15;
-            self.click_remaining -= 1;
-        }
-
-        // Head settle: brief rattle after last step, ~15 ms.
-        // Models the head carriage locking into position.
-        if self.settle_remaining > 0 {
-            let elapsed = self.settle_duration - self.settle_remaining;
-            let t = elapsed as f32 / self.sample_rate;
-            let sig = (t * 800.0 * tau).sin() * 0.4
-                + (t * 1800.0 * tau).sin() * 0.3
-                + self.next_noise() * 0.3;
-            let env = (-t * 200.0).exp();
-            out += sig * env * 0.10;
-            self.settle_remaining -= 1;
+                self.click_playing = false;
+            }
         }
 
         out
-    }
-
-    /// LCG noise source, normalised to [-1, 1].
-    fn next_noise(&mut self) -> f32 {
-        self.noise_state = self.noise_state.wrapping_mul(1_103_515_245).wrapping_add(12345);
-        (self.noise_state as i32 as f32) / (i32::MAX as f32)
     }
 }
 
