@@ -127,7 +127,8 @@ pub struct IndicatorState {
 }
 
 /// Synthesises mechanical floppy drive sounds: motor hum, step clicks,
-/// and head-settle rattle. Mixed into the Paula audio output.
+/// and head-settle rattle. Added to the audio output *after* the Paula
+/// low-pass filter so transients aren't dulled.
 pub struct DriveSoundGenerator {
     sample_rate: f32,
 
@@ -136,11 +137,11 @@ pub struct DriveSoundGenerator {
     motor_envelope: f32,
     motor_target: f32,
 
-    // Step click: exponentially decaying noise burst (~1.5 ms)
+    // Step click: sharp impulse into a damped resonance (~2 ms)
     click_remaining: u32,
     click_duration: u32,
 
-    // Head settle: modulated noise rattle (~8 ms), fires after seek ends
+    // Head settle: burst of rapid damped impacts (~12 ms), fires after seek ends
     settle_remaining: u32,
     settle_duration: u32,
     settle_timeout: u32,
@@ -162,9 +163,9 @@ impl DriveSoundGenerator {
             motor_envelope: 0.0,
             motor_target: 0.0,
             click_remaining: 0,
-            click_duration: (sr * 0.0015) as u32, // ~1.5 ms
+            click_duration: (sr * 0.002) as u32, // ~2 ms
             settle_remaining: 0,
-            settle_duration: (sr * 0.008) as u32, // ~8 ms
+            settle_duration: (sr * 0.012) as u32, // ~12 ms
             settle_timeout: 0,
             settle_armed: false,
             prev_step_counter: 0,
@@ -224,23 +225,43 @@ impl DriveSoundGenerator {
             }
         }
 
-        // Step click: decaying noise burst
+        // Step click: sharp impulse decaying into a damped metallic ring.
+        // The first sample is a hard transient; the tail rings at ~3.5 kHz
+        // to mimic the stepper solenoid hitting the head carriage.
         if self.click_remaining > 0 {
-            let t = 1.0 - (self.click_remaining as f32 / self.click_duration as f32);
-            let noise = self.next_noise();
-            out += noise * (-t * 8.0).exp() * 0.12;
+            let elapsed = self.click_duration - self.click_remaining;
+            let t = elapsed as f32 / self.sample_rate;
+            let tau = std::f32::consts::TAU;
+            if elapsed == 0 {
+                // Hard initial transient
+                out += 0.25;
+            } else {
+                // Damped resonance at ~3.5 kHz + noise texture
+                let ring = (t * 3500.0 * tau).sin() * (-t * 2500.0).exp();
+                let noise = self.next_noise() * (-t * 4000.0).exp() * 0.3;
+                out += (ring + noise) * 0.18;
+            }
             self.click_remaining -= 1;
         }
 
-        // Head settle: decaying noise with ~400 Hz amplitude modulation
+        // Head settle: burst of rapid damped impacts as the head bounces
+        // into position. Sounds like a brief metallic rattle.
         if self.settle_remaining > 0 {
-            let t = 1.0 - (self.settle_remaining as f32 / self.settle_duration as f32);
-            let noise = self.next_noise();
+            let elapsed = self.settle_duration - self.settle_remaining;
+            let t = elapsed as f32 / self.sample_rate;
             let tau = std::f32::consts::TAU;
-            let modulation = (t * 400.0 / self.sample_rate * tau * self.settle_duration as f32)
-                .sin()
-                .abs();
-            out += noise * (-t * 6.0).exp() * modulation * 0.08;
+            // Rapid impacts at ~600 Hz modulated by an envelope
+            let impact_phase = t * 600.0 * tau;
+            // Each half-cycle peak triggers a mini-click
+            let impact = impact_phase.sin();
+            let is_peak = impact.abs() > 0.95;
+            let rattle = if is_peak {
+                self.next_noise() * 0.5
+            } else {
+                // Ring between impacts at ~2.8 kHz
+                (t * 2800.0 * tau).sin() * 0.15
+            };
+            out += rattle * (-t * 250.0).exp() * 0.10;
             self.settle_remaining -= 1;
         }
 
@@ -958,18 +979,21 @@ impl Amiga {
             while self.audio_sample_phase >= PAL_CCK_HZ {
                 self.audio_sample_phase -= PAL_CCK_HZ;
                 let (left, right) = self.paula.mix_audio_stereo();
+                // Apply one-pole RC low-pass filter (~4.5 kHz cutoff)
+                // to match the Amiga's hardware output stage. Paula only.
+                let a = self.audio_lpf_alpha;
+                self.audio_lpf_left += a * (left - self.audio_lpf_left);
+                self.audio_lpf_right += a * (right - self.audio_lpf_right);
+                // Drive sounds are mechanical — not routed through the
+                // hardware audio filter. Add after the LPF to preserve
+                // the sharp transients that make clicks sound real.
                 self.drive_sounds.update_state(
                     self.floppy.motor_spinning(),
                     self.floppy.step_event_counter(),
                 );
                 let drive = self.drive_sounds.generate_sample();
-                // Apply one-pole RC low-pass filter (~4.5 kHz cutoff)
-                // to match the Amiga's hardware output stage.
-                let a = self.audio_lpf_alpha;
-                self.audio_lpf_left += a * ((left + drive) - self.audio_lpf_left);
-                self.audio_lpf_right += a * ((right + drive) - self.audio_lpf_right);
-                self.audio_buffer.push(self.audio_lpf_left);
-                self.audio_buffer.push(self.audio_lpf_right);
+                self.audio_buffer.push(self.audio_lpf_left + drive);
+                self.audio_buffer.push(self.audio_lpf_right + drive);
             }
 
             self.agnus.tick_cck();
