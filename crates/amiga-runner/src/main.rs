@@ -40,6 +40,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 /// Standard PAL viewport dimensions (hires resolution, deinterlaced).
 const VIEWPORT_WIDTH: u32 = 640; // (0xE0 - 0x40) * 4 = 160 CCKs * 4
 const VIEWPORT_HEIGHT: u32 = 256; // (0x12C - 0x2C) = 256 lines
+const STATUS_BAR_HEIGHT: u32 = 12;
 const SCALE: u32 = 2;
 const FRAME_DURATION: Duration = Duration::from_millis(20); // PAL ~50 Hz
 const AUDIO_CHANNELS: usize = 2;
@@ -92,6 +93,7 @@ struct CliArgs {
     mute: bool,
     mcp: bool,
     script_path: Option<PathBuf>,
+    drive_sounds: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -175,6 +177,7 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --screenshot <file.png>  Save a framebuffer screenshot (headless)");
     eprintln!("  --audio <file.wav>  Save a WAV audio dump (headless)");
     eprintln!("  --mute         Disable host audio playback (windowed)");
+    eprintln!("  --no-drive-sounds  Disable mechanical floppy drive sounds");
     eprintln!("  --mcp          Run as MCP JSON-RPC server (headless, stdin/stdout)");
     eprintln!("  --script <file.json>  Run a JSON script file (headless batch mode)");
     eprintln!("  -h, --help     Show this help");
@@ -200,6 +203,7 @@ fn parse_args() -> CliArgs {
     let mut screenshot_path: Option<PathBuf> = None;
     let mut audio_path: Option<PathBuf> = None;
     let mut mute = false;
+    let mut drive_sounds = true;
     let mut mcp = false;
     let mut script_path: Option<PathBuf> = None;
 
@@ -319,6 +323,9 @@ fn parse_args() -> CliArgs {
             "--mute" => {
                 mute = true;
             }
+            "--no-drive-sounds" => {
+                drive_sounds = false;
+            }
             "--mcp" => {
                 mcp = true;
             }
@@ -385,6 +392,7 @@ fn parse_args() -> CliArgs {
         mute,
         mcp,
         script_path,
+        drive_sounds,
     }
 }
 
@@ -744,6 +752,10 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
             amiga.insert_disk_image(Box::new(ipf));
             eprintln!("Inserted IPF: {}", disk_path.display());
         }
+    }
+
+    if !cli.drive_sounds {
+        amiga.drive_sounds.enabled = false;
     }
 
     eprintln!(
@@ -1777,6 +1789,64 @@ impl App {
             frame[o + 2] = (argb & 0xFF) as u8; // B
             frame[o + 3] = ((argb >> 24) & 0xFF) as u8; // A
         }
+
+        // Status bar: 12 rows below the viewport
+        let indicators = self.amiga.indicator_state();
+        let bar_start_pixel = (VIEWPORT_WIDTH * VIEWPORT_HEIGHT) as usize;
+        let w = VIEWPORT_WIDTH as usize;
+
+        // Fill status bar background (#1A1A1A)
+        for row in 0..STATUS_BAR_HEIGHT as usize {
+            for col in 0..w {
+                let o = (bar_start_pixel + row * w + col) * 4;
+                frame[o] = 0x1A;
+                frame[o + 1] = 0x1A;
+                frame[o + 2] = 0x1A;
+                frame[o + 3] = 0xFF;
+            }
+        }
+
+        // Power LED: 8x8 rect at (8, 2) from bar top
+        let power_color: [u8; 3] = if indicators.power_led_on {
+            [0x00, 0xCC, 0x00] // bright green
+        } else {
+            [0x00, 0x33, 0x00] // dim green
+        };
+        draw_status_rect(frame, w, bar_start_pixel, 8, 2, 8, 8, power_color);
+
+        // Drive LED: 8x8 rect at (36, 2) from bar top
+        let drive_color: [u8; 3] = if indicators.drive_motor_on && indicators.drive_dma_active {
+            [0x00, 0xCC, 0x00] // bright green — active DMA
+        } else if indicators.drive_motor_on {
+            [0x00, 0x66, 0x00] // dim green — motor spinning
+        } else {
+            [0x1A, 0x1A, 0x1A] // background — off
+        };
+        draw_status_rect(frame, w, bar_start_pixel, 36, 2, 8, 8, drive_color);
+    }
+}
+
+/// Draw a filled rectangle into the status bar region of the framebuffer.
+fn draw_status_rect(
+    frame: &mut [u8],
+    stride: usize,
+    bar_start_pixel: usize,
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+    color: [u8; 3],
+) {
+    for row in y..y + h {
+        for col in x..x + w {
+            let o = (bar_start_pixel + row * stride + col) * 4;
+            if o + 3 < frame.len() {
+                frame[o] = color[0];
+                frame[o + 1] = color[1];
+                frame[o + 2] = color[2];
+                frame[o + 3] = 0xFF;
+            }
+        }
     }
 }
 
@@ -1786,7 +1856,10 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let size = winit::dpi::LogicalSize::new(VIEWPORT_WIDTH * SCALE, VIEWPORT_HEIGHT * SCALE);
+        let size = winit::dpi::LogicalSize::new(
+            VIEWPORT_WIDTH * SCALE,
+            (VIEWPORT_HEIGHT + STATUS_BAR_HEIGHT) * SCALE,
+        );
         let attrs = WindowAttributes::default()
             .with_title(format!(
                 "Amiga Runner ({}/{})",
@@ -1801,7 +1874,9 @@ impl ApplicationHandler for App {
                 let window: &'static Window = Box::leak(Box::new(window));
                 let inner = window.inner_size();
                 let surface = SurfaceTexture::new(inner.width, inner.height, window);
-                let pixels = match Pixels::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT, surface) {
+                let pixels =
+                    match Pixels::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT + STATUS_BAR_HEIGHT, surface)
+                    {
                     Ok(pixels) => pixels,
                     Err(e) => {
                         eprintln!("Failed to create pixels surface: {e}");

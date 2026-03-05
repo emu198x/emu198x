@@ -92,6 +92,9 @@ pub struct AmigaFloppyDrive {
     selected: bool,
     disk_changed: bool,
     prev_step: bool,
+    /// Monotonically increasing counter of head step events.
+    /// Used by the drive sound generator to detect new seeks.
+    step_event_counter: u32,
     /// Observable capture log — all MFM words written to the drive.
     /// Cleared only by explicit `clear_write_mfm_capture()`.
     write_mfm_capture: Vec<u16>,
@@ -111,6 +114,7 @@ impl AmigaFloppyDrive {
             selected: false,
             disk_changed: true, // No disk at power-on
             prev_step: true,    // Active-low: idle = high
+            step_event_counter: 0,
             write_mfm_capture: Vec::new(),
             write_mfm_pending: Vec::new(),
         }
@@ -168,6 +172,7 @@ impl AmigaFloppyDrive {
         self.prev_step = step;
 
         if step_edge {
+            self.step_event_counter = self.step_event_counter.wrapping_add(1);
             if dir_inward {
                 if self.cylinder < 79 {
                     self.cylinder += 1;
@@ -222,6 +227,14 @@ impl AmigaFloppyDrive {
 
     pub fn motor_on(&self) -> bool {
         self.motor_on
+    }
+
+    pub fn motor_spinning(&self) -> bool {
+        self.motor_spinning
+    }
+
+    pub fn step_event_counter(&self) -> u32 {
+        self.step_event_counter
     }
 
     /// Record one raw MFM word presented to the drive write path.

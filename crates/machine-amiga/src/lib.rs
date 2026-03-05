@@ -115,6 +115,145 @@ impl BeamEdgeFlags {
     }
 }
 
+/// Visual indicator state for the status bar (power LED, drive LED).
+#[derive(Debug, Clone, Copy)]
+pub struct IndicatorState {
+    /// Power LED on the case. Active-low: CIA-A PRA bit 1 = 0 means on.
+    pub power_led_on: bool,
+    /// Drive motor is enabled (CIAB PRB SEL+MTR).
+    pub drive_motor_on: bool,
+    /// Disk DMA transfer is in progress.
+    pub drive_dma_active: bool,
+}
+
+/// Synthesises mechanical floppy drive sounds: motor hum, step clicks,
+/// and head-settle rattle. Mixed into the Paula audio output.
+pub struct DriveSoundGenerator {
+    sample_rate: f32,
+
+    // Motor hum: two-harmonic sine (62 Hz fundamental + 124 Hz overtone)
+    motor_phase: f32,
+    motor_envelope: f32,
+    motor_target: f32,
+
+    // Step click: exponentially decaying noise burst (~1.5 ms)
+    click_remaining: u32,
+    click_duration: u32,
+
+    // Head settle: modulated noise rattle (~8 ms), fires after seek ends
+    settle_remaining: u32,
+    settle_duration: u32,
+    settle_timeout: u32,
+    settle_armed: bool,
+
+    // Event tracking
+    prev_step_counter: u32,
+    noise_state: u32,
+
+    pub enabled: bool,
+}
+
+impl DriveSoundGenerator {
+    fn new(sample_rate: u32) -> Self {
+        let sr = sample_rate as f32;
+        Self {
+            sample_rate: sr,
+            motor_phase: 0.0,
+            motor_envelope: 0.0,
+            motor_target: 0.0,
+            click_remaining: 0,
+            click_duration: (sr * 0.0015) as u32, // ~1.5 ms
+            settle_remaining: 0,
+            settle_duration: (sr * 0.008) as u32, // ~8 ms
+            settle_timeout: 0,
+            settle_armed: false,
+            prev_step_counter: 0,
+            noise_state: 0x12345678,
+            enabled: true,
+        }
+    }
+
+    /// Read drive state and fire sound events. Call once per audio sample.
+    fn update_state(&mut self, motor_spinning: bool, step_counter: u32) {
+        self.motor_target = if motor_spinning { 1.0 } else { 0.0 };
+
+        if step_counter != self.prev_step_counter {
+            self.prev_step_counter = step_counter;
+            // Fire step click
+            self.click_remaining = self.click_duration;
+            // Arm settle rattle and reset timeout (~10 ms = 480 samples at 48 kHz)
+            self.settle_armed = true;
+            self.settle_timeout = (self.sample_rate * 0.010) as u32;
+            self.settle_remaining = 0; // cancel any in-progress settle
+        }
+
+        // Settle fires when armed and no new step arrives within the timeout
+        if self.settle_armed {
+            if self.settle_timeout > 0 {
+                self.settle_timeout -= 1;
+            } else {
+                self.settle_armed = false;
+                self.settle_remaining = self.settle_duration;
+            }
+        }
+    }
+
+    /// Generate one mono sample. Returns 0.0 when disabled.
+    fn generate_sample(&mut self) -> f32 {
+        if !self.enabled {
+            return 0.0;
+        }
+
+        let mut out = 0.0f32;
+
+        // Motor hum: ramp envelope toward target over ~50 ms (2400 samples)
+        let ramp_rate = 1.0 / (self.sample_rate * 0.05);
+        if self.motor_envelope < self.motor_target {
+            self.motor_envelope = (self.motor_envelope + ramp_rate).min(self.motor_target);
+        } else if self.motor_envelope > self.motor_target {
+            self.motor_envelope = (self.motor_envelope - ramp_rate).max(self.motor_target);
+        }
+        if self.motor_envelope > 0.001 {
+            let tau = std::f32::consts::TAU;
+            let phase = self.motor_phase;
+            let hum = (phase * tau).sin() * 0.7 + (phase * 2.0 * tau).sin() * 0.3;
+            out += hum * self.motor_envelope * 0.04;
+            self.motor_phase += 62.0 / self.sample_rate;
+            if self.motor_phase >= 1.0 {
+                self.motor_phase -= 1.0;
+            }
+        }
+
+        // Step click: decaying noise burst
+        if self.click_remaining > 0 {
+            let t = 1.0 - (self.click_remaining as f32 / self.click_duration as f32);
+            let noise = self.next_noise();
+            out += noise * (-t * 8.0).exp() * 0.12;
+            self.click_remaining -= 1;
+        }
+
+        // Head settle: decaying noise with ~400 Hz amplitude modulation
+        if self.settle_remaining > 0 {
+            let t = 1.0 - (self.settle_remaining as f32 / self.settle_duration as f32);
+            let noise = self.next_noise();
+            let tau = std::f32::consts::TAU;
+            let modulation = (t * 400.0 / self.sample_rate * tau * self.settle_duration as f32)
+                .sin()
+                .abs();
+            out += noise * (-t * 6.0).exp() * modulation * 0.08;
+            self.settle_remaining -= 1;
+        }
+
+        out
+    }
+
+    /// LCG noise source, normalised to [-1, 1].
+    fn next_noise(&mut self) -> f32 {
+        self.noise_state = self.noise_state.wrapping_mul(1_103_515_245).wrapping_add(12345);
+        (self.noise_state as i32 as f32) / (i32::MAX as f32)
+    }
+}
+
 /// Coarse ECS beam output pin state derived from the latched sync/blank model.
 ///
 /// This is debug/test-facing and intentionally approximate while fuller ECS
@@ -256,6 +395,7 @@ pub struct Amiga {
     pub mbres_ramsey_config: u8,
     pub mbres_fatgary_toenb: u8,
     pub mbres_fatgary_timeout: u8,
+    pub drive_sounds: DriveSoundGenerator,
 }
 
 impl Amiga {
@@ -431,6 +571,7 @@ impl Amiga {
             mbres_ramsey_config: 0x08,  // default wrap bit
             mbres_fatgary_toenb: 0x80,
             mbres_fatgary_timeout: 0x00,
+            drive_sounds: DriveSoundGenerator::new(AUDIO_SAMPLE_RATE),
         }
     }
 
@@ -817,11 +958,16 @@ impl Amiga {
             while self.audio_sample_phase >= PAL_CCK_HZ {
                 self.audio_sample_phase -= PAL_CCK_HZ;
                 let (left, right) = self.paula.mix_audio_stereo();
+                self.drive_sounds.update_state(
+                    self.floppy.motor_spinning(),
+                    self.floppy.step_event_counter(),
+                );
+                let drive = self.drive_sounds.generate_sample();
                 // Apply one-pole RC low-pass filter (~4.5 kHz cutoff)
                 // to match the Amiga's hardware output stage.
                 let a = self.audio_lpf_alpha;
-                self.audio_lpf_left += a * (left - self.audio_lpf_left);
-                self.audio_lpf_right += a * (right - self.audio_lpf_right);
+                self.audio_lpf_left += a * ((left + drive) - self.audio_lpf_left);
+                self.audio_lpf_right += a * ((right + drive) - self.audio_lpf_right);
                 self.audio_buffer.push(self.audio_lpf_left);
                 self.audio_buffer.push(self.audio_lpf_right);
             }
@@ -1007,6 +1153,16 @@ impl Amiga {
     /// Drain interleaved stereo audio samples (`f32`, `L,R,...`).
     pub fn take_audio_buffer(&mut self) -> Vec<f32> {
         std::mem::take(&mut self.audio_buffer)
+    }
+
+    /// Current state of the power and drive activity LEDs.
+    pub fn indicator_state(&self) -> IndicatorState {
+        let pra = self.cia_a.port_a_output();
+        IndicatorState {
+            power_led_on: pra & 0x02 == 0, // active-low
+            drive_motor_on: self.floppy.motor_on(),
+            drive_dma_active: self.disk_dma_runtime.is_some(),
+        }
     }
 
     /// Insert an ADF disk image into the internal floppy drive (DF0:).
