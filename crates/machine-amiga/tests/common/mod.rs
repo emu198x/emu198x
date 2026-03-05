@@ -1,7 +1,7 @@
 //! Shared helpers for Amiga boot screenshot tests.
 
 use machine_amiga::commodore_denise_ocs::ViewportPreset;
-use machine_amiga::{Amiga, AmigaConfig, AmigaRegion, PAL_FRAME_TICKS};
+use machine_amiga::{Amiga, AmigaConfig, AmigaRegion, AUDIO_SAMPLE_RATE, PAL_FRAME_TICKS};
 use std::fs;
 
 pub const BOOT_TICKS: u64 = 850_000_000; // ~30 seconds PAL
@@ -55,6 +55,7 @@ pub fn boot_screenshot_test(
     let capture_interval = PAL_FRAME_TICKS * 25;
     let mut next_capture = capture_interval;
     let mut video_frames: Vec<u8> = Vec::new();
+    let mut audio_samples: Vec<f32> = Vec::new();
     let mut frame_width = 0u32;
     let mut frame_height = 0u32;
 
@@ -69,7 +70,7 @@ pub fn boot_screenshot_test(
         // force-setting the TOD counter.
         let _ = battclock_threshold;
 
-        // Capture a video frame periodically
+        // Capture a video frame + drain audio periodically
         if i >= next_capture {
             next_capture += capture_interval;
             let vp = amiga
@@ -83,6 +84,7 @@ pub fn boot_screenshot_test(
                 video_frames.push((pixel & 0xFF) as u8);
                 video_frames.push(0xFF);
             }
+            audio_samples.extend_from_slice(&amiga.take_audio_buffer());
         }
 
         if i % 4 != 0 || i - last_report < report_interval {
@@ -99,6 +101,9 @@ pub fn boot_screenshot_test(
             amiga.agnus.hpos,
         );
     }
+
+    // Drain any remaining audio
+    audio_samples.extend_from_slice(&amiga.take_audio_buffer());
 
     // Save raster framebuffer screenshots (standard viewport + full raster)
     {
@@ -158,29 +163,46 @@ pub fn boot_screenshot_test(
         );
     }
 
-    // Encode captured frames to MP4 via ffmpeg (diagnostic 2fps video)
+    // Encode captured frames + audio to MP4 via ffmpeg
     if frame_width > 0 && !video_frames.is_empty() {
         use std::io::Write;
         use std::process::{Command, Stdio};
 
         let mp4_path = format!("../../test_output/amiga/{screenshot_prefix}.mp4");
+
+        // Write raw f32le PCM audio to a temp file for ffmpeg's second input
+        let audio_tmp = format!("../../test_output/amiga/.{screenshot_prefix}_audio.raw");
+        {
+            let mut f = fs::File::create(&audio_tmp).expect("create audio temp file");
+            let pcm_bytes: Vec<u8> = audio_samples
+                .iter()
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            f.write_all(&pcm_bytes).expect("write audio temp file");
+        }
+
+        let sample_rate_str = AUDIO_SAMPLE_RATE.to_string();
+        let video_size_str = format!("{frame_width}x{frame_height}");
         match Command::new("ffmpeg")
             .args([
                 "-y",
-                "-f",
-                "rawvideo",
-                "-pixel_format",
-                "rgba",
-                "-video_size",
-                &format!("{frame_width}x{frame_height}"),
-                "-framerate",
-                "2",
-                "-i",
-                "pipe:0",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
+                // Video input: raw RGBA frames on stdin
+                "-f", "rawvideo",
+                "-pixel_format", "rgba",
+                "-video_size", &video_size_str,
+                "-framerate", "2",
+                "-i", "pipe:0",
+                // Audio input: raw f32le stereo PCM from temp file
+                "-f", "f32le",
+                "-ar", &sample_rate_str,
+                "-ac", "2",
+                "-i", &audio_tmp,
+                // Output
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-shortest",
                 &mp4_path,
             ])
             .stdin(Stdio::piped())
@@ -197,7 +219,7 @@ pub fn boot_screenshot_test(
                     .expect("pipe video frames");
                 let output = child.wait_with_output().expect("ffmpeg");
                 if output.status.success() {
-                    println!("Video saved to {mp4_path}");
+                    println!("Video saved to {mp4_path} (with audio)");
                 } else {
                     eprintln!(
                         "ffmpeg failed: {}",
@@ -209,6 +231,9 @@ pub fn boot_screenshot_test(
                 eprintln!("ffmpeg not found ({e}), skipping video output");
             }
         }
+
+        // Clean up temp file
+        fs::remove_file(&audio_tmp).ok();
     }
 
     println!("DMACON  = ${:04X}", amiga.agnus.dmacon);
