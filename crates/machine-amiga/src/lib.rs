@@ -213,6 +213,9 @@ pub struct Amiga {
     pub paula: Paula8364,
     pub floppy: AmigaFloppyDrive,
     pub keyboard: AmigaKeyboard,
+    /// Previous state of CIA-A CRA bit 6 for edge-detecting the keyboard
+    /// handshake. The real hardware acknowledges on the falling edge (1→0).
+    pub cia_a_cra_sp_prev: bool,
     /// Gayle gate array (IDE + address decode). Present only on A600/A1200.
     pub gayle: Option<Gayle>,
     audio_sample_phase: u64,
@@ -382,6 +385,7 @@ impl Amiga {
             paula: Paula8364::new(),
             floppy: AmigaFloppyDrive::new(),
             keyboard: AmigaKeyboard::new(),
+            cia_a_cra_sp_prev: false,
             gayle: match model {
                 AmigaModel::A600 | AmigaModel::A1200 => Some(Gayle::new()),
                 _ => None,
@@ -828,6 +832,7 @@ impl Amiga {
                     paula: &mut self.paula,
                     floppy: &mut self.floppy,
                     keyboard: &mut self.keyboard,
+                    cia_a_cra_sp_prev: &mut self.cia_a_cra_sp_prev,
                     gayle: &mut self.gayle,
                     bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                     ddfstrt_pending: &mut self.ddfstrt_pending,
@@ -861,6 +866,7 @@ impl Amiga {
                         paula: &mut self.paula,
                         floppy: &mut self.floppy,
                         keyboard: &mut self.keyboard,
+                        cia_a_cra_sp_prev: &mut self.cia_a_cra_sp_prev,
                         gayle: &mut self.gayle,
                         bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                         ddfstrt_pending: &mut self.ddfstrt_pending,
@@ -1689,6 +1695,7 @@ pub struct AmigaBusWrapper<'a> {
     pub paula: &'a mut Paula8364,
     pub floppy: &'a mut AmigaFloppyDrive,
     pub keyboard: &'a mut AmigaKeyboard,
+    pub cia_a_cra_sp_prev: &'a mut bool,
     pub gayle: &'a mut Option<Gayle>,
     // Pipeline state for delayed register writes (Agnus→Denise propagation).
     pub bplcon0_denise_pending: &'a mut Option<(u16, u8)>,
@@ -1762,9 +1769,16 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         let out = self.cia_a.port_a_output();
                         self.memory.overlay = out & 0x01 != 0;
                     }
-                    // CRA write with bit 6 set = SP output mode = keyboard handshake
-                    if reg == 0x0E && val & 0x40 != 0 {
-                        self.keyboard.handshake();
+                    // Keyboard handshake: detect the falling edge of CRA bit 6
+                    // (SP mode 1→0). The ROM sets bit 6 to switch SP to output
+                    // mode, then clears it back to input mode. The keyboard
+                    // acknowledges on the falling edge, matching WinUAE.
+                    if reg == 0x0E {
+                        let sp_now = val & 0x40 != 0;
+                        if *self.cia_a_cra_sp_prev && !sp_now {
+                            self.keyboard.handshake();
+                        }
+                        *self.cia_a_cra_sp_prev = sp_now;
                     }
                 }
                 return BusStatus::Ready(0);
@@ -2744,6 +2758,7 @@ mod tests {
             paula: &mut amiga.paula,
             floppy: &mut amiga.floppy,
             keyboard: &mut amiga.keyboard,
+            cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
             gayle: &mut amiga.gayle,
             bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
             ddfstrt_pending: &mut amiga.ddfstrt_pending,

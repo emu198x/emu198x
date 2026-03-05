@@ -97,8 +97,8 @@ fn test_workbench_13_boot() {
 
     println!("=== Workbench 1.3 Boot Test ===");
 
-    // Boot for ~30 seconds PAL
-    let total_ticks: u64 = 850_000_000;
+    // Boot for ~6 minutes PAL (enough for startup-sequence's 5-min wait timeout)
+    let total_ticks: u64 = 10_200_000_000;
     let report_interval: u64 = 28_375_160;
     let mut last_report = 0u64;
     let mut dskblk_count = 0u32;
@@ -178,6 +178,74 @@ fn test_workbench_13_boot() {
     println!("DMACON  = ${:04X}", amiga.agnus.dmacon);
     println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
     println!("DSKBLK total = {dskblk_count}");
+
+    // Exception vector table from chip RAM
+    println!("\n=== Exception Vector Table (chip RAM) ===");
+    for (name, addr) in [
+        ("Vec 2 (Bus Error)", 0x08u32),
+        ("Vec 3 (Address Error)", 0x0C),
+        ("Vec 4 (Illegal)", 0x10),
+        ("Vec 8 (Priv Viol)", 0x20),
+        ("Vec 25 (Level 1 Auto)", 0x64),
+        ("Vec 26 (Level 2 Auto)", 0x68),
+        ("Vec 27 (Level 3 Auto)", 0x6C),
+        ("Vec 32 (TRAP #0)", 0x80),
+    ] {
+        let b0 = u32::from(amiga.memory.read_chip_byte(addr));
+        let b1 = u32::from(amiga.memory.read_chip_byte(addr + 1));
+        let b2 = u32::from(amiga.memory.read_chip_byte(addr + 2));
+        let b3 = u32::from(amiga.memory.read_chip_byte(addr + 3));
+        let handler = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+        println!("  {name}: ${handler:08X}");
+    }
+    // Disassemble a few bytes at the priv viol handler
+    let pvh_addr = {
+        let b0 = u32::from(amiga.memory.read_chip_byte(0x20));
+        let b1 = u32::from(amiga.memory.read_chip_byte(0x21));
+        let b2 = u32::from(amiga.memory.read_chip_byte(0x22));
+        let b3 = u32::from(amiga.memory.read_chip_byte(0x23));
+        (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
+    };
+    println!("  Priv viol handler bytes at ${pvh_addr:08X}:");
+    // Read first 32 bytes of the handler
+    let base = if pvh_addr >= 0xFC0000 {
+        // ROM address — read from ROM
+        let offset = (pvh_addr - 0xFC0000) as usize;
+        let rom_data: Vec<u8> = (0..32).map(|i| {
+            let rom_addr = (pvh_addr + i) & 0xFFFFFF;
+            if rom_addr >= 0xFC0000 {
+                // Read from memory (ROM is mapped)
+                amiga.memory.read_chip_byte(rom_addr)
+            } else {
+                amiga.memory.read_chip_byte(rom_addr)
+            }
+        }).collect();
+        print!("   ");
+        for b in &rom_data {
+            print!(" {:02X}", b);
+        }
+        println!();
+        pvh_addr
+    } else {
+        // Chip RAM address
+        print!("   ");
+        for i in 0..32u32 {
+            print!(" {:02X}", amiga.memory.read_chip_byte(pvh_addr + i));
+        }
+        println!();
+        pvh_addr
+    };
+
+    // Keyboard diagnostics
+    println!("\n=== Keyboard Diagnostics ===");
+    println!("Keyboard bytes_sent: {}", amiga.keyboard.bytes_sent);
+    println!("Keyboard state: {}", amiga.keyboard.debug_state_name());
+    println!("Keyboard queued keys: {}", amiga.keyboard.queued_key_count());
+    println!("CIA-A ICR mask: ${:02X}", amiga.cia_a.icr_mask());
+    println!("CIA-A ICR status: ${:02X}", amiga.cia_a.icr_status());
+    if amiga.keyboard.bytes_sent > 2 {
+        println!("WARNING: Keyboard sent {} bytes (expected 2 for power-up only)", amiga.keyboard.bytes_sent);
+    }
 
     // Find the background color from palette[0]
     let fb_w = amiga.denise.raster_fb_width;

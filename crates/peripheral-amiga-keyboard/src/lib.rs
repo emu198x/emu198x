@@ -41,6 +41,8 @@ pub struct AmigaKeyboard {
     state: State,
     timer: u32,
     key_queue: VecDeque<u8>,
+    /// Total number of bytes sent to the host (for diagnostics).
+    pub bytes_sent: u32,
 }
 
 impl AmigaKeyboard {
@@ -49,6 +51,7 @@ impl AmigaKeyboard {
             state: State::PowerUpDelay,
             timer: 0,
             key_queue: VecDeque::new(),
+            bytes_sent: 0,
         }
     }
 
@@ -67,7 +70,8 @@ impl AmigaKeyboard {
             State::SendInitPowerUp => {
                 self.state = State::WaitHandshakeInit;
                 self.timer = 0;
-                Some(rotate_byte(0xFD))
+                self.bytes_sent += 1;
+                Some(encode_keycode(0xFD))
             }
             State::WaitHandshakeInit => {
                 if self.timer >= HANDSHAKE_TIMEOUT_TICKS {
@@ -80,7 +84,8 @@ impl AmigaKeyboard {
             State::SendTermPowerUp => {
                 self.state = State::WaitHandshakeTerm;
                 self.timer = 0;
-                Some(rotate_byte(0xFE))
+                self.bytes_sent += 1;
+                Some(encode_keycode(0xFE))
             }
             State::WaitHandshakeTerm => {
                 if self.timer >= HANDSHAKE_TIMEOUT_TICKS {
@@ -94,7 +99,8 @@ impl AmigaKeyboard {
                     && let Some(byte) = self.key_queue.pop_front() {
                         self.state = State::WaitHandshakeKey;
                         self.timer = 0;
-                        return Some(rotate_byte(byte));
+                        self.bytes_sent += 1;
+                        return Some(encode_keycode(byte));
                     }
                 None
             }
@@ -169,10 +175,14 @@ impl Default for AmigaKeyboard {
     }
 }
 
-/// Amiga keycodes are rotated left 1 bit before serial transmission.
-/// The ROM's keyboard interrupt handler rotates right to recover.
-fn rotate_byte(byte: u8) -> u8 {
-    byte.rotate_left(1)
+/// Encode a keycode for CIA-A SDR transmission.
+///
+/// The Amiga keyboard rotates the keycode left by 1 bit before sending.
+/// The KDAT line is active-low, so the CIA captures the inverse of each
+/// bit. The ROM decodes by inverting then rotating right (or equivalently,
+/// rotating right then inverting — the operations commute).
+fn encode_keycode(byte: u8) -> u8 {
+    !byte.rotate_left(1)
 }
 
 #[cfg(test)]
@@ -192,7 +202,7 @@ mod tests {
         // the NEXT tick sends $FD
         assert_eq!(kb.tick(), None); // transitions to SendInitPowerUp
         let byte = kb.tick(); // sends $FD
-        assert_eq!(byte, Some(rotate_byte(0xFD)));
+        assert_eq!(byte, Some(encode_keycode(0xFD)));
 
         // Now waiting for handshake — no output
         assert_eq!(kb.tick(), None);
@@ -200,7 +210,7 @@ mod tests {
         // Handshake → sends $FE
         kb.handshake();
         let byte = kb.tick();
-        assert_eq!(byte, Some(rotate_byte(0xFE)));
+        assert_eq!(byte, Some(encode_keycode(0xFE)));
 
         // Handshake → idle
         kb.handshake();
@@ -230,7 +240,7 @@ mod tests {
 
         // The tick that hits the interval sends the byte
         let byte = kb.tick();
-        assert_eq!(byte, Some(rotate_byte(0x45)));
+        assert_eq!(byte, Some(encode_keycode(0x45)));
 
         // Handshake completes
         kb.handshake();
@@ -246,11 +256,22 @@ mod tests {
     }
 
     #[test]
-    fn rotate_byte_round_trip() {
+    fn encode_decode_round_trip() {
+        // The ROM decodes by inverting then rotating right (or vice versa).
         for byte in 0..=255u8 {
-            let rotated = rotate_byte(byte);
-            let recovered = rotated.rotate_right(1);
+            let encoded = encode_keycode(byte);
+            let recovered = (!encoded).rotate_right(1);
             assert_eq!(recovered, byte);
+        }
+    }
+
+    #[test]
+    fn encode_matches_winuae() {
+        // WinUAE: kbcode = ~((keycode << 1) | (keycode >> 7))
+        // Our encode_keycode should produce the same value.
+        for byte in 0..=255u8 {
+            let winuae = !((byte << 1) | (byte >> 7));
+            assert_eq!(encode_keycode(byte), winuae);
         }
     }
 }
