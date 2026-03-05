@@ -171,7 +171,8 @@ impl McpEmulator for SpectrumMcp {
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" }
+                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" },
+                        "correct_aspect": { "type": "boolean", "description": "Scale to 4:3 display aspect ratio (default: true)" }
                     }
                 }),
             },
@@ -287,6 +288,19 @@ impl McpEmulator for SpectrumMcp {
                     "required": ["address", "length"]
                 }),
             },
+            ToolDefinition {
+                name: "record_video",
+                description: "Record N frames as MP4 video with audio",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "frames": { "type": "integer", "description": "Number of frames to record" },
+                        "save_path": { "type": "string", "description": "Write MP4 to this path" },
+                        "correct_aspect": { "type": "boolean", "description": "Scale to 4:3 display aspect ratio (default: true)" }
+                    },
+                    "required": ["frames", "save_path"]
+                }),
+            },
         ]
     }
 
@@ -313,6 +327,7 @@ impl McpEmulator for SpectrumMcp {
             "set_breakpoint" => self.handle_set_breakpoint(arguments),
             "get_screen_text" => self.handle_get_screen_text(),
             "query_memory" => self.handle_query_memory(arguments),
+            "record_video" => self.handle_record_video(arguments),
             _ => ToolResult::Error {
                 code: -32601,
                 message: format!("Unknown tool: {name}"),
@@ -601,11 +616,13 @@ impl SpectrumMcp {
         };
 
         let save_path = params.get("save_path").and_then(|v| v.as_str());
+        let display = parse_display_size(params, spec.framebuffer_width(), spec.framebuffer_height());
         mcp::screenshot_result(
             spec.framebuffer_width(),
             spec.framebuffer_height(),
             spec.framebuffer(),
             save_path,
+            display,
         )
     }
 
@@ -910,11 +927,88 @@ impl SpectrumMcp {
             "data": bytes,
         }))
     }
+
+    fn handle_record_video(&mut self, params: &JsonValue) -> ToolResult {
+        let spec = match self.require_spectrum() {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let frames = match params.get("frames").and_then(serde_json::Value::as_u64) {
+            Some(f) if f > 0 => f,
+            _ => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'frames' (positive integer)".to_string(),
+                };
+            }
+        };
+
+        let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'save_path' parameter".to_string(),
+            };
+        };
+
+        let display = parse_display_size(params, spec.framebuffer_width(), spec.framebuffer_height());
+        let mut rec = match emu_core::video::VideoRecorder::new(
+            spec.framebuffer_width(),
+            spec.framebuffer_height(),
+            50, // PAL
+            2,  // stereo
+            48_000,
+            std::path::Path::new(save_path),
+            display,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Video recorder init: {e}"),
+                };
+            }
+        };
+
+        for _ in 0..frames {
+            spec.run_frame();
+            // Spectrum returns stereo as Vec<[f32; 2]> — flatten to interleaved.
+            let stereo = spec.take_audio_buffer();
+            let interleaved: Vec<f32> = stereo.iter().flat_map(|s| [s[0], s[1]]).collect();
+            if let Err(e) = rec.add_frame(spec.framebuffer(), &interleaved) {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Video recording failed: {e}"),
+                };
+            }
+        }
+
+        match rec.finish() {
+            Ok(info) => mcp::video_result(save_path, info.frames, info.fps),
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: format!("Video finish failed: {e}"),
+            },
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Read `correct_aspect` (default true) and compute display size.
+fn parse_display_size(params: &JsonValue, w: u32, h: u32) -> Option<(u32, u32)> {
+    let correct = params
+        .get("correct_aspect")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    if correct {
+        Some(mcp::display_size_4_3(w, h))
+    } else {
+        None
+    }
+}
 
 /// Load binary data from a `data` (base64) or `path` parameter.
 fn load_binary_param(params: &JsonValue) -> Result<Vec<u8>, ToolResult> {
@@ -1107,8 +1201,9 @@ mod tests {
         match result {
             ToolResult::Success(val) => {
                 assert_eq!(val["format"], "png");
-                assert_eq!(val["width"], 320);
-                assert_eq!(val["height"], 288);
+                // 320×288 native → 768×576 with 2× pre-scale + 4:3 correction
+                assert_eq!(val["width"], 768);
+                assert_eq!(val["height"], 576);
                 assert!(val["data"].as_str().unwrap().len() > 100);
             }
             ToolResult::Error { message, .. } => panic!("Expected success, got error: {message}"),

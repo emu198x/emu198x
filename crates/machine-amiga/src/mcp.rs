@@ -119,7 +119,8 @@ impl McpEmulator for AmigaMcp {
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" }
+                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" },
+                        "correct_aspect": { "type": "boolean", "description": "Scale to 4:3 display aspect ratio (default: true)" }
                     }
                 }),
             },
@@ -214,6 +215,19 @@ impl McpEmulator for AmigaMcp {
                     "required": ["key"]
                 }),
             },
+            ToolDefinition {
+                name: "record_video",
+                description: "Record N frames as MP4 video with audio",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "frames": { "type": "integer", "description": "Number of frames to record" },
+                        "save_path": { "type": "string", "description": "Write MP4 to this path" },
+                        "correct_aspect": { "type": "boolean", "description": "Scale to 4:3 display aspect ratio (default: true)" }
+                    },
+                    "required": ["frames", "save_path"]
+                }),
+            },
         ]
     }
 
@@ -233,6 +247,7 @@ impl McpEmulator for AmigaMcp {
             "insert_disk" => self.handle_insert_disk(arguments),
             "press_key" => self.handle_press_key(arguments),
             "release_key" => self.handle_release_key(arguments),
+            "record_video" => self.handle_record_video(arguments),
             _ => ToolResult::Error {
                 code: -32601,
                 message: format!("Unknown tool: {name}"),
@@ -398,7 +413,8 @@ impl AmigaMcp {
         );
 
         let save_path = params.get("save_path").and_then(|v| v.as_str());
-        mcp::screenshot_result(viewport.width, viewport.height, &viewport.pixels, save_path)
+        let display = parse_display_size(params, viewport.width, viewport.height);
+        mcp::screenshot_result(viewport.width, viewport.height, &viewport.pixels, save_path, display)
     }
 
     fn handle_audio_capture(&mut self, params: &JsonValue) -> ToolResult {
@@ -698,11 +714,101 @@ impl AmigaMcp {
             },
         }
     }
+
+    fn handle_record_video(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+
+        let frames = match params.get("frames").and_then(|v| v.as_u64()) {
+            Some(f) if f > 0 => f,
+            _ => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'frames' (positive integer)".to_string(),
+                };
+            }
+        };
+
+        let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'save_path' parameter".to_string(),
+            };
+        };
+
+        let pal = matches!(amiga.region, AmigaRegion::Pal);
+        let fps = if pal { 50 } else { 60 };
+
+        // Get initial viewport dimensions for recorder setup.
+        let viewport = amiga.denise.as_inner().extract_viewport(
+            crate::commodore_denise_ocs::ViewportPreset::Standard,
+            pal,
+            true,
+        );
+
+        let display = parse_display_size(params, viewport.width, viewport.height);
+        let mut rec = match emu_core::video::VideoRecorder::new(
+            viewport.width,
+            viewport.height,
+            fps,
+            2, // stereo
+            crate::AUDIO_SAMPLE_RATE,
+            std::path::Path::new(save_path),
+            display,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Video recorder init: {e}"),
+                };
+            }
+        };
+
+        for _ in 0..frames {
+            amiga.run_frame();
+            let viewport = amiga.denise.as_inner().extract_viewport(
+                crate::commodore_denise_ocs::ViewportPreset::Standard,
+                pal,
+                true,
+            );
+            let audio = amiga.take_audio_buffer();
+            if let Err(e) = rec.add_frame(&viewport.pixels, &audio) {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Video recording failed: {e}"),
+                };
+            }
+        }
+
+        match rec.finish() {
+            Ok(info) => mcp::video_result(save_path, info.frames, info.fps),
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: format!("Video finish failed: {e}"),
+            },
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Read `correct_aspect` (default true) and compute display size.
+fn parse_display_size(params: &JsonValue, w: u32, h: u32) -> Option<(u32, u32)> {
+    let correct = params
+        .get("correct_aspect")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    if correct {
+        Some(mcp::display_size_4_3(w, h))
+    } else {
+        None
+    }
+}
 
 /// Load binary data from a `data` (base64) or `path` parameter.
 fn load_binary_param(params: &JsonValue) -> Result<Vec<u8>, ToolResult> {

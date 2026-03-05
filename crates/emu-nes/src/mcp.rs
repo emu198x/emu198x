@@ -150,7 +150,8 @@ impl McpEmulator for NesMcp {
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" }
+                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" },
+                        "correct_aspect": { "type": "boolean", "description": "Scale to 4:3 display aspect ratio (default: true)" }
                     }
                 }),
             },
@@ -285,6 +286,19 @@ impl McpEmulator for NesMcp {
                     }
                 }),
             },
+            ToolDefinition {
+                name: "record_video",
+                description: "Record N frames as MP4 video with audio",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "frames": { "type": "integer", "description": "Number of frames to record" },
+                        "save_path": { "type": "string", "description": "Write MP4 to this path" },
+                        "correct_aspect": { "type": "boolean", "description": "Scale to 4:3 display aspect ratio (default: true)" }
+                    },
+                    "required": ["frames", "save_path"]
+                }),
+            },
         ]
     }
 
@@ -309,6 +323,7 @@ impl McpEmulator for NesMcp {
             "zapper_trigger" => self.handle_zapper_trigger(arguments),
             "save_battery" => self.handle_save_battery(),
             "load_battery" => self.handle_load_battery(arguments),
+            "record_video" => self.handle_record_video(arguments),
             _ => ToolResult::Error {
                 code: -32601,
                 message: format!("Unknown tool: {name}"),
@@ -482,11 +497,13 @@ impl NesMcp {
         };
 
         let save_path = params.get("save_path").and_then(|v| v.as_str());
+        let display = parse_display_size(params, nes.framebuffer_width(), nes.framebuffer_height());
         mcp::screenshot_result(
             nes.framebuffer_width(),
             nes.framebuffer_height(),
             nes.framebuffer(),
             save_path,
+            display,
         )
     }
 
@@ -825,11 +842,91 @@ impl NesMcp {
             },
         }
     }
+
+    fn handle_record_video(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
+            Err(e) => return e,
+        };
+
+        let frames = match params.get("frames").and_then(|v| v.as_u64()) {
+            Some(f) if f > 0 => f,
+            _ => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'frames' (positive integer)".to_string(),
+                };
+            }
+        };
+
+        let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'save_path' parameter".to_string(),
+            };
+        };
+
+        let fps = match nes.region() {
+            NesRegion::Ntsc => 60,
+            NesRegion::Pal => 50,
+        };
+
+        let display = parse_display_size(params, nes.framebuffer_width(), nes.framebuffer_height());
+        let mut rec = match emu_core::video::VideoRecorder::new(
+            nes.framebuffer_width(),
+            nes.framebuffer_height(),
+            fps,
+            1, // mono
+            48_000,
+            std::path::Path::new(save_path),
+            display,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Video recorder init: {e}"),
+                };
+            }
+        };
+
+        for _ in 0..frames {
+            nes.run_frame();
+            let audio = nes.take_audio_buffer();
+            if let Err(e) = rec.add_frame(nes.framebuffer(), &audio) {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Video recording failed: {e}"),
+                };
+            }
+        }
+
+        match rec.finish() {
+            Ok(info) => mcp::video_result(save_path, info.frames, info.fps),
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: format!("Video finish failed: {e}"),
+            },
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Read `correct_aspect` (default true) and compute display size.
+fn parse_display_size(params: &JsonValue, w: u32, h: u32) -> Option<(u32, u32)> {
+    let correct = params
+        .get("correct_aspect")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    if correct {
+        Some(mcp::display_size_4_3(w, h))
+    } else {
+        None
+    }
+}
 
 /// Load binary data from a `data` (base64) or `path` parameter.
 fn load_binary_param(params: &JsonValue) -> Result<Vec<u8>, ToolResult> {

@@ -14,7 +14,7 @@ name = "emu_spectrum"
 path = "src/lib.rs"
 
 [dependencies]
-emu-core = { path = "../emu-core", features = ["mcp"] }
+emu-core = { path = "../emu-core", features = ["mcp", "video"] }
 zilog-z80 = { path = "../zilog-z80" }
 sinclair-ula = { path = "../sinclair-ula" }
 gi-ay-3-8910 = { path = "../gi-ay-3-8910" }

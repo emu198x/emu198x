@@ -14,7 +14,7 @@ name = "emu_c64"
 path = "src/lib.rs"
 
 [dependencies]
-emu-core = { path = "../emu-core", features = ["mcp"] }
+emu-core = { path = "../emu-core", features = ["mcp", "video"] }
 mos-6502 = { path = "../mos-6502" }
 mos-sid-6581 = { path = "../mos-sid-6581" }
 mos-via-6522 = { path = "../mos-via-6522" }

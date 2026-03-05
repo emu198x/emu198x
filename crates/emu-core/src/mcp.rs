@@ -317,6 +317,65 @@ pub fn observable_to_json(value: &Value) -> JsonValue {
     }
 }
 
+/// Calculate display dimensions for a 4:3 aspect ratio with 2× pre-scale.
+///
+/// Scales both axes by 2× first, then applies the fractional aspect
+/// correction. This spreads nearest-neighbour rounding across twice as
+/// many source pixels, avoiding the ugly column/row doubling visible
+/// when correcting at native resolution.
+#[must_use]
+pub fn display_size_4_3(width: u32, height: u32) -> (u32, u32) {
+    let sw = width * 2;
+    let sh = height * 2;
+    let target_w = (sh * 4 + 2) / 3;
+    if sw <= target_w {
+        (round_even(target_w), round_even(sh))
+    } else {
+        let target_h = (sw * 3 + 2) / 4;
+        (round_even(sw), round_even(target_h))
+    }
+}
+
+/// Round to the nearest even number (required by H.264 / PNG alignment).
+fn round_even(v: u32) -> u32 {
+    (v + 1) & !1
+}
+
+/// Nearest-neighbour scale a `u32` pixel buffer (allocating).
+#[must_use]
+pub fn scale_nearest(
+    src: &[u32],
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+) -> Vec<u32> {
+    if src_w == dst_w && src_h == dst_h {
+        return src.to_vec();
+    }
+    let mut dst = vec![0u32; (dst_w * dst_h) as usize];
+    scale_nearest_into(src, src_w, src_h, &mut dst, dst_w, dst_h);
+    dst
+}
+
+/// Nearest-neighbour scale into an existing buffer (no allocation).
+pub fn scale_nearest_into(
+    src: &[u32],
+    src_w: u32,
+    src_h: u32,
+    dst: &mut [u32],
+    dst_w: u32,
+    dst_h: u32,
+) {
+    for y in 0..dst_h {
+        let src_y = (y * src_h / dst_h).min(src_h - 1);
+        for x in 0..dst_w {
+            let src_x = (x * src_w / dst_w).min(src_w - 1);
+            dst[(y * dst_w + x) as usize] = src[(src_y * src_w + src_x) as usize];
+        }
+    }
+}
+
 /// Encode a framebuffer as PNG. Returns raw PNG bytes.
 ///
 /// `pixels` should be packed 0x00RRGGBB (or 0xAARRGGBB — alpha is ignored).
@@ -344,18 +403,58 @@ pub fn encode_png(width: u32, height: u32, pixels: &[u32]) -> Result<Vec<u8>, St
     Ok(buf)
 }
 
+/// Video recording result helper.
+///
+/// Returns metadata about the recorded MP4 file (path, duration, frame count).
+#[cfg(feature = "video")]
+#[must_use]
+pub fn video_result(save_path: &str, frames: u64, fps: u32) -> ToolResult {
+    let size = std::fs::metadata(save_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let duration = frames as f64 / f64::from(fps);
+
+    ToolResult::Success(serde_json::json!({
+        "format": "mp4",
+        "codec_video": "h264",
+        "codec_audio": "aac",
+        "frames": frames,
+        "fps": fps,
+        "duration": duration,
+        "path": save_path,
+        "size": size,
+    }))
+}
+
 /// Screenshot helper: encode framebuffer and either save to disk or return base64.
 ///
 /// If `save_path` is `Some`, writes PNG to that path and returns metadata only.
 /// Otherwise returns base64-encoded PNG data in the response.
-#[must_use] 
+///
+/// When `display_size` is `Some`, the framebuffer is scaled with
+/// nearest-neighbour interpolation before encoding.
+#[must_use]
 pub fn screenshot_result(
     width: u32,
     height: u32,
     pixels: &[u32],
     save_path: Option<&str>,
+    display_size: Option<(u32, u32)>,
 ) -> ToolResult {
-    let png_bytes = match encode_png(width, height, pixels) {
+    let (enc_w, enc_h, enc_pixels);
+    if let Some((dw, dh)) = display_size
+        && (dw != width || dh != height)
+    {
+        enc_pixels = scale_nearest(pixels, width, height, dw, dh);
+        enc_w = dw;
+        enc_h = dh;
+    } else {
+        enc_pixels = pixels.to_vec();
+        enc_w = width;
+        enc_h = height;
+    }
+
+    let png_bytes = match encode_png(enc_w, enc_h, &enc_pixels) {
         Ok(b) => b,
         Err(e) => {
             return ToolResult::Error {
@@ -374,8 +473,8 @@ pub fn screenshot_result(
         }
         ToolResult::Success(serde_json::json!({
             "format": "png",
-            "width": width,
-            "height": height,
+            "width": enc_w,
+            "height": enc_h,
             "path": path,
             "size": png_bytes.len(),
         }))
@@ -384,8 +483,8 @@ pub fn screenshot_result(
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
         ToolResult::Success(serde_json::json!({
             "format": "png",
-            "width": width,
-            "height": height,
+            "width": enc_w,
+            "height": enc_h,
             "data": b64,
         }))
     }

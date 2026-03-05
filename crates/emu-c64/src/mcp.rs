@@ -108,7 +108,8 @@ impl McpEmulator for C64Mcp {
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" }
+                        "save_path": { "type": "string", "description": "If set, save PNG to this path and return metadata only" },
+                        "correct_aspect": { "type": "boolean", "description": "Scale to 4:3 display aspect ratio (default: true)" }
                     }
                 }),
             },
@@ -245,6 +246,19 @@ impl McpEmulator for C64Mcp {
                     }
                 }),
             },
+            ToolDefinition {
+                name: "record_video",
+                description: "Record N frames as MP4 video with audio",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "frames": { "type": "integer", "description": "Number of frames to record" },
+                        "save_path": { "type": "string", "description": "Write MP4 to this path" },
+                        "correct_aspect": { "type": "boolean", "description": "Scale to 4:3 display aspect ratio (default: true)" }
+                    },
+                    "required": ["frames", "save_path"]
+                }),
+            },
         ]
     }
 
@@ -269,6 +283,7 @@ impl McpEmulator for C64Mcp {
             "get_screen_text" => self.handle_get_screen_text(),
             "query_memory" => self.handle_query_memory(arguments),
             "load_d64" => self.handle_load_d64(arguments),
+            "record_video" => self.handle_record_video(arguments),
             _ => ToolResult::Error {
                 code: -32601,
                 message: format!("Unknown tool: {name}"),
@@ -407,11 +422,13 @@ impl C64Mcp {
         };
 
         let save_path = params.get("save_path").and_then(|v| v.as_str());
+        let display = parse_display_size(params, c64.framebuffer_width(), c64.framebuffer_height());
         mcp::screenshot_result(
             c64.framebuffer_width(),
             c64.framebuffer_height(),
             c64.framebuffer(),
             save_path,
+            display,
         )
     }
 
@@ -759,11 +776,86 @@ impl C64Mcp {
             },
         }
     }
+
+    fn handle_record_video(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+
+        let frames = match params.get("frames").and_then(serde_json::Value::as_u64) {
+            Some(f) if f > 0 => f,
+            _ => {
+                return ToolResult::Error {
+                    code: -32602,
+                    message: "Missing or invalid 'frames' (positive integer)".to_string(),
+                };
+            }
+        };
+
+        let Some(save_path) = params.get("save_path").and_then(|v| v.as_str()) else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Missing 'save_path' parameter".to_string(),
+            };
+        };
+
+        let display = parse_display_size(params, c64.framebuffer_width(), c64.framebuffer_height());
+        let mut rec = match emu_core::video::VideoRecorder::new(
+            c64.framebuffer_width(),
+            c64.framebuffer_height(),
+            50, // PAL
+            1,  // mono
+            48_000,
+            std::path::Path::new(save_path),
+            display,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Video recorder init: {e}"),
+                };
+            }
+        };
+
+        for _ in 0..frames {
+            c64.run_frame();
+            let audio = c64.take_audio_buffer();
+            if let Err(e) = rec.add_frame(c64.framebuffer(), &audio) {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Video recording failed: {e}"),
+                };
+            }
+        }
+
+        match rec.finish() {
+            Ok(info) => mcp::video_result(save_path, info.frames, info.fps),
+            Err(e) => ToolResult::Error {
+                code: -32000,
+                message: format!("Video finish failed: {e}"),
+            },
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Read `correct_aspect` (default true) and compute display size.
+fn parse_display_size(params: &JsonValue, w: u32, h: u32) -> Option<(u32, u32)> {
+    let correct = params
+        .get("correct_aspect")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    if correct {
+        Some(mcp::display_size_4_3(w, h))
+    } else {
+        None
+    }
+}
 
 /// Load binary data from a `data` (base64) or `path` parameter.
 fn load_binary_param(params: &JsonValue) -> Result<Vec<u8>, ToolResult> {
