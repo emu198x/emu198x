@@ -8,15 +8,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-/// Nametable mirroring mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mirroring {
-    Horizontal,
-    Vertical,
-    FourScreen,
-    SingleScreenLower,
-    SingleScreenUpper,
-}
+pub use ricoh_ppu_2c02::Mirroring;
 
 /// Parsed iNES file header.
 #[derive(Debug)]

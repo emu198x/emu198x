@@ -1,4 +1,4 @@
-//! NES APU (Audio Processing Unit).
+//! Ricoh 2A03 APU (Audio Processing Unit).
 //!
 //! The APU lives on the 2A03 CPU die. It produces audio via two pulse
 //! channels, one triangle channel, one noise channel, and a DMC (delta
@@ -17,6 +17,31 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::cast_sign_loss)]
+
+// ---------------------------------------------------------------------------
+// Region
+// ---------------------------------------------------------------------------
+
+/// APU region — selects NTSC or PAL timing tables.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ApuRegion {
+    /// NTSC: 1,789,773 Hz CPU clock.
+    #[default]
+    Ntsc,
+    /// PAL: 1,662,607 Hz CPU clock.
+    Pal,
+}
+
+impl ApuRegion {
+    /// CPU frequency in Hz for this region.
+    #[must_use]
+    pub const fn cpu_hz(self) -> u32 {
+        match self {
+            Self::Ntsc => 1_789_773,
+            Self::Pal => 1_662_607,
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Lookup tables
@@ -442,13 +467,13 @@ impl Noise {
 /// the output shift register; when the shift register is exhausted, the
 /// sample buffer is loaded. When the sample buffer is empty and bytes
 /// remain, `dma_pending` signals the tick loop to steal a CPU cycle.
-pub(crate) struct Dmc {
+pub struct Dmc {
     /// 7-bit output level (0–127), written directly by $4011.
-    pub(crate) output_level: u8,
+    pub output_level: u8,
     /// IRQ enable flag (bit 7 of $4010).
     irq_enabled: bool,
     /// IRQ pending flag, read via bit 7 of $4015.
-    pub(crate) irq_flag: bool,
+    pub irq_flag: bool,
     /// Loop flag (bit 6 of $4010).
     loop_flag: bool,
     /// Rate index (bits 0–3 of $4010).
@@ -456,29 +481,29 @@ pub(crate) struct Dmc {
     /// Countdown timer, clocked every CPU cycle.
     timer: u16,
     /// Timer reload value from `DMC_RATE_TABLE[rate_index]`.
-    timer_period: u16,
+    pub timer_period: u16,
     /// Starting sample address (from $4012).
-    sample_address: u16,
+    pub sample_address: u16,
     /// Total sample length in bytes (from $4013).
-    sample_length: u16,
+    pub sample_length: u16,
     /// Current DMA fetch address.
-    pub(crate) current_address: u16,
+    pub current_address: u16,
     /// Bytes remaining to fetch.
-    pub(crate) bytes_remaining: u16,
+    pub bytes_remaining: u16,
     /// Last byte fetched from memory.
     sample_buffer: u8,
     /// True when the sample buffer has been consumed.
     sample_buffer_empty: bool,
     /// 8-bit output shift register.
-    shift_register: u8,
+    pub shift_register: u8,
     /// Bits remaining in the shift register (counts down from 8).
-    bits_remaining: u8,
+    pub bits_remaining: u8,
     /// True when no sample data is available for output.
-    silence_flag: bool,
+    pub silence_flag: bool,
     /// Controlled by bit 4 of $4015.
     enabled: bool,
     /// Signals the tick loop to steal a CPU cycle for a DMA fetch.
-    pub(crate) dma_pending: bool,
+    pub dma_pending: bool,
 }
 
 impl Dmc {
@@ -548,7 +573,7 @@ impl Dmc {
     }
 
     /// Deliver a byte fetched by the DMA controller.
-    pub(crate) fn receive_dma_byte(&mut self, byte: u8) {
+    pub fn receive_dma_byte(&mut self, byte: u8) {
         self.sample_buffer = byte;
         self.sample_buffer_empty = false;
         self.dma_pending = false;
@@ -599,13 +624,14 @@ const FIVE_STEP_SEQUENCE_PAL: [u16; 5] = [8313, 16627, 24939, 33253, 41565];
 // APU
 // ---------------------------------------------------------------------------
 
-/// NES APU.
+/// Ricoh 2A03 APU.
 pub struct Apu {
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
-    pub(crate) dmc: Dmc,
+    /// DMC channel. Public for DMA coordination with the system bus.
+    pub dmc: Dmc,
 
     // Frame counter
     frame_mode: FrameCounterMode,
@@ -641,23 +667,24 @@ impl Apu {
     /// Output sample rate.
     const SAMPLE_RATE: u32 = 48_000;
 
+    /// Create an APU with NTSC timing (default).
     #[must_use]
     pub fn new() -> Self {
-        Self::new_with_cpu_freq(crate::config::NesRegion::Ntsc)
+        Self::new_with_region(ApuRegion::Ntsc)
     }
 
     /// Create an APU with region-specific timing tables.
     #[must_use]
-    pub fn new_with_cpu_freq(region: crate::config::NesRegion) -> Self {
+    pub fn new_with_region(region: ApuRegion) -> Self {
         let cpu_freq = region.cpu_hz();
         let (noise_table, dmc_table, four_step, five_step) = match region {
-            crate::config::NesRegion::Ntsc => (
+            ApuRegion::Ntsc => (
                 &NOISE_PERIOD_TABLE_NTSC,
                 &DMC_RATE_TABLE_NTSC,
                 &FOUR_STEP_SEQUENCE_NTSC,
                 &FIVE_STEP_SEQUENCE_NTSC,
             ),
-            crate::config::NesRegion::Pal => (
+            ApuRegion::Pal => (
                 &NOISE_PERIOD_TABLE_PAL,
                 &DMC_RATE_TABLE_PAL,
                 &FOUR_STEP_SEQUENCE_PAL,
@@ -1052,35 +1079,99 @@ impl Apu {
     }
 
     // -----------------------------------------------------------------------
-    // Observable state
+    // Observable state (raw getters — system layer wraps in Value)
     // -----------------------------------------------------------------------
 
-    /// Query APU state by path.
+    /// Pulse 1 timer period (11-bit).
     #[must_use]
-    pub fn query(&self, path: &str) -> Option<emu_core::Value> {
-        match path {
-            "pulse1.period" => Some(self.pulse1.timer_period.into()),
-            "pulse1.length" => Some(self.pulse1.length.counter.into()),
-            "pulse1.envelope" => Some(self.pulse1.envelope.output().into()),
-            "pulse1.duty" => Some(self.pulse1.duty.into()),
-            "pulse2.period" => Some(self.pulse2.timer_period.into()),
-            "pulse2.length" => Some(self.pulse2.length.counter.into()),
-            "pulse2.envelope" => Some(self.pulse2.envelope.output().into()),
-            "pulse2.duty" => Some(self.pulse2.duty.into()),
-            "triangle.period" => Some(self.triangle.timer_period.into()),
-            "triangle.length" => Some(self.triangle.length.counter.into()),
-            "triangle.linear" => Some(self.triangle.linear_counter.into()),
-            "noise.period" => Some(self.noise.timer_period.into()),
-            "noise.length" => Some(self.noise.length.counter.into()),
-            "noise.envelope" => Some(self.noise.envelope.output().into()),
-            "frame_counter.mode" => {
-                let mode: u8 = match self.frame_mode {
-                    FrameCounterMode::FourStep => 0,
-                    FrameCounterMode::FiveStep => 1,
-                };
-                Some(mode.into())
-            }
-            _ => None,
+    pub fn pulse1_period(&self) -> u16 {
+        self.pulse1.timer_period
+    }
+
+    /// Pulse 1 length counter.
+    #[must_use]
+    pub fn pulse1_length(&self) -> u8 {
+        self.pulse1.length.counter
+    }
+
+    /// Pulse 1 envelope output (0–15).
+    #[must_use]
+    pub fn pulse1_envelope(&self) -> u8 {
+        self.pulse1.envelope.output()
+    }
+
+    /// Pulse 1 duty cycle (0–3).
+    #[must_use]
+    pub fn pulse1_duty(&self) -> u8 {
+        self.pulse1.duty
+    }
+
+    /// Pulse 2 timer period (11-bit).
+    #[must_use]
+    pub fn pulse2_period(&self) -> u16 {
+        self.pulse2.timer_period
+    }
+
+    /// Pulse 2 length counter.
+    #[must_use]
+    pub fn pulse2_length(&self) -> u8 {
+        self.pulse2.length.counter
+    }
+
+    /// Pulse 2 envelope output (0–15).
+    #[must_use]
+    pub fn pulse2_envelope(&self) -> u8 {
+        self.pulse2.envelope.output()
+    }
+
+    /// Pulse 2 duty cycle (0–3).
+    #[must_use]
+    pub fn pulse2_duty(&self) -> u8 {
+        self.pulse2.duty
+    }
+
+    /// Triangle timer period (11-bit).
+    #[must_use]
+    pub fn triangle_period(&self) -> u16 {
+        self.triangle.timer_period
+    }
+
+    /// Triangle length counter.
+    #[must_use]
+    pub fn triangle_length(&self) -> u8 {
+        self.triangle.length.counter
+    }
+
+    /// Triangle linear counter.
+    #[must_use]
+    pub fn triangle_linear(&self) -> u8 {
+        self.triangle.linear_counter
+    }
+
+    /// Noise timer period.
+    #[must_use]
+    pub fn noise_period(&self) -> u16 {
+        self.noise.timer_period
+    }
+
+    /// Noise length counter.
+    #[must_use]
+    pub fn noise_length(&self) -> u8 {
+        self.noise.length.counter
+    }
+
+    /// Noise envelope output (0–15).
+    #[must_use]
+    pub fn noise_envelope(&self) -> u8 {
+        self.noise.envelope.output()
+    }
+
+    /// Frame counter mode (0 = four-step, 1 = five-step).
+    #[must_use]
+    pub fn frame_counter_mode(&self) -> u8 {
+        match self.frame_mode {
+            FrameCounterMode::FourStep => 0,
+            FrameCounterMode::FiveStep => 1,
         }
     }
 }

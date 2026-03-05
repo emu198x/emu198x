@@ -1,4 +1,4 @@
-//! NES PPU (2C02) emulation.
+//! Ricoh 2C02 PPU (Picture Processing Unit).
 //!
 //! Dot-based rendering. One `tick()` = one PPU dot. The PPU runs at
 //! 5,369,318 Hz (21,477,272 / 4). Each frame is 341 dots x 262 scanlines.
@@ -20,8 +20,19 @@
     clippy::manual_range_contains
 )]
 
-use crate::cartridge::{Mapper, Mirroring};
-use crate::palette::PALETTE;
+pub mod palette;
+
+use palette::PALETTE;
+
+/// Nametable mirroring mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mirroring {
+    Horizontal,
+    Vertical,
+    FourScreen,
+    SingleScreenLower,
+    SingleScreenUpper,
+}
 
 /// Framebuffer dimensions.
 pub const FB_WIDTH: u32 = 256;
@@ -143,14 +154,18 @@ impl Ppu {
     }
 
     /// One PPU dot.
-    pub fn tick(&mut self, mapper: &mut dyn Mapper) {
+    pub fn tick(
+        &mut self,
+        chr_read: &mut dyn FnMut(u16) -> u8,
+        mirroring: Mirroring,
+    ) {
         // Pre-render line (261)
         if self.scanline == self.pre_render_line {
-            self.tick_prerender(mapper);
+            self.tick_prerender(chr_read, mirroring);
         }
         // Visible scanlines (0-239)
         else if self.scanline <= 239 {
-            self.tick_visible(mapper);
+            self.tick_visible(chr_read, mirroring);
         }
         // Post-render (240): idle
         // VBlank start (241)
@@ -172,7 +187,11 @@ impl Ppu {
         }
     }
 
-    fn tick_prerender(&mut self, mapper: &mut dyn Mapper) {
+    fn tick_prerender(
+        &mut self,
+        chr_read: &mut dyn FnMut(u16) -> u8,
+        mirroring: Mirroring,
+    ) {
         if self.dot == 1 {
             // Clear VBlank, sprite 0 hit, sprite overflow
             self.status &= 0x1F;
@@ -185,7 +204,7 @@ impl Ppu {
         if self.rendering_enabled() {
             // Background fetches (same timing as visible lines)
             if (self.dot >= 1 && self.dot <= 256) || (self.dot >= 321 && self.dot <= 336) {
-                self.bg_fetch_cycle(mapper);
+                self.bg_fetch_cycle(chr_read, mirroring);
                 self.shift_registers();
             }
 
@@ -208,25 +227,29 @@ impl Ppu {
         }
     }
 
-    fn tick_visible(&mut self, mapper: &mut dyn Mapper) {
+    fn tick_visible(
+        &mut self,
+        chr_read: &mut dyn FnMut(u16) -> u8,
+        mirroring: Mirroring,
+    ) {
         if self.rendering_enabled() {
             // Pixel output (dots 1-256)
             if self.dot >= 1 && self.dot <= 256 {
-                self.render_pixel(mapper);
-                self.bg_fetch_cycle(mapper);
+                self.render_pixel();
+                self.bg_fetch_cycle(chr_read, mirroring);
                 self.shift_registers();
             }
 
             // Sprite evaluation at dot 257
             if self.dot == 257 {
-                self.evaluate_sprites(mapper);
+                self.evaluate_sprites(chr_read);
             }
 
             // Sprite tile fetches (dots 257-320) — handled in evaluate_sprites
 
             // Prefetch next scanline tiles (dots 321-336)
             if self.dot >= 321 && self.dot <= 336 {
-                self.bg_fetch_cycle(mapper);
+                self.bg_fetch_cycle(chr_read, mirroring);
                 self.shift_registers();
             }
 
@@ -247,7 +270,11 @@ impl Ppu {
         }
     }
 
-    fn bg_fetch_cycle(&mut self, mapper: &mut dyn Mapper) {
+    fn bg_fetch_cycle(
+        &mut self,
+        chr_read: &mut dyn FnMut(u16) -> u8,
+        mirroring: Mirroring,
+    ) {
         let cycle = if self.dot >= 321 {
             self.dot - 321
         } else {
@@ -263,13 +290,13 @@ impl Ppu {
                 }
                 // Fetch nametable byte
                 let nt_addr = 0x2000 | (self.v & 0x0FFF);
-                self.bg_next_tile_id = self.ppu_read(nt_addr, mapper);
+                self.bg_next_tile_id = self.ppu_read(nt_addr, chr_read, mirroring);
             }
             2 => {
                 // Fetch attribute byte
                 let attr_addr =
                     0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07);
-                let attr_byte = self.ppu_read(attr_addr, mapper);
+                let attr_byte = self.ppu_read(attr_addr, chr_read, mirroring);
                 // Select the 2-bit palette for this quadrant
                 let shift = ((self.v >> 4) & 0x04) | (self.v & 0x02);
                 self.bg_next_tile_attrib = (attr_byte >> shift) & 0x03;
@@ -279,14 +306,14 @@ impl Ppu {
                 let bg_table = if self.ctrl & 0x10 != 0 { 0x1000u16 } else { 0 };
                 let fine_y = (self.v >> 12) & 0x07;
                 let addr = bg_table + u16::from(self.bg_next_tile_id) * 16 + fine_y;
-                self.bg_next_tile_lo = self.ppu_read(addr, mapper);
+                self.bg_next_tile_lo = self.ppu_read(addr, chr_read, mirroring);
             }
             6 => {
                 // Fetch pattern table high byte
                 let bg_table = if self.ctrl & 0x10 != 0 { 0x1000u16 } else { 0 };
                 let fine_y = (self.v >> 12) & 0x07;
                 let addr = bg_table + u16::from(self.bg_next_tile_id) * 16 + fine_y + 8;
-                self.bg_next_tile_hi = self.ppu_read(addr, mapper);
+                self.bg_next_tile_hi = self.ppu_read(addr, chr_read, mirroring);
             }
             7 => {
                 // Increment coarse X
@@ -323,7 +350,7 @@ impl Ppu {
         self.bg_shift_attrib_hi <<= 1;
     }
 
-    fn render_pixel(&mut self, _mapper: &mut dyn Mapper) {
+    fn render_pixel(&mut self) {
         let x = (self.dot - 1) as usize;
         let y = self.scanline as usize;
 
@@ -419,7 +446,10 @@ impl Ppu {
         (0, 0, false, false)
     }
 
-    fn evaluate_sprites(&mut self, mapper: &mut dyn Mapper) {
+    fn evaluate_sprites(
+        &mut self,
+        chr_read: &mut dyn FnMut(u16) -> u8,
+    ) {
         let sprite_height: u16 = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
         let next_scanline = self.scanline;
 
@@ -500,8 +530,8 @@ impl Ppu {
                 };
 
                 let addr = table + u16::from(tile) * 16 + sprite_row;
-                let mut lo = self.ppu_read(addr, mapper);
-                let mut hi = self.ppu_read(addr + 8, mapper);
+                let mut lo = chr_read(addr);
+                let mut hi = chr_read(addr + 8);
 
                 // Horizontal flip
                 if attribs & 0x40 != 0 {
@@ -574,7 +604,12 @@ impl Ppu {
     // === Register access (CPU side) ===
 
     /// CPU read from PPU register ($2000-$2007 mirrored).
-    pub fn cpu_read(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
+    pub fn cpu_read(
+        &mut self,
+        reg: u16,
+        chr_read: &mut dyn FnMut(u16) -> u8,
+        mirroring: Mirroring,
+    ) -> u8 {
         let result = match reg & 0x07 {
             // $2002 - PPUSTATUS: top 3 bits from status, low 5 from open bus
             2 => {
@@ -591,12 +626,12 @@ impl Ppu {
             7 => {
                 let addr = self.v & 0x3FFF;
                 let mut result = self.read_buffer;
-                self.read_buffer = self.ppu_read(addr, mapper);
+                self.read_buffer = self.ppu_read(addr, chr_read, mirroring);
                 // Palette reads are not buffered
                 if addr >= 0x3F00 {
                     result = self.palette_ram[self.mirror_palette_addr(addr) as usize];
                     // Buffer gets the nametable byte "underneath"
-                    self.read_buffer = self.ppu_read(addr & 0x2FFF, mapper);
+                    self.read_buffer = self.ppu_read(addr & 0x2FFF, chr_read, mirroring);
                 }
                 // Increment v
                 self.v = self
@@ -613,7 +648,13 @@ impl Ppu {
     }
 
     /// CPU write to PPU register ($2000-$2007 mirrored).
-    pub fn cpu_write(&mut self, reg: u16, val: u8, mapper: &mut dyn Mapper) {
+    pub fn cpu_write(
+        &mut self,
+        reg: u16,
+        val: u8,
+        chr_write: &mut dyn FnMut(u16, u8),
+        mirroring: Mirroring,
+    ) {
         self.open_bus = val;
         match reg & 0x07 {
             // $2000 - PPUCTRL
@@ -662,7 +703,7 @@ impl Ppu {
             // $2007 - PPUDATA
             7 => {
                 let addr = self.v & 0x3FFF;
-                self.ppu_write(addr, val, mapper);
+                self.ppu_write(addr, val, chr_write, mirroring);
                 self.v = self
                     .v
                     .wrapping_add(if self.ctrl & 0x04 != 0 { 32 } else { 1 });
@@ -674,12 +715,17 @@ impl Ppu {
 
     // === PPU memory access ===
 
-    fn ppu_read(&self, addr: u16, mapper: &mut dyn Mapper) -> u8 {
+    fn ppu_read(
+        &self,
+        addr: u16,
+        chr_read: &mut dyn FnMut(u16) -> u8,
+        mirroring: Mirroring,
+    ) -> u8 {
         let addr = addr & 0x3FFF;
         match addr {
-            0x0000..=0x1FFF => mapper.chr_read(addr),
+            0x0000..=0x1FFF => chr_read(addr),
             0x2000..=0x3EFF => {
-                let mirrored = self.mirror_nametable_addr(addr, mapper.mirroring());
+                let mirrored = self.mirror_nametable_addr(addr, mirroring);
                 self.nametable_ram[mirrored as usize]
             }
             0x3F00..=0x3FFF => {
@@ -690,12 +736,18 @@ impl Ppu {
         }
     }
 
-    fn ppu_write(&mut self, addr: u16, val: u8, mapper: &mut dyn Mapper) {
+    fn ppu_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        chr_write: &mut dyn FnMut(u16, u8),
+        mirroring: Mirroring,
+    ) {
         let addr = addr & 0x3FFF;
         match addr {
-            0x0000..=0x1FFF => mapper.chr_write(addr, val),
+            0x0000..=0x1FFF => chr_write(addr, val),
             0x2000..=0x3EFF => {
-                let mirrored = self.mirror_nametable_addr(addr, mapper.mirroring());
+                let mirrored = self.mirror_nametable_addr(addr, mirroring);
                 self.nametable_ram[mirrored as usize] = val;
             }
             0x3F00..=0x3FFF => {
@@ -904,18 +956,15 @@ mod tests {
         assert_eq!(a3, 0x0400);
     }
 
-    fn dummy_mapper() -> crate::cartridge::Nrom {
-        crate::cartridge::Nrom::new(vec![0u8; 32768], vec![0u8; 8192], Mirroring::Horizontal)
+    /// Dummy CHR read that returns 0 for all addresses (8K of zeros).
+    fn dummy_chr() -> impl FnMut(u16) -> u8 {
+        let chr = vec![0u8; 8192];
+        move |addr: u16| chr[(addr as usize) & 0x1FFF]
     }
 
     #[test]
     fn sprite_overflow_bug_skips_real_overflow() {
-        // The 2C02 bug: after 8 sprites, the byte offset `m` increments
-        // alongside `n` on each miss. The buggy loop starts at m=0 for the
-        // first sprite checked. If that sprite's Y is out of range, m
-        // becomes 1 — now the PPU reads tile bytes as Y. Real overflows
-        // get missed when the non-Y bytes are out of range.
-        let mut mapper = dummy_mapper();
+        let mut chr_read = dummy_chr();
         let mut ppu = Ppu::new();
         ppu.scanline = 50;
         ppu.ctrl = 0; // 8x8 sprites
@@ -927,40 +976,26 @@ mod tests {
         // 9th sprite (index 8): Y=50 (triggers overflow evaluation)
         ppu.oam[8 * 4] = 50;
 
-        // The buggy loop starts at n=9, m=0. After each miss, both n and m
-        // increment. m wraps every 4 entries, so the hardware reads the
-        // actual Y byte at n=9,13,17,... (m=0) and non-Y bytes elsewhere.
-        //
-        // Place out-of-range Y at m=0 positions (9,13,17,...) so those
-        // miss. Place in-range Y=50 at all other positions — these sprites
-        // are genuinely on the scanline but the bug reads their non-Y
-        // bytes (tile/attr/X = 200) instead of Y.
         for i in 9..64 {
             let m_at_i = (i - 9) & 3;
             if m_at_i == 0 {
-                // m=0: hardware reads actual Y byte
                 ppu.oam[i * 4] = 200; // out of range → miss
             } else {
-                // m!=0: hardware reads non-Y byte as "Y"
                 ppu.oam[i * 4] = 50; // genuinely in range (but never read)
             }
-            ppu.oam[i * 4 + 1] = 200; // tile
-            ppu.oam[i * 4 + 2] = 200; // attr
-            ppu.oam[i * 4 + 3] = 200; // X
+            ppu.oam[i * 4 + 1] = 200;
+            ppu.oam[i * 4 + 2] = 200;
+            ppu.oam[i * 4 + 3] = 200;
         }
 
-        ppu.evaluate_sprites(&mut mapper);
+        ppu.evaluate_sprites(&mut chr_read);
         assert_eq!(ppu.sprite_count, 8);
-        // Overflow flag NOT set: real sprites at Y=50 are missed because
-        // the buggy m offset reads 200 instead of 50.
         assert_eq!(ppu.status & 0x20, 0, "overflow flag set despite bug");
     }
 
     #[test]
     fn sprite_overflow_bug_false_positive() {
-        // When the buggy m offset happens to read a byte that looks like
-        // a Y in range, the PPU sets the overflow flag — a false positive.
-        let mut mapper = dummy_mapper();
+        let mut chr_read = dummy_chr();
         let mut ppu = Ppu::new();
         ppu.scanline = 50;
         ppu.ctrl = 0; // 8x8 sprites
@@ -978,14 +1013,12 @@ mod tests {
         ppu.oam[9 * 4 + 2] = 200;
         ppu.oam[9 * 4 + 3] = 200;
 
-        // Sprite 10: Y=200 (not in range at m=0, but m=1 here).
-        // Hardware reads tile byte as "Y". Set tile byte to 50 → match!
-        ppu.oam[10 * 4] = 200; // actual Y (never read — m=1)
+        // Sprite 10: tile byte read as "Y" → false positive
+        ppu.oam[10 * 4] = 200;
         ppu.oam[10 * 4 + 1] = 50; // tile byte read as "Y" → false positive
         ppu.oam[10 * 4 + 2] = 200;
         ppu.oam[10 * 4 + 3] = 200;
 
-        // Fill rest far away
         for i in 11..64 {
             ppu.oam[i * 4] = 200;
             ppu.oam[i * 4 + 1] = 200;
@@ -993,9 +1026,8 @@ mod tests {
             ppu.oam[i * 4 + 3] = 200;
         }
 
-        ppu.evaluate_sprites(&mut mapper);
+        ppu.evaluate_sprites(&mut chr_read);
         assert_eq!(ppu.sprite_count, 8);
-        // Overflow flag IS set: tile byte 50 falsely matches scanline 50
         assert_ne!(
             ppu.status & 0x20,
             0,

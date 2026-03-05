@@ -340,7 +340,9 @@ impl Tickable for Nes {
 
         // PPU: every 4 crystal ticks
         if self.master_clock.is_multiple_of(PPU_DIVISOR) {
-            self.bus.ppu.tick(self.bus.cartridge.as_mut());
+            let mirroring = self.bus.cartridge.mirroring();
+            let cart = self.bus.cartridge.as_mut();
+            self.bus.ppu.tick(&mut |a| cart.chr_read(a), mirroring);
 
             // VBlank NMI → CPU
             if self.bus.ppu.take_nmi() {
@@ -421,7 +423,24 @@ impl Observable for Nes {
                 _ => None,
             }
         } else if let Some(rest) = path.strip_prefix("apu.") {
-            self.bus.apu.query(rest)
+            match rest {
+                "pulse1.period" => Some(self.bus.apu.pulse1_period().into()),
+                "pulse1.length" => Some(self.bus.apu.pulse1_length().into()),
+                "pulse1.envelope" => Some(self.bus.apu.pulse1_envelope().into()),
+                "pulse1.duty" => Some(self.bus.apu.pulse1_duty().into()),
+                "pulse2.period" => Some(self.bus.apu.pulse2_period().into()),
+                "pulse2.length" => Some(self.bus.apu.pulse2_length().into()),
+                "pulse2.envelope" => Some(self.bus.apu.pulse2_envelope().into()),
+                "pulse2.duty" => Some(self.bus.apu.pulse2_duty().into()),
+                "triangle.period" => Some(self.bus.apu.triangle_period().into()),
+                "triangle.length" => Some(self.bus.apu.triangle_length().into()),
+                "triangle.linear" => Some(self.bus.apu.triangle_linear().into()),
+                "noise.period" => Some(self.bus.apu.noise_period().into()),
+                "noise.length" => Some(self.bus.apu.noise_length().into()),
+                "noise.envelope" => Some(self.bus.apu.noise_envelope().into()),
+                "frame_counter.mode" => Some(self.bus.apu.frame_counter_mode().into()),
+                _ => None,
+            }
         } else if let Some(rest) = path.strip_prefix("memory.") {
             let addr =
                 if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
@@ -463,7 +482,8 @@ impl Observable for Nes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cartridge::{Mirroring, Nrom};
+    use crate::cartridge::Nrom;
+    use ricoh_ppu_2c02::Mirroring;
 
     fn make_nes() -> Nes {
         // 32K PRG filled with NOPs, reset vector at $8000

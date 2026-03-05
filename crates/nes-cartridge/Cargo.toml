@@ -5,5 +5,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[dependencies]
+ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02" }
+
 [lints]
 workspace = true

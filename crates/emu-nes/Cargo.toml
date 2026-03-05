@@ -17,6 +17,8 @@ path = "src/lib.rs"
 emu-core = { path = "../emu-core", features = ["mcp", "video"] }
 mos-6502 = { path = "../mos-6502" }
 nes-cartridge = { path = "../nes-cartridge" }
+ricoh-apu-2a03 = { path = "../ricoh-apu-2a03" }
+ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02" }
 winit = "0.30"
 pixels = "0.15"
 png = "0.17"

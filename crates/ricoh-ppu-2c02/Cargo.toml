@@ -1,0 +1,9 @@
+[package]
+name = "ricoh-ppu-2c02"
+description = "Ricoh 2C02 PPU (NES picture processing unit)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

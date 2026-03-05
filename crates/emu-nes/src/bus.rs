@@ -9,10 +9,11 @@
 
 use emu_core::{Bus, ReadResult};
 
-use crate::apu::Apu;
+use ricoh_apu_2a03::Apu;
+use ricoh_ppu_2c02::Ppu;
+
 use crate::cartridge::Mapper;
 use crate::controller::{Controller, Zapper};
-use crate::ppu::Ppu;
 
 /// The NES bus, implementing `emu_core::Bus`.
 pub struct NesBus {
@@ -57,7 +58,10 @@ impl NesBus {
         Self {
             ram: [0; 2048],
             ppu: Ppu::new_with_pre_render_line(region.pre_render_line()),
-            apu: Apu::new_with_cpu_freq(region),
+            apu: Apu::new_with_region(match region {
+                crate::config::NesRegion::Ntsc => ricoh_apu_2a03::ApuRegion::Ntsc,
+                crate::config::NesRegion::Pal => ricoh_apu_2a03::ApuRegion::Pal,
+            }),
             cartridge,
             controller1: Controller::new(),
             controller2: Controller::new(),
@@ -85,7 +89,15 @@ impl Bus for NesBus {
         let addr = addr as u16;
         let data = match addr {
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize],
-            0x2000..=0x3FFF => self.ppu.cpu_read(addr & 0x0007, self.cartridge.as_mut()),
+            0x2000..=0x3FFF => {
+                let mirroring = self.cartridge.mirroring();
+                let cart = self.cartridge.as_mut();
+                self.ppu.cpu_read(
+                    addr & 0x0007,
+                    &mut |a| cart.chr_read(a),
+                    mirroring,
+                )
+            }
             0x4016 => {
                 if self.four_score {
                     let idx = self.four_score_idx_1;
@@ -129,8 +141,14 @@ impl Bus for NesBus {
         match addr {
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize] = value,
             0x2000..=0x3FFF => {
-                self.ppu
-                    .cpu_write(addr & 0x0007, value, self.cartridge.as_mut());
+                let mirroring = self.cartridge.mirroring();
+                let cart = self.cartridge.as_mut();
+                self.ppu.cpu_write(
+                    addr & 0x0007,
+                    value,
+                    &mut |a, v| cart.chr_write(a, v),
+                    mirroring,
+                );
             }
             0x4014 => {
                 // OAM DMA: trigger transfer
@@ -167,7 +185,8 @@ impl Bus for NesBus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cartridge::{Mirroring, Nrom};
+    use crate::cartridge::Nrom;
+    use ricoh_ppu_2c02::Mirroring;
 
     fn make_bus() -> NesBus {
         let prg = vec![0xEA; 32768]; // NOPs

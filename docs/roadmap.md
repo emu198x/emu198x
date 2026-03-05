@@ -223,9 +223,10 @@ assumptions that were invisible when everything lived in one struct.
 |------|-----------------|--------------|-----------|
 | ~~AGA Agnus (Alice)~~ | ~~`machine-amiga`~~ | ~~`commodore-agnus-aga`~~ | Done |
 | ~~AGA Denise (Lisa)~~ | ~~`machine-amiga`~~ | ~~`commodore-denise-aga`~~ | Done |
-| VIC-II (PAL) | `emu-c64` | `mos-vic-ii-pal` | Enables C128, reveals accuracy gaps |
-| VIC-II (NTSC) | `emu-c64` | `mos-vic-ii-ntsc` | Same |
-| CIA 6526 | `emu-c64` | `mos-cia-6526` | Enables C128, timer edge-case audit |
+| ~~VIC-II (6569/6567)~~ | ~~`emu-c64`~~ | ~~`mos-vic-ii`~~ | Done (PAL+NTSC in one crate via `VicModel`) |
+| ~~CIA 6526~~ | ~~`emu-c64`~~ | ~~`mos-cia-6526`~~ | Done (`external_b` pattern for keyboard) |
+| ~~PPU 2C02~~ | ~~`emu-nes`~~ | ~~`ricoh-ppu-2c02`~~ | Done (closure-based CHR access, `Mirroring` enum lives here) |
+| ~~APU 2A03~~ | ~~`emu-nes`~~ | ~~`ricoh-apu-2a03`~~ | Done (`ApuRegion` enum, raw getters, 20 tests) |
 
 **Format crates (all extracted):**
 
@@ -297,9 +298,11 @@ until the four primary systems are complete.
 
 **Chip extractions (accuracy + reuse):**
 
-4. **VIC-II extraction** — standalone crate with pin-level tests; reveals hidden accuracy gaps
-5. **CIA 6526 extraction** — standalone crate; timer edge-case audit
+4. ~~**VIC-II extraction**~~ — Done (`mos-vic-ii`, closure-based VRAM access, 28 tests)
+5. ~~**CIA 6526 extraction**~~ — Done (`mos-cia-6526`, `external_b` pattern, 19 tests)
 6. ~~**Format crate extractions**~~ — Done (9 crates: format-d64, format-gcr, format-c64-tap, format-spectrum-tap, format-tzx, format-prg, format-sna, format-z80, nes-cartridge)
+7. ~~**NES PPU extraction**~~ — Done (`ricoh-ppu-2c02`, closure-based CHR access, `Mirroring` owns here, 9 tests)
+8. ~~**NES APU extraction**~~ — Done (`ricoh-apu-2a03`, `ApuRegion` enum, raw getters, 20 tests)
 
 **Tooling:**
 

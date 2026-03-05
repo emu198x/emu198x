@@ -1,0 +1,9 @@
+[package]
+name = "ricoh-apu-2a03"
+description = "Ricoh 2A03 APU (NES audio processing unit)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

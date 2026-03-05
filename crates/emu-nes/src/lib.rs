@@ -6,7 +6,6 @@
 //!
 //! One frame = 341 PPU dots × 262 scanlines = 89,342 PPU cycles.
 
-mod apu;
 mod bus;
 pub mod capture;
 use nes_cartridge as cartridge;
@@ -16,8 +15,7 @@ pub mod controller_map;
 pub mod input;
 pub mod mcp;
 mod nes;
-mod palette;
-pub mod ppu;
+pub use ricoh_ppu_2c02 as ppu;
 
 pub use bus::NesBus;
 pub use config::{NesConfig, NesRegion};
