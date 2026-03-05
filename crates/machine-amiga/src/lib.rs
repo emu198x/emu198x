@@ -251,6 +251,11 @@ pub struct Amiga {
     /// enable DMA on the first display line, causing BPLxPT to advance before
     /// the copper has written correct pointer values.
     bpl_dma_vactive_latch: bool,
+    /// A3000/A4000 motherboard resource registers (RAMSEY + Fat Gary).
+    /// Latched values written by KS during boot.
+    pub mbres_ramsey_config: u8,
+    pub mbres_fatgary_toenb: u8,
+    pub mbres_fatgary_timeout: u8,
 }
 
 impl Amiga {
@@ -343,7 +348,18 @@ impl Amiga {
                 },
             ),
         };
-        let memory = Memory::new(chip_ram_size, kickstart, slow_ram_size);
+        // Motherboard fast RAM (RAMSEY) is disabled for now. Without
+        // instruction cache emulation, the 68030 scans the 128 MB range
+        // from $000000 to $08000000 far too slowly (RomTag scan × priority
+        // passes). Enable once I-cache simulation reduces loop overhead.
+        let (fast_ram_size, fast_ram_base) = (0usize, 0u32);
+        let memory = Memory::new_with_fast_ram(
+            chip_ram_size,
+            kickstart,
+            slow_ram_size,
+            fast_ram_size,
+            fast_ram_base,
+        );
 
         // Initial reset vectors come from ROM (overlay is ON at power-on,
         // mapping Kickstart to $000000).
@@ -411,6 +427,9 @@ impl Amiga {
             ddfstop_pending: None,
             color_pending: Vec::new(),
             bpl_dma_vactive_latch: false,
+            mbres_ramsey_config: 0x08,  // default wrap bit
+            mbres_fatgary_toenb: 0x80,
+            mbres_fatgary_timeout: 0x00,
         }
     }
 
@@ -822,6 +841,7 @@ impl Amiga {
             CpuClockMode::CrystalDerived { divisor } => {
                 let cpu_clock = self.master_clock * (TICKS_PER_CPU / *divisor);
                 let mut bus = AmigaBusWrapper {
+                    model: self.model,
                     chipset: self.chipset,
                     agnus: &mut self.agnus,
                     memory: &mut self.memory,
@@ -838,6 +858,9 @@ impl Amiga {
                     ddfstrt_pending: &mut self.ddfstrt_pending,
                     ddfstop_pending: &mut self.ddfstop_pending,
                     color_pending: &mut self.color_pending,
+                    mbres_ramsey_config: &mut self.mbres_ramsey_config,
+                    mbres_fatgary_toenb: &mut self.mbres_fatgary_toenb,
+                    mbres_fatgary_timeout: &mut self.mbres_fatgary_timeout,
                 };
                 self.cpu.tick(&mut bus, cpu_clock);
             }
@@ -856,6 +879,7 @@ impl Amiga {
                     *phase -= master_hz;
                     *clock += 1;
                     let mut bus = AmigaBusWrapper {
+                        model: self.model,
                         chipset: self.chipset,
                         agnus: &mut self.agnus,
                         memory: &mut self.memory,
@@ -872,6 +896,9 @@ impl Amiga {
                         ddfstrt_pending: &mut self.ddfstrt_pending,
                         ddfstop_pending: &mut self.ddfstop_pending,
                         color_pending: &mut self.color_pending,
+                        mbres_ramsey_config: &mut self.mbres_ramsey_config,
+                        mbres_fatgary_toenb: &mut self.mbres_fatgary_toenb,
+                        mbres_fatgary_timeout: &mut self.mbres_fatgary_timeout,
                     };
                     // Scale clock to CPU bus-cycle domain: the 68000
                     // tick() gates on clock % 4 == 0, so multiply by 4
@@ -1685,6 +1712,7 @@ impl emu_core::Observable for Amiga {
 }
 
 pub struct AmigaBusWrapper<'a> {
+    pub model: AmigaModel,
     pub chipset: AmigaChipset,
     pub agnus: &'a mut Agnus,
     pub memory: &'a mut Memory,
@@ -1702,6 +1730,10 @@ pub struct AmigaBusWrapper<'a> {
     pub ddfstrt_pending: &'a mut Option<(u16, u8)>,
     pub ddfstop_pending: &'a mut Option<(u16, u8)>,
     pub color_pending: &'a mut Vec<(usize, u16, u8, u16)>,
+    // A3000/A4000 motherboard resource registers (RAMSEY + Fat Gary).
+    pub mbres_ramsey_config: &'a mut u8,
+    pub mbres_fatgary_toenb: &'a mut u8,
+    pub mbres_fatgary_timeout: &'a mut u8,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -1743,6 +1775,39 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             return BusStatus::Ready(24 + level);
         }
 
+        // Motherboard fast RAM (RAMSEY, A3000/A4000) sits above 24-bit
+        // space. Check the full 32-bit address before applying the mask.
+        if !self.memory.fast_ram.is_empty() {
+            let base = self.memory.fast_ram_base;
+            let end = base.wrapping_add(self.memory.fast_ram.len() as u32);
+            if addr >= base && addr < end {
+                let offset = (addr - base) & self.memory.fast_ram_mask;
+                if is_read {
+                    let val = if is_word {
+                        let hi = self.memory.fast_ram[offset as usize];
+                        let lo = self.memory.fast_ram[(offset | 1) as usize];
+                        (u16::from(hi) << 8) | u16::from(lo)
+                    } else {
+                        u16::from(self.memory.fast_ram[offset as usize])
+                    };
+                    return BusStatus::Ready(val);
+                } else {
+                    let val = data.unwrap_or(0);
+                    if is_word {
+                        self.memory.fast_ram[offset as usize] = (val >> 8) as u8;
+                        self.memory.fast_ram[(offset | 1) as usize] = val as u8;
+                    } else {
+                        self.memory.fast_ram[offset as usize] = val as u8;
+                    }
+                    return BusStatus::Ready(0);
+                }
+            }
+        }
+
+        // Everything else uses 24-bit decode. On 32-bit CPUs (68030/040),
+        // addresses outside specific 32-bit devices fall through to the
+        // legacy 24-bit bus — matching how Fat Gary routes non-32bit
+        // accesses on the A3000/A4000.
         let addr = addr & 0xFFFFFF;
 
         // CIA-A ($BFE001, odd bytes, accent on D0-D7)
@@ -1971,6 +2036,37 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                 return BusStatus::Ready(word);
             }
             return BusStatus::Ready(0);
+        }
+
+        // A3000/A4000 motherboard resource registers ($DE0000-$DEFFFF).
+        // RAMSEY revision/config, Fat Gary toenb/timeout/coldboot.
+        // The A3000 ROM explicitly reads $DE0002 bit 7 (coldboot flag)
+        // and writes $DE0000/$DE0001 during early boot ($F80162-$F80176).
+        if matches!(self.model, AmigaModel::A3000 | AmigaModel::A4000)
+            && (0xDE_0000..0xDF_0000).contains(&addr)
+        {
+            let addr64 = (addr >> 6) & 3;
+            let addr2 = addr & 3;
+            if is_read {
+                let val = match (addr64, addr2) {
+                    (1, 3) => 0x0Du8, // RAMSEY revision (0x0D = rev 7)
+                    (0, 3) => *self.mbres_ramsey_config,
+                    (_, 2) => 0x80, // Fat Gary coldboot
+                    (_, 1) => *self.mbres_fatgary_toenb,
+                    (_, 0) => *self.mbres_fatgary_timeout,
+                    _ => 0,
+                };
+                return BusStatus::Ready(u16::from(val));
+            } else {
+                let val = data.unwrap_or(0) as u8;
+                match (addr64, addr2) {
+                    (0, 3) => *self.mbres_ramsey_config = val,
+                    (_, 1) => *self.mbres_fatgary_toenb = val,
+                    (_, 0) => *self.mbres_fatgary_timeout = val,
+                    _ => {} // other writes ignored
+                }
+                return BusStatus::Ready(0);
+            }
         }
 
         // Gayle gate array ($D80000-$DFFFFF) on A600/A1200.
@@ -2748,6 +2844,7 @@ mod tests {
 
     fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, offset: u16) -> u16 {
         let mut bus = AmigaBusWrapper {
+            model: amiga.model,
             chipset: amiga.chipset,
             agnus: &mut amiga.agnus,
             memory: &mut amiga.memory,
@@ -2764,6 +2861,9 @@ mod tests {
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
+            mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
+            mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
+            mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
         };
         match M68kBus::poll_cycle(
             &mut bus,

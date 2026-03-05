@@ -103,8 +103,10 @@ fn test_boot_kick31_a600() {
     );
 }
 
-// A3000 variants: no assertions — independent clock + expansion issues
-// still under investigation.
+// A3000 variants: RAMSEY/Fat Gary at $DE0000, PMOVE stub, 32-bit
+// address fallthrough. No assertions — exec's multi-pass RomTag scan
+// takes >120s emulated time without 68030 instruction cache emulation.
+// Blocked on I-cache implementation for boot to complete.
 
 #[test]
 #[ignore]

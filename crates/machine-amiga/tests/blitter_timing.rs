@@ -287,6 +287,7 @@ fn wait_until_pre_final_blitter_op_on_granted_cck(amiga: &mut Amiga, max_ccks: u
 
 fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
     let mut bus = AmigaBusWrapper {
+        model: amiga.model,
         chipset: amiga.chipset,
         agnus: &mut amiga.agnus,
         memory: &mut amiga.memory,
@@ -303,6 +304,9 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
         color_pending: &mut amiga.color_pending,
+        mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
+        mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
+        mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
     };
     M68kBus::poll_cycle(
         &mut bus,
@@ -316,6 +320,7 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
 
 fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
     let mut bus = AmigaBusWrapper {
+        model: amiga.model,
         chipset: amiga.chipset,
         agnus: &mut amiga.agnus,
         memory: &mut amiga.memory,
@@ -332,12 +337,16 @@ fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
         color_pending: &mut amiga.color_pending,
+        mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
+        mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
+        mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
     };
     M68kBus::poll_ipl(&mut bus)
 }
 
 fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
     let mut bus = AmigaBusWrapper {
+        model: amiga.model,
         chipset: amiga.chipset,
         agnus: &mut amiga.agnus,
         memory: &mut amiga.memory,
@@ -354,6 +363,9 @@ fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
         color_pending: &mut amiga.color_pending,
+        mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
+        mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
+        mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
     };
     M68kBus::poll_cycle(
         &mut bus,

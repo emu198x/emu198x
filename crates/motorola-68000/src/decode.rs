@@ -1285,6 +1285,15 @@ impl Cpu68000 {
             return;
         }
         if (opcode & 0xF000) == 0xF000 {
+            // PMMU cpGen instructions (cpID=0, type=000) on 68020+ with MMU.
+            // Stub: consume the extension word and treat as NOP. We don't
+            // model address translation — PMOVE operand accesses are skipped.
+            // This is enough for KS 2.02+/A3000 boot which uses PMOVE to
+            // configure TC, TT0, TT1, CRP, and SRP during early init.
+            if self.capabilities().mmu && (opcode & 0x0FC0) == 0x0000 {
+                let _ext = self.consume_irc();
+                return;
+            }
             self.begin_group1_exception(11, self.instr_start_pc);
             return;
         }

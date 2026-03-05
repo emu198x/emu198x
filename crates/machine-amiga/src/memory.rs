@@ -15,13 +15,33 @@ pub struct Memory {
     pub overlay: bool,
     pub slow_ram: Vec<u8>,
     pub slow_ram_mask: u32,
+    /// Motherboard fast RAM (RAMSEY-controlled, A3000/A4000).
+    pub fast_ram: Vec<u8>,
+    pub fast_ram_mask: u32,
+    /// Base address of fast RAM (e.g. $07E00000 for 2 MB below $08000000).
+    pub fast_ram_base: u32,
 }
 
 impl Memory {
     pub fn new(chip_ram_size: usize, kickstart: Vec<u8>, slow_ram_size: usize) -> Self {
+        Self::new_with_fast_ram(chip_ram_size, kickstart, slow_ram_size, 0, 0)
+    }
+
+    pub fn new_with_fast_ram(
+        chip_ram_size: usize,
+        kickstart: Vec<u8>,
+        slow_ram_size: usize,
+        fast_ram_size: usize,
+        fast_ram_base: u32,
+    ) -> Self {
         let ks_len = kickstart.len();
         let slow_ram_mask = if slow_ram_size > 0 {
             (slow_ram_size as u32).wrapping_sub(1)
+        } else {
+            0
+        };
+        let fast_ram_mask = if fast_ram_size > 0 {
+            (fast_ram_size as u32).wrapping_sub(1)
         } else {
             0
         };
@@ -33,6 +53,9 @@ impl Memory {
             overlay: true,
             slow_ram: vec![0; slow_ram_size],
             slow_ram_mask,
+            fast_ram: vec![0; fast_ram_size],
+            fast_ram_mask,
+            fast_ram_base,
         }
     }
 

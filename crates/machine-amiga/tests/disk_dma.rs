@@ -60,6 +60,7 @@ fn write_dsk_ptr(amiga: &mut Amiga, addr: u32) {
 
 fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
     let mut bus = AmigaBusWrapper {
+        model: amiga.model,
         chipset: amiga.chipset,
         agnus: &mut amiga.agnus,
         memory: &mut amiga.memory,
@@ -76,6 +77,9 @@ fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
         color_pending: &mut amiga.color_pending,
+        mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
+        mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
+        mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
     };
     match M68kBus::poll_cycle(
         &mut bus,
