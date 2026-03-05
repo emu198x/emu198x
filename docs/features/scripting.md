@@ -1,5 +1,7 @@
 # Scripting
 
+> **Implemented.** All four systems support `--script` and `--mcp` modes.
+
 ## Overview
 
 Headless batch automation for content generation, testing, and CI/CD. Each

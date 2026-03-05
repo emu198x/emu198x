@@ -9,7 +9,7 @@ tags:
   - decimal-mode
   - instruction-boundary
 category: testing
-module: emu-6502
+module: mos-6502
 symptoms:
   - "Test runs indefinitely past 50M+ instructions without completion"
   - "Trap detection never triggers despite PC looping at $024B-$024D"
@@ -211,7 +211,7 @@ This aligns with the project's principle of **crystal-accurate timing** while en
 ### Internal
 - [6502 Decimal Test Setup](./6502-decimal-test-setup.md) - Test binary assembly and configuration
 - [6502 BRK Stale Address Bug](../logic-errors/6502-brk-stale-addr-vector.md) - Related state management issue
-- [docs/architecture.md](../../architecture.md) - Crystal-accurate timing model
+- [docs/roadmap.md](../../roadmap.md) - Crystal-accurate timing model
 
 ### External
 - [Klaus Dormann 6502 Test Suite](https://github.com/Klaus2m5/6502_65C02_functional_tests)

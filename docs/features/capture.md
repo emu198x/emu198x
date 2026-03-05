@@ -1,5 +1,11 @@
 # Capture
 
+> **Design spec.** Screenshots (PNG), audio (WAV), and video (MP4) capture work
+> via MCP tools and `--script` / `--headless` CLI flags. The `emu198x-cli`
+> command shown below does not exist — use each system's runner binary with
+> `--script` or `--mcp` instead. See [scripting.md](scripting.md) for the
+> actual capture workflow.
+
 ## Overview
 
 Screenshots, video recording, and audio capture for content creation and documentation.

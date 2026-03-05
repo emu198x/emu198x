@@ -9,7 +9,7 @@ tags:
   - instruction-decoding
   - rust
   - retro-computing
-module: emu-68000
+module: motorola-68000
 symptoms:
   - implementing cycle-accurate CPU emulation
   - handling multi-phase instruction execution

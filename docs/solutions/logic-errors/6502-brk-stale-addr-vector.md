@@ -12,7 +12,7 @@ tags:
   - addressing-mode
   - state-corruption
 category: logic-errors
-module: emu-6502
+module: mos-6502
 symptoms:
   - "Klaus Dormann 6502 functional test fails at $37C9 (BRK handler status check)"
   - "BRK instruction reads interrupt vector from wrong memory location (e.g., $0200 instead of $FFFE/$FFFF)"
@@ -152,9 +152,7 @@ Added 10 tests that verify BRK uses correct vector after various addressing mode
 
 ## Related Documentation
 
-- [docs/architecture.md](../../architecture.md) - Interrupt timing model
-- [docs/milestones.md](../../milestones.md) - M3 verification criteria (Klaus Dormann test)
-- [docs/cpu-state-management.md](../../cpu-state-management.md) - Full prevention strategies
+- [docs/roadmap.md](../../roadmap.md) - Architectural principles and system status
 
 ## External References
 

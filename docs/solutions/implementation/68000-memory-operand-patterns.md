@@ -18,7 +18,7 @@ tags:
   - muls
   - divu
   - divs
-module: emu-68000
+module: motorola-68000
 severity: medium
 symptoms:
   - BTST/BCHG/BCLR/BSET memory operand not working

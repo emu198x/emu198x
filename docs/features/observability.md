@@ -1,5 +1,11 @@
 # Observability
 
+> **Design spec.** The principles and query paths below describe the intended
+> API. Currently, state inspection works through MCP tools (`query_registers`,
+> `query_memory`, `query_video`, `query_audio`) and per-chip `#[cfg(test)]`
+> accessors. The `Observable` trait, trace recording, breakpoint conditions, and
+> visual debugger are not yet implemented.
+
 ## Overview
 
 Observability is a core design goal, not an afterthought. Every emulator exposes internal state for education and debugging.

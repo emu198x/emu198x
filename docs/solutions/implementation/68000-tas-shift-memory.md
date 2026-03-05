@@ -19,7 +19,7 @@ tags:
   - read-modify-write
   - micro-op
   - atomic
-module: emu-68000
+module: motorola-68000
 severity: medium
 symptoms:
   - TAS instruction not supported

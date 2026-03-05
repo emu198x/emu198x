@@ -10,7 +10,7 @@ tags:
   - subx
   - flag-calculation
   - rust
-module: emu-68000
+module: motorola-68000
 symptoms:
   - implementing multi-precision arithmetic (64-bit, 128-bit operations on 32-bit CPU)
   - ADDX/SUBX Z flag behavior differs from ADD/SUB

@@ -1,5 +1,11 @@
 # MCP Integration
 
+> **Partially implemented.** Core tools (boot, reset, run_frames, screenshot,
+> audio_capture, key input, query_registers, query_memory, query_video,
+> query_audio, poke, type_text, joystick, insert_media) work on all four
+> systems. Save states, breakpoint conditions, and event notifications are not
+> yet implemented.
+
 ## Overview
 
 Each emulator exposes an MCP (Model Context Protocol) server that allows Claude and other AI tools to interact with the running system.

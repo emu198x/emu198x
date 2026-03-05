@@ -8,7 +8,7 @@ tags:
   - memory-compare
   - postincrement
   - string-operations
-module: emu-68000
+module: motorola-68000
 severity: medium
 symptoms:
   - Memory comparison operations unavailable

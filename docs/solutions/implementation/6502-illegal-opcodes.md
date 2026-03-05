@@ -10,7 +10,7 @@ tags:
   - c64
   - emulation
 category: implementation
-module: emu-6502
+module: mos-6502
 date_solved: 2026-02-03
 ---
 
@@ -261,4 +261,4 @@ These opcodes behave inconsistently across different 6502 chips and are not used
 
 - [6502 BRK stale address bug](../logic-errors/6502-brk-stale-addr-vector.md)
 - [6502 decimal test setup](../testing/6502-decimal-test-setup.md)
-- [docs/milestones.md](../../milestones.md) - M3 verification criteria
+- [docs/roadmap.md](../../roadmap.md) - Testing strategy and system status

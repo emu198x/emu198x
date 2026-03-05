@@ -4,7 +4,7 @@ A cycle-accurate emulator suite for vintage computing education.
 
 ## Project Principles
 
-1. **Crystal-accurate timing.** Every emulator ticks at the system's master crystal frequency. All component timing derives from this. No exceptions. No "good enough" approximations. See `docs/architecture.md`. Do not try to take any shortcuts, for
+1. **Crystal-accurate timing.** Every emulator ticks at the system's master crystal frequency. All component timing derives from this. No exceptions. No "good enough" approximations. See `docs/roadmap.md`. Do not try to take any shortcuts, for
 instance by modelling instruction-level accuracy.
 
 2. **Observable by design.** Internal state is always queryable. CPU registers, memory, video chip state, audio state — all exposed for education and debugging.
@@ -17,11 +17,8 @@ instance by modelling instruction-level accuracy.
 
 ```text
 docs/
-├── architecture.md      # Timing model, core traits, constraints
-├── milestones.md        # Granular milestones with verification
-├── integration.md       # Code Like It's 198x integration
-├── future-systems.md    # Out of scope until Phase 6
-|-- constraints.md       # Things you must never do
+├── roadmap.md           # Status, gaps, and what's next
+├── future-systems.md    # Systems beyond the core four
 ├── systems/
 │   ├── c64.md           # Commodore 64 specifics
 │   ├── spectrum.md      # ZX Spectrum specifics
@@ -56,7 +53,7 @@ docs/
 
 ## Current Focus
 
-See `docs/milestones.md` for current work.
+See `docs/roadmap.md` for current work.
 
 ## System Variants
 
@@ -68,7 +65,7 @@ Systems have variants. Don't model 50 machines — model the axes:
 - **Peripherals**
 - **Region** (PAL/NTSC)
 
-See `docs/architecture.md` for the configuration approach.
+See `docs/roadmap.md` for the configuration approach.
 
 Primary targets (what lessons target):
 
@@ -132,13 +129,13 @@ emu198x/
 ├── Cargo.toml (workspace)
 ├── crates/
 │   ├── emu-core/        # Shared traits, types (library)
-│   ├── emu-6502/        # 6502 CPU core (library)
-│   ├── emu-z80/         # Z80 CPU core (library)
-│   ├── cpu-m68k/        # 68000 CPU core (library)
+│   ├── mos-6502/        # 6502 CPU core (library)
+│   ├── zilog-z80/       # Z80 CPU core (library)
+│   ├── motorola-68000/  # 68000 CPU core (library)
 │   ├── emu-spectrum/    # ZX Spectrum (binary)
 │   ├── emu-c64/         # Commodore 64 (binary)
 │   ├── emu-nes/         # NES/Famicom (binary)
-│   └── emu-amiga/       # Amiga (binary, not yet in workspace)
+│   └── machine-amiga/   # Amiga system (library, runner: amiga-runner)
 └── docs/
 ```
 
@@ -150,9 +147,9 @@ Each system is a **separate binary**. Each binary includes:
 
 Libraries are shared:
 
-- `emu-spectrum` depends on `emu-core` + `emu-z80`
-- `emu-c64` depends on `emu-core` + `emu-6502`
-- `emu-nes` depends on `emu-core` + `emu-6502`
-- `emu-amiga` depends on `emu-core` + `cpu-m68k`
+- `emu-spectrum` depends on `emu-core` + `zilog-z80`
+- `emu-c64` depends on `emu-core` + `mos-6502`
+- `emu-nes` depends on `emu-core` + `mos-6502`
+- `machine-amiga` depends on `emu-core` + `motorola-68000`
 
 WASM builds are per-system — embed only what you need.

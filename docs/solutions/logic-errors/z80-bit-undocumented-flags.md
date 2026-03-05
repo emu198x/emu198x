@@ -11,7 +11,7 @@ tags:
   - flag-calculation
   - xy-flags
 category: logic-errors
-module: emu-z80
+module: zilog-z80
 symptoms:
   - "ZEXALL BIT test CRC mismatch (expected:5e020e98 found:fe7d580c)"
   - "Incorrect X/Y flag values after BIT instruction"
@@ -186,7 +186,7 @@ This "leaks" the address into the flags - a quirk of the silicon implementation 
 ## Related Documentation
 
 ### Internal
-- [docs/milestones.md](../../milestones.md) - M2 Z80 verification criteria
+- [docs/roadmap.md](../../roadmap.md) - Testing strategy and system status
 - [docs/systems/spectrum.md](../../systems/spectrum.md) - ZX Spectrum Z80A usage
 - [6502 BRK stale address bug](./6502-brk-stale-addr-vector.md) - Similar pattern of address affecting flags/behavior
 

@@ -9,7 +9,7 @@ tags:
   - chk
   - flag-evaluation
   - rust
-module: emu-68000
+module: motorola-68000
 symptoms:
   - implementing Scc (Set on Condition) instruction
   - implementing CHK (Check Register Against Bounds)

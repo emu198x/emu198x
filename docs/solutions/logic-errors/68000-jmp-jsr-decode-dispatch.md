@@ -8,7 +8,7 @@ tags:
   - instruction-dispatch
   - bit-field-parsing
   - rust
-module: emu-68000
+module: motorola-68000
 symptoms:
   - JMP instruction does not update PC
   - JSR instruction does not update PC or push return address

@@ -12,7 +12,7 @@ tags:
   - memory-destination
   - read-modify-write
   - micro-op
-module: emu-68000
+module: motorola-68000
 severity: medium
 symptoms:
   - ADD/SUB/AND/OR/EOR to memory operand not supported

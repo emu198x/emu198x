@@ -1,12 +1,17 @@
 # Frontend
 
+> **Design spec.** This document describes the intended UI. The native runners
+> exist (`emu-spectrum`, `emu-c64`, `emu-nes`, `amiga-runner`) with windowed and
+> headless modes, but launcher screens, media panels, debugger layouts, and the
+> web/WASM frontend are not yet implemented.
+
 ## Overview
 
 Each system is a **separate binary**:
 - `emu-spectrum`
 - `emu-c64`
 - `emu-nes`
-- `emu-amiga`
+- `amiga-runner`
 
 Each binary provides:
 - System launcher with variant/option selection
@@ -202,7 +207,7 @@ A thin wrapper binary (`emu198x`) can provide convenience:
 emu198x game.tap        # → spawns emu-spectrum
 emu198x game.d64        # → spawns emu-c64
 emu198x game.nes        # → spawns emu-nes
-emu198x game.adf        # → spawns emu-amiga
+emu198x game.adf        # → spawns amiga-runner
 
 # No file: show system picker, then spawn
 emu198x

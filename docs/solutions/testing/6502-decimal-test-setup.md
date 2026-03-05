@@ -11,7 +11,7 @@ tags:
   - ca65
   - assembler
 category: testing
-module: emu-6502
+module: mos-6502
 symptoms:
   - "Need to verify BCD/decimal mode ADC/SBC implementation"
   - "AS65 assembler is Linux-only, won't run on macOS"

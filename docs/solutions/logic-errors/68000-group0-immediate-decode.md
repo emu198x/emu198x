@@ -8,7 +8,7 @@ tags:
   - opcode-routing
   - m68000
   - cpu-emulation
-module: emu-68000
+module: motorola-68000
 symptoms:
   - "CMPI instruction does not set condition flags (Z flag remains clear after comparing equal values)"
   - "EORI instruction does not modify destination register"

@@ -9,7 +9,7 @@ tags:
   - packed-decimal
   - multi-precision
   - condition-codes
-module: emu-68000
+module: motorola-68000
 severity: medium
 symptoms:
   - BCD arithmetic operations unavailable

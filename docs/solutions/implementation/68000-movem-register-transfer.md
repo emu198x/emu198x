@@ -12,7 +12,7 @@ tags:
   - addressing-modes
   - predecrement
   - postincrement
-module: emu-68000
+module: motorola-68000
 severity: medium
 symptoms:
   - MOVEM instruction not implemented

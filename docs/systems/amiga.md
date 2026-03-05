@@ -17,16 +17,16 @@
 
 ```
 Crystal: 28.37516 MHz
-   ÷4 → 7.09379 MHz (CPU clock)
-   ÷8 → 3.546895 MHz (colour clock)
+   ÷4 → 7.09379 MHz (colour clock / CCK)
+   ÷8 → 3.546895 MHz (CPU clock = CCK ÷ 2)
 ```
 
 ### Crystal Derivation (NTSC)
 
 ```
 Crystal: 28.63636 MHz
-   ÷4 → 7.15909 MHz (CPU clock)
-   ÷8 → 3.579545 MHz (colour clock)
+   ÷4 → 7.15909 MHz (colour clock / CCK)
+   ÷8 → 3.579545 MHz (CPU clock = CCK ÷ 2)
 ```
 
 ### Colour Clock
@@ -332,25 +332,7 @@ Commodore Amiga/Demos/Desert Dream (1993)(Kefrens).adf
 6. **Sprite DMA slots** — Limited positions per line.
 7. **Interlace** — PAL is actually 312.5 lines, alternating fields.
 
-## Emu198x Status (A500/OCS Baseline)
+## Emu198x Status
 
-The current implementation status and known accuracy gaps for the Emu198x Amiga
-baseline are tracked in:
-
-- `docs/systems/amiga-accuracy-status.md`
-
-Useful local commands:
-
-```sh
-# KS1.3 screenshot regression (requires Kickstart ROM)
-AMIGA_KS13_ROM=roms/kick13.rom \
-  cargo test -p machine-amiga --test boot_kickstart test_boot_kick13 -- --ignored
-
-# Headless insert-screen timing benchmark
-cargo run --release -p amiga-runner -- \
-  --rom roms/kick13.rom \
-  --headless \
-  --frames 300 \
-  --bench-insert-screen \
-  --mute
-```
+See [docs/roadmap.md](../roadmap.md) for current implementation status, boot
+test results, and known gaps.
