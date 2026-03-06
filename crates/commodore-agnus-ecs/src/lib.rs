@@ -575,7 +575,8 @@ mod tests {
     use super::{
         AgnusEcs, BEAMCON0_BLANKEN, BEAMCON0_CSCBEN, BEAMCON0_CSYTRUE, BEAMCON0_HARDDIS,
         BEAMCON0_HSYTRUE, BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN, BEAMCON0_VARHSYEN,
-        BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE,
+        BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE, PaulaReturnProgressPolicy,
+        SlotOwner,
     };
 
     #[test]
@@ -699,6 +700,72 @@ mod tests {
         }
         assert_eq!(agnus.hpos, 0);
         assert_eq!(agnus.vpos, 0);
+    }
+
+    #[test]
+    fn diwhigh_switches_vertical_dma_decode_from_legacy_to_explicit_high_bits() {
+        let mut agnus = AgnusEcs::new();
+        agnus.diwstrt = 0x1010;
+        agnus.diwstop = 0xA020;
+
+        agnus.vpos = 0x0020;
+        assert!(agnus.bitplane_dma_vertical_active());
+        agnus.vpos = 0x0120;
+        assert!(!agnus.bitplane_dma_vertical_active());
+
+        agnus.write_diwhigh(0x0101);
+
+        agnus.vpos = 0x0020;
+        assert!(!agnus.bitplane_dma_vertical_active());
+        agnus.vpos = 0x0120;
+        assert!(agnus.bitplane_dma_vertical_active());
+    }
+
+    #[test]
+    fn diwhigh_vertical_dma_window_wraps_across_frame_zero() {
+        let mut agnus = AgnusEcs::new();
+        agnus.diwstrt = 0xF010;
+        agnus.diwstop = 0x1020;
+        agnus.write_diwhigh(0x0101);
+
+        agnus.vpos = 0x01F5;
+        assert!(agnus.bitplane_dma_vertical_active());
+        agnus.vpos = 0x0005;
+        assert!(agnus.bitplane_dma_vertical_active());
+        agnus.vpos = 0x0150;
+        assert!(!agnus.bitplane_dma_vertical_active());
+    }
+
+    #[test]
+    fn cck_bus_plan_demotes_bitplane_slot_when_diwhigh_moves_dma_window() {
+        let mut agnus = AgnusEcs::new();
+        agnus.hpos = 0x23; // ddfstrt + 7 => BPL1 slot in lowres fetch group
+        agnus.vpos = 0x0020;
+        agnus.dmacon = 0x0300; // DMAEN | BPLEN
+        agnus.bplcon0 = 1 << 12; // 1 bitplane enabled
+        agnus.ddfstrt = 0x1C;
+        agnus.ddfstop = 0x1C;
+        agnus.diwstrt = 0x1010;
+        agnus.diwstop = 0xA020;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
+        assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Stall
+        );
+
+        agnus.write_diwhigh(0x0101);
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert_eq!(plan.bitplane_dma_fetch_plane, None);
+        assert!(plan.cpu_chip_bus_granted);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Advance
+        );
     }
 
     #[test]
