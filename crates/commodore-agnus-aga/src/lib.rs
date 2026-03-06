@@ -179,3 +179,92 @@ impl From<AgnusAga> for InnerAgnusEcs {
         agnus.into_inner()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{AgnusAga, InnerAgnusEcs, LOWRES_DDF_TO_PLANE_AGA, PaulaReturnProgressPolicy, SlotOwner};
+
+    const DMACON_DMAEN: u16 = 0x0200;
+    const DMACON_BPLEN: u16 = 0x0100;
+    const DMACON_COPEN: u16 = 0x0080;
+
+    fn make_aga_agnus() -> AgnusAga {
+        let mut agnus = AgnusAga::new();
+        agnus.max_bitplanes = 8;
+        agnus
+    }
+
+    #[test]
+    fn bitplane_fetch_width_decodes_fmode_low_bits() {
+        let mut agnus = make_aga_agnus();
+
+        for (fmode, expected) in [(0x0000, 1), (0x0001, 2), (0x0002, 2), (0x0003, 4)] {
+            agnus.fmode = fmode;
+            assert_eq!(agnus.bpl_fetch_width(), expected, "FMODE={fmode:#06X}");
+        }
+    }
+
+    #[test]
+    fn sprite_fetch_width_decodes_fmode_upper_bits() {
+        let mut agnus = make_aga_agnus();
+
+        for (fmode, expected) in [(0x0000, 1), (0x0004, 2), (0x0008, 2), (0x000C, 4)] {
+            agnus.fmode = fmode;
+            assert_eq!(agnus.spr_fetch_width(), expected, "FMODE={fmode:#06X}");
+        }
+    }
+
+    #[test]
+    fn cck_bus_plan_uses_bpl7_slot_on_first_free_lowres_position() {
+        let mut agnus = make_aga_agnus();
+        agnus.hpos = 0x20;
+        agnus.ddfstrt = 0x20;
+        agnus.ddfstop = 0x20;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN | DMACON_COPEN;
+        agnus.bplcon0 = 0x7000; // 7 bitplanes in AGA lowres
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(LOWRES_DDF_TO_PLANE_AGA[0], Some(6));
+        assert_eq!(plan.slot_owner, SlotOwner::Bitplane(6));
+        assert_eq!(plan.bitplane_dma_fetch_plane, Some(6));
+        assert!(!plan.copper_dma_slot_granted);
+        assert!(!plan.cpu_chip_bus_granted);
+        assert!(!plan.blitter_chip_bus_granted);
+        assert!(!plan.blitter_dma_progress_granted);
+        assert_eq!(plan.paula_return_progress_policy, PaulaReturnProgressPolicy::Stall);
+    }
+
+    #[test]
+    fn cck_bus_plan_uses_bpl8_slot_on_second_free_lowres_position() {
+        let mut agnus = make_aga_agnus();
+        agnus.hpos = 0x24;
+        agnus.ddfstrt = 0x20;
+        agnus.ddfstop = 0x20;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN | DMACON_COPEN;
+        agnus.bplcon0 = 0x0010; // 8 bitplanes in AGA lowres
+
+        assert_eq!(agnus.num_bitplanes(), 8);
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(LOWRES_DDF_TO_PLANE_AGA[4], Some(7));
+        assert_eq!(plan.slot_owner, SlotOwner::Bitplane(7));
+        assert_eq!(plan.bitplane_dma_fetch_plane, Some(7));
+        assert_eq!(plan.paula_return_progress_policy, PaulaReturnProgressPolicy::Stall);
+    }
+
+    #[test]
+    fn cck_bus_plan_delegates_to_ecs_when_aga_patch_conditions_do_not_apply() {
+        let mut inner = InnerAgnusEcs::new();
+        inner.max_bitplanes = 8;
+        inner.hpos = 0x20;
+        inner.ddfstrt = 0x20;
+        inner.ddfstop = 0x20;
+        inner.dmacon = DMACON_DMAEN | DMACON_COPEN;
+        inner.bplcon0 = 0x0010; // 8 bitplanes, but BPL DMA disabled
+
+        let expected = inner.cck_bus_plan();
+        let agnus = AgnusAga::from_ecs(inner);
+
+        assert_eq!(agnus.cck_bus_plan(), expected);
+    }
+}

@@ -189,6 +189,17 @@ fn encode_keycode(byte: u8) -> u8 {
 mod tests {
     use super::*;
 
+    fn boot_keyboard_to_idle(kb: &mut AmigaKeyboard) {
+        for _ in 0..POWERUP_DELAY_TICKS {
+            assert_eq!(kb.tick(), None);
+        }
+        assert_eq!(kb.tick(), Some(encode_keycode(0xFD)));
+        kb.handshake();
+        assert_eq!(kb.tick(), Some(encode_keycode(0xFE)));
+        kb.handshake();
+        assert_eq!(kb.state, State::Idle);
+    }
+
     #[test]
     fn power_up_sequence() {
         let mut kb = AmigaKeyboard::new();
@@ -273,5 +284,73 @@ mod tests {
             let winuae = !((byte << 1) | (byte >> 7));
             assert_eq!(encode_keycode(byte), winuae);
         }
+    }
+
+    #[test]
+    fn init_powerup_byte_resends_after_handshake_timeout() {
+        let mut kb = AmigaKeyboard::new();
+
+        for _ in 0..POWERUP_DELAY_TICKS {
+            assert_eq!(kb.tick(), None);
+        }
+        assert_eq!(kb.tick(), Some(encode_keycode(0xFD)));
+        assert_eq!(kb.state, State::WaitHandshakeInit);
+
+        for _ in 0..HANDSHAKE_TIMEOUT_TICKS {
+            assert_eq!(kb.tick(), None);
+        }
+
+        assert_eq!(kb.state, State::SendInitPowerUp);
+        assert_eq!(kb.tick(), Some(encode_keycode(0xFD)));
+        assert_eq!(kb.bytes_sent, 2);
+    }
+
+    #[test]
+    fn terminate_powerup_byte_resends_after_handshake_timeout() {
+        let mut kb = AmigaKeyboard::new();
+
+        for _ in 0..POWERUP_DELAY_TICKS {
+            assert_eq!(kb.tick(), None);
+        }
+        assert_eq!(kb.tick(), Some(encode_keycode(0xFD)));
+        kb.handshake();
+        assert_eq!(kb.tick(), Some(encode_keycode(0xFE)));
+        assert_eq!(kb.state, State::WaitHandshakeTerm);
+
+        for _ in 0..HANDSHAKE_TIMEOUT_TICKS {
+            assert_eq!(kb.tick(), None);
+        }
+
+        assert_eq!(kb.state, State::SendTermPowerUp);
+        assert_eq!(kb.tick(), Some(encode_keycode(0xFE)));
+        assert_eq!(kb.bytes_sent, 3);
+    }
+
+    #[test]
+    fn key_byte_timeout_returns_to_idle_after_dropping_in_flight_byte() {
+        let mut kb = AmigaKeyboard::new();
+        boot_keyboard_to_idle(&mut kb);
+
+        kb.key_event(0x20, true);
+        kb.key_event(0x21, true);
+
+        for _ in 0..BYTE_INTERVAL_TICKS - 1 {
+            assert_eq!(kb.tick(), None);
+        }
+        assert_eq!(kb.tick(), Some(encode_keycode(0x20)));
+        assert_eq!(kb.state, State::WaitHandshakeKey);
+        assert_eq!(kb.queued_key_count(), 1);
+
+        for _ in 0..HANDSHAKE_TIMEOUT_TICKS {
+            assert_eq!(kb.tick(), None);
+        }
+
+        assert_eq!(kb.state, State::Idle);
+        assert_eq!(kb.queued_key_count(), 1);
+
+        for _ in 0..BYTE_INTERVAL_TICKS - 1 {
+            assert_eq!(kb.tick(), None);
+        }
+        assert_eq!(kb.tick(), Some(encode_keycode(0x21)));
     }
 }

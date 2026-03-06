@@ -181,3 +181,65 @@ impl Observable for SimpleBus {
         &["<address>"]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Bus, Observable, ReadResult, SimpleBus};
+    use crate::Value;
+
+    #[test]
+    fn read_result_helpers_preserve_data_and_wait_states() {
+        let plain = ReadResult::new(0x12);
+        let waited = ReadResult::with_wait(0x34, 7);
+        let from_u8: ReadResult = 0x56u8.into();
+
+        assert_eq!(plain.data, 0x12);
+        assert_eq!(plain.wait, 0);
+        assert_eq!(waited.data, 0x34);
+        assert_eq!(waited.wait, 7);
+        assert_eq!(from_u8.data, 0x56);
+        assert_eq!(from_u8.wait, 0);
+    }
+
+    #[test]
+    fn simple_bus_load_slice_peek_and_poke_roundtrip() {
+        let mut bus = SimpleBus::new();
+        bus.load(0x1000, &[0xAA, 0xBB, 0xCC]);
+        bus.poke(0x1003, 0xDD);
+
+        assert_eq!(bus.peek(0x1000), 0xAA);
+        assert_eq!(bus.peek(0x1003), 0xDD);
+        assert_eq!(bus.slice(0x1000, 4), &[0xAA, 0xBB, 0xCC, 0xDD]);
+    }
+
+    #[test]
+    fn simple_bus_masks_addresses_to_16_bit_space() {
+        let mut bus = SimpleBus::new();
+
+        assert_eq!(bus.write(0x1_0002, 0x5A), 0);
+        assert_eq!(bus.read(0x0002).data, 0x5A);
+        assert_eq!(bus.read(0x2_0002).data, 0x5A);
+    }
+
+    #[test]
+    fn simple_bus_query_parses_decimal_and_hex_paths() {
+        let mut bus = SimpleBus::new();
+        bus.poke(0x1234, 0x9C);
+
+        assert_eq!(bus.query("4660"), Some(Value::U8(0x9C)));
+        assert_eq!(bus.query("0x1234"), Some(Value::U8(0x9C)));
+        assert_eq!(bus.query("$1234"), Some(Value::U8(0x9C)));
+        assert_eq!(bus.query("0x11234"), Some(Value::U8(0x9C)));
+        assert_eq!(bus.query("not-an-address"), None);
+        assert_eq!(bus.query_paths(), ["<address>"]);
+    }
+
+    #[test]
+    fn simple_bus_io_defaults_to_floating_bus() {
+        let mut bus = SimpleBus::new();
+
+        assert_eq!(bus.io_read(0x00).data, 0xFF);
+        assert_eq!(bus.io_read(0x00).wait, 0);
+        assert_eq!(bus.io_write(0x00, 0x12), 0);
+    }
+}

@@ -131,3 +131,26 @@ pub trait Observable {
     /// Returns paths that can be passed to `query()`.
     fn query_paths(&self) -> &'static [&'static str];
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Value;
+
+    #[test]
+    fn value_conversions_and_display_format_scalars_consistently() {
+        assert_eq!(Value::from(true), Value::Bool(true));
+        assert_eq!(Value::from(0x12u8).to_string(), "0x12");
+        assert_eq!(Value::from(0x1234u16).to_string(), "0x1234");
+        assert_eq!(Value::from(0x1234_5678u32).to_string(), "0x12345678");
+        assert_eq!(Value::from(42u64).to_string(), "42");
+        assert_eq!(Value::from(-5i8).to_string(), "-5");
+        assert_eq!(Value::from("cia").to_string(), "cia");
+    }
+
+    #[test]
+    fn value_display_formats_arrays_recursively() {
+        let value = Value::Array(vec![Value::from(0x12u8), Value::from("agnus")]);
+
+        assert_eq!(value.to_string(), "[0x12, agnus]");
+    }
+}

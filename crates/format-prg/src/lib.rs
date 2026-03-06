@@ -198,4 +198,31 @@ mod tests {
         let vartab = u16::from(vartab_lo) | (u16::from(vartab_hi) << 8);
         assert_eq!(vartab, 0x080D, "start-of-variables should be past end marker");
     }
+
+    #[test]
+    fn non_basic_load_does_not_rewrite_basic_pointers() {
+        let mut ram = TestRam::new();
+        ram.ram_write(0x2D, 0xAA);
+        ram.ram_write(0x2E, 0xBB);
+
+        let addr = load_prg(&mut ram, &[0x00, 0xC0, 0x11, 0x22]).expect("load should succeed");
+
+        assert_eq!(addr, 0xC000);
+        assert_eq!(ram.ram_read(0xC000), 0x11);
+        assert_eq!(ram.ram_read(0xC001), 0x22);
+        assert_eq!(ram.ram_read(0x2D), 0xAA);
+        assert_eq!(ram.ram_read(0x2E), 0xBB);
+    }
+
+    #[test]
+    fn load_prg_wraps_at_end_of_address_space() {
+        let mut ram = TestRam::new();
+
+        let addr = load_prg(&mut ram, &[0xFF, 0xFF, 0x11, 0x22, 0x33]).expect("load should succeed");
+
+        assert_eq!(addr, 0xFFFF);
+        assert_eq!(ram.ram_read(0xFFFF), 0x11);
+        assert_eq!(ram.ram_read(0x0000), 0x22);
+        assert_eq!(ram.ram_read(0x0001), 0x33);
+    }
 }

@@ -211,3 +211,92 @@ impl From<DeniseAga> for InnerDeniseEcs {
         denise.into_inner()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DeniseAga;
+
+    fn make_aga_denise() -> DeniseAga {
+        let mut denise = DeniseAga::new();
+        denise.max_bitplanes = 8;
+        denise
+    }
+
+    #[test]
+    fn set_palette_aga_writes_high_nibbles_into_selected_bank() {
+        let mut denise = make_aga_denise();
+        denise.bplcon3 = 3 << 13; // bank 3, LOCT clear
+
+        denise.set_palette_aga(5, 0x0ABC);
+
+        assert_eq!(denise.palette_24[3 * 32 + 5], 0x00A0B0C0);
+        assert_eq!(denise.palette[5], 0x0ABC);
+    }
+
+    #[test]
+    fn set_palette_aga_low_nibble_mode_merges_with_existing_high_nibbles() {
+        let mut denise = make_aga_denise();
+        denise.bplcon3 = 1 << 13; // bank 1
+        denise.set_palette_aga(2, 0x0123);
+        denise.bplcon3 = (1 << 13) | 0x0200; // same bank, LOCT set
+
+        denise.set_palette_aga(2, 0x0456);
+
+        assert_eq!(denise.palette_24[32 + 2], 0x00142536);
+        assert_eq!(denise.palette[2], 0x0456);
+    }
+
+    #[test]
+    fn resolve_color_rgb24_applies_bplcon4_xor_in_normal_mode() {
+        let mut denise = make_aga_denise();
+        denise.palette_24[0x34] = 0x00112233;
+        denise.bplcon4 = 0x0030;
+
+        let rgb = denise.resolve_color_rgb24(0x04);
+
+        assert_eq!(rgb, 0x00112233);
+    }
+
+    #[test]
+    fn resolve_color_rgb24_ham8_chains_palette_and_channel_modifications() {
+        let mut denise = make_aga_denise();
+        denise.bplcon0 = 0x0810; // HAM + 8 bitplanes
+        denise.palette_24[5] = 0x00112233;
+
+        let palette = denise.resolve_color_rgb24(0x05);
+        assert_eq!(palette, 0x00112233);
+        assert_eq!(denise.ham_prev_rgb24, 0x00112233);
+
+        let red = denise.resolve_color_rgb24(0xAA); // control=10, data=0x2A -> 0xAA
+        assert_eq!(red, 0x00AA2233);
+
+        let green = denise.resolve_color_rgb24(0xEA); // control=11, data=0x2A -> 0xAA
+        assert_eq!(green, 0x00AAAA33);
+
+        let blue = denise.resolve_color_rgb24(0x6A); // control=01, data=0x2A -> 0xAA
+        assert_eq!(blue, 0x00AAAAAA);
+        assert_eq!(denise.ham_prev_rgb24, 0x00AAAAAA);
+    }
+
+    #[test]
+    fn set_sprite_width_from_fmode_decodes_aga_widths() {
+        let mut denise = make_aga_denise();
+
+        for (fmode, expected) in [(0x0000, 16), (0x0004, 32), (0x0008, 32), (0x000C, 64)] {
+            denise.set_sprite_width_from_fmode(fmode);
+            assert_eq!(denise.spr_width, expected, "FMODE={fmode:#06X}");
+        }
+    }
+
+    #[test]
+    fn wide_sprite_writes_pack_words_msb_first_and_arm_data_latch() {
+        let mut denise = make_aga_denise();
+
+        denise.write_sprite_data_wide(3, &[0x1122, 0x3344, 0x5566, 0x7788]);
+        denise.write_sprite_datb_wide(3, &[0x99AA, 0xBBCC, 0xDDEE, 0xFF00]);
+
+        assert_eq!(denise.spr_data[3], 0x1122_3344_5566_7788);
+        assert_eq!(denise.spr_datb[3], 0x99AA_BBCC_DDEE_FF00);
+        assert!(denise.spr_armed[3]);
+    }
+}

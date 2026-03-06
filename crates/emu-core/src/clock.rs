@@ -24,3 +24,17 @@ impl MasterClock {
         Ticks::new(self.frequency_hz / frames_per_second)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::MasterClock;
+    use crate::Ticks;
+
+    #[test]
+    fn ticks_per_frame_uses_integer_division_of_frequency() {
+        let clock = MasterClock::new(3_546_895);
+
+        assert_eq!(clock.frequency_hz, 3_546_895);
+        assert_eq!(clock.ticks_per_frame(50), Ticks::new(70_937));
+    }
+}

@@ -42,3 +42,22 @@ impl core::ops::Sub for Ticks {
         Self(self.0.saturating_sub(rhs.0))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Ticks;
+
+    #[test]
+    fn ticks_support_construction_access_and_arithmetic() {
+        let mut ticks = Ticks::new(10);
+
+        assert_eq!(Ticks::ZERO.get(), 0);
+        assert_eq!(ticks.get(), 10);
+
+        ticks += Ticks::new(5);
+        assert_eq!(ticks.get(), 15);
+        assert_eq!((ticks + Ticks::new(2)).get(), 17);
+        assert_eq!((ticks - Ticks::new(3)).get(), 12);
+        assert_eq!((Ticks::new(2) - Ticks::new(5)).get(), 0);
+    }
+}
