@@ -8,6 +8,11 @@ use std::ops::{Deref, DerefMut};
 
 pub use commodore_denise_ocs::DeniseOcs as InnerDeniseOcs;
 
+const BPLCON0_SHRES: u16 = 0x0040;
+const BPLCON0_BPLHWRM: u16 = 0x0020;
+const BPLCON0_SPRHWRM: u16 = 0x0010;
+const BPLCON3_BRDRBLNK: u16 = 0x0020;
+const BPLCON3_BRDNTRAN: u16 = 0x0010;
 const BPLCON3_KILLEHB: u16 = 0x0200;
 const BPLCON3_ENBPLCN3: u16 = 0x0001;
 
@@ -63,10 +68,42 @@ impl DeniseEcs {
         0x00FC
     }
 
+    /// Whether ECS SuperHires mode is requested in BPLCON0.
+    #[must_use]
+    pub const fn shres_enabled(&self) -> bool {
+        (self.inner.bplcon0 & BPLCON0_SHRES) != 0
+    }
+
+    /// Whether ECS bitplane hardware wrap mode is requested in BPLCON0.
+    #[must_use]
+    pub const fn bplhwrm_enabled(&self) -> bool {
+        (self.inner.bplcon0 & BPLCON0_BPLHWRM) != 0
+    }
+
+    /// Whether ECS sprite hardware wrap mode is requested in BPLCON0.
+    #[must_use]
+    pub const fn sprhwrm_enabled(&self) -> bool {
+        (self.inner.bplcon0 & BPLCON0_SPRHWRM) != 0
+    }
+
     /// Whether the ECS enhanced BPLCON3 register is enabled.
     #[must_use]
     pub const fn bplcon3_extensions_enabled(&self) -> bool {
         (self.bplcon3 & BPLCON3_ENBPLCN3) != 0
+    }
+
+    /// Whether ECS requests a blanked border for genlock overlay.
+    #[must_use]
+    pub const fn border_blank_enabled(&self) -> bool {
+        self.bplcon3_extensions_enabled() && (self.bplcon3 & BPLCON3_BRDRBLNK) != 0
+    }
+
+    /// Whether ECS requests an opaque border unless blanking takes precedence.
+    #[must_use]
+    pub const fn border_opaque_enabled(&self) -> bool {
+        self.bplcon3_extensions_enabled()
+            && !self.border_blank_enabled()
+            && (self.bplcon3 & BPLCON3_BRDNTRAN) != 0
     }
 
     /// Whether ECS requests that EHB decoding be suppressed.
@@ -287,5 +324,36 @@ mod tests {
     fn deniseid_matches_ecs_hrm_value() {
         let denise = DeniseEcs::new();
         assert_eq!(denise.deniseid(), 0x00FC);
+    }
+
+    #[test]
+    fn ecs_bplcon0_mode_bits_are_exposed_via_helpers() {
+        let mut denise = DeniseEcs::new();
+        assert!(!denise.shres_enabled());
+        assert!(!denise.bplhwrm_enabled());
+        assert!(!denise.sprhwrm_enabled());
+
+        denise.bplcon0 = 0x0070;
+
+        assert!(denise.shres_enabled());
+        assert!(denise.bplhwrm_enabled());
+        assert!(denise.sprhwrm_enabled());
+    }
+
+    #[test]
+    fn border_flags_require_enbplcn3_and_blanking_takes_precedence() {
+        let mut denise = DeniseEcs::new();
+
+        denise.bplcon3 = 0x0030;
+        assert!(!denise.border_blank_enabled());
+        assert!(!denise.border_opaque_enabled());
+
+        denise.bplcon3 = 0x0011;
+        assert!(!denise.border_blank_enabled());
+        assert!(denise.border_opaque_enabled());
+
+        denise.bplcon3 = 0x0031;
+        assert!(denise.border_blank_enabled());
+        assert!(!denise.border_opaque_enabled());
     }
 }

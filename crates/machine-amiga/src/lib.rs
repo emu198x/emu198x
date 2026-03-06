@@ -1791,7 +1791,17 @@ impl emu_core::Observable for Amiga {
                     None
                 }
             } else {
-                None
+                match rest {
+                    "bplcon0" => Some(Value::U16(self.denise.bplcon0)),
+                    "bplcon3" => Some(Value::U16(self.denise.bplcon3)),
+                    "mode.shres" => Some(Value::Bool(self.denise.shres_enabled())),
+                    "mode.bplhwrm" => Some(Value::Bool(self.denise.bplhwrm_enabled())),
+                    "mode.sprhwrm" => Some(Value::Bool(self.denise.sprhwrm_enabled())),
+                    "mode.killehb" => Some(Value::Bool(self.denise.killehb_enabled())),
+                    "mode.border_blank" => Some(Value::Bool(self.denise.border_blank_enabled())),
+                    "mode.border_opaque" => Some(Value::Bool(self.denise.border_opaque_enabled())),
+                    _ => None,
+                }
             }
         } else if let Some(rest) = path.strip_prefix("paula.") {
             if let Some(ch_rest) = rest.strip_prefix("audio.") {
@@ -1858,6 +1868,14 @@ impl emu_core::Observable for Amiga {
             "agnus.vpos",
             "agnus.hpos",
             "denise.palette.<0-31>",
+            "denise.bplcon0",
+            "denise.bplcon3",
+            "denise.mode.shres",
+            "denise.mode.bplhwrm",
+            "denise.mode.sprhwrm",
+            "denise.mode.killehb",
+            "denise.mode.border_blank",
+            "denise.mode.border_opaque",
             "paula.intena",
             "paula.intreq",
             "paula.adkcon",
@@ -4217,6 +4235,16 @@ mod tests {
         ));
         assert!(amiga.query("denise.palette.31").is_some());
         assert!(amiga.query("denise.palette.32").is_none());
+        assert!(matches!(amiga.query("denise.bplcon0"), Some(Value::U16(0))));
+        assert!(matches!(amiga.query("denise.bplcon3"), Some(Value::U16(0))));
+        assert!(matches!(
+            amiga.query("denise.mode.shres"),
+            Some(Value::Bool(false))
+        ));
+        assert!(matches!(
+            amiga.query("denise.mode.killehb"),
+            Some(Value::Bool(false))
+        ));
 
         // Paula interrupt registers
         assert!(matches!(amiga.query("paula.intena"), Some(Value::U16(_))));
@@ -4252,5 +4280,45 @@ mod tests {
         // Unknown paths
         assert!(amiga.query("nonexistent").is_none());
         assert!(amiga.query("agnus.nonexistent").is_none());
+    }
+
+    #[test]
+    fn observable_denise_ecs_mode_state_reflects_bplcon_register_bits() {
+        use emu_core::Observable;
+        use emu_core::Value;
+
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+
+        amiga.write_custom_reg(0x100, 0x0070);
+        amiga.write_custom_reg(0x106, 0x0231);
+
+        assert_eq!(amiga.query("denise.bplcon0"), Some(Value::U16(0)));
+        assert_eq!(amiga.query("denise.bplcon3"), Some(Value::U16(0x0231)));
+        assert_eq!(amiga.query("denise.mode.shres"), Some(Value::Bool(false)));
+        assert_eq!(amiga.query("denise.mode.bplhwrm"), Some(Value::Bool(false)));
+        assert_eq!(amiga.query("denise.mode.sprhwrm"), Some(Value::Bool(false)));
+        assert_eq!(amiga.query("denise.mode.killehb"), Some(Value::Bool(true)));
+        assert_eq!(
+            amiga.query("denise.mode.border_blank"),
+            Some(Value::Bool(true))
+        );
+        assert_eq!(
+            amiga.query("denise.mode.border_opaque"),
+            Some(Value::Bool(false))
+        );
+
+        tick_one_cck(&mut amiga);
+        tick_one_cck(&mut amiga);
+
+        assert_eq!(amiga.query("denise.bplcon0"), Some(Value::U16(0x0070)));
+        assert_eq!(amiga.query("denise.mode.shres"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("denise.mode.bplhwrm"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("denise.mode.sprhwrm"), Some(Value::Bool(true)));
     }
 }
