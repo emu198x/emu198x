@@ -54,19 +54,21 @@ script runner after the response comes back.
 
 Methods match the MCP server for each system. Common methods across all four:
 
-| Method | Params | Description |
-|--------|--------|-------------|
-| `boot` | system-specific | Create emulator instance |
-| `reset` | — | Reset CPU |
-| `run_frames` | `count` | Run N frames |
-| `step_instruction` | — | Step one instruction |
-| `step_ticks` | `count` | Step N master clock ticks |
-| `screenshot` | `save_path` (optional) | Capture PNG |
-| `audio_capture` | `frames`, `save_path` | Capture WAV |
-| `query` | `path` | Query observable state |
-| `query_memory` | `address`, `length` | Read memory bytes |
-| `poke` | `address`, `value` | Write memory byte |
-| `set_breakpoint` | `address`, `max_frames` | Run until PC hits address |
+| Method             | Params                   | Description               |
+| ------------------ | ------------------------ | ------------------------- |
+| `boot`             | system-specific          | Create emulator instance  |
+| `reset`            | —                        | Reset CPU                 |
+| `run_frames`       | `count`                  | Run N frames              |
+| `step_instruction` | —                        | Step one instruction      |
+| `step_ticks`       | `count`                  | Step N master clock ticks |
+| `screenshot`       | `save_path` (optional)   | Capture PNG               |
+| `start_recording`  | `video`, `audio`, `path` | Begin video or AV capture |
+| `stop_recording`   | —                        | End current recording     |
+| `audio_capture`    | `frames`, `save_path`    | Capture WAV               |
+| `query`            | `path`                   | Query observable state    |
+| `query_memory`     | `address`, `length`      | Read memory bytes         |
+| `poke`             | `address`, `value`       | Write memory byte         |
+| `set_breakpoint`   | `address`, `max_frames`  | Run until PC hits address |
 
 ### System-specific methods
 

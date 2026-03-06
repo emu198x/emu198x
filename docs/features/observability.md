@@ -21,54 +21,54 @@ Observability is a core design goal, not an afterthought. Every emulator exposes
 
 ### CPU
 
-| Property | Description |
-|----------|-------------|
-| `pc` | Program counter |
-| `sp` | Stack pointer |
-| `registers` | All CPU registers |
-| `flags` | Status flags |
-| `current_instruction` | Opcode being executed |
+| Property               | Description                   |
+| ---------------------- | ----------------------------- |
+| `pc`                   | Program counter               |
+| `sp`                   | Stack pointer                 |
+| `registers`            | All CPU registers             |
+| `flags`                | Status flags                  |
+| `current_instruction`  | Opcode being executed         |
 | `cycle_in_instruction` | Which cycle of multi-cycle op |
-| `halted` | CPU halted/waiting |
-| `interrupt_pending` | Pending interrupt state |
+| `halted`               | CPU halted/waiting            |
+| `interrupt_pending`    | Pending interrupt state       |
 
 ### Memory
 
-| Property | Description |
-|----------|-------------|
-| `read(address)` | Read byte |
-| `read_range(address, length)` | Read range |
-| `bank_state` | Current bank configuration |
-| `last_access` | Most recent read/write |
+| Property                      | Description                |
+| ----------------------------- | -------------------------- |
+| `read(address)`               | Read byte                  |
+| `read_range(address, length)` | Read range                 |
+| `bank_state`                  | Current bank configuration |
+| `last_access`                 | Most recent read/write     |
 
 ### Video Chip
 
-| Property | Description |
-|----------|-------------|
-| `raster_line` | Current scanline |
-| `raster_cycle` | Cycle within scanline |
-| `frame_number` | Frame counter |
-| `registers` | All video registers |
-| `palette` | Current colour palette |
-| `sprite_state` | Per-sprite state |
-| `framebuffer` | Current pixel buffer |
+| Property       | Description            |
+| -------------- | ---------------------- |
+| `raster_line`  | Current scanline       |
+| `raster_cycle` | Cycle within scanline  |
+| `frame_number` | Frame counter          |
+| `registers`    | All video registers    |
+| `palette`      | Current colour palette |
+| `sprite_state` | Per-sprite state       |
+| `framebuffer`  | Current pixel buffer   |
 
 ### Audio Chip
 
-| Property | Description |
-|----------|-------------|
-| `channels` | Per-channel state |
-| `registers` | All audio registers |
-| `output_buffer` | Recent audio samples |
-| `waveform` | Current waveform data |
+| Property        | Description           |
+| --------------- | --------------------- |
+| `channels`      | Per-channel state     |
+| `registers`     | All audio registers   |
+| `output_buffer` | Recent audio samples  |
+| `waveform`      | Current waveform data |
 
 ### Timing
 
-| Property | Description |
-|----------|-------------|
+| Property       | Description          |
+| -------------- | -------------------- |
 | `master_clock` | Crystal tick counter |
-| `cpu_cycle` | CPU cycle counter |
-| `frame_cycle` | Cycle within frame |
+| `cpu_cycle`    | CPU cycle counter    |
+| `frame_cycle`  | Cycle within frame   |
 
 ## Query Interface
 
@@ -171,12 +171,12 @@ pub struct TraceFilter {
 
 ### Types
 
-| Type | Trigger |
-|------|---------|
-| Execution | PC reaches address |
-| Read | Memory read from address |
-| Write | Memory write to address |
-| Change | Value at address changes |
+| Type      | Trigger                          |
+| --------- | -------------------------------- |
+| Execution | PC reaches address               |
+| Read      | Memory read from address         |
+| Write     | Memory write to address          |
+| Change    | Value at address changes         |
 | Condition | Custom expression evaluates true |
 
 ### Breakpoint Structure
@@ -236,6 +236,7 @@ C005  60        RTS           ; 6 cycles
 ### Memory View
 
 Display memory as:
+
 - Hex dump with ASCII
 - Disassembly
 - Bitmap (for screen memory)

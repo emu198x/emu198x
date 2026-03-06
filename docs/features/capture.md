@@ -1,18 +1,33 @@
 # Capture
 
-> **Design spec.** Screenshots (PNG), audio (WAV), and video (MP4) capture work
-> via MCP tools and `--script` / `--headless` CLI flags. The `emu198x-cli`
-> command shown below does not exist — use each system's runner binary with
-> `--script` or `--mcp` instead. See [scripting.md](scripting.md) for the
-> actual capture workflow.
+> **Design spec with partial implementation.** Capture works today through the
+> per-system runners plus MCP or script methods. Shell snippets labeled
+> `Planned unified CLI` show the intended UX for a future wrapper command; that
+> command does not exist today.
 
 ## Overview
 
 Screenshots, video recording, and audio capture for content creation and documentation.
 
+## Current Workflow
+
+Use the per-system runner binaries directly. For batch capture, run
+`--script <file.json>` with the methods documented in
+[scripting.md](scripting.md). For interactive clients, use the capture methods
+in [mcp.md](mcp.md).
+
+| Need                  | Current path                                         |
+| --------------------- | ---------------------------------------------------- |
+| Screenshot PNG        | `screenshot` via script or MCP                       |
+| WAV capture           | `audio_capture` via script or MCP                    |
+| Video or AV recording | `start_recording` / `stop_recording` via MCP/script  |
+
+All remaining shell snippets in this file use the planned unified CLI form
+rather than the current runner commands.
+
 ## Screenshots
 
-### CLI
+### Planned Unified CLI
 
 ```bash
 emu198x-cli -s c64 screenshot output.png
@@ -22,22 +37,22 @@ emu198x-cli -s c64 screenshot --scale 2 output.png
 
 ### Formats
 
-| Format | Extension | Notes |
-|--------|-----------|-------|
-| PNG | .png | Recommended, lossless |
-| BMP | .bmp | Uncompressed |
-| JPEG | .jpg | Lossy, not recommended |
-| WebP | .webp | Good for web |
+| Format | Extension | Notes                  |
+| ------ | --------- | ---------------------- |
+| PNG    | .png      | Recommended, lossless  |
+| BMP    | .bmp      | Uncompressed           |
+| JPEG   | .jpg      | Lossy, not recommended |
+| WebP   | .webp     | Good for web           |
 
 ### Options
 
-| Option | Description |
-|--------|-------------|
-| `--format` | Output format |
-| `--scale` | Integer scale factor |
-| `--aspect` | Apply correct aspect ratio |
-| `--border` | Include border area |
-| `--palette` | Use specific palette |
+| Option      | Description                |
+| ----------- | -------------------------- |
+| `--format`  | Output format              |
+| `--scale`   | Integer scale factor       |
+| `--aspect`  | Apply correct aspect ratio |
+| `--border`  | Include border area        |
+| `--palette` | Use specific palette       |
 
 ### Programmatic
 
@@ -54,7 +69,7 @@ let png_bytes = emulator.screenshot_png_scaled(2)?;
 
 ## Video Recording
 
-### CLI
+### Planned Unified CLI
 
 ```bash
 # Start recording
@@ -72,23 +87,23 @@ emu198x-cli -s c64 \
 
 ### Formats
 
-| Format | Codec | Notes |
-|--------|-------|-------|
-| MP4 | H.264 | Wide compatibility |
-| WebM | VP9 | Web-optimised |
-| GIF | GIF | Simple animations |
-| AVI | Uncompressed | Editing |
+| Format | Codec        | Notes              |
+| ------ | ------------ | ------------------ |
+| MP4    | H.264        | Wide compatibility |
+| WebM   | VP9          | Web-optimised      |
+| GIF    | GIF          | Simple animations  |
+| AVI    | Uncompressed | Editing            |
 
 ### Options
 
-| Option | Description |
-|--------|-------------|
-| `--format` | Container format |
-| `--codec` | Video codec |
-| `--fps` | Frame rate (default: native) |
-| `--scale` | Integer scale |
-| `--audio` | Include audio |
-| `--bitrate` | Video bitrate |
+| Option      | Description                  |
+| ----------- | ---------------------------- |
+| `--format`  | Container format             |
+| `--codec`   | Video codec                  |
+| `--fps`     | Frame rate (default: native) |
+| `--scale`   | Integer scale                |
+| `--audio`   | Include audio                |
+| `--bitrate` | Video bitrate                |
 
 ### GIF Creation
 
@@ -121,7 +136,7 @@ emulator.stop_recording()?;
 
 ## Audio Capture
 
-### CLI
+### Planned Unified CLI
 
 ```bash
 # Standalone audio
@@ -133,20 +148,20 @@ emu198x-cli -s c64 record start output.mp4 --audio
 
 ### Formats
 
-| Format | Notes |
-|--------|-------|
-| WAV | Uncompressed PCM |
-| FLAC | Lossless compressed |
-| OGG | Lossy, smaller |
-| MP3 | Lossy, compatible |
+| Format | Notes               |
+| ------ | ------------------- |
+| WAV    | Uncompressed PCM    |
+| FLAC   | Lossless compressed |
+| OGG    | Lossy, smaller      |
+| MP3    | Lossy, compatible   |
 
 ### Options
 
-| Option | Description |
-|--------|-------------|
-| `--format` | Audio format |
+| Option          | Description                  |
+| --------------- | ---------------------------- |
+| `--format`      | Audio format                 |
 | `--sample-rate` | Sample rate (default: 48000) |
-| `--channels` | Mono/stereo |
+| `--channels`    | Mono/stereo                  |
 
 ### Programmatic
 
@@ -179,12 +194,12 @@ let frame = emulator.grab_frame();
 
 Native resolutions don't match display aspect ratios:
 
-| System | Native | Display | Correction |
-|--------|--------|---------|------------|
-| Spectrum | 256×192 | 4:3 | 1.25× width |
-| C64 | 320×200 | 4:3 | 1.2× height |
-| NES | 256×240 | 4:3 | 1.14× width |
-| Amiga | 320×256 | 4:3 | 1.04× width |
+| System   | Native  | Display | Correction  |
+| -------- | ------- | ------- | ----------- |
+| Spectrum | 256×192 | 4:3     | 1.25× width |
+| C64      | 320×200 | 4:3     | 1.2× height |
+| NES      | 256×240 | 4:3     | 1.14× width |
+| Amiga    | 320×256 | 4:3     | 1.04× width |
 
 ### With Aspect Correction
 
@@ -255,11 +270,11 @@ emu198x-cli -s c64 screenshot --border none output.png
 
 ### Sizes with Border
 
-| System | No Border | Visible Border | Full Overscan |
-|--------|-----------|----------------|---------------|
-| Spectrum | 256×192 | 320×240 | 352×288 |
-| C64 | 320×200 | 384×272 | 400×284 |
-| NES | 256×224 | 256×240 | 280×262 |
+| System   | No Border | Visible Border | Full Overscan |
+| -------- | --------- | -------------- | ------------- |
+| Spectrum | 256×192   | 320×240        | 352×288       |
+| C64      | 320×200   | 384×272        | 400×284       |
+| NES      | 256×224   | 256×240        | 280×262       |
 
 ## Batch Capture
 

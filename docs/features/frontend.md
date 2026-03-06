@@ -8,18 +8,21 @@
 ## Overview
 
 Each system is a **separate binary**:
+
 - `emu-spectrum`
 - `emu-c64`
 - `emu-nes`
 - `amiga-runner`
 
 Each binary provides:
+
 - System launcher with variant/option selection
 - Visual media controls (tape deck, disk drive)
 - Input configuration
 - Display and audio output
 
 Multiple frontend targets share the same interaction model:
+
 - **Native** — Desktop app (Linux, macOS, Windows)
 - **Web** — Browser via WASM (one per system)
 - **Headless** — CLI and MCP for automation
@@ -159,12 +162,14 @@ Each binary opens with a launcher screen for that system. This is where you conf
 ### Launcher Behaviours
 
 **"Load File..." button:**
+
 - Opens file picker
 - Auto-detects media type
 - Can influence variant selection (128K-only game suggests 128K)
 - Goes straight to emulation after selection
 
 **Command-line bypass:**
+
 ```bash
 # Skip launcher, use defaults
 emu-spectrum --start game.tap
@@ -177,11 +182,13 @@ emu-spectrum game.tap
 ```
 
 **"Start" button:**
+
 - Boots system with selected configuration
 - No media loaded (unless file was selected)
 - Shows main emulator window
 
 **Recent list:**
+
 - Remembers media + configuration pairs
 - Click to launch directly with that config
 
@@ -189,12 +196,12 @@ emu-spectrum game.tap
 
 Selecting a preset fills in the detailed options:
 
-| Preset | Chipset | CPU | Chip RAM | Kickstart |
-|--------|---------|-----|----------|-----------|
-| A500 | OCS | 68000 | 512K | 1.3 |
-| A500+ | ECS | 68000 | 1M | 2.04 |
-| A600 | ECS | 68000 | 2M | 2.05 |
-| A1200 | AGA | 68020 | 2M | 3.0/3.1 |
+| Preset | Chipset | CPU   | Chip RAM | Kickstart |
+| ------ | ------- | ----- | -------- | --------- |
+| A500   | OCS     | 68000 | 512K     | 1.3       |
+| A500+  | ECS     | 68000 | 1M       | 2.04      |
+| A600   | ECS     | 68000 | 2M       | 2.05      |
+| A1200  | AGA     | 68020 | 2M       | 3.0/3.1   |
 
 Selecting "Custom..." enables all dropdowns for manual configuration (accelerator cards, expanded RAM, etc.).
 
@@ -232,6 +239,7 @@ The picker is minimal — just choose a system, then spawn its binary:
 ```
 
 This wrapper does **not** contain emulation code. It just:
+
 1. Detects file type (by extension or header)
 2. Execs the appropriate binary with the file as argument
 
@@ -266,6 +274,7 @@ The real configuration happens in each system's own launcher.
 ```
 
 **Controls:**
+
 - ⏮ Rewind to start
 - ⏪ Rewind (fast)
 - ▶ Play
@@ -274,16 +283,19 @@ The real configuration happens in each system's own launcher.
 - ⏏ Eject
 
 **Drag and drop:**
+
 - Drop .tap, .tzx, .t64 onto tape deck
 - Visual feedback when dragging over valid target
 
 **Status:**
+
 - Current file name
 - Block number (for multi-block tapes)
 - Progress bar
 - Motor indicator (spinning when active)
 
 **Automation equivalent:**
+
 ```rust
 emulator.tape_insert("game.tap")?;
 emulator.tape_play();
@@ -310,6 +322,7 @@ emulator.tape_eject();
 ```
 
 **For Amiga (multiple drives):**
+
 ```
 ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
 │   DF0:   │ │   DF1:   │ │   DF2:   │ │   DF3:   │
@@ -322,16 +335,19 @@ emulator.tape_eject();
 ```
 
 **Status:**
+
 - Disk label/filename
 - Activity LED
 - Track position (where head is)
 - Motor status
 
 **Drag and drop:**
+
 - Drop .d64, .g64, .adf, .adz, .ipf onto drive
 - For multi-drive systems, drop onto specific drive
 
 **Automation equivalent:**
+
 ```rust
 emulator.disk_insert("df0", "game.adf")?;
 // ... emulation runs ...
@@ -399,6 +415,7 @@ Physical keyboard to emulated keyboard. Most keys map directly, but some need co
 ```
 
 **Modes:**
+
 - **Positional** — Keys match physical position (UK layout maps to Spectrum layout)
 - **Symbolic** — Keys match symbol (pressing @ produces @, wherever it is)
 - **Custom** — User-defined mapping
@@ -431,6 +448,7 @@ Map physical input (keyboard, gamepad) to emulated joystick:
 ```
 
 **Supported inputs:**
+
 - Keyboard (configurable keys)
 - Gamepad (auto-detected, configurable)
 - Touch (on-screen controls for mobile/tablet)
@@ -578,17 +596,18 @@ File → New Session (or Ctrl+N) returns to the launcher screen for that system,
 
 ### Supported Operations
 
-| Drop Target | Accepted Files | Action |
-|-------------|---------------|--------|
-| Tape deck | .tap, .tzx, .t64, .wav | Insert tape |
-| Disk drive | .d64, .g64, .adf, .adz, .ipf | Insert disk |
-| Cartridge slot | .nes, .crt, .rom | Insert cartridge (prompt reset) |
-| Main window | Any supported | Auto-detect and insert |
-| System picker | Any supported | Launch with that media |
+| Drop Target    | Accepted Files               | Action                          |
+| -------------- | ---------------------------- | ------------------------------- |
+| Tape deck      | .tap, .tzx, .t64, .wav       | Insert tape                     |
+| Disk drive     | .d64, .g64, .adf, .adz, .ipf | Insert disk                     |
+| Cartridge slot | .nes, .crt, .rom             | Insert cartridge (prompt reset) |
+| Main window    | Any supported                | Auto-detect and insert          |
+| System picker  | Any supported                | Launch with that media          |
 
 ### Visual Feedback
 
 When dragging:
+
 - Valid target highlights (green border)
 - Invalid target shows "not allowed" cursor
 - Drop zone text: "Drop to insert tape"
@@ -596,6 +615,7 @@ When dragging:
 ### Auto-Detection
 
 Dropping on main window (not specific device):
+
 1. Detect file type from extension/header
 2. Find appropriate slot
 3. If ambiguous (multiple drives), prompt user
@@ -604,6 +624,7 @@ Dropping on main window (not specific device):
 ## Menus
 
 ### File Menu
+
 ```
 File
 ├── New Session                Ctrl+N    ← Return to launcher
@@ -622,6 +643,7 @@ File
 ```
 
 ### System Menu
+
 ```
 System
 ├── Reset (Soft)               Ctrl+R
@@ -643,6 +665,7 @@ System
 ```
 
 ### Media Menu
+
 ```
 Media
 ├── Tape                      →
@@ -664,37 +687,38 @@ Media
 
 ## Keyboard Shortcuts
 
-| Action | Shortcut |
-|--------|----------|
-| Open file | Ctrl+O |
-| Screenshot | Ctrl+P / F12 |
-| Fullscreen | F11 |
-| Pause | Pause / F9 |
-| Soft reset | Ctrl+R |
-| Hard reset | Ctrl+Shift+R |
-| Save state | Ctrl+1 through Ctrl+9 |
-| Load state | Alt+1 through Alt+9 |
-| Tape play | Ctrl+F1 |
-| Tape stop | Ctrl+F2 |
-| Swap joystick ports | Ctrl+J |
-| Release mouse | Escape |
+| Action              | Shortcut              |
+| ------------------- | --------------------- |
+| Open file           | Ctrl+O                |
+| Screenshot          | Ctrl+P / F12          |
+| Fullscreen          | F11                   |
+| Pause               | Pause / F9            |
+| Soft reset          | Ctrl+R                |
+| Hard reset          | Ctrl+Shift+R          |
+| Save state          | Ctrl+1 through Ctrl+9 |
+| Load state          | Alt+1 through Alt+9   |
+| Tape play           | Ctrl+F1               |
+| Tape stop           | Ctrl+F2               |
+| Swap joystick ports | Ctrl+J                |
+| Release mouse       | Escape                |
 
 ## Automation Compatibility
 
 Every UI action has a programmatic equivalent:
 
-| UI Action | CLI | MCP | Rust API |
-|-----------|-----|-----|----------|
-| Click Play on tape | `tape play` | `tape_play` | `emulator.tape_play()` |
-| Drag file to drive | `load --slot drive8 file.d64` | `insert_media` | `emulator.disk_insert()` |
-| Press joystick fire | `joy 2 fire` | `joystick` | `emulator.input()` |
-| Change speed | `--speed 200` | `set_speed` | `emulator.set_speed()` |
+| UI Action           | CLI                           | MCP            | Rust API                 |
+| ------------------- | ----------------------------- | -------------- | ------------------------ |
+| Click Play on tape  | `tape play`                   | `tape_play`    | `emulator.tape_play()`   |
+| Drag file to drive  | `load --slot drive8 file.d64` | `insert_media` | `emulator.disk_insert()` |
+| Press joystick fire | `joy 2 fire`                  | `joystick`     | `emulator.input()`       |
+| Change speed        | `--speed 200`                 | `set_speed`    | `emulator.set_speed()`   |
 
 The UI is a visual representation of the same operations the headless modes provide.
 
 ## Web Frontend Specifics
 
 WASM builds are **per-system**. Each system is a separate JS/WASM package:
+
 - `emu-spectrum-wasm`
 - `emu-c64-wasm`
 - `emu-nes-wasm`
@@ -790,6 +814,7 @@ On-screen joystick for mobile:
 Recommended: **egui** (immediate mode, Rust native, cross-platform)
 
 Alternatives:
+
 - iced (Elm-like, more structured)
 - gtk-rs (native look, more complex)
 - Tauri (web tech in native shell)
@@ -827,6 +852,7 @@ loop {
 ### Input Latency
 
 Input must be low-latency:
+
 - Capture input in UI thread
 - Queue for emulator thread
 - Process at start of next frame

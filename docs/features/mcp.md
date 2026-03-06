@@ -31,6 +31,7 @@ The MCP server is a thin translation layer. It does not contain emulation logic.
 ### System Control
 
 #### `boot`
+
 Start the emulator.
 
 ```json
@@ -42,6 +43,7 @@ Start the emulator.
 ```
 
 #### `reset`
+
 Reset to initial state.
 
 ```json
@@ -51,11 +53,13 @@ Reset to initial state.
 ```
 
 #### `shutdown`
+
 Stop the emulator.
 
 ### Media
 
 #### `insert_media`
+
 Insert disk, tape, or cartridge.
 
 ```json
@@ -66,6 +70,7 @@ Insert disk, tape, or cartridge.
 ```
 
 #### `eject_media`
+
 Remove media from slot.
 
 ```json
@@ -77,6 +82,7 @@ Remove media from slot.
 ### Execution
 
 #### `run`
+
 Run continuously.
 
 ```json
@@ -86,6 +92,7 @@ Run continuously.
 ```
 
 #### `run_frames`
+
 Run for N frames.
 Either `count` or `frames` may be provided.
 
@@ -96,6 +103,7 @@ Either `count` or `frames` may be provided.
 ```
 
 #### `run_ticks`
+
 Run for N crystal ticks.
 
 ```json
@@ -105,6 +113,7 @@ Run for N crystal ticks.
 ```
 
 #### `step`
+
 Step by instruction, cycle, or tick.
 
 ```json
@@ -115,14 +124,17 @@ Step by instruction, cycle, or tick.
 ```
 
 #### `pause`
+
 Pause execution.
 
 ### State Inspection
 
 #### `query_registers`
+
 Get CPU register state.
 
 Response:
+
 ```json
 {
   "pc": 49152,
@@ -143,6 +155,7 @@ Response:
 ```
 
 #### `query_memory`
+
 Read memory range.
 
 ```json
@@ -153,6 +166,7 @@ Read memory range.
 ```
 
 Response:
+
 ```json
 {
   "address": 53280,
@@ -161,9 +175,11 @@ Response:
 ```
 
 #### `get_screen_text`
+
 Read the text screen as rows of ASCII.
 
 Response:
+
 ```json
 {
   "rows": 25,
@@ -178,9 +194,11 @@ Response:
 ```
 
 #### `boot_detected`
+
 Check whether the boot banner is present on the text screen.
 
 Response:
+
 ```json
 {
   "boot_detected": true,
@@ -189,9 +207,11 @@ Response:
 ```
 
 #### `boot_status`
+
 Return boot detection along with screen contents and frame count.
 
 Response:
+
 ```json
 {
   "boot_detected": true,
@@ -209,9 +229,11 @@ Response:
 ```
 
 #### `query_video`
+
 Get video chip state.
 
 Response (C64 example):
+
 ```json
 {
   "raster_line": 156,
@@ -224,9 +246,11 @@ Response (C64 example):
 ```
 
 #### `query_audio`
+
 Get audio chip state.
 
 Response (C64 example):
+
 ```json
 {
   "voices": [
@@ -240,6 +264,7 @@ Response (C64 example):
 ```
 
 #### `disassemble`
+
 Disassemble memory region.
 
 ```json
@@ -250,6 +275,7 @@ Disassemble memory region.
 ```
 
 Response:
+
 ```json
 {
   "instructions": [
@@ -262,6 +288,7 @@ Response:
 ### Memory Modification
 
 #### `poke`
+
 Write to memory.
 
 ```json
@@ -272,6 +299,7 @@ Write to memory.
 ```
 
 #### `inject`
+
 Load binary into memory.
 
 ```json
@@ -284,6 +312,7 @@ Load binary into memory.
 ### Input
 
 #### `key_down`
+
 Press key.
 
 ```json
@@ -293,6 +322,7 @@ Press key.
 ```
 
 #### `key_up`
+
 Release key.
 
 ```json
@@ -302,6 +332,7 @@ Release key.
 ```
 
 #### `type_text`
+
 Type string (handles key timing).
 
 ```json
@@ -311,6 +342,7 @@ Type string (handles key timing).
 ```
 
 #### `joystick`
+
 Set joystick state.
 
 ```json
@@ -327,6 +359,7 @@ Set joystick state.
 ### Breakpoints
 
 #### `add_breakpoint`
+
 Set breakpoint.
 
 ```json
@@ -338,6 +371,7 @@ Set breakpoint.
 ```
 
 Response:
+
 ```json
 {
   "id": 1
@@ -345,6 +379,7 @@ Response:
 ```
 
 #### `remove_breakpoint`
+
 Clear breakpoint.
 
 ```json
@@ -354,14 +389,17 @@ Clear breakpoint.
 ```
 
 #### `list_breakpoints`
+
 Get all breakpoints.
 
 ### Capture
 
 #### `screenshot`
+
 Capture current frame.
 
 Response:
+
 ```json
 {
   "format": "png",
@@ -372,6 +410,7 @@ Response:
 ```
 
 #### `start_recording`
+
 Begin video/audio capture.
 
 ```json
@@ -383,11 +422,13 @@ Begin video/audio capture.
 ```
 
 #### `stop_recording`
+
 End capture.
 
 ### Save States
 
 #### `save_state`
+
 Save emulator state.
 
 ```json
@@ -397,6 +438,7 @@ Save emulator state.
 ```
 
 #### `load_state`
+
 Restore emulator state.
 
 ```json
@@ -410,6 +452,7 @@ Restore emulator state.
 The MCP server can emit events:
 
 ### `breakpoint_hit`
+
 ```json
 {
   "breakpoint_id": 1,
@@ -419,6 +462,7 @@ The MCP server can emit events:
 ```
 
 ### `frame_complete`
+
 ```json
 {
   "frame_number": 1234
@@ -426,6 +470,7 @@ The MCP server can emit events:
 ```
 
 ### `error`
+
 ```json
 {
   "message": "Invalid memory address"

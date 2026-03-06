@@ -2,14 +2,14 @@
 
 ## Overview
 
-| Property | Value |
-|----------|-------|
-| CPU | Zilog Z80A @ 3.5 MHz |
-| Crystal | 14.000 MHz (14.112 MHz on some) |
-| RAM | 16K or 48K (128K on later models) |
-| Video | ULA, 256×192, 15 colours |
-| Audio | 1-bit beeper (AY-3-8912 on 128K) |
-| Release | 1982 |
+| Property | Value                             |
+| -------- | --------------------------------- |
+| CPU      | Zilog Z80A @ 3.5 MHz              |
+| Crystal  | 14.000 MHz (14.112 MHz on some)   |
+| RAM      | 16K or 48K (128K on later models) |
+| Video    | ULA, 256×192, 15 colours          |
+| Audio    | 1-bit beeper (AY-3-8912 on 128K)  |
+| Release  | 1982                              |
 
 ## Timing
 
@@ -23,34 +23,35 @@ Crystal: 14.000 MHz
 
 ### Frame Timing (48K PAL)
 
-| Property | Value |
-|----------|-------|
-| T-states per line | 224 |
-| Lines per frame | 312 |
-| T-states per frame | 69888 |
-| Frame rate | 50.08 Hz |
-| CPU clock | 3.5 MHz |
+| Property           | Value    |
+| ------------------ | -------- |
+| T-states per line  | 224      |
+| Lines per frame    | 312      |
+| T-states per frame | 69888    |
+| Frame rate         | 50.08 Hz |
+| CPU clock          | 3.5 MHz  |
 
 ### Scanline Breakdown
 
-| T-states | Event |
-|----------|-------|
-| 0-127 | Screen area (128 pixels) |
-| 128-175 | Right border (48 pixels) |
-| 176-207 | Horizontal blank (32 pixels) |
-| 208-223 | Left border (16 pixels) |
+| T-states | Event                        |
+| -------- | ---------------------------- |
+| 0-127    | Screen area (128 pixels)     |
+| 128-175  | Right border (48 pixels)     |
+| 176-207  | Horizontal blank (32 pixels) |
+| 208-223  | Left border (16 pixels)      |
 
 ### Vertical Breakdown
 
-| Lines | Region |
-|-------|--------|
-| 0-63 | Top border |
-| 64-255 | Screen area (192 lines) |
-| 256-311 | Bottom border + VBlank |
+| Lines   | Region                  |
+| ------- | ----------------------- |
+| 0-63    | Top border              |
+| 64-255  | Screen area (192 lines) |
+| 256-311 | Bottom border + VBlank  |
 
 ### Phase Relationship
 
 ULA and CPU both derive from the 14 MHz crystal:
+
 - ULA ticks on crystal cycles 0, 2, 4, 6... (every 2)
 - CPU ticks on crystal cycles 0, 4, 8, 12... (every 4)
 
@@ -64,12 +65,12 @@ CPU:     |*|.|.|.|*|.|.|.|*|.|.|.|*|.|.|.|
 
 ### 48K Spectrum
 
-| Address | Size | Contents |
-|---------|------|----------|
-| $0000-$3FFF | 16K | ROM |
-| $4000-$57FF | 6K | Screen bitmap |
-| $5800-$5AFF | 768 | Attributes |
-| $5B00-$FFFF | 42K | RAM |
+| Address     | Size | Contents      |
+| ----------- | ---- | ------------- |
+| $0000-$3FFF | 16K  | ROM           |
+| $4000-$57FF | 6K   | Screen bitmap |
+| $5800-$5AFF | 768  | Attributes    |
+| $5B00-$FFFF | 42K  | RAM           |
 
 ### Screen Memory Layout
 
@@ -80,6 +81,7 @@ Address = $4000 + ((Y & 0xC0) << 5) + ((Y & 0x07) << 8) + ((Y & 0x38) << 2) + X
 ```
 
 Or in thirds:
+
 - Lines 0-63: $4000-$47FF
 - Lines 64-127: $4800-$4FFF
 - Lines 128-191: $5000-$57FF
@@ -117,18 +119,19 @@ The ULA handles video generation, keyboard, tape, and beeper.
 **Read (keyboard):**
 Address lines A8-A15 select keyboard half-rows.
 
-| A15-A8 | Row | Keys |
-|--------|-----|------|
-| $FE | 0 | CAPS SHIFT, Z, X, C, V |
-| $FD | 1 | A, S, D, F, G |
-| $FB | 2 | Q, W, E, R, T |
-| $F7 | 3 | 1, 2, 3, 4, 5 |
-| $EF | 4 | 0, 9, 8, 7, 6 |
-| $DF | 5 | P, O, I, U, Y |
-| $BF | 6 | ENTER, L, K, J, H |
-| $7F | 7 | SPACE, SYM SHIFT, M, N, B |
+| A15-A8 | Row | Keys                      |
+| ------ | --- | ------------------------- |
+| $FE    | 0   | CAPS SHIFT, Z, X, C, V    |
+| $FD    | 1   | A, S, D, F, G             |
+| $FB    | 2   | Q, W, E, R, T             |
+| $F7    | 3   | 1, 2, 3, 4, 5             |
+| $EF    | 4   | 0, 9, 8, 7, 6             |
+| $DF    | 5   | P, O, I, U, Y             |
+| $BF    | 6   | ENTER, L, K, J, H         |
+| $7F    | 7   | SPACE, SYM SHIFT, M, N, B |
 
 **Write:**
+
 ```
 Bits 2-0: Border colour
 Bit 3: MIC output
@@ -142,6 +145,7 @@ During screen fetch, the ULA needs the bus. CPU is delayed if it accesses $4000-
 **Contention pattern (repeating):** 6, 5, 4, 3, 2, 1, 0, 0
 
 This means:
+
 - First contended T-state: wait 6 T-states
 - Second: wait 5
 - ...
@@ -156,16 +160,16 @@ Even I/O addresses (bit 0 = 0) are contended at the ULA port regardless of memor
 
 ### Registers
 
-| Register | Function |
-|----------|----------|
-| 0-1 | Channel A period (12-bit) |
-| 2-3 | Channel B period |
-| 4-5 | Channel C period |
-| 6 | Noise period (5-bit) |
-| 7 | Mixer control |
-| 8-10 | Channel A/B/C volume (4-bit, or envelope) |
-| 11-12 | Envelope period (16-bit) |
-| 13 | Envelope shape |
+| Register | Function                                  |
+| -------- | ----------------------------------------- |
+| 0-1      | Channel A period (12-bit)                 |
+| 2-3      | Channel B period                          |
+| 4-5      | Channel C period                          |
+| 6        | Noise period (5-bit)                      |
+| 7        | Mixer control                             |
+| 8-10     | Channel A/B/C volume (4-bit, or envelope) |
+| 11-12    | Envelope period (16-bit)                  |
+| 13       | Envelope shape                            |
 
 ### I/O Ports
 
@@ -194,6 +198,7 @@ More complex, supports custom loaders, turbo loading, direct recording.
 ### SNA Format (Snapshot)
 
 Fixed 49179 byte format:
+
 - 27 bytes: Header (registers)
 - 49152 bytes: RAM ($4000-$FFFF)
 
@@ -228,3 +233,16 @@ Sinclair ZX Spectrum/Demos/Shock Megademo (1990)(Raww Arse).tap
 3. **Attribute flash** — Alternates every 16 frames.
 4. **128K paging lock** — Once bit 5 is set, only reset unlocks.
 5. **Interrupt timing** — INT fires at specific point in frame, duration matters.
+
+## Emu198x Status
+
+### Current state
+
+Spectrum support is production-ready for 48K, 128K, +2, +2A, and +3 PAL. TZX
+turbo loaders run through real-time EAR signal simulation, and the +3 uPD765
+path supports DSK and EDSK read/write.
+
+### Known gaps
+
+No blocking emulator gaps are currently tracked for the primary Spectrum
+models.

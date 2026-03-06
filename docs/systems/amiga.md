@@ -2,14 +2,14 @@
 
 ## Overview
 
-| Property | Value |
-|----------|-------|
-| CPU | Motorola 68000 @ 7.09 MHz (PAL) |
-| Crystal | 28.37516 MHz (PAL) / 28.63636 MHz (NTSC) |
-| Chip RAM | 512K-2M (depending on model) |
-| Video | OCS/ECS/AGA custom chips |
-| Audio | Paula, 4 channels, 8-bit |
-| Release | 1985 |
+| Property | Value                                    |
+| -------- | ---------------------------------------- |
+| CPU      | Motorola 68000 @ 7.09 MHz (PAL)          |
+| Crystal  | 28.37516 MHz (PAL) / 28.63636 MHz (NTSC) |
+| Chip RAM | 512K-2M (depending on model)             |
+| Video    | OCS/ECS/AGA custom chips                 |
+| Audio    | Paula, 4 channels, 8-bit                 |
+| Release  | 1985                                     |
 
 ## Timing
 
@@ -33,10 +33,10 @@ Crystal: 28.63636 MHz
 
 The **colour clock** (CCK) is the fundamental timing unit for the custom chips. All DMA slots, copper timing, and display events align to colour clocks.
 
-| Region | Colour clock | Cycles per line | Lines per frame |
-|--------|--------------|-----------------|-----------------|
-| PAL | 3.55 MHz | 227.5 | 312.5 (interlaced) |
-| NTSC | 3.58 MHz | 227.5 | 262.5 (interlaced) |
+| Region | Colour clock | Cycles per line | Lines per frame    |
+| ------ | ------------ | --------------- | ------------------ |
+| PAL    | 3.55 MHz     | 227.5           | 312.5 (interlaced) |
+| NTSC   | 3.58 MHz     | 227.5           | 262.5 (interlaced) |
 
 ### CPU Bus Access
 
@@ -56,18 +56,18 @@ CPU clock:    |*|.|.|.|*|.|.|.|  (every 4, when bus free)
 
 ### Address Space (24-bit, 68000)
 
-| Address | Contents |
-|---------|----------|
-| $000000-$07FFFF | Chip RAM (512K) |
+| Address         | Contents                  |
+| --------------- | ------------------------- |
+| $000000-$07FFFF | Chip RAM (512K)           |
 | $080000-$0FFFFF | Extended chip RAM (A500+) |
 | $100000-$1FFFFF | Extended chip RAM (A1200) |
-| $BFD000 | CIA-A (odd addresses) |
-| $BFE001 | CIA-B (even addresses) |
-| $C00000-$DFFFFF | Slow RAM (A500 trapdoor) |
-| $DFF000-$DFF1FF | Custom chip registers |
-| $E00000-$E7FFFF | Reserved |
-| $E80000-$EFFFFF | Autoconfig space |
-| $F00000-$F7FFFF | Reserved |
+| $BFD000         | CIA-A (odd addresses)     |
+| $BFE001         | CIA-B (even addresses)    |
+| $C00000-$DFFFFF | Slow RAM (A500 trapdoor)  |
+| $DFF000-$DFF1FF | Custom chip registers     |
+| $E00000-$E7FFFF | Reserved                  |
+| $E80000-$EFFFFF | Autoconfig space          |
+| $F00000-$F7FFFF | Reserved                  |
 | $F80000-$FFFFFF | Kickstart ROM (256K/512K) |
 
 ### Kickstart Mapping
@@ -81,6 +81,7 @@ CPU clock:    |*|.|.|.|*|.|.|.|  (every 4, when bus free)
 ### Agnus (DMA Controller)
 
 Controls all DMA transfers:
+
 - Bitplane DMA
 - Sprite DMA
 - Blitter
@@ -91,6 +92,7 @@ Controls all DMA transfers:
 ### Denise (Video)
 
 Generates video output:
+
 - Bitplane to pixel conversion
 - Sprite rendering
 - Collision detection
@@ -106,26 +108,26 @@ Generates video output:
 
 ### Frequently Used
 
-| Offset | Name | Access | Function |
-|--------|------|--------|----------|
-| $000 | BLTDDAT | R | Blitter destination data |
-| $004 | VPOSR | R | Vertical beam position (high) |
-| $006 | VHPOSR | R | Vertical/horizontal beam |
-| $02A | VPOSW | W | Vertical beam position write |
-| $02C | COPCON | W | Copper control |
-| $080 | COP1LCH | W | Copper list 1 address high |
-| $082 | COP1LCL | W | Copper list 1 address low |
-| $088 | COPJMP1 | W | Restart copper at COP1LC |
-| $096 | DMACON | W | DMA control |
-| $09A | INTENA | W | Interrupt enable |
-| $09C | INTREQ | W | Interrupt request |
-| $100 | BPLCON0 | W | Bitplane control |
-| $102 | BPLCON1 | W | Bitplane scroll |
-| $104 | BPLCON2 | W | Bitplane priority |
-| $108 | BPL1MOD | W | Bitplane modulo odd |
-| $10A | BPL2MOD | W | Bitplane modulo even |
-| $0E0-$0EE | BPL1PT-BPL6PT | W | Bitplane pointers |
-| $180-$1BE | COLOR00-31 | W | Colour palette |
+| Offset    | Name          | Access | Function                      |
+| --------- | ------------- | ------ | ----------------------------- |
+| $000      | BLTDDAT       | R      | Blitter destination data      |
+| $004      | VPOSR         | R      | Vertical beam position (high) |
+| $006      | VHPOSR        | R      | Vertical/horizontal beam      |
+| $02A      | VPOSW         | W      | Vertical beam position write  |
+| $02C      | COPCON        | W      | Copper control                |
+| $080      | COP1LCH       | W      | Copper list 1 address high    |
+| $082      | COP1LCL       | W      | Copper list 1 address low     |
+| $088      | COPJMP1       | W      | Restart copper at COP1LC      |
+| $096      | DMACON        | W      | DMA control                   |
+| $09A      | INTENA        | W      | Interrupt enable              |
+| $09C      | INTREQ        | W      | Interrupt request             |
+| $100      | BPLCON0       | W      | Bitplane control              |
+| $102      | BPLCON1       | W      | Bitplane scroll               |
+| $104      | BPLCON2       | W      | Bitplane priority             |
+| $108      | BPL1MOD       | W      | Bitplane modulo odd           |
+| $10A      | BPL2MOD       | W      | Bitplane modulo even          |
+| $0E0-$0EE | BPL1PT-BPL6PT | W      | Bitplane pointers             |
+| $180-$1BE | COLOR00-31    | W      | Colour palette                |
 
 ### DMACON ($096)
 
@@ -147,18 +149,21 @@ The copper is a programmable coprocessor that modifies chip registers in sync wi
 ### Instructions
 
 **MOVE:** Write value to register
+
 ```
 First word: Register offset (bits 8-1)
 Second word: Data
 ```
 
 **WAIT:** Wait for beam position
+
 ```
 First word: VP (7-0), HP (7-1), bit 0 = 0
 Second word: VM (7-0), HM (7-1), BFD (bit 15), bit 0 = 0
 ```
 
 **SKIP:** Skip next instruction if beam past position
+
 ```
 First word: VP (7-0), HP (7-1), bit 0 = 0
 Second word: VM (7-0), HM (7-1), BFD (bit 15), bit 0 = 1
@@ -199,6 +204,7 @@ Blitter can draw lines using Bresenham's algorithm in hardware.
 ### Registers
 
 Each sprite has:
+
 - SPRxPT: Pointer to sprite data
 - SPRxPOS: Vertical start, horizontal start
 - SPRxCTL: Vertical stop, control
@@ -212,17 +218,18 @@ Each sprite has:
 
 ### Per-Channel Registers
 
-| Register | Function |
-|----------|----------|
-| AUDxLCH/L | Sample pointer |
-| AUDxLEN | Sample length (words) |
-| AUDxPER | Period (pitch) |
-| AUDxVOL | Volume (0-64) |
-| AUDxDAT | Direct data write |
+| Register  | Function              |
+| --------- | --------------------- |
+| AUDxLCH/L | Sample pointer        |
+| AUDxLEN   | Sample length (words) |
+| AUDxPER   | Period (pitch)        |
+| AUDxVOL   | Volume (0-64)         |
+| AUDxDAT   | Direct data write     |
 
 ### Modulation
 
 Channels can modulate each other:
+
 - Volume modulation
 - Period modulation
 
@@ -232,29 +239,30 @@ Two MOS 8520 chips for I/O.
 
 ### CIA-A ($BFE001, odd addresses)
 
-| Register | Function |
-|----------|----------|
-| PRA | Gameport, disk, LED |
-| PRB | Parallel port |
-| DDRA/B | Data direction |
-| Timer A/B | Timers |
-| TOD | Time of day |
-| ICR | Interrupt control |
+| Register  | Function            |
+| --------- | ------------------- |
+| PRA       | Gameport, disk, LED |
+| PRB       | Parallel port       |
+| DDRA/B    | Data direction      |
+| Timer A/B | Timers              |
+| TOD       | Time of day         |
+| ICR       | Interrupt control   |
 
 ### CIA-B ($BFD000, even addresses)
 
-| Register | Function |
-|----------|----------|
-| PRA | Disk select, motor, direction |
-| PRB | Keyboard data |
-| Timer A/B | Timers |
-| ICR | Interrupt control (triggers NMI) |
+| Register  | Function                         |
+| --------- | -------------------------------- |
+| PRA       | Disk select, motor, direction    |
+| PRB       | Keyboard data                    |
+| Timer A/B | Timers                           |
+| ICR       | Interrupt control (triggers NMI) |
 
 ## Disk
 
 ### MFM Encoding
 
 Data stored using Modified Frequency Modulation:
+
 - Sync word: $4489
 - Sector: Header + data + checksums
 
@@ -272,6 +280,7 @@ Disk DMA transfers raw MFM data. Software decodes.
 ### ADF (Amiga Disk File)
 
 Raw track data, 880K:
+
 ```
 80 tracks × 2 sides × 11 sectors × 512 bytes = 901,120 bytes
 ```
@@ -290,14 +299,14 @@ Hard disk install format for games. Requires Kickstart and WHDLoad package.
 
 ## Kickstart Versions
 
-| Version | Systems |
-|---------|---------|
-| 1.2 | A500, A2000 early |
-| 1.3 | A500, A2000 |
-| 2.04 | A500+ |
-| 2.05 | A600 |
-| 3.0 | A1200, A4000 |
-| 3.1 | A1200, A4000 |
+| Version | Systems           |
+| ------- | ----------------- |
+| 1.2     | A500, A2000 early |
+| 1.3     | A500, A2000       |
+| 2.04    | A500+             |
+| 2.05    | A600              |
+| 3.0     | A1200, A4000      |
+| 3.1     | A1200, A4000      |
 
 Games often require specific minimum Kickstart version.
 
@@ -334,5 +343,45 @@ Commodore Amiga/Demos/Desert Dream (1993)(Kefrens).adf
 
 ## Emu198x Status
 
-See [docs/roadmap.md](../roadmap.md) for current implementation status, boot
-test results, and known gaps.
+### Current state
+
+OCS and ECS Kickstart ROMs boot to insert-disk screen, and Workbench 1.3
+reaches the full desktop on A500. The AGA display path is present with 8
+bitplanes, 24-bit palette, HAM8, and FMODE support. Media support currently
+includes ADF read/write and IPF read.
+
+### Known gaps
+
+Broader Amiga compatibility still depends on support-chip bring-up, AGA model
+boot, and hard-drive infrastructure. WHDLoad needs IDE, filesystem, and
+autoconfig support. Hardware LPF behavior and DAC non-linearity are also not
+fully modeled.
+
+### Kickstart boot status
+
+| ROM         | Model             | Status                                                           |
+| ----------- | ----------------- | ---------------------------------------------------------------- |
+| KS 1.0      | A1000             | In progress (yellow screen; slow RAM path not finished)          |
+| KS 1.2      | A500, A2000       | Booting (insert-disk)                                            |
+| KS 1.3      | A500, A2000       | Booting (insert-disk)                                            |
+| KS 2.04     | A500+             | Booting (insert-disk)                                            |
+| KS 2.05     | A600              | Booting (insert-disk)                                            |
+| KS 3.1      | A500, A600, A2000 | Booting (insert-disk)                                            |
+| KS 2.02/3.1 | A3000             | In progress (reaches STRAP, stalls in device init before SCSI)   |
+| KS 3.0/3.1  | A1200, A4000      | In progress (AGA display path present; boot pipeline incomplete) |
+| WB 1.3      | A500              | Usable with known gaps (full desktop)                            |
+
+### Model snapshot
+
+| Model | Status                 | Notes                                                     |
+| ----- | ---------------------- | --------------------------------------------------------- |
+| A500  | Usable with known gaps | Kickstart insert-disk and Workbench 1.3 desktop validated |
+| A2000 | Booting                | Kickstart insert-disk validated                           |
+| A500+ | Booting                | Kickstart insert-disk validated                           |
+| A600  | Booting                | Kickstart insert-disk validated                           |
+| A1000 | In progress            | Yellow screen; slow RAM path not finished                 |
+| A1200 | In progress            | AGA display path present; boot pipeline incomplete        |
+| A3000 | In progress            | Reaches STRAP; DMAC stub present, stall is pre-SCSI       |
+| A4000 | In progress            | AGA boot path under bring-up                              |
+| CDTV  | Not started            | No model-specific bring-up yet                            |
+| CD32  | Not started            | No Akiko or CD-specific bring-up yet                      |

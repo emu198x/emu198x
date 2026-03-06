@@ -2,14 +2,14 @@
 
 ## Overview
 
-| Property | Value |
-|----------|-------|
-| CPU | Ricoh 2A03 (6502 variant) @ 1.79 MHz |
-| Crystal | 21.477272 MHz (NTSC) / 26.601712 MHz (PAL) |
-| RAM | 2K internal |
-| Video | PPU 2C02, 256×240, 54 colours |
-| Audio | APU (integrated in 2A03) |
-| Release | 1983 (Japan), 1985 (NA) |
+| Property | Value                                      |
+| -------- | ------------------------------------------ |
+| CPU      | Ricoh 2A03 (6502 variant) @ 1.79 MHz       |
+| Crystal  | 21.477272 MHz (NTSC) / 26.601712 MHz (PAL) |
+| RAM      | 2K internal                                |
+| Video    | PPU 2C02, 256×240, 54 colours              |
+| Audio    | APU (integrated in 2A03)                   |
+| Release  | 1983 (Japan), 1985 (NA)                    |
 
 ## Timing
 
@@ -35,25 +35,25 @@ PPU runs at 3.2× CPU rate.
 
 ### Frame Timing (NTSC)
 
-| Property | Value |
-|----------|-------|
-| PPU dots per scanline | 341 |
-| Scanlines per frame | 262 |
-| PPU cycles per frame | 89342 |
-| CPU cycles per frame | 29780.67 |
-| Frame rate | 60.0988 Hz |
+| Property              | Value      |
+| --------------------- | ---------- |
+| PPU dots per scanline | 341        |
+| Scanlines per frame   | 262        |
+| PPU cycles per frame  | 89342      |
+| CPU cycles per frame  | 29780.67   |
+| Frame rate            | 60.0988 Hz |
 
 Note: CPU cycles per frame alternates between 29780 and 29781 (odd/even frames).
 
 ### Frame Timing (PAL)
 
-| Property | Value |
-|----------|-------|
-| PPU dots per scanline | 341 |
-| Scanlines per frame | 312 |
-| PPU cycles per frame | 106392 |
-| CPU cycles per frame | 33247.5 |
-| Frame rate | 50.007 Hz |
+| Property              | Value     |
+| --------------------- | --------- |
+| PPU dots per scanline | 341       |
+| Scanlines per frame   | 312       |
+| PPU cycles per frame  | 106392    |
+| CPU cycles per frame  | 33247.5   |
+| Frame rate            | 50.007 Hz |
 
 ### Phase Relationship
 
@@ -71,29 +71,29 @@ Every CPU cycle spans exactly 3 PPU cycles (NTSC).
 
 ### CPU Memory Map
 
-| Address | Size | Contents |
-|---------|------|----------|
-| $0000-$07FF | 2K | Internal RAM |
-| $0800-$1FFF | — | Mirrors of $0000-$07FF |
-| $2000-$2007 | 8 | PPU registers |
-| $2008-$3FFF | — | Mirrors of $2000-$2007 |
-| $4000-$4017 | 24 | APU and I/O registers |
-| $4018-$401F | 8 | APU test (disabled) |
-| $4020-$FFFF | ~48K | Cartridge space |
+| Address     | Size | Contents               |
+| ----------- | ---- | ---------------------- |
+| $0000-$07FF | 2K   | Internal RAM           |
+| $0800-$1FFF | —    | Mirrors of $0000-$07FF |
+| $2000-$2007 | 8    | PPU registers          |
+| $2008-$3FFF | —    | Mirrors of $2000-$2007 |
+| $4000-$4017 | 24   | APU and I/O registers  |
+| $4018-$401F | 8    | APU test (disabled)    |
+| $4020-$FFFF | ~48K | Cartridge space        |
 
 ### PPU Memory Map
 
-| Address | Size | Contents |
-|---------|------|----------|
-| $0000-$0FFF | 4K | Pattern table 0 (CHR) |
-| $1000-$1FFF | 4K | Pattern table 1 (CHR) |
-| $2000-$23FF | 1K | Nametable 0 |
-| $2400-$27FF | 1K | Nametable 1 |
-| $2800-$2BFF | 1K | Nametable 2 |
-| $2C00-$2FFF | 1K | Nametable 3 |
-| $3000-$3EFF | — | Mirrors of $2000-$2EFF |
-| $3F00-$3F1F | 32 | Palette RAM |
-| $3F20-$3FFF | — | Mirrors of $3F00-$3F1F |
+| Address     | Size | Contents               |
+| ----------- | ---- | ---------------------- |
+| $0000-$0FFF | 4K   | Pattern table 0 (CHR)  |
+| $1000-$1FFF | 4K   | Pattern table 1 (CHR)  |
+| $2000-$23FF | 1K   | Nametable 0            |
+| $2400-$27FF | 1K   | Nametable 1            |
+| $2800-$2BFF | 1K   | Nametable 2            |
+| $2C00-$2FFF | 1K   | Nametable 3            |
+| $3000-$3EFF | —    | Mirrors of $2000-$2EFF |
+| $3F00-$3F1F | 32   | Palette RAM            |
+| $3F20-$3FFF | —    | Mirrors of $3F00-$3F1F |
 
 Note: NES only has 2K of VRAM. Two nametables are mirrors unless cartridge provides extra VRAM.
 
@@ -101,16 +101,16 @@ Note: NES only has 2K of VRAM. Two nametables are mirrors unless cartridge provi
 
 ### Registers
 
-| Address | Name | Access | Function |
-|---------|------|--------|----------|
-| $2000 | PPUCTRL | Write | Control register |
-| $2001 | PPUMASK | Write | Mask register |
-| $2002 | PPUSTATUS | Read | Status register |
-| $2003 | OAMADDR | Write | OAM address |
-| $2004 | OAMDATA | R/W | OAM data |
-| $2005 | PPUSCROLL | Write ×2 | Scroll position |
-| $2006 | PPUADDR | Write ×2 | VRAM address |
-| $2007 | PPUDATA | R/W | VRAM data |
+| Address | Name      | Access   | Function         |
+| ------- | --------- | -------- | ---------------- |
+| $2000   | PPUCTRL   | Write    | Control register |
+| $2001   | PPUMASK   | Write    | Mask register    |
+| $2002   | PPUSTATUS | Read     | Status register  |
+| $2003   | OAMADDR   | Write    | OAM address      |
+| $2004   | OAMDATA   | R/W      | OAM data         |
+| $2005   | PPUSCROLL | Write ×2 | Scroll position  |
+| $2006   | PPUADDR   | Write ×2 | VRAM address     |
+| $2007   | PPUDATA   | R/W      | VRAM data        |
 
 ### PPUCTRL ($2000)
 
@@ -148,6 +148,7 @@ Bit 5: Sprite overflow
 ### Rendering
 
 Each scanline:
+
 1. Cycles 0: Idle
 2. Cycles 1-256: Render pixels (fetch tiles, sprites)
 3. Cycles 257-320: Sprite evaluation for next line
@@ -167,13 +168,13 @@ Set when non-transparent sprite 0 pixel overlaps non-transparent background pixe
 
 ### Channels
 
-| Channel | Type | Registers |
-|---------|------|-----------|
-| Pulse 1 | Square wave | $4000-$4003 |
-| Pulse 2 | Square wave | $4004-$4007 |
-| Triangle | Triangle wave | $4008-$400B |
-| Noise | Noise | $400C-$400F |
-| DMC | Sample playback | $4010-$4013 |
+| Channel  | Type            | Registers   |
+| -------- | --------------- | ----------- |
+| Pulse 1  | Square wave     | $4000-$4003 |
+| Pulse 2  | Square wave     | $4004-$4007 |
+| Triangle | Triangle wave   | $4008-$400B |
+| Noise    | Noise           | $400C-$400F |
+| DMC      | Sample playback | $4010-$4013 |
 
 ### Pulse Channel Registers
 
@@ -297,3 +298,16 @@ Nintendo NES/Games/Super Mario Bros. 3 (1988)(Nintendo).nes [Mapper 4]
 4. **Open bus** — Reads from unmapped addresses return last bus value.
 5. **PPUDATA read buffer** — Reads are delayed by one fetch.
 6. **Odd frame cycle skip** — NTSC skips one PPU cycle on odd frames with rendering enabled.
+
+## Emu198x Status
+
+### Current state
+
+NES and Famicom support is usable for NTSC and PAL cartridge software. Current
+coverage includes 14 mappers, correct DMC DMA cycle stealing with OAM DMA
+interaction, and battery-backed PRG RAM for games that need it.
+
+### Known gaps
+
+Famicom Disk System support is not implemented, so broader compatibility still
+depends on cartridge mapper coverage.
