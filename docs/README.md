@@ -7,6 +7,8 @@ Use this file as the starting point for navigating `docs/`.
 - [roadmap.md](roadmap.md) - active work and current priorities
 - [status.md](status.md) - high-level support snapshot across systems and tooling
 - [inventory.md](inventory.md) - architecture notes, crate inventory, and testing strategy
+- [testing-policy.md](testing-policy.md) - verification standards for components, machines, and runnable packages
+- [testing-audit.md](testing-audit.md) - first-pass crate-by-crate audit against the testing policy
 - [future-systems.md](future-systems.md) - systems explicitly out of scope until the core four are complete
 
 ## System Documentation

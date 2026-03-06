@@ -154,23 +154,20 @@ the current repository still uses older package names.
 
 ## Testing Strategy
 
-### Per-Chip Unit Tests
+The canonical verification standard now lives in
+[testing-policy.md](testing-policy.md).
 
-Every chip crate has `#[cfg(test)]` modules testing behavior in isolation with
-mock buses and inputs: instruction correctness, cycle counting, interrupt
-timing, waveform output, pixel output, and DMA slot allocation.
+In short:
 
-### Per-Format Tests
+- reusable components should have isolated contract, functional, and timing
+  tests where applicable
+- machine crates should confirm wiring and cross-chip behavior
+- diagnostic ROMs and external suites are confirmation layers, not the only
+  evidence
+- `Complete` should mean the crate meets the relevant expectations in the
+  testing policy, not just that it boots one machine path
 
-Load and save round-trip for every format. Reject corrupt and truncated files.
-Validate checksums where applicable.
-
-### Integration Tests
-
-Crystal-to-frame timing verification. DMA contention cycle counts. Cross-chip
-timing such as Copper writes at exact beam position.
-
-### Test ROM And Program Suites
+Representative external suites still in use:
 
 - `NES`: `nestest`, blargg APU and PPU tests
 - `Amiga`: SysTest, DiagROM
