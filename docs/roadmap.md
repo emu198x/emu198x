@@ -48,8 +48,10 @@ largest compatibility step once the boot path is stable.
 
 ## Education And Tooling Backlog
 
-Priority tooling work is listed above. Detailed design specs live in
-[features/](features/).
+Priority tooling work is listed above. Baseline scripting, capture, and MCP
+request/response control already work across all four systems. The backlog
+below covers the remaining gaps, richer UI and debugging work, and per-system
+content packs. Detailed design specs live in [features/](features/).
 
 | Item                    | Status      | Notes                                                                            |
 | ----------------------- | ----------- | -------------------------------------------------------------------------------- |

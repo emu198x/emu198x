@@ -38,14 +38,16 @@ started.
 
 ## Tooling Snapshot
 
-| Area                         | Status                 | Notes                                                                                          |
-| ---------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
-| Headless core emulation      | Usable with known gaps | Command-line and programmatic boot workflows exist, but teaching-focused tooling is still thin |
-| MCP request/response control | Usable with known gaps | Query and control surface exists; push events and structured observability are still open      |
-| Save states                  | Not started            | Planned for lesson checkpoints and deterministic replay                                        |
-| Observability and trace      | Not started            | Planned shared snapshot, query, and trace APIs                                                 |
-| Visual debugger              | Not started            | Depends on observability and trace                                                             |
-| WASM builds                  | Not started            | Needed for browser-hosted lessons                                                              |
+| Area                         | Status                 | Notes                                                                                                  |
+| ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| Scripting and batch control  | Usable with known gaps | All four runners support `--script`; richer breakpoint and trace workflows remain open                 |
+| Capture and export           | Usable with known gaps | PNG screenshots, WAV capture, and recording work via script or MCP; unified CLI remains open           |
+| MCP request/response control | Usable with known gaps | Cross-system query/control surface exists; push events, save states, and conditions remain open        |
+| Frontend UX                  | Not started            | Native runners exist, but launcher screens, media panels, input UI, and debugger layouts are not built |
+| Save states                  | Not started            | Planned for lesson checkpoints and deterministic replay                                                |
+| Observability and trace      | Not started            | Planned shared snapshot, query, and trace APIs                                                         |
+| Visual debugger              | Not started            | Depends on observability and trace                                                                     |
+| WASM builds                  | Not started            | Needed for browser-hosted lessons                                                                      |
 
 ## References
 
