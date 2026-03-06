@@ -48,6 +48,12 @@ impl DeniseAga {
         self.inner
     }
 
+    /// AGA Lisa ID register value (low byte), as reported by DENISEID.
+    #[must_use]
+    pub const fn deniseid(&self) -> u16 {
+        0x00F8
+    }
+
     /// AGA palette write with BPLCON3 bank selection and LOCT support.
     ///
     /// `base_idx` is the 0-31 register offset from the COLOR register write.
@@ -297,6 +303,12 @@ mod tests {
 
         denise.bplcon3 = 0x0201; // KILLEHB + ENBPLCN3
         assert_eq!(denise.resolve_color_rgb24(0x25), 0x00112233);
+    }
+
+    #[test]
+    fn deniseid_matches_aga_hrm_value() {
+        let denise = make_aga_denise();
+        assert_eq!(denise.deniseid(), 0x00F8);
     }
 
     #[test]

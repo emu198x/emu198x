@@ -2195,9 +2195,9 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         // residue is modeled.
                         AmigaChipset::Ocs => 0xFFFF,
                         // HRM Appendix C: Enhanced Denise (8373) returns $FC in low byte.
-                        AmigaChipset::Ecs => 0x00FC,
+                        AmigaChipset::Ecs => self.denise.as_inner().deniseid(),
                         // AGA Lisa returns $F8.
-                        AmigaChipset::Aga => 0x00F8,
+                        AmigaChipset::Aga => self.denise.deniseid(),
                     },
                     _ => 0,
                 };

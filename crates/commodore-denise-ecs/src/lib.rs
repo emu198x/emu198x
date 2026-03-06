@@ -57,6 +57,12 @@ impl DeniseEcs {
         self.inner
     }
 
+    /// ECS Denise ID register value (low byte), as reported by DENISEID.
+    #[must_use]
+    pub const fn deniseid(&self) -> u16 {
+        0x00FC
+    }
+
     /// Whether the ECS enhanced BPLCON3 register is enabled.
     #[must_use]
     pub const fn bplcon3_extensions_enabled(&self) -> bool {
@@ -244,5 +250,11 @@ mod tests {
         denise.bplcon3 = 0x0201; // KILLEHB + ENBPLCN3
         assert_eq!(denise.resolve_color_rgb12(0x25), 0x0ACE);
         assert_eq!(denise.resolve_color_rgb12(0x05), 0x0ACE);
+    }
+
+    #[test]
+    fn deniseid_matches_ecs_hrm_value() {
+        let denise = DeniseEcs::new();
+        assert_eq!(denise.deniseid(), 0x00FC);
     }
 }
