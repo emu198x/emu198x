@@ -27,8 +27,9 @@ use crate::cpu::{
     TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA,
     TAG_FETCH_SRC_DATA,
     TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
-    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_PC_HI,
-    TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
+    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FORMAT,
+    TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR,
+    TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
     TAG_RTD_PC_HI, TAG_RTD_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT,
     TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
@@ -2117,6 +2118,45 @@ impl Cpu68000 {
                 self.regs.ssp = self.addr;
                 self.regs.pc = target;
                 self.next_fetch_addr = self.regs.pc;
+
+                // 68010+ stack frames include a format/vector word after SR+PC.
+                // Read it to determine how many additional words to pop.
+                if self.capabilities().vbr {
+                    // Read format/vector word from SSP
+                    self.followup_tag = TAG_RTE_READ_FORMAT;
+                    self.micro_ops.push(MicroOp::ReadWord);
+                    self.micro_ops.push(MicroOp::Execute);
+                } else {
+                    // 68000: no format word, just refetch
+                    self.micro_ops.clear();
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                    self.micro_ops.push(MicroOp::PromoteIRC);
+                    self.in_followup = false;
+                }
+            }
+
+            TAG_RTE_READ_FORMAT => {
+                // Format/vector word: bits 15-12 = format, bits 11-0 = vector offset.
+                let format = (self.data >> 12) & 0xF;
+                self.addr = self.addr.wrapping_add(2);
+                self.regs.ssp = self.addr;
+
+                // Additional words to pop based on frame format.
+                let extra_words: u32 = match format {
+                    0x0 => 0, // Format $0: 4-word frame (SR + PC + format). Done.
+                    0x1 => 0, // Format $1: throwaway (68010 only). Done.
+                    0x2 => 2, // Format $2: 6-word frame. 2 extra words (instruction address).
+                    0x9 => 6, // Format $9: coprocessor mid-instruction. 6 extra words.
+                    0xA => 12, // Format $A: short bus fault (68020/030). 12 extra words.
+                    0xB => 42, // Format $B: long bus fault (68020/030). 42 extra words.
+                    _ => 0, // Unknown format — treat as done.
+                };
+
+                // Skip extra words by advancing SSP
+                self.addr = self.addr.wrapping_add(extra_words * 2);
+                self.regs.ssp = self.addr;
+
+                // Resume execution at the target PC
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);
                 self.micro_ops.push(MicroOp::PromoteIRC);

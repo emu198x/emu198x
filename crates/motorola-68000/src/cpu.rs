@@ -122,6 +122,7 @@ pub const TAG_UNLK_POP_LO: u8 = 63;
 pub const TAG_RTE_READ_SR: u8 = 64;
 pub const TAG_RTE_READ_PC_HI: u8 = 65;
 pub const TAG_RTE_READ_PC_LO: u8 = 66;
+pub const TAG_RTE_READ_FORMAT: u8 = 96;
 
 // RTR follow-ups
 pub const TAG_RTR_READ_CCR: u8 = 67;

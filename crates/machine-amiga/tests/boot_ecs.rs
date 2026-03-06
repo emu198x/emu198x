@@ -135,11 +135,7 @@ fn test_boot_kick202_a3000() {
     let Some(rom) = load_rom("../../roms/kick202_36_207_a3000.rom") else {
         return;
     };
-    // No display assertions — boot reaches STRAP but stalls in device
-    // init (likely SCSI controller timeout at $DD0000). The I-cache
-    // gets the boot past the RomTag scan; full insert-disk needs SCSI
-    // or Super Buster stubs.
-    boot_screenshot_test(
+    boot_screenshot_test_expect(
         AmigaConfig {
             model: AmigaModel::A3000,
             chipset: AmigaChipset::Ecs,
@@ -150,6 +146,10 @@ fn test_boot_kick202_a3000() {
         "KS 2.02 A3000",
         "boot_kick202_a3000",
         A3000_BOOT_TICKS,
+        BootExpect {
+            dmacon_set: Some(0x0180),
+            ..Default::default()
+        },
     );
 }
 
@@ -159,8 +159,7 @@ fn test_boot_kick31_a3000() {
     let Some(rom) = load_rom("../../roms/kick31_40_068_a3000.rom") else {
         return;
     };
-    // Same as KS 2.02 — STRAP reached, insert-disk blocked on device init.
-    boot_screenshot_test(
+    boot_screenshot_test_expect(
         AmigaConfig {
             model: AmigaModel::A3000,
             chipset: AmigaChipset::Ecs,
@@ -171,5 +170,9 @@ fn test_boot_kick31_a3000() {
         "KS 3.1 A3000",
         "boot_kick31_a3000",
         A3000_BOOT_TICKS,
+        BootExpect {
+            dmacon_set: Some(0x0180),
+            ..Default::default()
+        },
     );
 }
