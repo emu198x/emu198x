@@ -137,11 +137,8 @@ Each binary opens with a launcher screen for that system. This is where you conf
 │                 A1200               │
 │                 A2000               │
 │                 A4000               │
-│                 Custom...           │
 │                                     │
-│  ─── or configure manually ───      │
-│                                     │
-│  Chipset       [ OCS ▼ ]            │
+│  Chipset       OCS (derived)        │
 │  CPU           [ 68000 ▼ ]          │
 │  Chip RAM      [ 512K ▼ ]           │
 │  Fast RAM      [ None ▼ ]           │
@@ -195,7 +192,7 @@ emu-spectrum game.tap
 
 ### Preset vs Custom (Amiga)
 
-Selecting a preset fills in the detailed options:
+Selecting a preset fills in the detailed options and derives the chipset:
 
 | Preset | Chipset | CPU   | Chip RAM | Kickstart |
 | ------ | ------- | ----- | -------- | --------- |
@@ -203,8 +200,13 @@ Selecting a preset fills in the detailed options:
 | A500+  | ECS     | 68000 | 1M       | 2.04      |
 | A600   | ECS     | 68000 | 2M       | 2.05      |
 | A1200  | AGA     | 68020 | 2M       | 3.0/3.1   |
+| A2000  | OCS     | 68000 | 1M       | 1.3/2.x   |
+| A3000  | ECS     | 68030 | 2M       | 2.04/3.1  |
+| A4000  | AGA     | 68030 | 2M       | 3.0/3.1   |
 
-Selecting "Custom..." enables all dropdowns for manual configuration (accelerator cards, expanded RAM, etc.).
+The launcher should not expose a separate chipset override in normal use. If a
+future advanced mode exists, it should still validate legal model/chipset
+combinations rather than allowing arbitrary mismatches.
 
 ## Optional: Unified Launcher
 

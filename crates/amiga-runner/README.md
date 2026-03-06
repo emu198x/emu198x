@@ -1,6 +1,7 @@
 # `amiga-runner`
 
-Minimal frontend for `machine-amiga` (currently focused on A500/OCS).
+Runnable frontend for `machine-amiga`. This crate is transitional and is
+intended to become `emu-amiga`.
 
 ## What It Does Today
 
@@ -8,7 +9,8 @@ Minimal frontend for `machine-amiga` (currently focused on A500/OCS).
 - Host keyboard mapping to Amiga keyboard codes
 - Basic Paula audio playback (with `--mute` option)
 - Headless screenshot/audio capture
-- Headless KS1.3 insert-screen benchmark mode
+- Headless scripting via `--script`
+- Headless MCP server mode via `--mcp`
 
 ## Basic Usage
 
@@ -16,8 +18,11 @@ Minimal frontend for `machine-amiga` (currently focused on A500/OCS).
 # Windowed boot (ROM via env var)
 AMIGA_KS13_ROM=roms/kick13.rom cargo run -p amiga-runner
 
-# Windowed boot (explicit ROM + optional ADF)
-cargo run -p amiga-runner -- --rom roms/kick13.rom --adf path/to/disk.adf
+# Windowed boot (explicit ROM + optional disk image)
+cargo run -p amiga-runner -- --rom roms/kick13.rom --disk path/to/disk.adf
+
+# Select a different model; chipset derives from the model preset
+cargo run -p amiga-runner -- --rom roms/kick31.rom --model a1200
 ```
 
 ## Headless Capture
@@ -39,33 +44,35 @@ cargo run -p amiga-runner -- \
   --audio test_output/boot.wav
 ```
 
-## KS1.3 Boot Benchmark (Insert Screen)
+`--disk` auto-detects ADF vs IPF. `--adf` remains available when you want to
+force ADF loading explicitly.
 
-This mode runs headless and stops when the framebuffer matches the KS1.3
-insert-disk screen regression heuristic used by the machine tests.
+## Automation
 
 ```sh
-cargo run --release -p amiga-runner -- \
-  --rom roms/kick13.rom \
-  --headless \
-  --frames 300 \
-  --bench-insert-screen \
-  --mute
+# Run a scripted headless session
+cargo run -p amiga-runner -- --script scripts/amiga-boot.json
+
+# Run as MCP JSON-RPC server over stdin/stdout
+cargo run -p amiga-runner -- --mcp
 ```
 
-Example output:
+In normal use, the machine preset chooses the chipset:
 
-```text
-KS1.3 insert-screen detected.
-  Frames run: 206
-  Emulated time: 4.113s
-  Wall time: 1.272s
-  Realtime ratio: 3.235x
-```
+| Model       | Chipset |
+| ----------- | ------- |
+| `a1000`     | OCS     |
+| `a500`      | OCS     |
+| `a2000`     | OCS     |
+| `a500plus`  | ECS     |
+| `a600`      | ECS     |
+| `a3000`     | ECS     |
+| `a1200`     | AGA     |
+| `a4000`     | AGA     |
 
 ## Notes
 
-- The benchmark and KS1.3 screenshot regression require a Kickstart ROM you
-  provide locally.
+- You must provide a Kickstart ROM locally, either with `--rom` or
+  `AMIGA_KS13_ROM` for simple local runs.
 - The long `boot_kickstart` screenshot test remains separate from this runner
   and is intentionally not part of normal CI due ROM licensing.
