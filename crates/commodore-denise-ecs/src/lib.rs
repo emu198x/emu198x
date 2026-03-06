@@ -253,6 +253,37 @@ mod tests {
     }
 
     #[test]
+    fn killehb_does_not_override_dual_playfield_or_ham_decode() {
+        let mut dual_playfield_baseline = DeniseEcs::new();
+        dual_playfield_baseline.set_palette(5, 0x0ACE);
+        dual_playfield_baseline.bplcon0 = 0x6400; // 6 planes, dual playfield
+
+        let mut dual_playfield = DeniseEcs::new();
+        dual_playfield.set_palette(5, 0x0ACE);
+        dual_playfield.bplcon0 = 0x6400; // 6 planes, dual playfield
+        dual_playfield.bplcon3 = 0x0201; // KILLEHB + ENBPLCN3
+        assert_eq!(
+            dual_playfield.resolve_color_rgb12(0x25),
+            dual_playfield_baseline.resolve_color_rgb12(0x25)
+        );
+
+        let mut ham_baseline = DeniseEcs::new();
+        ham_baseline.set_palette(0, 0x0ACE);
+        ham_baseline.bplcon0 = 0x6800; // 6 planes, HAM
+        ham_baseline.begin_beam_line();
+
+        let mut ham = DeniseEcs::new();
+        ham.set_palette(0, 0x0ACE);
+        ham.bplcon0 = 0x6800; // 6 planes, HAM
+        ham.bplcon3 = 0x0201;
+        ham.begin_beam_line();
+        assert_eq!(
+            ham.resolve_color_rgb12(0x25),
+            ham_baseline.resolve_color_rgb12(0x25)
+        );
+    }
+
+    #[test]
     fn deniseid_matches_ecs_hrm_value() {
         let denise = DeniseEcs::new();
         assert_eq!(denise.deniseid(), 0x00FC);

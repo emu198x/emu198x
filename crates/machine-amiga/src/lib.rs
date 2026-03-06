@@ -3230,6 +3230,7 @@ mod tests {
     #[test]
     fn ocs_custom_reads_for_ecs_beam_registers_return_zero() {
         let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.write_custom_reg(0x106, 0x0201);
         amiga.write_custom_reg(0x1C0, 0x0033);
         amiga.write_custom_reg(0x1C2, 0x0044);
         amiga.write_custom_reg(0x1C4, 0x0011);
@@ -3243,6 +3244,7 @@ mod tests {
         amiga.write_custom_reg(0x1E0, 0x0177);
         amiga.write_custom_reg(0x1E4, 0x89AB);
 
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x106), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C2), 0);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C4), 0);
@@ -3266,6 +3268,7 @@ mod tests {
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
         });
+        amiga.write_custom_reg(0x106, 0x0201);
         amiga.write_custom_reg(0x1C0, 0x0033);
         amiga.write_custom_reg(0x1C2, 0x0044);
         amiga.write_custom_reg(0x1C4, 0x0011);
@@ -3279,6 +3282,7 @@ mod tests {
         amiga.write_custom_reg(0x1E0, 0x0177);
         amiga.write_custom_reg(0x1E4, 0x89AB);
 
+        assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x106), 0x0201);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C0), 0x0033);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C2), 0x0044);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1C4), 0x0011);

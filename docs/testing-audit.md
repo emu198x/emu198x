@@ -24,15 +24,16 @@ crate inventory, see [inventory.md](inventory.md).
 
 ## Highest-Priority Gaps
 
-1. `commodore-denise-ecs` still mainly proves wrapper behavior, not ECS-specific
-   display semantics.
-2. `m68k-test-gen` now has helper, CLI, and serialization coverage, but still
+1. `m68k-test-gen` now has helper, CLI, and serialization coverage, but still
    lacks deterministic end-to-end fixture-generation checks for its core
    output.
-3. Amiga support-chip work is only partially reflected in isolated tests, so
+2. Amiga support-chip work is only partially reflected in isolated tests, so
    machine-level success still carries too much verification weight.
-4. Several `Complete` inventory labels still need explicit source traceability
+3. Several `Complete` inventory labels still need explicit source traceability
    and category-by-category confirmation to satisfy the new policy.
+4. `commodore-denise-ecs` now has real ECS-specific colour-path coverage, but
+   larger display-mode deltas such as SuperHires or productivity-mode output
+   still remain outside the direct test surface.
 
 ## Infrastructure And Tooling
 
@@ -79,10 +80,11 @@ crate inventory, see [inventory.md](inventory.md).
 - `commodore-denise-ocs`: `Strong`. Large direct test surface suggests good
   isolated coverage. Next: keep raster and palette behavior tied to reference
   sources where practical.
-- `commodore-denise-ecs`: `Good`. Direct tests now lock the current wrapper
-  contract: OCS-equivalent rendering behavior for inherited Denise paths plus
-  ECS ownership of `BPLCON3`. Next: add true ECS display-mode tests as SuperHires,
-  productivity, or other ECS-only Denise behavior lands.
+- `commodore-denise-ecs`: `Good`. Direct tests now cover ECS-owned `BPLCON3`
+  state, `DENISEID`, `KILLEHB` half-brite suppression, and the no-op boundary
+  cases where `KILLEHB` must not perturb HAM or dual-playfield decode. Next:
+  add larger ECS display-mode deltas such as SuperHires, productivity, or
+  other ECS-only Denise behavior as those paths land.
 - `commodore-denise-aga`: `Good`. Direct isolated tests now cover palette
   banking, LOCT merge behavior, `BPLCON4` XOR lookup, HAM8 channel chaining,
   sprite width decoding, and wide sprite packing. Next: keep the AGA-only delta
@@ -206,9 +208,10 @@ other crates:
 
 ## Recommended Remediation Order
 
-1. Add ECS-specific direct tests for `commodore-denise-ecs`.
-2. Add deterministic end-to-end fixture-generation checks for `m68k-test-gen`.
-3. Tighten the remaining Amiga support-chip and peripheral coverage as new
+1. Add deterministic end-to-end fixture-generation checks for `m68k-test-gen`.
+2. Tighten the remaining Amiga support-chip and peripheral coverage as new
    implementation work lands.
+3. Continue expanding `commodore-denise-ecs` into larger ECS-only display-mode
+   behavior, not just colour-path deltas.
 4. Audit `Complete` crates for explicit source traceability and missing
    category coverage rather than relying on marker counts alone.
