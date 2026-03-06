@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{Duration, Instant};
 
+use emu_nes::mcp::{McpServer, NesMcp};
 use emu_nes::ppu;
 use emu_nes::{Nes, NesConfig, NesRegion, capture, controller_map};
-use emu_nes::mcp::{NesMcp, McpServer};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -33,6 +33,7 @@ const FRAME_DURATION: Duration = Duration::from_micros(16_639);
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 struct CliArgs {
     rom_path: Option<PathBuf>,
     headless: bool,
@@ -44,8 +45,39 @@ struct CliArgs {
     region: NesRegion,
 }
 
+fn print_usage() {
+    eprintln!("Usage: emu-nes [OPTIONS]");
+    eprintln!();
+    eprintln!("Options:");
+    eprintln!("  --rom <file>         iNES ROM file (.nes)");
+    eprintln!("  --region <ntsc|pal>  Video region (default: ntsc)");
+    eprintln!("  --headless           Run without a window");
+    eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
+    eprintln!("  --script <file>      Run a JSON script file (headless batch mode)");
+    eprintln!("  --frames <n>         Number of frames in headless mode [default: 200]");
+    eprintln!("  --screenshot <file>  Save a PNG screenshot (headless)");
+    eprintln!("  --record <dir>       Record frames to directory (headless)");
+}
+
+fn print_usage_and_exit(code: i32) -> ! {
+    print_usage();
+    process::exit(code);
+}
+
 fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
+
+    match parse_args_from(&args) {
+        Ok(Some(cli)) => cli,
+        Ok(None) => print_usage_and_exit(0),
+        Err(e) => {
+            eprintln!("{e}");
+            print_usage_and_exit(1);
+        }
+    }
+}
+
+fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
     let mut cli = CliArgs {
         rom_path: None,
         headless: false,
@@ -97,31 +129,15 @@ fn parse_args() -> CliArgs {
                     };
                 }
             }
-            "--help" | "-h" => {
-                eprintln!("Usage: emu-nes [OPTIONS]");
-                eprintln!();
-                eprintln!("Options:");
-                eprintln!("  --rom <file>         iNES ROM file (.nes)");
-                eprintln!("  --region <ntsc|pal>  Video region (default: ntsc)");
-                eprintln!("  --headless           Run without a window");
-                eprintln!("  --mcp                Run as MCP server (JSON-RPC over stdio)");
-                eprintln!("  --script <file>      Run a JSON script file (headless batch mode)");
-                eprintln!(
-                    "  --frames <n>         Number of frames in headless mode [default: 200]"
-                );
-                eprintln!("  --screenshot <file>  Save a PNG screenshot (headless)");
-                eprintln!("  --record <dir>       Record frames to directory (headless)");
-                process::exit(0);
-            }
+            "--help" | "-h" => return Ok(None),
             other => {
-                eprintln!("Unknown argument: {other}");
-                process::exit(1);
+                return Err(format!("Unknown argument: {other}"));
             }
         }
         i += 1;
     }
 
-    cli
+    Ok(Some(cli))
 }
 
 // ---------------------------------------------------------------------------
@@ -267,10 +283,11 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(pixels) = self.pixels.as_ref()
-                    && let Err(e) = pixels.render() {
-                        eprintln!("Render error: {e}");
-                        event_loop.exit();
-                    }
+                    && let Err(e) = pixels.render()
+                {
+                    eprintln!("Render error: {e}");
+                    event_loop.exit();
+                }
             }
             _ => {}
         }
@@ -301,7 +318,10 @@ fn make_nes(cli: &CliArgs) -> Nes {
         }
     };
 
-    let config = NesConfig { rom_data, region: cli.region };
+    let config = NesConfig {
+        rom_data,
+        region: cli.region,
+    };
     match Nes::new(&config) {
         Ok(nes) => {
             eprintln!("Loaded ROM: {}", rom_path.display());
@@ -363,5 +383,82 @@ fn main() {
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("Event loop error: {e}");
         process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CliArgs, parse_args_from};
+    use emu_nes::NesRegion;
+    use std::path::PathBuf;
+
+    fn parse_cli(args: &[&str]) -> Result<Option<CliArgs>, String> {
+        let args = args
+            .iter()
+            .map(|arg| (*arg).to_string())
+            .collect::<Vec<_>>();
+        parse_args_from(&args)
+    }
+
+    #[test]
+    fn cli_parser_reads_basic_modes_and_paths() {
+        let cli = parse_cli(&[
+            "emu-nes",
+            "--rom",
+            "mario.nes",
+            "--headless",
+            "--script",
+            "demo.json",
+            "--screenshot",
+            "out.png",
+            "--record",
+            "frames",
+            "--region",
+            "pal",
+            "--frames",
+            "42",
+        ])
+        .expect("parse should succeed")
+        .expect("help was not requested");
+
+        assert_eq!(cli.rom_path, Some(PathBuf::from("mario.nes")));
+        assert!(cli.headless);
+        assert_eq!(cli.script_path, Some(PathBuf::from("demo.json")));
+        assert_eq!(cli.screenshot_path, Some(PathBuf::from("out.png")));
+        assert_eq!(cli.record_dir, Some(PathBuf::from("frames")));
+        assert_eq!(cli.region, NesRegion::Pal);
+        assert_eq!(cli.frames, 42);
+    }
+
+    #[test]
+    fn cli_parser_defaults_invalid_frames_and_region_to_ntsc() {
+        let cli = parse_cli(&["emu-nes", "--frames", "abc", "--region", "weird"])
+            .expect("parse should succeed")
+            .expect("help was not requested");
+
+        assert_eq!(cli.frames, 200);
+        assert_eq!(cli.region, NesRegion::Ntsc);
+    }
+
+    #[test]
+    fn cli_parser_reports_help_and_unknown_args() {
+        assert!(matches!(
+            parse_cli(&["emu-nes", "--help"]).expect("help parse should succeed"),
+            None
+        ));
+
+        let result = parse_cli(&["emu-nes", "--bogus"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown argument: --bogus"));
+    }
+
+    #[test]
+    fn cli_parser_keeps_current_missing_value_behavior_for_path_flags() {
+        let cli = parse_cli(&["emu-nes", "--rom", "--script"])
+            .expect("parse should succeed")
+            .expect("help was not requested");
+
+        assert_eq!(cli.rom_path, Some(PathBuf::from("--script")));
+        assert_eq!(cli.script_path, None);
     }
 }

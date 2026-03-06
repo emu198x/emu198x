@@ -73,6 +73,7 @@ struct ActiveKeyMapping {
     synthetic_left_shift: bool,
 }
 
+#[derive(Debug)]
 struct CliArgs {
     rom_path: PathBuf,
     adf_path: Option<PathBuf>,
@@ -151,7 +152,7 @@ impl BeamDebugFilter {
     }
 }
 
-fn print_usage_and_exit(code: i32) -> ! {
+fn print_usage() {
     eprintln!("Usage: amiga-runner [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
@@ -181,11 +182,31 @@ fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("  --mcp          Run as MCP JSON-RPC server (headless, stdin/stdout)");
     eprintln!("  --script <file.json>  Run a JSON script file (headless batch mode)");
     eprintln!("  -h, --help     Show this help");
+}
+
+fn print_usage_and_exit(code: i32) -> ! {
+    print_usage();
     process::exit(code);
 }
 
 fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
+    let env_rom_path = std::env::var_os("AMIGA_KS13_ROM").map(PathBuf::from);
+
+    match parse_args_from(&args, env_rom_path) {
+        Ok(Some(cli)) => cli,
+        Ok(None) => print_usage_and_exit(0),
+        Err(e) => {
+            eprintln!("{e}");
+            print_usage_and_exit(1);
+        }
+    }
+}
+
+fn parse_args_from(
+    args: &[String],
+    env_rom_path: Option<PathBuf>,
+) -> Result<Option<CliArgs>, String> {
     let mut rom_path: Option<PathBuf> = None;
     let mut adf_path: Option<PathBuf> = None;
     let mut disk_path: Option<PathBuf> = None;
@@ -225,24 +246,20 @@ fn parse_args() -> CliArgs {
             "--model" => {
                 i += 1;
                 let Some(value) = args.get(i) else {
-                    eprintln!("Missing value for --model (expected a500 or a500plus)");
-                    print_usage_and_exit(1);
+                    return Err(String::from(
+                        "Missing value for --model (expected a500 or a500plus)",
+                    ));
                 };
-                model = parse_model_arg(value).unwrap_or_else(|e| {
-                    eprintln!("{e}");
-                    print_usage_and_exit(1);
-                });
+                model = parse_model_arg(value)?;
             }
             "--chipset" => {
                 i += 1;
                 let Some(value) = args.get(i) else {
-                    eprintln!("Missing value for --chipset (expected ocs or ecs)");
-                    print_usage_and_exit(1);
+                    return Err(String::from(
+                        "Missing value for --chipset (expected ocs or ecs)",
+                    ));
                 };
-                chipset = Some(parse_chipset_arg(value).unwrap_or_else(|e| {
-                    eprintln!("{e}");
-                    print_usage_and_exit(1);
-                }));
+                chipset = Some(parse_chipset_arg(value)?);
             }
             "--headless" => {
                 headless = true;
@@ -259,51 +276,36 @@ fn parse_args() -> CliArgs {
             "--beam-debug-filter" => {
                 i += 1;
                 let Some(value) = args.get(i) else {
-                    eprintln!("Missing value for --beam-debug-filter");
-                    print_usage_and_exit(1);
+                    return Err(String::from("Missing value for --beam-debug-filter"));
                 };
-                beam_debug_filter = parse_beam_debug_filter_arg(value).unwrap_or_else(|e| {
-                    eprintln!("{e}");
-                    print_usage_and_exit(1);
-                });
+                beam_debug_filter = parse_beam_debug_filter_arg(value)?;
                 beam_debug = true;
             }
             "--trace-hires-bpl-lines" => {
                 i += 1;
                 let Some(value) = args.get(i) else {
-                    eprintln!("Missing value for --trace-hires-bpl-lines");
-                    print_usage_and_exit(1);
+                    return Err(String::from("Missing value for --trace-hires-bpl-lines"));
                 };
-                trace_hires_bpl_lines = Some(parse_line_range_arg(value).unwrap_or_else(|e| {
-                    eprintln!("{e}");
-                    print_usage_and_exit(1);
-                }));
+                trace_hires_bpl_lines = Some(parse_line_range_arg(value)?);
                 headless = true;
             }
             "--trace-hires-compare-line" => {
                 i += 1;
                 let Some(value) = args.get(i) else {
-                    eprintln!("Missing value for --trace-hires-compare-line");
-                    print_usage_and_exit(1);
+                    return Err(String::from("Missing value for --trace-hires-compare-line"));
                 };
-                trace_hires_compare_line = Some(parse_u16_arg(value).unwrap_or_else(|e| {
-                    eprintln!("{e} (for --trace-hires-compare-line)");
-                    print_usage_and_exit(1);
-                }));
+                trace_hires_compare_line = Some(
+                    parse_u16_arg(value)
+                        .map_err(|e| format!("{e} (for --trace-hires-compare-line)"))?,
+                );
                 headless = true;
             }
             "--trace-hpos-range" => {
                 i += 1;
                 let Some(value) = args.get(i) else {
-                    eprintln!("Missing value for --trace-hpos-range");
-                    print_usage_and_exit(1);
+                    return Err(String::from("Missing value for --trace-hpos-range"));
                 };
-                trace_hpos_range = Some(parse_u16_range_arg(value, "hpos range").unwrap_or_else(
-                    |e| {
-                        eprintln!("{e}");
-                        print_usage_and_exit(1);
-                    },
-                ));
+                trace_hpos_range = Some(parse_u16_range_arg(value, "hpos range")?);
                 headless = true;
             }
             "--dump-display-state" => {
@@ -333,10 +335,9 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 script_path = args.get(i).map(PathBuf::from);
             }
-            "-h" | "--help" => print_usage_and_exit(0),
+            "-h" | "--help" => return Ok(None),
             other => {
-                eprintln!("Unknown argument: {other}");
-                print_usage_and_exit(1);
+                return Err(format!("Unknown argument: {other}"));
             }
         }
         i += 1;
@@ -344,35 +345,29 @@ fn parse_args() -> CliArgs {
 
     let rom_path = if mcp || script_path.is_some() {
         // MCP/script mode: ROM is provided via boot method, not required upfront
-        rom_path
-            .or_else(|| std::env::var_os("AMIGA_KS13_ROM").map(PathBuf::from))
-            .unwrap_or_default()
+        rom_path.or(env_rom_path).unwrap_or_default()
     } else {
         rom_path
-            .or_else(|| std::env::var_os("AMIGA_KS13_ROM").map(PathBuf::from))
-            .unwrap_or_else(|| {
-                eprintln!("No Kickstart ROM specified.");
-                print_usage_and_exit(1);
-            })
+            .or(env_rom_path)
+            .ok_or_else(|| String::from("No Kickstart ROM specified."))?
     };
 
     if screenshot_path.is_some() || audio_path.is_some() || bench_insert_screen || beam_debug {
         headless = true;
     }
     if trace_hires_bpl_lines.is_some() && trace_hires_compare_line.is_some() {
-        eprintln!("Use only one of --trace-hires-bpl-lines or --trace-hires-compare-line");
-        print_usage_and_exit(1);
+        return Err(String::from(
+            "Use only one of --trace-hires-bpl-lines or --trace-hires-compare-line",
+        ));
     }
     if trace_hpos_range.is_some() && trace_hires_compare_line.is_none() {
-        eprintln!("--trace-hpos-range requires --trace-hires-compare-line");
-        print_usage_and_exit(1);
+        return Err(String::from(
+            "--trace-hpos-range requires --trace-hires-compare-line",
+        ));
     }
-    let chipset = resolve_model_chipset(model, chipset).unwrap_or_else(|e| {
-        eprintln!("{e}");
-        print_usage_and_exit(1);
-    });
+    let chipset = resolve_model_chipset(model, chipset)?;
 
-    CliArgs {
+    Ok(Some(CliArgs {
         rom_path,
         adf_path,
         disk_path,
@@ -393,7 +388,7 @@ fn parse_args() -> CliArgs {
         mcp,
         script_path,
         drive_sounds,
-    }
+    }))
 }
 
 fn parse_line_range_arg(value: &str) -> Result<LineRange, String> {
@@ -2199,12 +2194,21 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        BeamDebugFilter, map_char_to_amiga_key, map_printable_physical_key,
-        parse_beam_debug_filter_arg, parse_chipset_arg, parse_line_range_arg, parse_model_arg,
-        parse_u16_arg, resolve_model_chipset,
+        BeamDebugFilter, CliArgs, map_char_to_amiga_key, map_printable_physical_key,
+        parse_args_from, parse_beam_debug_filter_arg, parse_chipset_arg, parse_line_range_arg,
+        parse_model_arg, parse_u16_arg, resolve_model_chipset,
     };
     use machine_amiga::{AmigaChipset, AmigaModel};
+    use std::path::PathBuf;
     use winit::keyboard::KeyCode;
+
+    fn parse_cli(args: &[&str], env_rom: Option<&str>) -> Result<Option<CliArgs>, String> {
+        let args = args
+            .iter()
+            .map(|arg| (*arg).to_string())
+            .collect::<Vec<_>>();
+        parse_args_from(&args, env_rom.map(PathBuf::from))
+    }
 
     #[test]
     fn shifted_digit_two_maps_to_amiga_at() {
@@ -2316,6 +2320,106 @@ mod tests {
         assert!(parse_line_range_arg("20:10").is_err());
         assert!(parse_line_range_arg(":10").is_err());
         assert!(parse_line_range_arg("10:").is_err());
+    }
+
+    #[test]
+    fn cli_parser_uses_env_rom_for_non_mcp_modes() {
+        let cli = parse_cli(&["amiga-runner", "--headless"], Some("/tmp/kick.rom"))
+            .expect("parse should succeed")
+            .expect("help was not requested");
+
+        assert_eq!(cli.rom_path, PathBuf::from("/tmp/kick.rom"));
+        assert!(cli.headless);
+        assert_eq!(cli.model, AmigaModel::A500);
+        assert_eq!(cli.chipset, AmigaChipset::Ocs);
+    }
+
+    #[test]
+    fn cli_parser_allows_empty_rom_in_mcp_mode() {
+        let cli = parse_cli(&["amiga-runner", "--mcp"], None)
+            .expect("parse should succeed")
+            .expect("help was not requested");
+
+        assert!(cli.mcp);
+        assert!(cli.rom_path.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn cli_parser_promotes_capture_and_trace_modes_to_headless() {
+        let cli = parse_cli(
+            &[
+                "amiga-runner",
+                "--rom",
+                "kick.rom",
+                "--screenshot",
+                "out.png",
+                "--beam-debug-filter",
+                "sync",
+            ],
+            None,
+        )
+        .expect("parse should succeed")
+        .expect("help was not requested");
+
+        assert!(cli.headless);
+        assert!(cli.beam_debug);
+        assert_eq!(cli.screenshot_path, Some(PathBuf::from("out.png")));
+    }
+
+    #[test]
+    fn cli_parser_rejects_conflicting_trace_modes() {
+        let result = parse_cli(
+            &[
+                "amiga-runner",
+                "--rom",
+                "kick.rom",
+                "--trace-hires-bpl-lines",
+                "10:12",
+                "--trace-hires-compare-line",
+                "20",
+            ],
+            None,
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Use only one of --trace-hires-bpl-lines or --trace-hires-compare-line")
+        );
+    }
+
+    #[test]
+    fn cli_parser_rejects_hpos_range_without_compare_line() {
+        let result = parse_cli(
+            &[
+                "amiga-runner",
+                "--rom",
+                "kick.rom",
+                "--trace-hpos-range",
+                "0x10:0x20",
+            ],
+            None,
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("--trace-hpos-range requires --trace-hires-compare-line")
+        );
+    }
+
+    #[test]
+    fn cli_parser_reports_help_and_unknown_arguments() {
+        assert!(matches!(
+            parse_cli(&["amiga-runner", "--help"], None).expect("help parse should succeed"),
+            None
+        ));
+
+        let result = parse_cli(&["amiga-runner", "--bogus"], None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown argument: --bogus"));
     }
 
     #[test]
