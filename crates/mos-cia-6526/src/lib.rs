@@ -1,4 +1,4 @@
-//! CIA 6526 Complex Interface Adapter.
+//! MOS 6526 Complex Interface Adapter (CIA).
 //!
 //! Two identical CIAs in the C64:
 //! - CIA1 ($DC00-$DC0F): keyboard scanning, joystick, Timer A/B → IRQ
@@ -27,10 +27,8 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use crate::keyboard::KeyboardMatrix;
-
-/// CIA 6526 instance.
-pub struct Cia {
+/// MOS 6526 Complex Interface Adapter.
+pub struct Cia6526 {
     /// Port A output register.
     port_a: u8,
     /// Port B output register.
@@ -44,6 +42,13 @@ pub struct Cia {
     /// For CIA2 this feeds IEC bus state on bits 6-7 (CLK IN, DATA IN).
     /// Defaults to $FF (all high) so CIA1 behaviour is unchanged.
     pub external_a: u8,
+    /// External input lines for port B (active-high).
+    ///
+    /// The real 6526 doesn't know about keyboards — the keyboard matrix
+    /// is external wiring between port A output and port B input pins.
+    /// The system layer should set this before reading port B.
+    /// Defaults to $FF (all high / no keys pressed).
+    pub external_b: u8,
 
     /// Timer A counter.
     timer_a: u16,
@@ -101,7 +106,7 @@ pub struct Cia {
     sp_output: bool,
 }
 
-impl Cia {
+impl Cia6526 {
     /// Create a CIA with the default PAL TOD divider.
     #[must_use]
     pub fn new() -> Self {
@@ -119,6 +124,7 @@ impl Cia {
             ddr_a: 0,
             ddr_b: 0,
             external_a: 0xFF,
+            external_b: 0xFF,
             timer_a: 0xFFFF,
             timer_a_latch: 0xFFFF,
             timer_a_running: false,
@@ -279,37 +285,19 @@ impl Cia {
 
     /// Read a CIA register.
     ///
-    /// For CIA1, pass the keyboard matrix to read port B (keyboard rows).
-    /// For CIA2, pass `None` for keyboard.
+    /// Port B input bits come from `external_b`. For CIA1 keyboard
+    /// scanning, the system layer should set `external_b` to the
+    /// keyboard scan result before calling this method.
     #[must_use]
     pub fn read(&self, reg: u8) -> u8 {
-        self.read_internal(reg, None)
-    }
-
-    /// Read a CIA register with keyboard matrix for CIA1 port B.
-    #[must_use]
-    pub fn read_with_keyboard(&self, reg: u8, keyboard: &KeyboardMatrix) -> u8 {
-        self.read_internal(reg, Some(keyboard))
-    }
-
-    fn read_internal(&self, reg: u8, keyboard: Option<&KeyboardMatrix>) -> u8 {
         match reg & 0x0F {
             0x00 => {
                 // Port A data: output bits from port register, input bits from external
                 (self.port_a & self.ddr_a) | (self.external_a & !self.ddr_a)
             }
             0x01 => {
-                // Port B data: for CIA1, this reads the keyboard matrix
-                let port_output = (self.port_b & self.ddr_b) | (!self.ddr_b);
-                if let Some(kbd) = keyboard {
-                    // CIA1: scan keyboard using port A as row select
-                    let row_mask = (self.port_a & self.ddr_a) | (!self.ddr_a);
-                    let kbd_data = kbd.scan(row_mask);
-                    // Merge: output bits from port_b, input bits from keyboard
-                    (self.port_b & self.ddr_b) | (kbd_data & !self.ddr_b)
-                } else {
-                    port_output
-                }
+                // Port B data: output bits from port register, input bits from external_b
+                (self.port_b & self.ddr_b) | (self.external_b & !self.ddr_b)
             }
             0x02 => self.ddr_a,
             0x03 => self.ddr_b,
@@ -320,9 +308,8 @@ impl Cia {
             // TOD registers: latched on hours read, released on 10ths read
             0x08 => {
                 // 10ths: release latch
-                
-                // Cannot release here — read_internal is &self.
-                // Latch release handled by caller via read_tod_10ths_release().
+                // Cannot release here — read is &self.
+                // Latch release handled by caller via read_tod_10ths_and_release().
                 if self.tod_latched {
                     self.tod_latch[0]
                 } else {
@@ -344,7 +331,7 @@ impl Cia {
                 }
             }
             0x0B => {
-                // Hours: freeze latch (handled by caller via read_tod_hours_latch())
+                // Hours: freeze latch (handled by caller via read_tod_hours_and_latch())
                 if self.tod_latched {
                     self.tod_latch[3]
                 } else {
@@ -536,7 +523,7 @@ fn bcd_increment(val: u8) -> u8 {
     }
 }
 
-impl Default for Cia {
+impl Default for Cia6526 {
     fn default() -> Self {
         Self::new()
     }
@@ -548,7 +535,7 @@ mod tests {
 
     #[test]
     fn timer_a_countdown() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         // Set latch to 10, start timer
         cia.write(0x04, 10); // Low byte
         cia.write(0x05, 0); // High byte (also loads counter when stopped)
@@ -564,7 +551,7 @@ mod tests {
 
     #[test]
     fn timer_a_oneshot() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         cia.write(0x04, 5);
         cia.write(0x05, 0);
         cia.write(0x0E, 0x09); // Start + one-shot
@@ -579,7 +566,7 @@ mod tests {
 
     #[test]
     fn icr_read_clears_status() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         cia.icr_status = 0x01;
         cia.icr_mask = 0x01;
 
@@ -590,7 +577,7 @@ mod tests {
 
     #[test]
     fn icr_mask_set_clear() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         // Set bits 0 and 1
         cia.write(0x0D, 0x83); // Set mode (bit 7) + bits 0,1
         assert_eq!(cia.icr_mask, 0x03);
@@ -602,7 +589,7 @@ mod tests {
 
     #[test]
     fn irq_active_when_status_and_mask() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         cia.icr_status = 0x01;
         cia.icr_mask = 0x00;
         assert!(!cia.irq_active()); // Status set but mask clear
@@ -613,7 +600,7 @@ mod tests {
 
     #[test]
     fn port_a_output() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         cia.write(0x02, 0xFF); // DDR: all output
         cia.write(0x00, 0x42); // Port A data
         assert_eq!(cia.port_a_output(), 0x42);
@@ -621,7 +608,7 @@ mod tests {
 
     #[test]
     fn timer_b_cascade_counts_ta_underflows() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
 
         // Timer A: latch = 3 (underflows every 4 ticks: 3→2→1→0)
         cia.write(0x04, 3);
@@ -658,7 +645,7 @@ mod tests {
 
     #[test]
     fn timer_b_phi2_mode_ignores_ta() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
 
         // Timer B in normal phi2 mode (CRB bit 6 = 0)
         cia.write(0x06, 5);
@@ -673,25 +660,34 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_scan_via_cia1() {
-        let mut cia = Cia::new();
-        let mut kbd = KeyboardMatrix::new();
+    fn external_b_reads_through_port_b() {
+        let mut cia = Cia6526::new();
 
         // CIA1: Port A selects columns (output), Port B reads rows (input)
         cia.write(0x02, 0xFF); // DDR A: all output
         cia.write(0x03, 0x00); // DDR B: all input
         cia.write(0x00, 0xFD); // Select column 1 (bit 1 = 0)
 
-        // Press key at (row=1, col=1) — the W key
-        kbd.set_key(1, 1, true);
+        // Simulate keyboard scan result: row 1 pressed (active-low: bit 1 = 0)
+        cia.external_b = !0x02; // 0xFD — row 1 active
 
-        let result = cia.read_with_keyboard(0x01, &kbd);
+        let result = cia.read(0x01);
         assert_eq!(result & 0x02, 0x00); // Row 1 should be low (pressed)
     }
 
     #[test]
+    fn external_b_default_all_high() {
+        let cia = Cia6526::new();
+        // Default external_b = 0xFF → no keys pressed
+        assert_eq!(cia.external_b, 0xFF);
+
+        // With DDR B all input, port B reads external_b
+        assert_eq!(cia.read(0x01), 0xFF);
+    }
+
+    #[test]
     fn tod_write_and_read() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         // Write TOD: hours first (halts), then minutes, seconds, 10ths (resumes)
         cia.write(0x0B, 0x12); // 12 hours
         cia.write(0x0A, 0x30); // 30 minutes
@@ -706,7 +702,7 @@ mod tests {
 
     #[test]
     fn tod_counts_at_50hz() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         // Write TOD to 0 and start it
         cia.write(0x0B, 0x00); // Hours (halts)
         cia.write(0x0A, 0x00);
@@ -722,7 +718,7 @@ mod tests {
 
     #[test]
     fn tod_seconds_rollover() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         cia.write(0x0B, 0x00);
         cia.write(0x0A, 0x00);
         cia.write(0x09, 0x59); // 59 seconds
@@ -739,7 +735,7 @@ mod tests {
 
     #[test]
     fn tod_latch_freezes_on_hours_read() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         cia.write(0x0B, 0x01);
         cia.write(0x0A, 0x30);
         cia.write(0x09, 0x00);
@@ -766,14 +762,14 @@ mod tests {
 
     #[test]
     fn shift_register_read_write() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         cia.write(0x0C, 0xA5);
         assert_eq!(cia.read(0x0C), 0xA5);
     }
 
     #[test]
     fn shift_register_write_resets_count() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         // Enable output mode (CRA bit 6) and start Timer A
         cia.write(0x04, 2); // Timer A latch low
         cia.write(0x05, 0); // Timer A latch high (loads counter)
@@ -793,7 +789,7 @@ mod tests {
 
     #[test]
     fn shift_register_output_fires_icr_after_8_bits() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         // Timer A latch = 0 → underflows every tick (0→underflow, reload 0, ...)
         cia.write(0x04, 0);
         cia.write(0x05, 0);
@@ -813,7 +809,7 @@ mod tests {
 
     #[test]
     fn shift_register_input_mode_does_not_shift() {
-        let mut cia = Cia::new();
+        let mut cia = Cia6526::new();
         cia.write(0x04, 0);
         cia.write(0x05, 0);
         cia.write(0x0E, 0x01); // Start, SP output mode OFF (input)

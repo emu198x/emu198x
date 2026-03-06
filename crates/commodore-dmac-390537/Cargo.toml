@@ -1,0 +1,10 @@
+[package]
+name = "commodore-dmac-390537"
+description = "Commodore 390537 SDMAC — SCSI DMA controller for A3000/A3000T"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "commodore_dmac_390537"
+path = "src/lib.rs"

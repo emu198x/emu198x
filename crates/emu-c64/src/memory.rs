@@ -21,7 +21,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use crate::cartridge::Cartridge;
-use crate::cia::Cia;
+use mos_cia_6526::Cia6526;
 use mos_sid_6581::Sid6581;
 use crate::vic::Vic;
 
@@ -217,6 +217,21 @@ impl C64Memory {
         }
     }
 
+    /// VIC-II read by full address (bank already folded in by VIC).
+    ///
+    /// Character ROM is visible to VIC-II at $1000-$1FFF in banks 0 and 2
+    /// (addresses $1000-$1FFF and $9000-$9FFF).
+    #[must_use]
+    pub fn vic_read_by_addr(&self, addr: u16) -> u8 {
+        let bank = (addr >> 14) & 0x03;
+        let bank_addr = addr & 0x3FFF;
+        if (bank == 0 || bank == 2) && (0x1000..0x2000).contains(&bank_addr) {
+            self.char_rom[(bank_addr - 0x1000) as usize]
+        } else {
+            self.ram[addr as usize]
+        }
+    }
+
     /// VIC-II read: sees a 16K bank with character ROM at $1000-$1FFF
     /// in banks 0 and 2.
     ///
@@ -224,15 +239,8 @@ impl C64Memory {
     /// `vic_bank` is the 16K bank number (0-3) from CIA2 port A.
     #[must_use]
     pub fn vic_read(&self, vic_bank: u8, bank_addr: u16) -> u8 {
-        let bank_offset = u32::from(vic_bank) * 0x4000;
-        let full_addr = (bank_offset + u32::from(bank_addr)) as u16;
-
-        // Character ROM is visible to VIC-II at $1000-$1FFF in banks 0 and 2
-        if (vic_bank == 0 || vic_bank == 2) && (0x1000..0x2000).contains(&bank_addr) {
-            self.char_rom[(bank_addr - 0x1000) as usize]
-        } else {
-            self.ram[full_addr as usize]
-        }
+        let full_addr = u16::from(vic_bank) * 0x4000 + (bank_addr & 0x3FFF);
+        self.vic_read_by_addr(full_addr)
     }
 
     /// Peek: read memory without side effects (for observation/debugging).
@@ -272,7 +280,7 @@ impl C64Memory {
 
     /// Read I/O register (called by bus when $D000-$DFFF and I/O visible).
     #[must_use]
-    pub fn io_read(&self, addr: u16, vic: &mut Vic, sid: &Sid6581, cia1: &Cia, cia2: &Cia) -> u8 {
+    pub fn io_read(&self, addr: u16, vic: &mut Vic, sid: &Sid6581, cia1: &Cia6526, cia2: &Cia6526) -> u8 {
         match addr {
             0xD000..=0xD3FF => vic.read((addr & 0x3F) as u8),
             0xD400..=0xD7FF => sid.read((addr & 0x1F) as u8),
@@ -291,8 +299,8 @@ impl C64Memory {
         value: u8,
         vic: &mut Vic,
         sid: &mut Sid6581,
-        cia1: &mut Cia,
-        cia2: &mut Cia,
+        cia1: &mut Cia6526,
+        cia2: &mut Cia6526,
     ) {
         match addr {
             0xD000..=0xD3FF => vic.write((addr & 0x3F) as u8, value),

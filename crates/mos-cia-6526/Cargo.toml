@@ -1,0 +1,13 @@
+[package]
+name = "mos-cia-6526"
+description = "MOS 6526 Complex Interface Adapter (CIA) emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mos_cia_6526"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

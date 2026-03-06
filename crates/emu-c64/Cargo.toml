@@ -16,7 +16,9 @@ path = "src/lib.rs"
 [dependencies]
 emu-core = { path = "../emu-core", features = ["mcp", "video"] }
 mos-6502 = { path = "../mos-6502" }
+mos-cia-6526 = { path = "../mos-cia-6526" }
 mos-sid-6581 = { path = "../mos-sid-6581" }
+mos-vic-ii = { path = "../mos-vic-ii" }
 mos-via-6522 = { path = "../mos-via-6522" }
 format-d64 = { path = "../format-d64" }
 format-gcr = { path = "../format-gcr" }

@@ -12,12 +12,14 @@ use emu_core::{Bus, ReadResult};
 
 use mos_sid_6581::Sid6581;
 
-use crate::cia::Cia;
+use mos_cia_6526::Cia6526;
+
+use mos_vic_ii::{Vic, VicModel};
+
 use crate::config::C64Model;
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::C64Memory;
 use crate::reu::Reu;
-use crate::vic::Vic;
 
 /// The C64 bus, implementing `emu_core::Bus`.
 ///
@@ -26,8 +28,8 @@ pub struct C64Bus {
     pub memory: C64Memory,
     pub vic: Vic,
     pub sid: Sid6581,
-    pub cia1: Cia,
-    pub cia2: Cia,
+    pub cia1: Cia6526,
+    pub cia2: Cia6526,
     pub keyboard: KeyboardMatrix,
     pub reu: Option<Reu>,
 }
@@ -40,10 +42,13 @@ impl C64Bus {
 
         Self {
             memory,
-            vic: Vic::new(model),
+            vic: Vic::new(match model {
+                C64Model::C64Pal => VicModel::Pal6569,
+                C64Model::C64Ntsc => VicModel::Ntsc6567,
+            }),
             sid: Sid6581::new(cpu_freq, 48_000),
-            cia1: Cia::new_with_tod(tod_divider),
-            cia2: Cia::new_with_tod(tod_divider),
+            cia1: Cia6526::new_with_tod(tod_divider),
+            cia2: Cia6526::new_with_tod(tod_divider),
             keyboard: KeyboardMatrix::new(),
             reu: None,
         }
@@ -74,7 +79,13 @@ impl Bus for C64Bus {
                         0x0D => self.cia1.read_icr_and_clear(),
                         0x08 => self.cia1.read_tod_10ths_and_release(),
                         0x0B => self.cia1.read_tod_hours_and_latch(),
-                        _ => self.cia1.read_with_keyboard(reg, &self.keyboard),
+                        _ => {
+                            if reg == 0x01 {
+                                let col_select = self.cia1.port_a_output();
+                                self.cia1.external_b = self.keyboard.scan(col_select);
+                            }
+                            self.cia1.read(reg)
+                        }
                     }
                 }
                 0xDD00..=0xDDFF => {

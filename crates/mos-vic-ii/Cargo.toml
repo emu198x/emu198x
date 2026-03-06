@@ -1,0 +1,13 @@
+[package]
+name = "mos-vic-ii"
+description = "MOS 6569/6567 VIC-II video chip emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mos_vic_ii"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

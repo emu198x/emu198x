@@ -380,7 +380,12 @@ impl Tickable for C64 {
         self.master_clock += 1;
 
         // 1. VIC-II: advance beam, render 8 pixels, detect badline
-        let cpu_stalled = self.bus.vic.tick(&self.bus.memory);
+        let memory = &self.bus.memory;
+        let vic = &mut self.bus.vic;
+        let cpu_stalled = vic.tick(
+            &|addr| memory.vic_read_by_addr(addr),
+            &|off| memory.colour_ram_read(off),
+        );
 
         // 2. Check VIC-II raster IRQ → CPU IRQ
         if self.bus.vic.irq_active() {

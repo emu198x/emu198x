@@ -21,6 +21,7 @@ use motorola_68000::cpu::Cpu68000;
 use motorola_68000::model::CpuModel;
 use peripheral_amiga_keyboard::AmigaKeyboard;
 use commodore_gayle::Gayle;
+use commodore_dmac_390537::Dmac390537;
 
 // Re-export chip crates so tests and downstream users can access types.
 pub use crate::config::{
@@ -350,6 +351,8 @@ pub struct Amiga {
     pub cia_a_cra_sp_prev: bool,
     /// Gayle gate array (IDE + address decode). Present only on A600/A1200.
     pub gayle: Option<Gayle>,
+    /// SDMAC 390537 SCSI controller. Present only on A3000/A3000T.
+    pub dmac: Option<Dmac390537>,
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
     /// RC low-pass filter state (left, right) for hardware output stage.
@@ -528,6 +531,10 @@ impl Amiga {
             cia_a_cra_sp_prev: false,
             gayle: match model {
                 AmigaModel::A600 | AmigaModel::A1200 => Some(Gayle::new()),
+                _ => None,
+            },
+            dmac: match model {
+                AmigaModel::A3000 => Some(Dmac390537::new()),
                 _ => None,
             },
             audio_sample_phase: 0,
@@ -987,6 +994,7 @@ impl Amiga {
                     keyboard: &mut self.keyboard,
                     cia_a_cra_sp_prev: &mut self.cia_a_cra_sp_prev,
                     gayle: &mut self.gayle,
+                    dmac: &mut self.dmac,
                     bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                     ddfstrt_pending: &mut self.ddfstrt_pending,
                     ddfstop_pending: &mut self.ddfstop_pending,
@@ -1025,6 +1033,7 @@ impl Amiga {
                         keyboard: &mut self.keyboard,
                         cia_a_cra_sp_prev: &mut self.cia_a_cra_sp_prev,
                         gayle: &mut self.gayle,
+                        dmac: &mut self.dmac,
                         bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                         ddfstrt_pending: &mut self.ddfstrt_pending,
                         ddfstop_pending: &mut self.ddfstop_pending,
@@ -1868,6 +1877,7 @@ pub struct AmigaBusWrapper<'a> {
     pub keyboard: &'a mut AmigaKeyboard,
     pub cia_a_cra_sp_prev: &'a mut bool,
     pub gayle: &'a mut Option<Gayle>,
+    pub dmac: &'a mut Option<Dmac390537>,
     // Pipeline state for delayed register writes (Agnus→Denise propagation).
     pub bplcon0_denise_pending: &'a mut Option<(u16, u8)>,
     pub ddfstrt_pending: &'a mut Option<(u16, u8)>,
@@ -2187,6 +2197,27 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     return BusStatus::Ready(u16::from(byte));
                 }
                 return BusStatus::Ready(word);
+            }
+            return BusStatus::Ready(0);
+        }
+
+        // SDMAC 390537 SCSI controller ($DD0000-$DDFFFF) on A3000.
+        if let Some(dmac) = self.dmac
+            && (0xDD_0000..0xDE_0000).contains(&addr)
+        {
+            if is_read {
+                let val = if is_word {
+                    dmac.read_word(addr)
+                } else {
+                    u16::from(dmac.read_byte(addr))
+                };
+                return BusStatus::Ready(val);
+            }
+            let val = data.unwrap_or(0);
+            if is_word {
+                dmac.write_word(addr, val);
+            } else {
+                dmac.write_byte(addr, val as u8);
             }
             return BusStatus::Ready(0);
         }
@@ -3010,6 +3041,7 @@ mod tests {
             keyboard: &mut amiga.keyboard,
             cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
             gayle: &mut amiga.gayle,
+            dmac: &mut amiga.dmac,
             bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
