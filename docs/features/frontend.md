@@ -1,9 +1,10 @@
 # Frontend
 
-> **Design spec.** This document describes the intended UI. The native runners
-> exist (`emu-spectrum`, `emu-c64`, `emu-nes`, `amiga-runner`) with windowed and
-> headless modes, but launcher screens, media panels, debugger layouts, and the
-> web/WASM frontend are not yet implemented.
+> **Design spec.** This document describes the intended UI. The runnable
+> packages exist as `emu-spectrum`, `emu-c64`, `emu-nes`, and transitional
+> `amiga-runner` (target `emu-amiga`) with windowed and headless modes, but
+> launcher screens, media panels, debugger layouts, and the web/WASM frontend
+> are not yet implemented.
 
 ## Overview
 
@@ -12,7 +13,7 @@ Each system is a **separate binary**:
 - `emu-spectrum`
 - `emu-c64`
 - `emu-nes`
-- `amiga-runner`
+- `amiga-runner` (planned `emu-amiga`)
 
 Each binary provides:
 

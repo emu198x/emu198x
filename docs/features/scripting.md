@@ -23,7 +23,7 @@ cargo run -p emu-c64 -- --script capture.json
 # NES (ROM passed via boot command or --rom)
 cargo run -p emu-nes -- --rom game.nes --script capture.json
 
-# Amiga (Kickstart passed via boot command or AMIGA_KS13_ROM)
+# Amiga (current package name `amiga-runner`; target `emu-amiga`)
 cargo run -p amiga-runner -- --script capture.json
 ```
 

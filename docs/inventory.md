@@ -30,6 +30,16 @@ see [status.md](status.md).
 - Keep peripheral crates separate from their controlling chips when they are independently reusable
 - Keep machine crates thin: wire components, own the master clock, and avoid logic that belongs in chip or peripheral crates
 
+### Naming Direction
+
+- `machine-<vendor>-<system>` is the intended name for pure emulation-core crates
+- When there is no meaningful single-vendor prefix, use the full platform name directly, for example `machine-msx-1`
+- `emu-<system>` is the intended name for runnable host packages that can expose headed and headless modes from the same crate
+- `runner-*` is transitional and should collapse into `emu-*`
+- Chip crates stay manufacturer-first rather than adding `chip-` prefixes; many chips are mixed-function and do not sort cleanly into `video`, `audio`, or `io`
+- Format crates should prefer `format-<platform>-<format>` when an extension is platform-specific or overloaded across ecosystems, for example `format-amstrad-cpc-dsk` or `format-commodore-64-tap`
+- Inventory tables below keep current package names where they already exist in the repository, even if they predate this normalized naming direction
+
 ### Clock Domain Model
 
 Each machine crate counts master oscillator ticks and fires component ticks at
@@ -69,16 +79,16 @@ NES NTSC:     21.477272 MHz / 12 = 1.790 MHz (CPU), / 4 = 5.369 MHz (PPU)
 
 ### Amiga Support Chips
 
-| Crate                    | Chip                     | Status                     |
-| ------------------------ | ------------------------ | -------------------------- |
-| `commodore-gayle`        | Gayle (IDE + PCMCIA)     | Complete                   |
-| `commodore-fat-gary`     | Fat Gary                 | Stub in `machine-amiga`    |
-| `commodore-ramsey`       | Ramsey (DRAM controller) | Stub in `machine-amiga`    |
-| `commodore-gary`         | Gary (address decode)    | Not started (logic inline) |
-| `commodore-buster`       | Buster (Zorro II)        | Not started                |
-| `commodore-super-buster` | Super Buster (Zorro III) | Not started                |
-| `commodore-dmac-390537`  | DMAC 390537 (A3000 SCSI) | Stub complete (10 tests)   |
-| `commodore-akiko`        | Akiko (CD32)             | Not started                |
+| Crate                    | Chip                     | Status                                                |
+| ------------------------ | ------------------------ | ----------------------------------------------------- |
+| `commodore-gayle`        | Gayle (IDE + PCMCIA)     | Complete                                              |
+| `commodore-fat-gary`     | Fat Gary                 | Stub in current Amiga machine crate (`machine-amiga`) |
+| `commodore-ramsey`       | Ramsey (DRAM controller) | Stub in current Amiga machine crate (`machine-amiga`) |
+| `commodore-gary`         | Gary (address decode)    | Not started (logic inline)                            |
+| `commodore-buster`       | Buster (Zorro II)        | Not started                                           |
+| `commodore-super-buster` | Super Buster (Zorro III) | Not started                                           |
+| `commodore-dmac-390537`  | DMAC 390537 (A3000 SCSI) | Stub complete (10 tests)                              |
+| `commodore-akiko`        | Akiko (CD32)             | Not started                                           |
 
 ### Amiga Peripherals
 
@@ -104,6 +114,9 @@ NES NTSC:     21.477272 MHz / 12 = 1.790 MHz (CPU), / 4 = 5.369 MHz (PPU)
 
 ### Format Crates
 
+Current crate names in this table reflect the existing repository. Several of
+them predate the normalized `format-<platform>-<format>` naming policy above.
+
 | Crate                 | Format                              | Status   |
 | --------------------- | ----------------------------------- | -------- |
 | `format-adf`          | Amiga Disk File                     | Complete |
@@ -118,14 +131,26 @@ NES NTSC:     21.477272 MHz / 12 = 1.790 MHz (CPU), / 4 = 5.369 MHz (PPU)
 | `format-z80`          | Spectrum Z80 snapshot               | Complete |
 | `nes-cartridge`       | iNES cartridge + 14 mappers         | Complete |
 
-### System Crates
+### Core Machine Crates
 
-| Crate           | System                               | Status                                |
-| --------------- | ------------------------------------ | ------------------------------------- |
-| `emu-spectrum`  | ZX Spectrum (48K, 128K, +2, +2A, +3) | Complete                              |
-| `emu-c64`       | Commodore 64 (PAL, NTSC)             | Feature-complete                      |
-| `emu-nes`       | NES/Famicom (NTSC, PAL)              | Complete                              |
-| `machine-amiga` | Amiga (A500-A4000)                   | OCS/ECS working, AGA boot in progress |
+Target names in this table reflect the intended architecture split, even where
+the current repository still uses older package names.
+
+| Crate                           | System                               | Status                                     |
+| ------------------------------- | ------------------------------------ | ------------------------------------------ |
+| `machine-sinclair-zx-spectrum`  | ZX Spectrum (48K, 128K, +2, +2A, +3) | Planned split from `emu-spectrum`          |
+| `machine-commodore-64`          | Commodore 64 (PAL, NTSC)             | Planned split from `emu-c64`               |
+| `machine-nintendo-nes`          | NES/Famicom (NTSC, PAL)              | Planned split from `emu-nes`               |
+| `machine-commodore-amiga`       | Amiga (A500-A4000)                   | Currently `machine-amiga`; rename planned  |
+
+### Runnable Packages
+
+| Crate           | Role                                                   | Status                        |
+| --------------- | ------------------------------------------------------ | ----------------------------- |
+| `emu-spectrum`  | Runnable Spectrum package; headed and headless modes   | Complete                      |
+| `emu-c64`       | Runnable C64 package; headed and headless modes        | Feature-complete              |
+| `emu-nes`       | Runnable NES package; headed and headless modes        | Complete                      |
+| `amiga-runner`  | Runnable Amiga package; intended to become `emu-amiga` | Transitional                  |
 
 ## Testing Strategy
 
