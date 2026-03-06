@@ -79,10 +79,10 @@ crate inventory, see [inventory.md](inventory.md).
 - `commodore-denise-ocs`: `Strong`. Large direct test surface suggests good
   isolated coverage. Next: keep raster and palette behavior tied to reference
   sources where practical.
-- `commodore-denise-ecs`: `Thin`. Current tests mainly prove wrapper behavior
-  and state preservation. Next: either keep it explicitly as a behavior-
-  identical wrapper or add ECS-only display-mode tests before keeping a
-  `Complete` label.
+- `commodore-denise-ecs`: `Good`. Direct tests now lock the current wrapper
+  contract: OCS-equivalent rendering behavior for inherited Denise paths plus
+  ECS ownership of `BPLCON3`. Next: add true ECS display-mode tests as SuperHires,
+  productivity, or other ECS-only Denise behavior lands.
 - `commodore-denise-aga`: `Good`. Direct isolated tests now cover palette
   banking, LOCT merge behavior, `BPLCON4` XOR lookup, HAM8 channel chaining,
   sprite width decoding, and wide sprite packing. Next: keep the AGA-only delta

@@ -87,7 +87,6 @@ pub struct DeniseOcs {
     pub bplcon0: u16,
     pub bplcon1: u16,
     pub bplcon2: u16,
-    pub bplcon3: u16,
     pub bplcon4: u16,
     pub clxcon: u16,
     pub clxdat: u16,
@@ -188,7 +187,6 @@ impl DeniseOcs {
             bplcon0: 0,
             bplcon1: 0,
             bplcon2: 0,
-            bplcon3: 0,
             bplcon4: 0,
             clxcon: 0,
             clxdat: 0,
@@ -224,7 +222,6 @@ impl DeniseOcs {
             self.palette[idx] = val & 0x0FFF;
         }
     }
-
 
     /// Convert 12-bit RGB (Amiga OCS) to 24-bit RGB (0x00RRGGBB).
     #[must_use]
@@ -314,7 +311,6 @@ impl DeniseOcs {
             self.spr_datb[sprite] = u64::from(val);
         }
     }
-
 
     /// Reset per-line state for bitplane shift-load timing.
     ///
@@ -874,9 +870,9 @@ impl DeniseOcs {
             let data = u16::from(color_idx & 0x0F);
             let rgb = match control {
                 0b00 => self.palette[data as usize],
-                0b01 => (self.ham_prev_rgb & 0xFF0) | data,         // Modify blue
-                0b10 => (self.ham_prev_rgb & 0x0FF) | (data << 8),  // Modify red
-                0b11 => (self.ham_prev_rgb & 0xF0F) | (data << 4),  // Modify green
+                0b01 => (self.ham_prev_rgb & 0xFF0) | data, // Modify blue
+                0b10 => (self.ham_prev_rgb & 0x0FF) | (data << 8), // Modify red
+                0b11 => (self.ham_prev_rgb & 0xF0F) | (data << 4), // Modify green
                 _ => unreachable!(),
             };
             self.ham_prev_rgb = rgb;
@@ -965,11 +961,13 @@ impl DeniseOcs {
                 self.bpl_shift_count[plane] -= 1;
                 // AGA FIFO auto-reload: when a plane's shift register drains
                 // and there are queued wider-fetch words, pop the next one.
-                if self.bpl_shift_count[plane] == 0 && self.bpl_fifo_len[plane] > 0
-                    && let Some(word) = self.pop_bpl_fifo(plane) {
-                        self.bpl_shift[plane] = word;
-                        self.bpl_shift_count[plane] = 16;
-                    }
+                if self.bpl_shift_count[plane] == 0
+                    && self.bpl_fifo_len[plane] > 0
+                    && let Some(word) = self.pop_bpl_fifo(plane)
+                {
+                    self.bpl_shift[plane] = word;
+                    self.bpl_shift_count[plane] = 16;
+                }
             }
             self.shift_count = self
                 .bpl_shift_count
