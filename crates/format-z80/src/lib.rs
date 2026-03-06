@@ -245,12 +245,7 @@ fn load_48k_page(target: &mut impl SnapshotTarget, page: u8, ram: &[u8]) {
 }
 
 /// Load a 128K page into the correct bank.
-fn load_128k_page(
-    target: &mut impl SnapshotTarget,
-    page: u8,
-    ram: &[u8],
-    port_7ffd: u8,
-) {
+fn load_128k_page(target: &mut impl SnapshotTarget, page: u8, ram: &[u8], port_7ffd: u8) {
     let bank = match page {
         3 => 0,
         4 => 1,
@@ -321,6 +316,9 @@ mod tests {
         border: u8,
         regs: Z80Registers,
         bank_reg: u8,
+        bank_history: Vec<u8>,
+        ay_regs: [u8; 16],
+        ay_selected: u8,
     }
 
     impl TestTarget {
@@ -330,6 +328,9 @@ mod tests {
                 border: 0,
                 regs: Z80Registers::default(),
                 bank_reg: 0,
+                bank_history: Vec::new(),
+                ay_regs: [0; 16],
+                ay_selected: 0,
             }
         }
     }
@@ -349,6 +350,13 @@ mod tests {
         }
         fn write_bank_register(&mut self, val: u8) {
             self.bank_reg = val;
+            self.bank_history.push(val);
+        }
+        fn set_ay_register(&mut self, reg: u8, val: u8) {
+            self.ay_regs[reg as usize] = val;
+        }
+        fn select_ay_register(&mut self, reg: u8) {
+            self.ay_selected = reg;
         }
     }
 
@@ -465,5 +473,108 @@ mod tests {
         let mut dst = [0u8; 3];
         decompress_z80(&src, &mut dst);
         assert_eq!(dst, [0xED, 0x55, 0x66]);
+    }
+
+    #[test]
+    fn v2_128k_load_restores_bank_and_ay_state() {
+        let mut target = TestTarget::new();
+        let mut data = vec![0u8; 55];
+
+        // Base header: PC=0 forces v2/v3 path.
+        data[12] = 0x0E; // border = 7
+        data[30] = 23;
+        data[31] = 0;
+        data[32] = 0x34;
+        data[33] = 0x12; // PC = 0x1234
+        data[34] = 3; // v2 128K hardware
+        data[35] = 0x13; // port 7FFD, bank 3 paged
+        data[38] = 7; // selected AY register
+        for reg in 0..16u8 {
+            data[39 + reg as usize] = reg.wrapping_mul(3);
+        }
+
+        // Uncompressed page 8 -> bank 5 -> $4000
+        data.extend_from_slice(&[0xFF, 0xFF, 8]);
+        let mut page8 = vec![0u8; 0x4000];
+        page8[0] = 0x11;
+        data.extend_from_slice(&page8);
+
+        // Uncompressed page 5 -> bank 2 -> $8000
+        data.extend_from_slice(&[0xFF, 0xFF, 5]);
+        let mut page5 = vec![0u8; 0x4000];
+        page5[0] = 0x22;
+        data.extend_from_slice(&page5);
+
+        // Uncompressed page 7 -> bank 4 -> temporary page at $C000, then restore
+        data.extend_from_slice(&[0xFF, 0xFF, 7]);
+        let mut page7 = vec![0u8; 0x4000];
+        page7[0] = 0x33;
+        data.extend_from_slice(&page7);
+
+        load_z80(&mut target, &data).expect("load should succeed");
+
+        assert_eq!(target.regs.pc, 0x1234);
+        assert_eq!(target.border, 7);
+        assert_eq!(target.ram[0x4000], 0x11);
+        assert_eq!(target.ram[0x8000], 0x22);
+        assert_eq!(target.ram[0xC000], 0x33);
+        assert_eq!(target.bank_reg, 0x13);
+        assert!(target.bank_history.contains(&0x14));
+        assert_eq!(target.bank_history.last(), Some(&0x13));
+        assert_eq!(target.ay_selected, 7);
+        assert_eq!(target.ay_regs[5], 15);
+        assert_eq!(target.ay_regs[15], 45);
+    }
+
+    #[test]
+    fn v2_extended_header_truncation_returns_error() {
+        let mut target = TestTarget::new();
+        let mut data = vec![0u8; 40];
+        data[30] = 23;
+        data[31] = 0;
+
+        let result = load_z80(&mut target, &data);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("extended header"));
+    }
+
+    #[test]
+    fn v2_compressed_block_truncation_returns_error() {
+        let mut target = TestTarget::new();
+        let mut data = vec![0u8; 55];
+        data[30] = 23;
+        data[31] = 0;
+        data[34] = 0; // 48K hardware, so page 8 is valid
+        data.extend_from_slice(&[0x05, 0x00, 8, 0xAA, 0xBB]);
+
+        let result = load_z80(&mut target, &data);
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("compressed block at page 8 truncated")
+        );
+    }
+
+    #[test]
+    fn v2_uncompressed_block_truncation_returns_error() {
+        let mut target = TestTarget::new();
+        let mut data = vec![0u8; 55];
+        data[30] = 23;
+        data[31] = 0;
+        data[34] = 0; // 48K hardware, so page 8 is valid
+        data.extend_from_slice(&[0xFF, 0xFF, 8]);
+        data.extend_from_slice(&[0xAA, 0xBB]);
+
+        let result = load_z80(&mut target, &data);
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("uncompressed block at page 8 truncated")
+        );
     }
 }

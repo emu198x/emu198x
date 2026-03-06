@@ -833,9 +833,7 @@ impl NesMcp {
         };
 
         match nes.load_battery(&data) {
-            Ok(()) => {
-                ToolResult::Success(serde_json::json!({"status": "ok", "size": data.len()}))
-            }
+            Ok(()) => ToolResult::Success(serde_json::json!({"status": "ok", "size": data.len()})),
             Err(e) => ToolResult::Error {
                 code: -32000,
                 message: e,
@@ -976,6 +974,59 @@ mod tests {
         assert_eq!(parse_button_name("select"), Some(NesButton::Select));
         assert_eq!(parse_button_name("up"), Some(NesButton::Up));
         assert_eq!(parse_button_name("unknown"), None);
+    }
+
+    #[test]
+    fn parse_region_defaults_to_ntsc_and_accepts_pal() {
+        assert_eq!(parse_region(&serde_json::json!({})), NesRegion::Ntsc);
+        assert_eq!(
+            parse_region(&serde_json::json!({"region": "pal"})),
+            NesRegion::Pal
+        );
+        assert_eq!(
+            parse_region(&serde_json::json!({"region": "PAL"})),
+            NesRegion::Ntsc
+        );
+    }
+
+    #[test]
+    fn parse_display_size_defaults_to_corrected_4_3_and_can_disable() {
+        assert_eq!(
+            parse_display_size(&serde_json::json!({}), 256, 240),
+            Some(mcp::display_size_4_3(256, 240))
+        );
+        assert_eq!(
+            parse_display_size(&serde_json::json!({"correct_aspect": false}), 256, 240),
+            None
+        );
+    }
+
+    #[test]
+    fn load_binary_param_decodes_base64_and_reports_errors() {
+        match load_binary_param(&serde_json::json!({"data": "AQID"})) {
+            Ok(bytes) => assert_eq!(bytes, vec![1, 2, 3]),
+            Err(_) => panic!("base64 should decode"),
+        }
+
+        let missing =
+            load_binary_param(&serde_json::json!({})).expect_err("missing inputs should fail");
+        assert!(matches!(
+            missing,
+            ToolResult::Error {
+                code: -32602,
+                message
+            } if message.contains("Provide 'data' (base64) or 'path'")
+        ));
+
+        let invalid = load_binary_param(&serde_json::json!({"data": "!!!"}))
+            .expect_err("invalid base64 should fail");
+        assert!(matches!(
+            invalid,
+            ToolResult::Error {
+                code: -32602,
+                message
+            } if message.contains("Invalid base64")
+        ));
     }
 
     #[test]

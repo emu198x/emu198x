@@ -97,11 +97,7 @@ fn generate_and_write(
     let path = output_dir.join(format!("{}.msgpack", def.name));
     let data = rmp_serde::to_vec(&file).expect("failed to serialise");
     fs::write(&path, &data).expect("failed to write file");
-    println!(
-        "{} tests, {} bytes",
-        file.tests.len(),
-        data.len()
-    );
+    println!("{} tests, {} bytes", file.tests.len(), data.len());
 }
 
 fn output_dir_for_cpu(cpu_name: &str) -> PathBuf {
@@ -130,4 +126,33 @@ fn find_arg(args: &[String], flag: &str) -> Option<String> {
     args.iter()
         .position(|a| a == flag)
         .and_then(|i| args.get(i + 1).cloned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_dir_for_cpu_maps_known_and_unknown_variants() {
+        assert!(output_dir_for_cpu("68020").ends_with("test-data/m68020/v1"));
+        assert!(output_dir_for_cpu("68EC020").ends_with("test-data/m68ec020/v1"));
+        assert!(output_dir_for_cpu("custom").ends_with("test-data/m68k-custom/v1"));
+    }
+
+    #[test]
+    fn find_arg_returns_following_value_only_when_present() {
+        let args = vec![
+            "m68k-test-gen".to_string(),
+            "--cpu".to_string(),
+            "68020".to_string(),
+            "--count".to_string(),
+            "5".to_string(),
+            "--flag".to_string(),
+        ];
+
+        assert_eq!(find_arg(&args, "--cpu"), Some("68020".to_string()));
+        assert_eq!(find_arg(&args, "--count"), Some("5".to_string()));
+        assert_eq!(find_arg(&args, "--flag"), None);
+        assert_eq!(find_arg(&args, "--missing"), None);
+    }
 }

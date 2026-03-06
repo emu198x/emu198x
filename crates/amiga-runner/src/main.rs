@@ -1877,13 +1877,13 @@ impl ApplicationHandler for App {
                 let pixels =
                     match Pixels::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT + STATUS_BAR_HEIGHT, surface)
                     {
-                    Ok(pixels) => pixels,
-                    Err(e) => {
-                        eprintln!("Failed to create pixels surface: {e}");
-                        event_loop.exit();
-                        return;
-                    }
-                };
+                        Ok(pixels) => pixels,
+                        Err(e) => {
+                            eprintln!("Failed to create pixels surface: {e}");
+                            event_loop.exit();
+                            return;
+                        }
+                    };
 
                 self.pixels = Some(pixels);
                 self.window = Some(window);
@@ -2200,7 +2200,8 @@ fn main() {
 mod tests {
     use super::{
         BeamDebugFilter, map_char_to_amiga_key, map_printable_physical_key,
-        parse_beam_debug_filter_arg, parse_chipset_arg, parse_model_arg, resolve_model_chipset,
+        parse_beam_debug_filter_arg, parse_chipset_arg, parse_line_range_arg, parse_model_arg,
+        parse_u16_arg, resolve_model_chipset,
     };
     use machine_amiga::{AmigaChipset, AmigaModel};
     use winit::keyboard::KeyCode;
@@ -2265,6 +2266,56 @@ mod tests {
             resolve_model_chipset(AmigaModel::A500Plus, Some(AmigaChipset::Ecs)),
             Ok(AmigaChipset::Ecs)
         );
+    }
+
+    #[test]
+    fn aga_models_default_to_aga_and_reject_ocs_override() {
+        assert_eq!(
+            resolve_model_chipset(AmigaModel::A1200, None),
+            Ok(AmigaChipset::Aga)
+        );
+        assert_eq!(
+            resolve_model_chipset(AmigaModel::A4000, None),
+            Ok(AmigaChipset::Aga)
+        );
+        assert!(resolve_model_chipset(AmigaModel::A1200, Some(AmigaChipset::Ocs)).is_err());
+        assert_eq!(
+            resolve_model_chipset(AmigaModel::A4000, Some(AmigaChipset::Aga)),
+            Ok(AmigaChipset::Aga)
+        );
+    }
+
+    #[test]
+    fn u16_arg_parser_accepts_decimal_hex_and_whitespace() {
+        assert_eq!(parse_u16_arg("123"), Ok(123));
+        assert_eq!(parse_u16_arg(" 0x1f "), Ok(0x001F));
+        assert_eq!(parse_u16_arg("0X2A"), Ok(0x002A));
+    }
+
+    #[test]
+    fn u16_arg_parser_rejects_empty_and_invalid_values() {
+        assert!(parse_u16_arg("").is_err());
+        assert!(parse_u16_arg(" ").is_err());
+        assert!(parse_u16_arg("xyz").is_err());
+        assert!(parse_u16_arg("0x10000").is_err());
+    }
+
+    #[test]
+    fn line_range_parser_accepts_single_value_and_range() {
+        let single = parse_line_range_arg("42").expect("single line should parse");
+        assert_eq!(single.start, 42);
+        assert_eq!(single.end_inclusive, 42);
+
+        let range = parse_line_range_arg(" 0x10 : 0x1F ").expect("range should parse");
+        assert_eq!(range.start, 0x10);
+        assert_eq!(range.end_inclusive, 0x1F);
+    }
+
+    #[test]
+    fn line_range_parser_rejects_descending_and_invalid_ranges() {
+        assert!(parse_line_range_arg("20:10").is_err());
+        assert!(parse_line_range_arg(":10").is_err());
+        assert!(parse_line_range_arg("10:").is_err());
     }
 
     #[test]

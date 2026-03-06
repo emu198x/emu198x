@@ -164,10 +164,7 @@ pub extern "C" fn m68k_read_memory_32(address: c_uint) -> c_uint {
     let b1 = mem.data[(addr + 1) & ADDR_MASK];
     let b2 = mem.data[(addr + 2) & ADDR_MASK];
     let b3 = mem.data[(addr + 3) & ADDR_MASK];
-    (c_uint::from(b0) << 24)
-        | (c_uint::from(b1) << 16)
-        | (c_uint::from(b2) << 8)
-        | c_uint::from(b3)
+    (c_uint::from(b0) << 24) | (c_uint::from(b1) << 16) | (c_uint::from(b2) << 8) | c_uint::from(b3)
 }
 
 #[unsafe(no_mangle)]
@@ -188,8 +185,7 @@ pub extern "C" fn m68k_write_memory_16(address: c_uint, value: c_uint) {
     mem.data[addr] = hi;
     mem.data[(addr + 1) & ADDR_MASK] = lo;
     mem.exec_writes.push((addr as u32, hi));
-    mem.exec_writes
-        .push((((addr + 1) & ADDR_MASK) as u32, lo));
+    mem.exec_writes.push((((addr + 1) & ADDR_MASK) as u32, lo));
 }
 
 #[unsafe(no_mangle)]
@@ -205,12 +201,9 @@ pub extern "C" fn m68k_write_memory_32(address: c_uint, value: c_uint) {
     mem.data[(addr + 2) & ADDR_MASK] = b2;
     mem.data[(addr + 3) & ADDR_MASK] = b3;
     mem.exec_writes.push((addr as u32, b0));
-    mem.exec_writes
-        .push((((addr + 1) & ADDR_MASK) as u32, b1));
-    mem.exec_writes
-        .push((((addr + 2) & ADDR_MASK) as u32, b2));
-    mem.exec_writes
-        .push((((addr + 3) & ADDR_MASK) as u32, b3));
+    mem.exec_writes.push((((addr + 1) & ADDR_MASK) as u32, b1));
+    mem.exec_writes.push((((addr + 2) & ADDR_MASK) as u32, b2));
+    mem.exec_writes.push((((addr + 3) & ADDR_MASK) as u32, b3));
 }
 
 #[unsafe(no_mangle)]
@@ -232,4 +225,91 @@ pub extern "C" fn m68k_read_disassembler_16(address: c_uint) -> c_uint {
 #[unsafe(no_mangle)]
 pub extern "C" fn m68k_read_disassembler_32(address: c_uint) -> c_uint {
     m68k_read_memory_32(address)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_isolated_memory_test(test: impl FnOnce()) {
+        let _guard = TEST_LOCK.lock().expect("test lock poisoned");
+        clear();
+        test();
+        clear();
+    }
+
+    #[test]
+    fn poke_word_and_long_store_big_endian_bytes_with_wraparound() {
+        with_isolated_memory_test(|| {
+            poke_word(ADDR_MASK as u32, 0x1234);
+            assert_eq!(peek(ADDR_MASK as u32), 0x12);
+            assert_eq!(peek(0), 0x34);
+
+            poke_long(ADDR_MASK as u32 - 1, 0x89AB_CDEF);
+            assert_eq!(peek(ADDR_MASK as u32 - 1), 0x89);
+            assert_eq!(peek(ADDR_MASK as u32), 0xAB);
+            assert_eq!(peek(0), 0xCD);
+            assert_eq!(peek(1), 0xEF);
+        });
+    }
+
+    #[test]
+    fn snapshot_tracked_is_sorted_and_uses_latest_written_byte() {
+        with_isolated_memory_test(|| {
+            poke(2, 0x10);
+            poke(1, 0x20);
+            m68k_write_memory_8(2, 0x30);
+            m68k_write_memory_8(3, 0x40);
+
+            let snapshot = snapshot_tracked();
+
+            assert_eq!(snapshot, vec![(1, 0x20), (2, 0x30), (3, 0x40)]);
+        });
+    }
+
+    #[test]
+    fn snapshot_addrs_masks_addresses() {
+        with_isolated_memory_test(|| {
+            poke(0, 0xAA);
+            poke(ADDR_MASK as u32, 0xBB);
+
+            let snapshot = snapshot_addrs(&[0x01_00_0000, 0x01FF_FFFF]);
+
+            assert_eq!(snapshot, vec![(0x01_00_0000, 0xAA), (0x01FF_FFFF, 0xBB)]);
+        });
+    }
+
+    #[test]
+    fn reset_writes_and_take_writes_only_affect_execution_tracking() {
+        with_isolated_memory_test(|| {
+            poke(0x100, 0x11);
+            m68k_write_memory_16(0x100, 0x2233);
+
+            assert_eq!(take_writes(), vec![(0x100, 0x22), (0x101, 0x33)]);
+            assert_eq!(snapshot_tracked(), vec![(0x100, 0x22)]);
+
+            m68k_write_memory_8(0x102, 0x44);
+            reset_writes();
+            assert!(take_writes().is_empty());
+            assert_eq!(snapshot_tracked(), vec![(0x100, 0x22)]);
+        });
+    }
+
+    #[test]
+    fn clear_resets_setup_and_execution_state() {
+        with_isolated_memory_test(|| {
+            poke(0x200, 0x55);
+            m68k_write_memory_8(0x201, 0x66);
+
+            clear();
+
+            assert_eq!(peek(0x200), 0);
+            assert_eq!(peek(0x201), 0);
+            assert!(snapshot_tracked().is_empty());
+            assert!(take_writes().is_empty());
+        });
+    }
 }

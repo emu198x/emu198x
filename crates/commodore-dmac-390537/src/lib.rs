@@ -174,10 +174,7 @@ impl Wd33c93 {
             _ => self.regs[reg as usize],
         };
         // Auto-increment, except for ASR, DATA, and COMMAND registers.
-        if reg != wd_reg::AUXILIARY_STATUS
-            && reg != wd_reg::DATA
-            && reg != wd_reg::COMMAND
-        {
+        if reg != wd_reg::AUXILIARY_STATUS && reg != wd_reg::DATA && reg != wd_reg::COMMAND {
             self.selected_reg = self.selected_reg.wrapping_add(1) & 0x1F;
         }
         val
@@ -191,10 +188,7 @@ impl Wd33c93 {
             _ => self.regs[reg as usize] = val,
         }
         // Auto-increment, except for ASR, DATA, and COMMAND registers.
-        if reg != wd_reg::AUXILIARY_STATUS
-            && reg != wd_reg::DATA
-            && reg != wd_reg::COMMAND
-        {
+        if reg != wd_reg::AUXILIARY_STATUS && reg != wd_reg::DATA && reg != wd_reg::COMMAND {
             self.selected_reg = self.selected_reg.wrapping_add(1) & 0x1F;
         }
     }
@@ -207,21 +201,15 @@ impl Wd33c93 {
                 // the post-reset status code.
                 let eaf = self.regs[wd_reg::OWN_ID as usize] & 0x08 != 0;
                 self.regs = [0; 32];
-                self.regs[wd_reg::SCSI_STATUS as usize] = if eaf {
-                    wd_csr::RESET_AF
-                } else {
-                    wd_csr::RESET
-                };
+                self.regs[wd_reg::SCSI_STATUS as usize] =
+                    if eaf { wd_csr::RESET_AF } else { wd_csr::RESET };
                 self.asr = wd_asr::INT;
             }
             wd_cmd::ABORT => {
                 self.regs[wd_reg::SCSI_STATUS as usize] = 0x22; // CSR_SEL_ABORT
                 self.asr = wd_asr::INT;
             }
-            wd_cmd::SEL_ATN
-            | wd_cmd::SEL
-            | wd_cmd::SEL_ATN_XFER
-            | wd_cmd::SEL_XFER => {
+            wd_cmd::SEL_ATN | wd_cmd::SEL | wd_cmd::SEL_ATN_XFER | wd_cmd::SEL_XFER => {
                 // No SCSI targets exist — immediate timeout.
                 self.regs[wd_reg::SCSI_STATUS as usize] = wd_csr::TIMEOUT;
                 self.asr = wd_asr::INT;
@@ -588,11 +576,126 @@ mod tests {
             // Verify timeout.
             d.write_word(sasr_addr, wd_reg::SCSI_STATUS as u16);
             let status = d.read_word(scmd_addr) as u8;
-            assert_eq!(
-                status,
-                wd_csr::TIMEOUT,
-                "target {target_id} should timeout"
-            );
+            assert_eq!(status, wd_csr::TIMEOUT, "target {target_id} should timeout");
         }
+    }
+
+    #[test]
+    fn reset_restores_dma_register_defaults() {
+        let mut d = Dmac390537::new();
+        d.cntr = cntr_bits::INTEN;
+        d.dawr = 0x03;
+        d.wtc = 0x12_3456;
+        d.acr = 0x89AB_CDEF;
+        d.istr_latched = 0xA0;
+        d.wd.selected_reg = 0x1F;
+        d.wd.asr = wd_asr::INT;
+
+        d.reset();
+
+        assert_eq!(d.cntr, 0);
+        assert_eq!(d.dawr, 0);
+        assert_eq!(d.wtc, 0);
+        assert_eq!(d.acr, 0);
+        assert_eq!(d.istr_latched, 0);
+        assert_eq!(d.wd.selected_reg, 0);
+        assert_eq!(
+            d.read_word(0xDD_0000 | (u32::from(REG_ISTR) << 1)) as u8,
+            istr_bits::FE_FLG
+        );
+    }
+
+    #[test]
+    fn dawr_masks_to_low_two_bits() {
+        let mut d = Dmac390537::new();
+        let dawr_addr = 0xDD_0000 | (u32::from(REG_DAWR) << 1);
+
+        d.write_word(dawr_addr, 0x00FF);
+
+        assert_eq!(d.dawr, 0x03);
+    }
+
+    #[test]
+    fn wtc_and_acr_roundtrip() {
+        let mut d = Dmac390537::new();
+        let wtc_hi_addr = 0xDD_0000 | (u32::from(REG_WTC_HI) << 1);
+        let wtc_lo_addr = 0xDD_0000 | (u32::from(REG_WTC_LO) << 1);
+        let acr_hi_addr = 0xDD_0000 | (u32::from(REG_ACR_HI) << 1);
+        let acr_lo_addr = 0xDD_0000 | (u32::from(REG_ACR_LO) << 1);
+
+        d.write_word(wtc_hi_addr, 0x1234);
+        d.write_word(wtc_lo_addr, 0x5678);
+        d.write_word(acr_hi_addr, 0x89AB);
+        d.write_word(acr_lo_addr, 0xCDEF);
+
+        assert_eq!(d.read_word(wtc_hi_addr), 0x1234);
+        assert_eq!(d.read_word(wtc_lo_addr), 0x5678);
+        assert_eq!(d.read_word(acr_hi_addr), 0x89AB);
+        assert_eq!(d.read_word(acr_lo_addr), 0xCDEF);
+    }
+
+    #[test]
+    fn byte_access_uses_low_register_byte() {
+        let mut d = Dmac390537::new();
+        let cntr_addr = 0xDD_0000 | (u32::from(REG_CNTR) << 1);
+
+        d.write_byte(cntr_addr + 1, cntr_bits::INTEN);
+
+        assert_eq!(d.read_byte(cntr_addr), 0);
+        assert_eq!(d.read_byte(cntr_addr + 1), cntr_bits::INTEN);
+    }
+
+    #[test]
+    fn sasr_alt_port_mirrors_primary_and_auto_increments() {
+        let mut d = Dmac390537::new();
+        let sasr_alt_addr = 0xDD_0000 | (u32::from(REG_SASR_ALT) << 1);
+        let scmd_alt_addr = 0xDD_0000 | (u32::from(REG_SCMD_ALT) << 1);
+        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
+        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
+
+        d.write_word(sasr_alt_addr, wd_reg::OWN_ID as u16);
+        d.write_word(scmd_alt_addr, 0x12);
+        d.write_word(scmd_alt_addr, 0x34);
+
+        d.write_word(sasr_addr, wd_reg::OWN_ID as u16);
+        assert_eq!(d.read_word(scmd_addr) as u8, 0x12);
+        assert_eq!(d.read_word(scmd_addr) as u8, 0x34);
+    }
+
+    #[test]
+    fn unknown_command_sets_lci_without_wd_interrupt() {
+        let mut d = Dmac390537::new();
+        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
+        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
+        let istr_addr = 0xDD_0000 | (u32::from(REG_ISTR) << 1);
+
+        d.write_word(sasr_addr, wd_reg::COMMAND as u16);
+        d.write_word(scmd_addr, 0xFF);
+
+        let asr = d.read_word(sasr_addr) as u8;
+        assert_eq!(asr & 0x40, 0x40);
+        assert_eq!(asr & wd_asr::INT, 0);
+        assert_eq!(d.read_word(istr_addr) as u8 & istr_bits::INTS, 0);
+    }
+
+    #[test]
+    fn cint_clears_latched_flags_but_not_wd_interrupt_source() {
+        let mut d = Dmac390537::new();
+        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
+        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
+        let cint_addr = 0xDD_0000 | (u32::from(REG_CINT) << 1);
+        let istr_addr = 0xDD_0000 | (u32::from(REG_ISTR) << 1);
+
+        d.istr_latched = 0x20;
+        d.write_word(sasr_addr, wd_reg::COMMAND as u16);
+        d.write_word(scmd_addr, wd_cmd::RESET as u16);
+
+        d.write_word(cint_addr, 0);
+
+        let istr = d.read_word(istr_addr) as u8;
+        assert_eq!(d.istr_latched, 0);
+        assert_eq!(istr & 0x20, 0);
+        assert_ne!(istr & istr_bits::INTS, 0);
+        assert_ne!(istr & istr_bits::INT_F, 0);
     }
 }

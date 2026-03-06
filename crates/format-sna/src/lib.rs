@@ -108,7 +108,7 @@ impl SnaSnapshot {
             n => {
                 return Err(format!(
                     "SNA file must be {SNA_48K_SIZE} (48K) or {SNA_128K_SIZE} (128K) bytes, got {n}"
-                ))
+                ));
             }
         };
 
@@ -269,6 +269,7 @@ mod tests {
         border: u8,
         regs: Z80Registers,
         bank_reg: u8,
+        bank_history: Vec<u8>,
     }
 
     impl TestTarget {
@@ -278,6 +279,7 @@ mod tests {
                 border: 0,
                 regs: Z80Registers::default(),
                 bank_reg: 0,
+                bank_history: Vec::new(),
             }
         }
     }
@@ -297,6 +299,7 @@ mod tests {
         }
         fn write_bank_register(&mut self, val: u8) {
             self.bank_reg = val;
+            self.bank_history.push(val);
         }
     }
 
@@ -371,5 +374,38 @@ mod tests {
         load_sna(&mut target, &sna).expect("load should succeed");
         assert_eq!(target.regs.pc, 0xABCD);
         assert_eq!(target.regs.a, 0xAA);
+    }
+
+    #[test]
+    fn load_sna_128k_masks_border_and_restores_bank_register() {
+        let mut target = TestTarget::new();
+        let mut sna = vec![0u8; SNA_128K_SIZE];
+        sna[26] = 0xFF; // border should be masked to 7
+
+        // Bank 5 and bank 2 fixed windows.
+        sna[HEADER_SIZE] = 0x11;
+        sna[HEADER_SIZE + 0x4000] = 0x22;
+
+        let ext = HEADER_SIZE + RAM_SIZE;
+        sna[ext] = 0x34;
+        sna[ext + 1] = 0x12; // PC = 0x1234
+        sna[ext + 2] = 0x13; // port 7FFD, paged bank 3
+
+        load_sna(&mut target, &sna).expect("load should succeed");
+
+        assert_eq!(target.border, 7);
+        assert_eq!(target.regs.pc, 0x1234);
+        assert_eq!(target.bank_reg, 0x13);
+        assert_eq!(target.ram[0x4000], 0x11);
+        assert_eq!(target.ram[0x8000], 0x22);
+        assert!(
+            target.bank_history.contains(&0x10),
+            "128K load should temporarily page bank 0 into $C000"
+        );
+        assert!(
+            target.bank_history.contains(&0x17),
+            "128K load should temporarily page bank 7 into $C000"
+        );
+        assert_eq!(target.bank_history.last(), Some(&0x13));
     }
 }

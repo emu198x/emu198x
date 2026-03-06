@@ -82,12 +82,7 @@ pub fn generate(def: &InstructionDef, cpu_type: u32, count: usize) -> Vec<TestCa
     tests
 }
 
-fn generate_one(
-    def: &InstructionDef,
-    cpu_type: u32,
-    rng: &mut impl Rng,
-    index: usize,
-) -> TestCase {
+fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: usize) -> TestCase {
     memory::clear();
 
     // Encode the instruction at CODE_BASE
@@ -130,9 +125,10 @@ fn generate_one(
     // Musashi doesn't emulate address errors, so odd EAs cause 100%
     // mismatches (our CPU takes an exception, Musashi doesn't).
     if let Some(ref info) = ea_info
-        && info.size >= 2 {
-            ensure_even_ea(info, &mut d, &mut a, STACK_TOP);
-        }
+        && info.size >= 2
+    {
+        ensure_even_ea(info, &mut d, &mut a, STACK_TOP);
+    }
 
     // Seed test data at the memory EA so address-computation bugs are
     // detectable (wrong address reads zero instead of the seeded value).
@@ -216,7 +212,7 @@ fn encode_instruction(
             // was told ISP = STACK_TOP by the register setup, so write
             // the return address starting at STACK_TOP.
             let sp = STACK_TOP;
-            memory::poke_word(sp, (ret_addr >> 16) as u16);       // hi word at SP
+            memory::poke_word(sp, (ret_addr >> 16) as u16); // hi word at SP
             memory::poke_word(sp.wrapping_add(2), (ret_addr & 0xFFFF) as u16); // lo word at SP+2
             // Write extension words for the instruction
             for ext_idx in 0..def.ext_words {
@@ -231,8 +227,14 @@ fn encode_instruction(
             let ea_reg = (def.opcode & 7) as u8;
             let (ext_word, abs_long_addr) = encode_memory_ea(pc, ea_mode, ea_reg, 2, cpu_type, rng);
             Some(MemoryEAInfo {
-                mode: ea_mode, reg: ea_reg, size, ext_word, abs_long_addr,
-                ext_word_pc: pc + 2, movem_mask: None, cpu_type,
+                mode: ea_mode,
+                reg: ea_reg,
+                size,
+                ext_word,
+                abs_long_addr,
+                ext_word_pc: pc + 2,
+                movem_mask: None,
+                cpu_type,
             })
         }
         InstructionSetup::MemoryEADst { size } => {
@@ -240,8 +242,14 @@ fn encode_instruction(
             let ea_reg = ((def.opcode >> 9) & 7) as u8;
             let (ext_word, abs_long_addr) = encode_memory_ea(pc, ea_mode, ea_reg, 2, cpu_type, rng);
             Some(MemoryEAInfo {
-                mode: ea_mode, reg: ea_reg, size, ext_word, abs_long_addr,
-                ext_word_pc: pc + 2, movem_mask: None, cpu_type,
+                mode: ea_mode,
+                reg: ea_reg,
+                size,
+                ext_word,
+                abs_long_addr,
+                ext_word_pc: pc + 2,
+                movem_mask: None,
+                cpu_type,
             })
         }
         InstructionSetup::ImmMemoryEA { imm_words, size } => {
@@ -254,10 +262,17 @@ fn encode_instruction(
             let ea_mode = ((def.opcode >> 3) & 7) as u8;
             let ea_reg = (def.opcode & 7) as u8;
             let ext_offset = 2 + u32::from(imm_words) * 2;
-            let (ext_word, abs_long_addr) = encode_memory_ea(pc, ea_mode, ea_reg, ext_offset, cpu_type, rng);
+            let (ext_word, abs_long_addr) =
+                encode_memory_ea(pc, ea_mode, ea_reg, ext_offset, cpu_type, rng);
             Some(MemoryEAInfo {
-                mode: ea_mode, reg: ea_reg, size, ext_word, abs_long_addr,
-                ext_word_pc: pc + ext_offset, movem_mask: None, cpu_type,
+                mode: ea_mode,
+                reg: ea_reg,
+                size,
+                ext_word,
+                abs_long_addr,
+                ext_word_pc: pc + ext_offset,
+                movem_mask: None,
+                cpu_type,
             })
         }
         InstructionSetup::Movem { size } => {
@@ -269,8 +284,14 @@ fn encode_instruction(
             let ea_reg = (def.opcode & 7) as u8;
             let (ext_word, abs_long_addr) = encode_memory_ea(pc, ea_mode, ea_reg, 4, cpu_type, rng);
             Some(MemoryEAInfo {
-                mode: ea_mode, reg: ea_reg, size, ext_word, abs_long_addr,
-                ext_word_pc: pc + 4, movem_mask: Some(mask), cpu_type,
+                mode: ea_mode,
+                reg: ea_reg,
+                size,
+                ext_word,
+                abs_long_addr,
+                ext_word_pc: pc + 4,
+                movem_mask: Some(mask),
+                cpu_type,
             })
         }
     }
@@ -454,18 +475,17 @@ fn generate_brief_ext_word(cpu_type: u32, rng: &mut impl Rng) -> u16 {
 
 /// Read An (or SSP for A7 in supervisor mode).
 fn reg_an(reg: u8, a: &[u32; 7], ssp: u32) -> u32 {
-    if (reg as usize) < 7 { a[reg as usize] } else { ssp }
+    if (reg as usize) < 7 {
+        a[reg as usize]
+    } else {
+        ssp
+    }
 }
 
 /// Compute the effective address from MemoryEAInfo and register values.
-fn compute_ea(
-    info: &MemoryEAInfo,
-    d: &[u32; 8],
-    a: &[u32; 7],
-    ssp: u32,
-) -> Option<u32> {
+fn compute_ea(info: &MemoryEAInfo, d: &[u32; 8], a: &[u32; 7], ssp: u32) -> Option<u32> {
     match info.mode {
-        0b010 | 0b011 => Some(reg_an(info.reg, a, ssp)),         // (An), (An)+
+        0b010 | 0b011 => Some(reg_an(info.reg, a, ssp)), // (An), (An)+
         0b100 => {
             // -(An): pre-decrement
             let an = reg_an(info.reg, a, ssp);
@@ -501,7 +521,14 @@ fn compute_ea(
             3 => {
                 // d8(PC,Xn): indexed from PC at ext word
                 let brief = info.ext_word?;
-                Some(compute_indexed_ea(brief, info.ext_word_pc, d, a, ssp, info.cpu_type))
+                Some(compute_indexed_ea(
+                    brief,
+                    info.ext_word_pc,
+                    d,
+                    a,
+                    ssp,
+                    info.cpu_type,
+                ))
             }
             _ => None,
         },
@@ -517,14 +544,13 @@ fn compute_ea(
 ///
 /// Fix: toggle the base register's bit 0 (for An-based modes) or the index
 /// register's bit 0 (for PC-relative indexed) to flip EA parity.
-fn ensure_even_ea(
-    info: &MemoryEAInfo,
-    d: &mut [u32; 8],
-    a: &mut [u32; 7],
-    ssp: u32,
-) {
-    let Some(ea) = compute_ea(info, d, a, ssp) else { return };
-    if ea & 1 == 0 { return; }
+fn ensure_even_ea(info: &MemoryEAInfo, d: &mut [u32; 8], a: &mut [u32; 7], ssp: u32) {
+    let Some(ea) = compute_ea(info, d, a, ssp) else {
+        return;
+    };
+    if ea & 1 == 0 {
+        return;
+    }
 
     match info.mode {
         // An-based modes: toggle An's bit 0
@@ -556,14 +582,10 @@ fn ensure_even_ea(
 /// register values. Seeding makes address-computation bugs detectable:
 /// if the CPU computes a different EA, it reads zero instead of the
 /// seeded value, causing a mismatch.
-fn seed_ea_data(
-    info: &MemoryEAInfo,
-    d: &[u32; 8],
-    a: &[u32; 7],
-    ssp: u32,
-    rng: &mut impl Rng,
-) {
-    let Some(ea) = compute_ea(info, d, a, ssp) else { return };
+fn seed_ea_data(info: &MemoryEAInfo, d: &[u32; 8], a: &[u32; 7], ssp: u32, rng: &mut impl Rng) {
+    let Some(ea) = compute_ea(info, d, a, ssp) else {
+        return;
+    };
     let ea = ea & 0x00FF_FFFF;
 
     // MOVEM: seed enough data for all 16 registers
@@ -625,6 +647,5 @@ fn compute_indexed_ea(
     };
 
     let scaled_index = index.wrapping_mul(1u32 << scale);
-    an.wrapping_add(d8 as i32 as u32)
-        .wrapping_add(scaled_index)
+    an.wrapping_add(d8 as i32 as u32).wrapping_add(scaled_index)
 }

@@ -689,3 +689,43 @@ pub fn find(cpu_type: u32, name: &str) -> Option<InstructionDef> {
         .into_iter()
         .find(|d| d.name.eq_ignore_ascii_case(name))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalogue_filters_68010_only_instructions_from_68000() {
+        let defs_68000 = catalogue(musashi::M68K_CPU_TYPE_68000);
+        let defs_68010 = catalogue(musashi::M68K_CPU_TYPE_68010);
+
+        assert!(!defs_68000.iter().any(|def| def.name == "BKPT"));
+        assert!(defs_68010.iter().any(|def| def.name == "BKPT"));
+        assert!(defs_68010.iter().any(|def| def.name == "MOVEfromCCR"));
+    }
+
+    #[test]
+    fn catalogue_treats_ec020_and_68020_as_same_instruction_tier() {
+        let defs_ec020 = catalogue(musashi::M68K_CPU_TYPE_68EC020);
+        let defs_68020 = catalogue(musashi::M68K_CPU_TYPE_68020);
+
+        assert_eq!(defs_ec020.len(), defs_68020.len());
+        assert_eq!(
+            defs_ec020.iter().map(|def| def.name).collect::<Vec<_>>(),
+            defs_68020.iter().map(|def| def.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn find_is_case_insensitive_and_respects_cpu_filter() {
+        assert!(find(musashi::M68K_CPU_TYPE_68000, "bkpt").is_none());
+        assert_eq!(
+            find(musashi::M68K_CPU_TYPE_68010, "bkpt").map(|def| def.name),
+            Some("BKPT")
+        );
+        assert_eq!(
+            find(musashi::M68K_CPU_TYPE_68000, "move.q").map(|def| def.name),
+            Some("MOVE.q")
+        );
+    }
+}

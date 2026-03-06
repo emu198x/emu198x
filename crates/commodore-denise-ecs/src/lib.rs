@@ -100,4 +100,27 @@ mod tests {
         let denise = DeniseEcs::from_ocs(inner);
         assert_eq!(denise.palette[1], 0x0123);
     }
+
+    #[test]
+    fn as_inner_mut_routes_mutations_to_wrapped_core() {
+        let mut denise = DeniseEcs::new();
+
+        denise.as_inner_mut().set_palette(2, 0x0456);
+
+        assert_eq!(denise.as_inner().palette[2], 0x0456);
+    }
+
+    #[test]
+    fn into_inner_returns_mutated_wrapped_core() {
+        let mut denise = DeniseEcs::default();
+        denise.set_palette(3, 0x0789);
+
+        let inner = denise.into_inner();
+
+        assert_eq!(inner.palette[3], 0x0789);
+        assert_eq!(
+            inner.framebuffer_raster.len(),
+            (RASTER_FB_WIDTH * PAL_RASTER_FB_HEIGHT) as usize
+        );
+    }
 }

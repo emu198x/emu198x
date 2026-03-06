@@ -131,11 +131,7 @@ impl Gayle {
 
         // With a drive present we'd dispatch to actual IDE state here.
         // For now, return the same "no drive" defaults.
-        if reg == 7 {
-            self.ide_status
-        } else {
-            0xFF
-        }
+        if reg == 7 { self.ide_status } else { 0xFF }
     }
 }
 
@@ -209,5 +205,69 @@ mod tests {
         assert_eq!(g.read(0xD8_0000), 0);
         // $D90000 has bit 19 set but not bit 17 → should not match.
         assert_eq!(g.read(0xD9_0000), 0);
+    }
+
+    #[test]
+    fn reset_restores_power_on_defaults() {
+        let mut g = Gayle::new();
+        g.gayle_cs = 0xA5;
+        g.gayle_irq = 0x80;
+        g.gayle_int = 0x80;
+        g.gayle_cfg = 0x0F;
+        g.ide_status = 0x12;
+
+        g.reset();
+
+        assert_eq!(g.read(0xDA_8000), 0);
+        assert_eq!(g.read(0xDA_9000), 0);
+        assert_eq!(g.read(0xDA_A000), 0);
+        assert_eq!(g.read(0xDA_B000), 0);
+        assert_eq!(g.read(0xDA_001C), 0x7F);
+        assert!(!g.ide_irq_pending());
+    }
+
+    #[test]
+    fn ide_irq_pending_requires_enable_and_irq_flag() {
+        let mut g = Gayle::new();
+        g.gayle_irq = 0x80;
+        assert!(!g.ide_irq_pending());
+
+        g.write(0xDA_A000, 0x80);
+        assert!(g.ide_irq_pending());
+
+        g.gayle_irq = 0;
+        assert!(!g.ide_irq_pending());
+    }
+
+    #[test]
+    fn irq_write_sets_low_control_bits_directly() {
+        let mut g = Gayle::new();
+        g.gayle_irq = 0xFC;
+
+        g.write(0xDA_9000, 0x03);
+
+        assert_eq!(g.read(0xDA_9000), 0x03);
+    }
+
+    #[test]
+    fn ide_decode_ignores_bits_13_and_5() {
+        let g = Gayle::new();
+
+        assert_eq!(g.read(0xDA_001C), 0x7F);
+        assert_eq!(g.read(0xDA_003C), 0x7F);
+        assert_eq!(g.read(0xDA_201C), 0x7F);
+        assert_eq!(g.read(0xDA_203C), 0x7F);
+    }
+
+    #[test]
+    fn invalid_writes_do_not_modify_decoded_registers() {
+        let mut g = Gayle::new();
+        g.write(0xDA_8000, 0xA5);
+
+        g.write(0xD8_8000, 0x5A);
+        g.write(0xD9_001C, 0x00);
+
+        assert_eq!(g.read(0xDA_8000), 0xA5);
+        assert_eq!(g.read(0xDA_001C), 0x7F);
     }
 }

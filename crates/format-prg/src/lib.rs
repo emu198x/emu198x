@@ -175,12 +175,12 @@ mod tests {
             0x01, 0x08, // load address $0801
             0x0C, 0x08, // next-line pointer (wrong: $080C)
             0x0A, 0x00, // line number 10
-            0x9E,       // SYS token
+            0x9E, // SYS token
             0x32, 0x30, 0x36, 0x31, // "2061"
-            0x00,       // end of line
+            0x00, // end of line
             0x00, 0x00, // end of program
             0xA9, 0x00, // LDA #$00 (machine code at $080D)
-            0x8D,       // padding
+            0x8D, // padding
         ];
 
         let addr = load_prg(&mut ram, &prg).expect("load should succeed");
@@ -190,13 +190,19 @@ mod tests {
         let ptr_lo = ram.ram_read(0x0801);
         let ptr_hi = ram.ram_read(0x0802);
         let ptr = u16::from(ptr_lo) | (u16::from(ptr_hi) << 8);
-        assert_eq!(ptr, 0x080B, "next-line pointer should point to end-of-program");
+        assert_eq!(
+            ptr, 0x080B,
+            "next-line pointer should point to end-of-program"
+        );
 
         // $2D/$2E should point to $080D.
         let vartab_lo = ram.ram_read(0x2D);
         let vartab_hi = ram.ram_read(0x2E);
         let vartab = u16::from(vartab_lo) | (u16::from(vartab_hi) << 8);
-        assert_eq!(vartab, 0x080D, "start-of-variables should be past end marker");
+        assert_eq!(
+            vartab, 0x080D,
+            "start-of-variables should be past end marker"
+        );
     }
 
     #[test]
@@ -218,11 +224,50 @@ mod tests {
     fn load_prg_wraps_at_end_of_address_space() {
         let mut ram = TestRam::new();
 
-        let addr = load_prg(&mut ram, &[0xFF, 0xFF, 0x11, 0x22, 0x33]).expect("load should succeed");
+        let addr =
+            load_prg(&mut ram, &[0xFF, 0xFF, 0x11, 0x22, 0x33]).expect("load should succeed");
 
         assert_eq!(addr, 0xFFFF);
         assert_eq!(ram.ram_read(0xFFFF), 0x11);
         assert_eq!(ram.ram_read(0x0000), 0x22);
         assert_eq!(ram.ram_read(0x0001), 0x33);
+    }
+
+    #[test]
+    fn load_prg_relinks_multiple_basic_lines() {
+        let mut ram = TestRam::new();
+
+        let prg = vec![
+            0x01, 0x08, // load address $0801
+            0xFF, 0xFF, // line 10 next pointer placeholder
+            0x0A, 0x00, // line number 10
+            0x99, 0x20, 0x31, 0x00, // PRINT 1
+            0xFF, 0xFF, // line 20 next pointer placeholder
+            0x14, 0x00, // line number 20
+            0x80, 0x00, // END
+            0x00, 0x00, // end of program
+        ];
+
+        let addr = load_prg(&mut ram, &prg).expect("load should succeed");
+
+        assert_eq!(addr, 0x0801);
+        let first_ptr = u16::from(ram.ram_read(0x0801)) | (u16::from(ram.ram_read(0x0802)) << 8);
+        let second_ptr = u16::from(ram.ram_read(0x0809)) | (u16::from(ram.ram_read(0x080A)) << 8);
+        let vartab = u16::from(ram.ram_read(0x2D)) | (u16::from(ram.ram_read(0x2E)) << 8);
+
+        assert_eq!(first_ptr, 0x0809);
+        assert_eq!(second_ptr, 0x080F);
+        assert_eq!(vartab, 0x0811);
+    }
+
+    #[test]
+    fn load_prg_basic_end_marker_only_sets_vartab() {
+        let mut ram = TestRam::new();
+
+        let addr = load_prg(&mut ram, &[0x01, 0x08, 0x00, 0x00]).expect("load should succeed");
+
+        assert_eq!(addr, 0x0801);
+        let vartab = u16::from(ram.ram_read(0x2D)) | (u16::from(ram.ram_read(0x2E)) << 8);
+        assert_eq!(vartab, 0x0803);
     }
 }
