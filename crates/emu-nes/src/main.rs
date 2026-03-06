@@ -137,6 +137,10 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
         i += 1;
     }
 
+    if cli.screenshot_path.is_some() || cli.record_dir.is_some() {
+        cli.headless = true;
+    }
+
     Ok(Some(cli))
 }
 
@@ -438,6 +442,25 @@ mod tests {
 
         assert_eq!(cli.frames, 200);
         assert_eq!(cli.region, NesRegion::Ntsc);
+    }
+
+    #[test]
+    fn cli_parser_promotes_capture_modes_to_headless() {
+        let cli = parse_cli(&[
+            "emu-nes",
+            "--rom",
+            "mario.nes",
+            "--screenshot",
+            "out.png",
+            "--record",
+            "frames",
+        ])
+        .expect("parse should succeed")
+        .expect("help was not requested");
+
+        assert!(cli.headless);
+        assert_eq!(cli.screenshot_path, Some(PathBuf::from("out.png")));
+        assert_eq!(cli.record_dir, Some(PathBuf::from("frames")));
     }
 
     #[test]

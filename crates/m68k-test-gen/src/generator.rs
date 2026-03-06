@@ -649,3 +649,102 @@ fn compute_indexed_ea(
     let scaled_index = index.wrapping_mul(1u32 << scale);
     an.wrapping_add(d8 as i32 as u32).wrapping_add(scaled_index)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_generator_test(test: impl FnOnce()) {
+        let _guard = TEST_LOCK.lock().expect("test lock poisoned");
+        memory::clear();
+        test();
+        memory::clear();
+    }
+
+    #[test]
+    fn random_address_helpers_return_even_addresses_in_expected_ranges() {
+        with_generator_test(|| {
+            let mut rng = StdRng::seed_from_u64(0xC0DE);
+
+            for _ in 0..128 {
+                let data = random_data_addr(&mut rng);
+                assert!((DATA_BASE..DATA_END).contains(&data));
+                assert_eq!(data & 1, 0);
+
+                let stack = random_stack_addr(&mut rng);
+                assert!((0x010800..STACK_TOP).contains(&stack));
+                assert_eq!(stack & 1, 0);
+            }
+        });
+    }
+
+    #[test]
+    fn brief_extension_word_uses_even_displacement_and_cpu_specific_scale_bits() {
+        with_generator_test(|| {
+            let mut rng_68000 = StdRng::seed_from_u64(1);
+            let mut rng_68020 = StdRng::seed_from_u64(2);
+
+            for _ in 0..128 {
+                let brief_68000 =
+                    generate_brief_ext_word(musashi::M68K_CPU_TYPE_68000, &mut rng_68000);
+                let brief_68020 =
+                    generate_brief_ext_word(musashi::M68K_CPU_TYPE_68020, &mut rng_68020);
+
+                assert_eq!((brief_68000 >> 9) & 0x3, 0);
+                assert_eq!(brief_68000 & 1, 0);
+                assert_eq!(brief_68020 & 1, 0);
+            }
+        });
+    }
+
+    #[test]
+    fn compute_indexed_ea_ignores_scale_on_68000_and_applies_it_on_68020() {
+        with_generator_test(|| {
+            let d = [3, 0, 0, 0, 0, 0, 0, 0];
+            let a = [0; 7];
+            let brief = (1 << 11) | (2 << 9) | 0x10; // D0.l *4 + 0x10
+
+            let base = 0x1000;
+            let ea_68000 =
+                compute_indexed_ea(brief, base, &d, &a, STACK_TOP, musashi::M68K_CPU_TYPE_68000);
+            let ea_68020 =
+                compute_indexed_ea(brief, base, &d, &a, STACK_TOP, musashi::M68K_CPU_TYPE_68020);
+
+            assert_eq!(ea_68000, base + 0x10 + 3);
+            assert_eq!(ea_68020, base + 0x10 + 12);
+        });
+    }
+
+    #[test]
+    fn ensure_even_ea_fixes_odd_an_based_addresses() {
+        with_generator_test(|| {
+            let info = MemoryEAInfo {
+                mode: 0b101,
+                reg: 0,
+                size: 2,
+                ext_word: Some(1),
+                abs_long_addr: None,
+                ext_word_pc: CODE_BASE + 2,
+                movem_mask: None,
+                cpu_type: musashi::M68K_CPU_TYPE_68000,
+            };
+            let mut d = [0; 8];
+            let mut a = [DATA_BASE; 7];
+
+            assert_eq!(compute_ea(&info, &d, &a, STACK_TOP), Some(DATA_BASE + 1));
+
+            ensure_even_ea(&info, &mut d, &mut a, STACK_TOP);
+
+            assert_eq!(a[0], DATA_BASE ^ 1);
+            assert_eq!(
+                compute_ea(&info, &d, &a, STACK_TOP).expect("EA should compute") & 1,
+                0
+            );
+        });
+    }
+}

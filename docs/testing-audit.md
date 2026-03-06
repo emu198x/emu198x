@@ -24,12 +24,12 @@ crate inventory, see [inventory.md](inventory.md).
 
 ## Highest-Priority Gaps
 
-1. `commodore-agnus-aga` and `commodore-denise-aga` have AGA-specific logic but
-   no direct isolated tests.
-2. `emu-core` defines shared contracts and helpers but currently has no direct
-   contract tests.
-3. `motorola-68010` and `motorola-68020` only prove wrapper selection and
-   exposed capability flags, not model-specific behavior.
+1. `commodore-denise-ecs` still mainly proves wrapper behavior, not ECS-specific
+   display semantics.
+2. `m68k-test-gen` now has helper coverage, but still lacks deterministic
+   end-to-end fixture-generation and serialization checks.
+3. `emu-nes` has direct CLI and MCP helper tests, but the runnable surface still
+   needs broader headless and media-loading workflow coverage.
 4. Amiga support-chip work is only partially reflected in isolated tests, so
    machine-level success still carries too much verification weight.
 5. Several `Complete` inventory labels still need explicit source traceability
@@ -37,13 +37,15 @@ crate inventory, see [inventory.md](inventory.md).
 
 ## Infrastructure And Tooling
 
-- `emu-core`: `Missing`. Shared traits, helper types, and feature-gated MCP and
-  video helpers have no direct contract tests. Next: add low-cost tests for
-  `SimpleBus`, `MasterClock`, `Ticks`, path parsing, and feature-gated helper
-  behavior.
-- `m68k-test-gen`: `Missing`. This is a generator crate, but it still lacks
-  golden-output or fixture-generation tests. Next: add deterministic generation
-  checks if it remains part of the authoritative CPU-fixture pipeline.
+- `emu-core`: `Good`. Shared traits and core helpers now have direct contract
+  tests for `SimpleBus`, `MasterClock`, `Ticks`, address parsing, and
+  observable-value formatting. Next: extend that to the feature-gated MCP/video
+  helpers and any new shared contracts as they land.
+- `m68k-test-gen`: `Thin`. Helper coverage now exists for output-path mapping,
+  argument lookup, instruction catalogue filtering, memory tracking, address
+  alignment, and indexed-EA generation rules. Next: add deterministic
+  golden-output or fixture-generation checks if it remains part of the
+  authoritative CPU-fixture pipeline.
 
 ## CPU Crates
 
@@ -56,12 +58,12 @@ crate inventory, see [inventory.md](inventory.md).
 - `motorola-68000`: `Strong`. Extensive single-step and differential coverage
   make this the current 68k verification anchor. Next: preserve explicit
   source mapping as more model-specific behavior is added.
-- `motorola-68010`: `Thin`. Current tests only prove wrapper construction and
-  capability flags. Next: add 68010-specific exception restart, loop mode, and
-  control-register tests.
-- `motorola-68020`: `Thin`. Current tests only prove wrapper construction and
-  capability flags. Next: add 68020-specific exceptions, addressing behavior,
-  and control-register tests.
+- `motorola-68010`: `Good`. Direct wrapper tests now prove real 68010 behavior
+  such as `MOVEC VBR` handling and `CACR` rejection. Next: add exception
+  restart, loop-mode, and more control-register coverage.
+- `motorola-68020`: `Good`. Direct wrapper tests now prove 68020-only behavior
+  such as `MOVEC CACR` and `EXTB.L`. Next: add more exception, addressing, and
+  control-register coverage.
 
 ## Amiga Custom Chips
 
@@ -70,10 +72,10 @@ crate inventory, see [inventory.md](inventory.md).
   explicitly traceable to source material.
 - `commodore-agnus-ecs`: `Good`. Direct tests exist and much behavior is
   inherited from OCS. Next: isolate ECS-only deltas and test those explicitly.
-- `commodore-agnus-aga`: `Missing`. No direct tests exist for FMODE fetch-width
-  decoding or AGA-only bitplane-slot logic. Next: add isolated contract and
-  timing tests for FMODE width decoding, 7/8-plane lowres fetch assignment, and
-  ECS-delegation boundaries.
+- `commodore-agnus-aga`: `Good`. Direct isolated tests now cover FMODE fetch
+  widths, sprite width decoding, lowres 7/8-plane slot assignment, and
+  ECS-delegation boundaries. Next: keep timing-sensitive AGA fetch behavior
+  explicit as the wrapper grows.
 - `commodore-denise-ocs`: `Strong`. Large direct test surface suggests good
   isolated coverage. Next: keep raster and palette behavior tied to reference
   sources where practical.
@@ -81,9 +83,10 @@ crate inventory, see [inventory.md](inventory.md).
   and state preservation. Next: either keep it explicitly as a behavior-
   identical wrapper or add ECS-only display-mode tests before keeping a
   `Complete` label.
-- `commodore-denise-aga`: `Missing`. No direct tests exist for palette banking,
-  LOCT handling, HAM8, BPLCON4 XOR, or wide sprite logic. Next: add isolated
-  tests for each AGA-only feature.
+- `commodore-denise-aga`: `Good`. Direct isolated tests now cover palette
+  banking, LOCT merge behavior, `BPLCON4` XOR lookup, HAM8 channel chaining,
+  sprite width decoding, and wide sprite packing. Next: keep the AGA-only delta
+  explicit as more modes land.
 - `commodore-paula-8364`: `Good`. Direct tests exist and machine-level audio
   tests provide extra confirmation. Next: ensure interrupt, DMA-return, and
   mixer edge cases are partitioned clearly.
@@ -94,18 +97,18 @@ crate inventory, see [inventory.md](inventory.md).
 ## Amiga Support Chips And Peripherals
 
 - `commodore-gayle`: `Good`. Address decode and register behavior are already
-  tested. Next: expand around interrupt behavior, drive-present states, and
-  PCMCIA edge cases.
-- `commodore-dmac-390537`: `Thin`. The stub is appropriately tested as a stub,
-  but that is still a narrow boot-unblock contract. Next: keep the stub scope
-  explicit until real DMA and SCSI behavior land with deeper tests.
+  tested. Next: expand around drive-present states and PCMCIA edge cases as the
+  implementation broadens.
+- `commodore-dmac-390537`: `Good`. The current stub contract is now directly
+  tested for reset defaults, masks, port mirroring, byte access, and IRQ
+  semantics. Next: keep the stub scope explicit until real DMA and SCSI
+  behavior land with deeper tests.
 - `drive-amiga-floppy`: `Good`. The direct test surface is sizeable for a
   peripheral crate. Next: verify that write-path, timing, and media-edge cases
   are all covered explicitly.
-- `peripheral-amiga-keyboard`: `Thin`. Functional state-machine tests exist,
-  but the handshake and timeout behavior is still lightly covered for a timing-
-  sensitive peripheral. Next: add timeout, resend, and queueing edge-case
-  tests tied to reference behavior.
+- `peripheral-amiga-keyboard`: `Good`. Functional state-machine tests now cover
+  timeout and resend behavior in addition to the base handshake flow. Next: add
+  deeper queueing and edge-timing cases as the peripheral interface grows.
 - `machine-amiga`: `Strong`. Heavy integration and boot-path coverage make it a
   solid machine-level confirmation layer. Next: keep moving behavior into chip
   crates so machine tests confirm wiring rather than substitute for missing
@@ -151,19 +154,21 @@ crate inventory, see [inventory.md](inventory.md).
   and checksum edge cases if missing.
 - `format-ipf`: `Good`. Direct tests exist. Next: keep structural validation
   and corruption rejection explicit.
-- `format-prg`: `Thin`. The crate is small, but the current test surface is
-  still narrow relative to loader semantics. Next: expand malformed-header and
-  BASIC-relink edge cases.
-- `format-sna`: `Thin`. Basic tests exist, but snapshot validation still needs
-  broader corrupt-input and model-compatibility cases. Next: add more negative
-  and field-level assertions.
+- `format-prg`: `Good`. Direct tests now cover non-BASIC metadata preservation,
+  wraparound behavior, multi-line BASIC relinking, and end-marker-only BASIC
+  loads. Next: add malformed-header coverage if new loader paths appear.
+- `format-sna`: `Good`. Direct tests now cover header parsing, 128K border
+  masking, bank restore behavior, and invalid duplicated-bank layouts. Next:
+  add more corrupt-input and model-boundary cases if new snapshot variants are
+  supported.
 - `format-spectrum-tap`: `Good`. Direct tests exist. Next: add malformed-block
   and edge-duration checks as needed.
 - `format-tzx`: `Good`. Direct tests exist for a timing-sensitive format.
   Next: make unsupported-block handling and corrupt-block rejection explicit.
-- `format-z80`: `Thin`. The current surface looks light relative to the format
-  complexity. Next: expand compression, model-flag, and invalid-combination
-  coverage.
+- `format-z80`: `Good`. Direct tests now cover version detection, base-header
+  flags, 48K/128K compatibility handling, AY restore, and truncated v2/v3
+  inputs. Next: expand compression and malformed model-flag combinations if new
+  variants appear.
 - `nes-cartridge`: `Strong`. Large direct test coverage for parsing and mapper
   behavior makes this one of the better non-CPU verification surfaces. Next:
   keep mapper-specific source references explicit.
@@ -177,12 +182,12 @@ crate inventory, see [inventory.md](inventory.md).
   facing runner behavior. Next: keep media-loading and batch-mode paths
   explicit.
 - `emu-nes`: `Good`. Direct tests exist, but the runnable-surface coverage is
-  lighter than the more mature packages. Next: expand CLI, scripting, and
-  media-loading edge cases.
-- `amiga-runner`: `Thin`. Some direct tests exist, but this is still a large
-  host-facing package with many CLI, audio, screenshot, scripting, and MCP
-  paths. Next: add focused contract tests for argument parsing, headless
-  workflows, and mode parity.
+  lighter than the more mature packages. Next: expand media-loading and
+  headless workflow edge cases beyond the current CLI and MCP helper coverage.
+- `amiga-runner`: `Good`. Direct tests now cover argument parsing, model-derived
+  chipset selection, help/error paths, and headless capture mode promotion.
+  Next: expand workflow coverage further if the runner grows new host-facing
+  features.
 
 ## Inventory Entries Not Yet Represented As Crates
 
@@ -200,11 +205,11 @@ other crates:
 
 ## Recommended Remediation Order
 
-1. Add direct isolated tests for `commodore-agnus-aga` and
-   `commodore-denise-aga`.
-2. Add contract tests for `emu-core`.
-3. Expand direct tests for `motorola-68010` and `motorola-68020`.
-4. Tighten Amiga support-chip and peripheral coverage, especially Gayle,
-   keyboard, and DMAC scope boundaries.
+1. Add ECS-specific direct tests for `commodore-denise-ecs`.
+2. Add deterministic end-to-end fixture-generation checks for `m68k-test-gen`.
+3. Expand `emu-nes` runnable-surface coverage around media-loading and headless
+   workflows.
+4. Tighten the remaining Amiga support-chip and peripheral coverage as new
+   implementation work lands.
 5. Audit `Complete` crates for explicit source traceability and missing
    category coverage rather than relying on marker counts alone.
