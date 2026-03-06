@@ -9,8 +9,8 @@
 use base64::Engine;
 use serde_json::Value as JsonValue;
 
-use emu_core::mcp::{self, McpEmulator, ToolDefinition, ToolResult};
 use emu_core::Observable;
+use emu_core::mcp::{self, McpEmulator, ToolDefinition, ToolResult};
 
 use crate::config::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 use crate::format_adf::Adf;
@@ -137,13 +137,23 @@ impl McpEmulator for AmigaMcp {
             },
             ToolDefinition {
                 name: "query",
-                description: "Query an observable value (e.g. cpu.pc, denise.color0)",
+                description: "Query an observable value (e.g. cpu.pc, agnus.beamcon0, denise.palette.0)",
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "Dot-separated query path" }
                     },
                     "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "query_paths",
+                description: "List available observable query paths, optionally filtered by prefix",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "prefix": { "type": "string", "description": "Optional path prefix filter, e.g. agnus. or denise.mode." }
+                    }
                 }),
             },
             ToolDefinition {
@@ -241,6 +251,7 @@ impl McpEmulator for AmigaMcp {
             "screenshot" => self.handle_screenshot(arguments),
             "audio_capture" => self.handle_audio_capture(arguments),
             "query" => self.handle_query(arguments),
+            "query_paths" => self.handle_query_paths(arguments),
             "query_memory" => self.handle_query_memory(arguments),
             "poke" => self.handle_poke(arguments),
             "set_breakpoint" => self.handle_set_breakpoint(arguments),
@@ -414,7 +425,13 @@ impl AmigaMcp {
 
         let save_path = params.get("save_path").and_then(|v| v.as_str());
         let display = parse_display_size(params, viewport.width, viewport.height);
-        mcp::screenshot_result(viewport.width, viewport.height, &viewport.pixels, save_path, display)
+        mcp::screenshot_result(
+            viewport.width,
+            viewport.height,
+            &viewport.pixels,
+            save_path,
+            display,
+        )
     }
 
     fn handle_audio_capture(&mut self, params: &JsonValue) -> ToolResult {
@@ -501,6 +518,26 @@ impl AmigaMcp {
         }
     }
 
+    fn handle_query_paths(&mut self, params: &JsonValue) -> ToolResult {
+        let amiga = match self.require_amiga() {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+
+        let prefix = params.get("prefix").and_then(|v| v.as_str());
+        let paths: Vec<&str> = amiga
+            .query_paths()
+            .iter()
+            .copied()
+            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+            .collect();
+
+        ToolResult::Success(serde_json::json!({
+            "prefix": prefix,
+            "paths": paths,
+        }))
+    }
+
     fn handle_query_memory(&mut self, params: &JsonValue) -> ToolResult {
         let amiga = match self.require_amiga() {
             Ok(a) => a,
@@ -534,7 +571,11 @@ impl AmigaMcp {
         };
 
         let bytes: Vec<u8> = (0..length)
-            .map(|i| amiga.memory.read_byte(address.wrapping_add(i as u32) & 0x00FF_FFFF))
+            .map(|i| {
+                amiga
+                    .memory
+                    .read_byte(address.wrapping_add(i as u32) & 0x00FF_FFFF)
+            })
             .collect();
 
         ToolResult::Success(serde_json::json!({
@@ -634,9 +675,7 @@ impl AmigaMcp {
             match format_ipf::IpfImage::from_bytes(&data) {
                 Ok(ipf) => {
                     amiga.insert_disk_image(Box::new(ipf));
-                    ToolResult::Success(
-                        serde_json::json!({"status": "ok", "format": "ipf"}),
-                    )
+                    ToolResult::Success(serde_json::json!({"status": "ok", "format": "ipf"}))
                 }
                 Err(e) => ToolResult::Error {
                     code: -32000,
@@ -647,9 +686,7 @@ impl AmigaMcp {
             match Adf::from_bytes(data) {
                 Ok(adf) => {
                     amiga.insert_disk(adf);
-                    ToolResult::Success(
-                        serde_json::json!({"status": "ok", "format": "adf"}),
-                    )
+                    ToolResult::Success(serde_json::json!({"status": "ok", "format": "adf"}))
                 }
                 Err(e) => ToolResult::Error {
                     code: -32000,
@@ -1017,6 +1054,113 @@ mod tests {
         let mut mcp = AmigaMcp::new();
         let result = mcp.dispatch_tool("query", &serde_json::json!({"path": "cpu.pc"}));
         assert!(matches!(result, ToolResult::Error { .. }));
+    }
+
+    #[test]
+    fn query_paths_without_boot_returns_error() {
+        let mut mcp = AmigaMcp::new();
+        let result = mcp.dispatch_tool("query_paths", &serde_json::json!({}));
+        assert!(matches!(result, ToolResult::Error { .. }));
+    }
+
+    #[test]
+    fn query_paths_can_filter_to_agnus_and_denise_surfaces() {
+        let mut mcp = AmigaMcp {
+            amiga: Some(Amiga::new(vec![0; 256 * 1024])),
+        };
+
+        let agnus_result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "agnus.mode."
+            }),
+        );
+        match agnus_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(
+                    paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("agnus.mode.varbeamen"))
+                );
+                assert!(
+                    paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("agnus.mode.harddis"))
+                );
+                assert!(
+                    !paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("denise.mode.shres"))
+                );
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
+
+        let denise_result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "denise.mode."
+            }),
+        );
+        match denise_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(
+                    paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("denise.mode.shres"))
+                );
+                assert!(
+                    paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("denise.mode.killehb"))
+                );
+                assert!(
+                    !paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("agnus.mode.varbeamen"))
+                );
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
+    }
+
+    #[test]
+    fn query_returns_new_agnus_ecs_observable_fields() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: vec![0; 256 * 1024],
+            slow_ram_size: 0,
+        });
+        amiga.write_custom_reg(0x1DC, 0xAB3E);
+
+        let mut mcp = AmigaMcp { amiga: Some(amiga) };
+        let result = mcp.dispatch_tool(
+            "query",
+            &serde_json::json!({
+                "path": "agnus.beamcon0"
+            }),
+        );
+
+        match result {
+            ToolResult::Success(value) => {
+                assert_eq!(
+                    value.get("path").and_then(|v| v.as_str()),
+                    Some("agnus.beamcon0")
+                );
+                assert_eq!(value.get("value"), Some(&serde_json::json!(0xAB3E)));
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
     }
 
     #[test]
