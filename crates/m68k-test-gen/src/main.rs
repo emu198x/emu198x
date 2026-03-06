@@ -18,63 +18,67 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use testcase::TestFile;
 
+#[derive(Debug, PartialEq, Eq)]
+struct CliArgs {
+    cpu_name: String,
+    cpu_type: u32,
+    count: usize,
+    instruction_name: Option<String>,
+    all: bool,
+}
+
+fn print_usage() {
+    eprintln!("Usage: m68k-test-gen --cpu <CPU> --instruction <NAME> --count <N>");
+    eprintln!("       m68k-test-gen --cpu <CPU> --all --count <N>");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let cpu_name = find_arg(&args, "--cpu").unwrap_or_else(|| "68000".to_string());
-    let count: usize = find_arg(&args, "--count")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2500);
-    let instruction_name = find_arg(&args, "--instruction");
-    let all = args.iter().any(|a| a == "--all");
-
-    let cpu_type = match cpu_name.as_str() {
-        "68000" => musashi::M68K_CPU_TYPE_68000,
-        "68010" => musashi::M68K_CPU_TYPE_68010,
-        "68EC020" | "68ec020" => musashi::M68K_CPU_TYPE_68EC020,
-        "68020" => musashi::M68K_CPU_TYPE_68020,
-        "68EC030" | "68ec030" => musashi::M68K_CPU_TYPE_68EC030,
-        "68030" => musashi::M68K_CPU_TYPE_68030,
-        "68EC040" | "68ec040" => musashi::M68K_CPU_TYPE_68EC040,
-        // 68LC040 intentionally omitted: Musashi's implementation is broken.
-        "68040" => musashi::M68K_CPU_TYPE_68040,
-        other => {
-            eprintln!("Unknown CPU type: {other}");
-            eprintln!("Supported: 68000, 68010, 68EC020, 68020, 68EC030, 68030, 68EC040, 68040");
+    let cli = match parse_args_from(&args) {
+        Ok(Some(cli)) => cli,
+        Ok(None) => {
+            print_usage();
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            print_usage();
             std::process::exit(1);
         }
     };
 
-    let output_dir = output_dir_for_cpu(&cpu_name);
+    let output_dir = output_dir_for_cpu(&cli.cpu_name);
     fs::create_dir_all(&output_dir).expect("failed to create output directory");
 
-    if all {
-        let defs = instructions::catalogue(cpu_type);
+    if cli.all {
+        let defs = instructions::catalogue(cli.cpu_type);
         if defs.is_empty() {
-            eprintln!("No instructions defined for CPU {cpu_name}");
+            eprintln!("No instructions defined for CPU {}", cli.cpu_name);
             std::process::exit(1);
         }
         println!(
-            "Generating {count} tests for {} instructions (CPU {cpu_name})",
-            defs.len()
+            "Generating {} tests for {} instructions (CPU {})",
+            cli.count,
+            defs.len(),
+            cli.cpu_name
         );
         for def in &defs {
-            generate_and_write(def, cpu_type, &cpu_name, count, &output_dir);
+            generate_and_write(def, cli.cpu_type, &cli.cpu_name, cli.count, &output_dir);
         }
-    } else if let Some(name) = instruction_name {
-        let def = instructions::find(cpu_type, &name).unwrap_or_else(|| {
+    } else if let Some(name) = &cli.instruction_name {
+        let def = instructions::find(cli.cpu_type, name).unwrap_or_else(|| {
             eprintln!("Unknown instruction: {name}");
-            let defs = instructions::catalogue(cpu_type);
+            let defs = instructions::catalogue(cli.cpu_type);
             eprintln!("Available:");
             for d in &defs {
                 eprintln!("  {}", d.name);
             }
             std::process::exit(1);
         });
-        generate_and_write(&def, cpu_type, &cpu_name, count, &output_dir);
+        generate_and_write(&def, cli.cpu_type, &cli.cpu_name, cli.count, &output_dir);
     } else {
-        eprintln!("Usage: m68k-test-gen --cpu <CPU> --instruction <NAME> --count <N>");
-        eprintln!("       m68k-test-gen --cpu <CPU> --all --count <N>");
+        print_usage();
         std::process::exit(1);
     }
 }
@@ -122,10 +126,76 @@ fn output_dir_for_cpu(cpu_name: &str) -> PathBuf {
     }
 }
 
-fn find_arg(args: &[String], flag: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == flag)
-        .and_then(|i| args.get(i + 1).cloned())
+fn parse_cpu_type(cpu_name: &str) -> Result<u32, String> {
+    match cpu_name {
+        "68000" => Ok(musashi::M68K_CPU_TYPE_68000),
+        "68010" => Ok(musashi::M68K_CPU_TYPE_68010),
+        "68EC020" | "68ec020" => Ok(musashi::M68K_CPU_TYPE_68EC020),
+        "68020" => Ok(musashi::M68K_CPU_TYPE_68020),
+        "68EC030" | "68ec030" => Ok(musashi::M68K_CPU_TYPE_68EC030),
+        "68030" => Ok(musashi::M68K_CPU_TYPE_68030),
+        "68EC040" | "68ec040" => Ok(musashi::M68K_CPU_TYPE_68EC040),
+        // 68LC040 intentionally omitted: Musashi's implementation is broken.
+        "68040" => Ok(musashi::M68K_CPU_TYPE_68040),
+        other => Err(format!(
+            "Unknown CPU type: {other}\nSupported: 68000, 68010, 68EC020, 68020, 68EC030, 68030, 68EC040, 68040"
+        )),
+    }
+}
+
+fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
+    let mut cli = CliArgs {
+        cpu_name: "68000".to_string(),
+        cpu_type: musashi::M68K_CPU_TYPE_68000,
+        count: 2500,
+        instruction_name: None,
+        all: false,
+    };
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--cpu" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| "--cpu requires a value".to_string())?;
+                cli.cpu_name = value.clone();
+            }
+            "--count" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| "--count requires a value".to_string())?;
+                cli.count = value
+                    .parse()
+                    .map_err(|_| format!("Invalid value for --count: {value}"))?;
+            }
+            "--instruction" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| "--instruction requires a value".to_string())?;
+                cli.instruction_name = Some(value.clone());
+            }
+            "--all" => {
+                cli.all = true;
+            }
+            "--help" | "-h" => return Ok(None),
+            other => return Err(format!("Unknown argument: {other}")),
+        }
+        i += 1;
+    }
+
+    if cli.all == cli.instruction_name.is_some() {
+        return Err("Specify exactly one of --all or --instruction <NAME>".to_string());
+    }
+
+    cli.cpu_type = parse_cpu_type(&cli.cpu_name)?;
+    Ok(Some(cli))
 }
 
 #[cfg(test)]
@@ -140,19 +210,109 @@ mod tests {
     }
 
     #[test]
-    fn find_arg_returns_following_value_only_when_present() {
+    fn cli_parser_reads_instruction_mode_and_defaults() {
         let args = vec![
             "m68k-test-gen".to_string(),
             "--cpu".to_string(),
             "68020".to_string(),
+            "--instruction".to_string(),
+            "NOP".to_string(),
+        ];
+        let cli = parse_args_from(&args)
+            .expect("parse should succeed")
+            .expect("help was not requested");
+
+        assert_eq!(cli.cpu_name, "68020");
+        assert_eq!(cli.cpu_type, musashi::M68K_CPU_TYPE_68020);
+        assert_eq!(cli.count, 2500);
+        assert_eq!(cli.instruction_name.as_deref(), Some("NOP"));
+        assert!(!cli.all);
+    }
+
+    #[test]
+    fn cli_parser_reads_all_mode_with_custom_count() {
+        let args = vec![
+            "m68k-test-gen".to_string(),
+            "--cpu".to_string(),
+            "68ec020".to_string(),
+            "--all".to_string(),
             "--count".to_string(),
             "5".to_string(),
-            "--flag".to_string(),
         ];
+        let cli = parse_args_from(&args)
+            .expect("parse should succeed")
+            .expect("help was not requested");
 
-        assert_eq!(find_arg(&args, "--cpu"), Some("68020".to_string()));
-        assert_eq!(find_arg(&args, "--count"), Some("5".to_string()));
-        assert_eq!(find_arg(&args, "--flag"), None);
-        assert_eq!(find_arg(&args, "--missing"), None);
+        assert_eq!(cli.cpu_name, "68ec020");
+        assert_eq!(cli.cpu_type, musashi::M68K_CPU_TYPE_68EC020);
+        assert_eq!(cli.count, 5);
+        assert_eq!(cli.instruction_name, None);
+        assert!(cli.all);
+    }
+
+    #[test]
+    fn cli_parser_requires_exactly_one_generation_mode() {
+        let neither =
+            parse_args_from(&["m68k-test-gen".to_string()]).expect_err("missing mode should fail");
+        assert!(neither.contains("Specify exactly one of --all or --instruction"));
+
+        let both = parse_args_from(&[
+            "m68k-test-gen".to_string(),
+            "--all".to_string(),
+            "--instruction".to_string(),
+            "NOP".to_string(),
+        ])
+        .expect_err("conflicting modes should fail");
+        assert!(both.contains("Specify exactly one of --all or --instruction"));
+    }
+
+    #[test]
+    fn cli_parser_rejects_missing_or_invalid_values() {
+        let missing = parse_args_from(&[
+            "m68k-test-gen".to_string(),
+            "--cpu".to_string(),
+            "--all".to_string(),
+        ])
+        .expect_err("missing cpu value should fail");
+        assert!(missing.contains("--cpu requires a value"));
+
+        let invalid_count = parse_args_from(&[
+            "m68k-test-gen".to_string(),
+            "--all".to_string(),
+            "--count".to_string(),
+            "abc".to_string(),
+        ])
+        .expect_err("invalid count should fail");
+        assert!(invalid_count.contains("Invalid value for --count"));
+
+        let invalid_cpu = parse_args_from(&[
+            "m68k-test-gen".to_string(),
+            "--all".to_string(),
+            "--cpu".to_string(),
+            "68060".to_string(),
+        ])
+        .expect_err("invalid cpu should fail");
+        assert!(invalid_cpu.contains("Unknown CPU type: 68060"));
+    }
+
+    #[test]
+    fn cli_parser_reports_help_and_unknown_args() {
+        assert!(matches!(
+            parse_args_from(&["m68k-test-gen".to_string(), "--help".to_string()])
+                .expect("help parse should succeed"),
+            None
+        ));
+
+        let result = parse_args_from(&[
+            "m68k-test-gen".to_string(),
+            "--all".to_string(),
+            "--bogus".to_string(),
+        ]);
+        assert!(result.is_err());
+        assert!(
+            result
+                .expect_err("unknown args should fail")
+                .contains("Unknown argument: --bogus")
+        );
     }
 }

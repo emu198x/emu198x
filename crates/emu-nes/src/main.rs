@@ -77,6 +77,15 @@ fn parse_args() -> CliArgs {
     }
 }
 
+fn next_option_value(args: &[String], index: &mut usize, flag: &str) -> Result<PathBuf, String> {
+    *index += 1;
+    let value = args
+        .get(*index)
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| format!("{flag} requires a value"))?;
+    Ok(PathBuf::from(value))
+}
+
 fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
     let mut cli = CliArgs {
         rom_path: None,
@@ -93,8 +102,7 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
     while i < args.len() {
         match args[i].as_str() {
             "--rom" => {
-                i += 1;
-                cli.rom_path = args.get(i).map(PathBuf::from);
+                cli.rom_path = Some(next_option_value(args, &mut i, "--rom")?);
             }
             "--headless" => {
                 cli.headless = true;
@@ -103,31 +111,35 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
                 cli.mcp = true;
             }
             "--script" => {
-                i += 1;
-                cli.script_path = args.get(i).map(PathBuf::from);
+                cli.script_path = Some(next_option_value(args, &mut i, "--script")?);
             }
             "--frames" => {
                 i += 1;
-                if let Some(s) = args.get(i) {
-                    cli.frames = s.parse().unwrap_or(200);
-                }
+                let value = args
+                    .get(i)
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| "--frames requires a value".to_string())?;
+                cli.frames = value
+                    .parse()
+                    .map_err(|_| format!("Invalid value for --frames: {value}"))?;
             }
             "--screenshot" => {
-                i += 1;
-                cli.screenshot_path = args.get(i).map(PathBuf::from);
+                cli.screenshot_path = Some(next_option_value(args, &mut i, "--screenshot")?);
             }
             "--record" => {
-                i += 1;
-                cli.record_dir = args.get(i).map(PathBuf::from);
+                cli.record_dir = Some(next_option_value(args, &mut i, "--record")?);
             }
             "--region" => {
                 i += 1;
-                if let Some(s) = args.get(i) {
-                    cli.region = match s.to_lowercase().as_str() {
-                        "pal" => NesRegion::Pal,
-                        _ => NesRegion::Ntsc,
-                    };
-                }
+                let value = args
+                    .get(i)
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| "--region requires a value".to_string())?;
+                cli.region = match value.to_lowercase().as_str() {
+                    "ntsc" => NesRegion::Ntsc,
+                    "pal" => NesRegion::Pal,
+                    _ => return Err(format!("Invalid value for --region: {value}")),
+                };
             }
             "--help" | "-h" => return Ok(None),
             other => {
@@ -139,6 +151,10 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
 
     if cli.screenshot_path.is_some() || cli.record_dir.is_some() {
         cli.headless = true;
+    }
+
+    if cli.mcp && cli.script_path.is_some() {
+        return Err("--mcp and --script are mutually exclusive".to_string());
     }
 
     Ok(Some(cli))
@@ -308,31 +324,32 @@ impl ApplicationHandler for App {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn make_nes(cli: &CliArgs) -> Nes {
-    let rom_path = cli.rom_path.as_ref().unwrap_or_else(|| {
-        eprintln!("No ROM file specified. Use --rom <file.nes>");
-        process::exit(1);
-    });
+fn make_nes_result(cli: &CliArgs) -> Result<Nes, String> {
+    let rom_path = cli
+        .rom_path
+        .as_ref()
+        .ok_or_else(|| "No ROM file specified. Use --rom <file.nes>".to_string())?;
 
-    let rom_data = match std::fs::read(rom_path) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("Failed to read ROM file {}: {e}", rom_path.display());
-            process::exit(1);
-        }
-    };
+    let rom_data = std::fs::read(rom_path)
+        .map_err(|e| format!("Failed to read ROM file {}: {e}", rom_path.display()))?;
 
     let config = NesConfig {
         rom_data,
         region: cli.region,
     };
-    match Nes::new(&config) {
+    Nes::new(&config).map_err(|e| format!("Failed to load ROM: {e}"))
+}
+
+fn make_nes(cli: &CliArgs) -> Nes {
+    match make_nes_result(cli) {
         Ok(nes) => {
-            eprintln!("Loaded ROM: {}", rom_path.display());
+            if let Some(ref rom_path) = cli.rom_path {
+                eprintln!("Loaded ROM: {}", rom_path.display());
+            }
             nes
         }
         Err(e) => {
-            eprintln!("Failed to load ROM: {e}");
+            eprintln!("{e}");
             process::exit(1);
         }
     }
@@ -392,9 +409,13 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{CliArgs, parse_args_from};
+    use super::{CliArgs, make_nes_result, parse_args_from};
     use emu_nes::NesRegion;
+    use std::fs;
+    use std::path::Path;
     use std::path::PathBuf;
+    use std::process;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn parse_cli(args: &[&str]) -> Result<Option<CliArgs>, String> {
         let args = args
@@ -402,6 +423,44 @@ mod tests {
             .map(|arg| (*arg).to_string())
             .collect::<Vec<_>>();
         parse_args_from(&args)
+    }
+
+    struct TempRomFile {
+        path: PathBuf,
+    }
+
+    impl TempRomFile {
+        fn new(contents: &[u8]) -> Self {
+            let mut path = std::env::temp_dir();
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos();
+            path.push(format!("emu-nes-test-{}-{nanos}.nes", process::id()));
+            fs::write(&path, contents).expect("temp rom should be written");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempRomFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+
+    fn minimal_ines_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 16 + 16_384];
+        rom[0..4].copy_from_slice(b"NES\x1A");
+        rom[4] = 1;
+        rom[5] = 0;
+        rom[16] = 0xEA;
+        rom[16 + 0x3FFC] = 0x00;
+        rom[16 + 0x3FFD] = 0x80;
+        rom
     }
 
     #[test]
@@ -435,13 +494,18 @@ mod tests {
     }
 
     #[test]
-    fn cli_parser_defaults_invalid_frames_and_region_to_ntsc() {
-        let cli = parse_cli(&["emu-nes", "--frames", "abc", "--region", "weird"])
-            .expect("parse should succeed")
-            .expect("help was not requested");
+    fn cli_parser_rejects_missing_or_invalid_values() {
+        let invalid_frames = parse_cli(&["emu-nes", "--frames", "abc"])
+            .expect_err("invalid frame count should fail");
+        assert!(invalid_frames.contains("Invalid value for --frames: abc"));
 
-        assert_eq!(cli.frames, 200);
-        assert_eq!(cli.region, NesRegion::Ntsc);
+        let invalid_region =
+            parse_cli(&["emu-nes", "--region", "weird"]).expect_err("invalid region should fail");
+        assert!(invalid_region.contains("Invalid value for --region: weird"));
+
+        let missing_rom = parse_cli(&["emu-nes", "--rom", "--headless"])
+            .expect_err("missing rom value should fail");
+        assert!(missing_rom.contains("--rom requires a value"));
     }
 
     #[test]
@@ -464,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn cli_parser_reports_help_and_unknown_args() {
+    fn cli_parser_reports_help_unknown_args_and_conflicts() {
         assert!(matches!(
             parse_cli(&["emu-nes", "--help"]).expect("help parse should succeed"),
             None
@@ -473,15 +537,91 @@ mod tests {
         let result = parse_cli(&["emu-nes", "--bogus"]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown argument: --bogus"));
+
+        let conflict = parse_cli(&["emu-nes", "--mcp", "--script", "demo.json"])
+            .expect_err("mcp/script conflict should fail");
+        assert!(conflict.contains("--mcp and --script are mutually exclusive"));
     }
 
     #[test]
-    fn cli_parser_keeps_current_missing_value_behavior_for_path_flags() {
-        let cli = parse_cli(&["emu-nes", "--rom", "--script"])
-            .expect("parse should succeed")
-            .expect("help was not requested");
+    fn make_nes_result_requires_rom_path() {
+        let cli = CliArgs {
+            rom_path: None,
+            headless: true,
+            mcp: false,
+            script_path: None,
+            frames: 1,
+            screenshot_path: None,
+            record_dir: None,
+            region: NesRegion::Ntsc,
+        };
 
-        assert_eq!(cli.rom_path, Some(PathBuf::from("--script")));
-        assert_eq!(cli.script_path, None);
+        let error = match make_nes_result(&cli) {
+            Ok(_) => panic!("missing rom should fail"),
+            Err(error) => error,
+        };
+        assert!(error.contains("No ROM file specified"));
+    }
+
+    #[test]
+    fn make_nes_result_reports_missing_and_invalid_roms() {
+        let mut missing_path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        missing_path.push(format!("emu-nes-missing-{}-{nanos}.nes", process::id()));
+
+        let missing_cli = CliArgs {
+            rom_path: Some(missing_path.clone()),
+            headless: true,
+            mcp: false,
+            script_path: None,
+            frames: 1,
+            screenshot_path: None,
+            record_dir: None,
+            region: NesRegion::Ntsc,
+        };
+        let missing = match make_nes_result(&missing_cli) {
+            Ok(_) => panic!("missing file should fail"),
+            Err(error) => error,
+        };
+        assert!(missing.contains("Failed to read ROM file"));
+        assert!(missing.contains(missing_path.to_string_lossy().as_ref()));
+
+        let invalid_rom = TempRomFile::new(b"this is not a valid iNES file");
+        let invalid_cli = CliArgs {
+            rom_path: Some(invalid_rom.path().to_path_buf()),
+            headless: true,
+            mcp: false,
+            script_path: None,
+            frames: 1,
+            screenshot_path: None,
+            record_dir: None,
+            region: NesRegion::Pal,
+        };
+        let invalid = match make_nes_result(&invalid_cli) {
+            Ok(_) => panic!("invalid rom should fail"),
+            Err(error) => error,
+        };
+        assert!(invalid.contains("Failed to load ROM: Invalid iNES magic"));
+    }
+
+    #[test]
+    fn make_nes_result_loads_minimal_valid_rom() {
+        let rom = TempRomFile::new(&minimal_ines_rom());
+        let cli = CliArgs {
+            rom_path: Some(rom.path().to_path_buf()),
+            headless: true,
+            mcp: false,
+            script_path: None,
+            frames: 1,
+            screenshot_path: None,
+            record_dir: None,
+            region: NesRegion::Pal,
+        };
+
+        let nes = make_nes_result(&cli).expect("valid rom should load");
+        assert_eq!(nes.region(), NesRegion::Pal);
     }
 }

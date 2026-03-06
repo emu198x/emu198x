@@ -26,13 +26,12 @@ crate inventory, see [inventory.md](inventory.md).
 
 1. `commodore-denise-ecs` still mainly proves wrapper behavior, not ECS-specific
    display semantics.
-2. `m68k-test-gen` now has helper coverage, but still lacks deterministic
-   end-to-end fixture-generation and serialization checks.
-3. `emu-nes` has direct CLI and MCP helper tests, but the runnable surface still
-   needs broader headless and media-loading workflow coverage.
-4. Amiga support-chip work is only partially reflected in isolated tests, so
+2. `m68k-test-gen` now has helper, CLI, and serialization coverage, but still
+   lacks deterministic end-to-end fixture-generation checks for its core
+   output.
+3. Amiga support-chip work is only partially reflected in isolated tests, so
    machine-level success still carries too much verification weight.
-5. Several `Complete` inventory labels still need explicit source traceability
+4. Several `Complete` inventory labels still need explicit source traceability
    and category-by-category confirmation to satisfy the new policy.
 
 ## Infrastructure And Tooling
@@ -41,10 +40,11 @@ crate inventory, see [inventory.md](inventory.md).
   tests for `SimpleBus`, `MasterClock`, `Ticks`, address parsing, and
   observable-value formatting. Next: extend that to the feature-gated MCP/video
   helpers and any new shared contracts as they land.
-- `m68k-test-gen`: `Thin`. Helper coverage now exists for output-path mapping,
-  argument lookup, instruction catalogue filtering, memory tracking, address
-  alignment, and indexed-EA generation rules. Next: add deterministic
-  golden-output or fixture-generation checks if it remains part of the
+- `m68k-test-gen`: `Thin`. Direct coverage now exists for CLI parsing,
+  MessagePack round-trips, output-path mapping, instruction catalogue
+  filtering, memory tracking, address alignment, indexed-EA generation rules,
+  and deterministic initial-state summaries. Next: add deterministic
+  golden-output or full fixture-generation checks if it remains part of the
   authoritative CPU-fixture pipeline.
 
 ## CPU Crates
@@ -181,9 +181,10 @@ crate inventory, see [inventory.md](inventory.md).
 - `emu-c64`: `Strong`. Large test surface supports both the system and the host-
   facing runner behavior. Next: keep media-loading and batch-mode paths
   explicit.
-- `emu-nes`: `Good`. Direct tests exist, but the runnable-surface coverage is
-  lighter than the more mature packages. Next: expand media-loading and
-  headless workflow edge cases beyond the current CLI and MCP helper coverage.
+- `emu-nes`: `Good`. Direct tests now cover CLI validation, MCP helpers,
+  media-loading failure paths, minimal valid iNES loading, and headless capture
+  mode promotion. Next: if the runner grows further, add more output-error and
+  event-loop lifecycle coverage.
 - `amiga-runner`: `Good`. Direct tests now cover argument parsing, model-derived
   chipset selection, help/error paths, and headless capture mode promotion.
   Next: expand workflow coverage further if the runner grows new host-facing
@@ -207,9 +208,7 @@ other crates:
 
 1. Add ECS-specific direct tests for `commodore-denise-ecs`.
 2. Add deterministic end-to-end fixture-generation checks for `m68k-test-gen`.
-3. Expand `emu-nes` runnable-surface coverage around media-loading and headless
-   workflows.
-4. Tighten the remaining Amiga support-chip and peripheral coverage as new
+3. Tighten the remaining Amiga support-chip and peripheral coverage as new
    implementation work lands.
-5. Audit `Complete` crates for explicit source traceability and missing
+4. Audit `Complete` crates for explicit source traceability and missing
    category coverage rather than relying on marker counts alone.
