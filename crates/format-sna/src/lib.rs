@@ -159,8 +159,7 @@ impl SnaSnapshot {
     /// Returns an error if (for 48K) the stack pointer points into ROM.
     pub fn apply(self, target: &mut impl SnapshotTarget) -> Result<(), String> {
         if self.is_128k {
-            self.apply_128k(target);
-            Ok(())
+            self.apply_128k(target)
         } else {
             self.apply_48k(target)
         }
@@ -195,7 +194,7 @@ impl SnaSnapshot {
         Ok(())
     }
 
-    fn apply_128k(self, target: &mut impl SnapshotTarget) {
+    fn apply_128k(self, target: &mut impl SnapshotTarget) -> Result<(), String> {
         target.set_registers(&self.registers);
 
         // Read the 128K extension.
@@ -204,6 +203,11 @@ impl SnaSnapshot {
         let port_7ffd = self.data[ext_offset + 2];
 
         let paged_bank = (port_7ffd & 0x07) as usize;
+        if paged_bank == 2 || paged_bank == 5 {
+            return Err(format!(
+                "SNA 128K paged bank {paged_bank} duplicates a fixed window and is not representable"
+            ));
+        }
 
         let bank5_data = &self.data[HEADER_SIZE..HEADER_SIZE + 0x4000];
         let bank2_data = &self.data[HEADER_SIZE + 0x4000..HEADER_SIZE + 0x8000];
@@ -244,6 +248,7 @@ impl SnaSnapshot {
         let mut regs = self.registers;
         regs.pc = pc;
         target.set_registers(&regs);
+        Ok(())
     }
 }
 
@@ -350,6 +355,40 @@ mod tests {
     }
 
     #[test]
+    fn parse_sna_extracts_header_fields_and_mode() {
+        let mut data = vec![0u8; SNA_128K_SIZE];
+        data[0] = 0x3F;
+        data[1] = 0x10;
+        data[2] = 0x20;
+        data[15] = 0x34;
+        data[16] = 0x12;
+        data[19] = 0x04;
+        data[20] = 0x56;
+        data[21] = 0x78;
+        data[22] = 0x9A;
+        data[23] = 0xBC;
+        data[24] = 0xDE;
+        data[25] = 0x02;
+        data[26] = 0x0F;
+
+        let snapshot = SnaSnapshot::parse(&data).expect("parse should succeed");
+
+        assert!(snapshot.is_128k);
+        assert_eq!(snapshot.registers.i, 0x3F);
+        assert_eq!(snapshot.registers.l_alt, 0x10);
+        assert_eq!(snapshot.registers.h_alt, 0x20);
+        assert_eq!(snapshot.registers.iy, 0x1234);
+        assert!(snapshot.registers.iff1);
+        assert!(snapshot.registers.iff2);
+        assert_eq!(snapshot.registers.r, 0x56);
+        assert_eq!(snapshot.registers.f, 0x78);
+        assert_eq!(snapshot.registers.a, 0x9A);
+        assert_eq!(snapshot.registers.sp, 0xDEBC);
+        assert_eq!(snapshot.registers.im, 0x02);
+        assert_eq!(snapshot.border, 0x0F);
+    }
+
+    #[test]
     fn load_sna_sp_in_rom() {
         let mut target = TestTarget::new();
         let mut sna = vec![0u8; SNA_48K_SIZE];
@@ -407,5 +446,18 @@ mod tests {
             "128K load should temporarily page bank 7 into $C000"
         );
         assert_eq!(target.bank_history.last(), Some(&0x13));
+    }
+
+    #[test]
+    fn load_sna_128k_rejects_fixed_window_paged_bank() {
+        let mut target = TestTarget::new();
+        let mut sna = vec![0u8; SNA_128K_SIZE];
+        let ext = HEADER_SIZE + RAM_SIZE;
+        sna[ext + 2] = 0x05; // bank 5 duplicated into $C000, not representable in fixed layout
+
+        let result = load_sna(&mut target, &sna);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not representable"));
     }
 }

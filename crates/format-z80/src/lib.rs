@@ -476,6 +476,49 @@ mod tests {
     }
 
     #[test]
+    fn detect_version_distinguishes_v1_v2_and_v3_headers() {
+        let mut v1 = vec![0u8; V1_HEADER_SIZE];
+        v1[6] = 0x34;
+        v1[7] = 0x12;
+        assert_eq!(detect_version(&v1), 1);
+
+        let mut v2 = vec![0u8; 32];
+        v2[30] = 23;
+        assert_eq!(detect_version(&v2), 2);
+
+        let mut v3 = vec![0u8; 32];
+        v3[30] = 54;
+        assert_eq!(detect_version(&v3), 3);
+    }
+
+    #[test]
+    fn load_base_header_maps_r_high_bit_and_interrupt_flags() {
+        let mut data = vec![0u8; V1_HEADER_SIZE];
+        data[0] = 0xAA;
+        data[1] = 0x55;
+        data[8] = 0x34;
+        data[9] = 0x12;
+        data[10] = 0x77;
+        data[11] = 0x42;
+        data[12] = 0xFF; // treated as 1, restoring R bit 7
+        data[27] = 1;
+        data[28] = 0;
+        data[29] = 0x02;
+
+        let (regs, flags1) = load_base_header(&data);
+
+        assert_eq!(flags1, 1);
+        assert_eq!(regs.a, 0xAA);
+        assert_eq!(regs.f, 0x55);
+        assert_eq!(regs.sp, 0x1234);
+        assert_eq!(regs.i, 0x77);
+        assert_eq!(regs.r, 0xC2);
+        assert!(regs.iff1);
+        assert!(!regs.iff2);
+        assert_eq!(regs.im, 0x02);
+    }
+
+    #[test]
     fn v2_128k_load_restores_bank_and_ay_state() {
         let mut target = TestTarget::new();
         let mut data = vec![0u8; 55];
@@ -524,6 +567,82 @@ mod tests {
         assert_eq!(target.ay_selected, 7);
         assert_eq!(target.ay_regs[5], 15);
         assert_eq!(target.ay_regs[15], 45);
+    }
+
+    #[test]
+    fn v2_48k_load_does_not_restore_bank_or_ay_state() {
+        let mut target = TestTarget::new();
+        let mut data = vec![0u8; 55];
+
+        data[12] = 0x04; // border = 2
+        data[30] = 23;
+        data[31] = 0;
+        data[32] = 0x78;
+        data[33] = 0x56;
+        data[34] = 0; // 48K hardware
+        data[35] = 0x17; // should be ignored for 48K
+
+        data.extend_from_slice(&[0xFF, 0xFF, 8]);
+        let mut page8 = vec![0u8; 0x4000];
+        page8[0] = 0x11;
+        data.extend_from_slice(&page8);
+
+        data.extend_from_slice(&[0xFF, 0xFF, 4]);
+        let mut page4 = vec![0u8; 0x4000];
+        page4[0] = 0x22;
+        data.extend_from_slice(&page4);
+
+        data.extend_from_slice(&[0xFF, 0xFF, 5]);
+        let mut page5 = vec![0u8; 0x4000];
+        page5[0] = 0x33;
+        data.extend_from_slice(&page5);
+
+        load_z80(&mut target, &data).expect("load should succeed");
+
+        assert_eq!(target.regs.pc, 0x5678);
+        assert_eq!(target.border, 2);
+        assert_eq!(target.ram[0x4000], 0x11);
+        assert_eq!(target.ram[0x8000], 0x22);
+        assert_eq!(target.ram[0xC000], 0x33);
+        assert_eq!(target.bank_reg, 0);
+        assert!(target.bank_history.is_empty());
+        assert_eq!(target.ay_selected, 0);
+        assert_eq!(target.ay_regs, [0; 16]);
+    }
+
+    #[test]
+    fn v3_128k_mode_uses_v3_hardware_mapping() {
+        let mut target = TestTarget::new();
+        let mut data = vec![0u8; 86];
+
+        data[12] = 0x06; // border = 3
+        data[30] = 54;
+        data[31] = 0;
+        data[32] = 0xEF;
+        data[33] = 0xBE;
+        data[34] = 12; // v3 128K-compatible hardware
+        data[35] = 0x16; // bank 6 paged
+        data[38] = 5;
+        for reg in 0..16u8 {
+            data[39 + reg as usize] = reg.wrapping_add(1);
+        }
+
+        data.extend_from_slice(&[0xFF, 0xFF, 10]);
+        let mut page10 = vec![0u8; 0x4000];
+        page10[0] = 0x44;
+        data.extend_from_slice(&page10);
+
+        load_z80(&mut target, &data).expect("load should succeed");
+
+        assert_eq!(target.regs.pc, 0xBEEF);
+        assert_eq!(target.border, 3);
+        assert_eq!(target.ram[0xC000], 0x44);
+        assert_eq!(target.bank_reg, 0x16);
+        assert!(target.bank_history.contains(&0x17));
+        assert_eq!(target.bank_history.last(), Some(&0x16));
+        assert_eq!(target.ay_selected, 5);
+        assert_eq!(target.ay_regs[0], 1);
+        assert_eq!(target.ay_regs[15], 16);
     }
 
     #[test]
