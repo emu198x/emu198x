@@ -1780,6 +1780,35 @@ impl emu_core::Observable for Amiga {
             match rest {
                 "vpos" => Some(Value::U16(inner.vpos)),
                 "hpos" => Some(Value::U16(inner.hpos)),
+                "bplcon0" => Some(Value::U16(inner.bplcon0)),
+                "diwstrt" => Some(Value::U16(inner.diwstrt)),
+                "diwstop" => Some(Value::U16(inner.diwstop)),
+                "ddfstrt" => Some(Value::U16(inner.ddfstrt)),
+                "ddfstop" => Some(Value::U16(inner.ddfstop)),
+                "beamcon0" => Some(Value::U16(self.agnus.beamcon0())),
+                "htotal" => Some(Value::U16(self.agnus.htotal())),
+                "hsstop" => Some(Value::U16(self.agnus.hsstop())),
+                "vtotal" => Some(Value::U16(self.agnus.vtotal())),
+                "vsstop" => Some(Value::U16(self.agnus.vsstop())),
+                "hbstrt" => Some(Value::U16(self.agnus.hbstrt())),
+                "hbstop" => Some(Value::U16(self.agnus.hbstop())),
+                "vbstrt" => Some(Value::U16(self.agnus.vbstrt())),
+                "vbstop" => Some(Value::U16(self.agnus.vbstop())),
+                "hsstrt" => Some(Value::U16(self.agnus.hsstrt())),
+                "vsstrt" => Some(Value::U16(self.agnus.vsstrt())),
+                "diwhigh" => Some(Value::U16(self.agnus.diwhigh())),
+                "diwhigh_written" => Some(Value::Bool(self.agnus.diwhigh_written())),
+                "mode.varbeamen" => Some(Value::Bool(self.agnus.varbeamen_enabled())),
+                "mode.varvben" => Some(Value::Bool(self.agnus.varvben_enabled())),
+                "mode.varvsyen" => Some(Value::Bool(self.agnus.varvsyen_enabled())),
+                "mode.varhsyen" => Some(Value::Bool(self.agnus.varhsyen_enabled())),
+                "mode.cscben" => Some(Value::Bool(self.agnus.cscben_enabled())),
+                "mode.varcsyen" => Some(Value::Bool(self.agnus.varcsyen_enabled())),
+                "mode.harddis" => Some(Value::Bool(self.agnus.harddis_enabled())),
+                "mode.blanken" => Some(Value::Bool(self.agnus.blanken_enabled())),
+                "mode.csytrue" => Some(Value::Bool(self.agnus.csytrue_enabled())),
+                "mode.vsytrue" => Some(Value::Bool(self.agnus.vsytrue_enabled())),
+                "mode.hsytrue" => Some(Value::Bool(self.agnus.hsytrue_enabled())),
                 _ => None,
             }
         } else if let Some(rest) = path.strip_prefix("denise.") {
@@ -1867,6 +1896,35 @@ impl emu_core::Observable for Amiga {
             "cpu.<68000_paths>",
             "agnus.vpos",
             "agnus.hpos",
+            "agnus.bplcon0",
+            "agnus.diwstrt",
+            "agnus.diwstop",
+            "agnus.ddfstrt",
+            "agnus.ddfstop",
+            "agnus.beamcon0",
+            "agnus.htotal",
+            "agnus.hsstop",
+            "agnus.vtotal",
+            "agnus.vsstop",
+            "agnus.hbstrt",
+            "agnus.hbstop",
+            "agnus.vbstrt",
+            "agnus.vbstop",
+            "agnus.hsstrt",
+            "agnus.vsstrt",
+            "agnus.diwhigh",
+            "agnus.diwhigh_written",
+            "agnus.mode.varbeamen",
+            "agnus.mode.varvben",
+            "agnus.mode.varvsyen",
+            "agnus.mode.varhsyen",
+            "agnus.mode.cscben",
+            "agnus.mode.varcsyen",
+            "agnus.mode.harddis",
+            "agnus.mode.blanken",
+            "agnus.mode.csytrue",
+            "agnus.mode.vsytrue",
+            "agnus.mode.hsytrue",
             "denise.palette.<0-31>",
             "denise.bplcon0",
             "denise.bplcon3",
@@ -4227,6 +4285,21 @@ mod tests {
         // Agnus beam position
         assert!(matches!(amiga.query("agnus.vpos"), Some(Value::U16(_))));
         assert!(matches!(amiga.query("agnus.hpos"), Some(Value::U16(_))));
+        assert!(matches!(amiga.query("agnus.bplcon0"), Some(Value::U16(0))));
+        assert!(matches!(amiga.query("agnus.beamcon0"), Some(Value::U16(0))));
+        assert!(matches!(amiga.query("agnus.diwhigh"), Some(Value::U16(0))));
+        assert!(matches!(
+            amiga.query("agnus.diwhigh_written"),
+            Some(Value::Bool(false))
+        ));
+        assert!(matches!(
+            amiga.query("agnus.mode.varbeamen"),
+            Some(Value::Bool(false))
+        ));
+        assert!(matches!(
+            amiga.query("agnus.mode.harddis"),
+            Some(Value::Bool(false))
+        ));
 
         // Denise palette
         assert!(matches!(
@@ -4320,5 +4393,76 @@ mod tests {
         assert_eq!(amiga.query("denise.mode.shres"), Some(Value::Bool(true)));
         assert_eq!(amiga.query("denise.mode.bplhwrm"), Some(Value::Bool(true)));
         assert_eq!(amiga.query("denise.mode.sprhwrm"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn observable_agnus_ecs_state_reflects_latched_register_bits() {
+        use emu_core::Observable;
+        use emu_core::Value;
+
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+
+        amiga.write_custom_reg(0x100, 0x1070);
+        amiga.write_custom_reg(0x08E, 0x1234);
+        amiga.write_custom_reg(0x090, 0x5678);
+        amiga.write_custom_reg(0x092, 0x0038);
+        amiga.write_custom_reg(0x094, 0x00D0);
+        amiga.write_custom_reg(0x1DC, 0xAB3E);
+        amiga.write_custom_reg(0x1C0, 0x0033);
+        amiga.write_custom_reg(0x1C2, 0x0044);
+        amiga.write_custom_reg(0x1C4, 0x0011);
+        amiga.write_custom_reg(0x1C6, 0x0022);
+        amiga.write_custom_reg(0x1C8, 0x0123);
+        amiga.write_custom_reg(0x1CA, 0x0234);
+        amiga.write_custom_reg(0x1CC, 0x0044);
+        amiga.write_custom_reg(0x1CE, 0x0055);
+        amiga.write_custom_reg(0x1DE, 0x0066);
+        amiga.write_custom_reg(0x1E0, 0x0177);
+        amiga.write_custom_reg(0x1E4, 0x89AB);
+
+        assert_eq!(amiga.query("agnus.bplcon0"), Some(Value::U16(0x1070)));
+        assert_eq!(amiga.query("agnus.diwstrt"), Some(Value::U16(0x1234)));
+        assert_eq!(amiga.query("agnus.diwstop"), Some(Value::U16(0x5678)));
+        assert_eq!(amiga.query("agnus.ddfstrt"), Some(Value::U16(0)));
+        assert_eq!(amiga.query("agnus.ddfstop"), Some(Value::U16(0)));
+        assert_eq!(amiga.query("agnus.beamcon0"), Some(Value::U16(0xAB3E)));
+        assert_eq!(amiga.query("agnus.htotal"), Some(Value::U16(0x0033)));
+        assert_eq!(amiga.query("agnus.hsstop"), Some(Value::U16(0x0044)));
+        assert_eq!(amiga.query("agnus.hbstrt"), Some(Value::U16(0x0011)));
+        assert_eq!(amiga.query("agnus.hbstop"), Some(Value::U16(0x0022)));
+        assert_eq!(amiga.query("agnus.vtotal"), Some(Value::U16(0x0123)));
+        assert_eq!(amiga.query("agnus.vsstop"), Some(Value::U16(0x0234)));
+        assert_eq!(amiga.query("agnus.vbstrt"), Some(Value::U16(0x0044)));
+        assert_eq!(amiga.query("agnus.vbstop"), Some(Value::U16(0x0055)));
+        assert_eq!(amiga.query("agnus.hsstrt"), Some(Value::U16(0x0066)));
+        assert_eq!(amiga.query("agnus.vsstrt"), Some(Value::U16(0x0177)));
+        assert_eq!(amiga.query("agnus.diwhigh"), Some(Value::U16(0x89AB)));
+        assert_eq!(
+            amiga.query("agnus.diwhigh_written"),
+            Some(Value::Bool(true))
+        );
+        assert_eq!(amiga.query("agnus.mode.varbeamen"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.varvben"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.varvsyen"), Some(Value::Bool(false)));
+        assert_eq!(amiga.query("agnus.mode.varhsyen"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.cscben"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.varcsyen"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.harddis"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.blanken"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.csytrue"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.vsytrue"), Some(Value::Bool(true)));
+        assert_eq!(amiga.query("agnus.mode.hsytrue"), Some(Value::Bool(true)));
+
+        tick_one_cck(&mut amiga);
+        tick_one_cck(&mut amiga);
+
+        assert_eq!(amiga.query("agnus.ddfstrt"), Some(Value::U16(0x0038)));
+        assert_eq!(amiga.query("agnus.ddfstop"), Some(Value::U16(0x00D0)));
     }
 }
