@@ -70,12 +70,20 @@ const DATA_END: u32 = 0x200000;
 /// Generate `count` test cases for one instruction definition.
 pub fn generate(def: &InstructionDef, cpu_type: u32, count: usize) -> Vec<TestCase> {
     let mut rng = rand::rng();
+    musashi::init();
+    generate_with_rng(def, cpu_type, count, &mut rng)
+}
+
+fn generate_with_rng(
+    def: &InstructionDef,
+    cpu_type: u32,
+    count: usize,
+    rng: &mut impl Rng,
+) -> Vec<TestCase> {
     let mut tests = Vec::with_capacity(count);
 
-    musashi::init();
-
     for i in 0..count {
-        let test = generate_one(def, cpu_type, &mut rng, i);
+        let test = generate_one(def, cpu_type, rng, i);
         tests.push(test);
     }
 
@@ -138,6 +146,7 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
 
     // Set CPU type and load registers into Musashi
     musashi::set_cpu_type(cpu_type);
+    musashi::pulse_reset();
 
     for (i, &val) in d.iter().enumerate() {
         musashi::set_reg(musashi::M68K_REG_D0 + i as u32, val);
@@ -653,6 +662,7 @@ fn compute_indexed_ea(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instructions;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use std::sync::Mutex;
@@ -660,7 +670,7 @@ mod tests {
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_generator_test(test: impl FnOnce()) {
-        let _guard = TEST_LOCK.lock().expect("test lock poisoned");
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         memory::clear();
         test();
         memory::clear();
@@ -745,6 +755,59 @@ mod tests {
                 compute_ea(&info, &d, &a, STACK_TOP).expect("EA should compute") & 1,
                 0
             );
+        });
+    }
+
+    #[test]
+    fn fixed_seed_generation_produces_stable_initial_state_summaries() {
+        with_generator_test(|| {
+            musashi::init();
+            let def = instructions::find(musashi::M68K_CPU_TYPE_68000, "NOP")
+                .expect("NOP should exist in catalogue");
+
+            let mut rng_a = StdRng::seed_from_u64(0x1234_5678);
+            let tests_a = generate_with_rng(&def, musashi::M68K_CPU_TYPE_68000, 3, &mut rng_a);
+            let summaries_a: Vec<_> = tests_a
+                .iter()
+                .map(|test| {
+                    (
+                        test.name.clone(),
+                        test.initial.d,
+                        test.initial.a,
+                        test.initial.usp,
+                        test.initial.ssp,
+                        test.initial.sr,
+                        test.initial.pc,
+                        test.initial.ram.clone(),
+                    )
+                })
+                .collect();
+            let encoded_a = rmp_serde::to_vec(&summaries_a).expect("serialisation should work");
+
+            memory::clear();
+            musashi::init();
+            let mut rng_b = StdRng::seed_from_u64(0x1234_5678);
+            let tests_b = generate_with_rng(&def, musashi::M68K_CPU_TYPE_68000, 3, &mut rng_b);
+            let summaries_b: Vec<_> = tests_b
+                .iter()
+                .map(|test| {
+                    (
+                        test.name.clone(),
+                        test.initial.d,
+                        test.initial.a,
+                        test.initial.usp,
+                        test.initial.ssp,
+                        test.initial.sr,
+                        test.initial.pc,
+                        test.initial.ram.clone(),
+                    )
+                })
+                .collect();
+            let encoded_b = rmp_serde::to_vec(&summaries_b).expect("serialisation should work");
+
+            assert_eq!(encoded_a, encoded_b);
+            assert_eq!(tests_a.len(), 3);
+            assert_eq!(tests_b.len(), 3);
         });
     }
 }
