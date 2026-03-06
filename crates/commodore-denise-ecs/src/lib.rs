@@ -8,6 +8,9 @@ use std::ops::{Deref, DerefMut};
 
 pub use commodore_denise_ocs::DeniseOcs as InnerDeniseOcs;
 
+const BPLCON3_KILLEHB: u16 = 0x0200;
+const BPLCON3_ENBPLCN3: u16 = 0x0001;
+
 /// Thin ECS wrapper that currently reuses the OCS Denise implementation.
 pub struct DeniseEcs {
     inner: InnerDeniseOcs,
@@ -52,6 +55,37 @@ impl DeniseEcs {
     #[must_use]
     pub fn into_inner(self) -> InnerDeniseOcs {
         self.inner
+    }
+
+    /// Whether the ECS enhanced BPLCON3 register is enabled.
+    #[must_use]
+    pub const fn bplcon3_extensions_enabled(&self) -> bool {
+        (self.bplcon3 & BPLCON3_ENBPLCN3) != 0
+    }
+
+    /// Whether ECS requests that EHB decoding be suppressed.
+    #[must_use]
+    pub const fn killehb_enabled(&self) -> bool {
+        self.bplcon3_extensions_enabled() && (self.bplcon3 & BPLCON3_KILLEHB) != 0
+    }
+
+    /// Resolve a playfield colour index to 12-bit RGB, applying ECS-only
+    /// BPLCON3 extensions on top of the shared Denise colour pipeline.
+    pub fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
+        let ham = (self.inner.bplcon0 & 0x0800) != 0;
+        let dual_playfield = (self.inner.bplcon0 & 0x0400) != 0;
+        let num_planes = self.inner.num_bitplanes();
+
+        if self.killehb_enabled()
+            && !ham
+            && !dual_playfield
+            && num_planes == 6
+            && (color_idx & 0x20) != 0
+        {
+            self.inner.palette[(color_idx as usize) & 0x1F]
+        } else {
+            self.inner.resolve_color_rgb12(color_idx)
+        }
     }
 }
 
@@ -194,5 +228,21 @@ mod tests {
             ocs.output_pixel_color(20, 10)
         );
         assert_eq!(ecs.clxdat, ocs.clxdat);
+    }
+
+    #[test]
+    fn killehb_requires_extension_enable_and_disables_halfbrite_when_active() {
+        let mut denise = DeniseEcs::new();
+        denise.set_palette(5, 0x0ACE);
+        denise.bplcon0 = 0x6000; // 6 planes, EHB
+
+        assert_eq!(denise.resolve_color_rgb12(0x25), 0x0567);
+
+        denise.bplcon3 = 0x0200; // KILLEHB without ENBPLCN3
+        assert_eq!(denise.resolve_color_rgb12(0x25), 0x0567);
+
+        denise.bplcon3 = 0x0201; // KILLEHB + ENBPLCN3
+        assert_eq!(denise.resolve_color_rgb12(0x25), 0x0ACE);
+        assert_eq!(denise.resolve_color_rgb12(0x05), 0x0ACE);
     }
 }

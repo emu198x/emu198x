@@ -1,9 +1,10 @@
 //! Shared helpers for Amiga boot screenshot tests.
 
 use machine_amiga::commodore_denise_ocs::ViewportPreset;
-use machine_amiga::{Amiga, AmigaConfig, AmigaRegion, AUDIO_SAMPLE_RATE, PAL_FRAME_TICKS};
+use machine_amiga::{AUDIO_SAMPLE_RATE, Amiga, AmigaConfig, AmigaRegion, PAL_FRAME_TICKS};
 use std::fs;
 
+#[allow(dead_code)]
 pub const BOOT_TICKS: u64 = 850_000_000; // ~30 seconds PAL
 
 /// Expected register values after boot. Each field is optional — only
@@ -94,11 +95,7 @@ pub fn boot_screenshot_test(
         let elapsed_s = i as f64 / 28_375_160.0;
         println!(
             "[{:.1}s] tick={} PC=${:08X} V={} H={}",
-            elapsed_s,
-            i,
-            amiga.cpu.regs.pc,
-            amiga.agnus.vpos,
-            amiga.agnus.hpos,
+            elapsed_s, i, amiga.cpu.regs.pc, amiga.agnus.vpos, amiga.agnus.hpos,
         );
     }
 
@@ -174,10 +171,7 @@ pub fn boot_screenshot_test(
         let audio_tmp = format!("../../test_output/amiga/.{screenshot_prefix}_audio.raw");
         {
             let mut f = fs::File::create(&audio_tmp).expect("create audio temp file");
-            let pcm_bytes: Vec<u8> = audio_samples
-                .iter()
-                .flat_map(|s| s.to_le_bytes())
-                .collect();
+            let pcm_bytes: Vec<u8> = audio_samples.iter().flat_map(|s| s.to_le_bytes()).collect();
             f.write_all(&pcm_bytes).expect("write audio temp file");
         }
 
@@ -187,21 +181,34 @@ pub fn boot_screenshot_test(
             .args([
                 "-y",
                 // Video input: raw RGBA frames on stdin
-                "-f", "rawvideo",
-                "-pixel_format", "rgba",
-                "-video_size", &video_size_str,
-                "-framerate", "2",
-                "-i", "pipe:0",
+                "-f",
+                "rawvideo",
+                "-pixel_format",
+                "rgba",
+                "-video_size",
+                &video_size_str,
+                "-framerate",
+                "2",
+                "-i",
+                "pipe:0",
                 // Audio input: raw f32le stereo PCM from temp file
-                "-f", "f32le",
-                "-ar", &sample_rate_str,
-                "-ac", "2",
-                "-i", &audio_tmp,
+                "-f",
+                "f32le",
+                "-ar",
+                &sample_rate_str,
+                "-ac",
+                "2",
+                "-i",
+                &audio_tmp,
                 // Output
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-c:a", "aac",
-                "-b:a", "128k",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
                 "-shortest",
                 &mp4_path,
             ])
@@ -221,10 +228,7 @@ pub fn boot_screenshot_test(
                 if output.status.success() {
                     println!("Video saved to {mp4_path} (with audio)");
                 } else {
-                    eprintln!(
-                        "ffmpeg failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    eprintln!("ffmpeg failed: {}", String::from_utf8_lossy(&output.stderr));
                 }
             }
             Err(e) => {
@@ -251,7 +255,8 @@ pub fn boot_screenshot_test_expect(
     total_ticks: u64,
     expect: BootExpect,
 ) {
-    let (dmacon, bplcon0) = boot_screenshot_test(config, rom_description, screenshot_prefix, total_ticks);
+    let (dmacon, bplcon0) =
+        boot_screenshot_test(config, rom_description, screenshot_prefix, total_ticks);
 
     if let Some(bits) = expect.dmacon_set {
         assert!(

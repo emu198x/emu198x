@@ -13,6 +13,8 @@ use crate::memory::Memory;
 use commodore_agnus_aga::AgnusAga as Agnus;
 use commodore_agnus_ocs::{BlitterDmaOp, Copper, SlotOwner};
 use commodore_denise_aga::DeniseAga as DeniseOcs;
+use commodore_dmac_390537::Dmac390537;
+use commodore_gayle::Gayle;
 use commodore_paula_8364::Paula8364;
 use drive_amiga_floppy::AmigaFloppyDrive;
 use format_adf::Adf;
@@ -20,8 +22,6 @@ use mos_cia_8520::Cia8520;
 use motorola_68000::cpu::Cpu68000;
 use motorola_68000::model::CpuModel;
 use peripheral_amiga_keyboard::AmigaKeyboard;
-use commodore_gayle::Gayle;
-use commodore_dmac_390537::Dmac390537;
 
 // Re-export chip crates so tests and downstream users can access types.
 pub use crate::config::{
@@ -34,13 +34,13 @@ pub use commodore_agnus_ocs;
 pub use commodore_denise_aga;
 pub use commodore_denise_ecs;
 pub use commodore_denise_ocs;
+pub use commodore_gayle;
 pub use commodore_paula_8364;
 pub use drive_amiga_floppy;
 pub use format_adf;
 pub use mos_cia_8520;
 use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 pub use peripheral_amiga_keyboard;
-pub use commodore_gayle;
 
 /// Standard Amiga PAL Master Crystal Frequency (Hz)
 pub const PAL_CRYSTAL_HZ: u64 = 28_375_160;
@@ -224,8 +224,8 @@ impl DriveSoundGenerator {
         if self.motor_envelope > 0.001 {
             let motor_len = drive_samples::motor_len();
             if motor_len > 0 {
-                out += drive_samples::motor_sample(self.motor_pos % motor_len)
-                    * self.motor_envelope;
+                out +=
+                    drive_samples::motor_sample(self.motor_pos % motor_len) * self.motor_envelope;
                 self.motor_pos += 1;
                 if self.motor_pos >= motor_len {
                     self.motor_pos = 0;
@@ -558,7 +558,7 @@ impl Amiga {
             ddfstop_pending: None,
             color_pending: Vec::new(),
             bpl_dma_vactive_latch: false,
-            mbres_ramsey_config: 0x08,  // default wrap bit
+            mbres_ramsey_config: 0x08, // default wrap bit
             mbres_fatgary_toenb: 0x80,
             mbres_fatgary_timeout: 0x00,
             drive_sounds: DriveSoundGenerator::new(AUDIO_SAMPLE_RATE),
@@ -597,18 +597,16 @@ impl Amiga {
                     != current_snapshot.fb_coords.is_some(),
             };
 
-            let hsync_tod_pulse =
-                if self.chipset.is_ecs_or_aga() && self.agnus.varhsyen_enabled() {
-                    !prev_sync.hsync && current_sync.hsync
-                } else {
-                    hpos == 0
-                };
-            let vsync_tod_pulse =
-                if self.chipset.is_ecs_or_aga() && self.agnus.varvsyen_enabled() {
-                    !prev_sync.vsync && current_sync.vsync
-                } else {
-                    vpos == 0 && hpos == 0
-                };
+            let hsync_tod_pulse = if self.chipset.is_ecs_or_aga() && self.agnus.varhsyen_enabled() {
+                !prev_sync.hsync && current_sync.hsync
+            } else {
+                hpos == 0
+            };
+            let vsync_tod_pulse = if self.chipset.is_ecs_or_aga() && self.agnus.varvsyen_enabled() {
+                !prev_sync.vsync && current_sync.vsync
+            } else {
+                vpos == 0 && hpos == 0
+            };
 
             // VERTB fires at the start of vblank (beam at line 0, start of frame).
             // The check runs before tick_cck(), so vpos/hpos reflect the current
@@ -1412,7 +1410,8 @@ impl Amiga {
                 for i in 0..fetch_width {
                     words[i as usize] = read_word(&self.memory, addr.wrapping_add(i * 2));
                 }
-                self.denise.write_sprite_data_wide(sprite, &words[..fetch_width as usize]);
+                self.denise
+                    .write_sprite_data_wide(sprite, &words[..fetch_width as usize]);
                 self.sprite_dma_phase[sprite] = 3;
                 self.agnus.spr_pt[sprite] = addr.wrapping_add(fetch_width * 2);
             }
@@ -1422,7 +1421,8 @@ impl Amiga {
                 for i in 0..fetch_width {
                     words[i as usize] = read_word(&self.memory, addr.wrapping_add(i * 2));
                 }
-                self.denise.write_sprite_datb_wide(sprite, &words[..fetch_width as usize]);
+                self.denise
+                    .write_sprite_datb_wide(sprite, &words[..fetch_width as usize]);
                 let pos = self.denise.spr_pos[sprite];
                 let ctl = self.denise.spr_ctl[sprite];
                 let vstart = (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF);
@@ -1686,7 +1686,10 @@ impl Amiga {
             (csync_raw, BeamCompositeSyncMode::VariableXorSync)
         } else {
             // Hardwired mode: simple OR of H and V sync.
-            (sync.hsync || sync.vsync, BeamCompositeSyncMode::HardwiredHvOr)
+            (
+                sync.hsync || sync.vsync,
+                BeamCompositeSyncMode::HardwiredHvOr,
+            )
         };
 
         BeamCompositeSyncDebug {
@@ -1832,13 +1835,14 @@ impl emu_core::Observable for Amiga {
                 _ => None,
             }
         } else if let Some(rest) = path.strip_prefix("memory.") {
-            let addr = if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
-                u32::from_str_radix(hex, 16).ok()
-            } else if let Some(hex) = rest.strip_prefix('$') {
-                u32::from_str_radix(hex, 16).ok()
-            } else {
-                rest.parse().ok()
-            };
+            let addr =
+                if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+                    u32::from_str_radix(hex, 16).ok()
+                } else if let Some(hex) = rest.strip_prefix('$') {
+                    u32::from_str_radix(hex, 16).ok()
+                } else {
+                    rest.parse().ok()
+                };
             addr.map(|a| Value::U8(self.memory.read_byte(a)))
         } else {
             match path {
@@ -1851,12 +1855,27 @@ impl emu_core::Observable for Amiga {
     fn query_paths(&self) -> &'static [&'static str] {
         &[
             "cpu.<68000_paths>",
-            "agnus.vpos", "agnus.hpos",
+            "agnus.vpos",
+            "agnus.hpos",
             "denise.palette.<0-31>",
-            "paula.intena", "paula.intreq", "paula.adkcon",
-            "paula.audio.<0-3>.period", "paula.audio.<0-3>.volume", "paula.audio.<0-3>.sample",
-            "cia_a.timer_a", "cia_a.timer_b", "cia_a.icr_status", "cia_a.icr_mask", "cia_a.cra", "cia_a.crb",
-            "cia_b.timer_a", "cia_b.timer_b", "cia_b.icr_status", "cia_b.icr_mask", "cia_b.cra", "cia_b.crb",
+            "paula.intena",
+            "paula.intreq",
+            "paula.adkcon",
+            "paula.audio.<0-3>.period",
+            "paula.audio.<0-3>.volume",
+            "paula.audio.<0-3>.sample",
+            "cia_a.timer_a",
+            "cia_a.timer_b",
+            "cia_a.icr_status",
+            "cia_a.icr_mask",
+            "cia_a.cra",
+            "cia_a.crb",
+            "cia_b.timer_a",
+            "cia_b.timer_b",
+            "cia_b.icr_status",
+            "cia_b.icr_mask",
+            "cia_b.cra",
+            "cia_b.crb",
             "memory.<address>",
             "master_clock",
         ]
@@ -1963,9 +1982,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         // We return 0 for reads and sink writes (matching the
         // NONEXISTINGDATA=0 convention). This prevents exec's memory
         // probe from seeing chip RAM aliases at every 16 MB boundary.
-        if matches!(self.model, AmigaModel::A3000 | AmigaModel::A4000)
-            && addr >= 0x0100_0000
-        {
+        if matches!(self.model, AmigaModel::A3000 | AmigaModel::A4000) && addr >= 0x0100_0000 {
             return BusStatus::Ready(0);
         }
 
@@ -2255,14 +2272,15 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
 
         // Gayle gate array ($D80000-$DFFFFF) on A600/A1200.
         if let Some(gayle) = self.gayle
-            && (0xD8_0000..0xE0_0000).contains(&addr) {
-                if is_read {
-                    let byte = gayle.read(addr);
-                    return BusStatus::Ready(u16::from(byte));
-                }
-                gayle.write(addr, data.unwrap_or(0) as u8);
-                return BusStatus::Ready(0);
+            && (0xD8_0000..0xE0_0000).contains(&addr)
+        {
+            if is_read {
+                let byte = gayle.read(addr);
+                return BusStatus::Ready(u16::from(byte));
             }
+            gayle.write(addr, data.unwrap_or(0) as u8);
+            return BusStatus::Ready(0);
+        }
 
         if addr < 0x200000 {
             let bus_plan = self.agnus.cck_bus_plan();
@@ -3083,6 +3101,25 @@ mod tests {
     }
 
     #[test]
+    fn ecs_bplcon3_killehb_disables_halfbrite_decode() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+        amiga.denise.set_palette(5, 0x0ACE);
+        amiga.denise.bplcon0 = 0x6000; // 6 planes, EHB
+
+        assert_eq!(amiga.denise.resolve_color_rgb12(0x25), 0x0567);
+
+        amiga.write_custom_reg(0x106, 0x0201); // ENBPLCN3 | KILLEHB
+        assert_eq!(amiga.denise.bplcon3, 0x0201);
+        assert_eq!(amiga.denise.resolve_color_rgb12(0x25), 0x0ACE);
+    }
+
+    #[test]
     fn amiga_config_a500plus_uses_one_meg_chip_ram() {
         let amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A500Plus,
@@ -3254,6 +3291,30 @@ mod tests {
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1DE), 0x0066);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E0), 0x0177);
         assert_eq!(read_custom_word_via_cpu_bus(&mut amiga, 0x1E4), 0x89AB);
+    }
+
+    #[test]
+    fn deniseid_read_reflects_chipset_generation() {
+        let mut ocs = Amiga::new(dummy_kickstart());
+        assert_eq!(read_custom_word_via_cpu_bus(&mut ocs, 0x07C), 0xFFFF);
+
+        let mut ecs = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A500,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+        assert_eq!(read_custom_word_via_cpu_bus(&mut ecs, 0x07C), 0x00FC);
+
+        let mut aga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A1200,
+            chipset: AmigaChipset::Aga,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+        assert_eq!(read_custom_word_via_cpu_bus(&mut aga, 0x07C), 0x00F8);
     }
 
     #[test]
@@ -4146,7 +4207,10 @@ mod tests {
         assert!(matches!(amiga.query("agnus.hpos"), Some(Value::U16(_))));
 
         // Denise palette
-        assert!(matches!(amiga.query("denise.palette.0"), Some(Value::U16(_))));
+        assert!(matches!(
+            amiga.query("denise.palette.0"),
+            Some(Value::U16(_))
+        ));
         assert!(amiga.query("denise.palette.31").is_some());
         assert!(amiga.query("denise.palette.32").is_none());
 
@@ -4156,9 +4220,18 @@ mod tests {
         assert!(matches!(amiga.query("paula.adkcon"), Some(Value::U16(_))));
 
         // Paula audio channels
-        assert!(matches!(amiga.query("paula.audio.0.period"), Some(Value::U16(_))));
-        assert!(matches!(amiga.query("paula.audio.0.volume"), Some(Value::U8(_))));
-        assert!(matches!(amiga.query("paula.audio.3.sample"), Some(Value::I8(_))));
+        assert!(matches!(
+            amiga.query("paula.audio.0.period"),
+            Some(Value::U16(_))
+        ));
+        assert!(matches!(
+            amiga.query("paula.audio.0.volume"),
+            Some(Value::U8(_))
+        ));
+        assert!(matches!(
+            amiga.query("paula.audio.3.sample"),
+            Some(Value::I8(_))
+        ));
         assert!(amiga.query("paula.audio.4.period").is_none());
 
         // CIA

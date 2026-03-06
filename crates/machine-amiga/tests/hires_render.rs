@@ -53,7 +53,7 @@ fn hires_2plane_renders_correct_pixels() {
     // Standard hires: DDFSTRT=$3C, DDFSTOP=$D4, DIWSTRT=$2C81, DIWSTOP=$2CC1
     let cop_addr = 0x0001_0000u32;
     let mut cop = cop_addr;
-    let mut write_cop = |amiga: &mut Amiga, addr: &mut u32, reg: u16, val: u16| {
+    let write_cop = |amiga: &mut Amiga, addr: &mut u32, reg: u16, val: u16| {
         amiga.memory.write_byte(*addr, (reg >> 8) as u8);
         amiga.memory.write_byte(*addr + 1, reg as u8);
         amiga.memory.write_byte(*addr + 2, (val >> 8) as u8);
@@ -171,17 +171,21 @@ fn hires_2plane_renders_correct_pixels() {
         }
     }
 
-    let white = 0xFF_FF_FF_FFu32;
     let blue = 0xFF_00_00_FFu32;
 
     // With plane 0 = $FF00 pattern: first 8 hires pixels should be color 1 (white),
     // next 8 should be color 0 (blue), repeating.
-    let non_blue_count = pixels.iter().filter(|&&c| c != blue && c != 0xFF000000).count();
+    let non_blue_count = pixels
+        .iter()
+        .filter(|&&c| c != blue && c != 0xFF000000)
+        .count();
     println!("\nNon-blue pixels: {non_blue_count} / {}", pixels.len());
 
     // Save a screenshot to verify visually
     use machine_amiga::commodore_denise_ocs::ViewportPreset;
-    let viewport = amiga.denise.extract_viewport(ViewportPreset::Standard, true, true);
+    let viewport = amiga
+        .denise
+        .extract_viewport(ViewportPreset::Standard, true, true);
     let path = "../../test_output/amiga/hires_test_pattern.png";
     if let Some(parent) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(parent).ok();
@@ -203,6 +207,12 @@ fn hires_2plane_renders_correct_pixels() {
     println!("Saved {path} ({}x{})", viewport.width, viewport.height);
 
     // Check the non-blue count in the viewport window area
-    let non_blue_count = pixels.iter().filter(|&&c| c != blue && c != 0xFF000000).count();
-    assert!(non_blue_count > 0, "expected some white pixels in display window");
+    let non_blue_count = pixels
+        .iter()
+        .filter(|&&c| c != blue && c != 0xFF000000)
+        .count();
+    assert!(
+        non_blue_count > 0,
+        "expected some white pixels in display window"
+    );
 }

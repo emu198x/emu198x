@@ -132,6 +132,9 @@ impl DeniseAga {
             let effective = (color_idx ^ bplcon4_xor) as usize & 0xFF;
             if color_idx & 0x20 != 0 {
                 let base = self.palette_24[effective & 0x1F];
+                if self.inner.killehb_enabled() {
+                    return base;
+                }
                 let r = ((base >> 16) & 0xFF) >> 1;
                 let g = ((base >> 8) & 0xFF) >> 1;
                 let b = (base & 0xFF) >> 1;
@@ -143,6 +146,12 @@ impl DeniseAga {
         // Normal mode: direct palette lookup with BPLCON4 XOR.
         let effective = (color_idx ^ bplcon4_xor) as usize & 0xFF;
         self.palette_24[effective]
+    }
+
+    /// Resolve a playfield colour index to 12-bit RGB through the ECS Denise
+    /// compatibility layer that AGA builds on.
+    pub fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
+        self.inner.resolve_color_rgb12(color_idx)
     }
 
     /// Set sprite display width from FMODE register value.
@@ -276,6 +285,18 @@ mod tests {
         let blue = denise.resolve_color_rgb24(0x6A); // control=01, data=0x2A -> 0xAA
         assert_eq!(blue, 0x00AAAAAA);
         assert_eq!(denise.ham_prev_rgb24, 0x00AAAAAA);
+    }
+
+    #[test]
+    fn resolve_color_rgb24_honors_ecs_killehb_in_ehb_mode() {
+        let mut denise = make_aga_denise();
+        denise.bplcon0 = 0x6000; // 6 planes, EHB
+        denise.palette_24[5] = 0x00112233;
+
+        assert_eq!(denise.resolve_color_rgb24(0x25), 0x00081119);
+
+        denise.bplcon3 = 0x0201; // KILLEHB + ENBPLCN3
+        assert_eq!(denise.resolve_color_rgb24(0x25), 0x00112233);
     }
 
     #[test]

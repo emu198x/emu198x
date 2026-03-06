@@ -8,7 +8,7 @@
 mod common;
 
 use common::load_rom;
-use machine_amiga::format_adf::{Adf, ADF_SIZE_DD};
+use machine_amiga::format_adf::{ADF_SIZE_DD, Adf};
 use machine_amiga::{Amiga, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 
 /// Create a bootable ADF whose boot code writes $DEADBEEF to $7FC00.
@@ -173,7 +173,10 @@ fn test_workbench_13_boot() {
         rgba_full.push(((pixel >> 24) & 0xFF) as u8);
     }
     writer.write_image_data(&rgba_full).expect("data");
-    println!("Full raster saved to {full_path} ({}x{})", full.width, full.height);
+    println!(
+        "Full raster saved to {full_path} ({}x{})",
+        full.width, full.height
+    );
 
     println!("DMACON  = ${:04X}", amiga.agnus.dmacon);
     println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
@@ -208,24 +211,24 @@ fn test_workbench_13_boot() {
     };
     println!("  Priv viol handler bytes at ${pvh_addr:08X}:");
     // Read first 32 bytes of the handler
-    let base = if pvh_addr >= 0xFC0000 {
+    if pvh_addr >= 0xFC0000 {
         // ROM address — read from ROM
-        let offset = (pvh_addr - 0xFC0000) as usize;
-        let rom_data: Vec<u8> = (0..32).map(|i| {
-            let rom_addr = (pvh_addr + i) & 0xFFFFFF;
-            if rom_addr >= 0xFC0000 {
-                // Read from memory (ROM is mapped)
-                amiga.memory.read_chip_byte(rom_addr)
-            } else {
-                amiga.memory.read_chip_byte(rom_addr)
-            }
-        }).collect();
+        let rom_data: Vec<u8> = (0..32)
+            .map(|i| {
+                let rom_addr = (pvh_addr + i) & 0xFFFFFF;
+                if rom_addr >= 0xFC0000 {
+                    // Read from memory (ROM is mapped)
+                    amiga.memory.read_chip_byte(rom_addr)
+                } else {
+                    amiga.memory.read_chip_byte(rom_addr)
+                }
+            })
+            .collect();
         print!("   ");
         for b in &rom_data {
             print!(" {:02X}", b);
         }
         println!();
-        pvh_addr
     } else {
         // Chip RAM address
         print!("   ");
@@ -233,18 +236,23 @@ fn test_workbench_13_boot() {
             print!(" {:02X}", amiga.memory.read_chip_byte(pvh_addr + i));
         }
         println!();
-        pvh_addr
-    };
+    }
 
     // Keyboard diagnostics
     println!("\n=== Keyboard Diagnostics ===");
     println!("Keyboard bytes_sent: {}", amiga.keyboard.bytes_sent);
     println!("Keyboard state: {}", amiga.keyboard.debug_state_name());
-    println!("Keyboard queued keys: {}", amiga.keyboard.queued_key_count());
+    println!(
+        "Keyboard queued keys: {}",
+        amiga.keyboard.queued_key_count()
+    );
     println!("CIA-A ICR mask: ${:02X}", amiga.cia_a.icr_mask());
     println!("CIA-A ICR status: ${:02X}", amiga.cia_a.icr_status());
     if amiga.keyboard.bytes_sent > 2 {
-        println!("WARNING: Keyboard sent {} bytes (expected 2 for power-up only)", amiga.keyboard.bytes_sent);
+        println!(
+            "WARNING: Keyboard sent {} bytes (expected 2 for power-up only)",
+            amiga.keyboard.bytes_sent
+        );
     }
 
     // Find the background color from palette[0]
@@ -275,26 +283,53 @@ fn test_workbench_13_boot() {
             for px in 0..fb_w {
                 let idx = (scan_row * fb_w + px) as usize;
                 if let Some(&color) = amiga.denise.framebuffer_raster.get(idx) {
-                    if color != bg_argb && color != 0xFF000000 && color != 0 && sample_colors.len() < 4 {
+                    if color != bg_argb
+                        && color != 0xFF000000
+                        && color != 0
+                        && sample_colors.len() < 4
+                    {
                         sample_colors.push((px, color));
                     }
                 }
             }
-            let samples: Vec<String> = sample_colors.iter()
+            let samples: Vec<String> = sample_colors
+                .iter()
                 .map(|(x, c)| format!("x={x}:${c:08X}"))
                 .collect();
-            println!("  line {line:3}: {non_bg:4} non-bg pixels  samples=[{}]", samples.join(", "));
+            println!(
+                "  line {line:3}: {non_bg:4} non-bg pixels  samples=[{}]",
+                samples.join(", ")
+            );
         }
     }
-    println!("BPLCON0=${:04X} BPLCON1=${:04X}", amiga.denise.bplcon0, amiga.denise.bplcon1);
-    println!("DDFSTRT=${:04X} DDFSTOP=${:04X}", amiga.agnus.ddfstrt, amiga.agnus.ddfstop);
-    println!("DIWSTRT=${:04X} DIWSTOP=${:04X}", amiga.agnus.diwstrt, amiga.agnus.diwstop);
-    println!("BPL1PT=${:08X} BPL2PT=${:08X}", amiga.agnus.bpl_pt[0], amiga.agnus.bpl_pt[1]);
+    println!(
+        "BPLCON0=${:04X} BPLCON1=${:04X}",
+        amiga.denise.bplcon0, amiga.denise.bplcon1
+    );
+    println!(
+        "DDFSTRT=${:04X} DDFSTOP=${:04X}",
+        amiga.agnus.ddfstrt, amiga.agnus.ddfstop
+    );
+    println!(
+        "DIWSTRT=${:04X} DIWSTOP=${:04X}",
+        amiga.agnus.diwstrt, amiga.agnus.diwstop
+    );
+    println!(
+        "BPL1PT=${:08X} BPL2PT=${:08X}",
+        amiga.agnus.bpl_pt[0], amiga.agnus.bpl_pt[1]
+    );
 
-    println!("Palette[0..4]: {:03X} {:03X} {:03X} {:03X}",
-        amiga.denise.palette[0], amiga.denise.palette[1],
-        amiga.denise.palette[2], amiga.denise.palette[3]);
-    println!("BPL1MOD={} BPL2MOD={}", amiga.agnus.bpl1mod, amiga.agnus.bpl2mod);
+    println!(
+        "Palette[0..4]: {:03X} {:03X} {:03X} {:03X}",
+        amiga.denise.palette[0],
+        amiga.denise.palette[1],
+        amiga.denise.palette[2],
+        amiga.denise.palette[3]
+    );
+    println!(
+        "BPL1MOD={} BPL2MOD={}",
+        amiga.agnus.bpl1mod, amiga.agnus.bpl2mod
+    );
 
     // Count BPL DMA fetch groups per line using a second quick run
     // (We can't instrument during the main boot, but we can check
