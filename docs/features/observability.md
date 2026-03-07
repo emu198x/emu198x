@@ -1,14 +1,24 @@
 # Observability
 
-> **Design spec.** The principles and query paths below describe the intended
-> API. Currently, state inspection works through MCP tools (`query_registers`,
-> `query_memory`, `query_video`, `query_audio`) and per-chip `#[cfg(test)]`
-> accessors. The `Observable` trait, trace recording, breakpoint conditions, and
-> visual debugger are not yet implemented.
+> **Partially implemented.** Path-based state inspection already exists through
+> the shared `Observable` trait and MCP `query` / `query_paths` tools. Shared
+> snapshots, trace recording, breakpoint conditions, and the visual debugger are
+> still planned.
 
 ## Overview
 
-Observability is a core design goal, not an afterthought. Every emulator exposes internal state for education and debugging.
+Observability is a core design goal, not an afterthought. Every emulator
+exposes internal state for education and debugging.
+
+## Current State
+
+- `Observable::query(path)` is implemented in shared CPU crates and current
+  machine crates.
+- `Observable::query_paths()` is implemented for discovery and is exposed
+  through MCP as `query_paths`.
+- Scripts can use the same `query` and `query_paths` methods because script
+  runners dispatch through the MCP layer.
+- Structured full-machine snapshots and trace capture are not implemented yet.
 
 ## Principles
 
@@ -74,14 +84,11 @@ Observability is a core design goal, not an afterthought. Every emulator exposes
 
 ```rust
 pub trait Observable {
-    /// Get all state as structured data
-    fn snapshot(&self) -> StateSnapshot;
-    
-    /// Query specific property by path
+    /// Query specific property by path.
     fn query(&self, path: &str) -> Option<Value>;
-    
-    /// List available query paths
-    fn query_paths(&self) -> Vec<&'static str>;
+
+    /// List available query paths.
+    fn query_paths(&self) -> &'static [&'static str];
 }
 ```
 
@@ -91,18 +98,18 @@ Hierarchical paths for specific values:
 
 ```
 cpu.pc
-cpu.a
-cpu.flags.z
 memory.0x0400
-memory.0xD020
-video.raster_line
-video.border_colour
-video.sprite.0.x
-audio.voice.0.frequency
-timing.master_clock
+vic.line
+ppu.scanline
+sid.voice0.freq
+agnus.beamcon0
+denise.mode.shres
+master_clock
 ```
 
 ### Snapshot Format
+
+Planned, not implemented yet:
 
 ```rust
 pub struct StateSnapshot {

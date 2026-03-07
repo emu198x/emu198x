@@ -66,6 +66,7 @@ Methods match the MCP server for each system. Common methods across all four:
 | `stop_recording`   | —                        | End current recording     |
 | `audio_capture`    | `frames`, `save_path`    | Capture WAV               |
 | `query`            | `path`                   | Query observable state    |
+| `query_paths`      | `prefix` (optional)      | Discover observable paths |
 | `query_memory`     | `address`, `length`      | Read memory bytes         |
 | `poke`             | `address`, `value`       | Write memory byte         |
 | `set_breakpoint`   | `address`, `max_frames`  | Run until PC hits address |
