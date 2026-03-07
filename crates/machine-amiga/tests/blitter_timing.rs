@@ -305,9 +305,8 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
         color_pending: &mut amiga.color_pending,
-        mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
-        mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
-        mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
+        ramsey: &mut amiga.ramsey,
+        fat_gary: &mut amiga.fat_gary,
     };
     M68kBus::poll_cycle(
         &mut bus,
@@ -339,9 +338,8 @@ fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
         color_pending: &mut amiga.color_pending,
-        mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
-        mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
-        mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
+        ramsey: &mut amiga.ramsey,
+        fat_gary: &mut amiga.fat_gary,
     };
     M68kBus::poll_ipl(&mut bus)
 }
@@ -366,9 +364,8 @@ fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
         ddfstrt_pending: &mut amiga.ddfstrt_pending,
         ddfstop_pending: &mut amiga.ddfstop_pending,
         color_pending: &mut amiga.color_pending,
-        mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
-        mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
-        mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
+        ramsey: &mut amiga.ramsey,
+        fat_gary: &mut amiga.fat_gary,
     };
     M68kBus::poll_cycle(
         &mut bus,
@@ -916,7 +913,11 @@ fn area_blit_interleaved_read_order_produces_same_result() {
         for _word in 0..total_words {
             // Grant ReadC first (skipping the default A→B→C priority).
             let req = amiga.agnus.next_blitter_dma_request();
-            assert_eq!(req, Some(BlitterDmaOp::ReadA), "default request should be ReadA");
+            assert_eq!(
+                req,
+                Some(BlitterDmaOp::ReadA),
+                "default request should be ReadA"
+            );
             // Instead of granting A, grant C first.
             amiga.agnus.grant_blitter_dma_op(BlitterDmaOp::ReadC);
             machine_amiga::execute_incremental_blitter_op(
@@ -957,8 +958,7 @@ fn area_blit_interleaved_read_order_produces_same_result() {
         }
 
         assert!(
-            !amiga.agnus.blitter_busy
-                || amiga.agnus.blitter_ccks_remaining == 0,
+            !amiga.agnus.blitter_busy || amiga.agnus.blitter_ccks_remaining == 0,
             "blit should be complete"
         );
 

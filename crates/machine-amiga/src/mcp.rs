@@ -539,6 +539,7 @@ impl AmigaMcp {
             .iter()
             .copied()
             .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+            .filter(|path| amiga.query(path).is_some())
             .collect();
 
         ToolResult::Success(serde_json::json!({
@@ -1221,6 +1222,56 @@ mod tests {
                         .any(|v| v.as_str() == Some("cpu.<68000_paths>"))
                 );
                 assert!(!paths.iter().any(|v| v.as_str() == Some("agnus.vpos")));
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
+    }
+
+    #[test]
+    fn query_paths_only_lists_support_chips_present_on_the_active_model() {
+        let mut a500_mcp = AmigaMcp {
+            amiga: Some(Amiga::new(vec![0; 256 * 1024])),
+        };
+        let a500_result = a500_mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "ramsey."
+            }),
+        );
+        match a500_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(paths.is_empty());
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
+
+        let mut a3000_mcp = AmigaMcp {
+            amiga: Some(Amiga::new_with_config(AmigaConfig {
+                model: AmigaModel::A3000,
+                chipset: AmigaChipset::Ecs,
+                region: AmigaRegion::Pal,
+                kickstart: vec![0; 256 * 1024],
+                slow_ram_size: 0,
+            })),
+        };
+        let a3000_result = a3000_mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "ramsey."
+            }),
+        );
+        match a3000_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(paths.iter().any(|v| v.as_str() == Some("ramsey.config")));
+                assert!(paths.iter().any(|v| v.as_str() == Some("ramsey.revision")));
             }
             ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
         }

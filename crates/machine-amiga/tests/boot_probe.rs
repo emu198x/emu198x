@@ -24,6 +24,7 @@ struct ProbeSpec {
     rom_path: &'static str,
     report_name: &'static str,
     slow_ram_kib: u64,
+    required_support_prefixes: &'static [&'static str],
 }
 
 #[derive(Serialize)]
@@ -33,6 +34,7 @@ struct ProbeReport {
     cpu_paths: Vec<String>,
     agnus_paths: Vec<String>,
     denise_paths: Vec<String>,
+    support_paths: BTreeMap<String, Vec<String>>,
     checkpoints: Vec<ProbeCheckpoint>,
 }
 
@@ -43,6 +45,7 @@ struct ProbeCheckpoint {
     cpu: BTreeMap<String, JsonValue>,
     agnus: BTreeMap<String, JsonValue>,
     denise: BTreeMap<String, JsonValue>,
+    support: BTreeMap<String, BTreeMap<String, JsonValue>>,
 }
 
 fn dispatch_success(mcp: &mut AmigaMcp, method: &str, params: JsonValue) -> JsonValue {
@@ -85,6 +88,10 @@ fn collect_values(mcp: &mut AmigaMcp, paths: &[String]) -> BTreeMap<String, Json
     values
 }
 
+fn support_key(prefix: &str) -> String {
+    prefix.trim_end_matches('.').to_string()
+}
+
 fn output_path(report_name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../test_output/amiga/probes")
@@ -121,6 +128,13 @@ fn run_probe(spec: &ProbeSpec) {
     let cpu_paths = query_paths(&mut mcp, "cpu.");
     let agnus_paths = query_paths(&mut mcp, "agnus.");
     let denise_paths = query_paths(&mut mcp, "denise.");
+    let mut support_paths = BTreeMap::new();
+    for prefix in ["gayle.", "dmac.", "ramsey.", "fat_gary."] {
+        let paths = query_paths(&mut mcp, prefix);
+        if !paths.is_empty() {
+            support_paths.insert(support_key(prefix), paths);
+        }
+    }
 
     assert!(cpu_paths.iter().any(|path| path == "cpu.pc"));
     assert!(cpu_paths.iter().any(|path| path == "cpu.idle"));
@@ -128,6 +142,13 @@ fn run_probe(spec: &ProbeSpec) {
     assert!(agnus_paths.iter().any(|path| path == "agnus.beamcon0"));
     assert!(denise_paths.iter().any(|path| path == "denise.bplcon0"));
     assert!(denise_paths.iter().any(|path| path == "denise.palette.31"));
+    for prefix in spec.required_support_prefixes {
+        let key = support_key(prefix);
+        assert!(
+            support_paths.contains_key(&key),
+            "expected support-chip surface for {prefix}"
+        );
+    }
 
     let mut checkpoints = Vec::with_capacity(CHECKPOINT_FRAMES.len());
     let mut last_frame = 0;
@@ -141,6 +162,10 @@ fn run_probe(spec: &ProbeSpec) {
             );
         }
         last_frame = frame;
+        let mut support = BTreeMap::new();
+        for (key, paths) in &support_paths {
+            support.insert(key.clone(), collect_values(&mut mcp, paths));
+        }
 
         checkpoints.push(ProbeCheckpoint {
             frame,
@@ -148,6 +173,7 @@ fn run_probe(spec: &ProbeSpec) {
             cpu: collect_values(&mut mcp, &cpu_paths),
             agnus: collect_values(&mut mcp, &agnus_paths),
             denise: collect_values(&mut mcp, &denise_paths),
+            support,
         });
     }
 
@@ -157,6 +183,7 @@ fn run_probe(spec: &ProbeSpec) {
         cpu_paths,
         agnus_paths,
         denise_paths,
+        support_paths,
         checkpoints,
     };
 
@@ -171,6 +198,7 @@ fn probe_boot_state_a500() {
         rom_path: "../../roms/kick13.rom",
         report_name: "probe_kick13_a500",
         slow_ram_kib: 512,
+        required_support_prefixes: &[],
     });
 }
 
@@ -182,6 +210,7 @@ fn probe_boot_state_a1200() {
         rom_path: "../../roms/kick31_40_068_a1200.rom",
         report_name: "probe_kick31_a1200",
         slow_ram_kib: 0,
+        required_support_prefixes: &["gayle."],
     });
 }
 
@@ -193,6 +222,7 @@ fn probe_boot_state_a3000() {
         rom_path: "../../roms/kick31_40_068_a3000.rom",
         report_name: "probe_kick31_a3000",
         slow_ram_kib: 0,
+        required_support_prefixes: &["dmac.", "ramsey.", "fat_gary."],
     });
 }
 
@@ -204,5 +234,6 @@ fn probe_boot_state_a4000() {
         rom_path: "../../roms/kick31_40_068_a4000.rom",
         report_name: "probe_kick31_a4000",
         slow_ram_kib: 0,
+        required_support_prefixes: &["ramsey.", "fat_gary."],
     });
 }

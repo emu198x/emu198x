@@ -1,0 +1,10 @@
+[package]
+name = "commodore-fat-gary"
+description = "Commodore Fat Gary address decoder and motherboard resource registers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "commodore_fat_gary"
+path = "src/lib.rs"

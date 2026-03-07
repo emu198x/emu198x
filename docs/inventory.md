@@ -82,12 +82,12 @@ NES NTSC:     21.477272 MHz / 12 = 1.790 MHz (CPU), / 4 = 5.369 MHz (PPU)
 | Crate                    | Chip                     | Status                                                |
 | ------------------------ | ------------------------ | ----------------------------------------------------- |
 | `commodore-gayle`        | Gayle (IDE + PCMCIA)     | Complete                                              |
-| `commodore-fat-gary`     | Fat Gary                 | Stub in current Amiga machine crate (`machine-amiga`) |
-| `commodore-ramsey`       | Ramsey (DRAM controller) | Stub in current Amiga machine crate (`machine-amiga`) |
+| `commodore-fat-gary`     | Fat Gary                 | Stub complete (resource regs + address gate, 4 tests) |
+| `commodore-ramsey`       | Ramsey (DRAM controller) | Stub complete (resource regs, wrap bit, 4 tests)      |
 | `commodore-gary`         | Gary (address decode)    | Not started (logic inline)                            |
 | `commodore-buster`       | Buster (Zorro II)        | Not started                                           |
 | `commodore-super-buster` | Super Buster (Zorro III) | Not started                                           |
-| `commodore-dmac-390537`  | DMAC 390537 (A3000 SCSI) | Stub complete (10 tests)                              |
+| `commodore-dmac-390537`  | DMAC 390537 (A3000 SCSI) | Stub complete (18 tests)                              |
 | `commodore-akiko`        | Akiko (CD32)             | Not started                                           |
 
 ### Amiga Peripherals

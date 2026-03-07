@@ -51,6 +51,42 @@ impl Gayle {
         self.ide_status = 0x7F;
     }
 
+    /// Current card-status register value.
+    #[must_use]
+    pub const fn cs(&self) -> u8 {
+        self.gayle_cs
+    }
+
+    /// Current interrupt-request register value.
+    #[must_use]
+    pub const fn irq(&self) -> u8 {
+        self.gayle_irq
+    }
+
+    /// Current interrupt-enable register value.
+    #[must_use]
+    pub const fn int_enable(&self) -> u8 {
+        self.gayle_int
+    }
+
+    /// Current configuration register value.
+    #[must_use]
+    pub const fn cfg(&self) -> u8 {
+        self.gayle_cfg
+    }
+
+    /// Current IDE status register value.
+    #[must_use]
+    pub const fn ide_status(&self) -> u8 {
+        self.ide_status
+    }
+
+    /// True when an IDE drive is attached.
+    #[must_use]
+    pub const fn drive_present(&self) -> bool {
+        self.drive_present
+    }
+
     /// Read a byte from a Gayle-decoded address.
     ///
     /// The caller should only invoke this for addresses in $D80000-$DFFFFF.
@@ -269,5 +305,21 @@ mod tests {
 
         assert_eq!(g.read(0xDA_8000), 0xA5);
         assert_eq!(g.read(0xDA_001C), 0x7F);
+    }
+
+    #[test]
+    fn public_state_accessors_reflect_registers() {
+        let mut g = Gayle::new();
+        g.write(0xDA_8000, 0x11);
+        g.write(0xDA_9000, 0x02);
+        g.write(0xDA_A000, 0x80);
+        g.write(0xDA_B000, 0x0E);
+
+        assert_eq!(g.cs(), 0x11);
+        assert_eq!(g.irq(), 0x02);
+        assert_eq!(g.int_enable(), 0x80);
+        assert_eq!(g.cfg(), 0x0E);
+        assert_eq!(g.ide_status(), 0x7F);
+        assert!(!g.drive_present());
     }
 }

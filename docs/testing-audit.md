@@ -98,13 +98,22 @@ crate inventory, see [inventory.md](inventory.md).
 
 ## Amiga Support Chips And Peripherals
 
+- `commodore-fat-gary`: `Good`. The extracted stub now has direct tests for
+  default resource-register values, coldboot semantics, and the 24-bit address
+  forwarding gate. Next: grow it into fuller decode behavior only when the
+  machine path genuinely needs more than the current motherboard resource
+  surface.
+- `commodore-ramsey`: `Good`. The extracted stub now has direct tests for
+  revision/config decode and wrap-bit behavior. Next: add more DRAM-controller
+  semantics only when A3000/A4000 bring-up proves they are required.
 - `commodore-gayle`: `Good`. Address decode and register behavior are already
-  tested. Next: expand around drive-present states and PCMCIA edge cases as the
+  tested, and the crate now exposes observable state for A1200 bring-up.
+  Next: expand around drive-present states and PCMCIA edge cases as the
   implementation broadens.
 - `commodore-dmac-390537`: `Good`. The current stub contract is now directly
-  tested for reset defaults, masks, port mirroring, byte access, and IRQ
-  semantics. Next: keep the stub scope explicit until real DMA and SCSI
-  behavior land with deeper tests.
+  tested for reset defaults, masks, port mirroring, byte access, IRQ
+  semantics, and observable-register accessors. Next: keep the stub scope
+  explicit until real DMA and SCSI behavior land with deeper tests.
 - `drive-amiga-floppy`: `Good`. The direct test surface is sizeable for a
   peripheral crate. Next: verify that write-path, timing, and media-edge cases
   are all covered explicitly.
@@ -198,8 +207,6 @@ These entries from [inventory.md](inventory.md) are outside this audit because
 they are not currently present as workspace crates or are still inline inside
 other crates:
 
-- `commodore-fat-gary`
-- `commodore-ramsey`
 - `commodore-gary`
 - `commodore-buster`
 - `commodore-super-buster`

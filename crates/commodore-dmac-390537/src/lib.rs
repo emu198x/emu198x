@@ -276,6 +276,48 @@ impl Dmac390537 {
         self.istr_latched = 0;
     }
 
+    /// Current CNTR register value.
+    #[must_use]
+    pub const fn cntr(&self) -> u8 {
+        self.cntr
+    }
+
+    /// Current DAWR register value.
+    #[must_use]
+    pub const fn dawr(&self) -> u8 {
+        self.dawr
+    }
+
+    /// Current WTC register value.
+    #[must_use]
+    pub const fn wtc(&self) -> u32 {
+        self.wtc
+    }
+
+    /// Current ACR register value.
+    #[must_use]
+    pub const fn acr(&self) -> u32 {
+        self.acr
+    }
+
+    /// Currently selected WD33C93 register.
+    #[must_use]
+    pub const fn wd_selected_reg(&self) -> u8 {
+        self.wd.selected_reg
+    }
+
+    /// Current WD33C93 auxiliary-status register.
+    #[must_use]
+    pub fn wd_asr(&self) -> u8 {
+        self.wd.read_asr()
+    }
+
+    /// Current WD33C93 SCSI-status register.
+    #[must_use]
+    pub fn wd_scsi_status(&self) -> u8 {
+        self.wd.regs[wd_reg::SCSI_STATUS as usize]
+    }
+
     /// Compute the current ISTR value.
     ///
     /// ISTR is read-only and reflects live state plus latched flags.
@@ -301,6 +343,12 @@ impl Dmac390537 {
         }
 
         val
+    }
+
+    /// Current ISTR value.
+    #[must_use]
+    pub fn current_istr(&self) -> u8 {
+        self.istr()
     }
 
     /// Read a word from an SDMAC register.
@@ -697,5 +745,26 @@ mod tests {
         assert_eq!(istr & 0x20, 0);
         assert_ne!(istr & istr_bits::INTS, 0);
         assert_ne!(istr & istr_bits::INT_F, 0);
+    }
+
+    #[test]
+    fn public_state_accessors_reflect_register_values() {
+        let mut d = Dmac390537::new();
+        d.write_word(0xDD_0000 | (u32::from(REG_DAWR) << 1), 0x0003);
+        d.write_word(0xDD_0000 | (u32::from(REG_WTC_HI) << 1), 0x0012);
+        d.write_word(0xDD_0000 | (u32::from(REG_WTC_LO) << 1), 0x3456);
+        d.write_word(0xDD_0000 | (u32::from(REG_ACR_HI) << 1), 0x89AB);
+        d.write_word(0xDD_0000 | (u32::from(REG_ACR_LO) << 1), 0xCDEF);
+        d.write_word(
+            0xDD_0000 | (u32::from(REG_SASR) << 1),
+            wd_reg::COMMAND as u16,
+        );
+
+        assert_eq!(d.dawr(), 0x03);
+        assert_eq!(d.wtc(), 0x0012_3456);
+        assert_eq!(d.acr(), 0x89AB_CDEF);
+        assert_eq!(d.wd_selected_reg(), wd_reg::COMMAND);
+        assert_eq!(d.cntr(), 0x00);
+        assert_eq!(d.current_istr() & istr_bits::FE_FLG, istr_bits::FE_FLG);
     }
 }

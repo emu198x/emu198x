@@ -20,6 +20,8 @@ format-ipf = { path = "../format-ipf" }
 peripheral-amiga-keyboard = { path = "../peripheral-amiga-keyboard" }
 commodore-gayle = { path = "../commodore-gayle" }
 commodore-dmac-390537 = { path = "../commodore-dmac-390537" }
+commodore-fat-gary = { path = "../commodore-fat-gary" }
+commodore-ramsey = { path = "../commodore-ramsey" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"

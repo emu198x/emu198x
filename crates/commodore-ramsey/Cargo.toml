@@ -1,0 +1,10 @@
+[package]
+name = "commodore-ramsey"
+description = "Commodore Ramsey DRAM controller resource registers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "commodore_ramsey"
+path = "src/lib.rs"

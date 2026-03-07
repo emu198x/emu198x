@@ -14,8 +14,10 @@ use commodore_agnus_aga::AgnusAga as Agnus;
 use commodore_agnus_ocs::{BlitterDmaOp, Copper, SlotOwner};
 use commodore_denise_aga::DeniseAga as DeniseOcs;
 use commodore_dmac_390537::Dmac390537;
+use commodore_fat_gary::FatGary;
 use commodore_gayle::Gayle;
 use commodore_paula_8364::Paula8364;
+use commodore_ramsey::Ramsey;
 use drive_amiga_floppy::AmigaFloppyDrive;
 use format_adf::Adf;
 use mos_cia_8520::Cia8520;
@@ -34,8 +36,10 @@ pub use commodore_agnus_ocs;
 pub use commodore_denise_aga;
 pub use commodore_denise_ecs;
 pub use commodore_denise_ocs;
+pub use commodore_fat_gary;
 pub use commodore_gayle;
 pub use commodore_paula_8364;
+pub use commodore_ramsey;
 pub use drive_amiga_floppy;
 pub use format_adf;
 pub use mos_cia_8520;
@@ -353,6 +357,11 @@ pub struct Amiga {
     pub gayle: Option<Gayle>,
     /// SDMAC 390537 SCSI controller. Present only on A3000/A3000T.
     pub dmac: Option<Dmac390537>,
+    /// Ramsey DRAM controller resource registers. Present on A3000/A4000.
+    pub ramsey: Option<Ramsey>,
+    /// Fat Gary address decode and motherboard resource registers. Present on
+    /// A3000/A4000.
+    pub fat_gary: Option<FatGary>,
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
     /// RC low-pass filter state (left, right) for hardware output stage.
@@ -386,11 +395,6 @@ pub struct Amiga {
     /// enable DMA on the first display line, causing BPLxPT to advance before
     /// the copper has written correct pointer values.
     bpl_dma_vactive_latch: bool,
-    /// A3000/A4000 motherboard resource registers (RAMSEY + Fat Gary).
-    /// Latched values written by KS during boot.
-    pub mbres_ramsey_config: u8,
-    pub mbres_fatgary_toenb: u8,
-    pub mbres_fatgary_timeout: u8,
     pub drive_sounds: DriveSoundGenerator,
 }
 
@@ -537,6 +541,14 @@ impl Amiga {
                 AmigaModel::A3000 => Some(Dmac390537::new()),
                 _ => None,
             },
+            ramsey: match model {
+                AmigaModel::A3000 | AmigaModel::A4000 => Some(Ramsey::new()),
+                _ => None,
+            },
+            fat_gary: match model {
+                AmigaModel::A3000 | AmigaModel::A4000 => Some(FatGary::new()),
+                _ => None,
+            },
             audio_sample_phase: 0,
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
             audio_lpf_left: 0.0,
@@ -558,9 +570,6 @@ impl Amiga {
             ddfstop_pending: None,
             color_pending: Vec::new(),
             bpl_dma_vactive_latch: false,
-            mbres_ramsey_config: 0x08, // default wrap bit
-            mbres_fatgary_toenb: 0x80,
-            mbres_fatgary_timeout: 0x00,
             drive_sounds: DriveSoundGenerator::new(AUDIO_SAMPLE_RATE),
         }
     }
@@ -993,13 +1002,12 @@ impl Amiga {
                     cia_a_cra_sp_prev: &mut self.cia_a_cra_sp_prev,
                     gayle: &mut self.gayle,
                     dmac: &mut self.dmac,
+                    ramsey: &mut self.ramsey,
+                    fat_gary: &mut self.fat_gary,
                     bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                     ddfstrt_pending: &mut self.ddfstrt_pending,
                     ddfstop_pending: &mut self.ddfstop_pending,
                     color_pending: &mut self.color_pending,
-                    mbres_ramsey_config: &mut self.mbres_ramsey_config,
-                    mbres_fatgary_toenb: &mut self.mbres_fatgary_toenb,
-                    mbres_fatgary_timeout: &mut self.mbres_fatgary_timeout,
                 };
                 self.cpu.tick(&mut bus, cpu_clock);
             }
@@ -1032,13 +1040,12 @@ impl Amiga {
                         cia_a_cra_sp_prev: &mut self.cia_a_cra_sp_prev,
                         gayle: &mut self.gayle,
                         dmac: &mut self.dmac,
+                        ramsey: &mut self.ramsey,
+                        fat_gary: &mut self.fat_gary,
                         bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                         ddfstrt_pending: &mut self.ddfstrt_pending,
                         ddfstop_pending: &mut self.ddfstop_pending,
                         color_pending: &mut self.color_pending,
-                        mbres_ramsey_config: &mut self.mbres_ramsey_config,
-                        mbres_fatgary_toenb: &mut self.mbres_fatgary_toenb,
-                        mbres_fatgary_timeout: &mut self.mbres_fatgary_timeout,
                     };
                     // Scale clock to CPU bus-cycle domain: the 68000
                     // tick() gates on clock % 4 == 0, so multiply by 4
@@ -1832,6 +1839,47 @@ impl emu_core::Observable for Amiga {
                     _ => None,
                 }
             }
+        } else if let Some(rest) = path.strip_prefix("ramsey.") {
+            let ramsey = self.ramsey.as_ref()?;
+            match rest {
+                "config" => Some(Value::U8(ramsey.config())),
+                "revision" => Some(Value::U8(ramsey.revision())),
+                "wrap_enabled" => Some(Value::Bool(ramsey.wrap_enabled())),
+                _ => None,
+            }
+        } else if let Some(rest) = path.strip_prefix("fat_gary.") {
+            let fat_gary = self.fat_gary.as_ref()?;
+            match rest {
+                "toenb" => Some(Value::U8(fat_gary.toenb())),
+                "timeout" => Some(Value::U8(fat_gary.timeout())),
+                "coldboot" => Some(Value::U8(fat_gary.coldboot_flag())),
+                _ => None,
+            }
+        } else if let Some(rest) = path.strip_prefix("gayle.") {
+            let gayle = self.gayle.as_ref()?;
+            match rest {
+                "cs" => Some(Value::U8(gayle.cs())),
+                "irq" => Some(Value::U8(gayle.irq())),
+                "int_enable" => Some(Value::U8(gayle.int_enable())),
+                "cfg" => Some(Value::U8(gayle.cfg())),
+                "ide_status" => Some(Value::U8(gayle.ide_status())),
+                "drive_present" => Some(Value::Bool(gayle.drive_present())),
+                "ide_irq_pending" => Some(Value::Bool(gayle.ide_irq_pending())),
+                _ => None,
+            }
+        } else if let Some(rest) = path.strip_prefix("dmac.") {
+            let dmac = self.dmac.as_ref()?;
+            match rest {
+                "cntr" => Some(Value::U8(dmac.cntr())),
+                "dawr" => Some(Value::U8(dmac.dawr())),
+                "wtc" => Some(Value::U32(dmac.wtc())),
+                "acr" => Some(Value::U32(dmac.acr())),
+                "istr" => Some(Value::U8(dmac.current_istr())),
+                "wd.selected_reg" => Some(Value::U8(dmac.wd_selected_reg())),
+                "wd.asr" => Some(Value::U8(dmac.wd_asr())),
+                "wd.scsi_status" => Some(Value::U8(dmac.wd_scsi_status())),
+                _ => None,
+            }
         } else if let Some(rest) = path.strip_prefix("paula.") {
             if let Some(ch_rest) = rest.strip_prefix("audio.") {
                 // paula.audio.0.period, paula.audio.0.volume, paula.audio.0.sample
@@ -1997,6 +2045,27 @@ impl emu_core::Observable for Amiga {
             "denise.mode.killehb",
             "denise.mode.border_blank",
             "denise.mode.border_opaque",
+            "ramsey.config",
+            "ramsey.revision",
+            "ramsey.wrap_enabled",
+            "fat_gary.toenb",
+            "fat_gary.timeout",
+            "fat_gary.coldboot",
+            "gayle.cs",
+            "gayle.irq",
+            "gayle.int_enable",
+            "gayle.cfg",
+            "gayle.ide_status",
+            "gayle.drive_present",
+            "gayle.ide_irq_pending",
+            "dmac.cntr",
+            "dmac.dawr",
+            "dmac.wtc",
+            "dmac.acr",
+            "dmac.istr",
+            "dmac.wd.selected_reg",
+            "dmac.wd.asr",
+            "dmac.wd.scsi_status",
             "paula.intena",
             "paula.intreq",
             "paula.adkcon",
@@ -2036,15 +2105,13 @@ pub struct AmigaBusWrapper<'a> {
     pub cia_a_cra_sp_prev: &'a mut bool,
     pub gayle: &'a mut Option<Gayle>,
     pub dmac: &'a mut Option<Dmac390537>,
+    pub ramsey: &'a mut Option<Ramsey>,
+    pub fat_gary: &'a mut Option<FatGary>,
     // Pipeline state for delayed register writes (Agnus→Denise propagation).
     pub bplcon0_denise_pending: &'a mut Option<(u16, u8)>,
     pub ddfstrt_pending: &'a mut Option<(u16, u8)>,
     pub ddfstop_pending: &'a mut Option<(u16, u8)>,
     pub color_pending: &'a mut Vec<(usize, u16, u8, u16)>,
-    // A3000/A4000 motherboard resource registers (RAMSEY + Fat Gary).
-    pub mbres_ramsey_config: &'a mut u8,
-    pub mbres_fatgary_toenb: &'a mut u8,
-    pub mbres_fatgary_timeout: &'a mut u8,
 }
 
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
@@ -2066,6 +2133,12 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         // Reset custom chip state
         self.paula.reset();
         self.agnus.dmacon = 0;
+        if let Some(ramsey) = self.ramsey.as_mut() {
+            ramsey.reset();
+        }
+        if let Some(fat_gary) = self.fat_gary.as_mut() {
+            fat_gary.reset();
+        }
     }
 
     fn poll_cycle(
@@ -2121,7 +2194,9 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         // We return 0 for reads and sink writes (matching the
         // NONEXISTINGDATA=0 convention). This prevents exec's memory
         // probe from seeing chip RAM aliases at every 16 MB boundary.
-        if matches!(self.model, AmigaModel::A3000 | AmigaModel::A4000) && addr >= 0x0100_0000 {
+        if let Some(fat_gary) = self.fat_gary.as_ref()
+            && !fat_gary.forwards_to_24bit_bus(addr)
+        {
             return BusStatus::Ready(0);
         }
 
@@ -2388,22 +2463,22 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
             let addr64 = (addr >> 6) & 3;
             let addr2 = addr & 3;
             if is_read {
-                let val = match (addr64, addr2) {
-                    (1, 3) => 0x0Du8, // RAMSEY revision (0x0D = rev 7)
-                    (0, 3) => *self.mbres_ramsey_config,
-                    (_, 2) => 0x80, // Fat Gary coldboot
-                    (_, 1) => *self.mbres_fatgary_toenb,
-                    (_, 0) => *self.mbres_fatgary_timeout,
-                    _ => 0,
-                };
+                let val = self
+                    .ramsey
+                    .as_ref()
+                    .map_or(0, |ramsey| ramsey.read_resource_byte(addr64, addr2))
+                    | self
+                        .fat_gary
+                        .as_ref()
+                        .map_or(0, |fat_gary| fat_gary.read_resource_byte(addr2));
                 return BusStatus::Ready(u16::from(val));
             } else {
                 let val = data.unwrap_or(0) as u8;
-                match (addr64, addr2) {
-                    (0, 3) => *self.mbres_ramsey_config = val,
-                    (_, 1) => *self.mbres_fatgary_toenb = val,
-                    (_, 0) => *self.mbres_fatgary_timeout = val,
-                    _ => {} // other writes ignored
+                if let Some(ramsey) = self.ramsey.as_mut() {
+                    ramsey.write_resource_byte(addr64, addr2, val);
+                }
+                if let Some(fat_gary) = self.fat_gary.as_mut() {
+                    fat_gary.write_resource_byte(addr2, val);
                 }
                 return BusStatus::Ready(0);
             }
@@ -3199,13 +3274,12 @@ mod tests {
             cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
             gayle: &mut amiga.gayle,
             dmac: &mut amiga.dmac,
+            ramsey: &mut amiga.ramsey,
+            fat_gary: &mut amiga.fat_gary,
             bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
-            mbres_ramsey_config: &mut amiga.mbres_ramsey_config,
-            mbres_fatgary_toenb: &mut amiga.mbres_fatgary_toenb,
-            mbres_fatgary_timeout: &mut amiga.mbres_fatgary_timeout,
         };
         match M68kBus::poll_cycle(
             &mut bus,
@@ -3270,6 +3344,91 @@ mod tests {
         assert_eq!(amiga.model, AmigaModel::A500Plus);
         assert_eq!(amiga.memory.chip_ram.len(), 1024 * 1024);
         assert_eq!(amiga.memory.chip_ram_mask, 0x0F_FFFF);
+    }
+
+    #[test]
+    fn a3000_and_a4000_models_attach_motherboard_support_chips() {
+        let a3000 = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A3000,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+        assert!(a3000.ramsey.is_some());
+        assert!(a3000.fat_gary.is_some());
+        assert!(a3000.dmac.is_some());
+
+        let a4000 = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A4000,
+            chipset: AmigaChipset::Aga,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+        assert!(a4000.ramsey.is_some());
+        assert!(a4000.fat_gary.is_some());
+        assert!(a4000.dmac.is_none());
+    }
+
+    #[test]
+    fn motherboard_resource_registers_read_back_from_support_chips() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A3000,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+
+        let mut bus = AmigaBusWrapper {
+            model: amiga.model,
+            chipset: amiga.chipset,
+            agnus: &mut amiga.agnus,
+            memory: &mut amiga.memory,
+            denise: &mut amiga.denise,
+            copper: &mut amiga.copper,
+            cia_a: &mut amiga.cia_a,
+            cia_b: &mut amiga.cia_b,
+            paula: &mut amiga.paula,
+            floppy: &mut amiga.floppy,
+            keyboard: &mut amiga.keyboard,
+            cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
+            gayle: &mut amiga.gayle,
+            dmac: &mut amiga.dmac,
+            ramsey: &mut amiga.ramsey,
+            fat_gary: &mut amiga.fat_gary,
+            bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
+            ddfstrt_pending: &mut amiga.ddfstrt_pending,
+            ddfstop_pending: &mut amiga.ddfstop_pending,
+            color_pending: &mut amiga.color_pending,
+        };
+
+        let ramsey_rev = M68kBus::poll_cycle(
+            &mut bus,
+            0x00DE_0043,
+            FunctionCode::SupervisorData,
+            true,
+            false,
+            None,
+        );
+        let coldboot = M68kBus::poll_cycle(
+            &mut bus,
+            0x00DE_0002,
+            FunctionCode::SupervisorData,
+            true,
+            false,
+            None,
+        );
+
+        assert_eq!(
+            ramsey_rev,
+            BusStatus::Ready(u16::from(commodore_ramsey::Ramsey::REVISION))
+        );
+        assert_eq!(
+            coldboot,
+            BusStatus::Ready(u16::from(commodore_fat_gary::FatGary::COLDBOOT_FLAG))
+        );
     }
 
     #[test]
