@@ -167,6 +167,16 @@ impl McpEmulator for NesMcp {
                 }),
             },
             ToolDefinition {
+                name: "query_paths",
+                description: "List available observable query paths, optionally filtered by prefix",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "prefix": { "type": "string", "description": "Optional path prefix filter, e.g. ppu. or apu." }
+                    }
+                }),
+            },
+            ToolDefinition {
                 name: "poke",
                 description: "Write a byte to RAM (0-2047)",
                 input_schema: serde_json::json!({
@@ -312,6 +322,7 @@ impl McpEmulator for NesMcp {
             "step_ticks" => self.handle_step_ticks(arguments),
             "screenshot" => self.handle_screenshot(arguments),
             "query" => self.handle_query(arguments),
+            "query_paths" => self.handle_query_paths(arguments),
             "poke" => self.handle_poke(arguments),
             "press_button" => self.handle_press_button(arguments),
             "release_button" => self.handle_release_button(arguments),
@@ -530,6 +541,26 @@ impl NesMcp {
                 message: format!("Unknown query path: {path}"),
             },
         }
+    }
+
+    fn handle_query_paths(&mut self, params: &JsonValue) -> ToolResult {
+        let nes = match self.require_nes() {
+            Ok(n) => n,
+            Err(e) => return e,
+        };
+
+        let prefix = params.get("prefix").and_then(|v| v.as_str());
+        let paths: Vec<&str> = nes
+            .query_paths()
+            .iter()
+            .copied()
+            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+            .collect();
+
+        ToolResult::Success(serde_json::json!({
+            "prefix": prefix,
+            "paths": paths,
+        }))
     }
 
     fn handle_poke(&mut self, params: &JsonValue) -> ToolResult {
@@ -966,6 +997,21 @@ fn parse_button_name(name: &str) -> Option<NesButton> {
 mod tests {
     use super::*;
 
+    fn make_nes() -> Nes {
+        let mut rom_data = vec![0u8; 16 + 16_384];
+        rom_data[0..4].copy_from_slice(b"NES\x1A");
+        rom_data[4] = 1;
+        rom_data[5] = 0;
+        rom_data[16] = 0xEA;
+        rom_data[16 + 0x3FFC] = 0x00;
+        rom_data[16 + 0x3FFD] = 0x80;
+        Nes::new(&NesConfig {
+            rom_data,
+            region: NesRegion::Ntsc,
+        })
+        .expect("minimal iNES ROM should load")
+    }
+
     #[test]
     fn parse_button_names() {
         assert_eq!(parse_button_name("a"), Some(NesButton::A));
@@ -1041,5 +1087,70 @@ mod tests {
         let mut mcp = NesMcp::new();
         let result = mcp.dispatch_tool("run_frames", &serde_json::json!({"count": 1}));
         assert!(matches!(result, ToolResult::Error { .. }));
+    }
+
+    #[test]
+    fn query_paths_without_boot_returns_error() {
+        let mut mcp = NesMcp::new();
+        let result = mcp.dispatch_tool("query_paths", &serde_json::json!({}));
+        assert!(matches!(result, ToolResult::Error { .. }));
+    }
+
+    #[test]
+    fn query_paths_can_filter_to_ppu_and_apu_surfaces() {
+        let mut mcp = NesMcp {
+            nes: Some(make_nes()),
+            rom_path: None,
+        };
+
+        let ppu_result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "ppu."
+            }),
+        );
+        match ppu_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(paths.iter().any(|v| v.as_str() == Some("ppu.scanline")));
+                assert!(paths.iter().any(|v| v.as_str() == Some("ppu.dot")));
+                assert!(
+                    !paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("apu.pulse1.period"))
+                );
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
+
+        let apu_result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "apu."
+            }),
+        );
+        match apu_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(
+                    paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("apu.pulse1.period"))
+                );
+                assert!(
+                    paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("apu.frame_counter.mode"))
+                );
+                assert!(!paths.iter().any(|v| v.as_str() == Some("ppu.scanline")));
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
     }
 }

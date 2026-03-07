@@ -214,6 +214,16 @@ impl McpEmulator for SpectrumMcp {
                 }),
             },
             ToolDefinition {
+                name: "query_paths",
+                description: "List available observable query paths, optionally filtered by prefix",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "prefix": { "type": "string", "description": "Optional path prefix filter, e.g. ula. or cpu." }
+                    }
+                }),
+            },
+            ToolDefinition {
                 name: "poke",
                 description: "Write a byte to RAM",
                 input_schema: serde_json::json!({
@@ -320,6 +330,7 @@ impl McpEmulator for SpectrumMcp {
             "screenshot" => self.handle_screenshot(arguments),
             "audio_capture" => self.handle_audio_capture(arguments),
             "query" => self.handle_query(arguments),
+            "query_paths" => self.handle_query_paths(arguments),
             "poke" => self.handle_poke(arguments),
             "press_key" => self.handle_press_key(arguments),
             "release_key" => self.handle_release_key(arguments),
@@ -510,9 +521,7 @@ impl SpectrumMcp {
         };
 
         match spec.load_dsk(&data) {
-            Ok(()) => {
-                ToolResult::Success(serde_json::json!({"status": "ok", "format": "dsk"}))
-            }
+            Ok(()) => ToolResult::Success(serde_json::json!({"status": "ok", "format": "dsk"})),
             Err(e) => ToolResult::Error {
                 code: -32000,
                 message: format!("DSK load failed: {e}"),
@@ -549,7 +558,10 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let count = params.get("count").and_then(serde_json::Value::as_u64).unwrap_or(1);
+        let count = params
+            .get("count")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(1);
 
         let mut total_tstates = 0u64;
         for _ in 0..count {
@@ -597,7 +609,10 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let count = params.get("count").and_then(serde_json::Value::as_u64).unwrap_or(1);
+        let count = params
+            .get("count")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(1);
 
         // Each CPU T-state = 4 master clock ticks
         for _ in 0..(count * 4) {
@@ -616,7 +631,8 @@ impl SpectrumMcp {
         };
 
         let save_path = params.get("save_path").and_then(|v| v.as_str());
-        let display = parse_display_size(params, spec.framebuffer_width(), spec.framebuffer_height());
+        let display =
+            parse_display_size(params, spec.framebuffer_width(), spec.framebuffer_height());
         mcp::screenshot_result(
             spec.framebuffer_width(),
             spec.framebuffer_height(),
@@ -632,7 +648,10 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
-        let frames = params.get("frames").and_then(serde_json::Value::as_u64).unwrap_or(50);
+        let frames = params
+            .get("frames")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(50);
 
         let mut all_audio: Vec<[f32; 2]> = Vec::new();
         for _ in 0..frames {
@@ -641,14 +660,13 @@ impl SpectrumMcp {
         }
 
         if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str())
-            && let Err(e) =
-                crate::capture::save_audio(&all_audio, std::path::Path::new(save_path))
-            {
-                return ToolResult::Error {
-                    code: -32000,
-                    message: format!("Failed to save audio: {e}"),
-                };
-            }
+            && let Err(e) = crate::capture::save_audio(&all_audio, std::path::Path::new(save_path))
+        {
+            return ToolResult::Error {
+                code: -32000,
+                message: format!("Failed to save audio: {e}"),
+            };
+        }
 
         // Encode as WAV in memory (stereo)
         let b64 = if all_audio.is_empty() {
@@ -706,6 +724,26 @@ impl SpectrumMcp {
                 message: format!("Unknown query path: {path}"),
             },
         }
+    }
+
+    fn handle_query_paths(&mut self, params: &JsonValue) -> ToolResult {
+        let spec = match self.require_spectrum() {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        let prefix = params.get("prefix").and_then(|v| v.as_str());
+        let paths: Vec<&str> = spec
+            .query_paths()
+            .iter()
+            .copied()
+            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+            .collect();
+
+        ToolResult::Success(serde_json::json!({
+            "prefix": prefix,
+            "paths": paths,
+        }))
     }
 
     fn handle_poke(&mut self, params: &JsonValue) -> ToolResult {
@@ -951,7 +989,8 @@ impl SpectrumMcp {
             };
         };
 
-        let display = parse_display_size(params, spec.framebuffer_width(), spec.framebuffer_height());
+        let display =
+            parse_display_size(params, spec.framebuffer_width(), spec.framebuffer_height());
         let mut rec = match emu_core::video::VideoRecorder::new(
             spec.framebuffer_width(),
             spec.framebuffer_height(),
@@ -1147,6 +1186,16 @@ fn read_screen_char(spectrum: &Spectrum, row: u8, col: u8) -> char {
 mod tests {
     use super::*;
 
+    fn make_spectrum() -> Spectrum {
+        let mut rom = vec![0u8; 0x4000];
+        rom[0] = 0xF3;
+        rom[1] = 0x76;
+        Spectrum::new(&SpectrumConfig {
+            model: SpectrumModel::Spectrum48K,
+            rom,
+        })
+    }
+
     #[test]
     fn parse_key_names() {
         assert_eq!(parse_key_name("a"), Some(SpectrumKey::A));
@@ -1175,6 +1224,57 @@ mod tests {
         let mut mcp = SpectrumMcp::new();
         let result = mcp.dispatch_tool("run_frames", &serde_json::json!({"count": 1}));
         assert!(matches!(result, ToolResult::Error { .. }));
+    }
+
+    #[test]
+    fn query_paths_without_boot_returns_error() {
+        let mut mcp = SpectrumMcp::new();
+        let result = mcp.dispatch_tool("query_paths", &serde_json::json!({}));
+        assert!(matches!(result, ToolResult::Error { .. }));
+    }
+
+    #[test]
+    fn query_paths_can_filter_to_ula_and_cpu_surfaces() {
+        let mut mcp = SpectrumMcp {
+            spectrum: Some(make_spectrum()),
+        };
+
+        let ula_result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "ula."
+            }),
+        );
+        match ula_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(paths.iter().any(|v| v.as_str() == Some("ula.line")));
+                assert!(paths.iter().any(|v| v.as_str() == Some("ula.tstate")));
+                assert!(!paths.iter().any(|v| v.as_str() == Some("cpu.<z80_paths>")));
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
+
+        let cpu_result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "cpu."
+            }),
+        );
+        match cpu_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(paths.iter().any(|v| v.as_str() == Some("cpu.<z80_paths>")));
+                assert!(!paths.iter().any(|v| v.as_str() == Some("ula.line")));
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
     }
 
     #[test]
@@ -1229,8 +1329,10 @@ mod tests {
         let mut mcp = SpectrumMcp::new();
         mcp.dispatch_tool("boot", &JsonValue::Null);
 
-        let result =
-            mcp.dispatch_tool("poke", &serde_json::json!({"address": 0x8000, "value": 0xAB}));
+        let result = mcp.dispatch_tool(
+            "poke",
+            &serde_json::json!({"address": 0x8000, "value": 0xAB}),
+        );
         assert!(matches!(result, ToolResult::Success(_)));
 
         // Verify with query

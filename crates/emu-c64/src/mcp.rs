@@ -151,6 +151,16 @@ impl McpEmulator for C64Mcp {
                 }),
             },
             ToolDefinition {
+                name: "query_paths",
+                description: "List available observable query paths, optionally filtered by prefix",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "prefix": { "type": "string", "description": "Optional path prefix filter, e.g. vic. or sid." }
+                    }
+                }),
+            },
+            ToolDefinition {
                 name: "poke",
                 description: "Write a byte to RAM",
                 input_schema: serde_json::json!({
@@ -273,6 +283,7 @@ impl McpEmulator for C64Mcp {
             "screenshot" => self.handle_screenshot(arguments),
             "audio_capture" => self.handle_audio_capture(arguments),
             "query" => self.handle_query(arguments),
+            "query_paths" => self.handle_query_paths(arguments),
             "boot_detected" => self.handle_boot_detected(),
             "boot_status" => self.handle_boot_status(),
             "poke" => self.handle_poke(arguments),
@@ -405,7 +416,10 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let count = params.get("count").and_then(serde_json::Value::as_u64).unwrap_or(1);
+        let count = params
+            .get("count")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(1);
         for _ in 0..count {
             c64.tick();
         }
@@ -438,7 +452,10 @@ impl C64Mcp {
             Err(e) => return e,
         };
 
-        let frames = params.get("frames").and_then(serde_json::Value::as_u64).unwrap_or(50);
+        let frames = params
+            .get("frames")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(50);
 
         let mut all_audio: Vec<f32> = Vec::new();
         for _ in 0..frames {
@@ -447,14 +464,13 @@ impl C64Mcp {
         }
 
         if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str())
-            && let Err(e) =
-                crate::capture::save_audio(&all_audio, std::path::Path::new(save_path))
-            {
-                return ToolResult::Error {
-                    code: -32000,
-                    message: format!("Failed to save audio: {e}"),
-                };
-            }
+            && let Err(e) = crate::capture::save_audio(&all_audio, std::path::Path::new(save_path))
+        {
+            return ToolResult::Error {
+                code: -32000,
+                message: format!("Failed to save audio: {e}"),
+            };
+        }
 
         let b64 = if all_audio.is_empty() {
             String::new()
@@ -510,6 +526,26 @@ impl C64Mcp {
                 message: format!("Unknown query path: {path}"),
             },
         }
+    }
+
+    fn handle_query_paths(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+
+        let prefix = params.get("prefix").and_then(|v| v.as_str());
+        let paths: Vec<&str> = c64
+            .query_paths()
+            .iter()
+            .copied()
+            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+            .collect();
+
+        ToolResult::Success(serde_json::json!({
+            "prefix": prefix,
+            "paths": paths,
+        }))
     }
 
     fn handle_poke(&mut self, params: &JsonValue) -> ToolResult {
@@ -767,9 +803,7 @@ impl C64Mcp {
         };
 
         match c64.load_d64(&data) {
-            Ok(()) => {
-                ToolResult::Success(serde_json::json!({"status": "ok", "size": data.len()}))
-            }
+            Ok(()) => ToolResult::Success(serde_json::json!({"status": "ok", "size": data.len()})),
             Err(e) => ToolResult::Error {
                 code: -32000,
                 message: format!("D64 load failed: {e}"),
@@ -1056,6 +1090,23 @@ fn detect_boot(lines: &[String]) -> (bool, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::SidModel;
+
+    fn make_c64() -> C64 {
+        let mut kernal = vec![0xEA; 8192];
+        kernal[0x1FFC] = 0x00;
+        kernal[0x1FFD] = 0xE0;
+
+        C64::new(&C64Config {
+            model: C64Model::C64Pal,
+            sid_model: SidModel::Sid6581,
+            kernal_rom: kernal,
+            basic_rom: vec![0; 8192],
+            char_rom: vec![0; 4096],
+            drive_rom: None,
+            reu_size: None,
+        })
+    }
 
     #[test]
     fn parse_key_names() {
@@ -1091,6 +1142,58 @@ mod tests {
         let mut mcp = C64Mcp::new();
         let result = mcp.dispatch_tool("run_frames", &serde_json::json!({"count": 1}));
         assert!(matches!(result, ToolResult::Error { .. }));
+    }
+
+    #[test]
+    fn query_paths_without_boot_returns_error() {
+        let mut mcp = C64Mcp::new();
+        let result = mcp.dispatch_tool("query_paths", &serde_json::json!({}));
+        assert!(matches!(result, ToolResult::Error { .. }));
+    }
+
+    #[test]
+    fn query_paths_can_filter_to_vic_and_sid_surfaces() {
+        let mut mcp = C64Mcp {
+            c64: Some(make_c64()),
+        };
+
+        let vic_result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "vic."
+            }),
+        );
+        match vic_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(paths.iter().any(|v| v.as_str() == Some("vic.line")));
+                assert!(paths.iter().any(|v| v.as_str() == Some("vic.cycle")));
+                assert!(!paths.iter().any(|v| v.as_str() == Some("sid.volume")));
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
+
+        let sid_result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "sid."
+            }),
+        );
+        match sid_result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(paths.iter().any(|v| v.as_str() == Some("sid.volume")));
+                assert!(paths.iter().any(|v| v.as_str() == Some("sid.filter.mode")));
+                assert!(!paths.iter().any(|v| v.as_str() == Some("vic.line")));
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
     }
 
     #[test]
