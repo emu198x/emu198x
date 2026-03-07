@@ -6,6 +6,7 @@
 mod common;
 
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 
@@ -17,7 +18,7 @@ use serde_json::{Value as JsonValue, json};
 
 use common::load_rom;
 
-const CHECKPOINT_FRAMES: &[u64] = &[0, 1, 50, 200, 1000];
+const DEFAULT_CHECKPOINT_FRAMES: &[u64] = &[0, 1, 50, 200, 1000];
 
 struct ProbeSpec {
     model: &'static str,
@@ -98,6 +99,38 @@ fn output_path(report_name: &str) -> PathBuf {
         .join(format!("{report_name}.json"))
 }
 
+fn checkpoint_frames() -> Vec<u64> {
+    let Some(raw) = env::var_os("AMIGA_PROBE_FRAMES") else {
+        return DEFAULT_CHECKPOINT_FRAMES.to_vec();
+    };
+
+    let mut frames = Vec::new();
+    for token in raw.to_string_lossy().split(',') {
+        let trimmed = token.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let frame = trimmed
+            .parse::<u64>()
+            .unwrap_or_else(|_| panic!("invalid AMIGA_PROBE_FRAMES entry: {trimmed}"));
+        if frames.last().copied() != Some(frame) {
+            frames.push(frame);
+        }
+    }
+
+    assert!(
+        !frames.is_empty(),
+        "AMIGA_PROBE_FRAMES must contain at least one frame"
+    );
+    for window in frames.windows(2) {
+        assert!(
+            window[0] <= window[1],
+            "AMIGA_PROBE_FRAMES must be sorted ascending"
+        );
+    }
+    frames
+}
+
 fn write_report(report_name: &str, report: &ProbeReport) {
     let path = output_path(report_name);
     if let Some(parent) = path.parent() {
@@ -150,10 +183,11 @@ fn run_probe(spec: &ProbeSpec) {
         );
     }
 
-    let mut checkpoints = Vec::with_capacity(CHECKPOINT_FRAMES.len());
+    let checkpoint_frames = checkpoint_frames();
+    let mut checkpoints = Vec::with_capacity(checkpoint_frames.len());
     let mut last_frame = 0;
 
-    for &frame in CHECKPOINT_FRAMES {
+    for frame in checkpoint_frames {
         if frame > last_frame {
             dispatch_success(
                 &mut mcp,
