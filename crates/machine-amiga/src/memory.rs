@@ -150,6 +150,10 @@ mod tests {
         let mut mem = Memory::new(512 * 1024, test_ks(), 512 * 1024);
         mem.overlay = false;
         mem.write_byte(0xC0_0000, 0xEE);
-        assert_eq!(mem.read_byte(0xC8_0000), 0xEE, "should wrap at 512K boundary");
+        assert_eq!(
+            mem.read_byte(0xC8_0000),
+            0xEE,
+            "should wrap at 512K boundary"
+        );
     }
 }
