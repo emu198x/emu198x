@@ -1,14 +1,30 @@
 # MCP Integration
 
-> **Partially implemented.** Core tools (boot, reset, run_frames, screenshot,
-> audio_capture, key input, query_registers, query_memory, query_video,
-> query_audio, poke, type_text, joystick, insert_media) work on all four
-> systems. Save states, breakpoint conditions, and event notifications are not
-> yet implemented.
+> **Partially implemented.** Core tools (`boot`, `reset`, `run_frames`,
+> `screenshot`, `audio_capture`, input control, `query`, `query_paths`,
+> `query_memory`, `poke`, and media insertion where supported) work across the
+> current runnable packages. Save states, breakpoint conditions, push events,
+> and richer typed query helpers are not implemented yet.
 
 ## Overview
 
 Each emulator exposes an MCP (Model Context Protocol) server that allows Claude and other AI tools to interact with the running system.
+
+## Current Tooling Shape
+
+The live MCP servers expose a small common core and use path-based observability
+instead of separate `query_registers`, `query_video`, and `query_audio` calls.
+
+- `query`
+  Fetches one observable value by path, for example `cpu.pc`,
+  `agnus.beamcon0`, `vic.line`, or `ppu.scanline`.
+- `query_paths`
+  Lists the available observable paths, optionally filtered by prefix such as
+  `cpu.`, `agnus.`, `denise.mode.`, `vic.`, or `ppu.`.
+- `query_memory`
+  Reads raw memory ranges when structured observability is not enough.
+
+The tool list below still describes the broader long-term MCP surface we want.
 
 ## Architecture
 
