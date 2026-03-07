@@ -38,10 +38,14 @@ Each step has a `method` and optional `params`:
 [
   {"method": "boot", "params": {}},
   {"method": "run_frames", "params": {"count": 200}},
+  {"method": "query_paths", "params": {"prefix": "cpu."}},
   {"method": "screenshot", "params": {"save_path": "boot.png"}},
   {"method": "query", "params": {"path": "cpu.pc"}}
 ]
 ```
+
+For agent-driven scripts, prefer `query_paths` before hard-coding a path. That
+keeps scripts resilient as observability surfaces grow by system and chipset.
 
 ### save_path Convention
 
@@ -91,8 +95,9 @@ messages (like "Saved boot.png") go to stderr.
 ```
 {"jsonrpc":"2.0","result":{"status":"ok"},"id":1}
 {"jsonrpc":"2.0","result":{"frames":200,"tstates":13977600},"id":2}
-{"jsonrpc":"2.0","result":{"format":"png","width":320,"height":288,"data":"iVBOR..."},"id":3}
-{"jsonrpc":"2.0","result":{"path":"cpu.pc","value":4572},"id":4}
+{"jsonrpc":"2.0","result":{"prefix":"cpu.","paths":["cpu.<z80_paths>"]},"id":3}
+{"jsonrpc":"2.0","result":{"format":"png","width":320,"height":288,"data":"iVBOR..."},"id":4}
+{"jsonrpc":"2.0","result":{"path":"cpu.pc","value":4572},"id":5}
 ```
 
 ## Examples

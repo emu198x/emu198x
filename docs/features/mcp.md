@@ -26,6 +26,22 @@ instead of separate `query_registers`, `query_video`, and `query_audio` calls.
 
 The tool list below still describes the broader long-term MCP surface we want.
 
+### Recommended Query Flow
+
+For agents and external tooling, the stable pattern is:
+
+1. call `query_paths` with a narrow prefix such as `cpu.`, `vic.`, `ppu.`,
+   `agnus.`, or `denise.mode.`
+2. select the concrete path you need from the returned list
+3. call `query` with that path
+
+Example:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"query_paths","params":{"prefix":"agnus."}}
+{"jsonrpc":"2.0","id":2,"method":"query","params":{"path":"agnus.beamcon0"}}
+```
+
 ## Architecture
 
 ```
