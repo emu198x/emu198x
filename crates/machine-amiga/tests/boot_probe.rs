@@ -1,0 +1,208 @@
+//! MCP boot probe tests for comparing Amiga model bring-up checkpoints.
+//!
+//! These tests are ignored by default because they require local Kickstart ROMs
+//! and write JSON reports under `test_output/amiga/probes/`.
+
+mod common;
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::PathBuf;
+
+use base64::Engine;
+use emu_core::mcp::{McpEmulator, ToolResult};
+use machine_amiga::mcp::AmigaMcp;
+use serde::Serialize;
+use serde_json::{Value as JsonValue, json};
+
+use common::load_rom;
+
+const CHECKPOINT_FRAMES: &[u64] = &[0, 1, 50, 200, 1000];
+
+struct ProbeSpec {
+    model: &'static str,
+    rom_path: &'static str,
+    report_name: &'static str,
+    slow_ram_kib: u64,
+}
+
+#[derive(Serialize)]
+struct ProbeReport {
+    model: &'static str,
+    rom_path: &'static str,
+    cpu_paths: Vec<String>,
+    agnus_paths: Vec<String>,
+    denise_paths: Vec<String>,
+    checkpoints: Vec<ProbeCheckpoint>,
+}
+
+#[derive(Serialize)]
+struct ProbeCheckpoint {
+    frame: u64,
+    master_clock: JsonValue,
+    cpu: BTreeMap<String, JsonValue>,
+    agnus: BTreeMap<String, JsonValue>,
+    denise: BTreeMap<String, JsonValue>,
+}
+
+fn dispatch_success(mcp: &mut AmigaMcp, method: &str, params: JsonValue) -> JsonValue {
+    match mcp.dispatch_tool(method, &params) {
+        ToolResult::Success(value) => value,
+        ToolResult::Error { code, message } => {
+            panic!("{method} failed with {code}: {message}");
+        }
+    }
+}
+
+fn query_paths(mcp: &mut AmigaMcp, prefix: &str) -> Vec<String> {
+    let result = dispatch_success(mcp, "query_paths", json!({ "prefix": prefix }));
+    let mut paths: Vec<String> = result
+        .get("paths")
+        .and_then(JsonValue::as_array)
+        .expect("paths array")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .filter(|path| !path.contains('<'))
+        .map(ToOwned::to_owned)
+        .collect();
+    paths.sort();
+    paths
+}
+
+fn query_value(mcp: &mut AmigaMcp, path: &str) -> JsonValue {
+    let result = dispatch_success(mcp, "query", json!({ "path": path }));
+    result
+        .get("value")
+        .cloned()
+        .unwrap_or_else(|| panic!("query result for {path} missing value"))
+}
+
+fn collect_values(mcp: &mut AmigaMcp, paths: &[String]) -> BTreeMap<String, JsonValue> {
+    let mut values = BTreeMap::new();
+    for path in paths {
+        values.insert(path.clone(), query_value(mcp, path));
+    }
+    values
+}
+
+fn output_path(report_name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test_output/amiga/probes")
+        .join(format!("{report_name}.json"))
+}
+
+fn write_report(report_name: &str, report: &ProbeReport) {
+    let path = output_path(report_name);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create probe output directory");
+    }
+    let data = serde_json::to_vec_pretty(report).expect("serialize probe report");
+    fs::write(&path, data).expect("write probe report");
+    println!("Probe report saved to {}", path.display());
+}
+
+fn run_probe(spec: &ProbeSpec) {
+    let Some(rom) = load_rom(spec.rom_path) else {
+        return;
+    };
+
+    let mut mcp = AmigaMcp::new();
+    let boot_result = dispatch_success(
+        &mut mcp,
+        "boot",
+        json!({
+            "kickstart": base64::engine::general_purpose::STANDARD.encode(rom),
+            "model": spec.model,
+            "slow_ram": spec.slow_ram_kib,
+        }),
+    );
+    assert_eq!(boot_result.get("status"), Some(&json!("ok")));
+
+    let cpu_paths = query_paths(&mut mcp, "cpu.");
+    let agnus_paths = query_paths(&mut mcp, "agnus.");
+    let denise_paths = query_paths(&mut mcp, "denise.");
+
+    assert!(cpu_paths.iter().any(|path| path == "cpu.pc"));
+    assert!(cpu_paths.iter().any(|path| path == "cpu.idle"));
+    assert!(agnus_paths.iter().any(|path| path == "agnus.vpos"));
+    assert!(agnus_paths.iter().any(|path| path == "agnus.beamcon0"));
+    assert!(denise_paths.iter().any(|path| path == "denise.bplcon0"));
+    assert!(denise_paths.iter().any(|path| path == "denise.palette.31"));
+
+    let mut checkpoints = Vec::with_capacity(CHECKPOINT_FRAMES.len());
+    let mut last_frame = 0;
+
+    for &frame in CHECKPOINT_FRAMES {
+        if frame > last_frame {
+            dispatch_success(
+                &mut mcp,
+                "run_frames",
+                json!({ "count": frame - last_frame }),
+            );
+        }
+        last_frame = frame;
+
+        checkpoints.push(ProbeCheckpoint {
+            frame,
+            master_clock: query_value(&mut mcp, "master_clock"),
+            cpu: collect_values(&mut mcp, &cpu_paths),
+            agnus: collect_values(&mut mcp, &agnus_paths),
+            denise: collect_values(&mut mcp, &denise_paths),
+        });
+    }
+
+    let report = ProbeReport {
+        model: spec.model,
+        rom_path: spec.rom_path,
+        cpu_paths,
+        agnus_paths,
+        denise_paths,
+        checkpoints,
+    };
+
+    write_report(spec.report_name, &report);
+}
+
+#[test]
+#[ignore]
+fn probe_boot_state_a500() {
+    run_probe(&ProbeSpec {
+        model: "a500",
+        rom_path: "../../roms/kick13.rom",
+        report_name: "probe_kick13_a500",
+        slow_ram_kib: 512,
+    });
+}
+
+#[test]
+#[ignore]
+fn probe_boot_state_a1200() {
+    run_probe(&ProbeSpec {
+        model: "a1200",
+        rom_path: "../../roms/kick31_40_068_a1200.rom",
+        report_name: "probe_kick31_a1200",
+        slow_ram_kib: 0,
+    });
+}
+
+#[test]
+#[ignore]
+fn probe_boot_state_a3000() {
+    run_probe(&ProbeSpec {
+        model: "a3000",
+        rom_path: "../../roms/kick31_40_068_a3000.rom",
+        report_name: "probe_kick31_a3000",
+        slow_ram_kib: 0,
+    });
+}
+
+#[test]
+#[ignore]
+fn probe_boot_state_a4000() {
+    run_probe(&ProbeSpec {
+        model: "a4000",
+        rom_path: "../../roms/kick31_40_068_a4000.rom",
+        report_name: "probe_kick31_a4000",
+        slow_ram_kib: 0,
+    });
+}

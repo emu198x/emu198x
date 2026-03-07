@@ -1893,7 +1893,39 @@ impl emu_core::Observable for Amiga {
 
     fn query_paths(&self) -> &'static [&'static str] {
         &[
-            "cpu.<68000_paths>",
+            "cpu.pc",
+            "cpu.sr",
+            "cpu.ccr",
+            "cpu.d0",
+            "cpu.d1",
+            "cpu.d2",
+            "cpu.d3",
+            "cpu.d4",
+            "cpu.d5",
+            "cpu.d6",
+            "cpu.d7",
+            "cpu.a0",
+            "cpu.a1",
+            "cpu.a2",
+            "cpu.a3",
+            "cpu.a4",
+            "cpu.a5",
+            "cpu.a6",
+            "cpu.a7",
+            "cpu.usp",
+            "cpu.ssp",
+            "cpu.ir",
+            "cpu.irc",
+            "cpu.flags.c",
+            "cpu.flags.v",
+            "cpu.flags.z",
+            "cpu.flags.n",
+            "cpu.flags.x",
+            "cpu.flags.s",
+            "cpu.flags.t",
+            "cpu.flags.ipl",
+            "cpu.halted",
+            "cpu.idle",
             "agnus.vpos",
             "agnus.hpos",
             "agnus.bplcon0",
@@ -1925,7 +1957,38 @@ impl emu_core::Observable for Amiga {
             "agnus.mode.csytrue",
             "agnus.mode.vsytrue",
             "agnus.mode.hsytrue",
-            "denise.palette.<0-31>",
+            "denise.palette.0",
+            "denise.palette.1",
+            "denise.palette.2",
+            "denise.palette.3",
+            "denise.palette.4",
+            "denise.palette.5",
+            "denise.palette.6",
+            "denise.palette.7",
+            "denise.palette.8",
+            "denise.palette.9",
+            "denise.palette.10",
+            "denise.palette.11",
+            "denise.palette.12",
+            "denise.palette.13",
+            "denise.palette.14",
+            "denise.palette.15",
+            "denise.palette.16",
+            "denise.palette.17",
+            "denise.palette.18",
+            "denise.palette.19",
+            "denise.palette.20",
+            "denise.palette.21",
+            "denise.palette.22",
+            "denise.palette.23",
+            "denise.palette.24",
+            "denise.palette.25",
+            "denise.palette.26",
+            "denise.palette.27",
+            "denise.palette.28",
+            "denise.palette.29",
+            "denise.palette.30",
+            "denise.palette.31",
             "denise.bplcon0",
             "denise.bplcon3",
             "denise.mode.shres",
@@ -4353,6 +4416,22 @@ mod tests {
         // Unknown paths
         assert!(amiga.query("nonexistent").is_none());
         assert!(amiga.query("agnus.nonexistent").is_none());
+    }
+
+    #[test]
+    fn observable_query_paths_are_concrete_for_cpu_and_denise() {
+        use emu_core::Observable;
+
+        let amiga = Amiga::new(dummy_kickstart());
+        let paths = amiga.query_paths();
+
+        assert!(paths.contains(&"cpu.pc"));
+        assert!(paths.contains(&"cpu.flags.z"));
+        assert!(!paths.contains(&"cpu.<68000_paths>"));
+
+        assert!(paths.contains(&"denise.palette.0"));
+        assert!(paths.contains(&"denise.palette.31"));
+        assert!(!paths.contains(&"denise.palette.<0-31>"));
     }
 
     #[test]

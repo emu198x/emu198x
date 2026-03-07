@@ -73,8 +73,7 @@ impl McpEmulator for AmigaMcp {
                     "properties": {
                         "kickstart": { "type": "string", "description": "Base64-encoded Kickstart ROM" },
                         "kickstart_path": { "type": "string", "description": "Path to Kickstart ROM file" },
-                        "model": { "type": "string", "description": "a500 (default), a500plus, or a1200" },
-                        "chipset": { "type": "string", "description": "ocs (default), ecs, or aga" },
+                        "model": { "type": "string", "description": "a1000, a500 (default), a500plus, a600, a1200, a2000, a3000, or a4000" },
                         "region": { "type": "string", "description": "pal (default) or ntsc" },
                         "slow_ram": { "type": "integer", "description": "Slow RAM in KB (default 0)" }
                     }
@@ -273,6 +272,26 @@ impl McpEmulator for AmigaMcp {
 
 impl AmigaMcp {
     fn handle_boot(&mut self, params: &JsonValue) -> ToolResult {
+        if params.get("chipset").is_some() {
+            return ToolResult::Error {
+                code: -32602,
+                message: "chipset is derived from model; omit 'chipset'".to_string(),
+            };
+        }
+
+        let model = match params.get("model").and_then(|v| v.as_str()) {
+            Some(value) => match parse_model_arg(value) {
+                Ok(model) => model,
+                Err(message) => {
+                    return ToolResult::Error {
+                        code: -32602,
+                        message,
+                    };
+                }
+            },
+            None => AmigaModel::A500,
+        };
+
         let kickstart = match load_kickstart(params) {
             Ok(data) => data,
             Err(e) => {
@@ -283,17 +302,7 @@ impl AmigaMcp {
             }
         };
 
-        let model = match params.get("model").and_then(|v| v.as_str()) {
-            Some("a500plus") => AmigaModel::A500Plus,
-            Some("a1200") => AmigaModel::A1200,
-            _ => AmigaModel::A500,
-        };
-
-        let chipset = match params.get("chipset").and_then(|v| v.as_str()) {
-            Some("ecs") => AmigaChipset::Ecs,
-            Some("aga") => AmigaChipset::Aga,
-            _ => AmigaChipset::Ocs,
-        };
+        let chipset = chipset_for_model(model);
 
         let region = match params.get("region").and_then(|v| v.as_str()) {
             Some("ntsc") => AmigaRegion::Ntsc,
@@ -830,6 +839,30 @@ impl AmigaMcp {
     }
 }
 
+fn parse_model_arg(value: &str) -> Result<AmigaModel, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "a1000" => Ok(AmigaModel::A1000),
+        "a500" => Ok(AmigaModel::A500),
+        "a500+" | "a500plus" => Ok(AmigaModel::A500Plus),
+        "a600" => Ok(AmigaModel::A600),
+        "a1200" => Ok(AmigaModel::A1200),
+        "a2000" => Ok(AmigaModel::A2000),
+        "a3000" => Ok(AmigaModel::A3000),
+        "a4000" => Ok(AmigaModel::A4000),
+        other => Err(format!(
+            "Unknown model: {other}. Use a1000, a500, a500plus, a600, a1200, a2000, a3000, or a4000."
+        )),
+    }
+}
+
+const fn chipset_for_model(model: AmigaModel) -> AmigaChipset {
+    match model {
+        AmigaModel::A1000 | AmigaModel::A500 | AmigaModel::A2000 => AmigaChipset::Ocs,
+        AmigaModel::A500Plus | AmigaModel::A600 | AmigaModel::A3000 => AmigaChipset::Ecs,
+        AmigaModel::A1200 | AmigaModel::A4000 => AmigaChipset::Aga,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -1161,6 +1194,80 @@ mod tests {
             }
             ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
         }
+    }
+
+    #[test]
+    fn query_paths_can_filter_to_cpu_surface() {
+        let amiga = Amiga::new(vec![0; 256 * 1024]);
+        let mut mcp = AmigaMcp { amiga: Some(amiga) };
+        let result = mcp.dispatch_tool(
+            "query_paths",
+            &serde_json::json!({
+                "prefix": "cpu."
+            }),
+        );
+
+        match result {
+            ToolResult::Success(value) => {
+                let paths = value
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .expect("paths array");
+                assert!(paths.iter().any(|v| v.as_str() == Some("cpu.pc")));
+                assert!(paths.iter().any(|v| v.as_str() == Some("cpu.flags.z")));
+                assert!(
+                    !paths
+                        .iter()
+                        .any(|v| v.as_str() == Some("cpu.<68000_paths>"))
+                );
+                assert!(!paths.iter().any(|v| v.as_str() == Some("agnus.vpos")));
+            }
+            ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
+        }
+    }
+
+    #[test]
+    fn parse_model_arg_accepts_supported_models_and_aliases() {
+        assert_eq!(parse_model_arg("a1000"), Ok(AmigaModel::A1000));
+        assert_eq!(parse_model_arg("a500"), Ok(AmigaModel::A500));
+        assert_eq!(parse_model_arg("a500+"), Ok(AmigaModel::A500Plus));
+        assert_eq!(parse_model_arg("a500plus"), Ok(AmigaModel::A500Plus));
+        assert_eq!(parse_model_arg("a600"), Ok(AmigaModel::A600));
+        assert_eq!(parse_model_arg("a1200"), Ok(AmigaModel::A1200));
+        assert_eq!(parse_model_arg("a2000"), Ok(AmigaModel::A2000));
+        assert_eq!(parse_model_arg("a3000"), Ok(AmigaModel::A3000));
+        assert_eq!(parse_model_arg("a4000"), Ok(AmigaModel::A4000));
+        assert!(parse_model_arg("cd32").is_err());
+    }
+
+    #[test]
+    fn chipset_for_model_matches_machine_presets() {
+        assert_eq!(chipset_for_model(AmigaModel::A1000), AmigaChipset::Ocs);
+        assert_eq!(chipset_for_model(AmigaModel::A500), AmigaChipset::Ocs);
+        assert_eq!(chipset_for_model(AmigaModel::A2000), AmigaChipset::Ocs);
+        assert_eq!(chipset_for_model(AmigaModel::A500Plus), AmigaChipset::Ecs);
+        assert_eq!(chipset_for_model(AmigaModel::A600), AmigaChipset::Ecs);
+        assert_eq!(chipset_for_model(AmigaModel::A3000), AmigaChipset::Ecs);
+        assert_eq!(chipset_for_model(AmigaModel::A1200), AmigaChipset::Aga);
+        assert_eq!(chipset_for_model(AmigaModel::A4000), AmigaChipset::Aga);
+    }
+
+    #[test]
+    fn boot_rejects_explicit_chipset_override() {
+        let mut mcp = AmigaMcp::new();
+        let result = mcp.dispatch_tool(
+            "boot",
+            &serde_json::json!({
+                "model": "a1200",
+                "chipset": "aga"
+            }),
+        );
+
+        assert!(matches!(
+            result,
+            ToolResult::Error { code: -32602, message }
+                if message.contains("chipset is derived from model")
+        ));
     }
 
     #[test]
