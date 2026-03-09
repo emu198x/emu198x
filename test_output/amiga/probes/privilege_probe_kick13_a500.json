@@ -1,0 +1,48 @@
+{
+  "model": "a500",
+  "rom_path": "../../roms/kick13.rom",
+  "max_ticks": 20000000,
+  "initial": {
+    "master_clock": 0,
+    "overlay": true,
+    "pc": 16515282,
+    "instr_start_pc": 0,
+    "sr": 9984,
+    "usp": 0,
+    "ssp": 286347001,
+    "a7": 286347001,
+    "ir": 0,
+    "irc": 0,
+    "d0": 0,
+    "d1": 0,
+    "a6": 0,
+    "exc_vector": null,
+    "followup_tag": 0,
+    "halted": false,
+    "idle": true
+  },
+  "vector8_before_boot": {
+    "logical_vector8": 840968242,
+    "physical_chip_vector8": 0
+  },
+  "first_privilege_fault": null,
+  "final_state": {
+    "master_clock": 20000000,
+    "overlay": false,
+    "pc": 16516624,
+    "instr_start_pc": 16516622,
+    "sr": 9988,
+    "usp": 0,
+    "ssp": 262144,
+    "a7": 262144,
+    "ir": 8386,
+    "irc": 8386,
+    "d0": 512694,
+    "d1": 4,
+    "a6": 12583542,
+    "exc_vector": null,
+    "followup_tag": 0,
+    "halted": false,
+    "idle": false
+  }
+}

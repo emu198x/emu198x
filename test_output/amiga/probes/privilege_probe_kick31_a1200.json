@@ -1,0 +1,634 @@
+{
+  "model": "a1200",
+  "rom_path": "../../roms/kick31_40_068_a1200.rom",
+  "max_ticks": 120000000,
+  "followup_ticks": 200000,
+  "initial": {
+    "master_clock": 0,
+    "overlay": true,
+    "pc": 16253138,
+    "instr_start_pc": 0,
+    "sr": 9984,
+    "usp": 0,
+    "ssp": 286543609,
+    "a7": 286543609,
+    "ir": 0,
+    "irc": 0,
+    "d0": 0,
+    "d1": 0,
+    "a5": 0,
+    "a6": 0,
+    "exc_vector": null,
+    "followup_tag": 0,
+    "halted": false,
+    "idle": true
+  },
+  "vector8_before_boot": {
+    "logical_vector8": 1330454607,
+    "physical_chip_vector8": 0
+  },
+  "first_privilege_fault": {
+    "start_tick": 14832506,
+    "handler_entry_tick": 14832542,
+    "vector8_at_fault": {
+      "logical_vector8": 16255992,
+      "physical_chip_vector8": 16255992
+    },
+    "leading_instructions": [
+      {
+        "master_clock": 14832246,
+        "instr_start_pc": 16254900,
+        "pc": 16254904,
+        "ir": 636,
+        "sr": 10000,
+        "usp": 10024,
+        "ssp": 2097152,
+        "a7": 2097152
+      },
+      {
+        "master_clock": 14832258,
+        "instr_start_pc": 16254904,
+        "pc": 16254908,
+        "ir": 21038,
+        "sr": 0,
+        "usp": 10024,
+        "ssp": 2097152,
+        "a7": 10024
+      },
+      {
+        "master_clock": 14832282,
+        "instr_start_pc": 16254908,
+        "pc": 16254912,
+        "ir": 20142,
+        "sr": 21,
+        "usp": 10024,
+        "ssp": 2097152,
+        "a7": 10024
+      },
+      {
+        "master_clock": 14832312,
+        "instr_start_pc": 5158,
+        "pc": 5162,
+        "ir": 20217,
+        "sr": 21,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14832336,
+        "instr_start_pc": 16263476,
+        "pc": 16263480,
+        "ir": 21294,
+        "sr": 21,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14832360,
+        "instr_start_pc": 16263480,
+        "pc": 16263484,
+        "ir": 27660,
+        "sr": 25,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14832366,
+        "instr_start_pc": 16263482,
+        "pc": 16263486,
+        "ir": 18990,
+        "sr": 25,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14832384,
+        "instr_start_pc": 16263486,
+        "pc": 16263490,
+        "ir": 27654,
+        "sr": 24,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14832390,
+        "instr_start_pc": 16263488,
+        "pc": 16263492,
+        "ir": 19054,
+        "sr": 24,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14832408,
+        "instr_start_pc": 16263492,
+        "pc": 16263496,
+        "ir": 27394,
+        "sr": 24,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14832420,
+        "instr_start_pc": 16263496,
+        "pc": 16263500,
+        "ir": 12045,
+        "sr": 24,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14832438,
+        "instr_start_pc": 16263498,
+        "pc": 16263502,
+        "ir": 19450,
+        "sr": 16,
+        "usp": 10016,
+        "ssp": 2097152,
+        "a7": 10016
+      },
+      {
+        "master_clock": 14832450,
+        "instr_start_pc": 16263502,
+        "pc": 16263506,
+        "ir": 20142,
+        "sr": 16,
+        "usp": 10016,
+        "ssp": 2097152,
+        "a7": 10016
+      },
+      {
+        "master_clock": 14832480,
+        "instr_start_pc": 5266,
+        "pc": 5270,
+        "ir": 20217,
+        "sr": 16,
+        "usp": 10012,
+        "ssp": 2097152,
+        "a7": 10012
+      },
+      {
+        "master_clock": 14832504,
+        "instr_start_pc": 16255968,
+        "pc": 16255972,
+        "ir": 124,
+        "sr": 16,
+        "usp": 10012,
+        "ssp": 2097152,
+        "a7": 10012
+      },
+      {
+        "master_clock": 14832542,
+        "instr_start_pc": 16255992,
+        "pc": 16255994,
+        "ir": 3247,
+        "sr": 8208,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      }
+    ],
+    "followup_instructions": [
+      {
+        "master_clock": 14832543,
+        "instr_start_pc": 16255992,
+        "pc": 16255994,
+        "ir": 3247,
+        "sr": 8208,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832584,
+        "instr_start_pc": 16256000,
+        "pc": 16256004,
+        "ir": 26124,
+        "sr": 8212,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832590,
+        "instr_start_pc": 16256002,
+        "pc": 16256006,
+        "ir": 12156,
+        "sr": 8212,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832622,
+        "instr_start_pc": 16256010,
+        "pc": 16263510,
+        "ir": 20181,
+        "sr": 8208,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832634,
+        "instr_start_pc": 16263510,
+        "pc": 16263514,
+        "ir": 2071,
+        "sr": 8208,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832652,
+        "instr_start_pc": 16263514,
+        "pc": 16263518,
+        "ir": 26116,
+        "sr": 8212,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832658,
+        "instr_start_pc": 16263516,
+        "pc": 16263520,
+        "ir": 20206,
+        "sr": 8212,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832672,
+        "instr_start_pc": 5254,
+        "pc": 5258,
+        "ir": 20217,
+        "sr": 8212,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832696,
+        "instr_start_pc": 16257952,
+        "pc": 16257956,
+        "ir": 18663,
+        "sr": 8212,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14832780,
+        "instr_start_pc": 16257956,
+        "pc": 16257960,
+        "ir": 8814,
+        "sr": 8212,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14832804,
+        "instr_start_pc": 16257960,
+        "pc": 16257964,
+        "ir": 18172,
+        "sr": 8212,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14832816,
+        "instr_start_pc": 16257964,
+        "pc": 16257968,
+        "ir": 2222,
+        "sr": 9984,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14832846,
+        "instr_start_pc": 16257970,
+        "pc": 16257974,
+        "ir": 2089,
+        "sr": 9984,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14832870,
+        "instr_start_pc": 16257976,
+        "pc": 16257980,
+        "ir": 26142,
+        "sr": 9988,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14832876,
+        "instr_start_pc": 16257978,
+        "pc": 16257982,
+        "ir": 16878,
+        "sr": 9988,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14832888,
+        "instr_start_pc": 16257982,
+        "pc": 16257986,
+        "ir": 45544,
+        "sr": 9988,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14832912,
+        "instr_start_pc": 16257986,
+        "pc": 16257990,
+        "ir": 26576,
+        "sr": 9988,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14832924,
+        "instr_start_pc": 16257940,
+        "pc": 16257944,
+        "ir": 19679,
+        "sr": 9988,
+        "usp": 10012,
+        "ssp": 2097120,
+        "a7": 2097120
+      },
+      {
+        "master_clock": 14833014,
+        "instr_start_pc": 16257944,
+        "pc": 16257948,
+        "ir": 20083,
+        "sr": 9988,
+        "usp": 10012,
+        "ssp": 2097144,
+        "a7": 2097144
+      },
+      {
+        "master_clock": 14833050,
+        "instr_start_pc": 16256012,
+        "pc": 16256016,
+        "ir": 20085,
+        "sr": 16,
+        "usp": 10012,
+        "ssp": 2097152,
+        "a7": 10012
+      },
+      {
+        "master_clock": 14833074,
+        "instr_start_pc": 16263506,
+        "pc": 16263510,
+        "ir": 10847,
+        "sr": 16,
+        "usp": 10016,
+        "ssp": 2097152,
+        "a7": 10016
+      },
+      {
+        "master_clock": 14833092,
+        "instr_start_pc": 16263508,
+        "pc": 16263512,
+        "ir": 20085,
+        "sr": 16,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14833138,
+        "instr_start_pc": 16254912,
+        "pc": 16254916,
+        "ir": 8238,
+        "sr": 16,
+        "usp": 10024,
+        "ssp": 2097152,
+        "a7": 10024
+      },
+      {
+        "master_clock": 14833162,
+        "instr_start_pc": 16254916,
+        "pc": 16254920,
+        "ir": 26372,
+        "sr": 20,
+        "usp": 10024,
+        "ssp": 2097152,
+        "a7": 10024
+      },
+      {
+        "master_clock": 14833174,
+        "instr_start_pc": 16254922,
+        "pc": 16254926,
+        "ir": 28673,
+        "sr": 20,
+        "usp": 10024,
+        "ssp": 2097152,
+        "a7": 10024
+      },
+      {
+        "master_clock": 14833180,
+        "instr_start_pc": 16254924,
+        "pc": 16254928,
+        "ir": 29184,
+        "sr": 16,
+        "usp": 10024,
+        "ssp": 2097152,
+        "a7": 10024
+      },
+      {
+        "master_clock": 14833186,
+        "instr_start_pc": 16254926,
+        "pc": 16254930,
+        "ir": 20142,
+        "sr": 20,
+        "usp": 10024,
+        "ssp": 2097152,
+        "a7": 10024
+      },
+      {
+        "master_clock": 14833216,
+        "instr_start_pc": 5224,
+        "pc": 5228,
+        "ir": 20217,
+        "sr": 20,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14833240,
+        "instr_start_pc": 16256996,
+        "pc": 16257000,
+        "ir": 18663,
+        "sr": 20,
+        "usp": 10020,
+        "ssp": 2097152,
+        "a7": 10020
+      },
+      {
+        "master_clock": 14833288,
+        "instr_start_pc": 16257000,
+        "pc": 16257004,
+        "ir": 9326,
+        "sr": 20,
+        "usp": 10008,
+        "ssp": 2097152,
+        "a7": 10008
+      },
+      {
+        "master_clock": 14833318,
+        "instr_start_pc": 16257004,
+        "pc": 16257008,
+        "ir": 5120,
+        "sr": 20,
+        "usp": 10008,
+        "ssp": 2097152,
+        "a7": 10008
+      },
+      {
+        "master_clock": 14833324,
+        "instr_start_pc": 16257006,
+        "pc": 16257010,
+        "ir": 5633,
+        "sr": 16,
+        "usp": 10008,
+        "ssp": 2097152,
+        "a7": 10008
+      }
+    ],
+    "start": {
+      "master_clock": 14832506,
+      "overlay": false,
+      "pc": 16255972,
+      "instr_start_pc": 16255968,
+      "sr": 8208,
+      "usp": 10012,
+      "ssp": 2097150,
+      "a7": 2097150,
+      "ir": 124,
+      "irc": 8192,
+      "d0": 10032,
+      "d1": 65280,
+      "a5": 16263510,
+      "a6": 5296,
+      "exc_vector": 8,
+      "followup_tag": 90,
+      "halted": false,
+      "idle": false
+    },
+    "handler": {
+      "master_clock": 14832542,
+      "overlay": false,
+      "pc": 16255994,
+      "instr_start_pc": 16255992,
+      "sr": 8208,
+      "usp": 10012,
+      "ssp": 2097144,
+      "a7": 2097144,
+      "ir": 3247,
+      "irc": 3247,
+      "d0": 10032,
+      "d1": 65280,
+      "a5": 16263510,
+      "a6": 5296,
+      "exc_vector": null,
+      "followup_tag": 0,
+      "halted": false,
+      "idle": true
+    },
+    "frame": {
+      "stack_base": 2097144,
+      "storage": "chip_ram",
+      "saved_sr": 16,
+      "saved_pc": 16255968,
+      "format_word": 32,
+      "vector_offset": 32,
+      "saved_pc_words": [
+        124,
+        8192,
+        20879,
+        16599
+      ],
+      "handler_words": [
+        3247,
+        248,
+        3040,
+        2,
+        26124,
+        12156,
+        248,
+        3084
+      ]
+    },
+    "patched_frame": {
+      "tick": 14832620,
+      "saved_pc": 16256012,
+      "format_word": 32,
+      "resume_words": [
+        20085,
+        124,
+        1792,
+        12092
+      ]
+    },
+    "a6_vector": {
+      "vector_addr": 11162,
+      "words": [
+        20217,
+        249,
+        41996,
+        20217
+      ],
+      "abs_target": 16360460
+    },
+    "repeat_faults_within_followup": 7,
+    "first_repeat": {
+      "start_tick": 14842264,
+      "handler_entry_tick": 14842300,
+      "saved_pc": 16255968,
+      "saved_sr": 0
+    }
+  },
+  "final_state": {
+    "master_clock": 15032542,
+    "overlay": false,
+    "pc": 16344390,
+    "instr_start_pc": 16344386,
+    "sr": 4,
+    "usp": 9344,
+    "ssp": 2097152,
+    "a7": 9344,
+    "ir": 6876,
+    "irc": 6876,
+    "d0": 88,
+    "d1": 37,
+    "a5": 4085,
+    "a6": 11204,
+    "exc_vector": null,
+    "followup_tag": 6,
+    "halted": false,
+    "idle": false
+  }
+}

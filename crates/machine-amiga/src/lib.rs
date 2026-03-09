@@ -331,6 +331,68 @@ pub struct BlitterProgressDebugStats {
     pub max_queue_len_seen: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum BlitterInterruptSource {
+    SchedulerIncremental,
+    AreaCore,
+    LineCore,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct BlitterIrqDebugEvent {
+    pub tick: u64,
+    pub source: BlitterInterruptSource,
+    pub pc: u32,
+    pub instr_start_pc: u32,
+    pub ir: u16,
+    pub sr: u16,
+    pub vpos: u16,
+    pub hpos: u16,
+    pub dmacon: u16,
+    pub intena: u16,
+    pub intreq_before: u16,
+    pub intreq_after: u16,
+    pub blitter_busy: bool,
+    pub blitter_ccks_remaining: u32,
+    pub bltcon0: u16,
+    pub bltcon1: u16,
+    pub bltsize: u16,
+    pub bltsizv_ecs: u16,
+    pub bltsizh_ecs: u16,
+    pub blt_apt: u32,
+    pub blt_bpt: u32,
+    pub blt_cpt: u32,
+    pub blt_dpt: u32,
+    pub blt_amod: i16,
+    pub blt_bmod: i16,
+    pub blt_cmod: i16,
+    pub blt_dmod: i16,
+    pub blt_adat: u16,
+    pub blt_bdat: u16,
+    pub blt_cdat: u16,
+    pub blt_afwm: u16,
+    pub blt_alwm: u16,
+}
+
+const MAX_BLITTER_IRQ_DEBUG_EVENTS: usize = 32;
+
+#[derive(Debug, Default, Clone)]
+struct BlitterIrqDebugLog {
+    events: Vec<BlitterIrqDebugEvent>,
+    first_assert: Option<BlitterIrqDebugEvent>,
+}
+
+impl BlitterIrqDebugLog {
+    fn record(&mut self, event: BlitterIrqDebugEvent) {
+        if self.first_assert.is_none() && (event.intreq_before & 0x0040) == 0 {
+            self.first_assert = Some(event);
+        }
+        if self.events.len() < MAX_BLITTER_IRQ_DEBUG_EVENTS {
+            self.events.push(event);
+        }
+    }
+}
+
 pub struct Amiga {
     pub master_clock: u64,
     pub model: AmigaModel,
@@ -375,6 +437,7 @@ pub struct Amiga {
     beam_edge_flags: BeamEdgeFlags,
     beam_pixel_outputs_debug: BeamPixelOutputDebug,
     blitter_progress_debug: BlitterProgressDebugStats,
+    blitter_irq_debug: BlitterIrqDebugLog,
     /// Pending BPLCON0 write to Denise (value, CCK countdown).
     /// Agnus sees the new value immediately; Denise sees it after 2 CCK.
     pub bplcon0_denise_pending: Option<(u16, u8)>,
@@ -565,6 +628,7 @@ impl Amiga {
             beam_edge_flags: BeamEdgeFlags::default(),
             beam_pixel_outputs_debug: BeamPixelOutputDebug::default(),
             blitter_progress_debug: BlitterProgressDebugStats::default(),
+            blitter_irq_debug: BlitterIrqDebugLog::default(),
             bplcon0_denise_pending: None,
             ddfstrt_pending: None,
             ddfstop_pending: None,
@@ -944,11 +1008,13 @@ impl Amiga {
                 if incremental_completed {
                     self.agnus.clear_blitter_scheduler();
                     self.agnus.blitter_busy = false;
-                    self.paula.request_interrupt(6);
+                    self.request_blitter_interrupt(BlitterInterruptSource::SchedulerIncremental);
                 }
             }
             if self.agnus.blitter_exec_ready() {
-                execute_blit(&mut self.agnus, &mut self.paula, &mut self.memory);
+                if let Some(source) = execute_blit(&mut self.agnus, &mut self.memory) {
+                    self.request_blitter_interrupt(source);
+                }
             }
 
             self.audio_sample_phase += u64::from(AUDIO_SAMPLE_RATE);
@@ -1774,6 +1840,55 @@ impl Amiga {
     pub const fn blitter_progress_debug_stats(&self) -> BlitterProgressDebugStats {
         self.blitter_progress_debug
     }
+
+    #[must_use]
+    pub fn blitter_irq_debug_events(&self) -> &[BlitterIrqDebugEvent] {
+        &self.blitter_irq_debug.events
+    }
+
+    #[must_use]
+    pub const fn first_blitter_irq_assert(&self) -> Option<BlitterIrqDebugEvent> {
+        self.blitter_irq_debug.first_assert
+    }
+
+    fn request_blitter_interrupt(&mut self, source: BlitterInterruptSource) {
+        let intreq_before = self.paula.intreq;
+        self.paula.request_interrupt(6);
+        self.blitter_irq_debug.record(BlitterIrqDebugEvent {
+            tick: self.master_clock,
+            source,
+            pc: self.cpu.regs.pc,
+            instr_start_pc: self.cpu.instr_start_pc,
+            ir: self.cpu.ir,
+            sr: self.cpu.regs.sr,
+            vpos: self.agnus.vpos,
+            hpos: self.agnus.hpos,
+            dmacon: self.agnus.dmacon,
+            intena: self.paula.intena,
+            intreq_before,
+            intreq_after: self.paula.intreq,
+            blitter_busy: self.agnus.blitter_busy,
+            blitter_ccks_remaining: self.agnus.blitter_ccks_remaining,
+            bltcon0: self.agnus.bltcon0,
+            bltcon1: self.agnus.bltcon1,
+            bltsize: self.agnus.bltsize,
+            bltsizv_ecs: self.agnus.bltsizv_ecs,
+            bltsizh_ecs: self.agnus.bltsizh_ecs,
+            blt_apt: self.agnus.blt_apt,
+            blt_bpt: self.agnus.blt_bpt,
+            blt_cpt: self.agnus.blt_cpt,
+            blt_dpt: self.agnus.blt_dpt,
+            blt_amod: self.agnus.blt_amod,
+            blt_bmod: self.agnus.blt_bmod,
+            blt_cmod: self.agnus.blt_cmod,
+            blt_dmod: self.agnus.blt_dmod,
+            blt_adat: self.agnus.blt_adat,
+            blt_bdat: self.agnus.blt_bdat,
+            blt_cdat: self.agnus.blt_cdat,
+            blt_afwm: self.agnus.blt_afwm,
+            blt_alwm: self.agnus.blt_alwm,
+        });
+    }
 }
 
 impl emu_core::Observable for Amiga {
@@ -1792,6 +1907,9 @@ impl emu_core::Observable for Amiga {
                 "diwstop" => Some(Value::U16(inner.diwstop)),
                 "ddfstrt" => Some(Value::U16(inner.ddfstrt)),
                 "ddfstop" => Some(Value::U16(inner.ddfstop)),
+                "dmacon" => Some(Value::U16(inner.dmacon)),
+                "blitter_busy" => Some(Value::Bool(inner.blitter_busy)),
+                "blitter_ccks_remaining" => Some(Value::U32(inner.blitter_ccks_remaining)),
                 "beamcon0" => Some(Value::U16(self.agnus.beamcon0())),
                 "htotal" => Some(Value::U16(self.agnus.htotal())),
                 "hsstop" => Some(Value::U16(self.agnus.hsstop())),
@@ -1981,6 +2099,9 @@ impl emu_core::Observable for Amiga {
             "agnus.diwstop",
             "agnus.ddfstrt",
             "agnus.ddfstop",
+            "agnus.dmacon",
+            "agnus.blitter_busy",
+            "agnus.blitter_ccks_remaining",
             "agnus.beamcon0",
             "agnus.htotal",
             "agnus.hsstop",
@@ -2296,7 +2417,9 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     } else {
                         u16::from(byte)
                     };
-                    if let Some(current) = custom_register_byte_merge_latch(
+                    if custom_register_byte_zero_extend(offset) {
+                        lane_word
+                    } else if let Some(current) = custom_register_byte_merge_latch(
                         self.chipset,
                         self.agnus,
                         self.denise,
@@ -2593,6 +2716,10 @@ fn custom_register_byte_merge_latch(
     }
 }
 
+fn custom_register_byte_zero_extend(offset: u16) -> bool {
+    matches!(offset, 0x096 | 0x09A | 0x09C | 0x09E)
+}
+
 /// Queue writes to registers that propagate with a 2-CCK pipeline delay.
 ///
 /// Returns `true` if the register was handled (caller should still call
@@ -2857,7 +2984,7 @@ pub fn execute_incremental_blitter_op(
 /// On real hardware the blitter runs in DMA slots over many CCKs. We still run
 /// the whole operation instantly here, but only after a coarse per-CCK delay so
 /// `BLTBUSY` and nasty-mode arbitration persist across CCKs.
-fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
+fn execute_blit(agnus: &mut Agnus, memory: &mut Memory) -> Option<BlitterInterruptSource> {
     let height = (agnus.bltsize >> 6) & 0x3FF;
     let width_words = agnus.bltsize & 0x3F;
     let height = if height == 0 { 1024 } else { height } as u32;
@@ -2866,8 +2993,7 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
     // LINE mode (BLTCON1 bit 0): Bresenham line drawing.
     // Uses a completely different algorithm from area mode.
     if agnus.bltcon1 & 0x0001 != 0 {
-        execute_blit_line(agnus, paula, memory);
-        return;
+        return Some(execute_blit_line(agnus, memory));
     }
 
     let use_a = agnus.bltcon0 & 0x0800 != 0;
@@ -3033,7 +3159,7 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
 
     agnus.clear_blitter_scheduler();
     agnus.blitter_busy = false;
-    paula.request_interrupt(6); // bit 6 = BLIT
+    Some(BlitterInterruptSource::AreaCore)
 }
 
 /// Blitter LINE mode: Bresenham line drawing.
@@ -3059,7 +3185,7 @@ fn execute_blit(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
 ///   BLTCMOD/BLTDMOD: Destination row modulo (bytes per row of the bitmap)
 ///   BLTAFWM: $8000 (not really used — the single-pixel mask comes from ASH)
 ///   BLTSIZE: height field = line length in pixels, width field = 2 (always)
-fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memory) {
+fn execute_blit_line(agnus: &mut Agnus, memory: &mut Memory) -> BlitterInterruptSource {
     let length = ((agnus.bltsize >> 6) & 0x3FF) as u32;
     let length = if length == 0 { 1024 } else { length };
 
@@ -3235,7 +3361,7 @@ fn execute_blit_line(agnus: &mut Agnus, paula: &mut Paula8364, memory: &mut Memo
 
     agnus.clear_blitter_scheduler();
     agnus.blitter_busy = false;
-    paula.request_interrupt(6);
+    BlitterInterruptSource::LineCore
 }
 
 #[cfg(test)]
@@ -3243,7 +3369,7 @@ mod tests {
     use super::{
         Amiga, AmigaBusWrapper, AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion,
         BeamCompositeSyncDebug, BeamCompositeSyncMode, BeamDebugSnapshot, BeamEdgeFlags,
-        BeamPinState, BeamSyncState, TICKS_PER_CCK,
+        BeamPinState, BeamSyncState, BlitterInterruptSource, TICKS_PER_CCK,
     };
     use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 
@@ -3292,6 +3418,41 @@ mod tests {
             BusStatus::Ready(v) => v,
             other => panic!("expected ready custom register read, got {other:?}"),
         }
+    }
+
+    fn write_custom_byte_via_cpu_bus(amiga: &mut Amiga, offset: u16, byte_addr_lsb: u16, val: u8) {
+        let mut bus = AmigaBusWrapper {
+            model: amiga.model,
+            chipset: amiga.chipset,
+            agnus: &mut amiga.agnus,
+            memory: &mut amiga.memory,
+            denise: &mut amiga.denise,
+            copper: &mut amiga.copper,
+            cia_a: &mut amiga.cia_a,
+            cia_b: &mut amiga.cia_b,
+            paula: &mut amiga.paula,
+            floppy: &mut amiga.floppy,
+            keyboard: &mut amiga.keyboard,
+            cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
+            gayle: &mut amiga.gayle,
+            dmac: &mut amiga.dmac,
+            ramsey: &mut amiga.ramsey,
+            fat_gary: &mut amiga.fat_gary,
+            bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
+            ddfstrt_pending: &mut amiga.ddfstrt_pending,
+            ddfstop_pending: &mut amiga.ddfstop_pending,
+            color_pending: &mut amiga.color_pending,
+        };
+        let addr = 0x00DFF000 | u32::from(offset | byte_addr_lsb);
+        let result = M68kBus::poll_cycle(
+            &mut bus,
+            addr,
+            FunctionCode::SupervisorData,
+            false,
+            false,
+            Some(u16::from(val)),
+        );
+        assert_eq!(result, BusStatus::Ready(0));
     }
 
     #[test]
@@ -4588,6 +4749,10 @@ mod tests {
         assert!(paths.contains(&"cpu.flags.z"));
         assert!(!paths.contains(&"cpu.<68000_paths>"));
 
+        assert!(paths.contains(&"agnus.dmacon"));
+        assert!(paths.contains(&"agnus.blitter_busy"));
+        assert!(paths.contains(&"agnus.blitter_ccks_remaining"));
+
         assert!(paths.contains(&"denise.palette.0"));
         assert!(paths.contains(&"denise.palette.31"));
         assert!(!paths.contains(&"denise.palette.<0-31>"));
@@ -4669,6 +4834,12 @@ mod tests {
         assert_eq!(amiga.query("agnus.diwstop"), Some(Value::U16(0x5678)));
         assert_eq!(amiga.query("agnus.ddfstrt"), Some(Value::U16(0)));
         assert_eq!(amiga.query("agnus.ddfstop"), Some(Value::U16(0)));
+        assert_eq!(amiga.query("agnus.dmacon"), Some(Value::U16(0)));
+        assert_eq!(amiga.query("agnus.blitter_busy"), Some(Value::Bool(false)));
+        assert_eq!(
+            amiga.query("agnus.blitter_ccks_remaining"),
+            Some(Value::U32(0))
+        );
         assert_eq!(amiga.query("agnus.beamcon0"), Some(Value::U16(0xAB3E)));
         assert_eq!(amiga.query("agnus.htotal"), Some(Value::U16(0x0033)));
         assert_eq!(amiga.query("agnus.hsstop"), Some(Value::U16(0x0044)));
@@ -4702,5 +4873,64 @@ mod tests {
 
         assert_eq!(amiga.query("agnus.ddfstrt"), Some(Value::U16(0x0038)));
         assert_eq!(amiga.query("agnus.ddfstop"), Some(Value::U16(0x00D0)));
+    }
+
+    #[test]
+    fn custom_byte_write_can_clear_low_byte_intreq_bits() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.paula.intreq = 0x6040;
+
+        write_custom_byte_via_cpu_bus(&mut amiga, 0x09C, 1, 0x40);
+
+        assert_eq!(amiga.paula.intreq, 0x6000);
+    }
+
+    #[test]
+    fn custom_byte_write_can_clear_high_byte_intena_bits_without_touching_low_bits() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.paula.intena = 0x402C;
+
+        write_custom_byte_via_cpu_bus(&mut amiga, 0x09A, 0, 0x40);
+
+        assert_eq!(amiga.paula.intena, 0x002C);
+    }
+
+    #[test]
+    fn blitter_irq_debug_records_first_assert_source() {
+        const REG_BLTCON0: u16 = 0x040;
+        const REG_BLTDPTH: u16 = 0x054;
+        const REG_BLTDPTL: u16 = 0x056;
+        const REG_BLTSIZE: u16 = 0x058;
+        const REG_DMACON: u16 = 0x096;
+        const DMACON_DMAEN: u16 = 0x0200;
+        const DMACON_BLTEN: u16 = 0x0040;
+
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.write_custom_reg(REG_DMACON, 0x8000 | DMACON_DMAEN | DMACON_BLTEN);
+        amiga.write_custom_reg(REG_BLTCON0, 0x0100); // D-only area blit.
+        amiga.write_custom_reg(REG_BLTDPTH, 0x0000);
+        amiga.write_custom_reg(REG_BLTDPTL, 0x0100);
+        amiga.write_custom_reg(REG_BLTSIZE, (1 << 6) | 1);
+
+        for _ in 0..10_000 {
+            if amiga.first_blitter_irq_assert().is_some() {
+                break;
+            }
+            amiga.tick();
+        }
+
+        let first = amiga
+            .first_blitter_irq_assert()
+            .expect("expected a blitter IRQ assertion");
+        assert_eq!(first.source, BlitterInterruptSource::SchedulerIncremental);
+        assert_eq!(first.intreq_before & 0x0040, 0);
+        assert_ne!(first.intreq_after & 0x0040, 0);
+        assert_eq!(
+            amiga
+                .blitter_irq_debug_events()
+                .first()
+                .map(|event| event.source),
+            Some(BlitterInterruptSource::SchedulerIncremental)
+        );
     }
 }

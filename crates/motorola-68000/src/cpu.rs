@@ -1813,6 +1813,14 @@ mod tests {
             }
             Self { mem }
         }
+
+        fn write_long(&mut self, addr: u32, value: u32) {
+            let a = addr as usize;
+            self.mem[a] = (value >> 24) as u8;
+            self.mem[a + 1] = (value >> 16) as u8;
+            self.mem[a + 2] = (value >> 8) as u8;
+            self.mem[a + 3] = value as u8;
+        }
     }
 
     impl M68kBus for SimpleBus {
@@ -2021,6 +2029,80 @@ mod tests {
             cpu.regs.d[7] as u8, 0xFF,
             "MOVEC in user mode should fire privilege violation"
         );
+    }
+
+    fn privilege_handler_can_patch_group1_frame(model: CpuModel) {
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            // Program:
+            //   MOVE #$0000,SR   ; drop to user mode
+            //   ORI  #$2000,SR   ; privilege violation
+            //   BRA.S *          ; should never return here
+            (0x0100, 0x46FC),
+            (0x0102, 0x0000),
+            (0x0104, 0x007C),
+            (0x0106, 0x2000),
+            (0x0108, 0x60FE),
+            // Handler:
+            //   CMPI.L #$00000104,2(A7)
+            //   BNE fail
+            //   MOVE.L #$00000220,2(A7)
+            //   RTE
+            // fail:
+            //   MOVEQ #-1,D7
+            //   BRA.S *
+            (0x0200, 0x0CAF),
+            (0x0202, 0x0000),
+            (0x0204, 0x0104),
+            (0x0206, 0x0002),
+            (0x0208, 0x660A),
+            (0x020A, 0x2F7C),
+            (0x020C, 0x0000),
+            (0x020E, 0x0220),
+            (0x0210, 0x0002),
+            (0x0212, 0x4E73),
+            (0x0214, 0x7EFF),
+            (0x0216, 0x60FE),
+            // Patched continuation in user mode:
+            (0x0220, 0x7042),
+            (0x0222, 0x60FE),
+        ]);
+        bus.write_long(0x0020, 0x0000_0200);
+
+        let mut cpu = Cpu68000::new_with_model(model);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20_000);
+
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0x00,
+            "handler compare/patch path should not branch to fail loop"
+        );
+        assert_eq!(
+            cpu.regs.d[0] as u8, 0x42,
+            "patched privilege handler should resume at the replacement PC"
+        );
+        assert!(
+            cpu.regs.pc == 0x0000_0222 || cpu.regs.pc == 0x0000_0224,
+            "CPU should end in the patched continuation loop (pc=${:08X}, sr=${:04X}, ssp=${:08X}, usp=${:08X})",
+            cpu.regs.pc,
+            cpu.regs.sr,
+            cpu.regs.ssp,
+            cpu.regs.usp
+        );
+        assert_eq!(cpu.regs.sr & 0x2000, 0, "RTE should restore user mode");
+    }
+
+    #[test]
+    fn privilege_handler_can_patch_group1_frame_68020() {
+        privilege_handler_can_patch_group1_frame(CpuModel::M68020);
+    }
+
+    #[test]
+    fn privilege_handler_can_patch_group1_frame_68030() {
+        privilege_handler_can_patch_group1_frame(CpuModel::M68030);
     }
 
     #[test]

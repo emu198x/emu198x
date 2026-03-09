@@ -19,6 +19,37 @@ use serde_json::{Value as JsonValue, json};
 use common::load_rom;
 
 const DEFAULT_CHECKPOINT_FRAMES: &[u64] = &[0, 1, 50, 200, 1000];
+const COMMON_SUPPORT_PATHS: &[(&str, &str, &[&str])] = &[
+    (
+        "paula",
+        "paula.",
+        &["paula.intena", "paula.intreq", "paula.adkcon"],
+    ),
+    (
+        "cia_a",
+        "cia_a.",
+        &[
+            "cia_a.timer_a",
+            "cia_a.timer_b",
+            "cia_a.icr_status",
+            "cia_a.icr_mask",
+            "cia_a.cra",
+            "cia_a.crb",
+        ],
+    ),
+    (
+        "cia_b",
+        "cia_b.",
+        &[
+            "cia_b.timer_a",
+            "cia_b.timer_b",
+            "cia_b.icr_status",
+            "cia_b.icr_mask",
+            "cia_b.cra",
+            "cia_b.crb",
+        ],
+    ),
+];
 
 struct ProbeSpec {
     model: &'static str,
@@ -87,6 +118,19 @@ fn collect_values(mcp: &mut AmigaMcp, paths: &[String]) -> BTreeMap<String, Json
         values.insert(path.clone(), query_value(mcp, path));
     }
     values
+}
+
+fn collect_known_paths(mcp: &mut AmigaMcp, prefix: &str, wanted_paths: &[&str]) -> Vec<String> {
+    let available_paths = query_paths(mcp, prefix);
+    let mut paths = Vec::with_capacity(wanted_paths.len());
+    for wanted_path in wanted_paths {
+        assert!(
+            available_paths.iter().any(|path| path == wanted_path),
+            "expected probe path {wanted_path}"
+        );
+        paths.push((*wanted_path).to_owned());
+    }
+    paths
 }
 
 fn support_key(prefix: &str) -> String {
@@ -162,6 +206,12 @@ fn run_probe(spec: &ProbeSpec) {
     let agnus_paths = query_paths(&mut mcp, "agnus.");
     let denise_paths = query_paths(&mut mcp, "denise.");
     let mut support_paths = BTreeMap::new();
+    for (key, prefix, wanted_paths) in COMMON_SUPPORT_PATHS {
+        support_paths.insert(
+            (*key).to_owned(),
+            collect_known_paths(&mut mcp, prefix, wanted_paths),
+        );
+    }
     for prefix in ["gayle.", "dmac.", "ramsey.", "fat_gary."] {
         let paths = query_paths(&mut mcp, prefix);
         if !paths.is_empty() {
