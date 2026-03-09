@@ -1,0 +1,1015 @@
+{
+  "rom_path": "../../roms/kick31_40_068_a3000.rom",
+  "pending_tick": 11468979,
+  "pending_state": {
+    "tick": 11468979,
+    "pc": 16291992,
+    "instr_start_pc": 16291986,
+    "ir": 6464,
+    "sr": 16,
+    "intena": 24620,
+    "intreq": 8256
+  },
+  "pending_dmac": {
+    "cntr": 12,
+    "istr": 209,
+    "dawr": 3,
+    "wtc": 21845,
+    "acr": 0,
+    "wd_selected_reg": 24,
+    "wd_asr": 128,
+    "wd_scsi_status": 66
+  },
+  "stop_tick": 11473405,
+  "iack_events": [
+    {
+      "tick": 11468994,
+      "level": 6,
+      "pc": 16291992,
+      "instr_start_pc": 16291986,
+      "ir": 6464,
+      "sr": 8208,
+      "intena": 24620,
+      "intreq": 8256,
+      "dmac": {
+        "cntr": 12,
+        "istr": 209,
+        "dawr": 3,
+        "wtc": 21845,
+        "acr": 0,
+        "wd_selected_reg": 24,
+        "wd_asr": 128,
+        "wd_scsi_status": 66
+      }
+    }
+  ],
+  "dmac_changes": [
+    {
+      "tick": 11468979,
+      "old": {
+        "cntr": 0,
+        "istr": 1,
+        "dawr": 0,
+        "wtc": 0,
+        "acr": 0,
+        "wd_selected_reg": 0,
+        "wd_asr": 0,
+        "wd_scsi_status": 0
+      },
+      "new": {
+        "cntr": 12,
+        "istr": 209,
+        "dawr": 3,
+        "wtc": 21845,
+        "acr": 0,
+        "wd_selected_reg": 24,
+        "wd_asr": 128,
+        "wd_scsi_status": 66
+      },
+      "pc": 16291992,
+      "instr_start_pc": 16291986,
+      "ir": 6464,
+      "sr": 16,
+      "intena": 24620,
+      "intreq": 8256
+    }
+  ],
+  "board_io_events": [],
+  "task_events": [
+    {
+      "tick": 11468979,
+      "field": "task.tc_state",
+      "old_value": 0,
+      "new_value": 3,
+      "pc": 16291992,
+      "instr_start_pc": 16291986,
+      "ir": 6464,
+      "sr": 16,
+      "stack_return_pc": 16291772,
+      "intena": 24620,
+      "intreq": 8256,
+      "dmac": {
+        "cntr": 12,
+        "istr": 209,
+        "dawr": 3,
+        "wtc": 21845,
+        "acr": 0,
+        "wd_selected_reg": 24,
+        "wd_asr": 128,
+        "wd_scsi_status": 66
+      }
+    },
+    {
+      "tick": 11472408,
+      "field": "task.tc_state",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "dmac": {
+        "cntr": 12,
+        "istr": 209,
+        "dawr": 3,
+        "wtc": 21845,
+        "acr": 0,
+        "wd_selected_reg": 24,
+        "wd_asr": 128,
+        "wd_scsi_status": 66
+      }
+    },
+    {
+      "tick": 11472842,
+      "field": "task.tc_state",
+      "old_value": 2,
+      "new_value": 4,
+      "pc": 16263370,
+      "instr_start_pc": 16263362,
+      "ir": 4988,
+      "sr": 16,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "dmac": {
+        "cntr": 12,
+        "istr": 209,
+        "dawr": 3,
+        "wtc": 21845,
+        "acr": 0,
+        "wd_selected_reg": 24,
+        "wd_asr": 128,
+        "wd_scsi_status": 66
+      }
+    }
+  ],
+  "pc_samples": [
+    {
+      "tick": 11468979,
+      "pc": 16291992,
+      "instr_start_pc": 16291986,
+      "ir": 6464,
+      "sr": 16,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469012,
+      "pc": 16257882,
+      "instr_start_pc": 16291986,
+      "ir": 6464,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469016,
+      "pc": 16257884,
+      "instr_start_pc": 16257882,
+      "ir": 18663,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469020,
+      "pc": 16257886,
+      "instr_start_pc": 16257882,
+      "ir": 18663,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469024,
+      "pc": 16257888,
+      "instr_start_pc": 16257882,
+      "ir": 18663,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469064,
+      "pc": 16257888,
+      "instr_start_pc": 16257886,
+      "ir": 16889,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469068,
+      "pc": 16257890,
+      "instr_start_pc": 16257886,
+      "ir": 16889,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469072,
+      "pc": 16257894,
+      "instr_start_pc": 16257886,
+      "ir": 16889,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469076,
+      "pc": 16257896,
+      "instr_start_pc": 16257892,
+      "ir": 12840,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469080,
+      "pc": 16257898,
+      "instr_start_pc": 16257892,
+      "ir": 12840,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469084,
+      "pc": 16257898,
+      "instr_start_pc": 16257896,
+      "ir": 2049,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469088,
+      "pc": 16257900,
+      "instr_start_pc": 16257896,
+      "ir": 2049,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469092,
+      "pc": 16257902,
+      "instr_start_pc": 16257900,
+      "ir": 26520,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469096,
+      "pc": 16257906,
+      "instr_start_pc": 16257902,
+      "ir": 49768,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469100,
+      "pc": 16257908,
+      "instr_start_pc": 16257902,
+      "ir": 49768,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469104,
+      "pc": 16257908,
+      "instr_start_pc": 16257906,
+      "ir": 11384,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469108,
+      "pc": 16257910,
+      "instr_start_pc": 16257906,
+      "ir": 11384,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469112,
+      "pc": 16257912,
+      "instr_start_pc": 16257906,
+      "ir": 11384,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469124,
+      "pc": 16257912,
+      "instr_start_pc": 16257910,
+      "ir": 2049,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469128,
+      "pc": 16257914,
+      "instr_start_pc": 16257910,
+      "ir": 2049,
+      "sr": 9748,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469132,
+      "pc": 16257918,
+      "instr_start_pc": 16257914,
+      "ir": 26382,
+      "sr": 9748,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469136,
+      "pc": 16257932,
+      "instr_start_pc": 16257914,
+      "ir": 26382,
+      "sr": 9748,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469140,
+      "pc": 16257934,
+      "instr_start_pc": 16257930,
+      "ir": 2049,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469144,
+      "pc": 16257936,
+      "instr_start_pc": 16257934,
+      "ir": 26564,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469148,
+      "pc": 16257938,
+      "instr_start_pc": 16257936,
+      "ir": 19694,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469152,
+      "pc": 16257940,
+      "instr_start_pc": 16257936,
+      "ir": 19694,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469156,
+      "pc": 16257944,
+      "instr_start_pc": 16257936,
+      "ir": 19694,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469176,
+      "pc": 16257944,
+      "instr_start_pc": 16257942,
+      "ir": 12046,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469180,
+      "pc": 16257946,
+      "instr_start_pc": 16257942,
+      "ir": 12046,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469188,
+      "pc": 16257948,
+      "instr_start_pc": 16257944,
+      "ir": 18542,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469192,
+      "pc": 16257950,
+      "instr_start_pc": 16257944,
+      "ir": 18542,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469200,
+      "pc": 16257950,
+      "instr_start_pc": 16257948,
+      "ir": 20181,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469204,
+      "pc": 16259024,
+      "instr_start_pc": 16257948,
+      "ir": 20181,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469208,
+      "pc": 16259026,
+      "instr_start_pc": 16259022,
+      "ir": 12042,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469216,
+      "pc": 16259026,
+      "instr_start_pc": 16259024,
+      "ir": 9289,
+      "sr": 9748,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469220,
+      "pc": 16259028,
+      "instr_start_pc": 16259026,
+      "ir": 12041,
+      "sr": 9748,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469224,
+      "pc": 16259030,
+      "instr_start_pc": 16259026,
+      "ir": 12041,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469232,
+      "pc": 16259032,
+      "instr_start_pc": 16259028,
+      "ir": 9298,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469240,
+      "pc": 16259032,
+      "instr_start_pc": 16259030,
+      "ir": 8210,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469244,
+      "pc": 16259034,
+      "instr_start_pc": 16259030,
+      "ir": 8210,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469252,
+      "pc": 16259036,
+      "instr_start_pc": 16259032,
+      "ir": 26378,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469256,
+      "pc": 16259038,
+      "instr_start_pc": 16259034,
+      "ir": 19690,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469260,
+      "pc": 16259040,
+      "instr_start_pc": 16259034,
+      "ir": 19690,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469264,
+      "pc": 16259042,
+      "instr_start_pc": 16259034,
+      "ir": 19690,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469280,
+      "pc": 16259042,
+      "instr_start_pc": 16259040,
+      "ir": 20117,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469284,
+      "pc": 16768512,
+      "instr_start_pc": 16259040,
+      "ir": 20117,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469288,
+      "pc": 16768514,
+      "instr_start_pc": 16259040,
+      "ir": 20117,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469296,
+      "pc": 16768516,
+      "instr_start_pc": 16768512,
+      "ir": 18663,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469300,
+      "pc": 16768518,
+      "instr_start_pc": 16768512,
+      "ir": 18663,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469316,
+      "pc": 16768520,
+      "instr_start_pc": 16768516,
+      "ir": 5177,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469320,
+      "pc": 16768522,
+      "instr_start_pc": 16768516,
+      "ir": 5177,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469324,
+      "pc": 16768524,
+      "instr_start_pc": 16768516,
+      "ir": 5177,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469328,
+      "pc": 16768524,
+      "instr_start_pc": 16768522,
+      "ir": 2178,
+      "sr": 9752,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469332,
+      "pc": 16768526,
+      "instr_start_pc": 16768522,
+      "ir": 2178,
+      "sr": 9752,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469336,
+      "pc": 16768528,
+      "instr_start_pc": 16768526,
+      "ir": 33833,
+      "sr": 9752,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469340,
+      "pc": 16768532,
+      "instr_start_pc": 16768526,
+      "ir": 33833,
+      "sr": 9752,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469348,
+      "pc": 16768534,
+      "instr_start_pc": 16768530,
+      "ir": 4930,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469352,
+      "pc": 16768536,
+      "instr_start_pc": 16768530,
+      "ir": 4930,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469356,
+      "pc": 16768536,
+      "instr_start_pc": 16768534,
+      "ir": 50217,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469360,
+      "pc": 16768538,
+      "instr_start_pc": 16768534,
+      "ir": 50217,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469364,
+      "pc": 16768540,
+      "instr_start_pc": 16768534,
+      "ir": 50217,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469368,
+      "pc": 16768542,
+      "instr_start_pc": 16768538,
+      "ir": 26408,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469372,
+      "pc": 16768544,
+      "instr_start_pc": 16768540,
+      "ir": 4930,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469376,
+      "pc": 16768546,
+      "instr_start_pc": 16768540,
+      "ir": 4930,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469380,
+      "pc": 16768546,
+      "instr_start_pc": 16768544,
+      "ir": 9289,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469384,
+      "pc": 16768550,
+      "instr_start_pc": 16768546,
+      "ir": 46378,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469388,
+      "pc": 16768552,
+      "instr_start_pc": 16768546,
+      "ir": 46378,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469396,
+      "pc": 16768552,
+      "instr_start_pc": 16768550,
+      "ir": 57866,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469400,
+      "pc": 16768554,
+      "instr_start_pc": 16768552,
+      "ir": 25890,
+      "sr": 9728,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469404,
+      "pc": 16768556,
+      "instr_start_pc": 16768554,
+      "ir": 57866,
+      "sr": 9728,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469408,
+      "pc": 16768560,
+      "instr_start_pc": 16768556,
+      "ir": 25896,
+      "sr": 9728,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469412,
+      "pc": 16768562,
+      "instr_start_pc": 16768558,
+      "ir": 26384,
+      "sr": 9728,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469416,
+      "pc": 16768564,
+      "instr_start_pc": 16768562,
+      "ir": 25900,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469420,
+      "pc": 16768608,
+      "instr_start_pc": 16768562,
+      "ir": 25900,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469424,
+      "pc": 16768610,
+      "instr_start_pc": 16768608,
+      "ir": 19690,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469428,
+      "pc": 16768612,
+      "instr_start_pc": 16768608,
+      "ir": 19690,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469432,
+      "pc": 16768616,
+      "instr_start_pc": 16768608,
+      "ir": 19690,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469452,
+      "pc": 16768616,
+      "instr_start_pc": 16768614,
+      "ir": 20117,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469456,
+      "pc": 16441108,
+      "instr_start_pc": 16768614,
+      "ir": 20117,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469464,
+      "pc": 16441108,
+      "instr_start_pc": 16441106,
+      "ir": 11369,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469468,
+      "pc": 16441110,
+      "instr_start_pc": 16441106,
+      "ir": 11369,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469472,
+      "pc": 16441112,
+      "instr_start_pc": 16441106,
+      "ir": 11369,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469480,
+      "pc": 16441114,
+      "instr_start_pc": 16441110,
+      "ir": 12041,
+      "sr": 9749,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469488,
+      "pc": 16441114,
+      "instr_start_pc": 16441112,
+      "ir": 28676,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469492,
+      "pc": 16441116,
+      "instr_start_pc": 16441114,
+      "ir": 20142,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469496,
+      "pc": 16441118,
+      "instr_start_pc": 16441114,
+      "ir": 20142,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469500,
+      "pc": 132133600,
+      "instr_start_pc": 16441114,
+      "ir": 20142,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469508,
+      "pc": 132133600,
+      "instr_start_pc": 132133598,
+      "ir": 20217,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469512,
+      "pc": 132133602,
+      "instr_start_pc": 132133598,
+      "ir": 20217,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469516,
+      "pc": 132133604,
+      "instr_start_pc": 132133598,
+      "ir": 20217,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469520,
+      "pc": 16768752,
+      "instr_start_pc": 132133598,
+      "ir": 20217,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469524,
+      "pc": 16768756,
+      "instr_start_pc": 16768752,
+      "ir": 8302,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469528,
+      "pc": 16768758,
+      "instr_start_pc": 16768752,
+      "ir": 8302,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469536,
+      "pc": 16768758,
+      "instr_start_pc": 16768756,
+      "ir": 13308,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469540,
+      "pc": 16768760,
+      "instr_start_pc": 16768756,
+      "ir": 13308,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    },
+    {
+      "tick": 11469544,
+      "pc": 16768764,
+      "instr_start_pc": 16768756,
+      "ir": 13308,
+      "sr": 9744,
+      "intena": 24620,
+      "intreq": 8256
+    }
+  ]
+}

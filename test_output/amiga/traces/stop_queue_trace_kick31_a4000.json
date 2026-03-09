@@ -1,0 +1,6420 @@
+{
+  "model": "a4000",
+  "rom_path": "../../roms/kick31_40_068_a4000.rom",
+  "stop_resume_pc": 16258174,
+  "stop_tick": 12553593,
+  "stop_state": {
+    "tick": 12553593,
+    "pc": 16258174,
+    "instr_start_pc": 16258170,
+    "ir": 20082,
+    "sr": 9988,
+    "d0": 0,
+    "d1": 0,
+    "d2": 1,
+    "d3": 0,
+    "a0": 132123022,
+    "a1": 132133496,
+    "a2": 132133322,
+    "a3": 132123026,
+    "a4": 16258252,
+    "a5": 132133240,
+    "a6": 132122616,
+    "a7": 132129390,
+    "intena": 24620,
+    "intreq": 64
+  },
+  "cia_a_at_stop": {
+    "timer_a": 65511,
+    "timer_b": 63368,
+    "icr_status": 0,
+    "icr_mask": 15,
+    "cra": 9,
+    "crb": 1
+  },
+  "watch_fields_at_stop": [
+    {
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "value": 132133496
+    },
+    {
+      "name": "wait_count",
+      "addr": 132122896,
+      "size": "long",
+      "value": 1
+    },
+    {
+      "name": "dispatch_count",
+      "addr": 132122900,
+      "size": "long",
+      "value": 2
+    },
+    {
+      "name": "field_120",
+      "addr": 132122904,
+      "size": "word",
+      "value": 4
+    },
+    {
+      "name": "field_122",
+      "addr": 132122906,
+      "size": "word",
+      "value": 4
+    },
+    {
+      "name": "flags_124",
+      "addr": 132122908,
+      "size": "byte",
+      "value": 128
+    },
+    {
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "value": 65535
+    },
+    {
+      "name": "queue_head",
+      "addr": 132123022,
+      "size": "long",
+      "value": 132123026
+    },
+    {
+      "name": "queue_tail",
+      "addr": 132123026,
+      "size": "long",
+      "value": 0
+    },
+    {
+      "name": "queue_tail_pred",
+      "addr": 132123030,
+      "size": "long",
+      "value": 132123022
+    }
+  ],
+  "current_task_name": "exec.library",
+  "current_task_fields_at_stop": [
+    {
+      "name": "task.ln_name",
+      "addr": 132133506,
+      "size": "long",
+      "value": 16253070
+    },
+    {
+      "name": "task.tc_flags",
+      "addr": 132133510,
+      "size": "byte",
+      "value": 0
+    },
+    {
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "value": 4
+    },
+    {
+      "name": "task.tc_idnest",
+      "addr": 132133512,
+      "size": "byte",
+      "value": 255
+    },
+    {
+      "name": "task.tc_tdnest",
+      "addr": 132133513,
+      "size": "byte",
+      "value": 0
+    },
+    {
+      "name": "task.tc_sig_alloc",
+      "addr": 132133514,
+      "size": "long",
+      "value": 65535
+    },
+    {
+      "name": "task.tc_sig_wait",
+      "addr": 132133518,
+      "size": "long",
+      "value": 16
+    },
+    {
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "value": 0
+    },
+    {
+      "name": "task.tc_sig_except",
+      "addr": 132133526,
+      "size": "long",
+      "value": 0
+    },
+    {
+      "name": "task.tc_trap_alloc",
+      "addr": 132133530,
+      "size": "word",
+      "value": 32768
+    },
+    {
+      "name": "task.tc_trap_able",
+      "addr": 132133532,
+      "size": "word",
+      "value": 0
+    },
+    {
+      "name": "task.tc_except_data",
+      "addr": 132133534,
+      "size": "long",
+      "value": 0
+    },
+    {
+      "name": "task.tc_except_code",
+      "addr": 132133538,
+      "size": "long",
+      "value": 16266592
+    },
+    {
+      "name": "task.tc_trap_data",
+      "addr": 132133542,
+      "size": "long",
+      "value": 0
+    },
+    {
+      "name": "task.tc_trap_code",
+      "addr": 132133546,
+      "size": "long",
+      "value": 16266592
+    },
+    {
+      "name": "task.tc_spreg",
+      "addr": 132133550,
+      "size": "long",
+      "value": 132133240
+    }
+  ],
+  "cia_a_changes": [
+    {
+      "tick": 12553593,
+      "old": {
+        "timer_a": 65535,
+        "timer_b": 65535,
+        "icr_status": 0,
+        "icr_mask": 0,
+        "cra": 0,
+        "crb": 0
+      },
+      "new": {
+        "timer_a": 65511,
+        "timer_b": 63368,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 9988
+    },
+    {
+      "tick": 12553599,
+      "old": {
+        "timer_a": 65511,
+        "timer_b": 63368,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65510,
+        "timer_b": 63367,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553639,
+      "old": {
+        "timer_a": 65510,
+        "timer_b": 63367,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65509,
+        "timer_b": 63366,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553679,
+      "old": {
+        "timer_a": 65509,
+        "timer_b": 63366,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65508,
+        "timer_b": 63365,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553719,
+      "old": {
+        "timer_a": 65508,
+        "timer_b": 63365,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65507,
+        "timer_b": 63364,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553759,
+      "old": {
+        "timer_a": 65507,
+        "timer_b": 63364,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65506,
+        "timer_b": 63363,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553799,
+      "old": {
+        "timer_a": 65506,
+        "timer_b": 63363,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65505,
+        "timer_b": 63362,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553839,
+      "old": {
+        "timer_a": 65505,
+        "timer_b": 63362,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65504,
+        "timer_b": 63361,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553879,
+      "old": {
+        "timer_a": 65504,
+        "timer_b": 63361,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65503,
+        "timer_b": 63360,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553919,
+      "old": {
+        "timer_a": 65503,
+        "timer_b": 63360,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65502,
+        "timer_b": 63359,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553959,
+      "old": {
+        "timer_a": 65502,
+        "timer_b": 63359,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65501,
+        "timer_b": 63358,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12553999,
+      "old": {
+        "timer_a": 65501,
+        "timer_b": 63358,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65500,
+        "timer_b": 63357,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554039,
+      "old": {
+        "timer_a": 65500,
+        "timer_b": 63357,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65499,
+        "timer_b": 63356,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554079,
+      "old": {
+        "timer_a": 65499,
+        "timer_b": 63356,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65498,
+        "timer_b": 63355,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554119,
+      "old": {
+        "timer_a": 65498,
+        "timer_b": 63355,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65497,
+        "timer_b": 63354,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554159,
+      "old": {
+        "timer_a": 65497,
+        "timer_b": 63354,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65496,
+        "timer_b": 63353,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554199,
+      "old": {
+        "timer_a": 65496,
+        "timer_b": 63353,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65495,
+        "timer_b": 63352,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554239,
+      "old": {
+        "timer_a": 65495,
+        "timer_b": 63352,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65494,
+        "timer_b": 63351,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554279,
+      "old": {
+        "timer_a": 65494,
+        "timer_b": 63351,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65493,
+        "timer_b": 63350,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554319,
+      "old": {
+        "timer_a": 65493,
+        "timer_b": 63350,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65492,
+        "timer_b": 63349,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554359,
+      "old": {
+        "timer_a": 65492,
+        "timer_b": 63349,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65491,
+        "timer_b": 63348,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554399,
+      "old": {
+        "timer_a": 65491,
+        "timer_b": 63348,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65490,
+        "timer_b": 63347,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554439,
+      "old": {
+        "timer_a": 65490,
+        "timer_b": 63347,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65489,
+        "timer_b": 63346,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554479,
+      "old": {
+        "timer_a": 65489,
+        "timer_b": 63346,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65488,
+        "timer_b": 63345,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554519,
+      "old": {
+        "timer_a": 65488,
+        "timer_b": 63345,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65487,
+        "timer_b": 63344,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554559,
+      "old": {
+        "timer_a": 65487,
+        "timer_b": 63344,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65486,
+        "timer_b": 63343,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554599,
+      "old": {
+        "timer_a": 65486,
+        "timer_b": 63343,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65485,
+        "timer_b": 63342,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554639,
+      "old": {
+        "timer_a": 65485,
+        "timer_b": 63342,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65484,
+        "timer_b": 63341,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554679,
+      "old": {
+        "timer_a": 65484,
+        "timer_b": 63341,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65483,
+        "timer_b": 63340,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554719,
+      "old": {
+        "timer_a": 65483,
+        "timer_b": 63340,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65482,
+        "timer_b": 63339,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554759,
+      "old": {
+        "timer_a": 65482,
+        "timer_b": 63339,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65481,
+        "timer_b": 63338,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554799,
+      "old": {
+        "timer_a": 65481,
+        "timer_b": 63338,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65480,
+        "timer_b": 63337,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554839,
+      "old": {
+        "timer_a": 65480,
+        "timer_b": 63337,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65479,
+        "timer_b": 63336,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554879,
+      "old": {
+        "timer_a": 65479,
+        "timer_b": 63336,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65478,
+        "timer_b": 63335,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554919,
+      "old": {
+        "timer_a": 65478,
+        "timer_b": 63335,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65477,
+        "timer_b": 63334,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554959,
+      "old": {
+        "timer_a": 65477,
+        "timer_b": 63334,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65476,
+        "timer_b": 63333,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12554999,
+      "old": {
+        "timer_a": 65476,
+        "timer_b": 63333,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65475,
+        "timer_b": 63332,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555039,
+      "old": {
+        "timer_a": 65475,
+        "timer_b": 63332,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65474,
+        "timer_b": 63331,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555079,
+      "old": {
+        "timer_a": 65474,
+        "timer_b": 63331,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65473,
+        "timer_b": 63330,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555119,
+      "old": {
+        "timer_a": 65473,
+        "timer_b": 63330,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65472,
+        "timer_b": 63329,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555159,
+      "old": {
+        "timer_a": 65472,
+        "timer_b": 63329,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65471,
+        "timer_b": 63328,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555199,
+      "old": {
+        "timer_a": 65471,
+        "timer_b": 63328,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65470,
+        "timer_b": 63327,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555239,
+      "old": {
+        "timer_a": 65470,
+        "timer_b": 63327,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65469,
+        "timer_b": 63326,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555279,
+      "old": {
+        "timer_a": 65469,
+        "timer_b": 63326,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65468,
+        "timer_b": 63325,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555319,
+      "old": {
+        "timer_a": 65468,
+        "timer_b": 63325,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65467,
+        "timer_b": 63324,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555359,
+      "old": {
+        "timer_a": 65467,
+        "timer_b": 63324,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65466,
+        "timer_b": 63323,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555399,
+      "old": {
+        "timer_a": 65466,
+        "timer_b": 63323,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65465,
+        "timer_b": 63322,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555439,
+      "old": {
+        "timer_a": 65465,
+        "timer_b": 63322,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65464,
+        "timer_b": 63321,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555479,
+      "old": {
+        "timer_a": 65464,
+        "timer_b": 63321,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65463,
+        "timer_b": 63320,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555519,
+      "old": {
+        "timer_a": 65463,
+        "timer_b": 63320,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65462,
+        "timer_b": 63319,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555559,
+      "old": {
+        "timer_a": 65462,
+        "timer_b": 63319,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65461,
+        "timer_b": 63318,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555599,
+      "old": {
+        "timer_a": 65461,
+        "timer_b": 63318,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65460,
+        "timer_b": 63317,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555639,
+      "old": {
+        "timer_a": 65460,
+        "timer_b": 63317,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65459,
+        "timer_b": 63316,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555679,
+      "old": {
+        "timer_a": 65459,
+        "timer_b": 63316,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65458,
+        "timer_b": 63315,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555719,
+      "old": {
+        "timer_a": 65458,
+        "timer_b": 63315,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65457,
+        "timer_b": 63314,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555759,
+      "old": {
+        "timer_a": 65457,
+        "timer_b": 63314,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65456,
+        "timer_b": 63313,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555799,
+      "old": {
+        "timer_a": 65456,
+        "timer_b": 63313,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65455,
+        "timer_b": 63312,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555839,
+      "old": {
+        "timer_a": 65455,
+        "timer_b": 63312,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65454,
+        "timer_b": 63311,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555879,
+      "old": {
+        "timer_a": 65454,
+        "timer_b": 63311,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65453,
+        "timer_b": 63310,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555919,
+      "old": {
+        "timer_a": 65453,
+        "timer_b": 63310,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65452,
+        "timer_b": 63309,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555959,
+      "old": {
+        "timer_a": 65452,
+        "timer_b": 63309,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65451,
+        "timer_b": 63308,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12555999,
+      "old": {
+        "timer_a": 65451,
+        "timer_b": 63308,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65450,
+        "timer_b": 63307,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556039,
+      "old": {
+        "timer_a": 65450,
+        "timer_b": 63307,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65449,
+        "timer_b": 63306,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556079,
+      "old": {
+        "timer_a": 65449,
+        "timer_b": 63306,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65448,
+        "timer_b": 63305,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556119,
+      "old": {
+        "timer_a": 65448,
+        "timer_b": 63305,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65447,
+        "timer_b": 63304,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556159,
+      "old": {
+        "timer_a": 65447,
+        "timer_b": 63304,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65446,
+        "timer_b": 63303,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556199,
+      "old": {
+        "timer_a": 65446,
+        "timer_b": 63303,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65445,
+        "timer_b": 63302,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556239,
+      "old": {
+        "timer_a": 65445,
+        "timer_b": 63302,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65444,
+        "timer_b": 63301,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556279,
+      "old": {
+        "timer_a": 65444,
+        "timer_b": 63301,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65443,
+        "timer_b": 63300,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556319,
+      "old": {
+        "timer_a": 65443,
+        "timer_b": 63300,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65442,
+        "timer_b": 63299,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556359,
+      "old": {
+        "timer_a": 65442,
+        "timer_b": 63299,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65441,
+        "timer_b": 63298,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556399,
+      "old": {
+        "timer_a": 65441,
+        "timer_b": 63298,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65440,
+        "timer_b": 63297,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556439,
+      "old": {
+        "timer_a": 65440,
+        "timer_b": 63297,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65439,
+        "timer_b": 63296,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556479,
+      "old": {
+        "timer_a": 65439,
+        "timer_b": 63296,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65438,
+        "timer_b": 63295,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556519,
+      "old": {
+        "timer_a": 65438,
+        "timer_b": 63295,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65437,
+        "timer_b": 63294,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556559,
+      "old": {
+        "timer_a": 65437,
+        "timer_b": 63294,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65436,
+        "timer_b": 63293,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556599,
+      "old": {
+        "timer_a": 65436,
+        "timer_b": 63293,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65435,
+        "timer_b": 63292,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556639,
+      "old": {
+        "timer_a": 65435,
+        "timer_b": 63292,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65434,
+        "timer_b": 63291,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556679,
+      "old": {
+        "timer_a": 65434,
+        "timer_b": 63291,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65433,
+        "timer_b": 63290,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556719,
+      "old": {
+        "timer_a": 65433,
+        "timer_b": 63290,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65432,
+        "timer_b": 63289,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556759,
+      "old": {
+        "timer_a": 65432,
+        "timer_b": 63289,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65431,
+        "timer_b": 63288,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556799,
+      "old": {
+        "timer_a": 65431,
+        "timer_b": 63288,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65430,
+        "timer_b": 63287,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556839,
+      "old": {
+        "timer_a": 65430,
+        "timer_b": 63287,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65429,
+        "timer_b": 63286,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556879,
+      "old": {
+        "timer_a": 65429,
+        "timer_b": 63286,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65428,
+        "timer_b": 63285,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556919,
+      "old": {
+        "timer_a": 65428,
+        "timer_b": 63285,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65427,
+        "timer_b": 63284,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556959,
+      "old": {
+        "timer_a": 65427,
+        "timer_b": 63284,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65426,
+        "timer_b": 63283,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12556999,
+      "old": {
+        "timer_a": 65426,
+        "timer_b": 63283,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65425,
+        "timer_b": 63282,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557039,
+      "old": {
+        "timer_a": 65425,
+        "timer_b": 63282,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65424,
+        "timer_b": 63281,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557079,
+      "old": {
+        "timer_a": 65424,
+        "timer_b": 63281,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65423,
+        "timer_b": 63280,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557119,
+      "old": {
+        "timer_a": 65423,
+        "timer_b": 63280,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65422,
+        "timer_b": 63279,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557159,
+      "old": {
+        "timer_a": 65422,
+        "timer_b": 63279,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65421,
+        "timer_b": 63278,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557199,
+      "old": {
+        "timer_a": 65421,
+        "timer_b": 63278,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65420,
+        "timer_b": 63277,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557239,
+      "old": {
+        "timer_a": 65420,
+        "timer_b": 63277,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65419,
+        "timer_b": 63276,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557279,
+      "old": {
+        "timer_a": 65419,
+        "timer_b": 63276,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65418,
+        "timer_b": 63275,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557319,
+      "old": {
+        "timer_a": 65418,
+        "timer_b": 63275,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65417,
+        "timer_b": 63274,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557359,
+      "old": {
+        "timer_a": 65417,
+        "timer_b": 63274,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65416,
+        "timer_b": 63273,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557399,
+      "old": {
+        "timer_a": 65416,
+        "timer_b": 63273,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65415,
+        "timer_b": 63272,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557439,
+      "old": {
+        "timer_a": 65415,
+        "timer_b": 63272,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65414,
+        "timer_b": 63271,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557479,
+      "old": {
+        "timer_a": 65414,
+        "timer_b": 63271,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65413,
+        "timer_b": 63270,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557519,
+      "old": {
+        "timer_a": 65413,
+        "timer_b": 63270,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65412,
+        "timer_b": 63269,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557559,
+      "old": {
+        "timer_a": 65412,
+        "timer_b": 63269,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65411,
+        "timer_b": 63268,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557599,
+      "old": {
+        "timer_a": 65411,
+        "timer_b": 63268,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65410,
+        "timer_b": 63267,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557639,
+      "old": {
+        "timer_a": 65410,
+        "timer_b": 63267,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65409,
+        "timer_b": 63266,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557679,
+      "old": {
+        "timer_a": 65409,
+        "timer_b": 63266,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65408,
+        "timer_b": 63265,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557719,
+      "old": {
+        "timer_a": 65408,
+        "timer_b": 63265,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65407,
+        "timer_b": 63264,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557759,
+      "old": {
+        "timer_a": 65407,
+        "timer_b": 63264,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65406,
+        "timer_b": 63263,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557799,
+      "old": {
+        "timer_a": 65406,
+        "timer_b": 63263,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65405,
+        "timer_b": 63262,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557839,
+      "old": {
+        "timer_a": 65405,
+        "timer_b": 63262,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65404,
+        "timer_b": 63261,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557879,
+      "old": {
+        "timer_a": 65404,
+        "timer_b": 63261,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65403,
+        "timer_b": 63260,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557919,
+      "old": {
+        "timer_a": 65403,
+        "timer_b": 63260,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65402,
+        "timer_b": 63259,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557959,
+      "old": {
+        "timer_a": 65402,
+        "timer_b": 63259,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65401,
+        "timer_b": 63258,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12557999,
+      "old": {
+        "timer_a": 65401,
+        "timer_b": 63258,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65400,
+        "timer_b": 63257,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558039,
+      "old": {
+        "timer_a": 65400,
+        "timer_b": 63257,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65399,
+        "timer_b": 63256,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558079,
+      "old": {
+        "timer_a": 65399,
+        "timer_b": 63256,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65398,
+        "timer_b": 63255,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558119,
+      "old": {
+        "timer_a": 65398,
+        "timer_b": 63255,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65397,
+        "timer_b": 63254,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558159,
+      "old": {
+        "timer_a": 65397,
+        "timer_b": 63254,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65396,
+        "timer_b": 63253,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558199,
+      "old": {
+        "timer_a": 65396,
+        "timer_b": 63253,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65395,
+        "timer_b": 63252,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558239,
+      "old": {
+        "timer_a": 65395,
+        "timer_b": 63252,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65394,
+        "timer_b": 63251,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558279,
+      "old": {
+        "timer_a": 65394,
+        "timer_b": 63251,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65393,
+        "timer_b": 63250,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558319,
+      "old": {
+        "timer_a": 65393,
+        "timer_b": 63250,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65392,
+        "timer_b": 63249,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558359,
+      "old": {
+        "timer_a": 65392,
+        "timer_b": 63249,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65391,
+        "timer_b": 63248,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558399,
+      "old": {
+        "timer_a": 65391,
+        "timer_b": 63248,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65390,
+        "timer_b": 63247,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558439,
+      "old": {
+        "timer_a": 65390,
+        "timer_b": 63247,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65389,
+        "timer_b": 63246,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558479,
+      "old": {
+        "timer_a": 65389,
+        "timer_b": 63246,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65388,
+        "timer_b": 63245,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558519,
+      "old": {
+        "timer_a": 65388,
+        "timer_b": 63245,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65387,
+        "timer_b": 63244,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558559,
+      "old": {
+        "timer_a": 65387,
+        "timer_b": 63244,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65386,
+        "timer_b": 63243,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558599,
+      "old": {
+        "timer_a": 65386,
+        "timer_b": 63243,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65385,
+        "timer_b": 63242,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    },
+    {
+      "tick": 12558639,
+      "old": {
+        "timer_a": 65385,
+        "timer_b": 63242,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "new": {
+        "timer_a": 65384,
+        "timer_b": 63241,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      },
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192
+    }
+  ],
+  "exec_watched_changes": [
+    {
+      "tick": 13032184,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8981
+    },
+    {
+      "tick": 13032269,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8985
+    },
+    {
+      "tick": 13033111,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16772016,
+      "instr_start_pc": 16772010,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13033176,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16772040,
+      "instr_start_pc": 16772034,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13033329,
+      "name": "field_122",
+      "addr": 132122906,
+      "size": "word",
+      "old_value": 4,
+      "new_value": 3,
+      "pc": 16304846,
+      "instr_start_pc": 16304840,
+      "ir": 21352,
+      "sr": 8960
+    },
+    {
+      "tick": 13033506,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13033612,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 13033744,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 13033834,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13034069,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13034117,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13034343,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304242,
+      "instr_start_pc": 16304236,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13034507,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 13034635,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 13034716,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13035060,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13035108,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13035236,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8981
+    },
+    {
+      "tick": 13035290,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8985
+    },
+    {
+      "tick": 13035605,
+      "name": "wait_count",
+      "addr": 132122896,
+      "size": "long",
+      "old_value": 1,
+      "new_value": 2,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984
+    },
+    {
+      "tick": 13598764,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8981
+    },
+    {
+      "tick": 13598849,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8985
+    },
+    {
+      "tick": 13599692,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16772016,
+      "instr_start_pc": 16772010,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13599756,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16772040,
+      "instr_start_pc": 16772034,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13599910,
+      "name": "field_122",
+      "addr": 132122906,
+      "size": "word",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16304846,
+      "instr_start_pc": 16304840,
+      "ir": 21352,
+      "sr": 8960
+    },
+    {
+      "tick": 13600087,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13600192,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 13600325,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 13600415,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13600650,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13600697,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13600905,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304242,
+      "instr_start_pc": 16304236,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13601069,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 13601198,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 13601278,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13601622,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 13601670,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 13601798,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8981
+    },
+    {
+      "tick": 13601853,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8985
+    },
+    {
+      "tick": 13602167,
+      "name": "wait_count",
+      "addr": 132122896,
+      "size": "long",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984
+    },
+    {
+      "tick": 14165357,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8981
+    },
+    {
+      "tick": 14165442,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8985
+    },
+    {
+      "tick": 14166285,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16772016,
+      "instr_start_pc": 16772010,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14166349,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16772040,
+      "instr_start_pc": 16772034,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14166502,
+      "name": "field_122",
+      "addr": 132122906,
+      "size": "word",
+      "old_value": 2,
+      "new_value": 1,
+      "pc": 16304846,
+      "instr_start_pc": 16304840,
+      "ir": 21352,
+      "sr": 8960
+    },
+    {
+      "tick": 14166679,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14166785,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 14166918,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 14167008,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14167242,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14167290,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14167498,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304242,
+      "instr_start_pc": 16304236,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14167662,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 14167791,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 14167871,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14168215,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14168263,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14168391,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8981
+    },
+    {
+      "tick": 14168446,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8985
+    },
+    {
+      "tick": 14168760,
+      "name": "wait_count",
+      "addr": 132122896,
+      "size": "long",
+      "old_value": 3,
+      "new_value": 4,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984
+    },
+    {
+      "tick": 14731949,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8981
+    },
+    {
+      "tick": 14732034,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8985
+    },
+    {
+      "tick": 14732876,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16772016,
+      "instr_start_pc": 16772010,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14732941,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16772040,
+      "instr_start_pc": 16772034,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14733094,
+      "name": "field_122",
+      "addr": 132122906,
+      "size": "word",
+      "old_value": 1,
+      "new_value": 0,
+      "pc": 16304846,
+      "instr_start_pc": 16304840,
+      "ir": 21352,
+      "sr": 8964
+    },
+    {
+      "tick": 14733115,
+      "name": "field_122",
+      "addr": 132122906,
+      "size": "word",
+      "old_value": 0,
+      "new_value": 4,
+      "pc": 16304854,
+      "instr_start_pc": 16304846,
+      "ir": 12648,
+      "sr": 8960
+    },
+    {
+      "tick": 14733132,
+      "name": "flags_124",
+      "addr": 132122908,
+      "size": "byte",
+      "old_value": 128,
+      "new_value": 192,
+      "pc": 16304860,
+      "instr_start_pc": 16304852,
+      "ir": 104,
+      "sr": 8968
+    },
+    {
+      "tick": 14733302,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14733407,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 14733540,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 14733630,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14733865,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14733913,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14734120,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304242,
+      "instr_start_pc": 16304236,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14734285,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 14734413,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 14734494,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14734838,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 14734885,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 14735014,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8981
+    },
+    {
+      "tick": 14735068,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8985
+    },
+    {
+      "tick": 14735382,
+      "name": "wait_count",
+      "addr": 132122896,
+      "size": "long",
+      "old_value": 4,
+      "new_value": 5,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984
+    },
+    {
+      "tick": 15088889,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304666,
+      "instr_start_pc": 16304660,
+      "ir": 21038,
+      "sr": 8725
+    },
+    {
+      "tick": 15089084,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304700,
+      "instr_start_pc": 16304694,
+      "ir": 21294,
+      "sr": 8729
+    },
+    {
+      "tick": 15089486,
+      "name": "wait_count",
+      "addr": 132122896,
+      "size": "long",
+      "old_value": 5,
+      "new_value": 6,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984
+    },
+    {
+      "tick": 15174757,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8725
+    },
+    {
+      "tick": 15174863,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8704
+    },
+    {
+      "tick": 15174995,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8708
+    },
+    {
+      "tick": 15175085,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8729
+    },
+    {
+      "tick": 15175313,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8725
+    },
+    {
+      "tick": 15175429,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8729
+    },
+    {
+      "tick": 15175671,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 511,
+      "pc": 16304208,
+      "instr_start_pc": 16304202,
+      "ir": 21544,
+      "sr": 8721
+    },
+    {
+      "tick": 15175769,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 767,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8704
+    },
+    {
+      "tick": 15175902,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 767,
+      "new_value": 511,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8704
+    },
+    {
+      "tick": 15175985,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8708
+    },
+    {
+      "tick": 15176324,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304506,
+      "instr_start_pc": 16304500,
+      "ir": 21288,
+      "sr": 8729
+    },
+    {
+      "tick": 15176438,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8725
+    },
+    {
+      "tick": 15176492,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8729
+    },
+    {
+      "tick": 15176974,
+      "name": "wait_count",
+      "addr": 132122896,
+      "size": "long",
+      "old_value": 6,
+      "new_value": 7,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984
+    },
+    {
+      "tick": 15298541,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8981
+    },
+    {
+      "tick": 15298626,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8985
+    },
+    {
+      "tick": 15299468,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16772016,
+      "instr_start_pc": 16772010,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 15299533,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16772040,
+      "instr_start_pc": 16772034,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 15299686,
+      "name": "field_122",
+      "addr": 132122906,
+      "size": "word",
+      "old_value": 4,
+      "new_value": 3,
+      "pc": 16304846,
+      "instr_start_pc": 16304840,
+      "ir": 21352,
+      "sr": 8960
+    },
+    {
+      "tick": 15299863,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 15299969,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 15300101,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 15300191,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 15300426,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 15300474,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 15300700,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16304242,
+      "instr_start_pc": 16304236,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 15300864,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 511,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960
+    },
+    {
+      "tick": 15300992,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 511,
+      "new_value": 255,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964
+    },
+    {
+      "tick": 15301073,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 15301417,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981
+    },
+    {
+      "tick": 15301465,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985
+    },
+    {
+      "tick": 15301593,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 65535,
+      "new_value": 255,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8981
+    },
+    {
+      "tick": 15301647,
+      "name": "field_126",
+      "addr": 132122910,
+      "size": "word",
+      "old_value": 255,
+      "new_value": 65535,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8985
+    },
+    {
+      "tick": 15301962,
+      "name": "wait_count",
+      "addr": 132122896,
+      "size": "long",
+      "old_value": 7,
+      "new_value": 8,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984
+    }
+  ],
+  "current_task_changes": [],
+  "exec_block_write_events": [
+    {
+      "tick": 13032182,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032267,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13033109,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16772016,
+      "instr_start_pc": 16772010,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13033174,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16772040,
+      "instr_start_pc": 16772034,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13033327,
+      "addr": 132122906,
+      "size": "word",
+      "raw_data": 3,
+      "effective_data": 3,
+      "pc": 16304846,
+      "instr_start_pc": 16304840,
+      "ir": 21352,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13033504,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13033609,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 1,
+      "effective_data": 0,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13033742,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13033832,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13034067,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13034114,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13034340,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16304242,
+      "instr_start_pc": 16304236,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13034505,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 1,
+      "effective_data": 0,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13034633,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13034714,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13035058,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13035105,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13035234,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13035288,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13035599,
+      "addr": 132122896,
+      "size": "word",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984,
+      "intena": 24620,
+      "intreq": 64
+    },
+    {
+      "tick": 13035602,
+      "addr": 132122898,
+      "size": "word",
+      "raw_data": 2,
+      "effective_data": 2,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984,
+      "intena": 24620,
+      "intreq": 64
+    },
+    {
+      "tick": 13035620,
+      "addr": 132122908,
+      "size": "byte",
+      "raw_data": 128,
+      "effective_data": 0,
+      "pc": 16258172,
+      "instr_start_pc": 16258164,
+      "ir": 2286,
+      "sr": 9984,
+      "intena": 24620,
+      "intreq": 64
+    },
+    {
+      "tick": 13598762,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13598847,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13599689,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16772016,
+      "instr_start_pc": 16772010,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13599754,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16772040,
+      "instr_start_pc": 16772034,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13599907,
+      "addr": 132122906,
+      "size": "word",
+      "raw_data": 2,
+      "effective_data": 2,
+      "pc": 16304846,
+      "instr_start_pc": 16304840,
+      "ir": 21352,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13600084,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13600190,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 1,
+      "effective_data": 0,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13600323,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13600412,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13600647,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13600695,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13600903,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16304242,
+      "instr_start_pc": 16304236,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13601067,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 1,
+      "effective_data": 0,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13601195,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13601276,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13601620,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13601668,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13601796,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13601850,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13602161,
+      "addr": 132122896,
+      "size": "word",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984,
+      "intena": 24620,
+      "intreq": 64
+    },
+    {
+      "tick": 13602165,
+      "addr": 132122898,
+      "size": "word",
+      "raw_data": 3,
+      "effective_data": 3,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984,
+      "intena": 24620,
+      "intreq": 64
+    },
+    {
+      "tick": 13602182,
+      "addr": 132122908,
+      "size": "byte",
+      "raw_data": 128,
+      "effective_data": 0,
+      "pc": 16258172,
+      "instr_start_pc": 16258164,
+      "ir": 2286,
+      "sr": 9984,
+      "intena": 24620,
+      "intreq": 64
+    },
+    {
+      "tick": 14165355,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14165440,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14166282,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16772016,
+      "instr_start_pc": 16772010,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14166347,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16772040,
+      "instr_start_pc": 16772034,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14166500,
+      "addr": 132122906,
+      "size": "word",
+      "raw_data": 1,
+      "effective_data": 1,
+      "pc": 16304846,
+      "instr_start_pc": 16304840,
+      "ir": 21352,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 14166677,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16304298,
+      "instr_start_pc": 16304292,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14166783,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 1,
+      "effective_data": 0,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14166916,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14167005,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14167240,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14167288,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14167496,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16304242,
+      "instr_start_pc": 16304236,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14167660,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 1,
+      "effective_data": 0,
+      "pc": 16280544,
+      "instr_start_pc": 16280538,
+      "ir": 21032,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14167788,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16280628,
+      "instr_start_pc": 16280622,
+      "ir": 21288,
+      "sr": 8964,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14167869,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16304354,
+      "instr_start_pc": 16304348,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14168213,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303400,
+      "instr_start_pc": 16303394,
+      "ir": 21032,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14168261,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303478,
+      "instr_start_pc": 16303472,
+      "ir": 21288,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14168389,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16303518,
+      "instr_start_pc": 16303512,
+      "ir": 21033,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14168443,
+      "addr": 132122910,
+      "size": "byte",
+      "raw_data": 255,
+      "effective_data": 0,
+      "pc": 16303540,
+      "instr_start_pc": 16303534,
+      "ir": 21289,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 14168754,
+      "addr": 132122896,
+      "size": "word",
+      "raw_data": 0,
+      "effective_data": 0,
+      "pc": 16258166,
+      "instr_start_pc": 16258160,
+      "ir": 21166,
+      "sr": 9984,
+      "intena": 24620,
+      "intreq": 64
+    }
+  ],
+  "current_task_write_events": [],
+  "iack_events": [
+    {
+      "tick": 13031638,
+      "level": 3,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192,
+      "intena": 24620,
+      "intreq": 96,
+      "cia_a": {
+        "timer_a": 53560,
+        "timer_b": 51417,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      }
+    },
+    {
+      "tick": 13598230,
+      "level": 3,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192,
+      "intena": 24620,
+      "intreq": 96,
+      "cia_a": {
+        "timer_a": 39395,
+        "timer_b": 37252,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      }
+    },
+    {
+      "tick": 14164821,
+      "level": 3,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192,
+      "intena": 24620,
+      "intreq": 96,
+      "cia_a": {
+        "timer_a": 25230,
+        "timer_b": 23087,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      }
+    },
+    {
+      "tick": 14731413,
+      "level": 3,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192,
+      "intena": 24620,
+      "intreq": 96,
+      "cia_a": {
+        "timer_a": 11065,
+        "timer_b": 8922,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      }
+    },
+    {
+      "tick": 15088335,
+      "level": 2,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192,
+      "intena": 24620,
+      "intreq": 72,
+      "cia_a": {
+        "timer_a": 2142,
+        "timer_b": 65535,
+        "icr_status": 2,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      }
+    },
+    {
+      "tick": 15174054,
+      "level": 2,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192,
+      "intena": 24620,
+      "intreq": 72,
+      "cia_a": {
+        "timer_a": 65535,
+        "timer_b": 63392,
+        "icr_status": 1,
+        "icr_mask": 15,
+        "cra": 8,
+        "crb": 1
+      }
+    },
+    {
+      "tick": 15298006,
+      "level": 3,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192,
+      "intena": 24620,
+      "intreq": 96,
+      "cia_a": {
+        "timer_a": 62492,
+        "timer_b": 60293,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      }
+    },
+    {
+      "tick": 15864598,
+      "level": 3,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8192,
+      "intena": 24620,
+      "intreq": 96,
+      "cia_a": {
+        "timer_a": 48328,
+        "timer_b": 46129,
+        "icr_status": 0,
+        "icr_mask": 15,
+        "cra": 9,
+        "crb": 1
+      }
+    }
+  ],
+  "pc_samples": [
+    {
+      "tick": 12553593,
+      "pc": 16258174,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 9988,
+      "intena": 24620,
+      "intreq": 64
+    },
+    {
+      "tick": 13031676,
+      "pc": 16257536,
+      "instr_start_pc": 16258170,
+      "ir": 20082,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031680,
+      "pc": 16257538,
+      "instr_start_pc": 16257536,
+      "ir": 18663,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031684,
+      "pc": 16257542,
+      "instr_start_pc": 16257536,
+      "ir": 18663,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031728,
+      "pc": 16257542,
+      "instr_start_pc": 16257540,
+      "ir": 16889,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031732,
+      "pc": 16257546,
+      "instr_start_pc": 16257540,
+      "ir": 16889,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031736,
+      "pc": 16257548,
+      "instr_start_pc": 16257540,
+      "ir": 16889,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031740,
+      "pc": 16257550,
+      "instr_start_pc": 16257546,
+      "ir": 12840,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031744,
+      "pc": 16257552,
+      "instr_start_pc": 16257546,
+      "ir": 12840,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031748,
+      "pc": 16257552,
+      "instr_start_pc": 16257550,
+      "ir": 2049,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031752,
+      "pc": 16257554,
+      "instr_start_pc": 16257550,
+      "ir": 2049,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031756,
+      "pc": 16257558,
+      "instr_start_pc": 16257554,
+      "ir": 26594,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031760,
+      "pc": 16257560,
+      "instr_start_pc": 16257556,
+      "ir": 49768,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031764,
+      "pc": 16257562,
+      "instr_start_pc": 16257556,
+      "ir": 49768,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031768,
+      "pc": 16257562,
+      "instr_start_pc": 16257560,
+      "ir": 11384,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031772,
+      "pc": 16257564,
+      "instr_start_pc": 16257560,
+      "ir": 11384,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031776,
+      "pc": 16257566,
+      "instr_start_pc": 16257560,
+      "ir": 11384,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031852,
+      "pc": 16257566,
+      "instr_start_pc": 16257564,
+      "ir": 2049,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031856,
+      "pc": 16257568,
+      "instr_start_pc": 16257564,
+      "ir": 2049,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031860,
+      "pc": 16257572,
+      "instr_start_pc": 16257568,
+      "ir": 26382,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031864,
+      "pc": 16257586,
+      "instr_start_pc": 16257568,
+      "ir": 26382,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031868,
+      "pc": 16257588,
+      "instr_start_pc": 16257584,
+      "ir": 2049,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031872,
+      "pc": 16257590,
+      "instr_start_pc": 16257588,
+      "ir": 26382,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031876,
+      "pc": 16257592,
+      "instr_start_pc": 16257590,
+      "ir": 19694,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031880,
+      "pc": 16257594,
+      "instr_start_pc": 16257590,
+      "ir": 19694,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031884,
+      "pc": 16257598,
+      "instr_start_pc": 16257590,
+      "ir": 19694,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031904,
+      "pc": 16257598,
+      "instr_start_pc": 16257596,
+      "ir": 12046,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031908,
+      "pc": 16257600,
+      "instr_start_pc": 16257596,
+      "ir": 12046,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031916,
+      "pc": 16257602,
+      "instr_start_pc": 16257598,
+      "ir": 18542,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031920,
+      "pc": 16257604,
+      "instr_start_pc": 16257598,
+      "ir": 18542,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031928,
+      "pc": 16257606,
+      "instr_start_pc": 16257602,
+      "ir": 20181,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031932,
+      "pc": 16259000,
+      "instr_start_pc": 16257602,
+      "ir": 20181,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031936,
+      "pc": 16259002,
+      "instr_start_pc": 16258998,
+      "ir": 12042,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031944,
+      "pc": 16259002,
+      "instr_start_pc": 16259000,
+      "ir": 9289,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031948,
+      "pc": 16259004,
+      "instr_start_pc": 16259002,
+      "ir": 12041,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031952,
+      "pc": 16259006,
+      "instr_start_pc": 16259002,
+      "ir": 12041,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031960,
+      "pc": 16259008,
+      "instr_start_pc": 16259004,
+      "ir": 9298,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031968,
+      "pc": 16259008,
+      "instr_start_pc": 16259006,
+      "ir": 8210,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031972,
+      "pc": 16259010,
+      "instr_start_pc": 16259006,
+      "ir": 8210,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031980,
+      "pc": 16259012,
+      "instr_start_pc": 16259008,
+      "ir": 26378,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031984,
+      "pc": 16259014,
+      "instr_start_pc": 16259010,
+      "ir": 19690,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031988,
+      "pc": 16259016,
+      "instr_start_pc": 16259010,
+      "ir": 19690,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13031992,
+      "pc": 16259018,
+      "instr_start_pc": 16259010,
+      "ir": 19690,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032008,
+      "pc": 16259018,
+      "instr_start_pc": 16259016,
+      "ir": 20117,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032012,
+      "pc": 16444398,
+      "instr_start_pc": 16259016,
+      "ir": 20117,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032016,
+      "pc": 16444400,
+      "instr_start_pc": 16259016,
+      "ir": 20117,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032024,
+      "pc": 16444402,
+      "instr_start_pc": 16444398,
+      "ir": 16889,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032028,
+      "pc": 16444404,
+      "instr_start_pc": 16444398,
+      "ir": 16889,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032032,
+      "pc": 16444406,
+      "instr_start_pc": 16444404,
+      "ir": 18663,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032036,
+      "pc": 16444408,
+      "instr_start_pc": 16444404,
+      "ir": 18663,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032040,
+      "pc": 16444410,
+      "instr_start_pc": 16444404,
+      "ir": 18663,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032052,
+      "pc": 16444410,
+      "instr_start_pc": 16444408,
+      "ir": 21161,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032056,
+      "pc": 16444412,
+      "instr_start_pc": 16444408,
+      "ir": 21161,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032060,
+      "pc": 16444414,
+      "instr_start_pc": 16444408,
+      "ir": 21161,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032076,
+      "pc": 16444416,
+      "instr_start_pc": 16444412,
+      "ir": 9257,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032080,
+      "pc": 16444418,
+      "instr_start_pc": 16444412,
+      "ir": 9257,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032088,
+      "pc": 16444418,
+      "instr_start_pc": 16444416,
+      "ir": 26432,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032092,
+      "pc": 16444484,
+      "instr_start_pc": 16444416,
+      "ir": 26432,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032096,
+      "pc": 16444486,
+      "instr_start_pc": 16444482,
+      "ir": 11369,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032100,
+      "pc": 16444488,
+      "instr_start_pc": 16444482,
+      "ir": 11369,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032108,
+      "pc": 16444488,
+      "instr_start_pc": 16444486,
+      "ir": 2089,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032112,
+      "pc": 16444492,
+      "instr_start_pc": 16444486,
+      "ir": 2089,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032116,
+      "pc": 16444494,
+      "instr_start_pc": 16444486,
+      "ir": 2089,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032120,
+      "pc": 16444494,
+      "instr_start_pc": 16444492,
+      "ir": 26476,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032124,
+      "pc": 16444602,
+      "instr_start_pc": 16444492,
+      "ir": 26476,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032128,
+      "pc": 16444604,
+      "instr_start_pc": 16444602,
+      "ir": 2089,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032132,
+      "pc": 16444606,
+      "instr_start_pc": 16444602,
+      "ir": 2089,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032136,
+      "pc": 16444610,
+      "instr_start_pc": 16444602,
+      "ir": 2089,
+      "sr": 8964,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032144,
+      "pc": 16444612,
+      "instr_start_pc": 16444610,
+      "ir": 54460,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032148,
+      "pc": 16444614,
+      "instr_start_pc": 16444610,
+      "ir": 54460,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032152,
+      "pc": 16444616,
+      "instr_start_pc": 16444610,
+      "ir": 54460,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032156,
+      "pc": 16444618,
+      "instr_start_pc": 16444616,
+      "ir": 13308,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032160,
+      "pc": 16444622,
+      "instr_start_pc": 16444616,
+      "ir": 13308,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032164,
+      "pc": 16444624,
+      "instr_start_pc": 16444616,
+      "ir": 13308,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032168,
+      "pc": 16444626,
+      "instr_start_pc": 16444616,
+      "ir": 13308,
+      "sr": 8960,
+      "intena": 24620,
+      "intreq": 96
+    },
+    {
+      "tick": 13032172,
+      "pc": 16444626,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032176,
+      "pc": 16444628,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032180,
+      "pc": 16444630,
+      "instr_start_pc": 16444624,
+      "ir": 21038,
+      "sr": 8960,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032188,
+      "pc": 16444632,
+      "instr_start_pc": 16444628,
+      "ir": 2089,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032192,
+      "pc": 16444634,
+      "instr_start_pc": 16444628,
+      "ir": 2089,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032196,
+      "pc": 16444636,
+      "instr_start_pc": 16444628,
+      "ir": 2089,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032200,
+      "pc": 16444636,
+      "instr_start_pc": 16444634,
+      "ir": 26130,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032204,
+      "pc": 16444640,
+      "instr_start_pc": 16444636,
+      "ir": 12328,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032208,
+      "pc": 16444642,
+      "instr_start_pc": 16444636,
+      "ir": 12328,
+      "sr": 8981,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032212,
+      "pc": 16444642,
+      "instr_start_pc": 16444640,
+      "ir": 27404,
+      "sr": 8984,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032216,
+      "pc": 16444654,
+      "instr_start_pc": 16444640,
+      "ir": 27404,
+      "sr": 8984,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032220,
+      "pc": 16444656,
+      "instr_start_pc": 16444654,
+      "ir": 8514,
+      "sr": 8984,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032224,
+      "pc": 16444658,
+      "instr_start_pc": 16444654,
+      "ir": 8514,
+      "sr": 8984,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032228,
+      "pc": 16444660,
+      "instr_start_pc": 16444654,
+      "ir": 8514,
+      "sr": 8976,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032236,
+      "pc": 16444662,
+      "instr_start_pc": 16444658,
+      "ir": 8553,
+      "sr": 8976,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032240,
+      "pc": 16444664,
+      "instr_start_pc": 16444658,
+      "ir": 8553,
+      "sr": 8976,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032252,
+      "pc": 16444666,
+      "instr_start_pc": 16444658,
+      "ir": 8553,
+      "sr": 8976,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032256,
+      "pc": 16444666,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8976,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032260,
+      "pc": 16444668,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8976,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032264,
+      "pc": 16444670,
+      "instr_start_pc": 16444664,
+      "ir": 21294,
+      "sr": 8976,
+      "intena": 8236,
+      "intreq": 96
+    },
+    {
+      "tick": 13032272,
+      "pc": 16444672,
+      "instr_start_pc": 16444668,
+      "ir": 27656,
+      "sr": 8985,
+      "intena": 8236,
+      "intreq": 96
+    }
+  ]
+}

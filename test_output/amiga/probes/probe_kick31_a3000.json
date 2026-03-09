@@ -606,20 +606,20 @@
         "cia_b": {
           "cia_b.cra": 0,
           "cia_b.crb": 239,
-          "cia_b.icr_mask": 4,
+          "cia_b.icr_mask": 0,
           "cia_b.icr_status": 0,
           "cia_b.timer_a": 65535,
           "cia_b.timer_b": 65535
         },
         "dmac": {
           "dmac.acr": 0,
-          "dmac.cntr": 0,
-          "dmac.dawr": 0,
-          "dmac.istr": 1,
-          "dmac.wd.asr": 0,
-          "dmac.wd.scsi_status": 0,
-          "dmac.wd.selected_reg": 0,
-          "dmac.wtc": 0
+          "dmac.cntr": 12,
+          "dmac.dawr": 3,
+          "dmac.istr": 209,
+          "dmac.wd.asr": 128,
+          "dmac.wd.scsi_status": 66,
+          "dmac.wd.selected_reg": 24,
+          "dmac.wtc": 21845
         },
         "fat_gary": {
           "fat_gary.coldboot": 128,
@@ -766,20 +766,20 @@
         "cia_b": {
           "cia_b.cra": 0,
           "cia_b.crb": 239,
-          "cia_b.icr_mask": 4,
+          "cia_b.icr_mask": 0,
           "cia_b.icr_status": 0,
           "cia_b.timer_a": 65535,
           "cia_b.timer_b": 65535
         },
         "dmac": {
           "dmac.acr": 0,
-          "dmac.cntr": 0,
-          "dmac.dawr": 0,
-          "dmac.istr": 1,
-          "dmac.wd.asr": 0,
-          "dmac.wd.scsi_status": 0,
-          "dmac.wd.selected_reg": 0,
-          "dmac.wtc": 0
+          "dmac.cntr": 12,
+          "dmac.dawr": 3,
+          "dmac.istr": 209,
+          "dmac.wd.asr": 128,
+          "dmac.wd.scsi_status": 66,
+          "dmac.wd.selected_reg": 24,
+          "dmac.wtc": 21845
         },
         "fat_gary": {
           "fat_gary.coldboot": 128,

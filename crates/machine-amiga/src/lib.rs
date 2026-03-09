@@ -415,6 +415,9 @@ pub struct Amiga {
     /// Previous state of CIA-A CRA bit 6 for edge-detecting the keyboard
     /// handshake. The real hardware acknowledges on the falling edge (1→0).
     pub cia_a_cra_sp_prev: bool,
+    /// Previous motherboard EXTER line state so board IRQs only latch Paula on
+    /// rising edges instead of retriggering every master tick while held high.
+    pub motherboard_external_irq_prev: bool,
     /// Gayle gate array (IDE + address decode). Present only on A600/A1200.
     pub gayle: Option<Gayle>,
     /// SDMAC 390537 SCSI controller. Present only on A3000/A3000T.
@@ -596,6 +599,7 @@ impl Amiga {
             floppy: AmigaFloppyDrive::new(),
             keyboard: AmigaKeyboard::new(),
             cia_a_cra_sp_prev: false,
+            motherboard_external_irq_prev: false,
             gayle: match model {
                 AmigaModel::A600 | AmigaModel::A1200 => Some(Gayle::new()),
                 _ => None,
@@ -1066,6 +1070,7 @@ impl Amiga {
                     floppy: &mut self.floppy,
                     keyboard: &mut self.keyboard,
                     cia_a_cra_sp_prev: &mut self.cia_a_cra_sp_prev,
+                    motherboard_external_irq_prev: &mut self.motherboard_external_irq_prev,
                     gayle: &mut self.gayle,
                     dmac: &mut self.dmac,
                     ramsey: &mut self.ramsey,
@@ -1104,6 +1109,7 @@ impl Amiga {
                         floppy: &mut self.floppy,
                         keyboard: &mut self.keyboard,
                         cia_a_cra_sp_prev: &mut self.cia_a_cra_sp_prev,
+                        motherboard_external_irq_prev: &mut self.motherboard_external_irq_prev,
                         gayle: &mut self.gayle,
                         dmac: &mut self.dmac,
                         ramsey: &mut self.ramsey,
@@ -1120,6 +1126,12 @@ impl Amiga {
                 }
             }
         }
+
+        let motherboard_external_irq = self.motherboard_external_irq_pending();
+        if motherboard_external_irq && !self.motherboard_external_irq_prev {
+            self.paula.request_interrupt(13);
+        }
+        self.motherboard_external_irq_prev = motherboard_external_irq;
 
         if self.master_clock.is_multiple_of(TICKS_PER_ECLOCK) {
             self.cia_a.tick();
@@ -1168,6 +1180,16 @@ impl Amiga {
                 self.cia_a.receive_serial_byte(byte);
             }
         }
+    }
+
+    fn motherboard_external_irq_pending(&self) -> bool {
+        self.dmac
+            .as_ref()
+            .is_some_and(|dmac| dmac.irq_pending())
+            || self
+                .gayle
+                .as_ref()
+                .is_some_and(|gayle| gayle.ide_irq_pending())
     }
 
     pub fn write_custom_reg(&mut self, offset: u16, val: u16) {
@@ -2224,6 +2246,7 @@ pub struct AmigaBusWrapper<'a> {
     pub floppy: &'a mut AmigaFloppyDrive,
     pub keyboard: &'a mut AmigaKeyboard,
     pub cia_a_cra_sp_prev: &'a mut bool,
+    pub motherboard_external_irq_prev: &'a mut bool,
     pub gayle: &'a mut Option<Gayle>,
     pub dmac: &'a mut Option<Dmac390537>,
     pub ramsey: &'a mut Option<Ramsey>,
@@ -2254,6 +2277,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         // Reset custom chip state
         self.paula.reset();
         self.agnus.dmacon = 0;
+        *self.motherboard_external_irq_prev = false;
         if let Some(ramsey) = self.ramsey.as_mut() {
             ramsey.reset();
         }
@@ -3398,6 +3422,7 @@ mod tests {
             floppy: &mut amiga.floppy,
             keyboard: &mut amiga.keyboard,
             cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
+            motherboard_external_irq_prev: &mut amiga.motherboard_external_irq_prev,
             gayle: &mut amiga.gayle,
             dmac: &mut amiga.dmac,
             ramsey: &mut amiga.ramsey,
@@ -3434,6 +3459,7 @@ mod tests {
             floppy: &mut amiga.floppy,
             keyboard: &mut amiga.keyboard,
             cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
+            motherboard_external_irq_prev: &mut amiga.motherboard_external_irq_prev,
             gayle: &mut amiga.gayle,
             dmac: &mut amiga.dmac,
             ramsey: &mut amiga.ramsey,
@@ -3533,6 +3559,62 @@ mod tests {
     }
 
     #[test]
+    fn dmac_irq_pending_raises_paula_exter() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A3000,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+
+        let dmac = amiga.dmac.as_mut().expect("A3000 should expose SDMAC");
+        dmac.write_word(0xDD_0040, 0x0018); // SASR = COMMAND
+        dmac.write_word(0xDD_0042, 0x0000); // SCMD = RESET -> WD INT
+        assert!(!dmac.irq_pending(), "INTEN gate should keep INT_P low");
+
+        dmac.write_word(0xDD_000A, 0x0004); // CNTR.INTEN
+        assert!(dmac.irq_pending(), "SDMAC should report INT_P once enabled");
+
+        amiga.tick();
+        assert_ne!(
+            amiga.paula.intreq & (1 << 13),
+            0,
+            "pending SDMAC IRQ should raise Paula EXTER"
+        );
+    }
+
+    #[test]
+    fn dmac_irq_pending_only_latches_paula_exter_on_rising_edge() {
+        let mut amiga = Amiga::new_with_config(AmigaConfig {
+            model: AmigaModel::A3000,
+            chipset: AmigaChipset::Ecs,
+            region: AmigaRegion::Pal,
+            kickstart: dummy_kickstart(),
+            slow_ram_size: 0,
+        });
+
+        let dmac = amiga.dmac.as_mut().expect("A3000 should expose SDMAC");
+        dmac.write_word(0xDD_0040, 0x0018); // SASR = COMMAND
+        dmac.write_word(0xDD_0042, 0x0000); // SCMD = RESET -> WD INT
+        dmac.write_word(0xDD_000A, 0x0004); // CNTR.INTEN
+        assert!(dmac.irq_pending());
+
+        amiga.tick();
+        assert_ne!(amiga.paula.intreq & (1 << 13), 0);
+
+        amiga.paula.write_intreq(1 << 13);
+        assert_eq!(amiga.paula.intreq & (1 << 13), 0);
+
+        amiga.tick();
+        assert_eq!(
+            amiga.paula.intreq & (1 << 13),
+            0,
+            "held-high SDMAC IRQ should not retrigger EXTER without a new edge"
+        );
+    }
+
+    #[test]
     fn motherboard_resource_registers_read_back_from_support_chips() {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A3000,
@@ -3555,6 +3637,7 @@ mod tests {
             floppy: &mut amiga.floppy,
             keyboard: &mut amiga.keyboard,
             cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
+            motherboard_external_irq_prev: &mut amiga.motherboard_external_irq_prev,
             gayle: &mut amiga.gayle,
             dmac: &mut amiga.dmac,
             ramsey: &mut amiga.ramsey,

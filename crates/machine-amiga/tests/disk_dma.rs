@@ -72,6 +72,7 @@ fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
         floppy: &mut amiga.floppy,
         keyboard: &mut amiga.keyboard,
         cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
+        motherboard_external_irq_prev: &mut amiga.motherboard_external_irq_prev,
         gayle: &mut amiga.gayle,
         dmac: &mut amiga.dmac,
         bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,

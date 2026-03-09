@@ -88,35 +88,35 @@ mod istr_bits {
 // presents individual byte addresses, so we match on `addr & 0xFF`.
 // ---------------------------------------------------------------------------
 
-/// Word offset for DAWR (DACK width, write-only).
+/// Byte offset for DAWR (DACK width, write-only).
 const REG_DAWR: u8 = 0x02;
-/// Word offset for WTC high word.
+/// Byte offset for WTC high word.
 const REG_WTC_HI: u8 = 0x04;
-/// Word offset for WTC low word.
+/// Byte offset for WTC low word.
 const REG_WTC_LO: u8 = 0x06;
-/// Word offset for CNTR (control, read/write).
+/// Byte offset for CNTR (control, read/write).
 const REG_CNTR: u8 = 0x0A;
-/// Word offset for ACR high word.
+/// Byte offset for ACR high word.
 const REG_ACR_HI: u8 = 0x0C;
-/// Word offset for ACR low word.
+/// Byte offset for ACR low word.
 const REG_ACR_LO: u8 = 0x0E;
-/// Word offset for ST_DMA (start DMA, write strobe).
+/// Byte offset for ST_DMA (start DMA, write strobe).
 const REG_ST_DMA: u8 = 0x12;
-/// Word offset for FLUSH (flush FIFO, write strobe).
+/// Byte offset for FLUSH (flush FIFO, write strobe).
 const REG_FLUSH: u8 = 0x16;
-/// Word offset for CINT (clear interrupts, write strobe).
+/// Byte offset for CINT (clear interrupts, write strobe).
 const REG_CINT: u8 = 0x1A;
-/// Word offset for ISTR (interrupt status, read-only).
+/// Byte offset for ISTR (interrupt status, read-only).
 const REG_ISTR: u8 = 0x1E;
-/// Word offset for SP_DMA (stop DMA, write strobe).
+/// Byte offset for SP_DMA (stop DMA, write strobe).
 const REG_SP_DMA: u8 = 0x3E;
-/// Word offset for SASR (WD register select write / ASR read).
+/// Byte offset for SASR (WD register select write / ASR read).
 const REG_SASR: u8 = 0x40;
-/// Word offset for SCMD (WD register data read/write).
+/// Byte offset for SCMD (WD register data read/write).
 const REG_SCMD: u8 = 0x42;
-/// Word offset for SASR alternate port.
+/// Byte offset for SASR alternate port.
 const REG_SASR_ALT: u8 = 0x48;
-/// Word offset for SCMD alternate port.
+/// Byte offset for SCMD alternate port.
 const REG_SCMD_ALT: u8 = 0x4A;
 
 // ---------------------------------------------------------------------------
@@ -351,6 +351,12 @@ impl Dmac390537 {
         self.istr()
     }
 
+    /// True when the SDMAC interrupt output is pending and enabled.
+    #[must_use]
+    pub fn irq_pending(&self) -> bool {
+        self.istr() & istr_bits::INT_P != 0
+    }
+
     /// Read a word from an SDMAC register.
     ///
     /// `addr` is the full byte address in `$DD0000–$DDFFFF`. The bus
@@ -358,7 +364,7 @@ impl Dmac390537 {
     /// relevant byte from the returned word.
     #[must_use]
     pub fn read_word(&mut self, addr: u32) -> u16 {
-        let offset = ((addr & 0xFFFF) >> 1) as u8;
+        let offset = (addr & 0x00FF) as u8;
         match offset {
             REG_CNTR => u16::from(self.cntr),
             REG_ISTR => u16::from(self.istr()),
@@ -382,7 +388,7 @@ impl Dmac390537 {
     ///
     /// `addr` is the full byte address. `val` is the 16-bit data word.
     pub fn write_word(&mut self, addr: u32, val: u16) {
-        let offset = ((addr & 0xFFFF) >> 1) as u8;
+        let offset = (addr & 0x00FF) as u8;
         match offset {
             REG_DAWR => self.dawr = val as u8 & 0x03,
             REG_CNTR => {
@@ -459,17 +465,21 @@ impl Default for Dmac390537 {
 mod tests {
     use super::*;
 
+    fn reg_addr(offset: u8) -> u32 {
+        0xDD_0000 | u32::from(offset)
+    }
+
     #[test]
     fn power_on_istr_fifo_empty() {
         let mut d = Dmac390537::new();
-        let istr = d.read_word(0xDD_0000 | (u32::from(REG_ISTR) << 1));
+        let istr = d.read_word(reg_addr(REG_ISTR));
         assert_eq!(istr as u8 & istr_bits::FE_FLG, istr_bits::FE_FLG);
     }
 
     #[test]
     fn cntr_roundtrip() {
         let mut d = Dmac390537::new();
-        let cntr_addr = 0xDD_0000 | (u32::from(REG_CNTR) << 1);
+        let cntr_addr = reg_addr(REG_CNTR);
         d.write_word(cntr_addr, 0x04); // INTEN
         assert_eq!(d.read_word(cntr_addr) as u8, 0x04);
     }
@@ -477,8 +487,8 @@ mod tests {
     #[test]
     fn wd_reset_sets_int_and_status() {
         let mut d = Dmac390537::new();
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
-        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
 
         // Write OWN_ID with EAF bit set.
         d.write_word(sasr_addr, wd_reg::OWN_ID as u16);
@@ -505,8 +515,8 @@ mod tests {
     #[test]
     fn wd_select_times_out() {
         let mut d = Dmac390537::new();
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
-        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
 
         // Set DESTINATION_ID to target 0.
         d.write_word(sasr_addr, wd_reg::DESTINATION_ID as u16);
@@ -529,7 +539,7 @@ mod tests {
     #[test]
     fn cint_clears_latched_flags() {
         let mut d = Dmac390537::new();
-        let cint_addr = 0xDD_0000 | (u32::from(REG_CINT) << 1);
+        let cint_addr = reg_addr(REG_CINT);
 
         d.istr_latched = 0xFF;
         d.write_word(cint_addr, 0);
@@ -539,9 +549,9 @@ mod tests {
     #[test]
     fn istr_reflects_wd_int() {
         let mut d = Dmac390537::new();
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
-        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
-        let istr_addr = 0xDD_0000 | (u32::from(REG_ISTR) << 1);
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
+        let istr_addr = reg_addr(REG_ISTR);
 
         // Trigger a reset to set WD INT.
         d.write_word(sasr_addr, wd_reg::OWN_ID as u16);
@@ -557,10 +567,10 @@ mod tests {
     #[test]
     fn istr_int_p_requires_inten() {
         let mut d = Dmac390537::new();
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
-        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
-        let istr_addr = 0xDD_0000 | (u32::from(REG_ISTR) << 1);
-        let cntr_addr = 0xDD_0000 | (u32::from(REG_CNTR) << 1);
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
+        let istr_addr = reg_addr(REG_ISTR);
+        let cntr_addr = reg_addr(REG_CNTR);
 
         // Trigger WD INT.
         d.write_word(sasr_addr, wd_reg::COMMAND as u16);
@@ -579,8 +589,8 @@ mod tests {
     #[test]
     fn prest_resets_wd() {
         let mut d = Dmac390537::new();
-        let cntr_addr = 0xDD_0000 | (u32::from(REG_CNTR) << 1);
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
+        let cntr_addr = reg_addr(REG_CNTR);
+        let sasr_addr = reg_addr(REG_SASR);
 
         // Set some WD state.
         d.wd.asr = 0xFF;
@@ -598,7 +608,7 @@ mod tests {
     #[test]
     fn byte_read_odd_returns_low_byte() {
         let mut d = Dmac390537::new();
-        let cntr_addr = 0xDD_0000 | (u32::from(REG_CNTR) << 1);
+        let cntr_addr = reg_addr(REG_CNTR);
         d.write_word(cntr_addr, 0x07);
 
         // Odd byte address should return the low byte of the word.
@@ -609,8 +619,8 @@ mod tests {
     #[test]
     fn all_seven_ids_timeout() {
         let mut d = Dmac390537::new();
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
-        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
 
         for target_id in 0..7u8 {
             // Set DESTINATION_ID.
@@ -648,7 +658,7 @@ mod tests {
         assert_eq!(d.istr_latched, 0);
         assert_eq!(d.wd.selected_reg, 0);
         assert_eq!(
-            d.read_word(0xDD_0000 | (u32::from(REG_ISTR) << 1)) as u8,
+            d.read_word(reg_addr(REG_ISTR)) as u8,
             istr_bits::FE_FLG
         );
     }
@@ -656,7 +666,7 @@ mod tests {
     #[test]
     fn dawr_masks_to_low_two_bits() {
         let mut d = Dmac390537::new();
-        let dawr_addr = 0xDD_0000 | (u32::from(REG_DAWR) << 1);
+        let dawr_addr = reg_addr(REG_DAWR);
 
         d.write_word(dawr_addr, 0x00FF);
 
@@ -666,10 +676,10 @@ mod tests {
     #[test]
     fn wtc_and_acr_roundtrip() {
         let mut d = Dmac390537::new();
-        let wtc_hi_addr = 0xDD_0000 | (u32::from(REG_WTC_HI) << 1);
-        let wtc_lo_addr = 0xDD_0000 | (u32::from(REG_WTC_LO) << 1);
-        let acr_hi_addr = 0xDD_0000 | (u32::from(REG_ACR_HI) << 1);
-        let acr_lo_addr = 0xDD_0000 | (u32::from(REG_ACR_LO) << 1);
+        let wtc_hi_addr = reg_addr(REG_WTC_HI);
+        let wtc_lo_addr = reg_addr(REG_WTC_LO);
+        let acr_hi_addr = reg_addr(REG_ACR_HI);
+        let acr_lo_addr = reg_addr(REG_ACR_LO);
 
         d.write_word(wtc_hi_addr, 0x1234);
         d.write_word(wtc_lo_addr, 0x5678);
@@ -685,7 +695,7 @@ mod tests {
     #[test]
     fn byte_access_uses_low_register_byte() {
         let mut d = Dmac390537::new();
-        let cntr_addr = 0xDD_0000 | (u32::from(REG_CNTR) << 1);
+        let cntr_addr = reg_addr(REG_CNTR);
 
         d.write_byte(cntr_addr + 1, cntr_bits::INTEN);
 
@@ -696,10 +706,10 @@ mod tests {
     #[test]
     fn sasr_alt_port_mirrors_primary_and_auto_increments() {
         let mut d = Dmac390537::new();
-        let sasr_alt_addr = 0xDD_0000 | (u32::from(REG_SASR_ALT) << 1);
-        let scmd_alt_addr = 0xDD_0000 | (u32::from(REG_SCMD_ALT) << 1);
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
-        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
+        let sasr_alt_addr = reg_addr(REG_SASR_ALT);
+        let scmd_alt_addr = reg_addr(REG_SCMD_ALT);
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
 
         d.write_word(sasr_alt_addr, wd_reg::OWN_ID as u16);
         d.write_word(scmd_alt_addr, 0x12);
@@ -713,9 +723,9 @@ mod tests {
     #[test]
     fn unknown_command_sets_lci_without_wd_interrupt() {
         let mut d = Dmac390537::new();
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
-        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
-        let istr_addr = 0xDD_0000 | (u32::from(REG_ISTR) << 1);
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
+        let istr_addr = reg_addr(REG_ISTR);
 
         d.write_word(sasr_addr, wd_reg::COMMAND as u16);
         d.write_word(scmd_addr, 0xFF);
@@ -729,10 +739,10 @@ mod tests {
     #[test]
     fn cint_clears_latched_flags_but_not_wd_interrupt_source() {
         let mut d = Dmac390537::new();
-        let sasr_addr = 0xDD_0000 | (u32::from(REG_SASR) << 1);
-        let scmd_addr = 0xDD_0000 | (u32::from(REG_SCMD) << 1);
-        let cint_addr = 0xDD_0000 | (u32::from(REG_CINT) << 1);
-        let istr_addr = 0xDD_0000 | (u32::from(REG_ISTR) << 1);
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
+        let cint_addr = reg_addr(REG_CINT);
+        let istr_addr = reg_addr(REG_ISTR);
 
         d.istr_latched = 0x20;
         d.write_word(sasr_addr, wd_reg::COMMAND as u16);
@@ -750,15 +760,12 @@ mod tests {
     #[test]
     fn public_state_accessors_reflect_register_values() {
         let mut d = Dmac390537::new();
-        d.write_word(0xDD_0000 | (u32::from(REG_DAWR) << 1), 0x0003);
-        d.write_word(0xDD_0000 | (u32::from(REG_WTC_HI) << 1), 0x0012);
-        d.write_word(0xDD_0000 | (u32::from(REG_WTC_LO) << 1), 0x3456);
-        d.write_word(0xDD_0000 | (u32::from(REG_ACR_HI) << 1), 0x89AB);
-        d.write_word(0xDD_0000 | (u32::from(REG_ACR_LO) << 1), 0xCDEF);
-        d.write_word(
-            0xDD_0000 | (u32::from(REG_SASR) << 1),
-            wd_reg::COMMAND as u16,
-        );
+        d.write_word(reg_addr(REG_DAWR), 0x0003);
+        d.write_word(reg_addr(REG_WTC_HI), 0x0012);
+        d.write_word(reg_addr(REG_WTC_LO), 0x3456);
+        d.write_word(reg_addr(REG_ACR_HI), 0x89AB);
+        d.write_word(reg_addr(REG_ACR_LO), 0xCDEF);
+        d.write_word(reg_addr(REG_SASR), wd_reg::COMMAND as u16);
 
         assert_eq!(d.dawr(), 0x03);
         assert_eq!(d.wtc(), 0x0012_3456);
@@ -766,5 +773,35 @@ mod tests {
         assert_eq!(d.wd_selected_reg(), wd_reg::COMMAND);
         assert_eq!(d.cntr(), 0x00);
         assert_eq!(d.current_istr() & istr_bits::FE_FLG, istr_bits::FE_FLG);
+        assert!(!d.irq_pending());
+    }
+
+    #[test]
+    fn real_rom_byte_offsets_hit_the_expected_registers() {
+        let mut d = Dmac390537::new();
+
+        d.write_byte(reg_addr(REG_SASR_ALT) + 1, wd_reg::DESTINATION_ID);
+        assert_eq!(d.wd_selected_reg(), wd_reg::DESTINATION_ID);
+
+        d.write_byte(reg_addr(REG_SCMD) + 1, 0x05);
+        assert_eq!(d.wd.regs[wd_reg::DESTINATION_ID as usize], 0x05);
+
+        d.write_byte(reg_addr(REG_CNTR) + 1, cntr_bits::INTEN);
+        assert_eq!(d.cntr(), cntr_bits::INTEN);
+    }
+
+    #[test]
+    fn irq_pending_tracks_int_p() {
+        let mut d = Dmac390537::new();
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
+        let cntr_addr = reg_addr(REG_CNTR);
+
+        d.write_word(sasr_addr, wd_reg::COMMAND as u16);
+        d.write_word(scmd_addr, wd_cmd::RESET as u16);
+        assert!(!d.irq_pending());
+
+        d.write_word(cntr_addr, cntr_bits::INTEN as u16);
+        assert!(d.irq_pending());
     }
 }
