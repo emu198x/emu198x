@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "e35b2f9c9262",
+  "strategy": "manual-commit",
+  "branch": "claude/serene-maxwell",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "crates/amiga-runner/src/main.rs",
+    "crates/commodore-buster/Cargo.toml",
+    "crates/commodore-buster/src/lib.rs",
+    "crates/commodore-denise-aga/src/lib.rs",
+    "crates/commodore-dmac-390537/src/lib.rs",
+    "crates/commodore-fat-gary/src/lib.rs",
+    "crates/commodore-gary/Cargo.toml",
+    "crates/commodore-gary/src/lib.rs",
+    "crates/commodore-gayle/src/lib.rs",
+    "crates/commodore-ramsey/src/lib.rs",
+    "crates/commodore-super-buster/Cargo.toml",
+    "crates/commodore-super-buster/src/lib.rs",
+    "crates/machine-amiga/Cargo.toml",
+    "crates/machine-amiga/src/config.rs",
+    "crates/machine-amiga/src/lib.rs",
+    "crates/machine-amiga/src/mcp.rs",
+    "crates/machine-amiga/tests/blitter_timing.rs",
+    "crates/machine-amiga/tests/boot_aga.rs",
+    "crates/machine-amiga/tests/boot_ocs.rs",
+    "crates/machine-amiga/tests/common/mod.rs",
+    "crates/machine-amiga/tests/disk_dma.rs",
+    "crates/machine-amiga/tests/privilege_probe.rs",
+    "crates/machine-amiga/tests/sprite_rendering.rs",
+    "crates/motorola-68000/src/cpu.rs",
+    "crates/motorola-68000/src/decode.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e3/5b2f9c9262/0/metadata.json",
+      "transcript": "/e3/5b2f9c9262/0/full.jsonl",
+      "context": "/e3/5b2f9c9262/0/context.md",
+      "content_hash": "/e3/5b2f9c9262/0/content_hash.txt",
+      "prompt": "/e3/5b2f9c9262/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 149,
+    "cache_creation_tokens": 163411,
+    "cache_read_tokens": 17756640,
+    "output_tokens": 50773,
+    "api_call_count": 141
+  }
+}
