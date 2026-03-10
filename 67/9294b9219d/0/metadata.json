@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "679294b9219d",
+  "session_id": "35474d9c-e27f-4bc1-96cd-de72203be66e",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-10T15:14:01.23719Z",
+  "branch": "claude/serene-maxwell",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "crates/commodore-fat-gary/src/lib.rs",
+    "crates/machine-amiga/tests/boot_ocs.rs",
+    "crates/motorola-68000/src/cpu.rs",
+    "crates/motorola-68000/src/decode.rs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "a6be6224-f041-4e11-ac7c-b28ef7a73401",
+  "checkpoint_transcript_start": 1221,
+  "transcript_lines_at_start": 1221,
+  "token_usage": {
+    "input_tokens": 125,
+    "cache_creation_tokens": 178861,
+    "cache_read_tokens": 13479578,
+    "output_tokens": 45693,
+    "api_call_count": 115
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-10T15:14:00.159474Z",
+    "agent_lines": 129,
+    "human_added": 404,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 533,
+    "agent_percentage": 24.202626641651033
+  }
+}

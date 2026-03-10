@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "679294b9219d",
+  "strategy": "manual-commit",
+  "branch": "claude/serene-maxwell",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "crates/commodore-fat-gary/src/lib.rs",
+    "crates/machine-amiga/tests/boot_ocs.rs",
+    "crates/motorola-68000/src/cpu.rs",
+    "crates/motorola-68000/src/decode.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/67/9294b9219d/0/metadata.json",
+      "transcript": "/67/9294b9219d/0/full.jsonl",
+      "context": "/67/9294b9219d/0/context.md",
+      "content_hash": "/67/9294b9219d/0/content_hash.txt",
+      "prompt": "/67/9294b9219d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 125,
+    "cache_creation_tokens": 178861,
+    "cache_read_tokens": 13479578,
+    "output_tokens": 45693,
+    "api_call_count": 115
+  }
+}
