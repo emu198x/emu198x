@@ -29,7 +29,7 @@ use crate::cpu::{
     TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTD_PC_HI,
     TAG_RTD_PC_LO, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR,
     TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO,
-    TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_BE_PUSH_EXTRA, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -2116,6 +2116,8 @@ impl Cpu68000 {
             TAG_EXC_FINISH => {
                 self.regs.pc = self.data;
                 self.next_fetch_addr = self.regs.pc;
+                // Clear group-0 in-progress flag (bus error / address error).
+                self.ae_in_progress = false;
                 // For interrupts, set supervisor + clear trace + update mask.
                 // For group 1/2, supervisor and trace were already set in
                 // begin_group1_exception; don't change interrupt mask.
@@ -2511,8 +2513,8 @@ impl Cpu68000 {
             }
 
             TAG_AE_FETCH_VECTOR => {
-                // Vector 3 = address error, at memory address 0x0C
-                self.addr = 3 * 4;
+                // group0_vector: 2 = bus error, 3 = address error.
+                self.addr = u32::from(self.group0_vector) * 4;
                 self.followup_tag = TAG_AE_FINISH;
                 self.queue_read_ops(Size::Long);
                 self.micro_ops.push(MicroOp::Execute);
@@ -2526,6 +2528,25 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::FetchIRC);
                 self.micro_ops.push(MicroOp::PromoteIRC);
                 self.in_followup = false;
+            }
+
+            // --- Bus error (68010+): push extra format $A words ---
+            TAG_BE_PUSH_EXTRA => {
+                self.be_extra_count -= 1;
+                if self.be_extra_count > 0 {
+                    // More zero words to push.
+                    self.data = 0;
+                    self.micro_ops.push(MicroOp::PushWord);
+                    self.micro_ops.push(MicroOp::Execute);
+                } else {
+                    // All extra words pushed. Now push format/vector word
+                    // via the standard group-1/2 exception path.
+                    // Format $A, vector offset $008 (bus error = vector 2).
+                    self.data = 0xA008;
+                    self.followup_tag = TAG_EXC_STACK_FORMAT;
+                    self.micro_ops.push(MicroOp::PushWord);
+                    self.micro_ops.push(MicroOp::Execute);
+                }
             }
 
             // --- BCD -(An),-(An): source read complete ---

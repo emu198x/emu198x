@@ -169,6 +169,13 @@ impl FatGary {
             return false;
         }
 
+        // Diagnostic / extended ROM: $F00000–$F7FFFF. The A3000 motherboard
+        // decodes this space for an optional second ROM socket or diagnostic
+        // card. Reads return 0 when empty — no bus timeout.
+        if addr >= 0xF0_0000 && addr < 0xF8_0000 {
+            return false;
+        }
+
         // Kickstart ROM: $F80000–$FFFFFF.
         if addr >= 0xF8_0000 {
             return false;
@@ -183,8 +190,8 @@ impl FatGary {
             return false;
         }
 
-        // Everything else ($200000–$BFFFFF minus CIAs, $E00000–$E7FFFF,
-        // $F00000–$F7FFFF) is nonrange.
+        // Everything else ($200000–$BFFFFF minus CIAs, $E00000–$E7FFFF)
+        // is nonrange.
         true
     }
 
@@ -374,13 +381,15 @@ mod tests {
     }
 
     #[test]
-    fn diagnostics_rom_gap_is_nonrange() {
+    fn diagnostics_gap_and_extended_rom() {
         let chip = FatGary::new();
-        // $E00000–$E7FFFF and $F00000–$F7FFFF are nonrange.
+        // $E00000–$E7FFFF is nonrange (unmapped diagnostics gap).
         assert!(chip.is_nonrange(0xE00000));
         assert!(chip.is_nonrange(0xE7FFFF));
-        assert!(chip.is_nonrange(0xF00000));
-        assert!(chip.is_nonrange(0xF7FFFF));
+        // $F00000–$F7FFFF is NOT nonrange — decoded by motherboard for
+        // extended/diagnostic ROM (returns 0 when empty, no bus timeout).
+        assert!(!chip.is_nonrange(0xF00000));
+        assert!(!chip.is_nonrange(0xF7FFFF));
     }
 
     // -- Timeout check tests ------------------------------------------------
@@ -399,7 +408,7 @@ mod tests {
         let chip = FatGary::new(); // TOENB = $80 (enabled)
         assert_eq!(chip.check_timeout(0x200000), TimeoutResult::BusTimeout);
         assert_eq!(chip.check_timeout(0xA00000), TimeoutResult::BusTimeout);
-        assert_eq!(chip.check_timeout(0xF00000), TimeoutResult::BusTimeout);
+        assert_eq!(chip.check_timeout(0xE00000), TimeoutResult::BusTimeout);
     }
 
     #[test]

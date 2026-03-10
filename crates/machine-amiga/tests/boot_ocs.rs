@@ -52,21 +52,22 @@ fn test_boot_kick12_a1000() {
     let Some(rom) = load_rom("../../roms/kick12_33_166_a1000.rom") else {
         return;
     };
-    // A1000 has no trapdoor — KS 1.2 alerts without slow RAM.
-    // No assertions; this is a known-failing config.
-    boot_screenshot_test(
+    // A1000 has no trapdoor, but a front-panel memory expansion was
+    // standard for any machine running KS 1.2. 512KB at $C00000.
+    boot_screenshot_test_expect(
         AmigaConfig {
             model: AmigaModel::A1000,
             chipset: AmigaChipset::Ocs,
             region: AmigaRegion::Pal,
             kickstart: rom,
-            slow_ram_size: 0,
+            slow_ram_size: 512 * 1024,
             ide_disk: None,
             scsi_disk: None,
         },
         "KS 1.2 A1000",
         "boot_kick12_a1000",
         BOOT_TICKS,
+        EXPECT_INSERT_DISK_LORES,
     );
 }
 

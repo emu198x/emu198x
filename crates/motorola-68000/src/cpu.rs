@@ -174,6 +174,11 @@ pub const TAG_AE_FETCH_VECTOR: u8 = 54;
 /// AE: jump to vector address.
 pub const TAG_AE_FINISH: u8 = 55;
 
+/// Bus error (68010+): push extra format $A words (zeroed internal state).
+pub const TAG_BE_PUSH_EXTRA: u8 = 56;
+/// Bus error (68000): fetch vector 2.
+pub const TAG_BE_FETCH_VECTOR_68K: u8 = 57;
+
 /// CPU state machine state.
 pub enum State {
     /// Ready to process the next micro-op.
@@ -392,6 +397,13 @@ pub struct Cpu68000 {
     /// Tuple: (was_supervisor, original_sp).
     pub(crate) sp_undo: Option<(bool, u32)>,
 
+    // --- Bus error / group-0 exception state ---
+    /// Remaining extra words to push for format $A bus error frame (68010+).
+    pub(crate) be_extra_count: u8,
+    /// Vector number for the current group-0 exception (2=bus error, 3=address error).
+    /// Used by TAG_AE_FETCH_VECTOR to read the correct vector.
+    pub(crate) group0_vector: u8,
+
     // --- Instruction cache (68020+) ---
     /// 68030-style direct-mapped instruction cache (16 lines × 8 words).
     pub(crate) icache: ICache,
@@ -455,6 +467,8 @@ impl Cpu68000 {
             program_space_access: false,
             ae_undo_reg: None,
             sp_undo: None,
+            be_extra_count: 0,
+            group0_vector: 3,
             icache: ICache::new(),
         }
     }
@@ -718,7 +732,11 @@ impl Cpu68000 {
                         }
                         BusStatus::Wait => {}
                         BusStatus::Error => {
-                            self.state = State::Halted;
+                            let fault_addr = *addr;
+                            let fault_read = *is_read;
+                            let fault_fc = *fc;
+                            self.state = State::Idle;
+                            self.begin_bus_error(fault_addr, fault_read, fault_fc);
                         }
                     }
                 }
@@ -1154,6 +1172,7 @@ impl Cpu68000 {
     fn begin_address_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
         self.ae_fault_addr = self.adjust_ae_fault_addr(fault_addr, is_read);
         self.ae_in_progress = true;
+        self.group0_vector = 3;
 
         // UNLK: undo the A7 ← An modification so the exception frame
         // gets pushed on the original (valid) stack, not the faulting one.
@@ -1282,6 +1301,70 @@ impl Cpu68000 {
         self.micro_ops.push(MicroOp::PushLongHi);
         self.micro_ops.push(MicroOp::PushLongLo);
         self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Start a bus error exception sequence.
+    ///
+    /// Called when the bus returns `BusStatus::Error` (e.g. Fat Gary timeout).
+    /// On a real 68000/030 this triggers vector 2 instead of halting.
+    ///
+    /// 68000: pushes the same 14-byte group-0 frame as address error.
+    /// 68010+: pushes a format $A (short bus cycle fault) frame.
+    pub(crate) fn begin_bus_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
+        // Double fault during another group-0 exception → halt.
+        if self.ae_in_progress {
+            self.state = State::Halted;
+            return;
+        }
+
+        self.ae_in_progress = true;
+        self.ae_saved_sr = self.regs.sr;
+
+        // Enter supervisor mode and clear trace.
+        self.regs.set_supervisor(true);
+        self.regs.sr &= !0x8000;
+
+        // Abandon current instruction.
+        self.micro_ops.clear();
+        self.in_followup = true;
+
+        if matches!(
+            self.model.timing_class(),
+            crate::model::TimingClass::M68000
+        ) {
+            // 68000: same 14-byte frame as address error, but vector 2.
+            self.group0_vector = 2;
+            self.ae_fault_addr = fault_addr;
+            self.ae_frame_ir = self.ir;
+            self.ae_access_info = (self.ir & 0xFFE0)
+                | (if is_read { 0x10 } else { 0 })
+                | u16::from(fc.bits() & 0x07);
+
+            // Reuse the AE tag chain — group0_vector selects vector 2.
+            self.data = self.instr_start_pc;
+            self.followup_tag = TAG_AE_PUSH_SR;
+            self.micro_ops.push(MicroOp::PushLongHi);
+            self.micro_ops.push(MicroOp::PushLongLo);
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            // 68010+: format $A (short bus cycle fault) frame.
+            // Layout (low→high): SR, PC, format/vector, 12 extra words.
+            // Push in reverse order (stack grows down).
+
+            // Start by pushing the 12 extra words (zeroed internal state).
+            self.be_extra_count = 12;
+            self.data = 0;
+            self.followup_tag = TAG_BE_PUSH_EXTRA;
+            self.micro_ops.push(MicroOp::PushWord);
+            self.micro_ops.push(MicroOp::Execute);
+
+            // After all extra words, TAG_BE_PUSH_EXTRA chains to
+            // TAG_EXC_STACK_FORMAT which pushes format/vector, then
+            // the standard path pushes PC and SR and reads the vector.
+            // We stash the saved PC in src_val for TAG_EXC_STACK_FORMAT.
+            self.src_val = self.instr_start_pc;
+            self.exc_vector = Some(2); // bus error
+        }
     }
 
     /// Compute the frame PC for an address error exception.
