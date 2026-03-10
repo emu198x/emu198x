@@ -1,0 +1,13 @@
+[package]
+name = "commodore-super-buster"
+description = "Commodore Super Buster — Zorro III bus controller for A3000/A4000"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+commodore-buster = { path = "../commodore-buster" }
+
+[lib]
+name = "commodore_super_buster"
+path = "src/lib.rs"

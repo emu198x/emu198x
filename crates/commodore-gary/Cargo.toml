@@ -1,0 +1,10 @@
+[package]
+name = "commodore-gary"
+description = "Commodore Gary address decoder for Amiga systems"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "commodore_gary"
+path = "src/lib.rs"

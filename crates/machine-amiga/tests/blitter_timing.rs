@@ -308,6 +308,9 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
         color_pending: &mut amiga.color_pending,
         ramsey: &mut amiga.ramsey,
         fat_gary: &mut amiga.fat_gary,
+            gary: &amiga.gary,
+            buster: &mut amiga.buster,
+            super_buster: &mut amiga.super_buster,
     };
     M68kBus::poll_cycle(
         &mut bus,
@@ -342,6 +345,9 @@ fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
         color_pending: &mut amiga.color_pending,
         ramsey: &mut amiga.ramsey,
         fat_gary: &mut amiga.fat_gary,
+            gary: &amiga.gary,
+            buster: &mut amiga.buster,
+            super_buster: &mut amiga.super_buster,
     };
     M68kBus::poll_ipl(&mut bus)
 }
@@ -369,6 +375,9 @@ fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
         color_pending: &mut amiga.color_pending,
         ramsey: &mut amiga.ramsey,
         fat_gary: &mut amiga.fat_gary,
+            gary: &amiga.gary,
+            buster: &mut amiga.buster,
+            super_buster: &mut amiga.super_buster,
     };
     M68kBus::poll_cycle(
         &mut bus,

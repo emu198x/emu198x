@@ -4,9 +4,11 @@
 //! bus interface controller plus DMA transfer logic. Fat Gary generates
 //! the chip select.
 //!
-//! This is a stub implementation: enough for KS 3.x `scsi.device` to
-//! initialise, scan all 7 SCSI IDs, time out on each, and proceed to
-//! floppy boot. No actual SCSI transfers are supported.
+//! Supports zero or more SCSI disk targets (IDs 0–6). Selection of an
+//! absent target produces an immediate timeout; selection of a present
+//! target executes the SCSI command and fills the internal DMA buffer.
+//! The machine-level bus wrapper transfers data between the DMAC buffer
+//! and system memory using the ACR/WTC registers.
 
 // ---------------------------------------------------------------------------
 // WD33C93 registers (indirect access via SASR/SCMD)
@@ -18,6 +20,24 @@ mod wd_reg {
     pub const OWN_ID: u8 = 0x00;
     pub const CONTROL: u8 = 0x01;
     pub const TIMEOUT_PERIOD: u8 = 0x02;
+    pub const TOTAL_SECTORS: u8 = 0x03;
+    pub const TOTAL_HEADS: u8 = 0x04;
+    pub const TOTAL_CYL_HI: u8 = 0x05;
+    pub const TOTAL_CYL_LO: u8 = 0x06;
+    pub const LOG_ADDR_HI: u8 = 0x07;
+    pub const LOG_ADDR_2: u8 = 0x08;
+    pub const LOG_ADDR_3: u8 = 0x09;
+    pub const LOG_ADDR_LO: u8 = 0x0A;
+    pub const SECTOR_NUMBER: u8 = 0x0B;
+    pub const HEAD_NUMBER: u8 = 0x0C;
+    pub const CYL_HI: u8 = 0x0D;
+    pub const CYL_LO: u8 = 0x0E;
+    pub const TARGET_LUN: u8 = 0x0F;
+    pub const COMMAND_PHASE: u8 = 0x10;
+    pub const SYNC_TRANSFER: u8 = 0x11;
+    pub const TRANSFER_COUNT_HI: u8 = 0x12;
+    pub const TRANSFER_COUNT_MID: u8 = 0x13;
+    pub const TRANSFER_COUNT_LO: u8 = 0x14;
     pub const DESTINATION_ID: u8 = 0x15;
     pub const SOURCE_ID: u8 = 0x16;
     pub const SCSI_STATUS: u8 = 0x17;
@@ -44,6 +64,13 @@ mod wd_csr {
     pub const RESET_AF: u8 = 0x01;
     /// Selection timed out — no target responded.
     pub const TIMEOUT: u8 = 0x42;
+    /// Transfer completed successfully (Select-and-Transfer).
+    pub const XFER_DONE: u8 = 0x16;
+    /// Selection completed, command phase (Select without Transfer).
+    pub const SEL_COMPLETE: u8 = 0x11;
+    /// Abort completed.
+    #[allow(dead_code)]
+    pub const SEL_ABORT: u8 = 0x22;
 }
 
 /// WD33C93 Auxiliary Status Register (ASR) bits.
@@ -55,6 +82,22 @@ mod wd_asr {
     pub const BSY: u8 = 0x20;
     /// Command in progress.
     pub const CIP: u8 = 0x10;
+}
+
+// ---------------------------------------------------------------------------
+// SCSI command opcodes
+// ---------------------------------------------------------------------------
+
+mod scsi_cmd {
+    pub const TEST_UNIT_READY: u8 = 0x00;
+    pub const REQUEST_SENSE: u8 = 0x03;
+    pub const READ_6: u8 = 0x08;
+    pub const WRITE_6: u8 = 0x0A;
+    pub const INQUIRY: u8 = 0x12;
+    pub const MODE_SENSE_6: u8 = 0x1A;
+    pub const READ_CAPACITY_10: u8 = 0x25;
+    pub const READ_10: u8 = 0x28;
+    pub const WRITE_10: u8 = 0x2A;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,23 +163,90 @@ const REG_SASR_ALT: u8 = 0x48;
 const REG_SCMD_ALT: u8 = 0x4A;
 
 // ---------------------------------------------------------------------------
+// SCSI target
+// ---------------------------------------------------------------------------
+
+/// A SCSI hard disk target attached to the WD33C93 bus.
+#[derive(Debug, Clone)]
+struct ScsiTarget {
+    /// Raw disk image (LBA-ordered, 512 bytes per sector).
+    disk_image: Vec<u8>,
+    /// Total number of 512-byte sectors.
+    total_sectors: u32,
+    /// Sense key from the last error (0 = no error).
+    sense_key: u8,
+    /// Additional sense code.
+    sense_asc: u8,
+    /// Additional sense code qualifier.
+    sense_ascq: u8,
+}
+
+impl ScsiTarget {
+    fn new(disk_image: Vec<u8>) -> Self {
+        let total_sectors = (disk_image.len() / 512) as u32;
+        Self {
+            disk_image,
+            total_sectors,
+            sense_key: 0,
+            sense_asc: 0,
+            sense_ascq: 0,
+        }
+    }
+
+    /// Clear any pending sense data (no error).
+    fn clear_sense(&mut self) {
+        self.sense_key = 0;
+        self.sense_asc = 0;
+        self.sense_ascq = 0;
+    }
+
+    /// Set an ILLEGAL REQUEST sense for invalid commands.
+    fn set_illegal_request(&mut self) {
+        self.sense_key = 0x05; // ILLEGAL REQUEST
+        self.sense_asc = 0x20; // Invalid command operation code
+        self.sense_ascq = 0x00;
+    }
+
+    /// Set a MEDIUM ERROR for out-of-range LBA.
+    fn set_lba_out_of_range(&mut self) {
+        self.sense_key = 0x05; // ILLEGAL REQUEST
+        self.sense_asc = 0x21; // LBA out of range
+        self.sense_ascq = 0x00;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // WD33C93 state
 // ---------------------------------------------------------------------------
 
-/// Minimal WD33C93 SCSI controller state.
+/// WD33C93 SCSI controller state with optional target support.
 ///
-/// Only enough registers are tracked for KS init to reset the chip,
-/// scan all target IDs, observe timeouts, and move on.
+/// Tracks the indirect register file, auxiliary status, and up to 7
+/// SCSI targets (IDs 0–6; ID 7 is reserved for the initiator).
 #[derive(Debug, Clone)]
 struct Wd33c93 {
     /// Currently selected indirect register address.
     selected_reg: u8,
     /// Register file ($00–$1F). Only a handful are functionally
-    /// significant for the stub; the rest are pure storage.
+    /// significant; the rest are pure storage.
     regs: [u8; 32],
     /// Auxiliary Status Register (directly readable, not in the
     /// indirect register file proper).
     asr: u8,
+    /// SCSI targets (IDs 0–6). ID 7 is the initiator.
+    targets: [Option<ScsiTarget>; 7],
+    /// Data buffer for DMA transfers (filled by SCSI commands).
+    dma_buffer: Vec<u8>,
+    /// Current read position in the DMA buffer.
+    dma_read_pos: usize,
+    /// Current write position in the DMA buffer.
+    dma_write_pos: usize,
+    /// True when a DMA transfer is pending (data in buffer).
+    dma_pending: bool,
+    /// Direction of the pending DMA: true = target→initiator (read).
+    dma_direction_read: bool,
+    /// SCSI CDB buffer for SEL_ATN_XFER / SEL_XFER commands.
+    cdb: [u8; 12],
 }
 
 impl Wd33c93 {
@@ -145,6 +255,13 @@ impl Wd33c93 {
             selected_reg: 0,
             regs: [0; 32],
             asr: 0,
+            targets: [const { None }; 7],
+            dma_buffer: Vec::new(),
+            dma_read_pos: 0,
+            dma_write_pos: 0,
+            dma_pending: false,
+            dma_direction_read: true,
+            cdb: [0; 12],
         }
     }
 
@@ -153,6 +270,10 @@ impl Wd33c93 {
         self.regs = [0; 32];
         self.asr = 0;
         self.selected_reg = 0;
+        self.dma_buffer.clear();
+        self.dma_read_pos = 0;
+        self.dma_write_pos = 0;
+        self.dma_pending = false;
     }
 
     /// Read the Auxiliary Status Register (ASR). Does not clear INT.
@@ -204,20 +325,297 @@ impl Wd33c93 {
                 self.regs[wd_reg::SCSI_STATUS as usize] =
                     if eaf { wd_csr::RESET_AF } else { wd_csr::RESET };
                 self.asr = wd_asr::INT;
+                self.dma_buffer.clear();
+                self.dma_pending = false;
             }
             wd_cmd::ABORT => {
                 self.regs[wd_reg::SCSI_STATUS as usize] = 0x22; // CSR_SEL_ABORT
                 self.asr = wd_asr::INT;
+                self.dma_pending = false;
             }
-            wd_cmd::SEL_ATN | wd_cmd::SEL | wd_cmd::SEL_ATN_XFER | wd_cmd::SEL_XFER => {
-                // No SCSI targets exist — immediate timeout.
-                self.regs[wd_reg::SCSI_STATUS as usize] = wd_csr::TIMEOUT;
+            wd_cmd::SEL_ATN | wd_cmd::SEL => {
+                let target_id = self.regs[wd_reg::DESTINATION_ID as usize] & 0x07;
+                if target_id < 7 && self.targets[target_id as usize].is_some() {
+                    // Target present — selection succeeds.
+                    self.regs[wd_reg::SCSI_STATUS as usize] = wd_csr::SEL_COMPLETE;
+                } else {
+                    // No target — immediate timeout.
+                    self.regs[wd_reg::SCSI_STATUS as usize] = wd_csr::TIMEOUT;
+                }
+                self.asr = wd_asr::INT;
+            }
+            wd_cmd::SEL_ATN_XFER | wd_cmd::SEL_XFER => {
+                let target_id = self.regs[wd_reg::DESTINATION_ID as usize] & 0x07;
+                if target_id < 7 && self.targets[target_id as usize].is_some() {
+                    // Build CDB from the WD register file.
+                    self.build_cdb();
+                    let (status, direction_read) =
+                        self.execute_scsi_command(target_id as usize);
+                    self.dma_direction_read = direction_read;
+                    self.dma_read_pos = 0;
+                    self.dma_write_pos = 0;
+                    self.dma_pending = !self.dma_buffer.is_empty();
+                    self.regs[wd_reg::SCSI_STATUS as usize] = status;
+                } else {
+                    self.regs[wd_reg::SCSI_STATUS as usize] = wd_csr::TIMEOUT;
+                }
                 self.asr = wd_asr::INT;
             }
             _ => {
                 // Unknown or unimplemented command — set LCI (Last
                 // Command Ignored) in ASR. KS handles this gracefully.
                 self.asr |= 0x40; // LCI bit
+            }
+        }
+    }
+
+    /// Build a SCSI CDB from the WD33C93 register file.
+    ///
+    /// The CDB length comes from the command group (high 3 bits of
+    /// the opcode in the COMMAND_PHASE or TARGET_LUN register area).
+    /// For Select-and-Transfer, the WD33C93 takes CDB bytes from
+    /// registers $0F–$1B (TARGET_LUN through TRANSFER_COUNT).
+    fn build_cdb(&mut self) {
+        // CDB bytes are stored starting at TARGET_LUN ($0F).
+        // Byte 0 = TARGET_LUN, Byte 1 = CDB opcode, etc.
+        // Actually for WD33C93 SEL_ATN_XFER, the CDB comes from
+        // the CDB register area starting at $03 (TOTAL_SECTORS).
+        // The opcode is in the COMMAND_PHASE byte ($10).
+        //
+        // In practice, KS writes the CDB starting at register $03.
+        // CDB[0] = reg[$03], CDB[1] = reg[$04], etc.
+        for i in 0..12 {
+            let reg_idx = (wd_reg::TOTAL_SECTORS as usize) + i;
+            if reg_idx < 32 {
+                self.cdb[i] = self.regs[reg_idx];
+            }
+        }
+    }
+
+    /// Execute a SCSI command for the given target. Returns the
+    /// WD33C93 status code and whether the DMA direction is read
+    /// (target→initiator).
+    fn execute_scsi_command(&mut self, target_id: usize) -> (u8, bool) {
+        let opcode = self.cdb[0];
+        match opcode {
+            scsi_cmd::TEST_UNIT_READY => {
+                if let Some(target) = &mut self.targets[target_id] {
+                    target.clear_sense();
+                }
+                self.dma_buffer.clear();
+                (wd_csr::XFER_DONE, true)
+            }
+            scsi_cmd::REQUEST_SENSE => {
+                self.dma_buffer.clear();
+                let alloc_len = self.cdb[4] as usize;
+                let len = alloc_len.min(18);
+                self.dma_buffer.resize(len, 0);
+                if let Some(target) = &self.targets[target_id] {
+                    if len > 0 {
+                        self.dma_buffer[0] = 0x70; // Current errors
+                    }
+                    if len > 2 {
+                        self.dma_buffer[2] = target.sense_key;
+                    }
+                    if len > 7 {
+                        self.dma_buffer[7] = 10; // Additional sense length
+                    }
+                    if len > 12 {
+                        self.dma_buffer[12] = target.sense_asc;
+                    }
+                    if len > 13 {
+                        self.dma_buffer[13] = target.sense_ascq;
+                    }
+                }
+                if let Some(target) = &mut self.targets[target_id] {
+                    target.clear_sense();
+                }
+                (wd_csr::XFER_DONE, true)
+            }
+            scsi_cmd::INQUIRY => {
+                let alloc_len = self.cdb[4] as usize;
+                let len = alloc_len.min(96);
+                self.dma_buffer.clear();
+                self.dma_buffer.resize(len, 0);
+                if len > 0 {
+                    self.dma_buffer[0] = 0x00; // Direct-access device (disk)
+                }
+                if len > 1 {
+                    self.dma_buffer[1] = 0x00; // Not removable
+                }
+                if len > 2 {
+                    self.dma_buffer[2] = 0x02; // SCSI-2
+                }
+                if len > 3 {
+                    self.dma_buffer[3] = 0x02; // Response data format
+                }
+                if len > 4 {
+                    self.dma_buffer[4] = 91; // Additional length
+                }
+                // Vendor (bytes 8-15): "EMU198X "
+                let vendor = b"EMU198X ";
+                for (i, &b) in vendor.iter().enumerate() {
+                    if 8 + i < len {
+                        self.dma_buffer[8 + i] = b;
+                    }
+                }
+                // Product (bytes 16-31): "SCSI DISK       "
+                let product = b"SCSI DISK       ";
+                for (i, &b) in product.iter().enumerate() {
+                    if 16 + i < len {
+                        self.dma_buffer[16 + i] = b;
+                    }
+                }
+                // Revision (bytes 32-35): "1.0 "
+                let revision = b"1.0 ";
+                for (i, &b) in revision.iter().enumerate() {
+                    if 32 + i < len {
+                        self.dma_buffer[32 + i] = b;
+                    }
+                }
+                (wd_csr::XFER_DONE, true)
+            }
+            scsi_cmd::MODE_SENSE_6 => {
+                let alloc_len = self.cdb[4] as usize;
+                let len = alloc_len.min(12);
+                self.dma_buffer.clear();
+                self.dma_buffer.resize(len, 0);
+                // Minimal mode parameter header (4 bytes).
+                if len > 0 {
+                    self.dma_buffer[0] = (len.saturating_sub(1)) as u8; // Mode data length
+                }
+                if len > 1 {
+                    self.dma_buffer[1] = 0x00; // Medium type
+                }
+                if len > 2 {
+                    self.dma_buffer[2] = 0x00; // Device-specific parameter
+                }
+                if len > 3 {
+                    self.dma_buffer[3] = 0x00; // Block descriptor length
+                }
+                (wd_csr::XFER_DONE, true)
+            }
+            scsi_cmd::READ_CAPACITY_10 => {
+                self.dma_buffer.clear();
+                self.dma_buffer.resize(8, 0);
+                if let Some(target) = &self.targets[target_id] {
+                    // Last LBA (total_sectors - 1).
+                    let last_lba = target.total_sectors.saturating_sub(1);
+                    self.dma_buffer[0] = (last_lba >> 24) as u8;
+                    self.dma_buffer[1] = (last_lba >> 16) as u8;
+                    self.dma_buffer[2] = (last_lba >> 8) as u8;
+                    self.dma_buffer[3] = last_lba as u8;
+                    // Block size = 512.
+                    self.dma_buffer[4] = 0x00;
+                    self.dma_buffer[5] = 0x00;
+                    self.dma_buffer[6] = 0x02;
+                    self.dma_buffer[7] = 0x00;
+                }
+                (wd_csr::XFER_DONE, true)
+            }
+            scsi_cmd::READ_6 => {
+                let lba = (u32::from(self.cdb[1] & 0x1F) << 16)
+                    | (u32::from(self.cdb[2]) << 8)
+                    | u32::from(self.cdb[3]);
+                let count = if self.cdb[4] == 0 { 256u32 } else { u32::from(self.cdb[4]) };
+                self.do_scsi_read(target_id, lba, count)
+            }
+            scsi_cmd::READ_10 => {
+                let lba = (u32::from(self.cdb[2]) << 24)
+                    | (u32::from(self.cdb[3]) << 16)
+                    | (u32::from(self.cdb[4]) << 8)
+                    | u32::from(self.cdb[5]);
+                let count = (u32::from(self.cdb[7]) << 8) | u32::from(self.cdb[8]);
+                self.do_scsi_read(target_id, lba, count)
+            }
+            scsi_cmd::WRITE_6 => {
+                let lba = (u32::from(self.cdb[1] & 0x1F) << 16)
+                    | (u32::from(self.cdb[2]) << 8)
+                    | u32::from(self.cdb[3]);
+                let count = if self.cdb[4] == 0 { 256u32 } else { u32::from(self.cdb[4]) };
+                self.do_scsi_write_prepare(target_id, lba, count)
+            }
+            scsi_cmd::WRITE_10 => {
+                let lba = (u32::from(self.cdb[2]) << 24)
+                    | (u32::from(self.cdb[3]) << 16)
+                    | (u32::from(self.cdb[4]) << 8)
+                    | u32::from(self.cdb[5]);
+                let count = (u32::from(self.cdb[7]) << 8) | u32::from(self.cdb[8]);
+                self.do_scsi_write_prepare(target_id, lba, count)
+            }
+            _ => {
+                // Unknown SCSI command — set CHECK CONDITION.
+                if let Some(target) = &mut self.targets[target_id] {
+                    target.set_illegal_request();
+                }
+                self.dma_buffer.clear();
+                (wd_csr::XFER_DONE, true)
+            }
+        }
+    }
+
+    /// Execute a SCSI READ command: copy sectors from disk to DMA buffer.
+    fn do_scsi_read(&mut self, target_id: usize, lba: u32, count: u32) -> (u8, bool) {
+        self.dma_buffer.clear();
+        let target = match &mut self.targets[target_id] {
+            Some(t) => t,
+            None => return (wd_csr::TIMEOUT, true),
+        };
+        if lba + count > target.total_sectors {
+            target.set_lba_out_of_range();
+            return (wd_csr::XFER_DONE, true);
+        }
+        let byte_offset = lba as usize * 512;
+        let byte_len = count as usize * 512;
+        self.dma_buffer
+            .extend_from_slice(&target.disk_image[byte_offset..byte_offset + byte_len]);
+        target.clear_sense();
+        (wd_csr::XFER_DONE, true)
+    }
+
+    /// Prepare for a SCSI WRITE command: allocate the DMA buffer for
+    /// incoming data. The actual write happens when `commit_write` is
+    /// called after the DMA transfer completes.
+    fn do_scsi_write_prepare(
+        &mut self,
+        target_id: usize,
+        lba: u32,
+        count: u32,
+    ) -> (u8, bool) {
+        let target = match &self.targets[target_id] {
+            Some(t) => t,
+            None => return (wd_csr::TIMEOUT, false),
+        };
+        if lba + count > target.total_sectors {
+            if let Some(t) = &mut self.targets[target_id] {
+                t.set_lba_out_of_range();
+            }
+            return (wd_csr::XFER_DONE, false);
+        }
+        let byte_len = count as usize * 512;
+        self.dma_buffer.clear();
+        self.dma_buffer.resize(byte_len, 0);
+        // Store LBA in the register file for commit_write to use.
+        self.regs[wd_reg::LOG_ADDR_HI as usize] = (lba >> 24) as u8;
+        self.regs[wd_reg::LOG_ADDR_2 as usize] = (lba >> 16) as u8;
+        self.regs[wd_reg::LOG_ADDR_3 as usize] = (lba >> 8) as u8;
+        self.regs[wd_reg::LOG_ADDR_LO as usize] = lba as u8;
+        (wd_csr::XFER_DONE, false) // false = initiator→target (write)
+    }
+
+    /// Commit buffered write data to the target's disk image.
+    fn commit_write(&mut self, target_id: usize) {
+        let lba = (u32::from(self.regs[wd_reg::LOG_ADDR_HI as usize]) << 24)
+            | (u32::from(self.regs[wd_reg::LOG_ADDR_2 as usize]) << 16)
+            | (u32::from(self.regs[wd_reg::LOG_ADDR_3 as usize]) << 8)
+            | u32::from(self.regs[wd_reg::LOG_ADDR_LO as usize]);
+        let byte_offset = lba as usize * 512;
+        let byte_len = self.dma_buffer.len();
+        if let Some(target) = &mut self.targets[target_id] {
+            if byte_offset + byte_len <= target.disk_image.len() {
+                target.disk_image[byte_offset..byte_offset + byte_len]
+                    .copy_from_slice(&self.dma_buffer);
+                target.clear_sense();
             }
         }
     }
@@ -235,8 +633,7 @@ impl Wd33c93 {
 /// Commodore 390537 SDMAC state.
 ///
 /// Provides the WD33C93 SCSI interface and DMA registers at
-/// `$DD0000–$DDFFFF`. This stub is sufficient for KS 3.x to
-/// complete its SCSI probe (finding no devices) and continue booting.
+/// `$DD0000–$DDFFFF`. Supports disk targets for SCSI boot.
 #[derive(Debug, Clone)]
 pub struct Dmac390537 {
     wd: Wd33c93,
@@ -250,10 +647,12 @@ pub struct Dmac390537 {
     acr: u32,
     /// Latched interrupt flags (cleared by CINT strobe).
     istr_latched: u8,
+    /// DMA active flag (set by ST_DMA strobe).
+    dma_active: bool,
 }
 
 impl Dmac390537 {
-    /// Create a new SDMAC in power-on state.
+    /// Create a new SDMAC in power-on state (no SCSI targets).
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -263,7 +662,30 @@ impl Dmac390537 {
             wtc: 0,
             acr: 0,
             istr_latched: 0,
+            dma_active: false,
         }
+    }
+
+    /// Create a new SDMAC with a disk image attached at the given SCSI ID.
+    #[must_use]
+    pub fn with_disk(target_id: u8, image: Vec<u8>) -> Self {
+        let mut dmac = Self::new();
+        dmac.attach_disk(target_id, image);
+        dmac
+    }
+
+    /// Attach a disk image to the given SCSI target ID (0–6).
+    pub fn attach_disk(&mut self, target_id: u8, image: Vec<u8>) {
+        if target_id < 7 {
+            self.wd.targets[target_id as usize] = Some(ScsiTarget::new(image));
+        }
+    }
+
+    /// True when a SCSI target is present at the given ID.
+    #[must_use]
+    pub fn target_present(&self, target_id: u8) -> bool {
+        target_id < 7
+            && self.wd.targets[target_id as usize].is_some()
     }
 
     /// Reset all state to power-on defaults.
@@ -274,6 +696,7 @@ impl Dmac390537 {
         self.wtc = 0;
         self.acr = 0;
         self.istr_latched = 0;
+        self.dma_active = false;
     }
 
     /// Current CNTR register value.
@@ -318,14 +741,77 @@ impl Dmac390537 {
         self.wd.regs[wd_reg::SCSI_STATUS as usize]
     }
 
+    /// True when DMA is active (ST_DMA strobe received, SP_DMA not yet).
+    #[must_use]
+    pub const fn dma_active(&self) -> bool {
+        self.dma_active
+    }
+
+    /// True when a DMA transfer has pending data.
+    #[must_use]
+    pub fn dma_pending(&self) -> bool {
+        self.wd.dma_pending
+    }
+
+    /// True when the pending DMA direction is read (target→initiator).
+    #[must_use]
+    pub fn dma_direction_read(&self) -> bool {
+        self.wd.dma_direction_read
+    }
+
+    /// Bytes remaining in the DMA buffer.
+    #[must_use]
+    pub fn dma_bytes_remaining(&self) -> usize {
+        if self.wd.dma_direction_read {
+            self.wd.dma_buffer.len().saturating_sub(self.wd.dma_read_pos)
+        } else {
+            self.wd.dma_buffer.len().saturating_sub(self.wd.dma_write_pos)
+        }
+    }
+
+    /// Read a byte from the DMA buffer (for target→initiator transfers).
+    /// Returns 0 if the buffer is exhausted.
+    #[must_use]
+    pub fn dma_read_byte(&mut self) -> u8 {
+        if self.wd.dma_read_pos < self.wd.dma_buffer.len() {
+            let b = self.wd.dma_buffer[self.wd.dma_read_pos];
+            self.wd.dma_read_pos += 1;
+            if self.wd.dma_read_pos >= self.wd.dma_buffer.len() {
+                self.wd.dma_pending = false;
+            }
+            b
+        } else {
+            0
+        }
+    }
+
+    /// Write a byte to the DMA buffer (for initiator→target transfers).
+    pub fn dma_write_byte(&mut self, val: u8) {
+        if self.wd.dma_write_pos < self.wd.dma_buffer.len() {
+            self.wd.dma_buffer[self.wd.dma_write_pos] = val;
+            self.wd.dma_write_pos += 1;
+            if self.wd.dma_write_pos >= self.wd.dma_buffer.len() {
+                // Buffer full — commit the write to disk.
+                let target_id =
+                    (self.wd.regs[wd_reg::DESTINATION_ID as usize] & 0x07) as usize;
+                if target_id < 7 {
+                    self.wd.commit_write(target_id);
+                }
+                self.wd.dma_pending = false;
+            }
+        }
+    }
+
     /// Compute the current ISTR value.
     ///
     /// ISTR is read-only and reflects live state plus latched flags.
     fn istr(&self) -> u8 {
         let mut val = self.istr_latched;
 
-        // FE_FLG: FIFO is always empty (no DMA in stub).
-        val |= istr_bits::FE_FLG;
+        // FE_FLG: FIFO empty when no DMA data pending.
+        if !self.wd.dma_pending || self.wd.dma_read_pos >= self.wd.dma_buffer.len() {
+            val |= istr_bits::FE_FLG;
+        }
 
         // INTS follows the WD33C93 interrupt pin.
         if self.wd.int_active() {
@@ -411,8 +897,15 @@ impl Dmac390537 {
             REG_ACR_LO => {
                 self.acr = (self.acr & 0xFFFF_0000) | u32::from(val);
             }
-            REG_ST_DMA | REG_FLUSH | REG_SP_DMA => {
-                // Strobe registers: no-op in stub.
+            REG_ST_DMA => {
+                self.dma_active = true;
+            }
+            REG_FLUSH => {
+                // Flush FIFO — clear DMA buffer state.
+                self.wd.dma_read_pos = 0;
+            }
+            REG_SP_DMA => {
+                self.dma_active = false;
             }
             REG_CINT => {
                 // Clear all latched interrupt flags.
@@ -469,6 +962,39 @@ mod tests {
     fn reg_addr(offset: u8) -> u32 {
         0xDD_0000 | u32::from(offset)
     }
+
+    /// Helper: create a DMAC with a 1 MB disk at SCSI ID 0.
+    fn dmac_with_disk() -> Dmac390537 {
+        let mut image = vec![0u8; 1024 * 1024]; // 2048 sectors
+        // Put a recognisable pattern in sector 0.
+        image[0] = 0xDE;
+        image[1] = 0xAD;
+        image[510] = 0xBE;
+        image[511] = 0xEF;
+        Dmac390537::with_disk(0, image)
+    }
+
+    /// Helper: issue a SCSI command via SEL_ATN_XFER.
+    fn issue_scsi_command(d: &mut Dmac390537, target_id: u8, cdb: &[u8]) {
+        let sasr = reg_addr(REG_SASR);
+        let scmd = reg_addr(REG_SCMD);
+
+        // Set DESTINATION_ID.
+        d.write_word(sasr, wd_reg::DESTINATION_ID as u16);
+        d.write_word(scmd, u16::from(target_id));
+
+        // Write CDB starting at TOTAL_SECTORS ($03).
+        d.write_word(sasr, wd_reg::TOTAL_SECTORS as u16);
+        for &b in cdb {
+            d.write_word(scmd, u16::from(b));
+        }
+
+        // Issue SEL_ATN_XFER.
+        d.write_word(sasr, wd_reg::COMMAND as u16);
+        d.write_word(scmd, wd_cmd::SEL_ATN_XFER as u16);
+    }
+
+    // -- Original stub tests (preserved) ------------------------------------
 
     #[test]
     fn power_on_istr_fifo_empty() {
@@ -821,5 +1347,277 @@ mod tests {
 
         d.write_word(cntr_addr, cntr_bits::INTEN as u16);
         assert!(d.irq_pending());
+    }
+
+    // -- New SCSI target tests ----------------------------------------------
+
+    #[test]
+    fn with_disk_makes_target_present() {
+        let d = dmac_with_disk();
+        assert!(d.target_present(0));
+        assert!(!d.target_present(1));
+        assert!(!d.target_present(6));
+    }
+
+    #[test]
+    fn select_present_target_succeeds() {
+        let mut d = dmac_with_disk();
+        let sasr = reg_addr(REG_SASR);
+        let scmd = reg_addr(REG_SCMD);
+
+        d.write_word(sasr, wd_reg::DESTINATION_ID as u16);
+        d.write_word(scmd, 0x00); // target 0
+
+        d.write_word(sasr, wd_reg::COMMAND as u16);
+        d.write_word(scmd, wd_cmd::SEL_ATN as u16);
+
+        d.write_word(sasr, wd_reg::SCSI_STATUS as u16);
+        let status = d.read_word(scmd) as u8;
+        assert_eq!(status, wd_csr::SEL_COMPLETE);
+    }
+
+    #[test]
+    fn select_absent_target_still_times_out() {
+        let mut d = dmac_with_disk();
+        let sasr = reg_addr(REG_SASR);
+        let scmd = reg_addr(REG_SCMD);
+
+        d.write_word(sasr, wd_reg::DESTINATION_ID as u16);
+        d.write_word(scmd, 0x03); // target 3 (absent)
+
+        d.write_word(sasr, wd_reg::COMMAND as u16);
+        d.write_word(scmd, wd_cmd::SEL_ATN_XFER as u16);
+
+        d.write_word(sasr, wd_reg::SCSI_STATUS as u16);
+        let status = d.read_word(scmd) as u8;
+        assert_eq!(status, wd_csr::TIMEOUT);
+    }
+
+    #[test]
+    fn inquiry_returns_disk_type() {
+        let mut d = dmac_with_disk();
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::INQUIRY, 0, 0, 0, 96, 0]);
+
+        assert!(d.dma_pending());
+        assert!(d.dma_direction_read());
+
+        let peripheral = d.dma_read_byte();
+        assert_eq!(peripheral & 0x1F, 0x00, "Should be direct-access device");
+
+        // Read remaining bytes.
+        let mut buf = vec![peripheral];
+        for _ in 1..36 {
+            buf.push(d.dma_read_byte());
+        }
+        // Vendor at bytes 8-15.
+        let vendor = std::str::from_utf8(&buf[8..16]).unwrap_or("");
+        assert_eq!(vendor, "EMU198X ");
+    }
+
+    #[test]
+    fn read_capacity_returns_correct_size() {
+        let mut d = dmac_with_disk();
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::READ_CAPACITY_10, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        let mut buf = [0u8; 8];
+        for b in &mut buf {
+            *b = d.dma_read_byte();
+        }
+        let last_lba = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        let block_size = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+
+        // 1 MB = 2048 sectors, last LBA = 2047.
+        assert_eq!(last_lba, 2047);
+        assert_eq!(block_size, 512);
+    }
+
+    #[test]
+    fn read_6_returns_disk_data() {
+        let mut d = dmac_with_disk();
+        // READ(6): LBA 0, count 1.
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::READ_6, 0, 0, 0, 1, 0]);
+
+        assert!(d.dma_pending());
+        assert_eq!(d.dma_bytes_remaining(), 512);
+
+        let b0 = d.dma_read_byte();
+        let b1 = d.dma_read_byte();
+        assert_eq!(b0, 0xDE);
+        assert_eq!(b1, 0xAD);
+
+        // Skip to end.
+        for _ in 2..510 {
+            let _ = d.dma_read_byte();
+        }
+        let b510 = d.dma_read_byte();
+        let b511 = d.dma_read_byte();
+        assert_eq!(b510, 0xBE);
+        assert_eq!(b511, 0xEF);
+        assert!(!d.dma_pending());
+    }
+
+    #[test]
+    fn read_10_multi_sector() {
+        let mut d = dmac_with_disk();
+        // READ(10): LBA 0, count 2.
+        issue_scsi_command(
+            &mut d, 0,
+            &[scsi_cmd::READ_10, 0, 0, 0, 0, 0, 0, 0, 2, 0],
+        );
+
+        assert_eq!(d.dma_bytes_remaining(), 1024);
+    }
+
+    #[test]
+    fn write_6_commits_to_image() {
+        let mut d = dmac_with_disk();
+        // WRITE(6): LBA 1, count 1.
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::WRITE_6, 0, 0, 1, 1, 0]);
+
+        assert!(d.dma_pending());
+        assert!(!d.dma_direction_read()); // write = initiator→target
+
+        // Write a pattern.
+        for i in 0..512u16 {
+            d.dma_write_byte(i as u8);
+        }
+        assert!(!d.dma_pending());
+
+        // Read back via READ(6).
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::READ_6, 0, 0, 1, 1, 0]);
+        let b0 = d.dma_read_byte();
+        let b1 = d.dma_read_byte();
+        assert_eq!(b0, 0x00);
+        assert_eq!(b1, 0x01);
+    }
+
+    #[test]
+    fn test_unit_ready_clears_sense() {
+        let mut d = dmac_with_disk();
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::TEST_UNIT_READY, 0, 0, 0, 0, 0]);
+
+        // Request sense should return no error.
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::REQUEST_SENSE, 0, 0, 0, 18, 0]);
+        let mut buf = [0u8; 18];
+        for b in &mut buf {
+            *b = d.dma_read_byte();
+        }
+        assert_eq!(buf[2] & 0x0F, 0, "Sense key should be 0 (no error)");
+    }
+
+    #[test]
+    fn mode_sense_returns_header() {
+        let mut d = dmac_with_disk();
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::MODE_SENSE_6, 0, 0, 0, 12, 0]);
+
+        assert!(d.dma_pending());
+        let mode_data_len = d.dma_read_byte();
+        assert_eq!(mode_data_len, 11); // 12 - 1
+    }
+
+    #[test]
+    fn unknown_scsi_command_sets_check_condition() {
+        let mut d = dmac_with_disk();
+        issue_scsi_command(&mut d, 0, &[0xFF, 0, 0, 0, 0, 0]); // Invalid opcode
+
+        // Request sense should report ILLEGAL REQUEST.
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::REQUEST_SENSE, 0, 0, 0, 18, 0]);
+        let mut buf = [0u8; 18];
+        for b in &mut buf {
+            *b = d.dma_read_byte();
+        }
+        assert_eq!(buf[2] & 0x0F, 0x05, "Sense key should be ILLEGAL REQUEST");
+        assert_eq!(buf[12], 0x20, "ASC should be 0x20 (invalid command)");
+    }
+
+    #[test]
+    fn read_past_end_sets_lba_out_of_range() {
+        let mut d = dmac_with_disk();
+        // 1 MB disk = 2048 sectors. Try to read sector 2048.
+        issue_scsi_command(
+            &mut d, 0,
+            &[scsi_cmd::READ_10, 0, 0, 0, 0x08, 0x00, 0, 0, 1, 0], // LBA 2048
+        );
+
+        issue_scsi_command(&mut d, 0, &[scsi_cmd::REQUEST_SENSE, 0, 0, 0, 18, 0]);
+        let mut buf = [0u8; 18];
+        for b in &mut buf {
+            *b = d.dma_read_byte();
+        }
+        assert_eq!(buf[2] & 0x0F, 0x05);
+        assert_eq!(buf[12], 0x21, "ASC should be LBA out of range");
+    }
+
+    #[test]
+    fn attach_disk_after_construction() {
+        let mut d = Dmac390537::new();
+        assert!(!d.target_present(2));
+
+        d.attach_disk(2, vec![0u8; 512]);
+        assert!(d.target_present(2));
+    }
+
+    #[test]
+    fn st_dma_and_sp_dma_strobes() {
+        let mut d = Dmac390537::new();
+        assert!(!d.dma_active());
+
+        d.write_word(reg_addr(REG_ST_DMA), 0);
+        assert!(d.dma_active());
+
+        d.write_word(reg_addr(REG_SP_DMA), 0);
+        assert!(!d.dma_active());
+    }
+
+    #[test]
+    fn all_seven_ids_timeout_no_targets() {
+        // Verify original no-target behaviour is preserved.
+        let mut d = Dmac390537::new();
+        let sasr = reg_addr(REG_SASR);
+        let scmd = reg_addr(REG_SCMD);
+
+        for id in 0..7u8 {
+            d.write_word(sasr, wd_reg::DESTINATION_ID as u16);
+            d.write_word(scmd, u16::from(id));
+            d.write_word(sasr, wd_reg::COMMAND as u16);
+            d.write_word(scmd, wd_cmd::SEL_ATN_XFER as u16);
+
+            d.write_word(sasr, wd_reg::SCSI_STATUS as u16);
+            assert_eq!(d.read_word(scmd) as u8, wd_csr::TIMEOUT);
+        }
+    }
+
+    #[test]
+    fn mixed_targets_only_present_ones_respond() {
+        let mut d = Dmac390537::new();
+        d.attach_disk(0, vec![0u8; 512]);
+        d.attach_disk(6, vec![0u8; 512]);
+
+        let sasr = reg_addr(REG_SASR);
+        let scmd = reg_addr(REG_SCMD);
+
+        // ID 0 should succeed.
+        d.write_word(sasr, wd_reg::DESTINATION_ID as u16);
+        d.write_word(scmd, 0);
+        d.write_word(sasr, wd_reg::COMMAND as u16);
+        d.write_word(scmd, wd_cmd::SEL as u16);
+        d.write_word(sasr, wd_reg::SCSI_STATUS as u16);
+        assert_eq!(d.read_word(scmd) as u8, wd_csr::SEL_COMPLETE);
+
+        // ID 3 should timeout.
+        d.write_word(sasr, wd_reg::DESTINATION_ID as u16);
+        d.write_word(scmd, 3);
+        d.write_word(sasr, wd_reg::COMMAND as u16);
+        d.write_word(scmd, wd_cmd::SEL as u16);
+        d.write_word(sasr, wd_reg::SCSI_STATUS as u16);
+        assert_eq!(d.read_word(scmd) as u8, wd_csr::TIMEOUT);
+
+        // ID 6 should succeed.
+        d.write_word(sasr, wd_reg::DESTINATION_ID as u16);
+        d.write_word(scmd, 6);
+        d.write_word(sasr, wd_reg::COMMAND as u16);
+        d.write_word(scmd, wd_cmd::SEL as u16);
+        d.write_word(sasr, wd_reg::SCSI_STATUS as u16);
+        assert_eq!(d.read_word(scmd) as u8, wd_csr::SEL_COMPLETE);
     }
 }

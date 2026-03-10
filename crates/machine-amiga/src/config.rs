@@ -81,4 +81,12 @@ pub struct AmigaConfig {
     /// 0 = disabled, valid sizes: 512K, 1M, 2M.
     /// Maps to $C00000-$DFFFFF.
     pub slow_ram_size: usize,
+    /// IDE hard disk image for Gayle-based systems (A600, A1200).
+    /// When `Some`, the disk image is attached to the IDE controller
+    /// and the geometry is auto-detected from the image size.
+    pub ide_disk: Option<Vec<u8>>,
+    /// SCSI hard disk image for A3000 systems (target ID 0).
+    /// When `Some`, the disk image is attached to the DMAC SCSI
+    /// controller at SCSI ID 0.
+    pub scsi_disk: Option<Vec<u8>>,
 }

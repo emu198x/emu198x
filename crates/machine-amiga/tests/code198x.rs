@@ -124,6 +124,8 @@ fn test_exodus_unit01() {
         region: AmigaRegion::Pal,
         kickstart,
         slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
     };
     let mut amiga = Amiga::new_with_config(config);
 

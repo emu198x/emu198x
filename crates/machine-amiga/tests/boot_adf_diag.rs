@@ -92,6 +92,8 @@ fn test_workbench_13_boot() {
         region: AmigaRegion::Pal,
         kickstart: rom,
         slow_ram_size: 512 * 1024,
+            ide_disk: None,
+            scsi_disk: None,
     });
     amiga.insert_disk(adf);
 
@@ -375,6 +377,8 @@ fn test_adf_boot_executes_bootblock() {
         region: AmigaRegion::Pal,
         kickstart: rom,
         slow_ram_size: 512 * 1024,
+            ide_disk: None,
+            scsi_disk: None,
     });
     amiga.insert_disk(make_bootable_adf());
 

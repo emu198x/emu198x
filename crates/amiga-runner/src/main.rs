@@ -298,6 +298,8 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
         region: AmigaRegion::Pal,
         kickstart,
         slow_ram_size: 0,
+        ide_disk: None,
+        scsi_disk: None,
     });
 
     // --disk auto-detects format; --adf forces ADF.

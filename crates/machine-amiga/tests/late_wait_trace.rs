@@ -498,6 +498,8 @@ fn build_amiga() -> Option<Amiga> {
         region: AmigaRegion::Pal,
         kickstart: rom,
         slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
     }))
 }
 

@@ -20,6 +20,8 @@ fn test_strap_hang() {
         region: AmigaRegion::Pal,
         kickstart: rom,
         slow_ram_size: 512 * 1024,
+            ide_disk: None,
+            scsi_disk: None,
     });
 
     // Run 3.35 seconds — right at the crash

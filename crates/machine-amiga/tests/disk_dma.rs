@@ -81,6 +81,9 @@ fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
         color_pending: &mut amiga.color_pending,
         ramsey: &mut amiga.ramsey,
         fat_gary: &mut amiga.fat_gary,
+            gary: &amiga.gary,
+            buster: &mut amiga.buster,
+            super_buster: &mut amiga.super_buster,
     };
     match M68kBus::poll_cycle(
         &mut bus,

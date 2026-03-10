@@ -353,6 +353,8 @@ fn run_probe(spec: &ProbeSpec) {
         region: AmigaRegion::Pal,
         kickstart,
         slow_ram_size: spec.slow_ram_size,
+        ide_disk: None,
+        scsi_disk: None,
     });
 
     let initial = cpu_snapshot(&amiga);

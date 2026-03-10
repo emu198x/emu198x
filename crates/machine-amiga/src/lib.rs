@@ -13,8 +13,11 @@ use crate::memory::Memory;
 use commodore_agnus_aga::AgnusAga as Agnus;
 use commodore_agnus_ocs::{BlitterDmaOp, Copper, SlotOwner};
 use commodore_denise_aga::DeniseAga as DeniseOcs;
+use commodore_buster::Buster;
 use commodore_dmac_390537::Dmac390537;
+use commodore_super_buster::SuperBuster;
 use commodore_fat_gary::FatGary;
+use commodore_gary::Gary;
 use commodore_gayle::Gayle;
 use commodore_paula_8364::Paula8364;
 use commodore_ramsey::Ramsey;
@@ -37,6 +40,7 @@ pub use commodore_denise_aga;
 pub use commodore_denise_ecs;
 pub use commodore_denise_ocs;
 pub use commodore_fat_gary;
+pub use commodore_gary;
 pub use commodore_gayle;
 pub use commodore_paula_8364;
 pub use commodore_ramsey;
@@ -428,6 +432,13 @@ pub struct Amiga {
     /// Fat Gary address decode and motherboard resource registers. Present on
     /// A3000/A4000.
     pub fat_gary: Option<FatGary>,
+    /// Gary address decoder. Every model has one — configured at construction
+    /// based on which peripherals are present.
+    pub gary: Gary,
+    /// Buster Zorro II bus controller. Present on A500/A1000/A2000/A500+.
+    pub buster: Option<Buster>,
+    /// Super Buster Zorro III bus controller. Present on A3000/A4000.
+    pub super_buster: Option<SuperBuster>,
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
     /// RC low-pass filter state (left, right) for hardware output stage.
@@ -473,6 +484,8 @@ impl Amiga {
             region: AmigaRegion::Pal,
             kickstart,
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         })
     }
 
@@ -487,6 +500,8 @@ impl Amiga {
             region,
             kickstart,
             slow_ram_size,
+            ide_disk,
+            scsi_disk,
         } = config;
         let chip_ram_size = match model {
             AmigaModel::A1000 | AmigaModel::A500 | AmigaModel::A2000 => 512 * 1024,
@@ -602,11 +617,24 @@ impl Amiga {
             cia_a_cra_sp_prev: false,
             motherboard_external_irq_prev: false,
             gayle: match model {
-                AmigaModel::A600 | AmigaModel::A1200 => Some(Gayle::new()),
+                AmigaModel::A600 | AmigaModel::A1200 => {
+                    if let Some(image) = ide_disk {
+                        let geometry = commodore_gayle::DiskGeometry::from_image_size(image.len());
+                        Some(Gayle::with_disk(image, geometry))
+                    } else {
+                        Some(Gayle::new())
+                    }
+                }
                 _ => None,
             },
             dmac: match model {
-                AmigaModel::A3000 => Some(Dmac390537::new()),
+                AmigaModel::A3000 => {
+                    if let Some(image) = scsi_disk {
+                        Some(Dmac390537::with_disk(0, image))
+                    } else {
+                        Some(Dmac390537::new())
+                    }
+                }
                 _ => None,
             },
             ramsey: match model {
@@ -615,6 +643,27 @@ impl Amiga {
             },
             fat_gary: match model {
                 AmigaModel::A3000 | AmigaModel::A4000 => Some(FatGary::new()),
+                _ => None,
+            },
+            gary: {
+                let mut gary = Gary::new();
+                gary.set_slow_ram_present(slow_ram_size > 0);
+                gary.set_gayle_present(matches!(model, AmigaModel::A600 | AmigaModel::A1200));
+                gary.set_dmac_present(matches!(model, AmigaModel::A3000));
+                gary.set_resource_regs_present(
+                    matches!(model, AmigaModel::A3000 | AmigaModel::A4000),
+                );
+                gary
+            },
+            buster: match model {
+                // A500/A2000 have Zorro II slots. A1000 has a single
+                // expansion slot but uses the same protocol.
+                AmigaModel::A500 | AmigaModel::A1000 | AmigaModel::A2000
+                | AmigaModel::A500Plus => Some(Buster::new()),
+                _ => None,
+            },
+            super_buster: match model {
+                AmigaModel::A3000 | AmigaModel::A4000 => Some(SuperBuster::new()),
                 _ => None,
             },
             audio_sample_phase: 0,
@@ -1076,6 +1125,9 @@ impl Amiga {
                     dmac: &mut self.dmac,
                     ramsey: &mut self.ramsey,
                     fat_gary: &mut self.fat_gary,
+                    gary: &self.gary,
+                    buster: &mut self.buster,
+                    super_buster: &mut self.super_buster,
                     bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                     ddfstrt_pending: &mut self.ddfstrt_pending,
                     ddfstop_pending: &mut self.ddfstop_pending,
@@ -1115,6 +1167,9 @@ impl Amiga {
                         dmac: &mut self.dmac,
                         ramsey: &mut self.ramsey,
                         fat_gary: &mut self.fat_gary,
+                    gary: &self.gary,
+                        buster: &mut self.buster,
+                        super_buster: &mut self.super_buster,
                         bplcon0_denise_pending: &mut self.bplcon0_denise_pending,
                         ddfstrt_pending: &mut self.ddfstrt_pending,
                         ddfstop_pending: &mut self.ddfstop_pending,
@@ -2252,6 +2307,9 @@ pub struct AmigaBusWrapper<'a> {
     pub dmac: &'a mut Option<Dmac390537>,
     pub ramsey: &'a mut Option<Ramsey>,
     pub fat_gary: &'a mut Option<FatGary>,
+    pub gary: &'a Gary,
+    pub buster: &'a mut Option<Buster>,
+    pub super_buster: &'a mut Option<SuperBuster>,
     // Pipeline state for delayed register writes (Agnus→Denise propagation).
     pub bplcon0_denise_pending: &'a mut Option<(u16, u8)>,
     pub ddfstrt_pending: &'a mut Option<(u16, u8)>,
@@ -2403,34 +2461,26 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         // only A0-A23 are wired, so the mask is a no-op.
         let addr = addr & 0xFFFFFF;
 
-        // CIA-A ($BFE001, odd bytes, accent on D0-D7)
-        // CIA-A is accent wired to the low byte of the data bus.
-        // It responds to odd byte accesses AND word accesses (both
-        // assert /LDS). A word write to an even CIA-A address still
-        // delivers data to CIA-A via D0-D7.
-        if (addr & 0xFFF000) == 0xBFE000 {
-            let reg = ((addr >> 8) & 0x0F) as u8;
-            if is_read {
-                if addr & 1 != 0 {
-                    return BusStatus::Ready(u16::from(self.cia_a.read(reg)));
+        use commodore_gary::ChipSelect;
+
+        match self.gary.decode(addr) {
+            // CIA-A ($BFExxx, accent on D0-D7 low byte)
+            ChipSelect::CiaA => {
+                let reg = ((addr >> 8) & 0x0F) as u8;
+                if is_read {
+                    if addr & 1 != 0 {
+                        return BusStatus::Ready(u16::from(self.cia_a.read(reg)));
+                    }
+                    return BusStatus::Ready(0xFF00);
                 }
-                return BusStatus::Ready(0xFF00);
-            } else {
-                // CIA-A receives data from D0-D7 (low byte) on:
-                //   - Byte writes to odd addresses (data in low byte)
-                //   - Word writes to any address (both UDS/LDS active)
                 let should_write = (addr & 1 != 0) || is_word;
                 if should_write {
-                    let val = data.unwrap_or(0) as u8; // low byte = D0-D7
+                    let val = data.unwrap_or(0) as u8;
                     self.cia_a.write(reg, val);
                     if reg == 0 || reg == 2 {
                         let out = self.cia_a.port_a_output();
                         self.memory.overlay = out & 0x01 != 0;
                     }
-                    // Keyboard handshake: detect the falling edge of CRA bit 6
-                    // (SP mode 1→0). The ROM sets bit 6 to switch SP to output
-                    // mode, then clears it back to input mode. The keyboard
-                    // acknowledges on the falling edge, matching WinUAE.
                     if reg == 0x0E {
                         let sp_now = val & 0x40 != 0;
                         if *self.cia_a_cra_sp_prev && !sp_now {
@@ -2439,122 +2489,103 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         *self.cia_a_cra_sp_prev = sp_now;
                     }
                 }
-                return BusStatus::Ready(0);
+                BusStatus::Ready(0)
             }
-        }
 
-        // CIA-B ($BFD000, even bytes, accent on D8-D15)
-        // CIA-B is wired to the high byte of the data bus (D8-D15).
-        // On real hardware, byte writes to even addresses put the byte on D8-D15.
-        // However, our CPU always places byte data in the low byte of the data word
-        // (bits 0-7), regardless of address alignment. For word writes, D8-D15
-        // contains the high byte as expected.
-        if (addr & 0xFFF000) == 0xBFD000 {
-            let reg = ((addr >> 8) & 0x0F) as u8;
-            if is_read {
-                if addr & 1 == 0 {
-                    return BusStatus::Ready(u16::from(self.cia_b.read(reg)) << 8 | 0x00FF);
+            // CIA-B ($BFDxxx, accent on D8-D15 high byte)
+            ChipSelect::CiaB => {
+                let reg = ((addr >> 8) & 0x0F) as u8;
+                if is_read {
+                    if addr & 1 == 0 {
+                        return BusStatus::Ready(u16::from(self.cia_b.read(reg)) << 8 | 0x00FF);
+                    }
+                    return BusStatus::Ready(0x00FF);
                 }
-                return BusStatus::Ready(0x00FF);
-            } else {
                 let should_write = (addr & 1 == 0) || is_word;
                 if should_write {
                     let val = if is_word {
-                        (data.unwrap_or(0) >> 8) as u8 // word: CIA-B data from D8-D15
+                        (data.unwrap_or(0) >> 8) as u8
                     } else {
-                        data.unwrap_or(0) as u8 // byte: CPU puts value in low byte
+                        data.unwrap_or(0) as u8
                     };
                     self.cia_b.write(reg, val);
-                    // PRB write: update floppy drive control signals
                     if reg == 0x01 {
                         let prb = self.cia_b.port_b_output();
-                        // Active-low signals: asserted when bit is 0
-                        let step = prb & 0x01 == 0; // PB0: /DSKSTEP
-                        let dir_inward = prb & 0x02 == 0; // PB1: /DSKDIREC (0=inward)
-                        let side_upper = prb & 0x04 == 0; // PB2: /DSKSIDE (0=upper/head 1)
-                        let sel = prb & 0x08 == 0; // PB3: /DSKSEL0
-                        let motor = prb & 0x80 == 0; // PB7: /DSKMOTOR
+                        let step = prb & 0x01 == 0;
+                        let dir_inward = prb & 0x02 == 0;
+                        let side_upper = prb & 0x04 == 0;
+                        let sel = prb & 0x08 == 0;
+                        let motor = prb & 0x80 == 0;
                         self.floppy
                             .update_control(step, dir_inward, side_upper, sel, motor);
                     }
                 }
-                return BusStatus::Ready(0);
+                BusStatus::Ready(0)
             }
-        }
 
-        // Custom Registers ($DFF000)
-        if (addr & 0xFFF000) == 0xDFF000 {
-            let offset = (addr & 0x1FE) as u16;
-            if !is_read {
-                let val = if is_word {
-                    data.unwrap_or(0)
-                } else {
-                    let byte = data.unwrap_or(0) as u8;
-                    let lane_word = if addr & 1 == 0 {
-                        u16::from(byte) << 8
+            // Custom chip registers ($DFFxxx)
+            ChipSelect::Custom => {
+                let offset = (addr & 0x1FE) as u16;
+                if !is_read {
+                    let val = if is_word {
+                        data.unwrap_or(0)
                     } else {
-                        u16::from(byte)
+                        let byte = data.unwrap_or(0) as u8;
+                        let lane_word = if addr & 1 == 0 {
+                            u16::from(byte) << 8
+                        } else {
+                            u16::from(byte)
+                        };
+                        if custom_register_byte_zero_extend(offset) {
+                            lane_word
+                        } else if let Some(current) = custom_register_byte_merge_latch(
+                            self.chipset,
+                            self.agnus,
+                            self.denise,
+                            self.paula,
+                            offset,
+                        ) {
+                            if addr & 1 == 0 {
+                                (current & 0x00FF) | lane_word
+                            } else {
+                                (current & 0xFF00) | lane_word
+                            }
+                        } else {
+                            lane_word
+                        }
                     };
-                    if custom_register_byte_zero_extend(offset) {
-                        lane_word
-                    } else if let Some(current) = custom_register_byte_merge_latch(
+                    queue_pipelined_write(
+                        self.bplcon0_denise_pending,
+                        self.ddfstrt_pending,
+                        self.ddfstop_pending,
+                        self.color_pending,
+                        offset,
+                        val,
+                        self.denise.bplcon3,
+                    );
+                    write_custom_register(
                         self.chipset,
                         self.agnus,
                         self.denise,
+                        self.copper,
                         self.paula,
+                        self.memory,
                         offset,
-                    ) {
-                        if addr & 1 == 0 {
-                            (current & 0x00FF) | lane_word
-                        } else {
-                            (current & 0xFF00) | lane_word
-                        }
-                    } else {
-                        // Fallback for unsupported byte-write merge targets:
-                        // preserve the correct bus lane, but treat the write as
-                        // a full-word register write (legacy behavior).
-                        lane_word
-                    }
-                };
-                queue_pipelined_write(
-                    self.bplcon0_denise_pending,
-                    self.ddfstrt_pending,
-                    self.ddfstop_pending,
-                    self.color_pending,
-                    offset,
-                    val,
-                    self.denise.bplcon3,
-                );
-                write_custom_register(
-                    self.chipset,
-                    self.agnus,
-                    self.denise,
-                    self.copper,
-                    self.paula,
-                    self.memory,
-                    offset,
-                    val,
-                );
-            } else {
-                // Custom register read: get the 16-bit value, then for
-                // byte reads extract the correct byte. On the 68000 bus,
-                // even-address bytes come from D8-D15 (high byte) and
-                // odd-address bytes from D0-D7 (low byte). The CPU's
-                // ReadByte stores the value as-is, so we must place the
-                // relevant byte in the position the CPU expects (low byte).
+                        val,
+                    );
+                    return BusStatus::Ready(0);
+                }
                 let word = match offset {
-                    // DMACONR: DMA control (active bits) + blitter busy/zero
                     0x002 => {
                         let busy = if self.agnus.blitter_busy { 0x4000 } else { 0 };
                         self.agnus.dmacon | busy
                     }
                     0x004 => {
-                        // VPOSR: bit 15 = LOF, bits 14-8 = Agnus ID, bits 2-0 = V10..V8.
                         let lof_bit = if self.agnus.lof { 0x8000u16 } else { 0 };
                         let agnus_id = match self.chipset {
-                            AmigaChipset::Ocs => 0x00u16, // PAL OCS Agnus
-                            AmigaChipset::Ecs => 0x20u16, // PAL ECS (HR) Agnus
-                            AmigaChipset::Aga => 0x22u16, // AGA Alice
+                            AmigaChipset::Ocs => 0x00u16,
+                            AmigaChipset::Ecs => 0x20u16,
+                            AmigaChipset::Aga => 0x22u16,
                         };
                         let v8 = (self.agnus.vpos >> 8) & 1;
                         let v9 = (self.agnus.vpos >> 9) & 1;
@@ -2562,7 +2593,6 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         lof_bit | (agnus_id << 8) | (v10 << 2) | (v9 << 1) | v8
                     }
                     0x006 => {
-                        // VHPOSR: V7..V0 in high byte, H8..H1 (CCK units) in low byte.
                         ((self.agnus.vpos & 0xFF) << 8) | (self.agnus.hpos & 0xFF)
                     }
                     0x008 => self.paula.dskdatr,
@@ -2570,18 +2600,6 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x00E => self.denise.read_clxdat(),
                     0x010 => self.paula.adkcon,
                     0x016 => 0xFF00,
-                    // SERDATR: power-on state with no serial device.
-                    // Bit 14 RBF=0 (no data received — UART never sees
-                    //   a start bit with RX floating high/idle).
-                    // Bit 13 TBE=1, Bit 12 TSRE=1 (transmitter empty).
-                    // Bits 0-8 data=0 (shift register uninitialised).
-                    //
-                    // Critical: data must NOT be $FF/$7F. The KS 3.x
-                    // LED-blink serial diagnostic reads data bits and
-                    // checks (data & $7F) == $7F as a magic handshake.
-                    // $FF data would falsely match, causing the ROM to
-                    // enter the serial debug handler instead of timing
-                    // out and continuing to normal boot.
                     0x018 => 0x3000,
                     0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x01C => self.paula.intena,
@@ -2605,21 +2623,12 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x1E0 if self.chipset.is_ecs_or_aga() => self.agnus.vsstrt(),
                     0x1E4 if self.chipset.is_ecs_or_aga() => self.agnus.diwhigh(),
                     0x07C => match self.chipset {
-                        // Original Denise has no DENISEID register; many programs observe
-                        // bus residue. Keep legacy all-ones behavior for OCS until bus
-                        // residue is modeled.
                         AmigaChipset::Ocs => 0xFFFF,
-                        // HRM Appendix C: Enhanced Denise (8373) returns $FC in low byte.
                         AmigaChipset::Ecs => self.denise.as_inner().deniseid(),
-                        // AGA Lisa returns $F8.
                         AmigaChipset::Aga => self.denise.deniseid(),
                     },
                     _ => 0,
                 };
-                // For byte reads, extract the correct byte from the word.
-                // 68000 bus: even addr → high byte (D8-D15), odd → low byte (D0-D7).
-                // The CPU's ReadByte stores the value as u16 and uses the low byte,
-                // so we place the relevant byte in bits 7-0.
                 if !is_word {
                     let byte = if addr & 1 == 0 {
                         (word >> 8) as u8
@@ -2628,78 +2637,111 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     };
                     return BusStatus::Ready(u16::from(byte));
                 }
-                return BusStatus::Ready(word);
+                BusStatus::Ready(word)
             }
-            return BusStatus::Ready(0);
-        }
 
-        // SDMAC 390537 SCSI controller ($DD0000-$DDFFFF) on A3000.
-        if let Some(dmac) = self.dmac
-            && (0xDD_0000..0xDE_0000).contains(&addr)
-        {
-            if is_read {
-                let val = if is_word {
-                    dmac.read_word(addr)
+            // SDMAC 390537 SCSI controller ($DD0000-$DDFFFF)
+            ChipSelect::Dmac => {
+                if let Some(dmac) = self.dmac {
+                    if is_read {
+                        let val = if is_word {
+                            dmac.read_word(addr)
+                        } else {
+                            u16::from(dmac.read_byte(addr))
+                        };
+                        return BusStatus::Ready(val);
+                    }
+                    let val = data.unwrap_or(0);
+                    if is_word {
+                        dmac.write_word(addr, val);
+                    } else {
+                        dmac.write_byte(addr, val as u8);
+                    }
+                    BusStatus::Ready(0)
                 } else {
-                    u16::from(dmac.read_byte(addr))
-                };
-                return BusStatus::Ready(val);
+                    BusStatus::Ready(0)
+                }
             }
-            let val = data.unwrap_or(0);
-            if is_word {
-                dmac.write_word(addr, val);
-            } else {
-                dmac.write_byte(addr, val as u8);
-            }
-            return BusStatus::Ready(0);
-        }
 
-        // A3000/A4000 motherboard resource registers ($DE0000-$DEFFFF).
-        // RAMSEY revision/config, Fat Gary toenb/timeout/coldboot.
-        // The A3000 ROM explicitly reads $DE0002 bit 7 (coldboot flag)
-        // and writes $DE0000/$DE0001 during early boot ($F80162-$F80176).
-        if matches!(self.model, AmigaModel::A3000 | AmigaModel::A4000)
-            && (0xDE_0000..0xDF_0000).contains(&addr)
-        {
-            let addr64 = (addr >> 6) & 3;
-            let addr2 = addr & 3;
-            if is_read {
-                let val = self
-                    .ramsey
-                    .as_ref()
-                    .map_or(0, |ramsey| ramsey.read_resource_byte(addr64, addr2))
-                    | self
-                        .fat_gary
+            // Motherboard resource registers ($DE0000-$DEFFFF)
+            ChipSelect::ResourceRegisters => {
+                let addr64 = (addr >> 6) & 3;
+                let addr2 = addr & 3;
+                if is_read {
+                    let val = self
+                        .ramsey
                         .as_ref()
-                        .map_or(0, |fat_gary| fat_gary.read_resource_byte(addr2));
-                return BusStatus::Ready(u16::from(val));
-            } else {
-                let val = data.unwrap_or(0) as u8;
-                if let Some(ramsey) = self.ramsey.as_mut() {
-                    ramsey.write_resource_byte(addr64, addr2, val);
+                        .map_or(0, |ramsey| ramsey.read_resource_byte(addr64, addr2))
+                        | self
+                            .fat_gary
+                            .as_ref()
+                            .map_or(0, |fat_gary| fat_gary.read_resource_byte(addr2));
+                    BusStatus::Ready(u16::from(val))
+                } else {
+                    let val = data.unwrap_or(0) as u8;
+                    if let Some(ramsey) = self.ramsey.as_mut() {
+                        ramsey.write_resource_byte(addr64, addr2, val);
+                    }
+                    if let Some(fat_gary) = self.fat_gary.as_mut() {
+                        fat_gary.write_resource_byte(addr2, val);
+                    }
+                    BusStatus::Ready(0)
                 }
-                if let Some(fat_gary) = self.fat_gary.as_mut() {
-                    fat_gary.write_resource_byte(addr2, val);
+            }
+
+            // Gayle gate array ($D80000-$DFFFFF)
+            ChipSelect::Gayle => {
+                if let Some(gayle) = self.gayle {
+                    if is_read {
+                        let val = if is_word {
+                            gayle.read_word(addr)
+                        } else {
+                            u16::from(gayle.read(addr))
+                        };
+                        return BusStatus::Ready(val);
+                    }
+                    let val = data.unwrap_or(0);
+                    if is_word {
+                        gayle.write_word(addr, val);
+                    } else {
+                        gayle.write(addr, val as u8);
+                    }
+                    BusStatus::Ready(0)
+                } else {
+                    BusStatus::Ready(0)
                 }
-                return BusStatus::Ready(0);
             }
-        }
 
-        // Gayle gate array ($D80000-$DFFFFF) on A600/A1200.
-        if let Some(gayle) = self.gayle
-            && (0xD8_0000..0xE0_0000).contains(&addr)
-        {
-            if is_read {
-                let byte = gayle.read(addr);
-                return BusStatus::Ready(u16::from(byte));
+            // Chip RAM ($000000-$1FFFFF) — DMA-arbitrated
+            ChipSelect::ChipRam => {
+                let bus_plan = self.agnus.cck_bus_plan();
+                if bus_plan.cpu_chip_bus_granted {
+                    if is_read {
+                        let val = if is_word {
+                            let hi = self.memory.read_byte(addr);
+                            let lo = self.memory.read_byte(addr | 1);
+                            (u16::from(hi) << 8) | u16::from(lo)
+                        } else {
+                            u16::from(self.memory.read_byte(addr))
+                        };
+                        BusStatus::Ready(val)
+                    } else {
+                        let val = data.unwrap_or(0);
+                        if is_word {
+                            self.memory.write_byte(addr, (val >> 8) as u8);
+                            self.memory.write_byte(addr | 1, val as u8);
+                        } else {
+                            self.memory.write_byte(addr, val as u8);
+                        }
+                        BusStatus::Ready(0)
+                    }
+                } else {
+                    BusStatus::Wait
+                }
             }
-            gayle.write(addr, data.unwrap_or(0) as u8);
-            return BusStatus::Ready(0);
-        }
 
-        if addr < 0x200000 {
-            let bus_plan = self.agnus.cck_bus_plan();
-            if bus_plan.cpu_chip_bus_granted {
+            // Slow RAM, ROM — non-DMA memory regions
+            ChipSelect::SlowRam | ChipSelect::Rom => {
                 if is_read {
                     let val = if is_word {
                         let hi = self.memory.read_byte(addr);
@@ -2719,28 +2761,74 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     }
                     BusStatus::Ready(0)
                 }
-            } else {
-                BusStatus::Wait
             }
-        } else if is_read {
-            let val = if is_word {
-                let hi = self.memory.read_byte(addr);
-                let lo = self.memory.read_byte(addr | 1);
-                (u16::from(hi) << 8) | u16::from(lo)
-            } else {
-                u16::from(self.memory.read_byte(addr))
-            };
-            BusStatus::Ready(val)
-        } else {
-            // Write to non-chip-RAM space (expansion, ROM area, etc.)
-            let val = data.unwrap_or(0);
-            if is_word {
-                self.memory.write_byte(addr, (val >> 8) as u8);
-                self.memory.write_byte(addr | 1, val as u8);
-            } else {
-                self.memory.write_byte(addr, val as u8);
+
+            // Autoconfig — route to Buster if present, else plain memory
+            ChipSelect::Autoconfig => {
+                if let Some(sb) = self.super_buster.as_mut() {
+                    // A3000/A4000: Super Buster handles both Z3 and Z2 autoconfig.
+                    if is_read {
+                        BusStatus::Ready(u16::from(sb.autoconfig_read(addr)))
+                    } else {
+                        sb.autoconfig_write(addr, data.unwrap_or(0) as u8);
+                        BusStatus::Ready(0)
+                    }
+                } else if let Some(buster) = self.buster.as_mut() {
+                    // A500/A2000 etc: Zorro II Buster.
+                    if is_read {
+                        BusStatus::Ready(u16::from(buster.autoconfig_read(addr)))
+                    } else {
+                        buster.autoconfig_write(addr, data.unwrap_or(0) as u8);
+                        BusStatus::Ready(0)
+                    }
+                } else {
+                    // No bus controller (A600/A1200 without expansion).
+                    BusStatus::Ready(0)
+                }
             }
-            BusStatus::Ready(0)
+
+            // Unmapped — check expansion boards, then Fat Gary timeout, else 0
+            ChipSelect::Unmapped => {
+                // Check Super Buster Z3+Z2 boards (A3000/A4000).
+                if let Some(sb) = self.super_buster.as_mut() {
+                    if is_read {
+                        if let Some(val) = sb.z3_board_read(addr) {
+                            return BusStatus::Ready(u16::from(val));
+                        }
+                        if let Some(val) = sb.z2_board_read(addr) {
+                            return BusStatus::Ready(u16::from(val));
+                        }
+                    } else {
+                        let val = data.unwrap_or(0) as u8;
+                        if sb.z3_board_write(addr, val) || sb.z2_board_write(addr, val) {
+                            return BusStatus::Ready(0);
+                        }
+                    }
+                }
+                // Check Buster Z2 boards (A500/A2000 etc).
+                if let Some(buster) = self.buster.as_mut() {
+                    if is_read {
+                        if let Some(val) = buster.board_read(addr) {
+                            return BusStatus::Ready(u16::from(val));
+                        }
+                    } else {
+                        let val = data.unwrap_or(0) as u8;
+                        if buster.board_write(addr, val) {
+                            return BusStatus::Ready(0);
+                        }
+                    }
+                }
+                // No board claimed it — check Fat Gary timeout on A3000/A4000.
+                if let Some(fat_gary) = self.fat_gary.as_ref() {
+                    match fat_gary.check_timeout(addr) {
+                        commodore_fat_gary::TimeoutResult::Ok => BusStatus::Ready(0),
+                        commodore_fat_gary::TimeoutResult::BusTimeout => BusStatus::Error,
+                        commodore_fat_gary::TimeoutResult::Unmapped => BusStatus::Ready(0),
+                    }
+                } else {
+                    BusStatus::Ready(0)
+                }
+            }
         }
     }
 }
@@ -3481,6 +3569,9 @@ mod tests {
             dmac: &mut amiga.dmac,
             ramsey: &mut amiga.ramsey,
             fat_gary: &mut amiga.fat_gary,
+            gary: &amiga.gary,
+            buster: &mut amiga.buster,
+            super_buster: &mut amiga.super_buster,
             bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
@@ -3518,6 +3609,9 @@ mod tests {
             dmac: &mut amiga.dmac,
             ramsey: &mut amiga.ramsey,
             fat_gary: &mut amiga.fat_gary,
+            gary: &amiga.gary,
+            buster: &mut amiga.buster,
+            super_buster: &mut amiga.super_buster,
             bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
@@ -3550,6 +3644,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         assert_eq!(amiga.chipset, AmigaChipset::Ecs);
     }
@@ -3562,6 +3658,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         amiga.denise.set_palette(5, 0x0ACE);
         amiga.denise.bplcon0 = 0x6000; // 6 planes, EHB
@@ -3581,6 +3679,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         assert_eq!(amiga.model, AmigaModel::A500Plus);
         assert_eq!(amiga.memory.chip_ram.len(), 1024 * 1024);
@@ -3595,6 +3695,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         assert!(a3000.ramsey.is_some());
         assert!(a3000.fat_gary.is_some());
@@ -3606,6 +3708,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         assert!(a4000.ramsey.is_some());
         assert!(a4000.fat_gary.is_some());
@@ -3620,6 +3724,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         let dmac = amiga.dmac.as_mut().expect("A3000 should expose SDMAC");
@@ -3646,6 +3752,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         let dmac = amiga.dmac.as_mut().expect("A3000 should expose SDMAC");
@@ -3686,6 +3794,9 @@ mod tests {
             dmac: &mut amiga.dmac,
             ramsey: &mut amiga.ramsey,
             fat_gary: &mut amiga.fat_gary,
+            gary: &amiga.gary,
+            buster: &mut amiga.buster,
+            super_buster: &mut amiga.super_buster,
             bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
@@ -3725,6 +3836,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         let mut bus = AmigaBusWrapper {
@@ -3745,6 +3858,9 @@ mod tests {
             dmac: &mut amiga.dmac,
             ramsey: &mut amiga.ramsey,
             fat_gary: &mut amiga.fat_gary,
+            gary: &amiga.gary,
+            buster: &mut amiga.buster,
+            super_buster: &mut amiga.super_buster,
             bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
@@ -3770,7 +3886,7 @@ mod tests {
 
         assert_eq!(
             ramsey_rev,
-            BusStatus::Ready(u16::from(commodore_ramsey::Ramsey::REVISION))
+            BusStatus::Ready(u16::from(commodore_ramsey::REVISION_04))
         );
         assert_eq!(
             coldboot,
@@ -3795,6 +3911,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         amiga.write_custom_reg(0x1DC, 0x0020);
         amiga.write_custom_reg(0x1E4, 0xA5A5);
@@ -3810,6 +3928,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -3841,6 +3961,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         // Classic PAL OCS-style display window values.
@@ -3863,6 +3985,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x1C0, 0x0033);
@@ -3912,6 +4036,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         amiga.write_custom_reg(0x106, 0x0201);
         amiga.write_custom_reg(0x1C0, 0x0033);
@@ -3953,6 +4079,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         assert_eq!(read_custom_word_via_cpu_bus(&mut ecs, 0x07C), 0x00FC);
 
@@ -3962,6 +4090,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         assert_eq!(read_custom_word_via_cpu_bus(&mut aga, 0x07C), 0x00F8);
     }
@@ -3974,6 +4104,8 @@ mod tests {
             region: AmigaRegion::Ntsc,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         // Verify NTSC frame timing: 262 lines x 227 CCKs.
@@ -4022,6 +4154,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x1C0, 3); // HTOTAL highest hpos count
@@ -4052,6 +4186,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // VSTART=$2C, HSTART=$00
@@ -4076,6 +4212,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // VSTART=$2C, HSTART=$00
@@ -4100,6 +4238,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -4137,6 +4277,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         // Before enabling ECS variable sync windows, state is inactive.
@@ -4188,6 +4330,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x1C2, 5); // HSSTOP
@@ -4253,6 +4397,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         let last_line = commodore_agnus_ocs::PAL_LINES_PER_FRAME - 1;
@@ -4314,6 +4460,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -4399,6 +4547,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -4456,6 +4606,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x1C4, 8); // HBSTRT
@@ -4575,6 +4727,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -4624,6 +4778,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -4671,6 +4827,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x1C4, 8); // HBSTRT
@@ -4707,6 +4865,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x1C2, 40); // HSSTOP
@@ -4733,6 +4893,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x1CA, 110); // VSSTOP
@@ -4763,6 +4925,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         let last_line = commodore_agnus_ocs::PAL_LINES_PER_FRAME - 1;
@@ -4955,6 +5119,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x100, 0x0070);
@@ -4995,6 +5161,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: dummy_kickstart(),
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
 
         amiga.write_custom_reg(0x100, 0x1070);

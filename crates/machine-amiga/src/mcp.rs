@@ -321,6 +321,8 @@ impl AmigaMcp {
             region,
             kickstart,
             slow_ram_size,
+            ide_disk: None,
+            scsi_disk: None,
         };
 
         self.amiga = Some(Amiga::new_with_config(config));
@@ -1174,6 +1176,8 @@ mod tests {
             region: AmigaRegion::Pal,
             kickstart: vec![0; 256 * 1024],
             slow_ram_size: 0,
+            ide_disk: None,
+            scsi_disk: None,
         });
         amiga.write_custom_reg(0x1DC, 0xAB3E);
 
@@ -1256,6 +1260,8 @@ mod tests {
                 region: AmigaRegion::Pal,
                 kickstart: vec![0; 256 * 1024],
                 slow_ram_size: 0,
+                ide_disk: None,
+                scsi_disk: None,
             })),
         };
         let a3000_result = a3000_mcp.dispatch_tool(

@@ -20,6 +20,8 @@ fn test_kick12_boot_trace() {
         region: AmigaRegion::Pal,
         kickstart: rom,
         slow_ram_size: 512 * 1024,
+            ide_disk: None,
+            scsi_disk: None,
     });
 
     let total_ticks: u64 = 28_375_160 * 30;
