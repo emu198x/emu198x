@@ -81,8 +81,13 @@ impl DeniseAga {
             let b = (existing & 0x000000F0) | b4;
             self.palette_24[full_idx] = r | g | b;
         } else {
-            // High nibbles: bits 7-4 of each channel. Clear low nibbles.
-            self.palette_24[full_idx] = (r4 << 20) | (g4 << 12) | (b4 << 4);
+            // High nibbles: replicate to both nibble positions for OCS
+            // backwards compatibility (e.g. $A → $AA). Matches real AGA
+            // hardware and WinUAE's `cr = r + (r << 4)`.
+            let r8 = (r4 << 4) | r4;
+            let g8 = (g4 << 4) | g4;
+            let b8 = (b4 << 4) | b4;
+            self.palette_24[full_idx] = (r8 << 16) | (g8 << 8) | b8;
         }
 
         // Update OCS 12-bit palette for register readback compatibility.
@@ -93,11 +98,14 @@ impl DeniseAga {
     ///
     /// Applies BPLCON4 bitplane colour XOR and palette lookup.
     /// HAM8 and EHB are handled by dedicated paths.
+    ///
+    /// BPLCON4 layout: bits 15-8 = BPLAM (bitplane colour XOR mask),
+    /// bits 7-0 = ESPRM/OSPRM (sprite colour base — handled separately).
     pub fn resolve_color_rgb24(&mut self, color_idx: u8) -> u32 {
         let ham = (self.bplcon0 & 0x0800) != 0;
         let dual_playfield = (self.bplcon0 & 0x0400) != 0;
         let num_planes = self.num_bitplanes();
-        let bplcon4_xor = (self.bplcon4 & 0xFF) as u8;
+        let bplcon4_xor = ((self.bplcon4 >> 8) & 0xFF) as u8;
 
         if ham && !dual_playfield && num_planes >= 5 {
             if num_planes == 8 {
@@ -244,7 +252,8 @@ mod tests {
 
         denise.set_palette_aga(5, 0x0ABC);
 
-        assert_eq!(denise.palette_24[3 * 32 + 5], 0x00A0B0C0);
+        // Nibbles are replicated: $A→$AA, $B→$BB, $C→$CC.
+        assert_eq!(denise.palette_24[3 * 32 + 5], 0x00AABBCC);
         assert_eq!(denise.palette[5], 0x0ABC);
     }
 
@@ -265,7 +274,9 @@ mod tests {
     fn resolve_color_rgb24_applies_bplcon4_xor_in_normal_mode() {
         let mut denise = make_aga_denise();
         denise.palette_24[0x34] = 0x00112233;
-        denise.bplcon4 = 0x0030;
+        // BPLCON4 high byte = bitplane XOR mask, low byte = sprite base.
+        // XOR $30 on index $04 → effective index $34.
+        denise.bplcon4 = 0x3000;
 
         let rgb = denise.resolve_color_rgb24(0x04);
 

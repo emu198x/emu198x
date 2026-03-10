@@ -1,22 +1,15 @@
 //! Boot screenshot tests for AGA (Advanced Graphics Architecture) Amiga models.
 //!
-//! AGA machines need longer boot time than OCS/ECS because the KS 3.x serial
-//! diagnostic loop runs its full ~200ms timeout per call (no serial device
-//! attached → RBF stays 0). On the 68EC020, each call takes ~6s due to slow
-//! CIA E-clock access in the polling loop, and there are multiple calls.
+//! A1200 tests assert full insert-disk screen (STRAP display with sprites).
+//! A4000 tests capture screenshots but don't assert boot completion — the
+//! 68040 model needs additional work before boot reaches the STRAP display.
 
 mod common;
 
-use common::{BOOT_TICKS, boot_screenshot_test, load_rom};
+use common::{BootExpect, BOOT_TICKS, boot_screenshot_test_expect, boot_screenshot_test, load_rom};
 use machine_amiga::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 
-/// AGA boot needs longer than OCS/ECS. The A1200 ROM has an extended
-/// serial diagnostic calibrated for the 68EC020 pipeline speed. Our
-/// 68000 microcode timing makes each timeout loop take ~27s instead of
-/// ~200ms, and the warm-reset cycle can't converge until we implement
-/// proper 68020 instruction timing. For now these tests capture
-/// screenshots and register state but don't assert boot completion.
-const AGA_BOOT_TICKS: u64 = BOOT_TICKS; // same as OCS/ECS for now
+const AGA_BOOT_TICKS: u64 = BOOT_TICKS;
 
 #[test]
 #[ignore]
@@ -24,7 +17,7 @@ fn test_boot_kick30_a1200() {
     let Some(rom) = load_rom("../../roms/kick30_39_106_a1200.rom") else {
         return;
     };
-    boot_screenshot_test(
+    boot_screenshot_test_expect(
         AmigaConfig {
             model: AmigaModel::A1200,
             chipset: AmigaChipset::Aga,
@@ -37,6 +30,11 @@ fn test_boot_kick30_a1200() {
         "KS 3.0 A1200",
         "boot_kick30_a1200",
         AGA_BOOT_TICKS,
+        BootExpect {
+            dmacon_set: Some(0x03C0), // bitplane + copper + blitter + sprite DMA
+            bplcon0: Some(0x8303),    // HIRES, COLOR, GAUD, ERSY, LACE off
+            ..Default::default()
+        },
     );
 }
 
@@ -46,7 +44,7 @@ fn test_boot_kick31_a1200() {
     let Some(rom) = load_rom("../../roms/kick31_40_068_a1200.rom") else {
         return;
     };
-    boot_screenshot_test(
+    boot_screenshot_test_expect(
         AmigaConfig {
             model: AmigaModel::A1200,
             chipset: AmigaChipset::Aga,
@@ -59,6 +57,11 @@ fn test_boot_kick31_a1200() {
         "KS 3.1 A1200",
         "boot_kick31_a1200",
         AGA_BOOT_TICKS,
+        BootExpect {
+            dmacon_set: Some(0x03C0),
+            bplcon0: Some(0x8303),
+            ..Default::default()
+        },
     );
 }
 
@@ -68,6 +71,7 @@ fn test_boot_kick30_a4000() {
     let Some(rom) = load_rom("../../roms/kick30_39_106_a4000.rom") else {
         return;
     };
+    // A4000 boot doesn't reach STRAP display yet — capture only.
     boot_screenshot_test(
         AmigaConfig {
             model: AmigaModel::A4000,
@@ -90,6 +94,7 @@ fn test_boot_kick31_a4000() {
     let Some(rom) = load_rom("../../roms/kick31_40_068_a4000.rom") else {
         return;
     };
+    // A4000 boot doesn't reach STRAP display yet — capture only.
     boot_screenshot_test(
         AmigaConfig {
             model: AmigaModel::A4000,
