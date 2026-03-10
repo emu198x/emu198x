@@ -137,10 +137,21 @@ impl Sid6581 {
         let reg = addr & 0x1F;
         match reg {
             // Voice 1 (0x00–0x06)
-            0x00 => self.voices[0].frequency = (self.voices[0].frequency & 0xFF00) | u16::from(value),
-            0x01 => self.voices[0].frequency = (self.voices[0].frequency & 0x00FF) | (u16::from(value) << 8),
-            0x02 => self.voices[0].pulse_width = (self.voices[0].pulse_width & 0x0F00) | u16::from(value),
-            0x03 => self.voices[0].pulse_width = (self.voices[0].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8),
+            0x00 => {
+                self.voices[0].frequency = (self.voices[0].frequency & 0xFF00) | u16::from(value)
+            }
+            0x01 => {
+                self.voices[0].frequency =
+                    (self.voices[0].frequency & 0x00FF) | (u16::from(value) << 8)
+            }
+            0x02 => {
+                self.voices[0].pulse_width =
+                    (self.voices[0].pulse_width & 0x0F00) | u16::from(value)
+            }
+            0x03 => {
+                self.voices[0].pulse_width =
+                    (self.voices[0].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8)
+            }
             0x04 => self.voices[0].control = value,
             0x05 => {
                 self.envelopes[0].attack = (value >> 4) & 0x0F;
@@ -152,10 +163,21 @@ impl Sid6581 {
             }
 
             // Voice 2 (0x07–0x0D)
-            0x07 => self.voices[1].frequency = (self.voices[1].frequency & 0xFF00) | u16::from(value),
-            0x08 => self.voices[1].frequency = (self.voices[1].frequency & 0x00FF) | (u16::from(value) << 8),
-            0x09 => self.voices[1].pulse_width = (self.voices[1].pulse_width & 0x0F00) | u16::from(value),
-            0x0A => self.voices[1].pulse_width = (self.voices[1].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8),
+            0x07 => {
+                self.voices[1].frequency = (self.voices[1].frequency & 0xFF00) | u16::from(value)
+            }
+            0x08 => {
+                self.voices[1].frequency =
+                    (self.voices[1].frequency & 0x00FF) | (u16::from(value) << 8)
+            }
+            0x09 => {
+                self.voices[1].pulse_width =
+                    (self.voices[1].pulse_width & 0x0F00) | u16::from(value)
+            }
+            0x0A => {
+                self.voices[1].pulse_width =
+                    (self.voices[1].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8)
+            }
             0x0B => self.voices[1].control = value,
             0x0C => {
                 self.envelopes[1].attack = (value >> 4) & 0x0F;
@@ -167,10 +189,21 @@ impl Sid6581 {
             }
 
             // Voice 3 (0x0E–0x14)
-            0x0E => self.voices[2].frequency = (self.voices[2].frequency & 0xFF00) | u16::from(value),
-            0x0F => self.voices[2].frequency = (self.voices[2].frequency & 0x00FF) | (u16::from(value) << 8),
-            0x10 => self.voices[2].pulse_width = (self.voices[2].pulse_width & 0x0F00) | u16::from(value),
-            0x11 => self.voices[2].pulse_width = (self.voices[2].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8),
+            0x0E => {
+                self.voices[2].frequency = (self.voices[2].frequency & 0xFF00) | u16::from(value)
+            }
+            0x0F => {
+                self.voices[2].frequency =
+                    (self.voices[2].frequency & 0x00FF) | (u16::from(value) << 8)
+            }
+            0x10 => {
+                self.voices[2].pulse_width =
+                    (self.voices[2].pulse_width & 0x0F00) | u16::from(value)
+            }
+            0x11 => {
+                self.voices[2].pulse_width =
+                    (self.voices[2].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8)
+            }
             0x12 => self.voices[2].control = value,
             0x13 => {
                 self.envelopes[2].attack = (value >> 4) & 0x0F;
@@ -334,10 +367,7 @@ mod tests {
         assert!(!buf.is_empty(), "Should produce samples even when silent");
         // All samples should be 0 (or very close)
         for &s in &buf {
-            assert!(
-                s.abs() < 1e-6,
-                "Expected silence, got sample value {s}"
-            );
+            assert!(s.abs() < 1e-6, "Expected silence, got sample value {s}");
         }
     }
 
@@ -444,7 +474,10 @@ mod tests {
         let osc3 = sid.read(0x1B);
         // With max frequency and 100 ticks, accumulator should have advanced
         // significantly from 0
-        assert!(osc3 > 0, "OSC3 should return non-zero with running oscillator");
+        assert!(
+            osc3 > 0,
+            "OSC3 should return non-zero with running oscillator"
+        );
     }
 
     #[test]

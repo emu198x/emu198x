@@ -15,8 +15,8 @@ pub use commodore_agnus_ecs::{
 // Re-export ECS constants for machine-amiga convenience.
 pub use commodore_agnus_ecs::{
     BEAMCON0_BLANKEN, BEAMCON0_CSCBEN, BEAMCON0_CSYTRUE, BEAMCON0_HARDDIS, BEAMCON0_HSYTRUE,
-    BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN, BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN,
-    BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE,
+    BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN, BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN,
+    BEAMCON0_VSYTRUE,
 };
 
 /// AGA lowres bitplane fetch order: adds BPL7 and BPL8 to the two free slots.
@@ -182,7 +182,9 @@ impl From<AgnusAga> for InnerAgnusEcs {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgnusAga, InnerAgnusEcs, LOWRES_DDF_TO_PLANE_AGA, PaulaReturnProgressPolicy, SlotOwner};
+    use super::{
+        AgnusAga, InnerAgnusEcs, LOWRES_DDF_TO_PLANE_AGA, PaulaReturnProgressPolicy, SlotOwner,
+    };
 
     const DMACON_DMAEN: u16 = 0x0200;
     const DMACON_BPLEN: u16 = 0x0100;
@@ -231,7 +233,10 @@ mod tests {
         assert!(!plan.cpu_chip_bus_granted);
         assert!(!plan.blitter_chip_bus_granted);
         assert!(!plan.blitter_dma_progress_granted);
-        assert_eq!(plan.paula_return_progress_policy, PaulaReturnProgressPolicy::Stall);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Stall
+        );
     }
 
     #[test]
@@ -249,7 +254,10 @@ mod tests {
         assert_eq!(LOWRES_DDF_TO_PLANE_AGA[4], Some(7));
         assert_eq!(plan.slot_owner, SlotOwner::Bitplane(7));
         assert_eq!(plan.bitplane_dma_fetch_plane, Some(7));
-        assert_eq!(plan.paula_return_progress_policy, PaulaReturnProgressPolicy::Stall);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Stall
+        );
     }
 
     #[test]

@@ -31,9 +31,7 @@
 /// Logarithmic volume table for the AY-3-8910 DAC.
 /// 16 levels, normalised to 0.0–1.0.
 const VOLUME_TABLE: [f32; 16] = [
-    0.0000, 0.0137, 0.0205, 0.0291,
-    0.0423, 0.0618, 0.0847, 0.1369,
-    0.1691, 0.2647, 0.3527, 0.4499,
+    0.0000, 0.0137, 0.0205, 0.0291, 0.0423, 0.0618, 0.0847, 0.1369, 0.1691, 0.2647, 0.3527, 0.4499,
     0.5765, 0.7258, 0.8819, 1.0000,
 ];
 
@@ -241,7 +239,11 @@ impl Ay3_8910 {
         Self {
             regs: [0; 16],
             selected_reg: 0,
-            tone: [ToneGenerator::new(), ToneGenerator::new(), ToneGenerator::new()],
+            tone: [
+                ToneGenerator::new(),
+                ToneGenerator::new(),
+                ToneGenerator::new(),
+            ],
             noise: NoiseGenerator::new(),
             envelope: EnvelopeGenerator::new(),
             clock_counter: 0,
@@ -288,13 +290,11 @@ impl Ay3_8910 {
             }
             // Envelope period
             11 | 12 => {
-                self.envelope.period =
-                    u16::from(self.regs[11]) | (u16::from(self.regs[12]) << 8);
+                self.envelope.period = u16::from(self.regs[11]) | (u16::from(self.regs[12]) << 8);
             }
             // Envelope shape — writing resets the envelope
             13 => {
-                self.envelope.period =
-                    u16::from(self.regs[11]) | (u16::from(self.regs[12]) << 8);
+                self.envelope.period = u16::from(self.regs[11]) | (u16::from(self.regs[12]) << 8);
                 self.envelope.reset(value);
             }
             _ => {}

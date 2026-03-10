@@ -14,11 +14,11 @@ use fdk_aac::enc::{
     EncoderParams, Transport,
 };
 use muxide::api::{AacProfile, AudioCodec, MuxerBuilder, VideoCodec};
+use openh264::OpenH264API;
 use openh264::encoder::{
     BitRate as H264BitRate, Encoder as H264Encoder, EncoderConfig, FrameRate, FrameType,
 };
 use openh264::formats::{RgbaSliceU8, YUVBuffer};
-use openh264::OpenH264API;
 
 /// Information returned after recording completes.
 pub struct VideoInfo {
@@ -98,11 +98,7 @@ impl VideoRecorder {
         } else {
             ChannelMode::Mono
         };
-        let aac_bitrate = if audio_channels >= 2 {
-            128_000
-        } else {
-            64_000
-        };
+        let aac_bitrate = if audio_channels >= 2 { 128_000 } else { 64_000 };
         let aac_params = EncoderParams {
             bit_rate: AacBitRate::Cbr(aac_bitrate),
             sample_rate: audio_sample_rate,
@@ -110,16 +106,14 @@ impl VideoRecorder {
             channels: channel_mode,
             audio_object_type: AudioObjectType::Mpeg4LowComplexity,
         };
-        let aac =
-            AacEncoder::new(aac_params).map_err(|e| format!("AAC encoder init: {e:?}"))?;
+        let aac = AacEncoder::new(aac_params).map_err(|e| format!("AAC encoder init: {e:?}"))?;
 
         // --- MP4 muxer ---
         if let Some(parent) = save_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Create output directory: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("Create output directory: {e}"))?;
         }
-        let file = std::fs::File::create(save_path)
-            .map_err(|e| format!("Create output file: {e}"))?;
+        let file =
+            std::fs::File::create(save_path).map_err(|e| format!("Create output file: {e}"))?;
         let muxer = MuxerBuilder::new(BufWriter::new(file))
             .video(VideoCodec::H264, enc_w, enc_h, f64::from(fps))
             .audio(

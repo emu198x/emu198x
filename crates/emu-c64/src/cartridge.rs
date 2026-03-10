@@ -146,8 +146,8 @@ impl Cartridge {
                             self.exrom = true;
                             self.game = true;
                         } else {
-                            self.game = value & 0x01 == 0;   // Active low
-                            self.exrom = value & 0x02 == 0;  // Active low
+                            self.game = value & 0x01 == 0; // Active low
+                            self.exrom = value & 0x02 == 0; // Active low
                         }
                     }
                     0xDF00..=0xDFFF => {
@@ -320,8 +320,13 @@ pub fn crt_name(data: &[u8]) -> String {
         return String::new();
     }
     let name_bytes = &data[0x20..0x40];
-    let end = name_bytes.iter().position(|&b| b == 0).unwrap_or(name_bytes.len());
-    String::from_utf8_lossy(&name_bytes[..end]).trim().to_string()
+    let end = name_bytes
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(name_bytes.len());
+    String::from_utf8_lossy(&name_bytes[..end])
+        .trim()
+        .to_string()
 }
 
 #[cfg(test)]

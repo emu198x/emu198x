@@ -57,9 +57,7 @@ fn main() {
 
             // Log if PC enters the error handler
             if pc == 0x0053 {
-                println!(
-                    "\n*** PC reached $0053 (error handler) at tick {tick_count} ***"
-                );
+                println!("\n*** PC reached $0053 (error handler) at tick {tick_count} ***");
                 println!(
                     "Registers: A={:02X} F={:02X} B={:02X} C={:02X} D={:02X} E={:02X} H={:02X} L={:02X}",
                     spectrum.cpu().regs.a,
@@ -102,16 +100,12 @@ fn main() {
 
             // Log if PC reaches RST 8 locations with error $0B
             if pc == 0x1C8A || pc == 0x21CE {
-                println!(
-                    "*** PC at ${pc:04X} (RST 8 + $0B site) at tick {tick_count} ***"
-                );
+                println!("*** PC at ${pc:04X} (RST 8 + $0B site) at tick {tick_count} ***");
             }
 
             // Log if PC reaches RST 8 handler
             if pc == 0x0008 {
-                println!(
-                    "*** RST 8 called at tick {tick_count} (from PC={prev_pc:04X}) ***"
-                );
+                println!("*** RST 8 called at tick {tick_count} (from PC={prev_pc:04X}) ***");
                 let sp = spectrum.cpu().regs.sp;
                 let lo = spectrum.bus().memory.peek(sp);
                 let hi = spectrum.bus().memory.peek(sp.wrapping_add(1));

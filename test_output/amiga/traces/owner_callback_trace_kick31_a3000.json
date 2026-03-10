@@ -1,0 +1,2255 @@
+{
+  "rom_path": "../../roms/kick31_40_068_a3000.rom",
+  "trace_start_tick": 0,
+  "helper_entry_tick": 17468686,
+  "stop_tick": 17469905,
+  "owner_addr": 132135076,
+  "final_owner": {
+    "gate_bits": 1,
+    "callback_ptr": 16571282,
+    "context_ptr": 132160548,
+    "producer_wake_flag": 0
+  },
+  "events": [
+    {
+      "tick": 3570540,
+      "kind": "owner_binding_change",
+      "pc": 16253210,
+      "instr_start_pc": 16253200,
+      "ir": 5116,
+      "sr": 9984,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 4294967295,
+        "d2": 65535,
+        "a0": 16252928,
+        "a1": 15728640,
+        "a2": 0,
+        "a5": 16253194,
+        "a6": 0,
+        "a7": 1024
+      },
+      "stack_chain": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 3790521,
+      "kind": "owner_binding_change",
+      "pc": 16260580,
+      "instr_start_pc": 16260576,
+      "ir": 9857,
+      "sr": 9984,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 31
+      },
+      "registers": {
+        "d0": 24,
+        "d1": 2094112,
+        "d2": 0,
+        "a0": 1024,
+        "a1": 3016,
+        "a2": 1040,
+        "a5": 16511204,
+        "a6": 1880,
+        "a7": 926
+      },
+      "stack_chain": [
+        982,
+        16253798,
+        16260832,
+        19196,
+        0,
+        16260770,
+        18,
+        0,
+        16253798,
+        16256728,
+        16256656,
+        0
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 3793253,
+      "kind": "owner_binding_change",
+      "pc": 16259588,
+      "instr_start_pc": 16259584,
+      "ir": 8840,
+      "sr": 9984,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 192938015
+      },
+      "registers": {
+        "d0": 2536,
+        "d1": 2094276,
+        "d2": 19196,
+        "a0": 2944,
+        "a1": 3040,
+        "a2": 16253798,
+        "a5": 16511230,
+        "a6": 1880,
+        "a7": 962
+      },
+      "stack_chain": [
+        16256756,
+        16256656,
+        0,
+        996,
+        16256596,
+        2512,
+        0,
+        2824,
+        0,
+        0,
+        0,
+        196
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 3793264,
+      "kind": "owner_binding_change",
+      "pc": 16259592,
+      "instr_start_pc": 16259586,
+      "ir": 9024,
+      "sr": 9984,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 192937984
+      },
+      "registers": {
+        "d0": 2536,
+        "d1": 2094276,
+        "d2": 19196,
+        "a0": 2944,
+        "a1": 3040,
+        "a2": 16253798,
+        "a5": 16511230,
+        "a6": 1880,
+        "a7": 962
+      },
+      "stack_chain": [
+        16256756,
+        16256656,
+        0,
+        996,
+        16256596,
+        2512,
+        0,
+        2824,
+        0,
+        0,
+        0,
+        196
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 5998282,
+      "kind": "owner_binding_change",
+      "pc": 16260862,
+      "instr_start_pc": 16260858,
+      "ir": 8385,
+      "sr": 9988,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 2512,
+        "d1": 0,
+        "d2": 65539,
+        "a0": 3044,
+        "a1": 2512,
+        "a2": 0,
+        "a5": 0,
+        "a6": 1880,
+        "a7": 916
+      },
+      "stack_chain": [
+        390,
+        164,
+        16260770,
+        554,
+        65537,
+        518389760,
+        16260118,
+        2,
+        0,
+        0,
+        0,
+        4294967295
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 8518021,
+      "kind": "tracked_write",
+      "pc": 16260864,
+      "instr_start_pc": 16260860,
+      "ir": 8385,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 132134000,
+        "d1": 0,
+        "d2": 65548,
+        "a0": 132135528,
+        "a1": 132134000,
+        "a2": 0,
+        "a5": 1880,
+        "a6": 132122616,
+        "a7": 132133400
+      },
+      "stack_chain": [
+        544,
+        1076,
+        16260770,
+        1620,
+        65537,
+        0,
+        16260118,
+        6145,
+        0,
+        0,
+        0,
+        4294967295
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 8518059,
+      "kind": "tracked_write",
+      "pc": 16260864,
+      "instr_start_pc": 16260860,
+      "ir": 8385,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 132134000,
+        "d1": 0,
+        "d2": 65546,
+        "a0": 132135544,
+        "a1": 132134000,
+        "a2": 0,
+        "a5": 1880,
+        "a6": 132122616,
+        "a7": 132133400
+      },
+      "stack_chain": [
+        544,
+        1076,
+        16260770,
+        1620,
+        65537,
+        0,
+        16260118,
+        6145,
+        0,
+        0,
+        0,
+        4294967295
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 8518062,
+      "kind": "tracked_write",
+      "pc": 16260864,
+      "instr_start_pc": 16260860,
+      "ir": 8385,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 132134000,
+        "d1": 0,
+        "d2": 65546,
+        "a0": 132135544,
+        "a1": 132134000,
+        "a2": 0,
+        "a5": 1880,
+        "a6": 132122616,
+        "a7": 132133400
+      },
+      "stack_chain": [
+        544,
+        1076,
+        16260770,
+        1620,
+        65537,
+        0,
+        16260118,
+        6145,
+        0,
+        0,
+        0,
+        4294967295
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 8518070,
+      "kind": "tracked_write",
+      "pc": 16260862,
+      "instr_start_pc": 16260858,
+      "ir": 8385,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 132134000,
+        "d1": 0,
+        "d2": 65545,
+        "a0": 132135548,
+        "a1": 132134000,
+        "a2": 0,
+        "a5": 1880,
+        "a6": 132122616,
+        "a7": 132133400
+      },
+      "stack_chain": [
+        544,
+        1076,
+        16260770,
+        1620,
+        65537,
+        0,
+        16260118,
+        6145,
+        0,
+        0,
+        0,
+        4294967295
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 8518074,
+      "kind": "tracked_write",
+      "pc": 16260862,
+      "instr_start_pc": 16260858,
+      "ir": 8385,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 132134000,
+        "d1": 0,
+        "d2": 65545,
+        "a0": 132135548,
+        "a1": 132134000,
+        "a2": 0,
+        "a5": 1880,
+        "a6": 132122616,
+        "a7": 132133400
+      },
+      "stack_chain": [
+        544,
+        1076,
+        16260770,
+        1620,
+        65537,
+        0,
+        16260118,
+        6145,
+        0,
+        0,
+        0,
+        4294967295
+      ],
+      "current_entry": null
+    },
+    {
+      "tick": 16974387,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405316,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974388,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405316,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974389,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405318,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974390,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405318,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974391,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405318,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974392,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974393,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974394,
+      "kind": "tracked_read",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974394,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974395,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974396,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974397,
+      "kind": "tracked_write",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974397,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974398,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974399,
+      "kind": "owner_binding_change",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974399,
+      "kind": "helper_gate_set_pc",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "ir": 493,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 6145,
+        "a0": 132133228,
+        "a1": 132133288,
+        "a2": 132163704,
+        "a5": 132135076,
+        "a6": 132122616,
+        "a7": 132133224
+      },
+      "stack_chain": [
+        0,
+        0,
+        1,
+        132163704,
+        132160548,
+        0,
+        132133440,
+        16669954,
+        132121708,
+        132160548,
+        16631036,
+        132163704
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439141,
+      "kind": "tracked_write",
+      "pc": 16642028,
+      "instr_start_pc": 16642022,
+      "ir": 8522,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 17,
+        "d1": 1040,
+        "d2": 4,
+        "a0": 132135076,
+        "a1": 1448,
+        "a2": 132160548,
+        "a5": 132133320,
+        "a6": 132160548,
+        "a7": 132133268
+      },
+      "stack_chain": [
+        4,
+        132162602,
+        132160548,
+        132133300,
+        4,
+        16631408,
+        0,
+        16671978,
+        2147614744,
+        132133348,
+        2147614733,
+        17
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439144,
+      "kind": "owner_binding_change",
+      "pc": 16642028,
+      "instr_start_pc": 16642022,
+      "ir": 8522,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 132120576,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 17,
+        "d1": 1040,
+        "d2": 4,
+        "a0": 132135076,
+        "a1": 1448,
+        "a2": 132160548,
+        "a5": 132133320,
+        "a6": 132160548,
+        "a7": 132133268
+      },
+      "stack_chain": [
+        4,
+        132162602,
+        132160548,
+        132133300,
+        4,
+        16631408,
+        0,
+        16671978,
+        2147614744,
+        132133348,
+        2147614733,
+        17
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439145,
+      "kind": "tracked_write",
+      "pc": 16642028,
+      "instr_start_pc": 16642022,
+      "ir": 8522,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 132120576,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 17,
+        "d1": 1040,
+        "d2": 4,
+        "a0": 132135076,
+        "a1": 1448,
+        "a2": 132160548,
+        "a5": 132133320,
+        "a6": 132160548,
+        "a7": 132133268
+      },
+      "stack_chain": [
+        4,
+        132162602,
+        132160548,
+        132133300,
+        4,
+        16631408,
+        0,
+        16671978,
+        2147614744,
+        132133348,
+        2147614733,
+        17
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439147,
+      "kind": "owner_binding_change",
+      "pc": 16642028,
+      "instr_start_pc": 16642022,
+      "ir": 8522,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 17,
+        "d1": 1040,
+        "d2": 4,
+        "a0": 132135076,
+        "a1": 1448,
+        "a2": 132160548,
+        "a5": 132133320,
+        "a6": 132160548,
+        "a7": 132133268
+      },
+      "stack_chain": [
+        4,
+        132162602,
+        132160548,
+        132133300,
+        4,
+        16631408,
+        0,
+        16671978,
+        2147614744,
+        132133348,
+        2147614733,
+        17
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439175,
+      "kind": "tracked_write",
+      "pc": 16642040,
+      "instr_start_pc": 16642030,
+      "ir": 8572,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 17,
+        "d1": 1040,
+        "d2": 4,
+        "a0": 132135076,
+        "a1": 1448,
+        "a2": 132160548,
+        "a5": 132133320,
+        "a6": 132160548,
+        "a7": 132133268
+      },
+      "stack_chain": [
+        4,
+        132162602,
+        132160548,
+        132133300,
+        4,
+        16631408,
+        0,
+        16671978,
+        2147614744,
+        132133348,
+        2147614733,
+        17
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439178,
+      "kind": "owner_binding_change",
+      "pc": 16642040,
+      "instr_start_pc": 16642030,
+      "ir": 8572,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16515072,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 17,
+        "d1": 1040,
+        "d2": 4,
+        "a0": 132135076,
+        "a1": 1448,
+        "a2": 132160548,
+        "a5": 132133320,
+        "a6": 132160548,
+        "a7": 132133268
+      },
+      "stack_chain": [
+        4,
+        132162602,
+        132160548,
+        132133300,
+        4,
+        16631408,
+        0,
+        16671978,
+        2147614744,
+        132133348,
+        2147614733,
+        17
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439179,
+      "kind": "tracked_write",
+      "pc": 16642040,
+      "instr_start_pc": 16642030,
+      "ir": 8572,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16515072,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 17,
+        "d1": 1040,
+        "d2": 4,
+        "a0": 132135076,
+        "a1": 1448,
+        "a2": 132160548,
+        "a5": 132133320,
+        "a6": 132160548,
+        "a7": 132133268
+      },
+      "stack_chain": [
+        4,
+        132162602,
+        132160548,
+        132133300,
+        4,
+        16631408,
+        0,
+        16671978,
+        2147614744,
+        132133348,
+        2147614733,
+        17
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439181,
+      "kind": "owner_binding_change",
+      "pc": 16642040,
+      "instr_start_pc": 16642030,
+      "ir": 8572,
+      "sr": 0,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 17,
+        "d1": 1040,
+        "d2": 4,
+        "a0": 132135076,
+        "a1": 1448,
+        "a2": 132160548,
+        "a5": 132133320,
+        "a6": 132160548,
+        "a7": 132133268
+      },
+      "stack_chain": [
+        4,
+        132162602,
+        132160548,
+        132133300,
+        4,
+        16631408,
+        0,
+        16671978,
+        2147614744,
+        132133348,
+        2147614733,
+        17
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458854,
+      "kind": "producer_path_pc",
+      "pc": 16642834,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133152
+      },
+      "stack_chain": [
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440,
+        0
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458855,
+      "kind": "producer_path_pc",
+      "pc": 16642834,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133152
+      },
+      "stack_chain": [
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440,
+        0
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458856,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133152
+      },
+      "stack_chain": [
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440,
+        0
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458857,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133148
+      },
+      "stack_chain": [
+        16642560,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458858,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133148
+      },
+      "stack_chain": [
+        16642560,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458859,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133148
+      },
+      "stack_chain": [
+        16642560,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458860,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133148
+      },
+      "stack_chain": [
+        132182528,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458861,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133148
+      },
+      "stack_chain": [
+        132182528,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458862,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133148
+      },
+      "stack_chain": [
+        132182528,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458863,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133216,
+        "a6": 132160548,
+        "a7": 132133148
+      },
+      "stack_chain": [
+        132133216,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348,
+        132133440
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458864,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133148,
+        "a6": 132160548,
+        "a7": 132133144
+      },
+      "stack_chain": [
+        258,
+        132133216,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458865,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133148,
+        "a6": 132160548,
+        "a7": 132133144
+      },
+      "stack_chain": [
+        258,
+        132133216,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458866,
+      "kind": "producer_path_pc",
+      "pc": 16642836,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133148,
+        "a6": 132160548,
+        "a7": 132133144
+      },
+      "stack_chain": [
+        258,
+        132133216,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458867,
+      "kind": "producer_path_pc",
+      "pc": 16642838,
+      "instr_start_pc": 16642832,
+      "ir": 20053,
+      "sr": 4,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132163562,
+        "a1": 132163562,
+        "a2": 132133184,
+        "a5": 132133148,
+        "a6": 132160548,
+        "a7": 132133144
+      },
+      "stack_chain": [
+        258,
+        132133216,
+        16642604,
+        4294967295,
+        2,
+        18,
+        0,
+        4294967295,
+        132160548,
+        132160548,
+        132166784,
+        132133348
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17460512,
+      "kind": "tracked_read",
+      "pc": 16643776,
+      "instr_start_pc": 16643770,
+      "ir": 45098,
+      "sr": 16,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 1,
+        "d1": 1,
+        "d2": 1,
+        "a0": 132160548,
+        "a1": 132163562,
+        "a2": 132135076,
+        "a5": 132133148,
+        "a6": 132160548,
+        "a7": 132133092
+      },
+      "stack_chain": [
+        1,
+        1,
+        0,
+        132160548,
+        16643026,
+        1,
+        0,
+        1,
+        132166764,
+        1,
+        132133280,
+        132133184
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17469905,
+      "kind": "stop",
+      "pc": 16258198,
+      "instr_start_pc": 16258194,
+      "ir": 20082,
+      "sr": 9988,
+      "owner": {
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "registers": {
+        "d0": 0,
+        "d1": 0,
+        "d2": 0,
+        "a0": 132123022,
+        "a1": 132133496,
+        "a2": 132133184,
+        "a5": 132133046,
+        "a6": 132122616,
+        "a7": 132129390
+      },
+      "stack_chain": [
+        2097152,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 4,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    }
+  ]
+}

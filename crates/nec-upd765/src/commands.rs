@@ -6,8 +6,8 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use crate::dsk::DskImage;
 use crate::FdcPhase;
+use crate::dsk::DskImage;
 
 /// Command IDs (low 5 bits of the first command byte).
 const CMD_SPECIFY: u8 = 0x03;
@@ -21,7 +21,7 @@ const CMD_FORMAT_TRACK: u8 = 0x0D;
 const CMD_SEEK: u8 = 0x0F;
 
 /// How many parameter bytes each command expects (total including the command byte).
-#[must_use] 
+#[must_use]
 pub fn command_length(cmd_byte: u8) -> usize {
     match cmd_byte & 0x1F {
         CMD_SPECIFY => 3,
@@ -67,10 +67,7 @@ pub fn execute(
 // SPECIFY (0x03) — set timing parameters, no result phase
 // ---------------------------------------------------------------------------
 
-fn exec_specify(
-    _cmd_buf: &[u8],
-    phase: &mut FdcPhase,
-) -> (Vec<u8>, bool) {
+fn exec_specify(_cmd_buf: &[u8], phase: &mut FdcPhase) -> (Vec<u8>, bool) {
     // SRT, HUT, HLT, NDMA stored but not used in this emulation level.
     // The +3 sends SPECIFY early in boot — we just accept it silently.
     *phase = FdcPhase::Idle;
@@ -190,7 +187,10 @@ fn exec_read_data(
         *st0 |= 0x40; // Abnormal termination
         *st1 |= 0x01; // Missing address mark
         *phase = FdcPhase::Result;
-        return (make_read_write_result(*st0, *st1, *st2, track, head, r, n), true);
+        return (
+            make_read_write_result(*st0, *st1, *st2, track, head, r, n),
+            true,
+        );
     };
 
     // Collect sector data for the result data transfer
@@ -254,7 +254,10 @@ fn exec_write_data(
         *st0 |= 0x40;
         *st1 |= 0x01;
         *phase = FdcPhase::Result;
-        return (make_read_write_result(*st0, *st1, *st2, track, head, r, n), true);
+        return (
+            make_read_write_result(*st0, *st1, *st2, track, head, r, n),
+            true,
+        );
     };
 
     // For now, write data is accepted but the actual data transfer from CPU
@@ -267,7 +270,10 @@ fn exec_write_data(
     // For now, just signal success.
 
     *phase = FdcPhase::Result;
-    (make_read_write_result(*st0, *st1, *st2, track, head, r, n), true)
+    (
+        make_read_write_result(*st0, *st1, *st2, track, head, r, n),
+        true,
+    )
 }
 
 // ---------------------------------------------------------------------------

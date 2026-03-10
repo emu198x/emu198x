@@ -661,10 +661,10 @@ mod tests_plus3 {
 
     fn make_plus3_rom() -> Vec<u8> {
         let mut rom = vec![0u8; 0x10000];
-        rom[0] = 0xAA;          // ROM page 0 first byte
-        rom[0x4000] = 0xBB;     // ROM page 1 first byte
-        rom[0x8000] = 0xCC;     // ROM page 2 first byte
-        rom[0xC000] = 0xDD;     // ROM page 3 first byte
+        rom[0] = 0xAA; // ROM page 0 first byte
+        rom[0x4000] = 0xBB; // ROM page 1 first byte
+        rom[0x8000] = 0xCC; // ROM page 2 first byte
+        rom[0xC000] = 0xDD; // ROM page 3 first byte
         rom
     }
 
@@ -823,9 +823,9 @@ mod tests_plus3 {
         // Config 1: banks 4,5,6,7
         mem.write_plus3_register(0x03);
         assert!(!mem.contended_page(0x0000)); // Bank 4 (even)
-        assert!(mem.contended_page(0x4000));  // Bank 5 (odd)
+        assert!(mem.contended_page(0x4000)); // Bank 5 (odd)
         assert!(!mem.contended_page(0x8000)); // Bank 6 (even)
-        assert!(mem.contended_page(0xC000));  // Bank 7 (odd)
+        assert!(mem.contended_page(0xC000)); // Bank 7 (odd)
     }
 
     #[test]

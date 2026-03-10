@@ -92,11 +92,8 @@ impl Bus for NesBus {
             0x2000..=0x3FFF => {
                 let mirroring = self.cartridge.mirroring();
                 let cart = self.cartridge.as_mut();
-                self.ppu.cpu_read(
-                    addr & 0x0007,
-                    &mut |a| cart.chr_read(a),
-                    mirroring,
-                )
+                self.ppu
+                    .cpu_read(addr & 0x0007, &mut |a| cart.chr_read(a), mirroring)
             }
             0x4016 => {
                 if self.four_score {
@@ -229,7 +226,11 @@ mod tests {
         let mut bus = make_bus();
         // $4018-$401F are APU test mode registers — disabled, should return $FF
         for addr in 0x4018..=0x401F {
-            assert_eq!(bus.read(addr).data, 0xFF, "test mode reg ${addr:04X} should return $FF");
+            assert_eq!(
+                bus.read(addr).data,
+                0xFF,
+                "test mode reg ${addr:04X} should return $FF"
+            );
         }
     }
 

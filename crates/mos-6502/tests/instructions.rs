@@ -132,9 +132,7 @@ fn test_brk_stack_layout() {
     );
 
     eprintln!("BRK test: PC=${:04X}, SP=${:02X}", cpu.pc(), cpu.regs.s);
-    eprintln!(
-        "Stack: PCH=${pushed_pch:02X}, PCL=${pushed_pcl:02X}, P=${pushed_p:02X}"
-    );
+    eprintln!("Stack: PCH=${pushed_pch:02X}, PCL=${pushed_pcl:02X}, P=${pushed_p:02X}");
 }
 
 #[test]

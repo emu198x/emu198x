@@ -2,7 +2,7 @@
   "model": "a3000",
   "rom_path": "../../roms/kick31_40_068_a3000.rom",
   "stop_resume_pc": 16258198,
-  "stop_tick": 11472300,
+  "stop_tick": 17469905,
   "exec_base": 132122616,
   "current_task": 132133496,
   "current_task_name": "exec.library",
@@ -47,7 +47,14 @@
       "a7": 132129392,
       "stack_return_pc": 0,
       "intena": 16388,
-      "intreq": 32
+      "intreq": 32,
+      "current_entry": {
+        "addr": 132120576,
+        "name": "expansion memory",
+        "state": 5,
+        "sig_wait": 2099200,
+        "sig_recvd": 31
+      }
     },
     {
       "tick": 8468868,
@@ -63,7 +70,14 @@
       "a7": 132129392,
       "stack_return_pc": 0,
       "intena": 16388,
-      "intreq": 32
+      "intreq": 32,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 0,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 8468919,
@@ -79,7 +93,14 @@
       "a7": 132129388,
       "stack_return_pc": 16254878,
       "intena": 16388,
-      "intreq": 32
+      "intreq": 32,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 1,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 8469664,
@@ -95,7 +116,14 @@
       "a7": 132129388,
       "stack_return_pc": 16254878,
       "intena": 4,
-      "intreq": 32
+      "intreq": 32,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 8470172,
@@ -111,7 +139,14 @@
       "a7": 132129392,
       "stack_return_pc": 0,
       "intena": 16388,
-      "intreq": 32
+      "intreq": 32,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 11396069,
@@ -127,7 +162,14 @@
       "a7": 132129360,
       "stack_return_pc": 132148992,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 11396581,
@@ -143,7 +185,14 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132149122,
+        "name": "input.device",
+        "state": 3,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 11397876,
@@ -159,7 +208,14 @@
       "a7": 132153296,
       "stack_return_pc": 0,
       "intena": 8236,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132149122,
+        "name": "input.device",
+        "state": 2,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 11398694,
@@ -175,7 +231,14 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 0,
+        "sig_recvd": 16
+      }
     },
     {
       "tick": 11398742,
@@ -191,7 +254,14 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 0,
+        "sig_recvd": 16
+      }
     },
     {
       "tick": 11399172,
@@ -207,7 +277,14 @@
       "a7": 132133436,
       "stack_return_pc": 16307004,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
     },
     {
       "tick": 11399230,
@@ -223,7 +300,14 @@
       "a7": 132133436,
       "stack_return_pc": 16307004,
       "intena": 8236,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 11421825,
@@ -239,7 +323,14 @@
       "a7": 132129360,
       "stack_return_pc": 132155136,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 11422337,
@@ -255,7 +346,14 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 11448150,
@@ -271,10 +369,17 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 0,
+        "sig_recvd": 0
+      }
     },
     {
-      "tick": 11453081,
+      "tick": 11453116,
       "name": "current_entry",
       "addr": 132122892,
       "size": "long",
@@ -287,10 +392,17 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 0,
+        "sig_recvd": 16
+      }
     },
     {
-      "tick": 11453744,
+      "tick": 11453779,
       "name": "task.tc_sig_recvd",
       "addr": 132133522,
       "size": "long",
@@ -303,10 +415,17 @@
       "a7": 132155192,
       "stack_return_pc": 0,
       "intena": 8236,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
     },
     {
-      "tick": 11454617,
+      "tick": 11454649,
       "name": "current_entry",
       "addr": 132122892,
       "size": "long",
@@ -319,10 +438,17 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
     },
     {
-      "tick": 11454665,
+      "tick": 11454696,
       "name": "task.tc_state",
       "addr": 132133511,
       "size": "byte",
@@ -335,10 +461,17 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
     },
     {
-      "tick": 11455119,
+      "tick": 11455150,
       "name": "task.tc_sig_recvd",
       "addr": 132133522,
       "size": "long",
@@ -351,10 +484,17 @@
       "a7": 132133424,
       "stack_return_pc": 16284628,
       "intena": 8236,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
     },
     {
-      "tick": 11464250,
+      "tick": 11464281,
       "name": "task.tc_state",
       "addr": 132133511,
       "size": "byte",
@@ -367,7 +507,14 @@
       "a7": 132129360,
       "stack_return_pc": 0,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
     },
     {
       "tick": 11464884,
@@ -383,7 +530,14 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
     },
     {
       "tick": 11467693,
@@ -399,10 +553,17 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
     },
     {
-      "tick": 11469921,
+      "tick": 11473221,
       "name": "current_entry",
       "addr": 132122892,
       "size": "long",
@@ -415,10 +576,40 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
     },
     {
-      "tick": 11471249,
+      "tick": 11474705,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11476053,
       "name": "current_entry",
       "addr": 132122892,
       "size": "long",
@@ -431,10 +622,17 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
     },
     {
-      "tick": 11471297,
+      "tick": 11476100,
       "name": "task.tc_state",
       "addr": 132133511,
       "size": "byte",
@@ -447,23 +645,2337 @@
       "a7": 132129390,
       "stack_return_pc": 2097152,
       "intena": 24620,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
     },
     {
-      "tick": 11471731,
+      "tick": 11476530,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11483061,
       "name": "task.tc_state",
       "addr": 132133511,
       "size": "byte",
       "old_value": 2,
-      "new_value": 4,
-      "pc": 16263370,
-      "instr_start_pc": 16263362,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
       "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11483572,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11486381,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11489964,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11491449,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
       "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11492796,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11492844,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11493274,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
       "a7": 132133306,
       "stack_return_pc": 16285982,
       "intena": 8236,
-      "intreq": 64
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11499775,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11500284,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11503100,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11506700,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11508185,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11509540,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11509588,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11510018,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11516519,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11517029,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11519845,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11523428,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11524912,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11526269,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11526316,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11526747,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11533248,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11533893,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11536702,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11540284,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11541768,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11543196,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11543244,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11543674,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11550181,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11550686,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11553495,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11557076,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11558561,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11559908,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11559956,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11560386,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11566887,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11567397,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11570213,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11573845,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11575329,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11576685,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11576732,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11577162,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11583664,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11584172,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11586988,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11590572,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11592057,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11593412,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11593460,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11593890,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11600408,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11600914,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11603732,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11609260,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11610745,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11612205,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11612252,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11612682,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11619189,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11619694,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11622504,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11626085,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11627569,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11628916,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11628964,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11629394,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11635896,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11636404,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11639220,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11642852,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11644337,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11645692,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11645739,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11646170,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11652671,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11653181,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11655997,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11659580,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11661064,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11662421,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11662468,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11662899,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11669400,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11669916,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11672725,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11676309,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
+    },
+    {
+      "tick": 11677793,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 0,
+      "new_value": 16,
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "ir": 33168,
+      "sr": 16,
+      "a7": 132155180,
+      "stack_return_pc": 0,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 2,
+        "sig_wait": 3758096384,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11679172,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132133496,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11679220,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 3,
+      "new_value": 2,
+      "pc": 16258232,
+      "instr_start_pc": 16258224,
+      "ir": 6012,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 16
+      }
+    },
+    {
+      "tick": 11679650,
+      "name": "task.tc_sig_recvd",
+      "addr": 132133522,
+      "size": "long",
+      "old_value": 16,
+      "new_value": 0,
+      "pc": 16263452,
+      "instr_start_pc": 16263446,
+      "ir": 45481,
+      "sr": 20,
+      "a7": 132133306,
+      "stack_return_pc": 16285982,
+      "intena": 8236,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11686157,
+      "name": "task.tc_state",
+      "addr": 132133511,
+      "size": "byte",
+      "old_value": 2,
+      "new_value": 3,
+      "pc": 16258056,
+      "instr_start_pc": 16258048,
+      "ir": 4988,
+      "sr": 9984,
+      "a7": 132129360,
+      "stack_return_pc": 0,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 3,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 11686662,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132133496,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11689471,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132155216,
+      "new_value": 132158344,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132158344,
+        "name": "SCSI handler",
+        "state": 3,
+        "sig_wait": 3221225472,
+        "sig_recvd": 1073741824
+      }
+    },
+    {
+      "tick": 11693052,
+      "name": "current_entry",
+      "addr": 132122892,
+      "size": "long",
+      "old_value": 132158344,
+      "new_value": 132155216,
+      "pc": 16258214,
+      "instr_start_pc": 16258208,
+      "ir": 11595,
+      "sr": 9984,
+      "a7": 132129390,
+      "stack_return_pc": 2097152,
+      "intena": 24620,
+      "intreq": 64,
+      "current_entry": {
+        "addr": 132155216,
+        "name": "scsi.device",
+        "state": 3,
+        "sig_wait": 3758096384,
+        "sig_recvd": 2147483648
+      }
     }
   ],
   "custom_write_events": [

@@ -70,15 +70,18 @@ fn test_aga_boot_diag() {
         }
 
         // More frequent reports in the first 3 seconds
-        let interval = if i < 28_375_160 * 3 { 28_375_160 / 4 } else { 28_375_160 };
+        let interval = if i < 28_375_160 * 3 {
+            28_375_160 / 4
+        } else {
+            28_375_160
+        };
         if i - last_report >= interval {
             last_report = i;
             let elapsed_s = i as f64 / 28_375_160.0;
             let eb = read32m(&amiga, 4);
             println!(
                 "[{:.0}s] PC=${:08X} SR=${:04X} DMACON=${:04X} INTENA=${:04X} ExecBase=${:08X}",
-                elapsed_s, pc, amiga.cpu.regs.sr, amiga.agnus.dmacon,
-                amiga.paula.intena, eb,
+                elapsed_s, pc, amiga.cpu.regs.sr, amiga.agnus.dmacon, amiga.paula.intena, eb,
             );
         }
     }
@@ -106,13 +109,17 @@ fn test_aga_boot_diag() {
         println!("Libraries:");
         for _ in 0..30 {
             let succ = read32m(&amiga, node);
-            if succ == 0 { break; }
+            if succ == 0 {
+                break;
+            }
             let name_ptr = read32m(&amiga, node + 10);
             let mut name = String::new();
             if name_ptr > 0 && name_ptr < 0x1000000 {
                 for j in 0..30u32 {
                     let ch = read_mem(&amiga, name_ptr + j);
-                    if ch == 0 { break; }
+                    if ch == 0 {
+                        break;
+                    }
                     name.push(ch as char);
                 }
             }

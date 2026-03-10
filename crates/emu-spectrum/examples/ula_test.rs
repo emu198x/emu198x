@@ -69,9 +69,7 @@ fn main() {
     if p2 == expected_paper {
         println!("PASS: bitmap $00 + attr $38 → all paper (white)");
     } else {
-        println!(
-            "FAIL: expected paper 0x{expected_paper:08X}, got 0x{p2:08X}"
-        );
+        println!("FAIL: expected paper 0x{expected_paper:08X}, got 0x{p2:08X}");
     }
 
     // === Test 3: Checkerboard bitmap ($AA), check alternating pixels ===
@@ -175,9 +173,7 @@ fn main() {
     let iff1 = spectrum2.cpu().regs.iff1;
 
     println!("After 100 frames:");
-    println!(
-        "  PC={pc:04X} SP={sp:04X} IM={im} IY={iy:04X} IFF1={iff1}"
-    );
+    println!("  PC={pc:04X} SP={sp:04X} IM={im} IY={iy:04X} IFF1={iff1}");
     println!("  ERR_NR=0x{err_nr:02X}");
 
     // Check some RAM contents
@@ -219,9 +215,7 @@ fn main() {
                 nonzero += 1;
             }
         }
-        println!(
-            "    Line {row}: base=${base:04X}, non-zero bytes: {nonzero}/32"
-        );
+        println!("    Line {row}: base=${base:04X}, non-zero bytes: {nonzero}/32");
     }
 
     // Check top screen row too
@@ -238,8 +232,6 @@ fn main() {
                 nonzero += 1;
             }
         }
-        println!(
-            "    Line {row}: base=${base:04X}, non-zero bytes: {nonzero}/32"
-        );
+        println!("    Line {row}: base=${base:04X}, non-zero bytes: {nonzero}/32");
     }
 }

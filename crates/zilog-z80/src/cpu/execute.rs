@@ -451,7 +451,6 @@ impl Z80 {
 
             // EXX
             0xD9 => {
-                
                 std::mem::swap(&mut self.regs.b, &mut self.regs.b_alt);
                 std::mem::swap(&mut self.regs.c, &mut self.regs.c_alt);
                 std::mem::swap(&mut self.regs.d, &mut self.regs.d_alt);
@@ -1999,7 +1998,11 @@ impl Z80 {
                     let (hf, pf) = if hcf {
                         if nf {
                             (
-                                if self.regs.b.trailing_zeros() >= 4 { HF } else { 0 },
+                                if self.regs.b.trailing_zeros() >= 4 {
+                                    HF
+                                } else {
+                                    0
+                                },
                                 sz53p(p ^ (self.regs.b.wrapping_sub(1) & 7)) & PF,
                             )
                         } else {
@@ -2050,7 +2053,11 @@ impl Z80 {
                     let (hf, pf) = if hcf {
                         if nf {
                             (
-                                if self.regs.b.trailing_zeros() >= 4 { HF } else { 0 },
+                                if self.regs.b.trailing_zeros() >= 4 {
+                                    HF
+                                } else {
+                                    0
+                                },
                                 sz53p(p ^ (self.regs.b.wrapping_sub(1) & 7)) & PF,
                             )
                         } else {
@@ -2155,7 +2162,11 @@ impl Z80 {
                     let (hf, pf) = if hcf {
                         if nf {
                             (
-                                if self.regs.b.trailing_zeros() >= 4 { HF } else { 0 },
+                                if self.regs.b.trailing_zeros() >= 4 {
+                                    HF
+                                } else {
+                                    0
+                                },
                                 sz53p(p ^ (self.regs.b.wrapping_sub(1) & 7)) & PF,
                             )
                         } else {
@@ -2206,7 +2217,11 @@ impl Z80 {
                     let (hf, pf) = if hcf {
                         if nf {
                             (
-                                if self.regs.b.trailing_zeros() >= 4 { HF } else { 0 },
+                                if self.regs.b.trailing_zeros() >= 4 {
+                                    HF
+                                } else {
+                                    0
+                                },
                                 sz53p(p ^ (self.regs.b.wrapping_sub(1) & 7)) & PF,
                             )
                         } else {

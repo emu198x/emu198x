@@ -102,7 +102,9 @@ impl Reu {
             0xDF03 => self.c64_addr = (self.c64_addr & 0x00FF) | (u16::from(value) << 8),
             0xDF04 => self.reu_addr = (self.reu_addr & 0x07_FF00) | u32::from(value),
             0xDF05 => self.reu_addr = (self.reu_addr & 0x07_00FF) | (u32::from(value) << 8),
-            0xDF06 => self.reu_addr = (self.reu_addr & 0x00_FFFF) | ((u32::from(value) & 0x07) << 16),
+            0xDF06 => {
+                self.reu_addr = (self.reu_addr & 0x00_FFFF) | ((u32::from(value) & 0x07) << 16)
+            }
             0xDF07 => self.length = (self.length & 0xFF00) | u16::from(value),
             0xDF08 => self.length = (self.length & 0x00FF) | (u16::from(value) << 8),
             0xDF09 => self.irq_mask = value & 0xE0,
@@ -114,7 +116,11 @@ impl Reu {
     /// Execute a DMA transfer based on the command register.
     fn execute_dma(&mut self, c64_ram: &mut [u8; 0x10000]) {
         let op = self.command & 0x03;
-        let count = if self.length == 0 { 0x10000u32 } else { u32::from(self.length) };
+        let count = if self.length == 0 {
+            0x10000u32
+        } else {
+            u32::from(self.length)
+        };
         let fix_c64 = self.addr_control & 0x80 != 0;
         let fix_reu = self.addr_control & 0x40 != 0;
 

@@ -261,8 +261,7 @@ impl Via6522 {
             0x09 => {
                 // T2C-H: load counter (high from value, low from latch),
                 // start timer, clear T2 interrupt flag.
-                self.timer2_counter =
-                    u16::from(self.timer2_latch_lo) | (u16::from(value) << 8);
+                self.timer2_counter = u16::from(self.timer2_latch_lo) | (u16::from(value) << 8);
                 self.timer2_running = true;
                 self.timer2_fired = false;
                 self.ifr &= !IFR_T2;

@@ -46,11 +46,7 @@ pub struct SpectrumBus {
 
 impl SpectrumBus {
     #[must_use]
-    pub fn new(
-        memory: Box<dyn SpectrumMemory>,
-        ula: Ula,
-        beeper: BeeperState,
-    ) -> Self {
+    pub fn new(memory: Box<dyn SpectrumMemory>, ula: Ula, beeper: BeeperState) -> Self {
         Self {
             memory,
             ula,
@@ -105,15 +101,17 @@ impl Bus for SpectrumBus {
 
         // Port $2FFD: FDC main status register (+3 only)
         if port & 0xF002 == 0x2000
-            && let Some(ref fdc) = self.fdc {
-                return ReadResult::with_wait(fdc.read_msr(), wait);
-            }
+            && let Some(ref fdc) = self.fdc
+        {
+            return ReadResult::with_wait(fdc.read_msr(), wait);
+        }
 
         // Port $3FFD: FDC data register read (+3 only)
         if port & 0xF002 == 0x3000
-            && let Some(ref mut fdc) = self.fdc {
-                return ReadResult::with_wait(fdc.read_data(), wait);
-            }
+            && let Some(ref mut fdc) = self.fdc
+        {
+            return ReadResult::with_wait(fdc.read_data(), wait);
+        }
 
         // Port $FE (active when bit 0 is clear)
         let data = if ula_port {
@@ -172,17 +170,22 @@ impl Bus for SpectrumBus {
 
         // Port $3FFD: FDC data register write (+3 only)
         if port & 0xF002 == 0x3000
-            && let Some(ref mut fdc) = self.fdc {
-                fdc.write_data(value);
-            }
+            && let Some(ref mut fdc) = self.fdc
+        {
+            fdc.write_data(value);
+        }
 
         // Port $FFFD: AY register select
-        if port & 0xC002 == 0xC000 && let Some(ay) = &mut self.ay {
+        if port & 0xC002 == 0xC000
+            && let Some(ay) = &mut self.ay
+        {
             ay.select_register(value);
         }
 
         // Port $BFFD: AY data write
-        if port & 0xC002 == 0x8000 && let Some(ay) = &mut self.ay {
+        if port & 0xC002 == 0x8000
+            && let Some(ay) = &mut self.ay
+        {
             ay.write_data(value);
         }
 
@@ -269,7 +272,11 @@ mod tests {
 
         // Override with tape_ear = Some(false) — EAR should be 0
         bus.tape_ear = Some(false);
-        assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x00, "tape_ear=false overrides MIC");
+        assert_eq!(
+            bus.io_read(0xFEFE).data & 0x40,
+            0x00,
+            "tape_ear=false overrides MIC"
+        );
 
         // Override with tape_ear = Some(true) — EAR should be 1
         bus.tape_ear = Some(true);
@@ -277,11 +284,19 @@ mod tests {
 
         // Remove override — MIC loopback resumes
         bus.tape_ear = None;
-        assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x40, "MIC loopback restored");
+        assert_eq!(
+            bus.io_read(0xFEFE).data & 0x40,
+            0x40,
+            "MIC loopback restored"
+        );
 
         // Clear MIC bit — EAR should now be 0 again
         bus.io_write(0x00FE, 0x00);
-        assert_eq!(bus.io_read(0xFEFE).data & 0x40, 0x00, "MIC cleared, no tape_ear");
+        assert_eq!(
+            bus.io_read(0xFEFE).data & 0x40,
+            0x00,
+            "MIC cleared, no tape_ear"
+        );
     }
 
     #[test]
@@ -298,7 +313,10 @@ mod tests {
         // Read from display memory — should trigger snow
         let result = bus.read(0x4000);
         assert_eq!(result.data, 0xAB);
-        assert!(bus.ula.has_snow_byte(), "snow_byte should be set after display read during fetch");
+        assert!(
+            bus.ula.has_snow_byte(),
+            "snow_byte should be set after display read during fetch"
+        );
     }
 
     #[test]

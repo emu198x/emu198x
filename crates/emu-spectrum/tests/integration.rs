@@ -226,10 +226,7 @@ fn test_beeper_tone() {
     );
 
     // Verify reasonable amplitude
-    let max_abs = all_audio
-        .iter()
-        .map(|s| s[0].abs())
-        .fold(0.0f32, f32::max);
+    let max_abs = all_audio.iter().map(|s| s[0].abs()).fold(0.0f32, f32::max);
     assert!(
         max_abs > 0.5,
         "Max amplitude should be > 0.5 for a beeper square wave, got {max_abs}"

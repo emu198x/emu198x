@@ -56,7 +56,11 @@ pub enum IpfError {
     /// Record CRC does not match.
     BadRecordCrc { record_type: u32, offset: usize },
     /// A DATA record references a region beyond the file.
-    DataOutOfBounds { track: usize, offset: usize, len: usize },
+    DataOutOfBounds {
+        track: usize,
+        offset: usize,
+        len: usize,
+    },
     /// No INFO record found.
     MissingInfo,
 }
@@ -69,11 +73,20 @@ impl std::fmt::Display for IpfError {
             Self::TruncatedRecord { offset } => {
                 write!(f, "truncated record at offset {offset}")
             }
-            Self::BadRecordCrc { record_type, offset } => {
-                write!(f, "bad CRC in record 0x{record_type:08X} at offset {offset}")
+            Self::BadRecordCrc {
+                record_type,
+                offset,
+            } => {
+                write!(
+                    f,
+                    "bad CRC in record 0x{record_type:08X} at offset {offset}"
+                )
             }
             Self::DataOutOfBounds { track, offset, len } => {
-                write!(f, "DATA out of bounds: track {track}, offset {offset}, len {len}")
+                write!(
+                    f,
+                    "DATA out of bounds: track {track}, offset {offset}, len {len}"
+                )
             }
             Self::MissingInfo => write!(f, "no INFO record found"),
         }
@@ -294,26 +307,29 @@ impl IpfImage {
     }
 
     /// Check whether the first 4 bytes of `data` are the "CAPS" magic.
-    #[must_use] 
+    #[must_use]
     pub fn is_ipf(data: &[u8]) -> bool {
         data.len() >= 4 && &data[0..4] == IPF_MAGIC
     }
 
     /// Number of populated tracks.
-    #[must_use] 
+    #[must_use]
     pub fn track_count(&self) -> usize {
         self.tracks.iter().filter(|t| t.is_some()).count()
     }
 
     /// Access the raw MFM data for a specific track.
-    #[must_use] 
+    #[must_use]
     pub fn track_mfm(&self, cyl: u32, head: u32) -> Option<&[u8]> {
         let idx = (cyl as usize) * 2 + (head as usize);
-        self.tracks.get(idx)?.as_ref().map(|t| t.mfm_data.as_slice())
+        self.tracks
+            .get(idx)?
+            .as_ref()
+            .map(|t| t.mfm_data.as_slice())
     }
 
     /// Track data type.
-    #[must_use] 
+    #[must_use]
     pub fn track_data_type(&self, cyl: u32, head: u32) -> Option<IpfDataType> {
         let idx = (cyl as usize) * 2 + (head as usize);
         self.tracks.get(idx)?.as_ref().map(|t| t.data_type)

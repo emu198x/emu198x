@@ -18,11 +18,7 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
     let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../Code198x/code-samples")
         .join(relative);
-    if base.exists() {
-        Some(base)
-    } else {
-        None
-    }
+    if base.exists() { Some(base) } else { None }
 }
 
 // ---------------------------------------------------------------------------
@@ -32,9 +28,9 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
 #[test]
 #[ignore] // Requires Code198x repo
 fn test_dash_unit01() {
-    let Some(rom_path) = code198x_path(
-        "nintendo-entertainment-system/game-01-dash/unit-01/dash.nes",
-    ) else {
+    let Some(rom_path) =
+        code198x_path("nintendo-entertainment-system/game-01-dash/unit-01/dash.nes")
+    else {
         eprintln!("Skipping: Code198x repo not found");
         return;
     };
@@ -42,7 +38,10 @@ fn test_dash_unit01() {
     ensure_output_dir();
 
     let rom_data = std::fs::read(&rom_path).expect("read ROM");
-    let config = NesConfig { rom_data, region: NesRegion::Ntsc };
+    let config = NesConfig {
+        rom_data,
+        region: NesRegion::Ntsc,
+    };
     let mut nes = Nes::new(&config).expect("create NES");
 
     // Run 30 frames — enough for reset sequence (two vblank waits),
@@ -60,7 +59,10 @@ fn test_dash_unit01() {
     let sprite_x = nes.bus().ppu.read_oam(3);
 
     assert_eq!(sprite_y, 120, "Sprite Y should be 120 (got {sprite_y})");
-    assert_eq!(sprite_tile, 1, "Sprite tile should be 1 (got {sprite_tile})");
+    assert_eq!(
+        sprite_tile, 1,
+        "Sprite tile should be 1 (got {sprite_tile})"
+    );
     assert_eq!(sprite_x, 124, "Sprite X should be 124 (got {sprite_x})");
 
     // Verify: framebuffer has non-black pixels (the sprite should be visible)

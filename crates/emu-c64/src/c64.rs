@@ -366,8 +366,14 @@ impl C64 {
     /// instruction). RTS pops and adds 1. We replicate that here.
     fn pop_ret_6502(&mut self) {
         let sp = self.cpu.regs.s;
-        let lo = self.bus.memory.ram_read(0x0100 | u16::from(sp.wrapping_add(1)));
-        let hi = self.bus.memory.ram_read(0x0100 | u16::from(sp.wrapping_add(2)));
+        let lo = self
+            .bus
+            .memory
+            .ram_read(0x0100 | u16::from(sp.wrapping_add(1)));
+        let hi = self
+            .bus
+            .memory
+            .ram_read(0x0100 | u16::from(sp.wrapping_add(2)));
         self.cpu.regs.s = sp.wrapping_add(2);
         // RTS adds 1 to the popped address
         let ret_addr = (u16::from(lo) | (u16::from(hi) << 8)).wrapping_add(1);
@@ -382,10 +388,9 @@ impl Tickable for C64 {
         // 1. VIC-II: advance beam, render 8 pixels, detect badline
         let memory = &self.bus.memory;
         let vic = &mut self.bus.vic;
-        let cpu_stalled = vic.tick(
-            &|addr| memory.vic_read_by_addr(addr),
-            &|off| memory.colour_ram_read(off),
-        );
+        let cpu_stalled = vic.tick(&|addr| memory.vic_read_by_addr(addr), &|off| {
+            memory.colour_ram_read(off)
+        });
 
         // 2. Check VIC-II raster IRQ → CPU IRQ
         if self.bus.vic.irq_active() {

@@ -501,12 +501,24 @@ impl AgnusEcs {
 
         // Apply polarity: "TRUE" polarity means active-high output.
         // When the bit is clear, the output is inverted (active-low).
-        let hsync = if self.hsytrue_enabled() { hsync_raw } else { !hsync_raw };
-        let vsync = if self.vsytrue_enabled() { vsync_raw } else { !vsync_raw };
+        let hsync = if self.hsytrue_enabled() {
+            hsync_raw
+        } else {
+            !hsync_raw
+        };
+        let vsync = if self.vsytrue_enabled() {
+            vsync_raw
+        } else {
+            !vsync_raw
+        };
 
         // Composite sync: XOR of HSYNC and VSYNC raw states, then polarity.
         let csync_raw = hsync_raw ^ vsync_raw;
-        let csync = if self.csytrue_enabled() { csync_raw } else { !csync_raw };
+        let csync = if self.csytrue_enabled() {
+            csync_raw
+        } else {
+            !csync_raw
+        };
 
         // Composite blank: OR of HBLANK and VBLANK.
         let cblank_raw = hblank_raw || vblank_raw;
@@ -912,7 +924,10 @@ mod tests {
         // Now enable BLANKEN.
         agnus.write_beamcon0(BEAMCON0_HARDDIS | BEAMCON0_VARVBEN | BEAMCON0_BLANKEN);
         let pins = agnus.sync_pin_levels(15, 55);
-        assert!(pins.blank, "BLANKEN=1: blank output should follow composite blank");
+        assert!(
+            pins.blank,
+            "BLANKEN=1: blank output should follow composite blank"
+        );
 
         // Outside blank windows.
         let pins = agnus.sync_pin_levels(5, 30);
@@ -928,11 +943,12 @@ mod tests {
         agnus.write_vsstop(110);
 
         // Enable sync windows with CSYTRUE but NOT CSCBEN.
-        agnus.write_beamcon0(
-            BEAMCON0_VARHSYEN | BEAMCON0_VARVSYEN | BEAMCON0_CSYTRUE,
-        );
+        agnus.write_beamcon0(BEAMCON0_VARHSYEN | BEAMCON0_VARVSYEN | BEAMCON0_CSYTRUE);
         let pins = agnus.sync_pin_levels(35, 50);
-        assert!(!pins.csync, "CSCBEN=0: composite sync output should be gated off");
+        assert!(
+            !pins.csync,
+            "CSCBEN=0: composite sync output should be gated off"
+        );
 
         // Enable CSCBEN.
         agnus.write_beamcon0(

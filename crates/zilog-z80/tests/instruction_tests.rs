@@ -16,8 +16,6 @@ fn run_until_halt(cpu: &mut Z80, bus: &mut SimpleBus) -> u64 {
     count
 }
 
-
-
 #[test]
 fn test_nop() {
     let mut bus = SimpleBus::new();

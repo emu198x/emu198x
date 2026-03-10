@@ -415,8 +415,9 @@ pub struct Amiga {
     /// Previous state of CIA-A CRA bit 6 for edge-detecting the keyboard
     /// handshake. The real hardware acknowledges on the falling edge (1→0).
     pub cia_a_cra_sp_prev: bool,
-    /// Previous motherboard EXTER line state so board IRQs only latch Paula on
-    /// rising edges instead of retriggering every master tick while held high.
+    /// Previous motherboard EXTER line state so EXTER-routed board IRQs only
+    /// latch Paula on rising edges instead of retriggering every master tick
+    /// while held high.
     pub motherboard_external_irq_prev: bool,
     /// Gayle gate array (IDE + address decode). Present only on A600/A1200.
     pub gayle: Option<Gayle>,
@@ -1183,13 +1184,13 @@ impl Amiga {
     }
 
     fn motherboard_external_irq_pending(&self) -> bool {
-        self.dmac
+        // Gayle can present an IDE IRQ directly to Paula EXTER on the
+        // Gayle-based machines. A3000 SDMAC does not follow that path: the
+        // KS3.1 level-6 dispatch goes through ciab.resource, and wiring SDMAC
+        // straight into Paula EXTER reaches the wrong handler.
+        self.gayle
             .as_ref()
-            .is_some_and(|dmac| dmac.irq_pending())
-            || self
-                .gayle
-                .as_ref()
-                .is_some_and(|gayle| gayle.ide_irq_pending())
+            .is_some_and(|gayle| gayle.ide_irq_pending())
     }
 
     pub fn write_custom_reg(&mut self, offset: u16, val: u16) {
@@ -2258,9 +2259,62 @@ pub struct AmigaBusWrapper<'a> {
     pub color_pending: &'a mut Vec<(usize, u16, u8, u16)>,
 }
 
+fn motherboard_paula_intreq_bits(model: AmigaModel, dmac: Option<&Dmac390537>) -> u16 {
+    match model {
+        // The A3000 ROM installs its SCSI interrupt server on Exec's level-2
+        // list and the Paula level-2 autovector handler only dispatches that
+        // list when PORTS is pending. Surface SDMAC timeout/complete events as
+        // an effective PORTS source instead of a raw CPU IPL2 line.
+        AmigaModel::A3000 if dmac.is_some_and(Dmac390537::irq_pending) => 0x0008,
+        _ => 0,
+    }
+}
+
+fn effective_paula_intreq(model: AmigaModel, paula: &Paula8364, dmac: Option<&Dmac390537>) -> u16 {
+    paula.intreq | motherboard_paula_intreq_bits(model, dmac)
+}
+
+fn effective_paula_ipl(model: AmigaModel, paula: &Paula8364, dmac: Option<&Dmac390537>) -> u8 {
+    // Master enable: bit 14
+    if paula.intena & 0x4000 == 0 {
+        return 0;
+    }
+
+    let active = paula.intena & effective_paula_intreq(model, paula, dmac) & 0x3FFF;
+    if active == 0 {
+        return 0;
+    }
+
+    if active & 0x2000 != 0 {
+        return 6;
+    }
+    if active & 0x1800 != 0 {
+        return 5;
+    }
+    if active & 0x0780 != 0 {
+        return 4;
+    }
+    if active & 0x0070 != 0 {
+        return 3;
+    }
+    if active & 0x0008 != 0 {
+        return 2;
+    }
+    if active & 0x0007 != 0 {
+        return 1;
+    }
+
+    0
+}
+
+fn motherboard_cpu_irq_level(_model: AmigaModel, _dmac: Option<&Dmac390537>) -> u8 {
+    0
+}
+
 impl<'a> M68kBus for AmigaBusWrapper<'a> {
     fn poll_ipl(&mut self) -> u8 {
-        self.paula.compute_ipl()
+        effective_paula_ipl(self.model, self.paula, self.dmac.as_ref())
+            .max(motherboard_cpu_irq_level(self.model, self.dmac.as_ref()))
     }
     fn poll_interrupt_ack(&mut self, level: u8) -> BusStatus {
         BusStatus::Ready(24 + level as u16)
@@ -2298,9 +2352,9 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
         // The CPU issues an IACK bus cycle with FC=InterruptAck. On real
         // hardware the address bus carries the level in A1-A3, but the CPU
         // core uses a fixed address ($FFFFFF). Compute the pending level
-        // from Paula's IPL state instead.
+        // from the combined Paula + motherboard IPL state instead.
         if fc == FunctionCode::InterruptAck {
-            let level = self.paula.compute_ipl() as u16;
+            let level = self.poll_ipl() as u16;
             return BusStatus::Ready(24 + level);
         }
 
@@ -2531,7 +2585,7 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x018 => 0x3000,
                     0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x01C => self.paula.intena,
-                    0x01E => self.paula.intreq,
+                    0x01E => effective_paula_intreq(self.model, self.paula, self.dmac.as_ref()),
                     0x05C if self.chipset.is_ecs_or_aga() => self.agnus.bltsizv_ecs,
                     0x05E if self.chipset.is_ecs_or_aga() => self.agnus.bltsizh_ecs,
                     0x0A0..=0x0DA => self.paula.read_audio_register(offset).unwrap_or(0),
@@ -3559,7 +3613,7 @@ mod tests {
     }
 
     #[test]
-    fn dmac_irq_pending_raises_paula_exter() {
+    fn dmac_irq_pending_does_not_directly_raise_paula_exter() {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A3000,
             chipset: AmigaChipset::Ecs,
@@ -3577,15 +3631,15 @@ mod tests {
         assert!(dmac.irq_pending(), "SDMAC should report INT_P once enabled");
 
         amiga.tick();
-        assert_ne!(
+        assert_eq!(
             amiga.paula.intreq & (1 << 13),
             0,
-            "pending SDMAC IRQ should raise Paula EXTER"
+            "A3000 SDMAC IRQ should not be wired straight to Paula EXTER"
         );
     }
 
     #[test]
-    fn dmac_irq_pending_only_latches_paula_exter_on_rising_edge() {
+    fn dmac_irq_pending_routes_to_paula_ports_for_level_2_dispatch() {
         let mut amiga = Amiga::new_with_config(AmigaConfig {
             model: AmigaModel::A3000,
             chipset: AmigaChipset::Ecs,
@@ -3598,19 +3652,68 @@ mod tests {
         dmac.write_word(0xDD_0040, 0x0018); // SASR = COMMAND
         dmac.write_word(0xDD_0042, 0x0000); // SCMD = RESET -> WD INT
         dmac.write_word(0xDD_000A, 0x0004); // CNTR.INTEN
-        assert!(dmac.irq_pending());
+        assert!(dmac.irq_pending(), "SDMAC should report INT_P once enabled");
 
-        amiga.tick();
-        assert_ne!(amiga.paula.intreq & (1 << 13), 0);
-
-        amiga.paula.write_intreq(1 << 13);
-        assert_eq!(amiga.paula.intreq & (1 << 13), 0);
-
-        amiga.tick();
         assert_eq!(
-            amiga.paula.intreq & (1 << 13),
-            0,
-            "held-high SDMAC IRQ should not retrigger EXTER without a new edge"
+            super::motherboard_paula_intreq_bits(amiga.model, amiga.dmac.as_ref()),
+            0x0008
+        );
+        assert_eq!(
+            super::effective_paula_intreq(amiga.model, &amiga.paula, amiga.dmac.as_ref()),
+            0x0008
+        );
+        assert_eq!(
+            super::motherboard_cpu_irq_level(amiga.model, amiga.dmac.as_ref()),
+            0
+        );
+        amiga.paula.intena = 0x4008;
+
+        let mut bus = AmigaBusWrapper {
+            model: amiga.model,
+            chipset: amiga.chipset,
+            agnus: &mut amiga.agnus,
+            memory: &mut amiga.memory,
+            denise: &mut amiga.denise,
+            copper: &mut amiga.copper,
+            cia_a: &mut amiga.cia_a,
+            cia_b: &mut amiga.cia_b,
+            paula: &mut amiga.paula,
+            floppy: &mut amiga.floppy,
+            keyboard: &mut amiga.keyboard,
+            cia_a_cra_sp_prev: &mut amiga.cia_a_cra_sp_prev,
+            motherboard_external_irq_prev: &mut amiga.motherboard_external_irq_prev,
+            gayle: &mut amiga.gayle,
+            dmac: &mut amiga.dmac,
+            ramsey: &mut amiga.ramsey,
+            fat_gary: &mut amiga.fat_gary,
+            bplcon0_denise_pending: &mut amiga.bplcon0_denise_pending,
+            ddfstrt_pending: &mut amiga.ddfstrt_pending,
+            ddfstop_pending: &mut amiga.ddfstop_pending,
+            color_pending: &mut amiga.color_pending,
+        };
+
+        assert_eq!(M68kBus::poll_ipl(&mut bus), 2);
+        assert_eq!(
+            M68kBus::poll_cycle(
+                &mut bus,
+                0x00DF_F01E,
+                FunctionCode::SupervisorData,
+                true,
+                true,
+                None,
+            ),
+            BusStatus::Ready(0x0008)
+        );
+        assert_eq!(
+            M68kBus::poll_cycle(
+                &mut bus,
+                0x00FF_FFFF,
+                FunctionCode::InterruptAck,
+                true,
+                true,
+                None,
+            ),
+            BusStatus::Ready(26)
         );
     }
 

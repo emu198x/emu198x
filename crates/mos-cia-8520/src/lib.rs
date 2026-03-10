@@ -304,7 +304,7 @@ impl Cia8520 {
     fn write_tod_register(&mut self, byte_index: u8, value: u8) {
         let shift = u32::from(byte_index) * 8;
         let mask = !(0xFFu32 << shift);
-        if self.crb & 0x80 != 0 {
+        if self.crb & 0x80 == 0 {
             self.tod_alarm = (self.tod_alarm & mask) | (u32::from(value) << shift);
             self.tod_alarm &= 0xFFFFFF;
         } else {

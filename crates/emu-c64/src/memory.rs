@@ -21,9 +21,9 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use crate::cartridge::Cartridge;
+use crate::vic::Vic;
 use mos_cia_6526::Cia6526;
 use mos_sid_6581::Sid6581;
-use crate::vic::Vic;
 
 /// C64 memory subsystem: 64K RAM + ROMs + colour RAM + 6510 port.
 pub struct C64Memory {
@@ -280,7 +280,14 @@ impl C64Memory {
 
     /// Read I/O register (called by bus when $D000-$DFFF and I/O visible).
     #[must_use]
-    pub fn io_read(&self, addr: u16, vic: &mut Vic, sid: &Sid6581, cia1: &Cia6526, cia2: &Cia6526) -> u8 {
+    pub fn io_read(
+        &self,
+        addr: u16,
+        vic: &mut Vic,
+        sid: &Sid6581,
+        cia1: &Cia6526,
+        cia2: &Cia6526,
+    ) -> u8 {
         match addr {
             0xD000..=0xD3FF => vic.read((addr & 0x3F) as u8),
             0xD400..=0xD7FF => sid.read((addr & 0x1F) as u8),

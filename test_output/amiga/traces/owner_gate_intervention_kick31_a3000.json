@@ -1,0 +1,2388 @@
+{
+  "rom_path": "../../roms/kick31_40_068_a3000.rom",
+  "owner_addr": 132135076,
+  "intervention_tick": 17439181,
+  "intervention_old_gate_bits": 1,
+  "intervention_new_gate_bits": 0,
+  "first_producer_path_tick": 17458854,
+  "first_callback_wrapper_tick": null,
+  "first_callback_set_flag_tick": null,
+  "first_callback_dispatch_tick": null,
+  "first_gate_clear_tick": null,
+  "first_blitter_wait_tick": 21644312,
+  "first_exec_signal_tick": 17565390,
+  "first_stop_tick": 17469920,
+  "final_tick": 25439181,
+  "final_pc": 16402702,
+  "final_instr_start_pc": 16402694,
+  "final_dmacon": 976,
+  "final_bplcon0": 770,
+  "final_blitter_busy": true,
+  "final_blitter_ccks_remaining": 6702,
+  "final_bltsize": 9315,
+  "final_bltsizv_ecs": 145,
+  "final_bltsizh_ecs": 35,
+  "final_owner": {
+    "active_bits": 1,
+    "pending_bits": 0,
+    "gate_bits": 0,
+    "callback_ptr": 16571282,
+    "context_ptr": 132160548,
+    "producer_wake_flag": 0
+  },
+  "final_current_entry": {
+    "addr": 132133496,
+    "name": "exec.library",
+    "state": 2,
+    "sig_wait": 16,
+    "sig_recvd": 4
+  },
+  "events": [
+    {
+      "tick": 0,
+      "kind": "owner_change",
+      "pc": 16253138,
+      "instr_start_pc": 0,
+      "owner": {
+        "active_bits": 0,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 1215955016
+      },
+      "current_entry": null
+    },
+    {
+      "tick": 3570540,
+      "kind": "owner_change",
+      "pc": 16253210,
+      "instr_start_pc": 16253200,
+      "owner": {
+        "active_bits": 0,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "current_entry": null
+    },
+    {
+      "tick": 3790521,
+      "kind": "owner_change",
+      "pc": 16260580,
+      "instr_start_pc": 16260576,
+      "owner": {
+        "active_bits": 0,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 31
+      },
+      "current_entry": null
+    },
+    {
+      "tick": 3793253,
+      "kind": "owner_change",
+      "pc": 16259588,
+      "instr_start_pc": 16259584,
+      "owner": {
+        "active_bits": 0,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 192938015
+      },
+      "current_entry": null
+    },
+    {
+      "tick": 3793264,
+      "kind": "owner_change",
+      "pc": 16259592,
+      "instr_start_pc": 16259586,
+      "owner": {
+        "active_bits": 0,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 192937984
+      },
+      "current_entry": null
+    },
+    {
+      "tick": 5998282,
+      "kind": "owner_change",
+      "pc": 16260862,
+      "instr_start_pc": 16260858,
+      "owner": {
+        "active_bits": 0,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "current_entry": null
+    },
+    {
+      "tick": 16974355,
+      "kind": "owner_change",
+      "pc": 16405304,
+      "instr_start_pc": 16405298,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 16974399,
+      "kind": "owner_change",
+      "pc": 16405320,
+      "instr_start_pc": 16405314,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 0,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439144,
+      "kind": "owner_change",
+      "pc": 16642028,
+      "instr_start_pc": 16642022,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 132120576,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439147,
+      "kind": "owner_change",
+      "pc": 16642028,
+      "instr_start_pc": 16642022,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 1,
+        "callback_ptr": 0,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439178,
+      "kind": "owner_change",
+      "pc": 16642040,
+      "instr_start_pc": 16642030,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 1,
+        "callback_ptr": 16515072,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439181,
+      "kind": "owner_change",
+      "pc": 16642040,
+      "instr_start_pc": 16642030,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 1,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439181,
+      "kind": "force_clear_gate",
+      "pc": 16642040,
+      "instr_start_pc": 16642030,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17439182,
+      "kind": "owner_change",
+      "pc": 16642040,
+      "instr_start_pc": 16642038,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17458854,
+      "kind": "producer_path_pc",
+      "pc": 16642834,
+      "instr_start_pc": 16642832,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17469920,
+      "kind": "stop",
+      "pc": 16258198,
+      "instr_start_pc": 16258194,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 4,
+        "sig_wait": 16,
+        "sig_recvd": 0
+      }
+    },
+    {
+      "tick": 17565390,
+      "kind": "exec_signal_0x10",
+      "pc": 16263228,
+      "instr_start_pc": 16263224,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 4,
+        "sig_wait": 16,
+        "sig_recvd": 20
+      }
+    },
+    {
+      "tick": 21644312,
+      "kind": "blitter_wait_loop",
+      "pc": 16402696,
+      "instr_start_pc": 16402694,
+      "owner": {
+        "active_bits": 1,
+        "pending_bits": 0,
+        "gate_bits": 0,
+        "callback_ptr": 16571282,
+        "context_ptr": 132160548,
+        "producer_wake_flag": 0
+      },
+      "current_entry": {
+        "addr": 132133496,
+        "name": "exec.library",
+        "state": 2,
+        "sig_wait": 16,
+        "sig_recvd": 4
+      }
+    }
+  ],
+  "blitter_state_changes": [
+    {
+      "tick": 17468877,
+      "pc": 16263190,
+      "instr_start_pc": 16263180,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17469027,
+      "pc": 16263334,
+      "instr_start_pc": 16263324,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17469075,
+      "pc": 16402766,
+      "instr_start_pc": 16402756,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17469386,
+      "pc": 16263410,
+      "instr_start_pc": 16263400,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17564359,
+      "pc": 16258198,
+      "instr_start_pc": 16258194,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17564900,
+      "pc": 16440834,
+      "instr_start_pc": 16440824,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17565019,
+      "pc": 16440888,
+      "instr_start_pc": 16440878,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17565343,
+      "pc": 16263220,
+      "instr_start_pc": 16263210,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17565701,
+      "pc": 16263298,
+      "instr_start_pc": 16263288,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17566549,
+      "pc": 16519008,
+      "instr_start_pc": 16518998,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17566648,
+      "pc": 16519046,
+      "instr_start_pc": 16519036,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17566931,
+      "pc": 16556382,
+      "instr_start_pc": 16556372,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567295,
+      "pc": 16556452,
+      "instr_start_pc": 16556442,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567496,
+      "pc": 16555484,
+      "instr_start_pc": 16555474,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567577,
+      "pc": 16555576,
+      "instr_start_pc": 16555566,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567769,
+      "pc": 16556326,
+      "instr_start_pc": 16556316,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568172,
+      "pc": 16556452,
+      "instr_start_pc": 16556442,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568482,
+      "pc": 16555484,
+      "instr_start_pc": 16555474,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568564,
+      "pc": 16555576,
+      "instr_start_pc": 16555566,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568658,
+      "pc": 16555602,
+      "instr_start_pc": 16555592,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568747,
+      "pc": 16555638,
+      "instr_start_pc": 16555628,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568843,
+      "pc": 16259056,
+      "instr_start_pc": 16259046,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17569417,
+      "pc": 16263430,
+      "instr_start_pc": 16263420,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17569605,
+      "pc": 16402820,
+      "instr_start_pc": 16402810,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17583217,
+      "pc": 16631500,
+      "instr_start_pc": 16631490,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17625752,
+      "pc": 16262776,
+      "instr_start_pc": 16262766,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17625961,
+      "pc": 16262808,
+      "instr_start_pc": 16262798,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17628984,
+      "pc": 16263354,
+      "instr_start_pc": 16263344,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17629140,
+      "pc": 16263410,
+      "instr_start_pc": 16263400,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17630586,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17631641,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17631947,
+      "pc": 16255314,
+      "instr_start_pc": 16255304,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17632209,
+      "pc": 16263410,
+      "instr_start_pc": 16263400,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17633096,
+      "pc": 16263430,
+      "instr_start_pc": 16263420,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17633201,
+      "pc": 16263466,
+      "instr_start_pc": 16263456,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17635125,
+      "pc": 16305792,
+      "instr_start_pc": 16305782,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17635985,
+      "pc": 16306036,
+      "instr_start_pc": 16306026,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17636142,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17636335,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17637155,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17637327,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17637930,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17638388,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17638639,
+      "pc": 16305448,
+      "instr_start_pc": 16305438,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17638803,
+      "pc": 16305648,
+      "instr_start_pc": 16305638,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17639431,
+      "pc": 16556382,
+      "instr_start_pc": 16556372,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17639796,
+      "pc": 16556452,
+      "instr_start_pc": 16556442,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17640732,
+      "pc": 16555298,
+      "instr_start_pc": 16555288,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    }
+  ],
+  "blitter_writes": [
+    {
+      "tick": 17468875,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16263190,
+      "instr_start_pc": 16263180,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17469025,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16263334,
+      "instr_start_pc": 16263324,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17469073,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16402766,
+      "instr_start_pc": 16402756,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17469227,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16263354,
+      "instr_start_pc": 16263344,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17469384,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16263410,
+      "instr_start_pc": 16263400,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17469721,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16258114,
+      "instr_start_pc": 16258104,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17564898,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16440834,
+      "instr_start_pc": 16440824,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17565017,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16440888,
+      "instr_start_pc": 16440878,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17565340,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16263220,
+      "instr_start_pc": 16263210,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17565699,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16263298,
+      "instr_start_pc": 16263288,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17566547,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16519008,
+      "instr_start_pc": 16518998,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17566646,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16519046,
+      "instr_start_pc": 16519036,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17566928,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16556382,
+      "instr_start_pc": 16556372,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567034,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16768652,
+      "instr_start_pc": 16768642,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567293,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16556452,
+      "instr_start_pc": 16556442,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567493,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16555484,
+      "instr_start_pc": 16555474,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567575,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16555576,
+      "instr_start_pc": 16555566,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567767,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16556326,
+      "instr_start_pc": 16556316,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17567913,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16768652,
+      "instr_start_pc": 16768642,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568170,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16556452,
+      "instr_start_pc": 16556442,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568480,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16555484,
+      "instr_start_pc": 16555474,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568562,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16555576,
+      "instr_start_pc": 16555566,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568656,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16555602,
+      "instr_start_pc": 16555592,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568744,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16555638,
+      "instr_start_pc": 16555628,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17568841,
+      "register": "INTREQ",
+      "addr": 14676124,
+      "is_word": true,
+      "raw_data": 32,
+      "effective_data": 32,
+      "pc": 16259056,
+      "instr_start_pc": 16259046,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 96,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17569415,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16263430,
+      "instr_start_pc": 16263420,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17569602,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16402820,
+      "instr_start_pc": 16402810,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17583214,
+      "register": "DMACON",
+      "addr": 14676118,
+      "is_word": true,
+      "raw_data": 32,
+      "effective_data": 32,
+      "pc": 16631500,
+      "instr_start_pc": 16631490,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 1008,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17625750,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16262776,
+      "instr_start_pc": 16262766,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17625959,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16262808,
+      "instr_start_pc": 16262798,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17626897,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16258114,
+      "instr_start_pc": 16258104,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17628981,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16263354,
+      "instr_start_pc": 16263344,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17629138,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16263410,
+      "instr_start_pc": 16263400,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17629465,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16258114,
+      "instr_start_pc": 16258104,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17630584,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17630752,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16262356,
+      "instr_start_pc": 16262346,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17630997,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16263220,
+      "instr_start_pc": 16263210,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17631638,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17631945,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16255314,
+      "instr_start_pc": 16255304,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17632050,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16263354,
+      "instr_start_pc": 16263344,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17632207,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16263410,
+      "instr_start_pc": 16263400,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17632537,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16258114,
+      "instr_start_pc": 16258104,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17633093,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16263430,
+      "instr_start_pc": 16263420,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17633199,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16263466,
+      "instr_start_pc": 16263456,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17635123,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16305792,
+      "instr_start_pc": 16305782,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17635735,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16518874,
+      "instr_start_pc": 16518864,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17635983,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16306036,
+      "instr_start_pc": 16306026,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17636140,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17636333,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17637152,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17637325,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17637927,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17638093,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16262356,
+      "instr_start_pc": 16262346,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17638386,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17638637,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16305448,
+      "instr_start_pc": 16305438,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17638800,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16305648,
+      "instr_start_pc": 16305638,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17639429,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16556382,
+      "instr_start_pc": 16556372,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17639535,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16768652,
+      "instr_start_pc": 16768642,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17639793,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16556452,
+      "instr_start_pc": 16556442,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17640730,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16555298,
+      "instr_start_pc": 16555288,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17640999,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16555370,
+      "instr_start_pc": 16555360,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17641449,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16259260,
+      "instr_start_pc": 16259250,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 24620,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17641617,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 16384,
+      "effective_data": 16384,
+      "pc": 16262356,
+      "instr_start_pc": 16262346,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    },
+    {
+      "tick": 17641917,
+      "register": "INTENA",
+      "addr": 14676122,
+      "is_word": true,
+      "raw_data": 49152,
+      "effective_data": 49152,
+      "pc": 16259280,
+      "instr_start_pc": 16259270,
+      "blitter": {
+        "blitter_busy": false,
+        "blitter_ccks_remaining": 0,
+        "dmacon": 976,
+        "intena": 8236,
+        "intreq": 64,
+        "bltsize": 65,
+        "bltsizv_ecs": 1,
+        "bltsizh_ecs": 1
+      }
+    }
+  ]
+}

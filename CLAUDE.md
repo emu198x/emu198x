@@ -2,6 +2,25 @@
 
 A cycle-accurate emulator suite for vintage computing education.
 
+## Why This Exists
+
+Emu198x is the emulation engine for **Code Like It's 198x** (`~/Projects/Code198x`),
+an educational site that teaches retro game development through complete, playable
+games. Every architectural decision here — crystal-accurate timing, observable
+state, MCP integration, scripting, WASM builds — exists to serve that teaching
+mission. The emulators provide:
+
+- **Automated capture** — screenshots and video for unit content
+- **Browser embedding** — WASM builds for interactive lessons
+- **Observability** — learners inspect registers, memory, and chip state live
+- **Deterministic replay** — input scripts produce repeatable results
+- **Save states** (planned) — lesson checkpoints and debugging workflows
+
+Code198x has its own `CLAUDE.md` with curriculum structure, voice guidelines,
+and build tooling. Its `docs/emulators/EMULATOR-ROADMAP.md` predates this
+project and describes a different architecture — treat Emu198x docs as
+authoritative for emulator design.
+
 ## Project Principles
 
 1. **Crystal-accurate timing.** Every emulator ticks at the system's master crystal frequency. All component timing derives from this. No exceptions. No "good enough" approximations. See `docs/roadmap.md`. Do not try to take any shortcuts, for
@@ -15,21 +34,29 @@ instance by modelling instruction-level accuracy.
 
 ## Documentation Structure
 
+Start from `docs/README.md` for navigation. Key entry points:
+
 ```text
 docs/
-├── roadmap.md           # Status, gaps, and what's next
-├── future-systems.md    # Systems beyond the core four
+├── README.md            # Documentation map and navigation
+├── roadmap.md           # Active work and current priorities
+├── status.md            # High-level support snapshot (dashboard)
+├── inventory.md         # Architecture notes, crate inventory, testing strategy
+├── testing-policy.md    # Verification standards for components and machines
+├── testing-audit.md     # Crate-by-crate audit against the testing policy
+├── future-systems.md    # Systems beyond the core four (out of scope)
 ├── systems/
-│   ├── c64.md           # Commodore 64 specifics
-│   ├── spectrum.md      # ZX Spectrum specifics
-│   ├── nes.md           # NES/Famicom specifics
-│   └── amiga.md         # Amiga specifics
-└── features/
-    ├── frontend.md      # UI, media controls, input mapping
-    ├── observability.md # State inspection, debugging
-    ├── mcp.md           # MCP server integration
-    ├── scripting.md     # Automation, headless operation
-    └── capture.md       # Screenshots, video, audio
+│   ├── spectrum.md      # ZX Spectrum specifics and Emu198x status
+│   ├── c64.md           # Commodore 64 specifics and Emu198x status
+│   ├── nes.md           # NES/Famicom specifics and Emu198x status
+│   └── amiga.md         # Amiga specifics, model matrix, Kickstart boot status
+├── features/
+│   ├── frontend.md      # UI, media controls, input mapping
+│   ├── observability.md # State inspection, debugging
+│   ├── mcp.md           # MCP server integration
+│   ├── scripting.md     # Automation, headless operation
+│   └── capture.md       # Screenshots, video, audio
+└── solutions/           # Implementation, testing, and debugging notes
 ```
 
 ## Critical Constraints
@@ -53,7 +80,9 @@ docs/
 
 ## Current Focus
 
-See `docs/roadmap.md` for current work.
+See `docs/roadmap.md` for active priorities and `docs/status.md` for the support
+snapshot. Spectrum and C64 are production-ready; NES and Amiga are usable with
+known gaps.
 
 ## System Variants
 
@@ -65,7 +94,7 @@ Systems have variants. Don't model 50 machines — model the axes:
 - **Peripherals**
 - **Region** (PAL/NTSC)
 
-See `docs/roadmap.md` for the configuration approach.
+See `docs/inventory.md` for the clock domain model and crate conventions.
 
 Primary targets (what lessons target):
 
@@ -76,45 +105,20 @@ Primary targets (what lessons target):
 
 Extended support (run user software):
 
-- Spectrum 128K, +2, +3
-- C64 NTSC, SID 8580
+- Spectrum 128K, +2, +2A, +3
+- C64 NTSC, SID 8580, REU
 - NES PAL, Famicom
-- Amiga 500+, 600, 1200 (ECS, AGA)
+- Amiga 500+, 600, 1200, 2000, 3000 (ECS, AGA)
 - Accelerated configs (faster CPU + Fast RAM)
 
 ## Future Systems
 
-**NOT IN SCOPE** until Phase 6 (all four primary systems) is complete.
+**NOT IN SCOPE** until all four primary systems are complete.
 
-These are plausible future additions based on shared CPU cores:
-
-**6502 family (after C64/NES):**
-
-- VIC-20 — Minimal extra work, simpler VIC
-- BBC Micro — UK educational importance, different video (6845)
-- Atari 8-bit (400/800/XL/XE) — ANTIC/GTIA video
-- Atari 2600 — TIA, racing-the-beam paradigm
-- Apple II — Important historically
-
-**Z80 family (after Spectrum):**
-
-- Amstrad CPC — Big in UK/Europe, Gate Array video
-- Master System — VDP video, cartridge-based
-- MSX — TMS9918 video, Japanese market
-- SAM Coupé — Spectrum successor, niche
-
-**68000 family (after Amiga):**
-
-- Mega Drive — 68000 + Z80, both CPUs done
-- Atari ST — Same CPU, no custom chips, simpler than Amiga
-- Neo Geo — Arcade hardware
-
-**New CPUs (if time permits):**
-
-- Dragon 32/64 — 6809, UK/Welsh made, beautiful CPU
-- Game Boy — Sharp LR35902 (Z80 variant)
-
-Do not add these to milestones. Do not build infrastructure for them. Structure code so they're *possible*, then forget about them until the core four ship.
+See `docs/future-systems.md` for the full list, priority bias, component reuse
+matrix, and candidate expansion order. Do not add these to milestones. Do not
+build infrastructure for them. Structure code so they're *possible*, then forget
+about them until the core four ship.
 
 ## Technology
 
@@ -124,32 +128,75 @@ Do not add these to milestones. Do not build infrastructure for them. Structure 
 
 ## Crate Structure
 
+See `docs/inventory.md` for the full crate inventory, naming conventions, and
+architecture notes. Summary of the workspace layout:
+
 ```text
 emu198x/
 ├── Cargo.toml (workspace)
 ├── crates/
-│   ├── emu-core/        # Shared traits, types (library)
-│   ├── mos-6502/        # 6502 CPU core (library)
-│   ├── zilog-z80/       # Z80 CPU core (library)
-│   ├── motorola-68000/  # 68000 CPU core (library)
-│   ├── emu-spectrum/    # ZX Spectrum (binary)
-│   ├── emu-c64/         # Commodore 64 (binary)
-│   ├── emu-nes/         # NES/Famicom (binary)
-│   └── machine-amiga/   # Amiga system (library, runner: amiga-runner)
+│   ├── emu-core/              # Shared traits: Bus, Cpu, Observable, Tickable, Machine
+│   │
+│   │   CPUs
+│   ├── mos-6502/              # 6502 CPU
+│   ├── zilog-z80/             # Z80 CPU
+│   ├── motorola-68000/        # 68000–68040 family
+│   ├── motorola-68010/        # 68010 wrapper
+│   ├── motorola-68020/        # 68020 wrapper
+│   │
+│   │   Amiga custom chips
+│   ├── commodore-agnus-ocs/   # Agnus OCS (beam, DMA, copper, blitter)
+│   ├── commodore-agnus-ecs/   # Super Agnus (wraps OCS)
+│   ├── commodore-agnus-aga/   # Alice (wraps ECS; FMODE, 8-plane)
+│   ├── commodore-denise-ocs/  # Denise OCS (video output, bitplanes)
+│   ├── commodore-denise-ecs/  # Super Denise (wraps OCS)
+│   ├── commodore-denise-aga/  # Lisa (wraps ECS; 24-bit palette, HAM8)
+│   ├── commodore-paula-8364/  # Paula (interrupts, audio/disk DMA)
+│   ├── mos-cia-8520/          # CIA 8520 (Amiga)
+│   │
+│   │   Amiga support chips and peripherals
+│   ├── commodore-gayle/       # Gayle (IDE + PCMCIA)
+│   ├── commodore-dmac-390537/ # DMAC 390537 (A3000 SCSI stub)
+│   ├── drive-amiga-floppy/    # 3.5" DD floppy
+│   ├── peripheral-amiga-keyboard/ # Keyboard controller
+│   │
+│   │   Shared chips
+│   ├── gi-ay-3-8910/          # AY-3-8910 PSG (Spectrum 128+)
+│   ├── mos-sid-6581/          # SID 6581/8580 (C64)
+│   ├── mos-vic-ii/            # VIC-II 6567/6569 (C64)
+│   ├── mos-cia-6526/          # CIA 6526 (C64)
+│   ├── mos-via-6522/          # VIA 6522 (1541 drive)
+│   ├── sinclair-ula/          # Spectrum ULA (video, contention, INT)
+│   ├── nec-upd765/            # uPD765 FDC (Spectrum +3)
+│   ├── ricoh-ppu-2c02/        # PPU 2C02 (NES)
+│   ├── ricoh-apu-2a03/        # APU 2A03 (NES)
+│   │
+│   │   Format crates
+│   ├── format-adf/            # Amiga Disk File
+│   ├── format-ipf/            # Interchangeable Preservation Format
+│   ├── format-d64/            # Commodore D64 disk image
+│   ├── format-gcr/            # Commodore 1541 GCR encoding
+│   ├── format-c64-tap/        # C64 TAP tape image
+│   ├── format-prg/            # C64 PRG file
+│   ├── format-spectrum-tap/   # Spectrum TAP tape image
+│   ├── format-tzx/            # TZX tape image
+│   ├── format-sna/            # Spectrum SNA snapshot
+│   ├── format-z80/            # Spectrum Z80 snapshot
+│   ├── nes-cartridge/         # iNES cartridge + 14 mappers
+│   │
+│   │   Machine and runner crates
+│   ├── machine-amiga/         # Amiga system (library)
+│   ├── amiga-runner/          # Amiga runnable package (transitional)
+│   ├── emu-spectrum/          # Spectrum runnable package
+│   ├── emu-c64/               # C64 runnable package
+│   ├── emu-nes/               # NES runnable package
+│   │
+│   │   Test tooling
+│   └── m68k-test-gen/         # Musashi cross-validation test generator
 └── docs/
 ```
 
-Each system is a **separate binary**. Each binary includes:
-
-- System launcher (variant/option selection)
-- Full emulator with UI
-- Media controls specific to that system
-
-Libraries are shared:
-
-- `emu-spectrum` depends on `emu-core` + `zilog-z80`
-- `emu-c64` depends on `emu-core` + `mos-6502`
-- `emu-nes` depends on `emu-core` + `mos-6502`
-- `machine-amiga` depends on `emu-core` + `motorola-68000`
-
-WASM builds are per-system — embed only what you need.
+Each system is a **separate binary**. Libraries are shared — e.g. `emu-spectrum`
+depends on `emu-core` + `zilog-z80` + `sinclair-ula` + `gi-ay-3-8910`, and
+`machine-amiga` depends on `emu-core` + `motorola-68000` + the Amiga chip crates.
+WASM builds are per-system.

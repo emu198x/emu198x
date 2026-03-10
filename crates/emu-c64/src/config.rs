@@ -23,7 +23,7 @@ impl C64Model {
     #[must_use]
     pub fn tod_divider(self) -> u32 {
         match self {
-            Self::C64Pal => 985_248 / 50,   // 19,705
+            Self::C64Pal => 985_248 / 50,    // 19,705
             Self::C64Ntsc => 1_022_727 / 60, // 17,045
         }
     }

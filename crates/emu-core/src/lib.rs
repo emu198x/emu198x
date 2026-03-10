@@ -9,10 +9,10 @@ mod cpu;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 mod observable;
-#[cfg(feature = "video")]
-pub mod video;
 mod tickable;
 mod ticks;
+#[cfg(feature = "video")]
+pub mod video;
 
 pub use bus::{Bus, ReadResult, SimpleBus, WordBus};
 pub use clock::MasterClock;

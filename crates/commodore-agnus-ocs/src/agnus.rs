@@ -1,6 +1,5 @@
 //! Agnus - Beam counter and DMA slot allocation.
 
-
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
 /// Same as PAL — both use 227 CCKs per line.
@@ -104,7 +103,6 @@ pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
     Some(4), // 6: BPL5
     Some(0), // 7: BPL1 (triggers shift register load)
 ];
-
 
 /// Hires bitplane fetch order within a 4-CCK group.
 ///
@@ -520,8 +518,9 @@ impl Agnus {
                 return true;
             }
             // Set up next word state from area runtime channel enables.
-            self.blitter_word_state =
-                Some(BlitterWordState::new_area(area.use_a, area.use_b, area.use_c, area.use_d));
+            self.blitter_word_state = Some(BlitterWordState::new_area(
+                area.use_a, area.use_b, area.use_c, area.use_d,
+            ));
             return false;
         }
 
@@ -853,8 +852,9 @@ impl Agnus {
         }
 
         // Reset word state for the next word.
-        self.blitter_word_state =
-            Some(BlitterWordState::new_area(area.use_a, area.use_b, area.use_c, area.use_d));
+        self.blitter_word_state = Some(BlitterWordState::new_area(
+            area.use_a, area.use_b, area.use_c, area.use_d,
+        ));
         self.blitter_area_runtime = Some(area);
         false
     }
@@ -890,7 +890,8 @@ impl Agnus {
         let use_b = (self.bltcon0 & 0x0400) != 0;
         let use_c = (self.bltcon0 & 0x0200) != 0;
         let use_d = (self.bltcon0 & 0x0100) != 0;
-        let ops_per_word = u32::from(use_a) + u32::from(use_b) + u32::from(use_c) + u32::from(use_d);
+        let ops_per_word =
+            u32::from(use_a) + u32::from(use_b) + u32::from(use_c) + u32::from(use_d);
 
         // When no external channels are enabled, each word takes one Internal op.
         let ops_per_word = ops_per_word.max(1);

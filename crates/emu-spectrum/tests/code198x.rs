@@ -30,11 +30,7 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
     let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../Code198x/code-samples")
         .join(relative);
-    if base.exists() {
-        Some(base)
-    } else {
-        None
-    }
+    if base.exists() { Some(base) } else { None }
 }
 
 // ---------------------------------------------------------------------------
@@ -44,9 +40,9 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
 #[test]
 #[ignore] // Requires Code198x repo adjacent to Emu198x
 fn test_shadowkeep_unit01() {
-    let Some(sna_path) = code198x_path(
-        "sinclair-zx-spectrum/game-01-shadowkeep/unit-01/shadowkeep.sna",
-    ) else {
+    let Some(sna_path) =
+        code198x_path("sinclair-zx-spectrum/game-01-shadowkeep/unit-01/shadowkeep.sna")
+    else {
         eprintln!("Skipping: Code198x repo not found");
         return;
     };
@@ -80,10 +76,16 @@ fn test_shadowkeep_unit01() {
     assert_eq!(floor_attr, 0x38, "Floor attribute should be $38 (white)");
 
     let treasure_attr = spectrum.bus().memory.peek(0x5990); // Row 12, col 16
-    assert_eq!(treasure_attr, 0x70, "Treasure attribute should be $70 (bright yellow)");
+    assert_eq!(
+        treasure_attr, 0x70,
+        "Treasure attribute should be $70 (bright yellow)"
+    );
 
     let hazard_attr = spectrum.bus().memory.peek(0x59B1); // Row 13, col 17
-    assert_eq!(hazard_attr, 0x90, "Hazard attribute should be $90 (flash red)");
+    assert_eq!(
+        hazard_attr, 0x90,
+        "Hazard attribute should be $90 (flash red)"
+    );
 
     // Save screenshot for visual verification
     let path = format!("{OUTPUT_DIR}/code198x_shadowkeep_unit01.png");
@@ -98,9 +100,9 @@ fn test_shadowkeep_unit01() {
 #[test]
 #[ignore]
 fn test_shadowkeep_unit03() {
-    let Some(sna_path) = code198x_path(
-        "sinclair-zx-spectrum/game-01-shadowkeep/unit-03/shadowkeep.sna",
-    ) else {
+    let Some(sna_path) =
+        code198x_path("sinclair-zx-spectrum/game-01-shadowkeep/unit-03/shadowkeep.sna")
+    else {
         eprintln!("Skipping: Code198x repo not found or unit-03 missing");
         return;
     };

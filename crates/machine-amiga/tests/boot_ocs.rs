@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{boot_screenshot_test, boot_screenshot_test_expect, load_rom, BootExpect, BOOT_TICKS};
+use common::{BOOT_TICKS, BootExpect, boot_screenshot_test, boot_screenshot_test_expect, load_rom};
 use machine_amiga::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 
 /// Insert-disk screen: DMA active (bitplane + copper at minimum),

@@ -117,7 +117,7 @@ fn test_minimal_execution() {
 
     // Dump palette and scan for the expected colors.
     let white = 0xFFFFFFFFu32; // COLOR01 = $0FFF
-    let blue = 0xFF0000FFu32;  // COLOR00 = $000F (from copper)
+    let blue = 0xFF0000FFu32; // COLOR00 = $000F (from copper)
 
     // Scan the row for the first white (COLOR01) and first blue (COLOR00) pixel
     // after the display window opens (hpos >= DDFSTRT).

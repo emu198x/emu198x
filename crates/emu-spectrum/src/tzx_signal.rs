@@ -34,14 +34,9 @@ enum SignalPhase {
     /// Between blocks — advance to next block.
     Idle,
     /// Pilot tone: repeated equal pulses.
-    Pilot {
-        pulse_len: u16,
-        remaining: u16,
-    },
+    Pilot { pulse_len: u16, remaining: u16 },
     /// First sync pulse.
-    Sync1 {
-        sync2_len: u16,
-    },
+    Sync1 { sync2_len: u16 },
     /// Second sync pulse.
     Sync2,
     /// Data bits: two equal pulses per bit, MSB first.
@@ -56,19 +51,11 @@ enum SignalPhase {
         pause_ms: u16,
     },
     /// Pure tone: repeated single pulse.
-    Tone {
-        pulse_len: u16,
-        remaining: u16,
-    },
+    Tone { pulse_len: u16, remaining: u16 },
     /// Arbitrary pulse sequence.
-    PulseSeq {
-        pulses: Vec<u16>,
-        idx: usize,
-    },
+    PulseSeq { pulses: Vec<u16>, idx: usize },
     /// Silence for a duration (EAR forced low).
-    Pause {
-        remaining: u32,
-    },
+    Pause { remaining: u32 },
     /// Tape stopped — waiting for `play()`.
     Stopped,
 }
@@ -366,9 +353,7 @@ impl TzxSignal {
                 self.pulse_remaining = u32::from(SYNC1_PULSE);
             }
             TzxBlock::TurboSpeed { sync1, sync2, .. } => {
-                self.phase = SignalPhase::Sync1 {
-                    sync2_len: *sync2,
-                };
+                self.phase = SignalPhase::Sync1 { sync2_len: *sync2 };
                 self.pulse_remaining = u32::from(*sync1);
             }
             _ => {
@@ -440,9 +425,7 @@ impl TzxSignal {
         if pause_ms > 0 {
             let tstates = ms_to_tstates(pause_ms, self.cpu_freq);
             self.level = false;
-            self.phase = SignalPhase::Pause {
-                remaining: tstates,
-            };
+            self.phase = SignalPhase::Pause { remaining: tstates };
         } else {
             self.phase = SignalPhase::Idle;
         }
@@ -528,9 +511,7 @@ impl TzxSignal {
             TzxBlock::Pause { duration_ms } => {
                 let tstates = ms_to_tstates(duration_ms, self.cpu_freq);
                 self.level = false;
-                self.phase = SignalPhase::Pause {
-                    remaining: tstates,
-                };
+                self.phase = SignalPhase::Pause { remaining: tstates };
             }
             TzxBlock::LoopStart { repetitions } => {
                 // Push loop point: block_index now points past LoopStart
@@ -540,10 +521,11 @@ impl TzxSignal {
             }
             TzxBlock::LoopEnd => {
                 if let Some((loop_start, remaining)) = self.loop_stack.pop()
-                    && remaining > 1 {
-                        self.loop_stack.push((loop_start, remaining - 1));
-                        self.block_index = loop_start;
-                    }
+                    && remaining > 1
+                {
+                    self.loop_stack.push((loop_start, remaining - 1));
+                    self.block_index = loop_start;
+                }
                 self.phase = SignalPhase::Idle;
             }
             TzxBlock::StopIf48K => {
@@ -596,10 +578,7 @@ mod tests {
 
     /// Count level transitions in a history.
     fn count_transitions(levels: &[bool]) -> u32 {
-        levels
-            .windows(2)
-            .filter(|w| w[0] != w[1])
-            .count() as u32
+        levels.windows(2).filter(|w| w[0] != w[1]).count() as u32
     }
 
     #[test]
@@ -612,11 +591,7 @@ mod tests {
 
     #[test]
     fn pause_zero_stops_playback() {
-        let mut sig = TzxSignal::new(
-            vec![TzxBlock::Pause { duration_ms: 0 }],
-            true,
-            CPU_3_5MHZ,
-        );
+        let mut sig = TzxSignal::new(vec![TzxBlock::Pause { duration_ms: 0 }], true, CPU_3_5MHZ);
         sig.play();
         assert!(sig.is_playing());
         let _ = sig.tick(); // enters Idle → advance_block → Stopped
@@ -642,7 +617,11 @@ mod tests {
 
         // Each pulse toggles the level: count toggles total.
         let transitions = count_transitions(&levels);
-        assert_eq!(transitions, u32::from(count), "Expected {count} transitions, got {transitions}");
+        assert_eq!(
+            transitions,
+            u32::from(count),
+            "Expected {count} transitions, got {transitions}"
+        );
     }
 
     #[test]
@@ -691,7 +670,10 @@ mod tests {
         let few_pulses = run_tstates(&mut sig, PILOT_PULSE as u32 * 3);
         let transitions = count_transitions(&few_pulses);
         // 3 complete pulses = 3 transitions (first transition is at boundary of pulse 1)
-        assert!(transitions >= 2, "Expected pilot pulse transitions, got {transitions}");
+        assert!(
+            transitions >= 2,
+            "Expected pilot pulse transitions, got {transitions}"
+        );
     }
 
     #[test]
@@ -714,7 +696,10 @@ mod tests {
         let one_pulse_t = PILOT_PULSE as u32;
         let levels = run_tstates(&mut sig, one_pulse_t * 3);
         let transitions = count_transitions(&levels);
-        assert!(transitions >= 2, "Expected at least 2 pilot transitions, got {transitions}");
+        assert!(
+            transitions >= 2,
+            "Expected at least 2 pilot transitions, got {transitions}"
+        );
     }
 
     #[test]
@@ -787,7 +772,10 @@ mod tests {
             let _ = sig.tick();
         }
 
-        assert!(sig.is_finished(), "Should be finished after pause completes");
+        assert!(
+            sig.is_finished(),
+            "Should be finished after pause completes"
+        );
     }
 
     #[test]
@@ -814,7 +802,10 @@ mod tests {
         let transitions = count_transitions(&levels);
 
         // 3 repetitions * 2 pulses = 6 transitions
-        assert_eq!(transitions, 6, "Expected 6 transitions from 3 loop reps of 2-pulse tone");
+        assert_eq!(
+            transitions, 6,
+            "Expected 6 transitions from 3 loop reps of 2-pulse tone"
+        );
     }
 
     #[test]
@@ -833,7 +824,10 @@ mod tests {
         // The tick returns current level
         // It may take one more tick to fully settle
         let level2 = sig.tick();
-        assert!(level || level2, "Level should be true after SetSignalLevel(true)");
+        assert!(
+            level || level2,
+            "Level should be true after SetSignalLevel(true)"
+        );
     }
 
     #[test]

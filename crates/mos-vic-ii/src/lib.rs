@@ -163,7 +163,6 @@ pub struct Vic {
     vic_bank: u8,
 
     // --- Sprite state ---
-
     /// Per-sprite bitmap data for the current scanline (3 bytes each).
     sprite_data: [[u8; 3]; 8],
 
@@ -191,7 +190,6 @@ pub struct Vic {
     xscroll_latch: u8,
 
     // --- Model-dependent timing ---
-
     /// Total raster lines per frame (312 PAL / 263 NTSC).
     lines_per_frame: u16,
     /// CPU cycles per raster line (63 PAL / 65 NTSC).
@@ -263,11 +261,7 @@ impl Vic {
     /// layer handles character ROM visibility at $1000-$1FFF in banks 0/2.
     ///
     /// `read_colour` reads a byte from colour RAM at the given offset (0-1023).
-    pub fn tick(
-        &mut self,
-        read_vram: &dyn Fn(u16) -> u8,
-        read_colour: &dyn Fn(u16) -> u8,
-    ) -> bool {
+    pub fn tick(&mut self, read_vram: &dyn Fn(u16) -> u8, read_colour: &dyn Fn(u16) -> u8) -> bool {
         // Evaluate sprite DMA at cycle 55 (which sprites are active for
         // DMA on this line, based on Y-coordinate comparison).
         if self.raster_cycle == 55 {
@@ -318,9 +312,7 @@ impl Vic {
             // that's correct regardless of YSCROLL.
             // The range extends to $FB (RSEL=1 border close) so the last text
             // row's char_rows 5-7 on lines $F8-$FA render correctly.
-            if self.den_latch
-                && (DISPLAY_START_LINE..0xFBu16).contains(&self.raster_line)
-            {
+            if self.den_latch && (DISPLAY_START_LINE..0xFBu16).contains(&self.raster_line) {
                 self.char_row = (self.char_row + 1) & 7;
             }
         }
@@ -357,11 +349,7 @@ impl Vic {
     }
 
     /// Fetch the 40 screen codes and colours for the current row.
-    fn fetch_screen_row(
-        &mut self,
-        read_vram: &dyn Fn(u16) -> u8,
-        read_colour: &dyn Fn(u16) -> u8,
-    ) {
+    fn fetch_screen_row(&mut self, read_vram: &dyn Fn(u16) -> u8, read_colour: &dyn Fn(u16) -> u8) {
         let screen_base = self.screen_base();
         let text_row = (self.raster_line - DISPLAY_START_LINE) / 8;
         self.text_row = text_row;
@@ -389,7 +377,11 @@ impl Vic {
             }
 
             let sprite_y = u16::from(self.regs[1 + i * 2]);
-            let height = if y_expand & (1 << i) != 0 { 42u16 } else { 21u16 };
+            let height = if y_expand & (1 << i) != 0 {
+                42u16
+            } else {
+                21u16
+            };
 
             // Check if this sprite is visible on the current raster line
             let line_in_sprite = self.raster_line.wrapping_sub(sprite_y);
@@ -422,7 +414,8 @@ impl Vic {
     /// Render 8 pixels for the current beam position.
     fn render_pixels(&mut self, read_vram: &dyn Fn(u16) -> u8) {
         // Check if we're in the visible area
-        if self.raster_line < self.first_visible_line || self.raster_line >= self.last_visible_line {
+        if self.raster_line < self.first_visible_line || self.raster_line >= self.last_visible_line
+        {
             return;
         }
         if self.raster_cycle < FIRST_VISIBLE_CYCLE || self.raster_cycle >= LAST_VISIBLE_CYCLE {
@@ -531,8 +524,16 @@ impl Vic {
         let csel = self.regs[0x16] & 0x08 != 0;
         let vstart = if rsel { 0x33u16 } else { 0x37u16 };
         let vstop = if rsel { 0xFBu16 } else { 0xF7u16 };
-        let hstart = if csel { DISPLAY_START_CYCLE } else { DISPLAY_START_CYCLE + 1 };
-        let hstop = if csel { DISPLAY_END_CYCLE } else { DISPLAY_END_CYCLE - 1 };
+        let hstart = if csel {
+            DISPLAY_START_CYCLE
+        } else {
+            DISPLAY_START_CYCLE + 1
+        };
+        let hstop = if csel {
+            DISPLAY_END_CYCLE
+        } else {
+            DISPLAY_END_CYCLE - 1
+        };
 
         let in_visible_window = self.den_latch
             && (vstart..vstop).contains(&self.raster_line)
@@ -880,7 +881,11 @@ impl Vic {
             }
 
             let sprite_y = u16::from(self.regs[1 + i * 2]);
-            let height = if y_expand & (1 << i) != 0 { 42u16 } else { 21u16 };
+            let height = if y_expand & (1 << i) != 0 {
+                42u16
+            } else {
+                21u16
+            };
             let offset = self.raster_line.wrapping_sub(sprite_y);
             self.sprite_dma_active[i] = offset < height;
         }
@@ -1168,7 +1173,6 @@ mod tests {
         fn ram_write(&mut self, addr: u16, value: u8) {
             self.ram[addr as usize] = value;
         }
-
     }
 
     fn make_vic_and_memory() -> (Vic, TestMemory) {
@@ -1180,28 +1184,18 @@ mod tests {
 
     /// Tick the VIC with test memory closures.
     fn tick_vic(vic: &mut Vic, mem: &TestMemory) -> bool {
-        vic.tick(
-            &|addr| mem.read_vram(addr),
-            &|off| mem.read_colour(off),
-        )
+        vic.tick(&|addr| mem.read_vram(addr), &|off| mem.read_colour(off))
     }
 
     /// Tick the VIC with custom colour RAM closure.
-    fn tick_vic_with_colour(
-        vic: &mut Vic,
-        mem: &TestMemory,
-        colour_ram: &[u8],
-    ) -> bool {
-        vic.tick(
-            &|addr| mem.read_vram(addr),
-            &|off| {
-                if (off as usize) < colour_ram.len() {
-                    colour_ram[off as usize] & 0x0F
-                } else {
-                    0
-                }
-            },
-        )
+    fn tick_vic_with_colour(vic: &mut Vic, mem: &TestMemory, colour_ram: &[u8]) -> bool {
+        vic.tick(&|addr| mem.read_vram(addr), &|off| {
+            if (off as usize) < colour_ram.len() {
+                colour_ram[off as usize] & 0x0F
+            } else {
+                0
+            }
+        })
     }
 
     #[test]
@@ -1327,7 +1321,8 @@ mod tests {
 
         let white = PALETTE[1]; // Colour index 1 = white
         assert_eq!(
-            vic.framebuffer()[idx], white,
+            vic.framebuffer()[idx],
+            white,
             "Sprite pixel at ({sprite_fb_x}, {fb_y}) should be white"
         );
     }
@@ -1431,7 +1426,11 @@ mod tests {
         let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
         let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
         let idx0 = fb_y * FB_WIDTH as usize + fb_x0;
-        assert_eq!(vic.framebuffer()[idx0], PALETTE[0], "ECM BG0 should be black");
+        assert_eq!(
+            vic.framebuffer()[idx0],
+            PALETTE[0],
+            "ECM BG0 should be black"
+        );
 
         // Tick column 1
         tick_vic(&mut vic, &memory);
@@ -1441,12 +1440,20 @@ mod tests {
         // Tick column 2
         tick_vic(&mut vic, &memory);
         let idx2 = fb_y * FB_WIDTH as usize + fb_x0 + 16;
-        assert_eq!(vic.framebuffer()[idx2], PALETTE[5], "ECM BG2 should be green");
+        assert_eq!(
+            vic.framebuffer()[idx2],
+            PALETTE[5],
+            "ECM BG2 should be green"
+        );
 
         // Tick column 3
         tick_vic(&mut vic, &memory);
         let idx3 = fb_y * FB_WIDTH as usize + fb_x0 + 24;
-        assert_eq!(vic.framebuffer()[idx3], PALETTE[6], "ECM BG3 should be blue");
+        assert_eq!(
+            vic.framebuffer()[idx3],
+            PALETTE[6],
+            "ECM BG3 should be blue"
+        );
     }
 
     #[test]
@@ -1881,7 +1888,11 @@ mod tests {
             tick_vic(&mut vic, &memory);
         }
         vic.trigger_light_pen();
-        assert_eq!(vic.peek(0x14), first_lpy, "Second trigger should be ignored");
+        assert_eq!(
+            vic.peek(0x14),
+            first_lpy,
+            "Second trigger should be ignored"
+        );
     }
 
     #[test]
@@ -1910,7 +1921,11 @@ mod tests {
             tick_vic(&mut vic, &memory);
         }
         let val = vic.read(0x2F);
-        assert_eq!(val, vic.peek(0x2F), "Read and peek should agree on floating bus value");
+        assert_eq!(
+            val,
+            vic.peek(0x2F),
+            "Read and peek should agree on floating bus value"
+        );
     }
 
     #[test]

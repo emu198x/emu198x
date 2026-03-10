@@ -227,8 +227,7 @@ impl Drive1541 {
         // Write-protect sense: bit 4 (active-low: 0 = protected)
         // For now, always report write-protected when no disk, not protected with disk
         let wp = if self.d64.is_some() { 0x10 } else { 0x00 };
-        self.bus.via2.external_b =
-            (self.bus.via2.external_b & !0x10) | wp;
+        self.bus.via2.external_b = (self.bus.via2.external_b & !0x10) | wp;
 
         // Write mode: VIA2 CB2 (active-low: 0 = write mode).
         // CB2 is controlled by CRB bits 5-7. In manual output mode
@@ -272,8 +271,8 @@ impl Drive1541 {
                 // SYNC detect: bit 7 of VIA2 port B external.
                 // Active-low: 0 = sync detected.
                 let in_sync = byte == 0xFF;
-                self.bus.via2.external_b = (self.bus.via2.external_b & !0x80)
-                    | if in_sync { 0x00 } else { 0x80 };
+                self.bus.via2.external_b =
+                    (self.bus.via2.external_b & !0x80) | if in_sync { 0x00 } else { 0x80 };
             }
 
             // Advance position (wrap around the track)
@@ -319,10 +318,12 @@ impl Drive1541 {
             if buf[i..i + 5].iter().all(|&b| b == 0xFF) {
                 let gcr_start = i + 5;
                 if gcr_start + 325 <= buf.len()
-                    && let Some(sector_data) = gcr::decode_data_block(&buf[gcr_start..gcr_start + 325])
-                        && let Some(sector) = sector_num {
-                            writes.push((sector, sector_data));
-                        }
+                    && let Some(sector_data) =
+                        gcr::decode_data_block(&buf[gcr_start..gcr_start + 325])
+                    && let Some(sector) = sector_num
+                {
+                    writes.push((sector, sector_data));
+                }
                 i = gcr_start + 325;
             } else {
                 i += 1;
@@ -355,7 +356,11 @@ impl Drive1541 {
         // (5x $FF followed by 10 GCR header bytes). The header contains
         // the sector number.
         let len = self.gcr_track.len();
-        let start = if self.gcr_position == 0 { len - 1 } else { self.gcr_position - 1 };
+        let start = if self.gcr_position == 0 {
+            len - 1
+        } else {
+            self.gcr_position - 1
+        };
 
         for offset in 0..len {
             let pos = (start + len - offset) % len;
@@ -455,7 +460,6 @@ impl Drive1541 {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

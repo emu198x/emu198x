@@ -27,10 +27,7 @@ pub struct TzxFile {
 #[derive(Debug, Clone)]
 pub enum TzxBlock {
     /// Block $10: Standard speed data (ROM timing).
-    StandardSpeed {
-        pause_ms: u16,
-        data: Vec<u8>,
-    },
+    StandardSpeed { pause_ms: u16, data: Vec<u8> },
     /// Block $11: Turbo speed data (custom timing).
     TurboSpeed {
         pilot_pulse: u16,
@@ -44,14 +41,9 @@ pub enum TzxBlock {
         data: Vec<u8>,
     },
     /// Block $12: Pure tone (repeated single pulse).
-    PureTone {
-        pulse_len: u16,
-        count: u16,
-    },
+    PureTone { pulse_len: u16, count: u16 },
     /// Block $13: Pulse sequence (arbitrary pulse lengths).
-    PulseSequence {
-        pulses: Vec<u16>,
-    },
+    PulseSequence { pulses: Vec<u16> },
     /// Block $14: Pure data (no pilot or sync, just data bits).
     PureData {
         zero_pulse: u16,
@@ -61,39 +53,25 @@ pub enum TzxBlock {
         data: Vec<u8>,
     },
     /// Block $20: Pause / stop the tape.
-    Pause {
-        duration_ms: u16,
-    },
+    Pause { duration_ms: u16 },
     /// Block $21: Group start.
-    GroupStart {
-        name: String,
-    },
+    GroupStart { name: String },
     /// Block $22: Group end.
     GroupEnd,
     /// Block $24: Loop start.
-    LoopStart {
-        repetitions: u16,
-    },
+    LoopStart { repetitions: u16 },
     /// Block $25: Loop end.
     LoopEnd,
     /// Block $2A: Stop the tape if in 48K mode.
     StopIf48K,
     /// Block $2B: Set signal level.
-    SetSignalLevel {
-        level: bool,
-    },
+    SetSignalLevel { level: bool },
     /// Block $30: Text description.
-    TextDescription {
-        text: String,
-    },
+    TextDescription { text: String },
     /// Block $32: Archive info.
-    ArchiveInfo {
-        entries: Vec<(u8, String)>,
-    },
+    ArchiveInfo { entries: Vec<(u8, String)> },
     /// Unknown or unsupported block (skipped gracefully).
-    Unknown {
-        block_id: u8,
-    },
+    Unknown { block_id: u8 },
 }
 
 /// TZX header magic: "`ZXTape`!" + 0x1A.
@@ -441,7 +419,12 @@ fn skip_unknown_block(block_id: u8, data: &[u8], pos: &mut usize) -> Result<TzxB
         }
     };
 
-    need(data, *pos, skip_len, &format!("Unknown block ${block_id:02X}"))?;
+    need(
+        data,
+        *pos,
+        skip_len,
+        &format!("Unknown block ${block_id:02X}"),
+    )?;
     *pos += skip_len;
 
     Ok(TzxBlock::Unknown { block_id })

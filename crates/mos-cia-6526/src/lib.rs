@@ -801,10 +801,18 @@ mod tests {
         for i in 0..8 {
             cia.tick();
             if i < 7 {
-                assert_eq!(cia.icr_status() & 0x08, 0, "ICR bit 3 too early at tick {i}");
+                assert_eq!(
+                    cia.icr_status() & 0x08,
+                    0,
+                    "ICR bit 3 too early at tick {i}"
+                );
             }
         }
-        assert_ne!(cia.icr_status() & 0x08, 0, "ICR bit 3 should be set after 8 shifts");
+        assert_ne!(
+            cia.icr_status() & 0x08,
+            0,
+            "ICR bit 3 should be set after 8 shifts"
+        );
     }
 
     #[test]

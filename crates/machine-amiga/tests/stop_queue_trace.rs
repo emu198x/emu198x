@@ -126,6 +126,7 @@ struct WatchedChange {
     stack_return_pc: u32,
     intena: u16,
     intreq: u16,
+    current_entry: Option<TaskSummary>,
 }
 
 #[derive(Serialize)]
@@ -175,6 +176,15 @@ struct IackEvent {
     intena: u16,
     intreq: u16,
     cia_a: CiaSample,
+}
+
+#[derive(Serialize)]
+struct TaskSummary {
+    addr: u32,
+    name: Option<String>,
+    state: u8,
+    sig_wait: u32,
+    sig_recvd: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -402,6 +412,24 @@ fn read_c_string(amiga: &Amiga, addr: u32, max_len: usize) -> Option<String> {
     }
 }
 
+fn sample_task_summary(amiga: &Amiga, task: u32) -> Option<TaskSummary> {
+    if task == 0 {
+        return None;
+    }
+
+    Some(TaskSummary {
+        addr: task,
+        name: read_c_string(amiga, read_bus_long(amiga, task + 0x0A), MAX_TASK_NAME_LEN),
+        state: read_bus_byte(amiga, task + 0x0F),
+        sig_wait: read_bus_long(amiga, task + 0x16),
+        sig_recvd: read_bus_long(amiga, task + 0x1A),
+    })
+}
+
+fn sample_current_entry(amiga: &Amiga, exec_base: u32) -> Option<TaskSummary> {
+    sample_task_summary(amiga, read_bus_long(amiga, exec_base + 0x114))
+}
+
 fn stop_watch_fields(a6: u32) -> Vec<WatchField> {
     vec![
         WatchField {
@@ -610,6 +638,7 @@ fn run_stop_queue_trace(spec: &TraceSpec) {
     let mut prev_bus_sig: Option<(u32, u8, bool, bool, Option<u16>)> = None;
     let mut prev_pc_sig: Option<(u32, u32, u16)> = None;
     let mut stop_tick = None;
+    let mut exec_base = None;
     let mut exec_watch_fields = Vec::new();
     let mut previous_exec_watch_values = Vec::new();
     let mut current_task_watch_fields = Vec::new();
@@ -623,12 +652,11 @@ fn run_stop_queue_trace(spec: &TraceSpec) {
     for tick in 0..MAX_BOOT_TICKS {
         amiga.tick();
 
-        if stop_tick.is_none()
-            && amiga.cpu.regs.pc == spec.stop_resume_pc
-            && amiga.cpu.ir == 0x4E72
+        if stop_tick.is_none() && amiga.cpu.regs.pc == spec.stop_resume_pc && amiga.cpu.ir == 0x4E72
         {
             let stop_state = sample_stop_state(&amiga, tick);
             exec_watch_fields = stop_watch_fields(stop_state.a6);
+            exec_base = Some(stop_state.a6);
             previous_exec_watch_values = exec_watch_fields
                 .iter()
                 .map(|field| read_watch_value(&amiga, field))
@@ -688,6 +716,7 @@ fn run_stop_queue_trace(spec: &TraceSpec) {
                     stack_return_pc: read_bus_long(&amiga, amiga.cpu.regs.a(7)),
                     intena: amiga.paula.intena,
                     intreq: amiga.paula.intreq,
+                    current_entry: exec_base.and_then(|base| sample_current_entry(&amiga, base)),
                 });
                 previous_exec_watch_values[index] = current;
             }
@@ -716,6 +745,7 @@ fn run_stop_queue_trace(spec: &TraceSpec) {
                     stack_return_pc: read_bus_long(&amiga, amiga.cpu.regs.a(7)),
                     intena: amiga.paula.intena,
                     intreq: amiga.paula.intreq,
+                    current_entry: exec_base.and_then(|base| sample_current_entry(&amiga, base)),
                 });
                 previous_current_task_watch_values[index] = current;
             }
@@ -883,6 +913,7 @@ fn run_exec_wait_transition_trace(spec: &TraceSpec) {
                     stack_return_pc: read_bus_long(&amiga, amiga.cpu.regs.a(7)),
                     intena: amiga.paula.intena,
                     intreq: amiga.paula.intreq,
+                    current_entry: sample_current_entry(&amiga, context.exec_base),
                 });
                 previous_watch_values[index] = current;
             }

@@ -158,9 +158,10 @@ impl Bus for C64Bus {
                 0xDF00..=0xDFFF => {
                     // I/O expansion 2 — REU ($DF00-$DF0A) or cartridge
                     if addr16 <= 0xDF0A
-                        && let Some(ref mut reu) = self.reu {
-                            reu.write(addr16, value, &mut self.memory.ram);
-                        }
+                        && let Some(ref mut reu) = self.reu
+                    {
+                        reu.write(addr16, value, &mut self.memory.ram);
+                    }
                     if let Some(ref mut cart) = self.memory.cartridge {
                         cart.write_io(addr16, value);
                     }

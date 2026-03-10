@@ -82,7 +82,9 @@ fn test_kick12_boot_trace() {
                 "  {:3}: {} V=${:02X} H=${:02X} mask=${:04X}",
                 i,
                 if is_skip { "SKIP" } else { "WAIT" },
-                vp, hp, w2,
+                vp,
+                hp,
+                w2,
             );
         }
     }
@@ -107,7 +109,10 @@ fn test_kick12_boot_trace() {
                 println!("  {:3}: END OF LIST", i);
                 break;
             }
-            println!("  {:3}: WAIT V=${:02X} H=${:02X} mask=${:04X}", i, vp, hp, w2);
+            println!(
+                "  {:3}: WAIT V=${:02X} H=${:02X} mask=${:04X}",
+                i, vp, hp, w2
+            );
         }
     }
 

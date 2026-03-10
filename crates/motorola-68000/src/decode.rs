@@ -25,13 +25,11 @@ use crate::cpu::{
     TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
     TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT, TAG_EXC_STACK_PC_HI,
     TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA,
-    TAG_FETCH_SRC_DATA,
-    TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
-    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FORMAT,
-    TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR,
-    TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
-    TAG_RTD_PC_HI, TAG_RTD_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT,
-    TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT,
+    TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTD_PC_HI,
+    TAG_RTD_PC_LO, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR,
+    TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO,
+    TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -40,7 +38,11 @@ use crate::microcode::MicroOp;
 /// Returns the field value right-justified.
 fn extract_bitfield_reg(val: u32, offset: u32, width: u32) -> u32 {
     let off = offset & 31;
-    let mask = if width >= 32 { 0xFFFF_FFFFu32 } else { (1u32 << width) - 1 };
+    let mask = if width >= 32 {
+        0xFFFF_FFFFu32
+    } else {
+        (1u32 << width) - 1
+    };
     // Rotate left by offset to bring the field's MSB to bit 31, then shift right
     let rotated = val.rotate_left(off);
     (rotated >> (32 - width)) & mask
@@ -50,10 +52,18 @@ fn extract_bitfield_reg(val: u32, offset: u32, width: u32) -> u32 {
 /// `insert_val` is right-justified field data.
 fn insert_bitfield_reg(val: u32, offset: u32, width: u32, insert_val: u32) -> u32 {
     let off = offset & 31;
-    let mask = if width >= 32 { 0xFFFF_FFFFu32 } else { (1u32 << width) - 1 };
+    let mask = if width >= 32 {
+        0xFFFF_FFFFu32
+    } else {
+        (1u32 << width) - 1
+    };
     // Build a mask at the field position and replace those bits
-    let field_mask = mask.wrapping_shl(32u32.wrapping_sub(width)).rotate_right(off);
-    let field_bits = (insert_val & mask).wrapping_shl(32u32.wrapping_sub(width)).rotate_right(off);
+    let field_mask = mask
+        .wrapping_shl(32u32.wrapping_sub(width))
+        .rotate_right(off);
+    let field_bits = (insert_val & mask)
+        .wrapping_shl(32u32.wrapping_sub(width))
+        .rotate_right(off);
     (val & !field_mask) | field_bits
 }
 
@@ -70,7 +80,6 @@ impl Cpu68000 {
         }
 
         let opcode = self.ir;
-
 
         // --- MOVE.b/w/l (0x1xxx, 0x2xxx, 0x3xxx) ---
         // Top 2 bits = 00, next 2 bits encode size (non-zero)
@@ -178,7 +187,9 @@ impl Cpu68000 {
                     self.regs.set_a(ry as usize, self.addr);
                     self.ae_undo_reg = Some((ry, dec, false, false));
                     let d = self.internal_delay(2, 0);
-                    if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+                    if d > 0 {
+                        self.micro_ops.push(MicroOp::Internal(d));
+                    }
                     self.followup_tag = TAG_ADDX_READ_SRC;
                     self.queue_read_ops(size);
                     self.micro_ops.push(MicroOp::Execute);
@@ -258,7 +269,9 @@ impl Cpu68000 {
                     self.ea_reg = rx;
 
                     let d = self.internal_delay(2, 0);
-                    if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+                    if d > 0 {
+                        self.micro_ops.push(MicroOp::Internal(d));
+                    }
                     self.micro_ops.push(MicroOp::ReadByte);
                     self.in_followup = true;
                     self.followup_tag = TAG_BCD_SRC_READ;
@@ -722,33 +735,47 @@ impl Cpu68000 {
                             let field = extract_bitfield_reg(val, off, width);
 
                             // Set condition codes: N from MSB of field, Z if zero, V=0, C=0
-                            let mask = if width >= 32 { 0xFFFF_FFFF } else { (1u32 << width) - 1 };
+                            let mask = if width >= 32 {
+                                0xFFFF_FFFF
+                            } else {
+                                (1u32 << width) - 1
+                            };
                             let result = field & mask;
                             let mut sr = self.regs.sr & !0x000F;
-                            if result & (1u32 << (width - 1)) != 0 { sr |= 0x0008; } // N
-                            if result == 0 { sr |= 0x0004; } // Z
+                            if result & (1u32 << (width - 1)) != 0 {
+                                sr |= 0x0008;
+                            } // N
+                            if result == 0 {
+                                sr |= 0x0004;
+                            } // Z
                             self.regs.sr = sr;
 
                             match bf_type {
                                 0 => {} // BFTST — test only
-                                1 => {  // BFEXTU — extract unsigned
+                                1 => {
+                                    // BFEXTU — extract unsigned
                                     let dn = ((ext >> 12) & 7) as usize;
                                     self.regs.d[dn] = result;
                                 }
-                                2 => {  // BFCHG — toggle
-                                    let new_val = insert_bitfield_reg(val, off, width, field ^ mask);
+                                2 => {
+                                    // BFCHG — toggle
+                                    let new_val =
+                                        insert_bitfield_reg(val, off, width, field ^ mask);
                                     self.regs.d[r as usize] = new_val;
                                 }
-                                3 => {  // BFEXTS — extract signed
+                                3 => {
+                                    // BFEXTS — extract signed
                                     let dn = ((ext >> 12) & 7) as usize;
                                     let shift = 32u32.wrapping_sub(width);
                                     self.regs.d[dn] = ((result << shift) as i32 >> shift) as u32;
                                 }
-                                4 => {  // BFCLR — clear
+                                4 => {
+                                    // BFCLR — clear
                                     let new_val = insert_bitfield_reg(val, off, width, 0);
                                     self.regs.d[r as usize] = new_val;
                                 }
-                                5 => {  // BFFFO — find first one
+                                5 => {
+                                    // BFFFO — find first one
                                     let dn = ((ext >> 12) & 7) as usize;
                                     // Register mode: use the effective offset (modulo 32),
                                     // not the raw register value.
@@ -760,26 +787,34 @@ impl Cpu68000 {
                                     };
                                     self.regs.d[dn] = first_one;
                                 }
-                                6 => {  // BFSET — set all bits
+                                6 => {
+                                    // BFSET — set all bits
                                     let new_val = insert_bitfield_reg(val, off, width, mask);
                                     self.regs.d[r as usize] = new_val;
                                 }
-                                7 => {  // BFINS — insert
+                                7 => {
+                                    // BFINS — insert
                                     let dn = ((ext >> 12) & 7) as usize;
                                     let insert_val = self.regs.d[dn] & mask;
                                     let new_val = insert_bitfield_reg(val, off, width, insert_val);
                                     self.regs.d[r as usize] = new_val;
                                     // Flags from inserted value
                                     let mut sr2 = self.regs.sr & !0x000F;
-                                    if insert_val & (1u32 << (width - 1)) != 0 { sr2 |= 0x0008; }
-                                    if insert_val == 0 { sr2 |= 0x0004; }
+                                    if insert_val & (1u32 << (width - 1)) != 0 {
+                                        sr2 |= 0x0008;
+                                    }
+                                    if insert_val == 0 {
+                                        sr2 |= 0x0004;
+                                    }
                                     self.regs.sr = sr2;
                                 }
                                 _ => unreachable!(),
                             }
                             // ~6 cycles for register bit fields (barrel shifter on 68020)
                             let d = self.internal_delay(2, 0);
-                            if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+                            if d > 0 {
+                                self.micro_ops.push(MicroOp::Internal(d));
+                            }
                         }
                         _ => {
                             // Memory bit field: resolve EA, then execute
@@ -1539,7 +1574,9 @@ impl Cpu68000 {
             // MOVEC takes 12 cycles total on 68000 (2 words fetched = 8 cycles
             // + 4 internal). The 68020 pipelines the internal work.
             let d = self.internal_delay(4, 0);
-            if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+            if d > 0 {
+                self.micro_ops.push(MicroOp::Internal(d));
+            }
             return;
         }
 
@@ -1610,7 +1647,8 @@ impl Cpu68000 {
                 }
 
                 // Bit field memory: EA resolved, execute bit field operation
-                if (opcode & 0xF000) == 0xE000 && (opcode & 0x00C0) == 0x00C0
+                if (opcode & 0xF000) == 0xE000
+                    && (opcode & 0x00C0) == 0x00C0
                     && (opcode & 0x0800) != 0
                 {
                     self.execute_bitfield_memory(bus);
@@ -1743,9 +1781,10 @@ impl Cpu68000 {
                     && !matches!(
                         mode,
                         AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate
-                    ) {
-                        self.src_val = self.data;
-                    }
+                    )
+                {
+                    self.src_val = self.data;
+                }
 
                 // Source phase is complete — any source EA side effects (postinc,
                 // predec) are committed. Clear ae_undo_reg so only destination
@@ -1812,9 +1851,10 @@ impl Cpu68000 {
                     && !matches!(
                         mode,
                         AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate
-                    ) {
-                        self.dst_val = self.data;
-                    }
+                    )
+                {
+                    self.dst_val = self.data;
+                }
 
                 self.perform_execute();
                 self.followup_tag = TAG_WRITEBACK;
@@ -1938,7 +1978,9 @@ impl Cpu68000 {
                     eprintln!(
                         "  [cpu] {} to ${:08X} from ${:08X} IR=${:04X} A6=${:08X}",
                         if is_jsr { "JSR" } else { "JMP" },
-                        self.addr, self.instr_start_pc, self.ir,
+                        self.addr,
+                        self.instr_start_pc,
+                        self.ir,
                         self.regs.a(6),
                     );
                 }
@@ -1961,7 +2003,9 @@ impl Cpu68000 {
                 if self.instr_start_pc == 0xFC05B2 {
                     eprintln!(
                         "  [jmp] $FC05B2 → ${:08X} A3=${:08X} A5=${:08X}",
-                        self.addr, self.regs.a(3), self.regs.a(5),
+                        self.addr,
+                        self.regs.a(3),
+                        self.regs.a(5),
                     );
                 }
                 self.in_followup = false;
@@ -2020,7 +2064,6 @@ impl Cpu68000 {
             }
 
             // --- Exception handlers ---
-
             TAG_EXC_STACK_FORMAT => {
                 // 68010+: format/vector word has been pushed.
                 // Restore the saved PC and continue with PC push.
@@ -2143,13 +2186,13 @@ impl Cpu68000 {
 
                 // Additional words to pop based on frame format.
                 let extra_words: u32 = match format {
-                    0x0 => 0, // Format $0: 4-word frame (SR + PC + format). Done.
-                    0x1 => 0, // Format $1: throwaway (68010 only). Done.
-                    0x2 => 2, // Format $2: 6-word frame. 2 extra words (instruction address).
-                    0x9 => 6, // Format $9: coprocessor mid-instruction. 6 extra words.
+                    0x0 => 0,  // Format $0: 4-word frame (SR + PC + format). Done.
+                    0x1 => 0,  // Format $1: throwaway (68010 only). Done.
+                    0x2 => 2,  // Format $2: 6-word frame. 2 extra words (instruction address).
+                    0x9 => 6,  // Format $9: coprocessor mid-instruction. 6 extra words.
                     0xA => 12, // Format $A: short bus fault (68020/030). 12 extra words.
                     0xB => 42, // Format $B: long bus fault (68020/030). 42 extra words.
-                    _ => 0, // Unknown format — treat as done.
+                    _ => 0,    // Unknown format — treat as done.
                 };
 
                 // Skip extra words by advancing SSP
@@ -2388,9 +2431,10 @@ impl Cpu68000 {
             TAG_CHK_EXECUTE => {
                 // For memory modes, the bus read result is in self.data.
                 if let Some(mode) = self.src_mode
-                    && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
-                        self.src_val = self.data & 0xFFFF;
-                    }
+                    && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate)
+                {
+                    self.src_val = self.data & 0xFFFF;
+                }
 
                 let dn_idx = ((self.ir >> 9) & 7) as usize;
                 let dn_val = (self.regs.d[dn_idx] & 0xFFFF) as u16;
@@ -2425,7 +2469,9 @@ impl Cpu68000 {
                     // In bounds: clear NZVC, no trap
                     self.regs.sr &= 0xFFF0;
                     let d = self.internal_delay(6, 0);
-                    if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+                    if d > 0 {
+                        self.micro_ops.push(MicroOp::Internal(d));
+                    }
                     self.in_followup = false;
                 }
             }
@@ -2562,9 +2608,10 @@ impl Cpu68000 {
                 if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
                     // For memory modes, bus read result (32-bit) is in self.data
                     if let Some(mode) = self.src_mode
-                        && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
-                            self.src_val = self.data;
-                        }
+                        && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate)
+                    {
+                        self.src_val = self.data;
+                    }
                     let ext = self.movem_mask; // stashed during decode
                     // Extension word: bits 14-12 = Dl (low/single result),
                     // bits 2-0 = Dh (high word for 64-bit).
@@ -2580,19 +2627,27 @@ impl Cpu68000 {
                             let result = (src as i32 as i64) * (self.regs.d[dl] as i32 as i64);
                             let result_u = result as u64;
                             if is_64bit {
-                                self.regs.d[dl] = result_u as u32;         // low → Dl
+                                self.regs.d[dl] = result_u as u32; // low → Dl
                                 self.regs.d[dh] = (result_u >> 32) as u32; // high → Dh
                             } else {
                                 self.regs.d[dl] = result_u as u32;
                             }
                             let mut sr = self.regs.sr & !0x000F;
                             if is_64bit {
-                                if result_u & 0x8000_0000_0000_0000 != 0 { sr |= 0x0008; }
-                                if result_u == 0 { sr |= 0x0004; }
+                                if result_u & 0x8000_0000_0000_0000 != 0 {
+                                    sr |= 0x0008;
+                                }
+                                if result_u == 0 {
+                                    sr |= 0x0004;
+                                }
                             } else {
                                 let r32 = result_u as u32;
-                                if r32 & 0x8000_0000 != 0 { sr |= 0x0008; }
-                                if r32 == 0 { sr |= 0x0004; }
+                                if r32 & 0x8000_0000 != 0 {
+                                    sr |= 0x0008;
+                                }
+                                if r32 == 0 {
+                                    sr |= 0x0004;
+                                }
                                 // V set if 64-bit result doesn't fit in 32 bits
                                 let hi = (result_u >> 32) as u32;
                                 if (r32 & 0x8000_0000 != 0 && hi != 0xFFFF_FFFF)
@@ -2605,20 +2660,30 @@ impl Cpu68000 {
                         } else {
                             let result = u64::from(src) * u64::from(self.regs.d[dl]);
                             if is_64bit {
-                                self.regs.d[dl] = result as u32;         // low → Dl
+                                self.regs.d[dl] = result as u32; // low → Dl
                                 self.regs.d[dh] = (result >> 32) as u32; // high → Dh
                             } else {
                                 self.regs.d[dl] = result as u32;
                             }
                             let mut sr = self.regs.sr & !0x000F;
                             if is_64bit {
-                                if result & 0x8000_0000_0000_0000 != 0 { sr |= 0x0008; }
-                                if result == 0 { sr |= 0x0004; }
+                                if result & 0x8000_0000_0000_0000 != 0 {
+                                    sr |= 0x0008;
+                                }
+                                if result == 0 {
+                                    sr |= 0x0004;
+                                }
                             } else {
                                 let r32 = result as u32;
-                                if r32 & 0x8000_0000 != 0 { sr |= 0x0008; }
-                                if r32 == 0 { sr |= 0x0004; }
-                                if result > 0xFFFF_FFFF { sr |= 0x0002; } // V
+                                if r32 & 0x8000_0000 != 0 {
+                                    sr |= 0x0008;
+                                }
+                                if r32 == 0 {
+                                    sr |= 0x0004;
+                                }
+                                if result > 0xFFFF_FFFF {
+                                    sr |= 0x0002;
+                                } // V
                             }
                             self.regs.sr = sr;
                         }
@@ -2651,8 +2716,12 @@ impl Cpu68000 {
                                 self.regs.d[dh] = remainder as u32;
                                 self.regs.d[dl] = quotient as u32;
                                 let mut sr = self.regs.sr & !0x000F;
-                                if quotient as u32 & 0x8000_0000 != 0 { sr |= 0x0008; }
-                                if quotient as u32 == 0 { sr |= 0x0004; }
+                                if quotient as u32 & 0x8000_0000 != 0 {
+                                    sr |= 0x0008;
+                                }
+                                if quotient as u32 == 0 {
+                                    sr |= 0x0004;
+                                }
                                 self.regs.sr = sr;
                             }
                         } else {
@@ -2674,8 +2743,12 @@ impl Cpu68000 {
                                 self.regs.d[dh] = remainder as u32;
                                 self.regs.d[dl] = quotient as u32;
                                 let mut sr = self.regs.sr & !0x000F;
-                                if quotient as u32 & 0x8000_0000 != 0 { sr |= 0x0008; }
-                                if quotient as u32 == 0 { sr |= 0x0004; }
+                                if quotient as u32 & 0x8000_0000 != 0 {
+                                    sr |= 0x0008;
+                                }
+                                if quotient as u32 == 0 {
+                                    sr |= 0x0004;
+                                }
                                 self.regs.sr = sr;
                             }
                         }
@@ -2689,9 +2762,10 @@ impl Cpu68000 {
                 // --- 68000 16-bit MULU/MULS/DIVU/DIVS ---
                 // For memory modes, bus read result is in self.data
                 if let Some(mode) = self.src_mode
-                    && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate) {
-                        self.src_val = self.data & 0xFFFF;
-                    }
+                    && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate)
+                {
+                    self.src_val = self.data & 0xFFFF;
+                }
 
                 let dn = ((opcode >> 9) & 7) as usize;
                 let src_word = (self.src_val & 0xFFFF) as u16;
@@ -2820,8 +2894,12 @@ impl Cpu68000 {
                                 if (abs_dvd >> 16) < u32::from(abs_dvs) {
                                     // Non-absolute overflow: N/Z from byte-sized quotient
                                     let aquot = (abs_dvd / u32::from(abs_dvs)) as u8 as i8;
-                                    if aquot == 0 { self.regs.sr |= 0x0004; }
-                                    if aquot < 0  { self.regs.sr |= 0x0008; }
+                                    if aquot == 0 {
+                                        self.regs.sr |= 0x0004;
+                                    }
+                                    if aquot < 0 {
+                                        self.regs.sr |= 0x0008;
+                                    }
                                 }
                             } else {
                                 // 68000/010: V=1, N=1, C=0, Z=0, X unchanged
@@ -2875,8 +2953,8 @@ impl Cpu68000 {
     /// Otherwise, write (EA) to Dc. Flags set from comparison.
     fn decode_cas(&mut self, bus: &mut impl M68kBus, opcode: u16) {
         let ext = self.consume_irc();
-        let dc = (ext & 7) as usize;         // compare register
-        let du = ((ext >> 6) & 7) as usize;  // update register
+        let dc = (ext & 7) as usize; // compare register
+        let du = ((ext >> 6) & 7) as usize; // update register
 
         // Determine size from opcode bits 10-9
         let size_bits = (opcode >> 9) & 3;
@@ -2978,20 +3056,30 @@ impl Cpu68000 {
             Size::Byte => {
                 if let BusStatus::Ready(w) = bus.poll_cycle(addr, fc, true, false, None) {
                     w as u32 & 0xFF
-                } else { 0 }
+                } else {
+                    0
+                }
             }
             Size::Word => {
                 if let BusStatus::Ready(w) = bus.poll_cycle(addr, fc, true, true, None) {
                     w as u32
-                } else { 0 }
+                } else {
+                    0
+                }
             }
             Size::Long => {
                 let hi = if let BusStatus::Ready(w) = bus.poll_cycle(addr, fc, true, true, None) {
                     w as u32
-                } else { 0 };
-                let lo = if let BusStatus::Ready(w) = bus.poll_cycle(addr.wrapping_add(2), fc, true, true, None) {
+                } else {
+                    0
+                };
+                let lo = if let BusStatus::Ready(w) =
+                    bus.poll_cycle(addr.wrapping_add(2), fc, true, true, None)
+                {
                     w as u32
-                } else { 0 };
+                } else {
+                    0
+                };
                 (hi << 16) | lo
             }
         };
@@ -3042,7 +3130,9 @@ impl Cpu68000 {
         }
 
         let d = self.internal_delay(4, 0);
-        if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+        if d > 0 {
+            self.micro_ops.push(MicroOp::Internal(d));
+        }
     }
 
     /// Execute a bit field instruction on a memory operand.
@@ -3106,36 +3196,69 @@ impl Cpu68000 {
 
         // Extract the field: starts at bit (39 - bit_offset), width bits
         let shift = 40 - bit_offset - width;
-        let mask = if width >= 32 { 0xFFFF_FFFF_u64 } else { (1u64 << width) - 1 };
+        let mask = if width >= 32 {
+            0xFFFF_FFFF_u64
+        } else {
+            (1u64 << width) - 1
+        };
         let field = ((bits >> shift) & mask) as u32;
 
         // Set condition codes
-        let field_mask32 = if width >= 32 { 0xFFFF_FFFFu32 } else { (1u32 << width) - 1 };
+        let field_mask32 = if width >= 32 {
+            0xFFFF_FFFFu32
+        } else {
+            (1u32 << width) - 1
+        };
         let result = field & field_mask32;
         let mut sr = self.regs.sr & !0x000F;
-        if result & (1u32 << (width - 1)) != 0 { sr |= 0x0008; } // N
-        if result == 0 { sr |= 0x0004; } // Z
+        if result & (1u32 << (width - 1)) != 0 {
+            sr |= 0x0008;
+        } // N
+        if result == 0 {
+            sr |= 0x0004;
+        } // Z
         self.regs.sr = sr;
 
         match bf_type {
             0 => {} // BFTST
-            1 => {  // BFEXTU
+            1 => {
+                // BFEXTU
                 let dn = ((ext >> 12) & 7) as usize;
                 self.regs.d[dn] = result;
             }
-            2 => {  // BFCHG
+            2 => {
+                // BFCHG
                 let toggled = field ^ field_mask32;
-                self.write_bitfield_memory(bus, first_byte_addr, bit_offset, width, toggled, &bytes, num_bytes);
+                self.write_bitfield_memory(
+                    bus,
+                    first_byte_addr,
+                    bit_offset,
+                    width,
+                    toggled,
+                    &bytes,
+                    num_bytes,
+                );
             }
-            3 => {  // BFEXTS
+            3 => {
+                // BFEXTS
                 let dn = ((ext >> 12) & 7) as usize;
                 let sh = 32u32.wrapping_sub(width);
                 self.regs.d[dn] = ((result << sh) as i32 >> sh) as u32;
             }
-            4 => {  // BFCLR
-                self.write_bitfield_memory(bus, first_byte_addr, bit_offset, width, 0, &bytes, num_bytes);
+            4 => {
+                // BFCLR
+                self.write_bitfield_memory(
+                    bus,
+                    first_byte_addr,
+                    bit_offset,
+                    width,
+                    0,
+                    &bytes,
+                    num_bytes,
+                );
             }
-            5 => {  // BFFFO
+            5 => {
+                // BFFFO
                 let dn = ((ext >> 12) & 7) as usize;
                 let first_one = if result == 0 {
                     offset as u32 + width
@@ -3145,17 +3268,39 @@ impl Cpu68000 {
                 };
                 self.regs.d[dn] = first_one;
             }
-            6 => {  // BFSET
-                self.write_bitfield_memory(bus, first_byte_addr, bit_offset, width, field_mask32, &bytes, num_bytes);
+            6 => {
+                // BFSET
+                self.write_bitfield_memory(
+                    bus,
+                    first_byte_addr,
+                    bit_offset,
+                    width,
+                    field_mask32,
+                    &bytes,
+                    num_bytes,
+                );
             }
-            7 => {  // BFINS
+            7 => {
+                // BFINS
                 let dn = ((ext >> 12) & 7) as usize;
                 let insert_val = self.regs.d[dn] & field_mask32;
-                self.write_bitfield_memory(bus, first_byte_addr, bit_offset, width, insert_val, &bytes, num_bytes);
+                self.write_bitfield_memory(
+                    bus,
+                    first_byte_addr,
+                    bit_offset,
+                    width,
+                    insert_val,
+                    &bytes,
+                    num_bytes,
+                );
                 // Flags from inserted value
                 let mut sr2 = self.regs.sr & !0x000F;
-                if insert_val & (1u32 << (width - 1)) != 0 { sr2 |= 0x0008; }
-                if insert_val == 0 { sr2 |= 0x0004; }
+                if insert_val & (1u32 << (width - 1)) != 0 {
+                    sr2 |= 0x0008;
+                }
+                if insert_val == 0 {
+                    sr2 |= 0x0004;
+                }
                 self.regs.sr = sr2;
             }
             _ => unreachable!(),
@@ -3163,7 +3308,9 @@ impl Cpu68000 {
 
         // ~12 cycles for memory bit field operations (barrel shifter on 68020)
         let d = self.internal_delay(8, 0);
-        if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+        if d > 0 {
+            self.micro_ops.push(MicroOp::Internal(d));
+        }
         self.in_followup = false;
     }
 
@@ -3179,7 +3326,11 @@ impl Cpu68000 {
         orig_bytes: &[u8; 5],
         num_bytes: usize,
     ) {
-        let mask64 = if width >= 32 { 0xFFFF_FFFF_u64 } else { (1u64 << width) - 1 };
+        let mask64 = if width >= 32 {
+            0xFFFF_FFFF_u64
+        } else {
+            (1u64 << width) - 1
+        };
         let shift = 40 - bit_offset - width;
 
         // Reassemble original bytes into u64
@@ -3203,7 +3354,13 @@ impl Cpu68000 {
             let byte_val = ((bits >> ((4 - i) * 8)) & 0xFF) as u8;
             if byte_val != orig {
                 let addr = first_byte_addr.wrapping_add(i as u32);
-                bus.poll_cycle(addr & 0x00FF_FFFF, fc, false, false, Some(u16::from(byte_val)));
+                bus.poll_cycle(
+                    addr & 0x00FF_FFFF,
+                    fc,
+                    false,
+                    false,
+                    Some(u16::from(byte_val)),
+                );
             }
         }
     }

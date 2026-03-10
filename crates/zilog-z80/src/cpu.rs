@@ -243,74 +243,74 @@ impl Z80 {
     }
 
     /// Get the C register.
-    #[must_use] 
+    #[must_use]
     pub fn c(&self) -> u8 {
         self.regs.c
     }
 
     /// Get the E register.
-    #[must_use] 
+    #[must_use]
     pub fn e(&self) -> u8 {
         self.regs.e
     }
 
     /// Get the DE register pair.
-    #[must_use] 
+    #[must_use]
     pub fn de(&self) -> u16 {
         self.regs.de()
     }
 
     /// Get the stack pointer.
-    #[must_use] 
+    #[must_use]
     pub fn sp(&self) -> u16 {
         self.regs.sp
     }
 
     /// Get the A register.
     #[cfg(feature = "test-utils")]
-    #[must_use] 
+    #[must_use]
     pub fn a(&self) -> u8 {
         self.regs.a
     }
 
     /// Get the F register (flags).
     #[cfg(feature = "test-utils")]
-    #[must_use] 
+    #[must_use]
     pub fn f(&self) -> u8 {
         self.regs.f
     }
 
     /// Get the BC register pair.
     #[cfg(feature = "test-utils")]
-    #[must_use] 
+    #[must_use]
     pub fn bc(&self) -> u16 {
         self.regs.bc()
     }
 
     /// Get the HL register pair.
     #[cfg(feature = "test-utils")]
-    #[must_use] 
+    #[must_use]
     pub fn hl(&self) -> u16 {
         self.regs.hl()
     }
 
     /// Get current micro-op for debugging.
     #[cfg(feature = "test-utils")]
-    #[must_use] 
+    #[must_use]
     pub fn current_micro_op(&self) -> Option<MicroOp> {
         self.micro_ops.current()
     }
 
     /// Get `t_state` for debugging.
     #[cfg(feature = "test-utils")]
-    #[must_use] 
+    #[must_use]
     pub fn t_state(&self) -> u8 {
         self.t_state
     }
 
     /// Get queue state for debugging.
     #[cfg(feature = "test-utils")]
-    #[must_use] 
+    #[must_use]
     pub fn queue_state(&self) -> (u8, u8) {
         (self.micro_ops.pos(), self.micro_ops.len())
     }

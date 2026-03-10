@@ -211,8 +211,8 @@ mod tests {
         //   $0008: (instruction after skip)
         let mem = |addr: u32| -> u16 {
             match addr {
-                0 => 0x0001,  // ir1: vp=0, hp=0, bit0=1
-                2 => 0x8001,  // ir2: mask_v=$80, mask_h=$00, skip=1
+                0 => 0x0001, // ir1: vp=0, hp=0, bit0=1
+                2 => 0x8001, // ir2: mask_v=$80, mask_h=$00, skip=1
                 _ => 0x0000,
             }
         };

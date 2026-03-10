@@ -431,9 +431,10 @@ fn run_test(test: &TestCase) -> Result<(), Vec<String>> {
         if i > 0
             && !cpu.in_followup
             && cpu.is_idle()
-            && cpu.micro_ops.front().is_some_and(|op| {
-                matches!(op, motorola_68000::microcode::MicroOp::Execute)
-            })
+            && cpu
+                .micro_ops
+                .front()
+                .is_some_and(|op| matches!(op, motorola_68000::microcode::MicroOp::Execute))
         {
             break;
         }

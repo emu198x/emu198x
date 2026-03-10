@@ -205,8 +205,7 @@ impl Ula {
                 // C:1, C:1, C:1, C:1 -- four contention checks at 1-T-state intervals
                 let d0 = Self::contention_delay_at(base_offset);
                 let d1 = Self::contention_delay_at(base_offset + 1 + i16::from(d0));
-                let d2 =
-                    Self::contention_delay_at(base_offset + 2 + i16::from(d0) + i16::from(d1));
+                let d2 = Self::contention_delay_at(base_offset + 2 + i16::from(d0) + i16::from(d1));
                 let d3 = Self::contention_delay_at(
                     base_offset + 3 + i16::from(d0) + i16::from(d1) + i16::from(d2),
                 );
@@ -347,13 +346,11 @@ impl Ula {
         match phase {
             0 => {
                 // Bitmap byte for current column
-                Self::bitmap_addr(screen_y, char_col_base as u8)
-                    .map_or(0xFF, &read_vram)
+                Self::bitmap_addr(screen_y, char_col_base as u8).map_or(0xFF, &read_vram)
             }
             1 => {
                 // Attribute byte for current column
-                Self::attr_addr(screen_y, char_col_base as u8)
-                    .map_or(0xFF, &read_vram)
+                Self::attr_addr(screen_y, char_col_base as u8).map_or(0xFF, &read_vram)
             }
             2 => {
                 // Bitmap byte for next column
@@ -563,9 +560,7 @@ mod tests {
 
     impl TestMemory {
         fn new() -> Self {
-            Self {
-                data: [0; 0x10000],
-            }
+            Self { data: [0; 0x10000] }
         }
 
         fn peek(&self, addr: u16) -> u8 {
@@ -575,7 +570,6 @@ mod tests {
         fn write(&mut self, addr: u16, val: u8) {
             self.data[addr as usize] = val;
         }
-
     }
 
     #[test]
@@ -883,7 +877,11 @@ mod tests {
         // With attr 0x38: ink=0 (black), paper=7 (white). Snow byte 0xFF means bit 7=1 → ink.
         let fb_idx = (48 * FB_WIDTH + BORDER_LEFT) as usize; // line 64→fb_y 48
         let black = PALETTE[0]; // ink=0
-        assert_eq!(ula.framebuffer()[fb_idx], black, "snow byte should produce ink colour");
+        assert_eq!(
+            ula.framebuffer()[fb_idx],
+            black,
+            "snow byte should produce ink colour"
+        );
     }
 
     #[test]
@@ -936,6 +934,9 @@ mod tests {
 
         // Tick once — renders the pixel and consumes the snow byte
         ula.tick(|addr| mem.peek(addr));
-        assert!(ula.snow_byte.is_none(), "snow_byte should be consumed after rendering");
+        assert!(
+            ula.snow_byte.is_none(),
+            "snow_byte should be consumed after rendering"
+        );
     }
 }

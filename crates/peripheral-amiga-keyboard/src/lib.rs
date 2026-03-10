@@ -96,12 +96,13 @@ impl AmigaKeyboard {
             }
             State::Idle => {
                 if self.timer >= BYTE_INTERVAL_TICKS
-                    && let Some(byte) = self.key_queue.pop_front() {
-                        self.state = State::WaitHandshakeKey;
-                        self.timer = 0;
-                        self.bytes_sent += 1;
-                        return Some(encode_keycode(byte));
-                    }
+                    && let Some(byte) = self.key_queue.pop_front()
+                {
+                    self.state = State::WaitHandshakeKey;
+                    self.timer = 0;
+                    self.bytes_sent += 1;
+                    return Some(encode_keycode(byte));
+                }
                 None
             }
             State::WaitHandshakeKey => {

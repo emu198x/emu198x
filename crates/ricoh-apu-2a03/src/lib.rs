@@ -49,8 +49,8 @@ impl ApuRegion {
 
 /// Length counter load values, indexed by the top 5 bits of the register write.
 const LENGTH_TABLE: [u8; 32] = [
-    10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96,
-    22, 192, 24, 72, 26, 16, 28, 32, 30,
+    10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
+    192, 24, 72, 26, 16, 28, 32, 30,
 ];
 
 /// Noise timer period lookup (NTSC).
@@ -75,17 +75,17 @@ const DMC_RATE_TABLE_PAL: [u16; 16] = [
 
 /// Triangle waveform: 32-step sequence (0–15 up, 15–0 down).
 const TRIANGLE_SEQUENCE: [u8; 32] = [
-    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    11, 12, 13, 14, 15,
+    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    13, 14, 15,
 ];
 
 /// Pulse duty cycle waveforms: 4 patterns × 8 steps.
 /// 0 = 12.5%, 1 = 25%, 2 = 50%, 3 = 75% (negated 25%).
 const PULSE_DUTY: [[bool; 8]; 4] = [
-    [false, true, false, false, false, false, false, false],  // 12.5%
-    [false, true, true, false, false, false, false, false],   // 25%
-    [false, true, true, true, true, false, false, false],     // 50%
-    [true, false, false, true, true, true, true, true],       // 75%
+    [false, true, false, false, false, false, false, false], // 12.5%
+    [false, true, true, false, false, false, false, false],  // 25%
+    [false, true, true, true, true, false, false, false],    // 50%
+    [true, false, false, true, true, true, true, true],      // 75%
 ];
 
 // ---------------------------------------------------------------------------
@@ -436,8 +436,7 @@ impl Noise {
             self.timer = self.timer_period;
             // Feedback: XOR bit 0 with bit 1 (normal) or bit 6 (short mode)
             let feedback_bit = if self.mode { 6 } else { 1 };
-            let feedback =
-                (self.shift_register & 1) ^ ((self.shift_register >> feedback_bit) & 1);
+            let feedback = (self.shift_register & 1) ^ ((self.shift_register >> feedback_bit) & 1);
             self.shift_register >>= 1;
             self.shift_register |= feedback << 14;
         } else {
@@ -769,8 +768,7 @@ impl Apu {
                 self.pulse1.sweep.reload_flag = true;
             }
             0x4002 => {
-                self.pulse1.timer_period =
-                    (self.pulse1.timer_period & 0x0700) | u16::from(value);
+                self.pulse1.timer_period = (self.pulse1.timer_period & 0x0700) | u16::from(value);
             }
             0x4003 => {
                 self.pulse1.timer_period =
@@ -796,8 +794,7 @@ impl Apu {
                 self.pulse2.sweep.reload_flag = true;
             }
             0x4006 => {
-                self.pulse2.timer_period =
-                    (self.pulse2.timer_period & 0x0700) | u16::from(value);
+                self.pulse2.timer_period = (self.pulse2.timer_period & 0x0700) | u16::from(value);
             }
             0x4007 => {
                 self.pulse2.timer_period =
@@ -1228,7 +1225,10 @@ mod tests {
         }
 
         let buf = apu.take_buffer();
-        assert!(!buf.is_empty(), "Pulse channel should produce audio samples");
+        assert!(
+            !buf.is_empty(),
+            "Pulse channel should produce audio samples"
+        );
 
         // Check that output isn't flat — should have variation from duty cycle
         let min = buf.iter().copied().fold(f32::INFINITY, f32::min);
@@ -1290,7 +1290,10 @@ mod tests {
         }
 
         let buf = apu.take_buffer();
-        assert!(!buf.is_empty(), "Noise channel should produce audio samples");
+        assert!(
+            !buf.is_empty(),
+            "Noise channel should produce audio samples"
+        );
 
         let min = buf.iter().copied().fold(f32::INFINITY, f32::min);
         let max = buf.iter().copied().fold(f32::NEG_INFINITY, f32::max);
@@ -1394,7 +1397,10 @@ mod tests {
         // The DMC output level affects the mix
         let sample = apu.mix();
         // With only DMC at 64, tnd_out should be non-zero
-        assert!(sample > -1.0, "DMC direct load should shift output, got {sample}");
+        assert!(
+            sample > -1.0,
+            "DMC direct load should shift output, got {sample}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1438,7 +1444,10 @@ mod tests {
         apu.write(0x4013, 0x01); // length = 17
         apu.write(0x4015, 0x10); // enable DMC
 
-        assert!(apu.dmc.bytes_remaining > 0, "DMC should have bytes to fetch");
+        assert!(
+            apu.dmc.bytes_remaining > 0,
+            "DMC should have bytes to fetch"
+        );
         assert!(apu.dmc.dma_pending, "DMC should request first DMA fetch");
         assert_eq!(apu.dmc.current_address, 0xC000);
     }
@@ -1508,10 +1517,7 @@ mod tests {
             apu.dmc.bytes_remaining, 1,
             "Loop should restart bytes_remaining"
         );
-        assert_eq!(
-            apu.dmc.current_address, 0xC000,
-            "Loop should reset address"
-        );
+        assert_eq!(apu.dmc.current_address, 0xC000, "Loop should reset address");
     }
 
     #[test]

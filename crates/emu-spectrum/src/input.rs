@@ -209,7 +209,7 @@ impl InputQueue {
     /// Returns the next free frame after all characters are typed.
     pub fn enqueue_text(&mut self, text: &str, start_frame: u64) -> u64 {
         let hold = 3u64;
-        let gap = 3u64;
+        let gap = 5u64;
         let mut frame = start_frame;
 
         for ch in text.chars() {
@@ -380,9 +380,9 @@ mod tests {
     fn enqueue_text_basic() {
         let mut queue = InputQueue::new();
         let next = queue.enqueue_text("AB", 0);
-        // A: press at 0, release at 3, B: press at 6, release at 9
-        // Next free frame = 12
-        assert_eq!(next, 12);
+        // A: press at 0, release at 3, B: press at 8, release at 11
+        // Next free frame = 16
+        assert_eq!(next, 16);
         assert_eq!(queue.len(), 4); // 2 press + 2 release
     }
 

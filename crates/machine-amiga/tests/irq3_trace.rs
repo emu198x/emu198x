@@ -307,7 +307,12 @@ fn run_irq3_trace(spec: &TraceSpec) {
 
         if tick % 4 == 0 && report.pc_samples.len() < MAX_PC_SAMPLES {
             let state = state_name(&amiga.cpu.state);
-            let sig = (amiga.cpu.regs.pc, amiga.cpu.instr_start_pc, amiga.cpu.ir, state);
+            let sig = (
+                amiga.cpu.regs.pc,
+                amiga.cpu.instr_start_pc,
+                amiga.cpu.ir,
+                state,
+            );
             if Some(sig) != prev_pc_sig {
                 report.pc_samples.push(sample_cpu(&amiga, tick));
                 prev_pc_sig = Some(sig);

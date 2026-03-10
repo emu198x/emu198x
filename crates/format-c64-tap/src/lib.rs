@@ -61,8 +61,8 @@ pub struct C64TapFile {
 /// Classify a pulse duration into short (0), long (1), or medium (sync).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pulse {
-    Short, // 0 bit component
-    Long,  // 1 bit component
+    Short,  // 0 bit component
+    Long,   // 1 bit component
     Medium, // Leader/sync
 }
 
@@ -195,15 +195,16 @@ fn find_data_start(bits: &[u8], offset: usize) -> Option<usize> {
     // Skip until we find the header marker byte $89
     while i + 9 <= bits.len() {
         if let Some((byte, _)) = decode_byte(&bits[i..])
-            && byte == 0x89 {
-                // Found the start of countdown — skip all 9 countdown bytes
-                // ($89 through $81 = 9 bytes × 9 bits = 81 bits)
-                let skip = 9 * 9;
-                if i + skip <= bits.len() {
-                    return Some(i + skip);
-                }
-                return None;
+            && byte == 0x89
+        {
+            // Found the start of countdown — skip all 9 countdown bytes
+            // ($89 through $81 = 9 bytes × 9 bits = 81 bits)
+            let skip = 9 * 9;
+            if i + skip <= bits.len() {
+                return Some(i + skip);
             }
+            return None;
+        }
         i += 1;
     }
     None
@@ -292,12 +293,10 @@ impl C64TapFile {
             let file_type = header_bytes[0];
 
             // Bytes 1-2: start address (lo/hi)
-            let start_address =
-                u16::from(header_bytes[1]) | (u16::from(header_bytes[2]) << 8);
+            let start_address = u16::from(header_bytes[1]) | (u16::from(header_bytes[2]) << 8);
 
             // Bytes 3-4: end address (lo/hi)
-            let end_address =
-                u16::from(header_bytes[3]) | (u16::from(header_bytes[4]) << 8);
+            let end_address = u16::from(header_bytes[3]) | (u16::from(header_bytes[4]) << 8);
 
             // Bytes 5-20: filename (16 characters, padded with spaces/$A0)
             let name_bytes = &header_bytes[5..21];

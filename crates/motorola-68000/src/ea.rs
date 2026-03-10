@@ -74,7 +74,9 @@ impl Cpu68000 {
                 self.regs.set_a(r as usize, self.addr);
                 self.ae_undo_reg = Some((r, decrement, false, !is_src));
                 let d = self.internal_delay(2, 0);
-                if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+                if d > 0 {
+                    self.micro_ops.push(MicroOp::Internal(d));
+                }
                 true
             }
 
@@ -154,9 +156,13 @@ impl Cpu68000 {
                 } else {
                     1
                 };
-                self.addr = base.wrapping_add(disp as u32).wrapping_add(idx.wrapping_mul(scale));
+                self.addr = base
+                    .wrapping_add(disp as u32)
+                    .wrapping_add(idx.wrapping_mul(scale));
                 let d = self.internal_delay(2, 0);
-                if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+                if d > 0 {
+                    self.micro_ops.push(MicroOp::Internal(d));
+                }
                 true
             }
 
@@ -188,9 +194,13 @@ impl Cpu68000 {
                 } else {
                     1
                 };
-                self.addr = base.wrapping_add(disp as u32).wrapping_add(idx.wrapping_mul(scale));
+                self.addr = base
+                    .wrapping_add(disp as u32)
+                    .wrapping_add(idx.wrapping_mul(scale));
                 let d = self.internal_delay(2, 0);
-                if d > 0 { self.micro_ops.push(MicroOp::Internal(d)); }
+                if d > 0 {
+                    self.micro_ops.push(MicroOp::Internal(d));
+                }
                 true
             } // All modes handled — DataReg/AddrReg/Immediate are instant,
               // all memory modes compute an address above.

@@ -53,9 +53,8 @@ fn test_strap_hang() {
             | (u32::from(read_mem(addr + 2)) << 8)
             | u32::from(read_mem(addr + 3))
     };
-    let read16m = |addr: u32| -> u16 {
-        (u16::from(read_mem(addr)) << 8) | u16::from(read_mem(addr + 1))
-    };
+    let read16m =
+        |addr: u32| -> u16 { (u16::from(read_mem(addr)) << 8) | u16::from(read_mem(addr + 1)) };
 
     // Find graphics.library in the list
     let eb = read32m(4);
@@ -64,13 +63,17 @@ fn test_strap_hang() {
     println!("ExecBase = ${:08X}", eb);
     for _ in 0..50 {
         let succ = read32m(node);
-        if succ == 0 { break; }
+        if succ == 0 {
+            break;
+        }
         let name_ptr = read32m(node + 10);
         let mut name = String::new();
         if name_ptr > 0 && name_ptr < 0x1000000 {
             for j in 0..30u32 {
                 let ch = read_mem(name_ptr + j);
-                if ch == 0 { break; }
+                if ch == 0 {
+                    break;
+                }
                 name.push(ch as char);
             }
         }
@@ -98,7 +101,10 @@ fn test_strap_hang() {
     // Check FP=$C022EE (the actual A6 at the DIVU)
     let fp: u32 = 0xC022EE;
     let fp_off = ((fp - 0xC0_0000) & amiga.memory.slow_ram_mask) as usize;
-    println!("\nStructure at FP=${:08X} (slow_ram offset ${:X}):", fp, fp_off);
+    println!(
+        "\nStructure at FP=${:08X} (slow_ram offset ${:X}):",
+        fp, fp_off
+    );
     for row in 0..4 {
         let off = row * 16;
         print!("  +${:02X}:", off);

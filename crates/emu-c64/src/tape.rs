@@ -15,7 +15,6 @@ pub struct C64TapeDeck {
     block_index: usize,
 
     // --- Real-time playback state ---
-
     /// Raw pulse durations for real-time playback.
     raw_pulses: Vec<u32>,
     /// Current position in the raw pulse stream.

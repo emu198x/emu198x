@@ -180,13 +180,14 @@ impl<T: McpEmulator> McpServer<T> {
             // Script mode: if save_path was provided, save base64 data to file.
             if let Some(save_path) = params.get("save_path").and_then(|v| v.as_str())
                 && let Some(ref result) = response.result
-                    && let Some(data_b64) = result.get("data").and_then(|v| v.as_str()) {
-                        if let Err(e) = save_base64_to_file(save_path, data_b64) {
-                            eprintln!("Failed to save {save_path}: {e}");
-                        } else {
-                            eprintln!("Saved {save_path}");
-                        }
-                    }
+                && let Some(data_b64) = result.get("data").and_then(|v| v.as_str())
+            {
+                if let Err(e) = save_base64_to_file(save_path, data_b64) {
+                    eprintln!("Failed to save {save_path}: {e}");
+                } else {
+                    eprintln!("Saved {save_path}");
+                }
+            }
         }
 
         Ok(())
@@ -343,13 +344,7 @@ fn round_even(v: u32) -> u32 {
 
 /// Nearest-neighbour scale a `u32` pixel buffer (allocating).
 #[must_use]
-pub fn scale_nearest(
-    src: &[u32],
-    src_w: u32,
-    src_h: u32,
-    dst_w: u32,
-    dst_h: u32,
-) -> Vec<u32> {
+pub fn scale_nearest(src: &[u32], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Vec<u32> {
     if src_w == dst_w && src_h == dst_h {
         return src.to_vec();
     }
@@ -409,9 +404,7 @@ pub fn encode_png(width: u32, height: u32, pixels: &[u32]) -> Result<Vec<u8>, St
 #[cfg(feature = "video")]
 #[must_use]
 pub fn video_result(save_path: &str, frames: u64, fps: u32) -> ToolResult {
-    let size = std::fs::metadata(save_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let size = std::fs::metadata(save_path).map(|m| m.len()).unwrap_or(0);
     let duration = frames as f64 / f64::from(fps);
 
     ToolResult::Success(serde_json::json!({

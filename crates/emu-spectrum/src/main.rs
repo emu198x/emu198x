@@ -9,11 +9,11 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{Duration, Instant};
 
+use emu_spectrum::mcp::{McpServer, SpectrumMcp};
 use emu_spectrum::{
     Spectrum, SpectrumConfig, SpectrumModel, TapFile, TzxFile, capture, keyboard_map, load_sna,
     load_z80,
 };
-use emu_spectrum::mcp::{SpectrumMcp, McpServer};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -153,7 +153,9 @@ fn parse_args() -> CliArgs {
                 eprintln!("Usage: emu-spectrum [OPTIONS]");
                 eprintln!();
                 eprintln!("Options:");
-                eprintln!("  --model <model>      Spectrum model: 48k, 128k, plus2, plus2a, plus3 [default: 48k]");
+                eprintln!(
+                    "  --model <model>      Spectrum model: 48k, 128k, plus2, plus2a, plus3 [default: 48k]"
+                );
                 eprintln!("  --rom <file>         ROM file (required for 128k/plus2/plus3)");
                 eprintln!("  --sna <file>         Load a SNA snapshot (48K or 128K)");
                 eprintln!("  --z80 <file>         Load a .Z80 snapshot (v1/v2/v3)");
@@ -362,10 +364,11 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(pixels) = self.pixels.as_ref()
-                    && let Err(e) = pixels.render() {
-                        eprintln!("Render error: {e}");
-                        event_loop.exit();
-                    }
+                    && let Err(e) = pixels.render()
+                {
+                    eprintln!("Render error: {e}");
+                    event_loop.exit();
+                }
             }
             _ => {}
         }

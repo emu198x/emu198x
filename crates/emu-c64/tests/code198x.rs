@@ -33,11 +33,7 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
     let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../Code198x/code-samples")
         .join(relative);
-    if base.exists() {
-        Some(base)
-    } else {
-        None
-    }
+    if base.exists() { Some(base) } else { None }
 }
 
 // ---------------------------------------------------------------------------
@@ -50,9 +46,8 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
 #[test]
 #[ignore] // Requires C64 ROMs and Code198x repo
 fn test_sid_symphony_unit01() {
-    let Some(prg_path) = code198x_path(
-        "commodore-64/game-01-sid-symphony/unit-01/symphony.prg",
-    ) else {
+    let Some(prg_path) = code198x_path("commodore-64/game-01-sid-symphony/unit-01/symphony.prg")
+    else {
         eprintln!("Skipping: Code198x repo not found");
         return;
     };
@@ -93,9 +88,18 @@ fn test_sid_symphony_unit01() {
     let s_code = c64.bus().memory.ram_read(title_addr);
     let i_code = c64.bus().memory.ram_read(title_addr + 1);
     let d_code = c64.bus().memory.ram_read(title_addr + 2);
-    assert_eq!(s_code, 19, "First char should be S (screen code 19), got {s_code}");
-    assert_eq!(i_code, 9, "Second char should be I (screen code 9), got {i_code}");
-    assert_eq!(d_code, 4, "Third char should be D (screen code 4), got {d_code}");
+    assert_eq!(
+        s_code, 19,
+        "First char should be S (screen code 19), got {s_code}"
+    );
+    assert_eq!(
+        i_code, 9,
+        "Second char should be I (screen code 9), got {i_code}"
+    );
+    assert_eq!(
+        d_code, 4,
+        "Third char should be D (screen code 4), got {d_code}"
+    );
 
     // Verify: track lines are drawn (minus chars = screen code $2D = 45)
     // Track 1 at row 8, Track 2 at row 12, Track 3 at row 16
@@ -109,7 +113,10 @@ fn test_sid_symphony_unit01() {
     // Verify: SID volume is set to maximum ($0F)
     // SID $D418 lower nibble = volume
     let sid_vol = c64.bus().memory.peek(0xD418) & 0x0F;
-    assert_eq!(sid_vol, 0x0F, "SID volume should be max (15), got {sid_vol}");
+    assert_eq!(
+        sid_vol, 0x0F,
+        "SID volume should be max (15), got {sid_vol}"
+    );
 
     // Save screenshot
     let path = format!("{OUTPUT_DIR}/code198x_sid_symphony_unit01.png");
@@ -127,9 +134,8 @@ fn test_sid_symphony_unit01() {
 #[test]
 #[ignore] // Requires C64 ROMs and Code198x repo
 fn test_starfield_unit01_sprite() {
-    let Some(prg_path) = code198x_path(
-        "commodore-64/game-01-starfield/unit-01/starfield.prg",
-    ) else {
+    let Some(prg_path) = code198x_path("commodore-64/game-01-starfield/unit-01/starfield.prg")
+    else {
         eprintln!("Skipping: Code198x repo not found");
         return;
     };
@@ -156,12 +162,20 @@ fn test_starfield_unit01_sprite() {
 
     // Program executes: border=black, sprite 0 enabled at (172, 220)
     assert_eq!(c64.bus().vic.peek(0x20) & 0x0F, 0, "Border should be black");
-    assert_eq!(c64.bus().vic.peek(0x15) & 0x01, 0x01, "Sprite 0 should be enabled");
+    assert_eq!(
+        c64.bus().vic.peek(0x15) & 0x01,
+        0x01,
+        "Sprite 0 should be enabled"
+    );
     assert_eq!(c64.bus().vic.peek(0x00), 172, "Sprite 0 X should be 172");
     assert_eq!(c64.bus().vic.peek(0x01), 220, "Sprite 0 Y should be 220");
 
     // Sprite data at $2000 should be the ship pattern
-    assert_eq!(c64.bus().memory.ram_read(0x2001), 0x18, "Sprite row 0 mid-byte");
+    assert_eq!(
+        c64.bus().memory.ram_read(0x2001),
+        0x18,
+        "Sprite row 0 mid-byte"
+    );
 
     // Verify sprite pixels are visible in the framebuffer.
     // The ship has white (colour 1) pixels on a black (colour 0) background.

@@ -24,11 +24,7 @@ fn code198x_path(relative: &str) -> Option<std::path::PathBuf> {
     let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../Code198x/code-samples")
         .join(relative);
-    if base.exists() {
-        Some(base)
-    } else {
-        None
-    }
+    if base.exists() { Some(base) } else { None }
 }
 
 /// Extract the CODE hunk from an Amiga hunk executable.
@@ -54,11 +50,13 @@ fn extract_hunk_code(data: &[u8]) -> Option<Vec<u8>> {
     pos += 4;
     // Skip name strings (each preceded by length in longs)
     for _ in 0..names_count {
-        let len = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        let len =
+            u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
         pos += 4 + len * 4;
     }
     // table_size, first, last
-    let table_size = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+    let table_size =
+        u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
     pos += 4; // table_size
     pos += 4; // first
     pos += 4; // last
@@ -72,7 +70,8 @@ fn extract_hunk_code(data: &[u8]) -> Option<Vec<u8>> {
     if hunk_type != 0x0000_03E9 {
         return None; // Not HUNK_CODE
     }
-    let num_longs = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+    let num_longs =
+        u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
     pos += 4;
     let code_bytes = num_longs * 4;
     if pos + code_bytes > data.len() {
@@ -96,9 +95,7 @@ fn extract_hunk_code(data: &[u8]) -> Option<Vec<u8>> {
 #[test]
 #[ignore] // Requires KS1.3 ROM and Code198x repo
 fn test_exodus_unit01() {
-    let exe_path = match code198x_path(
-        "commodore-amiga/game-01-exodus/unit-01/exodus",
-    ) {
+    let exe_path = match code198x_path("commodore-amiga/game-01-exodus/unit-01/exodus") {
         Some(p) => p,
         None => {
             eprintln!("Skipping: Code198x repo not found");
@@ -151,7 +148,10 @@ fn test_exodus_unit01() {
 
     // Set CPU state: PC at Exodus entry, SSP in fast RAM area
     amiga.cpu.reset_to(0x0007_FF00, load_addr);
-    eprintln!("CPU: PC=${:08X} SSP=${:08X}", amiga.cpu.regs.pc, amiga.cpu.regs.ssp);
+    eprintln!(
+        "CPU: PC=${:08X} SSP=${:08X}",
+        amiga.cpu.regs.pc, amiga.cpu.regs.ssp
+    );
 
     // Run frames. Exodus init disables DMA, installs Copper, re-enables.
     // The Copper list runs every frame, writing COLOR00 per scanline.
@@ -192,13 +192,11 @@ fn test_exodus_unit01() {
     {
         let mut png_buf = Vec::new();
         {
-            let mut encoder =
-                png::Encoder::new(&mut png_buf, viewport.width, viewport.height);
+            let mut encoder = png::Encoder::new(&mut png_buf, viewport.width, viewport.height);
             encoder.set_color(png::ColorType::Rgba);
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = encoder.write_header().expect("PNG header");
-            let mut rgba =
-                Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
+            let mut rgba = Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
             for &pixel in &viewport.pixels {
                 rgba.push(((pixel >> 16) & 0xFF) as u8);
                 rgba.push(((pixel >> 8) & 0xFF) as u8);

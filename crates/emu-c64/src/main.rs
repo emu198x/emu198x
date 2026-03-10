@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu_c64::{C64, C64Config, C64Model, capture, keyboard_map};
-use emu_c64::mcp::{C64Mcp, McpServer};
 use emu_c64::config::SidModel;
+use emu_c64::mcp::{C64Mcp, McpServer};
+use emu_c64::{C64, C64Config, C64Model, capture, keyboard_map};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -280,7 +280,8 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let window_size = winit::dpi::LogicalSize::new(self.fb_width * SCALE, self.fb_height * SCALE);
+        let window_size =
+            winit::dpi::LogicalSize::new(self.fb_width * SCALE, self.fb_height * SCALE);
         let attrs = WindowAttributes::default()
             .with_title("Commodore 64")
             .with_inner_size(window_size)
@@ -341,10 +342,11 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(pixels) = self.pixels.as_ref()
-                    && let Err(e) = pixels.render() {
-                        eprintln!("Render error: {e}");
-                        event_loop.exit();
-                    }
+                    && let Err(e) = pixels.render()
+                {
+                    eprintln!("Render error: {e}");
+                    event_loop.exit();
+                }
             }
             _ => {}
         }

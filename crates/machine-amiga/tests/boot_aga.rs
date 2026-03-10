@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{boot_screenshot_test, load_rom, BOOT_TICKS};
+use common::{BOOT_TICKS, boot_screenshot_test, load_rom};
 use machine_amiga::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 
 /// AGA boot needs longer than OCS/ECS. The A1200 ROM has an extended

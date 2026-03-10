@@ -101,11 +101,7 @@ fn parse_standard(
     })
 }
 
-fn parse_extended(
-    data: &[u8],
-    num_tracks: usize,
-    num_sides: u8,
-) -> Result<DskImage, String> {
+fn parse_extended(data: &[u8], num_tracks: usize, num_sides: u8) -> Result<DskImage, String> {
     let mut tracks = Vec::new();
     let total = num_tracks * num_sides as usize;
 
@@ -210,7 +206,10 @@ impl DskImage {
     /// Read a sector by track number, side, and sector ID (R value).
     #[must_use]
     pub fn read_sector(&self, track: u8, side: u8, sector_id: u8) -> Option<&[u8]> {
-        let trk = self.tracks.iter().find(|t| t.track_num == track && t.side == side)?;
+        let trk = self
+            .tracks
+            .iter()
+            .find(|t| t.track_num == track && t.side == side)?;
         let sec = trk.sectors.iter().find(|s| s.r == sector_id)?;
         Some(&sec.data)
     }
@@ -218,7 +217,10 @@ impl DskImage {
     /// Write data to a sector by track number, side, and sector ID.
     /// Returns true if the sector was found and written.
     pub fn write_sector(&mut self, track: u8, side: u8, sector_id: u8, data: &[u8]) -> bool {
-        let Some(trk) = self.tracks.iter_mut().find(|t| t.track_num == track && t.side == side)
+        let Some(trk) = self
+            .tracks
+            .iter_mut()
+            .find(|t| t.track_num == track && t.side == side)
         else {
             return false;
         };
@@ -247,17 +249,15 @@ impl DskImage {
 
         // Disk information block (256 bytes)
         let mut header = [0u8; 256];
-        let sig = if self.extended { EXTENDED_HEADER } else { STANDARD_HEADER };
+        let sig = if self.extended {
+            EXTENDED_HEADER
+        } else {
+            STANDARD_HEADER
+        };
         header[..sig.len()].copy_from_slice(sig);
 
         // Count tracks per side
-        let max_track = self
-            .tracks
-            .iter()
-            .map(|t| t.track_num)
-            .max()
-            .unwrap_or(0) as usize
-            + 1;
+        let max_track = self.tracks.iter().map(|t| t.track_num).max().unwrap_or(0) as usize + 1;
         header[0x30] = max_track as u8;
         header[0x31] = self.sides;
 
@@ -367,15 +367,15 @@ mod tests {
         // Track info block (256 bytes)
         let mut track = vec![0u8; 256];
         track[..12].copy_from_slice(b"Track-Info\r\n");
-        track[0x10] = 0;    // Track 0
-        track[0x11] = 0;    // Side 0
-        track[0x14] = 2;    // Sector size code 2 = 512 bytes
-        track[0x15] = 1;    // 1 sector
+        track[0x10] = 0; // Track 0
+        track[0x11] = 0; // Side 0
+        track[0x14] = 2; // Sector size code 2 = 512 bytes
+        track[0x15] = 1; // 1 sector
         // Sector info at 0x18
-        track[0x18] = 0;    // C
-        track[0x19] = 0;    // H
+        track[0x18] = 0; // C
+        track[0x19] = 0; // H
         track[0x1A] = 0x01; // R (sector ID 1)
-        track[0x1B] = 2;    // N
+        track[0x1B] = 2; // N
         data.extend_from_slice(&track);
 
         // Sector data: 512 bytes
@@ -475,10 +475,10 @@ mod tests {
         track[0x14] = 1; // N=1 (256 bytes)
         track[0x15] = 1; // 1 sector
         // Sector info
-        track[0x18] = 0;    // C
-        track[0x19] = 0;    // H
-        track[0x1A] = 1;    // R
-        track[0x1B] = 1;    // N
+        track[0x18] = 0; // C
+        track[0x19] = 0; // H
+        track[0x1A] = 1; // R
+        track[0x1B] = 1; // N
         // EDSK per-sector size in bytes 6-7
         track[0x1E] = 0x00; // Low byte: 256
         track[0x1F] = 0x01; // High byte

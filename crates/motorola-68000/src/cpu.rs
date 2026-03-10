@@ -668,22 +668,23 @@ impl Cpu68000 {
 
             // Dispatch next non-instant op
             if matches!(self.state, State::Idle)
-                && let Some(op) = self.micro_ops.pop() {
-                    // Fast-path: FetchIRC served from instruction cache
-                    if matches!(op, MicroOp::FetchIRC) && self.icache_lookup() {
-                        // Hit — IRC updated, no bus cycle needed. Stay Idle
-                        // so instant ops (Execute) run immediately this tick.
-                        self.process_instant_ops(bus);
-                    } else if op.is_bus() {
-                        if self.check_address_error(op) {
-                            // Address error detected; exception sequence started
-                        } else {
-                            self.state = self.initiate_bus_cycle(op);
-                        }
-                    } else if let MicroOp::Internal(cycles) = op {
-                        self.state = State::Internal { cycles };
+                && let Some(op) = self.micro_ops.pop()
+            {
+                // Fast-path: FetchIRC served from instruction cache
+                if matches!(op, MicroOp::FetchIRC) && self.icache_lookup() {
+                    // Hit — IRC updated, no bus cycle needed. Stay Idle
+                    // so instant ops (Execute) run immediately this tick.
+                    self.process_instant_ops(bus);
+                } else if op.is_bus() {
+                    if self.check_address_error(op) {
+                        // Address error detected; exception sequence started
+                    } else {
+                        self.state = self.initiate_bus_cycle(op);
                     }
+                } else if let MicroOp::Internal(cycles) = op {
+                    self.state = State::Internal { cycles };
                 }
+            }
         }
 
         // --- Advance current state ---
@@ -734,15 +735,16 @@ impl Cpu68000 {
                     self.process_instant_ops(bus);
                     // Dispatch bus cycle if needed
                     if matches!(self.state, State::Idle)
-                        && let Some(op) = self.micro_ops.pop() {
-                            if op.is_bus() {
-                                if !self.check_address_error(op) {
-                                    self.state = self.initiate_bus_cycle(op);
-                                }
-                            } else if let MicroOp::Internal(cycles) = op {
-                                self.state = State::Internal { cycles };
+                        && let Some(op) = self.micro_ops.pop()
+                    {
+                        if op.is_bus() {
+                            if !self.check_address_error(op) {
+                                self.state = self.initiate_bus_cycle(op);
                             }
+                        } else if let MicroOp::Internal(cycles) = op {
+                            self.state = State::Internal { cycles };
                         }
+                    }
                 }
             }
         }
@@ -816,7 +818,10 @@ impl Cpu68000 {
         if self.regs.a(6) >= 0xC00000 {
             eprintln!(
                 "  [exc] irq level={} pc=${:08X} from=${:08X} SR=${:04X} SP=${:08X}",
-                level, self.irc_addr, self.instr_start_pc, self.regs.sr,
+                level,
+                self.irc_addr,
+                self.instr_start_pc,
+                self.regs.sr,
                 self.regs.a(7),
             );
         }
@@ -866,7 +871,10 @@ impl Cpu68000 {
         if self.regs.a(6) >= 0xC00000 {
             eprintln!(
                 "  [exc] group1 vec={} pc=${:08X} from=${:08X} SR=${:04X} SP=${:08X}",
-                vector, pc_to_push, self.instr_start_pc, self.regs.sr,
+                vector,
+                pc_to_push,
+                self.instr_start_pc,
+                self.regs.sr,
                 self.regs.a(7),
             );
         }
@@ -1219,11 +1227,10 @@ impl Cpu68000 {
         }
 
         // DBcc: undo the Dn.w decrement when branch target is odd.
-        if is_read
-            && let Some((r, original_w)) = self.dbcc_dn_undo.take() {
-                self.regs.d[r as usize] =
-                    (self.regs.d[r as usize] & 0xFFFF_0000) | u32::from(original_w);
-            }
+        if is_read && let Some((r, original_w)) = self.dbcc_dn_undo.take() {
+            self.regs.d[r as usize] =
+                (self.regs.d[r as usize] & 0xFFFF_0000) | u32::from(original_w);
+        }
         self.dbcc_dn_undo = None;
 
         // For MOVE write AE: restore flags to match the 68000's flag
@@ -1571,13 +1578,39 @@ impl emu_core::Observable for Cpu68000 {
 
     fn query_paths(&self) -> &'static [&'static str] {
         &[
-            "pc", "sr", "ccr",
-            "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
-            "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
-            "usp", "ssp", "ir", "irc",
-            "flags.c", "flags.v", "flags.z", "flags.n", "flags.x",
-            "flags.s", "flags.t", "flags.ipl",
-            "halted", "idle",
+            "pc",
+            "sr",
+            "ccr",
+            "d0",
+            "d1",
+            "d2",
+            "d3",
+            "d4",
+            "d5",
+            "d6",
+            "d7",
+            "a0",
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5",
+            "a6",
+            "a7",
+            "usp",
+            "ssp",
+            "ir",
+            "irc",
+            "flags.c",
+            "flags.v",
+            "flags.z",
+            "flags.n",
+            "flags.x",
+            "flags.s",
+            "flags.t",
+            "flags.ipl",
+            "halted",
+            "idle",
         ]
     }
 }
@@ -1897,12 +1930,18 @@ mod tests {
         // BRA.S * = 60FE
         let mut bus = SimpleBus::new(&[
             // Reset vector: SSP=$1000, PC=$0100
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
             // Program at $0100
-            (0x0100, 0x203C), (0x0102, 0x1234), (0x0104, 0x5678), // MOVE.L #$12345678,D0
-            (0x0106, 0x4E7B), (0x0108, 0x0801), // MOVEC D0,VBR
-            (0x010A, 0x4E7A), (0x010C, 0x1801), // MOVEC VBR,D1
+            (0x0100, 0x203C),
+            (0x0102, 0x1234),
+            (0x0104, 0x5678), // MOVE.L #$12345678,D0
+            (0x0106, 0x4E7B),
+            (0x0108, 0x0801), // MOVEC D0,VBR
+            (0x010A, 0x4E7A),
+            (0x010C, 0x1801), // MOVEC VBR,D1
             (0x010E, 0x60FE), // BRA.S *
         ]);
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68010);
@@ -1917,14 +1956,20 @@ mod tests {
         // MOVEQ #5,D0 ; MOVEC D0,SFC ; MOVEQ #3,D0 ; MOVEC D0,DFC
         // MOVEC SFC,D2 ; MOVEC DFC,D3 ; BRA.S *
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
             (0x0100, 0x7005), // MOVEQ #5,D0
-            (0x0102, 0x4E7B), (0x0104, 0x0000), // MOVEC D0,SFC
+            (0x0102, 0x4E7B),
+            (0x0104, 0x0000), // MOVEC D0,SFC
             (0x0106, 0x7003), // MOVEQ #3,D0
-            (0x0108, 0x4E7B), (0x010A, 0x0001), // MOVEC D0,DFC
-            (0x010C, 0x4E7A), (0x010E, 0x2000), // MOVEC SFC,D2
-            (0x0110, 0x4E7A), (0x0112, 0x3001), // MOVEC DFC,D3
+            (0x0108, 0x4E7B),
+            (0x010A, 0x0001), // MOVEC D0,DFC
+            (0x010C, 0x4E7A),
+            (0x010E, 0x2000), // MOVEC SFC,D2
+            (0x0110, 0x4E7A),
+            (0x0112, 0x3001), // MOVEC DFC,D3
             (0x0114, 0x60FE), // BRA.S *
         ]);
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68010);
@@ -1945,18 +1990,28 @@ mod tests {
         // Stored/readable value = $0B & !$0C = $03 (EI + FI).
         // MOVE.L #$0B,D0 ; MOVEC D0,CACR ; MOVEC CACR,D1 ; BRA.S *
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
             (0x0100, 0x700B), // MOVEQ #$0B,D0
-            (0x0102, 0x4E7B), (0x0104, 0x0002), // MOVEC D0,CACR
-            (0x0106, 0x4E7A), (0x0108, 0x1002), // MOVEC CACR,D1
+            (0x0102, 0x4E7B),
+            (0x0104, 0x0002), // MOVEC D0,CACR
+            (0x0106, 0x4E7A),
+            (0x0108, 0x1002), // MOVEC CACR,D1
             (0x010A, 0x60FE), // BRA.S *
         ]);
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 5000);
-        assert_eq!(cpu.regs.cacr, 0x03, "CACR should store EI+FI (CI/CEI write-only)");
-        assert_eq!(cpu.regs.d[1], 0x03, "D1 should read back CACR without write-only bits");
+        assert_eq!(
+            cpu.regs.cacr, 0x03,
+            "CACR should store EI+FI (CI/CEI write-only)"
+        );
+        assert_eq!(
+            cpu.regs.d[1], 0x03,
+            "D1 should read back CACR without write-only bits"
+        );
     }
 
     #[test]
@@ -1964,13 +2019,17 @@ mod tests {
         // On 68010: MOVEC D0,CACR should fire illegal exception.
         // Vector 4 (illegal) at $010 → handler at $0200.
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
             // Illegal instruction vector (vector 4) → $0200
-            (0x0010, 0x0000), (0x0012, 0x0200),
+            (0x0010, 0x0000),
+            (0x0012, 0x0200),
             // Program
             (0x0100, 0x700B), // MOVEQ #$0B,D0
-            (0x0102, 0x4E7B), (0x0104, 0x0002), // MOVEC D0,CACR
+            (0x0102, 0x4E7B),
+            (0x0104, 0x0002), // MOVEC D0,CACR
             (0x0106, 0x60FE), // BRA.S * (shouldn't reach)
             // Handler: MOVEQ #$FF,D7 ; BRA.S *
             (0x0200, 0x7EFF), // MOVEQ #-1,D7
@@ -1989,10 +2048,14 @@ mod tests {
     fn movec_on_68000_fires_illegal() {
         // On 68000: 0x4E7B is always illegal.
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
-            (0x0010, 0x0000), (0x0012, 0x0200),
-            (0x0100, 0x4E7B), (0x0102, 0x0801), // MOVEC D0,VBR (illegal on 68000)
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            (0x0010, 0x0000),
+            (0x0012, 0x0200),
+            (0x0100, 0x4E7B),
+            (0x0102, 0x0801), // MOVEC D0,VBR (illegal on 68000)
             (0x0104, 0x60FE),
             (0x0200, 0x7EFF), // MOVEQ #-1,D7
             (0x0202, 0x60FE),
@@ -2010,13 +2073,18 @@ mod tests {
     fn movec_in_user_mode_fires_privilege_violation() {
         // MOVEC is privileged — executing in user mode → privilege violation (vector 8).
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
             // Privilege violation vector (vector 8) → $0300
-            (0x0020, 0x0000), (0x0022, 0x0300),
+            (0x0020, 0x0000),
+            (0x0022, 0x0300),
             // Program: MOVE #$0000,SR (drop to user mode), then MOVEC
-            (0x0100, 0x46FC), (0x0102, 0x0000), // MOVE #$0000,SR → user mode
-            (0x0104, 0x4E7B), (0x0106, 0x0801), // MOVEC D0,VBR (privileged!)
+            (0x0100, 0x46FC),
+            (0x0102, 0x0000), // MOVE #$0000,SR → user mode
+            (0x0104, 0x4E7B),
+            (0x0106, 0x0801), // MOVEC D0,VBR (privileged!)
             (0x0108, 0x60FE),
             // Handler
             (0x0300, 0x7EFF), // MOVEQ #-1,D7
@@ -2109,10 +2177,14 @@ mod tests {
     fn movec_unknown_cr_fires_illegal() {
         // Unknown control register code $FFF → illegal exception.
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
-            (0x0010, 0x0000), (0x0012, 0x0200),
-            (0x0100, 0x4E7B), (0x0102, 0x0FFF), // MOVEC D0,<unknown $FFF>
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            (0x0010, 0x0000),
+            (0x0012, 0x0200),
+            (0x0100, 0x4E7B),
+            (0x0102, 0x0FFF), // MOVEC D0,<unknown $FFF>
             (0x0104, 0x60FE),
             (0x0200, 0x7EFF),
             (0x0202, 0x60FE),
@@ -2130,8 +2202,10 @@ mod tests {
     fn extb_l_sign_extends_byte_to_long_68020() {
         // MOVEQ #$F0,D0 ; EXTB.L D0 ; BRA.S *
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
             (0x0100, 0x70F0), // MOVEQ #-16,D0  ($FFFFFFF0)
             (0x0102, 0x49C0), // EXTB.L D0
             (0x0104, 0x60FE), // BRA.S *
@@ -2140,16 +2214,23 @@ mod tests {
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 5000);
         // MOVEQ #$F0 sets D0=$FFFFFFF0, EXTB.L sign-extends byte $F0 → $FFFFFFF0
-        assert_eq!(cpu.regs.d[0], 0xFFFF_FFF0, "EXTB.L should sign-extend $F0 to $FFFFFFF0");
+        assert_eq!(
+            cpu.regs.d[0], 0xFFFF_FFF0,
+            "EXTB.L should sign-extend $F0 to $FFFFFFF0"
+        );
     }
 
     #[test]
     fn extb_l_positive_byte() {
         // MOVE.L #$DEADBE42,D0 ; EXTB.L D0 ; BRA.S *
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
-            (0x0100, 0x203C), (0x0102, 0xDEAD), (0x0104, 0xBE42), // MOVE.L #$DEADBE42,D0
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            (0x0100, 0x203C),
+            (0x0102, 0xDEAD),
+            (0x0104, 0xBE42), // MOVE.L #$DEADBE42,D0
             (0x0106, 0x49C0), // EXTB.L D0
             (0x0108, 0x60FE), // BRA.S *
         ]);
@@ -2157,7 +2238,10 @@ mod tests {
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 20000);
         // Low byte $42 is positive → sign extends to $00000042
-        assert_eq!(cpu.regs.d[0], 0x0000_0042, "EXTB.L should sign-extend $42 to $00000042");
+        assert_eq!(
+            cpu.regs.d[0], 0x0000_0042,
+            "EXTB.L should sign-extend $42 to $00000042"
+        );
     }
 
     #[test]
@@ -2167,8 +2251,10 @@ mod tests {
         // MULU.L D0,D1: opcode=$4C00 ea=Dn(0), ext word: Dq=D1(001), unsigned, 32-bit
         // Extension word: 0_001_0_0_0000000_000 = $1000
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
             (0x0100, 0x7064), // MOVEQ #100,D0
             (0x0102, 0x72C8), // MOVEQ #-56,D1  (will overwrite below)
             (0x0104, 0x60FE), // placeholder
@@ -2177,13 +2263,20 @@ mod tests {
         // Manually set up: MOVEQ #100,D0 ; MOVE.L #200,D1 ; MULU.L D0,D1 ; BRA.S *
         // MOVE.L #200,D1 = 223C 0000 00C8
         // MULU.L D0,D1 = 4C00 1000 (ea=D0, ext=D1 unsigned 32-bit)
-        bus.mem[0x0100] = 0x70; bus.mem[0x0101] = 0x64; // MOVEQ #100,D0
-        bus.mem[0x0102] = 0x22; bus.mem[0x0103] = 0x3C; // MOVE.L #imm,D1
-        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
-        bus.mem[0x0106] = 0x00; bus.mem[0x0107] = 0xC8; // #200
-        bus.mem[0x0108] = 0x4C; bus.mem[0x0109] = 0x00; // MULU.L ea=D0
-        bus.mem[0x010A] = 0x10; bus.mem[0x010B] = 0x00; // ext: Dq=D1, unsigned, 32-bit
-        bus.mem[0x010C] = 0x60; bus.mem[0x010D] = 0xFE; // BRA.S *
+        bus.mem[0x0100] = 0x70;
+        bus.mem[0x0101] = 0x64; // MOVEQ #100,D0
+        bus.mem[0x0102] = 0x22;
+        bus.mem[0x0103] = 0x3C; // MOVE.L #imm,D1
+        bus.mem[0x0104] = 0x00;
+        bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0x00;
+        bus.mem[0x0107] = 0xC8; // #200
+        bus.mem[0x0108] = 0x4C;
+        bus.mem[0x0109] = 0x00; // MULU.L ea=D0
+        bus.mem[0x010A] = 0x10;
+        bus.mem[0x010B] = 0x00; // ext: Dq=D1, unsigned, 32-bit
+        bus.mem[0x010C] = 0x60;
+        bus.mem[0x010D] = 0xFE; // BRA.S *
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
@@ -2196,14 +2289,21 @@ mod tests {
         // MOVEQ #-10,D0 ; MOVEQ #5,D1 ; MULS.L D0,D1 ; BRA.S *
         // MULS.L D0,D1: $4C00, ext = Dq=D1(001) | signed(0x0800) = $1800
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
-        bus.mem[0x0100] = 0x70; bus.mem[0x0101] = 0xF6; // MOVEQ #-10,D0
-        bus.mem[0x0102] = 0x72; bus.mem[0x0103] = 0x05; // MOVEQ #5,D1
-        bus.mem[0x0104] = 0x4C; bus.mem[0x0105] = 0x00; // MULS.L ea=D0
-        bus.mem[0x0106] = 0x18; bus.mem[0x0107] = 0x00; // ext: Dq=D1, signed, 32-bit
-        bus.mem[0x0108] = 0x60; bus.mem[0x0109] = 0xFE; // BRA.S *
+        bus.mem[0x0100] = 0x70;
+        bus.mem[0x0101] = 0xF6; // MOVEQ #-10,D0
+        bus.mem[0x0102] = 0x72;
+        bus.mem[0x0103] = 0x05; // MOVEQ #5,D1
+        bus.mem[0x0104] = 0x4C;
+        bus.mem[0x0105] = 0x00; // MULS.L ea=D0
+        bus.mem[0x0106] = 0x18;
+        bus.mem[0x0107] = 0x00; // ext: Dq=D1, signed, 32-bit
+        bus.mem[0x0108] = 0x60;
+        bus.mem[0x0109] = 0xFE; // BRA.S *
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
@@ -2217,27 +2317,39 @@ mod tests {
         // MULU.L D1,D2:D0 (64-bit result: Dh=D0, Dl=D2)
         // ext = Dq=D0(000) | unsigned | 64-bit(0x0400) | Dr=D2(010) = $0402
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
         // MOVE.L #$80000000,D0 = 203C 8000 0000
-        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
-        bus.mem[0x0102] = 0x80; bus.mem[0x0103] = 0x00;
-        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
+        bus.mem[0x0100] = 0x20;
+        bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0x80;
+        bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x00;
+        bus.mem[0x0105] = 0x00;
         // MOVEQ #4,D1
-        bus.mem[0x0106] = 0x72; bus.mem[0x0107] = 0x04;
+        bus.mem[0x0106] = 0x72;
+        bus.mem[0x0107] = 0x04;
         // MULU.L D1,D0:D2 — mult D0 * src(D1), 64-bit result in D0(high):D2(low)
         // opcode: $4C01 (ea=D1), ext: Dq=D0(000), 64-bit(0x0400), Dr=D2(010) = $0402
-        bus.mem[0x0108] = 0x4C; bus.mem[0x0109] = 0x01; // MULL ea=D1
-        bus.mem[0x010A] = 0x04; bus.mem[0x010B] = 0x02; // ext: Dq=D0, unsigned, 64-bit, Dr=D2
-        bus.mem[0x010C] = 0x60; bus.mem[0x010D] = 0xFE; // BRA.S *
+        bus.mem[0x0108] = 0x4C;
+        bus.mem[0x0109] = 0x01; // MULL ea=D1
+        bus.mem[0x010A] = 0x04;
+        bus.mem[0x010B] = 0x02; // ext: Dq=D0, unsigned, 64-bit, Dr=D2
+        bus.mem[0x010C] = 0x60;
+        bus.mem[0x010D] = 0xFE; // BRA.S *
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 10000);
         // $80000000 * 4 = $200000000 → Dl=D0(low)=$00000000, Dh=D2(high)=$00000002
         assert_eq!(cpu.regs.d[0], 0x0000_0000, "MULU.L 64-bit low word (Dl=D0)");
-        assert_eq!(cpu.regs.d[2], 0x0000_0002, "MULU.L 64-bit high word (Dh=D2)");
+        assert_eq!(
+            cpu.regs.d[2], 0x0000_0002,
+            "MULU.L 64-bit high word (Dh=D2)"
+        );
     }
 
     #[test]
@@ -2246,19 +2358,28 @@ mod tests {
         // DIVU.L D1,D2:D0 (D0=quotient, D2=remainder)
         // opcode: $4C41 (ea=D1), ext: Dq=D0(000), unsigned, Dr=D2(010) = $0002
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
         // MOVE.L #1000,D0 = 203C 0000 03E8
-        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
-        bus.mem[0x0102] = 0x00; bus.mem[0x0103] = 0x00;
-        bus.mem[0x0104] = 0x03; bus.mem[0x0105] = 0xE8;
+        bus.mem[0x0100] = 0x20;
+        bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0x00;
+        bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x03;
+        bus.mem[0x0105] = 0xE8;
         // MOVEQ #7,D1
-        bus.mem[0x0106] = 0x72; bus.mem[0x0107] = 0x07;
+        bus.mem[0x0106] = 0x72;
+        bus.mem[0x0107] = 0x07;
         // DIVU.L D1,D2:D0
-        bus.mem[0x0108] = 0x4C; bus.mem[0x0109] = 0x41; // DIVL ea=D1
-        bus.mem[0x010A] = 0x00; bus.mem[0x010B] = 0x02; // ext: Dq=D0, unsigned, Dr=D2
-        bus.mem[0x010C] = 0x60; bus.mem[0x010D] = 0xFE; // BRA.S *
+        bus.mem[0x0108] = 0x4C;
+        bus.mem[0x0109] = 0x41; // DIVL ea=D1
+        bus.mem[0x010A] = 0x00;
+        bus.mem[0x010B] = 0x02; // ext: Dq=D0, unsigned, Dr=D2
+        bus.mem[0x010C] = 0x60;
+        bus.mem[0x010D] = 0xFE; // BRA.S *
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
@@ -2273,43 +2394,67 @@ mod tests {
         // DIVS.L D1,D2:D0
         // opcode: $4C41 (ea=D1), ext: Dq=D0(000), signed(0x0800), Dr=D2(010) = $0802
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
         // MOVE.L #-100,D0 = 203C FFFF FF9C
-        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
-        bus.mem[0x0102] = 0xFF; bus.mem[0x0103] = 0xFF;
-        bus.mem[0x0104] = 0xFF; bus.mem[0x0105] = 0x9C;
+        bus.mem[0x0100] = 0x20;
+        bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0xFF;
+        bus.mem[0x0103] = 0xFF;
+        bus.mem[0x0104] = 0xFF;
+        bus.mem[0x0105] = 0x9C;
         // MOVEQ #7,D1
-        bus.mem[0x0106] = 0x72; bus.mem[0x0107] = 0x07;
+        bus.mem[0x0106] = 0x72;
+        bus.mem[0x0107] = 0x07;
         // DIVS.L D1,D2:D0
-        bus.mem[0x0108] = 0x4C; bus.mem[0x0109] = 0x41; // DIVL ea=D1
-        bus.mem[0x010A] = 0x08; bus.mem[0x010B] = 0x02; // ext: Dq=D0, signed, Dr=D2
-        bus.mem[0x010C] = 0x60; bus.mem[0x010D] = 0xFE; // BRA.S *
+        bus.mem[0x0108] = 0x4C;
+        bus.mem[0x0109] = 0x41; // DIVL ea=D1
+        bus.mem[0x010A] = 0x08;
+        bus.mem[0x010B] = 0x02; // ext: Dq=D0, signed, Dr=D2
+        bus.mem[0x010C] = 0x60;
+        bus.mem[0x010D] = 0xFE; // BRA.S *
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 10000);
-        assert_eq!(cpu.regs.d[0] as i32, -14, "DIVS.L -100/7 quotient should be -14");
-        assert_eq!(cpu.regs.d[2] as i32, -2, "DIVS.L -100/7 remainder should be -2");
+        assert_eq!(
+            cpu.regs.d[0] as i32, -14,
+            "DIVS.L -100/7 quotient should be -14"
+        );
+        assert_eq!(
+            cpu.regs.d[2] as i32, -2,
+            "DIVS.L -100/7 remainder should be -2"
+        );
     }
 
     #[test]
     fn divl_by_zero_traps() {
         // MOVEQ #0,D1 ; DIVU.L D1,D2:D0 → should trap to vector 5
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
             // Division by zero vector (vector 5) → $0300
-            (0x0014, 0x0000), (0x0016, 0x0300),
+            (0x0014, 0x0000),
+            (0x0016, 0x0300),
         ]);
-        bus.mem[0x0100] = 0x72; bus.mem[0x0101] = 0x00; // MOVEQ #0,D1
-        bus.mem[0x0102] = 0x4C; bus.mem[0x0103] = 0x41; // DIVL ea=D1
-        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x02; // ext: Dq=D0, unsigned, Dr=D2
-        bus.mem[0x0106] = 0x60; bus.mem[0x0107] = 0xFE;
+        bus.mem[0x0100] = 0x72;
+        bus.mem[0x0101] = 0x00; // MOVEQ #0,D1
+        bus.mem[0x0102] = 0x4C;
+        bus.mem[0x0103] = 0x41; // DIVL ea=D1
+        bus.mem[0x0104] = 0x00;
+        bus.mem[0x0105] = 0x02; // ext: Dq=D0, unsigned, Dr=D2
+        bus.mem[0x0106] = 0x60;
+        bus.mem[0x0107] = 0xFE;
         // Handler: MOVEQ #-1,D7 ; BRA.S *
-        bus.mem[0x0300] = 0x7E; bus.mem[0x0301] = 0xFF;
-        bus.mem[0x0302] = 0x60; bus.mem[0x0303] = 0xFE;
+        bus.mem[0x0300] = 0x7E;
+        bus.mem[0x0301] = 0xFF;
+        bus.mem[0x0302] = 0x60;
+        bus.mem[0x0303] = 0xFE;
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
@@ -2320,10 +2465,14 @@ mod tests {
     #[test]
     fn mull_on_68000_fires_illegal() {
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
-            (0x0010, 0x0000), (0x0012, 0x0200),
-            (0x0100, 0x4C00), (0x0102, 0x1000), // MULU.L D0,D1
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            (0x0010, 0x0000),
+            (0x0012, 0x0200),
+            (0x0100, 0x4C00),
+            (0x0102, 0x1000), // MULU.L D0,D1
             (0x0104, 0x60FE),
             (0x0200, 0x7EFF), // MOVEQ #-1,D7
             (0x0202, 0x60FE),
@@ -2331,7 +2480,10 @@ mod tests {
         let mut cpu = Cpu68000::new(); // 68000 — no MULL support
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 10000);
-        assert_eq!(cpu.regs.d[7] as u8, 0xFF, "MULL on 68000 should fire illegal");
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0xFF,
+            "MULL on 68000 should fire illegal"
+        );
     }
 
     #[test]
@@ -2342,24 +2494,38 @@ mod tests {
         // bits 15-11: 00001 (offset=8), bit 5: 0, bits 4-0: 01000 (width=8)
         // ext = 0000_0_01000_0_01000 = $0208
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
         // MOVE.L #$00FF0000,D0
-        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
-        bus.mem[0x0102] = 0x00; bus.mem[0x0103] = 0xFF;
-        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
+        bus.mem[0x0100] = 0x20;
+        bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0x00;
+        bus.mem[0x0103] = 0xFF;
+        bus.mem[0x0104] = 0x00;
+        bus.mem[0x0105] = 0x00;
         // BFTST D0{8:8} = $E8C0, ext $0208
-        bus.mem[0x0106] = 0xE8; bus.mem[0x0107] = 0xC0;
-        bus.mem[0x0108] = 0x02; bus.mem[0x0109] = 0x08;
-        bus.mem[0x010A] = 0x60; bus.mem[0x010B] = 0xFE; // BRA.S *
+        bus.mem[0x0106] = 0xE8;
+        bus.mem[0x0107] = 0xC0;
+        bus.mem[0x0108] = 0x02;
+        bus.mem[0x0109] = 0x08;
+        bus.mem[0x010A] = 0x60;
+        bus.mem[0x010B] = 0xFE; // BRA.S *
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 20000);
         // Field at offset 8, width 8 of $00FF0000 = $FF → N=1, Z=0
-        assert!(cpu.regs.sr & 0x0008 != 0, "BFTST should set N for $FF field");
-        assert!(cpu.regs.sr & 0x0004 == 0, "BFTST should clear Z for non-zero field");
+        assert!(
+            cpu.regs.sr & 0x0008 != 0,
+            "BFTST should set N for $FF field"
+        );
+        assert!(
+            cpu.regs.sr & 0x0004 == 0,
+            "BFTST should clear Z for non-zero field"
+        );
     }
 
     #[test]
@@ -2368,20 +2534,31 @@ mod tests {
         // BFEXTU D0: opcode $E9C0, ext: Dn=D1(001), offset=0, width=8
         // ext = 0_001_0_00000_0_01000 = $1008
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
-        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
-        bus.mem[0x0102] = 0xA5; bus.mem[0x0103] = 0x00;
-        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
-        bus.mem[0x0106] = 0xE9; bus.mem[0x0107] = 0xC0;
-        bus.mem[0x0108] = 0x10; bus.mem[0x0109] = 0x08;
-        bus.mem[0x010A] = 0x60; bus.mem[0x010B] = 0xFE;
+        bus.mem[0x0100] = 0x20;
+        bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0xA5;
+        bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x00;
+        bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0xE9;
+        bus.mem[0x0107] = 0xC0;
+        bus.mem[0x0108] = 0x10;
+        bus.mem[0x0109] = 0x08;
+        bus.mem[0x010A] = 0x60;
+        bus.mem[0x010B] = 0xFE;
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 20000);
-        assert_eq!(cpu.regs.d[1], 0xA5, "BFEXTU should extract $A5 from top byte");
+        assert_eq!(
+            cpu.regs.d[1], 0xA5,
+            "BFEXTU should extract $A5 from top byte"
+        );
     }
 
     #[test]
@@ -2390,20 +2567,31 @@ mod tests {
         // BFEXTS D0: opcode $EBC0, ext: Dn=D1(001), offset=0, width=8
         // ext = 0_001_0_00000_0_01000 = $1008
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
-        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
-        bus.mem[0x0102] = 0xA5; bus.mem[0x0103] = 0x00;
-        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
-        bus.mem[0x0106] = 0xEB; bus.mem[0x0107] = 0xC0;
-        bus.mem[0x0108] = 0x10; bus.mem[0x0109] = 0x08;
-        bus.mem[0x010A] = 0x60; bus.mem[0x010B] = 0xFE;
+        bus.mem[0x0100] = 0x20;
+        bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0xA5;
+        bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x00;
+        bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0xEB;
+        bus.mem[0x0107] = 0xC0;
+        bus.mem[0x0108] = 0x10;
+        bus.mem[0x0109] = 0x08;
+        bus.mem[0x010A] = 0x60;
+        bus.mem[0x010B] = 0xFE;
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 20000);
-        assert_eq!(cpu.regs.d[1] as i32, -91, "BFEXTS should sign-extend $A5 to -91");
+        assert_eq!(
+            cpu.regs.d[1] as i32, -91,
+            "BFEXTS should sign-extend $A5 to -91"
+        );
     }
 
     #[test]
@@ -2412,21 +2600,31 @@ mod tests {
         // BFINS: opcode $EFC0, ext: Dn=D1(001), offset=4, width=8
         // ext = 0_001_0_00100_0_01000 = $1108
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
-        bus.mem[0x0100] = 0x72; bus.mem[0x0101] = 0x0F; // MOVEQ #$0F,D1
-        bus.mem[0x0102] = 0x70; bus.mem[0x0103] = 0x00; // MOVEQ #0,D0
-        bus.mem[0x0104] = 0xEF; bus.mem[0x0105] = 0xC0; // BFINS D1,D0
-        bus.mem[0x0106] = 0x11; bus.mem[0x0107] = 0x08; // ext: D1, offset=4, width=8
-        bus.mem[0x0108] = 0x60; bus.mem[0x0109] = 0xFE;
+        bus.mem[0x0100] = 0x72;
+        bus.mem[0x0101] = 0x0F; // MOVEQ #$0F,D1
+        bus.mem[0x0102] = 0x70;
+        bus.mem[0x0103] = 0x00; // MOVEQ #0,D0
+        bus.mem[0x0104] = 0xEF;
+        bus.mem[0x0105] = 0xC0; // BFINS D1,D0
+        bus.mem[0x0106] = 0x11;
+        bus.mem[0x0107] = 0x08; // ext: D1, offset=4, width=8
+        bus.mem[0x0108] = 0x60;
+        bus.mem[0x0109] = 0xFE;
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 20000);
         // D0 should have $0F inserted at bit offset 4, width 8
         // Offset 4 from MSB = bits 27-20 → $0F at bits 27-20 = $00F00000
-        assert_eq!(cpu.regs.d[0], 0x00F0_0000, "BFINS should insert $0F at offset 4");
+        assert_eq!(
+            cpu.regs.d[0], 0x00F0_0000,
+            "BFINS should insert $0F at offset 4"
+        );
     }
 
     #[test]
@@ -2435,13 +2633,19 @@ mod tests {
         // BFSET D0: opcode $EEC0, ext: offset=0, width=16
         // ext = 0000_0_00000_0_10000 = $0010
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
-        bus.mem[0x0100] = 0x70; bus.mem[0x0101] = 0x00; // MOVEQ #0,D0
-        bus.mem[0x0102] = 0xEE; bus.mem[0x0103] = 0xC0;
-        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x10; // ext: offset=0, width=16
-        bus.mem[0x0106] = 0x60; bus.mem[0x0107] = 0xFE;
+        bus.mem[0x0100] = 0x70;
+        bus.mem[0x0101] = 0x00; // MOVEQ #0,D0
+        bus.mem[0x0102] = 0xEE;
+        bus.mem[0x0103] = 0xC0;
+        bus.mem[0x0104] = 0x00;
+        bus.mem[0x0105] = 0x10; // ext: offset=0, width=16
+        bus.mem[0x0106] = 0x60;
+        bus.mem[0x0107] = 0xFE;
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
@@ -2455,15 +2659,23 @@ mod tests {
         // BFFFO D0: opcode $EDC0, ext: Dn=D1(001), offset=0, width=0(=32)
         // ext = 0_001_0_00000_0_00000 = $1000
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
-        bus.mem[0x0100] = 0x20; bus.mem[0x0101] = 0x3C;
-        bus.mem[0x0102] = 0x00; bus.mem[0x0103] = 0x08;
-        bus.mem[0x0104] = 0x00; bus.mem[0x0105] = 0x00;
-        bus.mem[0x0106] = 0xED; bus.mem[0x0107] = 0xC0;
-        bus.mem[0x0108] = 0x10; bus.mem[0x0109] = 0x00;
-        bus.mem[0x010A] = 0x60; bus.mem[0x010B] = 0xFE;
+        bus.mem[0x0100] = 0x20;
+        bus.mem[0x0101] = 0x3C;
+        bus.mem[0x0102] = 0x00;
+        bus.mem[0x0103] = 0x08;
+        bus.mem[0x0104] = 0x00;
+        bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0xED;
+        bus.mem[0x0107] = 0xC0;
+        bus.mem[0x0108] = 0x10;
+        bus.mem[0x0109] = 0x00;
+        bus.mem[0x010A] = 0x60;
+        bus.mem[0x010B] = 0xFE;
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
@@ -2475,21 +2687,32 @@ mod tests {
     #[test]
     fn bitfield_on_68000_fires_illegal() {
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
-            (0x0010, 0x0000), (0x0012, 0x0200),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            (0x0010, 0x0000),
+            (0x0012, 0x0200),
         ]);
         // BFTST D0{0:8} = $E8C0, $0008
-        bus.mem[0x0100] = 0xE8; bus.mem[0x0101] = 0xC0;
-        bus.mem[0x0102] = 0x00; bus.mem[0x0103] = 0x08;
-        bus.mem[0x0104] = 0x60; bus.mem[0x0105] = 0xFE;
-        bus.mem[0x0200] = 0x7E; bus.mem[0x0201] = 0xFF; // MOVEQ #-1,D7
-        bus.mem[0x0202] = 0x60; bus.mem[0x0203] = 0xFE;
+        bus.mem[0x0100] = 0xE8;
+        bus.mem[0x0101] = 0xC0;
+        bus.mem[0x0102] = 0x00;
+        bus.mem[0x0103] = 0x08;
+        bus.mem[0x0104] = 0x60;
+        bus.mem[0x0105] = 0xFE;
+        bus.mem[0x0200] = 0x7E;
+        bus.mem[0x0201] = 0xFF; // MOVEQ #-1,D7
+        bus.mem[0x0202] = 0x60;
+        bus.mem[0x0203] = 0xFE;
 
         let mut cpu = Cpu68000::new();
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 10000);
-        assert_eq!(cpu.regs.d[7] as u8, 0xFF, "BFTST on 68000 should fire illegal");
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0xFF,
+            "BFTST on 68000 should fire illegal"
+        );
     }
 
     #[test]
@@ -2498,24 +2721,36 @@ mod tests {
         // CAS.L D0,D1,(A0) → equal, so write D1 ($99) to (A0)
         // CAS.L (A0): opcode $0E90 (ea=AddrInd A0), ext: Dc=D0(000), Du=D1(001<<6)=$0040
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
         // MOVE.L #$42,D0
-        bus.mem[0x0100] = 0x70; bus.mem[0x0101] = 0x42; // MOVEQ #$42,D0
+        bus.mem[0x0100] = 0x70;
+        bus.mem[0x0101] = 0x42; // MOVEQ #$42,D0
         // MOVE.L #$99,D1
-        bus.mem[0x0102] = 0x72; bus.mem[0x0103] = 0x99; // MOVEQ #-103,D1 (=$FFFFFF99)
+        bus.mem[0x0102] = 0x72;
+        bus.mem[0x0103] = 0x99; // MOVEQ #-103,D1 (=$FFFFFF99)
         // LEA $2000,A0
-        bus.mem[0x0104] = 0x41; bus.mem[0x0105] = 0xF9;
-        bus.mem[0x0106] = 0x00; bus.mem[0x0107] = 0x00;
-        bus.mem[0x0108] = 0x20; bus.mem[0x0109] = 0x00;
+        bus.mem[0x0104] = 0x41;
+        bus.mem[0x0105] = 0xF9;
+        bus.mem[0x0106] = 0x00;
+        bus.mem[0x0107] = 0x00;
+        bus.mem[0x0108] = 0x20;
+        bus.mem[0x0109] = 0x00;
         // CAS.L D0,D1,(A0) = $0E90 $0040
-        bus.mem[0x010A] = 0x0E; bus.mem[0x010B] = 0xD0; // CAS.L D0,D1,(A0)
-        bus.mem[0x010C] = 0x00; bus.mem[0x010D] = 0x40;
-        bus.mem[0x010E] = 0x60; bus.mem[0x010F] = 0xFE; // BRA.S *
+        bus.mem[0x010A] = 0x0E;
+        bus.mem[0x010B] = 0xD0; // CAS.L D0,D1,(A0)
+        bus.mem[0x010C] = 0x00;
+        bus.mem[0x010D] = 0x40;
+        bus.mem[0x010E] = 0x60;
+        bus.mem[0x010F] = 0xFE; // BRA.S *
         // Memory at $2000: value $00000042
-        bus.mem[0x2000] = 0x00; bus.mem[0x2001] = 0x00;
-        bus.mem[0x2002] = 0x00; bus.mem[0x2003] = 0x42;
+        bus.mem[0x2000] = 0x00;
+        bus.mem[0x2001] = 0x00;
+        bus.mem[0x2002] = 0x00;
+        bus.mem[0x2003] = 0x42;
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
@@ -2525,9 +2760,15 @@ mod tests {
             | (bus.mem[0x2001] as u32) << 16
             | (bus.mem[0x2002] as u32) << 8
             | bus.mem[0x2003] as u32;
-        assert_eq!(mem_val, 0xFFFF_FF99, "CAS.L equal: should write Du to memory");
+        assert_eq!(
+            mem_val, 0xFFFF_FF99,
+            "CAS.L equal: should write Du to memory"
+        );
         // Z flag should be set (equal comparison)
-        assert!(cpu.regs.sr & 0x0004 != 0, "CAS.L equal: Z flag should be set");
+        assert!(
+            cpu.regs.sr & 0x0004 != 0,
+            "CAS.L equal: Z flag should be set"
+        );
     }
 
     #[test]
@@ -2535,27 +2776,45 @@ mod tests {
         // D0=compare=$42, D1=update=$99, memory at (A0)=$55 (not equal)
         // CAS.L D0,D1,(A0) → not equal, so load (A0) into D0
         let mut bus = SimpleBus::new(&[
-            (0x0000, 0x0000), (0x0002, 0x1000),
-            (0x0004, 0x0000), (0x0006, 0x0100),
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
         ]);
-        bus.mem[0x0100] = 0x70; bus.mem[0x0101] = 0x42; // MOVEQ #$42,D0
-        bus.mem[0x0102] = 0x72; bus.mem[0x0103] = 0x99; // MOVEQ #-103,D1
-        bus.mem[0x0104] = 0x41; bus.mem[0x0105] = 0xF9; // LEA $2000,A0
-        bus.mem[0x0106] = 0x00; bus.mem[0x0107] = 0x00;
-        bus.mem[0x0108] = 0x20; bus.mem[0x0109] = 0x00;
-        bus.mem[0x010A] = 0x0E; bus.mem[0x010B] = 0xD0; // CAS.L D0,D1,(A0)
-        bus.mem[0x010C] = 0x00; bus.mem[0x010D] = 0x40; // ext: Dc=D0, Du=D1
-        bus.mem[0x010E] = 0x60; bus.mem[0x010F] = 0xFE;
+        bus.mem[0x0100] = 0x70;
+        bus.mem[0x0101] = 0x42; // MOVEQ #$42,D0
+        bus.mem[0x0102] = 0x72;
+        bus.mem[0x0103] = 0x99; // MOVEQ #-103,D1
+        bus.mem[0x0104] = 0x41;
+        bus.mem[0x0105] = 0xF9; // LEA $2000,A0
+        bus.mem[0x0106] = 0x00;
+        bus.mem[0x0107] = 0x00;
+        bus.mem[0x0108] = 0x20;
+        bus.mem[0x0109] = 0x00;
+        bus.mem[0x010A] = 0x0E;
+        bus.mem[0x010B] = 0xD0; // CAS.L D0,D1,(A0)
+        bus.mem[0x010C] = 0x00;
+        bus.mem[0x010D] = 0x40; // ext: Dc=D0, Du=D1
+        bus.mem[0x010E] = 0x60;
+        bus.mem[0x010F] = 0xFE;
         // Memory at $2000: value $00000055
-        bus.mem[0x2000] = 0x00; bus.mem[0x2001] = 0x00;
-        bus.mem[0x2002] = 0x00; bus.mem[0x2003] = 0x55;
+        bus.mem[0x2000] = 0x00;
+        bus.mem[0x2001] = 0x00;
+        bus.mem[0x2002] = 0x00;
+        bus.mem[0x2003] = 0x55;
 
         let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
         cpu.reset_to(0x0000_1000, 0x0000_0100);
         run_until_idle(&mut cpu, &mut bus, 20000);
         // D0 should be loaded with memory value $55
-        assert_eq!(cpu.regs.d[0], 0x0000_0055, "CAS.L not equal: D0 should get memory value");
+        assert_eq!(
+            cpu.regs.d[0], 0x0000_0055,
+            "CAS.L not equal: D0 should get memory value"
+        );
         // Z flag should be clear
-        assert!(cpu.regs.sr & 0x0004 == 0, "CAS.L not equal: Z flag should be clear");
+        assert!(
+            cpu.regs.sr & 0x0004 == 0,
+            "CAS.L not equal: Z flag should be clear"
+        );
     }
 }

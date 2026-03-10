@@ -47,7 +47,11 @@ impl DiskImage for AdfDiskImage {
     fn encode_mfm_track(&self, cyl: u32, head: u32) -> Option<Vec<u8>> {
         let track_num = (cyl * 2 + head) as u8;
         let sectors = self.adf.read_track_sectors(cyl, head);
-        Some(encode_mfm_track(sectors, track_num, self.adf.sectors_per_track()))
+        Some(encode_mfm_track(
+            sectors,
+            track_num,
+            self.adf.sectors_per_track(),
+        ))
     }
 
     fn sectors_per_track(&self) -> u32 {
@@ -210,7 +214,9 @@ impl AmigaFloppyDrive {
 
     /// Encode the current track as raw MFM data. Returns `None` if no disk.
     pub fn encode_mfm_track(&self) -> Option<Vec<u8>> {
-        self.disk.as_ref()?.encode_mfm_track(self.cylinder, self.head)
+        self.disk
+            .as_ref()?
+            .encode_mfm_track(self.cylinder, self.head)
     }
 
     pub fn has_disk(&self) -> bool {

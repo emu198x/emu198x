@@ -1,7 +1,7 @@
 //! Real Kickstart 1.3 boot test for machine-amiga.
 
-use machine_amiga::memory::Memory;
 use machine_amiga::Amiga;
+use machine_amiga::memory::Memory;
 use motorola_68000::cpu::State;
 use std::fs;
 
@@ -2763,19 +2763,21 @@ fn test_idle_loop_diagnosis() {
 
         // Detailed trace around keyboard.device init (~1759ms)
         // Log every unique instruction in $FC0B30-$FC0BC0 and the init function
-        if (1755..=1770).contains(&ms) && ipc != prev_pc
-            && ((0xFC0B30..=0xFC0BC0).contains(&ipc) || (0xFE4F40..=0xFE4F60).contains(&ipc)) {
-                let ir = amiga.cpu.ir;
-                let sr = amiga.cpu.regs.sr;
-                let d0 = amiga.cpu.regs.d[0];
-                let a1 = amiga.cpu.regs.a(1);
-                let a2 = amiga.cpu.regs.a(2);
-                let sp = amiga.cpu.regs.a(7);
-                println!(
-                    "  [{:4}ms] ipc=${:08X} IR=${:04X} SR=${:04X} D0=${:08X} A1=${:08X} A2=${:08X} SP=${:08X}",
-                    ms, ipc, ir, sr, d0, a1, a2, sp
-                );
-            }
+        if (1755..=1770).contains(&ms)
+            && ipc != prev_pc
+            && ((0xFC0B30..=0xFC0BC0).contains(&ipc) || (0xFE4F40..=0xFE4F60).contains(&ipc))
+        {
+            let ir = amiga.cpu.ir;
+            let sr = amiga.cpu.regs.sr;
+            let d0 = amiga.cpu.regs.d[0];
+            let a1 = amiga.cpu.regs.a(1);
+            let a2 = amiga.cpu.regs.a(2);
+            let sp = amiga.cpu.regs.a(7);
+            println!(
+                "  [{:4}ms] ipc=${:08X} IR=${:04X} SR=${:04X} D0=${:08X} A1=${:08X} A2=${:08X} SP=${:08X}",
+                ms, ipc, ir, sr, d0, a1, a2, sp
+            );
+        }
 
         // Track InitResident calls at $FC0B58
         if pc == 0xFC0B58 && pc != prev_pc {
@@ -2944,10 +2946,9 @@ fn test_idle_loop_diagnosis() {
         }
 
         // After first STOP, collect unique PCs for a while
-        if first_stop && ms < 5000
-            && pc != prev_pc {
-                unique_pcs.insert(pc);
-            }
+        if first_stop && ms < 5000 && pc != prev_pc {
+            unique_pcs.insert(pc);
+        }
 
         // Track VERTB handler: when JSR (A5) at $FC0E94 executes
         if pc == 0xFC0E94 && pc != prev_pc && stop_count <= 3 {

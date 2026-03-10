@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 //! C64 Kernal boot test — verify the machine boots to BASIC READY. prompt.
 
-use emu_core::Bus;
 use emu_c64::{C64, C64Config, C64Model};
+use emu_core::Bus;
 use std::fs;
 use std::path::Path;
 
@@ -19,7 +19,8 @@ const READY_PETSCII: [u8; 6] = [
 #[test]
 #[ignore] // Requires real C64 ROMs at roms/
 fn test_boot_kernal() {
-    let kernal = fs::read("../../roms/kernal.rom").expect("kernal.rom not found at roms/kernal.rom");
+    let kernal =
+        fs::read("../../roms/kernal.rom").expect("kernal.rom not found at roms/kernal.rom");
     let basic = fs::read("../../roms/basic.rom").expect("basic.rom not found at roms/basic.rom");
     let chargen =
         fs::read("../../roms/chargen.rom").expect("chargen.rom not found at roms/chargen.rom");
@@ -71,7 +72,10 @@ fn test_boot_kernal() {
         }
     }
 
-    assert!(found_ready, "C64 did not reach READY. prompt within {max_frames} frames");
+    assert!(
+        found_ready,
+        "C64 did not reach READY. prompt within {max_frames} frames"
+    );
 }
 
 #[test]
@@ -103,12 +107,12 @@ fn test_sid_produces_audio() {
     // Voice 1: ~440 Hz sawtooth, instant attack, max sustain, volume 15.
     let sid_base = 0xD400u32;
     let freq: u16 = 7479; // 440 Hz
-    c64.bus_mut().write(sid_base, (freq & 0xFF) as u8);       // Freq lo
-    c64.bus_mut().write(sid_base + 1, (freq >> 8) as u8);     // Freq hi
-    c64.bus_mut().write(sid_base + 5, 0x00);                  // AD: attack=0, decay=0
-    c64.bus_mut().write(sid_base + 6, 0xF0);                  // SR: sustain=F, release=0
-    c64.bus_mut().write(sid_base + 4, 0x21);                  // Sawtooth + gate on
-    c64.bus_mut().write(sid_base + 0x18, 0x0F);               // Volume = 15
+    c64.bus_mut().write(sid_base, (freq & 0xFF) as u8); // Freq lo
+    c64.bus_mut().write(sid_base + 1, (freq >> 8) as u8); // Freq hi
+    c64.bus_mut().write(sid_base + 5, 0x00); // AD: attack=0, decay=0
+    c64.bus_mut().write(sid_base + 6, 0xF0); // SR: sustain=F, release=0
+    c64.bus_mut().write(sid_base + 4, 0x21); // Sawtooth + gate on
+    c64.bus_mut().write(sid_base + 0x18, 0x0F); // Volume = 15
 
     // Run 50 frames (~1 second at PAL 50 Hz) to produce a usable audio clip.
     let mut audio = Vec::new();
@@ -119,7 +123,10 @@ fn test_sid_produces_audio() {
 
     #[allow(clippy::cast_precision_loss)]
     let audio_duration_s = audio.len() as f64 / 48_000.0;
-    println!("SID audio buffer: {} samples ({audio_duration_s:.2}s)", audio.len());
+    println!(
+        "SID audio buffer: {} samples ({audio_duration_s:.2}s)",
+        audio.len()
+    );
 
     assert!(!audio.is_empty(), "SID should produce audio samples");
 
@@ -160,7 +167,10 @@ fn test_badline_border_timing() {
     for _ in 0..120 {
         c64.run_frame();
     }
-    assert!(find_ready_in_screen(&c64), "C64 did not reach READY. prompt");
+    assert!(
+        find_ready_in_screen(&c64),
+        "C64 did not reach READY. prompt"
+    );
 
     // Poke a tight border-colour cycling loop at $C000:
     //   $C000: SEI            (78)       — disable Kernal IRQ
@@ -196,8 +206,7 @@ fn test_badline_border_timing() {
     let out_dir = Path::new("../../test_output/c64");
     fs::create_dir_all(out_dir).ok();
     let screenshot_path = out_dir.join("c64_badline_raster.png");
-    emu_c64::capture::save_screenshot(&c64, &screenshot_path)
-        .expect("Failed to save screenshot");
+    emu_c64::capture::save_screenshot(&c64, &screenshot_path).expect("Failed to save screenshot");
     println!("Screenshot saved to {}", screenshot_path.display());
 
     let fb = c64.framebuffer();
@@ -249,7 +258,10 @@ fn test_badline_border_timing() {
             if differs { "DIFFER" } else { "same" }
         );
     }
-    println!("Badline/normal colour mismatches: {mismatches}/{}", pairs.len());
+    println!(
+        "Badline/normal colour mismatches: {mismatches}/{}",
+        pairs.len()
+    );
     assert!(
         mismatches >= 4,
         "At least 4 of {} badline/normal pairs should show different border colours \
@@ -275,9 +287,7 @@ fn test_badline_border_timing() {
         }
         raster += 8;
     }
-    println!(
-        "Display-wide badline/normal pairs: {differing_pairs}/{total_pairs} differ"
-    );
+    println!("Display-wide badline/normal pairs: {differing_pairs}/{total_pairs} differ");
     assert!(
         differing_pairs >= total_pairs * 4 / 5,
         "At least 80% of badline/normal pairs should differ across the display area, \
@@ -337,8 +347,7 @@ fn test_hires_bitmap_mode() {
     let out_dir = Path::new("../../test_output/c64");
     fs::create_dir_all(out_dir).ok();
     let screenshot_path = out_dir.join("c64_hires_bitmap.png");
-    emu_c64::capture::save_screenshot(&c64, &screenshot_path)
-        .expect("Failed to save screenshot");
+    emu_c64::capture::save_screenshot(&c64, &screenshot_path).expect("Failed to save screenshot");
     println!("Screenshot saved to {}", screenshot_path.display());
 
     // Verify that the display window contains non-uniform pixels.
@@ -409,8 +418,7 @@ fn test_multicolour_text_mode() {
     let out_dir = Path::new("../../test_output/c64");
     fs::create_dir_all(out_dir).ok();
     let screenshot_path = out_dir.join("c64_mcm_text.png");
-    emu_c64::capture::save_screenshot(&c64, &screenshot_path)
-        .expect("Failed to save screenshot");
+    emu_c64::capture::save_screenshot(&c64, &screenshot_path).expect("Failed to save screenshot");
     println!("Screenshot saved to {}", screenshot_path.display());
 
     // Verify MCM rendering: in MCM, adjacent pixels within a pair are the same
@@ -427,7 +435,6 @@ fn test_multicolour_text_mode() {
         fb[idx0 + 1],
         "MCM pair pixels should be the same colour"
     );
-
 }
 
 #[test]
@@ -485,7 +492,10 @@ fn test_xscroll_smooth_scroll() {
             .map(|i| fb[fb_y * w + fb_x_start + i])
             .collect();
         let fg_count = slice.iter().filter(|&&p| p != slice[0]).count();
-        println!("XSCROLL={xscroll}: fg_different={fg_count} first_8={:08X?}", &slice[..8]);
+        println!(
+            "XSCROLL={xscroll}: fg_different={fg_count} first_8={:08X?}",
+            &slice[..8]
+        );
         slices.push(slice);
     }
 
@@ -583,10 +593,7 @@ fn test_d64_load() {
     for frame in 0..200 {
         c64.run_frame();
         if frame % 50 == 0 {
-            println!(
-                "Boot frame {frame}: PC=${:04X}",
-                c64.cpu().regs.pc
-            );
+            println!("Boot frame {frame}: PC=${:04X}", c64.cpu().regs.pc);
         }
     }
     assert!(find_ready_in_screen(&c64), "C64 did not reach READY.");
@@ -618,8 +625,17 @@ fn test_d64_load() {
             let _ = c64.take_audio_buffer();
 
             if frame % 100 == 0 {
-                let drive_info = c64
-                    .drive().map_or_else(|| "no drive".to_string(), |d| format!("track={} motor={} led={}", d.track(), d.motor_on(), d.led_on()));
+                let drive_info = c64.drive().map_or_else(
+                    || "no drive".to_string(),
+                    |d| {
+                        format!(
+                            "track={} motor={} led={}",
+                            d.track(),
+                            d.motor_on(),
+                            d.led_on()
+                        )
+                    },
+                );
                 println!("Frame {frame}: PC=${:04X} {drive_info}", c64.cpu().regs.pc);
             }
 

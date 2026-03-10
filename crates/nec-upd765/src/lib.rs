@@ -91,13 +91,13 @@ impl Upd765 {
     #[must_use]
     pub fn read_msr(&self) -> u8 {
         match self.phase {
-            FdcPhase::Idle => 0x80,     // RQM=1, DIO=0 (ready to accept command)
-            FdcPhase::Command => 0x90,  // RQM=1, DIO=0, busy
+            FdcPhase::Idle => 0x80,    // RQM=1, DIO=0 (ready to accept command)
+            FdcPhase::Command => 0x90, // RQM=1, DIO=0, busy
             FdcPhase::Execution => {
                 // During data transfer: RQM=1, DIO depends on read/write, EXM=1
                 0xF0 // RQM=1, DIO=1 (FDC→CPU for read), EXM=1
             }
-            FdcPhase::Result => 0xD0,   // RQM=1, DIO=1 (FDC→CPU), busy
+            FdcPhase::Result => 0xD0, // RQM=1, DIO=1 (FDC→CPU), busy
         }
     }
 
@@ -114,9 +114,7 @@ impl Upd765 {
                     self.result_index += 1;
 
                     // Transition from execution to result when data transfer is done
-                    if self.phase == FdcPhase::Execution
-                        && self.result_index >= self.data_len
-                    {
+                    if self.phase == FdcPhase::Execution && self.result_index >= self.data_len {
                         self.phase = FdcPhase::Result;
                     }
 
@@ -269,10 +267,10 @@ mod tests {
         track[0x11] = 0;
         track[0x14] = 2;
         track[0x15] = 1;
-        track[0x18] = 0;    // C
-        track[0x19] = 0;    // H
+        track[0x18] = 0; // C
+        track[0x19] = 0; // H
         track[0x1A] = 0x01; // R
-        track[0x1B] = 2;    // N
+        track[0x1B] = 2; // N
         raw.extend_from_slice(&track);
 
         let mut sector = vec![0xE5u8; 512];

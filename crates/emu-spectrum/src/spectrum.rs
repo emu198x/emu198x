@@ -22,7 +22,7 @@ use crate::beeper::BeeperState;
 use crate::bus::SpectrumBus;
 use crate::config::{SpectrumConfig, SpectrumModel};
 use crate::input::{InputQueue, SpectrumKey};
-use crate::memory::{Memory128K, Memory48K, MemoryPlus3, SpectrumMemory};
+use crate::memory::{Memory48K, Memory128K, MemoryPlus3, SpectrumMemory};
 use crate::tap::TapFile;
 use crate::tape::TapeDeck;
 use crate::tzx::TzxFile;
@@ -178,10 +178,7 @@ impl Spectrum {
             let mut out = Vec::with_capacity(len);
             for i in 0..len {
                 let b = beeper[i];
-                out.push([
-                    (b + ay_buf[i][0]) * 0.5,
-                    (b + ay_buf[i][1]) * 0.5,
-                ]);
+                out.push([(b + ay_buf[i][0]) * 0.5, (b + ay_buf[i][1]) * 0.5]);
             }
             out
         } else {
@@ -489,7 +486,9 @@ impl Tickable for Spectrum {
 
             // AY clocks at half CPU rate (1.7734 MHz)
             self.ay_toggle = !self.ay_toggle;
-            if self.ay_toggle && let Some(ay) = &mut self.bus.ay {
+            if self.ay_toggle
+                && let Some(ay) = &mut self.bus.ay
+            {
                 ay.tick();
             }
         }

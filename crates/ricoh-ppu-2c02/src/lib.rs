@@ -154,11 +154,7 @@ impl Ppu {
     }
 
     /// One PPU dot.
-    pub fn tick(
-        &mut self,
-        chr_read: &mut dyn FnMut(u16) -> u8,
-        mirroring: Mirroring,
-    ) {
+    pub fn tick(&mut self, chr_read: &mut dyn FnMut(u16) -> u8, mirroring: Mirroring) {
         // Pre-render line (261)
         if self.scanline == self.pre_render_line {
             self.tick_prerender(chr_read, mirroring);
@@ -187,11 +183,7 @@ impl Ppu {
         }
     }
 
-    fn tick_prerender(
-        &mut self,
-        chr_read: &mut dyn FnMut(u16) -> u8,
-        mirroring: Mirroring,
-    ) {
+    fn tick_prerender(&mut self, chr_read: &mut dyn FnMut(u16) -> u8, mirroring: Mirroring) {
         if self.dot == 1 {
             // Clear VBlank, sprite 0 hit, sprite overflow
             self.status &= 0x1F;
@@ -227,11 +219,7 @@ impl Ppu {
         }
     }
 
-    fn tick_visible(
-        &mut self,
-        chr_read: &mut dyn FnMut(u16) -> u8,
-        mirroring: Mirroring,
-    ) {
+    fn tick_visible(&mut self, chr_read: &mut dyn FnMut(u16) -> u8, mirroring: Mirroring) {
         if self.rendering_enabled() {
             // Pixel output (dots 1-256)
             if self.dot >= 1 && self.dot <= 256 {
@@ -270,11 +258,7 @@ impl Ppu {
         }
     }
 
-    fn bg_fetch_cycle(
-        &mut self,
-        chr_read: &mut dyn FnMut(u16) -> u8,
-        mirroring: Mirroring,
-    ) {
+    fn bg_fetch_cycle(&mut self, chr_read: &mut dyn FnMut(u16) -> u8, mirroring: Mirroring) {
         let cycle = if self.dot >= 321 {
             self.dot - 321
         } else {
@@ -446,10 +430,7 @@ impl Ppu {
         (0, 0, false, false)
     }
 
-    fn evaluate_sprites(
-        &mut self,
-        chr_read: &mut dyn FnMut(u16) -> u8,
-    ) {
+    fn evaluate_sprites(&mut self, chr_read: &mut dyn FnMut(u16) -> u8) {
         let sprite_height: u16 = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
         let next_scanline = self.scanline;
 
@@ -715,12 +696,7 @@ impl Ppu {
 
     // === PPU memory access ===
 
-    fn ppu_read(
-        &self,
-        addr: u16,
-        chr_read: &mut dyn FnMut(u16) -> u8,
-        mirroring: Mirroring,
-    ) -> u8 {
+    fn ppu_read(&self, addr: u16, chr_read: &mut dyn FnMut(u16) -> u8, mirroring: Mirroring) -> u8 {
         let addr = addr & 0x3FFF;
         match addr {
             0x0000..=0x1FFF => chr_read(addr),

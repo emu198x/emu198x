@@ -197,7 +197,7 @@ fn setup_cpu(cpu: &mut Cpu68000, mem: &mut TestBus, state: &CpuState) {
 fn musashi_sr_mask(instruction: &str, actual_sr: u16, expected_sr: u16) -> u16 {
     match instruction {
         "ABCD" | "SBCD" | "NBCD" => !0x000F, // mask all CCR (BCD result may differ)
-        "CHK" => !0x000F,                      // mask XNZVC (all undefined per manual)
+        "CHK" => !0x000F,                    // mask XNZVC (all undefined per manual)
         s if s.starts_with("DIV") || s == "MULL" => {
             // Only relax when overflow (V set in either result)
             if (actual_sr | expected_sr) & 0x0002 != 0 {
@@ -377,9 +377,10 @@ fn run_test(test: &TestCase, model: CpuModel, instruction: &str) -> Result<(), V
         if i > 0
             && !cpu.in_followup
             && cpu.is_idle()
-            && cpu.micro_ops.front().is_some_and(|op| {
-                matches!(op, motorola_68000::microcode::MicroOp::Execute)
-            })
+            && cpu
+                .micro_ops
+                .front()
+                .is_some_and(|op| matches!(op, motorola_68000::microcode::MicroOp::Execute))
         {
             break;
         }
@@ -396,7 +397,14 @@ fn run_test(test: &TestCase, model: CpuModel, instruction: &str) -> Result<(), V
             | CpuModel::M68LC040
             | CpuModel::M68040
     );
-    let errors = compare_state(&cpu, &mem, &test.final_state, &test.name, instruction, is_020);
+    let errors = compare_state(
+        &cpu,
+        &mem,
+        &test.final_state,
+        &test.name,
+        instruction,
+        is_020,
+    );
     if errors.is_empty() {
         Ok(())
     } else {
@@ -405,7 +413,9 @@ fn run_test(test: &TestCase, model: CpuModel, instruction: &str) -> Result<(), V
 }
 
 fn run_test_safe(test: &TestCase, model: CpuModel, instruction: &str) -> Result<(), Vec<String>> {
-    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| run_test(test, model, instruction)));
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        run_test(test, model, instruction)
+    }));
     match result {
         Ok(r) => r,
         Err(_) => Err(vec![format!(
@@ -571,11 +581,7 @@ fn run_all_in_dir(subdir: &str) {
     let mut entries: Vec<_> = fs::read_dir(&test_dir)
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext == "msgpack")
-        })
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "msgpack"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
 

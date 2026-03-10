@@ -724,27 +724,27 @@ impl Mapper for Mmc3 {
         let bank_1k = if chr_mode {
             // Mode 1: 1K,1K,1K,1K,2K,2K (inverted)
             match addr_usize >> 10 {
-                0 => self.registers[2] as usize,               // R2
-                1 => self.registers[3] as usize,               // R3
-                2 => self.registers[4] as usize,               // R4
-                3 => self.registers[5] as usize,               // R5
-                4 => (self.registers[0] & 0xFE) as usize,     // R0 (2K-aligned)
-                5 => (self.registers[0] | 1) as usize,        // R0+1
-                6 => (self.registers[1] & 0xFE) as usize,     // R1 (2K-aligned)
-                7 => (self.registers[1] | 1) as usize,        // R1+1
+                0 => self.registers[2] as usize,          // R2
+                1 => self.registers[3] as usize,          // R3
+                2 => self.registers[4] as usize,          // R4
+                3 => self.registers[5] as usize,          // R5
+                4 => (self.registers[0] & 0xFE) as usize, // R0 (2K-aligned)
+                5 => (self.registers[0] | 1) as usize,    // R0+1
+                6 => (self.registers[1] & 0xFE) as usize, // R1 (2K-aligned)
+                7 => (self.registers[1] | 1) as usize,    // R1+1
                 _ => unreachable!(),
             }
         } else {
             // Mode 0: 2K,2K,1K,1K,1K,1K
             match addr_usize >> 10 {
-                0 => (self.registers[0] & 0xFE) as usize,     // R0 (2K-aligned)
-                1 => (self.registers[0] | 1) as usize,        // R0+1
-                2 => (self.registers[1] & 0xFE) as usize,     // R1 (2K-aligned)
-                3 => (self.registers[1] | 1) as usize,        // R1+1
-                4 => self.registers[2] as usize,               // R2
-                5 => self.registers[3] as usize,               // R3
-                6 => self.registers[4] as usize,               // R4
-                7 => self.registers[5] as usize,               // R5
+                0 => (self.registers[0] & 0xFE) as usize, // R0 (2K-aligned)
+                1 => (self.registers[0] | 1) as usize,    // R0+1
+                2 => (self.registers[1] & 0xFE) as usize, // R1 (2K-aligned)
+                3 => (self.registers[1] | 1) as usize,    // R1+1
+                4 => self.registers[2] as usize,          // R2
+                5 => self.registers[3] as usize,          // R3
+                6 => self.registers[4] as usize,          // R4
+                7 => self.registers[5] as usize,          // R5
                 _ => unreachable!(),
             }
         };
@@ -1119,7 +1119,11 @@ impl Mmc4 {
     fn chr_read_with_latch(&mut self, addr: u16) -> u8 {
         let addr_usize = (addr & 0x1FFF) as usize;
         let bank = if addr_usize < 0x1000 {
-            if self.latch_0_fe { self.chr_fe_0 } else { self.chr_fd_0 }
+            if self.latch_0_fe {
+                self.chr_fe_0
+            } else {
+                self.chr_fd_0
+            }
         } else if self.latch_1_fe {
             self.chr_fe_1
         } else {
@@ -1176,7 +1180,11 @@ impl Mapper for Mmc4 {
     fn chr_write(&mut self, _addr: u16, _value: u8) {}
 
     fn mirroring(&self) -> Mirroring {
-        if self.horizontal_mirror { Mirroring::Horizontal } else { Mirroring::Vertical }
+        if self.horizontal_mirror {
+            Mirroring::Horizontal
+        } else {
+            Mirroring::Vertical
+        }
     }
 }
 
@@ -1196,7 +1204,12 @@ struct BxRom {
 
 impl BxRom {
     fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
-        Self { prg_rom, chr_ram: [0; 8192], mirroring, prg_bank: 0 }
+        Self {
+            prg_rom,
+            chr_ram: [0; 8192],
+            mirroring,
+            prg_bank: 0,
+        }
     }
 }
 
@@ -1247,7 +1260,12 @@ struct Camerica {
 
 impl Camerica {
     fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
-        Self { prg_rom, chr_ram: [0; 8192], mirroring, prg_bank: 0 }
+        Self {
+            prg_rom,
+            chr_ram: [0; 8192],
+            mirroring,
+            prg_bank: 0,
+        }
     }
 
     fn prg_16k_count(&self) -> usize {
@@ -1580,7 +1598,10 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         n => return Err(format!("Unsupported mapper: {n}")),
     };
 
-    Ok(ParsedCartridge { mapper, has_battery })
+    Ok(ParsedCartridge {
+        mapper,
+        has_battery,
+    })
 }
 
 #[cfg(test)]
@@ -2213,7 +2234,7 @@ mod tests {
         m.cpu_write(0x8000, 7); // bank_select = 7
         m.cpu_write(0x8001, 10); // R7 = 10
 
-        assert_eq!(m.cpu_read(0x8000), 5);  // R6
+        assert_eq!(m.cpu_read(0x8000), 5); // R6
         assert_eq!(m.cpu_read(0xA000), 10); // R7
         assert_eq!(m.cpu_read(0xC000), 30); // second-to-last
         assert_eq!(m.cpu_read(0xE000), 31); // last
@@ -2226,14 +2247,14 @@ mod tests {
 
         // Set PRG mode 1, select R6
         m.cpu_write(0x8000, 0x46); // bank_select = 0x46 (bit 6 set, reg 6)
-        m.cpu_write(0x8001, 5);    // R6 = 5
+        m.cpu_write(0x8001, 5); // R6 = 5
 
         m.cpu_write(0x8000, 0x47); // reg 7
-        m.cpu_write(0x8001, 10);   // R7 = 10
+        m.cpu_write(0x8001, 10); // R7 = 10
 
         assert_eq!(m.cpu_read(0x8000), 30); // second-to-last (fixed)
         assert_eq!(m.cpu_read(0xA000), 10); // R7
-        assert_eq!(m.cpu_read(0xC000), 5);  // R6 (swapped to $C000)
+        assert_eq!(m.cpu_read(0xC000), 5); // R6 (swapped to $C000)
         assert_eq!(m.cpu_read(0xE000), 31); // last
     }
 
@@ -2249,10 +2270,14 @@ mod tests {
         m.cpu_write(0x8000, 1); // reg 1
         m.cpu_write(0x8001, 8); // R1 = 8 (→ pages 8,9)
 
-        m.cpu_write(0x8000, 2); m.cpu_write(0x8001, 20); // R2 = 20
-        m.cpu_write(0x8000, 3); m.cpu_write(0x8001, 21); // R3 = 21
-        m.cpu_write(0x8000, 4); m.cpu_write(0x8001, 22); // R4 = 22
-        m.cpu_write(0x8000, 5); m.cpu_write(0x8001, 23); // R5 = 23
+        m.cpu_write(0x8000, 2);
+        m.cpu_write(0x8001, 20); // R2 = 20
+        m.cpu_write(0x8000, 3);
+        m.cpu_write(0x8001, 21); // R3 = 21
+        m.cpu_write(0x8000, 4);
+        m.cpu_write(0x8001, 22); // R4 = 22
+        m.cpu_write(0x8000, 5);
+        m.cpu_write(0x8001, 23); // R5 = 23
 
         // $0000-$03FF = page 4, $0400-$07FF = page 5
         assert_eq!(m.chr_read(0x0000), 4);
@@ -2274,15 +2299,19 @@ mod tests {
 
         // Set CHR mode 1
         m.cpu_write(0x8000, 0x80); // reg 0, chr mode 1
-        m.cpu_write(0x8001, 4);    // R0 = 4
+        m.cpu_write(0x8001, 4); // R0 = 4
 
         m.cpu_write(0x8000, 0x81); // reg 1
-        m.cpu_write(0x8001, 8);    // R1 = 8
+        m.cpu_write(0x8001, 8); // R1 = 8
 
-        m.cpu_write(0x8000, 0x82); m.cpu_write(0x8001, 20); // R2
-        m.cpu_write(0x8000, 0x83); m.cpu_write(0x8001, 21); // R3
-        m.cpu_write(0x8000, 0x84); m.cpu_write(0x8001, 22); // R4
-        m.cpu_write(0x8000, 0x85); m.cpu_write(0x8001, 23); // R5
+        m.cpu_write(0x8000, 0x82);
+        m.cpu_write(0x8001, 20); // R2
+        m.cpu_write(0x8000, 0x83);
+        m.cpu_write(0x8001, 21); // R3
+        m.cpu_write(0x8000, 0x84);
+        m.cpu_write(0x8001, 22); // R4
+        m.cpu_write(0x8000, 0x85);
+        m.cpu_write(0x8001, 23); // R5
 
         // $0000 = R2, $0400 = R3, $0800 = R4, $0C00 = R5
         assert_eq!(m.chr_read(0x0000), 20);
@@ -2342,8 +2371,8 @@ mod tests {
         m.irq_enabled = true; // Enable directly for unit test
 
         // Set latch to 3
-        m.cpu_write(0xC000, 3);   // latch = 3
-        m.cpu_write(0xC001, 0);   // reload flag set
+        m.cpu_write(0xC000, 3); // latch = 3
+        m.cpu_write(0xC001, 0); // reload flag set
 
         // Simulate A12 rising edges by reading from $1000+ (A12=1)
         // after reading from $0000 (A12=0) to create a transition.
@@ -2480,9 +2509,9 @@ mod tests {
     fn color_dreams_prg_switching() {
         // 4 × 32K = 128K PRG
         let mut prg = vec![0u8; 4 * 32768];
-        prg[0] = 0xAA;          // bank 0, addr $8000
-        prg[32768] = 0xBB;      // bank 1, addr $8000
-        prg[2 * 32768] = 0xCC;  // bank 2, addr $8000
+        prg[0] = 0xAA; // bank 0, addr $8000
+        prg[32768] = 0xBB; // bank 1, addr $8000
+        prg[2 * 32768] = 0xCC; // bank 2, addr $8000
         let chr = vec![0u8; 8192];
         let mut m = ColorDreams::new(prg, chr, Mirroring::Vertical);
 
@@ -2496,8 +2525,8 @@ mod tests {
     #[test]
     fn color_dreams_chr_switching() {
         let mut chr = vec![0u8; 4 * 8192];
-        chr[0] = 0x11;        // bank 0
-        chr[8192] = 0x22;     // bank 1
+        chr[0] = 0x11; // bank 0
+        chr[8192] = 0x22; // bank 1
         chr[2 * 8192] = 0x33; // bank 2
         let prg = vec![0u8; 32768];
         let mut m = ColorDreams::new(prg, chr, Mirroring::Horizontal);
@@ -2523,9 +2552,9 @@ mod tests {
     #[test]
     fn gxrom_prg_switching() {
         let mut prg = vec![0u8; 4 * 32768];
-        prg[0] = 0xAA;          // bank 0
-        prg[32768] = 0xBB;      // bank 1
-        prg[2 * 32768] = 0xCC;  // bank 2
+        prg[0] = 0xAA; // bank 0
+        prg[32768] = 0xBB; // bank 1
+        prg[2 * 32768] = 0xCC; // bank 2
         let chr = vec![0u8; 8192];
         let mut m = GxRom::new(prg, chr, Mirroring::Vertical);
 
@@ -2565,8 +2594,8 @@ mod tests {
     #[test]
     fn mmc4_prg_16k_switching() {
         let mut prg = vec![0u8; 4 * 16384]; // 4 × 16K
-        prg[0] = 0xAA;          // bank 0
-        prg[16384] = 0xBB;      // bank 1
+        prg[0] = 0xAA; // bank 0
+        prg[16384] = 0xBB; // bank 1
         let chr = vec![0u8; 8 * 4096]; // 8 × 4K CHR
         let mut m = Mmc4::new(prg, chr);
         assert_eq!(m.cpu_read(0x8000), 0xAA);
@@ -2586,8 +2615,8 @@ mod tests {
     #[test]
     fn mmc4_chr_latch() {
         let mut chr = vec![0u8; 8 * 4096];
-        chr[0] = 0x11;        // bank 0 ($FD)
-        chr[4096] = 0x22;     // bank 1 ($FE)
+        chr[0] = 0x11; // bank 0 ($FD)
+        chr[4096] = 0x22; // bank 1 ($FE)
         let prg = vec![0u8; 16384];
         let mut m = Mmc4::new(prg, chr);
         m.cpu_write(0xB000, 0); // FD bank 0 = 0
@@ -2601,9 +2630,9 @@ mod tests {
     #[test]
     fn bxrom_prg_switching() {
         let mut prg = vec![0u8; 4 * 32768];
-        prg[0] = 0xFF;         // bus-conflict-safe write target
-        prg[1] = 0xAA;         // identifying byte at offset 1
-        prg[32768] = 0xFF;     // bank 1 write target
+        prg[0] = 0xFF; // bus-conflict-safe write target
+        prg[1] = 0xAA; // identifying byte at offset 1
+        prg[32768] = 0xFF; // bank 1 write target
         prg[32768 + 1] = 0xBB; // identifying byte
         let mut m = BxRom::new(prg, Mirroring::Vertical);
         assert_eq!(m.cpu_read(0x8001), 0xAA);

@@ -327,7 +327,7 @@ impl Dmac390537 {
         // FE_FLG: FIFO is always empty (no DMA in stub).
         val |= istr_bits::FE_FLG;
 
-        // INTS: WD33C93 interrupt pin.
+        // INTS follows the WD33C93 interrupt pin.
         if self.wd.int_active() {
             val |= istr_bits::INTS;
         }
@@ -396,6 +396,7 @@ impl Dmac390537 {
                 // PREST: assert peripheral reset while set.
                 if self.cntr & cntr_bits::PREST != 0 {
                     self.wd.hardware_reset();
+                    self.istr_latched = 0;
                 }
             }
             REG_WTC_HI => {
@@ -547,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    fn istr_reflects_wd_int() {
+    fn istr_reflects_live_wd_interrupt() {
         let mut d = Dmac390537::new();
         let sasr_addr = reg_addr(REG_SASR);
         let scmd_addr = reg_addr(REG_SCMD);
@@ -657,10 +658,7 @@ mod tests {
         assert_eq!(d.acr, 0);
         assert_eq!(d.istr_latched, 0);
         assert_eq!(d.wd.selected_reg, 0);
-        assert_eq!(
-            d.read_word(reg_addr(REG_ISTR)) as u8,
-            istr_bits::FE_FLG
-        );
+        assert_eq!(d.read_word(reg_addr(REG_ISTR)) as u8, istr_bits::FE_FLG);
     }
 
     #[test]
@@ -737,24 +735,44 @@ mod tests {
     }
 
     #[test]
-    fn cint_clears_latched_flags_but_not_wd_interrupt_source() {
+    fn wd_status_read_clears_live_dmac_interrupt_source() {
+        let mut d = Dmac390537::new();
+        let sasr_addr = reg_addr(REG_SASR);
+        let scmd_addr = reg_addr(REG_SCMD);
+        let istr_addr = reg_addr(REG_ISTR);
+
+        d.write_word(sasr_addr, wd_reg::COMMAND as u16);
+        d.write_word(scmd_addr, wd_cmd::RESET as u16);
+
+        d.write_word(sasr_addr, wd_reg::SCSI_STATUS as u16);
+        assert_eq!(d.read_word(scmd_addr) as u8, wd_csr::RESET);
+
+        let istr = d.read_word(istr_addr) as u8;
+        assert_eq!(istr & istr_bits::INTS, 0);
+        assert_eq!(istr & istr_bits::INT_F, 0);
+        assert_eq!(d.wd_asr() & wd_asr::INT, 0);
+    }
+
+    #[test]
+    fn cint_clears_latched_flags_but_not_live_wd_interrupt_source() {
         let mut d = Dmac390537::new();
         let sasr_addr = reg_addr(REG_SASR);
         let scmd_addr = reg_addr(REG_SCMD);
         let cint_addr = reg_addr(REG_CINT);
         let istr_addr = reg_addr(REG_ISTR);
 
-        d.istr_latched = 0x20;
         d.write_word(sasr_addr, wd_reg::COMMAND as u16);
         d.write_word(scmd_addr, wd_cmd::RESET as u16);
+        assert_ne!(d.read_word(istr_addr) as u8 & istr_bits::INTS, 0);
 
+        d.istr_latched = 0x20;
         d.write_word(cint_addr, 0);
 
-        let istr = d.read_word(istr_addr) as u8;
-        assert_eq!(d.istr_latched, 0);
-        assert_eq!(istr & 0x20, 0);
-        assert_ne!(istr & istr_bits::INTS, 0);
-        assert_ne!(istr & istr_bits::INT_F, 0);
+        let istr_after_cint = d.read_word(istr_addr) as u8;
+        assert_eq!(d.wd_asr() & wd_asr::INT, wd_asr::INT);
+        assert_eq!(istr_after_cint & 0x20, 0);
+        assert_ne!(istr_after_cint & istr_bits::INTS, 0);
+        assert_ne!(istr_after_cint & istr_bits::INT_F, 0);
     }
 
     #[test]
