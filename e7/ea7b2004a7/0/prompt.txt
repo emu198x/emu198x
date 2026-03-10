@@ -1,0 +1,664 @@
+Please review the current state of the codebase.
+
+---
+
+Let's try to continue with the work we had in progress then. I feel like (3) might be the most important piece, despite Codex's focus on (1)
+
+---
+
+Let's extract Gary, then create Buster and Super Buster. We also need to not just have stubs for the other chips, they should now be full implementations. Work in a sensible pattern - if it's easier to expand the stubbed chips first, do that before starting on those that are missing
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. **Initial Request**: User asked to "review the current state of the codebase" - this is an Emu198x cycle-accurate emulator suite for vintage computing (Spectrum, C64, NES, Amiga).
+
+2. **Codebase Review**: I read docs/roadmap.md, docs/status.md, ran git log, checked recent commits, ran tests. Found:
+   - 995 tests pass, 0 failures, 95 ignored
+   - 33 clippy warnings (cosmetic)
+   - Latest commit "Lots of work in progress" was huge (98 files, +130K lines) mostly Amiga trace tests
+   - Worktree was missing symlinks for `roms/` and `test-data/` directories
+   - Build initially failed due to missing `roms/48.rom` - fixed by symlinking
+
+3. **User's Second Message**: "Let's try to continue with the work we had in progress then. I feel like (3) might be the most important piece, despite Codex's focus on (1)"
+   - (1) was A3000 device init
+   - (3) was Amiga support-chip bring-up
+   - User explicitly chose support-chip bring-up as priority
+
+4. **Exploration Phase**: Launched explore agent to understand support chip state. Found:
+   - 4 extracted crates (Gayle, Fat Gary, Ramsey, DMAC) - all stubs
+   - Gary address decoder still inline in machine-amiga
+   - Buster and Super Buster missing entirely
+
+5. **User's Third Message**: "Let's extract Gary, then create Buster and Super Buster. We also need to not just have stubs for the other chips, they should now be full implementations. Work in a sensible pattern - if it's easier to expand the stubbed chips first, do that before starting on those that are missing"
+
+6. **Planning Phase**: Entered plan mode, launched 3 explore agents in parallel to research:
+   - Gary inline bus decode logic in poll_cycle()
+   - Existing stub implementations
+   - Buster/Gary hardware research from WinUAE
+
+7. **Read key files**: Read all 4 stub crate source files, config.rs, and the full poll_cycle() method
+
+8. **Launched Plan agent**: Got detailed implementation plan
+
+9. **Wrote plan file**: `/Users/stevehill/.claude/plans/idempotent-wibbling-pascal.md` with 7 phases
+
+10. **Plan approved**: User approved the plan
+
+11. **Phase 1 (Ramsey)**: 
+    - Expanded from 128 lines to full implementation with:
+      - Config register bit-field constants (CFG_PAGE_MODE through CFG_TIMEOUT)
+      - Two revision constants (REVISION_04 = $0D, REVISION_07 = $0F)
+      - Configurable revision via `with_revision()`
+      - Reset preserves revision
+      - Accessor methods for all config bits
+    - Fixed breaking change: `Ramsey::REVISION` constant removed, replaced with module-level `REVISION_04`
+    - Updated machine-amiga reference at line 3773
+    - All tests pass (7 Ramsey tests, 59 machine-amiga lib tests)
+
+12. **Phase 2 (Fat Gary)**: Started and wrote the full expanded file with:
+    - `TimeoutResult` enum (Ok, BusTimeout, Unmapped)
+    - `TOENB_ENABLE` constant
+    - `is_nonrange(addr)` method - identifies unmapped 24-bit addresses
+    - `check_timeout(addr)` method - returns TimeoutResult based on TOENB state
+    - `timeout_enabled()` accessor
+    - Comprehensive nonrange tests covering all address ranges
+    - Timeout check tests
+    - File was written but tests haven't been run yet
+
+Let me note the exact state: The Fat Gary file was written with `Write` tool, but no `cargo test` was run after it. The conversation was interrupted for this summary request.
+
+Key files:
+- `/Users/stevehill/Projects/Emu198x/.claude/worktrees/serene-maxwell/crates/commodore-ramsey/src/lib.rs` - fully expanded
+- `/Users/stevehill/Projects/Emu198x/.claude/worktrees/serene-maxwell/crates/commodore-fat-gary/src/lib.rs` - fully expanded but untested
+- `/Users/stevehill/Projects/Emu198x/.claude/worktrees/serene-maxwell/crates/machine-amiga/src/lib.rs` - one line changed (Ramsey::REVISION → REVISION_04)
+- Plan file at `/Users/stevehill/.claude/plans/idempotent-wibbling-pascal.md`
+
+The todo list shows Phase 1 completed, Phase 2 in_progress, Phases 3A-7 pending.
+
+Summary:
+1. Primary Request and Intent:
+   The user asked to review the codebase state, then continue with in-progress work focused on Amiga support-chip bring-up. Specifically, the user requested:
+   - Extract the Gary address decoder from inline code in `machine-amiga/src/lib.rs:poll_cycle()` into its own crate
+   - Create Buster (Zorro II) and Super Buster (Zorro III) bus controller crates
+   - Expand all existing stub crates (Fat Gary, Ramsey, Gayle, DMAC) to full implementations
+   - Work in a sensible order: expand stubs first if easier, then create missing chips
+   
+   The user explicitly chose support-chip bring-up (roadmap item 3) over A3000 device init (roadmap item 1), saying "(3) might be the most important piece, despite Codex's focus on (1)".
+
+2. Key Technical Concepts:
+   - Cycle-accurate emulation at crystal frequency (no instruction-level shortcuts)
+   - Amiga address decode architecture: Gary (primary decoder), Fat Gary (A3000/A4000 enhanced), Gayle (A600/A1200 IDE), Buster/Super Buster (Zorro bus controllers)
+   - 24-bit address space masking with 32-bit fast-RAM window pre-check
+   - Reactive bus model: `poll_cycle()` returns `BusStatus` (Ready/Wait/Error)
+   - Standalone IC library crates with no external dependencies
+   - Model-dependent address decode: A500/A1000/A2000 (Gary), A600/A1200 (Gayle), A3000/A4000 (Fat Gary + Ramsey + DMAC)
+   - ChipSelect enum pattern for centralizing address decode
+   - Autoconfig protocol at $E80000 for Zorro expansion boards
+   - IDE ATA state machine (task-file registers, PIO data transfer, IDENTIFY/READ/WRITE commands)
+   - WD33C93 SCSI controller state machine (SDMAC DMA registers, SCSI bus phases)
+   - Git worktree setup requiring symlinks for `roms/` and `test-data/`
+
+3. Files and Code Sections:
+
+   - **`crates/commodore-ramsey/src/lib.rs`** — Phase 1 COMPLETE
+     - Expanded from boot-only stub to full register implementation
+     - Added 8 config register bit-field constants (`CFG_PAGE_MODE` through `CFG_TIMEOUT`)
+     - Added two revision constants (`REVISION_04 = 0x0D`, `REVISION_07 = 0x0F`)
+     - Added `with_revision(revision: u8)` constructor
+     - Reset now preserves revision (only resets config)
+     - Added accessor methods: `page_mode_enabled()`, `static_column_enabled()`, `burst_enabled()`, `timeout_enabled()`, `slow_refresh()`, `dram_256k_x4()`
+     - 7 tests all passing
+     - Key change: `Ramsey::REVISION` constant removed, replaced with module-level `REVISION_04`
+
+   - **`crates/commodore-fat-gary/src/lib.rs`** — Phase 2 IN PROGRESS (file written, not yet tested)
+     - Added `TimeoutResult` enum: `Ok`, `BusTimeout`, `Unmapped`
+     - Added `TOENB_ENABLE` constant (bit 7)
+     - Added `is_nonrange(addr: u32) -> bool` — identifies unmapped 24-bit addresses by checking complement of known-good ranges (chip RAM, CIAs, custom, ROM, DMAC, resource regs, autoconfig, slow RAM window)
+     - Added `check_timeout(addr: u32) -> TimeoutResult` — combines nonrange check with TOENB state
+     - Added `timeout_enabled() -> bool` accessor
+     - Preserved all existing API (forwards_to_24bit_bus, read/write_resource_byte, etc.)
+     - Full test suite including nonrange and timeout tests
+     - Complete file content was written:
+     ```rust
+     pub const TOENB_ENABLE: u8 = 0x80;
+
+     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+     pub enum TimeoutResult {
+         Ok,
+         BusTimeout,
+         Unmapped,
+     }
+     
+     // Key method:
+     pub const fn is_nonrange(&self, addr: u32) -> bool {
+         let addr = addr & 0xFF_FFFF;
+         if addr < 0x20_0000 { return false; }          // Chip RAM
+         if (addr & 0xFFF000) == 0xBFE000 { return false; } // CIA-A
+         if (addr & 0xFFF000) == 0xBFD000 { return false; } // CIA-B
+         if (addr & 0xFFF000) == 0xDFF000 { return false; } // Custom
+         if addr >= 0xDD_0000 && addr < 0xDE_0000 { return false; } // DMAC
+         if addr >= 0xDE_0000 && addr < 0xDF_0000 { return false; } // Resource
+         if addr >= 0xE8_0000 && addr < 0xF0_0000 { return false; } // Autoconfig
+         if addr >= 0xF8_0000 { return false; }          // ROM
+         if addr >= 0xC0_0000 && addr < 0xE0_0000 { return false; } // Slow RAM window
+         true
+     }
+     
+     pub const fn check_timeout(&self, addr: u32) -> TimeoutResult {
+         if !self.is_nonrange(addr) { return TimeoutResult::Ok; }
+         if self.toenb & TOENB_ENABLE != 0 { TimeoutResult::BusTimeout }
+         else { TimeoutResult::Unmapped }
+     }
+     ```
+
+   - **`crates/machine-amiga/src/lib.rs`** — One line changed so far
+     - Line 3773: Changed `commodore_ramsey::Ramsey::REVISION` to `commodore_ramsey::REVISION_04`
+     - This is the central bus decode file (~2750+ lines) with `poll_cycle()` at lines 2343-2745
+     - Will be heavily refactored in Phase 3B to use Gary's `ChipSelect` enum
+
+   - **`crates/machine-amiga/src/config.rs`** — Read for context
+     - Contains `AmigaModel` enum: A1000, A500, A500Plus, A600, A1200, A2000, A3000, A4000
+     - Contains `AmigaChipset` enum: Ocs, Ecs, Aga
+     - Contains `AmigaRegion` enum: Pal, Ntsc
+     - Contains `AmigaConfig` struct
+
+   - **`crates/commodore-gayle/src/lib.rs`** — Read, not yet modified (Phase 4)
+     - 326 lines, IDE task-file address decode + 4 control registers
+     - No actual IDE drive state machine — `read_ide()` returns $7F/$FF
+
+   - **`crates/commodore-dmac-390537/src/lib.rs`** — Read, not yet modified (Phase 5)
+     - 826 lines, WD33C93 indirect registers + SDMAC DMA shell
+     - SELECT commands immediately time out (no SCSI targets)
+     - 18 existing tests
+
+   - **Plan file: `/Users/stevehill/.claude/plans/idempotent-wibbling-pascal.md`** — Approved plan with 7 phases
+
+4. Errors and fixes:
+   - **Build failure in worktree**: `include_bytes!("../../../roms/48.rom")` failed because the git worktree at `.claude/worktrees/serene-maxwell/` didn't have `roms/` or `test-data/` directories (they're gitignored). Fixed by creating symlinks:
+     ```bash
+     ln -s /Users/stevehill/Projects/Emu198x/roms /Users/stevehill/Projects/Emu198x/.claude/worktrees/serene-maxwell/roms
+     ln -s /Users/stevehill/Projects/Emu198x/test-data /Users/stevehill/Projects/Emu198x/.claude/worktrees/serene-maxwell/test-data
+     ```
+   - **Breaking API change in Ramsey**: Removing `Ramsey::REVISION` constant broke a reference in `machine-amiga/src/lib.rs:3773`. Fixed by updating to `commodore_ramsey::REVISION_04`.
+
+5. Problem Solving:
+   - Identified the worktree symlink issue and resolved it before running tests
+   - Determined the correct execution order for support chip work: small expansions first (Ramsey, Fat Gary), then Gary extraction (architectural foundation), then larger features (Gayle IDE, DMAC SCSI), then new crates (Buster, Super Buster)
+   - Designed Gary as a pure address decoder with `ChipSelect` enum to replace the ~400-line if-chain in `poll_cycle()`
+   - Chose enum-based slot contents for Buster (not trait objects) to avoid ownership complexity in the reactive bus model
+
+6. All user messages:
+   - "Please review the current state of the codebase."
+   - "Let's try to continue with the work we had in progress then. I feel like (3) might be the most important piece, despite Codex's focus on (1)"
+   - "Let's extract Gary, then create Buster and Super Buster. We also need to not just have stubs for the other chips, they should now be full implementations. Work in a sensible pattern - if it's easier to expand the stubbed chips first, do that before starting on those that are missing"
+   - (User approved the plan)
+
+7. Pending Tasks (from approved plan and todo list):
+   - **Phase 2 (in progress)**: Fat Gary expansion — file written, needs testing and machine-amiga wiring
+   - **Phase 3A**: Create `commodore-gary` crate with `ChipSelect` enum and `decode()` method
+   - **Phase 3B**: Refactor `machine-amiga/src/lib.rs:poll_cycle()` to use Gary decode
+   - **Phase 4**: Expand Gayle to full IDE ATA controller (IDENTIFY, READ, WRITE commands, disk image backend)
+   - **Phase 5**: Expand DMAC to full WD33C93 SCSI controller (SCSI bus state machine, disk image backend)
+   - **Phase 6**: Create `commodore-buster` — Zorro II bus controller with autoconfig
+   - **Phase 7**: Create `commodore-super-buster` — Zorro III bus controller
+
+8. Current Work:
+   I was working on **Phase 2: Expanding Fat Gary** with timeout/BERR behaviour. The file `crates/commodore-fat-gary/src/lib.rs` has been fully rewritten with the new `TimeoutResult` enum, `is_nonrange()`, and `check_timeout()` methods plus comprehensive tests. The file was written via the `Write` tool but **tests have not yet been run** — `cargo test -p commodore-fat-gary` needs to execute next. After tests pass, the machine-amiga wiring change needs to be made (checking Fat Gary timeout on unmapped addresses in poll_cycle's fallthrough path).
+
+9. Optional Next Step:
+   Run `cargo test -p commodore-fat-gary` to verify the Fat Gary expansion compiles and all tests pass. Then wire the timeout check into `machine-amiga/src/lib.rs:poll_cycle()` for the Unmapped address fallthrough path. This is directly continuing Phase 2 of the approved plan, which was the task in progress when this summary was requested. The todo list shows "Phase 2: Expand Fat Gary — timeout/BERR behaviour with is_nonrange and check_timeout" as `in_progress`.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. This is a continuation session from a previous conversation that ran out of context. The summary from the previous session tells us:
+   - Phases 1 (Ramsey expansion) and 2 (Fat Gary expansion - file written but untested) were done
+   - The user wanted to continue Amiga support-chip bring-up work
+   - A plan was approved with 7 phases
+
+2. In this session, the assistant:
+   - Restored the todo list showing Phase 1 complete, Phase 2 in progress
+   - Ran Fat Gary tests - all 18 passed
+   - Wired Fat Gary timeout check into machine-amiga poll_cycle (added between Gayle and chip RAM checks)
+   - Verified BusStatus::Error exists in bus.rs
+   - Ran machine-amiga lib tests - all 59 passed
+   - Ran full workspace tests - 0 failures
+   - Marked Phase 2 complete, started Phase 3A
+
+3. Phase 3A - Created commodore-gary crate:
+   - Created Cargo.toml and src/lib.rs
+   - Implemented ChipSelect enum with 11 variants
+   - Implemented Gary struct with config flags (slow_ram_present, gayle_present, dmac_present, resource_regs_present)
+   - Implemented decode() method with priority-ordered address mapping
+   - One test failure: gayle_decode test asserted $DFFFFF → Gayle but Custom shadows it
+   - Fixed test, all 25 tests passed
+
+4. Phase 3B - Refactored machine-amiga poll_cycle:
+   - Added commodore-gary dependency to Cargo.toml
+   - Added Gary import and re-export
+   - Added gary: Gary field to Amiga struct (not Option - every model has one)
+   - Added gary: &'a Gary to AmigaBusWrapper
+   - Configured Gary at construction based on model
+   - Updated all 6 AmigaBusWrapper construction sites in lib.rs
+   - Replaced entire if-chain in poll_cycle with match self.gary.decode(addr)
+   - Found missing gary field in test files (blitter_timing.rs, sprite_rendering.rs, disk_dma.rs)
+   - Fixed with gsed, all tests passed
+   - Verified amiga-runner compiles
+
+5. Phase 4 - Started Gayle IDE ATA expansion:
+   - Read existing Gayle stub (326 lines, 13 tests)
+   - Wrote complete new implementation with:
+     - IdeDrive struct with full ATA task-file state machine
+     - DiskGeometry struct with from_image_size()
+     - IdeState enum (Idle, DataIn, DataOut)
+     - IDE commands: IDENTIFY ($EC), READ ($20), WRITE ($30), SET FEATURES ($EF), DEVICE RESET ($08), DIAGNOSTIC ($90)
+     - Word-sized DATA register access (read_word/write_word)
+     - with_disk() and attach_disk() constructors
+     - 22 tests covering all commands, CHS/LBA addressing, IRQ flow
+   - File was written but tests haven't been run yet
+
+User messages in this session:
+- "Yep, then please continue" (while Fat Gary was being wired)
+- "Please do go for it" (while Gary extraction was being done)
+- "Sounds good, please continue." (while Gayle was being written)
+
+The user consistently encouraged continuing the work without interruption.
+
+The most recent work was writing the full Gayle IDE ATA implementation. The file was written but cargo test -p commodore-gayle has NOT been run yet. Additionally, the machine-amiga Gayle decode block needs updating to handle word-sized DATA register access.
+
+Summary:
+1. Primary Request and Intent:
+   The user is continuing a multi-phase plan to expand Amiga support chips from stubs to full implementations, extract the Gary address decoder into its own crate, and create missing bus controllers. The approved plan has 7 phases:
+   - Phase 1: Expand Ramsey (COMPLETED in prior session)
+   - Phase 2: Expand Fat Gary with timeout/BERR (COMPLETED this session)
+   - Phase 3A: Create commodore-gary crate (COMPLETED this session)
+   - Phase 3B: Refactor machine-amiga poll_cycle to use Gary (COMPLETED this session)
+   - Phase 4: Expand Gayle — full IDE ATA controller (IN PROGRESS - file written, untested)
+   - Phase 5: Expand DMAC — full WD33C93 SCSI controller (pending)
+   - Phase 6: Create commodore-buster — Zorro II bus controller (pending)
+   - Phase 7: Create commodore-super-buster — Zorro III bus controller (pending)
+   
+   Plan file: `/Users/stevehill/.claude/plans/idempotent-wibbling-pascal.md`
+
+2. Key Technical Concepts:
+   - Cycle-accurate Amiga emulation at crystal frequency
+   - Gary address decoder: centralised ChipSelect enum replacing ~400-line if-chain in poll_cycle()
+   - Fat Gary: nonrange/timeout check for A3000/A4000 (TOENB register controls bus-error vs floating-bus)
+   - IDE ATA task-file state machine (PIO data transfer, IDENTIFY/READ/WRITE commands)
+   - Gayle address filter: bits 17+19 must be set ($DA0000 range)
+   - BusStatus enum: Ready(u16), Wait, Error — reactive bus model
+   - AmigaBusWrapper: borrowed struct passed to CPU tick() for bus cycles
+   - DiskGeometry: CHS/LBA addressing, 1-based CHS sector numbers
+   - Amiga model-dependent address decode: A500 (Gary), A600/A1200 (Gayle), A3000/A4000 (Fat Gary + Ramsey + DMAC)
+
+3. Files and Code Sections:
+
+   - **`crates/commodore-fat-gary/src/lib.rs`** — Expanded in prior session, tested and wired this session
+     - 18 tests all pass
+     - Key types: `TimeoutResult` enum (Ok, BusTimeout, Unmapped), `TOENB_ENABLE` constant
+     - Key methods: `is_nonrange(addr)`, `check_timeout(addr)`, `timeout_enabled()`
+
+   - **`crates/commodore-gary/Cargo.toml`** — NEW crate created this session
+     ```toml
+     [package]
+     name = "commodore-gary"
+     description = "Commodore Gary address decoder for Amiga systems"
+     version.workspace = true
+     edition.workspace = true
+     license.workspace = true
+     ```
+
+   - **`crates/commodore-gary/src/lib.rs`** — NEW, 25 tests passing
+     - `ChipSelect` enum: CiaA, CiaB, Custom, Dmac, ResourceRegisters, Gayle, ChipRam, SlowRam, Autoconfig, Rom, Unmapped
+     - `Gary` struct with config flags: slow_ram_present, gayle_present, dmac_present, resource_regs_present
+     - `decode(&self, addr: u32) -> ChipSelect` — const fn, masks to 24 bits, priority-ordered decode
+     - Slow RAM range extends to $DFFFFF when no Gayle/DMAC/resource-regs present, truncates to $D7FFFF otherwise
+     - Truth-table tests for A500, A3000, A1200 configurations
+
+   - **`crates/machine-amiga/Cargo.toml`** — Added Gary dependency
+     ```toml
+     commodore-gary = { path = "../commodore-gary" }
+     ```
+
+   - **`crates/machine-amiga/src/lib.rs`** — Major refactor
+     - Added `use commodore_gary::Gary;` and `pub use commodore_gary;`
+     - Added `pub gary: Gary` field to `Amiga` struct
+     - Added `pub gary: &'a Gary` to `AmigaBusWrapper`
+     - Gary configured at construction:
+       ```rust
+       gary: {
+           let mut gary = Gary::new();
+           gary.set_slow_ram_present(slow_ram_size > 0);
+           gary.set_gayle_present(matches!(model, AmigaModel::A600 | AmigaModel::A1200));
+           gary.set_dmac_present(matches!(model, AmigaModel::A3000));
+           gary.set_resource_regs_present(
+               matches!(model, AmigaModel::A3000 | AmigaModel::A4000),
+           );
+           gary
+       },
+       ```
+     - **poll_cycle() completely refactored** from if-chain to `match self.gary.decode(addr)` with arms for each ChipSelect variant
+     - Pre-24-bit checks preserved before match: IACK, fast RAM, Fat Gary 24-bit gate
+     - Fat Gary nonrange/timeout check moved into `ChipSelect::Unmapped` arm
+     - All 6 AmigaBusWrapper construction sites updated with `gary: &self.gary` or `gary: &amiga.gary`
+
+   - **Test files updated** (gsed):
+     - `crates/machine-amiga/tests/blitter_timing.rs` — 3 AmigaBusWrapper sites
+     - `crates/machine-amiga/tests/sprite_rendering.rs` — 1 site
+     - `crates/machine-amiga/tests/disk_dma.rs` — 1 site
+
+   - **`crates/commodore-gayle/src/lib.rs`** — REWRITTEN (Phase 4, file written but NOT YET TESTED)
+     - Added `DiskGeometry` struct with `from_image_size()` and `total_sectors()`
+     - Added `IdeDrive` struct with full ATA task-file state machine:
+       - Registers: error, sector_count, sector_number, cylinder_lo, cylinder_hi, dev_head, status
+       - States: Idle, DataIn, DataOut
+       - Commands: IDENTIFY ($EC), READ SECTORS ($20), WRITE SECTORS ($30), SET FEATURES ($EF), DEVICE RESET ($08), EXECUTE DIAGNOSTIC ($90)
+       - CHS/LBA addressing (dev_head bit 6 selects mode, CHS sectors 1-based)
+       - Data buffer with word-level read/write for 16-bit DATA register
+       - IRQ with NIEN support
+     - Gayle struct reworked: `drive: Option<IdeDrive>` replaces `ide_status`/`drive_present` fields
+     - New constructors: `with_disk(image, geometry)`, `attach_disk(&mut self, image, geometry)`
+     - Added `read_word()` and `write_word()` for 16-bit IDE DATA register access
+     - `ide_irq_pending()` now checks actual drive IRQ state + Gayle INT enable
+     - 22 tests covering no-drive, task-file roundtrip, IDENTIFY, READ, WRITE, SET FEATURES, DIAGNOSTIC, CHS addressing, IRQ flow, attach_disk
+     - IDENTIFY response includes: geometry (words 1,3,6), model string, LBA capability (word 49), total sectors (words 57-58, 60-61)
+
+4. Errors and fixes:
+   - **Missing gary field in test files**: After refactoring AmigaBusWrapper to include `gary`, the test files (blitter_timing.rs, sprite_rendering.rs, disk_dma.rs) also constructed AmigaBusWrapper but were missing the new field. Compilation error: `error[E0063]: missing field 'gary' in initializer of 'AmigaBusWrapper<'_>'`. Fixed with gsed to add `gary: &amiga.gary,` after each `fat_gary: &mut amiga.fat_gary,` line.
+   - **Gary test failure — gayle_decode**: Test asserted `gary.decode(0xDFFFFF) == ChipSelect::Gayle` but $DFFFFF is in $DFFxxx range which matches Custom first. Fixed the test to check $DEFFFF instead and added explicit assertion that $DFF000 returns Custom (priority shadowing).
+   - **Prior session's Fat Gary wiring placement**: Initially placed the Fat Gary timeout check between Gayle and chip RAM blocks. This was correct since it acts as a catchall for addresses not claimed by any specific chip select.
+
+5. Problem Solving:
+   - Designed Gary's `decode()` as a `const fn` taking `&self` (read-only) — added to AmigaBusWrapper as `&'a Gary` not `&'a mut Gary` since decode is stateless
+   - Slow RAM range correctly extends to $DFFFFF on models without Gayle/DMAC/resource-regs, but truncates to $D7FFFF when those peripherals consume that address space
+   - ChipSelect::Dmac and ChipSelect::Gayle arms check `if let Some(...)` for the peripheral Option, returning 0 if the peripheral isn't actually present (shouldn't happen if Gary is configured correctly, but defensive)
+   - IDE ATA IDENTIFY response uses ATA string format (character pairs byte-swapped)
+   - Gayle IRQ flow: command execution sets drive.irq_pending, then poll_cycle's write_ide_byte propagates to gayle_irq bit 7
+
+6. All user messages:
+   - (Previous session messages summarized in context)
+   - "Yep, then please continue" — sent while Fat Gary was being wired into machine-amiga
+   - "Please do go for it" — sent while Gary extraction / poll_cycle refactor was in progress
+   - "Sounds good, please continue." — sent while Gayle IDE implementation was being written
+
+7. Pending Tasks:
+   - **Phase 4 (in progress)**: Run `cargo test -p commodore-gayle` to verify the new IDE implementation compiles and passes. Then update machine-amiga's Gayle decode arm to use word-sized DATA register access.
+   - **Phase 5**: Expand DMAC 390537 to full WD33C93 SCSI controller with disk targets
+   - **Phase 6**: Create commodore-buster — Zorro II bus controller with autoconfig
+   - **Phase 7**: Create commodore-super-buster — Zorro III bus controller
+
+8. Current Work:
+   Phase 4 (Gayle IDE ATA expansion) is in progress. The complete rewrite of `crates/commodore-gayle/src/lib.rs` has been written via the Write tool with a full IDE ATA controller implementation including IdeDrive state machine, DiskGeometry, 6 IDE commands, word-sized DATA register, IRQ flow, and 22 tests. **The file has NOT been tested yet** — `cargo test -p commodore-gayle` needs to run next. After tests pass, machine-amiga's Gayle decode arm needs updating to handle word-sized DATA register access (currently only uses byte `read()`/`write()` for Gayle).
+
+9. Optional Next Step:
+   Run `cargo test -p commodore-gayle` to verify the Gayle IDE implementation compiles and all 22 tests pass. Then update machine-amiga's `ChipSelect::Gayle` arm in poll_cycle to use `read_word()`/`write_word()` for word-sized accesses (the IDE DATA register requires 16-bit transfers). This directly continues Phase 4 of the approved plan. The user's most recent message was "Sounds good, please continue." confirming they want uninterrupted progress through the phases.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. **Context Recovery**: This session is a continuation from a previous conversation that ran out of context. The summary tells us:
+   - Phases 1-3B were completed in the previous session
+   - Phase 4 (Gayle IDE) was written but untested
+   - A 7-phase plan exists for Amiga support chip extraction
+
+2. **Phase 4 Completion (Gayle IDE)**:
+   - Ran `cargo test -p commodore-gayle` - all 25 tests passed
+   - Fixed unused `STATUS_BSY` constant (renamed to `_STATUS_BSY`)
+   - Updated machine-amiga's `ChipSelect::Gayle` arm for word-sized access (read_word/write_word)
+   - Added `ide_disk: Option<Vec<u8>>` to `AmigaConfig`
+   - Updated `new_with_config()` to use `Gayle::with_disk()` when ide_disk provided
+   - Had to fix many AmigaConfig construction sites across the codebase
+   - Multiple gsed issues: injected `ide_disk: None` into function calls, struct definitions, and destructure patterns
+   - All 59 machine-amiga lib tests passed, full workspace clean
+
+3. **Phase 5 (DMAC SCSI)**:
+   - Read existing DMAC stub (826 lines, 18 tests)
+   - Wrote complete rewrite with SCSI target support
+   - Added ScsiTarget struct, CDB building, 9 SCSI commands
+   - DMA buffer with read/write byte-level access
+   - All 37 tests passed (18 original + 19 new)
+   - Added `scsi_disk: Option<Vec<u8>>` to AmigaConfig
+   - Updated DMAC construction to use `Dmac390537::with_disk(0, image)`
+   - Same gsed pattern issues with adding scsi_disk to all sites
+
+4. **Phase 6 (Buster - Zorro II) - IN PROGRESS**:
+   - Created `crates/commodore-buster/Cargo.toml` and `src/lib.rs`
+   - Wrote complete implementation with autoconfig protocol
+   - File written but tests NOT yet run
+   - machine-amiga NOT yet wired
+
+5. **User messages**: "Perfect, do continue." and "Keep going!" - both encouraging continued work without interruption.
+
+Let me now capture all the important details for the summary.
+
+Summary:
+1. Primary Request and Intent:
+   The user is continuing a multi-phase plan to expand Amiga support chips from stubs to full implementations, extract the Gary address decoder, and create missing bus controllers. The approved plan has 7 phases documented at `/Users/stevehill/.claude/plans/idempotent-wibbling-pascal.md`:
+   - Phase 1: Expand Ramsey (COMPLETED in prior session)
+   - Phase 2: Expand Fat Gary with timeout/BERR (COMPLETED in prior session, tested/wired this session)
+   - Phase 3A: Create commodore-gary crate (COMPLETED in prior session)
+   - Phase 3B: Refactor machine-amiga poll_cycle to use Gary (COMPLETED in prior session)
+   - Phase 4: Expand Gayle — full IDE ATA controller (COMPLETED this session)
+   - Phase 5: Expand DMAC — full WD33C93 SCSI controller (COMPLETED this session)
+   - Phase 6: Create commodore-buster — Zorro II bus controller (IN PROGRESS - file written, NOT tested)
+   - Phase 7: Create commodore-super-buster — Zorro III bus controller (pending)
+
+2. Key Technical Concepts:
+   - Cycle-accurate Amiga emulation at crystal frequency
+   - Gary address decoder: centralized `ChipSelect` enum replacing ~400-line if-chain in poll_cycle()
+   - Fat Gary: nonrange/timeout check for A3000/A4000 (TOENB register)
+   - IDE ATA task-file state machine (PIO data transfer, IDENTIFY/READ/WRITE commands)
+   - Gayle address filter: bits 17+19 must be set ($DA0000 range)
+   - WD33C93 SCSI controller with target-awareness and command processing
+   - SCSI commands: TEST UNIT READY, REQUEST SENSE, INQUIRY, MODE SENSE(6), READ CAPACITY(10), READ(6), READ(10), WRITE(6), WRITE(10)
+   - DMA buffer-based transfers (instantaneous, no real timing)
+   - Zorro II autoconfig protocol at $E80000 (nybble-packed, inverted descriptors)
+   - BusStatus enum: Ready(u16), Wait, Error — reactive bus model
+   - AmigaBusWrapper: borrowed struct passed to CPU tick() for bus cycles
+   - DiskGeometry: CHS/LBA addressing for IDE, pure LBA for SCSI
+   - Amiga model-dependent address decode: A500 (Gary), A600/A1200 (Gayle), A3000/A4000 (Fat Gary + Ramsey + DMAC)
+
+3. Files and Code Sections:
+
+   - **`crates/commodore-gayle/src/lib.rs`** — Full IDE ATA controller (Phase 4, COMPLETED)
+     - Renamed `STATUS_BSY` to `_STATUS_BSY` to fix unused warning
+     - 25 tests all pass including IDE IDENTIFY, READ, WRITE, SET FEATURES, DIAGNOSTIC
+     - Key types: `DiskGeometry`, `IdeDrive` (ATA task-file state machine), `IdeState` enum
+     - Key API: `read_word(addr)`, `write_word(addr, val)`, `with_disk(image, geometry)`, `attach_disk()`
+
+   - **`crates/machine-amiga/src/config.rs`** — Added two new config fields
+     ```rust
+     pub ide_disk: Option<Vec<u8>>,
+     pub scsi_disk: Option<Vec<u8>>,
+     ```
+
+   - **`crates/machine-amiga/src/lib.rs`** — Multiple changes:
+     - Updated `ChipSelect::Gayle` arm for word-sized access:
+       ```rust
+       ChipSelect::Gayle => {
+           if let Some(gayle) = self.gayle {
+               if is_read {
+                   let val = if is_word {
+                       gayle.read_word(addr)
+                   } else {
+                       u16::from(gayle.read(addr))
+                   };
+                   return BusStatus::Ready(val);
+               }
+               let val = data.unwrap_or(0);
+               if is_word {
+                   gayle.write_word(addr, val);
+               } else {
+                   gayle.write(addr, val as u8);
+               }
+               BusStatus::Ready(0)
+           } else {
+               BusStatus::Ready(0)
+           }
+       }
+       ```
+     - Updated `new()` and `new_with_config()` destructure to include `ide_disk` and `scsi_disk`
+     - Gayle construction uses `Gayle::with_disk()` when ide_disk provided:
+       ```rust
+       gayle: match model {
+           AmigaModel::A600 | AmigaModel::A1200 => {
+               if let Some(image) = ide_disk {
+                   let geometry = commodore_gayle::DiskGeometry::from_image_size(image.len());
+                   Some(Gayle::with_disk(image, geometry))
+               } else {
+                   Some(Gayle::new())
+               }
+           }
+           _ => None,
+       },
+       ```
+     - DMAC construction uses `Dmac390537::with_disk()` when scsi_disk provided:
+       ```rust
+       dmac: match model {
+           AmigaModel::A3000 => {
+               if let Some(image) = scsi_disk {
+                   Some(Dmac390537::with_disk(0, image))
+               } else {
+                   Some(Dmac390537::new())
+               }
+           }
+           _ => None,
+       },
+       ```
+     - All AmigaConfig construction sites (50+) updated with `ide_disk: None, scsi_disk: None,`
+
+   - **`crates/machine-amiga/src/mcp.rs`** — Added `ide_disk: None, scsi_disk: None,` to 3 AmigaConfig sites
+
+   - **`crates/amiga-runner/src/main.rs`** — Added `ide_disk: None, scsi_disk: None,` to AmigaConfig
+
+   - **`crates/machine-amiga/tests/privilege_probe.rs`** — Fixed gsed misinjections (removed `ide_disk: None` from ProbeSpec struct definition and ProbeSpec literals)
+
+   - **`crates/commodore-dmac-390537/src/lib.rs`** — Full SCSI controller (Phase 5, COMPLETED)
+     - Complete rewrite preserving all 18 existing tests + 19 new
+     - Added `ScsiTarget` struct with disk image, sense data
+     - Added `targets: [Option<ScsiTarget>; 7]` to Wd33c93
+     - Added DMA buffer with `dma_read_byte()`, `dma_write_byte()`, `dma_pending()`, `dma_direction_read()`
+     - SCSI command processor supporting 9 commands
+     - Selection of absent target still produces timeout (backward compatible)
+     - New public API: `with_disk(target_id, image)`, `attach_disk()`, `target_present()`, `dma_active()`, `dma_bytes_remaining()`
+     - 37 tests all pass
+
+   - **`crates/commodore-buster/Cargo.toml`** — NEW crate (Phase 6, file written but NOT tested)
+     ```toml
+     [package]
+     name = "commodore-buster"
+     description = "Commodore Buster — Zorro II bus controller for Amiga systems"
+     version.workspace = true
+     edition.workspace = true
+     license.workspace = true
+     [lib]
+     name = "commodore_buster"
+     path = "src/lib.rs"
+     ```
+
+   - **`crates/commodore-buster/src/lib.rs`** — NEW, Zorro II bus controller (Phase 6, file written but NOT tested)
+     - `BoardSize` enum: Size64K through Size8M with code/bytes conversions
+     - `AutoconfigDescriptor` struct with `build_rom()` for nybble-packed inverted ROM image
+     - `ZorroIIRamBoard` with RAM data and configured base address
+     - `ZorroIISlot` enum (currently just `Ram` variant)
+     - `Buster` struct managing autoconfig protocol:
+       - `autoconfig_read(addr)` / `autoconfig_write(addr, val)` for $E80000 block
+       - `board_read(addr)` / `board_write(addr, val)` for configured board dispatch
+       - `add_ram(size)`, `add_slot(slot)`, `reset()`, `autoconfig_complete()`
+     - 11 tests covering: empty buster, single board autoconfig, base address assignment, shutup, two-board sequential config, out-of-range reads, reset, product/manufacturer readback, size roundtrip
+
+   - **Multiple test files** in `crates/machine-amiga/tests/` — All updated with `ide_disk: None, scsi_disk: None,` via gsed
+
+4. Errors and fixes:
+   - **gsed injecting into function calls**: When adding `ide_disk: None,` after `slow_ram_size,` lines, gsed matched `slow_ram_size` in `Memory::new_with_fast_ram()` function call, not just AmigaConfig struct literals. Fixed by manually removing the misplaced injection.
+   - **gsed duplicating in already-edited sites**: The gsed pattern matched the `new()` and destructure sites that were already manually edited, creating duplicates like `ide_disk: None, ide_disk: None,`. Fixed by manually removing duplicates.
+   - **gsed injecting into ProbeSpec struct definition**: The pattern `slow_ram_size.*,Analysis:
+Let me chronologically analyze the conversation:
+
+1. **Context Recovery**: This session is a continuation from a previous conversation that ran out of context. The summary tells us:
+   - Phases 1-3B were completed in the previous session
+   - Phase 4 (Gayle IDE) was written but untested
+   - A 7-phase plan exists for Amiga support chip extraction
+
+2. **Phase 4 Completion (Gayle IDE)**:
+   - Ran `cargo test -p commodore-gayle` - all 25 tests passed
+   - Fixed unused `STATUS_BSY` constant (renamed to `_STATUS_BSY`)
+   - Updated machine-amiga's `ChipSelect::Gayle` arm for word-sized access (read_word/write_word)
+   - Added `ide_disk: Option<Vec<u8>>` to `AmigaConfig`
+   - Updated `new_with_config()` to use `Gayle::with_disk()` when ide_disk provided
+   - Had to fix many AmigaConfig construction sites across the codebase
+   - Multiple gsed issues: injected `ide_disk: None` into function calls, struct definitions, and destructure patterns
+   - All 59 machine-amiga lib tests passed, full workspace clean
+
+3. **Phase 5 (DMAC SCSI)**:
+   - Read existing DMAC stub (826 lines, 18 tests)
+   - Wrote complete rewrite with SCSI target support
+   - Added ScsiTarget struct, CDB building, 9 SCSI commands
+   - DMA buffer with read/write byte-level access
+   - All 37 tests passed (18 original + 19 new)
+   - Added `scsi_disk: Option<Vec<u8>>` to AmigaConfig
+   - Updated DMAC construction to use `Dmac390537::with_disk(0, image)`
+   - Same gsed pattern issues with adding scsi_disk to all sites
+
+4. **Phase 6 (Buster - Zorro II) - IN PROGRESS**:
+   - Created `crates/commodore-buster/Cargo.toml` and `src/lib.rs`
+   - Wrote complete implementation with autoconfig protocol
+   - File written but tests NOT yet run
+   - machine-amiga NOT yet wired
+
+5. **User messages**: "Perfect, do continue." and "Keep going!" - both encouraging continued work without interruption.
+
+Let me now capture all the important details for the summary.
+
+ matched the `slow_ram_size: usize,` field declaration in the ProbeSpec struct definition (not an AmigaConfig literal), inserting `ide_disk: None,` into the struct definition. Fixed by manually removing the misplaced line.
+   - **gsed injecting into ProbeSpec struct literals**: Three ProbeSpec literals also had `slow_ram_size` fields that matched the gsed pattern, getting `ide_disk: None,` injected. Fixed with targeted `replace_all` edits.
+   - **Indentation mismatches**: gsed expected 12-space indent but some sites had 8-space indent (amiga-runner, privilege_probe). Fixed by manual edits.
+   - **amiga-runner not caught by gsed for scsi_disk**: The 4-space indent in amiga-runner didn't match the 12-space gsed pattern. Fixed manually.
+   - **Unused `dma_read_byte` return value**: Clippy warning in DMAC test. Fixed with `let _ = d.dma_read_byte();`.
+
+5. Problem Solving:
+   - Designed Gayle word-sized access by routing `is_word` reads/writes through `read_word()`/`write_word()` in the ChipSelect::Gayle arm, while byte access uses existing `read()`/`write()`
+   - Added `ide_disk` and `scsi_disk` as `Option<Vec<u8>>` to AmigaConfig to allow disk images at construction time
+   - DMAC SCSI uses buffer-based DMA (instantaneous transfers) with `dma_read_byte()`/`dma_write_byte()` for machine-amiga to service
+   - SCSI write commands use a two-phase approach: `do_scsi_write_prepare()` allocates the buffer, then `commit_write()` fires when the DMA buffer is full
+   - Buster autoconfig uses inverted nybble-packed ROM with standard Zorro II protocol (BASE_HI/BASE_LO/SHUTUP writes)
+
+6. All user messages:
+   - "Perfect, do continue." — sent while DMAC Phase 5 was being written
+   - "Keep going!" — sent while Buster Phase 6 was being written
+
+7. Pending Tasks:
+   - **Phase 6 (in progress)**: Run `cargo test -p commodore-buster` to verify the Buster implementation. Then add Buster to machine-amiga (dependency, `buster: Option<Buster>` field, route `ChipSelect::Autoconfig` to Buster, check Buster for board I/O on `ChipSelect::Unmapped` addresses).
+   - **Phase 7**: Create commodore-super-buster — Zorro III bus controller with 32-bit address space
+
+8. Current Work:
+   Phase 6 (Buster — Zorro II Bus Controller) is in progress. The complete `crates/commodore-buster/src/lib.rs` file has been written with the full Zorro II autoconfig protocol implementation, `ZorroIISlot` enum, `ZorroIIRamBoard`, and `Buster` struct with 11 tests. The `Cargo.toml` has also been created. **The crate has NOT been tested yet** — `cargo test -p commodore-buster` needs to run next. After tests pass, machine-amiga needs to be wired up: add the dependency, add `buster: Option<Buster>` to the Amiga struct, route `ChipSelect::Autoconfig` reads/writes to Buster, and optionally check Buster for board I/O on `ChipSelect::Unmapped` addresses (configured boards live in otherwise-unmapped ranges like $200000-$9FFFFF). The user's most recent message was "Keep going!" confirming they want uninterrupted progress.
+
+9. Optional Next Step:
+   Run `cargo test -p commodore-buster` to verify the Buster Zorro II implementation compiles and all 11 tests pass. Then wire Buster into machine-amiga by adding the crate dependency, adding `buster: Option<Buster>` to the Amiga struct, and routing autoconfig/board I/O. This directly continues Phase 6 of the approved plan. The user's messages "Perfect, do continue." and "Keep going!" confirm they want uninterrupted progress through all phases.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/stevehill/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+Please commit all of my changes so we can make a PR.

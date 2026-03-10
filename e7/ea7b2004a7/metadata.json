@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "e7ea7b2004a7",
+  "strategy": "manual-commit",
+  "branch": "claude/serene-maxwell",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    "crates/amiga-runner/src/main.rs",
+    "crates/commodore-buster/Cargo.toml",
+    "crates/commodore-buster/src/lib.rs",
+    "crates/commodore-dmac-390537/src/lib.rs",
+    "crates/commodore-fat-gary/src/lib.rs",
+    "crates/commodore-gary/Cargo.toml",
+    "crates/commodore-gary/src/lib.rs",
+    "crates/commodore-gayle/src/lib.rs",
+    "crates/commodore-ramsey/src/lib.rs",
+    "crates/commodore-super-buster/Cargo.toml",
+    "crates/commodore-super-buster/src/lib.rs",
+    "crates/machine-amiga/Cargo.toml",
+    "crates/machine-amiga/src/config.rs",
+    "crates/machine-amiga/src/lib.rs",
+    "crates/machine-amiga/src/mcp.rs",
+    "crates/machine-amiga/tests/blitter_timing.rs",
+    "crates/machine-amiga/tests/disk_dma.rs",
+    "crates/machine-amiga/tests/privilege_probe.rs",
+    "crates/machine-amiga/tests/sprite_rendering.rs",
+    "roms",
+    "test-data"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e7/ea7b2004a7/0/metadata.json",
+      "transcript": "/e7/ea7b2004a7/0/full.jsonl",
+      "context": "/e7/ea7b2004a7/0/context.md",
+      "content_hash": "/e7/ea7b2004a7/0/content_hash.txt",
+      "prompt": "/e7/ea7b2004a7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 313,
+    "cache_creation_tokens": 600885,
+    "cache_read_tokens": 34767838,
+    "output_tokens": 147625,
+    "api_call_count": 297
+  }
+}
