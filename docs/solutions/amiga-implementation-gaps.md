@@ -23,6 +23,7 @@ The following items from the original audit have been implemented:
 9. **MOVE16** (motorola-68000) — 68040+ block move
 10. **Battery-Backed Clock** (machine-amiga) — MSM6242B via Gary chip select
 11. **DIVSL/DIVUL Overflow Flags** (motorola-68000) — matches WinUAE
+12. **Serial Port Receive** (machine-amiga) — RBF interrupt, baud-rate countdown, queue API
 
 ---
 
@@ -65,13 +66,7 @@ translation tables, no TC/TT0/TT1/SRP/URP/CRP registers stored.
 
 **Impact:** Low for correctness. Affects performance accuracy only.
 
-### 3. Serial Port Receive (machine-amiga) — PARTIAL
-
-SERPER stored, SERDAT triggers transmit with baud-rate countdown. TBE/TSRE
-status in SERDATR, TBE interrupt fires via Paula when transmit completes.
-RBF (receive) not implemented. No external serial I/O hook yet.
-
-### 4. PCMCIA (commodore-gayle)
+### 3. PCMCIA (commodore-gayle)
 
 **Status:** Not implemented. Gayle PCMCIA address space not wired.
 
@@ -84,7 +79,7 @@ RBF (receive) not implemented. No external serial I/O hook yet.
 
 **Impact:** Very low. Few users relied on PCMCIA storage.
 
-### 5. Data Cache Model (motorola-68000)
+### 4. Data Cache Model (motorola-68000)
 
 **Status:** Capability flag present, no implementation. Harmless for
 correctness since DMA writes are immediately visible.

@@ -498,6 +498,14 @@ pub struct Amiga {
     /// Countdown in CCKs until transmit shift register finishes sending.
     /// When this reaches 0, TBE and TSRE are set and TBE interrupt fires.
     serial_shift_countdown: u32,
+    /// Countdown in CCKs until receive shift register finishes receiving.
+    /// When this reaches 0, the byte is stored in SERDATR and RBF fires.
+    serial_rx_countdown: u32,
+    /// The byte currently being shifted in by the receive shift register.
+    serial_rx_shift_byte: u16,
+    /// Queue of bytes waiting to be received. The next byte starts shifting
+    /// in as soon as the previous receive completes and SERPER is configured.
+    serial_rx_queue: std::collections::VecDeque<u8>,
     // -- Battery-backed clock (RTC) -----------------------------------------
     /// RTC control registers D/E/F. Index 0 = reg D, 1 = reg E, 2 = reg F.
     pub rtc_control: [u8; 3],
@@ -735,6 +743,9 @@ impl Amiga {
             serper: 0,
             serdatr: 0x3000, // TBE + TSRE set (transmitter idle)
             serial_shift_countdown: 0,
+            serial_rx_countdown: 0,
+            serial_rx_shift_byte: 0,
+            serial_rx_queue: std::collections::VecDeque::new(),
             rtc_control: [0; 3],
             rtc_time_latched: false,
             rtc_time: [0; 12],
@@ -804,6 +815,14 @@ impl Amiga {
         self.cia_a.external_a = (self.cia_a.external_a & 0x3F)
             | (fir0 << 6)
             | (fir1 << 7);
+    }
+
+    /// Push a byte into the serial receive queue. The byte will be shifted
+    /// in at the baud rate configured in SERPER, and an RBF interrupt (level 5)
+    /// fires when reception completes. If a previous byte is still being
+    /// shifted in, the new byte waits in the queue.
+    pub fn push_serial_byte(&mut self, byte: u8) {
+        self.serial_rx_queue.push_back(byte);
     }
 
     pub fn tick(&mut self) {
@@ -1373,14 +1392,41 @@ impl Amiga {
             }
         }
 
-        // Serial port transmit: countdown runs at CCK rate (≈3.58 MHz).
-        // When countdown reaches 0, byte is "sent" — set TBE + TSRE and
-        // trigger TBE interrupt (INTREQ bit 0).
-        if self.serial_shift_countdown > 0 {
-            self.serial_shift_countdown -= 1;
-            if self.serial_shift_countdown == 0 {
-                self.serdatr |= 0x3000; // TBE + TSRE
-                self.paula.request_interrupt(0); // TBE (level 1)
+        // Serial port countdowns run at CCK rate (≈3.58 MHz).
+        if self.master_clock.is_multiple_of(TICKS_PER_CCK) {
+            // Transmit: when countdown reaches 0, byte is "sent" — set
+            // TBE + TSRE and trigger TBE interrupt (INTREQ bit 0).
+            if self.serial_shift_countdown > 0 {
+                self.serial_shift_countdown -= 1;
+                if self.serial_shift_countdown == 0 {
+                    self.serdatr |= 0x3000; // TBE + TSRE
+                    self.paula.request_interrupt(0); // TBE (level 1)
+                }
+            }
+
+            // Receive: shift in bytes from the rx queue at the configured
+            // baud rate. When a byte finishes, store it in SERDATR bits
+            // 8-0, set RBF (bit 11), and fire RBF interrupt (bit 11).
+            if self.serial_rx_countdown == 0 {
+                if let Some(byte) = self.serial_rx_queue.pop_front() {
+                    let period = u32::from(self.serper & 0x7FFF) + 1;
+                    let bits = if self.serper & 0x8000 != 0 { 11u32 } else { 10 };
+                    self.serial_rx_countdown = period * bits;
+                    self.serial_rx_shift_byte = u16::from(byte);
+                }
+            }
+            if self.serial_rx_countdown > 0 {
+                self.serial_rx_countdown -= 1;
+                if self.serial_rx_countdown == 0 {
+                    let nine_bit = self.serper & 0x8000 != 0;
+                    let data_mask: u16 = if nine_bit { 0x01FF } else { 0x00FF };
+                    let stop_bit: u16 = if nine_bit { 0x0200 } else { 0x0100 };
+                    self.serdatr = (self.serdatr & 0xF000)
+                        | stop_bit
+                        | (self.serial_rx_shift_byte & data_mask);
+                    self.serdatr |= 0x0800; // RBF
+                    self.paula.request_interrupt(11); // RBF (level 5)
+                }
             }
         }
     }
@@ -5649,5 +5695,72 @@ mod tests {
                 .map(|event| event.source),
             Some(BlitterInterruptSource::SchedulerIncremental)
         );
+    }
+
+    #[test]
+    fn serial_receive_sets_rbf_and_stores_data_after_baud_countdown() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+
+        // Configure baud rate: period=0 → 1 CCK per bit, 10 bits = 10 CCKs total.
+        amiga.write_custom_reg(0x032, 0x0000); // SERPER: period=0, 8-bit mode
+        // Enable RBF interrupt so we can verify it fires.
+        amiga.paula.intena = 0xC800; // master + RBF
+
+        // Initially TBE+TSRE set, RBF clear.
+        assert_eq!(amiga.serdatr & 0x3800, 0x3000);
+
+        // Push a byte into the receive queue.
+        amiga.push_serial_byte(0x42);
+
+        // Tick 9 CCKs — byte should still be shifting in.
+        for _ in 0..9 {
+            tick_one_cck(&mut amiga);
+        }
+        assert_eq!(
+            amiga.serdatr & 0x0800,
+            0,
+            "RBF should not be set before countdown completes"
+        );
+
+        // Tick the 10th CCK — receive completes.
+        tick_one_cck(&mut amiga);
+        assert_ne!(
+            amiga.serdatr & 0x0800,
+            0,
+            "RBF should be set after countdown completes"
+        );
+        assert_eq!(
+            amiga.serdatr & 0x01FF,
+            0x0142, // stop bit (bit 8) + data 0x42
+            "received byte should be stored in SERDATR bits 8-0"
+        );
+        // RBF interrupt should be pending in Paula.
+        assert_ne!(
+            amiga.paula.intreq & 0x0800,
+            0,
+            "RBF interrupt should be requested"
+        );
+    }
+
+    #[test]
+    fn serial_receive_queues_multiple_bytes() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.write_custom_reg(0x032, 0x0000); // period=0, 10 CCKs per byte
+
+        amiga.push_serial_byte(0xAA);
+        amiga.push_serial_byte(0x55);
+
+        // First byte: 10 CCKs.
+        for _ in 0..10 {
+            tick_one_cck(&mut amiga);
+        }
+        assert_eq!(amiga.serdatr & 0x00FF, 0xAA);
+        assert_ne!(amiga.serdatr & 0x0800, 0); // RBF set
+
+        // Second byte starts immediately on the next tick, finishes after 10 more.
+        for _ in 0..10 {
+            tick_one_cck(&mut amiga);
+        }
+        assert_eq!(amiga.serdatr & 0x00FF, 0x55);
     }
 }
