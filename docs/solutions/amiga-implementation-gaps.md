@@ -43,20 +43,14 @@ to runner integration.
 bitplane and sprite DMA slot allocation. 2x/4x fetch widths produce wider
 word transfers per slot.
 
-### 6. ECS SuperHires Rendering (commodore-denise-ecs) — PARTIAL
+### 6. ECS SuperHires Rendering (commodore-denise-ecs) — DONE
 
-**Status:** BPLCON0 SHRES bit detected and exposed via observability, but
-rendering unchanged from hires. Pixel clock does not run at 35 ns rate.
-
-**What's needed:**
-- 35 ns pixel clock (4× lores, 2× hires)
-- Bitplane shift register runs at SuperHires rate
-- Framebuffer output at SuperHires pixel positions
-- Productivity mode (31 kHz horizontal scan) detection
-
-**Verification:**
-- ECS productivity monitor modes (640×480, 1280×256) render correctly
-- A3000 SuperHires boot screen (if applicable) displays
+BPLCON0 SHRES bit (0x0040) drives 4× lores pixel rate through the existing
+shift register pipeline. Raster framebuffer widened to superhires resolution
+(1816 = 227 CCKs × 8 pixels). Each output call produces 4 independently
+composed colour indices via `quad_color_idx`. Machine-amiga render loop writes
+8 sub-pixels per CCK. Standard viewport extracts at 1280 pixels wide (hires
+content pixel-doubled). 1 integration test in denise-ecs.
 
 ### 7. Denise AGA Sprite Colour Base (commodore-denise-aga) — DONE
 

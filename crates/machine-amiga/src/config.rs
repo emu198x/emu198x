@@ -62,8 +62,8 @@ impl AmigaRegion {
     }
 }
 
-/// Raster framebuffer width: 227 CCKs x 4 hires pixels = 908.
-pub const RASTER_FB_WIDTH: u32 = 908;
+/// Raster framebuffer width: 227 CCKs × 8 superhires pixels = 1816.
+pub const RASTER_FB_WIDTH: u32 = 1816;
 
 /// PAL raster framebuffer height: 312 lines x 2 (interlace) = 624.
 pub const PAL_RASTER_FB_HEIGHT: u32 = 624;

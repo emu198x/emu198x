@@ -356,4 +356,26 @@ mod tests {
         assert!(denise.border_blank_enabled());
         assert!(!denise.border_opaque_enabled());
     }
+
+    #[test]
+    fn shres_shifts_four_source_pixels_per_output_call() {
+        let mut denise = DeniseEcs::new();
+        denise.set_palette(0, 0x000);
+        denise.set_palette(1, 0x00F);
+        denise.set_palette(2, 0x0F0);
+        denise.set_palette(3, 0xF00);
+        denise.bplcon0 = 0x2040; // 2 bitplanes + SHRES
+        denise.begin_beam_line();
+        denise.bpl_data[0] = 0b1010_0000_0000_0000;
+        denise.bpl_data[1] = 0b1100_0000_0000_0000;
+        denise.trigger_shift_load();
+
+        let dbg = denise.output_pixel_with_beam_and_playfield_gate(0, 0, 0, 0, true);
+        assert_eq!(dbg.source_pixels_per_fb_pixel, 4);
+        // Plane 0: 1,0,1,0  Plane 1: 1,1,0,0  => indices 3,2,1,0
+        assert_eq!(dbg.quad_color_idx[0], 3);
+        assert_eq!(dbg.quad_color_idx[1], 2);
+        assert_eq!(dbg.quad_color_idx[2], 1);
+        assert_eq!(dbg.quad_color_idx[3], 0);
+    }
 }

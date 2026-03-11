@@ -121,7 +121,7 @@ fn test_minimal_execution() {
 
     // Scan the row for the first white (COLOR01) and first blue (COLOR00) pixel
     // after the display window opens (hpos >= DDFSTRT).
-    let ddfstrt_fb_x = 0x38 * 4; // DDFSTRT=$38 → FB column
+    let ddfstrt_fb_x = 0x38 * 8; // DDFSTRT=$38 → FB column
     let mut first_white = None;
     let mut first_blue = None;
     for col in ddfstrt_fb_x..w {

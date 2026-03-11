@@ -3,8 +3,8 @@
 //! Denise receives bitplane data from Agnus DMA and shifts it out pixel by
 //! pixel, combining with the colour palette to produce the final framebuffer.
 
-/// Raster framebuffer width: 227 CCKs x 4 hires pixels.
-pub const RASTER_FB_WIDTH: u32 = 908;
+/// Raster framebuffer width: 227 CCKs × 8 superhires pixels.
+pub const RASTER_FB_WIDTH: u32 = 1816;
 /// PAL raster framebuffer height: 312 lines x 2 (interlace double-height).
 pub const PAL_RASTER_FB_HEIGHT: u32 = 624;
 /// NTSC raster framebuffer height: 262 lines x 2 (interlace double-height).
@@ -26,13 +26,13 @@ pub struct DeniseOutputPixelDebug {
     pub requested_y: u32,
     pub hires: bool,
     pub source_pixels_per_fb_pixel: u8,
-    pub pair_samples: [DeniseSourcePixelDebug; 2],
+    pub quad_samples: [DeniseSourcePixelDebug; 4],
     pub plane_bits_mask: u8,
     pub final_color_idx: u8,
-    /// In hires mode, the two independently-composed color indices for the
-    /// pair of source pixels shifted out during this output call. In lores
-    /// mode, both entries are set to `final_color_idx`.
-    pub hires_pair_color_idx: [u8; 2],
+    /// Independently-composed color indices for source pixels shifted out
+    /// during this output call. SuperHires: 4 unique entries. Hires: [c0, c1,
+    /// c1, c1]. Lores: all identical (`final_color_idx`).
+    pub quad_color_idx: [u8; 4],
     pub playfield_visible_gate: bool,
 }
 
@@ -59,8 +59,8 @@ pub struct DeniseOcs {
     pub palette: [u16; 32],
     /// AGA 256-entry 24-bit palette (0x00RRGGBB).
     pub palette_24: [u32; 256],
-    /// Full-raster framebuffer at hires resolution, double-height for interlace.
-    /// Indexed as `[vpos * 2 + field_row] * RASTER_FB_WIDTH + hpos * 4 + sub`.
+    /// Full-raster framebuffer at superhires resolution, double-height for interlace.
+    /// Indexed as `[vpos * 2 + field_row] * RASTER_FB_WIDTH + hpos * 8 + sub`.
     pub framebuffer_raster: Vec<u32>,
     pub raster_fb_width: u32,
     pub raster_fb_height: u32,
@@ -335,7 +335,7 @@ impl DeniseOcs {
     /// Non-interlaced mode writes the same pixel to both rows of the
     /// double-height pair. Interlaced mode writes to one row per field.
     pub fn write_raster_pixel(&mut self, hpos: u16, vpos: u16, sub: u8, argb32: u32) {
-        let fb_x = u32::from(hpos) * 4 + u32::from(sub);
+        let fb_x = u32::from(hpos) * 8 + u32::from(sub);
         if fb_x >= self.raster_fb_width {
             return;
         }
@@ -1039,9 +1039,9 @@ impl DeniseOcs {
     ) -> DeniseOutputPixelDebug {
         self.sync_sprite_runtime_to_beam(beam_x, beam_y);
         let hires = (self.bplcon0 & 0x8000) != 0;
-        let source_pixels_per_fb_pixel = source_pixels_per_output_call.clamp(1, 2);
-        let mut pair_samples = [(0usize, 0u8, 0u8); 2];
-        let mut pair_samples_debug = [DeniseSourcePixelDebug::default(); 2];
+        let source_pixels_per_fb_pixel = source_pixels_per_output_call.clamp(1, 4);
+        let mut quad_samples = [(0usize, 0u8, 0u8); 4];
+        let mut quad_samples_debug = [DeniseSourcePixelDebug::default(); 4];
         let mut raw_color_idx = 0usize;
         let mut pf1_code = 0u8;
         let mut pf2_code = 0u8;
@@ -1061,9 +1061,9 @@ impl DeniseOcs {
 
         for sample_idx in 0..source_pixels_per_fb_pixel {
             let (raw, pf1, pf2, mask) = self.shift_one_playfield_render_sample(hires);
-            if sample_idx < 2 {
-                pair_samples[sample_idx as usize] = (raw, pf1, pf2);
-                pair_samples_debug[sample_idx as usize] = DeniseSourcePixelDebug {
+            if sample_idx < 4 {
+                quad_samples[sample_idx as usize] = (raw, pf1, pf2);
+                quad_samples_debug[sample_idx as usize] = DeniseSourcePixelDebug {
                     raw_color_idx: raw as u8,
                     pf1_code: pf1,
                     pf2_code: pf2,
@@ -1080,7 +1080,7 @@ impl DeniseOcs {
 
         // Compose playfield pixel for the "last" sample (used for final_color_idx
         // and lores output). In hires mode we also compose the first sample
-        // independently for the per-pixel hires_pair_color_idx.
+        // independently for the per-pixel quad_color_idx.
         let playfield = if playfield_visible_gate {
             self.compose_playfield_pixel(raw_color_idx, pf1_code, pf2_code)
         } else {
@@ -1127,15 +1127,18 @@ impl DeniseOcs {
 
         let color_idx = resolve_sprite_priority(&playfield, &sprite_pixel);
 
-        // In hires, compose both source pixels independently for full-res output.
-        let hires_pair_color_idx = if hires && playfield_visible_gate {
-            let (raw0, pf1_0, pf2_0) = pair_samples[0];
-            let pf0 = self.compose_playfield_pixel(raw0, pf1_0, pf2_0);
-            let c0 = resolve_sprite_priority(&pf0, &sprite_pixel);
-            let c1 = resolve_sprite_priority(&playfield, &sprite_pixel);
-            [c0 as u8, c1 as u8]
+        // In hires/superhires, compose each source pixel independently for
+        // full-res output. In lores all four entries are identical.
+        let quad_color_idx = if source_pixels_per_fb_pixel > 1 && playfield_visible_gate {
+            let mut quad = [color_idx as u8; 4];
+            for i in 0..source_pixels_per_fb_pixel.min(4) as usize {
+                let (raw_i, pf1_i, pf2_i) = quad_samples[i];
+                let pf_i = self.compose_playfield_pixel(raw_i, pf1_i, pf2_i);
+                quad[i] = resolve_sprite_priority(&pf_i, &sprite_pixel) as u8;
+            }
+            quad
         } else {
-            [color_idx as u8, color_idx as u8]
+            [color_idx as u8; 4]
         };
 
         DeniseOutputPixelDebug {
@@ -1146,10 +1149,10 @@ impl DeniseOcs {
             requested_y: y,
             hires,
             source_pixels_per_fb_pixel,
-            pair_samples: pair_samples_debug,
+            quad_samples: quad_samples_debug,
             plane_bits_mask,
             final_color_idx: color_idx as u8,
-            hires_pair_color_idx,
+            quad_color_idx,
             playfield_visible_gate,
         }
     }
@@ -1163,7 +1166,8 @@ impl DeniseOcs {
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
         let hires = (self.bplcon0 & 0x8000) != 0;
-        let source_pixels_per_output_call = if hires { 2 } else { 1 };
+        let shres = (self.bplcon0 & 0x0040) != 0;
+        let source_pixels_per_output_call = if shres { 4 } else if hires { 2 } else { 1 };
         self.output_pixel_with_beam_n_source_samples(
             x,
             y,
@@ -1282,7 +1286,7 @@ impl DeniseOcs {
             preset.ntsc_bounds()
         };
 
-        let h_pixels = u32::from(bounds.h_end_cck - bounds.h_start_cck) * 4;
+        let h_pixels = u32::from(bounds.h_end_cck - bounds.h_start_cck) * 8;
         let v_lines = u32::from(bounds.v_end_line - bounds.v_start_line);
         let raster_rows = v_lines * 2; // double-height buffer
 
@@ -1294,7 +1298,7 @@ impl DeniseOcs {
 
         for row_idx in 0..out_height {
             let raster_row = u32::from(bounds.v_start_line) * 2 + row_idx * row_step;
-            let raster_x_start = u32::from(bounds.h_start_cck) * 4;
+            let raster_x_start = u32::from(bounds.h_start_cck) * 8;
 
             for px in 0..h_pixels {
                 let fb_x = raster_x_start + px;
@@ -1446,9 +1450,9 @@ mod tests {
         assert!(dbg.called);
         assert!(!dbg.hires);
         assert_eq!(dbg.source_pixels_per_fb_pixel, 1);
-        assert_eq!(dbg.pair_samples[0].raw_color_idx, 1);
+        assert_eq!(dbg.quad_samples[0].raw_color_idx, 1);
         assert_eq!(
-            dbg.pair_samples[1],
+            dbg.quad_samples[1],
             DeniseSourcePixelDebug::default(),
             "lowres path should not consume a second source pixel in the same call"
         );
@@ -1468,8 +1472,8 @@ mod tests {
         assert!(dbg.called);
         assert!(dbg.hires);
         assert_eq!(dbg.source_pixels_per_fb_pixel, 2);
-        assert_eq!(dbg.pair_samples[0].raw_color_idx, 1);
-        assert_eq!(dbg.pair_samples[1].raw_color_idx, 1);
+        assert_eq!(dbg.quad_samples[0].raw_color_idx, 1);
+        assert_eq!(dbg.quad_samples[1].raw_color_idx, 1);
         assert_eq!(denise.shift_count, 14);
     }
 
@@ -1488,16 +1492,16 @@ mod tests {
         // 0xA000 = 1010_0000... so pixels are: 1, 0, 1, 0, ...
         assert_eq!(
             [
-                dbg0.pair_samples[0].raw_color_idx,
-                dbg0.pair_samples[1].raw_color_idx
+                dbg0.quad_samples[0].raw_color_idx,
+                dbg0.quad_samples[1].raw_color_idx
             ],
             [1, 0],
             "first output call shifts source pixels 0 (=1) and 1 (=0)"
         );
         assert_eq!(
             [
-                dbg1.pair_samples[0].raw_color_idx,
-                dbg1.pair_samples[1].raw_color_idx
+                dbg1.quad_samples[0].raw_color_idx,
+                dbg1.quad_samples[1].raw_color_idx
             ],
             [1, 0],
             "second output call shifts source pixels 2 (=1) and 3 (=0)"
@@ -1521,8 +1525,8 @@ mod tests {
         let dbg = invisible_output_pixel(&mut denise, 0);
         assert_eq!(
             [
-                dbg.pair_samples[0].raw_color_idx,
-                dbg.pair_samples[1].raw_color_idx
+                dbg.quad_samples[0].raw_color_idx,
+                dbg.quad_samples[1].raw_color_idx
             ],
             [0, 1],
             "deferred load fires after first shift, second shift sees new data"

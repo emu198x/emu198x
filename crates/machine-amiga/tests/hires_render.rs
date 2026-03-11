@@ -131,10 +131,10 @@ fn hires_2plane_renders_correct_pixels() {
     // Check raster output for line 100 (well within the display window).
     // The display window starts at line $2C = 44, so line 100 is active.
     // In the raster buffer, each line is at vpos*2 (double-height).
-    // Hires pixels at hpos=64 (start of display window): raster_x = 64*4 = 256
+    // Hires pixels at hpos=64 (start of display window): raster_x = 64*8 = 512
     let fb_w = amiga.denise.raster_fb_width;
     let scan_row = 100 * 2; // double-height buffer
-    let display_start_x = 64 * 4; // beam_x 128 = hpos 64, 4 hires pixels per CCK
+    let display_start_x = 64 * 8; // hpos 64, 8 superhires pixels per CCK
 
     // Scan the ENTIRE scanline for non-black, non-blue pixels
     let blue = 0xFF_00_00_FFu32;

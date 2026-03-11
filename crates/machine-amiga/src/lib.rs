@@ -964,41 +964,37 @@ impl Amiga {
             );
 
             // --- Raster framebuffer writes ---
-            // Each output call produces two independently-composed hires
-            // sub-pixels via `hires_pair_color_idx`. Write all 4 distinct
-            // hires pixels per CCK (2 per output call × 2 calls).
+            // Each output call produces 4 independently-composed colour
+            // indices in `quad_color_idx`. SuperHires: 4 unique per call.
+            // Hires: [c0, c1, c1, c1]. Lores: all identical.
+            // Write 8 sub-pixels per CCK (4 from pixel0 → sub 0-3,
+            // 4 from pixel1 → sub 4-7).
             if self.chipset.is_aga() {
-                let pair0 = pixel0_debug.hires_pair_color_idx;
-                let rgb0a = self.denise.resolve_color_rgb24(pair0[0]);
-                let rgb0b = self.denise.resolve_color_rgb24(pair0[1]);
-                let rc0a = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb0a);
-                let rc0b = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb0b);
-                self.denise.write_raster_pixel(hpos, vpos, 0, rc0a);
-                self.denise.write_raster_pixel(hpos, vpos, 1, rc0b);
-
-                let pair1 = pixel1_debug.hires_pair_color_idx;
-                let rgb1a = self.denise.resolve_color_rgb24(pair1[0]);
-                let rgb1b = self.denise.resolve_color_rgb24(pair1[1]);
-                let rc1a = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb1a);
-                let rc1b = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb1b);
-                self.denise.write_raster_pixel(hpos, vpos, 2, rc1a);
-                self.denise.write_raster_pixel(hpos, vpos, 3, rc1b);
+                for i in 0..4u8 {
+                    let ci = pixel0_debug.quad_color_idx[i as usize];
+                    let rgb = self.denise.resolve_color_rgb24(ci);
+                    let argb = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb);
+                    self.denise.write_raster_pixel(hpos, vpos, i, argb);
+                }
+                for i in 0..4u8 {
+                    let ci = pixel1_debug.quad_color_idx[i as usize];
+                    let rgb = self.denise.resolve_color_rgb24(ci);
+                    let argb = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb);
+                    self.denise.write_raster_pixel(hpos, vpos, 4 + i, argb);
+                }
             } else {
-                let pair0 = pixel0_debug.hires_pair_color_idx;
-                let rgb0a = self.denise.resolve_color_rgb12(pair0[0]);
-                let rgb0b = self.denise.resolve_color_rgb12(pair0[1]);
-                let rc0a = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb0a);
-                let rc0b = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb0b);
-                self.denise.write_raster_pixel(hpos, vpos, 0, rc0a);
-                self.denise.write_raster_pixel(hpos, vpos, 1, rc0b);
-
-                let pair1 = pixel1_debug.hires_pair_color_idx;
-                let rgb1a = self.denise.resolve_color_rgb12(pair1[0]);
-                let rgb1b = self.denise.resolve_color_rgb12(pair1[1]);
-                let rc1a = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb1a);
-                let rc1b = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb1b);
-                self.denise.write_raster_pixel(hpos, vpos, 2, rc1a);
-                self.denise.write_raster_pixel(hpos, vpos, 3, rc1b);
+                for i in 0..4u8 {
+                    let ci = pixel0_debug.quad_color_idx[i as usize];
+                    let rgb = self.denise.resolve_color_rgb12(ci);
+                    let argb = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb);
+                    self.denise.write_raster_pixel(hpos, vpos, i, argb);
+                }
+                for i in 0..4u8 {
+                    let ci = pixel1_debug.quad_color_idx[i as usize];
+                    let rgb = self.denise.resolve_color_rgb12(ci);
+                    let argb = commodore_denise_ocs::DeniseOcs::rgb12_to_argb32(rgb);
+                    self.denise.write_raster_pixel(hpos, vpos, 4 + i, argb);
+                }
             }
 
             // --- DMA slots ---
@@ -1797,7 +1793,8 @@ impl Amiga {
             }
         }
         // Raster coordinates: beam position maps directly.
-        let fb_x = u32::from(beam_x) * 2;
+        // beam_x is in hires pixels; framebuffer is superhires (×4).
+        let fb_x = u32::from(beam_x) * 4;
         let fb_y = u32::from(vpos) * 2;
         if fb_x >= RASTER_FB_WIDTH || fb_y >= self.denise.raster_fb_height {
             return None;
@@ -4306,11 +4303,11 @@ mod tests {
         amiga.agnus.ddfstrt = 100;
 
         // hpos 136 => beam_x 272 (=0x110), inside ECS horizontal window
-        // Raster coords: fb_x = 272*2 = 544, fb_y = 256*2 = 512
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
+        // Raster coords: fb_x = 272*4 = 1088, fb_y = 256*2 = 512
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((1088, 512)));
         // Last visible CCK before HSTOP (beam_x=334)
-        // Raster coords: fb_x = 334*2 = 668, fb_y = 287*2 = 574
-        assert_eq!(amiga.beam_to_fb(287, 167), Some((668, 574)));
+        // Raster coords: fb_x = 334*4 = 1336, fb_y = 287*2 = 574
+        assert_eq!(amiga.beam_to_fb(287, 167), Some((1336, 574)));
         // Horizontal clipping via DIWHIGH.H8
         assert_eq!(amiga.beam_to_fb(256, 120), None); // beam_x=240 < HSTART
         assert_eq!(amiga.beam_to_fb(256, 180), None); // beam_x=360 >= HSTOP
@@ -4486,7 +4483,7 @@ mod tests {
         assert_eq!(amiga.agnus.hpos, 0);
 
         // Verify raster buffer is NTSC-sized (524 rows).
-        assert_eq!(amiga.denise.framebuffer_raster.len(), (908 * 524) as usize);
+        assert_eq!(amiga.denise.framebuffer_raster.len(), (1816 * 524) as usize);
     }
 
     #[test]
@@ -4509,7 +4506,7 @@ mod tests {
         assert_eq!(amiga.agnus.hpos, 0);
 
         // Verify raster buffer is PAL-sized (624 rows).
-        assert_eq!(amiga.denise.framebuffer_raster.len(), (908 * 624) as usize);
+        assert_eq!(amiga.denise.framebuffer_raster.len(), (1816 * 624) as usize);
     }
 
     #[test]
@@ -4614,25 +4611,25 @@ mod tests {
         amiga.write_custom_reg(0x090, 0x2050); // VSTOP =$20, HSTOP =$50
         amiga.write_custom_reg(0x1E4, 0x2121); // stop H8/V8 + start H8/V8
 
-        // Raster coords: beam_x=272, fb_x=544, fb_y=512
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
+        // Raster coords: beam_x=272, fb_x=1088, fb_y=512
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((1088, 512)));
 
         // With raster framebuffer, all visible (non-blanked) positions have
         // coordinates regardless of VARBEAMEN/HARDDIS/VARVBEN flags.
         amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARBEAMEN);
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((1088, 512)));
 
         amiga.write_custom_reg(
             0x1DC,
             commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_HARDDIS,
         );
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((1088, 512)));
 
         amiga.write_custom_reg(
             0x1DC,
             commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_VARVBEN,
         );
-        assert_eq!(amiga.beam_to_fb(256, 136), Some((544, 512)));
+        assert_eq!(amiga.beam_to_fb(256, 136), Some((1088, 512)));
     }
 
     #[test]
@@ -4873,7 +4870,7 @@ mod tests {
                     csync_high: false,
                     blank_active: false,
                 },
-                fb_coords: Some((140, 210)),
+                fb_coords: Some((280, 210)),
             }
         );
 
@@ -4958,7 +4955,7 @@ mod tests {
                     csync_high: false,
                     blank_active: false,
                 },
-                fb_coords: Some((140, 210)),
+                fb_coords: Some((280, 210)),
             }
         );
         assert_eq!(amiga.agnus.hpos, 36); // Beam advanced after the sampled CCK.
@@ -5160,7 +5157,7 @@ mod tests {
         tick_one_cck(&mut amiga);
         assert_eq!(
             amiga.current_beam_debug_snapshot().fb_coords,
-            Some((544, 512))
+            Some((1088, 512))
         );
 
         amiga.write_custom_reg(0x1DC, commodore_agnus_ecs::BEAMCON0_VARBEAMEN);
@@ -5170,7 +5167,7 @@ mod tests {
         let hard_stopped = amiga.current_beam_debug_snapshot();
         assert_eq!(hard_stopped.vpos, 256);
         assert_eq!(hard_stopped.hpos_cck, 136);
-        assert_eq!(hard_stopped.fb_coords, Some((544, 512)));
+        assert_eq!(hard_stopped.fb_coords, Some((1088, 512)));
 
         amiga.write_custom_reg(
             0x1DC,
@@ -5181,7 +5178,7 @@ mod tests {
         tick_one_cck(&mut amiga);
         assert_eq!(
             amiga.current_beam_debug_snapshot().fb_coords,
-            Some((544, 512))
+            Some((1088, 512))
         );
     }
 

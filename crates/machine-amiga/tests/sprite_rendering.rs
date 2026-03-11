@@ -97,7 +97,7 @@ fn write_word(amiga: &mut Amiga, addr: u32, val: u16) {
 fn raster_pixel(amiga: &Amiga, vpos: u16, hpos: u16, sub: u8) -> u32 {
     let w = machine_amiga::RASTER_FB_WIDTH as usize;
     let y = usize::from(vpos) * 2;
-    let x = usize::from(hpos) * 4 + usize::from(sub);
+    let x = usize::from(hpos) * 8 + usize::from(sub);
     amiga.denise.framebuffer_raster[y * w + x]
 }
 
@@ -318,7 +318,7 @@ fn misaligned_attached_sprite_pair_uses_shifted_colors_at_machine_level() {
         "misaligned attached pair even-only pixel should use COLOR17..19 subset"
     );
     assert_eq!(
-        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 2),
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 4),
         rgb12_to_argb32(0x0F0),
         "misaligned attached pair odd-only pixel should use shifted COLOR20/24/28 subset"
     );
