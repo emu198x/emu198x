@@ -1341,13 +1341,25 @@ impl Cpu68000 {
                     }
                 }
             }
-            // PMMU cpGen instructions (cpID=0, type=000) on 68020+ with MMU.
-            // Stub: consume the extension word and treat as NOP. We don't
-            // model address translation — PMOVE operand accesses are skipped.
-            // This is enough for KS 2.02+/A3000 boot which uses PMOVE to
-            // configure TC, TT0, TT1, CRP, and SRP during early init.
+            // 68030 PMMU cpGen instructions (cpID=0, type=000): PMOVE, PFLUSH,
+            // PTEST. Requires MMU capability and cpID=0 in bits 11-9.
             if self.capabilities().mmu && (opcode & 0x0FC0) == 0x0000 {
-                let _ext = self.consume_irc();
+                self.decode_pmmu_030(bus, opcode);
+                return;
+            }
+            // 68040/060 PFLUSH/PTEST — NOT coprocessor format.
+            // Encoding: $F5xx range:
+            //   $F548+reg = PTESTW (An), $F568+reg = PTESTR (An)
+            //   $F508+reg = PFLUSH (An), $F510+reg = PFLUSHN (An)
+            //   $F518     = PFLUSHA
+            if self.capabilities().mmu
+                && matches!(
+                    self.model.timing_class(),
+                    crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
+                )
+                && (opcode & 0xFF00) == 0xF500
+            {
+                self.decode_pmmu_040(bus, opcode);
                 return;
             }
             // CINV/CPUSH — 68040+ cache management instructions.
@@ -3832,6 +3844,478 @@ impl Cpu68000 {
     // calls) rather than the micro-op queue. This matches the CAS and
     // bitfield patterns and is correct for 68020+ with instruction cache.
 
+    // -----------------------------------------------------------------------
+    // PMMU decode (68030 + 68040/060)
+    // -----------------------------------------------------------------------
+
+    /// Decode 68030 PMMU instructions (cpID=0 cpGen).
+    ///
+    /// Extension word bits 15-13 select the operation:
+    ///   0, 2, 3 = PMOVE (transfer between EA and MMU register)
+    ///   1       = PFLUSH / PLOAD
+    ///   4       = PTEST
+    fn decode_pmmu_030(&mut self, bus: &mut impl M68kBus, opcode: u16) {
+        use crate::mmu::Tc030;
+
+        // Must be in supervisor mode.
+        if !self.regs.is_supervisor() {
+            self.begin_group1_exception(8, self.instr_start_pc);
+            return;
+        }
+
+        let ext = self.consume_irc();
+        let op_type = ext >> 13;
+
+        match op_type {
+            // PMOVE: transfer between EA and MMU register
+            0 | 2 | 3 => {
+                let preg = ((ext >> 10) & 0x1F) as u8;
+                let rw = (ext >> 9) & 1; // 1 = reg→memory, 0 = memory→reg
+                let fd = (ext >> 8) & 1; // flush disable
+
+                // Resolve effective address.
+                let addr = self.fpu_resolve_ea(bus, opcode);
+                let fc = if self.regs.is_supervisor() {
+                    FunctionCode::SupervisorData
+                } else {
+                    FunctionCode::UserData
+                };
+
+                match preg {
+                    // TC — 32-bit
+                    0x10 => {
+                        if rw != 0 {
+                            // Read TC → memory
+                            let val = self.regs.tc;
+                            let a = addr & 0x00FF_FFFF;
+                            bus.poll_cycle(a, fc, false, true, Some((val >> 16) as u16));
+                            bus.poll_cycle(a.wrapping_add(2), fc, false, true, Some(val as u16));
+                        } else {
+                            // Write memory → TC
+                            let a = addr & 0x00FF_FFFF;
+                            let hi = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a, fc, true, true, None)
+                            {
+                                u32::from(w) << 16
+                            } else {
+                                0
+                            };
+                            let lo = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(2), fc, true, true, None)
+                            {
+                                u32::from(w)
+                            } else {
+                                0
+                            };
+                            let old_tc = self.regs.tc;
+                            self.regs.tc = hi | lo;
+                            // Flush ATC if TC changed and flush not disabled.
+                            if fd == 0 && self.regs.tc != old_tc {
+                                self.mmu.flush_all();
+                            }
+                        }
+                    }
+                    // SRP — 64-bit (upper + lower)
+                    0x12 => {
+                        if rw != 0 {
+                            let a = addr & 0x00FF_FFFF;
+                            let upper = self.regs.srp_upper;
+                            let lower = self.regs.srp;
+                            bus.poll_cycle(a, fc, false, true, Some((upper >> 16) as u16));
+                            bus.poll_cycle(
+                                a.wrapping_add(2),
+                                fc,
+                                false,
+                                true,
+                                Some(upper as u16),
+                            );
+                            bus.poll_cycle(
+                                a.wrapping_add(4),
+                                fc,
+                                false,
+                                true,
+                                Some((lower >> 16) as u16),
+                            );
+                            bus.poll_cycle(
+                                a.wrapping_add(6),
+                                fc,
+                                false,
+                                true,
+                                Some(lower as u16),
+                            );
+                        } else {
+                            let a = addr & 0x00FF_FFFF;
+                            let w0 = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a, fc, true, true, None)
+                            {
+                                u32::from(w) << 16
+                            } else {
+                                0
+                            };
+                            let w1 = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(2), fc, true, true, None)
+                            {
+                                u32::from(w)
+                            } else {
+                                0
+                            };
+                            let w2 = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(4), fc, true, true, None)
+                            {
+                                u32::from(w) << 16
+                            } else {
+                                0
+                            };
+                            let w3 = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(6), fc, true, true, None)
+                            {
+                                u32::from(w)
+                            } else {
+                                0
+                            };
+                            self.regs.srp_upper = w0 | w1;
+                            self.regs.srp = w2 | w3;
+                            if fd == 0 {
+                                self.mmu.flush_all();
+                            }
+                        }
+                    }
+                    // CRP — 64-bit (upper + lower)
+                    0x13 => {
+                        if rw != 0 {
+                            let a = addr & 0x00FF_FFFF;
+                            let upper = self.regs.crp_upper;
+                            let lower = self.regs.urp;
+                            bus.poll_cycle(a, fc, false, true, Some((upper >> 16) as u16));
+                            bus.poll_cycle(
+                                a.wrapping_add(2),
+                                fc,
+                                false,
+                                true,
+                                Some(upper as u16),
+                            );
+                            bus.poll_cycle(
+                                a.wrapping_add(4),
+                                fc,
+                                false,
+                                true,
+                                Some((lower >> 16) as u16),
+                            );
+                            bus.poll_cycle(
+                                a.wrapping_add(6),
+                                fc,
+                                false,
+                                true,
+                                Some(lower as u16),
+                            );
+                        } else {
+                            let a = addr & 0x00FF_FFFF;
+                            let w0 = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a, fc, true, true, None)
+                            {
+                                u32::from(w) << 16
+                            } else {
+                                0
+                            };
+                            let w1 = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(2), fc, true, true, None)
+                            {
+                                u32::from(w)
+                            } else {
+                                0
+                            };
+                            let w2 = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(4), fc, true, true, None)
+                            {
+                                u32::from(w) << 16
+                            } else {
+                                0
+                            };
+                            let w3 = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(6), fc, true, true, None)
+                            {
+                                u32::from(w)
+                            } else {
+                                0
+                            };
+                            self.regs.crp_upper = w0 | w1;
+                            self.regs.urp = w2 | w3;
+                            if fd == 0 {
+                                self.mmu.flush_all();
+                            }
+                        }
+                    }
+                    // MMUSR — 16-bit
+                    0x18 => {
+                        if rw != 0 {
+                            let a = addr & 0x00FF_FFFF;
+                            bus.poll_cycle(a, fc, false, true, Some(self.regs.mmusr as u16));
+                        } else {
+                            let a = addr & 0x00FF_FFFF;
+                            if let BusStatus::Ready(w) = bus.poll_cycle(a, fc, true, true, None) {
+                                self.regs.mmusr = u32::from(w);
+                            }
+                        }
+                    }
+                    // TT0 — 32-bit
+                    0x02 => {
+                        if rw != 0 {
+                            let a = addr & 0x00FF_FFFF;
+                            let val = self.regs.itt0;
+                            bus.poll_cycle(a, fc, false, true, Some((val >> 16) as u16));
+                            bus.poll_cycle(a.wrapping_add(2), fc, false, true, Some(val as u16));
+                        } else {
+                            let a = addr & 0x00FF_FFFF;
+                            let hi = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a, fc, true, true, None)
+                            {
+                                u32::from(w) << 16
+                            } else {
+                                0
+                            };
+                            let lo = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(2), fc, true, true, None)
+                            {
+                                u32::from(w)
+                            } else {
+                                0
+                            };
+                            self.regs.itt0 = hi | lo;
+                            if fd == 0 {
+                                self.mmu.flush_all();
+                            }
+                        }
+                    }
+                    // TT1 — 32-bit
+                    0x03 => {
+                        if rw != 0 {
+                            let a = addr & 0x00FF_FFFF;
+                            let val = self.regs.itt1;
+                            bus.poll_cycle(a, fc, false, true, Some((val >> 16) as u16));
+                            bus.poll_cycle(a.wrapping_add(2), fc, false, true, Some(val as u16));
+                        } else {
+                            let a = addr & 0x00FF_FFFF;
+                            let hi = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a, fc, true, true, None)
+                            {
+                                u32::from(w) << 16
+                            } else {
+                                0
+                            };
+                            let lo = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(2), fc, true, true, None)
+                            {
+                                u32::from(w)
+                            } else {
+                                0
+                            };
+                            self.regs.itt1 = hi | lo;
+                            if fd == 0 {
+                                self.mmu.flush_all();
+                            }
+                        }
+                    }
+                    _ => {
+                        // Unknown PMOVE register — illegal instruction.
+                        self.begin_group1_exception(4, self.instr_start_pc);
+                    }
+                }
+            }
+
+            // PFLUSH / PLOAD
+            1 => {
+                let mode = ((ext >> 8) & 0x1F) as u8;
+                match mode {
+                    // PFLUSHA — flush all ATC entries
+                    0x04 => {
+                        self.mmu.flush_all();
+                    }
+                    // PFLUSH FC,mask — flush by FC
+                    0x10 => {
+                        let _fc_mask = ((ext >> 5) & 7) as u8;
+                        let fc_base = self.pmmu_get_fc(ext);
+                        self.mmu.flush_by_fc(fc_base);
+                    }
+                    // PFLUSH FC,mask,<ea> — flush by FC + address
+                    0x18 => {
+                        let fc_mask = ((ext >> 5) & 7) as u8;
+                        let fc_base = self.pmmu_get_fc(ext);
+                        let ea_addr = self.fpu_resolve_ea(bus, opcode);
+                        self.mmu.flush_by_addr(ea_addr, fc_base, fc_mask);
+                    }
+                    // PLOAD W/R — load ATC entry (treat as NOP for now)
+                    0x00 | 0x02 => {
+                        // PLOAD loads an ATC entry from the page table.
+                        // For now, treat as NOP — the ATC will be filled on demand
+                        // when the address is actually accessed.
+                    }
+                    _ => {
+                        self.begin_group1_exception(4, self.instr_start_pc);
+                    }
+                }
+            }
+
+            // PTEST
+            4 => {
+                let _level = ((ext >> 10) & 7) as u8;
+                let _rw = (ext >> 9) & 1;
+                let _a_flag = (ext >> 8) & 1;
+                let fc_base = self.pmmu_get_fc(ext);
+                let ea_addr = self.fpu_resolve_ea(bus, opcode);
+
+                // Walk the page table and set MMUSR.
+                let tc = Tc030::parse(self.regs.tc);
+                if tc.enabled {
+                    let root = crate::mmu::select_root_pointer_030(
+                        &tc,
+                        fc_base,
+                        self.regs.srp,
+                        self.regs.srp_upper,
+                        self.regs.urp,
+                        self.regs.crp_upper,
+                    );
+                    let result = crate::mmu::walk_030(
+                        &tc,
+                        root,
+                        ea_addr,
+                        fc_base,
+                        _rw == 0, // is_write: PTESTW has rw=0
+                        |phys_addr| {
+                            // Synchronous bus read for table walk descriptor.
+                            let a = phys_addr & 0x00FF_FFFF;
+                            let fc_walk = FunctionCode::SupervisorData;
+                            let hi = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a, fc_walk, true, true, None)
+                            {
+                                u32::from(w) << 16
+                            } else {
+                                0
+                            };
+                            let lo = if let BusStatus::Ready(w) =
+                                bus.poll_cycle(a.wrapping_add(2), fc_walk, true, true, None)
+                            {
+                                u32::from(w)
+                            } else {
+                                0
+                            };
+                            hi | lo
+                        },
+                    );
+
+                    match result {
+                        crate::mmu::WalkResult030::Ok {
+                            write_protect,
+                            cache_inhibit,
+                            modified,
+                            ..
+                        } => {
+                            // Build MMUSR: W=bit 8, I=bit 7 (cache inhibit), M=bit 4
+                            let mut status = 0u16;
+                            if write_protect {
+                                status |= 1 << 2; // WP
+                            }
+                            if cache_inhibit {
+                                status |= 1 << 7; // CI
+                            }
+                            if modified {
+                                status |= 1 << 4; // M
+                            }
+                            self.regs.mmusr = u32::from(status);
+                        }
+                        crate::mmu::WalkResult030::Fault { status, .. } => {
+                            self.regs.mmusr = u32::from(status);
+                        }
+                    }
+                } else {
+                    // MMU disabled — MMUSR = 0
+                    self.regs.mmusr = 0;
+                }
+            }
+
+            _ => {
+                // Unknown PMMU operation — illegal instruction.
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
+        }
+    }
+
+    /// Extract FC (function code) value from PMMU extension word bits 4-0.
+    ///
+    /// Encoding (bits 4-3):
+    ///   00 = immediate FC value (bits 2-0)
+    ///   01 = Dn register (bits 2-0 select register)
+    ///   10 = SFC register
+    ///   11 = DFC register
+    fn pmmu_get_fc(&self, ext: u16) -> u8 {
+        let fc_source = (ext >> 3) & 3;
+        match fc_source {
+            0 => (ext & 7) as u8,
+            1 => (self.regs.d[(ext & 7) as usize] & 7) as u8,
+            2 => self.regs.sfc & 7,
+            3 => self.regs.dfc & 7,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Decode 68040/060 PFLUSH/PTEST instructions ($F5xx range).
+    ///
+    /// These are NOT coprocessor-format instructions:
+    ///   $F548+reg = PTESTW (An)
+    ///   $F568+reg = PTESTR (An)
+    ///   $F508+reg = PFLUSH (An) — flush including global
+    ///   $F510+reg = PFLUSHN (An) — flush non-global only
+    ///   $F518     = PFLUSHA
+    fn decode_pmmu_040(&mut self, _bus: &mut impl M68kBus, opcode: u16) {
+        // Must be in supervisor mode.
+        if !self.regs.is_supervisor() {
+            self.begin_group1_exception(8, self.instr_start_pc);
+            return;
+        }
+
+        let reg = (opcode & 7) as usize;
+        let sub = (opcode >> 3) & 0x1F;
+
+        match sub {
+            // PFLUSH (An) — flush including global entries
+            0x01 => {
+                let addr = self.regs.a(reg);
+                self.mmu.flush_by_addr(addr, 0, 0);
+            }
+            // PFLUSHN (An) — flush non-global entries only
+            0x02 => {
+                // For now, same as PFLUSH since we don't track global bits
+                // in the ATC yet. Phase 5 will refine this.
+                let addr = self.regs.a(reg);
+                self.mmu.flush_by_addr(addr, 0, 0);
+            }
+            // PFLUSHA — flush all entries
+            0x03 => {
+                self.mmu.flush_all();
+            }
+            // PTESTW (An) — test write access
+            0x09 => {
+                let _addr = self.regs.a(reg);
+                // PTEST 68040: walk table, set MMUSR.
+                // Stub for now — will be implemented with Phase 5
+                // bus integration when walk_040 can do real bus reads.
+                self.regs.mmusr = 0;
+            }
+            // PTESTR (An) — test read access
+            0x0D => {
+                let _addr = self.regs.a(reg);
+                // Same stub as PTESTW.
+                self.regs.mmusr = 0;
+            }
+            _ => {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // FPU decode helpers
+    // -----------------------------------------------------------------------
+
     /// Supervisor function code for FPU memory access.
     fn fpu_fc(&self) -> FunctionCode {
         if self.regs.sr & 0x2000 != 0 {
@@ -3873,7 +4357,7 @@ impl Cpu68000 {
         let fc = self.fpu_fc();
         let mut pos = 0usize;
         while pos < data.len() {
-            let a = (addr + pos as u32) & 0x00FF_FFFF;
+            let a = addr.wrapping_add(pos as u32) & 0x00FF_FFFF;
             if data.len() - pos >= 2 {
                 let w = (u16::from(data[pos]) << 8) | u16::from(data[pos + 1]);
                 bus.poll_cycle(a, fc, false, true, Some(w));

@@ -60,10 +60,14 @@ pub struct Registers {
     pub dtt0: u32,
     /// Data Transparent Translation register 1 (68040+).
     pub dtt1: u32,
-    /// Supervisor Root Pointer (68030: 64-bit, stored low 32; 68040+: 32-bit).
+    /// Supervisor Root Pointer — low 32 bits (68030: 64-bit descriptor; 68040+: 32-bit).
     pub srp: u32,
-    /// User Root Pointer (68030: via CRP, stored low 32; 68040+: 32-bit).
+    /// Supervisor Root Pointer — high 32 bits (68030 only; 68040+ ignores).
+    pub srp_upper: u32,
+    /// CPU Root Pointer — low 32 bits (68030 CRP; 68040+ URP).
     pub urp: u32,
+    /// CPU Root Pointer — high 32 bits (68030 only; 68040+ ignores).
+    pub crp_upper: u32,
     /// MMU Status Register (68030 MMUSR / 68040 MMUSR).
     pub mmusr: u32,
     /// Bus Control Register (68060).
@@ -113,7 +117,9 @@ impl Registers {
             dtt0: 0,
             dtt1: 0,
             srp: 0,
+            srp_upper: 0,
             urp: 0,
+            crp_upper: 0,
             mmusr: 0,
             buscr: 0,
             pcr: 0,

@@ -8,6 +8,7 @@ pub mod execute;
 pub mod flags;
 pub mod fpu;
 pub mod microcode;
+pub mod mmu;
 pub mod model;
 pub mod registers;
 

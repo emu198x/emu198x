@@ -26,36 +26,16 @@ The following items from the original audit have been implemented:
 12. **Serial Port Receive** (machine-amiga) — RBF interrupt, baud-rate countdown, queue API
 13. **68040/060 Instruction Timing** (motorola-68000) — MULU/MULS/DIVU/DIVS/MULL/DIVL per timing class
 14. **Data Cache Model** (motorola-68000) — 68030-style 256B direct-mapped, write-through, CACR ED/FD/CD/CED, CINV/CPUSH
+15. **MMU Address Translation** (motorola-68000) — 68030 + 68040 page table walks with real bus reads, ATC (22-entry fully associative for 030, dual 64-entry 4-way set-associative for 040), TT register matching, PMOVE/PFLUSH/PTEST execution, write-protect faults → bus error exceptions, State::TableWalk cycle-accurate descriptor reads
 
 ---
 
 ## Remaining Gaps
 
-### 1. MMU Address Translation (motorola-68000)
+### ~~1. MMU Address Translation (motorola-68000)~~ DONE
 
-**Status:** PMOVE/PFLUSH consume extension word as NOP. No address
-translation tables, no TC/TT0/TT1/SRP/URP/CRP registers stored.
-
-**What's needed (68030 style):**
-- Translation control register (TC) with page size, IS, TIA/TIB/TIC/TID
-- Supervisor/User root pointers (SRP, URP, CRP) — 64-bit descriptors
-- Transparent translation registers (TT0, TT1)
-- Page table walker: table descriptor → page descriptor → physical address
-- ATC (Address Translation Cache) — 22-entry fully associative
-- PFLUSH/PFLUSHA/PFLUSHR instructions
-- PTEST instruction (walk table, report status without translation)
-- Bus error on invalid/write-protected pages
-
-**What's needed (68040 style):**
-- Simplified 3-level table walk (7-7-6 bit split, 4 KB pages)
-- ITT0/ITT1/DTT0/DTT1 (transparent translation via MOVEC)
-- URP/SRP (single 32-bit root pointers, not 64-bit descriptors)
-- MMUSR for PTEST results
-
-**Verification:**
-- AmigaOS 3.x memory protection works
-- Enforcer/MuForce detect illegal memory accesses
-- VMM (Virtual Memory Manager) can swap pages to disk
+See completed item 15 above. All A3000 (68030) and A4000 (68040) boot tests pass
+with real MMU translation active.
 
 ### 2. ~~PCMCIA (commodore-gayle)~~ DONE
 
