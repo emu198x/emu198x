@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "a90a25547e9b",
+  "session_id": "35474d9c-e27f-4bc1-96cd-de72203be66e",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-11T11:37:06.851509Z",
+  "branch": "claude/serene-maxwell",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "crates/machine-amiga/src/lib.rs",
+    "docs/solutions/amiga-implementation-gaps.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "5a4601c3-70b2-4753-9f3e-6225112dbc80",
+  "checkpoint_transcript_start": 6793,
+  "transcript_lines_at_start": 6793,
+  "token_usage": {
+    "input_tokens": 63,
+    "cache_creation_tokens": 72017,
+    "cache_read_tokens": 7346706,
+    "output_tokens": 16763,
+    "api_call_count": 57
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-11T11:37:00.750279Z",
+    "agent_lines": 124,
+    "human_added": 202,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 326,
+    "agent_percentage": 38.036809815950924
+  }
+}
