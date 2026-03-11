@@ -300,6 +300,7 @@ fn make_amiga(cli: &CliArgs) -> Amiga {
         slow_ram_size: 0,
         ide_disk: None,
         scsi_disk: None,
+        pcmcia_card: None,
     });
 
     // --disk auto-detects format; --adf forces ADF.

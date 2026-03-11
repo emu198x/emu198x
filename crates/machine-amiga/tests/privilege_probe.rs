@@ -355,6 +355,7 @@ fn run_probe(spec: &ProbeSpec) {
         slow_ram_size: spec.slow_ram_size,
         ide_disk: None,
         scsi_disk: None,
+            pcmcia_card: None,
     });
 
     let initial = cpu_snapshot(&amiga);

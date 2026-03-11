@@ -323,6 +323,7 @@ impl AmigaMcp {
             slow_ram_size,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         };
 
         self.amiga = Some(Amiga::new_with_config(config));
@@ -1178,6 +1179,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         amiga.write_custom_reg(0x1DC, 0xAB3E);
 
@@ -1262,6 +1264,7 @@ mod tests {
                 slow_ram_size: 0,
                 ide_disk: None,
                 scsi_disk: None,
+                pcmcia_card: None,
             })),
         };
         let a3000_result = a3000_mcp.dispatch_tool(

@@ -126,6 +126,7 @@ fn test_exodus_unit01() {
         slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
     };
     let mut amiga = Amiga::new_with_config(config);
 

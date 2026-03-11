@@ -1,10 +1,16 @@
-//! Commodore Gayle gate array — IDE interface and address decoding for
-//! the Amiga 600 and Amiga 1200.
+//! Commodore Gayle gate array — IDE interface, PCMCIA slot, and address
+//! decoding for the Amiga 600 and Amiga 1200.
 //!
 //! Gayle sits between the CPU and the $D80000-$DFFFFF address range,
 //! providing IDE task-file registers and four control/status registers.
+//! It also manages the PCMCIA slot, routing common memory ($600000-$9FFFFF),
+//! attribute/IO ($A00000-$A5FFFF), and card reset ($A40000-$A5FFFF)
+//! to the inserted card.
+//!
 //! Without a drive attached, IDE STATUS reads $7F ("no drive") and other
 //! task-file registers read $FF — matching WinUAE behaviour.
+
+pub mod ne2000;
 
 // ---------------------------------------------------------------------------
 // IDE ATA constants
@@ -35,6 +41,27 @@ const CMD_READ_VERIFY: u8 = 0x40;
 const CMD_SEEK: u8 = 0x70;
 const CMD_IDENTIFY_DEVICE: u8 = 0xEC;
 const CMD_SET_FEATURES: u8 = 0xEF;
+
+// ---------------------------------------------------------------------------
+// Gayle Card Status register bit definitions
+// ---------------------------------------------------------------------------
+
+/// IDE interrupt active.
+const GAYLE_CS_IDE: u8 = 0x80;
+/// Card detect — card is inserted.
+const GAYLE_CS_CCDET: u8 = 0x40;
+/// Battery voltage detect 1.
+const _GAYLE_CS_BVD1: u8 = 0x20;
+/// Battery voltage detect 2.
+const _GAYLE_CS_BVD2: u8 = 0x10;
+/// Write protect — card is writable when set.
+const GAYLE_CS_WR: u8 = 0x08;
+/// Busy / IRQ — PCMCIA card interrupt pending.
+const GAYLE_CS_BSY: u8 = 0x04;
+/// Data acknowledge enable.
+const _GAYLE_CS_DAEN: u8 = 0x02;
+/// Disable — when set, PCMCIA slot is disabled.
+const GAYLE_CS_DIS: u8 = 0x01;
 
 // ---------------------------------------------------------------------------
 // Disk geometry
@@ -548,14 +575,228 @@ fn set_string(buf: &mut [u8], start_word: usize, s: &[u8]) {
 }
 
 // ---------------------------------------------------------------------------
+// PCMCIA card types
+// ---------------------------------------------------------------------------
+
+use ne2000::Ne2000State;
+
+/// PCMCIA card inserted into the Gayle slot.
+///
+/// Variants are not constructible externally — use the `Gayle::with_pcmcia_*`
+/// constructors instead.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub(crate) enum PcmciaCard {
+    /// SRAM memory card — direct byte-addressable storage.
+    Sram {
+        common: Vec<u8>,
+        cis: Vec<u8>,
+        readonly: bool,
+    },
+    /// CompactFlash card — ATA via PCMCIA I/O space.
+    CompactFlash {
+        drive: IdeDrive,
+        cis: Vec<u8>,
+        configured: i8,
+    },
+    /// NE2000 PCMCIA Ethernet adapter (DP8390-based).
+    Ne2000 {
+        nic: Ne2000State,
+        cis: Vec<u8>,
+        configured: i8,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// CIS tuple generation
+// ---------------------------------------------------------------------------
+
+// PCMCIA CIS tuple codes.
+const CISTPL_DEVICE: u8 = 0x01;
+const CISTPL_VERS_1: u8 = 0x15;
+const CISTPL_CONFIG: u8 = 0x1A;
+const CISTPL_CFTABLE_ENTRY: u8 = 0x1B;
+const CISTPL_DEVICE_GEO: u8 = 0x1E;
+const CISTPL_MANFID: u8 = 0x20;
+const CISTPL_FUNCID: u8 = 0x21;
+const CISTPL_END: u8 = 0xFF;
+
+/// Build CIS tuples for an SRAM card.
+fn build_sram_cis(size: usize) -> Vec<u8> {
+    let mut cis = Vec::with_capacity(64);
+
+    // CISTPL_DEVICE: SRAM, 100ns, size.
+    cis.push(CISTPL_DEVICE);
+    let size_code = match size {
+        s if s <= 8 * 1024 => 0x01,        // 8 KB
+        s if s <= 32 * 1024 => 0x02,        // 32 KB
+        s if s <= 128 * 1024 => 0x03,       // 128 KB
+        s if s <= 512 * 1024 => 0x04,       // 512 KB
+        s if s <= 2 * 1024 * 1024 => 0x05,  // 2 MB
+        _ => 0x06,                           // 4+ MB
+    };
+    cis.push(2); // tuple length
+    cis.push(0x46); // SRAM device type (0x40) | 100ns speed (0x06)
+    cis.push(size_code);
+
+    // CISTPL_DEVICEGEO: 16-bit bus width.
+    cis.push(CISTPL_DEVICE_GEO);
+    cis.push(6); // tuple length
+    cis.push(2); // bus width: 2 bytes (16-bit)
+    cis.push(1); // erase block size (not applicable, 1)
+    cis.push(1); // read block size
+    cis.push(1); // write block size
+    cis.push(1); // partition subdivision
+    cis.push(1); // interleave
+
+    // CISTPL_VERS_1: "Emu198x", "SRAM Card".
+    cis.push(CISTPL_VERS_1);
+    let s1 = b"Emu198x";
+    let s2 = b"SRAM Card";
+    let ver_len = 2 + s1.len() + 1 + s2.len() + 1 + 1; // major, minor, str1\0, str2\0, \xFF
+    cis.push(ver_len as u8);
+    cis.push(0x04); // major version 4
+    cis.push(0x01); // minor version 1
+    cis.extend_from_slice(s1);
+    cis.push(0x00);
+    cis.extend_from_slice(s2);
+    cis.push(0x00);
+    cis.push(0xFF);
+
+    // CISTPL_FUNCID: Memory Card (ID=1).
+    cis.push(CISTPL_FUNCID);
+    cis.push(2);
+    cis.push(0x01); // Memory
+    cis.push(0x00); // system init
+
+    // CISTPL_MANFID: generic.
+    cis.push(CISTPL_MANFID);
+    cis.push(4);
+    cis.push(0xFF);
+    cis.push(0xFF);
+    cis.push(0x00);
+    cis.push(0x00);
+
+    // CISTPL_END.
+    cis.push(CISTPL_END);
+
+    cis
+}
+
+/// Build CIS tuples for a CompactFlash card.
+fn build_cf_cis() -> Vec<u8> {
+    let mut cis = Vec::with_capacity(96);
+
+    // CISTPL_DEVICE: Fixed disk.
+    cis.push(CISTPL_DEVICE);
+    cis.push(2);
+    cis.push(0xD6); // Fixed, 100ns (type=0xD0 | speed=0x06)
+    cis.push(0x00); // No size info
+
+    // CISTPL_VERS_1: "Emu198x", "CompactFlash".
+    cis.push(CISTPL_VERS_1);
+    let s1 = b"Emu198x";
+    let s2 = b"CompactFlash";
+    let ver_len = 2 + s1.len() + 1 + s2.len() + 1 + 1;
+    cis.push(ver_len as u8);
+    cis.push(0x04);
+    cis.push(0x01);
+    cis.extend_from_slice(s1);
+    cis.push(0x00);
+    cis.extend_from_slice(s2);
+    cis.push(0x00);
+    cis.push(0xFF);
+
+    // CISTPL_FUNCID: Fixed Disk (ID=4).
+    cis.push(CISTPL_FUNCID);
+    cis.push(2);
+    cis.push(0x04); // Fixed disk
+    cis.push(0x00);
+
+    // CISTPL_CONFIG: config register at attribute address $200.
+    cis.push(CISTPL_CONFIG);
+    cis.push(5);
+    cis.push(0x01); // Field sizes: 1 byte TPCC_RASZ, 1 byte TPCC_RMSZ
+    cis.push(0x01); // Last index
+    cis.push(0x00); // Config register base lo
+    cis.push(0x02); // Config register base hi ($200)
+    cis.push(0x03); // Register present mask
+
+    // CISTPL_CFTABLE_ENTRY: I/O at $1F0 (8 regs) + $3F6 (1 reg).
+    cis.push(CISTPL_CFTABLE_ENTRY);
+    cis.push(10);
+    cis.push(0xC0 | 0x01); // Default + index 1
+    cis.push(0x01); // feature selection: I/O space
+    cis.push(0x08 | 0x01); // I/O: 8-bit, range present
+    cis.push(0x48); // 2 ranges, 16-bit address, 8-bit size
+    cis.push(0xF0); // Range 1 addr lo
+    cis.push(0x01); // Range 1 addr hi ($1F0)
+    cis.push(0x07); // Range 1 size - 1 (8 bytes)
+    cis.push(0xF6); // Range 2 addr lo
+    cis.push(0x03); // Range 2 addr hi ($3F6)
+    cis.push(0x00); // Range 2 size - 1 (1 byte)
+
+    // CISTPL_MANFID.
+    cis.push(CISTPL_MANFID);
+    cis.push(4);
+    cis.push(0xFF);
+    cis.push(0xFF);
+    cis.push(0x00);
+    cis.push(0x00);
+
+    // CISTPL_END.
+    cis.push(CISTPL_END);
+
+    cis
+}
+
+/// NE2000 CIS data — matches WinUAE's `ne2000pcmcia[]` (CNET CN40BC card).
+///
+/// Config register at attribute address $3F8.
+fn build_ne2000_cis() -> Vec<u8> {
+    vec![
+        // CISTPL_DEVICE
+        0x01, 0x03, 0x00, 0x00, 0xFF,
+        // CISTPL_VERS_1
+        0x15, 0x21,
+        0x04, 0x01,  // Version 4.1
+        b'C', b'N', b'E', b'T', b' ', b'T', b'e', b'c', b'h', b'n', b'o', b'l',
+        b'o', b'g', b'y', b',', b' ', b'I', b'n', b'c', b'.', 0x00,
+        b'C', b'N', b'4', b'0', b'B', b'C', 0x00,
+        0xFF,
+        // CISTPL_CONFIG
+        0x1A, 0x05,
+        0x01,       // Field sizes
+        0x20,       // Last index
+        0xF8, 0x03, // Config reg base = $3F8
+        0x03,       // Register present mask
+        // CISTPL_CFTABLE_ENTRY: default config
+        0x1B, 0x08,
+        0xC0 | 0x20, // Default + index 0x20
+        0x08,        // Feature: IRQ
+        0x08 | 0x01, // I/O 8-bit, range
+        0x20,        // 1 range, 16-bit addr, 8-bit size
+        0x00, 0x03,  // I/O base $0300
+        0x1F,        // Size: 32 bytes
+        0x20,        // IRQ: level-mode, mask follows
+        // CISTPL_FUNCID: Network Adapter (ID=6)
+        0x21, 0x02, 0x06, 0x00,
+        // CISTPL_MANFID
+        0x20, 0x04, 0x01, 0x49, 0x00, 0x00,
+        // CISTPL_END
+        0xFF,
+    ]
+}
+
+// ---------------------------------------------------------------------------
 // Gayle
 // ---------------------------------------------------------------------------
 
 /// Gayle gate array state.
 ///
-/// Handles IDE task-file registers ($DA0000+) and four Gayle control
-/// registers ($DA8000-$DABFFF). Addresses outside these ranges within
-/// $D80000-$DFFFFF return 0 (no PCMCIA card).
+/// Handles IDE task-file registers ($DA0000+), four Gayle control
+/// registers ($DA8000-$DABFFF), and the PCMCIA slot (common, attribute,
+/// and I/O memory regions routed via Gary chip selects).
 #[derive(Debug, Clone)]
 pub struct Gayle {
     /// Card Status register ($DA8000).
@@ -569,10 +810,12 @@ pub struct Gayle {
     gayle_cfg: u8,
     /// Attached IDE drive (None = no drive).
     drive: Option<IdeDrive>,
+    /// PCMCIA card slot (None = empty).
+    pcmcia_card: Option<PcmciaCard>,
 }
 
 impl Gayle {
-    /// Create a new Gayle with no IDE drive attached.
+    /// Create a new Gayle with no IDE drive and no PCMCIA card.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -581,6 +824,7 @@ impl Gayle {
             gayle_int: 0,
             gayle_cfg: 0,
             drive: None,
+            pcmcia_card: None,
         }
     }
 
@@ -593,6 +837,65 @@ impl Gayle {
             gayle_int: 0,
             gayle_cfg: 0,
             drive: Some(IdeDrive::new(image, geometry)),
+            pcmcia_card: None,
+        }
+    }
+
+    /// Create a Gayle with a PCMCIA SRAM card inserted.
+    #[must_use]
+    pub fn with_pcmcia_sram(image: Vec<u8>, readonly: bool) -> Self {
+        let cis = build_sram_cis(image.len());
+        let mut cs = GAYLE_CS_CCDET;
+        if !readonly {
+            cs |= GAYLE_CS_WR;
+        }
+        Self {
+            gayle_cs: cs,
+            gayle_irq: 0,
+            gayle_int: 0,
+            gayle_cfg: 0x08, // 100ns access time
+            drive: None,
+            pcmcia_card: Some(PcmciaCard::Sram {
+                common: image,
+                cis,
+                readonly,
+            }),
+        }
+    }
+
+    /// Create a Gayle with a PCMCIA CompactFlash card inserted.
+    #[must_use]
+    pub fn with_pcmcia_cf(image: Vec<u8>, geometry: DiskGeometry) -> Self {
+        let cis = build_cf_cis();
+        Self {
+            gayle_cs: GAYLE_CS_CCDET | GAYLE_CS_WR,
+            gayle_irq: 0,
+            gayle_int: 0,
+            gayle_cfg: 0x08,
+            drive: None,
+            pcmcia_card: Some(PcmciaCard::CompactFlash {
+                drive: IdeDrive::new(image, geometry),
+                cis,
+                configured: -1,
+            }),
+        }
+    }
+
+    /// Create a Gayle with a PCMCIA NE2000 Ethernet card inserted.
+    #[must_use]
+    pub fn with_pcmcia_ne2000(mac: [u8; 6]) -> Self {
+        let cis = build_ne2000_cis();
+        Self {
+            gayle_cs: GAYLE_CS_CCDET,
+            gayle_irq: 0,
+            gayle_int: 0,
+            gayle_cfg: 0x08,
+            drive: None,
+            pcmcia_card: Some(PcmciaCard::Ne2000 {
+                nic: Ne2000State::new(mac),
+                cis,
+                configured: -1,
+            }),
         }
     }
 
@@ -603,12 +906,29 @@ impl Gayle {
 
     /// Reset all registers to power-on defaults.
     pub fn reset(&mut self) {
-        self.gayle_cs = 0;
+        // Preserve PCMCIA card-detect and write-protect bits through reset.
+        let preserved_cs = self.gayle_cs & (GAYLE_CS_CCDET | GAYLE_CS_WR);
+        self.gayle_cs = preserved_cs;
         self.gayle_irq = 0;
         self.gayle_int = 0;
-        self.gayle_cfg = 0;
+        self.gayle_cfg = if self.pcmcia_card.is_some() {
+            0x08
+        } else {
+            0
+        };
         if let Some(drive) = &mut self.drive {
             drive.reset();
+        }
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::CompactFlash { drive, configured, .. }) => {
+                drive.reset();
+                *configured = -1;
+            }
+            Some(PcmciaCard::Ne2000 { nic, configured, .. }) => {
+                nic.reset();
+                *configured = -1;
+            }
+            _ => {}
         }
     }
 
@@ -650,7 +970,458 @@ impl Gayle {
         self.drive.is_some()
     }
 
-    // -- Bus I/O ------------------------------------------------------------
+    /// True when a PCMCIA card is inserted.
+    #[must_use]
+    pub fn pcmcia_present(&self) -> bool {
+        self.pcmcia_card.is_some()
+    }
+
+    /// True when a PCMCIA card interrupt is pending and enabled.
+    ///
+    /// NE2000 ISR & IMR → gayle_cs BSY bit → gayle_int bit 2 check.
+    #[must_use]
+    pub fn pcmcia_irq_pending(&self) -> bool {
+        match &self.pcmcia_card {
+            Some(PcmciaCard::Ne2000 { nic, configured, .. }) => {
+                *configured >= 0 && nic.irq_pending() && (self.gayle_int & GAYLE_CS_BSY) != 0
+            }
+            Some(PcmciaCard::CompactFlash {
+                drive, configured, ..
+            }) => {
+                *configured >= 0
+                    && drive.irq_pending
+                    && !drive.nien
+                    && (self.gayle_int & GAYLE_CS_BSY) != 0
+            }
+            _ => false,
+        }
+    }
+
+    /// Access the NE2000 state for packet I/O (push_rx_packet / pop_tx_packet).
+    #[must_use]
+    pub fn ne2000(&self) -> Option<&Ne2000State> {
+        match &self.pcmcia_card {
+            Some(PcmciaCard::Ne2000 { nic, .. }) => Some(nic),
+            _ => None,
+        }
+    }
+
+    /// Mutable access to the NE2000 state for packet I/O.
+    pub fn ne2000_mut(&mut self) -> Option<&mut Ne2000State> {
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::Ne2000 { nic, .. }) => Some(nic),
+            _ => None,
+        }
+    }
+
+    // -- PCMCIA bus I/O -----------------------------------------------------
+
+    /// Read a byte from PCMCIA common memory ($600000-$9FFFFF).
+    #[must_use]
+    pub fn read_pcmcia_common(&self, addr: u32) -> u8 {
+        if self.gayle_cs & GAYLE_CS_DIS != 0 {
+            return 0;
+        }
+        let offset = (addr - 0x60_0000) as usize;
+        match &self.pcmcia_card {
+            Some(PcmciaCard::Sram { common, .. }) => {
+                if offset < common.len() {
+                    common[offset]
+                } else {
+                    0
+                }
+            }
+            // CF and NE2000 don't use common memory.
+            _ => 0,
+        }
+    }
+
+    /// Write a byte to PCMCIA common memory ($600000-$9FFFFF).
+    pub fn write_pcmcia_common(&mut self, addr: u32, val: u8) {
+        if self.gayle_cs & GAYLE_CS_DIS != 0 {
+            return;
+        }
+        let offset = (addr - 0x60_0000) as usize;
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::Sram {
+                common, readonly, ..
+            }) => {
+                if !*readonly && offset < common.len() {
+                    common[offset] = val;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Read a byte from PCMCIA attribute/IO/reset space ($A00000-$A5FFFF).
+    ///
+    /// Sub-ranges:
+    /// - $A00000-$A1FFFF: Attribute memory (CIS tuples, config register)
+    /// - $A20000-$A3FFFF: I/O space (CF ATA, NE2000 registers)
+    /// - $A40000-$A5FFFF: Card reset
+    #[must_use]
+    pub fn read_pcmcia_attr(&mut self, addr: u32) -> u8 {
+        if self.gayle_cs & GAYLE_CS_DIS != 0 {
+            return 0;
+        }
+        let local = addr - 0xA0_0000;
+        if local < 0x2_0000 {
+            // Attribute memory: even-byte addressing (addr / 2 = CIS index).
+            self.read_pcmcia_attribute(local)
+        } else if local < 0x4_0000 {
+            // I/O space.
+            self.read_pcmcia_io(local - 0x2_0000)
+        } else {
+            // Reset space — read returns 0.
+            0
+        }
+    }
+
+    /// Write a byte to PCMCIA attribute/IO/reset space ($A00000-$A5FFFF).
+    pub fn write_pcmcia_attr(&mut self, addr: u32, val: u8) {
+        if self.gayle_cs & GAYLE_CS_DIS != 0 {
+            return;
+        }
+        let local = addr - 0xA0_0000;
+        if local < 0x2_0000 {
+            self.write_pcmcia_attribute(local, val);
+        } else if local < 0x4_0000 {
+            self.write_pcmcia_io(local - 0x2_0000, val);
+        } else {
+            // Reset space — trigger card reset on write.
+            self.reset_pcmcia_card();
+        }
+    }
+
+    /// Read a 16-bit word from PCMCIA attribute/IO space.
+    ///
+    /// Word accesses to NE2000 I/O registers use byte-swapped 16-bit mode
+    /// (big-endian Amiga bus ↔ little-endian DP8390).
+    #[must_use]
+    pub fn read_pcmcia_attr_word(&mut self, addr: u32) -> u16 {
+        if self.gayle_cs & GAYLE_CS_DIS != 0 {
+            return 0;
+        }
+        let local = addr - 0xA0_0000;
+        if local >= 0x2_0000 && local < 0x4_0000 {
+            // I/O space word read — NE2000 data port needs 16-bit access.
+            let io_offset = local - 0x2_0000;
+            return self.read_pcmcia_io_word(io_offset);
+        }
+        // Attribute and reset: byte access only.
+        u16::from(self.read_pcmcia_attr(addr))
+    }
+
+    /// Write a 16-bit word to PCMCIA attribute/IO space.
+    pub fn write_pcmcia_attr_word(&mut self, addr: u32, val: u16) {
+        if self.gayle_cs & GAYLE_CS_DIS != 0 {
+            return;
+        }
+        let local = addr - 0xA0_0000;
+        if local >= 0x2_0000 && local < 0x4_0000 {
+            let io_offset = local - 0x2_0000;
+            self.write_pcmcia_io_word(io_offset, val);
+            return;
+        }
+        // Attribute and reset: byte only.
+        self.write_pcmcia_attr(addr, val as u8);
+    }
+
+    // -- PCMCIA internal routing --------------------------------------------
+
+    fn read_pcmcia_attribute(&self, offset: u32) -> u8 {
+        // Even-byte addressing: CIS index = offset / 2.
+        let cis_idx = (offset / 2) as usize;
+
+        match &self.pcmcia_card {
+            Some(PcmciaCard::Sram { cis, .. }) => {
+                // Config register at $200 (CIS index $100).
+                if cis_idx == 0x100 {
+                    return 0; // No configurable I/O for SRAM.
+                }
+                cis.get(cis_idx).copied().unwrap_or(0)
+            }
+            Some(PcmciaCard::CompactFlash {
+                cis, configured, ..
+            }) => {
+                // Config register at attribute address $200 (CIS index $100).
+                if cis_idx == 0x100 {
+                    return if *configured >= 0 {
+                        *configured as u8
+                    } else {
+                        0
+                    };
+                }
+                cis.get(cis_idx).copied().unwrap_or(0)
+            }
+            Some(PcmciaCard::Ne2000 {
+                cis, configured, ..
+            }) => {
+                // Config register at attribute address $3F8 (CIS index $1FC).
+                if cis_idx == 0x1FC {
+                    return if *configured >= 0 {
+                        *configured as u8
+                    } else {
+                        0
+                    };
+                }
+                cis.get(cis_idx).copied().unwrap_or(0)
+            }
+            None => 0,
+        }
+    }
+
+    fn write_pcmcia_attribute(&mut self, offset: u32, val: u8) {
+        let cis_idx = (offset / 2) as usize;
+
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::CompactFlash { configured, .. }) => {
+                if cis_idx == 0x100 {
+                    *configured = val as i8;
+                }
+            }
+            Some(PcmciaCard::Ne2000 { configured, .. }) => {
+                if cis_idx == 0x1FC {
+                    *configured = val as i8;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn read_pcmcia_io(&mut self, io_offset: u32) -> u8 {
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::CompactFlash {
+                drive, configured, ..
+            }) => {
+                if *configured < 0 {
+                    return 0xFF;
+                }
+                // CF ATA at I/O $1F0-$1F7, alternate status at $3F6.
+                match io_offset {
+                    0x1F0..=0x1F7 => {
+                        let reg = io_offset - 0x1F0;
+                        if reg == 0 {
+                            0 // DATA byte — use word access
+                        } else {
+                            match reg {
+                                1 => drive.error,
+                                2 => drive.sector_count,
+                                3 => drive.sector_number,
+                                4 => drive.cylinder_lo,
+                                5 => drive.cylinder_hi,
+                                6 => drive.dev_head,
+                                7 => drive.status,
+                                _ => 0xFF,
+                            }
+                        }
+                    }
+                    0x3F6 => {
+                        // Alternate status (same as status, no IRQ clear).
+                        drive.status
+                    }
+                    _ => 0xFF,
+                }
+            }
+            Some(PcmciaCard::Ne2000 {
+                nic, configured, ..
+            }) => {
+                if *configured < 0 {
+                    return 0xFF;
+                }
+                // NE2000 at I/O $300-$31F.
+                if io_offset >= 0x300 && io_offset < 0x320 {
+                    let reg = (io_offset - 0x300) as u8;
+                    nic.read_reg(reg)
+                } else {
+                    0xFF
+                }
+            }
+            _ => 0,
+        }
+    }
+
+    fn write_pcmcia_io(&mut self, io_offset: u32, val: u8) {
+        let mut set_bsy = false;
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::CompactFlash {
+                drive, configured, ..
+            }) => {
+                if *configured < 0 {
+                    return;
+                }
+                match io_offset {
+                    0x1F0..=0x1F7 => {
+                        let reg = (io_offset - 0x1F0) as u8;
+                        if reg != 0 {
+                            Self::write_cf_register_on(drive, reg, val);
+                        }
+                    }
+                    0x3F6 => {
+                        drive.nien = val & 0x02 != 0;
+                    }
+                    _ => {}
+                }
+                set_bsy = drive.irq_pending && !drive.nien;
+            }
+            Some(PcmciaCard::Ne2000 {
+                nic, configured, ..
+            }) => {
+                if *configured < 0 {
+                    return;
+                }
+                if io_offset >= 0x300 && io_offset < 0x320 {
+                    let reg = (io_offset - 0x300) as u8;
+                    nic.write_reg(reg, val);
+                    set_bsy = nic.irq_pending();
+                }
+            }
+            _ => {}
+        }
+        if set_bsy {
+            self.gayle_cs |= GAYLE_CS_BSY;
+        }
+    }
+
+    fn read_pcmcia_io_word(&mut self, io_offset: u32) -> u16 {
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::CompactFlash {
+                drive, configured, ..
+            }) => {
+                if *configured < 0 {
+                    return 0xFFFF;
+                }
+                if io_offset == 0x1F0 {
+                    drive.read_data_word()
+                } else {
+                    // Fall back to byte read for non-data registers.
+                    match io_offset {
+                        0x1F1..=0x1F7 => {
+                            let reg = io_offset - 0x1F0;
+                            u16::from(match reg {
+                                1 => drive.error,
+                                2 => drive.sector_count,
+                                3 => drive.sector_number,
+                                4 => drive.cylinder_lo,
+                                5 => drive.cylinder_hi,
+                                6 => drive.dev_head,
+                                7 => drive.status,
+                                _ => 0xFF,
+                            })
+                        }
+                        0x3F6 => u16::from(drive.status),
+                        _ => 0xFFFF,
+                    }
+                }
+            }
+            Some(PcmciaCard::Ne2000 {
+                nic, configured, ..
+            }) => {
+                if *configured < 0 {
+                    return 0xFFFF;
+                }
+                // NE2000 data port at $310 (offset 0x10 from base $300).
+                if io_offset == 0x310 {
+                    // Byte-swap: NE2000 is little-endian, Amiga is big-endian.
+                    let val = nic.read_data_port();
+                    (val >> 8) | (val << 8)
+                } else if io_offset >= 0x300 && io_offset < 0x320 {
+                    let reg = (io_offset - 0x300) as u8;
+                    u16::from(nic.read_reg(reg))
+                } else {
+                    0xFFFF
+                }
+            }
+            _ => 0,
+        }
+    }
+
+    fn write_pcmcia_io_word(&mut self, io_offset: u32, val: u16) {
+        let mut set_bsy = false;
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::CompactFlash {
+                drive, configured, ..
+            }) => {
+                if *configured < 0 {
+                    return;
+                }
+                if io_offset == 0x1F0 {
+                    drive.write_data_word(val);
+                    set_bsy = drive.irq_pending && !drive.nien;
+                } else {
+                    let reg = if io_offset >= 0x1F0 && io_offset <= 0x1F7 {
+                        Some((io_offset - 0x1F0) as u8)
+                    } else {
+                        None
+                    };
+                    if let Some(reg) = reg {
+                        if reg != 0 {
+                            Self::write_cf_register_on(drive, reg, val as u8);
+                            set_bsy = drive.irq_pending && !drive.nien;
+                        }
+                    } else if io_offset == 0x3F6 {
+                        drive.nien = val as u8 & 0x02 != 0;
+                    }
+                }
+            }
+            Some(PcmciaCard::Ne2000 {
+                nic, configured, ..
+            }) => {
+                if *configured < 0 {
+                    return;
+                }
+                // NE2000 data port at $310.
+                if io_offset == 0x310 {
+                    // Byte-swap for NE2000 little-endian.
+                    let swapped = (val >> 8) | (val << 8);
+                    nic.write_data_port(swapped);
+                    set_bsy = nic.irq_pending();
+                } else if io_offset >= 0x300 && io_offset < 0x320 {
+                    let reg = (io_offset - 0x300) as u8;
+                    nic.write_reg(reg, val as u8);
+                    set_bsy = nic.irq_pending();
+                }
+            }
+            _ => {}
+        }
+        if set_bsy {
+            self.gayle_cs |= GAYLE_CS_BSY;
+        }
+    }
+
+    /// CF register write helper (takes direct drive reference to avoid borrow issues).
+    fn write_cf_register_on(drive: &mut IdeDrive, reg: u8, val: u8) {
+        match reg {
+            1 => drive.error = val,
+            2 => drive.sector_count = val,
+            3 => drive.sector_number = val,
+            4 => drive.cylinder_lo = val,
+            5 => drive.cylinder_hi = val,
+            6 => drive.dev_head = val,
+            7 => {
+                drive.irq_pending = false;
+                drive.execute_command(val);
+            }
+            _ => {}
+        }
+    }
+
+    fn reset_pcmcia_card(&mut self) {
+        match &mut self.pcmcia_card {
+            Some(PcmciaCard::CompactFlash { drive, configured, .. }) => {
+                drive.reset();
+                *configured = -1;
+            }
+            Some(PcmciaCard::Ne2000 { nic, configured, .. }) => {
+                nic.reset();
+                *configured = -1;
+            }
+            _ => {}
+        }
+    }
+
+    // -- Gayle register / IDE Bus I/O ---------------------------------------
 
     /// Read a byte from a Gayle-decoded address.
     ///
@@ -759,7 +1530,7 @@ impl Gayle {
             .is_some_and(|d| d.irq_pending && !d.nien);
         if hw_irq {
             // The IRQ line raises bit 7 (IDE_IRQ) in the Gayle IRQ register.
-            (self.gayle_int & 0x80) != 0
+            (self.gayle_int & GAYLE_CS_IDE) != 0
         } else {
             false
         }

@@ -308,6 +308,7 @@ fn build_amiga() -> Option<Amiga> {
         slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
     }))
 }
 

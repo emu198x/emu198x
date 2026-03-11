@@ -23,6 +23,7 @@ fn test_aga_boot_diag() {
         slow_ram_size: 512 * 1024,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
     });
 
     let total_ticks: u64 = 28_375_160 * 10;

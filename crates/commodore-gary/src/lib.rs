@@ -31,6 +31,10 @@ pub enum ChipSelect {
     ResourceRegisters,
     /// Gayle gate array: $D80000-$DFFFFF (A600/A1200).
     Gayle,
+    /// PCMCIA common memory: $600000-$9FFFFF (A600/A1200, when card present).
+    PcmciaCommon,
+    /// PCMCIA attribute, I/O, and reset: $A00000-$A5FFFF (A600/A1200, when card present).
+    PcmciaAttr,
     /// Battery-backed clock (RTC): $DC0000-$DC003F (A2000/A3000/A4000, and
     /// via Gayle on A500+/A600/A1200).
     Rtc,
@@ -60,6 +64,7 @@ pub enum ChipSelect {
 pub struct Gary {
     slow_ram_present: bool,
     gayle_present: bool,
+    pcmcia_present: bool,
     dmac_present: bool,
     resource_regs_present: bool,
     rtc_present: bool,
@@ -72,6 +77,7 @@ impl Gary {
         Self {
             slow_ram_present: false,
             gayle_present: false,
+            pcmcia_present: false,
             dmac_present: false,
             resource_regs_present: false,
             rtc_present: false,
@@ -86,6 +92,11 @@ impl Gary {
     /// Enable or disable the Gayle chip select ($D80000-$DFFFFF).
     pub fn set_gayle_present(&mut self, present: bool) {
         self.gayle_present = present;
+    }
+
+    /// Enable or disable the PCMCIA chip selects ($600000-$9FFFFF, $A00000-$A5FFFF).
+    pub fn set_pcmcia_present(&mut self, present: bool) {
+        self.pcmcia_present = present;
     }
 
     /// Enable or disable the DMAC chip select ($DD0000-$DDFFFF).
@@ -193,6 +204,16 @@ impl Gary {
         // Chip RAM: $000000-$1FFFFF
         if addr < 0x20_0000 {
             return ChipSelect::ChipRam;
+        }
+
+        // PCMCIA common memory: $600000-$9FFFFF (A600/A1200 with card)
+        if self.pcmcia_present && addr >= 0x60_0000 && addr < 0xA0_0000 {
+            return ChipSelect::PcmciaCommon;
+        }
+
+        // PCMCIA attribute/IO/reset: $A00000-$A5FFFF (A600/A1200 with card)
+        if self.pcmcia_present && addr >= 0xA0_0000 && addr < 0xA6_0000 {
+            return ChipSelect::PcmciaAttr;
         }
 
         // Slow RAM: $C00000-$D7FFFF
@@ -577,6 +598,88 @@ mod tests {
                 gary.decode(addr),
                 expected,
                 "A1200 decode mismatch at ${addr:06X}: expected {expected:?}, got {:?}",
+                gary.decode(addr),
+            );
+        }
+    }
+
+    // -- PCMCIA (A600/A1200 with card) --------------------------------------
+
+    fn gary_a600_with_pcmcia() -> Gary {
+        let mut gary = Gary::new();
+        gary.set_gayle_present(true);
+        gary.set_slow_ram_present(true);
+        gary.set_pcmcia_present(true);
+        gary
+    }
+
+    #[test]
+    fn pcmcia_common_decode() {
+        let gary = gary_a600_with_pcmcia();
+        assert_eq!(gary.decode(0x600000), ChipSelect::PcmciaCommon);
+        assert_eq!(gary.decode(0x700000), ChipSelect::PcmciaCommon);
+        assert_eq!(gary.decode(0x9FFFFF), ChipSelect::PcmciaCommon);
+    }
+
+    #[test]
+    fn pcmcia_attr_decode() {
+        let gary = gary_a600_with_pcmcia();
+        assert_eq!(gary.decode(0xA00000), ChipSelect::PcmciaAttr);
+        assert_eq!(gary.decode(0xA20300), ChipSelect::PcmciaAttr);
+        assert_eq!(gary.decode(0xA40000), ChipSelect::PcmciaAttr);
+        assert_eq!(gary.decode(0xA5FFFF), ChipSelect::PcmciaAttr);
+    }
+
+    #[test]
+    fn pcmcia_not_present_returns_unmapped() {
+        let gary = gary_a600();
+        assert_eq!(gary.decode(0x600000), ChipSelect::Unmapped);
+        assert_eq!(gary.decode(0xA00000), ChipSelect::Unmapped);
+    }
+
+    #[test]
+    fn pcmcia_above_attr_is_unmapped() {
+        let gary = gary_a600_with_pcmcia();
+        // $A60000+ is not PCMCIA
+        assert_eq!(gary.decode(0xA60000), ChipSelect::Unmapped);
+    }
+
+    #[test]
+    fn truth_table_a1200_with_pcmcia() {
+        let gary = gary_a600_with_pcmcia();
+
+        let cases: &[(u32, ChipSelect)] = &[
+            (0x000000, ChipSelect::ChipRam),
+            (0x1FFFFF, ChipSelect::ChipRam),
+            (0x200000, ChipSelect::Unmapped),
+            (0x5FFFFF, ChipSelect::Unmapped),
+            // PCMCIA common
+            (0x600000, ChipSelect::PcmciaCommon),
+            (0x9FFFFF, ChipSelect::PcmciaCommon),
+            // PCMCIA attribute/IO/reset
+            (0xA00000, ChipSelect::PcmciaAttr),
+            (0xA5FFFF, ChipSelect::PcmciaAttr),
+            // Above PCMCIA attr → unmapped
+            (0xA60000, ChipSelect::Unmapped),
+            // CIAs
+            (0xBFD000, ChipSelect::CiaB),
+            (0xBFE001, ChipSelect::CiaA),
+            // Slow RAM
+            (0xC00000, ChipSelect::SlowRam),
+            (0xD7FFFF, ChipSelect::SlowRam),
+            // Gayle
+            (0xD80000, ChipSelect::Gayle),
+            // Custom (shadows Gayle)
+            (0xDFF000, ChipSelect::Custom),
+            // ROM
+            (0xF80000, ChipSelect::Rom),
+        ];
+
+        for &(addr, expected) in cases {
+            assert_eq!(
+                gary.decode(addr),
+                expected,
+                "A1200+PCMCIA decode mismatch at ${addr:06X}: expected {expected:?}, got {:?}",
                 gary.decode(addr),
             );
         }

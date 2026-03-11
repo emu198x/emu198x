@@ -71,6 +71,17 @@ pub const PAL_RASTER_FB_HEIGHT: u32 = 624;
 /// NTSC raster framebuffer height: 262 lines x 2 (interlace) = 524.
 pub const NTSC_RASTER_FB_HEIGHT: u32 = 524;
 
+/// PCMCIA card configuration for Gayle-based systems (A600, A1200).
+#[derive(Debug, Clone)]
+pub enum PcmciaCardConfig {
+    /// SRAM memory card. The Vec is the card image data.
+    Sram(Vec<u8>),
+    /// CompactFlash card. The Vec is the disk image.
+    CompactFlash { image: Vec<u8> },
+    /// NE2000 Ethernet card with the given MAC address.
+    Ne2000 { mac: [u8; 6] },
+}
+
 #[derive(Debug, Clone)]
 pub struct AmigaConfig {
     pub model: AmigaModel,
@@ -89,4 +100,7 @@ pub struct AmigaConfig {
     /// When `Some`, the disk image is attached to the DMAC SCSI
     /// controller at SCSI ID 0.
     pub scsi_disk: Option<Vec<u8>>,
+    /// PCMCIA card for Gayle-based systems (A600, A1200).
+    /// When `Some`, a PCMCIA card is inserted into the Gayle slot.
+    pub pcmcia_card: Option<PcmciaCardConfig>,
 }

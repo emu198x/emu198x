@@ -57,16 +57,15 @@ translation tables, no TC/TT0/TT1/SRP/URP/CRP registers stored.
 - Enforcer/MuForce detect illegal memory accesses
 - VMM (Virtual Memory Manager) can swap pages to disk
 
-### 2. PCMCIA (commodore-gayle)
+### 2. ~~PCMCIA (commodore-gayle)~~ DONE
 
-**Status:** Not implemented. Gayle PCMCIA address space not wired.
+**Status:** Implemented. Three card types supported: SRAM, CompactFlash, NE2000.
 
-**What's needed:**
-- PCMCIA attribute memory at $A00000
-- PCMCIA I/O space at $A20000
-- PCMCIA common memory at $600000
-- Card detect, configuration registers
-- SRAM card support (most common use case)
-
-**Impact:** Very low. Few users relied on PCMCIA storage.
+Gary decodes $600000-$9FFFFF (PcmciaCommon) and $A00000-$A5FFFF (PcmciaAttr)
+when `pcmcia_present` is set. Gayle routes attribute memory (CIS tuples + config
+registers), I/O space (CF ATA registers, NE2000 DP8390 registers), and common
+memory (SRAM direct access). NE2000 includes a full DP8390 register machine with
+48KB internal memory, ring buffer packet reception, and queue-based TX/RX for
+runner integration. Gayle CS bits (CCDET, WR, BSY, DIS) control card presence
+detection, write-protect, IRQ routing, and slot disable.
 

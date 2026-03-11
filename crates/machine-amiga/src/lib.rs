@@ -527,6 +527,7 @@ impl Amiga {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         })
     }
 
@@ -543,6 +544,7 @@ impl Amiga {
             slow_ram_size,
             ide_disk,
             scsi_disk,
+            pcmcia_card,
         } = config;
         let chip_ram_size = match model {
             AmigaModel::A1000 | AmigaModel::A500 | AmigaModel::A2000 => 512 * 1024,
@@ -639,6 +641,8 @@ impl Amiga {
         let mut cia_a = Cia8520::new("A");
         cia_a.external_a = 0xEB; // 0b_1110_1011
 
+        let has_pcmcia = pcmcia_card.is_some();
+
         Self {
             master_clock: 0,
             model,
@@ -663,12 +667,27 @@ impl Amiga {
             motherboard_external_irq_prev: false,
             gayle: match model {
                 AmigaModel::A600 | AmigaModel::A1200 => {
-                    if let Some(image) = ide_disk {
+                    use crate::config::PcmciaCardConfig;
+                    let gayle = if let Some(image) = ide_disk {
                         let geometry = commodore_gayle::DiskGeometry::from_image_size(image.len());
-                        Some(Gayle::with_disk(image, geometry))
+                        Gayle::with_disk(image, geometry)
                     } else {
-                        Some(Gayle::new())
-                    }
+                        match pcmcia_card {
+                            Some(PcmciaCardConfig::Sram(image)) => {
+                                Gayle::with_pcmcia_sram(image, false)
+                            }
+                            Some(PcmciaCardConfig::CompactFlash { image }) => {
+                                let geom =
+                                    commodore_gayle::DiskGeometry::from_image_size(image.len());
+                                Gayle::with_pcmcia_cf(image, geom)
+                            }
+                            Some(PcmciaCardConfig::Ne2000 { mac }) => {
+                                Gayle::with_pcmcia_ne2000(mac)
+                            }
+                            None => Gayle::new(),
+                        }
+                    };
+                    Some(gayle)
                 }
                 _ => None,
             },
@@ -704,6 +723,7 @@ impl Amiga {
                     model,
                     AmigaModel::A500 | AmigaModel::A1000
                 ));
+                gary.set_pcmcia_present(has_pcmcia);
                 gary
             },
             buster: match model {
@@ -823,6 +843,28 @@ impl Amiga {
     /// shifted in, the new byte waits in the queue.
     pub fn push_serial_byte(&mut self, byte: u8) {
         self.serial_rx_queue.push_back(byte);
+    }
+
+    /// Inject a received Ethernet frame into the NE2000 PCMCIA card.
+    ///
+    /// No-op if no NE2000 card is inserted.
+    pub fn push_network_rx_packet(&mut self, data: &[u8]) {
+        if let Some(gayle) = self.gayle.as_mut() {
+            if let Some(nic) = gayle.ne2000_mut() {
+                nic.push_rx_packet(data);
+            }
+        }
+    }
+
+    /// Pop a transmitted Ethernet frame from the NE2000 PCMCIA card.
+    ///
+    /// Returns `None` if no NE2000 card or no pending transmit.
+    #[must_use]
+    pub fn pop_network_tx_packet(&mut self) -> Option<Vec<u8>> {
+        self.gayle
+            .as_mut()
+            .and_then(|gayle| gayle.ne2000_mut())
+            .and_then(|nic| nic.pop_tx_packet())
     }
 
     pub fn tick(&mut self) {
@@ -1432,13 +1474,13 @@ impl Amiga {
     }
 
     fn motherboard_external_irq_pending(&self) -> bool {
-        // Gayle can present an IDE IRQ directly to Paula EXTER on the
-        // Gayle-based machines. A3000 SDMAC does not follow that path: the
+        // Gayle can present an IDE IRQ or PCMCIA IRQ directly to Paula EXTER
+        // on Gayle-based machines. A3000 SDMAC does not follow that path: the
         // KS3.1 level-6 dispatch goes through ciab.resource, and wiring SDMAC
         // straight into Paula EXTER reaches the wrong handler.
         self.gayle
             .as_ref()
-            .is_some_and(|gayle| gayle.ide_irq_pending())
+            .is_some_and(|gayle| gayle.ide_irq_pending() || gayle.pcmcia_irq_pending())
     }
 
     pub fn write_custom_reg(&mut self, offset: u16, val: u16) {
@@ -3096,6 +3138,41 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                 }
             }
 
+            // PCMCIA common memory ($600000-$9FFFFF)
+            ChipSelect::PcmciaCommon => {
+                if let Some(gayle) = self.gayle.as_mut() {
+                    if is_read {
+                        BusStatus::Ready(u16::from(gayle.read_pcmcia_common(addr)))
+                    } else {
+                        gayle.write_pcmcia_common(addr, data.unwrap_or(0) as u8);
+                        BusStatus::Ready(0)
+                    }
+                } else {
+                    BusStatus::Ready(0)
+                }
+            }
+
+            // PCMCIA attribute/IO/reset ($A00000-$A5FFFF)
+            ChipSelect::PcmciaAttr => {
+                if let Some(gayle) = self.gayle.as_mut() {
+                    if is_read {
+                        if is_word {
+                            BusStatus::Ready(gayle.read_pcmcia_attr_word(addr))
+                        } else {
+                            BusStatus::Ready(u16::from(gayle.read_pcmcia_attr(addr)))
+                        }
+                    } else if is_word {
+                        gayle.write_pcmcia_attr_word(addr, data.unwrap_or(0));
+                        BusStatus::Ready(0)
+                    } else {
+                        gayle.write_pcmcia_attr(addr, data.unwrap_or(0) as u8);
+                        BusStatus::Ready(0)
+                    }
+                } else {
+                    BusStatus::Ready(0)
+                }
+            }
+
             // Unmapped — check expansion boards, then Fat Gary timeout, else 0
             ChipSelect::Unmapped => {
                 // A4000 NCR 53C710 SCSI controller at $DD0000-$DDFFFF.
@@ -3993,6 +4070,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         assert_eq!(amiga.chipset, AmigaChipset::Ecs);
     }
@@ -4007,6 +4085,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         amiga.denise.set_palette(5, 0x0ACE);
         amiga.denise.bplcon0 = 0x6000; // 6 planes, EHB
@@ -4028,6 +4107,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         assert_eq!(amiga.model, AmigaModel::A500Plus);
         assert_eq!(amiga.memory.chip_ram.len(), 1024 * 1024);
@@ -4044,6 +4124,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         assert!(a3000.ramsey.is_some());
         assert!(a3000.fat_gary.is_some());
@@ -4057,6 +4138,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         assert!(a4000.ramsey.is_some());
         assert!(a4000.fat_gary.is_some());
@@ -4073,6 +4155,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         let dmac = amiga.dmac.as_mut().expect("A3000 should expose SDMAC");
@@ -4101,6 +4184,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         let dmac = amiga.dmac.as_mut().expect("A3000 should expose SDMAC");
@@ -4194,6 +4278,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         let mut bus = AmigaBusWrapper {
@@ -4322,6 +4407,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         amiga.write_custom_reg(0x1DC, 0x0020);
         amiga.write_custom_reg(0x1E4, 0xA5A5);
@@ -4339,6 +4425,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -4372,6 +4459,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         // Classic PAL OCS-style display window values.
@@ -4396,6 +4484,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x1C0, 0x0033);
@@ -4447,6 +4536,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         amiga.write_custom_reg(0x106, 0x0201);
         amiga.write_custom_reg(0x1C0, 0x0033);
@@ -4490,6 +4580,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         assert_eq!(read_custom_word_via_cpu_bus(&mut ecs, 0x07C), 0x00FC);
 
@@ -4501,6 +4592,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
         assert_eq!(read_custom_word_via_cpu_bus(&mut aga, 0x07C), 0x00F8);
     }
@@ -4515,6 +4607,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         // Verify NTSC frame timing: 262 lines x 227 CCKs.
@@ -4565,6 +4658,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x1C0, 3); // HTOTAL highest hpos count
@@ -4597,6 +4691,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // VSTART=$2C, HSTART=$00
@@ -4623,6 +4718,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // VSTART=$2C, HSTART=$00
@@ -4649,6 +4745,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -4688,6 +4785,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         // Before enabling ECS variable sync windows, state is inactive.
@@ -4741,6 +4839,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x1C2, 5); // HSSTOP
@@ -4808,6 +4907,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         let last_line = commodore_agnus_ocs::PAL_LINES_PER_FRAME - 1;
@@ -4871,6 +4971,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -4958,6 +5059,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -5017,6 +5119,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x1C4, 8); // HBSTRT
@@ -5138,6 +5241,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x08E, 0x2C00); // DIWSTRT
@@ -5189,6 +5293,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         // ECS display window vertical range 0x100..0x120 and horizontal range
@@ -5238,6 +5343,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x1C4, 8); // HBSTRT
@@ -5276,6 +5382,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x1C2, 40); // HSSTOP
@@ -5304,6 +5411,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x1CA, 110); // VSSTOP
@@ -5336,6 +5444,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         let last_line = commodore_agnus_ocs::PAL_LINES_PER_FRAME - 1;
@@ -5530,6 +5639,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x100, 0x0070);
@@ -5572,6 +5682,7 @@ mod tests {
             slow_ram_size: 0,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
         });
 
         amiga.write_custom_reg(0x100, 0x1070);

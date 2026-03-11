@@ -22,6 +22,7 @@ fn test_strap_hang() {
         slow_ram_size: 512 * 1024,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
     });
 
     // Run 3.35 seconds — right at the crash

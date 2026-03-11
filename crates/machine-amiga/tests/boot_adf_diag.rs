@@ -94,6 +94,7 @@ fn test_workbench_13_boot() {
         slow_ram_size: 512 * 1024,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
     });
     amiga.insert_disk(adf);
 
@@ -379,6 +380,7 @@ fn test_adf_boot_executes_bootblock() {
         slow_ram_size: 512 * 1024,
             ide_disk: None,
             scsi_disk: None,
+            pcmcia_card: None,
     });
     amiga.insert_disk(make_bootable_adf());
 
