@@ -416,6 +416,21 @@ pub struct Amiga {
     pub paula: Paula8364,
     pub floppy: AmigaFloppyDrive,
     pub keyboard: AmigaKeyboard,
+    // -- Input state --------------------------------------------------------
+    /// Mouse port 0 (mouse) quadrature counter X (8-bit, wraps).
+    pub mouse_x: u8,
+    /// Mouse port 0 (mouse) quadrature counter Y (8-bit, wraps).
+    pub mouse_y: u8,
+    /// Joystick port 1 direction/fire bits (directly reported in JOY1DAT).
+    /// Bits: [7:0] = XDAT (quadrature X), [15:8] = YDAT (quadrature Y).
+    pub joy1dat: u16,
+    /// Mouse/joystick button state. Each bit is active-low (0 = pressed):
+    ///   Bit 0: left mouse button (LMB)
+    ///   Bit 1: right mouse button (RMB)
+    ///   Bit 2: middle mouse button (MMB, active-low via POTGOR)
+    ///   Bit 3: joystick fire button (active-low via CIA-A PRA bit 7)
+    pub input_buttons: u8,
+
     /// Previous state of CIA-A CRA bit 6 for edge-detecting the keyboard
     /// handshake. The real hardware acknowledges on the falling edge (1→0).
     pub cia_a_cra_sp_prev: bool,
@@ -474,6 +489,24 @@ pub struct Amiga {
     /// the copper has written correct pointer values.
     bpl_dma_vactive_latch: bool,
     pub drive_sounds: DriveSoundGenerator,
+    // -- Serial port --------------------------------------------------------
+    /// SERPER ($032): baud rate period. Bits 14-0 = period, bit 15 = 9-bit mode.
+    serper: u16,
+    /// SERDATR ($018) status bits. Bit 13 = TBE, bit 12 = TSRE, bit 11 = RBF.
+    /// Data bits 8-0 are the last received byte (always 0 for now).
+    pub serdatr: u16,
+    /// Countdown in CCKs until transmit shift register finishes sending.
+    /// When this reaches 0, TBE and TSRE are set and TBE interrupt fires.
+    serial_shift_countdown: u32,
+    // -- Battery-backed clock (RTC) -----------------------------------------
+    /// RTC control registers D/E/F. Index 0 = reg D, 1 = reg E, 2 = reg F.
+    pub rtc_control: [u8; 3],
+    /// Whether host time has been latched into the RTC snapshot on first read.
+    pub rtc_time_latched: bool,
+    /// Snapshot of host time, latched on first RTC access. BCD-encoded.
+    /// Indexed: 0=sec_lo, 1=sec_hi, 2=min_lo, 3=min_hi, 4=hr_lo, 5=hr_hi,
+    /// 6=day_lo, 7=day_hi, 8=month_lo, 9=month_hi, 10=year_lo, 11=year_hi.
+    pub rtc_time: [u8; 12],
 }
 
 impl Amiga {
@@ -614,6 +647,10 @@ impl Amiga {
             paula: Paula8364::new(),
             floppy: AmigaFloppyDrive::new(),
             keyboard: AmigaKeyboard::new(),
+            mouse_x: 0,
+            mouse_y: 0,
+            joy1dat: 0,
+            input_buttons: 0x0F, // all buttons released (active-low)
             cia_a_cra_sp_prev: false,
             motherboard_external_irq_prev: false,
             gayle: match model {
@@ -653,6 +690,12 @@ impl Amiga {
                 gary.set_resource_regs_present(
                     matches!(model, AmigaModel::A3000 | AmigaModel::A4000),
                 );
+                // A1000 has no RTC. A500 original has no RTC (unless expansion
+                // board, which we don't model). Everything else has one.
+                gary.set_rtc_present(!matches!(
+                    model,
+                    AmigaModel::A500 | AmigaModel::A1000
+                ));
                 gary
             },
             buster: match model {
@@ -689,7 +732,78 @@ impl Amiga {
             color_pending: Vec::new(),
             bpl_dma_vactive_latch: false,
             drive_sounds: DriveSoundGenerator::new(AUDIO_SAMPLE_RATE),
+            serper: 0,
+            serdatr: 0x3000, // TBE + TSRE set (transmitter idle)
+            serial_shift_countdown: 0,
+            rtc_control: [0; 3],
+            rtc_time_latched: false,
+            rtc_time: [0; 12],
         }
+    }
+
+    // -- Input API ----------------------------------------------------------
+
+    /// Push a mouse movement delta. The counters wrap naturally at 8 bits,
+    /// producing the quadrature encoding Amiga software expects.
+    pub fn push_mouse_delta(&mut self, dx: i16, dy: i16) {
+        self.mouse_x = self.mouse_x.wrapping_add(dx as u8);
+        self.mouse_y = self.mouse_y.wrapping_add(dy as u8);
+    }
+
+    /// Set a mouse button state. `button`: 0 = LMB, 1 = RMB, 2 = MMB.
+    pub fn set_mouse_button(&mut self, button: u8, pressed: bool) {
+        if button > 2 {
+            return;
+        }
+        if pressed {
+            self.input_buttons &= !(1 << button);
+        } else {
+            self.input_buttons |= 1 << button;
+        }
+        self.update_cia_a_buttons();
+    }
+
+    /// Set joystick direction bits. `direction` uses the standard encoding:
+    ///   Bit 0: right, Bit 1: left, Bit 2: down, Bit 3: up.
+    /// Set `fire` true when the fire button is pressed.
+    pub fn set_joystick(&mut self, direction: u8, fire: bool) {
+        // JOY1DAT quadrature encoding:
+        //   Bit 1 (XOR bit 0) = right, Bit 9 (XOR bit 8) = down
+        //   Bit 0 = raw X counter LSB, Bit 8 = raw Y counter LSB
+        // The direction bits are translated to the counter positions that
+        // produce the expected XOR results.
+        let right = direction & 0x01 != 0;
+        let left = direction & 0x02 != 0;
+        let down = direction & 0x04 != 0;
+        let up = direction & 0x08 != 0;
+
+        // X axis: bit 1 = direction flag, bit 0 = counter LSB
+        let x_lo: u16 = if left { 0b01 } else { 0b00 };
+        let x_hi: u16 = if right || left { 0b10 } else { 0b00 };
+        // Y axis: bit 9 = direction flag, bit 8 = counter LSB
+        let y_lo: u16 = if up { 0b01 } else { 0b00 };
+        let y_hi: u16 = if down || up { 0b10 } else { 0b00 };
+
+        self.joy1dat = (y_hi << 8) | (y_lo << 8) | x_hi | x_lo;
+
+        // Fire button
+        if fire {
+            self.input_buttons &= !(1 << 3);
+        } else {
+            self.input_buttons |= 1 << 3;
+        }
+        self.update_cia_a_buttons();
+    }
+
+    /// Update CIA-A PRA bits 6-7 from current button state.
+    fn update_cia_a_buttons(&mut self) {
+        // CIA-A PRA bit 6 = /FIR0 (left mouse button, active-low)
+        // CIA-A PRA bit 7 = /FIR1 (joystick fire button, active-low)
+        let fir0 = self.input_buttons & 0x01; // LMB: bit 0
+        let fir1 = (self.input_buttons >> 3) & 0x01; // joy fire: bit 3
+        self.cia_a.external_a = (self.cia_a.external_a & 0x3F)
+            | (fir0 << 6)
+            | (fir1 << 7);
     }
 
     pub fn tick(&mut self) {
@@ -1065,10 +1179,10 @@ impl Amiga {
                     self.request_blitter_interrupt(BlitterInterruptSource::SchedulerIncremental);
                 }
             }
-            if self.agnus.blitter_exec_ready() {
-                if let Some(source) = execute_blit(&mut self.agnus, &mut self.memory) {
-                    self.request_blitter_interrupt(source);
-                }
+            if self.agnus.blitter_exec_ready()
+                && let Some(source) = execute_blit(&mut self.agnus, &mut self.memory)
+            {
+                self.request_blitter_interrupt(source);
             }
 
             self.audio_sample_phase += u64::from(AUDIO_SAMPLE_RATE);
@@ -1098,6 +1212,14 @@ impl Amiga {
             if self.paula.disk_dma_pending {
                 self.paula.disk_dma_pending = false;
                 self.start_disk_dma_transfer();
+            }
+
+            // Service SDMAC DMA transfers (A3000 SCSI)
+            if let Some(dmac) = &mut self.dmac
+                && dmac.dma_active()
+                && dmac.dma_pending()
+            {
+                service_dmac_dma(dmac, &mut self.memory);
             }
         }
 
@@ -1133,6 +1255,14 @@ impl Amiga {
                     ddfstop_pending: &mut self.ddfstop_pending,
                     color_pending: &mut self.color_pending,
                     cpu_pc: self.cpu.regs.pc,
+                    mouse_x: &mut self.mouse_x,
+                    mouse_y: &mut self.mouse_y,
+                    joy1dat: self.joy1dat,
+                    input_buttons: self.input_buttons,
+                    serdatr: self.serdatr,
+                    rtc_control: &mut self.rtc_control,
+                    rtc_time: &mut self.rtc_time,
+                    rtc_time_latched: &mut self.rtc_time_latched,
                 };
                 self.cpu.tick(&mut bus, cpu_clock);
             }
@@ -1176,6 +1306,14 @@ impl Amiga {
                         ddfstop_pending: &mut self.ddfstop_pending,
                         color_pending: &mut self.color_pending,
                         cpu_pc: self.cpu.regs.pc,
+                        mouse_x: &mut self.mouse_x,
+                        mouse_y: &mut self.mouse_y,
+                        joy1dat: self.joy1dat,
+                        input_buttons: self.input_buttons,
+                        serdatr: self.serdatr,
+                        rtc_control: &mut self.rtc_control,
+                        rtc_time: &mut self.rtc_time,
+                        rtc_time_latched: &mut self.rtc_time_latched,
                     };
                     // Scale clock to CPU bus-cycle domain: the 68000
                     // tick() gates on clock % 4 == 0, so multiply by 4
@@ -1238,6 +1376,17 @@ impl Amiga {
                 self.cia_a.receive_serial_byte(byte);
             }
         }
+
+        // Serial port transmit: countdown runs at CCK rate (≈3.58 MHz).
+        // When countdown reaches 0, byte is "sent" — set TBE + TSRE and
+        // trigger TBE interrupt (INTREQ bit 0).
+        if self.serial_shift_countdown > 0 {
+            self.serial_shift_countdown -= 1;
+            if self.serial_shift_countdown == 0 {
+                self.serdatr |= 0x3000; // TBE + TSRE
+                self.paula.request_interrupt(0); // TBE (level 1)
+            }
+        }
     }
 
     fn motherboard_external_irq_pending(&self) -> bool {
@@ -1277,6 +1426,23 @@ impl Amiga {
             val,
             self.denise.bplcon3,
         );
+        // SERDAT ($030): Start serial transmit.
+        if offset == 0x030 {
+            self.serdatr &= !0x3000; // clear TBE + TSRE
+            let period = u32::from(self.serper & 0x7FFF) + 1;
+            let bits = if self.serper & 0x8000 != 0 { 11 } else { 10 }; // data + start + stop
+            self.serial_shift_countdown = period * bits;
+        }
+        // SERPER ($032): Set baud rate period.
+        if offset == 0x032 {
+            self.serper = val;
+        }
+        // JOYTEST ($036): Write sets both JOY0DAT and JOY1DAT counters.
+        if offset == 0x036 {
+            self.mouse_x = (val & 0xFF) as u8;
+            self.mouse_y = (val >> 8) as u8;
+            self.joy1dat = val;
+        }
         write_custom_register(
             self.chipset,
             &mut self.agnus,
@@ -2318,6 +2484,46 @@ pub struct AmigaBusWrapper<'a> {
     pub ddfstop_pending: &'a mut Option<(u16, u8)>,
     pub color_pending: &'a mut Vec<(usize, u16, u8, u16)>,
     pub cpu_pc: u32,
+    pub mouse_x: &'a mut u8,
+    pub mouse_y: &'a mut u8,
+    pub joy1dat: u16,
+    pub input_buttons: u8,
+    pub serdatr: u16,
+    pub rtc_control: &'a mut [u8; 3],
+    pub rtc_time: &'a mut [u8; 12],
+    pub rtc_time_latched: &'a mut bool,
+}
+
+/// Transfer pending DMAC DMA data between the SCSI buffer and system memory.
+///
+/// On real hardware the SDMAC uses burst DMA. We transfer the entire
+/// buffer at once (instantaneous) because there are no cycle-stealing
+/// effects to model on the A3000's 32-bit bus. The ACR (address counter)
+/// and WTC (word transfer count) registers track progress.
+fn service_dmac_dma(dmac: &mut Dmac390537, memory: &mut Memory) {
+    let remaining = dmac.dma_bytes_remaining();
+    if remaining == 0 {
+        return;
+    }
+    let mut addr = dmac.acr();
+    if dmac.dma_direction_read() {
+        // Target → initiator: SCSI read data → system memory.
+        for _ in 0..remaining {
+            let byte = dmac.dma_read_byte();
+            memory.write_byte_32(addr, byte);
+            addr = addr.wrapping_add(1);
+        }
+    } else {
+        // Initiator → target: system memory → SCSI write buffer.
+        for _ in 0..remaining {
+            let byte = memory.read_byte_32(addr);
+            dmac.dma_write_byte(byte);
+            addr = addr.wrapping_add(1);
+        }
+    }
+    // Update ACR to reflect the post-transfer address.
+    // WTC is not decremented here — KS relies on the WD33C93 transfer
+    // count, not the SDMAC WTC, for completion detection.
 }
 
 fn motherboard_paula_intreq_bits(model: AmigaModel, dmac: Option<&Dmac390537>) -> u16 {
@@ -2568,6 +2774,11 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         val,
                         self.denise.bplcon3,
                     );
+                    // JOYTEST ($036): preset both mouse and joystick counters.
+                    if offset == 0x036 {
+                        *self.mouse_x = (val & 0xFF) as u8;
+                        *self.mouse_y = (val >> 8) as u8;
+                    }
                     write_custom_register(
                         self.chipset,
                         self.agnus,
@@ -2601,11 +2812,21 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                         ((self.agnus.vpos & 0xFF) << 8) | (self.agnus.hpos & 0xFF)
                     }
                     0x008 => self.paula.dskdatr,
-                    0x00A | 0x00C => 0,
+                    0x00A => u16::from(*self.mouse_y) << 8 | u16::from(*self.mouse_x),
+                    0x00C => self.joy1dat,
                     0x00E => self.denise.read_clxdat(),
                     0x010 => self.paula.adkcon,
-                    0x016 => 0xFF00,
-                    0x018 => 0x3000,
+                    0x016 => {
+                        // POTGOR: active-low button state. All bits high when
+                        // idle ($FF00). Pressed buttons clear their data line.
+                        let rmb = (self.input_buttons >> 1) & 0x01; // 1=released, 0=pressed
+                        let mmb = (self.input_buttons >> 2) & 0x01;
+                        // Bits 10 (DATLY=RMB) and 8 (DATLX=MMB), rest high.
+                        (0xFF00 & !(1u16 << 10) & !(1u16 << 8))
+                            | (u16::from(rmb) << 10)
+                            | (u16::from(mmb) << 8)
+                    }
+                    0x018 => self.serdatr,
                     0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x01C => self.paula.intena,
                     0x01E => effective_paula_intreq(self.model, self.paula, self.dmac.as_ref()),
@@ -2788,6 +3009,46 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     }
                 } else {
                     // No bus controller (A600/A1200 without expansion).
+                    BusStatus::Ready(0)
+                }
+            }
+
+            // Battery-backed clock (MSM6242B) at $DC0000-$DC003F
+            // Nybble-wide BCD registers: RTC A0-A3 = CPU A2-A5
+            ChipSelect::Rtc => {
+                let reg = ((addr & 0x3F) >> 2) as usize;
+                if is_read {
+                    // Latch time on first read
+                    if !*self.rtc_time_latched {
+                        *self.rtc_time_latched = true;
+                        // Fixed time: 1993-01-01 12:00:00 (Friday)
+                        // S1,S10,MI1,MI10,H1,H10,D1,D10,MO1,MO10,Y1,Y10
+                        *self.rtc_time = [0, 0, 0, 0, 2, 1, 1, 0, 1, 0, 3, 9];
+                    }
+                    let val: u8 = match reg {
+                        0..=11 => self.rtc_time[reg] & 0x0F,
+                        12 => 5, // day of week: Friday
+                        13 => self.rtc_control[0] & 0x0F,
+                        14 => self.rtc_control[1] & 0x0F,
+                        15 => self.rtc_control[2] & 0x0F,
+                        _ => 0,
+                    };
+                    BusStatus::Ready(u16::from(val))
+                } else {
+                    let val = (data.unwrap_or(0) & 0x0F) as u8;
+                    match reg {
+                        0..=11 => self.rtc_time[reg] = val,
+                        13 => self.rtc_control[0] = val,
+                        14 => {
+                            self.rtc_control[1] = val;
+                            // Bit 0 = HOLD: clearing unlatches time
+                            if val & 1 == 0 {
+                                *self.rtc_time_latched = false;
+                            }
+                        }
+                        15 => self.rtc_control[2] = val,
+                        _ => {}
+                    }
                     BusStatus::Ready(0)
                 }
             }
@@ -3043,7 +3304,7 @@ fn write_custom_register(
         0x026 => paula.write_dskdat(val),
         0x07E => paula.dsksync = val,
 
-        // Serial (discard)
+        // Serial port — handled in write_custom_reg() which has &mut self
         0x030 | 0x032 => {}
 
         // Copper danger
@@ -3602,6 +3863,14 @@ mod tests {
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
             cpu_pc: 0,
+            mouse_x: &mut amiga.mouse_x,
+            mouse_y: &mut amiga.mouse_y,
+            joy1dat: amiga.joy1dat,
+            input_buttons: amiga.input_buttons,
+            serdatr: amiga.serdatr,
+            rtc_control: &mut amiga.rtc_control,
+            rtc_time: &mut amiga.rtc_time,
+            rtc_time_latched: &mut amiga.rtc_time_latched,
         };
         match M68kBus::poll_cycle(
             &mut bus,
@@ -3643,6 +3912,14 @@ mod tests {
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
             cpu_pc: 0,
+            mouse_x: &mut amiga.mouse_x,
+            mouse_y: &mut amiga.mouse_y,
+            joy1dat: amiga.joy1dat,
+            input_buttons: amiga.input_buttons,
+            serdatr: amiga.serdatr,
+            rtc_control: &mut amiga.rtc_control,
+            rtc_time: &mut amiga.rtc_time,
+            rtc_time_latched: &mut amiga.rtc_time_latched,
         };
         let addr = 0x00DFF000 | u32::from(offset | byte_addr_lsb);
         let result = M68kBus::poll_cycle(
@@ -3829,6 +4106,14 @@ mod tests {
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
             cpu_pc: 0,
+            mouse_x: &mut amiga.mouse_x,
+            mouse_y: &mut amiga.mouse_y,
+            joy1dat: amiga.joy1dat,
+            input_buttons: amiga.input_buttons,
+            serdatr: amiga.serdatr,
+            rtc_control: &mut amiga.rtc_control,
+            rtc_time: &mut amiga.rtc_time,
+            rtc_time_latched: &mut amiga.rtc_time_latched,
         };
 
         assert_eq!(M68kBus::poll_ipl(&mut bus), 2);
@@ -3894,6 +4179,14 @@ mod tests {
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
             cpu_pc: 0,
+            mouse_x: &mut amiga.mouse_x,
+            mouse_y: &mut amiga.mouse_y,
+            joy1dat: amiga.joy1dat,
+            input_buttons: amiga.input_buttons,
+            serdatr: amiga.serdatr,
+            rtc_control: &mut amiga.rtc_control,
+            rtc_time: &mut amiga.rtc_time,
+            rtc_time_latched: &mut amiga.rtc_time_latched,
         };
 
         let ramsey_rev = M68kBus::poll_cycle(
@@ -3930,6 +4223,50 @@ mod tests {
         amiga.write_custom_reg(0x1E4, 0x5678);
         assert_eq!(amiga.agnus.beamcon0(), 0);
         assert_eq!(amiga.agnus.diwhigh(), 0);
+    }
+
+    #[test]
+    fn mouse_delta_updates_joy0dat() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.push_mouse_delta(10, 20);
+        let joy0dat = read_custom_word_via_cpu_bus(&mut amiga, 0x00A);
+        assert_eq!(joy0dat & 0xFF, 10, "X counter");
+        assert_eq!(joy0dat >> 8, 20, "Y counter");
+    }
+
+    #[test]
+    fn mouse_delta_wraps_counters() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.push_mouse_delta(-1, -1);
+        let joy0dat = read_custom_word_via_cpu_bus(&mut amiga, 0x00A);
+        assert_eq!(joy0dat & 0xFF, 0xFF, "X wraps to 255");
+        assert_eq!(joy0dat >> 8, 0xFF, "Y wraps to 255");
+    }
+
+    #[test]
+    fn mouse_buttons_affect_cia_a_and_potgor() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+
+        // Press LMB: CIA-A PRA bit 6 = 0 (active-low)
+        amiga.set_mouse_button(0, true);
+        assert_eq!(amiga.cia_a.external_a & 0x40, 0, "LMB pressed => bit 6 low");
+
+        // Release LMB
+        amiga.set_mouse_button(0, false);
+        assert_eq!(amiga.cia_a.external_a & 0x40, 0x40, "LMB released => bit 6 high");
+
+        // Press RMB: POTGOR bit 10 = 0 (active-low)
+        amiga.set_mouse_button(1, true);
+        let potgor = read_custom_word_via_cpu_bus(&mut amiga, 0x016);
+        assert_eq!(potgor & (1 << 10), 0, "RMB pressed => POTGOR bit 10 low");
+    }
+
+    #[test]
+    fn joytest_presets_counters() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.write_custom_reg(0x036, 0xAB_CD);
+        let joy0dat = read_custom_word_via_cpu_bus(&mut amiga, 0x00A);
+        assert_eq!(joy0dat, 0xAB_CD);
     }
 
     #[test]

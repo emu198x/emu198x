@@ -31,6 +31,9 @@ pub enum ChipSelect {
     ResourceRegisters,
     /// Gayle gate array: $D80000-$DFFFFF (A600/A1200).
     Gayle,
+    /// Battery-backed clock (RTC): $DC0000-$DC003F (A2000/A3000/A4000, and
+    /// via Gayle on A500+/A600/A1200).
+    Rtc,
     /// Chip RAM: $000000-$1FFFFF (up to 2 MB, DMA-accessible).
     ChipRam,
     /// Slow RAM (ranger/trapdoor): $C00000-$D7FFFF.
@@ -59,6 +62,7 @@ pub struct Gary {
     gayle_present: bool,
     dmac_present: bool,
     resource_regs_present: bool,
+    rtc_present: bool,
 }
 
 impl Gary {
@@ -70,6 +74,7 @@ impl Gary {
             gayle_present: false,
             dmac_present: false,
             resource_regs_present: false,
+            rtc_present: false,
         }
     }
 
@@ -91,6 +96,11 @@ impl Gary {
     /// Enable or disable the resource register chip select ($DE0000-$DEFFFF).
     pub fn set_resource_regs_present(&mut self, present: bool) {
         self.resource_regs_present = present;
+    }
+
+    /// Enable or disable the battery-backed clock chip select ($DC0000-$DC003F).
+    pub fn set_rtc_present(&mut self, present: bool) {
+        self.rtc_present = present;
     }
 
     /// True when slow RAM is enabled.
@@ -132,11 +142,12 @@ impl Gary {
     /// 4. DMAC ($DD0000-$DDFFFF, when present)
     /// 5. Resource registers ($DE0000-$DEFFFF, when present)
     /// 6. Gayle ($D80000-$DFFFFF, when present)
-    /// 7. Chip RAM ($000000-$1FFFFF)
-    /// 8. Slow RAM ($C00000-$D7FFFF, when present)
-    /// 9. Autoconfig ($E80000-$EFFFFF)
-    /// 10. ROM ($F80000-$FFFFFF)
-    /// 11. Unmapped
+    /// 7. RTC ($DC0000-$DC003F, when present)
+    /// 8. Chip RAM ($000000-$1FFFFF)
+    /// 9. Slow RAM ($C00000-$D7FFFF, when present)
+    /// 10. Autoconfig ($E80000-$EFFFFF)
+    /// 11. ROM ($F80000-$FFFFFF)
+    /// 12. Unmapped
     #[must_use]
     pub const fn decode(&self, addr: u32) -> ChipSelect {
         let addr = addr & 0xFF_FFFF;
@@ -172,6 +183,11 @@ impl Gary {
         // or resource register block, so this is safe.
         if self.gayle_present && addr >= 0xD8_0000 && addr < 0xE0_0000 {
             return ChipSelect::Gayle;
+        }
+
+        // Battery-backed clock: $DC0000-$DC003F
+        if self.rtc_present && addr >= 0xDC_0000 && addr <= 0xDC_003F {
+            return ChipSelect::Rtc;
         }
 
         // Chip RAM: $000000-$1FFFFF

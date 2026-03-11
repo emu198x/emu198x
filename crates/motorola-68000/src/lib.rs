@@ -6,6 +6,7 @@ pub mod decode;
 pub mod ea;
 pub mod execute;
 pub mod flags;
+pub mod fpu;
 pub mod microcode;
 pub mod model;
 pub mod registers;

@@ -19,11 +19,20 @@ const STATUS_ERR: u8 = 0x01;
 /// IDE ERROR register bits.
 const ERROR_ABRT: u8 = 0x04;
 
-/// IDE commands (minimum set for Kickstart boot).
+/// IDE ERROR register bits.
+const ERROR_IDNF: u8 = 0x10;
+
+/// IDE commands.
 const CMD_DEVICE_RESET: u8 = 0x08;
 const CMD_READ_SECTORS: u8 = 0x20;
 const CMD_WRITE_SECTORS: u8 = 0x30;
+const CMD_READ_MULTIPLE: u8 = 0xC4;
+const CMD_WRITE_MULTIPLE: u8 = 0xC5;
+const CMD_SET_MULTIPLE_MODE: u8 = 0xC6;
 const CMD_EXECUTE_DIAGNOSTIC: u8 = 0x90;
+const CMD_INIT_DEVICE_PARAMS: u8 = 0x91;
+const CMD_READ_VERIFY: u8 = 0x40;
+const CMD_SEEK: u8 = 0x70;
 const CMD_IDENTIFY_DEVICE: u8 = 0xEC;
 const CMD_SET_FEATURES: u8 = 0xEF;
 
@@ -95,6 +104,16 @@ struct IdeDrive {
     data_pos: usize,
     data_len: usize,
 
+    // Multi-sector transfer state
+    sectors_remaining: u16,
+    sectors_in_block: u16,
+    sectors_per_irq: u16,
+
+    // Configuration
+    multiple_count: u8,
+    logical_heads: u8,
+    logical_spt: u8,
+
     // Disk image
     disk_image: Vec<u8>,
     geometry: DiskGeometry,
@@ -119,6 +138,12 @@ impl IdeDrive {
             data_buffer: vec![0u8; 512],
             data_pos: 0,
             data_len: 0,
+            sectors_remaining: 0,
+            sectors_in_block: 0,
+            sectors_per_irq: 1,
+            multiple_count: 0,
+            logical_heads: geometry.heads,
+            logical_spt: geometry.sectors_per_track,
             disk_image: image,
             geometry,
             irq_pending: false,
@@ -137,6 +162,9 @@ impl IdeDrive {
         self.state = IdeState::Idle;
         self.data_pos = 0;
         self.data_len = 0;
+        self.sectors_remaining = 0;
+        self.sectors_in_block = 0;
+        self.sectors_per_irq = 1;
         self.irq_pending = false;
         self.nien = false;
     }
@@ -150,10 +178,14 @@ impl IdeDrive {
         let lo = self.data_buffer[self.data_pos + 1];
         self.data_pos += 2;
 
-        // If the buffer is exhausted, transition back to idle.
+        // If the buffer is exhausted, load next block or go idle.
         if self.data_pos >= self.data_len {
-            self.state = IdeState::Idle;
-            self.status = STATUS_DRDY;
+            if self.sectors_remaining > 0 {
+                self.load_sector_block();
+            } else {
+                self.state = IdeState::Idle;
+                self.status = STATUS_DRDY;
+            }
         }
         u16::from(hi) << 8 | u16::from(lo)
     }
@@ -167,11 +199,15 @@ impl IdeDrive {
         self.data_buffer[self.data_pos + 1] = val as u8;
         self.data_pos += 2;
 
-        // If the buffer is full, commit the sector.
+        // If the buffer is full, commit to disk.
         if self.data_pos >= self.data_len {
-            self.commit_write_sector();
-            self.state = IdeState::Idle;
-            self.status = STATUS_DRDY;
+            self.commit_write_block();
+            if self.sectors_remaining > 0 {
+                self.prepare_write_block();
+            } else {
+                self.state = IdeState::Idle;
+                self.status = STATUS_DRDY;
+            }
             self.irq_pending = !self.nien;
         }
     }
@@ -180,11 +216,10 @@ impl IdeDrive {
     fn lba_offset(&self) -> Option<u64> {
         let lba_mode = self.dev_head & 0x40 != 0;
         let lba = if lba_mode {
-            let lba28 = u32::from(self.dev_head & 0x0F) << 24
+            u32::from(self.dev_head & 0x0F) << 24
                 | u32::from(self.cylinder_hi) << 16
                 | u32::from(self.cylinder_lo) << 8
-                | u32::from(self.sector_number);
-            lba28
+                | u32::from(self.sector_number)
         } else {
             // CHS: sector numbers are 1-based
             let c = u32::from(self.cylinder_hi) << 8 | u32::from(self.cylinder_lo);
@@ -193,7 +228,7 @@ impl IdeDrive {
             if s == 0 {
                 return None;
             }
-            (c * u32::from(self.geometry.heads) + h) * u32::from(self.geometry.sectors_per_track)
+            (c * u32::from(self.logical_heads) + h) * u32::from(self.logical_spt)
                 + (s - 1)
         };
         Some(u64::from(lba) * 512)
@@ -205,6 +240,12 @@ impl IdeDrive {
             CMD_IDENTIFY_DEVICE => self.cmd_identify(),
             CMD_READ_SECTORS => self.cmd_read_sectors(),
             CMD_WRITE_SECTORS => self.cmd_write_sectors(),
+            CMD_READ_MULTIPLE => self.cmd_read_multiple(),
+            CMD_WRITE_MULTIPLE => self.cmd_write_multiple(),
+            CMD_SET_MULTIPLE_MODE => self.cmd_set_multiple_mode(),
+            CMD_INIT_DEVICE_PARAMS => self.cmd_init_device_params(),
+            CMD_READ_VERIFY => self.cmd_read_verify(),
+            CMD_SEEK => self.cmd_seek(),
             CMD_SET_FEATURES => self.cmd_set_features(),
             CMD_DEVICE_RESET => self.reset(),
             CMD_EXECUTE_DIAGNOSTIC => {
@@ -239,8 +280,8 @@ impl IdeDrive {
         // Words 27-46: Model number (padded with spaces, big-endian pairs)
         let model = b"Emu198x IDE Disk            ";
         set_string(buf, 27, model);
-        // Word 47: Max sectors per multiple R/W (1)
-        set_word(buf, 47, 0x0001);
+        // Word 47: Max sectors per multiple R/W (16, valid flag set)
+        set_word(buf, 47, 0x8010);
         // Word 49: Capabilities — LBA supported
         set_word(buf, 49, 0x0200);
         // Word 53: Field validity — words 54-58 valid
@@ -258,6 +299,10 @@ impl IdeDrive {
         // Words 60-61: Total addressable LBA sectors (same as current)
         set_word(buf, 60, total as u16);
         set_word(buf, 61, (total >> 16) as u16);
+        // Word 59: Current multiple sector setting
+        if self.multiple_count > 0 {
+            set_word(buf, 59, 0x0100 | u16::from(self.multiple_count));
+        }
 
         self.data_pos = 0;
         self.data_len = 512;
@@ -266,55 +311,212 @@ impl IdeDrive {
         self.irq_pending = !self.nien;
     }
 
-    fn cmd_read_sectors(&mut self) {
-        let Some(offset) = self.lba_offset() else {
-            self.error = ERROR_ABRT;
-            self.status = STATUS_DRDY | STATUS_ERR;
-            self.irq_pending = !self.nien;
-            return;
-        };
-        let offset = offset as usize;
-        if offset + 512 > self.disk_image.len() {
-            self.error = ERROR_ABRT;
-            self.status = STATUS_DRDY | STATUS_ERR;
-            self.irq_pending = !self.nien;
-            return;
+    // -- Helpers ------------------------------------------------------------
+
+    fn effective_sector_count(&self) -> u16 {
+        if self.sector_count == 0 {
+            256
+        } else {
+            u16::from(self.sector_count)
+        }
+    }
+
+    fn abort(&mut self, error_bits: u8) {
+        self.error = error_bits;
+        self.status = STATUS_DRDY | STATUS_ERR;
+        self.state = IdeState::Idle;
+        self.irq_pending = !self.nien;
+    }
+
+    /// Advance CHS/LBA address by one sector and decrement sector_count.
+    fn advance_address(&mut self) {
+        if self.dev_head & 0x40 != 0 {
+            // LBA mode: increment 28-bit LBA.
+            let mut lba = u32::from(self.dev_head & 0x0F) << 24
+                | u32::from(self.cylinder_hi) << 16
+                | u32::from(self.cylinder_lo) << 8
+                | u32::from(self.sector_number);
+            lba = lba.wrapping_add(1);
+            self.sector_number = lba as u8;
+            self.cylinder_lo = (lba >> 8) as u8;
+            self.cylinder_hi = (lba >> 16) as u8;
+            self.dev_head = (self.dev_head & 0xF0) | ((lba >> 24) as u8 & 0x0F);
+        } else {
+            // CHS mode: increment sector (1-based), overflow to head, overflow to cylinder.
+            let spt = self.logical_spt;
+            let heads = self.logical_heads;
+            let mut s = self.sector_number;
+            let mut h = self.dev_head & 0x0F;
+            let mut c = u16::from(self.cylinder_hi) << 8 | u16::from(self.cylinder_lo);
+            s += 1;
+            if s > spt {
+                s = 1;
+                h += 1;
+                if h >= heads {
+                    h = 0;
+                    c = c.wrapping_add(1);
+                }
+            }
+            self.sector_number = s;
+            self.dev_head = (self.dev_head & 0xF0) | (h & 0x0F);
+            self.cylinder_lo = c as u8;
+            self.cylinder_hi = (c >> 8) as u8;
+        }
+        self.sector_count = self.sector_count.wrapping_sub(1);
+    }
+
+    /// Load the next block of sectors into the read buffer.
+    /// Block size is min(sectors_per_irq, sectors_remaining).
+    fn load_sector_block(&mut self) {
+        let block_size = self.sectors_remaining.min(self.sectors_per_irq) as usize;
+        let total_bytes = block_size * 512;
+        self.data_buffer.resize(total_bytes, 0);
+
+        for i in 0..block_size {
+            let Some(offset) = self.lba_offset() else {
+                self.abort(ERROR_IDNF);
+                return;
+            };
+            let offset = offset as usize;
+            if offset + 512 > self.disk_image.len() {
+                self.abort(ERROR_IDNF);
+                return;
+            }
+            let buf_start = i * 512;
+            self.data_buffer[buf_start..buf_start + 512]
+                .copy_from_slice(&self.disk_image[offset..offset + 512]);
+            self.advance_address();
+            self.sectors_remaining -= 1;
         }
 
-        self.data_buffer.resize(512, 0);
-        self.data_buffer[..512].copy_from_slice(&self.disk_image[offset..offset + 512]);
-
+        self.sectors_in_block = block_size as u16;
         self.data_pos = 0;
-        self.data_len = 512;
+        self.data_len = total_bytes;
         self.state = IdeState::DataIn;
         self.status = STATUS_DRDY | STATUS_DRQ;
         self.irq_pending = !self.nien;
+    }
+
+    /// Prepare the write buffer for the next block of sectors.
+    fn prepare_write_block(&mut self) {
+        let block_size = self.sectors_remaining.min(self.sectors_per_irq) as usize;
+        let total_bytes = block_size * 512;
+        self.data_buffer.resize(total_bytes, 0);
+        self.data_buffer.fill(0);
+        self.sectors_in_block = block_size as u16;
+        self.data_pos = 0;
+        self.data_len = total_bytes;
+        self.state = IdeState::DataOut;
+        self.status = STATUS_DRQ;
+    }
+
+    /// Commit the current write buffer to the disk image.
+    fn commit_write_block(&mut self) {
+        let block_size = self.sectors_in_block as usize;
+        for i in 0..block_size {
+            let Some(offset) = self.lba_offset() else {
+                self.abort(ERROR_IDNF);
+                return;
+            };
+            let offset = offset as usize;
+            if offset + 512 > self.disk_image.len() {
+                self.abort(ERROR_IDNF);
+                return;
+            }
+            let buf_start = i * 512;
+            self.disk_image[offset..offset + 512]
+                .copy_from_slice(&self.data_buffer[buf_start..buf_start + 512]);
+            self.advance_address();
+            self.sectors_remaining -= 1;
+        }
+    }
+
+    // -- Command implementations --------------------------------------------
+
+    fn cmd_read_sectors(&mut self) {
+        self.sectors_remaining = self.effective_sector_count();
+        self.sectors_per_irq = 1;
+        self.load_sector_block();
     }
 
     fn cmd_write_sectors(&mut self) {
-        self.data_buffer.resize(512, 0);
-        self.data_buffer.fill(0);
-
-        self.data_pos = 0;
-        self.data_len = 512;
-        self.state = IdeState::DataOut;
-        self.status = STATUS_DRQ;
-        // IRQ is raised after the host finishes writing the sector data.
+        self.sectors_remaining = self.effective_sector_count();
+        self.sectors_per_irq = 1;
+        self.prepare_write_block();
     }
 
-    fn commit_write_sector(&mut self) {
-        let Some(offset) = self.lba_offset() else {
-            self.error = ERROR_ABRT;
-            self.status = STATUS_DRDY | STATUS_ERR;
-            return;
-        };
-        let offset = offset as usize;
-        if offset + 512 > self.disk_image.len() {
-            self.error = ERROR_ABRT;
-            self.status = STATUS_DRDY | STATUS_ERR;
+    fn cmd_read_multiple(&mut self) {
+        if self.multiple_count == 0 {
+            self.abort(ERROR_ABRT);
             return;
         }
-        self.disk_image[offset..offset + 512].copy_from_slice(&self.data_buffer[..512]);
+        self.sectors_remaining = self.effective_sector_count();
+        self.sectors_per_irq = u16::from(self.multiple_count);
+        self.load_sector_block();
+    }
+
+    fn cmd_write_multiple(&mut self) {
+        if self.multiple_count == 0 {
+            self.abort(ERROR_ABRT);
+            return;
+        }
+        self.sectors_remaining = self.effective_sector_count();
+        self.sectors_per_irq = u16::from(self.multiple_count);
+        self.prepare_write_block();
+    }
+
+    fn cmd_set_multiple_mode(&mut self) {
+        let count = self.sector_count;
+        if count == 0 || count > 16 {
+            self.abort(ERROR_ABRT);
+            return;
+        }
+        self.multiple_count = count;
+        self.status = STATUS_DRDY;
+        self.irq_pending = !self.nien;
+    }
+
+    fn cmd_init_device_params(&mut self) {
+        // sector_count = sectors per track, dev_head & 0x0F = max head number
+        let spt = self.sector_count;
+        let max_head = self.dev_head & 0x0F;
+        if spt == 0 {
+            self.abort(ERROR_ABRT);
+            return;
+        }
+        self.logical_spt = spt;
+        self.logical_heads = max_head + 1; // max head number → head count
+        self.status = STATUS_DRDY;
+        self.irq_pending = !self.nien;
+    }
+
+    fn cmd_read_verify(&mut self) {
+        // Verify sectors are readable without transferring data.
+        let count = self.effective_sector_count();
+        for _ in 0..count {
+            let Some(offset) = self.lba_offset() else {
+                self.abort(ERROR_IDNF);
+                return;
+            };
+            let offset = offset as usize;
+            if offset + 512 > self.disk_image.len() {
+                self.abort(ERROR_IDNF);
+                return;
+            }
+            self.advance_address();
+        }
+        self.status = STATUS_DRDY;
+        self.irq_pending = !self.nien;
+    }
+
+    fn cmd_seek(&mut self) {
+        // Validate the address is reachable.
+        if self.lba_offset().is_none() {
+            self.abort(ERROR_IDNF);
+            return;
+        }
+        self.status = STATUS_DRDY;
+        self.irq_pending = !self.nien;
     }
 
     fn cmd_set_features(&mut self) {
@@ -490,10 +692,8 @@ impl Gayle {
             return u16::from(self.read(addr));
         }
         let reg = ide_reg_index(local);
-        if reg == 0 {
-            if let Some(drive) = &mut self.drive {
-                return drive.read_data_word();
-            }
+        if reg == 0 && let Some(drive) = &mut self.drive {
+            return drive.read_data_word();
         }
         u16::from(self.read_ide_byte(local))
     }
@@ -1007,5 +1207,360 @@ mod tests {
         // Gayle IRQ register should have bit 7 set
         assert_eq!(g.irq() & 0x80, 0x80);
         assert!(g.ide_irq_pending());
+    }
+
+    // -- Multi-sector READ SECTORS ------------------------------------------
+
+    #[test]
+    fn read_multi_sector_reads_consecutive_sectors() {
+        let (mut image, geom) = test_disk(1008);
+        // Write distinct patterns to sectors 0, 1, 2
+        for sector in 0..3usize {
+            let base = sector * 512;
+            for i in 0..512 {
+                image[base + i] = (sector as u8).wrapping_add(i as u8);
+            }
+        }
+        let mut g = Gayle::with_disk(image, geom);
+
+        // LBA sector 0, count 3
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x03); // 3 sectors
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_SECTORS);
+
+        for sector in 0..3u8 {
+            assert_eq!(
+                g.ide_status() & STATUS_DRQ,
+                STATUS_DRQ,
+                "sector {sector}: DRQ not set"
+            );
+            let mut buf = vec![0u16; 256];
+            for word in &mut buf {
+                *word = g.read_word(0xDA_0000);
+            }
+            // Verify first word of each sector
+            let expected_hi = sector.wrapping_add(0);
+            let expected_lo = sector.wrapping_add(1);
+            assert_eq!(
+                buf[0],
+                u16::from(expected_hi) << 8 | u16::from(expected_lo),
+                "sector {sector}: data mismatch"
+            );
+        }
+        // After all sectors, DRQ should be clear
+        assert_eq!(g.ide_status() & STATUS_DRQ, 0);
+    }
+
+    // -- Multi-sector WRITE SECTORS -----------------------------------------
+
+    #[test]
+    fn write_multi_sector_commits_all() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+
+        // LBA sector 0, write 3 sectors
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x03);
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_WRITE_SECTORS);
+
+        for sector in 0..3u16 {
+            assert_eq!(
+                g.ide_status() & STATUS_DRQ,
+                STATUS_DRQ,
+                "sector {sector}: DRQ not set"
+            );
+            for word in 0..256u16 {
+                g.write_word(0xDA_0000, sector * 256 + word);
+            }
+        }
+        assert_eq!(g.ide_status() & STATUS_DRQ, 0);
+
+        // Read back all 3 sectors and verify
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x03);
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_SECTORS);
+
+        for sector in 0..3u16 {
+            for word in 0..256u16 {
+                let val = g.read_word(0xDA_0000);
+                assert_eq!(
+                    val,
+                    sector * 256 + word,
+                    "sector {sector} word {word}: expected {}, got {val}",
+                    sector * 256 + word
+                );
+            }
+        }
+    }
+
+    // -- Sector count 0 = 256 -----------------------------------------------
+
+    #[test]
+    fn sector_count_zero_means_256() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x00); // 0 = 256 sectors
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_SECTORS);
+
+        // Read 256 sectors (each 256 words)
+        for _ in 0..256 {
+            assert_eq!(g.ide_status() & STATUS_DRQ, STATUS_DRQ);
+            for _ in 0..256 {
+                let _ = g.read_word(0xDA_0000);
+            }
+        }
+        assert_eq!(g.ide_status() & STATUS_DRQ, 0);
+    }
+
+    // -- SET MULTIPLE MODE ($C6) --------------------------------------------
+
+    #[test]
+    fn set_multiple_mode_accepts_valid_count() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+        g.write(0xDA_0008, 0x04); // sector count = 4
+        g.write(0xDA_001C, CMD_SET_MULTIPLE_MODE);
+        assert_eq!(g.ide_status(), STATUS_DRDY);
+    }
+
+    #[test]
+    fn set_multiple_mode_rejects_zero() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+        g.write(0xDA_0008, 0x00); // 0 is invalid
+        g.write(0xDA_001C, CMD_SET_MULTIPLE_MODE);
+        assert_eq!(g.ide_status() & STATUS_ERR, STATUS_ERR);
+    }
+
+    #[test]
+    fn set_multiple_mode_rejects_over_16() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+        g.write(0xDA_0008, 32);
+        g.write(0xDA_001C, CMD_SET_MULTIPLE_MODE);
+        assert_eq!(g.ide_status() & STATUS_ERR, STATUS_ERR);
+    }
+
+    // -- READ MULTIPLE ($C4) ------------------------------------------------
+
+    #[test]
+    fn read_multiple_transfers_block() {
+        let (mut image, geom) = test_disk(1008);
+        for sector in 0..4usize {
+            let base = sector * 512;
+            for i in 0..512 {
+                image[base + i] = sector as u8;
+            }
+        }
+        let mut g = Gayle::with_disk(image, geom);
+
+        // Set multiple mode to 2 sectors per interrupt
+        g.write(0xDA_0008, 0x02);
+        g.write(0xDA_001C, CMD_SET_MULTIPLE_MODE);
+        assert_eq!(g.ide_status(), STATUS_DRDY);
+
+        // Read 4 sectors using READ MULTIPLE — should be 2 blocks of 2
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x04);
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_MULTIPLE);
+
+        // First block: 2 sectors (512 words)
+        assert_eq!(g.ide_status() & STATUS_DRQ, STATUS_DRQ);
+        for i in 0..512u16 {
+            let val = g.read_word(0xDA_0000);
+            let expected_sector = if i < 256 { 0u8 } else { 1 };
+            let expected = u16::from(expected_sector) << 8 | u16::from(expected_sector);
+            assert_eq!(val, expected, "block 0 word {i}");
+        }
+
+        // Second block: 2 sectors (512 words)
+        assert_eq!(g.ide_status() & STATUS_DRQ, STATUS_DRQ);
+        for i in 0..512u16 {
+            let val = g.read_word(0xDA_0000);
+            let expected_sector = if i < 256 { 2u8 } else { 3 };
+            let expected = u16::from(expected_sector) << 8 | u16::from(expected_sector);
+            assert_eq!(val, expected, "block 1 word {i}");
+        }
+
+        assert_eq!(g.ide_status() & STATUS_DRQ, 0);
+    }
+
+    #[test]
+    fn read_multiple_without_set_multiple_aborts() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+        // Don't set multiple mode first
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x01);
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_MULTIPLE);
+        assert_eq!(g.ide_status() & STATUS_ERR, STATUS_ERR);
+    }
+
+    // -- WRITE MULTIPLE ($C5) -----------------------------------------------
+
+    #[test]
+    fn write_multiple_commits_block() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+
+        // Set multiple mode to 2
+        g.write(0xDA_0008, 0x02);
+        g.write(0xDA_001C, CMD_SET_MULTIPLE_MODE);
+
+        // Write 4 sectors using WRITE MULTIPLE
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x04);
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_WRITE_MULTIPLE);
+
+        // First block: 2 sectors
+        assert_eq!(g.ide_status() & STATUS_DRQ, STATUS_DRQ);
+        for i in 0..512u16 {
+            g.write_word(0xDA_0000, i);
+        }
+        // Second block: 2 sectors
+        assert_eq!(g.ide_status() & STATUS_DRQ, STATUS_DRQ);
+        for i in 0..512u16 {
+            g.write_word(0xDA_0000, 512 + i);
+        }
+        assert_eq!(g.ide_status() & STATUS_DRQ, 0);
+
+        // Read back with READ SECTORS and verify
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x04);
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_SECTORS);
+        for i in 0..1024u16 {
+            let val = g.read_word(0xDA_0000);
+            assert_eq!(val, i, "word {i}");
+        }
+    }
+
+    // -- INITIALIZE DEVICE PARAMETERS ($91) ---------------------------------
+
+    #[test]
+    fn init_device_params_updates_geometry() {
+        let (mut image, geom) = test_disk(1008);
+        // Write distinct data to what would be CHS (C=0, H=1, S=1) with
+        // original geometry (16 heads, 63 spt) = LBA 63
+        let lba = 63usize;
+        image[lba * 512] = 0xCA;
+        image[lba * 512 + 1] = 0xFE;
+        let mut g = Gayle::with_disk(image, geom);
+
+        // Change logical geometry to 4 heads, 32 spt
+        g.write(0xDA_0008, 32); // sectors per track
+        g.write(0xDA_0018, 0xA3); // CHS mode, max head = 3 → 4 heads
+        g.write(0xDA_001C, CMD_INIT_DEVICE_PARAMS);
+        assert_eq!(g.ide_status(), STATUS_DRDY);
+
+        // Now read CHS (C=0, H=1, S=1) with new geometry = LBA 32
+        g.write(0xDA_0018, 0xA1); // head 1
+        g.write(0xDA_0008, 0x01);
+        g.write(0xDA_000C, 0x01); // sector 1 (1-based)
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_SECTORS);
+        let word = g.read_word(0xDA_0000);
+        // With 4 heads × 32 spt, (C=0,H=1,S=1) → LBA = 0*4+1)*32 + 0 = 32
+        // Should NOT be 0xCAFE (that's at LBA 63)
+        assert_ne!(word, 0xCAFE);
+    }
+
+    // -- READ VERIFY ($40) --------------------------------------------------
+
+    #[test]
+    fn read_verify_succeeds_for_valid_sectors() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x04);
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_VERIFY);
+        assert_eq!(g.ide_status(), STATUS_DRDY);
+        // No DRQ — verify doesn't transfer data
+        assert_eq!(g.ide_status() & STATUS_DRQ, 0);
+    }
+
+    // -- SEEK ($70) ---------------------------------------------------------
+
+    #[test]
+    fn seek_succeeds_for_valid_address() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_000C, 0x00);
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_SEEK);
+        assert_eq!(g.ide_status(), STATUS_DRDY);
+    }
+
+    #[test]
+    fn seek_fails_for_chs_sector_zero() {
+        let (image, geom) = test_disk(1008);
+        let mut g = Gayle::with_disk(image, geom);
+        g.write(0xDA_0018, 0xA0); // CHS mode
+        g.write(0xDA_000C, 0x00); // sector 0 is invalid in CHS
+        g.write(0xDA_001C, CMD_SEEK);
+        assert_eq!(g.ide_status() & STATUS_ERR, STATUS_ERR);
+    }
+
+    // -- LBA address advances correctly -------------------------------------
+
+    #[test]
+    fn lba_address_advances_across_sectors() {
+        let (mut image, geom) = test_disk(1008);
+        // Write sector number as first byte of each sector
+        for s in 0..10usize {
+            image[s * 512] = s as u8;
+        }
+        let mut g = Gayle::with_disk(image, geom);
+
+        // Read 5 sectors starting from LBA 3
+        g.write(0xDA_0018, 0xE0);
+        g.write(0xDA_0008, 0x05);
+        g.write(0xDA_000C, 0x03); // LBA 3
+        g.write(0xDA_0010, 0x00);
+        g.write(0xDA_0014, 0x00);
+        g.write(0xDA_001C, CMD_READ_SECTORS);
+
+        for expected in 3..8u8 {
+            let first_word = g.read_word(0xDA_0000);
+            assert_eq!(
+                (first_word >> 8) as u8, expected,
+                "sector starting at LBA {expected}"
+            );
+            // Skip remaining 255 words
+            for _ in 1..256 {
+                let _ = g.read_word(0xDA_0000);
+            }
+        }
     }
 }

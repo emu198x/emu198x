@@ -97,6 +97,34 @@ impl Memory {
         }
         // Everything else (ROM, unmapped space) silently drops writes.
     }
+
+    /// Write a byte using a full 32-bit address, covering fast RAM.
+    ///
+    /// Used by DMA controllers (SDMAC) that can target 32-bit addresses
+    /// beyond the 24-bit chip/slow RAM space.
+    pub fn write_byte_32(&mut self, addr: u32, val: u8) {
+        if !self.fast_ram.is_empty() {
+            let end = self.fast_ram_base.wrapping_add(self.fast_ram.len() as u32);
+            if addr >= self.fast_ram_base && addr < end {
+                let offset = (addr - self.fast_ram_base) & self.fast_ram_mask;
+                self.fast_ram[offset as usize] = val;
+                return;
+            }
+        }
+        self.write_byte(addr, val);
+    }
+
+    /// Read a byte using a full 32-bit address, covering fast RAM.
+    pub fn read_byte_32(&self, addr: u32) -> u8 {
+        if !self.fast_ram.is_empty() {
+            let end = self.fast_ram_base.wrapping_add(self.fast_ram.len() as u32);
+            if addr >= self.fast_ram_base && addr < end {
+                let offset = (addr - self.fast_ram_base) & self.fast_ram_mask;
+                return self.fast_ram[offset as usize];
+            }
+        }
+        self.read_byte(addr)
+    }
 }
 
 #[cfg(test)]

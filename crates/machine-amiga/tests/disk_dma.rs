@@ -85,6 +85,14 @@ fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
             buster: &mut amiga.buster,
             super_buster: &mut amiga.super_buster,
             cpu_pc: 0,
+            mouse_x: &mut amiga.mouse_x,
+            mouse_y: &mut amiga.mouse_y,
+            joy1dat: amiga.joy1dat,
+            input_buttons: amiga.input_buttons,
+            serdatr: amiga.serdatr,
+            rtc_control: &mut amiga.rtc_control,
+            rtc_time: &mut amiga.rtc_time,
+            rtc_time_latched: &mut amiga.rtc_time_latched,
     };
     match M68kBus::poll_cycle(
         &mut bus,

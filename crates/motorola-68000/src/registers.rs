@@ -7,6 +7,21 @@
 //! - PC: Program counter (32-bit, 24-bit on 68000)
 //! - SR: Status register (16-bit)
 
+/// FPU register value — wraps f64 with bit-exact Eq for emulation.
+#[derive(Debug, Clone, Copy)]
+pub struct FpReg(pub f64);
+
+impl FpReg {
+    pub const ZERO: Self = Self(0.0);
+}
+
+impl PartialEq for FpReg {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+impl Eq for FpReg {}
+
 /// 68000 CPU register set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Registers {
@@ -35,6 +50,36 @@ pub struct Registers {
     pub dfc: u8,
     /// Cache Control Register (68020+).
     pub cacr: u32,
+    /// Translation Control register (68030 TC, 68040 TC).
+    pub tc: u32,
+    /// Transparent Translation register 0 (68030 TT0, 68040 ITT0).
+    pub itt0: u32,
+    /// Transparent Translation register 1 (68030 TT1, 68040 ITT1).
+    pub itt1: u32,
+    /// Data Transparent Translation register 0 (68040+).
+    pub dtt0: u32,
+    /// Data Transparent Translation register 1 (68040+).
+    pub dtt1: u32,
+    /// Supervisor Root Pointer (68030: 64-bit, stored low 32; 68040+: 32-bit).
+    pub srp: u32,
+    /// User Root Pointer (68030: via CRP, stored low 32; 68040+: 32-bit).
+    pub urp: u32,
+    /// MMU Status Register (68030 MMUSR / 68040 MMUSR).
+    pub mmusr: u32,
+    /// Bus Control Register (68060).
+    pub buscr: u32,
+    /// Processor Configuration Register (68060).
+    pub pcr: u32,
+
+    // --- FPU registers (68881/68882/68040+) ---
+    /// Floating-point data registers FP0-FP7.
+    pub fp: [FpReg; 8],
+    /// FP Control Register (exception enables, rounding mode/precision).
+    pub fpcr: u32,
+    /// FP Status Register (condition codes, quotient, exception status/accrued).
+    pub fpsr: u32,
+    /// FP Instruction Address Register (PC of last FPU instruction).
+    pub fpiar: u32,
 }
 
 impl Default for Registers {
@@ -62,7 +107,48 @@ impl Registers {
             sfc: 0,
             dfc: 0,
             cacr: 0,
+            tc: 0,
+            itt0: 0,
+            itt1: 0,
+            dtt0: 0,
+            dtt1: 0,
+            srp: 0,
+            urp: 0,
+            mmusr: 0,
+            buscr: 0,
+            pcr: 0,
+            fp: [FpReg::ZERO; 8],
+            fpcr: 0,
+            fpsr: 0,
+            fpiar: 0,
         }
+    }
+
+    /// FPCR rounding mode (bits 5-4): 0=RN, 1=RZ, 2=RM, 3=RP.
+    #[must_use]
+    pub const fn fpcr_rounding_mode(&self) -> u8 {
+        ((self.fpcr >> 4) & 3) as u8
+    }
+
+    /// FPCR rounding precision (bits 7-6): 0=Extended, 1=Single, 2=Double.
+    #[must_use]
+    pub const fn fpcr_rounding_precision(&self) -> u8 {
+        ((self.fpcr >> 6) & 3) as u8
+    }
+
+    /// FPSR condition codes (bits 27-24): N, Z, I, NAN.
+    #[must_use]
+    pub const fn fpsr_condition_code(&self) -> u8 {
+        ((self.fpsr >> 24) & 0xF) as u8
+    }
+
+    /// Set FPSR condition code bits from individual flags.
+    pub fn set_fpsr_cc(&mut self, n: bool, z: bool, i: bool, nan: bool) {
+        self.fpsr = (self.fpsr & !0x0F00_0000)
+            | if n { 0x0800_0000 } else { 0 }
+            | if z { 0x0400_0000 } else { 0 }
+            | if i { 0x0200_0000 } else { 0 }
+            | if nan { 0x0100_0000 } else { 0 };
     }
 
     /// Get address register by index (0-7).

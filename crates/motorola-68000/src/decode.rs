@@ -29,7 +29,8 @@ use crate::cpu::{
     TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTD_PC_HI,
     TAG_RTD_PC_LO, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR,
     TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO,
-    TAG_BE_PUSH_EXTRA, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_BE_PUSH_EXTRA, TAG_MOVE16_ADDR_LO, TAG_MOVE16_NEXT, TAG_STOP_WAIT, TAG_UNLK_POP_HI,
+    TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -1321,6 +1322,25 @@ impl Cpu68000 {
             return;
         }
         if (opcode & 0xF000) == 0xF000 {
+            // FPU coprocessor instructions (cpID=1) on models with FPU.
+            if self.capabilities().fpu {
+                let cp_id = (opcode >> 9) & 7;
+                if cp_id == 1 {
+                    let cp_type = (opcode >> 6) & 7;
+                    match cp_type {
+                        0 => { self.decode_fpu_cpgen(bus, opcode); return; }
+                        1 => { self.decode_fpu_cpscc_dbcc(bus, opcode); return; }
+                        2 => { self.decode_fpu_fbcc(bus, opcode, false); return; }
+                        3 => { self.decode_fpu_fbcc(bus, opcode, true); return; }
+                        4 => { self.decode_fpu_fsave(bus, opcode); return; }
+                        5 => { self.decode_fpu_frestore(bus, opcode); return; }
+                        _ => {
+                            self.begin_group1_exception(11, self.instr_start_pc);
+                            return;
+                        }
+                    }
+                }
+            }
             // PMMU cpGen instructions (cpID=0, type=000) on 68020+ with MMU.
             // Stub: consume the extension word and treat as NOP. We don't
             // model address translation — PMOVE operand accesses are skipped.
@@ -1343,6 +1363,64 @@ impl Cpu68000 {
                 crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
             ) && (opcode & 0xFE00) == 0xF400
             {
+                return;
+            }
+            // MOVE16 — 68040+ line transfer (16 bytes aligned).
+            // Five forms, all 0xF6xx:
+            //   Form 1: (Ax)+,(Ay)+  = 1111_0110_0010_0xxx, ext: 1yyy_000_000_000_000
+            //   Form 2: (Ax)+,abs.L  = 1111_0110_0000_0xxx, ext = 32-bit address
+            //   Form 3: abs.L,(Ax)+  = 1111_0110_0000_1xxx, ext = 32-bit address
+            //   Form 4: (Ax),abs.L   = 1111_0110_0001_0xxx, ext = 32-bit address
+            //   Form 5: abs.L,(Ax)   = 1111_0110_0001_1xxx, ext = 32-bit address
+            if matches!(
+                self.model.timing_class(),
+                crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
+            ) && (opcode & 0xFF00) == 0xF600
+            {
+                let form = (opcode >> 3) & 0x1F;
+                let reg_a = (opcode & 7) as usize;
+
+                if form == 0x04 {
+                    // Form 1: (Ax)+,(Ay)+ — ext word has dest reg in bits 14-12
+                    let ext = self.consume_irc();
+                    let reg_b = ((ext >> 12) & 7) as usize;
+                    let src_addr = self.regs.a(reg_a) & !0xF;
+                    let dst_addr = self.regs.a(reg_b) & !0xF;
+                    self.regs.set_a(reg_a, self.regs.a(reg_a).wrapping_add(16));
+                    if reg_b != reg_a {
+                        self.regs.set_a(reg_b, self.regs.a(reg_b).wrapping_add(16));
+                    }
+                    self.addr = src_addr;
+                    self.move16_dst_addr = dst_addr;
+                    // Ready to start transfer immediately.
+                    self.src_val = src_addr;
+                    self.move16_idx = 0;
+                    self.move16_buf = [0; 8];
+                    self.in_followup = true;
+                    self.followup_tag = TAG_MOVE16_NEXT;
+                    self.micro_ops.push(MicroOp::Execute);
+                    return;
+                }
+                if matches!(form, 0x00..=0x03) {
+                    // Forms 2-5 need a 32-bit absolute address from two extension
+                    // words. consume_irc() only reads one word (the other is still
+                    // in the prefetch pipeline). Read the high word now, then enter
+                    // a followup to read the low word after FetchIRC.
+                    let ext_hi = self.consume_irc();
+                    // Stash form and register-derived state for the followup:
+                    //   dst_val = abs addr high word << 16
+                    //   movem_idx = form (reused scratch)
+                    //   move16_idx = reg_a (reused scratch)
+                    self.dst_val = u32::from(ext_hi) << 16;
+                    self.movem_idx = form as u8;
+                    self.move16_idx = reg_a as u8;
+                    self.in_followup = true;
+                    self.followup_tag = TAG_MOVE16_ADDR_LO;
+                    self.micro_ops.push(MicroOp::Execute);
+                    return;
+                }
+                // Unknown form — illegal
+                self.begin_group1_exception(11, self.instr_start_pc);
                 return;
             }
             self.begin_group1_exception(11, self.instr_start_pc);
@@ -1511,6 +1589,66 @@ impl Cpu68000 {
                         // CI/CEI (bits 3,2) are write-only — read back as 0
                         self.regs.cacr = val & !0x0C;
                     }
+                    // TC — Translation Control (68030/040, requires MMU)
+                    0x003 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.tc = val;
+                    }
+                    // TT0/ITT0 — Transparent Translation 0 (68030 TT0, 68040 ITT0)
+                    0x004 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.itt0 = val;
+                    }
+                    // TT1/ITT1 — Transparent Translation 1 (68030 TT1, 68040 ITT1)
+                    0x005 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.itt1 = val;
+                    }
+                    // DTT0 — Data Transparent Translation 0 (68040+)
+                    0x006 => {
+                        if !self.capabilities().mmu
+                            || !matches!(
+                                self.model.timing_class(),
+                                crate::model::TimingClass::M68040
+                                    | crate::model::TimingClass::M68060
+                            )
+                        {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.dtt0 = val;
+                    }
+                    // DTT1 — Data Transparent Translation 1 (68040+)
+                    0x007 => {
+                        if !self.capabilities().mmu
+                            || !matches!(
+                                self.model.timing_class(),
+                                crate::model::TimingClass::M68040
+                                    | crate::model::TimingClass::M68060
+                            )
+                        {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.dtt1 = val;
+                    }
+                    // BUSCR — Bus Control Register (68060)
+                    0x008 => {
+                        if self.model.timing_class() != crate::model::TimingClass::M68060 {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.buscr = val;
+                    }
                     0x800 => self.regs.usp = val,
                     0x801 => self.regs.vbr = val,
                     0x802 => {
@@ -1533,6 +1671,38 @@ impl Cpu68000 {
                             return;
                         }
                         self.regs.ssp = val;
+                    }
+                    // MMUSR (68030/040)
+                    0x805 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.mmusr = val;
+                    }
+                    // URP — User Root Pointer (68030 CRP low 32 / 68040 URP)
+                    0x806 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.urp = val;
+                    }
+                    // SRP — Supervisor Root Pointer (68030 SRP low 32 / 68040 SRP)
+                    0x807 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.srp = val;
+                    }
+                    // PCR — Processor Configuration Register (68060)
+                    0x808 => {
+                        if self.model.timing_class() != crate::model::TimingClass::M68060 {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.pcr = val;
                     }
                     _ => {
                         self.begin_group1_exception(4, self.instr_start_pc);
@@ -1574,6 +1744,98 @@ impl Cpu68000 {
                             return;
                         }
                         self.regs.ssp
+                    }
+                    // MMUSR (68030/040)
+                    0x805 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.mmusr
+                    }
+                    // URP — User Root Pointer (68030 CRP low 32 / 68040 URP)
+                    0x806 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.urp
+                    }
+                    // SRP — Supervisor Root Pointer (68030 SRP low 32 / 68040 SRP)
+                    0x807 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.srp
+                    }
+                    // TC — Translation Control (68030/040)
+                    0x003 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.tc
+                    }
+                    // ITT0 — Instruction Transparent Translation 0 (68030 TT0 / 68040 ITT0)
+                    0x004 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.itt0
+                    }
+                    // ITT1 — Instruction Transparent Translation 1 (68030 TT1 / 68040 ITT1)
+                    0x005 => {
+                        if !self.capabilities().mmu {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.itt1
+                    }
+                    // DTT0 — Data Transparent Translation 0 (68040+)
+                    0x006 => {
+                        if !self.capabilities().mmu
+                            || !matches!(
+                                self.model.timing_class(),
+                                crate::model::TimingClass::M68040
+                                    | crate::model::TimingClass::M68060
+                            )
+                        {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.dtt0
+                    }
+                    // DTT1 — Data Transparent Translation 1 (68040+)
+                    0x007 => {
+                        if !self.capabilities().mmu
+                            || !matches!(
+                                self.model.timing_class(),
+                                crate::model::TimingClass::M68040
+                                    | crate::model::TimingClass::M68060
+                            )
+                        {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.dtt1
+                    }
+                    // BUSCR — Bus Control Register (68060)
+                    0x008 => {
+                        if self.model.timing_class() != crate::model::TimingClass::M68060 {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.buscr
+                    }
+                    // PCR — Processor Configuration Register (68060)
+                    0x808 => {
+                        if self.model.timing_class() != crate::model::TimingClass::M68060 {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                            return;
+                        }
+                        self.regs.pcr
                     }
                     _ => {
                         self.begin_group1_exception(4, self.instr_start_pc);
@@ -2377,6 +2639,95 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::Execute);
             }
 
+            // --- MOVE16: read low word of absolute address, then start transfer ---
+            TAG_MOVE16_ADDR_LO => {
+                let ext_lo = self.consume_irc();
+                let abs_addr = (self.dst_val | u32::from(ext_lo)) & !0xF;
+                let form = self.movem_idx;
+                let reg_a = self.move16_idx as usize;
+
+                match form {
+                    0 => {
+                        // Form 2: (Ax)+,abs.L — src from An (post-inc), dst to abs
+                        let src_addr = self.regs.a(reg_a) & !0xF;
+                        self.regs.set_a(reg_a, self.regs.a(reg_a).wrapping_add(16));
+                        self.addr = src_addr;
+                        self.move16_dst_addr = abs_addr;
+                        self.src_val = src_addr;
+                    }
+                    1 => {
+                        // Form 3: abs.L,(Ax)+ — src from abs, dst to An (post-inc)
+                        let dst_addr = self.regs.a(reg_a) & !0xF;
+                        self.regs.set_a(reg_a, self.regs.a(reg_a).wrapping_add(16));
+                        self.addr = abs_addr;
+                        self.move16_dst_addr = dst_addr;
+                        self.src_val = abs_addr;
+                    }
+                    2 => {
+                        // Form 4: (Ax),abs.L — src from An (no inc), dst to abs
+                        self.addr = self.regs.a(reg_a) & !0xF;
+                        self.move16_dst_addr = abs_addr;
+                        self.src_val = self.addr;
+                    }
+                    3 => {
+                        // Form 5: abs.L,(Ax) — src from abs, dst to An (no inc)
+                        self.addr = abs_addr;
+                        self.move16_dst_addr = self.regs.a(reg_a) & !0xF;
+                        self.src_val = abs_addr;
+                    }
+                    _ => unreachable!(),
+                }
+
+                self.move16_idx = 0;
+                self.move16_buf = [0; 8];
+                self.followup_tag = TAG_MOVE16_NEXT;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
+            // --- MOVE16 transfer loop ---
+            // src_val = aligned source base address (set in decode).
+            // move16_dst_addr = aligned destination base address.
+            // move16_idx: 0-7 = about to read word N, 8 = reads done, 9-16 = writes.
+            TAG_MOVE16_NEXT => {
+                let idx = self.move16_idx;
+                if idx <= 8 {
+                    // Read phase.
+                    if idx > 0 {
+                        // Store the word just read.
+                        self.move16_buf[(idx - 1) as usize] = self.data as u16;
+                    }
+                    if idx < 8 {
+                        // Set up the next read.
+                        self.addr = self.src_val.wrapping_add(u32::from(idx) * 2);
+                        self.move16_idx = idx + 1;
+                        self.followup_tag = TAG_MOVE16_NEXT;
+                        self.micro_ops.push(MicroOp::ReadWord);
+                        self.micro_ops.push(MicroOp::Execute);
+                    } else {
+                        // All 8 words read. Start write phase.
+                        self.addr = self.move16_dst_addr;
+                        self.data = u32::from(self.move16_buf[0]);
+                        self.move16_idx = 9;
+                        self.followup_tag = TAG_MOVE16_NEXT;
+                        self.micro_ops.push(MicroOp::WriteWord);
+                        self.micro_ops.push(MicroOp::Execute);
+                    }
+                } else {
+                    // Write phase: word (idx-9) was just written.
+                    let next_word = (idx - 8) as usize; // 1-based: next word to write
+                    if next_word < 8 {
+                        self.addr =
+                            self.move16_dst_addr.wrapping_add(next_word as u32 * 2);
+                        self.data = u32::from(self.move16_buf[next_word]);
+                        self.move16_idx = idx + 1;
+                        self.followup_tag = TAG_MOVE16_NEXT;
+                        self.micro_ops.push(MicroOp::WriteWord);
+                        self.micro_ops.push(MicroOp::Execute);
+                    }
+                    // else: all 8 words written, done — fall through to FetchIRC
+                }
+            }
+
             // --- ADDX/SUBX memory mode handlers ---
             TAG_ADDX_READ_SRC => {
                 // Source read done, result in self.data.
@@ -2725,10 +3076,45 @@ impl Cpu68000 {
                             let quotient = dividend / i64::from(divisor);
                             let remainder = dividend % i64::from(divisor);
                             if quotient > i32::MAX as i64 || quotient < i32::MIN as i64 {
-                                // TODO: WinUAE divsl_overflow has complex sign-dependent
-                                // flag logic. Test runner masks overflow flags for now.
+                                // WinUAE divsl_overflow: flags depend on model
+                                // and 32/64-bit dividend mode.
                                 let mut sr = self.regs.sr & !0x000F;
-                                sr |= 0x000A; // V + N
+                                sr |= 0x0002; // V always set
+                                if matches!(
+                                    self.model.timing_class(),
+                                    crate::model::TimingClass::M68040
+                                        | crate::model::TimingClass::M68060
+                                ) {
+                                    // 68040+: just V, C=0
+                                } else {
+                                    let a32 = dividend as i32;
+                                    if is_64bit {
+                                        let ahigh = (dividend >> 32) as i32;
+                                        if ahigh == 0 {
+                                            sr |= 0x0004; // Z
+                                        } else if ahigh < 0
+                                            && divisor < 0
+                                            && ahigh > divisor
+                                        {
+                                            // N=0, Z=0
+                                        } else if a32 == 0 {
+                                            sr |= 0x0004; // Z
+                                        } else {
+                                            let neg64 = dividend < 0;
+                                            let neg32 = a32 < 0;
+                                            if neg32 ^ neg64 {
+                                                sr |= 0x0008; // N
+                                            }
+                                        }
+                                    } else {
+                                        let neg32 = a32 < 0;
+                                        if a32 == 0 {
+                                            sr |= 0x0004; // Z
+                                        } else if neg32 {
+                                            sr |= 0x0008; // N
+                                        }
+                                    }
+                                }
                                 self.regs.sr = sr;
                             } else {
                                 self.regs.d[dh] = remainder as u32;
@@ -2752,10 +3138,24 @@ impl Cpu68000 {
                             let quotient = dividend / divisor;
                             let remainder = dividend % divisor;
                             if quotient > u32::MAX as u64 {
-                                // TODO: WinUAE divul_overflow has complex flag logic.
-                                // Test runner masks overflow flags for now.
+                                // WinUAE divul_overflow: flags depend on model.
                                 let mut sr = self.regs.sr & !0x000F;
-                                sr |= 0x000A; // V + N
+                                sr |= 0x0002; // V always set
+                                if matches!(
+                                    self.model.timing_class(),
+                                    crate::model::TimingClass::M68040
+                                        | crate::model::TimingClass::M68060
+                                ) {
+                                    // 68040+: just V, C=0
+                                } else {
+                                    let a32 = dividend as i32;
+                                    if a32 < 0 {
+                                        sr |= 0x0008; // N
+                                    }
+                                    if a32 == 0 {
+                                        sr |= 0x0004; // Z
+                                    }
+                                }
                                 self.regs.sr = sr;
                             } else {
                                 self.regs.d[dh] = remainder as u32;
@@ -3379,6 +3779,927 @@ impl Cpu68000 {
                     false,
                     Some(u16::from(byte_val)),
                 );
+            }
+        }
+    }
+
+    // ======================================================================
+    // FPU instruction decode (68881/68882/68040)
+    // ======================================================================
+    //
+    // All FPU instructions use synchronous bus access (direct poll_cycle
+    // calls) rather than the micro-op queue. This matches the CAS and
+    // bitfield patterns and is correct for 68020+ with instruction cache.
+
+    /// Supervisor function code for FPU memory access.
+    fn fpu_fc(&self) -> FunctionCode {
+        if self.regs.sr & 0x2000 != 0 {
+            FunctionCode::SupervisorData
+        } else {
+            FunctionCode::UserData
+        }
+    }
+
+    /// Read N bytes from memory at `addr` using synchronous bus access.
+    fn fpu_read_bytes(&self, bus: &mut impl M68kBus, addr: u32, n: usize) -> Vec<u8> {
+        let fc = self.fpu_fc();
+        let mut bytes = Vec::with_capacity(n);
+        // Read word-aligned. For odd byte counts, read an extra byte.
+        let mut pos = 0u32;
+        while (pos as usize) < n {
+            let a = addr.wrapping_add(pos) & 0x00FF_FFFF;
+            if let BusStatus::Ready(w) = bus.poll_cycle(a, fc, true, true, None) {
+                if n - (pos as usize) >= 2 {
+                    bytes.push((w >> 8) as u8);
+                    bytes.push(w as u8);
+                    pos += 2;
+                } else {
+                    // Single byte remaining — read the high byte of the word
+                    bytes.push((w >> 8) as u8);
+                    pos += 1;
+                }
+            } else {
+                // Bus not ready (shouldn't happen in synchronous mode)
+                bytes.push(0);
+                pos += 1;
+            }
+        }
+        bytes
+    }
+
+    /// Write N bytes to memory at `addr` using synchronous bus access.
+    fn fpu_write_bytes(&mut self, bus: &mut impl M68kBus, addr: u32, data: &[u8]) {
+        let fc = self.fpu_fc();
+        let mut pos = 0usize;
+        while pos < data.len() {
+            let a = (addr + pos as u32) & 0x00FF_FFFF;
+            if data.len() - pos >= 2 {
+                let w = (u16::from(data[pos]) << 8) | u16::from(data[pos + 1]);
+                bus.poll_cycle(a, fc, false, true, Some(w));
+                pos += 2;
+            } else {
+                // Single byte — write as byte
+                let w = u16::from(data[pos]);
+                bus.poll_cycle(a, fc, false, false, Some(w));
+                pos += 1;
+            }
+        }
+    }
+
+    /// Resolve FPU effective address from opcode bits 5-0.
+    /// Returns the memory address. For register modes, returns the register
+    /// value directly (caller handles Dn/An specially).
+    fn fpu_resolve_ea(&mut self, _bus: &mut impl M68kBus, opcode: u16) -> u32 {
+        let mode = (opcode >> 3) & 7;
+        let reg = (opcode & 7) as usize;
+        match mode {
+            0 => {
+                // Dn — caller extracts from d[reg]
+                // Return a sentinel; caller must check mode
+                0xFFFF_FFFF
+            }
+            1 => {
+                // An — caller extracts from a(reg)
+                0xFFFF_FFFE
+            }
+            2 => {
+                // (An)
+                self.regs.a(reg)
+            }
+            3 => {
+                // (An)+  — address is current An, then increment by operand size.
+                // Caller must postinc after reading.
+                self.regs.a(reg)
+            }
+            4 => {
+                // -(An) — predecrement by operand size, then use new An.
+                // Caller must predec before calling.
+                self.regs.a(reg)
+            }
+            5 => {
+                // (d16,An)
+                let disp = self.consume_irc() as i16;
+                self.regs.a(reg).wrapping_add(disp as u32)
+            }
+            6 => {
+                // (d8,An,Xn) — brief or full extension word
+                let ext = self.consume_irc();
+                let xn_reg = ((ext >> 12) & 0xF) as usize;
+                let xn_val = if ext & 0x8000 != 0 {
+                    // Address register
+                    self.regs.a(xn_reg & 7)
+                } else {
+                    self.regs.d[xn_reg & 7]
+                };
+                let xn_size = if ext & 0x0800 != 0 {
+                    xn_val // Long
+                } else {
+                    xn_val as i16 as u32 // Word, sign-extended
+                };
+                let scale = if self.capabilities().scaled_index {
+                    1u32 << ((ext >> 9) & 3)
+                } else {
+                    1
+                };
+                let disp = (ext & 0xFF) as i8;
+                self.regs.a(reg).wrapping_add(xn_size.wrapping_mul(scale)).wrapping_add(disp as u32)
+            }
+            7 => {
+                match reg {
+                    0 => {
+                        // abs.W
+                        let w = self.consume_irc() as i16;
+                        w as u32
+                    }
+                    1 => {
+                        // abs.L
+                        let hi = self.consume_irc();
+                        let lo = self.consume_irc();
+                        (u32::from(hi) << 16) | u32::from(lo)
+                    }
+                    2 => {
+                        // (d16,PC)
+                        let pc = self.regs.pc.wrapping_sub(2); // PC of extension word
+                        let disp = self.consume_irc() as i16;
+                        pc.wrapping_add(disp as u32)
+                    }
+                    3 => {
+                        // (d8,PC,Xn)
+                        let pc = self.regs.pc.wrapping_sub(2);
+                        let ext = self.consume_irc();
+                        let xn_reg = ((ext >> 12) & 0xF) as usize;
+                        let xn_val = if ext & 0x8000 != 0 {
+                            self.regs.a(xn_reg & 7)
+                        } else {
+                            self.regs.d[xn_reg & 7]
+                        };
+                        let xn_size = if ext & 0x0800 != 0 {
+                            xn_val
+                        } else {
+                            xn_val as i16 as u32
+                        };
+                        let scale = if self.capabilities().scaled_index {
+                            1u32 << ((ext >> 9) & 3)
+                        } else {
+                            1
+                        };
+                        let disp = (ext & 0xFF) as i8;
+                        pc.wrapping_add(xn_size.wrapping_mul(scale)).wrapping_add(disp as u32)
+                    }
+                    4 => {
+                        // #imm — read immediate data inline.
+                        // Caller handles this based on format size.
+                        0xFFFF_FFFD
+                    }
+                    _ => {
+                        self.begin_group1_exception(11, self.instr_start_pc);
+                        0
+                    }
+                }
+            }
+            _ => {
+                self.begin_group1_exception(11, self.instr_start_pc);
+                0
+            }
+        }
+    }
+
+    /// Read FPU source operand from memory or register into f64.
+    /// `opcode` is the original instruction word (for EA mode/reg fields).
+    /// `ext` is the coprocessor extension word.
+    /// `format` is the source data format (from ext bits 12-10).
+    fn fpu_read_source(
+        &mut self,
+        bus: &mut impl M68kBus,
+        opcode: u16,
+        format: crate::fpu::FpFormat,
+    ) -> f64 {
+        use crate::fpu::{bytes_to_f64, FpFormat};
+        let ea_mode = (opcode >> 3) & 7;
+        let ea_reg = (opcode & 7) as usize;
+
+        if ea_mode == 0 {
+            // Dn — interpret data register as the source format
+            let d = self.regs.d[ea_reg];
+            match format {
+                FpFormat::Byte => f64::from(d as u8 as i8),
+                FpFormat::Word => f64::from(d as u16 as i16),
+                FpFormat::Long => f64::from(d as i32),
+                FpFormat::Single => f64::from(f32::from_bits(d)),
+                _ => {
+                    // Double/Extended/PackedBCD from Dn doesn't make sense
+                    f64::from(d as i32)
+                }
+            }
+        } else if ea_mode == 7 && ea_reg == 4 {
+            // Immediate — read inline data based on format size
+            let byte_size = format.byte_size();
+            let mut data = Vec::with_capacity(byte_size);
+            let mut remaining = byte_size;
+            while remaining > 0 {
+                let w = self.consume_irc();
+                data.push((w >> 8) as u8);
+                if remaining > 1 {
+                    data.push(w as u8);
+                }
+                remaining = remaining.saturating_sub(2);
+            }
+            bytes_to_f64(&data, format)
+        } else {
+            // Memory EA
+            let byte_size = format.byte_size();
+
+            // Handle predecrement
+            if ea_mode == 4 {
+                let new_a = self.regs.a(ea_reg).wrapping_sub(byte_size as u32);
+                self.regs.set_a(ea_reg, new_a);
+            }
+
+            let addr = self.fpu_resolve_ea(bus, opcode);
+            let data = self.fpu_read_bytes(bus, addr, byte_size);
+
+            // Handle postincrement
+            if ea_mode == 3 {
+                let new_a = self.regs.a(ea_reg).wrapping_add(byte_size as u32);
+                self.regs.set_a(ea_reg, new_a);
+            }
+
+            bytes_to_f64(&data, format)
+        }
+    }
+
+    /// Write FPU result to memory EA.
+    fn fpu_write_dest(
+        &mut self,
+        bus: &mut impl M68kBus,
+        opcode: u16,
+        format: crate::fpu::FpFormat,
+        val: f64,
+    ) {
+        use crate::fpu::f64_to_bytes;
+        let ea_mode = (opcode >> 3) & 7;
+        let ea_reg = (opcode & 7) as usize;
+        let byte_size = format.byte_size();
+
+        // Handle predecrement
+        if ea_mode == 4 {
+            let new_a = self.regs.a(ea_reg).wrapping_sub(byte_size as u32);
+            self.regs.set_a(ea_reg, new_a);
+        }
+
+        let addr = self.fpu_resolve_ea(bus, opcode);
+        let data = f64_to_bytes(val, format);
+        self.fpu_write_bytes(bus, addr, &data);
+
+        // Handle postincrement
+        if ea_mode == 3 {
+            let new_a = self.regs.a(ea_reg).wrapping_add(byte_size as u32);
+            self.regs.set_a(ea_reg, new_a);
+        }
+    }
+
+    /// Check if an FPU opcode is unimplemented on 68040/060 and should trap.
+    fn fpu_040_traps(&self, fpu_opcode: u8) -> bool {
+        if !matches!(
+            self.model.timing_class(),
+            crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
+        ) {
+            return false;
+        }
+        matches!(
+            fpu_opcode,
+            // Transcendentals
+            0x01 // FINT (actually implemented on 040, but only in some revisions)
+            | 0x02 // FSINH
+            | 0x06 // FLOGNP1
+            | 0x08 // FETOXM1
+            | 0x09 // FTANH
+            | 0x0A // FATAN
+            | 0x0C // FASIN
+            | 0x0D // FATANH
+            | 0x0E // FSIN
+            | 0x0F // FTAN
+            | 0x10 // FETOX
+            | 0x11 // FTWOTOX
+            | 0x12 // FTENTOX
+            | 0x14 // FLOGN
+            | 0x15 // FLOG10
+            | 0x16 // FLOG2
+            | 0x19 // FCOSH
+            | 0x1C // FACOS
+            | 0x1D // FCOS
+            | 0x1E // FGETEXP
+            | 0x1F // FGETMAN
+            | 0x21 // FMOD
+            | 0x24 // FSGLDIV
+            | 0x25 // FREM
+            | 0x26 // FSCALE
+            | 0x27 // FSGLMUL
+            | 0x30..=0x37 // FSINCOS
+        )
+    }
+
+    /// Check if an FPU data format is unimplemented on 68040 for mem-to-reg.
+    /// 68040 hardware only supports Long, Single, Double, Extended.
+    fn fpu_040_format_traps(&self, format_bits: u8) -> bool {
+        if !matches!(
+            self.model.timing_class(),
+            crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
+        ) {
+            return false;
+        }
+        // Byte (6), Word (4), PackedBCD (3) trap on 68040
+        matches!(format_bits, 3 | 4 | 6)
+    }
+
+    // --- FSAVE / FRESTORE ---
+
+    /// Decode FSAVE instruction (supervisor only).
+    /// Pushes an FPU state frame to memory via -(An) or other control EA.
+    fn decode_fpu_fsave(&mut self, bus: &mut impl M68kBus, opcode: u16) {
+        // Privilege check
+        if !self.regs.is_supervisor() {
+            self.begin_group1_exception(8, self.instr_start_pc);
+            return;
+        }
+
+        let ea_mode = (opcode >> 3) & 7;
+        let ea_reg = (opcode & 7) as usize;
+
+        // Determine frame format based on CPU model:
+        // 68881/82: NULL frame = 4 bytes ($0000 version + $00 size)
+        // 68040:    NULL frame = 4 bytes ($00000000)
+        let frame: &[u8] = if matches!(
+            self.model.timing_class(),
+            crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
+        ) {
+            &[0x00, 0x00, 0x00, 0x00]
+        } else {
+            // 68881/82 NULL frame: version $00, size $00, reserved $0000
+            &[0x00, 0x00, 0x00, 0x00]
+        };
+
+        if ea_mode == 4 {
+            // -(An) — predecrement
+            let new_a = self.regs.a(ea_reg).wrapping_sub(frame.len() as u32);
+            self.regs.set_a(ea_reg, new_a);
+            let addr = self.regs.a(ea_reg);
+            self.fpu_write_bytes(bus, addr, frame);
+        } else {
+            let addr = self.fpu_resolve_ea(bus, opcode);
+            self.fpu_write_bytes(bus, addr, frame);
+        }
+    }
+
+    /// Decode FRESTORE instruction (supervisor only).
+    /// Pops an FPU state frame from memory.
+    fn decode_fpu_frestore(&mut self, bus: &mut impl M68kBus, opcode: u16) {
+        // Privilege check
+        if !self.regs.is_supervisor() {
+            self.begin_group1_exception(8, self.instr_start_pc);
+            return;
+        }
+
+        let ea_mode = (opcode >> 3) & 7;
+        let ea_reg = (opcode & 7) as usize;
+
+        let addr = if ea_mode == 3 {
+            // (An)+ — postincrement after frame read
+            self.regs.a(ea_reg)
+        } else {
+            self.fpu_resolve_ea(bus, opcode)
+        };
+
+        // Read frame header (4 bytes)
+        let header = self.fpu_read_bytes(bus, addr, 4);
+
+        if matches!(
+            self.model.timing_class(),
+            crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
+        ) {
+            // 68040 frame: first longword. If zero, it's a NULL frame → reset FPU.
+            let frame_word = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
+            if frame_word == 0 {
+                // NULL frame — reset FPU state
+                self.regs.fp = [crate::registers::FpReg::ZERO; 8];
+                self.regs.fpcr = 0;
+                self.regs.fpsr = 0;
+                self.regs.fpiar = 0;
+            } else {
+                // Non-null frame: skip frame_size additional bytes
+                let frame_size = (frame_word & 0xFF) as usize;
+                if ea_mode == 3 && frame_size > 0 {
+                    // Just skip the extra bytes (we don't restore internal FPU state)
+                    let _extra = self.fpu_read_bytes(bus, addr.wrapping_add(4), frame_size);
+                }
+            }
+            if ea_mode == 3 {
+                let total = 4 + if header[0] == 0 && header[1] == 0 && header[2] == 0 && header[3] == 0 {
+                    0usize
+                } else {
+                    (header[3] as usize) & 0xFF
+                };
+                let new_a = self.regs.a(ea_reg).wrapping_add(total as u32);
+                self.regs.set_a(ea_reg, new_a);
+            }
+        } else {
+            // 68881/82 frame: byte 1 is the frame size.
+            let frame_size = header[1] as usize;
+            if frame_size == 0 {
+                // NULL frame — reset FPU state
+                self.regs.fp = [crate::registers::FpReg::ZERO; 8];
+                self.regs.fpcr = 0;
+                self.regs.fpsr = 0;
+                self.regs.fpiar = 0;
+            } else if ea_mode == 3 && frame_size > 0 {
+                // Skip the frame body
+                let _extra = self.fpu_read_bytes(bus, addr.wrapping_add(4), frame_size);
+            }
+            if ea_mode == 3 {
+                let total = 4 + frame_size;
+                let new_a = self.regs.a(ea_reg).wrapping_add(total as u32);
+                self.regs.set_a(ea_reg, new_a);
+            }
+        }
+    }
+
+    // --- cpGEN (type 000) — main FPU instruction decode ---
+
+    /// Decode and execute FPU general instructions (cpGEN).
+    /// Extension word format varies by operation type:
+    /// - Bits 15-13: operation class
+    /// - Bits 12-10: source specifier (format for mem ops, FPn for reg ops)
+    /// - Bits 9-7: destination FP register
+    /// - Bits 6-0: opcode
+    fn decode_fpu_cpgen(&mut self, bus: &mut impl M68kBus, opcode: u16) {
+        use crate::fpu::{self, FpFormat};
+        use crate::registers::FpReg;
+
+        // Save FPIAR (PC of this FPU instruction)
+        self.regs.fpiar = self.instr_start_pc;
+
+        let ext = self.consume_irc();
+        let op_class = (ext >> 13) & 7;
+
+        match op_class {
+            0 => {
+                // Register-to-register
+                let src_spec = ((ext >> 10) & 7) as usize;
+                let dst_reg = ((ext >> 7) & 7) as usize;
+                let fpu_opcode = (ext & 0x7F) as u8;
+
+                // 68040 trap check for unimplemented opcodes
+                if self.fpu_040_traps(fpu_opcode) {
+                    self.begin_group1_exception(11, self.instr_start_pc);
+                    return;
+                }
+
+                let src = self.regs.fp[src_spec].0;
+                self.execute_fpu_op(fpu_opcode, src, dst_reg);
+            }
+            2 => {
+                // Memory-to-register OR FMOVECR
+                // FMOVECR: bits 15-10 = 010111 (src_format = 7, not a valid data format)
+                // Detect FMOVECR before format validation.
+                if ext & 0xFC00 == 0x5C00 {
+                    let dst_reg = ((ext >> 7) & 7) as usize;
+                    let rom_offset = (ext & 0x7F) as u8;
+                    // 68040 traps FMOVECR
+                    if matches!(
+                        self.model.timing_class(),
+                        crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
+                    ) {
+                        self.begin_group1_exception(11, self.instr_start_pc);
+                        return;
+                    }
+                    let val = fpu::fmovecr_constant(rom_offset);
+                    self.regs.fp[dst_reg] = FpReg(val);
+                    fpu::set_fpcc(&mut self.regs, val);
+                    return;
+                }
+
+                let src_format_bits = ((ext >> 10) & 7) as u8;
+                let dst_reg = ((ext >> 7) & 7) as usize;
+                let fpu_opcode = (ext & 0x7F) as u8;
+
+                // 68040 format trap check
+                if self.fpu_040_format_traps(src_format_bits) {
+                    self.begin_group1_exception(11, self.instr_start_pc);
+                    return;
+                }
+
+                let format = match FpFormat::from_bits(src_format_bits) {
+                    Some(f) => f,
+                    None => {
+                        self.begin_group1_exception(11, self.instr_start_pc);
+                        return;
+                    }
+                };
+
+                // 68040 trap check for unimplemented opcodes
+                if self.fpu_040_traps(fpu_opcode) {
+                    self.begin_group1_exception(11, self.instr_start_pc);
+                    return;
+                }
+
+                let src = self.fpu_read_source(bus, opcode, format);
+                self.execute_fpu_op(fpu_opcode, src, dst_reg);
+            }
+            3 => {
+                // FMOVE to memory (register → memory)
+                let dst_format_bits = ((ext >> 10) & 7) as u8;
+                let src_reg = ((ext >> 7) & 7) as usize;
+                let k_factor = (ext & 0x7F) as i8; // sign-extended 7-bit k-factor
+
+                // 68040 format trap check
+                if self.fpu_040_format_traps(dst_format_bits) {
+                    self.begin_group1_exception(11, self.instr_start_pc);
+                    return;
+                }
+
+                let format = match FpFormat::from_bits(dst_format_bits) {
+                    Some(f) => f,
+                    None => {
+                        self.begin_group1_exception(11, self.instr_start_pc);
+                        return;
+                    }
+                };
+
+                let _ = k_factor; // k-factor only used for PackedBCD precision
+                let val = self.regs.fp[src_reg].0;
+                self.fpu_write_dest(bus, opcode, format, val);
+            }
+            4 | 5 => {
+                // FMOVEM control registers (4=mem→CR, 5=CR→mem)
+                let cr_mask = ((ext >> 10) & 7) as u8;
+                let to_mem = op_class == 5;
+
+                let ea_mode = (opcode >> 3) & 7;
+                let ea_reg = (opcode & 7) as usize;
+
+                // Count registers to transfer (for pre/postincrement sizing)
+                let cr_count = cr_mask.count_ones();
+                let total_bytes = cr_count * 4;
+
+                if to_mem {
+                    // CR → memory
+                    if ea_mode == 4 {
+                        // -(An)
+                        let new_a = self.regs.a(ea_reg).wrapping_sub(total_bytes);
+                        self.regs.set_a(ea_reg, new_a);
+                    }
+                    let addr = if ea_mode == 4 {
+                        self.regs.a(ea_reg)
+                    } else {
+                        self.fpu_resolve_ea(bus, opcode)
+                    };
+                    let mut off = 0u32;
+                    // Order: FPCR, FPSR, FPIAR (bit 2, 1, 0)
+                    if cr_mask & 4 != 0 {
+                        let bytes = self.regs.fpcr.to_be_bytes();
+                        self.fpu_write_bytes(bus, addr.wrapping_add(off), &bytes);
+                        off += 4;
+                    }
+                    if cr_mask & 2 != 0 {
+                        let bytes = self.regs.fpsr.to_be_bytes();
+                        self.fpu_write_bytes(bus, addr.wrapping_add(off), &bytes);
+                        off += 4;
+                    }
+                    if cr_mask & 1 != 0 {
+                        let bytes = self.regs.fpiar.to_be_bytes();
+                        self.fpu_write_bytes(bus, addr.wrapping_add(off), &bytes);
+                    }
+                    if ea_mode == 3 {
+                        let new_a = self.regs.a(ea_reg).wrapping_add(total_bytes);
+                        self.regs.set_a(ea_reg, new_a);
+                    }
+                } else {
+                    // Memory → CR
+                    if ea_mode == 4 {
+                        let new_a = self.regs.a(ea_reg).wrapping_sub(total_bytes);
+                        self.regs.set_a(ea_reg, new_a);
+                    }
+                    let addr = if ea_mode == 4 {
+                        self.regs.a(ea_reg)
+                    } else if ea_mode == 0 {
+                        // Dn — single register to single CR
+                        let d_val = self.regs.d[ea_reg];
+                        if cr_mask & 4 != 0 { self.regs.fpcr = d_val; }
+                        if cr_mask & 2 != 0 { self.regs.fpsr = d_val; }
+                        if cr_mask & 1 != 0 { self.regs.fpiar = d_val; }
+                        return;
+                    } else if ea_mode == 1 {
+                        // An → single CR
+                        let a_val = self.regs.a(ea_reg);
+                        if cr_mask & 4 != 0 { self.regs.fpcr = a_val; }
+                        if cr_mask & 2 != 0 { self.regs.fpsr = a_val; }
+                        if cr_mask & 1 != 0 { self.regs.fpiar = a_val; }
+                        return;
+                    } else {
+                        self.fpu_resolve_ea(bus, opcode)
+                    };
+                    let mut off = 0u32;
+                    if cr_mask & 4 != 0 {
+                        let bytes = self.fpu_read_bytes(bus, addr.wrapping_add(off), 4);
+                        self.regs.fpcr = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                        off += 4;
+                    }
+                    if cr_mask & 2 != 0 {
+                        let bytes = self.fpu_read_bytes(bus, addr.wrapping_add(off), 4);
+                        self.regs.fpsr = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                        off += 4;
+                    }
+                    if cr_mask & 1 != 0 {
+                        let bytes = self.fpu_read_bytes(bus, addr.wrapping_add(off), 4);
+                        self.regs.fpiar = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                    }
+                    if ea_mode == 3 {
+                        let new_a = self.regs.a(ea_reg).wrapping_add(total_bytes);
+                        self.regs.set_a(ea_reg, new_a);
+                    }
+                }
+            }
+            6 | 7 => {
+                // FMOVEM data registers (6=mem→FPn, 7=FPn→mem)
+                let to_mem = op_class == 7;
+                let dynamic = ext & 0x0800 != 0;
+                let predec = ext & 0x1000 != 0;
+
+                let reg_list = if dynamic {
+                    let dn = ((ext >> 4) & 7) as usize;
+                    self.regs.d[dn] as u8
+                } else {
+                    (ext & 0xFF) as u8
+                };
+
+                let ea_mode = (opcode >> 3) & 7;
+                let ea_reg = (opcode & 7) as usize;
+
+                // Count FP registers in list
+                let fp_count = reg_list.count_ones();
+                let total_bytes = fp_count * 12; // Each FP reg = 12 bytes (extended)
+
+                if to_mem {
+                    // FPn → memory
+                    if ea_mode == 4 {
+                        // -(An)
+                        let new_a = self.regs.a(ea_reg).wrapping_sub(total_bytes);
+                        self.regs.set_a(ea_reg, new_a);
+                    }
+                    let addr = if ea_mode == 4 {
+                        self.regs.a(ea_reg)
+                    } else {
+                        self.fpu_resolve_ea(bus, opcode)
+                    };
+                    let mut off = 0u32;
+                    if predec && ea_mode == 4 {
+                        // Predecrement mode: store FP7 first, FP0 last
+                        for i in (0..8).rev() {
+                            if reg_list & (1 << (7 - i)) != 0 {
+                                let bytes = fpu::f64_to_bytes(self.regs.fp[i].0, FpFormat::Extended);
+                                self.fpu_write_bytes(bus, addr.wrapping_add(off), &bytes);
+                                off += 12;
+                            }
+                        }
+                    } else {
+                        // Normal: store FP0 first, FP7 last
+                        for i in 0..8 {
+                            if reg_list & (1 << (7 - i)) != 0 {
+                                let bytes = fpu::f64_to_bytes(self.regs.fp[i].0, FpFormat::Extended);
+                                self.fpu_write_bytes(bus, addr.wrapping_add(off), &bytes);
+                                off += 12;
+                            }
+                        }
+                    }
+                    if ea_mode == 3 {
+                        let new_a = self.regs.a(ea_reg).wrapping_add(total_bytes);
+                        self.regs.set_a(ea_reg, new_a);
+                    }
+                } else {
+                    // Memory → FPn
+                    if ea_mode == 4 {
+                        let new_a = self.regs.a(ea_reg).wrapping_sub(total_bytes);
+                        self.regs.set_a(ea_reg, new_a);
+                    }
+                    let addr = if ea_mode == 4 {
+                        self.regs.a(ea_reg)
+                    } else {
+                        self.fpu_resolve_ea(bus, opcode)
+                    };
+                    let mut off = 0u32;
+                    for i in 0..8 {
+                        if reg_list & (1 << (7 - i)) != 0 {
+                            let bytes = self.fpu_read_bytes(bus, addr.wrapping_add(off), 12);
+                            self.regs.fp[i] = FpReg(fpu::bytes_to_f64(&bytes, FpFormat::Extended));
+                            off += 12;
+                        }
+                    }
+                    if ea_mode == 3 {
+                        let new_a = self.regs.a(ea_reg).wrapping_add(total_bytes);
+                        self.regs.set_a(ea_reg, new_a);
+                    }
+                }
+            }
+            1 => {
+                // Reserved — trigger F-line exception
+                self.begin_group1_exception(11, self.instr_start_pc);
+            }
+            _ => {
+                self.begin_group1_exception(11, self.instr_start_pc);
+            }
+        }
+    }
+
+    /// Execute an FPU arithmetic operation.
+    /// `fpu_opcode` is bits 6-0 of the extension word.
+    /// `src` is the source operand (already converted to f64).
+    /// `dst_reg` is the destination FP register index.
+    fn execute_fpu_op(&mut self, fpu_opcode: u8, src: f64, dst_reg: usize) {
+        use crate::fpu;
+        use crate::registers::FpReg;
+
+        let dst = self.regs.fp[dst_reg].0;
+        let rm = self.regs.fpcr_rounding_mode();
+        let rp = self.regs.fpcr_rounding_precision();
+
+        let (result, store) = match fpu_opcode {
+            0x00 => (fpu::apply_rounding(src, rm, rp), true),                  // FMOVE
+            0x01 => (fpu::fint(src, rm), true),                                // FINT
+            0x02 => (src.sinh(), true),                                        // FSINH
+            0x03 => (fpu::fintrz(src), true),                                  // FINTRZ
+            0x04 => (fpu::apply_rounding(src.sqrt(), rm, rp), true),           // FSQRT
+            0x06 => (src.ln_1p(), true),                                       // FLOGNP1
+            0x08 => (src.exp() - 1.0, true),                                   // FETOXM1
+            0x09 => (src.tanh(), true),                                        // FTANH
+            0x0A => (src.atan(), true),                                        // FATAN
+            0x0C => (src.asin(), true),                                        // FASIN
+            0x0D => (src.atanh(), true),                                       // FATANH
+            0x0E => (src.sin(), true),                                         // FSIN
+            0x0F => (src.tan(), true),                                         // FTAN
+            0x10 => (src.exp(), true),                                         // FETOX
+            0x11 => (2.0f64.powf(src), true),                                  // FTWOTOX
+            0x12 => (10.0f64.powf(src), true),                                 // FTENTOX
+            0x14 => (src.ln(), true),                                          // FLOGN
+            0x15 => (src.log10(), true),                                       // FLOG10
+            0x16 => (src.log2(), true),                                        // FLOG2
+            0x18 => (fpu::apply_rounding(src.abs(), rm, rp), true),            // FABS
+            0x19 => (src.cosh(), true),                                        // FCOSH
+            0x1A => (fpu::apply_rounding(-src, rm, rp), true),                 // FNEG
+            0x1C => (src.acos(), true),                                        // FACOS
+            0x1D => (src.cos(), true),                                         // FCOS
+            0x1E => (fpu::fgetexp(src), true),                                 // FGETEXP
+            0x1F => (fpu::fgetman(src), true),                                 // FGETMAN
+            0x20 => (fpu::apply_rounding(dst / src, rm, rp), true),            // FDIV
+            0x21 => (fpu::fmod(dst, src), true),                               // FMOD
+            0x22 => (fpu::apply_rounding(dst + src, rm, rp), true),            // FADD
+            0x23 => (fpu::apply_rounding(dst * src, rm, rp), true),            // FMUL
+            0x24 => ((dst / src) as f32 as f64, true),                         // FSGLDIV
+            0x25 => (fpu::frem(dst, src), true),                               // FREM
+            0x26 => (fpu::fscale(dst, src), true),                             // FSCALE
+            0x27 => ((dst * src) as f32 as f64, true),                         // FSGLMUL
+            0x28 => (fpu::apply_rounding(dst - src, rm, rp), true),            // FSUB
+            0x30..=0x37 => {
+                // FSINCOS: cos → FPc (opcode bits 2-0), sin → FPd (dst_reg)
+                let cos_reg = (fpu_opcode & 7) as usize;
+                let (s, c) = fpu::fsincos(src);
+                self.regs.fp[cos_reg] = FpReg(c);
+                (s, true) // sin goes to dst_reg
+            }
+            0x38 => {
+                // FCMP: dst - src, set condition codes only
+                let diff = dst - src;
+                fpu::set_fpcc(&mut self.regs, diff);
+                return; // No store
+            }
+            0x3A => {
+                // FTST: set condition codes from source only
+                fpu::set_fpcc(&mut self.regs, src);
+                return; // No store
+            }
+            // Single-precision variants (68040 hardware, but also 68881/82)
+            0x40 => (fpu::apply_rounding(src, rm, 1), true),                   // FSMOVE
+            0x41 => (fpu::apply_rounding(src.sqrt(), rm, 1), true),            // FSSQRT
+            0x44 => (fpu::apply_rounding(src, rm, 2), true),                   // FDMOVE
+            0x45 => (fpu::apply_rounding(src.sqrt(), rm, 2), true),            // FDSQRT
+            0x58 => (fpu::apply_rounding(src.abs(), rm, 1), true),             // FSABS
+            0x5A => (fpu::apply_rounding(-src, rm, 1), true),                  // FSNEG
+            0x5C => (fpu::apply_rounding(src.abs(), rm, 2), true),             // FDABS
+            0x5E => (fpu::apply_rounding(-src, rm, 2), true),                  // FDNEG
+            0x60 => (fpu::apply_rounding(dst / src, rm, 1), true),             // FSDIV
+            0x62 => (fpu::apply_rounding(dst + src, rm, 1), true),             // FSADD
+            0x63 => (fpu::apply_rounding(dst * src, rm, 1), true),             // FSMUL
+            0x64 => (fpu::apply_rounding(dst / src, rm, 2), true),             // FDDIV
+            0x66 => (fpu::apply_rounding(dst + src, rm, 2), true),             // FDADD
+            0x67 => (fpu::apply_rounding(dst * src, rm, 2), true),             // FDMUL
+            0x68 => (fpu::apply_rounding(dst - src, rm, 1), true),             // FSSUB
+            0x6C => (fpu::apply_rounding(dst - src, rm, 2), true),             // FDSUB
+            _ => {
+                // Unknown opcode — F-line exception
+                self.begin_group1_exception(11, self.instr_start_pc);
+                return;
+            }
+        };
+
+        if store {
+            self.regs.fp[dst_reg] = FpReg(result);
+        }
+        fpu::set_fpcc(&mut self.regs, result);
+    }
+
+    // --- FBcc (branch on FPU condition) ---
+
+    /// Decode FBcc.W or FBcc.L (branch on FPU condition code).
+    fn decode_fpu_fbcc(&mut self, _bus: &mut impl M68kBus, opcode: u16, long_disp: bool) {
+        use crate::fpu;
+
+        // Save FPIAR
+        self.regs.fpiar = self.instr_start_pc;
+
+        let condition = (opcode & 0x3F) as u8;
+        let disp = if long_disp {
+            let hi = self.consume_irc();
+            let lo = self.consume_irc();
+            ((u32::from(hi) << 16) | u32::from(lo)) as i32
+        } else {
+            self.consume_irc() as i16 as i32
+        };
+
+        if fpu::test_condition(self.regs.fpsr, condition) {
+            // Branch taken — target is displacement word address + displacement
+            let target = (self.instr_start_pc.wrapping_add(2)).wrapping_add(disp as u32);
+            self.next_fetch_addr = target;
+            // Refill prefetch pipeline: fetch target word into IRC, then promote to IR
+            self.micro_ops.clear();
+            self.micro_ops.push(MicroOp::FetchIRC);
+            self.start_next_instruction();
+        }
+        // If not taken, fall through (prefetch already points past displacement)
+    }
+
+    // --- FScc / FDBcc / FTRAPcc (type 001) ---
+
+    /// Decode FScc, FDBcc, and FTRAPcc instructions.
+    fn decode_fpu_cpscc_dbcc(&mut self, bus: &mut impl M68kBus, opcode: u16) {
+        use crate::fpu;
+
+        self.regs.fpiar = self.instr_start_pc;
+
+        let ext = self.consume_irc();
+        let condition = (ext & 0x3F) as u8;
+
+        let ea_mode = (opcode >> 3) & 7;
+        let ea_reg = (opcode & 7) as usize;
+
+        if ea_mode == 1 {
+            // FDBcc — decrement and branch
+            let disp = self.consume_irc() as i16;
+
+            if !fpu::test_condition(self.regs.fpsr, condition) {
+                // Condition false: decrement Dn.w
+                let dn_w = (self.regs.d[ea_reg] as u16).wrapping_sub(1);
+                self.regs.d[ea_reg] = (self.regs.d[ea_reg] & 0xFFFF_0000) | u32::from(dn_w);
+
+                if dn_w != 0xFFFF {
+                    // Branch to PC + 2 + disp
+                    let target = self.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
+                    self.next_fetch_addr = target;
+                    self.micro_ops.clear();
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                    self.start_next_instruction();
+                }
+                // If Dn.w == -1, fall through (expired)
+            }
+            // Condition true: fall through (no branch, no decrement)
+        } else if ea_mode == 7 && ea_reg >= 2 {
+            // FTRAPcc
+            // Consume immediate operand if present
+            if ea_reg == 2 {
+                let _imm = self.consume_irc(); // .W operand
+            } else if ea_reg == 3 {
+                let _imm_hi = self.consume_irc(); // .L operand
+                let _imm_lo = self.consume_irc();
+            }
+            // ea_reg == 4: no operand
+
+            if fpu::test_condition(self.regs.fpsr, condition) {
+                // Condition true: trigger trap exception (vector 7)
+                self.begin_group1_exception(7, self.instr_start_pc);
+            }
+        } else {
+            // FScc — set byte to $FF (true) or $00 (false)
+            let result = if fpu::test_condition(self.regs.fpsr, condition) {
+                0xFFu8
+            } else {
+                0x00u8
+            };
+
+            if ea_mode == 0 {
+                // Dn — set low byte
+                self.regs.d[ea_reg] = (self.regs.d[ea_reg] & 0xFFFF_FF00) | u32::from(result);
+            } else {
+                let addr = self.fpu_resolve_ea(bus, opcode);
+                let fc = self.fpu_fc();
+                bus.poll_cycle(addr & 0x00FF_FFFF, fc, false, false, Some(u16::from(result)));
             }
         }
     }

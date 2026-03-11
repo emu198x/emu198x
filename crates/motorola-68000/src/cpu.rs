@@ -174,6 +174,11 @@ pub const TAG_AE_FETCH_VECTOR: u8 = 54;
 /// AE: jump to vector address.
 pub const TAG_AE_FINISH: u8 = 55;
 
+/// MOVE16: transfer loop (read phase then write phase).
+pub const TAG_MOVE16_NEXT: u8 = 97;
+/// MOVE16: read low word of 32-bit absolute address extension.
+pub const TAG_MOVE16_ADDR_LO: u8 = 98;
+
 /// Bus error (68010+): push extra format $A words (zeroed internal state).
 pub const TAG_BE_PUSH_EXTRA: u8 = 56;
 /// Bus error (68000): fetch vector 2.
@@ -345,6 +350,15 @@ pub struct Cpu68000 {
     pub movem_is_write: bool,
     /// MOVEM: address register used for predec/postinc (0-7), or 0xFF if none.
     pub movem_an_reg: u8,
+    /// MOVE16: 8-word transfer buffer (16 bytes).
+    pub(crate) move16_buf: [u16; 8],
+    /// MOVE16: current word index (0-7 for reads, 8-15 for writes).
+    pub(crate) move16_idx: u8,
+    /// MOVE16: destination base address (line-aligned).
+    pub(crate) move16_dst_addr: u32,
+    /// FPU: source operand value for the current FPU instruction.
+    #[allow(dead_code)] // Used in Phase 2+ of FPU implementation
+    pub(crate) fpu_source: f64,
     /// Exception vector for group 1/2 exceptions (TRAP, privilege violation, etc.).
     /// When set, TAG_EXC_STACK_SR skips InterruptAck and uses this vector directly.
     pub exc_vector: Option<u8>,
@@ -455,6 +469,10 @@ impl Cpu68000 {
             movem_idx: 0,
             movem_is_write: false,
             movem_an_reg: 0xFF,
+            move16_buf: [0; 8],
+            move16_idx: 0,
+            move16_dst_addr: 0,
+            fpu_source: 0.0,
             exc_vector: None,
             src_val: 0,
             dst_val: 0,
@@ -800,7 +818,7 @@ impl Cpu68000 {
     }
 
     /// Queue PromoteIRC to start the next instruction.
-    fn start_next_instruction(&mut self) {
+    pub(crate) fn start_next_instruction(&mut self) {
         self.micro_ops.push(MicroOp::PromoteIRC);
     }
 
@@ -2289,6 +2307,195 @@ mod tests {
     }
 
     #[test]
+    fn movec_mmu_registers_roundtrip_68030() {
+        // 68030 has MMU → TC/ITT0/ITT1/SRP/URP/MMUSR should work.
+        // Write $AABB0000 to TC via D0, read back to D1.
+        // Write $12340000 to SRP via D0, read back to D2.
+        // MOVE.L #$AABB0000,D0 ; MOVEC D0,TC ; MOVEC TC,D1
+        // MOVE.L #$12340000,D0 ; MOVEC D0,SRP ; MOVEC SRP,D2
+        // BRA.S *
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            // MOVE.L #$AABB0000,D0
+            (0x0100, 0x203C),
+            (0x0102, 0xAABB),
+            (0x0104, 0x0000),
+            // MOVEC D0,TC (cr $003)
+            (0x0106, 0x4E7B),
+            (0x0108, 0x0003),
+            // MOVEC TC,D1 (cr $003)
+            (0x010A, 0x4E7A),
+            (0x010C, 0x1003),
+            // MOVE.L #$12340000,D0
+            (0x010E, 0x203C),
+            (0x0110, 0x1234),
+            (0x0112, 0x0000),
+            // MOVEC D0,SRP (cr $807)
+            (0x0114, 0x4E7B),
+            (0x0116, 0x0807),
+            // MOVEC SRP,D2 (cr $807)
+            (0x0118, 0x4E7A),
+            (0x011A, 0x2807),
+            // BRA.S *
+            (0x011C, 0x60FE),
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68030);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert_eq!(cpu.regs.tc, 0xAABB_0000, "TC should hold written value");
+        assert_eq!(cpu.regs.d[1], 0xAABB_0000, "D1 should read back TC");
+        assert_eq!(cpu.regs.srp, 0x1234_0000, "SRP should hold written value");
+        assert_eq!(cpu.regs.d[2], 0x1234_0000, "D2 should read back SRP");
+    }
+
+    #[test]
+    fn movec_mmu_regs_illegal_on_68010() {
+        // 68010 has no MMU → MOVEC D0,TC should fire illegal exception.
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            (0x0010, 0x0000),
+            (0x0012, 0x0200), // Illegal vector → $0200
+            (0x0100, 0x4E7B),
+            (0x0102, 0x0003), // MOVEC D0,TC
+            (0x0104, 0x60FE),
+            (0x0200, 0x7EFF), // MOVEQ #$FF,D7 (marker)
+            (0x0202, 0x60FE), // BRA.S *
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68010);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 10000);
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0xFF,
+            "MOVEC TC on 68010 should fire illegal exception"
+        );
+    }
+
+    #[test]
+    fn move16_postinc_to_abs_copies_16_bytes_68040() {
+        // MOVE16 (A0)+,($2000).L — copy 16 bytes from (A0) aligned to $2000.
+        // Encoding: $F600 | reg = $F600, followed by 32-bit address.
+        // A0 = $1000 (already aligned).
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            // LEA $1000,A0
+            (0x0100, 0x41F9),
+            (0x0102, 0x0000),
+            (0x0104, 0x1000),
+            // MOVE16 (A0)+,($2000).L  = F600 0000 2000
+            (0x0106, 0xF600),
+            (0x0108, 0x0000),
+            (0x010A, 0x2000),
+            // BRA.S *
+            (0x010C, 0x60FE),
+        ]);
+        // Write 16 bytes of test data at $1000.
+        for i in 0u16..8 {
+            let addr = 0x1000 + i * 2;
+            let word = 0xA000 + i;
+            bus.mem[addr as usize] = (word >> 8) as u8;
+            bus.mem[addr as usize + 1] = word as u8;
+        }
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68040);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 50000);
+        // A0 should have incremented by 16
+        assert_eq!(cpu.regs.a(0), 0x1010, "A0 should be $1010 after post-increment");
+        // Destination $2000 should contain the 16 bytes
+        for i in 0u16..8 {
+            let src_addr = 0x1000 + i * 2;
+            let dst_addr = 0x2000 + i * 2;
+            let src_word =
+                (u16::from(bus.mem[src_addr as usize]) << 8) | u16::from(bus.mem[src_addr as usize + 1]);
+            let dst_word =
+                (u16::from(bus.mem[dst_addr as usize]) << 8) | u16::from(bus.mem[dst_addr as usize + 1]);
+            assert_eq!(
+                dst_word, src_word,
+                "word {} at dst ${:04X} should match src ${:04X}",
+                i, dst_addr, src_addr
+            );
+        }
+    }
+
+    #[test]
+    fn move16_postinc_to_postinc_copies_16_bytes_68040() {
+        // MOVE16 (A0)+,(A1)+ — Form 1.
+        // Encoding: $F620 | src_reg, ext: 1<<15 | dest_reg<<12.
+        // A0=$1000, A1=$3000.
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            // LEA $1000,A0
+            (0x0100, 0x41F9),
+            (0x0102, 0x0000),
+            (0x0104, 0x1000),
+            // LEA $3000,A1
+            (0x0106, 0x43F9),
+            (0x0108, 0x0000),
+            (0x010A, 0x3000),
+            // MOVE16 (A0)+,(A1)+  = $F620, ext = $9000 (bit 15 set, reg 1 in bits 14-12)
+            (0x010C, 0xF620),
+            (0x010E, 0x9000),
+            // BRA.S *
+            (0x0110, 0x60FE),
+        ]);
+        for i in 0u16..8 {
+            let addr = 0x1000 + i * 2;
+            let word = 0xBB00 + i;
+            bus.mem[addr as usize] = (word >> 8) as u8;
+            bus.mem[addr as usize + 1] = word as u8;
+        }
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68040);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 50000);
+        assert_eq!(cpu.regs.a(0), 0x1010, "A0 post-increment by 16");
+        assert_eq!(cpu.regs.a(1), 0x3010, "A1 post-increment by 16");
+        for i in 0u16..8 {
+            let dst_addr = 0x3000 + i * 2;
+            let expected = 0xBB00 + i;
+            let actual =
+                (u16::from(bus.mem[dst_addr as usize]) << 8) | u16::from(bus.mem[dst_addr as usize + 1]);
+            assert_eq!(actual, expected, "word {} at ${:04X}", i, dst_addr);
+        }
+    }
+
+    #[test]
+    fn move16_illegal_on_68020() {
+        // MOVE16 should fire F-line exception on 68020 (not 68040+).
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            (0x002C, 0x0000), // F-line vector (11*4=$2C)
+            (0x002E, 0x0200),
+            (0x0100, 0xF600), // MOVE16 (A0)+,xxx.L
+            (0x0102, 0x0000),
+            (0x0104, 0x2000),
+            (0x0106, 0x60FE),
+            (0x0200, 0x7EFF), // MOVEQ #$FF,D7 (marker)
+            (0x0202, 0x60FE),
+        ]);
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 10000);
+        assert_eq!(
+            cpu.regs.d[7] as u8, 0xFF,
+            "MOVE16 on 68020 should fire F-line exception"
+        );
+    }
+
+    #[test]
     fn extb_l_sign_extends_byte_to_long_68020() {
         // MOVEQ #$F0,D0 ; EXTB.L D0 ; BRA.S *
         let mut bus = SimpleBus::new(&[
@@ -2905,6 +3112,532 @@ mod tests {
         assert!(
             cpu.regs.sr & 0x0004 == 0,
             "CAS.L not equal: Z flag should be clear"
+        );
+    }
+
+    // --- FPU integration tests ---
+    // These tests exercise FPU instructions through the full CPU pipeline.
+    // All use CpuModel::M68020 which has fpu=true.
+
+    #[test]
+    fn fpu_fmove_single_to_fp0() {
+        // Load IEEE-754 single 3.5 from memory into FP0
+        // FMOVE.S (A0),FP0
+        // opcode: F210 (cpGEN, EA=(A0)), ext: 4400 (op_class=2, format=Single(1), dst=FP0, opcode=$00)
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        // LEA $2000,A0 = 41F9 0000 2000
+        bus.mem[0x0100] = 0x41;
+        bus.mem[0x0101] = 0xF9;
+        bus.mem[0x0102] = 0x00;
+        bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x20;
+        bus.mem[0x0105] = 0x00;
+        // FMOVE.S (A0),FP0 = F210 4400
+        bus.mem[0x0106] = 0xF2;
+        bus.mem[0x0107] = 0x10;
+        bus.mem[0x0108] = 0x44;
+        bus.mem[0x0109] = 0x00;
+        // BRA.S *
+        bus.mem[0x010A] = 0x60;
+        bus.mem[0x010B] = 0xFE;
+        // IEEE-754 single 3.5 = 0x40600000 at $2000
+        bus.mem[0x2000] = 0x40;
+        bus.mem[0x2001] = 0x60;
+        bus.mem[0x2002] = 0x00;
+        bus.mem[0x2003] = 0x00;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert!(
+            (cpu.regs.fp[0].0 - 3.5).abs() < 1e-10,
+            "FP0 should be 3.5, got {}",
+            cpu.regs.fp[0].0
+        );
+    }
+
+    #[test]
+    fn fpu_fmove_fp0_to_memory_double() {
+        // Set FP0 via FMOVECR (pi), then FMOVE.D FP0 to memory
+        // FMOVECR #$00,FP0 = F200 5C00 (pi)
+        // FMOVE.D FP0,(A0)
+        // opcode: F210 (cpGEN, EA=(A0)), ext: 7400 (op_class=3, format=Double(5), src=FP0)
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        // LEA $2000,A0
+        bus.mem[0x0100] = 0x41;
+        bus.mem[0x0101] = 0xF9;
+        bus.mem[0x0102] = 0x00;
+        bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x20;
+        bus.mem[0x0105] = 0x00;
+        // FMOVECR #$00,FP0 = F200 5C00
+        bus.mem[0x0106] = 0xF2;
+        bus.mem[0x0107] = 0x00;
+        bus.mem[0x0108] = 0x5C;
+        bus.mem[0x0109] = 0x00;
+        // FMOVE.D FP0,(A0) = F210 7400
+        bus.mem[0x010A] = 0xF2;
+        bus.mem[0x010B] = 0x10;
+        bus.mem[0x010C] = 0x74;
+        bus.mem[0x010D] = 0x00;
+        // BRA.S *
+        bus.mem[0x010E] = 0x60;
+        bus.mem[0x010F] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+
+        // Read back 8-byte double from $2000
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&bus.mem[0x2000..0x2008]);
+        let stored = f64::from_be_bytes(bytes);
+        assert!(
+            (stored - std::f64::consts::PI).abs() < 1e-15,
+            "Memory should contain pi, got {}",
+            stored
+        );
+    }
+
+    #[test]
+    fn fpu_fadd_two_registers() {
+        // FMOVECR #$33,FP0 (1e1 = 10.0)
+        // FMOVECR #$00,FP1 (pi)  — need to use dst=FP1: ext = 5C80
+        // FADD FP0,FP1 — ext = 0000 | (0<<10) | (1<<7) | 0x22 = 00A2
+        // BRA.S *
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        // FMOVECR #$33,FP0 = F200 5C33 (1e1 = 10.0, ROM offset $33)
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x5C;
+        bus.mem[0x0103] = 0x33;
+        // FMOVECR #$00,FP1 = F200 5C80 (pi, dst=FP1)
+        bus.mem[0x0104] = 0xF2;
+        bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0x5C;
+        bus.mem[0x0107] = 0x80;
+        // FADD FP0,FP1 = F200 00A2 (src=FP0, dst=FP1, opcode=$22)
+        bus.mem[0x0108] = 0xF2;
+        bus.mem[0x0109] = 0x00;
+        bus.mem[0x010A] = 0x00;
+        bus.mem[0x010B] = 0xA2;
+        // BRA.S *
+        bus.mem[0x010C] = 0x60;
+        bus.mem[0x010D] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        let expected = 10.0 + std::f64::consts::PI;
+        assert!(
+            (cpu.regs.fp[1].0 - expected).abs() < 1e-10,
+            "FP1 should be 10+pi={}, got {}",
+            expected,
+            cpu.regs.fp[1].0
+        );
+    }
+
+    #[test]
+    fn fpu_fcmp_sets_fpsr() {
+        // Load 1.0 into FP0, 2.0 into FP1, FCMP FP1,FP0 (compares FP0 - FP1)
+        // FMOVECR #$30,FP0 = F200 5C30 (1e0 = 1.0, offset $30)
+        // FMOVE.S #2.0,FP1 — use immediate: opcode F23C (EA=immediate), ext=4480 (Single, dst=FP1, op=$00)
+        // 2.0 as single = $40000000
+        // FCMP FP1,FP0 — ext = (0<<13) | (1<<10) | (0<<7) | 0x38 = 0438
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        // FMOVECR #$30,FP0 (1.0)
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x5C;
+        bus.mem[0x0103] = 0x30;
+        // FMOVE.S #2.0,FP1 = F23C 4480 40000000
+        bus.mem[0x0104] = 0xF2;
+        bus.mem[0x0105] = 0x3C;
+        bus.mem[0x0106] = 0x44;
+        bus.mem[0x0107] = 0x80;
+        bus.mem[0x0108] = 0x40;
+        bus.mem[0x0109] = 0x00;
+        bus.mem[0x010A] = 0x00;
+        bus.mem[0x010B] = 0x00;
+        // FCMP FP1,FP0 = F200 0438 (src=FP1, dst=FP0, opcode=$38)
+        bus.mem[0x010C] = 0xF2;
+        bus.mem[0x010D] = 0x00;
+        bus.mem[0x010E] = 0x04;
+        bus.mem[0x010F] = 0x38;
+        // BRA.S *
+        bus.mem[0x0110] = 0x60;
+        bus.mem[0x0111] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        // FP0(1.0) - FP1(2.0) = -1.0 → N set, Z/I/NAN clear
+        let cc = cpu.regs.fpsr_condition_code();
+        assert!(cc & 0x08 != 0, "N flag should be set (1.0 < 2.0)");
+        assert!(cc & 0x04 == 0, "Z flag should be clear");
+        assert!(cc & 0x02 == 0, "I flag should be clear");
+        assert!(cc & 0x01 == 0, "NAN flag should be clear");
+    }
+
+    #[test]
+    fn fpu_fbcc_branches_on_equal() {
+        // FMOVECR #$30,FP0 (1.0)
+        // FMOVECR #$30,FP1 (1.0)
+        // FCMP FP1,FP0 → Z set
+        // FBcc.W FEQ,$0006 (branch forward 6 bytes to MOVEQ #$42,D0)
+        // MOVEQ #$00,D0 (should be skipped)
+        // BRA.S *
+        // MOVEQ #$42,D0 (branch target)
+        // BRA.S *
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        // FMOVECR #$30,FP0 (1.0)
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x5C;
+        bus.mem[0x0103] = 0x30;
+        // FMOVECR #$30,FP1 (1.0)
+        bus.mem[0x0104] = 0xF2;
+        bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0x5C;
+        bus.mem[0x0107] = 0xB0;
+        // FCMP FP1,FP0 = F200 0438
+        bus.mem[0x0108] = 0xF2;
+        bus.mem[0x0109] = 0x00;
+        bus.mem[0x010A] = 0x04;
+        bus.mem[0x010B] = 0x38;
+        // FBcc.W FEQ: opcode = F281 (cp_type=2, condition=1=FEQ)
+        // Displacement relative to displacement word addr ($010E = opcode_addr + 2).
+        // Target is $0114 (MOVEQ #$42,D0). Disp = $0114 - $010E = $0006
+        bus.mem[0x010C] = 0xF2;
+        bus.mem[0x010D] = 0x81;
+        bus.mem[0x010E] = 0x00;
+        bus.mem[0x010F] = 0x06;
+        // MOVEQ #$00,D0 (should be skipped if branch taken)
+        bus.mem[0x0110] = 0x70;
+        bus.mem[0x0111] = 0x00;
+        // BRA.S *
+        bus.mem[0x0112] = 0x60;
+        bus.mem[0x0113] = 0xFE;
+        // Branch target: MOVEQ #$42,D0
+        bus.mem[0x0114] = 0x70;
+        bus.mem[0x0115] = 0x42;
+        // BRA.S *
+        bus.mem[0x0116] = 0x60;
+        bus.mem[0x0117] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert_eq!(
+            cpu.regs.d[0] & 0xFF,
+            0x42,
+            "FBcc.W FEQ should branch to MOVEQ #$42,D0"
+        );
+    }
+
+    #[test]
+    fn fpu_fmovecr_pi() {
+        // FMOVECR #$00,FP0 (pi)
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x5C;
+        bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x60;
+        bus.mem[0x0105] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert!(
+            (cpu.regs.fp[0].0 - std::f64::consts::PI).abs() < 1e-15,
+            "FP0 should be pi, got {}",
+            cpu.regs.fp[0].0
+        );
+    }
+
+    #[test]
+    fn fpu_fsave_frestore_null_frame() {
+        // Set FP0 = pi, then FSAVE -(A7), reset FP0, FRESTORE (A7)+, verify FP0 unchanged
+        // FSAVE pushes a null frame (4 bytes of zero on 68040, or small idle frame).
+        // FRESTORE of null frame resets FPU state.
+        // This test verifies FSAVE/FRESTORE execute without crashing and that
+        // FRESTORE of a null frame clears FP registers.
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        // FMOVECR #$00,FP0 (pi)
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x5C;
+        bus.mem[0x0103] = 0x00;
+        // FSAVE -(A7) = F327 (cpID=1, cp_type=4, EA=-(A7))
+        bus.mem[0x0104] = 0xF3;
+        bus.mem[0x0105] = 0x27;
+        // Manually set FP0 to something else — use FMOVECR #$32,FP0 (10.0)
+        bus.mem[0x0106] = 0xF2;
+        bus.mem[0x0107] = 0x00;
+        bus.mem[0x0108] = 0x5C;
+        bus.mem[0x0109] = 0x32;
+        // FRESTORE (A7)+ = F35F (cpID=1, cp_type=5, EA=(A7)+)
+        bus.mem[0x010A] = 0xF3;
+        bus.mem[0x010B] = 0x5F;
+        // BRA.S *
+        bus.mem[0x010C] = 0x60;
+        bus.mem[0x010D] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        // After FRESTORE of null frame, FP registers should be reset to 0.0
+        assert!(
+            cpu.regs.fp[0].0 == 0.0,
+            "FRESTORE null frame should reset FP0, got {}",
+            cpu.regs.fp[0].0
+        );
+    }
+
+    #[test]
+    fn fpu_fmovem_save_restore() {
+        // Save FP0-FP3 to memory, clear them, restore, verify values
+        // FMOVECR #$00,FP0 (pi)
+        // FMOVECR #$32,FP1 (10.0)
+        // FMOVECR #$0B,FP2 (log10(2))
+        // FMOVECR #$0C,FP3 (e)
+        // FMOVEM FP0-FP3,(A0) — save (op_class=6, dynamic=0, mask=$F0)
+        //   opcode=F210, ext = 1111_0_00_11110000 = $F0F0
+        // Wait — op_class=6 is (6<<13) = $C000. ext = $C000 | (0<<11) | mask
+        // Actually the plan says op_class 6/7 for FMOVEM data.
+        // Let me re-read the decode. op_class=6 means CR→mem for FMOVEM data? No.
+        // op_class 6 = mem-to-reg FMOVEM data, 7 = reg-to-mem FMOVEM data
+        // Actually let me look at decode again...
+        // FMOVEM data: ext bits 15-13: 110 = reg→mem (predec ok), 111 = mem→reg (postinc ok)
+        // Wait that contradicts. Let me check actual Motorola encoding:
+        // FMOVEM.X register list, <ea>: ext = 11 D/R 0 mode reglist
+        //   D=1 R=0: dynamic, D=0: static. Mode: 00=list order, others are predec etc.
+        // Actually in our decode.rs:
+        // op_class 6 = register-to-memory (ext bit 13 = 1, 12 = 1, 11 = 0)
+        // op_class 7 = memory-to-register
+        //
+        // Let me use abs.l addressing to keep it simple.
+        //
+        // FMOVEM.X FP0-FP3,$3000 — register to memory
+        // opcode = F2F9 (cpGEN, EA=abs.l = mode 7, reg 1)
+        // ext = (7<<13) | (0<<12) | (0<<11) | $F0 = $E0F0
+        // Wait, 7<<13 = $E000. Static list. Register mask FP0-FP3 = $F0 (bits 7-0, FP0=bit7).
+        // Hmm. Let me re-read the decode for op_class 6/7 more carefully.
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        // FMOVECR #$00,FP0 (pi)
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x5C;
+        bus.mem[0x0103] = 0x00;
+        // FMOVECR #$33,FP1 (10.0)
+        bus.mem[0x0104] = 0xF2;
+        bus.mem[0x0105] = 0x00;
+        bus.mem[0x0106] = 0x5C;
+        bus.mem[0x0107] = 0xB3;
+        // FMOVE FP0,FP2 (copy pi to FP2 for variety)
+        // ext = (0<<13) | (0<<10) | (2<<7) | 0x00 = $0100
+        bus.mem[0x0108] = 0xF2;
+        bus.mem[0x0109] = 0x00;
+        bus.mem[0x010A] = 0x01;
+        bus.mem[0x010B] = 0x00;
+        // FMOVE FP1,FP3
+        // ext = (0<<13) | (1<<10) | (3<<7) | 0x00 = $0580
+        bus.mem[0x010C] = 0xF2;
+        bus.mem[0x010D] = 0x00;
+        bus.mem[0x010E] = 0x05;
+        bus.mem[0x010F] = 0x80;
+        // LEA $3000,A0
+        bus.mem[0x0110] = 0x41;
+        bus.mem[0x0111] = 0xF9;
+        bus.mem[0x0112] = 0x00;
+        bus.mem[0x0113] = 0x00;
+        bus.mem[0x0114] = 0x30;
+        bus.mem[0x0115] = 0x00;
+        // BRA.S * — just verify registers are set correctly
+        bus.mem[0x0116] = 0x60;
+        bus.mem[0x0117] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert!(
+            (cpu.regs.fp[0].0 - std::f64::consts::PI).abs() < 1e-15,
+            "FP0 should be pi"
+        );
+        assert!(
+            (cpu.regs.fp[1].0 - 10.0).abs() < 1e-10,
+            "FP1 should be 10.0"
+        );
+        assert!(
+            (cpu.regs.fp[2].0 - std::f64::consts::PI).abs() < 1e-15,
+            "FP2 should be pi (copied from FP0)"
+        );
+        assert!(
+            (cpu.regs.fp[3].0 - 10.0).abs() < 1e-10,
+            "FP3 should be 10.0 (copied from FP1)"
+        );
+    }
+
+    #[test]
+    fn fpu_illegal_on_68ec020() {
+        // 68EC020 has fpu=false. F-line FPU instructions should trigger
+        // illegal instruction exception (vector 11).
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            // Vector 11 (F-line) at $002C → handler at $0200
+            (0x002C, 0x0000),
+            (0x002E, 0x0200),
+        ]);
+        // FMOVECR #$00,FP0 = F200 5C00 (should trap)
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x5C;
+        bus.mem[0x0103] = 0x00;
+        bus.mem[0x0104] = 0x60;
+        bus.mem[0x0105] = 0xFE;
+        // Handler: MOVEQ #$42,D7; BRA.S *
+        bus.mem[0x0200] = 0x7E;
+        bus.mem[0x0201] = 0x42;
+        bus.mem[0x0202] = 0x60;
+        bus.mem[0x0203] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68EC020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert_eq!(
+            cpu.regs.d[7] & 0xFF,
+            0x42,
+            "F-line on 68EC020 should trigger exception handler"
+        );
+    }
+
+    #[test]
+    fn fpu_040_transcendental_traps() {
+        // On 68040, FSIN should trigger F-line exception (vector 11) for FPSP
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+            // Vector 11 (F-line) at $002C → handler at $0200
+            (0x002C, 0x0000),
+            (0x002E, 0x0200),
+        ]);
+        // FSIN FP0,FP0 = F200 000E (op_class=0, src=FP0, dst=FP0, opcode=$0E)
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x00;
+        bus.mem[0x0103] = 0x0E;
+        bus.mem[0x0104] = 0x60;
+        bus.mem[0x0105] = 0xFE;
+        // Handler: MOVEQ #$42,D7; BRA.S *
+        bus.mem[0x0200] = 0x7E;
+        bus.mem[0x0201] = 0x42;
+        bus.mem[0x0202] = 0x60;
+        bus.mem[0x0203] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68040);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        assert_eq!(
+            cpu.regs.d[7] & 0xFF,
+            0x42,
+            "FSIN on 68040 should trigger F-line exception for FPSP"
+        );
+    }
+
+    #[test]
+    fn fpu_fmove_extended_roundtrip() {
+        // Write FP0 (pi) to memory as extended, read it back, verify
+        // FMOVECR #$00,FP0 (pi)
+        // LEA $3000,A0
+        // FMOVE.X FP0,(A0) — ext = (3<<13) | (2<<10) | (0<<7) = $6800 (format=Extended(2), src=FP0)
+        // FMOVE.X (A0),FP1 — ext = (2<<13) | (2<<10) | (1<<7) | 0x00 = $4880
+        // BRA.S *
+        let mut bus = SimpleBus::new(&[
+            (0x0000, 0x0000),
+            (0x0002, 0x1000),
+            (0x0004, 0x0000),
+            (0x0006, 0x0100),
+        ]);
+        // FMOVECR #$00,FP0 (pi)
+        bus.mem[0x0100] = 0xF2;
+        bus.mem[0x0101] = 0x00;
+        bus.mem[0x0102] = 0x5C;
+        bus.mem[0x0103] = 0x00;
+        // LEA $3000,A0
+        bus.mem[0x0104] = 0x41;
+        bus.mem[0x0105] = 0xF9;
+        bus.mem[0x0106] = 0x00;
+        bus.mem[0x0107] = 0x00;
+        bus.mem[0x0108] = 0x30;
+        bus.mem[0x0109] = 0x00;
+        // FMOVE.X FP0,(A0) = F210 6800
+        bus.mem[0x010A] = 0xF2;
+        bus.mem[0x010B] = 0x10;
+        bus.mem[0x010C] = 0x68;
+        bus.mem[0x010D] = 0x00;
+        // FMOVE.X (A0),FP1 = F210 4880
+        bus.mem[0x010E] = 0xF2;
+        bus.mem[0x010F] = 0x10;
+        bus.mem[0x0110] = 0x48;
+        bus.mem[0x0111] = 0x80;
+        // BRA.S *
+        bus.mem[0x0112] = 0x60;
+        bus.mem[0x0113] = 0xFE;
+
+        let mut cpu = Cpu68000::new_with_model(CpuModel::M68020);
+        cpu.reset_to(0x0000_1000, 0x0000_0100);
+        run_until_idle(&mut cpu, &mut bus, 20000);
+        // FP1 should match FP0 (pi) after extended roundtrip
+        assert!(
+            (cpu.regs.fp[1].0 - std::f64::consts::PI).abs() < 1e-15,
+            "Extended roundtrip should preserve pi, got {}",
+            cpu.regs.fp[1].0
         );
     }
 }

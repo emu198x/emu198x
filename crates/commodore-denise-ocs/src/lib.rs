@@ -528,7 +528,10 @@ impl DeniseOcs {
                 if code == 0 {
                     continue;
                 }
-                let idx = (16 + code) ^ ((self.bplcon4 >> 8) & 0xFF) as usize;
+                // BPLCON4 ESPRM (bits 3-0) XOR against upper nybble of the
+                // colour index for even sprites (attached pair uses even base).
+                let esprm = (self.bplcon4 & 0x0F) as usize;
+                let idx = (16 + code) ^ (esprm << 4);
                 return Some(SpritePixel {
                     palette_idx: idx,
                     sprite_group: pair / 2,
@@ -540,7 +543,15 @@ impl DeniseOcs {
                 continue;
             }
             let base = 16 + (sprite / 2) * 4;
-            let idx = (base + usize::from(code)) ^ ((self.bplcon4 >> 8) & 0xFF) as usize;
+            // BPLCON4 OSPRM (bits 7-4) for odd sprites, ESPRM (bits 3-0) for
+            // even sprites. Each XORs against the upper nybble (bank select)
+            // of the sprite colour index.
+            let sprm = if sprite & 1 == 1 {
+                ((self.bplcon4 >> 4) & 0x0F) as usize
+            } else {
+                (self.bplcon4 & 0x0F) as usize
+            };
+            let idx = (base + usize::from(code)) ^ (sprm << 4);
             return Some(SpritePixel {
                 palette_idx: idx,
                 sprite_group: sprite / 2,
@@ -2163,5 +2174,50 @@ mod tests {
         // resolve_color_rgb12 with index 5 in normal mode
         let rgb = denise.resolve_color_rgb12(5);
         assert_eq!(rgb, 0x0FF);
+    }
+
+    #[test]
+    fn bplcon4_esprm_xors_even_sprite_colour_bank() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        // ESPRM = 1 => even sprites XOR upper nybble with 1.
+        // Sprite 0 code 1: base index = 17 (0x11). XOR: 0x11 ^ 0x10 = 0x01.
+        denise.bplcon4 = 0x0001;
+        denise.set_palette(1, 0xABC);
+
+        let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
+        denise.spr_pos[0] = pos;
+        denise.spr_ctl[0] = ctl;
+        denise.spr_data[0] = 0x8000;
+        denise.spr_datb[0] = 0x0000;
+
+        assert_eq!(
+            denise.output_pixel_color(32, 14),
+            DeniseOcs::rgb12_to_argb32(0xABC),
+            "ESPRM should XOR even sprite to palette index 1"
+        );
+    }
+
+    #[test]
+    fn bplcon4_osprm_xors_odd_sprite_colour_bank() {
+        let mut denise = DeniseOcs::new();
+        denise.set_palette(0, 0x000);
+        // OSPRM = 1 => odd sprites XOR upper nybble with 1.
+        // Sprite 3 (odd, pair 1) code 1: base index = 20+1 = 21 (0x15).
+        // XOR: 0x15 ^ 0x10 = 0x05 = 5.
+        denise.bplcon4 = 0x0010;
+        denise.set_palette(5, 0xDEF);
+
+        let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
+        denise.spr_pos[3] = pos;
+        denise.spr_ctl[3] = ctl;
+        denise.spr_data[3] = 0x8000;
+        denise.spr_datb[3] = 0x0000;
+
+        assert_eq!(
+            denise.output_pixel_color(32, 14),
+            DeniseOcs::rgb12_to_argb32(0xDEF),
+            "OSPRM should XOR odd sprite to palette index 5"
+        );
     }
 }
