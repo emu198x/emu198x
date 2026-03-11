@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "9d244d051308",
+  "strategy": "manual-commit",
+  "branch": "claude/serene-maxwell",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/solutions/amiga-implementation-gaps.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9d/244d051308/0/metadata.json",
+      "transcript": "/9d/244d051308/0/full.jsonl",
+      "context": "/9d/244d051308/0/context.md",
+      "content_hash": "/9d/244d051308/0/content_hash.txt",
+      "prompt": "/9d/244d051308/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 5716,
+    "cache_read_tokens": 1146766,
+    "output_tokens": 2312,
+    "api_call_count": 8
+  }
+}
