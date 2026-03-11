@@ -1356,13 +1356,19 @@ impl Cpu68000 {
             //   x   = 0 for CINV, 1 for CPUSH
             //   ss  = scope (00=line, 01=page, 10/11=all)
             //   rrr = An register (line/page scope only)
-            // We don't model caches beyond the I-cache invalidation on
-            // CACR writes, so these are safe to treat as NOPs.
+            // Invalidate/push the selected cache(s).
             if matches!(
                 self.model.timing_class(),
                 crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
             ) && (opcode & 0xFE00) == 0xF400
             {
+                let cc = (opcode >> 6) & 3;
+                if cc & 0x01 != 0 {
+                    self.dcache.clear();
+                }
+                if cc & 0x02 != 0 {
+                    self.icache.clear();
+                }
                 return;
             }
             // MOVE16 — 68040+ line transfer (16 bytes aligned).
@@ -1582,12 +1588,20 @@ impl Cpu68000 {
                         if val & 0x08 != 0 {
                             self.icache.clear();
                         }
-                        // Disabling cache (EI 1→0) also clears it
+                        // Disabling icache (EI 1→0) also clears it
                         if val & 0x01 == 0 && self.regs.cacr & 0x01 != 0 {
                             self.icache.clear();
                         }
-                        // CI/CEI (bits 3,2) are write-only — read back as 0
-                        self.regs.cacr = val & !0x0C;
+                        // CD (bit 11): clear entire data cache
+                        if val & 0x0800 != 0 {
+                            self.dcache.clear();
+                        }
+                        // Disabling dcache (ED 1→0) also clears it
+                        if val & 0x100 == 0 && self.regs.cacr & 0x100 != 0 {
+                            self.dcache.clear();
+                        }
+                        // CI/CEI (3,2) + CD/CED (11,10) are write-only
+                        self.regs.cacr = val & !0x0C0C;
                     }
                     // TC — Translation Control (68030/040, requires MMU)
                     0x003 => {
@@ -1719,8 +1733,8 @@ impl Cpu68000 {
                             self.begin_group1_exception(4, self.instr_start_pc);
                             return;
                         }
-                        // CI/CEI (bits 3,2) are write-only — always read as 0
-                        self.regs.cacr & !0x0C
+                        // CI/CEI (3,2) + CD/CED (11,10) are write-only
+                        self.regs.cacr & !0x0C0C
                     }
                     0x800 => self.regs.usp,
                     0x801 => self.regs.vbr,

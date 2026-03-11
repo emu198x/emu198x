@@ -289,6 +289,73 @@ impl ICache {
     }
 }
 
+// --- 68030 data cache ---
+
+const DCACHE_LINES: usize = 16;
+const DCACHE_WORDS_PER_LINE: usize = 8;
+
+/// One line of the 68030 data cache (16 bytes = 8 words).
+///
+/// Identical structure to [`ICacheLine`] — tag includes function code bits
+/// so supervisor/user data accesses are cached separately.
+#[derive(Clone, Copy)]
+struct DCacheLine {
+    tag: u32,
+    words: [u16; DCACHE_WORDS_PER_LINE],
+    valid: [bool; DCACHE_WORDS_PER_LINE],
+}
+
+impl DCacheLine {
+    const fn new() -> Self {
+        Self {
+            tag: 0xFFFF_FFFF,
+            words: [0; DCACHE_WORDS_PER_LINE],
+            valid: [false; DCACHE_WORDS_PER_LINE],
+        }
+    }
+}
+
+/// 68030-style direct-mapped data cache: 16 lines × 8 words = 256 bytes.
+///
+/// Write-through, write-no-allocate policy: writes always go to the bus
+/// and update the cache only on a tag hit. Reads fill the cache on a miss
+/// (unless frozen).
+pub(crate) struct DCache {
+    lines: [DCacheLine; DCACHE_LINES],
+}
+
+impl DCache {
+    fn new() -> Self {
+        Self {
+            lines: [DCacheLine::new(); DCACHE_LINES],
+        }
+    }
+
+    /// Invalidate all lines.
+    pub(crate) fn clear(&mut self) {
+        for line in &mut self.lines {
+            line.valid = [false; DCACHE_WORDS_PER_LINE];
+        }
+    }
+
+    /// Address decomposition helpers (same geometry as ICache).
+    #[inline]
+    fn line_index(addr: u32) -> usize {
+        ((addr >> 4) & 0xF) as usize
+    }
+
+    #[inline]
+    fn word_offset(addr: u32) -> usize {
+        ((addr >> 1) & 0x7) as usize
+    }
+
+    /// Tag = upper address bits (A31-A8) with function code in bits 26-24.
+    #[inline]
+    fn tag(addr: u32, fc: u8) -> u32 {
+        (addr >> 8) | ((fc as u32 & 0x7) << 24)
+    }
+}
+
 /// Motorola 68000 CPU with reactive bus state machine.
 ///
 /// Call [`tick`](Cpu68000::tick) every crystal clock cycle. The CPU only
@@ -424,6 +491,11 @@ pub struct Cpu68000 {
     // --- Instruction cache (68020+) ---
     /// 68030-style direct-mapped instruction cache (16 lines × 8 words).
     pub(crate) icache: ICache,
+
+    // --- Data cache (68030+) ---
+    /// 68030-style direct-mapped data cache (16 lines × 8 words).
+    /// Write-through, write-no-allocate. Disabled at reset (CACR ED=0).
+    pub(crate) dcache: DCache,
 }
 
 impl Cpu68000 {
@@ -492,6 +564,7 @@ impl Cpu68000 {
             be_format_word: 0,
             group0_vector: 3,
             icache: ICache::new(),
+            dcache: DCache::new(),
         }
     }
 
@@ -598,6 +671,102 @@ impl Cpu68000 {
         }
         line.words[word] = data;
         line.valid[word] = true;
+    }
+
+    /// Look up a data read in the data cache.
+    ///
+    /// Returns `true` if the cache hit and `self.data` was set directly
+    /// (no bus cycle needed). Pop operations are NOT intercepted here —
+    /// they always go to the bus because `initiate_bus_cycle` also
+    /// modifies SP.
+    fn dcache_lookup(&mut self, op: MicroOp) -> bool {
+        if !self.capabilities().data_cache {
+            return false;
+        }
+        // CACR bit 8 (ED): data cache enable
+        if self.regs.cacr & 0x100 == 0 {
+            return false;
+        }
+        let addr = match op {
+            MicroOp::ReadLongLo => self.addr.wrapping_add(2),
+            _ => self.addr, // ReadByte, ReadWord, ReadLongHi
+        };
+        let fc = if self.regs.is_supervisor() {
+            if self.program_space_access { 6u8 } else { 5u8 }
+        } else if self.program_space_access {
+            2u8
+        } else {
+            1u8
+        };
+        let tag = DCache::tag(addr, fc);
+        let index = DCache::line_index(addr);
+        let word = DCache::word_offset(addr);
+        let line = &self.dcache.lines[index];
+        if line.tag == tag && line.valid[word] {
+            let cached = u32::from(line.words[word]);
+            match op {
+                MicroOp::ReadByte | MicroOp::ReadWord => {
+                    self.data = cached;
+                }
+                MicroOp::ReadLongHi => {
+                    self.data = cached << 16;
+                }
+                MicroOp::ReadLongLo => {
+                    self.data = (self.data & 0xFFFF_0000) | cached;
+                }
+                _ => return false,
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Fill the data cache after a data read bus cycle completes.
+    ///
+    /// Skipped when the cache is disabled (ED=0) or frozen (FD=1).
+    fn dcache_fill(&mut self, addr: u32, fc: u8, data: u16) {
+        if !self.capabilities().data_cache {
+            return;
+        }
+        // ED=0: disabled
+        if self.regs.cacr & 0x100 == 0 {
+            return;
+        }
+        // FD=1 (bit 9): frozen — hits work, misses don't fill
+        if self.regs.cacr & 0x200 != 0 {
+            return;
+        }
+        let tag = DCache::tag(addr, fc);
+        let index = DCache::line_index(addr);
+        let word = DCache::word_offset(addr);
+        let line = &mut self.dcache.lines[index];
+        if line.tag != tag {
+            line.tag = tag;
+            line.valid = [false; DCACHE_WORDS_PER_LINE];
+        }
+        line.words[word] = data;
+        line.valid[word] = true;
+    }
+
+    /// Update the data cache on a write (write-through, no allocate).
+    ///
+    /// Only updates the cached word if the address already has a valid
+    /// tag match. Writes that miss don't allocate a new line.
+    fn dcache_write_through(&mut self, addr: u32, fc: u8, data: u16) {
+        if !self.capabilities().data_cache {
+            return;
+        }
+        if self.regs.cacr & 0x100 == 0 {
+            return;
+        }
+        let tag = DCache::tag(addr, fc);
+        let index = DCache::line_index(addr);
+        let word = DCache::word_offset(addr);
+        let line = &mut self.dcache.lines[index];
+        if line.tag == tag && line.valid[word] {
+            line.words[word] = data;
+        }
     }
 
     /// Reset the CPU to begin executing from a given SSP and PC.
@@ -711,6 +880,16 @@ impl Cpu68000 {
                     // Hit — IRC updated, no bus cycle needed. Stay Idle
                     // so instant ops (Execute) run immediately this tick.
                     self.process_instant_ops(bus);
+                } else if matches!(
+                    op,
+                    MicroOp::ReadByte
+                        | MicroOp::ReadWord
+                        | MicroOp::ReadLongHi
+                        | MicroOp::ReadLongLo
+                ) && self.dcache_lookup(op)
+                {
+                    // Data cache hit — self.data set, no bus cycle needed.
+                    self.process_instant_ops(bus);
                 } else if op.is_bus() {
                     if self.check_address_error(op) {
                         // Address error detected; exception sequence started
@@ -749,7 +928,33 @@ impl Cpu68000 {
                     match result {
                         BusStatus::Ready(read_data) => {
                             let completed_op = *op;
+                            let completed_addr = *addr;
+                            let completed_fc = fc.bits();
+                            let completed_is_read = *is_read;
+                            let completed_write_data = *data;
                             self.finish_bus_cycle(completed_op, read_data);
+                            // Data cache: fill on data reads, write-through on writes.
+                            // FetchIRC goes through icache_fill; InterruptAck is not data.
+                            if completed_is_read && matches!(
+                                completed_op,
+                                MicroOp::ReadByte
+                                    | MicroOp::ReadWord
+                                    | MicroOp::ReadLongHi
+                                    | MicroOp::ReadLongLo
+                                    | MicroOp::PopWord
+                                    | MicroOp::PopLongHi
+                                    | MicroOp::PopLongLo
+                            ) {
+                                self.dcache_fill(completed_addr, completed_fc, read_data);
+                            } else if !completed_is_read {
+                                if let Some(wd) = completed_write_data {
+                                    self.dcache_write_through(
+                                        completed_addr,
+                                        completed_fc,
+                                        wd,
+                                    );
+                                }
+                            }
                             self.state = State::Idle;
                         }
                         BusStatus::Wait => {}

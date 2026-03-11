@@ -25,6 +25,7 @@ The following items from the original audit have been implemented:
 11. **DIVSL/DIVUL Overflow Flags** (motorola-68000) — matches WinUAE
 12. **Serial Port Receive** (machine-amiga) — RBF interrupt, baud-rate countdown, queue API
 13. **68040/060 Instruction Timing** (motorola-68000) — MULU/MULS/DIVU/DIVS/MULL/DIVL per timing class
+14. **Data Cache Model** (motorola-68000) — 68030-style 256B direct-mapped, write-through, CACR ED/FD/CD/CED, CINV/CPUSH
 
 ---
 
@@ -69,16 +70,3 @@ translation tables, no TC/TT0/TT1/SRP/URP/CRP registers stored.
 
 **Impact:** Very low. Few users relied on PCMCIA storage.
 
-### 3. Data Cache Model (motorola-68000)
-
-**Status:** Capability flag present, no implementation. Harmless for
-correctness since DMA writes are immediately visible.
-
-**What's needed (for accuracy):**
-- 68030: 256-byte direct-mapped data cache (16 lines × 4 longwords)
-- 68040: 4 KB 4-way set-associative data cache
-- Write-through (030) or copyback (040) modes
-- Cache coherency with DMA (CDIS pin, CACR DCI bit)
-
-**Impact:** Very low. Only matters for cache-dependent timing or code
-that explicitly tests cache behaviour.
