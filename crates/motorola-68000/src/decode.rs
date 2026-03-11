@@ -3056,8 +3056,14 @@ impl Cpu68000 {
                             }
                             self.regs.sr = sr;
                         }
-                        // ~44 cycles for 32-bit multiply
-                        self.micro_ops.push(MicroOp::Internal(40));
+                        // 68020: ~44 clocks. 68040/060: 2 clocks (pipelined)
+                        let mull_internal = match self.model.timing_class() {
+                            crate::model::TimingClass::M68020 => 40u8,
+                            _ => 0, // 68040/060
+                        };
+                        if mull_internal > 0 {
+                            self.micro_ops.push(MicroOp::Internal(mull_internal));
+                        }
                     } else {
                         // DIVL: Dividend / Source → Dq:Dr (quotient:remainder).
                         // 64-bit dividend: Dh:Dl. 32-bit dividend: Dl.
@@ -3170,8 +3176,20 @@ impl Cpu68000 {
                                 self.regs.sr = sr;
                             }
                         }
-                        // ~78 cycles for 32-bit divide
-                        self.micro_ops.push(MicroOp::Internal(74));
+                        // 68020: ~78 clocks. 68040: 35/38. 68060: 37/38.
+                        let divl_internal = match self.model.timing_class() {
+                            crate::model::TimingClass::M68020 => 74u8,
+                            crate::model::TimingClass::M68040 => {
+                                if is_signed { 35 } else { 32 }
+                            }
+                            crate::model::TimingClass::M68060 => {
+                                if is_signed { 35 } else { 34 }
+                            }
+                            _ => 74, // M68000 can't reach here
+                        };
+                        if divl_internal > 0 {
+                            self.micro_ops.push(MicroOp::Internal(divl_internal));
+                        }
                     }
                     self.in_followup = false;
                     return;
@@ -3207,14 +3225,15 @@ impl Cpu68000 {
                         }
                         self.regs.sr = sr;
 
-                        // 68000: 38 + 2*(set bits in source) clocks
-                        // 68020 CC: 28 clocks total (best case)
-                        let internal = if self.capabilities().barrel_shifter {
-                            // 68020+: fixed ~28 clocks, minus 4 for bus cycle
-                            24u8
-                        } else {
-                            let total = 38 + 2 * src_word.count_ones();
-                            total.saturating_sub(4) as u8
+                        // 68000: 38 + 2*(set bits) clocks
+                        // 68020: 28 clocks. 68040/060: 2 clocks (pipelined)
+                        let internal = match self.model.timing_class() {
+                            crate::model::TimingClass::M68000 => {
+                                let total = 38 + 2 * src_word.count_ones();
+                                total.saturating_sub(4) as u8
+                            }
+                            crate::model::TimingClass::M68020 => 24,
+                            _ => 0, // 68040/060: pipelined multiply
                         };
                         self.micro_ops.push(MicroOp::Internal(internal));
                     }
@@ -3235,14 +3254,16 @@ impl Cpu68000 {
                         self.regs.sr = sr;
 
                         // 68000: Booth encoding transitions
-                        // 68020 CC: 28 clocks total (best case)
-                        let internal = if self.capabilities().barrel_shifter {
-                            24u8
-                        } else {
-                            let v = u32::from(src_word);
-                            let transitions = ((v ^ (v << 1)) & 0xFFFF).count_ones();
-                            let total = 38 + 2 * transitions;
-                            total.saturating_sub(4) as u8
+                        // 68020: 28 clocks. 68040/060: 2 clocks (pipelined)
+                        let internal = match self.model.timing_class() {
+                            crate::model::TimingClass::M68000 => {
+                                let v = u32::from(src_word);
+                                let transitions = ((v ^ (v << 1)) & 0xFFFF).count_ones();
+                                let total = 38 + 2 * transitions;
+                                total.saturating_sub(4) as u8
+                            }
+                            crate::model::TimingClass::M68020 => 24,
+                            _ => 0, // 68040/060: pipelined multiply
                         };
                         self.micro_ops.push(MicroOp::Internal(internal));
                     }
@@ -3280,12 +3301,15 @@ impl Cpu68000 {
                             }
                             self.regs.sr = sr;
                         }
-                        // 68000: Cwik restoring division. 68020 CC: 44 clocks total.
-                        let internal = if self.capabilities().barrel_shifter {
-                            40u8
-                        } else {
-                            let total_cycles = Self::divu_cycles(dividend, src_word);
-                            total_cycles.saturating_sub(4)
+                        // 68000: Cwik variable. 68020: 44. 68040: 35. 68060: 37.
+                        let internal = match self.model.timing_class() {
+                            crate::model::TimingClass::M68000 => {
+                                let total_cycles = Self::divu_cycles(dividend, src_word);
+                                total_cycles.saturating_sub(4)
+                            }
+                            crate::model::TimingClass::M68020 => 40,
+                            crate::model::TimingClass::M68040 => 32,
+                            crate::model::TimingClass::M68060 => 34,
                         };
                         if internal > 0 {
                             self.micro_ops.push(MicroOp::Internal(internal));
@@ -3338,12 +3362,15 @@ impl Cpu68000 {
                             }
                             self.regs.sr = sr;
                         }
-                        // 68000: Cwik restoring division. 68020 CC: 56 clocks total.
-                        let internal = if self.capabilities().barrel_shifter {
-                            52u8
-                        } else {
-                            let total_cycles = Self::divs_cycles(dividend, divisor);
-                            total_cycles.saturating_sub(4)
+                        // 68000: Cwik variable. 68020: 56. 68040: 37. 68060: 38.
+                        let internal = match self.model.timing_class() {
+                            crate::model::TimingClass::M68000 => {
+                                let total_cycles = Self::divs_cycles(dividend, divisor);
+                                total_cycles.saturating_sub(4)
+                            }
+                            crate::model::TimingClass::M68020 => 52,
+                            crate::model::TimingClass::M68040 => 34,
+                            crate::model::TimingClass::M68060 => 35,
                         };
                         if internal > 0 {
                             self.micro_ops.push(MicroOp::Internal(internal));

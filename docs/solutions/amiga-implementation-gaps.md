@@ -24,6 +24,7 @@ The following items from the original audit have been implemented:
 10. **Battery-Backed Clock** (machine-amiga) — MSM6242B via Gary chip select
 11. **DIVSL/DIVUL Overflow Flags** (motorola-68000) — matches WinUAE
 12. **Serial Port Receive** (machine-amiga) — RBF interrupt, baud-rate countdown, queue API
+13. **68040/060 Instruction Timing** (motorola-68000) — MULU/MULS/DIVU/DIVS/MULL/DIVL per timing class
 
 ---
 
@@ -55,18 +56,7 @@ translation tables, no TC/TT0/TT1/SRP/URP/CRP registers stored.
 - Enforcer/MuForce detect illegal memory accesses
 - VMM (Virtual Memory Manager) can swap pages to disk
 
-### 2. 68040/060 Instruction Timing (motorola-68000)
-
-**Status:** Uses 68020 timings for all 68040/060 instructions.
-
-**What's needed:**
-- 68040: 1-clock effective bus cycle, deeper pipeline model
-- 68060: Superscalar dual-issue, branch prediction model
-- Separate timing tables per timing class
-
-**Impact:** Low for correctness. Affects performance accuracy only.
-
-### 3. PCMCIA (commodore-gayle)
+### 2. PCMCIA (commodore-gayle)
 
 **Status:** Not implemented. Gayle PCMCIA address space not wired.
 
@@ -79,7 +69,7 @@ translation tables, no TC/TT0/TT1/SRP/URP/CRP registers stored.
 
 **Impact:** Very low. Few users relied on PCMCIA storage.
 
-### 4. Data Cache Model (motorola-68000)
+### 3. Data Cache Model (motorola-68000)
 
 **Status:** Capability flag present, no implementation. Harmless for
 correctness since DMA writes are immediately visible.
