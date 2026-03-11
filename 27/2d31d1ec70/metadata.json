@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "272d31d1ec70",
+  "strategy": "manual-commit",
+  "branch": "claude/serene-maxwell",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "crates/machine-amiga/src/lib.rs",
+    "crates/machine-amiga/tests/blitter_timing.rs",
+    "crates/machine-amiga/tests/common/mod.rs",
+    "crates/machine-amiga/tests/disk_dma.rs",
+    "crates/machine-amiga/tests/sprite_rendering.rs",
+    "crates/motorola-68000/src/cpu.rs",
+    "crates/motorola-68000/src/decode.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/27/2d31d1ec70/0/metadata.json",
+      "transcript": "/27/2d31d1ec70/0/full.jsonl",
+      "context": "/27/2d31d1ec70/0/context.md",
+      "content_hash": "/27/2d31d1ec70/0/content_hash.txt",
+      "prompt": "/27/2d31d1ec70/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 466,
+    "cache_creation_tokens": 860738,
+    "cache_read_tokens": 54335048,
+    "output_tokens": 200164,
+    "api_call_count": 446
+  }
+}
