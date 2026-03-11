@@ -398,8 +398,11 @@ pub struct Cpu68000 {
     pub(crate) sp_undo: Option<(bool, u32)>,
 
     // --- Bus error / group-0 exception state ---
-    /// Remaining extra words to push for format $A bus error frame (68010+).
+    /// Remaining extra words to push for bus error frame (68010+).
     pub(crate) be_extra_count: u8,
+    /// Format/vector word for the bus error frame being constructed.
+    /// Set by `begin_bus_error()` and consumed by `TAG_BE_PUSH_EXTRA`.
+    pub(crate) be_format_word: u16,
     /// Vector number for the current group-0 exception (2=bus error, 3=address error).
     /// Used by TAG_AE_FETCH_VECTOR to read the correct vector.
     pub(crate) group0_vector: u8,
@@ -468,6 +471,7 @@ impl Cpu68000 {
             ae_undo_reg: None,
             sp_undo: None,
             be_extra_count: 0,
+            be_format_word: 0,
             group0_vector: 3,
             icache: ICache::new(),
         }
@@ -832,17 +836,6 @@ impl Cpu68000 {
     /// stack (SSP). The old SR (with the user-mode S bit) is saved first
     /// so it can be pushed in the frame.
     fn initiate_interrupt_exception(&mut self, level: u8) {
-        // DIAG: trace all interrupts after exec init
-        if self.regs.a(6) >= 0xC00000 {
-            eprintln!(
-                "  [exc] irq level={} pc=${:08X} from=${:08X} SR=${:04X} SP=${:08X}",
-                level,
-                self.irc_addr,
-                self.instr_start_pc,
-                self.regs.sr,
-                self.regs.a(7),
-            );
-        }
         self.target_ipl = level;
         // Save old SR before changing mode (for pushing in the exception frame).
         self.ae_saved_sr = self.regs.sr;
@@ -885,17 +878,6 @@ impl Cpu68000 {
     /// there is no InterruptAck bus cycle. The PC to push in the frame
     /// is passed as a parameter (differs per instruction type).
     pub fn begin_group1_exception(&mut self, vector: u8, pc_to_push: u32) {
-        // DIAG: trace all group1 exceptions after 3s
-        if self.regs.a(6) >= 0xC00000 {
-            eprintln!(
-                "  [exc] group1 vec={} pc=${:08X} from=${:08X} SR=${:04X} SP=${:08X}",
-                vector,
-                pc_to_push,
-                self.instr_start_pc,
-                self.regs.sr,
-                self.regs.a(7),
-            );
-        }
         self.ae_saved_sr = self.regs.sr;
         self.regs.set_supervisor(true);
         self.regs.sr &= !0x8000; // Clear trace
@@ -1347,12 +1329,24 @@ impl Cpu68000 {
             self.micro_ops.push(MicroOp::PushLongLo);
             self.micro_ops.push(MicroOp::Execute);
         } else {
-            // 68010+: format $A (short bus cycle fault) frame.
-            // Layout (low→high): SR, PC, format/vector, 12 extra words.
-            // Push in reverse order (stack grows down).
+            // 68010+: bus error frame size depends on CPU model.
+            //
+            // 68010/020/030: format $A — 16 words (12 extra beyond header).
+            // 68040:         format $7 — 30 words (26 extra beyond header).
+            // 68060:         format $4 —  8 words ( 4 extra beyond header).
+            //
+            // "Header" = SR(1) + PC(2) + format/vector(1) = 4 words.
+            // Push extra words first (highest address → lowest), then
+            // format/vector, PC, SR via the standard exception path.
+            let (extra_count, format_code) = match self.model.timing_class() {
+                crate::model::TimingClass::M68040 => (26u8, 0x7u16),
+                crate::model::TimingClass::M68060 => (4u8, 0x4u16),
+                _ => (12u8, 0xAu16), // 68010/020/030
+            };
 
-            // Start by pushing the 12 extra words (zeroed internal state).
-            self.be_extra_count = 12;
+            self.be_extra_count = extra_count;
+            // Vector offset for bus error = vector 2 × 4 = $008.
+            self.be_format_word = (format_code << 12) | 0x008;
             self.data = 0;
             self.followup_tag = TAG_BE_PUSH_EXTRA;
             self.micro_ops.push(MicroOp::PushWord);
@@ -1362,7 +1356,20 @@ impl Cpu68000 {
             // TAG_EXC_STACK_FORMAT which pushes format/vector, then
             // the standard path pushes PC and SR and reads the vector.
             // We stash the saved PC in src_val for TAG_EXC_STACK_FORMAT.
-            self.src_val = self.instr_start_pc;
+            //
+            // 68040/060: data access faults save the "next instruction" PC
+            // because the processor completes the faulting instruction
+            // internally. In our prefetch model, self.regs.pc is 2 bytes
+            // past the next instruction (pointing past IRC), so we back up.
+            //
+            // 68010/020/030: save the faulting instruction's start PC
+            // (the frame is restartable).
+            self.src_val = match self.model.timing_class() {
+                crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060 => {
+                    self.regs.pc.wrapping_sub(2)
+                }
+                _ => self.instr_start_pc,
+            };
             self.exc_vector = Some(2); // bus error
         }
     }

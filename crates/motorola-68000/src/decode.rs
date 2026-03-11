@@ -1330,6 +1330,21 @@ impl Cpu68000 {
                 let _ext = self.consume_irc();
                 return;
             }
+            // CINV/CPUSH — 68040+ cache management instructions.
+            // Encoding: 1111 0100 cc x ss rrr
+            //   cc  = cache select (00=none, 01=data, 10=instr, 11=both)
+            //   x   = 0 for CINV, 1 for CPUSH
+            //   ss  = scope (00=line, 01=page, 10/11=all)
+            //   rrr = An register (line/page scope only)
+            // We don't model caches beyond the I-cache invalidation on
+            // CACR writes, so these are safe to treat as NOPs.
+            if matches!(
+                self.model.timing_class(),
+                crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
+            ) && (opcode & 0xFE00) == 0xF400
+            {
+                return;
+            }
             self.begin_group1_exception(11, self.instr_start_pc);
             return;
         }
@@ -1973,17 +1988,6 @@ impl Cpu68000 {
             // --- Subroutine handlers ---
             TAG_JSR_EXECUTE => {
                 let is_jsr = (self.ir & 0x40) == 0;
-                // DIAG: trace jumps to suspicious chip RAM addresses
-                if self.addr >= 0x50000 && self.addr < 0x80000 {
-                    eprintln!(
-                        "  [cpu] {} to ${:08X} from ${:08X} IR=${:04X} A6=${:08X}",
-                        if is_jsr { "JSR" } else { "JMP" },
-                        self.addr,
-                        self.instr_start_pc,
-                        self.ir,
-                        self.regs.a(6),
-                    );
-                }
                 // Set PC to target and start the pipeline refill.
                 self.regs.pc = self.addr;
                 self.next_fetch_addr = self.regs.pc;
@@ -1999,15 +2003,6 @@ impl Cpu68000 {
                     self.micro_ops.push(MicroOp::PushLongLo);
                 }
                 self.micro_ops.push(MicroOp::PromoteIRC);
-                // Trace JMP from $FC05B2 (RAM test exit)
-                if self.instr_start_pc == 0xFC05B2 {
-                    eprintln!(
-                        "  [jmp] $FC05B2 → ${:08X} A3=${:08X} A5=${:08X}",
-                        self.addr,
-                        self.regs.a(3),
-                        self.regs.a(5),
-                    );
-                }
                 self.in_followup = false;
             }
 
@@ -2106,7 +2101,8 @@ impl Cpu68000 {
 
             TAG_EXC_FETCH_VECTOR => {
                 let vector = self.data as u8;
-                self.addr = u32::from(vector) * 4;
+                // 68010+: vector table is relocated by VBR. On 68000 VBR is 0.
+                self.addr = self.regs.vbr.wrapping_add(u32::from(vector) * 4);
                 self.size = Size::Long;
                 self.followup_tag = TAG_EXC_FINISH;
                 self.queue_read_ops(Size::Long);
@@ -2191,6 +2187,8 @@ impl Cpu68000 {
                     0x0 => 0,  // Format $0: 4-word frame (SR + PC + format). Done.
                     0x1 => 0,  // Format $1: throwaway (68010 only). Done.
                     0x2 => 2,  // Format $2: 6-word frame. 2 extra words (instruction address).
+                    0x4 => 4,  // Format $4: 68060 access error. 4 extra words.
+                    0x7 => 26, // Format $7: 68040 access error. 26 extra words.
                     0x9 => 6,  // Format $9: coprocessor mid-instruction. 6 extra words.
                     0xA => 12, // Format $A: short bus fault (68020/030). 12 extra words.
                     0xB => 42, // Format $B: long bus fault (68020/030). 42 extra words.
@@ -2530,7 +2528,7 @@ impl Cpu68000 {
                 self.in_followup = false;
             }
 
-            // --- Bus error (68010+): push extra format $A words ---
+            // --- Bus error (68010+): push extra frame words ---
             TAG_BE_PUSH_EXTRA => {
                 self.be_extra_count -= 1;
                 if self.be_extra_count > 0 {
@@ -2541,8 +2539,7 @@ impl Cpu68000 {
                 } else {
                     // All extra words pushed. Now push format/vector word
                     // via the standard group-1/2 exception path.
-                    // Format $A, vector offset $008 (bus error = vector 2).
-                    self.data = 0xA008;
+                    self.data = u32::from(self.be_format_word);
                     self.followup_tag = TAG_EXC_STACK_FORMAT;
                     self.micro_ops.push(MicroOp::PushWord);
                     self.micro_ops.push(MicroOp::Execute);

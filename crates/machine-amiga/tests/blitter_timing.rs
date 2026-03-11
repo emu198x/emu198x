@@ -311,6 +311,7 @@ fn poll_chip_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> BusStatus {
             gary: &amiga.gary,
             buster: &mut amiga.buster,
             super_buster: &mut amiga.super_buster,
+            cpu_pc: 0,
     };
     M68kBus::poll_cycle(
         &mut bus,
@@ -348,6 +349,7 @@ fn poll_ipl_via_cpu_bus(amiga: &mut Amiga) -> u8 {
             gary: &amiga.gary,
             buster: &mut amiga.buster,
             super_buster: &mut amiga.super_buster,
+            cpu_pc: 0,
     };
     M68kBus::poll_ipl(&mut bus)
 }
@@ -378,6 +380,7 @@ fn poll_iack_cycle_via_cpu_bus(amiga: &mut Amiga) -> BusStatus {
             gary: &amiga.gary,
             buster: &mut amiga.buster,
             super_buster: &mut amiga.super_buster,
+            cpu_pc: 0,
     };
     M68kBus::poll_cycle(
         &mut bus,

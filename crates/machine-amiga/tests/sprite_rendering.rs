@@ -144,6 +144,7 @@ fn read_custom_word_via_cpu_bus(amiga: &mut Amiga, addr: u32) -> u16 {
             gary: &amiga.gary,
             buster: &mut amiga.buster,
             super_buster: &mut amiga.super_buster,
+            cpu_pc: 0,
     };
     match M68kBus::poll_cycle(
         &mut bus,

@@ -242,6 +242,168 @@ pub fn boot_screenshot_test(
 
     println!("DMACON  = ${:04X}", amiga.agnus.dmacon);
     println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
+    println!("COP1LC  = ${:08X}", amiga.copper.cop1lc);
+
+    // Dump ExecBase and library list for boot debugging
+    let ram = &amiga.memory.chip_ram;
+    let rd32 = |a: usize| -> u32 {
+        if a + 3 < ram.len() {
+            u32::from(ram[a]) << 24
+                | u32::from(ram[a + 1]) << 16
+                | u32::from(ram[a + 2]) << 8
+                | u32::from(ram[a + 3])
+        } else {
+            0
+        }
+    };
+    let _rd16 = |a: usize| -> u16 {
+        if a + 1 < ram.len() {
+            u16::from(ram[a]) << 8 | u16::from(ram[a + 1])
+        } else {
+            0
+        }
+    };
+    let exec_base = rd32(4) as usize;
+    println!("ExecBase = ${:08X}", exec_base);
+    // ExecBase->LibList is at offset $17A (378). It's a List node.
+    // List: lh_Head(4), lh_Tail(4), lh_TailPred(4), lh_Type(1), lh_pad(1)
+    // Walk the library list.
+    let _lib_list_head_ptr = exec_base + 0x17A;
+    let read_mem = |addr: usize| -> u8 {
+        if addr < ram.len() {
+            ram[addr]
+        } else if !amiga.memory.fast_ram.is_empty() {
+            let base = amiga.memory.fast_ram_base as usize;
+            if addr >= base && addr - base < amiga.memory.fast_ram.len() {
+                amiga.memory.fast_ram[addr - base]
+            } else if addr >= 0xF80000 && addr < 0xF80000 + amiga.memory.kickstart.len() {
+                amiga.memory.kickstart[addr - 0xF80000]
+            } else {
+                0
+            }
+        } else if addr >= 0xF80000 && addr < 0xF80000 + amiga.memory.kickstart.len() {
+            amiga.memory.kickstart[addr - 0xF80000]
+        } else {
+            0
+        }
+    };
+    let rd32_any = |a: usize| -> u32 {
+        u32::from(read_mem(a)) << 24
+            | u32::from(read_mem(a + 1)) << 16
+            | u32::from(read_mem(a + 2)) << 8
+            | u32::from(read_mem(a + 3))
+    };
+    let rd16_any = |a: usize| -> u16 {
+        u16::from(read_mem(a)) << 8 | u16::from(read_mem(a + 1))
+    };
+    // Walk a List at a given pointer, printing Name and Version
+    let walk_list = |label: &str, list_ptr: usize| {
+        println!("--- {} ---", label);
+        let mut node = rd32_any(list_ptr) as usize;
+        for _ in 0..30 {
+            let next = rd32_any(node) as usize;
+            if next == 0 { break; }
+            let name_ptr = rd32_any(node + 10) as usize;
+            let mut name = String::new();
+            for j in 0..40 {
+                let c = read_mem(name_ptr + j);
+                if c == 0 { break; }
+                name.push(c as char);
+            }
+            let version = rd16_any(node + 20);
+            let revision = rd16_any(node + 22);
+            println!("  ${:08X}: {} v{}.{}", node, name, version, revision);
+            node = next;
+        }
+    };
+    walk_list("Library list (ExecBase+$17A)", exec_base + 0x17A);
+    walk_list("Device list (ExecBase+$15E)", exec_base + 0x15E);
+    walk_list("Resource list (ExecBase+$150)", exec_base + 0x150);
+
+    // Dump exec MemList (ExecBase+$142) to check memory configuration
+    println!("--- Memory list (ExecBase+$142) ---");
+    {
+        let mut node = rd32_any(exec_base + 0x142) as usize;
+        for _ in 0..10 {
+            let next = rd32_any(node) as usize;
+            if next == 0 { break; }
+            let name_ptr = rd32_any(node + 10) as usize;
+            let mut name = String::new();
+            for j in 0..40 {
+                let c = read_mem(name_ptr + j);
+                if c == 0 { break; }
+                name.push(c as char);
+            }
+            // MemHeader: mh_Node(14), mh_Attributes(2), mh_First(4), mh_Lower(4), mh_Upper(4), mh_Free(4)
+            let attrs = rd16_any(node + 14);
+            let lower = rd32_any(node + 20) as usize;
+            let upper = rd32_any(node + 24) as usize;
+            let free = rd32_any(node + 28);
+            println!(
+                "  ${:08X}: {} attrs=${:04X} ${:08X}-${:08X} free={}K",
+                node, name, attrs, lower, upper, free / 1024
+            );
+            node = next;
+        }
+    }
+
+    // Dump GfxBase timing fields for STRAP debugging
+    // Find GfxBase from library list
+    {
+        let mut node = rd32_any(exec_base + 0x17A) as usize;
+        for _ in 0..30 {
+            let next = rd32_any(node) as usize;
+            if next == 0 { break; }
+            let name_ptr = rd32_any(node + 10) as usize;
+            let mut name = String::new();
+            for j in 0..40 {
+                let c = read_mem(name_ptr + j);
+                if c == 0 { break; }
+                name.push(c as char);
+            }
+            if name == "graphics.library" {
+                let gfx_base = node;
+                println!("--- GfxBase=${:08X} ---", gfx_base);
+                // GfxBase+$22 = NormalDisplayRows (word)
+                // GfxBase+$24 = NormalDisplayColumns (word)
+                // GfxBase+$26 = NormalDPMX (word) - dots per meter X
+                // GfxBase+$28 = NormalDPMY (word)
+                // GfxBase+$EC = DisplayFlags (word)
+                // GfxBase+$206 = monitor_id (long)
+                println!("  NormalDisplayRows (GfxBase+$22) = {}", rd16_any(gfx_base + 0x22));
+                println!("  NormalDisplayColumns (GfxBase+$24) = {}", rd16_any(gfx_base + 0x24));
+                println!("  DisplayFlags (GfxBase+$EC) = ${:04X}", rd16_any(gfx_base + 0xEC));
+                // Dump first 64 bytes of ActiView (GfxBase+$22)
+                println!("  GfxBase fields around timing area:");
+                for off in (0x20..0x40).step_by(2) {
+                    println!("    +${:02X}: ${:04X}", off, rd16_any(gfx_base + off));
+                }
+                // check the copper list pointers in the view
+                let acti_view = rd32_any(gfx_base + 0x22) as usize;
+                println!("  ActiView ptr (GfxBase+$22) = ${:08X}", acti_view);
+                // LOFlist at ActiView+$0E
+                if acti_view > 0 && acti_view < 0x01000000 {
+                    let lof_list = rd32_any(acti_view + 0x0E) as usize;
+                    println!("  ActiView->LOFlist (ActiView+$0E) = ${:08X}", lof_list);
+                }
+                break;
+            }
+            node = next;
+        }
+    }
+
+    // Dump copper list area for debugging
+    for &(label, base) in &[("COP1LC", amiga.copper.cop1lc as usize), ("$C00", 0xC00usize)] {
+        println!("--- Copper list at {} (${:06X}) ---", label, base);
+        for i in (0..64).step_by(4) {
+            let a = base + i;
+            if a + 3 < amiga.memory.chip_ram.len() {
+                let w0 = u16::from(amiga.memory.chip_ram[a]) << 8 | u16::from(amiga.memory.chip_ram[a + 1]);
+                let w1 = u16::from(amiga.memory.chip_ram[a + 2]) << 8 | u16::from(amiga.memory.chip_ram[a + 3]);
+                println!("  ${:06X}: ${:04X} ${:04X}", a, w0, w1);
+            }
+        }
+    }
 
     (amiga.agnus.dmacon, amiga.denise.bplcon0)
 }

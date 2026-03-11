@@ -1132,6 +1132,7 @@ impl Amiga {
                     ddfstrt_pending: &mut self.ddfstrt_pending,
                     ddfstop_pending: &mut self.ddfstop_pending,
                     color_pending: &mut self.color_pending,
+                    cpu_pc: self.cpu.regs.pc,
                 };
                 self.cpu.tick(&mut bus, cpu_clock);
             }
@@ -1174,6 +1175,7 @@ impl Amiga {
                         ddfstrt_pending: &mut self.ddfstrt_pending,
                         ddfstop_pending: &mut self.ddfstop_pending,
                         color_pending: &mut self.color_pending,
+                        cpu_pc: self.cpu.regs.pc,
                     };
                     // Scale clock to CPU bus-cycle domain: the 68000
                     // tick() gates on clock % 4 == 0, so multiply by 4
@@ -2315,6 +2317,7 @@ pub struct AmigaBusWrapper<'a> {
     pub ddfstrt_pending: &'a mut Option<(u16, u8)>,
     pub ddfstop_pending: &'a mut Option<(u16, u8)>,
     pub color_pending: &'a mut Vec<(usize, u16, u8, u16)>,
+    pub cpu_pc: u32,
 }
 
 fn motherboard_paula_intreq_bits(model: AmigaModel, dmac: Option<&Dmac390537>) -> u16 {
@@ -2447,10 +2450,12 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
 
         // On A3000/A4000, Fat Gary only forwards $000000-$FFFFFF to the
         // 24-bit bus. Addresses $01000000+ that didn't match fast RAM
-        // above are unmapped — the real hardware bus-times-out (BERR).
-        // We return 0 for reads and sink writes (matching the
-        // NONEXISTINGDATA=0 convention). This prevents exec's memory
-        // probe from seeing chip RAM aliases at every 16 MB boundary.
+        // above are unmapped — return 0 for reads, sink writes.
+        //
+        // Real hardware would BERR after a bus timeout, but our bus error
+        // exception frame handling isn't complete enough yet (VBR-relative
+        // vector fetches, 68040 format $7 PC semantics). Return 0 for now;
+        // exec's memory probe interprets repeated 0 reads as "no hardware".
         if let Some(fat_gary) = self.fat_gary.as_ref()
             && !fat_gary.forwards_to_24bit_bus(addr)
         {
@@ -2789,6 +2794,22 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
 
             // Unmapped — check expansion boards, then Fat Gary timeout, else 0
             ChipSelect::Unmapped => {
+                // A4000 NCR 53C710 SCSI controller at $DD0000-$DDFFFF.
+                // We don't model the NCR chip, so return $FF (bus pull-ups)
+                // for reads. This makes the scsi.device probe detect "no
+                // hardware" immediately instead of entering a retry loop
+                // that calls DoIO(timer.device) during COLD init — which
+                // would permanently hijack the exec scheduler via Wait().
+                if self.model == AmigaModel::A4000
+                    && (addr & 0xFF_0000) == 0xDD_0000
+                {
+                    return if is_read {
+                        BusStatus::Ready(0x00FF)
+                    } else {
+                        BusStatus::Ready(0)
+                    };
+                }
+
                 // Check Super Buster Z3+Z2 boards (A3000/A4000).
                 if let Some(sb) = self.super_buster.as_mut() {
                     if is_read {
@@ -2980,8 +3001,12 @@ fn write_custom_register(
         0x074 => agnus.blt_adat = val,
 
         // Copper
-        0x080 => copper.cop1lc = (copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16),
-        0x082 => copper.cop1lc = (copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
+        0x080 => {
+            copper.cop1lc = (copper.cop1lc & 0x0000FFFF) | (u32::from(val) << 16);
+        }
+        0x082 => {
+            copper.cop1lc = (copper.cop1lc & 0xFFFF0000) | u32::from(val & 0xFFFE);
+        }
         0x084 => copper.cop2lc = (copper.cop2lc & 0x0000FFFF) | (u32::from(val) << 16),
         0x086 => copper.cop2lc = (copper.cop2lc & 0xFFFF0000) | u32::from(val & 0xFFFE),
         0x088 => copper.restart_cop1(),
@@ -3576,6 +3601,7 @@ mod tests {
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
+            cpu_pc: 0,
         };
         match M68kBus::poll_cycle(
             &mut bus,
@@ -3616,6 +3642,7 @@ mod tests {
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
+            cpu_pc: 0,
         };
         let addr = 0x00DFF000 | u32::from(offset | byte_addr_lsb);
         let result = M68kBus::poll_cycle(
@@ -3801,6 +3828,7 @@ mod tests {
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
+            cpu_pc: 0,
         };
 
         assert_eq!(M68kBus::poll_ipl(&mut bus), 2);
@@ -3865,6 +3893,7 @@ mod tests {
             ddfstrt_pending: &mut amiga.ddfstrt_pending,
             ddfstop_pending: &mut amiga.ddfstop_pending,
             color_pending: &mut amiga.color_pending,
+            cpu_pc: 0,
         };
 
         let ramsey_rev = M68kBus::poll_cycle(
