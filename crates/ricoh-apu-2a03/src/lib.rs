@@ -642,6 +642,10 @@ pub struct Apu {
     /// CPU cycle parity: true on odd CPU cycles (pulse/noise tick on even).
     odd_cycle: bool,
 
+    /// Pending $4017 write: (value, cycles_remaining). Real hardware delays
+    /// mode and IRQ-inhibit bits by 3 cycles (odd CPU cycle) or 4 (even).
+    frame_counter_pending: Option<(u8, u8)>,
+
     // Region-dependent tables
     noise_period_table: &'static [u16; 16],
     dmc_rate_table: &'static [u16; 16],
@@ -702,6 +706,7 @@ impl Apu {
             frame_irq_inhibit: false,
             frame_irq_flag: false,
             odd_cycle: false,
+            frame_counter_pending: None,
             noise_period_table: noise_table,
             dmc_rate_table: dmc_table,
             four_step_seq: four_step,
@@ -885,24 +890,22 @@ impl Apu {
             }
 
             // Frame counter: $4017
+            //
+            // Real hardware delays mode and IRQ-inhibit by 3 CPU cycles
+            // (if written on an odd cycle) or 4 (even). The frame counter
+            // reset happens immediately; only the mode/inhibit bits are
+            // deferred.
             0x4017 => {
-                self.frame_mode = if value & 0x80 != 0 {
-                    FrameCounterMode::FiveStep
-                } else {
-                    FrameCounterMode::FourStep
-                };
-                self.frame_irq_inhibit = value & 0x40 != 0;
-                if self.frame_irq_inhibit {
+                // IRQ-inhibit clears immediately (nesdev wiki)
+                if value & 0x40 != 0 {
                     self.frame_irq_flag = false;
                 }
-                // Reset frame counter
+                // Reset frame counter immediately
                 self.frame_counter = 0;
                 self.frame_step = 0;
-                // In 5-step mode, immediately clock all units
-                if self.frame_mode == FrameCounterMode::FiveStep {
-                    self.clock_quarter_frame();
-                    self.clock_half_frame();
-                }
+                // Delay: 3 cycles on odd, 4 on even
+                let delay = if self.odd_cycle { 3 } else { 4 };
+                self.frame_counter_pending = Some((value, delay));
             }
 
             _ => {}
@@ -911,6 +914,26 @@ impl Apu {
 
     /// Tick the APU one CPU cycle.
     pub fn tick(&mut self) {
+        // Process pending $4017 write (delayed mode/IRQ-inhibit application)
+        if let Some((value, delay)) = self.frame_counter_pending {
+            if delay <= 1 {
+                self.frame_counter_pending = None;
+                self.frame_mode = if value & 0x80 != 0 {
+                    FrameCounterMode::FiveStep
+                } else {
+                    FrameCounterMode::FourStep
+                };
+                self.frame_irq_inhibit = value & 0x40 != 0;
+                // In 5-step mode, immediately clock all units
+                if self.frame_mode == FrameCounterMode::FiveStep {
+                    self.clock_quarter_frame();
+                    self.clock_half_frame();
+                }
+            } else {
+                self.frame_counter_pending = Some((value, delay - 1));
+            }
+        }
+
         // Triangle timer ticks every CPU cycle
         self.triangle.clock_timer();
 
@@ -1532,6 +1555,43 @@ mod tests {
         assert!(
             apu.dmc.irq_flag,
             "IRQ flag should be set when sample ends with IRQ enabled"
+        );
+    }
+
+    #[test]
+    fn frame_counter_4017_write_delayed() {
+        let mut apu = Apu::new();
+
+        // Start in 4-step mode (default)
+        assert_eq!(apu.frame_counter_mode(), 0, "should start in 4-step");
+
+        // Write $4017 with mode bit set (5-step)
+        apu.write(0x4017, 0x80);
+
+        // Mode should NOT change immediately — still 4-step
+        assert_eq!(
+            apu.frame_counter_mode(),
+            0,
+            "mode should not change on write cycle"
+        );
+
+        // Tick 1 — delay counting down, still 4-step
+        apu.tick();
+        assert_eq!(apu.frame_counter_mode(), 0, "mode should be delayed after 1 tick");
+
+        // Tick 2
+        apu.tick();
+        assert_eq!(apu.frame_counter_mode(), 0, "mode should be delayed after 2 ticks");
+
+        // Tick through remaining delay (3-4 ticks total)
+        // After 3-4 ticks the pending write resolves
+        apu.tick();
+        apu.tick();
+
+        assert_eq!(
+            apu.frame_counter_mode(),
+            1,
+            "mode should be 5-step after delay completes"
         );
     }
 

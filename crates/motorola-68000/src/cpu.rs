@@ -712,7 +712,7 @@ impl Cpu68000 {
         }
         let addr = match op {
             MicroOp::ReadLongLo => self.addr.wrapping_add(2),
-            _ => self.addr, // ReadByte, ReadWord, ReadLongHi
+            _ => self.addr, // ReadWord, ReadLongHi
         };
         let fc = if self.regs.is_supervisor() {
             if self.program_space_access { 6u8 } else { 5u8 }
@@ -728,7 +728,7 @@ impl Cpu68000 {
         if line.tag == tag && line.valid[word] {
             let cached = u32::from(line.words[word]);
             match op {
-                MicroOp::ReadByte | MicroOp::ReadWord => {
+                MicroOp::ReadWord => {
                     self.data = cached;
                 }
                 MicroOp::ReadLongHi => {
@@ -905,8 +905,7 @@ impl Cpu68000 {
                     self.process_instant_ops(bus);
                 } else if matches!(
                     op,
-                    MicroOp::ReadByte
-                        | MicroOp::ReadWord
+                    MicroOp::ReadWord
                         | MicroOp::ReadLongHi
                         | MicroOp::ReadLongLo
                 ) && self.dcache_lookup(op)
@@ -958,10 +957,18 @@ impl Cpu68000 {
                             self.finish_bus_cycle(completed_op, read_data);
                             // Data cache: fill on data reads, write-through on writes.
                             // FetchIRC goes through icache_fill; InterruptAck is not data.
+                            //
+                            // Byte operations are excluded: our bus model returns/accepts
+                            // a single byte for byte-sized transfers, but the data cache
+                            // stores full 16-bit words. Caching a byte value as a word
+                            // would corrupt subsequent word reads from the same address.
+                            // The real 68030 bus always transfers words (the byte select
+                            // happens externally), but modelling that requires a bigger
+                            // bus refactor. Skipping byte ops is safe — it reduces hit
+                            // rate slightly but preserves correctness.
                             if completed_is_read && matches!(
                                 completed_op,
-                                MicroOp::ReadByte
-                                    | MicroOp::ReadWord
+                                MicroOp::ReadWord
                                     | MicroOp::ReadLongHi
                                     | MicroOp::ReadLongLo
                                     | MicroOp::PopWord
@@ -969,14 +976,15 @@ impl Cpu68000 {
                                     | MicroOp::PopLongLo
                             ) {
                                 self.dcache_fill(completed_addr, completed_fc, read_data);
-                            } else if !completed_is_read {
-                                if let Some(wd) = completed_write_data {
-                                    self.dcache_write_through(
-                                        completed_addr,
-                                        completed_fc,
-                                        wd,
-                                    );
-                                }
+                            } else if !completed_is_read
+                                && !matches!(completed_op, MicroOp::WriteByte)
+                                && let Some(wd) = completed_write_data
+                            {
+                                self.dcache_write_through(
+                                    completed_addr,
+                                    completed_fc,
+                                    wd,
+                                );
                             }
                             self.state = State::Idle;
                         }

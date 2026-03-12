@@ -454,6 +454,10 @@ pub struct Amiga {
     pub buster: Option<Buster>,
     /// Super Buster Zorro III bus controller. Present on A3000/A4000.
     pub super_buster: Option<SuperBuster>,
+    /// Debug counter: number of VERTB interrupts asserted.
+    pub vertb_count: u64,
+    /// Debug counter: number of CIA-A TOD pulses.
+    pub cia_a_tod_pulse_count: u64,
     audio_sample_phase: u64,
     audio_buffer: Vec<f32>,
     /// RC low-pass filter state (left, right) for hardware output stage.
@@ -563,7 +567,10 @@ impl Amiga {
             if chipset.is_aga() {
                 ocs.max_bitplanes = 8;
             }
-            let ecs = commodore_agnus_ecs::AgnusEcs::from_ocs(ocs);
+            let mut ecs = commodore_agnus_ecs::AgnusEcs::from_ocs(ocs);
+            if chipset.is_ecs_or_aga() {
+                ecs.set_pal_mode(region == AmigaRegion::Pal);
+            }
             commodore_agnus_aga::AgnusAga::from_ecs(ecs)
         };
         let denise = {
@@ -737,6 +744,8 @@ impl Amiga {
                 AmigaModel::A3000 | AmigaModel::A4000 => Some(SuperBuster::new()),
                 _ => None,
             },
+            vertb_count: 0,
+            cia_a_tod_pulse_count: 0,
             audio_sample_phase: 0,
             audio_buffer: Vec::with_capacity((AUDIO_SAMPLE_RATE as usize / 50) * 4),
             audio_lpf_left: 0.0,
@@ -921,6 +930,7 @@ impl Amiga {
 
             if vpos == 0 && hpos == 0 {
                 // bit 5 = VERTB
+                self.vertb_count += 1;
                 self.paula.request_interrupt(5);
                 // Agnus restarts the copper from COP1LC at vertical blank,
                 // but only when copper DMA is enabled (DMAEN + COPEN).
@@ -937,6 +947,7 @@ impl Amiga {
             // with variable VSYNC enabled we pulse on the programmable sync
             // window rising edge instead.
             if vsync_tod_pulse {
+                self.cia_a_tod_pulse_count += 1;
                 self.cia_a.tod_pulse();
             }
 
@@ -1033,13 +1044,15 @@ impl Amiga {
             if self.chipset.is_aga() {
                 for i in 0..4u8 {
                     let ci = pixel0_debug.quad_color_idx[i as usize];
-                    let rgb = self.denise.resolve_color_rgb24(ci);
+                    let sp = pixel0_debug.quad_is_sprite[i as usize];
+                    let rgb = self.denise.resolve_color_rgb24(ci, sp);
                     let argb = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb);
                     self.denise.write_raster_pixel(hpos, vpos, i, argb);
                 }
                 for i in 0..4u8 {
                     let ci = pixel1_debug.quad_color_idx[i as usize];
-                    let rgb = self.denise.resolve_color_rgb24(ci);
+                    let sp = pixel1_debug.quad_is_sprite[i as usize];
+                    let rgb = self.denise.resolve_color_rgb24(ci, sp);
                     let argb = commodore_denise_ocs::DeniseOcs::rgb24_to_argb32(rgb);
                     self.denise.write_raster_pixel(hpos, vpos, 4 + i, argb);
                 }
@@ -2936,8 +2949,16 @@ impl<'a> M68kBus for AmigaBusWrapper<'a> {
                     0x07C => match self.chipset {
                         AmigaChipset::Ocs => 0xFFFF,
                         AmigaChipset::Ecs => self.denise.as_inner().deniseid(),
-                        AmigaChipset::Aga => self.denise.deniseid(),
-                    },
+                        AmigaChipset::Aga => {
+                            // A4000 AGA Lisa returns $FCF8; other AGA models
+                            // return $00F8. Matches WinUAE's IDE_A4000 check.
+                            if self.model == AmigaModel::A4000 {
+                                0xFCF8
+                            } else {
+                                self.denise.deniseid()
+                            }
+                        }
+                    }
                     _ => 0,
                 };
                 if !is_word {
@@ -5690,7 +5711,10 @@ mod tests {
         amiga.write_custom_reg(0x090, 0x5678);
         amiga.write_custom_reg(0x092, 0x0038);
         amiga.write_custom_reg(0x094, 0x00D0);
-        amiga.write_custom_reg(0x1DC, 0xAB3E);
+        // 0x559F sets all BEAMCON0 mode bits except VARVSYEN (bit 9) under the
+        // corrected WinUAE/HRM bit layout. This replaces the old 0xAB3E value
+        // which matched a shifted-by-one bit numbering.
+        amiga.write_custom_reg(0x1DC, 0x559F);
         amiga.write_custom_reg(0x1C0, 0x0033);
         amiga.write_custom_reg(0x1C2, 0x0044);
         amiga.write_custom_reg(0x1C4, 0x0011);
@@ -5714,7 +5738,7 @@ mod tests {
             amiga.query("agnus.blitter_ccks_remaining"),
             Some(Value::U32(0))
         );
-        assert_eq!(amiga.query("agnus.beamcon0"), Some(Value::U16(0xAB3E)));
+        assert_eq!(amiga.query("agnus.beamcon0"), Some(Value::U16(0x559F)));
         assert_eq!(amiga.query("agnus.htotal"), Some(Value::U16(0x0033)));
         assert_eq!(amiga.query("agnus.hsstop"), Some(Value::U16(0x0044)));
         assert_eq!(amiga.query("agnus.hbstrt"), Some(Value::U16(0x0011)));

@@ -33,8 +33,8 @@ The canonical Amiga model matrix lives in
 [systems/amiga.md](systems/amiga.md#model-snapshot), with Kickstart-specific
 boot detail in [systems/amiga.md](systems/amiga.md#kickstart-boot-status).
 At dashboard level: A500 is usable beyond insert-disk, A2000/A500+/A600 are
-booting, A1000/A1200/A3000/A4000 are under bring-up, and CDTV/CD32 are not
-started.
+booting, A3000/A4000 are booting (insert-disk / STRAP diagnostic), A1000/A1200
+are under bring-up, and CDTV/CD32 are not started.
 
 ## Tooling Snapshot
 

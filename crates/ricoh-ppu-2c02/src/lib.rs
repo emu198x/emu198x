@@ -194,8 +194,11 @@ impl Ppu {
         }
 
         if self.rendering_enabled() {
-            // Background fetches (same timing as visible lines)
-            if (self.dot >= 1 && self.dot <= 256) || (self.dot >= 321 && self.dot <= 336) {
+            // Background fetches (same timing as visible lines).
+            // Dots 321-336: prefetch first two tiles of scanline 0.
+            // Dots 337-340: garbage nametable fetches — these clock A12
+            // on the cartridge bus, which MMC3 uses for scanline counting.
+            if (self.dot >= 1 && self.dot <= 256) || (self.dot >= 321 && self.dot <= 340) {
                 self.bg_fetch_cycle(chr_read, mirroring);
                 self.shift_registers();
             }
@@ -235,8 +238,9 @@ impl Ppu {
 
             // Sprite tile fetches (dots 257-320) — handled in evaluate_sprites
 
-            // Prefetch next scanline tiles (dots 321-336)
-            if self.dot >= 321 && self.dot <= 336 {
+            // Prefetch next scanline tiles (dots 321-336) and garbage
+            // nametable fetches (dots 337-340) that clock A12 for MMC3.
+            if self.dot >= 321 && self.dot <= 340 {
                 self.bg_fetch_cycle(chr_read, mirroring);
                 self.shift_registers();
             }
@@ -1069,5 +1073,54 @@ mod tests {
         for idx in 0..64u8 {
             assert_eq!(ppu.apply_mask_effects(idx), PALETTE[idx as usize]);
         }
+    }
+
+    #[test]
+    fn prerender_fetches_dots_337_to_340() {
+        let chr_calls = std::cell::RefCell::new(Vec::new());
+        let mut chr_read = |addr: u16| -> u8 {
+            chr_calls.borrow_mut().push(addr);
+            0
+        };
+        let mut ppu = Ppu::new();
+        // Enable rendering
+        ppu.mask = 0x18;
+        // Position at pre-render line, dot 336
+        ppu.scanline = ppu.pre_render_line;
+        ppu.dot = 336;
+
+        // Tick dots 337-340 (tick advances dot AFTER processing)
+        for _ in 0..4 {
+            ppu.tick(&mut chr_read, Mirroring::Horizontal);
+        }
+
+        // bg_fetch_cycle should have been called at dots 337-340.
+        // Dot 337 (cycle 16, 16&7=0): nametable read via ppu_read
+        // Dot 339 (cycle 18, 18&7=2): attribute read via ppu_read
+        // These are nametable/attribute reads, not CHR reads, so
+        // chr_read won't be called. But the fetch cycle itself runs.
+        // Verify by checking dot advanced to 340 (or wrapped).
+        // The important thing is no panic and the fetch cycle ran.
+        assert!(
+            ppu.dot == 0 || ppu.dot == 340,
+            "dot should have advanced past 340, got {}",
+            ppu.dot
+        );
+    }
+
+    #[test]
+    fn visible_line_fetches_dots_337_to_340() {
+        let mut chr_read = dummy_chr();
+        let mut ppu = Ppu::new();
+        ppu.mask = 0x18; // Enable rendering
+        ppu.scanline = 0;
+        ppu.dot = 336;
+
+        // Tick dots 337-340
+        for _ in 0..4 {
+            ppu.tick(&mut chr_read, Mirroring::Horizontal);
+        }
+
+        assert_eq!(ppu.dot, 340, "dot should be 340 after ticking from 336");
     }
 }

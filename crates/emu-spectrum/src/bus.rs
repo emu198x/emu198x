@@ -1,9 +1,9 @@
 //! Spectrum bus: memory and I/O routing.
 //!
 //! The bus connects the Z80 CPU to memory, video, keyboard, and beeper.
-//! I/O routing is model-aware: v1 implements port $FE only. Future models
-//! will add $7FFD (128K banking), $FFFD/$BFFD (AY audio), $FF (Timex SCLD),
-//! etc.
+//! I/O routing is model-aware: 48K uses port $FE (ULA), 128K+ adds $7FFD
+//! (bank switching), $FFFD/$BFFD (AY audio), and +3 adds $1FFD (disk motor
+//! and printer), $2FFD/$3FFD (uPD765 FDC).
 //!
 //! # Contention
 //!

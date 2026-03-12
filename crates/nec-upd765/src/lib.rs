@@ -60,6 +60,12 @@ pub struct Upd765 {
     interrupt_pending: bool,
     /// Inserted disk images (drives 0 and 1).
     disk: [Option<DskImage>; 2],
+    /// Write data accumulation buffer (execution phase, CPU→FDC).
+    write_buf: Vec<u8>,
+    /// Expected total bytes for the current write (128 << N).
+    write_expected: usize,
+    /// Parameters for the in-progress write: (drive, head, track, R, N).
+    write_params: Option<(usize, u8, u8, u8, u8)>,
 }
 
 impl Upd765 {
@@ -79,6 +85,9 @@ impl Upd765 {
             pcn: [0; 4],
             interrupt_pending: false,
             disk: [None, None],
+            write_buf: Vec::new(),
+            write_expected: 0,
+            write_params: None,
         }
     }
 
@@ -94,8 +103,13 @@ impl Upd765 {
             FdcPhase::Idle => 0x80,    // RQM=1, DIO=0 (ready to accept command)
             FdcPhase::Command => 0x90, // RQM=1, DIO=0, busy
             FdcPhase::Execution => {
-                // During data transfer: RQM=1, DIO depends on read/write, EXM=1
-                0xF0 // RQM=1, DIO=1 (FDC→CPU for read), EXM=1
+                // During data transfer: RQM=1, EXM=1
+                // DIO=1 for read (FDC→CPU), DIO=0 for write (CPU→FDC)
+                if self.write_params.is_some() {
+                    0xB0 // RQM=1, DIO=0 (CPU→FDC), EXM=1
+                } else {
+                    0xF0 // RQM=1, DIO=1 (FDC→CPU), EXM=1
+                }
             }
             FdcPhase::Result => 0xD0, // RQM=1, DIO=1 (FDC→CPU), busy
         }
@@ -159,8 +173,32 @@ impl Upd765 {
                     self.execute_command();
                 }
             }
-            _ => {
-                // Writes during execution/result are ignored
+            FdcPhase::Execution => {
+                // Write data transfer: CPU sends sector bytes to FDC
+                if let Some((drive, head, track, r, n)) = self.write_params {
+                    self.write_buf.push(value);
+                    if self.write_buf.len() >= self.write_expected {
+                        // All bytes received — write sector to disk image
+                        if let Some(Some(disk)) = self.disk.get_mut(drive) {
+                            disk.write_sector(track, head, r, &self.write_buf);
+                        }
+                        // Produce 7-byte result (success)
+                        self.st0 = drive as u8 | (head << 2);
+                        self.st1 = 0;
+                        self.st2 = 0;
+                        self.result_buf =
+                            vec![self.st0, self.st1, self.st2, track, head, r, n];
+                        self.result_index = 0;
+                        self.data_len = 0;
+                        self.phase = FdcPhase::Result;
+                        self.interrupt_pending = true;
+                        self.write_params = None;
+                        self.write_buf.clear();
+                    }
+                }
+            }
+            FdcPhase::Result => {
+                // Writes during result phase are ignored
             }
         }
     }
@@ -219,11 +257,25 @@ impl Upd765 {
             self.interrupt_pending = true;
         }
 
+        // WRITE DATA enters execution phase with no result bytes —
+        // the FDC waits for CPU to send sector data via write_data().
+        let cmd_id = self.command_buf[0] & 0x1F;
+        if cmd_id == 0x05 && self.phase == FdcPhase::Execution {
+            let drive = (self.command_buf[1] & 0x03) as usize;
+            let head = (self.command_buf[1] >> 2) & 0x01;
+            let r = self.command_buf[4];
+            let n = self.command_buf[5];
+            let track = self.pcn[drive];
+            self.write_expected = 128 << u32::from(n);
+            self.write_params = Some((drive, head, track, r, n));
+            self.write_buf.clear();
+            return;
+        }
+
         if !result.is_empty() {
             // For READ DATA, the result contains sector data + 7 status bytes.
             // We need to serve the sector data during execution phase, then
             // the 7 status bytes during result phase.
-            let cmd_id = self.command_buf[0] & 0x1F;
             if cmd_id == 0x06 && result.len() > 7 {
                 // READ DATA: data transfer then result
                 self.data_len = result.len() - 7;
@@ -470,8 +522,44 @@ mod tests {
     fn write_data_command() {
         let mut fdc = make_fdc_with_disk();
 
-        // WRITE DATA: 9 bytes
+        // WRITE DATA: 9 command bytes
         fdc.write_data(0x45); // WRITE DATA (MFM)
+        fdc.write_data(0x00); // Drive 0, head 0
+        fdc.write_data(0x00); // C=0
+        fdc.write_data(0x00); // H=0
+        fdc.write_data(0x01); // R=1
+        fdc.write_data(0x02); // N=2 (512 bytes)
+        fdc.write_data(0x01); // EOT
+        fdc.write_data(0x1B); // GPL
+        fdc.write_data(0xFF); // DTL
+
+        // Should be in execution phase waiting for CPU data
+        assert_eq!(fdc.phase(), FdcPhase::Execution, "should enter execution");
+        // MSR should show DIO=0 (CPU→FDC) during write
+        assert_eq!(fdc.read_msr() & 0x40, 0x00, "DIO=0 for write");
+
+        // Send 512 bytes of sector data
+        for i in 0..512u16 {
+            fdc.write_data((i & 0xFF) as u8);
+        }
+
+        // Should now be in result phase
+        assert_eq!(fdc.phase(), FdcPhase::Result, "should enter result");
+
+        // Read 7 result bytes
+        let st0 = fdc.read_data();
+        assert_eq!(st0 & 0x40, 0x00, "No error on write");
+        let _st1 = fdc.read_data();
+        let _st2 = fdc.read_data();
+        let _c = fdc.read_data();
+        let _h = fdc.read_data();
+        let _r = fdc.read_data();
+        let _n = fdc.read_data();
+
+        assert_eq!(fdc.phase(), FdcPhase::Idle, "back to idle");
+
+        // Verify the sector was written by reading it back
+        fdc.write_data(0x46); // READ DATA (MFM)
         fdc.write_data(0x00); // Drive 0, head 0
         fdc.write_data(0x00); // C=0
         fdc.write_data(0x00); // H=0
@@ -481,8 +569,11 @@ mod tests {
         fdc.write_data(0x1B); // GPL
         fdc.write_data(0xFF); // DTL
 
-        // Read 7 result bytes
-        let st0 = fdc.read_data();
-        assert_eq!(st0 & 0x40, 0x00, "No error on write");
+        // First byte should be 0x00 (first byte we wrote: 0 & 0xFF)
+        let first = fdc.read_data();
+        assert_eq!(first, 0x00, "Written data should read back");
+        // Second byte should be 0x01
+        let second = fdc.read_data();
+        assert_eq!(second, 0x01, "Second written byte");
     }
 }

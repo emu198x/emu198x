@@ -152,6 +152,38 @@ the current repository still uses older package names.
 | `emu-nes`       | Runnable NES package; headed and headless modes        | Complete                      |
 | `amiga-runner`  | Runnable Amiga package; intended to become `emu-amiga` | Transitional                  |
 
+## Media Write Safety
+
+Original media files (ROMs, disk images, tapes, cartridges) are never modified.
+All hardware writes go to in-memory buffers. Persistence uses sidecar overlay
+files, never the source.
+
+### Rules
+
+1. Media load functions open files read-only.
+2. Hardware writes modify in-memory buffers only.
+3. Extraction APIs return `Vec<u8>` — the caller decides where to persist.
+4. Runners that persist changes must use sidecar files (`.overlay`, `.sav`), not
+   the original media file.
+5. This applies to future save states too.
+
+### Current State
+
+| System   | Writable Media         | Storage   | Write-Back Risk |
+| -------- | ---------------------- | --------- | --------------- |
+| C64      | D64 floppy             | In-memory | None — `save_d64()` returns `Vec<u8>` |
+| Spectrum | DSK/EDSK floppy        | In-memory | None — FDC writes to in-memory `DskImage` |
+| NES      | Battery-backed PRG RAM | In-memory | None — no save persistence yet |
+| Amiga    | ADF floppy, IDE (stub) | In-memory | None — `save_adf()` returns `Vec<u8>` |
+
+### Planned Sidecar Pattern (NES battery saves)
+
+When save persistence is implemented:
+
+- **Load:** `game.nes` (read-only) + `game.nes.sav` (overlay, if exists)
+- **Save:** write PRG RAM to `game.nes.sav` only
+- The original ROM is never touched.
+
 ## Testing Strategy
 
 The canonical verification standard now lives in
