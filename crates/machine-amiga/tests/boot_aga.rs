@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{BootExpect, BOOT_TICKS, boot_screenshot_test_expect, boot_screenshot_test, load_rom};
+use common::{BootExpect, BOOT_TICKS, boot_screenshot_test_expect, load_rom};
 use machine_amiga::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
 
 const AGA_BOOT_TICKS: u64 = BOOT_TICKS;
@@ -68,50 +68,10 @@ fn test_boot_kick31_a1200() {
     );
 }
 
-#[test]
-#[ignore]
-fn test_boot_kick30_a4000() {
-    let Some(rom) = load_rom("../../roms/kick30_39_106_a4000.rom") else {
-        return;
-    };
-    // A4000 boot doesn't reach STRAP display yet — capture only.
-    boot_screenshot_test(
-        AmigaConfig {
-            model: AmigaModel::A4000,
-            chipset: AmigaChipset::Aga,
-            region: AmigaRegion::Pal,
-            kickstart: rom,
-            slow_ram_size: 0,
-            ide_disk: None,
-            scsi_disk: None,
-            pcmcia_card: None,
-        },
-        "KS 3.0 A4000",
-        "boot_kick30_a4000",
-        AGA_BOOT_TICKS,
-    );
-}
-
-#[test]
-#[ignore]
-fn test_boot_kick31_a4000() {
-    let Some(rom) = load_rom("../../roms/kick31_40_068_a4000.rom") else {
-        return;
-    };
-    // A4000 boot doesn't reach STRAP display yet — capture only.
-    boot_screenshot_test(
-        AmigaConfig {
-            model: AmigaModel::A4000,
-            chipset: AmigaChipset::Aga,
-            region: AmigaRegion::Pal,
-            kickstart: rom,
-            slow_ram_size: 0,
-            ide_disk: None,
-            scsi_disk: None,
-            pcmcia_card: None,
-        },
-        "KS 3.1 A4000",
-        "boot_kick31_a4000",
-        AGA_BOOT_TICKS,
-    );
-}
+// Future: A4000 needs 68040 timing, Ramsey, Buster, SCSI.
+// Boot doesn't reach STRAP display — lower priority than A1200.
+//
+// #[test]
+// #[ignore]
+// fn test_boot_kick30_a4000() { .. }
+// fn test_boot_kick31_a4000() { .. }

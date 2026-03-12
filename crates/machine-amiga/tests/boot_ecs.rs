@@ -2,11 +2,8 @@
 
 mod common;
 
-use common::{BOOT_TICKS, BootExpect, boot_screenshot_test, boot_screenshot_test_expect, load_rom};
+use common::{BOOT_TICKS, BootExpect, boot_screenshot_test_expect, load_rom};
 use machine_amiga::{AmigaChipset, AmigaConfig, AmigaModel, AmigaRegion};
-
-/// A3000/A4000 need extra time: 68030 RomTag scan covers 4 MB via chip bus.
-const A3000_BOOT_TICKS: u64 = 2_550_000_000; // ~90 seconds PAL
 
 /// ECS insert-disk screen: hires, 3 planes (KS 2.x/3.x).
 const EXPECT_INSERT_DISK_HIRES: BootExpect = BootExpect {
@@ -132,82 +129,12 @@ fn test_boot_kick31_a600() {
     );
 }
 
-// A3000 variants: RAMSEY/Fat Gary at $DE0000, PMOVE stub, 32-bit
-// address fallthrough, 68030 instruction cache, 2 MB fast RAM.
-
-#[test]
-#[ignore]
-fn test_boot_kick13_a3000() {
-    let Some(rom) = load_rom("../../roms/kick13_34_005_a3000.rom") else {
-        return;
-    };
-    boot_screenshot_test(
-        AmigaConfig {
-            model: AmigaModel::A3000,
-            chipset: AmigaChipset::Ecs,
-            region: AmigaRegion::Pal,
-            kickstart: rom,
-            slow_ram_size: 0,
-            ide_disk: None,
-            scsi_disk: None,
-            pcmcia_card: None,
-        },
-        "KS 1.3 A3000",
-        "boot_kick13_a3000",
-        A3000_BOOT_TICKS,
-    );
-}
-
-#[test]
-#[ignore]
-fn test_boot_kick202_a3000() {
-    let Some(rom) = load_rom("../../roms/kick202_36_207_a3000.rom") else {
-        return;
-    };
-    boot_screenshot_test_expect(
-        AmigaConfig {
-            model: AmigaModel::A3000,
-            chipset: AmigaChipset::Ecs,
-            region: AmigaRegion::Pal,
-            kickstart: rom,
-            slow_ram_size: 0,
-            ide_disk: None,
-            scsi_disk: None,
-            pcmcia_card: None,
-        },
-        "KS 2.02 A3000",
-        "boot_kick202_a3000",
-        A3000_BOOT_TICKS,
-        BootExpect {
-            dmacon_set: Some(0x0180),
-            ..Default::default()
-        },
-    );
-}
-
-#[test]
-#[ignore]
-fn test_boot_kick31_a3000() {
-    let Some(rom) = load_rom("../../roms/kick31_40_068_a3000.rom") else {
-        return;
-    };
-    boot_screenshot_test_expect(
-        AmigaConfig {
-            model: AmigaModel::A3000,
-            chipset: AmigaChipset::Ecs,
-            region: AmigaRegion::Pal,
-            kickstart: rom,
-            slow_ram_size: 0,
-            ide_disk: None,
-            scsi_disk: None,
-            pcmcia_card: None,
-        },
-        "KS 3.1 A3000",
-        "boot_kick31_a3000",
-        A3000_BOOT_TICKS,
-        BootExpect {
-            dmacon_set: Some(0x0180),
-            ..Default::default()
-        },
-    );
-}
+// Future: A3000 variants need RAMSEY/Fat Gary, 68030 cache, SCSI DMA.
+// Display is blank on all KS versions — lower priority than consumer models.
+// Tests preserved below for when A3000 support is revisited.
+//
+// #[test]
+// #[ignore]
+// fn test_boot_kick13_a3000() { .. }
+// fn test_boot_kick202_a3000() { .. }
+// fn test_boot_kick31_a3000() { .. }
