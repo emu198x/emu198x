@@ -435,6 +435,14 @@ impl DeniseOcs {
             }
         }
 
+        // Sprites run at lores rate: one pixel per CCK (= 2 beam_x steps).
+        // The HSTART comparator matches at beam_x resolution (supporting
+        // sub-pixel positioning via SPRxCTL bit 0), but the shift register
+        // advances once per CCK. We read the current MSB on every beam_x
+        // (so both halves of the CCK display the same pixel), then shift
+        // on odd beam_x positions (end of each CCK).
+        let shift_phase = (beam_x & 1) == 1;
+
         self.spr_current_code = [0; 8];
         for sprite in 0..8usize {
             if !self.spr_armed[sprite] {
@@ -448,7 +456,9 @@ impl DeniseOcs {
             let vstart = u32::from(Self::sprite_vstart(pos, ctl));
             let vstop = u32::from(Self::sprite_vstop(pos, ctl));
 
-            // Comparator phase: detect the horizontal match for this pixel.
+            // Comparator phase: detect the horizontal match at beam_x
+            // resolution. HSTART encodes the lores position in the upper
+            // 8 bits and the sub-pixel delay in bit 0.
             let load_pulse = Self::sprite_line_active(beam_y, vstart, vstop) && beam_x == hstart;
 
             // Load phase: copy sprite data regs into the serial shifters.
@@ -458,7 +468,8 @@ impl DeniseOcs {
                 self.spr_shift_count[sprite] = self.spr_width;
             }
 
-            // Shift/output phase: emit one low-res sprite pixel.
+            // Output phase: read current MSB (same pixel for both halves
+            // of the CCK, giving each sprite pixel its correct lores width).
             if self.spr_shift_count[sprite] == 0 {
                 continue;
             }
@@ -467,9 +478,14 @@ impl DeniseOcs {
             let lo = (self.spr_shift_data[sprite] >> msb) & 1;
             let hi = (self.spr_shift_datb[sprite] >> msb) & 1;
             self.spr_current_code[sprite] = (lo | (hi << 1)) as u8;
-            self.spr_shift_data[sprite] <<= 1;
-            self.spr_shift_datb[sprite] <<= 1;
-            self.spr_shift_count[sprite] -= 1;
+
+            // Shift phase: advance the register once per CCK (on odd
+            // beam_x, i.e. the second half of each CCK).
+            if shift_phase {
+                self.spr_shift_data[sprite] <<= 1;
+                self.spr_shift_datb[sprite] <<= 1;
+                self.spr_shift_count[sprite] -= 1;
+            }
         }
     }
 
@@ -1268,6 +1284,46 @@ pub struct ViewportImage {
     pub height: u32,
 }
 
+impl ViewportImage {
+    /// Scale to a target resolution using nearest-neighbor sampling.
+    ///
+    /// Preserves pixel edges — appropriate for pixel-art content.
+    #[must_use]
+    pub fn scale_nearest(&self, target_w: u32, target_h: u32) -> ViewportImage {
+        let mut out = Vec::with_capacity((target_w * target_h) as usize);
+        for y in 0..target_h {
+            let src_y = (y * self.height) / target_h;
+            for x in 0..target_w {
+                let src_x = (x * self.width) / target_w;
+                let idx = (src_y * self.width + src_x) as usize;
+                out.push(self.pixels.get(idx).copied().unwrap_or(0xFF00_0000));
+            }
+        }
+        ViewportImage {
+            pixels: out,
+            width: target_w,
+            height: target_h,
+        }
+    }
+
+    /// Scale to display-correct dimensions for a given PAL/NTSC region.
+    ///
+    /// Produces a 4:3 image that matches how the Amiga display appears on a
+    /// real TV. PAL standard viewport (1280×256 raw) becomes 720×540.
+    /// NTSC standard viewport (1280×200 raw) becomes 720×540.
+    ///
+    /// These dimensions match common emulator output and are suitable for
+    /// visual comparison with reference emulators like FS-UAE.
+    #[must_use]
+    pub fn to_display(&self) -> ViewportImage {
+        // Target 720×540: a clean 4:3 resolution that works for both PAL
+        // and NTSC. PAL content fills the frame; NTSC content is slightly
+        // vertically stretched (200→540 vs 256→540) but the overall
+        // proportions are correct for TV display.
+        self.scale_nearest(720, 540)
+    }
+}
+
 impl DeniseOcs {
     /// Extract a viewport from the raster framebuffer.
     ///
@@ -1909,28 +1965,38 @@ mod tests {
         denise.set_palette(17, 0xF00); // even-only attached fallback color (code 0001)
         denise.set_palette(20, 0x0F0); // odd-only attached fallback color (code 0100)
 
-        let (pos0, ctl0) = encode_sprite_pos_ctl(40, 10, 11);
+        // Sprites shift at lores rate (once per CCK = 2 beam_x steps).
+        // To get a misaligned region where only ONE sprite has a pixel:
+        // - Even sprite starts at hstart=38, with 1-bit data (0x8000).
+        //   Its first pixel spans beam_x 38-39 (CCK 19). After shifting,
+        //   the data is exhausted at beam_x 40+.
+        // - Odd sprite starts at hstart=40, with 1-bit data (0x8000).
+        //   Its first pixel spans beam_x 40-41 (CCK 20).
+        //
+        // At beam_x=38: even-only (even has data, odd hasn't started).
+        // At beam_x=40: odd-only (even exhausted, odd just started).
+        let (pos0, ctl0) = encode_sprite_pos_ctl(38, 10, 11);
         denise.spr_pos[0] = pos0;
         denise.spr_ctl[0] = ctl0;
-        denise.spr_data[0] = 0x8000; // pixel at x=40 only
+        denise.spr_data[0] = 0x8000; // pixel at hstart=38 only
         denise.spr_datb[0] = 0x0000;
 
-        let (pos1, ctl1) = encode_sprite_pos_ctl(41, 10, 11); // shifted right by 1 pixel
+        let (pos1, ctl1) = encode_sprite_pos_ctl(40, 10, 11); // starts 1 CCK later
         denise.spr_pos[1] = pos1;
         denise.spr_ctl[1] = ctl1 | 0x0080; // ATTACH on odd sprite
-        denise.spr_data[1] = 0x8000; // odd-only pixel at x=41
+        denise.spr_data[1] = 0x8000; // odd-only pixel at hstart=40
         denise.spr_datb[1] = 0x0000;
 
+        let c38 = denise.output_pixel_color(38, 10);
         let c40 = denise.output_pixel_color(40, 10);
-        let c41 = denise.output_pixel_color(41, 10);
 
         assert_eq!(
-            c40,
+            c38,
             DeniseOcs::rgb12_to_argb32(0xF00),
             "even-only pixel in misaligned attached pair should use COLOR17..19 subset"
         );
         assert_eq!(
-            c41,
+            c40,
             DeniseOcs::rgb12_to_argb32(0x0F0),
             "odd-only pixel in misaligned attached pair should use shifted COLOR20/24/28 subset"
         );

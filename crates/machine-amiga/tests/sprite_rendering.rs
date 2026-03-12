@@ -285,17 +285,24 @@ fn misaligned_attached_sprite_pair_uses_shifted_colors_at_machine_level() {
     let spr0_addr = 0x0000_3000u32;
     let spr1_addr = 0x0000_3040u32;
     let beam_x = TARGET_HPOS * 2;
-    let (pos0, ctl0) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
-    let (pos1, ctl1) = encode_sprite_pos_ctl(beam_x + 1, DISPLAY_VSTART, DISPLAY_VSTART + 2);
 
-    // Sprite 0 contributes a pixel at the left pixel of the target CCK.
+    // Sprites shift at lores rate (once per CCK). To create a misaligned
+    // attached pair where only ONE sprite has data at a given CCK, the
+    // even sprite must start 1 CCK earlier so its single-bit pixel is
+    // exhausted before the odd sprite starts.
+    let (pos0, ctl0) =
+        encode_sprite_pos_ctl(beam_x - 2, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+    let (pos1, ctl1) = encode_sprite_pos_ctl(beam_x, DISPLAY_VSTART, DISPLAY_VSTART + 2);
+
+    // Sprite 0 starts 1 CCK before TARGET_HPOS with a single pixel.
     write_word(&mut amiga, spr0_addr, pos0);
     write_word(&mut amiga, spr0_addr + 2, ctl0);
     write_word(&mut amiga, spr0_addr + 4, 0x8000);
     write_word(&mut amiga, spr0_addr + 6, 0x0000);
 
-    // Sprite 1 is attached but shifted right by one pixel, so the same CCK
-    // shows an even-only pixel followed by an odd-only pixel.
+    // Sprite 1 (attached) starts at TARGET_HPOS. At the previous CCK,
+    // only sprite 0 has data (even-only). At TARGET_HPOS, only sprite 1
+    // has data (odd-only) since sprite 0's pixel has been shifted out.
     write_word(&mut amiga, spr1_addr, pos1);
     write_word(&mut amiga, spr1_addr + 2, ctl1 | 0x0080); // ATTACH on odd sprite
     write_word(&mut amiga, spr1_addr + 4, 0x8000);
@@ -312,13 +319,15 @@ fn misaligned_attached_sprite_pair_uses_shifted_colors_at_machine_level() {
     run_to_render_cck(&mut amiga);
     tick_ccks(&mut amiga, 1);
 
+    // CCK before TARGET_HPOS: only sprite 0 has data → even-only (COLOR17)
     assert_eq!(
-        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS - 1, 0),
         rgb12_to_argb32(0xF00),
         "misaligned attached pair even-only pixel should use COLOR17..19 subset"
     );
+    // TARGET_HPOS CCK: only sprite 1 has data → odd-only (COLOR20)
     assert_eq!(
-        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 4),
+        raster_pixel(&amiga, DISPLAY_VSTART + 1, TARGET_HPOS, 0),
         rgb12_to_argb32(0x0F0),
         "misaligned attached pair odd-only pixel should use shifted COLOR20/24/28 subset"
     );
@@ -494,13 +503,16 @@ fn clxdat_for_sprite0_with_playfield_bits(
     amiga.write_custom_reg(REG_CLXCON, clxcon);
     position_beam_for_single_render_cck(&mut amiga);
 
+    // Two output calls per CCK (beam_x even + odd), each consuming one
+    // bitplane source pixel.  Both halves must see the same plane state
+    // so that the CLXCON match/mismatch is consistent across the CCK.
     if odd_plane1_set {
-        amiga.denise.bpl_shift[0] = 0x8000; // BPL1
+        amiga.denise.bpl_shift[0] = 0xC000; // BPL1: two MSBs set
     }
     if even_plane2_set {
-        amiga.denise.bpl_shift[1] = 0x8000; // BPL2
+        amiga.denise.bpl_shift[1] = 0xC000; // BPL2: two MSBs set
     }
-    amiga.denise.shift_count = 1;
+    amiga.denise.shift_count = 2;
     tick_ccks(&mut amiga, 1);
 
     read_custom_word_via_cpu_bus(&mut amiga, CLXDAT_ADDR)
