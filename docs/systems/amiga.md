@@ -301,14 +301,20 @@ Hard disk install format for games. Requires Kickstart and WHDLoad package.
 
 | Version | Systems           |
 | ------- | ----------------- |
-| 1.2     | A500, A2000 early |
-| 1.3     | A500, A2000       |
+| 1.0     | A1000             |
+| 1.2     | A500, A1000, A2000 |
+| 1.3     | A500, A1000, A2000, CDTV, A3000 |
+| 2.0     | A3000 (beta)      |
+| 2.02    | A3000             |
 | 2.04    | A500+             |
 | 2.05    | A600              |
 | 3.0     | A1200, A4000      |
-| 3.1     | A1200, A4000      |
+| 3.1     | All models        |
 
-Games often require specific minimum Kickstart version.
+Games often require specific minimum Kickstart version. See
+[kickstart/README.md](kickstart/README.md) for the full ROM inventory and
+[kickstart/boot-flow-overview.md](kickstart/boot-flow-overview.md) for the
+boot sequence reference.
 
 ## Verification Files
 

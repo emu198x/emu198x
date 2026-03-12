@@ -14,6 +14,8 @@ Use this file as the starting point for navigating `docs/`.
 ## System Documentation
 
 - [systems/amiga.md](systems/amiga.md) - Amiga technical notes and detailed Emu198x status
+  - [systems/amiga/chipset/](systems/amiga/chipset/README.md) - Custom chipset behavioral reference (Agnus, Denise, Paula, CIA)
+  - [systems/amiga/kickstart/](systems/amiga/kickstart/README.md) - Kickstart ROM boot flow reference (all versions)
 - [systems/c64.md](systems/c64.md) - C64 technical notes and detailed Emu198x status
 - [systems/nes.md](systems/nes.md) - NES technical notes and detailed Emu198x status
 - [systems/spectrum.md](systems/spectrum.md) - Spectrum technical notes and detailed Emu198x status
