@@ -31,6 +31,7 @@ struct CliArgs {
     sid_model: String,
     reu_size: Option<u32>,
     prg_path: Option<PathBuf>,
+    bas_path: Option<PathBuf>,
     d64_path: Option<PathBuf>,
     drive_rom_path: Option<PathBuf>,
     headless: bool,
@@ -50,6 +51,7 @@ fn parse_args() -> CliArgs {
         sid_model: "6581".to_string(),
         reu_size: None,
         prg_path: None,
+        bas_path: None,
         d64_path: None,
         drive_rom_path: None,
         headless: false,
@@ -86,6 +88,10 @@ fn parse_args() -> CliArgs {
             "--prg" => {
                 i += 1;
                 cli.prg_path = args.get(i).map(PathBuf::from);
+            }
+            "--bas" => {
+                i += 1;
+                cli.bas_path = args.get(i).map(PathBuf::from);
             }
             "--d64" => {
                 i += 1;
@@ -483,6 +489,30 @@ fn make_c64_from_config(config: &C64Config, cli: &CliArgs) -> C64 {
             Ok(addr) => eprintln!("Loaded PRG at ${addr:04X}: {}", path.display()),
             Err(e) => {
                 eprintln!("Failed to load PRG: {e}");
+                process::exit(1);
+            }
+        }
+    }
+
+    if let Some(ref path) = cli.bas_path {
+        let source = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to read BAS file {}: {e}", path.display());
+                process::exit(1);
+            }
+        };
+        let program = match format_c64_bas::tokenise(&source) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Failed to tokenise BASIC: {e}");
+                process::exit(1);
+            }
+        };
+        match c64.load_prg(&program.bytes) {
+            Ok(addr) => eprintln!("Loaded BAS as PRG at ${addr:04X}: {}", path.display()),
+            Err(e) => {
+                eprintln!("Failed to load tokenised BASIC: {e}");
                 process::exit(1);
             }
         }

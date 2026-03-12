@@ -1,0 +1,9 @@
+[package]
+name = "format-c64-bas"
+description = "Commodore 64 BASIC V2 tokeniser — converts text .bas files to PRG bytes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

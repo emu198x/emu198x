@@ -93,6 +93,21 @@ impl McpEmulator for C64Mcp {
                 }),
             },
             ToolDefinition {
+                name: "load_bas",
+                description: "Tokenise a BASIC V2 source file, convert to PRG, and load it",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to .bas file" },
+                        "source": { "type": "string", "description": "BASIC source text (alternative to path)" },
+                        "autostart": {
+                            "type": "boolean",
+                            "description": "Type RUN and execute the program automatically (default: false)"
+                        }
+                    }
+                }),
+            },
+            ToolDefinition {
                 name: "run_frames",
                 description: "Run the emulator for N frames (50fps PAL)",
                 input_schema: serde_json::json!({
@@ -277,6 +292,7 @@ impl McpEmulator for C64Mcp {
             "boot" => self.handle_boot(),
             "reset" => self.handle_reset(),
             "load_prg" => self.handle_load_prg(arguments),
+            "load_bas" => self.handle_load_bas(arguments),
             "run_frames" => self.handle_run_frames(arguments),
             "step_instruction" => self.handle_step_instruction(),
             "step_ticks" => self.handle_step_ticks(arguments),
@@ -350,6 +366,82 @@ impl C64Mcp {
                 code: -32000,
                 message: format!("PRG load failed: {e}"),
             },
+        }
+    }
+
+    fn handle_load_bas(&mut self, params: &JsonValue) -> ToolResult {
+        let c64 = match self.require_c64() {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+
+        // Read BASIC source from `source` param or `path` file
+        let source = if let Some(text) = params.get("source").and_then(|v| v.as_str()) {
+            text.to_string()
+        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+            match std::fs::read_to_string(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return ToolResult::Error {
+                        code: -32602,
+                        message: format!("Cannot read file: {e}"),
+                    };
+                }
+            }
+        } else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Provide 'source' (BASIC text) or 'path' (file path)".to_string(),
+            };
+        };
+
+        // Tokenise to PRG format
+        let program = match format_c64_bas::tokenise(&source) {
+            Ok(p) => p,
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Tokenise failed: {e}"),
+                };
+            }
+        };
+
+        // Load the PRG into memory
+        let addr = match c64.load_prg(&program.bytes) {
+            Ok(a) => a,
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("PRG load failed: {e}"),
+                };
+            }
+        };
+
+        let autostart = params
+            .get("autostart")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if autostart {
+            // Type RUN + Return and run frames for it to execute
+            let start = c64.frame_count();
+            let end = c64.input_queue().enqueue_text("RUN\n", start);
+            while c64.frame_count() < end + 30 {
+                c64.run_frame();
+            }
+            ToolResult::Success(serde_json::json!({
+                "status": "ok",
+                "format": "bas",
+                "load_address": format!("${addr:04X}"),
+                "autostart": true,
+                "frames": c64.frame_count(),
+            }))
+        } else {
+            ToolResult::Success(serde_json::json!({
+                "status": "ok",
+                "format": "bas",
+                "load_address": format!("${addr:04X}"),
+            }))
         }
     }
 
