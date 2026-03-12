@@ -1,0 +1,16 @@
+[package]
+name = "format-spectrum-bas"
+description = "ZX Spectrum BASIC tokeniser — converts text .bas files to tokenised program bytes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+format-spectrum-tap = { path = "../format-spectrum-tap" }
+
+[[bin]]
+name = "bas2tap"
+path = "src/main.rs"
