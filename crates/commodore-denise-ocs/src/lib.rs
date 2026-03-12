@@ -1251,8 +1251,8 @@ impl ViewportPreset {
             Self::Standard => ViewportBounds {
                 h_start_cck: 0x32,
                 h_end_cck: 0xEE, // 188 CCKs = 752 hires = 376 lores
-                v_start_line: 0x1D,
-                v_end_line: 0x13B, // 286 lines
+                v_start_line: 0x1A,
+                v_end_line: 0x138, // 286 lines (matches WinUAE VBLANK_ENDLINE_PAL=26)
             },
             Self::Overscan => ViewportBounds {
                 h_start_cck: 0x1C,
@@ -1276,8 +1276,8 @@ impl ViewportPreset {
             Self::Standard => ViewportBounds {
                 h_start_cck: 0x32,
                 h_end_cck: 0xEE, // 188 CCKs = 752 hires = 376 lores
-                v_start_line: 0x1D,
-                v_end_line: 0x103, // 230 lines
+                v_start_line: 0x15,
+                v_end_line: 0xFB, // 230 lines (matches WinUAE VBLANK_ENDLINE_NTSC=21)
             },
             Self::Overscan => ViewportBounds {
                 h_start_cck: 0x1C,

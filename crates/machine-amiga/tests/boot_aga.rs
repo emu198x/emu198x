@@ -62,7 +62,7 @@ fn test_boot_kick31_a1200() {
         BootExpect {
             dmacon_set: Some(0x03C0),
             bplcon0: Some(0x8303),
-            viewport_hash: Some(0xD8C8D3C08976DECE),
+            viewport_hash: Some(0x61A2A80EB63450DA),
             ..Default::default()
         },
     );
