@@ -170,26 +170,55 @@ fn tokenise_line(line: &str) -> Vec<u8> {
 
 /// Try to match a keyword at the start of `text`.
 /// Returns the token byte and the number of source bytes consumed.
+///
+/// Many Spectrum keywords include a trailing space in the token table
+/// (e.g. `"PRINT "`) because the ROM embeds the space. When matching,
+/// we consume the trailing space if present but also accept the keyword
+/// at end-of-line without one.
 fn match_keyword(text: &[u8]) -> Option<(u8, usize)> {
     // Keywords are sorted longest-first in the table to ensure greedy matching.
     for &(keyword, token) in KEYWORDS {
-        if text.len() >= keyword.len()
-            && text[..keyword.len()].eq_ignore_ascii_case(keyword.as_bytes())
-        {
-            // Avoid matching keywords that are prefixes of identifiers.
-            // e.g. "PRINTER" should not match "PRINT" + "ER".
-            // If the keyword ends with a letter and the next char is also a letter/digit,
-            // don't match.
-            let last_kw = keyword.as_bytes()[keyword.len() - 1];
-            if last_kw.is_ascii_alphabetic() {
-                if let Some(&next) = text.get(keyword.len()) {
-                    if next.is_ascii_alphanumeric() || next == b'$' {
-                        continue;
-                    }
+        let kw = keyword.as_bytes();
+        let has_trailing_space = kw.last() == Some(&b' ');
+
+        // Core keyword without the optional trailing space
+        let core_len = if has_trailing_space {
+            kw.len() - 1
+        } else {
+            kw.len()
+        };
+
+        if text.len() < core_len {
+            continue;
+        }
+
+        if !text[..core_len].eq_ignore_ascii_case(&kw[..core_len]) {
+            continue;
+        }
+
+        // Avoid matching keywords that are prefixes of identifiers.
+        // e.g. "PRINTER" should not match "PRINT" + "ER".
+        let last_core = kw[core_len - 1];
+        if last_core.is_ascii_alphabetic() {
+            if let Some(&next) = text.get(core_len) {
+                if next.is_ascii_alphanumeric() || next == b'$' {
+                    continue;
                 }
             }
-            return Some((token, keyword.len()));
         }
+
+        // Determine how many source bytes to consume: include trailing
+        // space if present in source, otherwise just the core keyword.
+        let consume = if has_trailing_space
+            && text.len() > core_len
+            && text[core_len] == b' '
+        {
+            core_len + 1
+        } else {
+            core_len
+        };
+
+        return Some((token, consume));
     }
     None
 }
