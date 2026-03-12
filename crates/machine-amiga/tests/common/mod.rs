@@ -1,7 +1,7 @@
 //! Shared helpers for Amiga boot screenshot tests.
 
 use machine_amiga::commodore_denise_ocs::{ViewportImage, ViewportPreset};
-use machine_amiga::{AUDIO_SAMPLE_RATE, Amiga, AmigaConfig, AmigaRegion, PAL_FRAME_TICKS};
+use machine_amiga::{Amiga, AmigaConfig, AmigaRegion};
 use std::fs;
 
 /// Save a `ViewportImage` to a PNG file.
@@ -90,14 +90,6 @@ pub fn boot_screenshot_test(
     let report_interval: u64 = 28_375_160; // ~1 second
     let battclock_threshold: u64 = 2 * 28_375_160; // ~2 seconds
     let mut last_report = 0u64;
-
-    // Video capture: one frame every 25 VBLANKs (~2 fps)
-    let capture_interval = PAL_FRAME_TICKS * 25;
-    let mut next_capture = capture_interval;
-    let mut video_frames: Vec<u8> = Vec::new();
-    let mut audio_samples: Vec<f32> = Vec::new();
-    let mut frame_width = 0u32;
-    let mut frame_height = 0u32;
 
     let mut initcode_trace_active = true;
     let mut probe_started = false;
@@ -951,23 +943,6 @@ pub fn boot_screenshot_test(
         // force-setting the TOD counter.
         let _ = battclock_threshold;
 
-        // Capture a video frame + drain audio periodically
-        if i >= next_capture {
-            next_capture += capture_interval;
-            let vp = amiga
-                .denise
-                .extract_viewport(ViewportPreset::Standard, pal, true);
-            frame_width = vp.width;
-            frame_height = vp.height;
-            for &pixel in &vp.pixels {
-                video_frames.push(((pixel >> 16) & 0xFF) as u8);
-                video_frames.push(((pixel >> 8) & 0xFF) as u8);
-                video_frames.push((pixel & 0xFF) as u8);
-                video_frames.push(0xFF);
-            }
-            audio_samples.extend_from_slice(&amiga.take_audio_buffer());
-        }
-
         if i % 4 != 0 || i - last_report < report_interval {
             continue;
         }
@@ -1000,124 +975,20 @@ pub fn boot_screenshot_test(
         eprintln!("[END] SPR0 data @$0490: pos=${:04X} ctl=${:04X}", w0, w1);
     }
 
-    // Drain any remaining audio
-    audio_samples.extend_from_slice(&amiga.take_audio_buffer());
 
-    // Save raster framebuffer screenshots (standard, display-scaled, full raster)
+    // Save display-resolution screenshot and compute viewport hash
     let viewport = amiga
         .denise
         .extract_viewport(ViewportPreset::Standard, pal, true);
     let vp_hash = hash_viewport(&viewport);
     println!("Viewport hash: 0x{vp_hash:016X}");
-    {
-        // Raw superhires screenshot (1280×256 PAL, 1280×200 NTSC)
-        let std_path_str = format!("../../test_output/amiga/{screenshot_prefix}.png");
-        save_viewport_png(&std_path_str, &viewport);
-        println!(
-            "Screenshot saved to {} ({}x{})",
-            std_path_str, viewport.width, viewport.height,
-        );
-
-        // Display-resolution screenshot (720×540, correct 4:3 PAR)
-        let display = viewport.to_display();
-        let display_path_str = format!("../../test_output/amiga/{screenshot_prefix}_display.png");
-        save_viewport_png(&display_path_str, &display);
-        println!(
-            "Display screenshot saved to {} ({}x{})",
-            display_path_str, display.width, display.height,
-        );
-
-        // Full raster (debug)
-        let full = amiga
-            .denise
-            .extract_viewport(ViewportPreset::Full, pal, true);
-        let full_path_str = format!("../../test_output/amiga/{screenshot_prefix}_full.png");
-        save_viewport_png(&full_path_str, &full);
-        println!(
-            "Full raster saved to {} ({}x{})",
-            full_path_str, full.width, full.height,
-        );
-    }
-
-    // Encode captured frames + audio to MP4 via ffmpeg
-    if frame_width > 0 && !video_frames.is_empty() {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
-
-        let mp4_path = format!("../../test_output/amiga/{screenshot_prefix}.mp4");
-
-        // Write raw f32le PCM audio to a temp file for ffmpeg's second input
-        let audio_tmp = format!("../../test_output/amiga/.{screenshot_prefix}_audio.raw");
-        {
-            let mut f = fs::File::create(&audio_tmp).expect("create audio temp file");
-            let pcm_bytes: Vec<u8> = audio_samples.iter().flat_map(|s| s.to_le_bytes()).collect();
-            f.write_all(&pcm_bytes).expect("write audio temp file");
-        }
-
-        let sample_rate_str = AUDIO_SAMPLE_RATE.to_string();
-        let video_size_str = format!("{frame_width}x{frame_height}");
-        match Command::new("ffmpeg")
-            .args([
-                "-y",
-                // Video input: raw RGBA frames on stdin
-                "-f",
-                "rawvideo",
-                "-pixel_format",
-                "rgba",
-                "-video_size",
-                &video_size_str,
-                "-framerate",
-                "2",
-                "-i",
-                "pipe:0",
-                // Audio input: raw f32le stereo PCM from temp file
-                "-f",
-                "f32le",
-                "-ar",
-                &sample_rate_str,
-                "-ac",
-                "2",
-                "-i",
-                &audio_tmp,
-                // Output
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "128k",
-                "-shortest",
-                &mp4_path,
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
-            Ok(mut child) => {
-                child
-                    .stdin
-                    .take()
-                    .unwrap()
-                    .write_all(&video_frames)
-                    .expect("pipe video frames");
-                let output = child.wait_with_output().expect("ffmpeg");
-                if output.status.success() {
-                    println!("Video saved to {mp4_path} (with audio)");
-                } else {
-                    eprintln!("ffmpeg failed: {}", String::from_utf8_lossy(&output.stderr));
-                }
-            }
-            Err(e) => {
-                eprintln!("ffmpeg not found ({e}), skipping video output");
-            }
-        }
-
-        // Clean up temp file
-        fs::remove_file(&audio_tmp).ok();
-    }
+    let display = viewport.to_display();
+    let display_path_str = format!("../../test_output/amiga/{screenshot_prefix}_display.png");
+    save_viewport_png(&display_path_str, &display);
+    println!(
+        "Display screenshot saved to {} ({}x{})",
+        display_path_str, display.width, display.height,
+    );
 
     println!("DMACON  = ${:04X}", amiga.agnus.dmacon);
     println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
