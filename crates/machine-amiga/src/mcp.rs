@@ -1181,7 +1181,7 @@ mod tests {
             scsi_disk: None,
             pcmcia_card: None,
         });
-        amiga.write_custom_reg(0x1DC, 0xAB3E);
+        amiga.write_custom_reg(0x1DC, 0x559F);
 
         let mut mcp = AmigaMcp { amiga: Some(amiga) };
         let result = mcp.dispatch_tool(
@@ -1197,7 +1197,7 @@ mod tests {
                     value.get("path").and_then(|v| v.as_str()),
                     Some("agnus.beamcon0")
                 );
-                assert_eq!(value.get("value"), Some(&serde_json::json!(0xAB3E)));
+                assert_eq!(value.get("value"), Some(&serde_json::json!(0x559F)));
             }
             ToolResult::Error { message, .. } => panic!("unexpected error: {message}"),
         }

@@ -247,14 +247,21 @@ struct Wd33c93 {
     dma_direction_read: bool,
     /// SCSI CDB buffer for SEL_ATN_XFER / SEL_XFER commands.
     cdb: [u8; 12],
+    /// Debug trace flag.
+    trace: bool,
 }
 
 impl Wd33c93 {
     fn new() -> Self {
+        // Power-on state: the WD33C93 generates a reset interrupt after
+        // hardware reset completes. SCSI_STATUS = RESET ($00) and
+        // ASR.INT is set so the host can detect the chip is ready.
+        let mut regs = [0u8; 32];
+        regs[wd_reg::SCSI_STATUS as usize] = wd_csr::RESET;
         Self {
             selected_reg: 0,
-            regs: [0; 32],
-            asr: 0,
+            regs,
+            asr: wd_asr::INT,
             targets: [const { None }; 7],
             dma_buffer: Vec::new(),
             dma_read_pos: 0,
@@ -262,6 +269,7 @@ impl Wd33c93 {
             dma_pending: false,
             dma_direction_read: true,
             cdb: [0; 12],
+            trace: false,
         }
     }
 
@@ -294,8 +302,14 @@ impl Wd33c93 {
             }
             _ => self.regs[reg as usize],
         };
-        // Auto-increment, except for ASR, DATA, and COMMAND registers.
-        if reg != wd_reg::AUXILIARY_STATUS && reg != wd_reg::DATA && reg != wd_reg::COMMAND {
+        // Auto-increment after read, except for ASR, DATA, COMMAND,
+        // and SCSI_STATUS. WD33C93 skips SCSI_STATUS on read (but
+        // not on write) — matches WinUAE behaviour.
+        if reg != wd_reg::AUXILIARY_STATUS
+            && reg != wd_reg::DATA
+            && reg != wd_reg::COMMAND
+            && reg != wd_reg::SCSI_STATUS
+        {
             self.selected_reg = self.selected_reg.wrapping_add(1) & 0x1F;
         }
         val
@@ -308,7 +322,9 @@ impl Wd33c93 {
             wd_reg::COMMAND => self.execute_command(val),
             _ => self.regs[reg as usize] = val,
         }
-        // Auto-increment, except for ASR, DATA, and COMMAND registers.
+        // Auto-increment after write, except for ASR, DATA, and
+        // COMMAND. SCSI_STATUS *does* auto-increment on write
+        // (only reads skip it).
         if reg != wd_reg::AUXILIARY_STATUS && reg != wd_reg::DATA && reg != wd_reg::COMMAND {
             self.selected_reg = self.selected_reg.wrapping_add(1) & 0x1F;
         }
@@ -316,6 +332,24 @@ impl Wd33c93 {
 
     /// Execute a WD33C93 command.
     fn execute_command(&mut self, cmd: u8) {
+        if self.trace {
+            let cmd_name = match cmd {
+                wd_cmd::RESET => "RESET",
+                wd_cmd::ABORT => "ABORT",
+                wd_cmd::SEL_ATN => "SEL_ATN",
+                wd_cmd::SEL => "SEL",
+                wd_cmd::SEL_ATN_XFER => "SEL_ATN_XFER",
+                wd_cmd::SEL_XFER => "SEL_XFER",
+                _ => "UNKNOWN",
+            };
+            eprintln!(
+                "[WD33C93] cmd=${:02X}({}) dest_id={} asr=${:02X}",
+                cmd,
+                cmd_name,
+                self.regs[wd_reg::DESTINATION_ID as usize] & 0x07,
+                self.asr
+            );
+        }
         match cmd {
             wd_cmd::RESET => {
                 // Software reset. Check EAF (OWN_ID bit 3) to decide
@@ -364,8 +398,18 @@ impl Wd33c93 {
             _ => {
                 // Unknown or unimplemented command — set LCI (Last
                 // Command Ignored) in ASR. KS handles this gracefully.
+                if self.trace {
+                    eprintln!("[WD33C93] unknown cmd=${:02X} → LCI", cmd);
+                }
                 self.asr |= 0x40; // LCI bit
             }
+        }
+        if self.trace {
+            eprintln!(
+                "[WD33C93]   → status=${:02X} asr=${:02X}",
+                self.regs[wd_reg::SCSI_STATUS as usize],
+                self.asr
+            );
         }
     }
 
@@ -688,6 +732,11 @@ impl Dmac390537 {
             && self.wd.targets[target_id as usize].is_some()
     }
 
+    /// Enable or disable WD33C93 command-level debug tracing.
+    pub fn set_trace(&mut self, enabled: bool) {
+        self.wd.trace = enabled;
+    }
+
     /// Reset all state to power-on defaults.
     pub fn reset(&mut self) {
         self.wd.hardware_reset();
@@ -999,8 +1048,14 @@ mod tests {
     #[test]
     fn power_on_istr_fifo_empty() {
         let mut d = Dmac390537::new();
-        let istr = d.read_word(reg_addr(REG_ISTR));
-        assert_eq!(istr as u8 & istr_bits::FE_FLG, istr_bits::FE_FLG);
+        let istr = d.read_word(reg_addr(REG_ISTR)) as u8;
+        // FIFO is empty after power-on.
+        assert_eq!(istr & istr_bits::FE_FLG, istr_bits::FE_FLG);
+        // WD33C93 power-on reset generates an interrupt (INTS + INT_F).
+        assert_eq!(istr & istr_bits::INTS, istr_bits::INTS);
+        assert_eq!(istr & istr_bits::INT_F, istr_bits::INT_F);
+        // INT_P requires CNTR.INTEN (which is 0 at power-on).
+        assert_eq!(istr & istr_bits::INT_P, 0);
     }
 
     #[test]
@@ -1250,6 +1305,10 @@ mod tests {
         let sasr_addr = reg_addr(REG_SASR);
         let scmd_addr = reg_addr(REG_SCMD);
         let istr_addr = reg_addr(REG_ISTR);
+
+        // Clear the power-on RESET interrupt by reading SCSI_STATUS.
+        d.write_word(sasr_addr, wd_reg::SCSI_STATUS as u16);
+        let _ = d.read_word(scmd_addr);
 
         d.write_word(sasr_addr, wd_reg::COMMAND as u16);
         d.write_word(scmd_addr, 0xFF);

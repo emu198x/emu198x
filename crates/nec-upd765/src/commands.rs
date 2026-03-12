@@ -242,7 +242,6 @@ fn exec_write_data(
     let head = (cmd_buf[1] >> 2) & 0x01;
     let r = cmd_buf[4];
     let n = cmd_buf[5];
-    // cmd_buf[2] = C, cmd_buf[3] = H, eot/gpl/dtl in remaining bytes
 
     *st0 = drive as u8 | (head << 2);
     *st1 = 0;
@@ -260,20 +259,10 @@ fn exec_write_data(
         );
     };
 
-    // For now, write data is accepted but the actual data transfer from CPU
-    // happens byte-by-byte via the data register in the main FDC loop.
-    // This stub sets up the result for after the transfer completes.
-    // The sector size for write is 128 << n bytes.
-
-    let _sector_size = 128usize << u32::from(n);
-    // Write will be handled by the data register write path.
-    // For now, just signal success.
-
-    *phase = FdcPhase::Result;
-    (
-        make_read_write_result(*st0, *st1, *st2, track, head, r, n),
-        true,
-    )
+    // Enter execution phase — CPU will send sector bytes via write_data().
+    // The FDC struct sets up write_params/write_expected from the command buffer.
+    *phase = FdcPhase::Execution;
+    (Vec::new(), false)
 }
 
 // ---------------------------------------------------------------------------

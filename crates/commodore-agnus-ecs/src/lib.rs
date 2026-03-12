@@ -12,31 +12,42 @@ pub use commodore_agnus_ocs::{
     PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
 };
 
-/// `BEAMCON0` bit enabling programmable beam counter comparator limits.
+/// `BEAMCON0` bit layout (bits 14..0), matching the HRM and WinUAE definitions.
 ///
-/// This mask is derived from the HRM `BEAMCON0` bit ordering (HARDDIS..HSYTRUE)
-/// where `VARBEAMEN` appears after `VARHSYEN`.
-pub const BEAMCON0_VARBEAMEN: u16 = 0x0100;
-/// `BEAMCON0` bit disabling hardwired horizontal/vertical blanking.
-pub const BEAMCON0_HARDDIS: u16 = 0x8000;
-/// `BEAMCON0` bit enabling programmable vertical blanking window (`VBSTRT/VBSTOP`).
-pub const BEAMCON0_VARVBEN: u16 = 0x2000;
-/// `BEAMCON0` bit enabling programmable vertical sync (`VSSTRT/VSSTOP`).
-pub const BEAMCON0_VARVSYEN: u16 = 0x0400;
-/// `BEAMCON0` bit enabling programmable horizontal sync (`HSSTRT/HSSTOP`).
-pub const BEAMCON0_VARHSYEN: u16 = 0x0200;
-/// `BEAMCON0` bit redirecting composite sync output path.
-pub const BEAMCON0_CSCBEN: u16 = 0x0800;
-/// `BEAMCON0` bit enabling programmable composite sync (coarse modeled).
-pub const BEAMCON0_VARCSYEN: u16 = 0x0020;
-/// `BEAMCON0` bit redirecting composite blank to the external blank output.
-pub const BEAMCON0_BLANKEN: u16 = 0x0010;
-/// `BEAMCON0` bit selecting "true" polarity for composite sync output.
-pub const BEAMCON0_CSYTRUE: u16 = 0x0008;
-/// `BEAMCON0` bit selecting "true" polarity for vertical sync output.
-pub const BEAMCON0_VSYTRUE: u16 = 0x0004;
-/// `BEAMCON0` bit selecting "true" polarity for horizontal sync output.
-pub const BEAMCON0_HSYTRUE: u16 = 0x0002;
+/// Bit 5 (`PAL`) is a read/write flag that indicates PAL vs NTSC mode. On real
+/// hardware this defaults to set for PAL systems and clear for NTSC. Software
+/// (including `graphics.library`) reads this bit to detect the video standard.
+
+/// Bit 0: select "true" (active-high) polarity for horizontal sync output.
+pub const BEAMCON0_HSYTRUE: u16 = 0x0001;
+/// Bit 1: select "true" (active-high) polarity for vertical sync output.
+pub const BEAMCON0_VSYTRUE: u16 = 0x0002;
+/// Bit 2: select "true" (active-high) polarity for composite sync output.
+pub const BEAMCON0_CSYTRUE: u16 = 0x0004;
+/// Bit 3: redirect composite blank to the external blank output.
+pub const BEAMCON0_BLANKEN: u16 = 0x0008;
+/// Bit 4: enable programmable composite sync (coarse modeled).
+pub const BEAMCON0_VARCSYEN: u16 = 0x0010;
+/// Bit 5: PAL mode flag. Set on PAL systems, clear on NTSC.
+pub const BEAMCON0_PAL: u16 = 0x0020;
+/// Bit 6: dual-playfield genlock mode (not emulated).
+pub const BEAMCON0_DUAL: u16 = 0x0040;
+/// Bit 7: enable programmable beam counter comparator limits.
+pub const BEAMCON0_VARBEAMEN: u16 = 0x0080;
+/// Bit 8: enable programmable horizontal sync (`HSSTRT/HSSTOP`).
+pub const BEAMCON0_VARHSYEN: u16 = 0x0100;
+/// Bit 9: enable programmable vertical sync (`VSSTRT/VSSTOP`).
+pub const BEAMCON0_VARVSYEN: u16 = 0x0200;
+/// Bit 10: redirect composite sync output path.
+pub const BEAMCON0_CSCBEN: u16 = 0x0400;
+/// Bit 11: disable long-line / short-line toggle (not emulated).
+pub const BEAMCON0_LOLDIS: u16 = 0x0800;
+/// Bit 12: enable programmable vertical blanking window (`VBSTRT/VBSTOP`).
+pub const BEAMCON0_VARVBEN: u16 = 0x1000;
+/// Bit 13: disable light-pen input latch (not emulated).
+pub const BEAMCON0_LPENDIS: u16 = 0x2000;
+/// Bit 14: disable hardwired horizontal/vertical blanking.
+pub const BEAMCON0_HARDDIS: u16 = 0x4000;
 
 /// Reported sync and blank output pin levels from the ECS sync generator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,6 +241,19 @@ impl AgnusEcs {
     #[must_use]
     pub const fn beamcon0(&self) -> u16 {
         self.beamcon0
+    }
+
+    /// Set the BEAMCON0 PAL bit to match the system's video standard.
+    ///
+    /// On real ECS/AGA hardware, BEAMCON0 resets with the PAL bit set for PAL
+    /// systems and clear for NTSC. `graphics.library` reads this bit during
+    /// init to detect the video standard.
+    pub fn set_pal_mode(&mut self, pal: bool) {
+        if pal {
+            self.beamcon0 = BEAMCON0_PAL;
+        } else {
+            self.beamcon0 = 0;
+        }
     }
 
     /// Store ECS `BEAMCON0` for later timing/beam model work.

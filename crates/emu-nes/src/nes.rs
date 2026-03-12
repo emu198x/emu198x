@@ -1,12 +1,13 @@
 //! Top-level NES system.
 //!
-//! The master clock ticks at 21,477,272 Hz (NTSC crystal). Components
-//! derive their timing from this:
-//! - PPU: crystal / 4 = 5,369,318 Hz (tick when `master_clock` % 4 == 0)
-//! - CPU: crystal / 12 = 1,789,773 Hz (tick when `master_clock` % 12 == 0)
+//! The master clock ticks at the system crystal frequency. Components
+//! derive their timing from region-dependent divisors:
 //!
-//! One frame = 341 PPU dots × 262 scanlines = 89,342 PPU cycles.
-//! In crystal ticks: 89,342 × 4 = 357,368.
+//! - **NTSC** (21,477,272 Hz): PPU ÷4, CPU ÷12.
+//! - **PAL** (26,601,712 Hz): PPU ÷5, CPU ÷16.
+//!
+//! NTSC frame = 341 dots × 262 lines × 4 = 357,368 crystal ticks.
+//! PAL frame = 341 dots × 312 lines × 5 = 531,960 crystal ticks.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -20,9 +21,8 @@ use crate::controller::Controller;
 use crate::input::{InputQueue, NesButton};
 use crate::ppu;
 
-/// Crystal divisors (same for both NTSC and PAL — only the crystal changes).
-const PPU_DIVISOR: u64 = 4;
-const CPU_DIVISOR: u64 = 12;
+// Crystal divisors are region-dependent — see NesRegion::ppu_divisor() and
+// NesRegion::cpu_divisor(). NTSC: ÷4/÷12, PAL: ÷5/÷16.
 
 /// NES system.
 pub struct Nes {
@@ -74,7 +74,7 @@ impl Nes {
         cpu.regs.pc = u16::from(reset_lo) | (u16::from(reset_hi) << 8);
 
         let scanlines = u64::from(region.scanlines_per_frame());
-        let ticks_per_frame = 341 * scanlines * PPU_DIVISOR;
+        let ticks_per_frame = 341 * scanlines * region.ppu_divisor();
 
         Self {
             cpu,
@@ -338,8 +338,8 @@ impl Tickable for Nes {
     fn tick(&mut self) {
         self.master_clock += 1;
 
-        // PPU: every 4 crystal ticks
-        if self.master_clock.is_multiple_of(PPU_DIVISOR) {
+        // PPU: every N crystal ticks (NTSC=4, PAL=5)
+        if self.master_clock.is_multiple_of(self.region.ppu_divisor()) {
             let mirroring = self.bus.cartridge.mirroring();
             let cart = self.bus.cartridge.as_mut();
             self.bus.ppu.tick(&mut |a| cart.chr_read(a), mirroring);
@@ -350,15 +350,16 @@ impl Tickable for Nes {
             }
         }
 
-        // CPU: every 12 crystal ticks
-        if self.master_clock.is_multiple_of(CPU_DIVISOR) {
+        // CPU: every N crystal ticks (NTSC=12, PAL=16)
+        let cpu_divisor = self.region.cpu_divisor();
+        if self.master_clock.is_multiple_of(cpu_divisor) {
             // Check for OAM DMA trigger
             if let Some(page) = self.bus.oam_dma_page.take() {
                 self.dma_addr = u16::from(page) << 8;
                 // 513 cycles + 1 if on odd CPU cycle
                 self.dma_cycles_remaining = 513;
                 self.dma_odd_cycle = false;
-                if self.master_clock / CPU_DIVISOR % 2 == 1 {
+                if self.master_clock / cpu_divisor % 2 == 1 {
                     self.dma_cycles_remaining += 1;
                 }
             }
@@ -376,7 +377,7 @@ impl Tickable for Nes {
                     // Stealing from OAM DMA — always 1 cycle.
                     self.dmc_dma_cycles = 1;
                 } else {
-                    let cpu_cycle = self.master_clock / CPU_DIVISOR;
+                    let cpu_cycle = self.master_clock / cpu_divisor;
                     if self.bus.last_cycle_was_write {
                         self.dmc_dma_cycles = 1;
                     } else if cpu_cycle.is_multiple_of(2) {
@@ -510,6 +511,23 @@ mod tests {
         let ticks = nes.run_frame();
         // NTSC: 341 dots × 262 scanlines × 4 = 357,368
         assert_eq!(ticks, 341 * 262 * 4);
+    }
+
+    fn make_pal_nes() -> Nes {
+        let mut prg = vec![0xEA; 32768];
+        prg[0x7FFC] = 0x00;
+        prg[0x7FFD] = 0x80;
+        let chr = vec![0; 8192];
+        let mapper = Box::new(Nrom::new(prg, chr, Mirroring::Horizontal));
+        Nes::from_mapper(mapper, NesRegion::Pal)
+    }
+
+    #[test]
+    fn pal_frame_tick_count() {
+        let mut nes = make_pal_nes();
+        let ticks = nes.run_frame();
+        // PAL: 341 dots × 312 scanlines × 5 = 531,960
+        assert_eq!(ticks, 341 * 312 * 5);
     }
 
     #[test]

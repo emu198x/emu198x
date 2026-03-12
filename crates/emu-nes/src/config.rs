@@ -43,6 +43,30 @@ impl NesRegion {
             Self::Pal => 1_662_607,
         }
     }
+
+    /// Crystal-to-PPU divisor.
+    ///
+    /// NTSC: crystal / 4 = 5,369,318 Hz PPU.
+    /// PAL: crystal / 5 = 5,320,342 Hz PPU.
+    #[must_use]
+    pub const fn ppu_divisor(self) -> u64 {
+        match self {
+            Self::Ntsc => 4,
+            Self::Pal => 5,
+        }
+    }
+
+    /// Crystal-to-CPU divisor.
+    ///
+    /// NTSC: crystal / 12 = 1,789,773 Hz CPU.
+    /// PAL: crystal / 16 = 1,662,607 Hz CPU.
+    #[must_use]
+    pub const fn cpu_divisor(self) -> u64 {
+        match self {
+            Self::Ntsc => 12,
+            Self::Pal => 16,
+        }
+    }
 }
 
 /// NES configuration.

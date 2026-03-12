@@ -16,7 +16,7 @@ pub use ricoh_ppu_2c02::Mirroring;
 pub struct CartridgeHeader {
     pub prg_rom_banks: u8,
     pub chr_rom_banks: u8,
-    pub mapper_number: u8,
+    pub mapper_number: u16,
     pub mirroring: Mirroring,
     pub has_battery: bool,
 }
@@ -1538,7 +1538,32 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
 
     let mapper_lo = (flags6 >> 4) & 0x0F;
     let mapper_hi = flags7 & 0xF0;
-    let mapper_number = mapper_hi | mapper_lo;
+
+    // NES 2.0 detection: bits 3-2 of flags7 == 0b10
+    let is_nes_2_0 = (flags7 & 0x0C) == 0x08;
+
+    let (mapper_number, prg_size, chr_size) = if is_nes_2_0 {
+        // NES 2.0: 12-bit mapper number
+        let mapper8 = data[8];
+        let mapper_number =
+            u16::from(mapper_lo) | u16::from(mapper_hi) | (u16::from(mapper8 & 0x0F) << 8);
+
+        // NES 2.0 extended PRG size: byte 9 low nibble << 8 | byte 4
+        let prg_hi = usize::from(data[9] & 0x0F);
+        let prg_size = (prg_hi << 8 | usize::from(prg_banks)) * 16384;
+
+        // NES 2.0 extended CHR size: byte 9 high nibble << 8 | byte 5
+        let chr_hi = usize::from((data[9] >> 4) & 0x0F);
+        let chr_size = (chr_hi << 8 | usize::from(chr_banks)) * 8192;
+
+        (mapper_number, prg_size, chr_size)
+    } else {
+        // iNES 1.0: 8-bit mapper number
+        let mapper_number = u16::from(mapper_hi | mapper_lo);
+        let prg_size = usize::from(prg_banks) * 16384;
+        let chr_size = usize::from(chr_banks) * 8192;
+        (mapper_number, prg_size, chr_size)
+    };
 
     let mirroring = if flags6 & 0x08 != 0 {
         Mirroring::FourScreen
@@ -1558,9 +1583,6 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         mirroring,
         has_battery,
     };
-
-    let prg_size = usize::from(prg_banks) * 16384;
-    let chr_size = usize::from(chr_banks) * 8192;
 
     let prg_start = if has_trainer { 16 + 512 } else { 16 };
     let chr_start = prg_start + prg_size;
@@ -1677,6 +1699,86 @@ mod tests {
         let mut data = make_ines(1, 1, 0x00);
         data[6] = 0x50; // Mapper 5 (low nibble)
         assert!(parse_ines(&data).is_err());
+    }
+
+    // --- NES 2.0 header tests ---
+
+    /// Build a NES 2.0 header with extended PRG/CHR sizes.
+    fn make_nes2(prg_banks: u16, chr_banks: u16, mapper: u16) -> Vec<u8> {
+        let prg_lo = (prg_banks & 0xFF) as u8;
+        let prg_hi = ((prg_banks >> 8) & 0x0F) as u8;
+        let chr_lo = (chr_banks & 0xFF) as u8;
+        let chr_hi = ((chr_banks >> 8) & 0x0F) as u8;
+
+        let mapper_lo = (mapper & 0x0F) as u8;
+        let mapper_mid = ((mapper >> 4) & 0x0F) as u8;
+        let mapper_hi = ((mapper >> 8) & 0x0F) as u8;
+
+        let flags6 = mapper_lo << 4; // mapper low nibble in high bits
+        let flags7 = (mapper_mid << 4) | 0x08; // mapper mid nibble + NES 2.0 signature
+        let byte8 = mapper_hi | 0x00; // mapper high nibble in low bits
+
+        let prg_size = prg_banks as usize * 16384;
+        let chr_size = chr_banks as usize * 8192;
+
+        let mut data = vec![0u8; 16 + prg_size + chr_size];
+        data[0..4].copy_from_slice(b"NES\x1a");
+        data[4] = prg_lo;
+        data[5] = chr_lo;
+        data[6] = flags6;
+        data[7] = flags7;
+        data[8] = byte8;
+        data[9] = (chr_hi << 4) | prg_hi;
+
+        // Fill PRG with pattern
+        for i in 0..prg_size {
+            data[16 + i] = (i & 0xFF) as u8;
+        }
+        // Fill CHR with pattern
+        for i in 0..chr_size {
+            data[16 + prg_size + i] = ((i + 0x80) & 0xFF) as u8;
+        }
+        data
+    }
+
+    #[test]
+    fn nes2_detected_and_parsed() {
+        // 2 PRG banks, 1 CHR bank, mapper 0 — NES 2.0 format
+        let data = make_nes2(2, 1, 0);
+        let result = parse_ines(&data).expect("NES 2.0 parse failed");
+        // Should parse as NROM with correct sizes
+        assert_eq!(result.mapper.cpu_read(0x8000), 0x00);
+    }
+
+    #[test]
+    fn nes2_extended_prg_size() {
+        // 256 + 2 = 258 PRG banks (prg_hi = 1, prg_lo = 2)
+        // This is a huge ROM (4,128 KB) but tests the extended size logic
+        let data = make_nes2(258, 1, 0);
+        // Should parse without error — 258 * 16384 = 4,227,072 bytes PRG
+        let result = parse_ines(&data);
+        assert!(result.is_ok(), "Extended PRG size should parse");
+    }
+
+    #[test]
+    fn nes2_mapper_number_12bit() {
+        // Mapper 256 — beyond 8-bit range, won't match any supported mapper
+        let data = make_nes2(1, 1, 256);
+        let result = parse_ines(&data);
+        assert!(result.is_err(), "Mapper 256 should be unsupported");
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("256"),
+            "Should report mapper 256 as unsupported: {err}"
+        );
+    }
+
+    #[test]
+    fn ines1_still_works_after_nes2_support() {
+        // Standard iNES 1.0 — flags7 bits 3-2 should NOT be 0b10
+        let data = make_ines(2, 1, 0x01); // Vertical mirroring, mapper 0
+        let result = parse_ines(&data).expect("iNES 1.0 should still parse");
+        assert_eq!(result.mapper.mirroring(), Mirroring::Vertical);
     }
 
     // --- MMC1 tests ---

@@ -33,6 +33,10 @@ pub struct DeniseOutputPixelDebug {
     /// during this output call. SuperHires: 4 unique entries. Hires: [c0, c1,
     /// c1, c1]. Lores: all identical (`final_color_idx`).
     pub quad_color_idx: [u8; 4],
+    /// Whether each quad_color_idx entry came from a sprite (true) or
+    /// bitplane/background (false). Needed so AGA palette lookup can apply
+    /// BPLAM XOR only to bitplane colours, not sprites.
+    pub quad_is_sprite: [bool; 4],
     pub playfield_visible_gate: bool,
 }
 
@@ -1122,40 +1126,48 @@ impl DeniseOcs {
         // re-borrowing &self through a closure while &mut self is live).
         let bplcon2 = self.bplcon2;
 
-        let resolve_sprite_priority = |pf: &PlayfieldPixel, sp: &Option<SpritePixel>| -> usize {
-            let mut c = pf.visible_color_idx;
-            if let Some(s) = sp {
-                if let Some(front_pf) = pf.front_playfield {
-                    let pf_pos = match front_pf {
-                        PlayfieldId::Pf1 => usize::from(bplcon2 & 0x0007),
-                        PlayfieldId::Pf2 => usize::from((bplcon2 >> 3) & 0x0007),
-                    }
-                    .min(4);
-                    if s.sprite_group < pf_pos {
+        let resolve_sprite_priority =
+            |pf: &PlayfieldPixel, sp: &Option<SpritePixel>| -> (usize, bool) {
+                let mut c = pf.visible_color_idx;
+                let mut from_sprite = false;
+                if let Some(s) = sp {
+                    if let Some(front_pf) = pf.front_playfield {
+                        let pf_pos = match front_pf {
+                            PlayfieldId::Pf1 => usize::from(bplcon2 & 0x0007),
+                            PlayfieldId::Pf2 => usize::from((bplcon2 >> 3) & 0x0007),
+                        }
+                        .min(4);
+                        if s.sprite_group < pf_pos {
+                            c = s.palette_idx;
+                            from_sprite = true;
+                        }
+                    } else {
                         c = s.palette_idx;
+                        from_sprite = true;
                     }
-                } else {
-                    c = s.palette_idx;
                 }
-            }
-            c
-        };
+                (c, from_sprite)
+            };
 
-        let color_idx = resolve_sprite_priority(&playfield, &sprite_pixel);
+        let (color_idx, is_sprite) = resolve_sprite_priority(&playfield, &sprite_pixel);
 
         // In hires/superhires, compose each source pixel independently for
         // full-res output. In lores all four entries are identical.
-        let quad_color_idx = if source_pixels_per_fb_pixel > 1 && playfield_visible_gate {
-            let mut quad = [color_idx as u8; 4];
-            for i in 0..source_pixels_per_fb_pixel.min(4) as usize {
-                let (raw_i, pf1_i, pf2_i) = quad_samples[i];
-                let pf_i = self.compose_playfield_pixel(raw_i, pf1_i, pf2_i);
-                quad[i] = resolve_sprite_priority(&pf_i, &sprite_pixel) as u8;
-            }
-            quad
-        } else {
-            [color_idx as u8; 4]
-        };
+        let (quad_color_idx, quad_is_sprite) =
+            if source_pixels_per_fb_pixel > 1 && playfield_visible_gate {
+                let mut quad = [color_idx as u8; 4];
+                let mut quad_sp = [is_sprite; 4];
+                for i in 0..source_pixels_per_fb_pixel.min(4) as usize {
+                    let (raw_i, pf1_i, pf2_i) = quad_samples[i];
+                    let pf_i = self.compose_playfield_pixel(raw_i, pf1_i, pf2_i);
+                    let (ci, sp) = resolve_sprite_priority(&pf_i, &sprite_pixel);
+                    quad[i] = ci as u8;
+                    quad_sp[i] = sp;
+                }
+                (quad, quad_sp)
+            } else {
+                ([color_idx as u8; 4], [is_sprite; 4])
+            };
 
         DeniseOutputPixelDebug {
             called: true,
@@ -1169,6 +1181,7 @@ impl DeniseOcs {
             plane_bits_mask,
             final_color_idx: color_idx as u8,
             quad_color_idx,
+            quad_is_sprite,
             playfield_visible_gate,
         }
     }

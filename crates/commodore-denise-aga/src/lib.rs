@@ -96,12 +96,22 @@ impl DeniseAga {
 
     /// Resolve a colour index to 24-bit RGB (0x00RRGGBB) in AGA mode.
     ///
-    /// Applies BPLCON4 bitplane colour XOR and palette lookup.
+    /// Applies BPLCON4 bitplane colour XOR (BPLAM) and palette lookup.
     /// HAM8 and EHB are handled by dedicated paths.
     ///
     /// BPLCON4 layout: bits 15-8 = BPLAM (bitplane colour XOR mask),
-    /// bits 7-0 = ESPRM/OSPRM (sprite colour base — handled separately).
-    pub fn resolve_color_rgb24(&mut self, color_idx: u8) -> u32 {
+    /// bits 7-0 = ESPRM/OSPRM (sprite colour base — handled separately
+    /// in `sprite_pixel()`).
+    ///
+    /// `is_sprite`: when true, BPLAM is NOT applied — sprite indices already
+    /// have ESPRM/OSPRM baked in by `sprite_pixel()`.
+    pub fn resolve_color_rgb24(&mut self, color_idx: u8, is_sprite: bool) -> u32 {
+        // Sprite pixels bypass BPLAM — their bank is set by ESPRM/OSPRM,
+        // already applied in sprite_pixel().
+        if is_sprite {
+            return self.palette_24[color_idx as usize & 0xFF];
+        }
+
         let ham = (self.bplcon0 & 0x0800) != 0;
         let dual_playfield = (self.bplcon0 & 0x0400) != 0;
         let num_planes = self.num_bitplanes();
@@ -278,7 +288,7 @@ mod tests {
         // XOR $30 on index $04 → effective index $34.
         denise.bplcon4 = 0x3000;
 
-        let rgb = denise.resolve_color_rgb24(0x04);
+        let rgb = denise.resolve_color_rgb24(0x04, false);
 
         assert_eq!(rgb, 0x00112233);
     }
@@ -289,17 +299,17 @@ mod tests {
         denise.bplcon0 = 0x0810; // HAM + 8 bitplanes
         denise.palette_24[5] = 0x00112233;
 
-        let palette = denise.resolve_color_rgb24(0x05);
+        let palette = denise.resolve_color_rgb24(0x05, false);
         assert_eq!(palette, 0x00112233);
         assert_eq!(denise.ham_prev_rgb24, 0x00112233);
 
-        let red = denise.resolve_color_rgb24(0xAA); // control=10, data=0x2A -> 0xAA
+        let red = denise.resolve_color_rgb24(0xAA, false); // control=10, data=0x2A -> 0xAA
         assert_eq!(red, 0x00AA2233);
 
-        let green = denise.resolve_color_rgb24(0xEA); // control=11, data=0x2A -> 0xAA
+        let green = denise.resolve_color_rgb24(0xEA, false); // control=11, data=0x2A -> 0xAA
         assert_eq!(green, 0x00AAAA33);
 
-        let blue = denise.resolve_color_rgb24(0x6A); // control=01, data=0x2A -> 0xAA
+        let blue = denise.resolve_color_rgb24(0x6A, false); // control=01, data=0x2A -> 0xAA
         assert_eq!(blue, 0x00AAAAAA);
         assert_eq!(denise.ham_prev_rgb24, 0x00AAAAAA);
     }
@@ -310,10 +320,26 @@ mod tests {
         denise.bplcon0 = 0x6000; // 6 planes, EHB
         denise.palette_24[5] = 0x00112233;
 
-        assert_eq!(denise.resolve_color_rgb24(0x25), 0x00081119);
+        assert_eq!(denise.resolve_color_rgb24(0x25, false), 0x00081119);
 
         denise.bplcon3 = 0x0201; // KILLEHB + ENBPLCN3
-        assert_eq!(denise.resolve_color_rgb24(0x25), 0x00112233);
+        assert_eq!(denise.resolve_color_rgb24(0x25, false), 0x00112233);
+    }
+
+    #[test]
+    fn resolve_color_rgb24_sprite_bypasses_bplam() {
+        let mut denise = make_aga_denise();
+        // Set palette entry $17 (sprite index already XOR'd with ESPRM/OSPRM).
+        denise.palette_24[0x17] = 0x00AABBCC;
+        // Set a non-zero BPLAM which would XOR $17 to $47 for bitplane colours.
+        denise.bplcon4 = 0x5000;
+
+        // Bitplane: BPLAM $50 XOR $17 → $47, should read palette[$47].
+        denise.palette_24[0x47] = 0x00DDEEFF;
+        assert_eq!(denise.resolve_color_rgb24(0x17, false), 0x00DDEEFF);
+
+        // Sprite: bypasses BPLAM, reads palette[$17] directly.
+        assert_eq!(denise.resolve_color_rgb24(0x17, true), 0x00AABBCC);
     }
 
     #[test]
