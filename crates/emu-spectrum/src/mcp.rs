@@ -121,7 +121,11 @@ impl McpEmulator for SpectrumMcp {
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "Path to .tap file" },
-                        "data": { "type": "string", "description": "Base64-encoded TAP data" }
+                        "data": { "type": "string", "description": "Base64-encoded TAP data" },
+                        "autostart": {
+                            "type": "boolean",
+                            "description": "Type LOAD \"\" and run the program automatically (default: false)"
+                        }
                     }
                 }),
             },
@@ -470,17 +474,92 @@ impl SpectrumMcp {
             Err(e) => return e,
         };
 
+        let autostart = params
+            .get("autostart")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         match TapFile::parse(&data) {
             Ok(tap) => {
                 let blocks = tap.blocks.len();
                 spec.insert_tap(tap);
-                ToolResult::Success(serde_json::json!({"status": "ok", "blocks": blocks}))
+
+                if autostart {
+                    self.autostart_tap(blocks)
+                } else {
+                    ToolResult::Success(serde_json::json!({"status": "ok", "blocks": blocks}))
+                }
             }
             Err(e) => ToolResult::Error {
                 code: -32000,
                 message: format!("TAP parse failed: {e}"),
             },
         }
+    }
+
+    /// Type `LOAD ""` + Enter, then run frames until all blocks are consumed.
+    fn autostart_tap(&mut self, blocks: usize) -> ToolResult {
+        let spec = self.spectrum.as_mut().expect("checked by caller");
+
+        // Queue LOAD "" + Enter using correct Spectrum key sequences.
+        // In K-mode (default after boot), J produces the LOAD keyword.
+        // Sym+P produces a double-quote character.
+        let hold = 3u64;
+        let gap = 5u64;
+        let stride = hold + gap;
+        let start = spec.frame_count();
+        let queue = spec.input_queue();
+
+        // J = LOAD
+        queue.enqueue_key(SpectrumKey::J, start, hold);
+        // First "
+        let f = start + stride;
+        queue.enqueue_key(SpectrumKey::SymShift, f, hold);
+        queue.enqueue_key(SpectrumKey::P, f, hold);
+        // Second "
+        let f = f + stride;
+        queue.enqueue_key(SpectrumKey::SymShift, f, hold);
+        queue.enqueue_key(SpectrumKey::P, f, hold);
+        // Enter
+        let f = f + stride;
+        queue.enqueue_key(SpectrumKey::Enter, f, hold);
+
+        let typing_done = f + stride;
+
+        // Run until typing is done
+        while spec.frame_count() < typing_done {
+            spec.run_frame();
+        }
+
+        // Run up to 2000 more frames waiting for all blocks to be consumed
+        let max_frames = 2000u64;
+        let deadline = spec.frame_count() + max_frames;
+        while spec.frame_count() < deadline {
+            spec.run_frame();
+            if spec.tape().block_index() >= blocks {
+                // Loading complete — run a few more frames for the program to
+                // initialise (e.g. CLS, PRINT, etc.)
+                for _ in 0..100 {
+                    spec.run_frame();
+                }
+                return ToolResult::Success(serde_json::json!({
+                    "status": "ok",
+                    "blocks": blocks,
+                    "autostart": true,
+                    "frames": spec.frame_count(),
+                }));
+            }
+        }
+
+        // Timed out — blocks may still have loaded partially
+        ToolResult::Success(serde_json::json!({
+            "status": "ok",
+            "blocks": blocks,
+            "autostart": true,
+            "loaded_blocks": spec.tape().block_index(),
+            "timeout": true,
+            "frames": spec.frame_count(),
+        }))
     }
 
     fn handle_load_tzx(&mut self, params: &JsonValue) -> ToolResult {

@@ -336,7 +336,10 @@ impl Spectrum {
     /// On success, we set Carry flag and return to the caller by popping
     /// the return address from the stack.
     fn check_tape_trap(&mut self) {
-        if self.cpu.regs.pc != LD_BYTES_ADDR || !self.tape.is_loaded() {
+        if self.cpu.regs.pc != LD_BYTES_ADDR
+            || !self.tape.is_loaded()
+            || !self.cpu.is_starting_fetch()
+        {
             return;
         }
 
@@ -611,5 +614,96 @@ mod tests {
 
         spec.bus.memory.write(0x8000, 0xAB);
         assert_eq!(spec.query("memory.0x8000"), Some(Value::U8(0xAB)));
+    }
+
+    /// Load the real 48K ROM (skips if not available).
+    fn make_spectrum_real_rom() -> Option<Spectrum> {
+        let rom_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/48.rom");
+        let rom = std::fs::read(rom_path).ok()?;
+        Some(Spectrum::new(&SpectrumConfig {
+            model: SpectrumModel::Spectrum48K,
+            rom,
+        }))
+    }
+
+    #[test]
+    #[ignore] // Requires real ROM
+    fn tap_load_delivers_both_blocks() {
+        use crate::input::SpectrumKey;
+
+        let Some(mut spec) = make_spectrum_real_rom() else {
+            eprintln!("Skipping: 48K ROM not found");
+            return;
+        };
+
+        // Build a minimal TAP: header + data for a tiny BASIC program
+        // Program: 10 REM hi (tokenised: $EA $68 $69)
+        let program: Vec<u8> = vec![
+            0x00, 0x0A, // line 10 (big-endian)
+            0x04, 0x00, // line length = 4 (including $0D)
+            0xEA,       // REM
+            0x68, 0x69, // "hi"
+            0x0D,       // end of line
+        ];
+        let prog_len = program.len() as u16;
+
+        // Build TAP bytes manually
+        let header = format_spectrum_tap::TapBlock::program_header(
+            "TEST", prog_len, Some(10), prog_len,
+        );
+        let data = format_spectrum_tap::TapBlock::data(program);
+        let mut tap = format_spectrum_tap::TapFile::new();
+        tap.blocks.push(header);
+        tap.blocks.push(data);
+
+        // Boot: run 200 frames for ROM init
+        for _ in 0..200 {
+            spec.run_frame();
+        }
+
+        // Insert TAP
+        spec.insert_tap(format_spectrum_tap::TapFile::parse(&tap.to_bytes()).unwrap());
+
+        eprintln!("[TEST] TAP inserted: {} blocks", spec.tape.block_count());
+        eprintln!("[TEST] Block index before LOAD: {}", spec.tape.block_index());
+
+        // Type LOAD "" using keyboard:
+        // J = LOAD keyword in K mode
+        spec.press_key(SpectrumKey::J);
+        for _ in 0..10 { spec.run_frame(); }
+        spec.release_key(SpectrumKey::J);
+        for _ in 0..10 { spec.run_frame(); }
+
+        // Two quotes: sym_shift + P
+        spec.press_key(SpectrumKey::SymShift);
+        spec.press_key(SpectrumKey::P);
+        for _ in 0..10 { spec.run_frame(); }
+        spec.release_key(SpectrumKey::P);
+        for _ in 0..10 { spec.run_frame(); }
+        spec.press_key(SpectrumKey::P);
+        for _ in 0..10 { spec.run_frame(); }
+        spec.release_key(SpectrumKey::P);
+        spec.release_key(SpectrumKey::SymShift);
+        for _ in 0..10 { spec.run_frame(); }
+
+        // Enter
+        spec.press_key(SpectrumKey::Enter);
+        for _ in 0..5 { spec.run_frame(); }
+        spec.release_key(SpectrumKey::Enter);
+
+        // Run frames for loading
+        for _ in 0..500 {
+            spec.run_frame();
+        }
+
+        eprintln!("[TEST] Block index after LOAD: {}", spec.tape.block_index());
+        eprintln!("[TEST] PC: ${:04X}", spec.cpu().regs.pc);
+
+        // Both blocks should have been consumed
+        assert_eq!(
+            spec.tape.block_index(), 2,
+            "Expected both blocks consumed (block_index=2), got {}",
+            spec.tape.block_index()
+        );
     }
 }

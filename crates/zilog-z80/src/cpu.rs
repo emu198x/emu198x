@@ -229,6 +229,18 @@ impl Z80 {
         self.regs.sp = value;
     }
 
+    /// Whether the CPU is at the start of a new instruction fetch.
+    ///
+    /// Returns `true` when the next `tick()` will begin the T1 phase of an
+    /// opcode fetch — i.e. no micro-ops from a previous instruction are
+    /// still pending. Useful for ROM trap handlers that need to intercept
+    /// execution only after the preceding instruction has fully completed
+    /// (including stack writes from CALL, etc.).
+    #[must_use]
+    pub fn is_starting_fetch(&self) -> bool {
+        self.t_state == 0 && matches!(self.micro_ops.current(), Some(MicroOp::FetchOpcode))
+    }
+
     /// Force the CPU to start fetching from a new PC address.
     ///
     /// Clears the micro-op queue, resets decode state, and starts a fresh
