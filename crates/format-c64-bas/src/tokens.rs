@@ -3,9 +3,9 @@
 //! Token values $80–$CB. Sorted longest-first so the tokeniser
 //! performs greedy matching (e.g. "GOSUB" before "GO").
 //!
-//! The C64 ROM tokeniser only matches keywords — operators like +, -, *
-//! are stored as literal PETSCII bytes, not as tokens $AA–$B3. We follow
-//! the same convention here.
+//! The C64 ROM also tokenises arithmetic and comparison operators
+//! ($AA–$B3). These must be included for the interpreter to accept
+//! the program.
 
 /// `(keyword_text, token_byte)` — sorted by keyword length descending.
 pub const KEYWORDS: &[(&str, u8)] = &[
@@ -82,4 +82,13 @@ pub const KEYWORDS: &[(&str, u8)] = &[
     ("ON", 0x91),
     ("OR", 0xB0),
     ("TO", 0xA4),
+    // Operators (the ROM tokenises these too)
+    ("+", 0xAA),
+    ("-", 0xAB),
+    ("*", 0xAC),
+    ("/", 0xAD),
+    ("^", 0xAE),
+    (">", 0xB1),
+    ("=", 0xB2),
+    ("<", 0xB3),
 ];
