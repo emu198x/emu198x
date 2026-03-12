@@ -994,6 +994,10 @@ pub fn boot_screenshot_test(
     println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
     println!("BPLCON4 = ${:04X}", amiga.denise.bplcon4);
     println!("FMODE   = ${:04X}", amiga.agnus.fmode);
+    println!("DIWSTRT = ${:04X}", amiga.agnus.diwstrt);
+    println!("DIWSTOP = ${:04X}", amiga.agnus.diwstop);
+    println!("DDFSTRT = ${:04X}", amiga.agnus.ddfstrt);
+    println!("DDFSTOP = ${:04X}", amiga.agnus.ddfstop);
     println!("COP1LC  = ${:08X}", amiga.copper.cop1lc);
 
     // Dump sprite palette entries (first 32 entries of AGA 24-bit palette)

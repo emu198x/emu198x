@@ -1249,8 +1249,8 @@ impl ViewportPreset {
     pub const fn pal_bounds(self) -> ViewportBounds {
         match self {
             Self::Standard => ViewportBounds {
-                h_start_cck: 0x32,
-                h_end_cck: 0xEE, // 188 CCKs = 752 hires = 376 lores
+                h_start_cck: 0x2E,
+                h_end_cck: 0xEA, // 188 CCKs = 752 hires = 376 lores
                 v_start_line: 0x1A,
                 v_end_line: 0x138, // 286 lines (matches WinUAE VBLANK_ENDLINE_PAL=26)
             },
@@ -1274,8 +1274,8 @@ impl ViewportPreset {
     pub const fn ntsc_bounds(self) -> ViewportBounds {
         match self {
             Self::Standard => ViewportBounds {
-                h_start_cck: 0x32,
-                h_end_cck: 0xEE, // 188 CCKs = 752 hires = 376 lores
+                h_start_cck: 0x2E,
+                h_end_cck: 0xEA, // 188 CCKs = 752 hires = 376 lores
                 v_start_line: 0x15,
                 v_end_line: 0xFB, // 230 lines (matches WinUAE VBLANK_ENDLINE_NTSC=21)
             },
