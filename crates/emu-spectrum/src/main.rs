@@ -44,6 +44,7 @@ struct CliArgs {
     sna_path: Option<PathBuf>,
     z80_path: Option<PathBuf>,
     tap_path: Option<PathBuf>,
+    bas_path: Option<PathBuf>,
     tzx_path: Option<PathBuf>,
     dsk_path: Option<PathBuf>,
     headless: bool,
@@ -65,6 +66,7 @@ fn parse_args() -> CliArgs {
         sna_path: None,
         z80_path: None,
         tap_path: None,
+        bas_path: None,
         tzx_path: None,
         dsk_path: None,
         headless: false,
@@ -102,6 +104,10 @@ fn parse_args() -> CliArgs {
             "--tap" => {
                 i += 1;
                 cli.tap_path = args.get(i).map(PathBuf::from);
+            }
+            "--bas" => {
+                i += 1;
+                cli.bas_path = args.get(i).map(PathBuf::from);
             }
             "--tzx" => {
                 i += 1;
@@ -482,6 +488,41 @@ fn make_spectrum(cli: &CliArgs) -> Spectrum {
                 process::exit(1);
             }
         }
+    }
+
+    // Tokenise and insert BAS file if provided.
+    if let Some(ref path) = cli.bas_path {
+        let source = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to read BAS file {}: {e}", path.display());
+                process::exit(1);
+            }
+        };
+        let program = match format_spectrum_bas::tokenise(&source) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Failed to tokenise BASIC: {e}");
+                process::exit(1);
+            }
+        };
+        let data_len = program.bytes.len() as u16;
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("PROGRAM");
+        let header =
+            format_spectrum_tap::TapBlock::program_header(name, data_len, Some(1), data_len);
+        let data = format_spectrum_tap::TapBlock::data(program.bytes);
+        let tap = TapFile {
+            blocks: vec![header, data],
+        };
+        eprintln!(
+            "Inserted BAS as TAP: {} ({} blocks)",
+            path.display(),
+            tap.blocks.len()
+        );
+        spectrum.insert_tap(tap);
     }
 
     // Insert TZX file if provided.
