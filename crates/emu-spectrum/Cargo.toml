@@ -19,6 +19,7 @@ zilog-z80 = { path = "../zilog-z80" }
 sinclair-ula = { path = "../sinclair-ula" }
 gi-ay-3-8910 = { path = "../gi-ay-3-8910" }
 nec-upd765 = { path = "../nec-upd765" }
+format-spectrum-bas = { path = "../format-spectrum-bas" }
 format-spectrum-tap = { path = "../format-spectrum-tap" }
 format-tzx = { path = "../format-tzx" }
 format-sna = { path = "../format-sna" }

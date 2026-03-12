@@ -16,7 +16,7 @@ use crate::Spectrum;
 use crate::config::{SpectrumConfig, SpectrumModel};
 use crate::input::SpectrumKey;
 use crate::sna::load_sna;
-use crate::tap::TapFile;
+use crate::tap::{TapBlock, TapFile};
 use crate::tzx::TzxFile;
 use crate::z80::load_z80;
 
@@ -122,6 +122,22 @@ impl McpEmulator for SpectrumMcp {
                     "properties": {
                         "path": { "type": "string", "description": "Path to .tap file" },
                         "data": { "type": "string", "description": "Base64-encoded TAP data" },
+                        "autostart": {
+                            "type": "boolean",
+                            "description": "Type LOAD \"\" and run the program automatically (default: false)"
+                        }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "load_bas",
+                description: "Tokenise a BASIC source file, wrap as TAP, and load it",
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to .bas file" },
+                        "source": { "type": "string", "description": "BASIC source text (alternative to path)" },
+                        "name": { "type": "string", "description": "Program name on tape (max 10 chars, default: \"PROGRAM\")" },
                         "autostart": {
                             "type": "boolean",
                             "description": "Type LOAD \"\" and run the program automatically (default: false)"
@@ -325,6 +341,7 @@ impl McpEmulator for SpectrumMcp {
             "load_sna" => self.handle_load_sna(arguments),
             "load_z80" => self.handle_load_z80(arguments),
             "load_tap" => self.handle_load_tap(arguments),
+            "load_bas" => self.handle_load_bas(arguments),
             "load_tzx" => self.handle_load_tzx(arguments),
             "load_dsk" => self.handle_load_dsk(arguments),
             "tape_status" => self.handle_tape_status(),
@@ -560,6 +577,74 @@ impl SpectrumMcp {
             "timeout": true,
             "frames": spec.frame_count(),
         }))
+    }
+
+    fn handle_load_bas(&mut self, params: &JsonValue) -> ToolResult {
+        let spec = match self.require_spectrum() {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        // Read BASIC source from `source` param or `path` file
+        let source = if let Some(text) = params.get("source").and_then(|v| v.as_str()) {
+            text.to_string()
+        } else if let Some(path) = params.get("path").and_then(|v| v.as_str()) {
+            match std::fs::read_to_string(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return ToolResult::Error {
+                        code: -32602,
+                        message: format!("Cannot read file: {e}"),
+                    };
+                }
+            }
+        } else {
+            return ToolResult::Error {
+                code: -32602,
+                message: "Provide 'source' (BASIC text) or 'path' (file path)".to_string(),
+            };
+        };
+
+        // Tokenise
+        let program = match format_spectrum_bas::tokenise(&source) {
+            Ok(p) => p,
+            Err(e) => {
+                return ToolResult::Error {
+                    code: -32000,
+                    message: format!("Tokenise failed: {e}"),
+                };
+            }
+        };
+
+        // Wrap in TAP (header + data block)
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("PROGRAM");
+        let data_len = program.bytes.len() as u16;
+        let header = TapBlock::program_header(name, data_len, Some(1), data_len);
+        let data = TapBlock::data(program.bytes);
+        let tap = TapFile {
+            blocks: vec![header, data],
+        };
+
+        let blocks = tap.blocks.len();
+        spec.insert_tap(tap);
+
+        let autostart = params
+            .get("autostart")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if autostart {
+            self.autostart_tap(blocks)
+        } else {
+            ToolResult::Success(serde_json::json!({
+                "status": "ok",
+                "blocks": blocks,
+                "format": "bas",
+            }))
+        }
     }
 
     fn handle_load_tzx(&mut self, params: &JsonValue) -> ToolResult {
