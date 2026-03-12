@@ -13,6 +13,7 @@ const EXPECT_INSERT_DISK_HIRES: BootExpect = BootExpect {
     dmacon_set: Some(0x0180),
     bplcon0: Some(0x8302), // 3 planes, hires (KS 2.04 uses $8303 on some variants)
     min_unique_colours: None,
+    viewport_hash: None,
 };
 
 /// KS 3.1 ECS insert-disk: hires, 3 planes (may have ERSY bit).
@@ -20,6 +21,7 @@ const EXPECT_INSERT_DISK_KS31_ECS: BootExpect = BootExpect {
     dmacon_set: Some(0x0180),
     bplcon0: Some(0x8303),
     min_unique_colours: None,
+    viewport_hash: None,
 };
 
 #[test]
@@ -42,7 +44,10 @@ fn test_boot_kick204_a500plus() {
         "KS 2.04 A500+",
         "boot_kick204_a500plus",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_HIRES,
+        BootExpect {
+            viewport_hash: Some(0xC5A57553D7C4297E),
+            ..EXPECT_INSERT_DISK_HIRES
+        },
     );
 }
 
@@ -66,7 +71,10 @@ fn test_boot_kick205_a600() {
         "KS 2.05 A600",
         "boot_kick205_a600",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_HIRES,
+        BootExpect {
+            viewport_hash: Some(0x4965A27908DF1CFD),
+            ..EXPECT_INSERT_DISK_HIRES
+        },
     );
 }
 
@@ -90,7 +98,10 @@ fn test_boot_kick31_a500() {
         "KS 3.1 A500",
         "boot_kick31_a500",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_KS31_ECS,
+        BootExpect {
+            viewport_hash: Some(0x61CC9ACB2A3AA49D),
+            ..EXPECT_INSERT_DISK_KS31_ECS
+        },
     );
 }
 
@@ -114,7 +125,10 @@ fn test_boot_kick31_a600() {
         "KS 3.1 A600",
         "boot_kick31_a600",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_KS31_ECS,
+        BootExpect {
+            viewport_hash: Some(0x61CC9ACB2A3AA49D),
+            ..EXPECT_INSERT_DISK_KS31_ECS
+        },
     );
 }
 

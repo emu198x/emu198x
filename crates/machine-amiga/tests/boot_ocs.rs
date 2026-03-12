@@ -15,6 +15,7 @@ const EXPECT_INSERT_DISK_LORES: BootExpect = BootExpect {
     dmacon_set: Some(0x0180), // bitplane DMA + copper DMA
     bplcon0: Some(0x2302),    // 2 planes, lowres, colour
     min_unique_colours: None,
+    viewport_hash: None, // varies by ROM version — set per-test below
 };
 
 /// Insert-disk screen (hires variant used by KS 3.1 OCS).
@@ -22,6 +23,7 @@ const EXPECT_INSERT_DISK_HIRES: BootExpect = BootExpect {
     dmacon_set: Some(0x0180),
     bplcon0: Some(0x8302), // 3 planes, hires, colour
     min_unique_colours: None,
+    viewport_hash: None,
 };
 
 #[test]
@@ -93,7 +95,10 @@ fn test_boot_kick12_a500() {
         "KS 1.2 A500",
         "boot_kick12_a500",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_LORES,
+        BootExpect {
+            viewport_hash: Some(0xF9DD06E497152EEB),
+            ..EXPECT_INSERT_DISK_LORES
+        },
     );
 }
 
@@ -117,7 +122,10 @@ fn test_boot_kick12_a2000() {
         "KS 1.2 A2000",
         "boot_kick12_a2000",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_LORES,
+        BootExpect {
+            viewport_hash: Some(0xF9DD06E497152EEB),
+            ..EXPECT_INSERT_DISK_LORES
+        },
     );
 }
 
@@ -141,7 +149,10 @@ fn test_boot_kick13_a500() {
         "KS 1.3 A500",
         "boot_kick13_a500",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_LORES,
+        BootExpect {
+            viewport_hash: Some(0x966FDF1D592EFC61),
+            ..EXPECT_INSERT_DISK_LORES
+        },
     );
 }
 
@@ -165,7 +176,10 @@ fn test_boot_kick13_a2000() {
         "KS 1.3 A2000",
         "boot_kick13_a2000",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_LORES,
+        BootExpect {
+            viewport_hash: Some(0x966FDF1D592EFC61),
+            ..EXPECT_INSERT_DISK_LORES
+        },
     );
 }
 
@@ -189,6 +203,9 @@ fn test_boot_kick31_a2000() {
         "KS 3.1 A2000",
         "boot_kick31_a2000",
         BOOT_TICKS,
-        EXPECT_INSERT_DISK_HIRES,
+        BootExpect {
+            viewport_hash: Some(0x61CC9ACB2A3AA49D),
+            ..EXPECT_INSERT_DISK_HIRES
+        },
     );
 }

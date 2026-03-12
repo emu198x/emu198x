@@ -1,8 +1,30 @@
 //! Shared helpers for Amiga boot screenshot tests.
 
-use machine_amiga::commodore_denise_ocs::ViewportPreset;
+use machine_amiga::commodore_denise_ocs::{ViewportImage, ViewportPreset};
 use machine_amiga::{AUDIO_SAMPLE_RATE, Amiga, AmigaConfig, AmigaRegion, PAL_FRAME_TICKS};
 use std::fs;
+
+/// Save a `ViewportImage` to a PNG file.
+fn save_viewport_png(path: &str, viewport: &ViewportImage) {
+    let path = std::path::Path::new(path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).ok();
+    }
+    let file = fs::File::create(path).expect("create PNG file");
+    let w = &mut std::io::BufWriter::new(file);
+    let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("write PNG header");
+    let mut rgba = Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
+    for &pixel in &viewport.pixels {
+        rgba.push(((pixel >> 16) & 0xFF) as u8);
+        rgba.push(((pixel >> 8) & 0xFF) as u8);
+        rgba.push((pixel & 0xFF) as u8);
+        rgba.push(((pixel >> 24) & 0xFF) as u8);
+    }
+    writer.write_image_data(&rgba).expect("write PNG data");
+}
 
 #[allow(dead_code)]
 pub const BOOT_TICKS: u64 = 850_000_000; // ~30 seconds PAL
@@ -19,6 +41,21 @@ pub struct BootExpect {
     /// Minimum number of non-zero pixels in the standard viewport.
     /// Catches "all black" or "all one colour" regressions.
     pub min_unique_colours: Option<usize>,
+    /// Expected hash of the raw viewport pixel data. Catches any visual
+    /// regression — even a single pixel change will fail the test.
+    /// Generate by running the test once without this field set, then
+    /// copying the printed hash value.
+    pub viewport_hash: Option<u64>,
+}
+
+/// Compute a deterministic hash of viewport pixel data.
+fn hash_viewport(viewport: &ViewportImage) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    viewport.width.hash(&mut hasher);
+    viewport.height.hash(&mut hasher);
+    viewport.pixels.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Load a ROM file, returning None (with a message) if missing.
@@ -34,12 +71,14 @@ pub fn load_rom(path: &str) -> Option<Vec<u8>> {
 
 /// Run a full boot sequence, save screenshots (standard + full raster),
 /// and encode a diagnostic 2 fps video via ffmpeg.
+///
+/// Returns `(dmacon, bplcon0, viewport_hash)`.
 pub fn boot_screenshot_test(
     config: AmigaConfig,
     rom_description: &str,
     screenshot_prefix: &str,
     total_ticks: u64,
-) -> (u16, u16) {
+) -> (u16, u16, u64) {
     let pal = config.region == AmigaRegion::Pal;
     let mut amiga = Amiga::new_with_config(config);
 
@@ -102,61 +141,39 @@ pub fn boot_screenshot_test(
     // Drain any remaining audio
     audio_samples.extend_from_slice(&amiga.take_audio_buffer());
 
-    // Save raster framebuffer screenshots (standard viewport + full raster)
+    // Save raster framebuffer screenshots (standard, display-scaled, full raster)
+    let viewport = amiga
+        .denise
+        .extract_viewport(ViewportPreset::Standard, pal, true);
+    let vp_hash = hash_viewport(&viewport);
+    println!("Viewport hash: 0x{vp_hash:016X}");
     {
-        let viewport = amiga
-            .denise
-            .extract_viewport(ViewportPreset::Standard, pal, true);
+        // Raw superhires screenshot (1280×256 PAL, 1280×200 NTSC)
         let std_path_str = format!("../../test_output/amiga/{screenshot_prefix}.png");
-        let std_path = std::path::Path::new(&std_path_str);
-        if let Some(parent) = std_path.parent() {
-            fs::create_dir_all(parent).ok();
-        }
-        let file = fs::File::create(std_path).expect("create screenshot file");
-        let w = &mut std::io::BufWriter::new(file);
-        let mut encoder = png::Encoder::new(w, viewport.width, viewport.height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().expect("write PNG header");
-        let mut rgba = Vec::with_capacity((viewport.width * viewport.height * 4) as usize);
-        for &pixel in &viewport.pixels {
-            rgba.push(((pixel >> 16) & 0xFF) as u8);
-            rgba.push(((pixel >> 8) & 0xFF) as u8);
-            rgba.push((pixel & 0xFF) as u8);
-            rgba.push(((pixel >> 24) & 0xFF) as u8);
-        }
-        writer.write_image_data(&rgba).expect("write PNG data");
+        save_viewport_png(&std_path_str, &viewport);
         println!(
             "Screenshot saved to {} ({}x{})",
-            std_path.display(),
-            viewport.width,
-            viewport.height,
+            std_path_str, viewport.width, viewport.height,
         );
 
+        // Display-resolution screenshot (720×540, correct 4:3 PAR)
+        let display = viewport.to_display();
+        let display_path_str = format!("../../test_output/amiga/{screenshot_prefix}_display.png");
+        save_viewport_png(&display_path_str, &display);
+        println!(
+            "Display screenshot saved to {} ({}x{})",
+            display_path_str, display.width, display.height,
+        );
+
+        // Full raster (debug)
         let full = amiga
             .denise
             .extract_viewport(ViewportPreset::Full, pal, true);
         let full_path_str = format!("../../test_output/amiga/{screenshot_prefix}_full.png");
-        let full_path = std::path::Path::new(&full_path_str);
-        let file = fs::File::create(full_path).expect("create full screenshot file");
-        let w = &mut std::io::BufWriter::new(file);
-        let mut encoder = png::Encoder::new(w, full.width, full.height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().expect("write full PNG header");
-        let mut rgba = Vec::with_capacity((full.width * full.height * 4) as usize);
-        for &pixel in &full.pixels {
-            rgba.push(((pixel >> 16) & 0xFF) as u8);
-            rgba.push(((pixel >> 8) & 0xFF) as u8);
-            rgba.push((pixel & 0xFF) as u8);
-            rgba.push(((pixel >> 24) & 0xFF) as u8);
-        }
-        writer.write_image_data(&rgba).expect("write full PNG data");
+        save_viewport_png(&full_path_str, &full);
         println!(
             "Full raster saved to {} ({}x{})",
-            full_path.display(),
-            full.width,
-            full.height,
+            full_path_str, full.width, full.height,
         );
     }
 
@@ -405,7 +422,7 @@ pub fn boot_screenshot_test(
         }
     }
 
-    (amiga.agnus.dmacon, amiga.denise.bplcon0)
+    (amiga.agnus.dmacon, amiga.denise.bplcon0, vp_hash)
 }
 
 /// Run a boot test with register/display assertions.
@@ -417,7 +434,7 @@ pub fn boot_screenshot_test_expect(
     total_ticks: u64,
     expect: BootExpect,
 ) {
-    let (dmacon, bplcon0) =
+    let (dmacon, bplcon0, vp_hash) =
         boot_screenshot_test(config, rom_description, screenshot_prefix, total_ticks);
 
     if let Some(bits) = expect.dmacon_set {
@@ -430,6 +447,14 @@ pub fn boot_screenshot_test_expect(
         assert_eq!(
             bplcon0, expected,
             "{rom_description}: BPLCON0 ${bplcon0:04X} != expected ${expected:04X}",
+        );
+    }
+    if let Some(expected) = expect.viewport_hash {
+        assert_eq!(
+            vp_hash, expected,
+            "{rom_description}: viewport hash 0x{vp_hash:016X} != expected 0x{expected:016X} \
+             — visual regression detected. Run the test with --nocapture and check the \
+             _display.png screenshot to see what changed.",
         );
     }
 }
