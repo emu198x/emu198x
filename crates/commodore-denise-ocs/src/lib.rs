@@ -1221,7 +1221,12 @@ impl DeniseOcs {
 /// Viewport presets for cropping the raster framebuffer to displayable area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewportPreset {
-    /// Standard display window (PAL: CCK $40-$D8, lines $2C-$12C).
+    /// Standard visible area matching FS-UAE's output dimensions.
+    ///
+    /// PAL: 188 CCKs × 286 lines → 752×572 at hires line-doubled.
+    /// NTSC: 188 CCKs × 230 lines → 752×460 at hires line-doubled.
+    /// Centered on the typical Amiga display window. Wide enough to
+    /// show all STRAP display content including sprites at the edges.
     Standard,
     /// Full overscan area with borders.
     Overscan,
@@ -1244,10 +1249,10 @@ impl ViewportPreset {
     pub const fn pal_bounds(self) -> ViewportBounds {
         match self {
             Self::Standard => ViewportBounds {
-                h_start_cck: 0x40,
-                h_end_cck: 0xE0, // 160 CCKs = 640 hires = 320 lores
-                v_start_line: 0x2C,
-                v_end_line: 0x12C, // 256 lines
+                h_start_cck: 0x32,
+                h_end_cck: 0xEE, // 188 CCKs = 752 hires = 376 lores
+                v_start_line: 0x1D,
+                v_end_line: 0x13B, // 286 lines
             },
             Self::Overscan => ViewportBounds {
                 h_start_cck: 0x1C,
@@ -1269,10 +1274,10 @@ impl ViewportPreset {
     pub const fn ntsc_bounds(self) -> ViewportBounds {
         match self {
             Self::Standard => ViewportBounds {
-                h_start_cck: 0x40,
-                h_end_cck: 0xE0, // 160 CCKs = 640 hires = 320 lores
-                v_start_line: 0x2C,
-                v_end_line: 0xF4, // 200 lines ($F4 - $2C = $C8 = 200)
+                h_start_cck: 0x32,
+                h_end_cck: 0xEE, // 188 CCKs = 752 hires = 376 lores
+                v_start_line: 0x1D,
+                v_end_line: 0x103, // 230 lines
             },
             Self::Overscan => ViewportBounds {
                 h_start_cck: 0x1C,
@@ -1329,11 +1334,12 @@ impl ViewportImage {
     /// visual comparison with reference emulators like FS-UAE.
     #[must_use]
     pub fn to_display(&self) -> ViewportImage {
-        // Target 720×540: a clean 4:3 resolution that works for both PAL
-        // and NTSC. PAL content fills the frame; NTSC content is slightly
-        // vertically stretched (200→540 vs 256→540) but the overall
-        // proportions are correct for TV display.
-        self.scale_nearest(720, 540)
+        // Scale to hires + line-doubled resolution: halve the superhires
+        // width, double the deinterlaced height. For the Standard viewport
+        // this produces 752×572 (PAL) or 752×460 (NTSC), matching FS-UAE.
+        let target_w = self.width / 2;
+        let target_h = self.height * 2;
+        self.scale_nearest(target_w, target_h)
     }
 }
 
