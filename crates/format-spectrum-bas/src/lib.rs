@@ -261,7 +261,7 @@ fn float_to_spectrum5(val: f64) -> [u8; 5] {
     // Decompose: val = mantissa * 2^exp, where 0.5 <= mantissa < 1.0
     // (Spectrum convention: mantissa in [0.5, 1.0), stored with implicit leading 1)
     let mut exp = val.log2().floor() as i32 + 1;
-    let mut mantissa = val / f64::from(2_i32.pow(exp as u32));
+    let mut mantissa = val / 2.0_f64.powi(exp);
 
     // Normalise into [0.5, 1.0)
     while mantissa >= 1.0 {
@@ -392,6 +392,17 @@ mod tests {
     #[test]
     fn no_line_number() {
         assert!(tokenise("PRINT \"bad\"").is_err());
+    }
+
+    #[test]
+    fn fractional_number_encoding() {
+        // 0.3 triggers negative exponent in float conversion — must not hang
+        let result = number_to_float5("0.3");
+        // Exponent byte should be $7F (0.3 is in [0.25, 0.5) → exp = -1 → 0x80-1 = 0x7F)
+        assert_eq!(result[0], 0x7F);
+        // The full tokeniser should handle BEEP with fractional args
+        let prog = tokenise("10 BEEP 0.3,5").expect("should tokenise");
+        assert!(!prog.bytes.is_empty());
     }
 
     #[test]
