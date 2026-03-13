@@ -96,7 +96,7 @@ fn test_boot_kick12_a500() {
         "boot_kick12_a500",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0xEBB3B834721B9FF8),
+            viewport_hash: Some(0x10618BA02631C1E8),
             ..EXPECT_INSERT_DISK_LORES
         },
     );
@@ -123,7 +123,7 @@ fn test_boot_kick12_a2000() {
         "boot_kick12_a2000",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0xEBB3B834721B9FF8),
+            viewport_hash: Some(0x10618BA02631C1E8),
             ..EXPECT_INSERT_DISK_LORES
         },
     );
@@ -150,7 +150,7 @@ fn test_boot_kick13_a500() {
         "boot_kick13_a500",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0x3F575F061C947EBE),
+            viewport_hash: Some(0xEDEADF62396F56A7),
             ..EXPECT_INSERT_DISK_LORES
         },
     );
@@ -177,7 +177,7 @@ fn test_boot_kick13_a2000() {
         "boot_kick13_a2000",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0x3F575F061C947EBE),
+            viewport_hash: Some(0xEDEADF62396F56A7),
             ..EXPECT_INSERT_DISK_LORES
         },
     );
@@ -204,7 +204,7 @@ fn test_boot_kick31_a2000() {
         "boot_kick31_a2000",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0xC348CF47AEF4ADBB),
+            viewport_hash: Some(0xB65A79875C823176),
             ..EXPECT_INSERT_DISK_HIRES
         },
     );

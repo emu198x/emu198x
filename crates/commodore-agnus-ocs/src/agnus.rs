@@ -1079,10 +1079,16 @@ impl Agnus {
             0x1C..=0xE2 => {
                 // Bitplane DMA: the OCS/ECS fetch sequencer runs in
                 // indivisible 8-CCK "fetchunit" blocks (matching WinUAE).
-                // When DDFSTOP is reached, the current block finishes and
-                // one extra complete block runs before stopping. The fetch
-                // window end is therefore aligned to the next fetchunit
-                // boundary after DDFSTOP, plus one more fetchunit block.
+                //
+                // WinUAE uses a ddf_stopping state machine (0→1→2):
+                //   - DDFSTOP match while fetching → ddf_stopping = 1
+                //   - End of current fetchunit block → ddf_stopping = 2
+                //   - End of next fetchunit block → DMA stops
+                //
+                // This means the fetch window always completes the block
+                // containing DDFSTOP *plus* one more full block after it.
+                // For DDFSTRT=$40, DDFSTOP=$D0 hires: 19 blocks ($40–$D7),
+                // fetching 38 BPL1 words (76 bytes).
                 let num_bpl = self.num_bitplanes();
                 let hires = (self.bplcon0 & 0x8000) != 0;
                 let group_len = if hires { 4 } else { 8 };

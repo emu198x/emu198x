@@ -101,9 +101,42 @@ pub fn boot_screenshot_test(
     let mut post_scsi_pc_count: u64 = 0; // Count unique PCs
     let mut post_scsi_last_wait_tick: u64 = 0; // Dedup Wait() trace
     let mut prev_intena_vertb: u16 = 0; // Track INTENA VERTB bit transitions
+    let mut diw_diag_done = false; // One-shot DIW diagnostic
 
     for i in 0..total_ticks {
         amiga.tick();
+
+        // One-shot: capture display window state at mid-screen (line 150, hpos 0)
+        // during the last second of boot, to get copper-programmed steady state.
+        if !diw_diag_done && i > total_ticks - 28_375_160
+            && amiga.agnus.vpos == 150 && amiga.agnus.hpos == 0
+        {
+            diw_diag_done = true;
+            eprintln!("[DIW-DIAG] tick={} vpos={} hpos={}",
+                i, amiga.agnus.vpos, amiga.agnus.hpos);
+            eprintln!("[DIW-DIAG] BPLCON0=${:04X} BPLCON1=${:04X}",
+                amiga.denise.bplcon0, amiga.denise.bplcon1);
+            eprintln!("[DIW-DIAG] DIWSTRT=${:04X} DIWSTOP=${:04X}",
+                amiga.agnus.diwstrt, amiga.agnus.diwstop);
+            eprintln!("[DIW-DIAG] DIWHIGH=${:04X} (written={})",
+                amiga.agnus.diwhigh(), amiga.agnus.diwhigh_written());
+            eprintln!("[DIW-DIAG] DDFSTRT=${:04X} DDFSTOP=${:04X}",
+                amiga.agnus.ddfstrt, amiga.agnus.ddfstop);
+            let diwstrt_h = amiga.agnus.diwstrt & 0xFF;
+            let diwstop_h = amiga.agnus.diwstop & 0xFF;
+            if amiga.agnus.diwhigh_written() {
+                let dh = amiga.agnus.diwhigh();
+                let h8s = ((dh >> 5) & 1) << 8;
+                let h8e = ((dh >> 13) & 1) << 8;
+                eprintln!("[DIW-DIAG] ECS hstart=${:03X}({}) hstop=${:03X}({})",
+                    h8s | diwstrt_h, h8s | diwstrt_h,
+                    h8e | diwstop_h, h8e | diwstop_h);
+            } else {
+                eprintln!("[DIW-DIAG] OCS hstart=${:03X}({}) hstop=${:03X}({})",
+                    diwstrt_h, diwstrt_h,
+                    0x100 | diwstop_h, 0x100 | diwstop_h);
+            }
+        }
 
         // Track INTENA VERTB (bit 5) transitions
         let curr_intena_vertb = amiga.paula.intena & 0x0020;
@@ -990,15 +1023,128 @@ pub fn boot_screenshot_test(
         display_path_str, display.width, display.height,
     );
 
+    // Scan for non-background pixels near both edges (artifact diagnostic)
+    {
+        let bg = display.pixels[0]; // top-left pixel = assumed background
+        let w = display.width as usize;
+        let h = display.height as usize;
+        // Check last 80 columns for any non-background pixel (wider scan)
+        let scan_cols = 80.min(w);
+        let mut rightmost_non_bg = None;
+        for col in (w.saturating_sub(scan_cols)..w).rev() {
+            for row in 0..h {
+                let p = display.pixels[row * w + col];
+                if p != bg {
+                    rightmost_non_bg = Some((col, row, p));
+                    break;
+                }
+            }
+            if rightmost_non_bg.is_some() { break; }
+        }
+        if let Some((col, row, pix)) = rightmost_non_bg {
+            println!("RIGHT EDGE: rightmost non-bg pixel at col={} row={} argb=${:08X} (display {}x{})",
+                col, row, pix, w, h);
+        } else {
+            println!("RIGHT EDGE: all background in last {} columns", scan_cols);
+        }
+        // Scan ALL rows for the rightmost non-bg pixel using PER-ROW bg detection
+        // (the copper gradient changes background across the frame)
+        let mut global_rightmost_col = 0usize;
+        let mut global_rightmost_rows = Vec::new();
+        for row in 0..h {
+            // Use last pixel of this row as the background reference
+            let row_bg = display.pixels[row * w + (w - 1)];
+            for col in (0..w).rev() {
+                let p = display.pixels[row * w + col];
+                if p != row_bg {
+                    if col > global_rightmost_col {
+                        global_rightmost_col = col;
+                        global_rightmost_rows.clear();
+                        global_rightmost_rows.push((row, p));
+                    } else if col == global_rightmost_col {
+                        global_rightmost_rows.push((row, p));
+                    }
+                    break;
+                }
+            }
+        }
+        if !global_rightmost_rows.is_empty() {
+            println!("RIGHTMOST content at col={} on {} rows (per-row bg): {:?}",
+                global_rightmost_col, global_rightmost_rows.len(),
+                &global_rightmost_rows[..global_rightmost_rows.len().min(10)]);
+        }
+        // Find leftmost non-bg pixel across ALL rows
+        let mut global_leftmost_col = w;
+        let mut global_leftmost_rows = Vec::new();
+        for row in 0..h {
+            for col in 0..w {
+                let p = display.pixels[row * w + col];
+                if p != bg {
+                    if col < global_leftmost_col {
+                        global_leftmost_col = col;
+                        global_leftmost_rows.clear();
+                        global_leftmost_rows.push(row);
+                    } else if col == global_leftmost_col {
+                        global_leftmost_rows.push(row);
+                    }
+                    break;
+                }
+            }
+        }
+        if global_leftmost_col < w {
+            println!("LEFTMOST content at col={} on {} rows: {:?}",
+                global_leftmost_col, global_leftmost_rows.len(),
+                &global_leftmost_rows[..global_leftmost_rows.len().min(10)]);
+        }
+        // Dump last 12 pixel columns for 10 sample rows to visually detect wrapping
+        let sample_rows: Vec<usize> = (0..h).step_by(h / 10).take(10).collect();
+        println!("RIGHT-EDGE pixel dump (last 12 cols, 10 sample rows):");
+        for &row in &sample_rows {
+            let start_col = w.saturating_sub(12);
+            let row_bg = display.pixels[row * w + (w - 1)];
+            let cols: Vec<String> = (start_col..w).map(|col| {
+                let p = display.pixels[row * w + col];
+                if p == row_bg { ".".to_string() } else { format!("{:06X}", p & 0xFFFFFF) }
+            }).collect();
+            println!("  row {:>3}: [{}]", row, cols.join(" "));
+        }
+        // Also dump first 12 pixel columns
+        println!("LEFT-EDGE pixel dump (first 12 cols, 10 sample rows):");
+        for &row in &sample_rows {
+            let cols: Vec<String> = (0..12.min(w)).map(|col| {
+                let p = display.pixels[row * w + col];
+                if p == bg { ".".to_string() } else { format!("{:06X}", p & 0xFFFFFF) }
+            }).collect();
+            println!("  row {:>3}: [{}]", row, cols.join(" "));
+        }
+    }
+
     println!("DMACON  = ${:04X}", amiga.agnus.dmacon);
     println!("BPLCON0 = ${:04X}", amiga.denise.bplcon0);
+    println!("BPLCON1 = ${:04X}", amiga.denise.bplcon1);
     println!("BPLCON4 = ${:04X}", amiga.denise.bplcon4);
     println!("FMODE   = ${:04X}", amiga.agnus.fmode);
     println!("DIWSTRT = ${:04X}", amiga.agnus.diwstrt);
     println!("DIWSTOP = ${:04X}", amiga.agnus.diwstop);
+    println!("DIWHIGH = ${:04X} (written={})", amiga.agnus.diwhigh(), amiga.agnus.diwhigh_written());
     println!("DDFSTRT = ${:04X}", amiga.agnus.ddfstrt);
     println!("DDFSTOP = ${:04X}", amiga.agnus.ddfstop);
     println!("COP1LC  = ${:08X}", amiga.copper.cop1lc);
+    // Decode display window H bounds for diagnosis
+    let diwstrt_h = amiga.agnus.diwstrt & 0x00FF;
+    let diwstop_h = amiga.agnus.diwstop & 0x00FF;
+    if amiga.agnus.diwhigh_written() {
+        let diwhigh = amiga.agnus.diwhigh();
+        let h8_start = ((diwhigh >> 5) & 1) << 8;
+        let h8_stop = ((diwhigh >> 13) & 1) << 8;
+        println!("DIW H-window: hstart=${:03X}({}) hstop=${:03X}({})",
+            h8_start | diwstrt_h, h8_start | diwstrt_h,
+            h8_stop | diwstop_h, h8_stop | diwstop_h);
+    } else {
+        println!("DIW H-window: hstart=${:03X}({}) hstop=${:03X}({}) (OCS fallback)",
+            diwstrt_h, diwstrt_h,
+            0x100 | diwstop_h, 0x100 | diwstop_h);
+    }
 
     // Dump sprite palette entries (first 32 entries of AGA 24-bit palette)
     print!("Palette 24-bit [0..31]:");

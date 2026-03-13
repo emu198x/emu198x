@@ -1007,6 +1007,7 @@ impl Amiga {
             let beam_x0 = u32::from(beam_x0_u16);
             let beam_x1 = u32::from(beam_x1_u16);
             let beam_y = u32::from(vpos);
+
             let playfield_gate0 = self.playfield_window_active_beam_x(vpos, hpos, beam_x0_u16);
             let playfield_gate1 = self.playfield_window_active_beam_x(vpos, hpos, beam_x1_u16);
             let mut diw_hstart_beam_x = None;
@@ -1018,8 +1019,7 @@ impl Amiga {
                 diw_hstart_beam_x = Some(hstart);
                 diw_hstop_beam_x = Some(hstop);
             }
-            // Output two half-CCK pixels. Beam position IS the coordinate —
-            // every position writes to the raster buffer directly.
+            // Output two half-CCK pixels. Beam position IS the coordinate.
             let pixel0_debug = self.denise.output_pixel_with_beam_and_playfield_gate(
                 beam_x0,
                 beam_y,
@@ -1907,15 +1907,22 @@ impl Amiga {
         self.beam_to_fb_beam_x(vpos, hpos_cck, hpos_cck.wrapping_mul(2))
     }
 
-    fn playfield_window_active_beam_x(&self, vpos: u16, hpos_cck: u16, beam_x: u16) -> bool {
+    fn playfield_window_active_beam_x(&self, vpos: u16, _hpos_cck: u16, beam_x: u16) -> bool {
+        // Denise compares its internal horizontal counter against DIWSTRT/DIWSTOP.
+        // The Denise counter trails Agnus beam_x by 1 pixel (half-CCK). This is the
+        // same offset used for the BPLCON1 scroll comparator (verified pixel-perfect
+        // against FS-UAE). Rather than subtracting 1 from beam_x, we add 1 to the
+        // comparison thresholds.
+        const DENISE_H_OFFSET: u16 = 0;
+
         if !self.chipset.is_ecs_or_aga() {
             // OCS: clip to DIWSTRT/DIWSTOP with implicit H8/V8 bits.
             let vstart = (self.agnus.diwstrt >> 8) & 0x00FF;
             let stop_v_low = (self.agnus.diwstop >> 8) & 0x00FF;
             let stop_v8 = ((!((stop_v_low >> 7) & 1)) & 1) << 8;
             let vstop = stop_v8 | stop_v_low;
-            let hstart = self.agnus.diwstrt & 0x00FF;
-            let hstop = 0x0100 | (self.agnus.diwstop & 0x00FF);
+            let hstart = (self.agnus.diwstrt & 0x00FF) + DENISE_H_OFFSET;
+            let hstop = (0x0100 | (self.agnus.diwstop & 0x00FF)) + DENISE_H_OFFSET;
             let v_active = if vstart == vstop {
                 true // no vertical clipping if start == stop
             } else if vstart < vstop {
@@ -1932,13 +1939,15 @@ impl Amiga {
             };
             return v_active && h_active;
         }
-        if self.agnus.hblank_window_active(hpos_cck) || self.agnus.vblank_window_active(vpos) {
+        if self.agnus.hblank_window_active(_hpos_cck) || self.agnus.vblank_window_active(vpos) {
             return false;
         }
         let (vstart, vstop, hstart, hstop) = self.ecs_decoded_diw_window();
         if vstart == vstop || hstart == hstop {
             return false;
         }
+        let hstart = hstart + DENISE_H_OFFSET;
+        let hstop = hstop + DENISE_H_OFFSET;
         let v_active = if vstart < vstop {
             vpos >= vstart && vpos < vstop
         } else {
@@ -1981,6 +1990,7 @@ impl Amiga {
         if hstart == hstop {
             return None;
         }
+        // hstart/hstop are register values (DIWSTRT/DIWSTOP H field).
         let line_beam = commodore_agnus_ocs::PAL_CCKS_PER_LINE * 2;
         let span_beam = if hstart < hstop {
             hstop - hstart

@@ -1066,17 +1066,18 @@ impl DeniseOcs {
         let mut pf1_code = 0u8;
         let mut pf2_code = 0u8;
         let mut plane_bits_mask = 0u8;
-        // Denise's horizontal comparator (`denise_hcounter_cmp` in WinUAE)
-        // increments once per hcycle. In our model `beam_x` advances once per
-        // output call (= once per hcycle), so use it directly as the BPLCON1
-        // pending-load comparator phase.
-        let comparator_phase = beam_x as u16;
+        // The BPLCON1 scroll comparator determines when pending BPL data is
+        // copied into the shift register. In WinUAE, the copy check happens
+        // AFTER pixel output within each half-CCK iteration, so newly copied
+        // data appears one pixel later. Our model does the copy BEFORE pixel
+        // output, so we compensate with a 1-pixel offset: beam_x - 1.
+        // Verified by pixel-level comparison against FS-UAE: offset 0 → 2px
+        // left, offset 2 → 2px right, offset 1 → exact match.
+        let comparator_phase = (beam_x as u16).wrapping_sub(1);
 
-        // Denise's BPLCON1 scroll comparator uses a horizontal counter phase,
-        // not a "source pixels shifted so far on this line" counter. Commit
-        // BPL1DAT-triggered pending loads BEFORE shifting pixels out, matching
-        // real hardware where the parallel load replaces the shift register
-        // contents before the next serial output.
+        // Commit BPL1DAT-triggered pending loads BEFORE shifting pixels out,
+        // matching real hardware where the parallel load replaces the shift
+        // register contents before the next serial output.
         self.apply_pending_shift_load_if_due(comparator_phase);
 
         for sample_idx in 0..source_pixels_per_fb_pixel {
@@ -1120,7 +1121,13 @@ impl DeniseOcs {
         );
 
         // Sprite lookup (lores resolution — same sprite for both hires sub-pixels).
-        let sprite_pixel = self.sprite_pixel(beam_x, beam_y);
+        // On real Denise, the display window (DIWSTRT/DIWSTOP) blanks both
+        // playfields AND sprites — only COLOR00 is output outside the window.
+        let sprite_pixel = if playfield_visible_gate {
+            self.sprite_pixel(beam_x, beam_y)
+        } else {
+            None
+        };
 
         // Cache BPLCON2 priority positions for sprite resolution (avoids
         // re-borrowing &self through a closure while &mut self is live).
