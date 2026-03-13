@@ -25,7 +25,9 @@ format-tzx = { path = "../format-tzx" }
 format-sna = { path = "../format-sna" }
 format-z80 = { path = "../format-z80" }
 winit = "0.30"
-pixels = "0.15"
+wgpu = "27"
+muda = "0.16"
+pollster = "0.4"
 png = "0.17"
 hound = "3.5"
 serde = { version = "1", features = ["derive"] }

@@ -42,6 +42,8 @@ pub struct SpectrumBus {
     /// Tape EAR override: `Some(level)` when TZX signal is active, `None`
     /// falls back to MIC loopback (bit 3 of last $FE write).
     pub tape_ear: Option<bool>,
+    /// Use +2A/+3 port decoding (stricter $7FFD decode to avoid clash with $1FFD).
+    pub plus3_ports: bool,
 }
 
 impl SpectrumBus {
@@ -57,6 +59,7 @@ impl SpectrumBus {
             ay: None,
             fdc: None,
             tape_ear: None,
+            plus3_ports: false,
         }
     }
 
@@ -158,8 +161,16 @@ impl Bus for SpectrumBus {
             self.beeper.set_level((value >> 4) & 1);
         }
 
-        // Port $7FFD: 128K bank switching (bit 1 set, bit 15 clear)
-        if port & 0x8002 == 0x0000 && !ula_port {
+        // Port $7FFD: 128K bank switching.
+        // 128K/+2: decoded when A15=0, A1=0 (port & $8002 == $0000).
+        // +2A/+3: decoded when A15=0, A14=1, A1=0 (port & $C002 == $4000).
+        // The stricter +3 decode avoids a clash with $1FFD.
+        let is_7ffd = if self.plus3_ports {
+            port & 0xC002 == 0x4000
+        } else {
+            port & 0x8002 == 0x0000 && !ula_port
+        };
+        if is_7ffd {
             self.memory.write_bank_register(value);
         }
 

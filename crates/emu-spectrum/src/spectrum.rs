@@ -104,6 +104,12 @@ impl Spectrum {
             }
         }
 
+        if matches!(
+            config.model,
+            SpectrumModel::SpectrumPlus2A | SpectrumModel::SpectrumPlus3
+        ) {
+            bus.plus3_ports = true;
+        }
         if config.model == SpectrumModel::SpectrumPlus3 {
             bus.fdc = Some(nec_upd765::Upd765::new());
         }
