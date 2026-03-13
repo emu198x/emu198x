@@ -42,7 +42,7 @@ fn test_boot_kick204_a500plus() {
         "boot_kick204_a500plus",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0x5FD5A2CB5764C5CB),
+            viewport_hash: Some(0xC8068DC1D9066874),
             ..EXPECT_INSERT_DISK_HIRES
         },
     );
@@ -69,7 +69,7 @@ fn test_boot_kick205_a600() {
         "boot_kick205_a600",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0xADAA6137A9E40F1F),
+            viewport_hash: Some(0x7156ECE3AB7B249B),
             ..EXPECT_INSERT_DISK_HIRES
         },
     );
@@ -96,7 +96,7 @@ fn test_boot_kick31_a500() {
         "boot_kick31_a500",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0xB65A79875C823176),
+            viewport_hash: Some(0xA8F363DA97A93051),
             ..EXPECT_INSERT_DISK_KS31_ECS
         },
     );
@@ -123,7 +123,7 @@ fn test_boot_kick31_a600() {
         "boot_kick31_a600",
         BOOT_TICKS,
         BootExpect {
-            viewport_hash: Some(0xB65A79875C823176),
+            viewport_hash: Some(0xA8F363DA97A93051),
             ..EXPECT_INSERT_DISK_KS31_ECS
         },
     );

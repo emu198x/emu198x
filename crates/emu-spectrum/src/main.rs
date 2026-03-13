@@ -24,8 +24,8 @@ use winit::window::{Window, WindowAttributes, WindowId};
 /// Embedded 48K ROM — compiled into the binary.
 const ROM_48K: &[u8] = include_bytes!("../../../roms/48.rom");
 
-/// Spectrum framebuffer dimensions.
-const FB_WIDTH: u32 = 320;
+/// Spectrum framebuffer dimensions (4:3).
+const FB_WIDTH: u32 = 384;
 const FB_HEIGHT: u32 = 288;
 
 /// Window scale factor.

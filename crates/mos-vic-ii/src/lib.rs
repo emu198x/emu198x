@@ -22,9 +22,13 @@ use palette::PALETTE;
 // --- PAL defaults (used for the public constants) ---
 
 /// PAL first visible line.
-const PAL_FIRST_VISIBLE_LINE: u16 = 6;
+///
+/// Line 0 captures the full PAL field (312 lines), giving FB_HEIGHT = 312.
+/// 416×312 is exactly 4:3, allowing clean integer scaling at any multiple.
+/// Lines in VBLANK render as border colour.
+const PAL_FIRST_VISIBLE_LINE: u16 = 0;
 /// PAL last visible line (exclusive).
-const PAL_LAST_VISIBLE_LINE: u16 = 290;
+const PAL_LAST_VISIBLE_LINE: u16 = 312;
 
 /// NTSC first visible line.
 const NTSC_FIRST_VISIBLE_LINE: u16 = 14;
@@ -45,7 +49,8 @@ const VISIBLE_CYCLES: u8 = LAST_VISIBLE_CYCLE - FIRST_VISIBLE_CYCLE;
 /// Default framebuffer width (PAL): visible cycles * 8 pixels.
 pub const FB_WIDTH: u32 = VISIBLE_CYCLES as u32 * 8;
 
-/// Default framebuffer height (PAL): visible lines.
+/// Default framebuffer height (PAL): full field = 312 lines.
+/// 416×312 is exactly 4:3.
 pub const FB_HEIGHT: u32 = (PAL_LAST_VISIBLE_LINE - PAL_FIRST_VISIBLE_LINE) as u32;
 
 /// First line of the display window (where characters are rendered).

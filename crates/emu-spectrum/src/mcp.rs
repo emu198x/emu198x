@@ -1465,7 +1465,7 @@ mod tests {
         match result {
             ToolResult::Success(val) => {
                 assert_eq!(val["format"], "png");
-                // 320×288 native → 768×576 with 2× pre-scale + 4:3 correction
+                // 384×288 native (4:3) → 768×576 at 2× integer scale
                 assert_eq!(val["width"], 768);
                 assert_eq!(val["height"], 576);
                 assert!(val["data"].as_str().unwrap().len() > 100);

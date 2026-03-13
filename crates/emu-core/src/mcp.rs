@@ -318,28 +318,51 @@ pub fn observable_to_json(value: &Value) -> JsonValue {
     }
 }
 
-/// Calculate display dimensions for a 4:3 aspect ratio with 2× pre-scale.
+/// Calculate display dimensions using integer-only scaling to 4:3.
 ///
-/// Scales both axes by 2× first, then applies the fractional aspect
-/// correction. This spreads nearest-neighbour rounding across twice as
-/// many source pixels, avoiding the ugly column/row doubling visible
-/// when correcting at native resolution.
+/// Finds the smallest integer scale factors (h_scale, v_scale) such that
+/// `(width * h_scale) / (height * v_scale) = 4/3`, then applies a
+/// multiplier so the output is at least `min_width` pixels wide.
+///
+/// For already-4:3 framebuffers (Spectrum 384×288, C64 416×312, Amiga
+/// 768×576), h_scale = v_scale = 1 and the multiplier controls the
+/// output size. For the NES (256×240 = 16:15), h_scale=5, v_scale=4
+/// giving 1280×960.
+///
+/// Returns `None` if no integer solution exists (framebuffer dimensions
+/// are coprime with 4:3 — should not happen with correctly sized
+/// framebuffers).
 #[must_use]
 pub fn display_size_4_3(width: u32, height: u32) -> (u32, u32) {
-    let sw = width * 2;
-    let sh = height * 2;
-    let target_w = (sh * 4 + 2) / 3;
-    if sw <= target_w {
-        (round_even(target_w), round_even(sh))
-    } else {
-        let target_h = (sw * 3 + 2) / 4;
-        (round_even(sw), round_even(target_h))
-    }
+    let (hs, vs) = aspect_scale_4_3(width, height);
+    // Apply multiplier so output is at least 640px wide.
+    let base_w = width * hs;
+    let multiplier = (640 + base_w - 1) / base_w;
+    let multiplier = multiplier.max(1);
+    (width * hs * multiplier, height * vs * multiplier)
 }
 
-/// Round to the nearest even number (required by H.264 / PNG alignment).
-fn round_even(v: u32) -> u32 {
-    (v + 1) & !1
+/// Find the smallest integer scale factors (h, v) such that
+/// `(width * h) / (height * v) = 4/3`.
+///
+/// Returns `(h, v)`. For 4:3 inputs returns `(1, 1)`.
+#[must_use]
+pub fn aspect_scale_4_3(width: u32, height: u32) -> (u32, u32) {
+    // We need: 3 * width * h = 4 * height * v  →  h/v = (4*height) / (3*width)
+    let num = 4 * height;
+    let den = 3 * width;
+    let g = gcd(num, den);
+    (num / g, den / g)
+}
+
+/// Greatest common divisor (Euclidean algorithm).
+const fn gcd(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    a
 }
 
 /// Nearest-neighbour scale a `u32` pixel buffer (allocating).

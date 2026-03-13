@@ -22,8 +22,8 @@
 //!
 //! # Framebuffer
 //!
-//! 320x288 pixels: 256 active + 32 left border + 32 right border horizontally,
-//! 192 active + 48 top border + 48 bottom border vertically.
+//! 384x288 pixels (4:3): 256 active + 64 left border + 64 right border
+//! horizontally, 192 active + 48 top border + 48 bottom border vertically.
 //!
 //! # Screen memory layout
 //!
@@ -47,11 +47,15 @@ mod palette;
 pub use palette::PALETTE;
 
 /// Framebuffer dimensions.
-pub const FB_WIDTH: u32 = 320;
+///
+/// 384×288 is 4:3, allowing clean integer scaling at any multiple.
+/// 256 active + 64 left border + 64 right border horizontally,
+/// 192 active + 48 top border + 48 bottom border vertically.
+pub const FB_WIDTH: u32 = 384;
 pub const FB_HEIGHT: u32 = 288;
 
 /// Display area within the framebuffer.
-const BORDER_LEFT: u32 = 32;
+const BORDER_LEFT: u32 = 64;
 const SCREEN_WIDTH: u32 = 256;
 const SCREEN_HEIGHT: u32 = 192;
 
@@ -388,18 +392,18 @@ impl Ula {
         //
         // ULA horizontal timing (in pixel clocks, 448 total):
         //   Pixels   0-255: screen fetch area (256 pixels)
-        //   Pixels 256-287: right border (32 pixels)
-        //   Pixels 288-415: horizontal retrace (not visible)
-        //   Pixels 416-447: left border (32 pixels)
+        //   Pixels 256-319: right border (64 pixels)
+        //   Pixels 320-383: horizontal retrace (not visible)
+        //   Pixels 384-447: left border (64 pixels)
         let (fb_x, in_screen_area) = if pixel < 256 {
             // Screen area
             (BORDER_LEFT + u32::from(pixel), true)
-        } else if pixel < 288 {
+        } else if pixel < 320 {
             // Right border
             (BORDER_LEFT + SCREEN_WIDTH + u32::from(pixel - 256), false)
-        } else if pixel >= 416 {
+        } else if pixel >= 384 {
             // Left border
-            (u32::from(pixel - 416), false)
+            (u32::from(pixel - 384), false)
         } else {
             // Horizontal retrace -- not visible
             return;

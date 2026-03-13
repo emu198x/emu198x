@@ -587,9 +587,9 @@ mod tests {
     #[test]
     fn framebuffer_correct_size() {
         let spec = make_spectrum();
-        assert_eq!(spec.framebuffer_width(), 320);
+        assert_eq!(spec.framebuffer_width(), 384);
         assert_eq!(spec.framebuffer_height(), 288);
-        assert_eq!(spec.framebuffer().len(), 320 * 288);
+        assert_eq!(spec.framebuffer().len(), 384 * 288);
     }
 
     #[test]
