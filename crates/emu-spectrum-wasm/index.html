@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>ZX Spectrum — Emu198x</title>
+    <style>
+        body { margin: 0; background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: monospace; color: #ccc; }
+        canvas { image-rendering: pixelated; border: 2px solid #333; }
+        p { margin-top: 1em; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <canvas id="screen"></canvas>
+    <p>Click to start. Keys: A-Z, 0-9, Enter, Space, LShift=CAPS, RShift=SYM</p>
+    <script type="module">
+        import init, { SpectrumEmulator } from './pkg/emu_spectrum_wasm.js';
+
+        const SCALE = 3;
+
+        async function start() {
+            const wasm = await init();
+            const emu = new SpectrumEmulator();
+
+            const canvas = document.getElementById('screen');
+            const width = emu.width();
+            const height = emu.height();
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = `${width * SCALE}px`;
+            canvas.style.height = `${height * SCALE}px`;
+            const ctx = canvas.getContext('2d');
+
+            // Audio
+            let audioCtx = null;
+            let nextAudioTime = 0;
+
+            canvas.addEventListener('click', () => {
+                if (!audioCtx) {
+                    audioCtx = new AudioContext({ sampleRate: 48000 });
+                    nextAudioTime = audioCtx.currentTime;
+                }
+                audioCtx.resume();
+                canvas.focus();
+            });
+
+            // Keyboard
+            document.addEventListener('keydown', (e) => {
+                e.preventDefault();
+                emu.key_down(e.code);
+            });
+            document.addEventListener('keyup', (e) => {
+                e.preventDefault();
+                emu.key_up(e.code);
+            });
+
+            // Frame loop
+            const FRAME_DURATION = 1000 / 50;
+            let lastTime = 0;
+            let accumulator = 0;
+
+            function loop(timestamp) {
+                if (lastTime === 0) lastTime = timestamp;
+                accumulator += timestamp - lastTime;
+                lastTime = timestamp;
+
+                while (accumulator >= FRAME_DURATION) {
+                    emu.run_frame();
+
+                    // Queue audio
+                    if (audioCtx) {
+                        const len = emu.audio_buffer_len();
+                        if (len > 0) {
+                            const ptr = emu.audio_buffer_ptr();
+                            const samples = new Float32Array(wasm.memory.buffer, ptr, len);
+                            const buffer = audioCtx.createBuffer(1, len, 48000);
+                            buffer.getChannelData(0).set(samples);
+                            const source = audioCtx.createBufferSource();
+                            source.buffer = buffer;
+                            source.connect(audioCtx.destination);
+                            if (nextAudioTime < audioCtx.currentTime) {
+                                nextAudioTime = audioCtx.currentTime;
+                            }
+                            source.start(nextAudioTime);
+                            nextAudioTime += len / 48000;
+                        }
+                    }
+
+                    accumulator -= FRAME_DURATION;
+                }
+
+                // Blit framebuffer
+                const ptr = emu.framebuffer_rgba_ptr();
+                const rgba = new Uint8ClampedArray(wasm.memory.buffer, ptr, width * height * 4);
+                const imageData = new ImageData(rgba, width, height);
+                ctx.putImageData(imageData, 0, 0);
+
+                requestAnimationFrame(loop);
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        start().catch(console.error);
+    </script>
+</body>
+</html>

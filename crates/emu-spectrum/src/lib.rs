@@ -7,11 +7,14 @@
 
 mod beeper;
 mod bus;
+#[cfg(feature = "native")]
 pub mod capture;
 mod config;
 pub mod input;
 mod keyboard;
+#[cfg(feature = "native")]
 pub mod keyboard_map;
+#[cfg(feature = "native")]
 pub mod mcp;
 mod memory;
 pub use format_sna as sna;

@@ -1,0 +1,17 @@
+[package]
+name = "emu-spectrum-wasm"
+description = "ZX Spectrum emulator — WASM/browser build"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+emu-spectrum = { path = "../emu-spectrum", default-features = false }
+emu-core = { path = "../emu-core" }
+wasm-bindgen = "0.2"
+
+[lints]
+workspace = true
