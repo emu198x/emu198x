@@ -1,18 +1,21 @@
 //! NES emulator binary.
 //!
-//! Runs the NES with a winit window and pixels framebuffer, or in
+//! Runs the NES with a winit window and wgpu renderer, or in
 //! headless mode for screenshots, or as an MCP server.
 
 #![allow(clippy::cast_possible_truncation)]
 
 use std::path::PathBuf;
 use std::process;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use emu_core::Cpu;
+use emu_core::renderer::Renderer;
 use emu_nes::mcp::{McpServer, NesMcp};
 use emu_nes::ppu;
 use emu_nes::{Nes, NesConfig, NesRegion, capture, controller_map};
-use pixels::{Pixels, SurfaceTexture};
+use muda::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -189,23 +192,87 @@ fn run_headless(cli: &CliArgs) {
 }
 
 // ---------------------------------------------------------------------------
-// Windowed mode (winit + pixels)
+// Native menus (muda)
+// ---------------------------------------------------------------------------
+
+struct MenuIds {
+    screenshot: MenuId,
+    quit: MenuId,
+    soft_reset: MenuId,
+    hard_reset: MenuId,
+    region_ntsc: MenuId,
+    region_pal: MenuId,
+}
+
+fn build_menu() -> (Menu, MenuIds) {
+    let menu = Menu::new();
+
+    // File menu.
+    let file_menu = Submenu::new("File", true);
+    let screenshot = MenuItem::new("Screenshot\tCtrl+P", true, None);
+    let quit = MenuItem::new("Quit\tCtrl+Q", true, None);
+    file_menu.append(&screenshot).ok();
+    file_menu.append(&PredefinedMenuItem::separator()).ok();
+    file_menu.append(&quit).ok();
+
+    // System menu.
+    let system_menu = Submenu::new("System", true);
+    let soft_reset = MenuItem::new("Soft Reset\tCtrl+R", true, None);
+    let hard_reset = MenuItem::new("Hard Reset\tCtrl+Shift+R", true, None);
+    system_menu.append(&soft_reset).ok();
+    system_menu.append(&hard_reset).ok();
+
+    // Region submenu.
+    let region_menu = Submenu::new("Region", true);
+    let region_ntsc = MenuItem::new("NTSC", true, None);
+    let region_pal = MenuItem::new("PAL", true, None);
+    region_menu.append(&region_ntsc).ok();
+    region_menu.append(&region_pal).ok();
+
+    system_menu.append(&PredefinedMenuItem::separator()).ok();
+    system_menu.append(&region_menu).ok();
+
+    menu.append(&file_menu).ok();
+    menu.append(&system_menu).ok();
+
+    let ids = MenuIds {
+        screenshot: screenshot.id().clone(),
+        quit: quit.id().clone(),
+        soft_reset: soft_reset.id().clone(),
+        hard_reset: hard_reset.id().clone(),
+        region_ntsc: region_ntsc.id().clone(),
+        region_pal: region_pal.id().clone(),
+    };
+
+    (menu, ids)
+}
+
+// ---------------------------------------------------------------------------
+// Windowed mode (winit + wgpu + muda)
 // ---------------------------------------------------------------------------
 
 struct App {
     nes: Nes,
-    window: Option<&'static Window>,
-    pixels: Option<Pixels<'static>>,
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
     last_frame_time: Instant,
+    menu_ids: MenuIds,
+    _menu: Menu,
+    rom_data: Vec<u8>,
+    current_region: NesRegion,
 }
 
 impl App {
-    fn new(nes: Nes) -> Self {
+    fn new(nes: Nes, rom_data: Vec<u8>, region: NesRegion, menu: Menu, menu_ids: MenuIds) -> Self {
         Self {
             nes,
             window: None,
-            pixels: None,
+            renderer: None,
             last_frame_time: Instant::now(),
+            menu_ids,
+            _menu: menu,
+            rom_data,
+            current_region: region,
         }
     }
 
@@ -219,20 +286,50 @@ impl App {
         }
     }
 
-    fn update_pixels(&mut self) {
-        let Some(pixels) = self.pixels.as_mut() else {
+    fn switch_region(&mut self, region: NesRegion) {
+        if region == self.current_region {
             return;
+        }
+        let config = NesConfig {
+            rom_data: self.rom_data.clone(),
+            region,
         };
+        match Nes::new(&config) {
+            Ok(nes) => {
+                self.nes = nes;
+                self.current_region = region;
+                let title = region_title(region);
+                if let Some(window) = &self.window {
+                    window.set_title(title);
+                }
+                eprintln!("Switched to {title}");
+            }
+            Err(e) => {
+                eprintln!("Failed to switch region: {e}");
+            }
+        }
+    }
 
-        let fb = self.nes.framebuffer();
-        let frame = pixels.frame_mut();
-
-        for (i, &argb) in fb.iter().enumerate() {
-            let offset = i * 4;
-            frame[offset] = ((argb >> 16) & 0xFF) as u8;
-            frame[offset + 1] = ((argb >> 8) & 0xFF) as u8;
-            frame[offset + 2] = (argb & 0xFF) as u8;
-            frame[offset + 3] = 0xFF;
+    fn handle_menu_event(&mut self, id: &MenuId, event_loop: &ActiveEventLoop) {
+        if *id == self.menu_ids.quit {
+            event_loop.exit();
+        } else if *id == self.menu_ids.soft_reset {
+            self.nes.cpu_mut().reset();
+            eprintln!("Soft reset");
+        } else if *id == self.menu_ids.hard_reset {
+            self.nes.cpu_mut().reset();
+            eprintln!("Hard reset");
+        } else if *id == self.menu_ids.screenshot {
+            let path = std::path::PathBuf::from("screenshot.png");
+            if let Err(e) = capture::save_screenshot(&self.nes, &path) {
+                eprintln!("Screenshot error: {e}");
+            } else {
+                eprintln!("Screenshot saved to {}", path.display());
+            }
+        } else if *id == self.menu_ids.region_ntsc {
+            self.switch_region(NesRegion::Ntsc);
+        } else if *id == self.menu_ids.region_pal {
+            self.switch_region(NesRegion::Pal);
         }
     }
 }
@@ -245,25 +342,37 @@ impl ApplicationHandler for App {
 
         let window_size = winit::dpi::LogicalSize::new(FB_WIDTH * SCALE, FB_HEIGHT * SCALE);
         let attrs = WindowAttributes::default()
-            .with_title("NES")
+            .with_title(region_title(self.current_region))
             .with_inner_size(window_size)
             .with_resizable(false);
 
         match event_loop.create_window(attrs) {
             Ok(window) => {
-                let window: &'static Window = Box::leak(Box::new(window));
-                let inner = window.inner_size();
-                let surface = SurfaceTexture::new(inner.width, inner.height, window);
-                match Pixels::new(FB_WIDTH, FB_HEIGHT, surface) {
-                    Ok(pixels) => {
-                        self.pixels = Some(pixels);
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to create pixels: {e}");
-                        event_loop.exit();
-                        return;
+                let window = Arc::new(window);
+
+                // Attach native menu.
+                #[cfg(target_os = "macos")]
+                {
+                    self._menu.init_for_nsapp();
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    use winit::raw_window_handle::HasWindowHandle;
+                    if let Ok(handle) = window.window_handle() {
+                        if let winit::raw_window_handle::RawWindowHandle::Win32(h) =
+                            handle.as_raw()
+                        {
+                            unsafe {
+                                self._menu
+                                    .init_for_hwnd(h.hwnd.get() as _)
+                                    .ok();
+                            }
+                        }
                     }
                 }
+
+                let renderer = Renderer::new(window.clone(), FB_WIDTH, FB_HEIGHT);
+                self.renderer = Some(renderer);
                 self.window = Some(window);
             }
             Err(e) => {
@@ -296,25 +405,33 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 if now.duration_since(self.last_frame_time) >= FRAME_DURATION {
                     self.nes.run_frame();
-                    // Drain audio buffer to prevent unbounded growth
+                    // Drain audio buffer to prevent unbounded growth.
                     let _ = self.nes.take_audio_buffer();
-                    self.update_pixels();
+
+                    if let Some(renderer) = &mut self.renderer {
+                        renderer.upload_framebuffer(self.nes.framebuffer());
+                    }
+
                     self.last_frame_time = now;
                 }
 
-                if let Some(pixels) = self.pixels.as_ref()
-                    && let Err(e) = pixels.render()
-                {
-                    eprintln!("Render error: {e}");
-                    event_loop.exit();
+                if let Some(renderer) = &self.renderer {
+                    if let Err(e) = renderer.render() {
+                        eprintln!("Render error: {e}");
+                        event_loop.exit();
+                    }
                 }
             }
             _ => {}
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(window) = self.window {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Process menu events.
+        while let Ok(event) = MenuEvent::receiver().try_recv() {
+            self.handle_menu_event(event.id(), event_loop);
+        }
+        if let Some(window) = &self.window {
             window.request_redraw();
         }
     }
@@ -323,6 +440,13 @@ impl ApplicationHandler for App {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+fn region_title(region: NesRegion) -> &'static str {
+    match region {
+        NesRegion::Ntsc => "NES (NTSC)",
+        NesRegion::Pal => "NES (PAL)",
+    }
+}
 
 fn make_nes_result(cli: &CliArgs) -> Result<Nes, String> {
     let rom_path = cli
@@ -390,8 +514,33 @@ fn main() {
         return;
     }
 
-    let nes = make_nes(&cli);
-    let mut app = App::new(nes);
+    // Read ROM data once — stored for region switching.
+    let rom_data = cli
+        .rom_path
+        .as_ref()
+        .map(|p| std::fs::read(p).unwrap_or_else(|e| {
+            eprintln!("Failed to read ROM file {}: {e}", p.display());
+            process::exit(1);
+        }))
+        .unwrap_or_else(|| {
+            eprintln!("No ROM file specified. Use --rom <file.nes>");
+            process::exit(1);
+        });
+
+    let config = NesConfig {
+        rom_data: rom_data.clone(),
+        region: cli.region,
+    };
+    let nes = match Nes::new(&config) {
+        Ok(nes) => nes,
+        Err(e) => {
+            eprintln!("Failed to load ROM: {e}");
+            process::exit(1);
+        }
+    };
+
+    let (menu, menu_ids) = build_menu();
+    let mut app = App::new(nes, rom_data, cli.region, menu, menu_ids);
 
     let event_loop = match EventLoop::new() {
         Ok(el) => el,

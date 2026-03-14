@@ -57,6 +57,7 @@ pub enum SidModel {
 }
 
 /// Configuration for constructing a C64 instance.
+#[derive(Clone)]
 pub struct C64Config {
     /// Model variant.
     pub model: C64Model,

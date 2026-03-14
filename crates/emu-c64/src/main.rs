@@ -1,18 +1,21 @@
 //! Commodore 64 emulator binary.
 //!
-//! Runs the C64 with a winit window and pixels framebuffer, or in
+//! Runs the C64 with a winit window and wgpu renderer, or in
 //! headless mode for screenshots, or as an MCP server.
 
 #![allow(clippy::cast_possible_truncation)]
 
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use emu_c64::config::SidModel;
 use emu_c64::mcp::{C64Mcp, McpServer};
 use emu_c64::{C64, C64Config, C64Model, capture, keyboard_map};
-use pixels::{Pixels, SurfaceTexture};
+use emu_core::Cpu;
+use emu_core::renderer::Renderer;
+use muda::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -198,31 +201,114 @@ fn run_headless(cli: &CliArgs) {
 }
 
 // ---------------------------------------------------------------------------
-// Windowed mode (winit + pixels)
+// Native menus (muda)
+// ---------------------------------------------------------------------------
+
+struct MenuIds {
+    soft_reset: MenuId,
+    hard_reset: MenuId,
+    screenshot: MenuId,
+    quit: MenuId,
+    model_pal: MenuId,
+    model_ntsc: MenuId,
+    sid_6581: MenuId,
+    sid_8580: MenuId,
+}
+
+fn build_menu() -> (Menu, MenuIds) {
+    let menu = Menu::new();
+
+    // File menu.
+    let file_menu = Submenu::new("File", true);
+    let screenshot = MenuItem::new("Screenshot\tCtrl+P", true, None);
+    let quit = MenuItem::new("Quit\tCtrl+Q", true, None);
+    file_menu.append(&screenshot).ok();
+    file_menu.append(&PredefinedMenuItem::separator()).ok();
+    file_menu.append(&quit).ok();
+
+    // System menu.
+    let system_menu = Submenu::new("System", true);
+    let soft_reset = MenuItem::new("Soft Reset\tCtrl+R", true, None);
+    let hard_reset = MenuItem::new("Hard Reset\tCtrl+Shift+R", true, None);
+    system_menu.append(&soft_reset).ok();
+    system_menu.append(&hard_reset).ok();
+
+    // Model submenu.
+    let model_menu = Submenu::new("Model", true);
+    let model_pal = MenuItem::new("PAL (6569)", true, None);
+    let model_ntsc = MenuItem::new("NTSC (6567)", true, None);
+    model_menu.append(&model_pal).ok();
+    model_menu.append(&model_ntsc).ok();
+
+    // SID submenu.
+    let sid_menu = Submenu::new("SID Chip", true);
+    let sid_6581 = MenuItem::new("MOS 6581", true, None);
+    let sid_8580 = MenuItem::new("MOS 8580", true, None);
+    sid_menu.append(&sid_6581).ok();
+    sid_menu.append(&sid_8580).ok();
+
+    system_menu.append(&PredefinedMenuItem::separator()).ok();
+    system_menu.append(&model_menu).ok();
+    system_menu.append(&sid_menu).ok();
+
+    menu.append(&file_menu).ok();
+    menu.append(&system_menu).ok();
+
+    let ids = MenuIds {
+        soft_reset: soft_reset.id().clone(),
+        hard_reset: hard_reset.id().clone(),
+        screenshot: screenshot.id().clone(),
+        quit: quit.id().clone(),
+        model_pal: model_pal.id().clone(),
+        model_ntsc: model_ntsc.id().clone(),
+        sid_6581: sid_6581.id().clone(),
+        sid_8580: sid_8580.id().clone(),
+    };
+
+    (menu, ids)
+}
+
+// ---------------------------------------------------------------------------
+// Windowed mode (winit + wgpu + muda)
 // ---------------------------------------------------------------------------
 
 struct App {
     c64: C64,
-    window: Option<&'static Window>,
-    pixels: Option<Pixels<'static>>,
+    config: C64Config,
+    d64_data: Option<Vec<u8>>,
+    prg_data: Option<Vec<u8>>,
+    renderer: Option<Renderer>,
+    window: Option<Arc<Window>>,
     last_frame_time: Instant,
     frame_duration: Duration,
     fb_width: u32,
     fb_height: u32,
+    menu_ids: MenuIds,
+    _menu: Menu,
 }
 
 impl App {
-    fn new(c64: C64) -> Self {
+    fn new(c64: C64, config: C64Config, menu: Menu, menu_ids: MenuIds) -> Self {
         let fb_width = c64.framebuffer_width();
         let fb_height = c64.framebuffer_height();
+        let frame_duration = if config.model == C64Model::C64Ntsc {
+            Duration::from_micros(16_667)
+        } else {
+            Duration::from_micros(19_950)
+        };
         Self {
             c64,
+            config,
+            d64_data: None,
+            prg_data: None,
+            renderer: None,
             window: None,
-            pixels: None,
             last_frame_time: Instant::now(),
-            frame_duration: Duration::from_micros(19_950), // ~50 Hz PAL default
+            frame_duration,
             fb_width,
             fb_height,
+            menu_ids,
+            _menu: menu,
         }
     }
 
@@ -262,20 +348,99 @@ impl App {
         }
     }
 
-    fn update_pixels(&mut self) {
-        let Some(pixels) = self.pixels.as_mut() else {
-            return;
+    fn rebuild_c64(&mut self) {
+        let mut c64 = C64::new(&self.config);
+
+        // Reload media.
+        if let Some(ref data) = self.d64_data {
+            if let Err(e) = c64.load_d64(data) {
+                eprintln!("Failed to reload D64: {e}");
+            }
+        }
+        if let Some(ref data) = self.prg_data {
+            if let Err(e) = c64.load_prg(data) {
+                eprintln!("Failed to reload PRG: {e}");
+            }
+        }
+
+        self.c64 = c64;
+
+        // Update frame duration.
+        self.frame_duration = if self.config.model == C64Model::C64Ntsc {
+            Duration::from_micros(16_667)
+        } else {
+            Duration::from_micros(19_950)
         };
 
-        let fb = self.c64.framebuffer();
-        let frame = pixels.frame_mut();
+        // Rebuild renderer if framebuffer size changed.
+        let new_width = self.c64.framebuffer_width();
+        let new_height = self.c64.framebuffer_height();
+        if new_width != self.fb_width || new_height != self.fb_height {
+            self.fb_width = new_width;
+            self.fb_height = new_height;
+            if let Some(window) = &self.window {
+                let size = winit::dpi::LogicalSize::new(
+                    self.fb_width * SCALE,
+                    self.fb_height * SCALE,
+                );
+                if let Some(sz) = window.request_inner_size(size) {
+                    let _ = sz;
+                }
+                self.renderer = Some(Renderer::new(
+                    window.clone(),
+                    self.fb_width,
+                    self.fb_height,
+                ));
+            }
+        }
 
-        for (i, &argb) in fb.iter().enumerate() {
-            let offset = i * 4;
-            frame[offset] = ((argb >> 16) & 0xFF) as u8;
-            frame[offset + 1] = ((argb >> 8) & 0xFF) as u8;
-            frame[offset + 2] = (argb & 0xFF) as u8;
-            frame[offset + 3] = 0xFF;
+        // Update window title.
+        let title = c64_title(self.config.model, self.config.sid_model);
+        if let Some(window) = &self.window {
+            window.set_title(&title);
+        }
+        eprintln!("Switched to {title}");
+    }
+
+    fn switch_model(&mut self, model: C64Model) {
+        if model == self.config.model {
+            return;
+        }
+        self.config.model = model;
+        self.rebuild_c64();
+    }
+
+    fn switch_sid(&mut self, sid_model: SidModel) {
+        if sid_model == self.config.sid_model {
+            return;
+        }
+        self.config.sid_model = sid_model;
+        self.rebuild_c64();
+    }
+
+    fn handle_menu_event(&mut self, id: &MenuId, event_loop: &ActiveEventLoop) {
+        if *id == self.menu_ids.quit {
+            event_loop.exit();
+        } else if *id == self.menu_ids.soft_reset {
+            self.c64.cpu_mut().reset();
+            eprintln!("Soft reset");
+        } else if *id == self.menu_ids.hard_reset {
+            self.c64.cpu_mut().reset();
+            eprintln!("Hard reset");
+        } else if *id == self.menu_ids.screenshot {
+            let path = std::path::PathBuf::from("screenshot.png");
+            match capture::save_screenshot(&self.c64, &path) {
+                Ok(()) => eprintln!("Screenshot saved to {}", path.display()),
+                Err(e) => eprintln!("Screenshot error: {e}"),
+            }
+        } else if *id == self.menu_ids.model_pal {
+            self.switch_model(C64Model::C64Pal);
+        } else if *id == self.menu_ids.model_ntsc {
+            self.switch_model(C64Model::C64Ntsc);
+        } else if *id == self.menu_ids.sid_6581 {
+            self.switch_sid(SidModel::Sid6581);
+        } else if *id == self.menu_ids.sid_8580 {
+            self.switch_sid(SidModel::Sid8580);
         }
     }
 }
@@ -289,25 +454,38 @@ impl ApplicationHandler for App {
         let window_size =
             winit::dpi::LogicalSize::new(self.fb_width * SCALE, self.fb_height * SCALE);
         let attrs = WindowAttributes::default()
-            .with_title("Commodore 64")
+            .with_title(c64_title(self.config.model, self.config.sid_model))
             .with_inner_size(window_size)
             .with_resizable(false);
 
         match event_loop.create_window(attrs) {
             Ok(window) => {
-                let window: &'static Window = Box::leak(Box::new(window));
-                let inner = window.inner_size();
-                let surface = SurfaceTexture::new(inner.width, inner.height, window);
-                match Pixels::new(self.fb_width, self.fb_height, surface) {
-                    Ok(pixels) => {
-                        self.pixels = Some(pixels);
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to create pixels: {e}");
-                        event_loop.exit();
-                        return;
+                let window = Arc::new(window);
+
+                // Attach native menu.
+                #[cfg(target_os = "macos")]
+                {
+                    self._menu.init_for_nsapp();
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    use winit::raw_window_handle::HasWindowHandle;
+                    if let Ok(handle) = window.window_handle() {
+                        if let winit::raw_window_handle::RawWindowHandle::Win32(h) =
+                            handle.as_raw()
+                        {
+                            unsafe {
+                                self._menu
+                                    .init_for_hwnd(h.hwnd.get() as _)
+                                    .ok();
+                            }
+                        }
                     }
                 }
+
+                let renderer =
+                    Renderer::new(window.clone(), self.fb_width, self.fb_height);
+                self.renderer = Some(renderer);
                 self.window = Some(window);
             }
             Err(e) => {
@@ -343,23 +521,31 @@ impl ApplicationHandler for App {
                     // Drain SID audio buffer (prevent unbounded growth).
                     // Future: feed to audio output device.
                     let _ = self.c64.take_audio_buffer();
-                    self.update_pixels();
+
+                    if let Some(renderer) = &mut self.renderer {
+                        renderer.upload_framebuffer(self.c64.framebuffer());
+                    }
+
                     self.last_frame_time = now;
                 }
 
-                if let Some(pixels) = self.pixels.as_ref()
-                    && let Err(e) = pixels.render()
-                {
-                    eprintln!("Render error: {e}");
-                    event_loop.exit();
+                if let Some(renderer) = &self.renderer {
+                    if let Err(e) = renderer.render() {
+                        eprintln!("Render error: {e}");
+                        event_loop.exit();
+                    }
                 }
             }
             _ => {}
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(window) = self.window {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Process menu events.
+        while let Ok(event) = MenuEvent::receiver().try_recv() {
+            self.handle_menu_event(event.id(), event_loop);
+        }
+        if let Some(window) = &self.window {
             window.request_redraw();
         }
     }
@@ -368,6 +554,18 @@ impl ApplicationHandler for App {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+fn c64_title(model: C64Model, sid: SidModel) -> String {
+    let region = match model {
+        C64Model::C64Pal => "PAL",
+        C64Model::C64Ntsc => "NTSC",
+    };
+    let sid_name = match sid {
+        SidModel::Sid6581 => "6581",
+        SidModel::Sid8580 => "8580",
+    };
+    format!("Commodore 64 ({region}, SID {sid_name})")
+}
 
 /// Load a ROM file, or exit with an error message.
 fn load_rom(path: &Path, name: &str, expected_size: usize) -> Vec<u8> {
@@ -554,12 +752,16 @@ fn main() {
     }
 
     let config = load_c64_config(&cli);
-    let is_ntsc = config.model == C64Model::C64Ntsc;
     let c64 = make_c64_from_config(&config, &cli);
-    let mut app = App::new(c64);
-    if is_ntsc {
-        app.frame_duration = Duration::from_micros(16_667); // ~60 Hz NTSC
-    }
+
+    // Cache media data for model switching.
+    let d64_data = cli.d64_path.as_ref().and_then(|p| std::fs::read(p).ok());
+    let prg_data = cli.prg_path.as_ref().and_then(|p| std::fs::read(p).ok());
+
+    let (menu, menu_ids) = build_menu();
+    let mut app = App::new(c64, config, menu, menu_ids);
+    app.d64_data = d64_data;
+    app.prg_data = prg_data;
 
     let event_loop = match EventLoop::new() {
         Ok(el) => el,
@@ -569,8 +771,15 @@ fn main() {
         }
     };
 
+    // Poll menu events in the event loop.
+    let menu_channel = MenuEvent::receiver().clone();
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("Event loop error: {e}");
         process::exit(1);
     }
+
+    // Menu events are checked in about_to_wait, but we keep the receiver alive here.
+    drop(menu_channel);
 }

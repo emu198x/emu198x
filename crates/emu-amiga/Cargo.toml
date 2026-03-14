@@ -1,0 +1,25 @@
+[package]
+name = "emu-amiga"
+description = "Minimal windowed runner for machine-amiga"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu-amiga"
+path = "src/main.rs"
+
+[dependencies]
+emu-core = { path = "../emu-core", features = ["renderer"] }
+machine-amiga = { path = "../machine-amiga" }
+format-ipf = { path = "../format-ipf" }
+cpal = "0.15"
+hound = "3.5"
+muda = "0.16"
+png = "0.17"
+sha1 = "0.10"
+winit = "0.30"
+
+[lints]
+workspace = true
