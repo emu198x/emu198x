@@ -48,10 +48,24 @@ fn parse_args() -> CliArgs {
                 };
             }
             "--help" | "-h" => {
-                eprintln!("Usage: emu-sg1000 --rom <file> [--region ntsc|pal] [--headless] [--frames N] [--screenshot file.png]");
+                eprintln!("Usage: emu-sg1000 [OPTIONS] [rom.sg]");
+                eprintln!();
+                eprintln!("Options:");
+                eprintln!("  --rom <file>         SG-1000 cartridge ROM (.sg, .bin)");
+                eprintln!("  --region <ntsc|pal>  Video region [default: ntsc]");
+                eprintln!("  --headless           Run without a window");
+                eprintln!("  --frames <n>         Frames in headless mode [default: 200]");
+                eprintln!("  --screenshot <file>  Save PNG screenshot (headless)");
                 process::exit(0);
             }
-            other => { eprintln!("Unknown argument: {other}"); process::exit(1); }
+            other if other.starts_with('-') => {
+                eprintln!("Unknown argument: {other}");
+                process::exit(1);
+            }
+            // Positional argument: treat as ROM file
+            _ => {
+                cli.rom_path = Some(PathBuf::from(&args[i]));
+            }
         }
         i += 1;
     }
