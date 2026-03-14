@@ -400,6 +400,20 @@ impl BbcMicro {
     pub fn cpu_mut(&mut self) -> &mut Mos6502 {
         &mut self.cpu
     }
+
+    /// Press a key in the keyboard matrix (column 0-9, row 0-7).
+    pub fn press_key(&mut self, column: usize, row: usize) {
+        if column < 10 && row < 8 {
+            self.bus.keyboard[column][row] = true;
+        }
+    }
+
+    /// Release a key in the keyboard matrix (column 0-9, row 0-7).
+    pub fn release_key(&mut self, column: usize, row: usize) {
+        if column < 10 && row < 8 {
+            self.bus.keyboard[column][row] = false;
+        }
+    }
 }
 
 #[cfg(test)]

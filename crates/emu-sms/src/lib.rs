@@ -227,6 +227,15 @@ impl Sms {
     #[must_use] pub fn cpu(&self) -> &Z80 { &self.cpu }
     pub fn cpu_mut(&mut self) -> &mut Z80 { &mut self.cpu }
     #[must_use] pub fn variant(&self) -> SmsVariant { self.variant }
+
+    /// Set controller port $DC value (active-low).
+    pub fn set_port_dc(&mut self, value: u8) { self.bus.port_dc = value; }
+
+    /// Set controller port $DD value (active-low).
+    pub fn set_port_dd(&mut self, value: u8) { self.bus.port_dd = value; }
+
+    /// Trigger a pause button press (NMI).
+    pub fn press_pause(&mut self) { self.bus.pause_pressed = true; }
 }
 
 #[cfg(test)]

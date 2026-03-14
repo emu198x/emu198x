@@ -5,12 +5,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "emu-bbc-micro"
+path = "src/main.rs"
+
+[lib]
+name = "emu_bbc_micro"
+path = "src/lib.rs"
+
 [dependencies]
-emu-core = { path = "../emu-core" }
+emu-core = { path = "../emu-core", features = ["renderer"] }
 mos-6502 = { path = "../mos-6502" }
 mos-via-6522 = { path = "../mos-via-6522" }
 ti-sn76489 = { path = "../ti-sn76489" }
 motorola-6845 = { path = "../motorola-6845" }
+winit = "0.30"
+muda = "0.16"
+png = "0.17"
 
 [lints]
 workspace = true

@@ -5,11 +5,22 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "emu-sms"
+path = "src/main.rs"
+
+[lib]
+name = "emu_sms"
+path = "src/lib.rs"
+
 [dependencies]
-emu-core = { path = "../emu-core" }
+emu-core = { path = "../emu-core", features = ["renderer"] }
 zilog-z80 = { path = "../zilog-z80" }
 sega-vdp = { path = "../sega-vdp" }
 ti-sn76489 = { path = "../ti-sn76489" }
+winit = "0.30"
+muda = "0.16"
+png = "0.17"
 
 [lints]
 workspace = true
