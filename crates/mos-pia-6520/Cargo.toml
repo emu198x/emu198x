@@ -1,0 +1,13 @@
+[package]
+name = "mos-pia-6520"
+description = "MOS 6520/6821 Peripheral Interface Adapter emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mos_pia_6520"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
