@@ -1,0 +1,16 @@
+[package]
+name = "atari-antic"
+description = "Atari ANTIC display list processor emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+atari-gtia = { path = "../atari-gtia" }
+
+[lib]
+name = "atari_antic"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

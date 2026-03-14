@@ -1,0 +1,13 @@
+[package]
+name = "atari-maria"
+description = "Atari 7800 MARIA display processor emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "atari_maria"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

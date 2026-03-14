@@ -1,0 +1,13 @@
+[package]
+name = "atari-pokey"
+description = "Atari POKEY sound and I/O chip emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "atari_pokey"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

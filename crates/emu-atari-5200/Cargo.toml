@@ -1,0 +1,27 @@
+[package]
+name = "emu-atari-5200"
+description = "Cycle-accurate Atari 5200 emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "emu-atari-5200"
+path = "src/main.rs"
+
+[lib]
+name = "emu_atari_5200"
+path = "src/lib.rs"
+
+[dependencies]
+emu-core = { path = "../emu-core", features = ["renderer"] }
+mos-6502 = { path = "../mos-6502" }
+atari-antic = { path = "../atari-antic" }
+atari-gtia = { path = "../atari-gtia" }
+atari-pokey = { path = "../atari-pokey" }
+winit = "0.30"
+muda = "0.16"
+png = "0.17"
+
+[lints]
+workspace = true

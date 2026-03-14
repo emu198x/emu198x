@@ -1,0 +1,13 @@
+[package]
+name = "mos-riot-6532"
+description = "MOS 6532 RIOT (RAM-I/O-Timer) emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mos_riot_6532"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
