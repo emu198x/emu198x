@@ -12,7 +12,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use emu_core::{Bus, Cpu, ReadResult};
+use emu_core::{AudioFrame, Bus, Cpu, Machine, ReadResult};
 use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
 use ti_sn76489::Sn76489;
 use zilog_z80::Z80;
@@ -236,6 +236,36 @@ impl Sms {
 
     /// Trigger a pause button press (NMI).
     pub fn press_pause(&mut self) { self.bus.pause_pressed = true; }
+}
+
+impl Machine for Sms {
+    fn run_frame(&mut self) {
+        self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        sega_vdp::FB_WIDTH
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        sega_vdp::FB_HEIGHT
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        self.take_audio_buffer().into_iter().map(|s| [s, s]).collect()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
+    }
 }
 
 #[cfg(test)]

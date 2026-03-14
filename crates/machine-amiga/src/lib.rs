@@ -48,6 +48,7 @@ pub use commodore_ramsey;
 pub use drive_amiga_floppy;
 pub use format_adf;
 pub use mos_cia_8520;
+use emu_core::{AudioFrame, Machine};
 use motorola_68000::bus::{BusStatus, FunctionCode, M68kBus};
 pub use peripheral_amiga_keyboard;
 
@@ -4035,6 +4036,39 @@ fn execute_blit_line(agnus: &mut Agnus, memory: &mut Memory) -> BlitterInterrupt
     agnus.clear_blitter_scheduler();
     agnus.blitter_busy = false;
     BlitterInterruptSource::LineCore
+}
+
+impl Machine for Amiga {
+    fn run_frame(&mut self) {
+        self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        &self.denise.framebuffer_raster
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        RASTER_FB_WIDTH
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        self.denise.raster_fb_height
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        let raw = self.take_audio_buffer();
+        raw.chunks_exact(2)
+            .map(|pair| [pair[0], pair[1]])
+            .collect()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.vertb_count
+    }
+
+    fn reset(&mut self) {
+        self.soft_reset();
+    }
 }
 
 #[cfg(test)]

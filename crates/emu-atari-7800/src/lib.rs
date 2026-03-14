@@ -26,7 +26,7 @@ pub use bus::Atari7800Bus;
 pub use config::{Atari7800Config, Atari7800Region};
 
 use atari_maria::{Maria, MariaRegion};
-use emu_core::{Cpu, Observable, Tickable, Value};
+use emu_core::{AudioFrame, Cpu, Machine, Observable, Tickable, Value};
 use mos_6502::Mos6502;
 use mos_riot_6532::Riot6532;
 
@@ -290,5 +290,35 @@ impl Observable for Atari7800 {
             "master_clock",
             "frame_count",
         ]
+    }
+}
+
+impl Machine for Atari7800 {
+    fn run_frame(&mut self) {
+        let _ = self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        self.framebuffer_width()
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        self.framebuffer_height()
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        Vec::new()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
     }
 }

@@ -28,7 +28,7 @@ pub use config::{Atari5200Config, Atari5200Region};
 use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
-use emu_core::{Cpu, Observable, Tickable, Value};
+use emu_core::{AudioFrame, Cpu, Machine, Observable, Tickable, Value};
 use mos_6502::Mos6502;
 
 use crate::bus::Atari5200BusInner;
@@ -319,5 +319,35 @@ impl Observable for Atari5200 {
             "master_clock",
             "frame_count",
         ]
+    }
+}
+
+impl Machine for Atari5200 {
+    fn run_frame(&mut self) {
+        let _ = self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        self.framebuffer_width()
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        self.framebuffer_height()
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        self.bus.pokey.take_buffer().into_iter().map(|s| [s, s]).collect()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
     }
 }

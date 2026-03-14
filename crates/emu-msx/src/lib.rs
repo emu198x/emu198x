@@ -20,7 +20,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use emu_core::{Bus, Cpu, ReadResult};
+use emu_core::{AudioFrame, Bus, Cpu, Machine, ReadResult};
 use gi_ay_3_8910::Ay3_8910;
 use intel_8255::Ppi8255;
 use ti_tms9918::{Tms9918, VdpRegion};
@@ -466,6 +466,36 @@ impl Msx {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+impl Machine for Msx {
+    fn run_frame(&mut self) {
+        self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        ti_tms9918::FB_WIDTH
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        ti_tms9918::FB_HEIGHT
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        self.take_audio_buffer()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -11,7 +11,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use emu_core::{Bus, Cpu, Observable, Tickable, Value};
+use emu_core::{AudioFrame, Bus, Cpu, Machine, Observable, Tickable, Value};
 use mos_6502::Mos6502;
 
 use crate::bus::NesBus;
@@ -481,6 +481,36 @@ impl Observable for Nes {
             "master_clock",
             "frame_count",
         ]
+    }
+}
+
+impl Machine for Nes {
+    fn run_frame(&mut self) {
+        let _ = self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        self.framebuffer_width()
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        self.framebuffer_height()
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        self.take_audio_buffer().into_iter().map(|s| [s, s]).collect()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
     }
 }
 

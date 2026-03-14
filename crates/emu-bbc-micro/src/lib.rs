@@ -14,7 +14,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use emu_core::{Bus, Cpu, ReadResult};
+use emu_core::{AudioFrame, Bus, Cpu, Machine, ReadResult};
 use mos_6502::Mos6502;
 use mos_via_6522::Via6522;
 use motorola_6845::Crtc6845;
@@ -413,6 +413,36 @@ impl BbcMicro {
         if column < 10 && row < 8 {
             self.bus.keyboard[column][row] = false;
         }
+    }
+}
+
+impl Machine for BbcMicro {
+    fn run_frame(&mut self) {
+        self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        FB_WIDTH
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        FB_HEIGHT
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        self.take_audio_buffer().into_iter().map(|s| [s, s]).collect()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
     }
 }
 

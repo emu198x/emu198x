@@ -6,6 +6,7 @@
 mod bus;
 mod clock;
 mod cpu;
+mod machine;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 mod observable;
@@ -19,6 +20,7 @@ pub mod video;
 pub use bus::{Bus, ReadResult, SimpleBus, WordBus};
 pub use clock::MasterClock;
 pub use cpu::Cpu;
+pub use machine::{AudioFrame, Machine};
 pub use observable::{Observable, Value};
 pub use tickable::Tickable;
 pub use ticks::Ticks;

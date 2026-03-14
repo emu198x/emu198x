@@ -14,7 +14,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use emu_core::{Cpu, Observable, Tickable, Value};
+use emu_core::{AudioFrame, Cpu, Machine, Observable, Tickable, Value};
 use sinclair_ula::Ula;
 use zilog_z80::Z80;
 
@@ -551,6 +551,36 @@ impl Observable for Spectrum {
             "master_clock",
             "cpu_divider",
         ]
+    }
+}
+
+impl Machine for Spectrum {
+    fn run_frame(&mut self) {
+        let _ = self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        self.framebuffer_width()
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        self.framebuffer_height()
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        self.take_audio_buffer()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
     }
 }
 

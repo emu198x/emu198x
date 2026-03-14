@@ -23,7 +23,7 @@ pub use bus::Atari2600Bus;
 pub use config::{Atari2600Config, Atari2600Region};
 
 use atari_tia::{Tia, TiaRegion};
-use emu_core::{Cpu, Observable, Tickable, Value};
+use emu_core::{AudioFrame, Cpu, Machine, Observable, Tickable, Value};
 use mos_6502::Mos6502;
 
 use crate::bus::Atari2600BusInner;
@@ -227,5 +227,35 @@ impl Observable for Atari2600 {
             "master_clock",
             "frame_count",
         ]
+    }
+}
+
+impl Machine for Atari2600 {
+    fn run_frame(&mut self) {
+        let _ = self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        self.framebuffer_width()
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        self.framebuffer_height()
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        Vec::new()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
     }
 }

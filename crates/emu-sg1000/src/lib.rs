@@ -11,7 +11,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use emu_core::{Bus, Cpu, ReadResult};
+use emu_core::{AudioFrame, Bus, Cpu, Machine, ReadResult};
 use ti_sn76489::Sn76489;
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::Z80;
@@ -255,6 +255,36 @@ impl Sg1000 {
     /// Access the CPU mutably.
     pub fn cpu_mut(&mut self) -> &mut Z80 {
         &mut self.cpu
+    }
+}
+
+impl Machine for Sg1000 {
+    fn run_frame(&mut self) {
+        self.run_frame();
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.framebuffer()
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        ti_tms9918::FB_WIDTH
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        ti_tms9918::FB_HEIGHT
+    }
+
+    fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
+        self.take_audio_buffer().into_iter().map(|s| [s, s]).collect()
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.frame_count()
+    }
+
+    fn reset(&mut self) {
+        self.cpu_mut().reset();
     }
 }
 
