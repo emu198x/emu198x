@@ -1,0 +1,16 @@
+[package]
+name = "emu-msx"
+description = "MSX1 home computer emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+zilog-z80 = { path = "../zilog-z80" }
+ti-tms9918 = { path = "../ti-tms9918" }
+gi-ay-3-8910 = { path = "../gi-ay-3-8910" }
+intel-8255 = { path = "../intel-8255" }
+
+[lints]
+workspace = true
