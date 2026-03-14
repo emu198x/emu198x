@@ -5076,6 +5076,739 @@ impl Mapper for Mmc5 {
     }
 }
 
+// ===== Remaining commercial mappers (trivial through medium) =====
+
+/// CPROM (Mapper 13): 32K PRG + 4K CHR-RAM banking. Used by Videomation.
+struct Cprom { prg_rom: Vec<u8>, chr_ram: [u8; 16384], chr_bank: u8, mirroring: Mirroring }
+impl Cprom {
+    fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_ram: [0; 16384], chr_bank: 0, mirroring }
+    }
+}
+impl Mapper for Cprom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        if addr >= 0x8000 { self.prg_rom[(addr as usize - 0x8000) % self.prg_rom.len()] } else { 0 }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 { self.chr_bank = value & 0x03; }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let a = addr as usize & 0x1FFF;
+        if a < 0x1000 { self.chr_ram[a] } else { self.chr_ram[self.chr_bank as usize * 4096 + (a & 0xFFF)] }
+    }
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        let a = addr as usize & 0x1FFF;
+        if a < 0x1000 { self.chr_ram[a] = value; } else { self.chr_ram[self.chr_bank as usize * 4096 + (a & 0xFFF)] = value; }
+    }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Bit Corp (Mapper 38): 32K PRG + 8K CHR via $7000-$7FFF.
+struct BitCorp { prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring, prg_bank: u8, chr_bank: u8 }
+impl BitCorp {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, prg_bank: 0, chr_bank: 0 }
+    }
+}
+impl Mapper for BitCorp {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        if addr >= 0x8000 { let idx = (self.prg_bank as usize * 32768 + (addr as usize - 0x8000)) % self.prg_rom.len(); self.prg_rom[idx] } else { 0 }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if (0x7000..=0x7FFF).contains(&addr) { self.prg_bank = value & 0x03; self.chr_bank = (value >> 2) & 0x03; }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let idx = (self.chr_bank as usize * 8192 + (addr as usize & 0x1FFF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// MMC3 multicart wrapper: outer bank register selects game, inner uses MMC3.
+/// Mapper 37 (PAL-ZZ: 3-in-1) and Mapper 47 (NES-QJ: 2-in-1).
+#[allow(dead_code)]
+struct Mmc3Multicart {
+    inner: Mmc3,
+    outer_bank: u8,
+    outer_mask: u8,
+    prg_outer_shift: u8,
+    chr_outer_shift: u8,
+}
+
+impl Mmc3Multicart {
+    fn new_47(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        Self {
+            inner: Mmc3::new(prg_rom, chr_data),
+            outer_bank: 0, outer_mask: 0x01, prg_outer_shift: 4, chr_outer_shift: 7,
+        }
+    }
+    fn new_37(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        Self {
+            inner: Mmc3::new(prg_rom, chr_data),
+            outer_bank: 0, outer_mask: 0x07, prg_outer_shift: 4, chr_outer_shift: 7,
+        }
+    }
+}
+
+impl Mapper for Mmc3Multicart {
+    fn cpu_read(&self, addr: u16) -> u8 { self.inner.cpu_read(addr) }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if (0x6000..=0x7FFF).contains(&addr) {
+            self.outer_bank = value & self.outer_mask;
+        } else {
+            self.inner.cpu_write(addr, value);
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 { self.inner.chr_read(addr) }
+    fn chr_write(&mut self, addr: u16, value: u8) { self.inner.chr_write(addr, value) }
+    fn mirroring(&self) -> Mirroring { self.inner.mirroring() }
+    fn irq_pending(&self) -> bool { self.inner.irq_pending() }
+    fn prg_ram(&self) -> Option<&[u8]> { self.inner.prg_ram() }
+    fn set_prg_ram(&mut self, data: &[u8]) { self.inner.set_prg_ram(data) }
+}
+
+/// Caltron 6-in-1 (Mapper 41): outer bank at $6000, inner at $8000.
+struct Caltron {
+    prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring,
+    prg_bank: u8, chr_bank: u8,
+}
+impl Caltron {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, prg_bank: 0, chr_bank: 0 }
+    }
+}
+impl Mapper for Caltron {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        if addr >= 0x8000 { let idx = (self.prg_bank as usize * 32768 + (addr as usize - 0x8000)) % self.prg_rom.len(); self.prg_rom[idx] } else { 0 }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x67FF => {
+                self.prg_bank = (addr & 0x07) as u8;
+                self.mirroring = if addr & 0x08 != 0 { Mirroring::Horizontal } else { Mirroring::Vertical };
+                // CHR high bits
+                self.chr_bank = (self.chr_bank & 0x03) | (((addr as u8 >> 1) & 0x0C));
+            }
+            0x8000..=0xFFFF => {
+                self.chr_bank = (self.chr_bank & 0x0C) | (value & 0x03);
+            }
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let idx = (self.chr_bank as usize * 8192 + (addr as usize & 0x1FFF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// RAMBO-1 / Tengen (Mapper 64): MMC3 variant with 3 PRG banks and 1K CHR mode.
+struct Rambo1 {
+    prg_rom: Vec<u8>, chr: Vec<u8>, chr_is_ram: bool, prg_ram: [u8; 8192],
+    bank_select: u8, registers: [u8; 16], mirroring: Mirroring,
+    irq_latch: u8, irq_counter: u8, irq_reload_flag: bool,
+    irq_enabled: bool, irq_pending: bool, last_a12: bool,
+}
+impl Rambo1 {
+    fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram { vec![0u8; 8192] } else { chr_data };
+        Self { prg_rom, chr, chr_is_ram, prg_ram: [0; 8192],
+            bank_select: 0, registers: [0; 16], mirroring: Mirroring::Vertical,
+            irq_latch: 0, irq_counter: 0, irq_reload_flag: false,
+            irq_enabled: false, irq_pending: false, last_a12: false }
+    }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        self.prg_rom[(bank % self.prg_8k_count()) * 8192 + offset]
+    }
+}
+impl Mapper for Rambo1 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        let last = self.prg_8k_count();
+        let mode = self.bank_select & 0x40 != 0;
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize],
+            0x8000..=0x9FFF => {
+                let bank = if mode { self.registers[0xF] as usize } else { self.registers[6] as usize };
+                self.read_prg_8k(bank, (addr - 0x8000) as usize)
+            }
+            0xA000..=0xBFFF => self.read_prg_8k(self.registers[7] as usize, (addr - 0xA000) as usize),
+            0xC000..=0xDFFF => {
+                let bank = if mode { self.registers[6] as usize } else { self.registers[0xF] as usize };
+                self.read_prg_8k(bank, (addr - 0xC000) as usize)
+            }
+            0xE000..=0xFFFF => self.read_prg_8k(last - 1, (addr - 0xE000) as usize),
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize] = value,
+            0x8000..=0x9FFE if addr & 1 == 0 => self.bank_select = value,
+            0x8001..=0x9FFF if addr & 1 == 1 => {
+                let reg = (self.bank_select & 0x0F) as usize;
+                if reg < 16 { self.registers[reg] = value; }
+            }
+            0xA000..=0xBFFE if addr & 1 == 0 => {
+                self.mirroring = if value & 1 != 0 { Mirroring::Horizontal } else { Mirroring::Vertical };
+            }
+            0xC000..=0xDFFE if addr & 1 == 0 => self.irq_latch = value,
+            0xC001..=0xDFFF if addr & 1 == 1 => self.irq_reload_flag = true,
+            0xE000..=0xFFFE if addr & 1 == 0 => { self.irq_enabled = false; self.irq_pending = false; }
+            0xE001..=0xFFFF if addr & 1 == 1 => self.irq_enabled = true,
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let a = addr as usize & 0x1FFF;
+        let a12 = a >= 0x1000;
+        if a12 && !self.last_a12 {
+            if self.irq_counter == 0 || self.irq_reload_flag { self.irq_counter = self.irq_latch; self.irq_reload_flag = false; }
+            else { self.irq_counter -= 1; }
+            if self.irq_counter == 0 && self.irq_enabled { self.irq_pending = true; }
+        }
+        self.last_a12 = a12;
+        let chr_inv = self.bank_select & 0x80 != 0;
+        let k1_mode = self.bank_select & 0x20 != 0;
+        let base = if chr_inv { 0x1000 } else { 0 };
+        let e = a ^ base;
+        let bank = if k1_mode {
+            // 1K mode: R0-R5 + R8,R9 for all 8 slots
+            match e {
+                0x0000..=0x03FF => self.registers[0] as usize,
+                0x0400..=0x07FF => self.registers[8] as usize,
+                0x0800..=0x0BFF => self.registers[1] as usize,
+                0x0C00..=0x0FFF => self.registers[9] as usize,
+                0x1000..=0x13FF => self.registers[2] as usize,
+                0x1400..=0x17FF => self.registers[3] as usize,
+                0x1800..=0x1BFF => self.registers[4] as usize,
+                _ => self.registers[5] as usize,
+            }
+        } else {
+            // 2K/1K mode (standard MMC3-like)
+            match e {
+                0x0000..=0x03FF => self.registers[0] as usize & 0xFE,
+                0x0400..=0x07FF => self.registers[0] as usize | 1,
+                0x0800..=0x0BFF => self.registers[1] as usize & 0xFE,
+                0x0C00..=0x0FFF => self.registers[1] as usize | 1,
+                0x1000..=0x13FF => self.registers[2] as usize,
+                0x1400..=0x17FF => self.registers[3] as usize,
+                0x1800..=0x1BFF => self.registers[4] as usize,
+                _ => self.registers[5] as usize,
+            }
+        };
+        let offset = a & 0x3FF;
+        let idx = (bank * 1024 + offset) % self.chr.len();
+        self.chr[idx]
+    }
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram { self.chr[(addr as usize) & 0x1FFF] = value; }
+    }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+    fn irq_pending(&self) -> bool { self.irq_pending }
+    fn prg_ram(&self) -> Option<&[u8]> { Some(&self.prg_ram) }
+    fn set_prg_ram(&mut self, data: &[u8]) { let l = data.len().min(8192); self.prg_ram[..l].copy_from_slice(&data[..l]); }
+}
+
+/// VRC3 (Mapper 73): PRG banking + 16-bit IRQ. Used by Salamander.
+struct Vrc3 {
+    prg_rom: Vec<u8>, chr_ram: [u8; 8192], mirroring: Mirroring,
+    prg_bank: u8, irq_latch: u16, irq_counter: u16,
+    irq_enabled: bool, irq_pending: bool, irq_mode_8bit: bool,
+}
+impl Vrc3 {
+    fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_ram: [0; 8192], mirroring, prg_bank: 0,
+            irq_latch: 0, irq_counter: 0, irq_enabled: false, irq_pending: false, irq_mode_8bit: false }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+}
+impl Mapper for Vrc3 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => { let b = self.prg_bank as usize % self.prg_16k_count(); self.prg_rom[b * 16384 + (addr - 0x8000) as usize] }
+            0xC000..=0xFFFF => { let b = self.prg_16k_count() - 1; self.prg_rom[b * 16384 + (addr - 0xC000) as usize] }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr & 0xF000 {
+            0x8000 => self.irq_latch = (self.irq_latch & 0xFFF0) | u16::from(value & 0x0F),
+            0x9000 => self.irq_latch = (self.irq_latch & 0xFF0F) | (u16::from(value & 0x0F) << 4),
+            0xA000 => self.irq_latch = (self.irq_latch & 0xF0FF) | (u16::from(value & 0x0F) << 8),
+            0xB000 => self.irq_latch = (self.irq_latch & 0x0FFF) | (u16::from(value & 0x0F) << 12),
+            0xC000 => {
+                self.irq_pending = false;
+                self.irq_enabled = value & 0x02 != 0;
+                self.irq_mode_8bit = value & 0x04 != 0;
+                if self.irq_enabled { self.irq_counter = self.irq_latch; }
+            }
+            0xD000 => { self.irq_pending = false; self.irq_enabled = value & 0x02 != 0; }
+            0xF000 => self.prg_bank = value & 0x07,
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 { self.chr_ram[(addr as usize) & 0x1FFF] }
+    fn chr_write(&mut self, addr: u16, value: u8) { self.chr_ram[(addr as usize) & 0x1FFF] = value; }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+    fn irq_pending(&self) -> bool { self.irq_pending }
+}
+
+/// Namcot-3446/76 (Mapper 76): 8K PRG + 2K CHR. Used by Megami Tensei.
+struct Namcot3446v2 {
+    prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring,
+    bank_select: u8, prg_banks: [u8; 2], chr_banks: [u8; 4],
+}
+impl Namcot3446v2 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, bank_select: 0, prg_banks: [0; 2], chr_banks: [0; 4] }
+    }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+}
+impl Mapper for Namcot3446v2 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        let c = self.prg_8k_count();
+        match addr {
+            0x8000..=0x9FFF => self.prg_rom[(self.prg_banks[0] as usize % c) * 8192 + (addr - 0x8000) as usize],
+            0xA000..=0xBFFF => self.prg_rom[(self.prg_banks[1] as usize % c) * 8192 + (addr - 0xA000) as usize],
+            0xC000..=0xDFFF => self.prg_rom[(c - 2) * 8192 + (addr - 0xC000) as usize],
+            0xE000..=0xFFFF => self.prg_rom[(c - 1) * 8192 + (addr - 0xE000) as usize],
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x8000 => self.bank_select = value & 0x07,
+            0x8001 => match self.bank_select {
+                2 => self.chr_banks[0] = value & 0x3F,
+                3 => self.chr_banks[1] = value & 0x3F,
+                4 => self.chr_banks[2] = value & 0x3F,
+                5 => self.chr_banks[3] = value & 0x3F,
+                6 => self.prg_banks[0] = value & 0x3F,
+                7 => self.prg_banks[1] = value & 0x3F,
+                _ => {}
+            }
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let a = addr as usize & 0x1FFF;
+        let bank = self.chr_banks[a / 2048] as usize;
+        let idx = (bank * 2048 + (a & 0x7FF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Jaleco JF-13 (Mapper 86): 32K PRG + 8K CHR. Used by Moero!! Pro Yakyuu.
+struct JalecoJf13 { prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring, prg_bank: u8, chr_bank: u8 }
+impl JalecoJf13 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, prg_bank: 0, chr_bank: 0 }
+    }
+}
+impl Mapper for JalecoJf13 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        if addr >= 0x8000 { let idx = (self.prg_bank as usize * 32768 + (addr as usize - 0x8000)) % self.prg_rom.len(); self.prg_rom[idx] } else { 0 }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if (0x6000..=0x6FFF).contains(&addr) {
+            self.prg_bank = (value >> 4) & 0x03;
+            self.chr_bank = (value & 0x03) | ((value >> 4) & 0x04);
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let idx = (self.chr_bank as usize * 8192 + (addr as usize & 0x1FFF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Sunsoft-2 variant (Mapper 89): 16K PRG + 8K CHR + single-screen mirroring.
+struct Sunsoft2b { prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring, prg_bank: u8, chr_bank: u8 }
+impl Sunsoft2b {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+        Self { prg_rom, chr_rom, mirroring: Mirroring::SingleScreenLower, prg_bank: 0, chr_bank: 0 }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+}
+impl Mapper for Sunsoft2b {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => { let b = self.prg_bank as usize % self.prg_16k_count(); self.prg_rom[b * 16384 + (addr - 0x8000) as usize] }
+            0xC000..=0xFFFF => { let b = self.prg_16k_count() - 1; self.prg_rom[b * 16384 + (addr - 0xC000) as usize] }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.prg_bank = (value >> 4) & 0x07;
+            self.chr_bank = (value & 0x07) | ((value >> 4) & 0x08);
+            self.mirroring = if value & 0x08 != 0 { Mirroring::SingleScreenUpper } else { Mirroring::SingleScreenLower };
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let idx = (self.chr_bank as usize * 8192 + (addr as usize & 0x1FFF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Jaleco JF-19 (Mapper 92): like mapper 72 but $C000 switchable, $8000 fixed.
+struct JalecoJf19 { prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring, prg_bank: u8, chr_bank: u8 }
+impl JalecoJf19 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, prg_bank: 0, chr_bank: 0 }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+}
+impl Mapper for JalecoJf19 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => self.prg_rom[(addr - 0x8000) as usize % (self.prg_16k_count() * 16384).min(self.prg_rom.len())],
+            0xC000..=0xFFFF => { let b = self.prg_bank as usize % self.prg_16k_count(); self.prg_rom[b * 16384 + (addr - 0xC000) as usize] }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            if value & 0x80 != 0 { self.prg_bank = value & 0x0F; }
+            if value & 0x40 != 0 { self.chr_bank = value & 0x0F; }
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let idx = (self.chr_bank as usize * 8192 + (addr as usize & 0x1FFF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// UN1ROM (Mapper 94): UNROM variant with bank bits at D2-D4. Used by Senjou no Ookami.
+struct Un1rom { prg_rom: Vec<u8>, chr_ram: [u8; 8192], mirroring: Mirroring, prg_bank: u8 }
+impl Un1rom {
+    fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_ram: [0; 8192], mirroring, prg_bank: 0 }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+}
+impl Mapper for Un1rom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => { let b = self.prg_bank as usize % self.prg_16k_count(); self.prg_rom[b * 16384 + (addr - 0x8000) as usize] }
+            0xC000..=0xFFFF => { let b = self.prg_16k_count() - 1; self.prg_rom[b * 16384 + (addr - 0xC000) as usize] }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 { self.prg_bank = (value >> 2) & 0x07; }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 { self.chr_ram[(addr as usize) & 0x1FFF] }
+    fn chr_write(&mut self, addr: u16, value: u8) { self.chr_ram[(addr as usize) & 0x1FFF] = value; }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Namcot-3425 (Mapper 95): like mapper 206 but D5 of CHR controls nametable.
+struct Namcot3425 {
+    prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring,
+    bank_select: u8, registers: [u8; 8],
+}
+impl Namcot3425 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, bank_select: 0, registers: [0; 8] }
+    }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+}
+impl Mapper for Namcot3425 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        let c = self.prg_8k_count();
+        match addr {
+            0x8000..=0x9FFF => self.prg_rom[(self.registers[6] as usize % c) * 8192 + (addr - 0x8000) as usize],
+            0xA000..=0xBFFF => self.prg_rom[(self.registers[7] as usize % c) * 8192 + (addr - 0xA000) as usize],
+            0xC000..=0xDFFF => self.prg_rom[(c - 2) * 8192 + (addr - 0xC000) as usize],
+            0xE000..=0xFFFF => self.prg_rom[(c - 1) * 8192 + (addr - 0xE000) as usize],
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x8000 => self.bank_select = value & 0x07,
+            0x8001 => {
+                let reg = self.bank_select as usize;
+                if reg < 8 { self.registers[reg] = value; }
+                // D5 of CHR registers 0/1 controls nametable mirroring
+                if reg == 0 || reg == 1 {
+                    self.mirroring = if value & 0x20 != 0 { Mirroring::SingleScreenUpper } else { Mirroring::SingleScreenLower };
+                }
+            }
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let a = addr as usize & 0x1FFF;
+        let (bank, offset) = match a {
+            0x0000..=0x07FF => ((self.registers[0] as usize & 0x1F) & 0xFE, a),
+            0x0800..=0x0FFF => ((self.registers[1] as usize & 0x1F) & 0xFE, a & 0x7FF),
+            0x1000..=0x13FF => (self.registers[2] as usize & 0x3F, a & 0x3FF),
+            0x1400..=0x17FF => (self.registers[3] as usize & 0x3F, a & 0x3FF),
+            0x1800..=0x1BFF => (self.registers[4] as usize & 0x3F, a & 0x3FF),
+            _ => (self.registers[5] as usize & 0x3F, a & 0x3FF),
+        };
+        let idx = (bank * 1024 + offset) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Irem TAM-S1 (Mapper 97): 16K PRG at $C000 (switchable), $8000 fixed to last.
+struct IremTamS1 { prg_rom: Vec<u8>, chr_ram: [u8; 8192], mirroring: Mirroring, prg_bank: u8 }
+impl IremTamS1 {
+    fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_ram: [0; 8192], mirroring, prg_bank: 0 }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+}
+impl Mapper for IremTamS1 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => { let b = self.prg_16k_count() - 1; self.prg_rom[b * 16384 + (addr - 0x8000) as usize] }
+            0xC000..=0xFFFF => { let b = self.prg_bank as usize % self.prg_16k_count(); self.prg_rom[b * 16384 + (addr - 0xC000) as usize] }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.prg_bank = value & 0x0F;
+            self.mirroring = match (value >> 6) & 0x03 {
+                0 => Mirroring::SingleScreenLower,
+                1 => Mirroring::SingleScreenUpper,
+                2 => Mirroring::Vertical,
+                _ => Mirroring::Horizontal,
+            };
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 { self.chr_ram[(addr as usize) & 0x1FFF] }
+    fn chr_write(&mut self, addr: u16, value: u8) { self.chr_ram[(addr as usize) & 0x1FFF] = value; }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Camerica Quattro (Mapper 232): outer+inner PRG banking. Quattro multicarts.
+struct CamericaQuattro { prg_rom: Vec<u8>, chr_ram: [u8; 8192], mirroring: Mirroring, outer: u8, inner: u8 }
+impl CamericaQuattro {
+    fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_ram: [0; 8192], mirroring, outer: 0, inner: 3 }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+}
+impl Mapper for CamericaQuattro {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        let c = self.prg_16k_count();
+        let base = (self.outer as usize & 0x18) >> 1; // Outer selects 64K block
+        match addr {
+            0x8000..=0xBFFF => { let b = (base | self.inner as usize & 0x03) % c; self.prg_rom[b * 16384 + (addr - 0x8000) as usize] }
+            0xC000..=0xFFFF => { let b = (base | 0x03) % c; self.prg_rom[b * 16384 + (addr - 0xC000) as usize] }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x8000..=0xBFFF => self.outer = value,
+            0xC000..=0xFFFF => self.inner = value,
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 { self.chr_ram[(addr as usize) & 0x1FFF] }
+    fn chr_write(&mut self, addr: u16, value: u8) { self.chr_ram[(addr as usize) & 0x1FFF] = value; }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// HES NTD-8 (Mapper 113): NINA-003 with extra bits. HES multicarts.
+struct HesNtd8 { prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring, prg_bank: u8, chr_bank: u8 }
+impl HesNtd8 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, prg_bank: 0, chr_bank: 0 }
+    }
+}
+impl Mapper for HesNtd8 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        if addr >= 0x8000 { let idx = (self.prg_bank as usize * 32768 + (addr as usize - 0x8000)) % self.prg_rom.len(); self.prg_rom[idx] } else { 0 }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if (0x4100..=0x5FFF).contains(&addr) {
+            self.prg_bank = (value >> 3) & 0x07;
+            self.chr_bank = (value & 0x07) | ((value >> 3) & 0x08);
+            self.mirroring = if value & 0x80 != 0 { Mirroring::Vertical } else { Mirroring::Horizontal };
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let idx = (self.chr_bank as usize * 8192 + (addr as usize & 0x1FFF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Bandai SRAM variant (Mapper 153): mapper 16 with SRAM instead of EEPROM.
+/// Implemented as alias to BandaiFcg.
+
+/// Namcot-3453 (Mapper 154): like 206 but D6 controls mirroring.
+struct Namcot3453 {
+    prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring,
+    bank_select: u8, registers: [u8; 8],
+}
+impl Namcot3453 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, bank_select: 0, registers: [0; 8] }
+    }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+}
+impl Mapper for Namcot3453 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        let c = self.prg_8k_count();
+        match addr {
+            0x8000..=0x9FFF => self.prg_rom[(self.registers[6] as usize & 0x0F % c) * 8192 + (addr - 0x8000) as usize],
+            0xA000..=0xBFFF => self.prg_rom[(self.registers[7] as usize & 0x0F % c) * 8192 + (addr - 0xA000) as usize],
+            0xC000..=0xDFFF => self.prg_rom[(c - 2) * 8192 + (addr - 0xC000) as usize],
+            0xE000..=0xFFFF => self.prg_rom[(c - 1) * 8192 + (addr - 0xE000) as usize],
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x8000 => {
+                self.bank_select = value & 0x07;
+                self.mirroring = if value & 0x40 != 0 { Mirroring::SingleScreenUpper } else { Mirroring::SingleScreenLower };
+            }
+            0x8001 => { let r = self.bank_select as usize; if r < 8 { self.registers[r] = value; } }
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let a = addr as usize & 0x1FFF;
+        let (bank, offset) = match a {
+            0x0000..=0x07FF => (self.registers[0] as usize & 0x3E, a),
+            0x0800..=0x0FFF => (self.registers[1] as usize & 0x3E, a & 0x7FF),
+            0x1000..=0x13FF => (self.registers[2] as usize & 0x3F, a & 0x3FF),
+            0x1400..=0x17FF => (self.registers[3] as usize & 0x3F, a & 0x3FF),
+            0x1800..=0x1BFF => (self.registers[4] as usize & 0x3F, a & 0x3FF),
+            _ => (self.registers[5] as usize & 0x3F, a & 0x3FF),
+        };
+        let idx = (bank * 1024 + offset) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// DAOU-306 (Mapper 156): per-byte CHR banking. Korean commercial games.
+struct Daou306 {
+    prg_rom: Vec<u8>, chr_rom: Vec<u8>, prg_bank: u8,
+    chr_banks: [u8; 8],
+}
+impl Daou306 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+        Self { prg_rom, chr_rom, prg_bank: 0, chr_banks: [0; 8] }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+}
+impl Mapper for Daou306 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => { let b = self.prg_bank as usize % self.prg_16k_count(); self.prg_rom[b * 16384 + (addr - 0x8000) as usize] }
+            0xC000..=0xFFFF => { let b = self.prg_16k_count() - 1; self.prg_rom[b * 16384 + (addr - 0xC000) as usize] }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0xC000..=0xC007 => self.chr_banks[(addr - 0xC000) as usize] = value,
+            0xC010 => self.prg_bank = value,
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let a = addr as usize & 0x1FFF;
+        let bank = self.chr_banks[a / 1024] as usize;
+        let idx = (bank * 1024 + (a & 0x3FF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { Mirroring::SingleScreenLower }
+}
+
+/// Crazy Climber (Mapper 180): UNROM with fixed $8000, switchable $C000.
+struct CrazyClimber { prg_rom: Vec<u8>, chr_ram: [u8; 8192], mirroring: Mirroring, prg_bank: u8 }
+impl CrazyClimber {
+    fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_ram: [0; 8192], mirroring, prg_bank: 0 }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+}
+impl Mapper for CrazyClimber {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => self.prg_rom[(addr - 0x8000) as usize % self.prg_rom.len()],
+            0xC000..=0xFFFF => { let b = self.prg_bank as usize % self.prg_16k_count(); self.prg_rom[b * 16384 + (addr - 0xC000) as usize] }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 { self.prg_bank = value & 0x07; }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 { self.chr_ram[(addr as usize) & 0x1FFF] }
+    fn chr_write(&mut self, addr: u16, value: u8) { self.chr_ram[(addr as usize) & 0x1FFF] = value; }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+/// Action 52 (Mapper 228): PRG/CHR banking via address lines.
+struct Action52 { prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring, prg_bank: u16, chr_bank: u8, prg_chip: u8 }
+impl Action52 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self { prg_rom, chr_rom, mirroring, prg_bank: 0, chr_bank: 0, prg_chip: 0 }
+    }
+}
+impl Mapper for Action52 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        if addr >= 0x8000 {
+            let offset = (addr as usize - 0x8000) % self.prg_rom.len();
+            let bank_offset = self.prg_bank as usize * 16384;
+            self.prg_rom[(bank_offset + (offset & 0x3FFF)) % self.prg_rom.len()]
+        } else { 0 }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.chr_bank = (value & 0x03) | (((addr & 0x0F) as u8) << 2);
+            self.prg_bank = ((addr >> 6) & 0x1F) as u16;
+            self.prg_chip = ((addr >> 11) & 0x03) as u8;
+            self.mirroring = if addr & 0x2000 != 0 { Mirroring::Horizontal } else { Mirroring::Vertical };
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let idx = (self.chr_bank as usize * 8192 + (addr as usize & 0x1FFF)) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, _a: u16, _v: u8) {}
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
 /// Parsed cartridge: mapper implementation and header metadata.
 pub struct ParsedCartridge {
     pub mapper: Box<dyn Mapper>,
@@ -5171,6 +5904,7 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
     let mapper: Box<dyn Mapper> = match header.mapper_number {
         0 => Box::new(Nrom::new(prg_rom, chr_data, mirroring)),
         5 => Box::new(Mmc5::new(prg_rom, chr_data)),
+        13 => Box::new(Cprom::new(prg_rom, mirroring)),
         1 => Box::new(Mmc1::new(prg_rom, chr_data)),
         2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
         3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
@@ -5195,7 +5929,12 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         23 => Box::new(Vrc2Vrc4::new(prg_rom, chr_data, mirroring, 0, 1, false)),
         25 => Box::new(Vrc2Vrc4::new(prg_rom, chr_data, mirroring, 1, 0, false)),
         32 => Box::new(IremG101::new(prg_rom, chr_data, mirroring)),
+        37 => Box::new(Mmc3Multicart::new_37(prg_rom, chr_data)),
+        38 => Box::new(BitCorp::new(prg_rom, chr_data, mirroring)),
+        41 => Box::new(Caltron::new(prg_rom, chr_data, mirroring)),
+        47 => Box::new(Mmc3Multicart::new_47(prg_rom, chr_data)),
         33 => Box::new(TaitoTc0190::new(prg_rom, chr_data, mirroring)),
+        64 => Box::new(Rambo1::new(prg_rom, chr_data)),
         65 => Box::new(IremH3001::new(prg_rom, chr_data, mirroring)),
         48 => Box::new(TaitoTc0690::new(prg_rom, chr_data, mirroring)),
         67 => Box::new(Sunsoft3::new(prg_rom, chr_data, mirroring)),
@@ -5203,21 +5942,37 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         69 => Box::new(SunsoftFme7::new(prg_rom, chr_data, mirroring)),
         70 => Box::new(Bandai74161::new(prg_rom, chr_data, mirroring)),
         72 => Box::new(JalecoJf17::new(prg_rom, chr_data, mirroring)),
+        73 => Box::new(Vrc3::new(prg_rom, mirroring)),
         75 => Box::new(Vrc1::new(prg_rom, chr_data, mirroring)),
+        76 => Box::new(Namcot3446v2::new(prg_rom, chr_data, mirroring)),
         78 => Box::new(Irem74161::new(prg_rom, chr_data, mirroring, true)),
         79 => Box::new(Nina003::new(prg_rom, chr_data, mirroring)),
         80 => Box::new(TaitoX1005::new(prg_rom, chr_data, mirroring)),
         82 => Box::new(TaitoX1017::new(prg_rom, chr_data, mirroring)),
         85 => Box::new(Vrc7::new(prg_rom, chr_data, mirroring)),
+        86 => Box::new(JalecoJf13::new(prg_rom, chr_data, mirroring)),
+        89 => Box::new(Sunsoft2b::new(prg_rom, chr_data)),
+        92 => Box::new(JalecoJf19::new(prg_rom, chr_data, mirroring)),
+        94 => Box::new(Un1rom::new(prg_rom, mirroring)),
+        95 => Box::new(Namcot3425::new(prg_rom, chr_data, mirroring)),
+        97 => Box::new(IremTamS1::new(prg_rom, mirroring)),
+        113 => Box::new(HesNtd8::new(prg_rom, chr_data, mirroring)),
         88 => Box::new(Namco3446::new(prg_rom, chr_data, mirroring)),
         118 => Box::new(TxSrom::new(prg_rom, chr_data)),
         119 => Box::new(Tqrom::new(prg_rom, chr_data)),
         93 => Box::new(Sunsoft2::new(prg_rom, mirroring)),
         140 => Box::new(JalecoJf11::new(prg_rom, chr_data, mirroring)),
+        144 => Box::new(ColorDreams::new(prg_rom, chr_data, mirroring)), // Functionally identical to 11
         152 => Box::new(Bandai74161Ss::new(prg_rom, chr_data)),
+        153 => Box::new(BandaiFcg::new(prg_rom, chr_data, mirroring)), // SRAM variant of 16
+        154 => Box::new(Namcot3453::new(prg_rom, chr_data, mirroring)),
+        156 => Box::new(Daou306::new(prg_rom, chr_data)),
+        180 => Box::new(CrazyClimber::new(prg_rom, mirroring)),
         184 => Box::new(Sunsoft1::new(prg_rom, chr_data, mirroring)),
         185 => Box::new(CnromProtected::new(prg_rom, chr_data, mirroring)),
         210 => Box::new(Namco175::new(prg_rom, chr_data, mirroring)),
+        228 => Box::new(Action52::new(prg_rom, chr_data, mirroring)),
+        232 => Box::new(CamericaQuattro::new(prg_rom, mirroring)),
         n => return Err(format!("Unsupported mapper: {n}")),
     };
 
