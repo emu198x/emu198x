@@ -402,6 +402,10 @@ impl Tickable for Nes {
                 self.cpu.tick(&mut self.bus);
             }
 
+            // Expansion audio from cartridge mapper (Sunsoft 5B, VRC6, etc.)
+            self.bus.cartridge.tick_audio();
+            self.bus.apu.expansion_audio = self.bus.cartridge.audio_output();
+
             // APU ticks at CPU rate
             self.bus.apu.tick();
 

@@ -39,6 +39,16 @@ pub trait Mapper {
         false
     }
 
+    /// Expansion audio output level. Added to the APU mixer each CPU cycle.
+    /// Range: 0.0 to ~0.5. Default: 0.0 (no expansion audio).
+    fn audio_output(&self) -> f32 {
+        0.0
+    }
+
+    /// Tick the mapper's audio engine one CPU cycle. Called once per CPU
+    /// cycle for mappers with expansion audio (Sunsoft 5B, VRC6, Namco 163).
+    fn tick_audio(&mut self) {}
+
     /// Read battery-backed PRG RAM contents. Returns `None` if the mapper
     /// has no PRG RAM (e.g. NROM, `UxROM`).
     fn prg_ram(&self) -> Option<&[u8]> {
@@ -2136,6 +2146,44 @@ impl Mapper for Vrc2Vrc4 {
     }
 }
 
+/// Sunsoft 5B expansion audio channel (AY-3-8910 style square wave).
+struct Sunsoft5bChannel {
+    period: u16,
+    volume: u8,
+    counter: u16,
+    output: bool,
+    tone_disable: bool,
+}
+
+impl Sunsoft5bChannel {
+    fn new() -> Self {
+        Self {
+            period: 0,
+            volume: 0,
+            counter: 0,
+            output: false,
+            tone_disable: false,
+        }
+    }
+
+    fn tick(&mut self) {
+        if self.counter == 0 {
+            self.counter = self.period;
+            self.output = !self.output;
+        } else {
+            self.counter -= 1;
+        }
+    }
+
+    fn sample(&self) -> f32 {
+        if self.tone_disable || self.output {
+            f32::from(self.volume) / 15.0
+        } else {
+            0.0
+        }
+    }
+}
+
 /// Sunsoft FME-7 (Mapper 69): versatile bank switching with IRQ timer.
 ///
 /// Used by Gimmick!, Batman: Return of the Joker, Hebereke (Ufouria),
@@ -2146,8 +2194,7 @@ impl Mapper for Vrc2Vrc4 {
 /// - PRG RAM: 8K at $6000-$7FFF (optional, bank-selectable)
 /// - Mirroring: switchable
 /// - IRQ: 16-bit countdown timer
-///
-/// Note: expansion audio (Sunsoft 5B, 3 square channels) is not implemented.
+/// - Expansion audio: Sunsoft 5B — 3 square-wave channels (AY-3-8910 subset)
 struct SunsoftFme7 {
     prg_rom: Vec<u8>,
     chr_rom: Vec<u8>,
@@ -2163,6 +2210,11 @@ struct SunsoftFme7 {
     irq_counter_enabled: bool,
     irq_counter: u16,
     irq_pending: bool,
+    // Sunsoft 5B expansion audio
+    audio_channels: [Sunsoft5bChannel; 3],
+    audio_command: u8,
+    /// Divider: 5B audio clocks at CPU/16.
+    audio_divider: u8,
 }
 
 impl SunsoftFme7 {
@@ -2189,6 +2241,13 @@ impl SunsoftFme7 {
             irq_counter_enabled: false,
             irq_counter: 0,
             irq_pending: false,
+            audio_channels: [
+                Sunsoft5bChannel::new(),
+                Sunsoft5bChannel::new(),
+                Sunsoft5bChannel::new(),
+            ],
+            audio_command: 0,
+            audio_divider: 0,
         }
     }
 
@@ -2199,6 +2258,50 @@ impl SunsoftFme7 {
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
         let bank = bank % self.prg_8k_count();
         self.prg_rom[bank * 8192 + offset]
+    }
+
+    /// Write to a Sunsoft 5B audio register (AY-3-8910 subset).
+    ///
+    /// Registers 0-5: channel period (low/high pairs for channels A/B/C).
+    /// Register 7: tone enable (bits 0-2, active-low).
+    /// Registers 8-10: channel volume (bits 0-3).
+    fn write_audio_register(&mut self, reg: u8, value: u8) {
+        match reg {
+            0 => {
+                self.audio_channels[0].period =
+                    (self.audio_channels[0].period & 0xFF00) | u16::from(value);
+            }
+            1 => {
+                self.audio_channels[0].period =
+                    (self.audio_channels[0].period & 0x00FF) | (u16::from(value & 0x0F) << 8);
+            }
+            2 => {
+                self.audio_channels[1].period =
+                    (self.audio_channels[1].period & 0xFF00) | u16::from(value);
+            }
+            3 => {
+                self.audio_channels[1].period =
+                    (self.audio_channels[1].period & 0x00FF) | (u16::from(value & 0x0F) << 8);
+            }
+            4 => {
+                self.audio_channels[2].period =
+                    (self.audio_channels[2].period & 0xFF00) | u16::from(value);
+            }
+            5 => {
+                self.audio_channels[2].period =
+                    (self.audio_channels[2].period & 0x00FF) | (u16::from(value & 0x0F) << 8);
+            }
+            7 => {
+                // Bits 0-2: tone disable (active-low per channel)
+                self.audio_channels[0].tone_disable = value & 0x01 != 0;
+                self.audio_channels[1].tone_disable = value & 0x02 != 0;
+                self.audio_channels[2].tone_disable = value & 0x04 != 0;
+            }
+            8 => self.audio_channels[0].volume = value & 0x0F,
+            9 => self.audio_channels[1].volume = value & 0x0F,
+            10 => self.audio_channels[2].volume = value & 0x0F,
+            _ => {} // Noise, envelope, and I/O registers not used by NES games
+        }
     }
 }
 
@@ -2278,6 +2381,13 @@ impl Mapper for SunsoftFme7 {
                     _ => {}
                 }
             }
+            // Sunsoft 5B expansion audio ports
+            0xC000..=0xDFFF => {
+                self.audio_command = value & 0x0F;
+            }
+            0xE000..=0xFFFF => {
+                self.write_audio_register(self.audio_command, value);
+            }
             _ => {}
         }
     }
@@ -2303,6 +2413,24 @@ impl Mapper for SunsoftFme7 {
 
     fn irq_pending(&self) -> bool {
         self.irq_pending
+    }
+
+    fn tick_audio(&mut self) {
+        // 5B audio divider: clocks at CPU/16 (~111.8 kHz NTSC)
+        self.audio_divider = self.audio_divider.wrapping_add(1);
+        if self.audio_divider & 0x0F == 0 {
+            for ch in &mut self.audio_channels {
+                ch.tick();
+            }
+        }
+    }
+
+    fn audio_output(&self) -> f32 {
+        let sum = self.audio_channels[0].sample()
+            + self.audio_channels[1].sample()
+            + self.audio_channels[2].sample();
+        // Scale to ~0.15 total to balance with APU output (~0.5 peak)
+        sum * 0.05
     }
 
     fn prg_ram(&self) -> Option<&[u8]> {

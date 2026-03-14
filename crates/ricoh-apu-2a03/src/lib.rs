@@ -664,6 +664,11 @@ pub struct Apu {
     // Cutoff ~37 Hz at 48 kHz: α ≈ 0.9952
     hp_prev_in: f32,
     hp_prev_out: f32,
+
+    /// Expansion audio level from cartridge mapper (e.g. Sunsoft 5B, VRC6,
+    /// Namco 163). Set externally each CPU cycle before calling `tick()`.
+    /// Range: 0.0 to ~0.5 (mixed additively with the internal APU output).
+    pub expansion_audio: f32,
 }
 
 impl Apu {
@@ -717,6 +722,7 @@ impl Apu {
             buffer: Vec::with_capacity(Self::SAMPLE_RATE as usize / 50 + 1),
             hp_prev_in: 0.0,
             hp_prev_out: 0.0,
+            expansion_audio: 0.0,
         }
     }
 
@@ -951,8 +957,8 @@ impl Apu {
         // Frame counter
         self.clock_frame_counter();
 
-        // Mix and downsample
-        let sample = self.mix();
+        // Mix and downsample (including expansion audio from cartridge)
+        let sample = self.mix() + self.expansion_audio;
         self.accumulator += sample;
         self.sample_count += 1;
 
