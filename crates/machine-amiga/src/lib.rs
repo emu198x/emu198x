@@ -781,6 +781,73 @@ impl Amiga {
         }
     }
 
+    // -- Reset API ----------------------------------------------------------
+
+    /// Soft reset: reset all peripherals to power-on state (equivalent to
+    /// the 68000 RESET instruction asserting the hardware reset line) then
+    /// restart the CPU from the Kickstart reset vectors.
+    pub fn soft_reset(&mut self) {
+        // Reset peripherals — same as the bus-level RESET handler.
+        self.cia_a.reset();
+        self.cia_b.reset();
+        self.memory.overlay = true;
+        self.paula.reset();
+        self.agnus.dmacon = 0;
+        self.motherboard_external_irq_prev = false;
+        if let Some(ramsey) = self.ramsey.as_mut() {
+            ramsey.reset();
+        }
+        if let Some(fat_gary) = self.fat_gary.as_mut() {
+            fat_gary.reset();
+        }
+
+        // Restart CPU from ROM vectors (overlay is now ON, so ROM is at $0).
+        let ssp = u32::from_be_bytes([
+            self.memory.kickstart[0],
+            self.memory.kickstart[1],
+            self.memory.kickstart[2],
+            self.memory.kickstart[3],
+        ]);
+        let pc = u32::from_be_bytes([
+            self.memory.kickstart[4],
+            self.memory.kickstart[5],
+            self.memory.kickstart[6],
+            self.memory.kickstart[7],
+        ]);
+        self.cpu.reset_to(ssp, pc);
+    }
+
+    /// Hard reset: full power-on reset. Clears chip RAM, resets all chips
+    /// and counters, restarts the CPU. Equivalent to cycling power.
+    pub fn hard_reset(&mut self) {
+        // Zero chip RAM.
+        self.memory.chip_ram.fill(0);
+
+        // Reset all peripherals via soft_reset.
+        self.soft_reset();
+
+        // Reset additional state that a soft reset preserves.
+        self.copper = Copper::new();
+        self.floppy = AmigaFloppyDrive::new();
+        self.keyboard = AmigaKeyboard::new();
+        self.mouse_x = 0;
+        self.mouse_y = 0;
+        self.joy1dat = 0;
+        self.input_buttons = 0x0F;
+        self.cia_a_cra_sp_prev = false;
+        self.master_clock = 0;
+        self.vertb_count = 0;
+        self.cia_a_tod_pulse_count = 0;
+        self.audio_buffer.clear();
+        self.audio_lpf_left = 0.0;
+        self.audio_lpf_right = 0.0;
+        self.disk_dma_runtime = None;
+        self.sprite_dma_phase = [0; 8];
+
+        // Restore CIA-A external inputs to power-on state.
+        self.cia_a.external_a = 0xEB;
+    }
+
     // -- Input API ----------------------------------------------------------
 
     /// Push a mouse movement delta. The counters wrap naturally at 8 bits,

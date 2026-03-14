@@ -14,7 +14,7 @@ name = "emu_c64"
 path = "src/lib.rs"
 
 [dependencies]
-emu-core = { path = "../emu-core", features = ["mcp", "video"] }
+emu-core = { path = "../emu-core", features = ["mcp", "video", "renderer"] }
 mos-6502 = { path = "../mos-6502" }
 mos-cia-6526 = { path = "../mos-cia-6526" }
 mos-sid-6581 = { path = "../mos-sid-6581" }
@@ -26,7 +26,7 @@ format-gcr = { path = "../format-gcr" }
 format-c64-tap = { path = "../format-c64-tap" }
 format-prg = { path = "../format-prg" }
 winit = "0.30"
-pixels = "0.15"
+muda = "0.16"
 png = "0.17"
 hound = "3.5"
 serde = { version = "1", features = ["derive"] }

@@ -1,7 +1,6 @@
-# `amiga-runner`
+# `emu-amiga`
 
-Runnable frontend for `machine-amiga`. This crate is transitional and is
-intended to become `emu-amiga`.
+Runnable frontend for `machine-amiga`.
 
 ## What It Does Today
 
@@ -16,27 +15,27 @@ intended to become `emu-amiga`.
 
 ```sh
 # Windowed boot (ROM via env var)
-AMIGA_KS13_ROM=roms/kick13.rom cargo run -p amiga-runner
+AMIGA_KS13_ROM=roms/kick13.rom cargo run -p emu-amiga
 
 # Windowed boot (explicit ROM + optional disk image)
-cargo run -p amiga-runner -- --rom roms/kick13.rom --disk path/to/disk.adf
+cargo run -p emu-amiga -- --rom roms/kick13.rom --disk path/to/disk.adf
 
 # Select a different model; chipset derives from the model preset
-cargo run -p amiga-runner -- --rom roms/kick31.rom --model a1200
+cargo run -p emu-amiga -- --rom roms/kick31.rom --model a1200
 ```
 
 ## Headless Capture
 
 ```sh
 # Save a screenshot after N frames
-cargo run -p amiga-runner -- \
+cargo run -p emu-amiga -- \
   --rom roms/kick13.rom \
   --headless \
   --frames 300 \
   --screenshot test_output/boot.png
 
 # Save screenshot + WAV
-cargo run -p amiga-runner -- \
+cargo run -p emu-amiga -- \
   --rom roms/kick13.rom \
   --headless \
   --frames 300 \
@@ -51,10 +50,10 @@ force ADF loading explicitly.
 
 ```sh
 # Run a scripted headless session
-cargo run -p amiga-runner -- --script scripts/amiga-boot.json
+cargo run -p emu-amiga -- --script scripts/amiga-boot.json
 
 # Run as MCP JSON-RPC server over stdin/stdout
-cargo run -p amiga-runner -- --mcp
+cargo run -p emu-amiga -- --mcp
 ```
 
 In normal use, the machine preset chooses the chipset:

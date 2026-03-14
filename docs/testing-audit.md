@@ -196,7 +196,7 @@ crate inventory, see [inventory.md](inventory.md).
   media-loading failure paths, minimal valid iNES loading, and headless capture
   mode promotion. Next: if the runner grows further, add more output-error and
   event-loop lifecycle coverage.
-- `amiga-runner`: `Good`. Direct tests now cover argument parsing, model-derived
+- `emu-amiga`: `Good`. Direct tests now cover argument parsing, model-derived
   chipset selection, help/error paths, and headless capture mode promotion.
   Next: expand workflow coverage further if the runner grows new host-facing
   features.

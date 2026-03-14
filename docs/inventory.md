@@ -150,7 +150,7 @@ the current repository still uses older package names.
 | `emu-spectrum`  | Runnable Spectrum package; headed and headless modes   | Complete                      |
 | `emu-c64`       | Runnable C64 package; headed and headless modes        | Feature-complete              |
 | `emu-nes`       | Runnable NES package; headed and headless modes        | Complete                      |
-| `amiga-runner`  | Runnable Amiga package; intended to become `emu-amiga` | Transitional                  |
+| `emu-amiga`     | Runnable Amiga package; headed and headless modes      | Complete                      |
 
 ## Media Write Safety
 

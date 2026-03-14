@@ -25,16 +25,16 @@ inventory, see [inventory.md](inventory.md).
 | Spectrum | Production-ready       | 48K, 128K, +2, +2A, and +3 PAL; TAP, TZX, SNA, Z80, and DSK/EDSK; real-time EAR simulation                                     | [systems/spectrum.md](systems/spectrum.md) |
 | C64      | Production-ready       | PAL and NTSC, all VIC-II display modes, 1541 read/write, REU, and PRG/D64/TAP/CRT support                                      | [systems/c64.md](systems/c64.md)           |
 | NES      | Usable with known gaps | NTSC and PAL cartridge support, 14 mappers, battery-backed PRG RAM; FDS not implemented                                        | [systems/nes.md](systems/nes.md)           |
-| Amiga    | Usable with known gaps | OCS and ECS Kickstart boots to insert-disk, Workbench 1.3 desktop on A500, AGA display path present, ADF and IPF media support | [systems/amiga.md](systems/amiga.md)       |
+| Amiga    | Usable with known gaps | OCS, ECS, and AGA Kickstart boots to insert-disk (A500/A2000/A500+/A600/A1200), Workbench 1.3 desktop on A500, ADF and IPF media support | [systems/amiga.md](systems/amiga.md)       |
 
 ## Amiga Model Detail
 
 The canonical Amiga model matrix lives in
 [systems/amiga.md](systems/amiga.md#model-snapshot), with Kickstart-specific
 boot detail in [systems/amiga.md](systems/amiga.md#kickstart-boot-status).
-At dashboard level: A500 is usable beyond insert-disk, A2000/A500+/A600 are
-booting, A3000/A4000 are booting (insert-disk / STRAP diagnostic), A1000/A1200
-are under bring-up, and CDTV/CD32 are not started.
+At dashboard level: A500 is usable beyond insert-disk, A2000/A500+/A600/A1200
+are booting (insert-disk), A3000/A4000 are under bring-up (A3000 reaches STRAP,
+A4000 AGA path incomplete), A1000 is under bring-up, and CDTV/CD32 are not started.
 
 ## Tooling Snapshot
 

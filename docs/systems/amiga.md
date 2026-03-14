@@ -351,17 +351,16 @@ Commodore Amiga/Demos/Desert Dream (1993)(Kefrens).adf
 
 ### Current state
 
-OCS and ECS Kickstart ROMs boot to insert-disk screen, and Workbench 1.3
-reaches the full desktop on A500. The AGA display path is present with 8
-bitplanes, 24-bit palette, HAM8, and FMODE support. Media support currently
-includes ADF read/write and IPF read.
+OCS, ECS, and AGA Kickstart ROMs boot to insert-disk screen across A500,
+A2000, A500+, A600, and A1200. Workbench 1.3 reaches the full desktop on A500.
+AGA display supports 8 bitplanes, 24-bit palette, HAM8, and FMODE. Media
+support includes ADF read/write and IPF read.
 
 ### Known gaps
 
-Broader Amiga compatibility still depends on support-chip bring-up, AGA model
-boot, and hard-drive infrastructure. WHDLoad needs IDE, filesystem, and
-autoconfig support. Hardware LPF behavior and DAC non-linearity are also not
-fully modeled.
+A3000 and A4000 boot paths are not yet complete (A3000 stalls in device init,
+A4000 AGA path under bring-up). WHDLoad needs IDE, filesystem, and autoconfig
+support. Hardware LPF behavior and DAC non-linearity are not fully modeled.
 
 ### Kickstart boot status
 
@@ -374,7 +373,8 @@ fully modeled.
 | KS 2.05     | A600              | Booting (insert-disk)                                            |
 | KS 3.1      | A500, A600, A2000 | Booting (insert-disk)                                            |
 | KS 2.02/3.1 | A3000             | In progress (reaches STRAP, stalls in device init before SCSI)   |
-| KS 3.0/3.1  | A1200, A4000      | In progress (AGA display path present; boot pipeline incomplete) |
+| KS 3.0/3.1  | A1200             | Booting (AGA insert-disk)                                        |
+| KS 3.0/3.1  | A4000             | In progress (AGA boot path under bring-up)                       |
 | WB 1.3      | A500              | Usable with known gaps (full desktop)                            |
 
 ### Model snapshot
@@ -386,7 +386,7 @@ fully modeled.
 | A500+ | Booting                | Kickstart insert-disk validated                           |
 | A600  | Booting                | Kickstart insert-disk validated                           |
 | A1000 | In progress            | Yellow screen; slow RAM path not finished                 |
-| A1200 | In progress            | AGA display path present; boot pipeline incomplete        |
+| A1200 | Booting                | AGA Kickstart insert-disk validated                       |
 | A3000 | In progress            | Reaches STRAP; DMAC stub present, stall is pre-SCSI       |
 | A4000 | In progress            | AGA boot path under bring-up                              |
 | CDTV  | Not started            | No model-specific bring-up yet                            |

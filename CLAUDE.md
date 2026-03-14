@@ -186,7 +186,7 @@ emu198x/
 │   │
 │   │   Machine and runner crates
 │   ├── machine-amiga/         # Amiga system (library)
-│   ├── amiga-runner/          # Amiga runnable package (transitional)
+│   ├── emu-amiga/             # Amiga runnable package
 │   ├── emu-spectrum/          # Spectrum runnable package
 │   ├── emu-c64/               # C64 runnable package
 │   ├── emu-nes/               # NES runnable package

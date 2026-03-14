@@ -56,8 +56,8 @@ jobs:
 
       - name: Runner compile and smoke tests
         run: |
-          cargo check -p amiga-runner --quiet
-          cargo test -p amiga-runner --quiet
+          cargo check -p emu-amiga --quiet
+          cargo test -p emu-amiga --quiet
 
       - name: Note on KS1.3 boot screenshot regression
         run: |
