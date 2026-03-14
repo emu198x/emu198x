@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use emu_core::Cpu;
 use emu_core::renderer::Renderer;
 use emu_atari_800xl::{
-    Atari800xl, Atari800xlConfig, Atari800xlRegion, capture,
+    Atari800xl, Atari800xlConfig, Atari800xlRegion, Atari8bitModel, capture,
     input_map::{self, Atari800xlInput},
     gtia,
 };
@@ -48,6 +48,7 @@ struct CliArgs {
     frames: u32,
     screenshot_path: Option<PathBuf>,
     region: Atari800xlRegion,
+    model: Atari8bitModel,
     basic_enabled: bool,
 }
 
@@ -55,9 +56,11 @@ fn print_usage() {
     eprintln!("Usage: emu-atari-800xl [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --rom <file>           Atari 800XL cartridge ROM (8KB or 16KB)");
+    eprintln!("  --rom <file>           Cartridge ROM (8KB or 16KB)");
     eprintln!("  --os-rom <file>        OS ROM (~16KB)");
     eprintln!("  --basic-rom <file>     BASIC ROM (8KB)");
+    eprintln!("  --model <model>        Computer model (default: 800xl)");
+    eprintln!("                         Options: 400, 800, 600xl, 800xl, 65xe, 130xe");
     eprintln!("  --region <ntsc|pal>    Video region (default: ntsc)");
     eprintln!("  --basic                Enable BASIC ROM at startup");
     eprintln!("  --headless             Run without a window");
@@ -101,6 +104,7 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
         frames: 200,
         screenshot_path: None,
         region: Atari800xlRegion::Ntsc,
+        model: Atari8bitModel::A800XL,
         basic_enabled: false,
     };
 
@@ -145,6 +149,22 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
                     "ntsc" => Atari800xlRegion::Ntsc,
                     "pal" => Atari800xlRegion::Pal,
                     _ => return Err(format!("Invalid value for --region: {value}")),
+                };
+            }
+            "--model" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| "--model requires a value".to_string())?;
+                cli.model = match value.to_lowercase().as_str() {
+                    "400" => Atari8bitModel::A400,
+                    "800" => Atari8bitModel::A800,
+                    "600xl" => Atari8bitModel::A600XL,
+                    "800xl" => Atari8bitModel::A800XL,
+                    "65xe" => Atari8bitModel::A65XE,
+                    "130xe" => Atari8bitModel::A130XE,
+                    _ => return Err(format!("Invalid model: {value}. Options: 400, 800, 600xl, 800xl, 65xe, 130xe")),
                 };
             }
             "--help" | "-h" => return Ok(None),
@@ -478,6 +498,7 @@ fn make_system_result(cli: &CliArgs) -> Result<Atari800xl, String> {
     };
 
     let config = Atari800xlConfig {
+        model: cli.model,
         rom_data,
         os_rom,
         basic_rom,

@@ -27,7 +27,7 @@ pub use atari_antic as antic;
 pub use atari_gtia as gtia;
 pub use atari_pokey as pokey;
 pub use bus::Atari800xlBus;
-pub use config::{Atari800xlConfig, Atari800xlRegion};
+pub use config::{Atari800xlConfig, Atari800xlRegion, Atari8bitModel};
 
 use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE};
 use atari_gtia::Gtia;
@@ -82,8 +82,14 @@ impl Atari800xl {
         let pokey = Pokey::new(config.region.cpu_hz());
         let pia = Pia6520::new();
 
+        let model = config.model;
+        let extended_ram = vec![0u8; model.extended_ram()];
+
         let mut bus = Atari800xlBusInner {
             ram: [0; 65536],
+            ram_size: model.base_ram(),
+            extended_ram,
+            model,
             antic,
             gtia,
             pokey,
@@ -456,6 +462,7 @@ mod tests {
 
     fn make_system_ntsc(cart: Vec<u8>) -> Atari800xl {
         let config = Atari800xlConfig {
+            model: Atari8bitModel::A800XL,
             rom_data: Some(cart),
             os_rom: None,
             basic_rom: None,
@@ -467,6 +474,7 @@ mod tests {
 
     fn make_system_pal(cart: Vec<u8>) -> Atari800xl {
         let config = Atari800xlConfig {
+            model: Atari8bitModel::A800XL,
             rom_data: Some(cart),
             os_rom: None,
             basic_rom: None,
@@ -528,6 +536,7 @@ mod tests {
     #[test]
     fn pia_portb_banking() {
         let config = Atari800xlConfig {
+            model: Atari8bitModel::A800XL,
             rom_data: None,
             os_rom: None,
             basic_rom: Some(vec![0xBB; 8192]),
