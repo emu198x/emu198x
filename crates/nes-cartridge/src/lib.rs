@@ -1,13 +1,13 @@
 //! iNES cartridge parser and mapper implementations.
 //!
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
-//! a `Mapper` trait for address translation. Supports 23 mappers covering
-//! ~1,550 games: NROM (0), MMC1 (1), `UxROM` (2), CNROM (3), MMC3 (4),
-//! `AxROM` (7), MMC2 (9), MMC4 (10), Color Dreams (11), VRC4a (21),
-//! VRC2a (22), VRC2b/VRC4e (23), VRC4b (25), Irem G-101 (32),
-//! Taito TC0190 (33), `BxROM` (34), Irem H3001 (65), `GxROM` (66),
-//! Sunsoft FME-7 (69), Camerica (71), NINA-003 (79), Mapper 87, and
-//! Mapper 206 (simplified MMC3).
+//! a `Mapper` trait for address translation. Supports 26 mappers covering
+//! ~1,600 games: NROM (0), MMC1 (1), `UxROM` (2), CNROM (3), MMC3 (4),
+//! `AxROM` (7), MMC2 (9), MMC4 (10), Color Dreams (11), Bandai FCG (16/159),
+//! Jaleco SS88006 (18), Namco 163 (19), VRC4a (21), VRC2a (22),
+//! VRC2b/VRC4e (23), VRC4b (25), Irem G-101 (32), Taito TC0190 (33),
+//! `BxROM` (34), Irem H3001 (65), `GxROM` (66), Sunsoft FME-7 (69),
+//! Camerica (71), NINA-003 (79), Mapper 87, and Mapper 206.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -2447,6 +2447,634 @@ impl Mapper for SunsoftFme7 {
     }
 }
 
+/// Bandai FCG / LZ93D50 (Mapper 16, 159): 16K PRG + 1K CHR + IRQ counter.
+///
+/// Used by Dragon Ball Z series, SD Gundam Gaiden, Famicom Jump.
+///
+/// - PRG: 16K switchable at $8000-$BFFF, last 16K fixed
+/// - CHR: Eight 1K switchable banks
+/// - Mirroring: switchable
+/// - IRQ: 16-bit countdown timer (decrements each CPU cycle)
+///
+/// Mapper 159 is functionally identical (128-byte EEPROM variant; EEPROM
+/// not emulated). Both use the LZ93D50 register layout at $8000-$800D.
+struct BandaiFcg {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+    prg_bank: u8,
+    chr_banks: [u8; 8],
+    irq_enabled: bool,
+    irq_counter: u16,
+    irq_latch: u16,
+    irq_pending: bool,
+}
+
+impl BandaiFcg {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            mirroring,
+            prg_bank: 0,
+            chr_banks: [0; 8],
+            irq_enabled: false,
+            irq_counter: 0,
+            irq_latch: 0,
+            irq_pending: false,
+        }
+    }
+
+    fn prg_16k_count(&self) -> usize {
+        self.prg_rom.len() / 16384
+    }
+
+    fn write_register(&mut self, reg: u16, value: u8) {
+        let reg = reg & 0x000F;
+        match reg {
+            0x0..=0x7 => {
+                self.chr_banks[reg as usize] = value;
+            }
+            0x8 => self.prg_bank = value & 0x0F,
+            0x9 => {
+                self.mirroring = match value & 0x03 {
+                    0 => Mirroring::Vertical,
+                    1 => Mirroring::Horizontal,
+                    2 => Mirroring::SingleScreenLower,
+                    3 => Mirroring::SingleScreenUpper,
+                    _ => unreachable!(),
+                };
+            }
+            0xA => {
+                self.irq_enabled = value & 0x01 != 0;
+                self.irq_counter = self.irq_latch;
+                self.irq_pending = false;
+            }
+            0xB => {
+                self.irq_latch = (self.irq_latch & 0xFF00) | u16::from(value);
+            }
+            0xC => {
+                self.irq_latch = (self.irq_latch & 0x00FF) | (u16::from(value) << 8);
+            }
+            _ => {} // $D = EEPROM, not emulated
+        }
+    }
+}
+
+impl Mapper for BandaiFcg {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => {
+                let bank = self.prg_bank as usize % self.prg_16k_count();
+                self.prg_rom[bank * 16384 + (addr - 0x8000) as usize]
+            }
+            0xC000..=0xFFFF => {
+                let last = self.prg_16k_count().saturating_sub(1);
+                self.prg_rom[last * 16384 + (addr - 0xC000) as usize]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        // LZ93D50: registers at $8000-$800D
+        if (0x6000..=0xFFFF).contains(&addr) {
+            self.write_register(addr, value);
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() {
+            return 0;
+        }
+        let addr_usize = addr as usize & 0x1FFF;
+        let bank_index = addr_usize / 1024;
+        let bank = self.chr_banks[bank_index] as usize;
+        let offset = addr_usize & 0x3FF;
+        let index = (bank * 1024 + offset) % self.chr_rom.len();
+        self.chr_rom[index]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+}
+
+/// Jaleco SS88006 (Mapper 18): 8K PRG + 1K CHR with configurable IRQ timer.
+///
+/// Used by Magic John (Totally Rad), Pizza Pop!, Ninja Jajamaru: Ginga
+/// Daisakusen. All Japanese releases.
+///
+/// - PRG: Three switchable 8K banks + last 8K fixed
+/// - CHR: Eight 1K banks (each set by low/high nibble register pair)
+/// - Mirroring: switchable
+/// - IRQ: 16-bit timer with selectable bit-width (4/8/12/16-bit)
+struct JalecoSs88006 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    chr_is_ram: bool,
+    prg_ram: [u8; 8192],
+    prg_ram_enabled: bool,
+    mirroring: Mirroring,
+    prg_banks: [u8; 3],
+    chr_banks_lo: [u8; 8],
+    chr_banks_hi: [u8; 8],
+    irq_counter: u16,
+    irq_latch: u16,
+    irq_enabled: bool,
+    irq_pending: bool,
+    /// IRQ counter bit-width mask: $000F, $00FF, $0FFF, or $FFFF.
+    irq_mask: u16,
+}
+
+impl JalecoSs88006 {
+    fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr_rom = if chr_is_ram {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr_rom,
+            chr_is_ram,
+            prg_ram: [0; 8192],
+            prg_ram_enabled: false,
+            mirroring,
+            prg_banks: [0; 3],
+            chr_banks_lo: [0; 8],
+            chr_banks_hi: [0; 8],
+            irq_counter: 0,
+            irq_latch: 0,
+            irq_enabled: false,
+            irq_pending: false,
+            irq_mask: 0xFFFF,
+        }
+    }
+
+    fn prg_8k_count(&self) -> usize {
+        self.prg_rom.len() / 8192
+    }
+
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+
+    fn chr_bank_value(&self, index: usize) -> usize {
+        let lo = self.chr_banks_lo[index] as usize & 0x0F;
+        let hi = self.chr_banks_hi[index] as usize & 0x0F;
+        (hi << 4) | lo
+    }
+}
+
+impl Mapper for JalecoSs88006 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF => {
+                if self.prg_ram_enabled {
+                    self.prg_ram[(addr - 0x6000) as usize]
+                } else {
+                    0
+                }
+            }
+            0x8000..=0x9FFF => {
+                self.read_prg_8k(self.prg_banks[0] as usize & 0x3F, (addr - 0x8000) as usize)
+            }
+            0xA000..=0xBFFF => {
+                self.read_prg_8k(self.prg_banks[1] as usize & 0x3F, (addr - 0xA000) as usize)
+            }
+            0xC000..=0xDFFF => {
+                self.read_prg_8k(self.prg_banks[2] as usize & 0x3F, (addr - 0xC000) as usize)
+            }
+            0xE000..=0xFFFF => {
+                self.read_prg_8k(self.prg_8k_count() - 1, (addr - 0xE000) as usize)
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x7FFF => {
+                if self.prg_ram_enabled {
+                    self.prg_ram[(addr - 0x6000) as usize] = value;
+                }
+            }
+            // PRG bank 0 low/high nibble
+            0x8000 => self.prg_banks[0] = (self.prg_banks[0] & 0xF0) | (value & 0x0F),
+            0x8001 => self.prg_banks[0] = (self.prg_banks[0] & 0x0F) | ((value & 0x03) << 4),
+            // PRG bank 1
+            0x8002 => self.prg_banks[1] = (self.prg_banks[1] & 0xF0) | (value & 0x0F),
+            0x8003 => self.prg_banks[1] = (self.prg_banks[1] & 0x0F) | ((value & 0x03) << 4),
+            // PRG bank 2
+            0x9000 => self.prg_banks[2] = (self.prg_banks[2] & 0xF0) | (value & 0x0F),
+            0x9001 => self.prg_banks[2] = (self.prg_banks[2] & 0x0F) | ((value & 0x03) << 4),
+            // PRG RAM enable
+            0x9002 => self.prg_ram_enabled = value & 0x01 != 0,
+            // CHR banks (low/high nibble pairs)
+            0xA000 => self.chr_banks_lo[0] = value,
+            0xA001 => self.chr_banks_hi[0] = value,
+            0xA002 => self.chr_banks_lo[1] = value,
+            0xA003 => self.chr_banks_hi[1] = value,
+            0xB000 => self.chr_banks_lo[2] = value,
+            0xB001 => self.chr_banks_hi[2] = value,
+            0xB002 => self.chr_banks_lo[3] = value,
+            0xB003 => self.chr_banks_hi[3] = value,
+            0xC000 => self.chr_banks_lo[4] = value,
+            0xC001 => self.chr_banks_hi[4] = value,
+            0xC002 => self.chr_banks_lo[5] = value,
+            0xC003 => self.chr_banks_hi[5] = value,
+            0xD000 => self.chr_banks_lo[6] = value,
+            0xD001 => self.chr_banks_hi[6] = value,
+            0xD002 => self.chr_banks_lo[7] = value,
+            0xD003 => self.chr_banks_hi[7] = value,
+            // IRQ reload nibbles
+            0xE000 => self.irq_latch = (self.irq_latch & 0xFFF0) | u16::from(value & 0x0F),
+            0xE001 => self.irq_latch = (self.irq_latch & 0xFF0F) | (u16::from(value & 0x0F) << 4),
+            0xE002 => self.irq_latch = (self.irq_latch & 0xF0FF) | (u16::from(value & 0x0F) << 8),
+            0xE003 => self.irq_latch = (self.irq_latch & 0x0FFF) | (u16::from(value & 0x0F) << 12),
+            // IRQ acknowledge + reload
+            0xF000 => {
+                self.irq_pending = false;
+                self.irq_counter = self.irq_latch;
+            }
+            // IRQ control
+            0xF001 => {
+                self.irq_pending = false;
+                self.irq_enabled = value & 0x01 != 0;
+                // Bit-width selection: bit 3 = 4-bit, bit 2 = 8-bit, bit 1 = 12-bit
+                self.irq_mask = if value & 0x08 != 0 {
+                    0x000F
+                } else if value & 0x04 != 0 {
+                    0x00FF
+                } else if value & 0x02 != 0 {
+                    0x0FFF
+                } else {
+                    0xFFFF
+                };
+            }
+            // Mirroring
+            0xF002 => {
+                self.mirroring = match value & 0x03 {
+                    0 => Mirroring::Horizontal,
+                    1 => Mirroring::Vertical,
+                    2 => Mirroring::SingleScreenLower,
+                    3 => Mirroring::SingleScreenUpper,
+                    _ => unreachable!(),
+                };
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let addr_usize = addr as usize & 0x1FFF;
+        let bank_index = addr_usize / 1024;
+        let bank = self.chr_bank_value(bank_index);
+        let offset = addr_usize & 0x3FF;
+        let index = (bank * 1024 + offset) % self.chr_rom.len();
+        self.chr_rom[index]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            self.chr_rom[(addr as usize) & 0x1FFF] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+}
+
+/// Namco 163 (Mapper 19): PRG/CHR banking with wavetable expansion audio.
+///
+/// Used by Megami Tensei II, Rolling Thunder, Star Wars (Namco), Final Lap,
+/// King of Kings, Sangokushi I & II.
+///
+/// - PRG: Three switchable 8K banks + last 8K fixed
+/// - CHR: Eight 1K pattern table banks + four nametable banks (CIRAM or ROM)
+/// - IRQ: 15-bit up-counter, fires at $7FFF
+/// - Audio: 1-8 wavetable channels, 128-byte internal RAM, 4-bit samples
+struct Namco163 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    prg_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_banks: [u8; 3],
+    chr_banks: [u8; 12],
+    // Internal 128-byte RAM (waveform data + channel registers)
+    sound_ram: [u8; 128],
+    sound_addr: u8,
+    sound_auto_increment: bool,
+    sound_disable: bool,
+    // IRQ
+    irq_counter: u16,
+    irq_enabled: bool,
+    irq_pending: bool,
+    // Audio timing: one channel updated every 15 CPU cycles
+    audio_timer: u8,
+    audio_channel_index: u8,
+    audio_output_level: f32,
+}
+
+impl Namco163 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            prg_ram: [0; 8192],
+            mirroring,
+            prg_banks: [0; 3],
+            chr_banks: [0; 12],
+            sound_ram: [0; 128],
+            sound_addr: 0,
+            sound_auto_increment: false,
+            sound_disable: false,
+            irq_counter: 0,
+            irq_enabled: false,
+            irq_pending: false,
+            audio_timer: 0,
+            audio_channel_index: 0,
+            audio_output_level: 0.0,
+        }
+    }
+
+    fn prg_8k_count(&self) -> usize {
+        self.prg_rom.len() / 8192
+    }
+
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+
+    fn num_active_channels(&self) -> u8 {
+        // Channel count from address $7F bits 6-4
+        ((self.sound_ram[0x7F] >> 4) & 0x07) + 1
+    }
+
+    #[allow(dead_code)]
+    fn read_sound_ram(&mut self) -> u8 {
+        let value = self.sound_ram[self.sound_addr as usize & 0x7F];
+        if self.sound_auto_increment {
+            self.sound_addr = (self.sound_addr + 1) & 0x7F;
+        }
+        value
+    }
+
+    fn write_sound_ram(&mut self, value: u8) {
+        self.sound_ram[self.sound_addr as usize & 0x7F] = value;
+        if self.sound_auto_increment {
+            self.sound_addr = (self.sound_addr + 1) & 0x7F;
+        }
+    }
+
+    /// Update one audio channel. Called every 15 CPU cycles, cycling through
+    /// active channels in round-robin order.
+    fn update_audio_channel(&mut self) {
+        let num_channels = self.num_active_channels();
+        let ch = self.audio_channel_index % num_channels;
+        // Channel N is at base $78 - (num_channels - 1 - ch) * 8
+        let base = 0x78 - (num_channels - 1 - ch) as usize * 8;
+
+        // Read channel registers
+        let freq_lo = self.sound_ram[base] as u32;
+        let freq_mid = self.sound_ram[base + 2] as u32;
+        let freq_hi = self.sound_ram[base + 4] as u32 & 0x03;
+        let freq = freq_lo | (freq_mid << 8) | (freq_hi << 16);
+
+        let wave_length_raw = (self.sound_ram[base + 4] >> 2) & 0x3F;
+        let wave_length = (256 - u32::from(wave_length_raw) * 4) as u32;
+
+        let wave_addr = self.sound_ram[base + 6] as u32;
+        let volume = self.sound_ram[base + 7] & 0x0F;
+
+        // Read 24-bit phase accumulator
+        let phase_lo = self.sound_ram[base + 1] as u32;
+        let phase_mid = self.sound_ram[base + 3] as u32;
+        let phase_hi = self.sound_ram[base + 5] as u32;
+        let mut phase = phase_lo | (phase_mid << 8) | (phase_hi << 16);
+
+        // Advance phase
+        phase = phase.wrapping_add(freq);
+        if wave_length > 0 {
+            let wrap_point = wave_length << 16;
+            if phase >= wrap_point {
+                phase %= wrap_point;
+            }
+        }
+
+        // Write phase back
+        self.sound_ram[base + 1] = phase as u8;
+        self.sound_ram[base + 3] = (phase >> 8) as u8;
+        self.sound_ram[base + 5] = (phase >> 16) as u8;
+
+        // Look up waveform sample (4-bit, packed 2 per byte)
+        let sample_index = ((phase >> 16) + wave_addr) & 0xFF;
+        let ram_addr = (sample_index / 2) as usize & 0x7F;
+        let sample = if sample_index & 1 == 0 {
+            self.sound_ram[ram_addr] & 0x0F
+        } else {
+            (self.sound_ram[ram_addr] >> 4) & 0x0F
+        };
+
+        // Output: (sample - 8) * volume, range: -120 to +105
+        let output = (i16::from(sample) - 8) * i16::from(volume);
+
+        // Accumulate into output level (time-division multiplexed)
+        self.audio_output_level = output as f32 / 120.0;
+
+        self.audio_channel_index = (self.audio_channel_index + 1) % num_channels;
+    }
+}
+
+impl Mapper for Namco163 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x4800..=0x4FFF => {
+                // Sound RAM data port (non-mutating read for trait)
+                self.sound_ram[self.sound_addr as usize & 0x7F]
+            }
+            0x5000..=0x57FF => {
+                // IRQ counter low
+                (self.irq_counter & 0xFF) as u8
+            }
+            0x5800..=0x5FFF => {
+                // IRQ counter high + enable
+                let hi = ((self.irq_counter >> 8) & 0x7F) as u8;
+                hi | if self.irq_enabled { 0x80 } else { 0 }
+            }
+            0x6000..=0x7FFF => {
+                self.prg_ram[(addr - 0x6000) as usize]
+            }
+            0x8000..=0x9FFF => {
+                self.read_prg_8k(self.prg_banks[0] as usize & 0x3F, (addr - 0x8000) as usize)
+            }
+            0xA000..=0xBFFF => {
+                self.read_prg_8k(self.prg_banks[1] as usize & 0x3F, (addr - 0xA000) as usize)
+            }
+            0xC000..=0xDFFF => {
+                self.read_prg_8k(self.prg_banks[2] as usize & 0x3F, (addr - 0xC000) as usize)
+            }
+            0xE000..=0xFFFF => {
+                self.read_prg_8k(self.prg_8k_count() - 1, (addr - 0xE000) as usize)
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x4800..=0x4FFF => {
+                self.write_sound_ram(value);
+            }
+            0x5000..=0x57FF => {
+                self.irq_counter = (self.irq_counter & 0xFF00) | u16::from(value);
+                self.irq_pending = false;
+            }
+            0x5800..=0x5FFF => {
+                self.irq_counter = (self.irq_counter & 0x00FF) | (u16::from(value & 0x7F) << 8);
+                self.irq_enabled = value & 0x80 != 0;
+                self.irq_pending = false;
+            }
+            0x6000..=0x7FFF => {
+                self.prg_ram[(addr - 0x6000) as usize] = value;
+            }
+            // CHR bank registers ($8000-$DFFF, in $800 windows)
+            0x8000..=0x87FF => self.chr_banks[0] = value,
+            0x8800..=0x8FFF => self.chr_banks[1] = value,
+            0x9000..=0x97FF => self.chr_banks[2] = value,
+            0x9800..=0x9FFF => self.chr_banks[3] = value,
+            0xA000..=0xA7FF => self.chr_banks[4] = value,
+            0xA800..=0xAFFF => self.chr_banks[5] = value,
+            0xB000..=0xB7FF => self.chr_banks[6] = value,
+            0xB800..=0xBFFF => self.chr_banks[7] = value,
+            0xC000..=0xC7FF => self.chr_banks[8] = value,
+            0xC800..=0xCFFF => self.chr_banks[9] = value,
+            0xD000..=0xD7FF => self.chr_banks[10] = value,
+            0xD800..=0xDFFF => self.chr_banks[11] = value,
+            // PRG bank 0 + sound disable
+            0xE000..=0xE7FF => {
+                self.prg_banks[0] = value & 0x3F;
+                self.sound_disable = value & 0x40 != 0;
+            }
+            // PRG bank 1
+            0xE800..=0xEFFF => {
+                self.prg_banks[1] = value & 0x3F;
+            }
+            // PRG bank 2
+            0xF000..=0xF7FF => {
+                self.prg_banks[2] = value & 0x3F;
+            }
+            // Sound RAM address port
+            0xF800..=0xFFFF => {
+                self.sound_addr = value & 0x7F;
+                self.sound_auto_increment = value & 0x80 != 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let addr_usize = addr as usize & 0x1FFF;
+        let bank_index = addr_usize / 1024;
+
+        // Nametable banks (indices 8-11) can map to CIRAM
+        // Pattern table banks (0-7) always map to CHR-ROM
+        let bank_value = self.chr_banks[bank_index] as usize;
+
+        if bank_index >= 8 && bank_value >= 0xE0 {
+            // CIRAM nametable — handled by PPU mirroring, return 0
+            // (the PPU applies mirroring externally)
+            return 0;
+        }
+
+        if self.chr_rom.is_empty() {
+            return 0;
+        }
+        let offset = addr_usize & 0x3FF;
+        let index = (bank_value * 1024 + offset) % self.chr_rom.len();
+        self.chr_rom[index]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        // Nametable mirroring is controlled by chr_banks[8-11]
+        // but the PPU needs a simple enum. Use the bank values to derive it.
+        let nt0 = self.chr_banks[8];
+        let nt1 = self.chr_banks[9];
+        if nt0 == nt1 {
+            Mirroring::SingleScreenLower
+        } else if nt0 >= 0xE0 && nt1 >= 0xE0 {
+            if nt0 & 1 == 0 && nt1 & 1 != 0 {
+                Mirroring::Vertical
+            } else {
+                Mirroring::Horizontal
+            }
+        } else {
+            self.mirroring
+        }
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+
+    fn tick_audio(&mut self) {
+        // IRQ counter: increments every CPU cycle, fires at $7FFF
+        if self.irq_enabled {
+            if self.irq_counter >= 0x7FFF {
+                self.irq_pending = true;
+            } else {
+                self.irq_counter += 1;
+            }
+        }
+
+        if self.sound_disable {
+            self.audio_output_level = 0.0;
+            return;
+        }
+
+        // Audio update: one channel every 15 CPU cycles
+        self.audio_timer += 1;
+        if self.audio_timer >= 15 {
+            self.audio_timer = 0;
+            self.update_audio_channel();
+        }
+    }
+
+    fn audio_output(&self) -> f32 {
+        if self.sound_disable {
+            return 0.0;
+        }
+        // Scale to ~0.15 to balance with APU output
+        self.audio_output_level * 0.15
+    }
+
+    fn prg_ram(&self) -> Option<&[u8]> {
+        Some(&self.prg_ram)
+    }
+
+    fn set_prg_ram(&mut self, data: &[u8]) {
+        let len = data.len().min(self.prg_ram.len());
+        self.prg_ram[..len].copy_from_slice(&data[..len]);
+    }
+}
+
 /// Parsed cartridge: mapper implementation and header metadata.
 pub struct ParsedCartridge {
     pub mapper: Box<dyn Mapper>,
@@ -2554,6 +3182,9 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         71 => Box::new(Camerica::new(prg_rom, mirroring)),
         87 => Box::new(Mapper87::new(prg_rom, chr_data, mirroring)),
         206 => Box::new(Mapper206::new(prg_rom, chr_data, mirroring)),
+        16 | 159 => Box::new(BandaiFcg::new(prg_rom, chr_data, mirroring)),
+        18 => Box::new(JalecoSs88006::new(prg_rom, chr_data, mirroring)),
+        19 => Box::new(Namco163::new(prg_rom, chr_data, mirroring)),
         // Konami VRC2/VRC4 family — address line wiring varies by mapper number
         21 => Box::new(Vrc2Vrc4::new(prg_rom, chr_data, mirroring, 1, 2, false)),
         22 => Box::new(Vrc2Vrc4::new(prg_rom, chr_data, mirroring, 0, 1, true)),
