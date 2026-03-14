@@ -1,0 +1,16 @@
+[package]
+name = "emu-bbc-micro"
+description = "BBC Micro Model B emulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+mos-6502 = { path = "../mos-6502" }
+mos-via-6522 = { path = "../mos-via-6522" }
+ti-sn76489 = { path = "../ti-sn76489" }
+motorola-6845 = { path = "../motorola-6845" }
+
+[lints]
+workspace = true

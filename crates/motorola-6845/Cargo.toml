@@ -1,0 +1,9 @@
+[package]
+name = "motorola-6845"
+description = "Motorola 6845 CRT Controller"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
