@@ -8,9 +8,11 @@
 //! let machine = MySystem::new(rom);
 //! Runner::new(machine, "My System", 3, Duration::from_millis(20))
 //!     .with_key_handler(|machine, keycode, pressed| { ... })
+//!     .with_open_handler(&["sg", "bin"], |path| { ... })
 //!     .run();
 //! ```
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -27,20 +29,32 @@ use crate::renderer::Renderer;
 /// Key handler function type: `(machine, keycode, pressed)`.
 pub type KeyHandler<M> = Box<dyn FnMut(&mut M, KeyCode, bool)>;
 
+/// Open handler: takes a file path, returns a new Machine (or None on error).
+pub type OpenHandler<M> = Box<dyn FnMut(&PathBuf) -> Option<M>>;
+
 /// Menu IDs for the standard File/System menus.
 struct MenuIds {
+    open: MenuId,
     screenshot: MenuId,
     quit: MenuId,
     soft_reset: MenuId,
     hard_reset: MenuId,
 }
 
-fn build_menu() -> (Menu, MenuIds) {
+fn build_menu(extensions_label: &str) -> (Menu, MenuIds) {
     let menu = Menu::new();
 
     let file_menu = Submenu::new("File", true);
+    let open_label = if extensions_label.is_empty() {
+        "Open ROM...\tCtrl+O".to_string()
+    } else {
+        format!("Open ROM ({extensions_label})...\tCtrl+O")
+    };
+    let open = MenuItem::new(&open_label, true, None);
     let screenshot = MenuItem::new("Screenshot\tCtrl+P", true, None);
     let quit = MenuItem::new("Quit\tCtrl+Q", true, None);
+    file_menu.append(&open).ok();
+    file_menu.append(&PredefinedMenuItem::separator()).ok();
     file_menu.append(&screenshot).ok();
     file_menu.append(&PredefinedMenuItem::separator()).ok();
     file_menu.append(&quit).ok();
@@ -55,6 +69,7 @@ fn build_menu() -> (Menu, MenuIds) {
     menu.append(&system_menu).ok();
 
     let ids = MenuIds {
+        open: open.id().clone(),
         screenshot: screenshot.id().clone(),
         quit: quit.id().clone(),
         soft_reset: soft_reset.id().clone(),
@@ -71,16 +86,13 @@ pub struct Runner<M: Machine> {
     scale: u32,
     frame_duration: Duration,
     key_handler: Option<KeyHandler<M>>,
+    open_handler: Option<OpenHandler<M>>,
+    file_extensions: Vec<String>,
     quit_key: KeyCode,
 }
 
 impl<M: Machine> Runner<M> {
     /// Create a new runner.
-    ///
-    /// - `machine`: the emulated system
-    /// - `title`: window title
-    /// - `scale`: integer pixel scaling factor
-    /// - `frame_duration`: target time per frame (e.g. 20ms for 50 Hz PAL)
     pub fn new(machine: M, title: &str, scale: u32, frame_duration: Duration) -> Self {
         Self {
             machine,
@@ -88,19 +100,32 @@ impl<M: Machine> Runner<M> {
             scale,
             frame_duration,
             key_handler: None,
+            open_handler: None,
+            file_extensions: Vec::new(),
             quit_key: KeyCode::Escape,
         }
     }
 
-    /// Set the key handler function. Called for every key press/release
-    /// with `(machine, keycode, pressed)`.
+    /// Set the key handler. Called for every key press/release.
     pub fn with_key_handler(mut self, handler: impl FnMut(&mut M, KeyCode, bool) + 'static) -> Self {
         self.key_handler = Some(Box::new(handler));
         self
     }
 
-    /// Set the quit key (default: Escape). Use F12 for systems where
-    /// Escape is a valid emulated key.
+    /// Set the File > Open handler. The callback receives the chosen file path
+    /// and returns a new Machine, or None if loading failed. The file dialog
+    /// will filter by the given extensions (e.g., `&["sg", "bin"]`).
+    pub fn with_open_handler(
+        mut self,
+        extensions: &[&str],
+        handler: impl FnMut(&PathBuf) -> Option<M> + 'static,
+    ) -> Self {
+        self.file_extensions = extensions.iter().map(|s| (*s).to_string()).collect();
+        self.open_handler = Some(Box::new(handler));
+        self
+    }
+
+    /// Set the quit key (default: Escape).
     pub fn with_quit_key(mut self, key: KeyCode) -> Self {
         self.quit_key = key;
         self
@@ -108,7 +133,8 @@ impl<M: Machine> Runner<M> {
 
     /// Run the windowed application. Blocks until the window is closed.
     pub fn run(self) {
-        let (menu, menu_ids) = build_menu();
+        let ext_label = self.file_extensions.join(", ");
+        let (menu, menu_ids) = build_menu(&ext_label);
         let fb_width = self.machine.framebuffer_width();
         let fb_height = self.machine.framebuffer_height();
 
@@ -125,6 +151,8 @@ impl<M: Machine> Runner<M> {
             menu_ids,
             _menu: menu,
             key_handler: self.key_handler,
+            open_handler: self.open_handler,
+            file_extensions: self.file_extensions,
             quit_key: self.quit_key,
         };
 
@@ -144,7 +172,7 @@ impl<M: Machine> Runner<M> {
     }
 }
 
-/// Internal application state for the winit event loop.
+/// Internal application state.
 struct App<M: Machine> {
     machine: M,
     renderer: Option<Renderer>,
@@ -158,13 +186,57 @@ struct App<M: Machine> {
     menu_ids: MenuIds,
     _menu: Menu,
     key_handler: Option<KeyHandler<M>>,
+    open_handler: Option<OpenHandler<M>>,
+    file_extensions: Vec<String>,
     quit_key: KeyCode,
 }
 
 impl<M: Machine> App<M> {
+    fn open_file_dialog(&mut self) {
+        let Some(handler) = &mut self.open_handler else {
+            return;
+        };
+
+        let mut dialog = rfd::FileDialog::new();
+        if !self.file_extensions.is_empty() {
+            let ext_refs: Vec<&str> = self.file_extensions.iter().map(|s| s.as_str()).collect();
+            dialog = dialog.add_filter("ROM files", &ext_refs);
+        }
+
+        if let Some(path) = dialog.pick_file() {
+            if let Some(new_machine) = handler(&path) {
+                self.machine = new_machine;
+
+                // Update framebuffer dimensions if they changed
+                let new_w = self.machine.framebuffer_width();
+                let new_h = self.machine.framebuffer_height();
+                if new_w != self.fb_width || new_h != self.fb_height {
+                    self.fb_width = new_w;
+                    self.fb_height = new_h;
+                    if let Some(window) = &self.window {
+                        self.renderer = Some(Renderer::new(
+                            window.clone(), self.fb_width, self.fb_height,
+                        ));
+                    }
+                }
+
+                // Update window title with filename
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    let title = format!("{} — {name}", self.title);
+                    if let Some(window) = &self.window {
+                        window.set_title(&title);
+                    }
+                }
+                eprintln!("Loaded: {}", path.display());
+            }
+        }
+    }
+
     fn handle_menu_event(&mut self, id: &MenuId, event_loop: &ActiveEventLoop) {
         if *id == self.menu_ids.quit {
             event_loop.exit();
+        } else if *id == self.menu_ids.open {
+            self.open_file_dialog();
         } else if *id == self.menu_ids.soft_reset {
             self.machine.reset();
             eprintln!("Soft reset");

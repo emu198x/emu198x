@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Duration;
 
-use emu_core::Machine;
 use emu_core::runner::Runner;
 use emu_sg1000::{Sg1000, Sg1000Region};
 use winit::keyboard::KeyCode;
@@ -134,6 +133,7 @@ fn main() {
         Sg1000Region::Pal => Duration::from_micros(20_000),
     };
 
+    let region = cli.region;
     Runner::new(make_system(&cli), "Sega SG-1000", 3, frame_duration)
         .with_key_handler(|machine, keycode, pressed| {
             let ctrl = machine.controller1_mut();
@@ -146,6 +146,10 @@ fn main() {
                 KeyCode::KeyX => ctrl.button2 = pressed,
                 _ => {}
             }
+        })
+        .with_open_handler(&["sg", "bin", "rom"], move |path| {
+            let rom_data = std::fs::read(path).ok()?;
+            Some(Sg1000::new(rom_data, region))
         })
         .run();
 }
