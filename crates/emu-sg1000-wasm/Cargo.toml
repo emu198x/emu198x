@@ -1,0 +1,17 @@
+[package]
+name = "emu-sg1000-wasm"
+description = "Sega SG-1000 emulator — WASM/browser build"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+emu-sg1000 = { path = "../emu-sg1000", default-features = false }
+emu-core = { path = "../emu-core" }
+wasm-bindgen = "0.2"
+
+[lints]
+workspace = true

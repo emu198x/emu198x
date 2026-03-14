@@ -13,9 +13,11 @@
 //! One frame = 263 lines (NTSC) / 313 lines (PAL).
 
 mod bus;
+#[cfg(feature = "native")]
 pub mod capture;
 mod cartridge;
 mod config;
+#[cfg(feature = "native")]
 pub mod controller_map;
 mod tia_audio;
 

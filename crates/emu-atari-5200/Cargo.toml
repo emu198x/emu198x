@@ -13,15 +13,19 @@ path = "src/main.rs"
 name = "emu_atari_5200"
 path = "src/lib.rs"
 
+[features]
+default = ["native"]
+native = ["emu-core/renderer", "dep:winit", "dep:muda", "dep:png"]
+
 [dependencies]
-emu-core = { path = "../emu-core", features = ["renderer"] }
+emu-core = { path = "../emu-core" }
 mos-6502 = { path = "../mos-6502" }
 atari-antic = { path = "../atari-antic" }
 atari-gtia = { path = "../atari-gtia" }
 atari-pokey = { path = "../atari-pokey" }
-winit = "0.30"
-muda = "0.16"
-png = "0.17"
+winit = { version = "0.30", optional = true }
+muda = { version = "0.16", optional = true }
+png = { version = "0.17", optional = true }
 
 [lints]
 workspace = true

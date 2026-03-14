@@ -18,9 +18,11 @@
 //! One frame = 262 lines (NTSC) / 312 lines (PAL).
 
 mod bus;
+#[cfg(feature = "native")]
 pub mod capture;
 mod cartridge;
 mod config;
+#[cfg(feature = "native")]
 pub mod input_map;
 
 pub use atari_antic as antic;

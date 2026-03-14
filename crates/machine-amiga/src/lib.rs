@@ -6,6 +6,7 @@
 
 pub mod bus;
 pub mod config;
+#[cfg(feature = "native")]
 pub mod mcp;
 pub mod memory;
 
@@ -335,14 +336,16 @@ pub struct BlitterProgressDebugStats {
     pub max_queue_len_seen: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "native", derive(serde::Serialize))]
 pub enum BlitterInterruptSource {
     SchedulerIncremental,
     AreaCore,
     LineCore,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "native", derive(serde::Serialize))]
 pub struct BlitterIrqDebugEvent {
     pub tick: u64,
     pub source: BlitterInterruptSource,

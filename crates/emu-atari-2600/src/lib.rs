@@ -11,9 +11,11 @@
 //! One frame ≈ 262 lines (NTSC) / 312 lines (PAL), software-controlled.
 
 mod bus;
+#[cfg(feature = "native")]
 pub mod capture;
 mod cartridge;
 mod config;
+#[cfg(feature = "native")]
 pub mod controller_map;
 
 pub use atari_tia as tia;

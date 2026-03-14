@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Atari 800XL — Emu198x</title>
+    <style>
+        body { margin: 0; background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: monospace; color: #ccc; }
+        canvas { image-rendering: pixelated; border: 2px solid #333; }
+        p { margin-top: 1em; font-size: 0.9em; }
+        label { margin-bottom: 0.5em; }
+    </style>
+</head>
+<body>
+    <label>OS ROM: <input type="file" id="os" accept=".bin,.rom"></label>
+    <label>Cart ROM (optional): <input type="file" id="cart" accept=".bin,.rom,.xex,.car"></label>
+    <canvas id="screen"></canvas>
+    <p>Load OS ROM (required). Arrows=Joystick, Z/Space=Fire, F2=Start, F3=Select, F4=Option</p>
+    <script type="module">
+        import init, { Atari800xlEmulator } from './pkg/emu_atari_800xl_wasm.js';
+        const SCALE = 2;
+        async function start() {
+            const wasm = await init();
+            document.getElementById('os').addEventListener('change', async (e) => {
+                const os = new Uint8Array(await e.target.files[0].arrayBuffer());
+                const cartInput = document.getElementById('cart');
+                let cart = null;
+                if (cartInput.files.length > 0) cart = new Uint8Array(await cartInput.files[0].arrayBuffer());
+                run(wasm, os, cart);
+            });
+        }
+        function run(wasm, os, cart) {
+            const emu = new Atari800xlEmulator(os, cart);
+            const canvas = document.getElementById('screen');
+            const width = emu.width(), height = emu.height();
+            canvas.width = width; canvas.height = height;
+            canvas.style.width = `${width * SCALE}px`; canvas.style.height = `${height * SCALE}px`;
+            const ctx = canvas.getContext('2d');
+            canvas.addEventListener('click', () => { canvas.focus(); });
+            document.addEventListener('keydown', (e) => { e.preventDefault(); emu.key_down(e.code); });
+            document.addEventListener('keyup', (e) => { e.preventDefault(); emu.key_up(e.code); });
+            const FRAME_DURATION = 1000 / 60;
+            let lastTime = 0, accumulator = 0;
+            function loop(timestamp) {
+                if (lastTime === 0) lastTime = timestamp;
+                accumulator += timestamp - lastTime; lastTime = timestamp;
+                while (accumulator >= FRAME_DURATION) { emu.run_frame(); accumulator -= FRAME_DURATION; }
+                const rgba = new Uint8ClampedArray(wasm.memory.buffer, emu.framebuffer_rgba_ptr(), width * height * 4);
+                ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
+                requestAnimationFrame(loop);
+            }
+            requestAnimationFrame(loop);
+        }
+        start().catch(console.error);
+    </script>
+</body>
+</html>

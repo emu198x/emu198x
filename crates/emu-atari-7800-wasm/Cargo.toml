@@ -1,0 +1,17 @@
+[package]
+name = "emu-atari-7800-wasm"
+description = "Atari 7800 emulator — WASM/browser build"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+emu-atari-7800 = { path = "../emu-atari-7800", default-features = false }
+emu-core = { path = "../emu-core" }
+wasm-bindgen = "0.2"
+
+[lints]
+workspace = true

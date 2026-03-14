@@ -13,15 +13,19 @@ path = "src/main.rs"
 name = "emu_msx"
 path = "src/lib.rs"
 
+[features]
+default = ["native"]
+native = ["emu-core/renderer", "dep:winit", "dep:muda", "dep:png"]
+
 [dependencies]
-emu-core = { path = "../emu-core", features = ["renderer"] }
+emu-core = { path = "../emu-core" }
 zilog-z80 = { path = "../zilog-z80" }
 ti-tms9918 = { path = "../ti-tms9918" }
 gi-ay-3-8910 = { path = "../gi-ay-3-8910" }
 intel-8255 = { path = "../intel-8255" }
-winit = "0.30"
-muda = "0.16"
-png = "0.17"
+winit = { version = "0.30", optional = true }
+muda = { version = "0.16", optional = true }
+png = { version = "0.17", optional = true }
 
 [lints]
 workspace = true

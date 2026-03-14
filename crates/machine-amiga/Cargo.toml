@@ -3,8 +3,12 @@ name = "machine-amiga"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["native"]
+native = ["emu-core/mcp", "emu-core/video", "dep:serde", "dep:serde_json", "dep:base64", "dep:png", "dep:hound"]
+
 [dependencies]
-emu-core = { path = "../emu-core", features = ["mcp", "video"] }
+emu-core = { path = "../emu-core" }
 motorola-68000 = { path = "../motorola-68000" }
 mos-cia-8520 = { path = "../mos-cia-8520" }
 commodore-paula-8364 = { path = "../commodore-paula-8364" }
@@ -25,11 +29,11 @@ commodore-buster = { path = "../commodore-buster" }
 commodore-super-buster = { path = "../commodore-super-buster" }
 commodore-fat-gary = { path = "../commodore-fat-gary" }
 commodore-ramsey = { path = "../commodore-ramsey" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-base64 = "0.22"
-png = "0.17"
-hound = "3.5"
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+base64 = { version = "0.22", optional = true }
+png = { version = "0.17", optional = true }
+hound = { version = "3.5", optional = true }
 
 [dev-dependencies]
 

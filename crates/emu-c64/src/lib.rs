@@ -6,6 +6,7 @@
 
 mod bus;
 mod c64;
+#[cfg(feature = "native")]
 pub mod capture;
 pub mod cartridge;
 pub mod config;
@@ -16,7 +17,9 @@ pub use format_gcr as gcr;
 pub mod iec;
 pub mod input;
 mod keyboard;
+#[cfg(feature = "native")]
 pub mod keyboard_map;
+#[cfg(feature = "native")]
 pub mod mcp;
 mod memory;
 pub use format_prg as prg;

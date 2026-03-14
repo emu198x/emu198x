@@ -12,9 +12,11 @@
 //! One frame = 262 lines (NTSC) / 312 lines (PAL).
 
 mod bus;
+#[cfg(feature = "native")]
 pub mod capture;
 mod cartridge;
 mod config;
+#[cfg(feature = "native")]
 pub mod controller_map;
 
 pub use atari_antic as antic;
@@ -31,7 +33,12 @@ use mos_6502::Mos6502;
 
 use crate::bus::Atari5200BusInner;
 use crate::cartridge::Cartridge;
-use crate::controller_map::{POT_CENTER, POT_MAX};
+
+/// Joystick centre value for POKEY pot registers (0-228 range).
+pub const POT_CENTER: u8 = 114;
+
+/// Joystick maximum value (fully right or fully down).
+pub const POT_MAX: u8 = 228;
 
 /// Atari 5200 system.
 pub struct Atari5200 {

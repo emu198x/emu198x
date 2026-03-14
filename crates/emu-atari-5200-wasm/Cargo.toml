@@ -1,0 +1,17 @@
+[package]
+name = "emu-atari-5200-wasm"
+description = "Atari 5200 emulator — WASM/browser build"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+emu-atari-5200 = { path = "../emu-atari-5200", default-features = false }
+emu-core = { path = "../emu-core" }
+wasm-bindgen = "0.2"
+
+[lints]
+workspace = true
