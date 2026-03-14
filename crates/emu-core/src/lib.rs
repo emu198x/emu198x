@@ -14,6 +14,8 @@ mod tickable;
 mod ticks;
 #[cfg(feature = "renderer")]
 pub mod renderer;
+#[cfg(feature = "renderer")]
+pub mod runner;
 #[cfg(feature = "video")]
 pub mod video;
 
