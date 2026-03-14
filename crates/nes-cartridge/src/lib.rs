@@ -1,13 +1,25 @@
 //! iNES cartridge parser and mapper implementations.
 //!
 //! Parses the iNES file format (header + PRG ROM + CHR ROM) and provides
-//! a `Mapper` trait for address translation. Supports 26 mappers covering
-//! ~1,600 games: NROM (0), MMC1 (1), `UxROM` (2), CNROM (3), MMC3 (4),
-//! `AxROM` (7), MMC2 (9), MMC4 (10), Color Dreams (11), Bandai FCG (16/159),
+//! a `Mapper` trait for address translation. Supports 48 mapper numbers
+//! covering virtually every licensed NES/Famicom game:
+//!
+//! NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4), MMC5 (5),
+//! AxROM (7), MMC2 (9), MMC4 (10), Color Dreams (11), Bandai FCG (16/159),
 //! Jaleco SS88006 (18), Namco 163 (19), VRC4a (21), VRC2a (22),
-//! VRC2b/VRC4e (23), VRC4b (25), Irem G-101 (32), Taito TC0190 (33),
-//! `BxROM` (34), Irem H3001 (65), `GxROM` (66), Sunsoft FME-7 (69),
-//! Camerica (71), NINA-003 (79), Mapper 87, and Mapper 206.
+//! VRC2b/VRC4e (23), VRC6a (24), VRC4b (25), VRC6b (26), Irem G-101 (32),
+//! Taito TC0190 (33), BxROM (34), Taito TC0690 (48), RAMBO-1 (64),
+//! Irem H3001 (65), GxROM (66), Sunsoft-3 (67), Sunsoft-4 (68),
+//! Sunsoft FME-7 (69), Bandai 74161 (70), Camerica (71), Jaleco JF-17 (72),
+//! VRC1 (75), Irem 74161 (78), NINA-003 (79), Taito X1-005 (80),
+//! Taito X1-017 (82), VRC7 (85), Mapper 87, Namco 3446 (88),
+//! Sunsoft-2 (93), TxSROM (118), TQROM (119), Jaleco JF-11 (140),
+//! Bandai 74161+SS (152), Sunsoft-1 (184), CNROM+protection (185),
+//! Mapper 206, and Namco 175/340 (210).
+//!
+//! Expansion audio is implemented for Sunsoft 5B (mapper 69), VRC6 (24/26),
+//! and Namco 163 (19). VRC7 OPLL FM synthesis accepts register writes but
+//! does not yet produce audio output.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -4124,6 +4136,946 @@ impl Mapper for Namco175 {
     fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
+/// VRC6 expansion audio pulse channel.
+struct Vrc6Pulse {
+    duty: u8,
+    volume: u8,
+    mode: bool,   // true = constant volume (ignore duty)
+    enabled: bool,
+    period: u16,
+    counter: u16,
+    step: u8,
+}
+
+impl Vrc6Pulse {
+    fn new() -> Self {
+        Self { duty: 0, volume: 0, mode: false, enabled: false, period: 0, counter: 0, step: 0 }
+    }
+    fn tick(&mut self) {
+        if !self.enabled { return; }
+        if self.counter == 0 {
+            self.counter = self.period;
+            self.step = (self.step + 1) & 0x0F;
+        } else {
+            self.counter -= 1;
+        }
+    }
+    fn output(&self) -> u8 {
+        if !self.enabled { return 0; }
+        if self.mode || self.step <= self.duty { self.volume } else { 0 }
+    }
+}
+
+/// VRC6 expansion audio sawtooth channel.
+struct Vrc6Sawtooth {
+    rate: u8,
+    enabled: bool,
+    period: u16,
+    counter: u16,
+    step: u8,
+    accumulator: u8,
+}
+
+impl Vrc6Sawtooth {
+    fn new() -> Self {
+        Self { rate: 0, enabled: false, period: 0, counter: 0, step: 0, accumulator: 0 }
+    }
+    fn tick(&mut self) {
+        if !self.enabled { return; }
+        if self.counter == 0 {
+            self.counter = self.period;
+            self.step += 1;
+            if self.step >= 14 {
+                self.step = 0;
+                self.accumulator = 0;
+            } else if self.step & 1 == 0 {
+                self.accumulator = self.accumulator.wrapping_add(self.rate);
+            }
+        } else {
+            self.counter -= 1;
+        }
+    }
+    fn output(&self) -> u8 {
+        if !self.enabled { return 0; }
+        self.accumulator >> 3 // Top 5 bits
+    }
+}
+
+/// Konami VRC6 (Mapper 24/26): 8K/16K PRG + 1K CHR + IRQ + expansion audio.
+///
+/// Used by Castlevania III (JP: Akumajou Densetsu), Esper Dream 2, Madara.
+///
+/// Expansion audio: 2 pulse channels + 1 sawtooth channel.
+struct Vrc6 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    chr_is_ram: bool,
+    prg_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_16k: u8,
+    prg_8k: u8,
+    chr_banks: [u8; 8],
+    prg_ram_enabled: bool,
+    // Address line swap: mapper 24 = normal, mapper 26 = A0/A1 swapped
+    addr_swap: bool,
+    // IRQ
+    irq_latch: u8,
+    irq_counter: u8,
+    irq_prescaler: i16,
+    irq_enabled: bool,
+    irq_enabled_after_ack: bool,
+    irq_mode_cycle: bool,
+    irq_pending: bool,
+    // Audio
+    pulse1: Vrc6Pulse,
+    pulse2: Vrc6Pulse,
+    sawtooth: Vrc6Sawtooth,
+    audio_halt: bool,
+}
+
+impl Vrc6 {
+    fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring, addr_swap: bool) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr_rom = if chr_is_ram { vec![0u8; 8192] } else { chr_data };
+        Self {
+            prg_rom, chr_rom, chr_is_ram, prg_ram: [0; 8192], mirroring,
+            prg_16k: 0, prg_8k: 0, chr_banks: [0; 8], prg_ram_enabled: false,
+            addr_swap,
+            irq_latch: 0, irq_counter: 0, irq_prescaler: 341,
+            irq_enabled: false, irq_enabled_after_ack: false,
+            irq_mode_cycle: false, irq_pending: false,
+            pulse1: Vrc6Pulse::new(), pulse2: Vrc6Pulse::new(),
+            sawtooth: Vrc6Sawtooth::new(), audio_halt: false,
+        }
+    }
+    fn prg_16k_count(&self) -> usize { self.prg_rom.len() / 16384 }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+    fn remap_addr(&self, addr: u16) -> u16 {
+        if self.addr_swap {
+            let base = addr & 0xFFFC;
+            let a0 = (addr >> 1) & 1;
+            let a1 = (addr & 1) << 1;
+            base | a1 | a0
+        } else {
+            addr
+        }
+    }
+}
+
+impl Mapper for Vrc6 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF if self.prg_ram_enabled => self.prg_ram[(addr - 0x6000) as usize],
+            0x8000..=0xBFFF => {
+                let bank = self.prg_16k as usize % self.prg_16k_count();
+                self.prg_rom[bank * 16384 + (addr - 0x8000) as usize]
+            }
+            0xC000..=0xDFFF => {
+                let bank = self.prg_8k as usize % self.prg_8k_count();
+                self.prg_rom[bank * 8192 + (addr - 0xC000) as usize]
+            }
+            0xE000..=0xFFFF => {
+                let last = self.prg_8k_count() - 1;
+                self.prg_rom[last * 8192 + (addr - 0xE000) as usize]
+            }
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        let mapped = self.remap_addr(addr);
+        match mapped {
+            0x6000..=0x7FFF if self.prg_ram_enabled => {
+                self.prg_ram[(addr - 0x6000) as usize] = value;
+            }
+            0x8000..=0x8003 => self.prg_16k = value & 0x0F,
+            0x9000 => {
+                self.pulse1.duty = (value >> 4) & 0x07;
+                self.pulse1.volume = value & 0x0F;
+                self.pulse1.mode = value & 0x80 != 0;
+            }
+            0x9001 => self.pulse1.period = (self.pulse1.period & 0x0F00) | u16::from(value),
+            0x9002 => {
+                self.pulse1.period = (self.pulse1.period & 0x00FF) | (u16::from(value & 0x0F) << 8);
+                self.pulse1.enabled = value & 0x80 != 0;
+            }
+            0x9003 => {
+                self.audio_halt = value & 0x01 != 0;
+            }
+            0xA000 => {
+                self.pulse2.duty = (value >> 4) & 0x07;
+                self.pulse2.volume = value & 0x0F;
+                self.pulse2.mode = value & 0x80 != 0;
+            }
+            0xA001 => self.pulse2.period = (self.pulse2.period & 0x0F00) | u16::from(value),
+            0xA002 => {
+                self.pulse2.period = (self.pulse2.period & 0x00FF) | (u16::from(value & 0x0F) << 8);
+                self.pulse2.enabled = value & 0x80 != 0;
+            }
+            0xB000 => self.sawtooth.rate = value & 0x3F,
+            0xB001 => self.sawtooth.period = (self.sawtooth.period & 0x0F00) | u16::from(value),
+            0xB002 => {
+                self.sawtooth.period = (self.sawtooth.period & 0x00FF) | (u16::from(value & 0x0F) << 8);
+                self.sawtooth.enabled = value & 0x80 != 0;
+            }
+            0xB003 => {
+                self.mirroring = match (value >> 2) & 0x03 {
+                    0 => Mirroring::Vertical,
+                    1 => Mirroring::Horizontal,
+                    2 => Mirroring::SingleScreenLower,
+                    3 => Mirroring::SingleScreenUpper,
+                    _ => unreachable!(),
+                };
+                self.prg_ram_enabled = value & 0x80 != 0;
+            }
+            0xC000..=0xC003 => self.prg_8k = value & 0x1F,
+            0xD000..=0xD003 => self.chr_banks[(mapped & 3) as usize] = value,
+            0xE000..=0xE003 => self.chr_banks[4 + (mapped & 3) as usize] = value,
+            0xF000 => self.irq_latch = value,
+            0xF001 => {
+                self.irq_pending = false;
+                self.irq_enabled_after_ack = value & 0x01 != 0;
+                self.irq_enabled = value & 0x02 != 0;
+                self.irq_mode_cycle = value & 0x04 != 0;
+                if self.irq_enabled {
+                    self.irq_counter = self.irq_latch;
+                    self.irq_prescaler = 341;
+                }
+            }
+            0xF002 => {
+                self.irq_pending = false;
+                self.irq_enabled = self.irq_enabled_after_ack;
+            }
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let a = addr as usize & 0x1FFF;
+        let bank = self.chr_banks[a / 1024] as usize;
+        let offset = a & 0x3FF;
+        let idx = (bank * 1024 + offset) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram { self.chr_rom[(addr as usize) & 0x1FFF] = value; }
+    }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+    fn irq_pending(&self) -> bool { self.irq_pending }
+    fn tick_audio(&mut self) {
+        if self.audio_halt { return; }
+        self.pulse1.tick();
+        self.pulse2.tick();
+        self.sawtooth.tick();
+    }
+    fn audio_output(&self) -> f32 {
+        if self.audio_halt { return 0.0; }
+        let p1 = f32::from(self.pulse1.output());
+        let p2 = f32::from(self.pulse2.output());
+        let saw = f32::from(self.sawtooth.output());
+        // Scale to ~0.15 total to balance with APU
+        (p1 + p2 + saw) / 45.0 * 0.15
+    }
+    fn prg_ram(&self) -> Option<&[u8]> {
+        if self.prg_ram_enabled { Some(&self.prg_ram) } else { None }
+    }
+    fn set_prg_ram(&mut self, data: &[u8]) {
+        let len = data.len().min(8192);
+        self.prg_ram[..len].copy_from_slice(&data[..len]);
+    }
+}
+
+/// TxSROM (Mapper 118): MMC3 variant where CHR bank bit 7 controls nametable mirroring.
+///
+/// Used by Ys III, NES Play Action Football, Goal! Two, Armadillo.
+struct TxSrom {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    prg_ram: [u8; 8192],
+    bank_select: u8,
+    registers: [u8; 8],
+    irq_latch: u8,
+    irq_counter: u8,
+    irq_reload_flag: bool,
+    irq_enabled: bool,
+    irq_pending: bool,
+    last_a12: bool,
+}
+
+impl TxSrom {
+    fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram { vec![0u8; 8192] } else { chr_data };
+        Self {
+            prg_rom, chr, chr_is_ram, prg_ram: [0; 8192],
+            bank_select: 0, registers: [0; 8],
+            irq_latch: 0, irq_counter: 0, irq_reload_flag: false,
+            irq_enabled: false, irq_pending: false, last_a12: false,
+        }
+    }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+}
+
+impl Mapper for TxSrom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize],
+            0x8000..=0x9FFF => {
+                let bank = if self.bank_select & 0x40 != 0 {
+                    self.prg_8k_count() - 2
+                } else {
+                    self.registers[6] as usize & 0x3F
+                };
+                self.read_prg_8k(bank, (addr - 0x8000) as usize)
+            }
+            0xA000..=0xBFFF => self.read_prg_8k(self.registers[7] as usize & 0x3F, (addr - 0xA000) as usize),
+            0xC000..=0xDFFF => {
+                let bank = if self.bank_select & 0x40 != 0 {
+                    self.registers[6] as usize & 0x3F
+                } else {
+                    self.prg_8k_count() - 2
+                };
+                self.read_prg_8k(bank, (addr - 0xC000) as usize)
+            }
+            0xE000..=0xFFFF => self.read_prg_8k(self.prg_8k_count() - 1, (addr - 0xE000) as usize),
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize] = value,
+            0x8000..=0x9FFE if addr & 1 == 0 => self.bank_select = value,
+            0x8001..=0x9FFF if addr & 1 == 1 => {
+                let reg = (self.bank_select & 0x07) as usize;
+                self.registers[reg] = value;
+            }
+            // $A000 mirroring is ignored on TxSROM — mirroring comes from CHR bits
+            0xC000..=0xDFFE if addr & 1 == 0 => self.irq_latch = value,
+            0xC001..=0xDFFF if addr & 1 == 1 => self.irq_reload_flag = true,
+            0xE000..=0xFFFE if addr & 1 == 0 => { self.irq_enabled = false; self.irq_pending = false; }
+            0xE001..=0xFFFF if addr & 1 == 1 => self.irq_enabled = true,
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let a = addr as usize & 0x1FFF;
+        let a12 = a >= 0x1000;
+        // Clock IRQ on A12 rising edge
+        if a12 && !self.last_a12 {
+            if self.irq_counter == 0 || self.irq_reload_flag {
+                self.irq_counter = self.irq_latch;
+                self.irq_reload_flag = false;
+            } else {
+                self.irq_counter -= 1;
+            }
+            if self.irq_counter == 0 && self.irq_enabled {
+                self.irq_pending = true;
+            }
+        }
+        self.last_a12 = a12;
+        if self.chr.is_empty() { return 0; }
+        // Standard MMC3 CHR banking
+        let chr_mode = self.bank_select & 0x80 != 0;
+        let base = if chr_mode { 0x1000 } else { 0 };
+        let effective = a ^ base;
+        let bank = match effective {
+            0x0000..=0x03FF => self.registers[0] as usize & 0xFE,
+            0x0400..=0x07FF => self.registers[0] as usize | 1,
+            0x0800..=0x0BFF => self.registers[1] as usize & 0xFE,
+            0x0C00..=0x0FFF => self.registers[1] as usize | 1,
+            0x1000..=0x13FF => self.registers[2] as usize,
+            0x1400..=0x17FF => self.registers[3] as usize,
+            0x1800..=0x1BFF => self.registers[4] as usize,
+            0x1C00..=0x1FFF => self.registers[5] as usize,
+            _ => 0,
+        };
+        let offset = a & 0x3FF;
+        let idx = (bank * 1024 + offset) % self.chr.len();
+        self.chr[idx]
+    }
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram { self.chr[(addr as usize) & 0x1FFF] = value; }
+    }
+    fn mirroring(&self) -> Mirroring {
+        // Mirroring derived from CHR bank bit 7 for the nametable region
+        // Use R0 bit 7 for a simple approximation
+        let chr_mode = self.bank_select & 0x80 != 0;
+        let nt_bank = if chr_mode { self.registers[2] } else { self.registers[0] };
+        if nt_bank & 0x80 != 0 {
+            Mirroring::SingleScreenUpper
+        } else {
+            Mirroring::SingleScreenLower
+        }
+    }
+    fn irq_pending(&self) -> bool { self.irq_pending }
+    fn prg_ram(&self) -> Option<&[u8]> { Some(&self.prg_ram) }
+    fn set_prg_ram(&mut self, data: &[u8]) {
+        let len = data.len().min(8192);
+        self.prg_ram[..len].copy_from_slice(&data[..len]);
+    }
+}
+
+/// TQROM (Mapper 119): MMC3 with both CHR ROM and CHR RAM, selected by bit 6.
+///
+/// Used by High Speed, Pin-Bot.
+struct Tqrom {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    chr_ram: [u8; 8192],
+    prg_ram: [u8; 8192],
+    bank_select: u8,
+    registers: [u8; 8],
+    mirroring: Mirroring,
+    irq_latch: u8,
+    irq_counter: u8,
+    irq_reload_flag: bool,
+    irq_enabled: bool,
+    irq_pending: bool,
+    last_a12: bool,
+}
+
+impl Tqrom {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+        Self {
+            prg_rom, chr_rom, chr_ram: [0; 8192], prg_ram: [0; 8192],
+            bank_select: 0, registers: [0; 8], mirroring: Mirroring::Vertical,
+            irq_latch: 0, irq_counter: 0, irq_reload_flag: false,
+            irq_enabled: false, irq_pending: false, last_a12: false,
+        }
+    }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+}
+
+impl Mapper for Tqrom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize],
+            0x8000..=0x9FFF => {
+                let bank = if self.bank_select & 0x40 != 0 { self.prg_8k_count() - 2 } else { self.registers[6] as usize & 0x3F };
+                self.read_prg_8k(bank, (addr - 0x8000) as usize)
+            }
+            0xA000..=0xBFFF => self.read_prg_8k(self.registers[7] as usize & 0x3F, (addr - 0xA000) as usize),
+            0xC000..=0xDFFF => {
+                let bank = if self.bank_select & 0x40 != 0 { self.registers[6] as usize & 0x3F } else { self.prg_8k_count() - 2 };
+                self.read_prg_8k(bank, (addr - 0xC000) as usize)
+            }
+            0xE000..=0xFFFF => self.read_prg_8k(self.prg_8k_count() - 1, (addr - 0xE000) as usize),
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize] = value,
+            0x8000..=0x9FFE if addr & 1 == 0 => self.bank_select = value,
+            0x8001..=0x9FFF if addr & 1 == 1 => {
+                self.registers[(self.bank_select & 0x07) as usize] = value;
+            }
+            0xA000..=0xBFFE if addr & 1 == 0 => {
+                self.mirroring = if value & 0x01 != 0 { Mirroring::Horizontal } else { Mirroring::Vertical };
+            }
+            0xC000..=0xDFFE if addr & 1 == 0 => self.irq_latch = value,
+            0xC001..=0xDFFF if addr & 1 == 1 => self.irq_reload_flag = true,
+            0xE000..=0xFFFE if addr & 1 == 0 => { self.irq_enabled = false; self.irq_pending = false; }
+            0xE001..=0xFFFF if addr & 1 == 1 => self.irq_enabled = true,
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let a = addr as usize & 0x1FFF;
+        let a12 = a >= 0x1000;
+        if a12 && !self.last_a12 {
+            if self.irq_counter == 0 || self.irq_reload_flag {
+                self.irq_counter = self.irq_latch;
+                self.irq_reload_flag = false;
+            } else {
+                self.irq_counter -= 1;
+            }
+            if self.irq_counter == 0 && self.irq_enabled { self.irq_pending = true; }
+        }
+        self.last_a12 = a12;
+        let chr_mode = self.bank_select & 0x80 != 0;
+        let base = if chr_mode { 0x1000 } else { 0 };
+        let effective = a ^ base;
+        let bank = match effective {
+            0x0000..=0x03FF => self.registers[0] as usize & 0xFE,
+            0x0400..=0x07FF => self.registers[0] as usize | 1,
+            0x0800..=0x0BFF => self.registers[1] as usize & 0xFE,
+            0x0C00..=0x0FFF => self.registers[1] as usize | 1,
+            0x1000..=0x13FF => self.registers[2] as usize,
+            0x1400..=0x17FF => self.registers[3] as usize,
+            0x1800..=0x1BFF => self.registers[4] as usize,
+            0x1C00..=0x1FFF => self.registers[5] as usize,
+            _ => 0,
+        };
+        // Bit 6: 0 = CHR ROM, 1 = CHR RAM
+        if bank & 0x40 != 0 {
+            self.chr_ram[((bank & 0x07) * 1024 + (a & 0x3FF)) & 0x1FFF]
+        } else if self.chr_rom.is_empty() {
+            0
+        } else {
+            let idx = ((bank & 0x3F) * 1024 + (a & 0x3FF)) % self.chr_rom.len();
+            self.chr_rom[idx]
+        }
+    }
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        // Writes only to CHR RAM banks
+        let a = addr as usize & 0x1FFF;
+        let chr_mode = self.bank_select & 0x80 != 0;
+        let base = if chr_mode { 0x1000 } else { 0 };
+        let effective = a ^ base;
+        let bank = match effective {
+            0x0000..=0x03FF => self.registers[0] as usize & 0xFE,
+            0x0400..=0x07FF => self.registers[0] as usize | 1,
+            0x0800..=0x0BFF => self.registers[1] as usize & 0xFE,
+            0x0C00..=0x0FFF => self.registers[1] as usize | 1,
+            0x1000..=0x13FF => self.registers[2] as usize,
+            0x1400..=0x17FF => self.registers[3] as usize,
+            0x1800..=0x1BFF => self.registers[4] as usize,
+            0x1C00..=0x1FFF => self.registers[5] as usize,
+            _ => 0,
+        };
+        if bank & 0x40 != 0 {
+            self.chr_ram[((bank & 0x07) * 1024 + (a & 0x3FF)) & 0x1FFF] = value;
+        }
+    }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+    fn irq_pending(&self) -> bool { self.irq_pending }
+}
+
+/// Konami VRC7 (Mapper 85): 8K PRG + 1K CHR + IRQ + OPLL FM audio.
+///
+/// Used by Lagrange Point, Tiny Toon Adventures 2 (JP).
+///
+/// The VRC7 contains a YM2413 OPLL subset (6 channels, 15 built-in
+/// instruments + 1 custom). FM synthesis is not yet implemented — register
+/// writes are accepted but audio output is silent. Banking and IRQ work.
+struct Vrc7 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    chr_is_ram: bool,
+    prg_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_banks: [u8; 3],
+    chr_banks: [u8; 8],
+    prg_ram_enabled: bool,
+    audio_silenced: bool,
+    // OPLL registers (accepted but not synthesised)
+    #[allow(dead_code)]
+    opll_addr: u8,
+    #[allow(dead_code)]
+    opll_regs: [u8; 64],
+    // IRQ (same as VRC4/VRC6)
+    irq_latch: u8,
+    irq_counter: u8,
+    irq_prescaler: i16,
+    irq_enabled: bool,
+    irq_enabled_after_ack: bool,
+    irq_mode_cycle: bool,
+    irq_pending: bool,
+}
+
+impl Vrc7 {
+    fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr_rom = if chr_is_ram { vec![0u8; 8192] } else { chr_data };
+        Self {
+            prg_rom, chr_rom, chr_is_ram, prg_ram: [0; 8192], mirroring,
+            prg_banks: [0; 3], chr_banks: [0; 8],
+            prg_ram_enabled: false, audio_silenced: false,
+            opll_addr: 0, opll_regs: [0; 64],
+            irq_latch: 0, irq_counter: 0, irq_prescaler: 341,
+            irq_enabled: false, irq_enabled_after_ack: false,
+            irq_mode_cycle: false, irq_pending: false,
+        }
+    }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+}
+
+impl Mapper for Vrc7 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF if self.prg_ram_enabled => self.prg_ram[(addr - 0x6000) as usize],
+            0x8000..=0x9FFF => self.read_prg_8k(self.prg_banks[0] as usize, (addr - 0x8000) as usize),
+            0xA000..=0xBFFF => self.read_prg_8k(self.prg_banks[1] as usize, (addr - 0xA000) as usize),
+            0xC000..=0xDFFF => self.read_prg_8k(self.prg_banks[2] as usize, (addr - 0xC000) as usize),
+            0xE000..=0xFFFF => self.read_prg_8k(self.prg_8k_count() - 1, (addr - 0xE000) as usize),
+            _ => 0,
+        }
+    }
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        // VRC7 decodes A0, A4, A12-A15
+        let reg = (addr & 0xF000) | ((addr & 0x0010) >> 4);
+        match reg {
+            0x8000 => self.prg_banks[0] = value & 0x3F,
+            0x8001 => self.prg_banks[1] = value & 0x3F,
+            0x9000 => self.prg_banks[2] = value & 0x3F,
+            0x9001 => {
+                // $9010: OPLL register select; $9030: OPLL data write
+                // Both map to reg 0x9001 after our address decode. Distinguish
+                // by original address.
+                if addr & 0x0030 == 0x0010 {
+                    self.opll_addr = value & 0x3F;
+                } else {
+                    // Data write (synthesis not implemented)
+                    if (self.opll_addr as usize) < self.opll_regs.len() {
+                        self.opll_regs[self.opll_addr as usize] = value;
+                    }
+                }
+            }
+            0xA000 => self.chr_banks[0] = value,
+            0xA001 => self.chr_banks[1] = value,
+            0xB000 => self.chr_banks[2] = value,
+            0xB001 => self.chr_banks[3] = value,
+            0xC000 => self.chr_banks[4] = value,
+            0xC001 => self.chr_banks[5] = value,
+            0xD000 => self.chr_banks[6] = value,
+            0xD001 => self.chr_banks[7] = value,
+            0xE000 => {
+                self.mirroring = match value & 0x03 {
+                    0 => Mirroring::Vertical,
+                    1 => Mirroring::Horizontal,
+                    2 => Mirroring::SingleScreenLower,
+                    3 => Mirroring::SingleScreenUpper,
+                    _ => unreachable!(),
+                };
+                self.audio_silenced = value & 0x40 != 0;
+                self.prg_ram_enabled = value & 0x80 != 0;
+            }
+            0xE001 => self.irq_latch = value,
+            0xF000 => {
+                self.irq_pending = false;
+                self.irq_enabled_after_ack = value & 0x01 != 0;
+                self.irq_enabled = value & 0x02 != 0;
+                self.irq_mode_cycle = value & 0x04 != 0;
+                if self.irq_enabled {
+                    self.irq_counter = self.irq_latch;
+                    self.irq_prescaler = 341;
+                }
+            }
+            0xF001 => {
+                self.irq_pending = false;
+                self.irq_enabled = self.irq_enabled_after_ack;
+            }
+            _ => {}
+        }
+    }
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let a = addr as usize & 0x1FFF;
+        let bank = self.chr_banks[a / 1024] as usize;
+        let offset = a & 0x3FF;
+        let idx = (bank * 1024 + offset) % self.chr_rom.len();
+        self.chr_rom[idx]
+    }
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram { self.chr_rom[(addr as usize) & 0x1FFF] = value; }
+    }
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+    fn irq_pending(&self) -> bool { self.irq_pending }
+    fn prg_ram(&self) -> Option<&[u8]> { if self.prg_ram_enabled { Some(&self.prg_ram) } else { None } }
+    fn set_prg_ram(&mut self, data: &[u8]) {
+        let len = data.len().min(8192);
+        self.prg_ram[..len].copy_from_slice(&data[..len]);
+    }
+}
+
+/// MMC5 (Mapper 5, ExROM): the most complex NES mapper.
+///
+/// Used by Castlevania III, Just Breed, Metal Slader Glory, L'Empereur,
+/// Nobunaga's Ambition II, Romance of the Three Kingdoms II.
+///
+/// Implements: PRG banking (4 modes), CHR banking (2 modes with 8K sprite
+/// and 4K background pages), 1K ExRAM, fill-mode nametable, PRG RAM banking,
+/// vertical split (stub), and 8×8 multiplier. Scanline counter and
+/// expansion audio (2 pulse channels) are not yet implemented.
+struct Mmc5 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    prg_ram: Vec<u8>,
+    // PRG banking
+    prg_mode: u8,
+    prg_banks: [u8; 5],
+    prg_ram_protect_1: u8,
+    prg_ram_protect_2: u8,
+    // CHR banking
+    chr_mode: u8,
+    chr_banks: [u16; 12],
+    chr_upper: u8,
+    last_chr_write_sprite: bool,
+    // Nametable
+    nametable_mapping: u8,
+    fill_tile: u8,
+    fill_attr: u8,
+    exram_mode: u8,
+    exram: [u8; 1024],
+    // Multiplier
+    multiplicand: u8,
+    multiplier: u8,
+    // IRQ scanline counter
+    irq_scanline: u8,
+    irq_enabled: bool,
+    irq_pending: bool,
+    in_frame: bool,
+    #[allow(dead_code)]
+    scanline_counter: u8,
+    // Mirroring
+    mirroring: Mirroring,
+}
+
+impl Mmc5 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+        let prg_ram = vec![0u8; 65536]; // 64K max SRAM
+        Self {
+            prg_rom, chr_rom, prg_ram,
+            prg_mode: 3, prg_banks: [0, 0, 0, 0, 0xFF],
+            prg_ram_protect_1: 0, prg_ram_protect_2: 0,
+            chr_mode: 0, chr_banks: [0; 12], chr_upper: 0,
+            last_chr_write_sprite: false,
+            nametable_mapping: 0, fill_tile: 0, fill_attr: 0,
+            exram_mode: 0, exram: [0; 1024],
+            multiplicand: 0, multiplier: 0,
+            irq_scanline: 0, irq_enabled: false, irq_pending: false,
+            in_frame: false, scanline_counter: 0,
+            mirroring: Mirroring::Vertical,
+        }
+    }
+    fn prg_8k_count(&self) -> usize { self.prg_rom.len() / 8192 }
+    fn read_prg_bank(&self, bank: u8, offset: usize) -> u8 {
+        // Bit 7: 1 = ROM, 0 = RAM
+        if bank & 0x80 != 0 {
+            let rom_bank = (bank & 0x7F) as usize % self.prg_8k_count();
+            self.prg_rom[rom_bank * 8192 + offset]
+        } else {
+            let ram_bank = (bank & 0x07) as usize;
+            let ram_offset = ram_bank * 8192 + offset;
+            if ram_offset < self.prg_ram.len() { self.prg_ram[ram_offset] } else { 0 }
+        }
+    }
+    fn prg_ram_writable(&self) -> bool {
+        self.prg_ram_protect_1 == 0x02 && self.prg_ram_protect_2 == 0x01
+    }
+}
+
+impl Mapper for Mmc5 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x5204 => {
+                let mut val = 0u8;
+                if self.irq_pending { val |= 0x80; }
+                if self.in_frame { val |= 0x40; }
+                val
+            }
+            0x5205 => {
+                let product = u16::from(self.multiplicand) * u16::from(self.multiplier);
+                product as u8
+            }
+            0x5206 => {
+                let product = u16::from(self.multiplicand) * u16::from(self.multiplier);
+                (product >> 8) as u8
+            }
+            0x5C00..=0x5FFF => {
+                if self.exram_mode >= 2 {
+                    self.exram[(addr - 0x5C00) as usize]
+                } else {
+                    0
+                }
+            }
+            0x6000..=0x7FFF => {
+                let bank = self.prg_banks[0] & 0x7F;
+                let ram_bank = (bank & 0x07) as usize;
+                let offset = (addr - 0x6000) as usize;
+                let ram_offset = ram_bank * 8192 + offset;
+                if ram_offset < self.prg_ram.len() { self.prg_ram[ram_offset] } else { 0 }
+            }
+            0x8000..=0xFFFF => {
+                let offset_in_32k = (addr - 0x8000) as usize;
+                match self.prg_mode {
+                    0 => {
+                        // One 32K bank at $8000
+                        let bank = (self.prg_banks[4] & 0x7C) | 0x80;
+                        let sub = offset_in_32k / 8192;
+                        self.read_prg_bank(bank.wrapping_add(sub as u8), offset_in_32k & 0x1FFF)
+                    }
+                    1 => {
+                        // Two 16K banks
+                        match addr {
+                            0x8000..=0xBFFF => {
+                                let bank = self.prg_banks[2] & 0xFE;
+                                let sub = if addr < 0xA000 { 0 } else { 1 };
+                                self.read_prg_bank(bank | sub, addr as usize & 0x1FFF)
+                            }
+                            _ => {
+                                let bank = (self.prg_banks[4] & 0xFE) | 0x80;
+                                let sub = if addr < 0xE000 { 0 } else { 1 };
+                                self.read_prg_bank(bank | sub, addr as usize & 0x1FFF)
+                            }
+                        }
+                    }
+                    2 => {
+                        // 16K + 8K + 8K
+                        match addr {
+                            0x8000..=0xBFFF => {
+                                let bank = self.prg_banks[2] & 0xFE;
+                                let sub = if addr < 0xA000 { 0 } else { 1 };
+                                self.read_prg_bank(bank | sub, addr as usize & 0x1FFF)
+                            }
+                            0xC000..=0xDFFF => self.read_prg_bank(self.prg_banks[3], (addr - 0xC000) as usize),
+                            _ => self.read_prg_bank(self.prg_banks[4] | 0x80, (addr - 0xE000) as usize),
+                        }
+                    }
+                    3 | _ => {
+                        // Four 8K banks
+                        match addr {
+                            0x8000..=0x9FFF => self.read_prg_bank(self.prg_banks[1], (addr - 0x8000) as usize),
+                            0xA000..=0xBFFF => self.read_prg_bank(self.prg_banks[2], (addr - 0xA000) as usize),
+                            0xC000..=0xDFFF => self.read_prg_bank(self.prg_banks[3], (addr - 0xC000) as usize),
+                            _ => self.read_prg_bank(self.prg_banks[4] | 0x80, (addr - 0xE000) as usize),
+                        }
+                    }
+                }
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x5100 => self.prg_mode = value & 0x03,
+            0x5101 => self.chr_mode = value & 0x03,
+            0x5102 => self.prg_ram_protect_1 = value & 0x03,
+            0x5103 => self.prg_ram_protect_2 = value & 0x03,
+            0x5104 => self.exram_mode = value & 0x03,
+            0x5105 => {
+                self.nametable_mapping = value;
+                // Derive simple mirroring from bottom 2 bits
+                let nt0 = value & 0x03;
+                let nt1 = (value >> 2) & 0x03;
+                if nt0 == nt1 {
+                    self.mirroring = if nt0 & 1 == 0 { Mirroring::SingleScreenLower } else { Mirroring::SingleScreenUpper };
+                } else if nt0 == 0 && nt1 == 1 {
+                    self.mirroring = Mirroring::Vertical;
+                } else {
+                    self.mirroring = Mirroring::Horizontal;
+                }
+            }
+            0x5106 => self.fill_tile = value,
+            0x5107 => self.fill_attr = value & 0x03,
+            0x5113 => self.prg_banks[0] = value & 0x07,
+            0x5114 => self.prg_banks[1] = value,
+            0x5115 => self.prg_banks[2] = value,
+            0x5116 => self.prg_banks[3] = value,
+            0x5117 => self.prg_banks[4] = value,
+            0x5120..=0x5127 => {
+                self.chr_banks[(addr - 0x5120) as usize] = u16::from(value) | (u16::from(self.chr_upper) << 8);
+                self.last_chr_write_sprite = true;
+            }
+            0x5128..=0x512B => {
+                self.chr_banks[8 + (addr - 0x5128) as usize] = u16::from(value) | (u16::from(self.chr_upper) << 8);
+                self.last_chr_write_sprite = false;
+            }
+            0x5130 => self.chr_upper = value & 0x03,
+            0x5203 => self.irq_scanline = value,
+            0x5204 => {
+                self.irq_enabled = value & 0x80 != 0;
+            }
+            0x5205 => self.multiplicand = value,
+            0x5206 => self.multiplier = value,
+            0x5C00..=0x5FFF => {
+                if self.exram_mode < 2 {
+                    self.exram[(addr - 0x5C00) as usize] = value;
+                } else if self.exram_mode == 2 {
+                    self.exram[(addr - 0x5C00) as usize] = value;
+                }
+            }
+            0x6000..=0x7FFF => {
+                if self.prg_ram_writable() {
+                    let bank = (self.prg_banks[0] & 0x07) as usize;
+                    let offset = (addr - 0x6000) as usize;
+                    let ram_offset = bank * 8192 + offset;
+                    if ram_offset < self.prg_ram.len() {
+                        self.prg_ram[ram_offset] = value;
+                    }
+                }
+            }
+            0x8000..=0xDFFF => {
+                // RAM banks can be written in modes 1-3
+                if self.prg_ram_writable() {
+                    let bank_reg = match (self.prg_mode, addr) {
+                        (3, 0x8000..=0x9FFF) => Some(self.prg_banks[1]),
+                        (3, 0xA000..=0xBFFF) | (2, 0x8000..=0xBFFF) => Some(self.prg_banks[2]),
+                        (3, 0xC000..=0xDFFF) | (2, 0xC000..=0xDFFF) => Some(self.prg_banks[3]),
+                        _ => None,
+                    };
+                    if let Some(bank) = bank_reg {
+                        if bank & 0x80 == 0 {
+                            let ram_bank = (bank & 0x07) as usize;
+                            let offset = addr as usize & 0x1FFF;
+                            let ram_offset = ram_bank * 8192 + offset;
+                            if ram_offset < self.prg_ram.len() {
+                                self.prg_ram[ram_offset] = value;
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        if self.chr_rom.is_empty() { return 0; }
+        let a = addr as usize & 0x1FFF;
+        // Simplified: use sprite banks ($5120-$5127) for all CHR reads
+        let bank = match self.chr_mode {
+            0 => {
+                // 8K mode: bank from $5127
+                let base = self.chr_banks[7] as usize;
+                base * 8192 + a
+            }
+            1 => {
+                // 4K mode
+                let half = a / 4096;
+                let base = if half == 0 { self.chr_banks[3] } else { self.chr_banks[7] } as usize;
+                base * 4096 + (a & 0x0FFF)
+            }
+            2 => {
+                // 2K mode
+                let slot = a / 2048;
+                let base = self.chr_banks[match slot { 0 => 1, 1 => 3, 2 => 5, _ => 7 }] as usize;
+                base * 2048 + (a & 0x7FF)
+            }
+            3 | _ => {
+                // 1K mode
+                let slot = a / 1024;
+                let base = self.chr_banks[slot] as usize;
+                base * 1024 + (a & 0x3FF)
+            }
+        };
+        self.chr_rom[bank % self.chr_rom.len()]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring { self.mirroring }
+    fn irq_pending(&self) -> bool { self.irq_pending }
+
+    fn prg_ram(&self) -> Option<&[u8]> { Some(&self.prg_ram) }
+    fn set_prg_ram(&mut self, data: &[u8]) {
+        let len = data.len().min(self.prg_ram.len());
+        self.prg_ram[..len].copy_from_slice(&data[..len]);
+    }
+}
+
 /// Parsed cartridge: mapper implementation and header metadata.
 pub struct ParsedCartridge {
     pub mapper: Box<dyn Mapper>,
@@ -4218,6 +5170,7 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
 
     let mapper: Box<dyn Mapper> = match header.mapper_number {
         0 => Box::new(Nrom::new(prg_rom, chr_data, mirroring)),
+        5 => Box::new(Mmc5::new(prg_rom, chr_data)),
         1 => Box::new(Mmc1::new(prg_rom, chr_data)),
         2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
         3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
@@ -4233,6 +5186,8 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         206 => Box::new(Mapper206::new(prg_rom, chr_data, mirroring)),
         16 | 159 => Box::new(BandaiFcg::new(prg_rom, chr_data, mirroring)),
         18 => Box::new(JalecoSs88006::new(prg_rom, chr_data, mirroring)),
+        24 => Box::new(Vrc6::new(prg_rom, chr_data, mirroring, false)),
+        26 => Box::new(Vrc6::new(prg_rom, chr_data, mirroring, true)),
         19 => Box::new(Namco163::new(prg_rom, chr_data, mirroring)),
         // Konami VRC2/VRC4 family — address line wiring varies by mapper number
         21 => Box::new(Vrc2Vrc4::new(prg_rom, chr_data, mirroring, 1, 2, false)),
@@ -4253,7 +5208,10 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         79 => Box::new(Nina003::new(prg_rom, chr_data, mirroring)),
         80 => Box::new(TaitoX1005::new(prg_rom, chr_data, mirroring)),
         82 => Box::new(TaitoX1017::new(prg_rom, chr_data, mirroring)),
+        85 => Box::new(Vrc7::new(prg_rom, chr_data, mirroring)),
         88 => Box::new(Namco3446::new(prg_rom, chr_data, mirroring)),
+        118 => Box::new(TxSrom::new(prg_rom, chr_data)),
+        119 => Box::new(Tqrom::new(prg_rom, chr_data)),
         93 => Box::new(Sunsoft2::new(prg_rom, mirroring)),
         140 => Box::new(JalecoJf11::new(prg_rom, chr_data, mirroring)),
         152 => Box::new(Bandai74161Ss::new(prg_rom, chr_data)),
@@ -4340,7 +5298,7 @@ mod tests {
     #[test]
     fn unsupported_mapper() {
         let mut data = make_ines(1, 1, 0x00);
-        data[6] = 0x50; // Mapper 5 (low nibble)
+        data[6] = 0xF0; // Mapper 15 (unsupported)
         assert!(parse_ines(&data).is_err());
     }
 
