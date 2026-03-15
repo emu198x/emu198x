@@ -182,7 +182,7 @@ impl Mmc1 {
 
     /// Number of 16K PRG banks.
     fn prg_bank_count(&self) -> usize {
-        self.prg_rom.len() / 16384
+        (self.prg_rom.len() / 16384).max(1)
     }
 
     /// Read a byte from PRG ROM at a given 16K bank + offset.
@@ -384,7 +384,7 @@ impl UxRom {
     }
 
     fn prg_bank_count(&self) -> usize {
-        self.prg_rom.len() / 16384
+        (self.prg_rom.len() / 16384).max(1)
     }
 }
 
@@ -511,7 +511,7 @@ impl AxRom {
     }
 
     fn prg_bank_count(&self) -> usize {
-        self.prg_rom.len() / 32768
+        (self.prg_rom.len() / 32768).max(1)
     }
 }
 
@@ -613,7 +613,7 @@ impl Mmc3 {
 
     /// Number of 8K PRG banks.
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     /// Read a byte from an 8K PRG bank at the given offset.
@@ -892,7 +892,7 @@ impl Mmc2 {
 
     /// Number of 8K PRG banks.
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     /// Read a CHR byte and update latches based on the address.
@@ -1138,7 +1138,7 @@ impl Mmc4 {
     }
 
     fn prg_16k_count(&self) -> usize {
-        self.prg_rom.len() / 16384
+        (self.prg_rom.len() / 16384).max(1)
     }
 
     fn chr_read_with_latch(&mut self, addr: u16) -> u8 {
@@ -1294,7 +1294,7 @@ impl Camerica {
     }
 
     fn prg_16k_count(&self) -> usize {
-        self.prg_rom.len() / 16384
+        (self.prg_rom.len() / 16384).max(1)
     }
 }
 
@@ -1442,7 +1442,7 @@ impl Mapper206 {
     }
 
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
@@ -1624,7 +1624,7 @@ impl TaitoTc0190 {
     }
 
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
@@ -1742,7 +1742,7 @@ impl IremG101 {
     }
 
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
@@ -1859,7 +1859,7 @@ impl IremH3001 {
     }
 
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
@@ -2022,7 +2022,7 @@ impl Vrc2Vrc4 {
     }
 
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
@@ -2264,7 +2264,7 @@ impl SunsoftFme7 {
     }
 
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
@@ -2498,7 +2498,7 @@ impl BandaiFcg {
     }
 
     fn prg_16k_count(&self) -> usize {
-        self.prg_rom.len() / 16384
+        (self.prg_rom.len() / 16384).max(1)
     }
 
     fn write_register(&mut self, reg: u16, value: u8) {
@@ -2632,7 +2632,7 @@ impl JalecoSs88006 {
     }
 
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
@@ -2825,7 +2825,7 @@ impl Namco163 {
     }
 
     fn prg_8k_count(&self) -> usize {
-        self.prg_rom.len() / 8192
+        (self.prg_rom.len() / 8192).max(1)
     }
 
     fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {

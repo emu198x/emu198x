@@ -643,7 +643,25 @@ fn main() {
         .par_iter()
         .enumerate()
         .map(|(i, path)| {
-            let result = run_test(path, &config);
+            // Catch panics so one bad ROM doesn't kill the whole run.
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_test(path, &config)
+            })) {
+                Ok(r) => r,
+                Err(_) => TestResult {
+                    path: path.display().to_string(),
+                    system: None,
+                    sha1: String::new(),
+                    file_size: 0,
+                    status: TestStatus::Error,
+                    message: "Panic during execution".to_string(),
+                    frames_run: 0,
+                    elapsed_ms: 0,
+                    screenshot_path: None,
+                    has_display_output: false,
+                    unique_colors: 0,
+                },
+            };
             let status_char = match result.status {
                 TestStatus::Passed => '.',
                 TestStatus::Failed => 'F',
