@@ -65,6 +65,14 @@ impl System {
 }
 
 fn identify_system(path: &Path, data: &[u8]) -> Option<System> {
+    // 1. Check directory path for TOSEC/No-Intro system names.
+    //    This is the most reliable signal — collection directories are
+    //    organised by system.
+    if let Some(system) = identify_from_path(path) {
+        return Some(system);
+    }
+
+    // 2. Unambiguous file extensions (these only belong to one system).
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -73,47 +81,103 @@ fn identify_system(path: &Path, data: &[u8]) -> Option<System> {
 
     match ext.as_str() {
         // Spectrum
-        "z80" | "sna" | "tap" | "tzx" => Some(System::Spectrum),
-        // NES
-        "nes" if data.len() >= 4 && &data[0..4] == b"NES\x1a" => Some(System::Nes),
-        "nes" => Some(System::Nes),
+        "z80" | "sna" | "tap" | "tzx" => return Some(System::Spectrum),
+        // NES (check iNES magic)
+        "nes" if data.len() >= 4 && &data[0..4] == b"NES\x1a" => return Some(System::Nes),
+        "nes" => return Some(System::Nes),
         // C64
-        "prg" | "d64" | "t64" | "crt" => Some(System::C64),
+        "d64" | "t64" | "crt" => return Some(System::C64),
         // Amiga
-        "adf" if data.len() == 901_120 => Some(System::Amiga),
-        // Atari 2600
-        "a26" => Some(System::Atari2600),
-        "bin" if data.len() <= 32768 && is_likely_2600(data) => Some(System::Atari2600),
+        "adf" if data.len() == 901_120 => return Some(System::Amiga),
+        // Atari 2600 (unambiguous extension)
+        "a26" => return Some(System::Atari2600),
         // SG-1000
-        "sg" | "sc" => Some(System::Sg1000),
+        "sg" | "sc" => return Some(System::Sg1000),
         // ColecoVision
-        "col" => Some(System::ColecoVision),
-        // MSX
-        "rom" if data.len() >= 2 && data[0] == 0x41 && data[1] == 0x42 => Some(System::Msx),
+        "col" => return Some(System::ColecoVision),
         // SMS / Game Gear
-        "sms" => Some(System::Sms),
-        "gg" => Some(System::GameGear),
-        // BBC Micro (SSD/DSD disk images)
-        "ssd" | "dsd" => Some(System::BbcMicro),
-        // Ambiguous .bin — try to identify by size/content
-        "bin" if data.len() >= 16384 && data.len() <= 49152 && looks_like_sg1000(data) => {
-            Some(System::Sg1000)
-        }
-        "bin" if data.len() >= 16384 && data.len() <= 524288 && looks_like_sms(data) => {
-            Some(System::Sms)
-        }
+        "sms" => return Some(System::Sms),
+        "gg" => return Some(System::GameGear),
+        // BBC Micro disk images
+        "ssd" | "dsd" => return Some(System::BbcMicro),
+        _ => {}
+    }
+
+    // 3. Ambiguous extensions (.bin, .rom, .prg) — use header heuristics.
+    match ext.as_str() {
+        "rom" if data.len() >= 2 && data[0] == 0x41 && data[1] == 0x42 => Some(System::Msx),
+        "bin" if data.len() >= 0x8000 && looks_like_sms(data) => Some(System::Sms),
+        // Only classify .bin as Atari 2600 if the size exactly matches
+        // common cartridge sizes AND the reset vector points to ROM space
+        "bin" if is_likely_2600(data) => Some(System::Atari2600),
         _ => None,
     }
 }
 
-fn is_likely_2600(data: &[u8]) -> bool {
-    // Atari 2600 ROMs are 2K, 4K, 8K, 16K, or 32K
-    matches!(data.len(), 2048 | 4096 | 8192 | 16384 | 32768)
+/// Identify the system from directory names in the path.
+///
+/// TOSEC collections use paths like:
+///   `sinclair/spectrum/Games/[Z80]/game.z80`
+///   `commodore/c64/Games/Arcade/game.d64`
+///   `nintendo/nes/test-suites/game.nes`
+///   `sega/master-system/Games/game.sms`
+fn identify_from_path(path: &Path) -> Option<System> {
+    let path_str = path.to_string_lossy().to_ascii_lowercase();
+
+    // Check path components for system keywords (most specific first)
+    let checks: &[(&[&str], System)] = &[
+        // Spectrum
+        (&["spectrum", "zx spectrum", "zx-spectrum", "sinclair"], System::Spectrum),
+        // NES
+        (&["nes", "famicom", "nintendo entertainment"], System::Nes),
+        // C64
+        (&["/c64/", "/c64 ", "commodore 64", "commodore-64", "/c64dtv/"], System::C64),
+        // Amiga
+        (&["amiga"], System::Amiga),
+        // Atari 2600
+        (&["2600", "atari-2600", "atari 2600", "vcs"], System::Atari2600),
+        // SG-1000
+        (&["sg-1000", "sg1000"], System::Sg1000),
+        // ColecoVision
+        (&["coleco"], System::ColecoVision),
+        // MSX
+        (&["/msx/", "/msx1/", "/msx2/"], System::Msx),
+        // SMS
+        (&["master system", "master-system", "sms"], System::Sms),
+        // Game Gear
+        (&["game gear", "game-gear", "gamegear"], System::GameGear),
+        // BBC Micro
+        (&["bbc", "acorn"], System::BbcMicro),
+    ];
+
+    for (keywords, system) in checks {
+        for keyword in *keywords {
+            if path_str.contains(keyword) {
+                return Some(*system);
+            }
+        }
+    }
+
+    None
 }
 
-fn looks_like_sg1000(data: &[u8]) -> bool {
-    // SG-1000 ROMs are 8-48K, start with typical Z80 instructions
-    data.len() <= 49152 && (data[0] == 0xF3 || data[0] == 0xC3 || data[0] == 0x31)
+fn is_likely_2600(data: &[u8]) -> bool {
+    // Atari 2600 ROMs are exactly 2K, 4K, 8K, 16K, or 32K.
+    // Also check that the reset vector ($FFFC-$FFFD) points to valid ROM space.
+    if !matches!(data.len(), 2048 | 4096 | 8192 | 16384 | 32768) {
+        return false;
+    }
+    let len = data.len();
+    // Reset vector is at the end of the ROM image
+    if len >= 4 {
+        let reset_lo = data[len - 4] as u16;
+        let reset_hi = data[len - 3] as u16;
+        let reset = reset_hi << 8 | reset_lo;
+        // Valid 2600 reset vectors point to $F000-$FFFF range
+        reset >= 0xF000
+    } else {
+        false
+    }
 }
 
 fn looks_like_sms(data: &[u8]) -> bool {
