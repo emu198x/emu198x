@@ -1033,6 +1033,7 @@ impl ApplicationHandler for App {
                     window.clone(),
                     VIEWPORT_WIDTH,
                     VIEWPORT_HEIGHT + STATUS_BAR_HEIGHT,
+                    emu_core::renderer::FilterMode::Nearest,
                 );
                 self.renderer = Some(renderer);
                 self.window = Some(window);

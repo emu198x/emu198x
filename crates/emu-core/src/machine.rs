@@ -34,6 +34,13 @@ pub trait Machine {
     /// to both channels.
     fn take_audio_buffer(&mut self) -> Vec<AudioFrame>;
 
+    /// Audio sample rate for `take_audio_buffer()`.
+    ///
+    /// Most current machines emit 48 kHz audio, so that is the default.
+    fn audio_sample_rate(&self) -> u32 {
+        48_000
+    }
+
     /// Total number of completed frames since creation.
     fn frame_count(&self) -> u64;
 

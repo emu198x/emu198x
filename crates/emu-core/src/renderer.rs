@@ -1,16 +1,32 @@
 //! Shared wgpu renderer for emulator frontends.
 //!
 //! Provides a fullscreen-triangle renderer that uploads a CPU-side ARGB32
-//! framebuffer to a GPU texture each frame and draws it with nearest-neighbour
-//! filtering. All emulator binaries share this code — only the framebuffer
-//! dimensions differ.
+//! framebuffer to a GPU texture each frame and draws it with selectable
+//! nearest or linear filtering. All emulator binaries share this code; the
+//! runner decides window scale and fullscreen mode.
 
 #![allow(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
 
-use wgpu;
 use winit::window::Window;
+
+/// Texture sampling mode used when scaling the emulator framebuffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterMode {
+    /// Sharp nearest-neighbour scaling.
+    Nearest,
+    /// Smooth linear filtering.
+    Linear,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Viewport {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
 
 /// GPU renderer for emulator framebuffers.
 ///
@@ -24,11 +40,13 @@ pub struct Renderer {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
-    bind_group: wgpu::BindGroup,
+    nearest_bind_group: wgpu::BindGroup,
+    linear_bind_group: wgpu::BindGroup,
     texture: wgpu::Texture,
     rgba_buf: Vec<u8>,
     fb_width: u32,
     fb_height: u32,
+    filter_mode: FilterMode,
 }
 
 impl Renderer {
@@ -38,23 +56,25 @@ impl Renderer {
     ///
     /// Panics if wgpu cannot find a suitable adapter or create a device.
     #[must_use]
-    pub fn new(window: Arc<Window>, fb_width: u32, fb_height: u32) -> Self {
+    pub fn new(
+        window: Arc<Window>,
+        fb_width: u32,
+        fb_height: u32,
+        filter_mode: FilterMode,
+    ) -> Self {
         let instance = wgpu::Instance::default();
         let surface = instance
             .create_surface(window.clone())
             .expect("create surface");
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                ..Default::default()
-            }))
-            .expect("find adapter");
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("emu-core renderer"),
-                ..Default::default()
-            },
-        ))
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            compatible_surface: Some(&surface),
+            ..Default::default()
+        }))
+        .expect("find adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("emu-core renderer"),
+            ..Default::default()
+        }))
         .expect("create device");
 
         let inner = window.inner_size();
@@ -79,49 +99,43 @@ impl Renderer {
             view_formats: &[],
         });
         let fb_view = fb_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let fb_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
+        let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
 
         // Bind group layout + bind group.
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("display"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("display"),
-            layout: &bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
+                wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&fb_view),
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
                 },
-                wgpu::BindGroupEntry {
+                wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&fb_sampler),
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
                 },
             ],
         });
+        let nearest_bind_group =
+            create_bind_group(&device, &bind_group_layout, &fb_view, &nearest_sampler);
+        let linear_bind_group =
+            create_bind_group(&device, &bind_group_layout, &fb_view, &linear_sampler);
 
         // Shader + pipeline.
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -170,12 +184,19 @@ impl Renderer {
             surface,
             surface_config,
             pipeline,
-            bind_group,
+            nearest_bind_group,
+            linear_bind_group,
             texture: fb_texture,
             rgba_buf,
             fb_width,
             fb_height,
+            filter_mode,
         }
+    }
+
+    /// Update the texture filtering mode used for scaled presentation.
+    pub fn set_filter_mode(&mut self, filter_mode: FilterMode) {
+        self.filter_mode = filter_mode;
     }
 
     /// Convert an ARGB32 framebuffer to RGBA8 and upload to the GPU texture.
@@ -214,6 +235,13 @@ impl Renderer {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let viewport = compute_viewport(
+            self.surface_config.width,
+            self.surface_config.height,
+            self.fb_width,
+            self.fb_height,
+            self.filter_mode,
+        );
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -232,7 +260,15 @@ impl Renderer {
                 ..Default::default()
             });
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_viewport(
+                viewport.x as f32,
+                viewport.y as f32,
+                viewport.width as f32,
+                viewport.height as f32,
+                0.0,
+                1.0,
+            );
+            pass.set_bind_group(0, self.active_bind_group(), &[]);
             pass.draw(0..3, 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -247,5 +283,140 @@ impl Renderer {
             self.surface_config.height = height;
             self.surface.configure(&self.device, &self.surface_config);
         }
+    }
+
+    fn active_bind_group(&self) -> &wgpu::BindGroup {
+        match self.filter_mode {
+            FilterMode::Nearest => &self.nearest_bind_group,
+            FilterMode::Linear => &self.linear_bind_group,
+        }
+    }
+}
+
+fn create_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("display"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+fn compute_viewport(
+    surface_width: u32,
+    surface_height: u32,
+    fb_width: u32,
+    fb_height: u32,
+    filter_mode: FilterMode,
+) -> Viewport {
+    if surface_width == 0 || surface_height == 0 || fb_width == 0 || fb_height == 0 {
+        return Viewport {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+    }
+
+    let (width, height) = match filter_mode {
+        // Integer scaling keeps nearest-neighbour output clean when the window
+        // is larger than the native framebuffer. If the window is smaller than
+        // native, fall back to exact fit so the image still remains visible.
+        FilterMode::Nearest => {
+            let scale_x = surface_width / fb_width;
+            let scale_y = surface_height / fb_height;
+            let scale = scale_x.min(scale_y);
+            if scale >= 1 {
+                (fb_width * scale, fb_height * scale)
+            } else {
+                fit_viewport(surface_width, surface_height, fb_width, fb_height)
+            }
+        }
+        FilterMode::Linear => fit_viewport(surface_width, surface_height, fb_width, fb_height),
+    };
+
+    Viewport {
+        x: (surface_width - width) / 2,
+        y: (surface_height - height) / 2,
+        width,
+        height,
+    }
+}
+
+fn fit_viewport(
+    surface_width: u32,
+    surface_height: u32,
+    fb_width: u32,
+    fb_height: u32,
+) -> (u32, u32) {
+    let width_limited = u64::from(surface_width) * u64::from(fb_height)
+        <= u64::from(surface_height) * u64::from(fb_width);
+    if width_limited {
+        let height = ((u64::from(surface_width) * u64::from(fb_height)) / u64::from(fb_width))
+            .max(1)
+            .min(u64::from(surface_height)) as u32;
+        (surface_width.max(1), height)
+    } else {
+        let width = ((u64::from(surface_height) * u64::from(fb_width)) / u64::from(fb_height))
+            .max(1)
+            .min(u64::from(surface_width)) as u32;
+        (width, surface_height.max(1))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FilterMode, Viewport, compute_viewport};
+
+    #[test]
+    fn nearest_filter_uses_integer_scaling_when_possible() {
+        assert_eq!(
+            compute_viewport(1_920, 1_080, 256, 192, FilterMode::Nearest),
+            Viewport {
+                x: 320,
+                y: 60,
+                width: 1_280,
+                height: 960,
+            }
+        );
+    }
+
+    #[test]
+    fn linear_filter_fills_available_aspect_preserving_space() {
+        assert_eq!(
+            compute_viewport(1_920, 1_080, 256, 192, FilterMode::Linear),
+            Viewport {
+                x: 240,
+                y: 0,
+                width: 1_440,
+                height: 1_080,
+            }
+        );
+    }
+
+    #[test]
+    fn smaller_surfaces_fall_back_to_fit_scaling() {
+        assert_eq!(
+            compute_viewport(200, 150, 256, 192, FilterMode::Nearest),
+            Viewport {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 150,
+            }
+        );
     }
 }

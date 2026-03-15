@@ -9,13 +9,14 @@ license.workspace = true
 default = []
 mcp = ["dep:serde", "dep:serde_json", "dep:base64", "dep:png"]
 video = ["dep:openh264", "dep:fdk-aac", "dep:muxide"]
-renderer = ["dep:wgpu", "dep:pollster", "dep:winit", "dep:muda", "dep:rfd"]
+renderer = ["dep:wgpu", "dep:pollster", "dep:winit", "dep:muda", "dep:rfd", "dep:cpal", "dep:hound", "dep:png"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 base64 = { version = "0.22", optional = true }
 png = { version = "0.17", optional = true }
+hound = { version = "3.5", optional = true }
 openh264 = { version = "0.7", features = ["source"], optional = true }
 fdk-aac = { version = "0.8", optional = true }
 muxide = { version = "0.2", optional = true }
@@ -24,6 +25,7 @@ pollster = { version = "0.4", optional = true }
 winit = { version = "0.30", optional = true }
 muda = { version = "0.16", optional = true }
 rfd = { version = "0.15", optional = true }
+cpal = { version = "0.15", optional = true }
 
 [lints]
 workspace = true

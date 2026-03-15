@@ -23,22 +23,37 @@ struct CliArgs {
     headless: bool,
     frames: u32,
     screenshot_path: Option<PathBuf>,
+    mute: bool,
     region: Sg1000Region,
 }
 
 fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut cli = CliArgs {
-        rom_path: None, headless: false, frames: 200,
-        screenshot_path: None, region: Sg1000Region::Ntsc,
+        rom_path: None,
+        headless: false,
+        frames: 200,
+        screenshot_path: None,
+        mute: false,
+        region: Sg1000Region::Ntsc,
     };
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--rom" => { i += 1; cli.rom_path = args.get(i).map(PathBuf::from); }
+            "--rom" => {
+                i += 1;
+                cli.rom_path = args.get(i).map(PathBuf::from);
+            }
             "--headless" => cli.headless = true,
-            "--frames" => { i += 1; cli.frames = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(200); }
-            "--screenshot" => { i += 1; cli.screenshot_path = args.get(i).map(PathBuf::from); }
+            "--frames" => {
+                i += 1;
+                cli.frames = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(200);
+            }
+            "--screenshot" => {
+                i += 1;
+                cli.screenshot_path = args.get(i).map(PathBuf::from);
+            }
+            "--mute" => cli.mute = true,
             "--region" => {
                 i += 1;
                 cli.region = match args.get(i).map(|s| s.as_str()) {
@@ -55,6 +70,7 @@ fn parse_args() -> CliArgs {
                 eprintln!("  --headless           Run without a window");
                 eprintln!("  --frames <n>         Frames in headless mode [default: 200]");
                 eprintln!("  --screenshot <file>  Save PNG screenshot (headless)");
+                eprintln!("  --mute               Disable host audio playback (windowed)");
                 process::exit(0);
             }
             other if other.starts_with('-') => {
@@ -68,7 +84,9 @@ fn parse_args() -> CliArgs {
         }
         i += 1;
     }
-    if cli.screenshot_path.is_some() { cli.headless = true; }
+    if cli.screenshot_path.is_some() {
+        cli.headless = true;
+    }
     cli
 }
 
@@ -99,25 +117,35 @@ fn save_screenshot(fb: &[u32], width: u32, height: u32, path: &Path) -> Result<(
 // Entry point
 // ---------------------------------------------------------------------------
 
-fn make_system(cli: &CliArgs) -> Sg1000 {
-    let rom_path = cli.rom_path.as_ref().unwrap_or_else(|| {
-        eprintln!("No ROM file specified. Use --rom <file>");
-        process::exit(1);
-    });
-    let rom_data = std::fs::read(rom_path).unwrap_or_else(|e| {
+/// A minimal ROM that just halts (DI + HALT).
+fn stub_rom() -> Vec<u8> {
+    let mut rom = vec![0u8; 32];
+    rom[0] = 0xF3; // DI
+    rom[1] = 0x76; // HALT
+    rom
+}
+
+fn load_rom(path: &PathBuf, region: Sg1000Region) -> Sg1000 {
+    let rom_data = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("Failed to read ROM: {e}");
         process::exit(1);
     });
-    eprintln!("Loaded ROM: {}", rom_path.display());
-    Sg1000::new(rom_data, cli.region)
+    eprintln!("Loaded ROM: {}", path.display());
+    Sg1000::new(rom_data, region)
 }
 
 fn main() {
     let cli = parse_args();
 
     if cli.headless {
-        let mut system = make_system(&cli);
-        for _ in 0..cli.frames { system.run_frame(); }
+        let rom_path = cli.rom_path.as_ref().unwrap_or_else(|| {
+            eprintln!("No ROM file specified. Use --rom <file>");
+            process::exit(1);
+        });
+        let mut system = load_rom(rom_path, cli.region);
+        for _ in 0..cli.frames {
+            system.run_frame();
+        }
         if let Some(ref path) = cli.screenshot_path {
             if let Err(e) = save_screenshot(system.framebuffer(), FB_WIDTH, FB_HEIGHT, path) {
                 eprintln!("Screenshot error: {e}");
@@ -133,8 +161,15 @@ fn main() {
         Sg1000Region::Pal => Duration::from_micros(20_000),
     };
 
+    let system = if let Some(ref path) = cli.rom_path {
+        load_rom(path, cli.region)
+    } else {
+        Sg1000::new(stub_rom(), cli.region)
+    };
+
     let region = cli.region;
-    Runner::new(make_system(&cli), "Sega SG-1000", 3, frame_duration)
+    Runner::new(system, "Sega SG-1000", 3, frame_duration)
+        .with_audio_enabled(!cli.mute)
         .with_key_handler(|machine, keycode, pressed| {
             let ctrl = machine.controller1_mut();
             match keycode {

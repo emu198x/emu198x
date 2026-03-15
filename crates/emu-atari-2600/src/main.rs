@@ -327,7 +327,7 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                let renderer = Renderer::new(window.clone(), FB_WIDTH, fb_height);
+                let renderer = Renderer::new(window.clone(), FB_WIDTH, fb_height, emu_core::renderer::FilterMode::Nearest);
                 self.renderer = Some(renderer);
                 self.window = Some(window);
             }

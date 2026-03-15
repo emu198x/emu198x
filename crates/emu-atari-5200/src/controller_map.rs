@@ -42,11 +42,7 @@ pub fn map_keycode(keycode: KeyCode) -> Option<Atari5200Input> {
     }
 }
 
-/// Joystick centre value for POKEY pot registers (0-228 range).
-pub const POT_CENTER: u8 = 114;
+pub use crate::{POT_CENTER, POT_MAX};
 
 /// Joystick minimum value (fully left or fully up).
 pub const POT_MIN: u8 = 0;
-
-/// Joystick maximum value (fully right or fully down).
-pub const POT_MAX: u8 = 228;

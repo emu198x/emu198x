@@ -390,6 +390,7 @@ impl App {
                     window.clone(),
                     self.fb_width,
                     self.fb_height,
+                    emu_core::renderer::FilterMode::Nearest,
                 ));
             }
         }
@@ -484,7 +485,7 @@ impl ApplicationHandler for App {
                 }
 
                 let renderer =
-                    Renderer::new(window.clone(), self.fb_width, self.fb_height);
+                    Renderer::new(window.clone(), self.fb_width, self.fb_height, emu_core::renderer::FilterMode::Nearest);
                 self.renderer = Some(renderer);
                 self.window = Some(window);
             }

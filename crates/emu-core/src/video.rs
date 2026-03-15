@@ -185,7 +185,7 @@ impl VideoRecorder {
 
         // Scale from source dimensions to encode dimensions if needed.
         let src_pixels = if !self.scale_buf.is_empty() {
-            crate::mcp::scale_nearest_into(
+            scale_nearest_into(
                 pixels,
                 self.src_w,
                 self.src_h,
@@ -282,5 +282,22 @@ impl VideoRecorder {
         }
 
         Ok(())
+    }
+}
+
+fn scale_nearest_into(
+    src: &[u32],
+    src_w: u32,
+    src_h: u32,
+    dst: &mut [u32],
+    dst_w: u32,
+    dst_h: u32,
+) {
+    for y in 0..dst_h {
+        let src_y = (y * src_h / dst_h).min(src_h - 1);
+        for x in 0..dst_w {
+            let src_x = (x * src_w / dst_w).min(src_w - 1);
+            dst[(y * dst_w + x) as usize] = src[(src_y * src_w + src_x) as usize];
+        }
     }
 }

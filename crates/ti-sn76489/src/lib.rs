@@ -47,7 +47,10 @@ pub struct Sn76489 {
     clock_divider: u32,
     accumulator: f32,
     sample_count: u32,
-    ticks_per_sample: f32,
+    internal_clock_hz: u32,
+    resample_phase: u32,
+    hp_prev_in: f32,
+    hp_prev_out: f32,
     buffer: Vec<f32>,
 
     // Stereo panning (Game Gear extension). Bits 7-0: R3 L3 R2 L2 R1 L1 R0 L0.
@@ -82,7 +85,10 @@ impl Sn76489 {
             clock_divider: 0,
             accumulator: 0.0,
             sample_count: 0,
-            ticks_per_sample: internal_clock as f32 / SAMPLE_RATE as f32,
+            internal_clock_hz: internal_clock,
+            resample_phase: 0,
+            hp_prev_in: 0.0,
+            hp_prev_out: 0.0,
             buffer: Vec::with_capacity(SAMPLE_RATE as usize / 50 + 1),
 
             stereo_panning: 0xFF,
@@ -203,9 +209,19 @@ impl Sn76489 {
         self.accumulator += sample;
         self.sample_count += 1;
 
-        if self.sample_count as f32 >= self.ticks_per_sample {
+        self.resample_phase = self.resample_phase.saturating_add(SAMPLE_RATE);
+        if self.resample_phase >= self.internal_clock_hz {
             let avg = self.accumulator / self.sample_count as f32;
-            self.buffer.push(avg);
+
+            // The raw chip output is unipolar and normally AC-coupled by the
+            // surrounding hardware, so remove DC before exposing samples.
+            const DC_BLOCK_ALPHA: f32 = 0.9952;
+            let filtered = DC_BLOCK_ALPHA * (self.hp_prev_out + avg - self.hp_prev_in);
+            self.hp_prev_in = avg;
+            self.hp_prev_out = filtered;
+
+            self.buffer.push(filtered);
+            self.resample_phase -= self.internal_clock_hz;
             self.accumulator = 0.0;
             self.sample_count = 0;
         }
@@ -213,7 +229,7 @@ impl Sn76489 {
 
     /// Take the audio output buffer (drains it).
     ///
-    /// Returns mono f32 samples at 48 kHz, range ~0.0 to ~1.0.
+    /// Returns mono f32 samples at 48 kHz, centered around zero.
     pub fn take_buffer(&mut self) -> Vec<f32> {
         std::mem::take(&mut self.buffer)
     }
@@ -242,10 +258,8 @@ impl Sn76489 {
     /// 0 = full volume, 15 = silence. Each step is ~2 dB.
     fn attenuation_to_volume(att: u8) -> f32 {
         const VOLUMES: [f32; 16] = [
-            1.0, 0.7943, 0.6310, 0.5012,
-            0.3981, 0.3162, 0.2512, 0.1995,
-            0.1585, 0.1259, 0.1000, 0.0794,
-            0.0631, 0.0501, 0.0398, 0.0,
+            1.0, 0.7943, 0.6310, 0.5012, 0.3981, 0.3162, 0.2512, 0.1995, 0.1585, 0.1259, 0.1000,
+            0.0794, 0.0631, 0.0501, 0.0398, 0.0,
         ];
         VOLUMES[att as usize & 0x0F]
     }
@@ -263,7 +277,8 @@ impl Sn76489 {
             output += Self::attenuation_to_volume(self.noise_attenuation);
         }
 
-        // Scale to ~0.0-1.0 range (4 channels max)
+        // Scale to ~0.0-1.0 range (4 channels max). The DC-blocking stage in
+        // `tick()` recentres the final output around zero.
         output / 4.0
     }
 }
@@ -349,7 +364,10 @@ mod tests {
 
         let buf = psg.take_buffer();
         assert!(!buf.is_empty(), "should have produced audio samples");
-        assert!(buf.iter().any(|&s| s > 0.0), "should have non-zero output");
+        assert!(
+            buf.iter().any(|&s| s.abs() > 0.01),
+            "should have non-zero output"
+        );
     }
 
     #[test]
@@ -367,5 +385,40 @@ mod tests {
     fn attenuation_to_volume_extremes() {
         assert_eq!(Sn76489::attenuation_to_volume(0), 1.0);
         assert_eq!(Sn76489::attenuation_to_volume(15), 0.0);
+    }
+
+    #[test]
+    fn downsampler_tracks_48khz_output_rate() {
+        let mut psg = Sn76489::new(3_579_545);
+        for _ in 0..3_579_545 {
+            psg.tick();
+        }
+
+        let buf = psg.take_buffer();
+        assert!(
+            (47_990..=48_010).contains(&buf.len()),
+            "expected about 48 kHz of output, got {} samples",
+            buf.len()
+        );
+    }
+
+    #[test]
+    fn output_is_dc_blocked() {
+        let mut psg = Sn76489::new(3_579_545);
+        psg.write(0x81);
+        psg.write(0x00);
+        psg.write(0x90);
+
+        for _ in 0..(3_579_545 * 2) {
+            psg.tick();
+        }
+
+        let buf = psg.take_buffer();
+        let steady_state = &buf[buf.len() / 2..];
+        let average = steady_state.iter().copied().sum::<f32>() / steady_state.len() as f32;
+        assert!(
+            average.abs() < 0.05,
+            "expected DC-blocked output average near zero, got {average}"
+        );
     }
 }

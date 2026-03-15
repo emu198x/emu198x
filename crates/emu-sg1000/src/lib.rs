@@ -16,15 +16,19 @@ use ti_sn76489::Sn76489;
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::Z80;
 
-/// Crystal frequency (NTSC).
-const CRYSTAL_HZ: u64 = 10_738_635;
-/// CPU divides crystal by 3.
-const CPU_DIVISOR: u64 = 3;
-/// VDP dot clock = crystal (no division for TMS9918).
-const VDP_DOTS_PER_CPU: u64 = 3;
+/// The TMS9918 runs at 3 dots for every 2 Z80 T-states.
+const VDP_DOT_PHASE_NUMERATOR: u8 = 3;
+const VDP_DOT_PHASE_DENOMINATOR: u8 = 2;
+/// 342 VDP dots correspond to 228 Z80 T-states per scanline.
+const CPU_TSTATES_PER_SCANLINE: u64 = 228;
+const NTSC_SCANLINES_PER_FRAME: u64 = 262;
+const PAL_SCANLINES_PER_FRAME: u64 = 313;
 
-/// Dots per scanline × scanlines per frame × VDP clock divider.
-const NTSC_TICKS_PER_FRAME: u64 = 342 * 262 * CPU_DIVISOR;
+/// Z80 T-states per video frame.
+const NTSC_TICKS_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * NTSC_SCANLINES_PER_FRAME;
+const PAL_TICKS_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * PAL_SCANLINES_PER_FRAME;
+const NTSC_PSG_CLOCK_HZ: u32 = 3_579_545;
+const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
 
 /// SG-1000 system region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,12 +52,24 @@ impl ControllerState {
     /// Read as active-low byte (1 = not pressed).
     fn read_port(&self) -> u8 {
         let mut val = 0xFF;
-        if self.up { val &= !0x01; }
-        if self.down { val &= !0x02; }
-        if self.left { val &= !0x04; }
-        if self.right { val &= !0x08; }
-        if self.button1 { val &= !0x10; }
-        if self.button2 { val &= !0x20; }
+        if self.up {
+            val &= !0x01;
+        }
+        if self.down {
+            val &= !0x02;
+        }
+        if self.left {
+            val &= !0x04;
+        }
+        if self.right {
+            val &= !0x08;
+        }
+        if self.button1 {
+            val &= !0x10;
+        }
+        if self.button2 {
+            val &= !0x20;
+        }
         val
     }
 }
@@ -84,11 +100,15 @@ impl Sg1000Bus {
             Sg1000Region::Ntsc => VdpRegion::Ntsc,
             Sg1000Region::Pal => VdpRegion::Pal,
         };
+        let psg_clock_hz = match region {
+            Sg1000Region::Ntsc => NTSC_PSG_CLOCK_HZ,
+            Sg1000Region::Pal => PAL_PSG_CLOCK_HZ,
+        };
         Self {
             cart_rom,
             ram: [0; 1024],
             vdp: Tms9918::new(vdp_region),
-            psg: Sn76489::new(3_579_545),
+            psg: Sn76489::new(psg_clock_hz),
             controller1: ControllerState::default(),
             controller2: ControllerState::default(),
             pause_pressed: false,
@@ -159,8 +179,8 @@ pub struct Sg1000 {
     bus: Sg1000Bus,
     master_clock: u64,
     ticks_per_frame: u64,
+    vdp_phase: u8,
     frame_count: u64,
-    region: Sg1000Region,
 }
 
 impl Sg1000 {
@@ -169,10 +189,10 @@ impl Sg1000 {
     pub fn new(cart_rom: Vec<u8>, region: Sg1000Region) -> Self {
         let ticks_per_frame = match region {
             Sg1000Region::Ntsc => NTSC_TICKS_PER_FRAME,
-            Sg1000Region::Pal => 342 * 313 * CPU_DIVISOR,
+            Sg1000Region::Pal => PAL_TICKS_PER_FRAME,
         };
-        let mut bus = Sg1000Bus::new(cart_rom, region);
-        let mut cpu = Z80::new();
+        let bus = Sg1000Bus::new(cart_rom, region);
+        let cpu = Z80::new();
 
         // Z80 starts at $0000 after reset (default)
 
@@ -181,8 +201,8 @@ impl Sg1000 {
             bus,
             master_clock: 0,
             ticks_per_frame,
+            vdp_phase: 0,
             frame_count: 0,
-            region,
         }
     }
 
@@ -191,15 +211,19 @@ impl Sg1000 {
         let target = self.master_clock + self.ticks_per_frame;
 
         while self.master_clock < target {
-            // CPU tick
+            // One Z80 T-state.
             self.cpu.tick(&mut self.bus);
 
-            // VDP: 3 dots per CPU cycle
-            for _ in 0..VDP_DOTS_PER_CPU {
+            // The TMS9918 dot clock runs at 3/2 the Z80 T-state rate.
+            self.vdp_phase = self
+                .vdp_phase
+                .saturating_add(VDP_DOT_PHASE_NUMERATOR);
+            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
                 self.bus.vdp.tick();
+                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
             }
 
-            // PSG: runs at CPU clock
+            // PSG input clock matches the Z80 clock on SG-1000 hardware.
             self.bus.psg.tick();
 
             // VDP interrupt → Z80 INT
@@ -276,7 +300,10 @@ impl Machine for Sg1000 {
     }
 
     fn take_audio_buffer(&mut self) -> Vec<AudioFrame> {
-        self.take_audio_buffer().into_iter().map(|s| [s, s]).collect()
+        self.take_audio_buffer()
+            .into_iter()
+            .map(|s| [s, s])
+            .collect()
     }
 
     fn frame_count(&self) -> u64 {
@@ -291,6 +318,9 @@ impl Machine for Sg1000 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ops::RangeInclusive;
+
+    const NTSC_AUDIO_SAMPLES_PER_FRAME: RangeInclusive<usize> = 799..=801;
 
     fn minimal_rom() -> Vec<u8> {
         // Minimal ROM: DI; JR -2 (infinite loop at $0000)
@@ -307,6 +337,30 @@ mod tests {
         sg.run_frame();
         assert_eq!(sg.frame_count(), 1);
         assert_eq!(sg.framebuffer().len(), 256 * 192);
+    }
+
+    #[test]
+    fn frame_tick_budget_matches_video_timing() {
+        let mut ntsc = Sg1000::new(minimal_rom(), Sg1000Region::Ntsc);
+        ntsc.run_frame();
+        assert_eq!(ntsc.master_clock, NTSC_TICKS_PER_FRAME);
+
+        let mut pal = Sg1000::new(minimal_rom(), Sg1000Region::Pal);
+        pal.run_frame();
+        assert_eq!(pal.master_clock, PAL_TICKS_PER_FRAME);
+    }
+
+    #[test]
+    fn frame_produces_expected_audio_sample_count() {
+        let mut ntsc = Sg1000::new(minimal_rom(), Sg1000Region::Ntsc);
+        ntsc.run_frame();
+
+        let samples = ntsc.take_audio_buffer();
+        assert!(
+            NTSC_AUDIO_SAMPLES_PER_FRAME.contains(&samples.len()),
+            "expected about 800 samples per NTSC frame, got {}",
+            samples.len()
+        );
     }
 
     #[test]
