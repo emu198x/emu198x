@@ -1,0 +1,30 @@
+[package]
+name = "emu-test-harness"
+description = "Bulk ROM testing harness — scan, identify, run, screenshot, report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "emu-test-harness"
+path = "src/main.rs"
+
+[dependencies]
+emu-core = { path = "../emu-core" }
+emu-spectrum = { path = "../emu-spectrum", default-features = false }
+emu-c64 = { path = "../emu-c64", default-features = false }
+emu-nes = { path = "../emu-nes", default-features = false }
+emu-sg1000 = { path = "../emu-sg1000", default-features = false }
+emu-colecovision = { path = "../emu-colecovision", default-features = false }
+emu-msx = { path = "../emu-msx", default-features = false }
+emu-sms = { path = "../emu-sms", default-features = false }
+emu-bbc-micro = { path = "../emu-bbc-micro", default-features = false }
+emu-atari-2600 = { path = "../emu-atari-2600", default-features = false }
+sha1 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+png = "0.17"
+rayon = "1"
+
+[lints]
+workspace = true
