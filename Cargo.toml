@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/common-sinclair-zx-spectrum",
     "crates/emu198x-shell",
     "crates/runtime-sinclair-zx-spectrum",
 ]
