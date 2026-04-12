@@ -90,7 +90,9 @@ pub fn profile_for(model: Model) -> MachineProfile {
             capabilities: CapabilitySet::with_all([
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
+                known_capability("snapshot-export"),
                 known_capability("tape-input"),
+                known_capability("snapshot-import"),
                 known_capability("scripted-input"),
             ]),
         },
@@ -140,6 +142,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_sinclair_zx_spectrum::MemoryBus;
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
     use emu198x_shell::{
         AudioPacket, AudioSink, FramePacket, FrameSink, HostIo, InputEvent, MachineCore,
@@ -243,6 +246,52 @@ mod tests {
         assert_eq!(audio_sink.packets, 1);
         assert!(audio_sink.last_samples > 0);
         assert_eq!(runtime.machine().read_fe(0xfbfe) & 0x01, 0x00);
+    }
+
+    #[test]
+    fn runtime_snapshot_roundtrips_machine_state() {
+        let mut runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let tap = minimal_tap();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &tap));
+        runtime
+            .load_media(&media)
+            .expect("valid TAP should load before snapshot");
+        runtime.machine_mut().write(0x8000, 0x42);
+        runtime.machine_mut().apply_input_event(&InputEvent::Key {
+            name: "q".into(),
+            pressed: true,
+        });
+        runtime.play_tape();
+
+        let mut frame_sink = RecordingFrameSink::default();
+        let mut audio_sink = RecordingAudioSink::default();
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        runtime
+            .run_until(
+                MachineTime::new(u64::from(TIMING_48K.halfcycles_per_frame)),
+                &mut host,
+            )
+            .expect("runtime should advance before snapshot");
+
+        let snapshot = runtime.snapshot().expect("snapshot should encode");
+        let before_restore = snapshot.clone();
+        let mut restored = Spectrum48kRuntime::blank();
+        restored
+            .restore(&snapshot)
+            .expect("snapshot should restore into blank runtime");
+        let after_restore = restored
+            .snapshot()
+            .expect("restored snapshot should encode");
+
+        assert_eq!(after_restore, before_restore);
     }
 
     fn minimal_tap() -> Vec<u8> {

@@ -11,7 +11,7 @@ use emu198x_shell::{
     MachineTime, MediaKind, MediaSet, ResetKind, RunResult, StopReason, SupportTier,
     known_capability,
 };
-use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k};
+use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k, Spectrum48kSnapshot};
 
 use crate::{Model, profile_for};
 
@@ -20,6 +20,14 @@ pub struct Spectrum48kRuntime {
     profile: MachineProfile,
     machine: Spectrum48k,
     time: MachineTime,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SnapshotEnvelopeV1 {
+    version: u32,
+    profile_id: String,
+    time: MachineTime,
+    machine: Spectrum48kSnapshot,
 }
 
 impl Spectrum48kRuntime {
@@ -31,6 +39,8 @@ impl Spectrum48kRuntime {
         profile.capabilities = CapabilitySet::with_all([
             known_capability("beeper-audio"),
             known_capability("keyboard-matrix"),
+            known_capability("snapshot-export"),
+            known_capability("snapshot-import"),
             known_capability("tape-input"),
             known_capability("scripted-input"),
         ]);
@@ -54,6 +64,12 @@ impl Spectrum48kRuntime {
         Ok(Self::new(rom))
     }
 
+    /// Creates a runtime backed by a zero-filled ROM image.
+    #[must_use]
+    pub fn blank() -> Self {
+        Self::new([0; 16 * 1024])
+    }
+
     /// Returns the wrapped 48K machine.
     #[must_use]
     pub fn machine(&self) -> &Spectrum48k {
@@ -64,6 +80,12 @@ impl Spectrum48kRuntime {
     #[must_use]
     pub fn machine_mut(&mut self) -> &mut Spectrum48k {
         &mut self.machine
+    }
+
+    /// Returns the current runtime time in authoritative half-cycles.
+    #[must_use]
+    pub const fn time(&self) -> MachineTime {
+        self.time
     }
 
     /// Starts or resumes tape playback on the active machine.
@@ -165,15 +187,44 @@ impl MachineCore for Spectrum48kRuntime {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "snapshot",
+        postcard::to_allocvec(&SnapshotEnvelopeV1 {
+            version: 1,
+            profile_id: self.profile.profile_id.as_str().to_owned(),
+            time: self.time,
+            machine: self.machine.snapshot_state(),
+        })
+        .map_err(|reason| MachineError::InvalidSnapshot {
+            reason: format!("encode failed: {reason}"),
         })
     }
 
-    fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "restore",
-        })
+    fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let snapshot: SnapshotEnvelopeV1 =
+            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
+                reason: format!("decode failed: {reason}"),
+            })?;
+
+        if snapshot.version != 1 {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!("unsupported snapshot version {}", snapshot.version),
+            });
+        }
+
+        if snapshot.profile_id != self.profile.profile_id.as_str() {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!(
+                    "snapshot profile {} does not match runtime profile {}",
+                    snapshot.profile_id,
+                    self.profile.profile_id.as_str()
+                ),
+            });
+        }
+
+        self.machine
+            .restore_snapshot_state(snapshot.machine)
+            .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
+        self.time = snapshot.time;
+        Ok(())
     }
 
     fn capabilities(&self) -> CapabilitySet {

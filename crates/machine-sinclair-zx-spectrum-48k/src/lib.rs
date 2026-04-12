@@ -10,5 +10,5 @@ pub mod port;
 
 pub use ferranti_ula_6c001e::BoardIssue;
 pub use keyboard::{KeyboardMatrix, SpectrumKey};
-pub use machine::Spectrum48k;
+pub use machine::{Spectrum48k, Spectrum48kSnapshot};
 pub use port::TapeInput;

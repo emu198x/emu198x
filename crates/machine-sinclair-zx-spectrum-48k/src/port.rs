@@ -8,7 +8,7 @@
 //! machine is being driven by something other than the built-in tape player.
 
 /// External tape EAR line state visible to port `$FE`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TapeInput {
     connected: bool,
     level: bool,

@@ -35,6 +35,23 @@ pub struct Spectrum48k {
     hc: u32,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Spectrum48kSnapshot {
+    z80: Z80,
+    ula: FerrantiUla,
+    rom: Vec<u8>,
+    ram: Vec<u8>,
+    keyboard: KeyboardMatrix,
+    tape: TapePlayer,
+    tape_input: TapeInput,
+    audio: BeeperAudio,
+    audio_frame: Vec<f32>,
+    beeper_state: bool,
+    last_ear: bool,
+    framebuffer: Vec<u8>,
+    hc: u32,
+}
+
 impl Spectrum48k {
     /// Creates an Issue 3 48K machine with deterministic startup state.
     #[must_use]
@@ -290,6 +307,70 @@ impl Spectrum48k {
         self.hc = 0;
         self.framebuffer.fill(0);
         self.sync_ear_level();
+    }
+
+    /// Captures the machine state for runtime snapshot serialization.
+    #[must_use]
+    pub fn snapshot_state(&self) -> Spectrum48kSnapshot {
+        Spectrum48kSnapshot {
+            z80: self.z80.clone(),
+            ula: self.ula.clone(),
+            rom: self.memory.rom().to_vec(),
+            ram: self.memory.ram().to_vec(),
+            keyboard: self.keyboard.clone(),
+            tape: self.tape.clone(),
+            tape_input: self.tape_input,
+            audio: self.audio.clone(),
+            audio_frame: self.audio_frame.clone(),
+            beeper_state: self.beeper_state,
+            last_ear: self.last_ear,
+            framebuffer: self.framebuffer.clone(),
+            hc: self.hc,
+        }
+    }
+
+    /// Restores a machine state produced by [`Self::snapshot_state`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the supplied memory or framebuffer shapes do not
+    /// match the stock 48K machine layout.
+    pub fn restore_snapshot_state(&mut self, snapshot: Spectrum48kSnapshot) -> Result<(), String> {
+        if snapshot.ram.len() != self.memory.ram().len() {
+            return Err(format!(
+                "snapshot RAM has {} bytes, expected {}",
+                snapshot.ram.len(),
+                self.memory.ram().len()
+            ));
+        }
+
+        if snapshot.framebuffer.len() != SCREEN_WIDTH * SCREEN_HEIGHT {
+            return Err(format!(
+                "snapshot framebuffer has {} bytes, expected {}",
+                snapshot.framebuffer.len(),
+                SCREEN_WIDTH * SCREEN_HEIGHT
+            ));
+        }
+
+        let mut memory = Spectrum48kMemory::new();
+        memory
+            .load_rom_bytes(&snapshot.rom)
+            .map_err(|reason| reason.to_string())?;
+        memory.ram_mut().copy_from_slice(&snapshot.ram);
+
+        self.z80 = snapshot.z80;
+        self.ula = snapshot.ula;
+        self.memory = memory;
+        self.keyboard = snapshot.keyboard;
+        self.tape = snapshot.tape;
+        self.tape_input = snapshot.tape_input;
+        self.audio = snapshot.audio;
+        self.audio_frame = snapshot.audio_frame;
+        self.beeper_state = snapshot.beeper_state;
+        self.last_ear = snapshot.last_ear;
+        self.framebuffer = snapshot.framebuffer;
+        self.hc = snapshot.hc;
+        Ok(())
     }
 
     /// Runs one native 48K video frame.

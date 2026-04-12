@@ -141,7 +141,7 @@ pub const CONFIG_PENTAGON: UlaConfig = UlaConfig {
 };
 
 /// The rendering and timing state shared by all ULA variants.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct UlaEngine {
     /// Current pixel position within the scanline.
     pub pixel: u16,

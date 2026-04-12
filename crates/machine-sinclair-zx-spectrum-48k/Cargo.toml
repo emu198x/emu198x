@@ -9,6 +9,7 @@ license.workspace = true
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 emu198x-shell = { path = "../emu198x-shell" }
 ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e" }
+serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }
 
 [lints]

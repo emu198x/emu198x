@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/common-sinclair-zx-spectrum",
+    "crates/emu198x-script-spectrum",
     "crates/emu198x-shell",
     "crates/ferranti-ula-6c001e",
     "crates/format-sinclair-zx-spectrum-tap",

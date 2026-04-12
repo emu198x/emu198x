@@ -59,6 +59,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
+name = "emu198x-script-spectrum"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "emu198x-shell",
+ "runtime-sinclair-zx-spectrum",
+]
+
+[[package]]
 name = "emu198x-shell"
 version = "0.1.0"
 dependencies = [
@@ -122,6 +131,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-shell",
  "ferranti-ula-6c001e",
+ "serde",
  "zilog-z80",
 ]
 
@@ -187,6 +197,8 @@ dependencies = [
  "format-sinclair-zx-spectrum-tap",
  "format-sinclair-zx-spectrum-tzx",
  "machine-sinclair-zx-spectrum-48k",
+ "postcard",
+ "serde",
 ]
 
 [[package]]

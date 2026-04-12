@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Spectrum runtime snapshots and headless runner land
+
+**Type:** milestone
+**Trigger:** The fresh-workspace Spectrum path had an honest machine loop, media parsing, and a `MachineCore` runtime, but there was still no durable state handoff and no small headless entry point that could supply firmware, load tapes, drive playback, and save/restore execution state.
+**Result:** Two connected boundaries landed together:
+1. `runtime-sinclair-zx-spectrum` now owns versioned runtime snapshot import/export. `Spectrum48kRuntime::snapshot()` serializes machine time plus validated 48K machine state into a postcard envelope, and `restore()` rejects wrong profile/version payloads before rebuilding the live machine.
+2. New crate `emu198x-script-spectrum` provides the first headless family runner in the fresh workspace. It cold-boots from a ROM, optionally restores a snapshot, loads `tape-1` media from TAP/TZX bytes, explicitly starts tape playback, runs an exact frame count on the native Spectrum cadence, and can write a new runtime snapshot on exit.
+**Design note:** The machine snapshot boundary is explicit rather than deriving `Serialize` directly on the whole machine. Large ROM/RAM arrays are flattened into `Spectrum48kSnapshot`, which keeps restore validation local to the machine crate and avoids pretending that every internal type is part of a stable wire format.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass. New coverage includes runtime snapshot round-trip tests and runner tests for CLI parsing plus ROM boot to snapshot output.
+**Next dependency:** the next honest step is to make the headless Spectrum path less ad hoc by formalizing firmware/tape control policy above the runtime boundary instead of leaving it embedded in one family-specific script binary.
+
+---
+
 ## 2026-04-12 — Spectrum media parsers, runtime wrapper, and beeper audio land
 
 **Type:** milestone

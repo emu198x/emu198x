@@ -11,6 +11,8 @@ emu198x-shell = { path = "../emu198x-shell" }
 format-sinclair-zx-spectrum-tap = { path = "../format-sinclair-zx-spectrum-tap" }
 format-sinclair-zx-spectrum-tzx = { path = "../format-sinclair-zx-spectrum-tzx" }
 machine-sinclair-zx-spectrum-48k = { path = "../machine-sinclair-zx-spectrum-48k" }
+postcard = { workspace = true }
+serde = { workspace = true }
 
 [lints]
 workspace = true

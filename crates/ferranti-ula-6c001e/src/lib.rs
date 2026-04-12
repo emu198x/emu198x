@@ -11,7 +11,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::ula_engine::{self, DELAY_TABLE_48K, UlaEngine};
 
 /// Ferranti 6C001E ULA — the 48K ZX Spectrum's custom chip.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct FerrantiUla {
     engine: UlaEngine,
     issue: BoardIssue,
