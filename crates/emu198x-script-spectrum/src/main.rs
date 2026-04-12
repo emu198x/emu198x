@@ -5,12 +5,13 @@
 //! shared shell helpers plus the Spectrum runtime's profile-aware constructor.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::{
-    BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HostIo, MachineCore, MediaImage,
+    AudioCapture, AudioPacket, AudioSink, BootArtifacts, ControlCommand, FirmwareImage,
+    FirmwareSet, FramePacket, FrameSink, HostIo, LatestFrameCapture, MachineCore, MediaImage,
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullAudioSink, NullFrameSink,
     NullTraceSink, boot_machine, prepare_machine,
 };
@@ -25,6 +26,8 @@ struct Cli {
     media: Vec<MediaArg>,
     load_snapshot: Option<PathBuf>,
     save_snapshot: Option<PathBuf>,
+    screenshot: Option<PathBuf>,
+    audio_capture: Option<PathBuf>,
     frames: u32,
     commands: Vec<ControlCommand>,
 }
@@ -72,6 +75,8 @@ Media and control:
 State:
     --load-snapshot PATH       restore a runtime snapshot before running
     --save-snapshot PATH       write a runtime snapshot after running
+    --screenshot PATH          write the last emitted frame as PNG
+    --audio-capture PATH       write emitted audio as 16-bit PCM WAV
 
 Execution:
     --frames N                 number of native 48K video frames to run
@@ -83,6 +88,7 @@ Examples:
     emu198x-script-spectrum --firmware sinclair-zx-spectrum-48k-rom=48.rom --frames 200
     emu198x-script-spectrum --media tape-1:tape=manic_miner.tzx --start-slot tape-1 --load-snapshot state.pst --frames 500
     emu198x-script-spectrum --rom 48.rom --tape demo.tap --play-tape --frames 100
+    emu198x-script-spectrum --rom 48.rom --frames 200 --screenshot boot.png --audio-capture boot.wav
 ";
 
 fn main() {
@@ -143,6 +149,12 @@ where
             }
             "--save-snapshot" => {
                 cli.save_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--save-snapshot")));
+            }
+            "--screenshot" => {
+                cli.screenshot = Some(PathBuf::from(next_arg(&mut iter, "--screenshot")));
+            }
+            "--audio-capture" => {
+                cli.audio_capture = Some(PathBuf::from(next_arg(&mut iter, "--audio-capture")));
             }
             "--frames" => {
                 cli.frames = next_arg(&mut iter, "--frames")
@@ -219,6 +231,13 @@ fn die(message: &str) -> ! {
 }
 
 fn run(cli: Cli) -> Result<(), String> {
+    if (cli.screenshot.is_some() || cli.audio_capture.is_some()) && cli.frames == 0 {
+        return Err(
+            "capture requests require --frames to be greater than zero so the machine emits output"
+                .into(),
+        );
+    }
+
     let firmware_storage = load_firmware_bytes(&cli.firmware)?;
     let mut firmware = FirmwareSet::new();
     for image in &firmware_storage {
@@ -260,8 +279,8 @@ fn run(cli: Cli) -> Result<(), String> {
         let target = runtime
             .time()
             .saturating_add(u64::from(cli.frames) * u64::from(TIMING_48K.halfcycles_per_frame));
-        let mut frame_sink = NullFrameSink;
-        let mut audio_sink = NullAudioSink;
+        let mut frame_sink = RunnerFrameSink::new(cli.screenshot.is_some());
+        let mut audio_sink = RunnerAudioSink::new(cli.audio_capture.is_some());
         let mut trace_sink = NullTraceSink;
         let mut host = HostIo {
             input_events: &[],
@@ -272,6 +291,14 @@ fn run(cli: Cli) -> Result<(), String> {
         runtime
             .run_until(target, &mut host)
             .map_err(|err| format!("run failed: {err}"))?;
+
+        if let Some(path) = &cli.screenshot {
+            frame_sink.write_png(path)?;
+        }
+
+        if let Some(path) = &cli.audio_capture {
+            audio_sink.write_wav(path)?;
+        }
     }
 
     if let Some(snapshot_path) = &cli.save_snapshot {
@@ -290,6 +317,74 @@ fn run(cli: Cli) -> Result<(), String> {
     );
 
     Ok(())
+}
+
+enum RunnerFrameSink {
+    Null(NullFrameSink),
+    Capture(LatestFrameCapture),
+}
+
+impl RunnerFrameSink {
+    fn new(capture: bool) -> Self {
+        if capture {
+            Self::Capture(LatestFrameCapture::default())
+        } else {
+            Self::Null(NullFrameSink)
+        }
+    }
+
+    fn write_png(&self, path: &Path) -> Result<(), String> {
+        match self {
+            Self::Null(_) => Err("screenshot capture was not enabled".into()),
+            Self::Capture(capture) => {
+                fs::write(path, capture.png_bytes().map_err(|err| err.to_string())?)
+                    .map_err(|err| format!("failed to write {}: {err}", path.display()))
+            }
+        }
+    }
+}
+
+impl FrameSink for RunnerFrameSink {
+    fn push_frame(&mut self, frame: FramePacket<'_>) -> Result<(), emu198x_shell::MachineError> {
+        match self {
+            Self::Null(sink) => sink.push_frame(frame),
+            Self::Capture(sink) => sink.push_frame(frame),
+        }
+    }
+}
+
+enum RunnerAudioSink {
+    Null(NullAudioSink),
+    Capture(AudioCapture),
+}
+
+impl RunnerAudioSink {
+    fn new(capture: bool) -> Self {
+        if capture {
+            Self::Capture(AudioCapture::default())
+        } else {
+            Self::Null(NullAudioSink)
+        }
+    }
+
+    fn write_wav(&self, path: &Path) -> Result<(), String> {
+        match self {
+            Self::Null(_) => Err("audio capture was not enabled".into()),
+            Self::Capture(capture) => {
+                fs::write(path, capture.wav_bytes().map_err(|err| err.to_string())?)
+                    .map_err(|err| format!("failed to write {}: {err}", path.display()))
+            }
+        }
+    }
+}
+
+impl AudioSink for RunnerAudioSink {
+    fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), emu198x_shell::MachineError> {
+        match self {
+            Self::Null(sink) => sink.push_audio(packet),
+            Self::Capture(sink) => sink.push_audio(packet),
+        }
+    }
 }
 
 fn load_firmware_bytes(entries: &[FirmwareArg]) -> Result<Vec<LoadedFirmware>, String> {
@@ -348,6 +443,10 @@ mod tests {
             "tape-1".to_string(),
             "--frames".to_string(),
             "10".to_string(),
+            "--screenshot".to_string(),
+            "boot.png".to_string(),
+            "--audio-capture".to_string(),
+            "boot.wav".to_string(),
             "--save-snapshot".to_string(),
             "out.pst".to_string(),
         ]);
@@ -366,6 +465,8 @@ mod tests {
                 }],
                 load_snapshot: None,
                 save_snapshot: Some(PathBuf::from("out.pst")),
+                screenshot: Some(PathBuf::from("boot.png")),
+                audio_capture: Some(PathBuf::from("boot.wav")),
                 frames: 10,
                 commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
                     "tape-1",
@@ -399,6 +500,8 @@ mod tests {
                 }],
                 load_snapshot: None,
                 save_snapshot: None,
+                screenshot: None,
+                audio_capture: None,
                 frames: 0,
                 commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
                     DEFAULT_TAPE_SLOT,
@@ -430,6 +533,8 @@ mod tests {
             media: vec![],
             load_snapshot: None,
             save_snapshot: Some(snapshot_path.clone()),
+            screenshot: None,
+            audio_capture: None,
             frames: 1,
             commands: vec![],
         });
@@ -439,5 +544,49 @@ mod tests {
 
         let _ = fs::remove_file(rom_path);
         let _ = fs::remove_file(snapshot_path);
+    }
+
+    #[test]
+    fn run_can_capture_png_and_wav() {
+        let temp_dir = std::env::temp_dir();
+        let rom_path = temp_dir.join(format!(
+            "emu198x-script-spectrum-{}-capture-rom.bin",
+            std::process::id()
+        ));
+        let screenshot_path = temp_dir.join(format!(
+            "emu198x-script-spectrum-{}-capture.png",
+            std::process::id()
+        ));
+        let audio_path = temp_dir.join(format!(
+            "emu198x-script-spectrum-{}-capture.wav",
+            std::process::id()
+        ));
+
+        fs::write(&rom_path, [0u8; 16 * 1024]).expect("temporary ROM write should succeed");
+
+        let result = run(Cli {
+            firmware: vec![FirmwareArg {
+                id: DEFAULT_ROM_ID.to_owned(),
+                path: rom_path.clone(),
+            }],
+            media: vec![],
+            load_snapshot: None,
+            save_snapshot: None,
+            screenshot: Some(screenshot_path.clone()),
+            audio_capture: Some(audio_path.clone()),
+            frames: 1,
+            commands: vec![],
+        });
+
+        assert!(result.is_ok(), "runner should capture outputs: {result:?}");
+        let png = fs::read(&screenshot_path).expect("screenshot should be written");
+        let wav = fs::read(&audio_path).expect("wav should be written");
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(&wav[..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+
+        let _ = fs::remove_file(rom_path);
+        let _ = fs::remove_file(screenshot_path);
+        let _ = fs::remove_file(audio_path);
     }
 }

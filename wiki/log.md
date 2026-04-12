@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Shared PNG/WAV capture lands on the shell surface
+
+**Type:** milestone
+**Trigger:** The headless path could boot, load media, control tape transport, and save snapshots, but it still had no shared way to turn emitted frame/audio packets into durable artifacts. Capture remained only a documented intention.
+**Result:** `emu198x-shell` now owns the first reusable capture layer:
+1. New `capture` module stores the latest emitted frame or a whole audio stream through `LatestFrameCapture` and `AudioCapture`, both implementing the shared `FrameSink` / `AudioSink` traits directly.
+2. The shell can now convert raw machine output into real artifacts without family-specific code: indexed or RGBA frames encode to PNG, and captured audio encodes to 16-bit PCM WAV.
+3. `emu198x-script-spectrum` now exposes that shared path through `--screenshot PATH` and `--audio-capture PATH`. The runner still stays thin: it just selects the capture sinks, runs frames, and writes the encoded bytes returned by the shell helpers.
+**Boundary note:** Capture remains strictly above the runtime boundary. The Spectrum runtime still only emits raw indexed video and float audio packets; PNG and WAV are host-side concerns owned by the shell layer.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass. New coverage includes shell tests for indexed-frame PNG output and WAV output plus runner tests that boot a zero ROM, emit one frame, and write both artifact types.
+**Next dependency:** the next logical step is to use the same shared shell surface for scripted headless workflows, so capture, boot, media control, and later MCP methods all compose around one host-side session model instead of ad hoc CLI glue.
+
+---
+
 ## 2026-04-12 — Shared firmware bootstrap and media transport control land
 
 **Type:** milestone

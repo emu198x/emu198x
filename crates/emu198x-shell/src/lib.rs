@@ -5,6 +5,7 @@
 //! dictate how any machine runs internally.
 
 pub mod capability;
+pub mod capture;
 pub mod control;
 pub mod error;
 pub mod firmware;
@@ -15,6 +16,7 @@ pub mod media;
 pub mod time;
 
 pub use capability::{CapabilityId, CapabilitySet, known_capability};
+pub use capture::{AudioCapture, CaptureError, CapturedAudio, CapturedFrame, LatestFrameCapture};
 pub use control::{ControlCommand, MediaTransportAction, MediaTransportCommand};
 pub use error::MachineError;
 pub use firmware::{FirmwareImage, FirmwareSet};
