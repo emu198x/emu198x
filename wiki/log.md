@@ -25,6 +25,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Ferranti ULA and first real 48K frame loop land
+
+**Type:** milestone
+**Trigger:** With the pin-level Z80 in place, the next honest step was to stop modeling `$FE` and contention in isolation and wire the real 48K video chip into the machine.
+**Result:** Three linked changes landed together:
+1. `common-sinclair-zx-spectrum` grew the shared ULA substrate: palette helpers, `FrameTiming`, the Spectrum `Ula` trait, and the shared `UlaEngine`.
+2. New crate `ferranti-ula-6c001e` ports the 48K Ferranti wrapper, including board-issue-specific EAR feedback (`Issue2` MIC-or-EAR vs `Issue3` EAR-only).
+3. `machine-sinclair-zx-spectrum-48k` now owns a real 48K frame loop: the Ferranti ULA ticks against the 48K memory map, gates the Z80 clock, feeds IRQ, performs bus reads/writes, exposes the rendered framebuffer, and uses the ULA's floating-bus behaviour for unattached odd-port reads.
+**Quality note:** The temporary machine-local `$FE` latch model was retired from the machine path. Tape EAR override still lives at the machine boundary because that line is external to the ULA core; border/beeper/keyboard feedback now come from the actual ULA implementation.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` all pass. New local coverage includes palette tests, Ferranti board-issue tests, and a `run_frame()` smoke test for the integrated 48K machine.
+**Next dependency:** honest media/tape progression and then ROM-backed boot-path tests against the new machine loop, rather than the former state-only machine shell.
+
+---
+
 ## 2026-04-10 — Amiga boot screen debugging: root cause narrowed
 
 **Type:** investigation

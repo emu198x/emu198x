@@ -1,31 +1,27 @@
 //! ZX Spectrum 48K machine-local composition.
 //!
-//! This is intentionally not a full machine runtime yet. It collects the
-//! machine-local state that the forthcoming pin-level CPU and ULA will share
-//! without inventing a fake execution loop.
+//! This crate now owns the first working 48K machine loop: the Z80 and Ferranti
+//! ULA are wired together against the 48K memory map and keyboard matrix.
 
+use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
+use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::{MemoryBus, RomImageError, Spectrum48kMemory};
 use emu198x_shell::InputEvent;
+use ferranti_ula_6c001e::{BoardIssue, FerrantiUla};
+use zilog_z80::Z80;
 
 use crate::keyboard::KeyboardMatrix;
-use crate::port::{PortFeState, TapeInput};
-
-/// Ferranti ULA board revision for 48K machines.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum BoardIssue {
-    Issue2,
-    #[default]
-    Issue3,
-}
+use crate::port::TapeInput;
 
 /// Machine-local state for a stock ZX Spectrum 48K.
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spectrum48k {
-    issue: BoardIssue,
+    z80: Z80,
+    ula: FerrantiUla,
     memory: Spectrum48kMemory,
     keyboard: KeyboardMatrix,
     tape_input: TapeInput,
-    port_fe: PortFeState,
+    framebuffer: Vec<u8>,
+    hc: u32,
 }
 
 impl Spectrum48k {
@@ -39,11 +35,13 @@ impl Spectrum48k {
     #[must_use]
     pub fn with_issue(issue: BoardIssue) -> Self {
         Self {
-            issue,
+            z80: Z80::new(),
+            ula: FerrantiUla::new(issue),
             memory: Spectrum48kMemory::new(),
             keyboard: KeyboardMatrix::new(),
             tape_input: TapeInput::new(),
-            port_fe: PortFeState::new(),
+            framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
+            hc: 0,
         }
     }
 
@@ -51,18 +49,20 @@ impl Spectrum48k {
     #[must_use]
     pub fn with_rom(issue: BoardIssue, rom: [u8; 16 * 1024]) -> Self {
         Self {
-            issue,
+            z80: Z80::new(),
+            ula: FerrantiUla::new(issue),
             memory: Spectrum48kMemory::with_rom(rom),
             keyboard: KeyboardMatrix::new(),
             tape_input: TapeInput::new(),
-            port_fe: PortFeState::new(),
+            framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
+            hc: 0,
         }
     }
 
     /// Returns the configured board issue.
     #[must_use]
     pub const fn issue(&self) -> BoardIssue {
-        self.issue
+        self.ula.issue()
     }
 
     /// Returns the 48K memory map.
@@ -75,6 +75,36 @@ impl Spectrum48k {
     #[must_use]
     pub fn memory_mut(&mut self) -> &mut Spectrum48kMemory {
         &mut self.memory
+    }
+
+    /// Returns the pin-level Z80 core.
+    #[must_use]
+    pub fn z80(&self) -> &Z80 {
+        &self.z80
+    }
+
+    /// Returns mutable access to the pin-level Z80 core.
+    #[must_use]
+    pub fn z80_mut(&mut self) -> &mut Z80 {
+        &mut self.z80
+    }
+
+    /// Returns the current framebuffer.
+    #[must_use]
+    pub fn framebuffer(&self) -> &[u8] {
+        &self.framebuffer
+    }
+
+    /// Returns mutable framebuffer access.
+    #[must_use]
+    pub fn framebuffer_mut(&mut self) -> &mut [u8] {
+        &mut self.framebuffer
+    }
+
+    /// Returns the current half-cycle counter.
+    #[must_use]
+    pub const fn hc(&self) -> u32 {
+        self.hc
     }
 
     /// Loads a 16 KiB ROM image.
@@ -121,22 +151,89 @@ impl Spectrum48k {
         self.tape_input.set_level(level);
     }
 
-    /// Returns the latched `$FE` output state.
+    /// Returns the current border colour.
     #[must_use]
-    pub const fn port_fe(&self) -> PortFeState {
-        self.port_fe
+    pub fn border_color(&self) -> u8 {
+        self.ula.border_color()
     }
 
     /// Writes to port `$FE`.
     pub fn write_fe(&mut self, value: u8) {
-        self.port_fe.write(value);
+        self.ula.write_fe(value);
     }
 
     /// Reads port `$FE`.
     #[must_use]
     pub fn read_fe(&self, port: u16) -> u8 {
-        self.port_fe
-            .read(self.issue, &self.keyboard, self.tape_input, port)
+        let mut value = self.ula.read_fe(port, self.keyboard.rows());
+        if self.tape_input.connected() {
+            value = (value & !0x40) | if self.tape_input.level() { 0x40 } else { 0x00 };
+        }
+        value
+    }
+
+    /// Resets the pin-level CPU and ULA while keeping the loaded ROM and RAM.
+    pub fn reset(&mut self) {
+        let issue = self.issue();
+        self.z80 = Z80::new();
+        self.ula = FerrantiUla::new(issue);
+        self.hc = 0;
+        self.framebuffer.fill(0);
+    }
+
+    /// Runs one native 48K video frame.
+    pub fn run_frame(&mut self) {
+        while self.hc < TIMING_48K.halfcycles_per_frame {
+            if self.hc & 1 == 0 {
+                self.ula.tick(
+                    &self.memory,
+                    self.z80.addr,
+                    self.z80.mreq,
+                    self.z80.iorq,
+                    &mut self.framebuffer,
+                );
+
+                if self.ula.cpu_clock_active() {
+                    self.z80.tick();
+                    self.handle_bus();
+                }
+
+                self.z80.irq = self.ula.interrupt_active();
+            }
+
+            self.hc += 1;
+        }
+
+        self.ula.end_frame();
+        self.hc -= TIMING_48K.halfcycles_per_frame;
+    }
+
+    fn handle_bus(&mut self) {
+        if self.z80.mreq && self.z80.rd {
+            self.z80.data_in = self.memory.read(self.z80.addr);
+        } else if self.z80.mreq && self.z80.wr {
+            self.memory.write(self.z80.addr, self.z80.data);
+        } else if self.z80.iorq && self.z80.rd && !self.z80.m1 {
+            self.z80.data_in = self.io_read(self.z80.addr);
+        } else if self.z80.iorq && self.z80.wr {
+            self.io_write(self.z80.addr, self.z80.data);
+        } else if self.z80.iorq && self.z80.m1 {
+            self.z80.data_in = 0xff;
+        }
+    }
+
+    fn io_read(&self, port: u16) -> u8 {
+        if port & 0x01 == 0 {
+            self.read_fe(port)
+        } else {
+            self.ula.floating_bus()
+        }
+    }
+
+    fn io_write(&mut self, port: u16, data: u8) {
+        if port & 0x01 == 0 {
+            self.ula.write_fe(data);
+        }
     }
 }
 
@@ -174,7 +271,8 @@ mod tests {
         let machine = Spectrum48k::new();
 
         assert_eq!(machine.issue(), BoardIssue::Issue3);
-        assert_eq!(machine.port_fe().border_color(), 7);
+        assert_eq!(machine.border_color(), 7);
+        assert_eq!(machine.framebuffer().len(), SCREEN_WIDTH * SCREEN_HEIGHT);
         assert_eq!(machine.read_fe(0xfffe), 0xbf);
     }
 
@@ -191,6 +289,15 @@ mod tests {
         assert_eq!(machine.read(0x0000), 0xa5);
         assert_eq!(machine.read(0x3fff), 0xa5);
         assert_eq!(machine.read(0x8000), 0x42);
+    }
+
+    #[test]
+    fn machine_runs_frame_without_rom() {
+        let mut machine = Spectrum48k::new();
+        machine.run_frame();
+
+        assert!(machine.z80().regs.pc > 0 || machine.z80().halt);
+        assert_eq!(machine.hc(), 0);
     }
 
     #[test]
@@ -235,5 +342,12 @@ mod tests {
         machine.keyboard_mut().press_key(SpectrumKey::Enter);
 
         assert_eq!(machine.read_fe(0xbffe) & 0x01, 0x00);
+    }
+
+    #[test]
+    fn unattached_odd_port_reads_idle_floating_bus() {
+        let machine = Spectrum48k::new();
+
+        assert_eq!(machine.io_read(0xffff), 0xff);
     }
 }

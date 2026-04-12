@@ -1,12 +1,16 @@
 //! Shared Sinclair ZX Spectrum family building blocks.
 //!
-//! This crate starts with the pieces that are stable across the first Spectrum
-//! implementation pass and do not require a fake CPU or ULA shell: timing
-//! constants and the 48K memory map.
+//! This crate holds the shared Spectrum-family hardware pieces that are stable
+//! across concrete variants: memory contracts, timing data, palette handling,
+//! and the shared ULA rendering engine.
 
 pub mod error;
 pub mod memory;
+pub mod palette;
 pub mod timing;
+pub mod ula;
+pub mod ula_engine;
 
 pub use error::RomImageError;
 pub use memory::{MemoryBus, Spectrum48kMemory};
+pub use palette::SPECTRUM_PALETTE;
