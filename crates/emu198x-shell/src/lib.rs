@@ -13,6 +13,8 @@ pub mod headless;
 pub mod host;
 pub mod machine;
 pub mod media;
+pub mod script;
+pub mod session;
 pub mod time;
 
 pub use capability::{CapabilityId, CapabilitySet, known_capability};
@@ -30,4 +32,8 @@ pub use machine::{
     StopReason, SupportTier,
 };
 pub use media::{FirmwareRequirement, MediaImage, MediaKind, MediaSet, MediaSlot, WritebackPolicy};
+pub use script::{
+    HeadlessScript, ScriptError, ScriptMediaKind, ScriptMediaTransportAction, ScriptStep,
+};
+pub use session::{HeadlessSession, SessionError};
 pub use time::{ClockDesc, ClockRate, MachineTime};

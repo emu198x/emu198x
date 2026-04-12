@@ -1,0 +1,441 @@
+//! Shared headless session state above one machine runtime.
+
+use std::path::Path;
+
+use thiserror::Error;
+
+use crate::capture::{AudioCapture, CaptureError, LatestFrameCapture};
+use crate::control::ControlCommand;
+use crate::error::MachineError;
+use crate::headless::prepare_machine;
+use crate::host::{HostIo, InputEvent, NullTraceSink};
+use crate::machine::{MachineCore, RunResult};
+use crate::media::MediaSet;
+use crate::time::MachineTime;
+
+/// Error surfaced by shared headless session helpers.
+#[derive(Debug, Error)]
+pub enum SessionError {
+    /// One machine operation failed.
+    #[error(transparent)]
+    Machine(#[from] MachineError),
+
+    /// One capture conversion failed.
+    #[error(transparent)]
+    Capture(#[from] CaptureError),
+
+    /// One filesystem operation failed.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+/// Shared host-side session around one live machine runtime.
+pub struct HeadlessSession<M> {
+    machine: M,
+    native_frame_ticks: u64,
+    queued_input: Vec<InputEvent>,
+    frame_capture: LatestFrameCapture,
+    audio_capture: AudioCapture,
+    trace_sink: NullTraceSink,
+}
+
+impl<M> HeadlessSession<M> {
+    /// Creates a new session around one live machine runtime.
+    #[must_use]
+    pub fn new(machine: M, native_frame_ticks: u64) -> Self {
+        Self {
+            machine,
+            native_frame_ticks,
+            queued_input: Vec::new(),
+            frame_capture: LatestFrameCapture::default(),
+            audio_capture: AudioCapture::default(),
+            trace_sink: NullTraceSink,
+        }
+    }
+
+    /// Returns the wrapped machine runtime.
+    #[must_use]
+    pub fn machine(&self) -> &M {
+        &self.machine
+    }
+
+    /// Returns mutable access to the wrapped machine runtime.
+    #[must_use]
+    pub fn machine_mut(&mut self) -> &mut M {
+        &mut self.machine
+    }
+
+    /// Returns the configured native frame delta in machine ticks.
+    #[must_use]
+    pub const fn native_frame_ticks(&self) -> u64 {
+        self.native_frame_ticks
+    }
+}
+
+impl<M: MachineCore> HeadlessSession<M> {
+    /// Returns the current authoritative machine time.
+    #[must_use]
+    pub fn time(&self) -> MachineTime {
+        self.machine.time()
+    }
+
+    /// Queues one input event for the next execution slice.
+    pub fn queue_input(&mut self, event: InputEvent) {
+        self.queued_input.push(event);
+    }
+
+    /// Queues multiple input events for the next execution slice.
+    pub fn queue_inputs<I>(&mut self, events: I)
+    where
+        I: IntoIterator<Item = InputEvent>,
+    {
+        self.queued_input.extend(events);
+    }
+
+    /// Applies media inserts and control commands to the live machine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the target machine rejects the media or commands.
+    pub fn prepare(
+        &mut self,
+        media: &MediaSet<'_>,
+        commands: &[ControlCommand],
+    ) -> Result<(), SessionError> {
+        prepare_machine(&mut self.machine, media, commands)?;
+        Ok(())
+    }
+
+    /// Applies one control command to the live machine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine rejects the command.
+    pub fn command(&mut self, command: &ControlCommand) -> Result<(), SessionError> {
+        self.machine.command(command)?;
+        Ok(())
+    }
+
+    /// Loads one media set into the live machine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine rejects the media.
+    pub fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), SessionError> {
+        self.machine.load_media(media)?;
+        Ok(())
+    }
+
+    /// Restores one snapshot into the live machine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if snapshot restore fails.
+    pub fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<(), SessionError> {
+        self.machine.restore(bytes)?;
+        Ok(())
+    }
+
+    /// Serializes the current machine snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if snapshot generation fails.
+    pub fn snapshot_bytes(&self) -> Result<Vec<u8>, SessionError> {
+        Ok(self.machine.snapshot()?)
+    }
+
+    /// Writes the current machine snapshot to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if snapshot generation or file output fails.
+    pub fn save_snapshot(&self, path: &Path) -> Result<(), SessionError> {
+        std::fs::write(path, self.snapshot_bytes()?)?;
+        Ok(())
+    }
+
+    /// Runs the machine until the requested target time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine or one host-side sink rejects the
+    /// execution request.
+    pub fn run_until(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
+        let inputs = std::mem::take(&mut self.queued_input);
+        let mut host = HostIo {
+            input_events: &inputs,
+            frame_sink: &mut self.frame_capture,
+            audio_sink: &mut self.audio_capture,
+            trace_sink: &mut self.trace_sink,
+        };
+        let result = self.machine.run_until(target, &mut host)?;
+        Ok(result)
+    }
+
+    /// Runs the machine for `count` native video frames.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine or one host-side sink rejects the
+    /// execution request.
+    pub fn run_frames(&mut self, count: u32) -> Result<RunResult, SessionError> {
+        let delta = self.native_frame_ticks.saturating_mul(u64::from(count));
+        self.run_until(self.time().saturating_add(delta))
+    }
+
+    /// Encodes the latest emitted frame as PNG.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no frame has been emitted or if PNG encoding fails.
+    pub fn screenshot_png_bytes(&self) -> Result<Vec<u8>, SessionError> {
+        Ok(self.frame_capture.png_bytes()?)
+    }
+
+    /// Writes the latest emitted frame as PNG.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no frame has been emitted or file output fails.
+    pub fn save_screenshot(&self, path: &Path) -> Result<(), SessionError> {
+        std::fs::write(path, self.screenshot_png_bytes()?)?;
+        Ok(())
+    }
+
+    /// Encodes the accumulated audio stream as WAV.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no audio has been emitted yet.
+    pub fn audio_wav_bytes(&self) -> Result<Vec<u8>, SessionError> {
+        Ok(self.audio_capture.wav_bytes()?)
+    }
+
+    /// Writes the accumulated audio stream as WAV.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no audio has been emitted yet or file output fails.
+    pub fn save_audio_capture(&self, path: &Path) -> Result<(), SessionError> {
+        std::fs::write(path, self.audio_wav_bytes()?)?;
+        Ok(())
+    }
+
+    /// Drops any captured audio accumulated so far.
+    pub fn clear_audio_capture(&mut self) {
+        self.audio_capture = AudioCapture::default();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capability::CapabilitySet;
+    use crate::host::{AudioPacket, FramePacket, PixelFormat};
+    use crate::machine::{
+        Family, MachineId, MachineProfile, ProfileId, Region, ResetKind, StopReason, SupportTier,
+    };
+    use crate::media::{FirmwareRequirement, MediaSlot, WritebackPolicy};
+    use crate::time::{ClockDesc, ClockRate};
+    use crate::{MediaImage, MediaKind};
+
+    struct DummyMachine {
+        profile: MachineProfile,
+        time: MachineTime,
+        loaded_media: usize,
+        commands: usize,
+        restored: usize,
+        received_inputs: Vec<InputEvent>,
+    }
+
+    impl DummyMachine {
+        fn new() -> Self {
+            Self {
+                profile: MachineProfile {
+                    machine_id: MachineId::from("dummy-machine"),
+                    profile_id: ProfileId::from("dummy-profile"),
+                    display_name: "Dummy".into(),
+                    family: Family::Spectrum,
+                    region: Region::Pal,
+                    support_tier: SupportTier::Research,
+                    release_year: 1982,
+                    summary: "dummy".into(),
+                    clock: ClockDesc::new("master-cycle", ClockRate::from_hz(1)),
+                    firmware: vec![FirmwareRequirement::new("rom-0", "ROM 0", false)],
+                    media_slots: vec![MediaSlot::new(
+                        "tape-1",
+                        "Tape Deck",
+                        MediaKind::Tape,
+                        false,
+                        WritebackPolicy::InMemoryOnly,
+                    )],
+                    capabilities: CapabilitySet::new(),
+                },
+                time: MachineTime::default(),
+                loaded_media: 0,
+                commands: 0,
+                restored: 0,
+                received_inputs: Vec::new(),
+            }
+        }
+    }
+
+    impl MachineCore for DummyMachine {
+        fn profile(&self) -> &MachineProfile {
+            &self.profile
+        }
+
+        fn time(&self) -> MachineTime {
+            self.time
+        }
+
+        fn reset(&mut self, _kind: ResetKind) {
+            self.time = MachineTime::default();
+        }
+
+        fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+            self.loaded_media += media.images.len();
+            Ok(())
+        }
+
+        fn run_until(
+            &mut self,
+            target: MachineTime,
+            host: &mut HostIo<'_>,
+        ) -> Result<RunResult, MachineError> {
+            self.received_inputs.extend_from_slice(host.input_events);
+            self.time = target;
+
+            host.frame_sink.push_frame(FramePacket {
+                timestamp: target,
+                format: PixelFormat::Indexed8,
+                width: 1,
+                height: 1,
+                palette: Some(&[0x000000FF, 0xFFFFFFFF]),
+                pixels: &[1],
+            })?;
+
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: target,
+                sample_rate: 44_100,
+                channels: 1,
+                samples: &[0.0, 0.5],
+            })?;
+
+            Ok(RunResult::new(target, StopReason::ReachedTarget))
+        }
+
+        fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
+            Ok(vec![0x42, 0x43])
+        }
+
+        fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
+            self.restored += 1;
+            Ok(())
+        }
+
+        fn command(&mut self, _command: &ControlCommand) -> Result<(), MachineError> {
+            self.commands += 1;
+            Ok(())
+        }
+
+        fn capabilities(&self) -> CapabilitySet {
+            CapabilitySet::new()
+        }
+    }
+
+    #[test]
+    fn session_runs_frames_and_captures_outputs() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+        let result = session.run_frames(2).expect("two frames should run");
+
+        assert_eq!(result.reached, MachineTime::new(139_776));
+        assert_eq!(session.time(), MachineTime::new(139_776));
+        assert!(session.screenshot_png_bytes().is_ok());
+        assert!(session.audio_wav_bytes().is_ok());
+    }
+
+    #[test]
+    fn session_prepares_media_and_commands() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &[0x00]));
+        let commands = [ControlCommand::MediaTransport(
+            crate::MediaTransportCommand::new("tape-1", crate::MediaTransportAction::Start),
+        )];
+
+        session
+            .prepare(&media, &commands)
+            .expect("session preparation should succeed");
+
+        assert_eq!(session.machine().loaded_media, 1);
+        assert_eq!(session.machine().commands, 1);
+    }
+
+    #[test]
+    fn session_queues_inputs_for_next_run() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+        session.queue_input(InputEvent::Key {
+            name: "q".into(),
+            pressed: true,
+        });
+
+        session.run_frames(1).expect("frame should run");
+        assert_eq!(session.machine().received_inputs.len(), 1);
+
+        session.run_frames(1).expect("second frame should run");
+        assert_eq!(session.machine().received_inputs.len(), 1);
+    }
+
+    #[test]
+    fn session_can_save_snapshot_and_capture_files() {
+        let temp_dir = std::env::temp_dir();
+        let snapshot_path = temp_dir.join(format!(
+            "emu198x-shell-session-{}-state.pst",
+            std::process::id()
+        ));
+        let screenshot_path = temp_dir.join(format!(
+            "emu198x-shell-session-{}-frame.png",
+            std::process::id()
+        ));
+        let audio_path = temp_dir.join(format!(
+            "emu198x-shell-session-{}-audio.wav",
+            std::process::id()
+        ));
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+
+        session.run_frames(1).expect("frame should run");
+        session
+            .save_snapshot(&snapshot_path)
+            .expect("snapshot should be written");
+        session
+            .save_screenshot(&screenshot_path)
+            .expect("screenshot should be written");
+        session
+            .save_audio_capture(&audio_path)
+            .expect("wav should be written");
+
+        assert!(snapshot_path.is_file());
+        assert!(screenshot_path.is_file());
+        assert!(audio_path.is_file());
+
+        let _ = std::fs::remove_file(snapshot_path);
+        let _ = std::fs::remove_file(screenshot_path);
+        let _ = std::fs::remove_file(audio_path);
+    }
+
+    #[test]
+    fn session_clear_audio_capture_drops_previous_audio() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+        session.run_frames(1).expect("frame should run");
+        assert!(session.audio_wav_bytes().is_ok());
+
+        session.clear_audio_capture();
+        let result = session.audio_wav_bytes();
+        assert!(matches!(
+            result,
+            Err(SessionError::Capture(CaptureError::MissingAudio))
+        ));
+    }
+}

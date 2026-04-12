@@ -186,6 +186,9 @@ pub trait MachineCore {
     /// Returns the current machine profile.
     fn profile(&self) -> &MachineProfile;
 
+    /// Returns the current authoritative machine time.
+    fn time(&self) -> MachineTime;
+
     /// Resets the machine.
     fn reset(&mut self, kind: ResetKind);
 

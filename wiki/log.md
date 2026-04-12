@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Shared headless session and JSON script runner land
+
+**Type:** milestone
+**Trigger:** The shell surface could already boot machines, load media, control transport, capture PNG/WAV, and save snapshots, but those operations were still being composed ad hoc inside the Spectrum CLI. The next gap was the reusable host-side workflow layer itself.
+**Result:** `emu198x-shell` now owns that workflow layer:
+1. `MachineCore` gained a `time()` accessor so host-side code can reason about authoritative machine progress without downcasting to family runtimes.
+2. New `HeadlessSession` wraps one live machine runtime together with queued input events, frame capture, audio capture, and native-frame stepping. It owns the reusable operations a headless runner actually needs: prepare media/commands, run frames, save screenshots, save audio, save and restore snapshots, and queue host input.
+3. New `HeadlessScript` / `ScriptStep` in `emu198x-shell` parse and execute shared JSON session scripts. The initial generic step set covers media loading, media transport, queued input events, frame execution, snapshot load/save, PNG screenshot export, and WAV audio export.
+4. `emu198x-script-spectrum` now runs through that shared session layer for both direct CLI flags and `--script PATH`, instead of composing its own one-off host loop.
+**Documentation note:** `docs/features/scripting.md` no longer claims that all four anchor families already have fresh-workspace script and MCP runners. Its top-level note now reflects the current truth: shared shell support exists, and Spectrum is the implemented runner on that path today.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass. New coverage includes shell tests for session stepping, queued input delivery, file-writing helpers, JSON script parsing/execution, and an end-to-end Spectrum runner test that executes a shared JSON script file.
+**Next dependency:** the next useful increment is to keep pushing host policy into the shell layer by adding a structured result/query surface on top of the same session model, so future script and MCP paths can share more than just control flow.
+
+---
+
 ## 2026-04-12 — Shared PNG/WAV capture lands on the shell surface
 
 **Type:** milestone

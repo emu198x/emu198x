@@ -141,6 +141,10 @@ impl MachineCore for Spectrum48kRuntime {
         &self.profile
     }
 
+    fn time(&self) -> MachineTime {
+        self.time
+    }
+
     fn reset(&mut self, _kind: ResetKind) {
         self.machine.reset();
         self.time = MachineTime::default();

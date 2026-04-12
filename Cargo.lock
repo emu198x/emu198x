@@ -95,6 +95,7 @@ dependencies = [
  "png",
  "postcard",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

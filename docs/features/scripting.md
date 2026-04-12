@@ -1,13 +1,19 @@
 # Scripting
 
-> **Implemented.** All four systems support `--script` and `--mcp` modes.
+> **Partial fresh-workspace implementation.** The current Rust workspace has a
+> shared headless session and JSON step runner in `emu198x-shell`, and
+> `emu198x-script-spectrum` exposes that path today. References below to C64,
+> NES, and Amiga scripting come from earlier work and should be treated as
+> historical/planned until those families land again in this workspace.
 
 ## Overview
 
 Headless batch automation for content generation, testing, and CI/CD. Each
-emulator binary accepts `--script <file.json>` to run a sequence of commands
-without opening a window. Scripts reuse the MCP server's method dispatch, so
-every MCP command is available.
+emulator binary can expose `--script <file.json>` to run a sequence of shared
+headless session commands without opening a window. In the current workspace,
+that path exists for the Spectrum runner first. The shared shell layer now owns
+the generic pieces: media loading, media transport control, frame execution,
+snapshot save/restore, PNG screenshot export, and WAV audio export.
 
 ## CLI Usage
 

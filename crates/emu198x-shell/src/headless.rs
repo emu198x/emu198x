@@ -104,6 +104,10 @@ mod tests {
             panic!("profile access is not needed in this test")
         }
 
+        fn time(&self) -> MachineTime {
+            MachineTime::default()
+        }
+
         fn reset(&mut self, _kind: ResetKind) {}
 
         fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
