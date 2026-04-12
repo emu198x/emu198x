@@ -17,15 +17,16 @@ No Bus trait. The machine inspects signals directly and performs bus transaction
 
 Instructions decompose into sequences of MStep operations (~50 static arrays in `mcycle.rs`). The walker processes one T-state per `tick()` call.
 
-### MStep types (14)
+### MStep types (17)
 
-`FetchByte`, `FetchByteHi`, `FetchDisp`, `ReadAddr`, `ReadAddrHi`, `WriteAddr`, `WriteAddrHi`, `PushHi`, `PushLo`, `PopLo`, `PopHi`, `IoRead`, `IoWrite`, `Internal(n)`, `IntAck`, `Execute`
+`FetchByte`, `FetchByteHi`, `FetchDisp`, `ReadAddr`, `ReadAddrHi`, `WriteAddr`, `WriteAddrHi`, `PushHi`, `PushLo`, `PopLo`, `PopHi`, `ContendPc`, `IoRead`, `IoWrite`, `Internal(n)`, `IntAck`, `Execute`
 
 ### Key design decisions
 
 - **Execute is 0 T-states** — processed immediately by `try_complete_step`
 - **Staged data** — `cs.data_lo`/`data_hi`/`addr` populated by MSteps, consumed by Execute
-- **Conditional branches** (JR cc, DJNZ, CALL cc): use truncation (`cs.done`) for not-taken path
+- **Conditional relative branches** (`JR cc`, `DJNZ`): decode chooses taken vs not-taken timing up front so the not-taken path can model the real contended `PC` cycle without a false displacement read
+- **Conditional calls / returns** (`CALL cc`, `RET cc`): still use the staged conditional path machinery
 - **RET cc**: sequence switching after `Internal(1)` condition check
 - **Block repeat ops** (LDIR etc.): switch to non-repeat sequence when done (not `cs.done`, which would skip WriteAddr)
 - **DD/FD pass-through**: unprefixed opcodes walk their unprefixed sequence (prefix reset to 0)
@@ -56,11 +57,11 @@ The fix for the final 1,996 Tom Harte failures:
 
 ## Test results
 
-As of 2026-04-12 in the fresh Rust workspace, the Tom Harte corpus passes in full, `zexdoc` and `zexall` both pass end-to-end, and the local ZEX runner supports checkpoint-targeted reruns plus cached resume. FUSE has now been rerun as a chip-level compatibility harness over final state, memory effects, and final T-state counts.
+As of 2026-04-12 in the fresh Rust workspace, the Tom Harte corpus passes in full, `zexdoc` and `zexall` both pass end-to-end, and the local ZEX runner supports checkpoint-targeted reruns plus cached resume. FUSE is now rerun as an exact-trace compatibility harness over events, final state, memory effects, and final T-state counts.
 
 | Suite | Result |
 |-------|--------|
 | Tom Harte | 1,604,000 / 1,604,000 (100%) — rerun locally on 2026-04-12 |
 | ZEXDOC | Pass — end-to-end rerun locally on 2026-04-12 |
 | ZEXALL | Pass — end-to-end rerun locally on 2026-04-12 |
-| FUSE | 1,350 / 1,356 exact matches, 6 accepted disagreements, 0 unexpected — rerun locally on 2026-04-12 |
+| FUSE | 1,350 / 1,356 exact matches, 6 accepted disagreements, 0 unexpected — exact event trace rerun locally on 2026-04-12 |

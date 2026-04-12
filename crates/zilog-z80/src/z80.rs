@@ -120,6 +120,10 @@ pub(crate) enum Phase {
     /// 6 half-cycles total.
     MemWrite(MemPhase),
 
+    /// Contended memory cycle without a read or write strobe.
+    /// 6 half-cycles total.
+    Contend(MemPhase),
+
     /// I/O read: T1 through T4 (I/O is always 4 T-states on Z80).
     /// 8 half-cycles total.
     IoRead(IoPhase),
@@ -250,6 +254,7 @@ impl Z80 {
             Phase::M1(m1) => self.tick_m1(m1),
             Phase::MemRead(mr) => self.tick_mem_read(mr),
             Phase::MemWrite(mw) => self.tick_mem_write(mw),
+            Phase::Contend(mc) => self.tick_contend(mc),
             Phase::IoRead(io) => self.tick_io_read(io),
             Phase::IoWrite(io) => self.tick_io_write(io),
             Phase::Internal(int) => self.tick_internal(int),
@@ -491,6 +496,40 @@ impl Z80 {
             }
             MemPhase::T3Fall => {
                 // M-cycle complete — advance walker (no data to latch for writes)
+                self.walker.advance();
+                self.try_advance_walker();
+            }
+        }
+    }
+
+    // === Contended Memory Cycle (no RD/WR strobe) ===
+
+    fn tick_contend(&mut self, phase: MemPhase) {
+        match phase {
+            MemPhase::T1Rise => {
+                self.mreq = false;
+                self.rd = false;
+                self.wr = false;
+                self.phase = Phase::Contend(MemPhase::T1Fall);
+            }
+            MemPhase::T1Fall => {
+                self.mreq = true;
+                self.phase = Phase::Contend(MemPhase::T2Rise);
+            }
+            MemPhase::T2Rise => {
+                if self.wait {
+                    return;
+                }
+                self.phase = Phase::Contend(MemPhase::T2Fall);
+            }
+            MemPhase::T2Fall => {
+                self.mreq = false;
+                self.phase = Phase::Contend(MemPhase::T3Rise);
+            }
+            MemPhase::T3Rise => {
+                self.phase = Phase::Contend(MemPhase::T3Fall);
+            }
+            MemPhase::T3Fall => {
                 self.walker.advance();
                 self.try_advance_walker();
             }
@@ -875,11 +914,24 @@ impl Z80 {
 
             // JR e
             0x18 => mcycle::SEQ_JR_E,
-            // JR cc, e — Execute checks condition, done=true skips Internal(5) if not taken.
-            0x20 | 0x28 | 0x30 | 0x38 => mcycle::SEQ_JR_CC,
+            // JR cc, e
+            0x20 | 0x28 | 0x30 | 0x38 => {
+                let cc = (opcode >> 3) & 0x03;
+                if crate::alu::condition(&self.regs, cc) {
+                    mcycle::SEQ_JR_CC_TAKEN
+                } else {
+                    mcycle::SEQ_JR_CC_NOT_TAKEN
+                }
+            }
 
             // DJNZ e
-            0x10 => mcycle::SEQ_DJNZ,
+            0x10 => {
+                if self.regs.b().wrapping_sub(1) != 0 {
+                    mcycle::SEQ_DJNZ_TAKEN
+                } else {
+                    mcycle::SEQ_DJNZ_NOT_TAKEN
+                }
+            }
 
             // CALL nn
             0xCD => mcycle::SEQ_CALL_NN,

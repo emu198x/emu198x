@@ -26,7 +26,7 @@ For routine local reruns, use `--release`. The full exerciser suites are CPU-bou
 
 Parse notes: `-1` is a sentinel (>= 0x10000 for addresses, >= 0x100 for bytes).
 
-In the fresh Rust workspace, the current FUSE harness is a Z80-local compatibility pass over final register state, memory effects, and final T-state counts. Per-event trace comparison is still pending because FUSE's `MC` and `PC` traces include internal contention phases that are not fully observable from the public pin interface alone.
+In the fresh Rust workspace, the FUSE harness now compares the full event list as well as final register state, memory effects, and final T-state counts. The exact-trace pass still carries 6 explicit accepted disagreements, but any new case or changed mismatch shape fails immediately.
 
 ## Reference adjudication
 

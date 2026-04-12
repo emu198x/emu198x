@@ -4,6 +4,25 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — FUSE exact-trace verification is now live, and relative-branch contention is corrected
+
+**Type:** milestone
+**Trigger:** The first FUSE harness established final-state compatibility, but the exact event list still diverged because the fresh-workspace Z80 was not yet modeling every control-flow contention path the way FUSE records them. The decisive mismatch was `DJNZ` not taken: we were reading the displacement byte, while FUSE correctly showed a contended `PC` cycle without a read strobe.
+**Result:** the fresh-workspace Z80 now has a stronger timing model and the FUSE harness now checks the whole instruction trace instead of only the end state:
+1. Added exact event capture in `crates/zilog-z80/src/z80_fuse_tests.rs` for `MR`, `MW`, `MC`, `PR`, `PW`, and `PC`, including internal contention and port-timing phases.
+2. Kept FUSE-specific address-selection logic in the harness instead of teaching production code FUSE-only heuristics. That preserves the chip model boundary while still comparing against the full reference trace.
+3. Fixed a real Z80 timing bug in the core: not-taken `JR cc,e` and `DJNZ e` now use a contended `PC` cycle without a read strobe, instead of incorrectly reading the displacement byte.
+4. Added an explicit `ContendPc` M-step and corresponding Z80 phase so the machine-visible bus behaviour matches the reference timing instead of faking the cycle as generic internal delay.
+5. Re-ran the full local verification stack after the fix:
+   - **FUSE:** `1,350 / 1,356` exact, `6` accepted disagreements, `0` unexpected, now on full event trace plus final state
+   - **Tom Harte:** `1,604,000 / 1,604,000`
+   - **ZEXDOC:** `67 / 67` checkpoints, `0` errors
+   - **ZEXALL:** `67 / 67` checkpoints, `0` errors
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo test -p zilog-z80 run_fuse_z80_reference_suite -- --ignored --nocapture`, `EMU198X_ZEX_SNAPSHOT_DIR=/tmp/emu198x-zexdoc-after-branch cargo test --release -p zilog-z80 --test zex_tests run_zexdoc -- --ignored --nocapture`, `EMU198X_ZEX_SNAPSHOT_DIR=/tmp/emu198x-zexall-after-branch cargo test --release -p zilog-z80 --test zex_tests run_zexall -- --ignored --nocapture`, and `cargo test -p zilog-z80 --test single_step_tests run_all -- --ignored --nocapture` all pass.
+**Next dependency:** the CPU-side reference loop is now strong enough that the next high-value work is back at machine level: use the verified branch/contention behaviour under real Spectrum software and keep pulling timing bugs out of full-machine execution rather than synthetic CPU traces alone.
+
+---
+
 ## 2026-04-12 — Fresh-workspace FUSE Z80 compatibility harness is established
 
 **Type:** milestone

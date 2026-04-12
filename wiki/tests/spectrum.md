@@ -13,7 +13,7 @@
 
 ### FUSE disagreements (6 accepted) — investigated, recorded
 
-These 6 cases are documented disagreements between FUSE and the combination of Tom Harte plus the current fresh-workspace Z80 core. Tom Harte remains the primary CPU oracle. The FUSE harness is currently a chip-level compatibility pass over final register state, memory effects, and final T-state counts; per-event trace comparison is still pending.
+These 6 cases are documented disagreements between FUSE and the combination of Tom Harte plus the current fresh-workspace Z80 core. Tom Harte remains the primary CPU oracle. The FUSE harness now compares exact event trace, final register state, memory effects, and final T-state counts; the allowlist is limited to these named cases only.
 
 | FUSE test | Opcode | Instruction | Disagreement | Tom Harte agrees with us |
 |-----------|--------|-------------|--------------|--------------------------|

@@ -1,4 +1,5 @@
 use crate::alu;
+use crate::mcycle;
 use crate::registers::*;
 use crate::walker::Prefix;
 use crate::z80::Z80;
@@ -368,14 +369,12 @@ fn execute_unprefixed(z80: &mut Z80) {
 
         // JR cc, e
         0x20 | 0x28 | 0x30 | 0x38 => {
-            let cc = (opcode >> 3) & 0x03;
-            if alu::condition(&z80.regs, cc) {
+            if std::ptr::eq(z80.walker.sequence, mcycle::SEQ_JR_CC_TAKEN) {
                 let offset = z80.walker.staged.data_lo as i8;
                 z80.regs.pc = z80.regs.pc.wrapping_add_signed(offset as i16);
                 z80.regs.wz = z80.regs.pc;
             } else {
-                // Not taken — truncate the remaining Internal(5) steps
-                z80.walker.done = true;
+                z80.regs.pc = z80.regs.pc.wrapping_add(1);
             }
         }
 
@@ -383,12 +382,12 @@ fn execute_unprefixed(z80: &mut Z80) {
         0x10 => {
             let b = z80.regs.b().wrapping_sub(1);
             z80.regs.set_b(b);
-            if b != 0 {
+            if std::ptr::eq(z80.walker.sequence, mcycle::SEQ_DJNZ_TAKEN) {
                 let offset = z80.walker.staged.data_lo as i8;
                 z80.regs.pc = z80.regs.pc.wrapping_add_signed(offset as i16);
                 z80.regs.wz = z80.regs.pc;
             } else {
-                z80.walker.done = true;
+                z80.regs.pc = z80.regs.pc.wrapping_add(1);
             }
         }
 

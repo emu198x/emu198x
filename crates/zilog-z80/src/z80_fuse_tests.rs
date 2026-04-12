@@ -1,4 +1,5 @@
-use super::{M1Phase, Phase, Z80};
+use super::{InternalPhase, IoPhase, M1Phase, MemPhase, Phase, Z80};
+use crate::mcycle::{self, MStep};
 use crate::walker::Prefix;
 use std::path::{Path, PathBuf};
 
@@ -85,6 +86,7 @@ struct FuseExpected {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FuseObserved {
+    events: Vec<FuseEvent>,
     af: u16,
     bc: u16,
     de: u16,
@@ -430,9 +432,242 @@ fn build_expected_memory(input: &FuseInput, expected: &FuseExpected) -> [u8; 65_
     memory
 }
 
+fn current_tstate(half_cycles: u32) -> u32 {
+    half_cycles / 2
+}
+
+fn push_fuse_event(
+    events: &mut Vec<FuseEvent>,
+    time: u32,
+    kind: FuseEventKind,
+    address: u16,
+    data: Option<u8>,
+) {
+    events.push(FuseEvent {
+        time,
+        kind,
+        address,
+        data,
+    });
+}
+
+fn record_port_contention(events: &mut Vec<FuseEvent>, time: u32, port: u16) {
+    push_fuse_event(events, time, FuseEventKind::PortContend, port, None);
+}
+
+fn record_io_read_events(events: &mut Vec<FuseEvent>, time: u32, port: u16) {
+    let high_contended = (port & 0xC000) == 0x4000;
+    let data_time = time + 1;
+    let data = (port >> 8) as u8;
+
+    if high_contended {
+        record_port_contention(events, time, port);
+    }
+
+    push_fuse_event(events, data_time, FuseEventKind::PortRead, port, Some(data));
+
+    if port & 0x0001 != 0 {
+        if high_contended {
+            record_port_contention(events, data_time, port);
+            record_port_contention(events, data_time + 1, port);
+            record_port_contention(events, data_time + 2, port);
+        }
+    } else {
+        record_port_contention(events, data_time, port);
+    }
+}
+
+fn record_io_write_events(events: &mut Vec<FuseEvent>, time: u32, port: u16, data: u8) {
+    let high_contended = (port & 0xC000) == 0x4000;
+    let data_time = time + 1;
+
+    if high_contended {
+        record_port_contention(events, time, port);
+    }
+
+    push_fuse_event(
+        events,
+        data_time,
+        FuseEventKind::PortWrite,
+        port,
+        Some(data),
+    );
+
+    if port & 0x0001 != 0 {
+        if high_contended {
+            record_port_contention(events, data_time, port);
+            record_port_contention(events, data_time + 1, port);
+            record_port_contention(events, data_time + 2, port);
+        }
+    } else {
+        record_port_contention(events, data_time, port);
+    }
+}
+
+fn fuse_internal_addr(z80: &Z80) -> u16 {
+    let walker = &z80.walker;
+    let regs = &z80.regs;
+    let sequence = walker.sequence.as_ptr();
+
+    if let Some(previous) = walker
+        .step_idx
+        .checked_sub(1)
+        .and_then(|index| walker.sequence.get(index))
+    {
+        match previous {
+            MStep::FetchByte | MStep::FetchByteHi | MStep::FetchDisp => {
+                return regs.pc.wrapping_sub(1);
+            }
+            MStep::ReadAddr | MStep::WriteAddr => return walker.staged.addr,
+            MStep::ReadAddrHi | MStep::WriteAddrHi => return walker.staged.addr.wrapping_add(1),
+            MStep::PopLo | MStep::PopHi => return regs.sp.wrapping_sub(1),
+            MStep::PushHi | MStep::PushLo => return regs.sp,
+            _ => {}
+        }
+    }
+
+    if sequence == mcycle::SEQ_CALL_CC.as_ptr() && walker.step_idx == 3 {
+        return walker.staged.push_val.wrapping_sub(1);
+    }
+    if (sequence == mcycle::SEQ_LDIR_REPEAT.as_ptr() && walker.step_idx == 6)
+        || (sequence == mcycle::SEQ_CPIR_REPEAT.as_ptr() && walker.step_idx == 4)
+        || (sequence == mcycle::SEQ_INIR_REPEAT.as_ptr() && walker.step_idx == 6)
+        || (sequence == mcycle::SEQ_OTIR_REPEAT.as_ptr() && walker.step_idx == 6)
+    {
+        return walker.staged.addr;
+    }
+    if (sequence == mcycle::SEQ_DDCB_HL.as_ptr() || sequence == mcycle::SEQ_DDCB_BIT.as_ptr())
+        && walker.step_idx == 0
+    {
+        return regs.pc.wrapping_sub(1);
+    }
+
+    if (sequence == mcycle::SEQ_LD_SP_HL.as_ptr())
+        || (sequence == mcycle::SEQ_PUSH.as_ptr())
+        || (sequence == mcycle::SEQ_DJNZ_TAKEN.as_ptr() && walker.step_idx == 0)
+        || (sequence == mcycle::SEQ_DJNZ_NOT_TAKEN.as_ptr() && walker.step_idx == 0)
+        || (sequence == mcycle::SEQ_RET_CC.as_ptr())
+        || (sequence == mcycle::SEQ_RST.as_ptr())
+        || (sequence == mcycle::SEQ_INI.as_ptr())
+        || (sequence == mcycle::SEQ_INIR_REPEAT.as_ptr() && walker.step_idx == 0)
+        || (sequence == mcycle::SEQ_INIR_DONE.as_ptr())
+        || (sequence == mcycle::SEQ_OUTI.as_ptr())
+        || (sequence == mcycle::SEQ_OTIR_REPEAT.as_ptr() && walker.step_idx == 0)
+        || (sequence == mcycle::SEQ_OTIR_DONE.as_ptr())
+        || (sequence == mcycle::SEQ_INC_DEC_RR.as_ptr())
+        || (sequence == mcycle::SEQ_ADD_HL_RR.as_ptr())
+        || (sequence == mcycle::SEQ_LD_IR.as_ptr())
+        || (sequence == mcycle::SEQ_NMI.as_ptr())
+    {
+        return regs.ir();
+    }
+
+    regs.ir()
+}
+
+fn record_step_start_events(
+    z80: &Z80,
+    memory: &[u8; 65_536],
+    events: &mut Vec<FuseEvent>,
+    time: u32,
+) {
+    match z80.phase {
+        Phase::M1(M1Phase::T1Rise) => {
+            let address = z80.regs.pc;
+            push_fuse_event(events, time, FuseEventKind::MemContend, address, None);
+            push_fuse_event(
+                events,
+                time + 4,
+                FuseEventKind::MemRead,
+                address,
+                Some(memory[address as usize]),
+            );
+        }
+        Phase::MemRead(MemPhase::T1Rise) => {
+            let address = z80.addr;
+            push_fuse_event(events, time, FuseEventKind::MemContend, address, None);
+            push_fuse_event(
+                events,
+                time + 3,
+                FuseEventKind::MemRead,
+                address,
+                Some(memory[address as usize]),
+            );
+        }
+        Phase::MemWrite(MemPhase::T1Rise) => {
+            let address = z80.addr;
+            push_fuse_event(events, time, FuseEventKind::MemContend, address, None);
+            push_fuse_event(
+                events,
+                time + 3,
+                FuseEventKind::MemWrite,
+                address,
+                Some(z80.data),
+            );
+        }
+        Phase::Contend(MemPhase::T1Rise) => {
+            push_fuse_event(events, time, FuseEventKind::MemContend, z80.addr, None);
+        }
+        Phase::IoRead(IoPhase::T1Rise) => record_io_read_events(events, time, z80.addr),
+        Phase::IoWrite(IoPhase::T1Rise) => record_io_write_events(events, time, z80.addr, z80.data),
+        Phase::Internal(InternalPhase { remaining }) if matches!(z80.walker.current_step(), Some(MStep::Internal(tstates)) if remaining == tstates * 2) =>
+        {
+            let address = fuse_internal_addr(z80);
+            for offset in 0..u32::from(remaining / 2) {
+                push_fuse_event(
+                    events,
+                    time + offset,
+                    FuseEventKind::MemContend,
+                    address,
+                    None,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn format_fuse_event(event: &FuseEvent) -> String {
+    let kind = match event.kind {
+        FuseEventKind::MemRead => "MR",
+        FuseEventKind::MemWrite => "MW",
+        FuseEventKind::MemContend => "MC",
+        FuseEventKind::PortRead => "PR",
+        FuseEventKind::PortWrite => "PW",
+        FuseEventKind::PortContend => "PC",
+    };
+
+    match event.data {
+        Some(data) => format!("{} {} {:04x} {:02x}", event.time, kind, event.address, data),
+        None => format!("{} {} {:04x}", event.time, kind, event.address),
+    }
+}
+
+fn describe_event_mismatch(expected: &[FuseEvent], observed: &[FuseEvent]) -> String {
+    let mismatch_index = expected
+        .iter()
+        .zip(observed.iter())
+        .position(|(left, right)| left != right);
+
+    match mismatch_index {
+        Some(index) => format!(
+            "first mismatch at event {}: expected [{}], got [{}]",
+            index,
+            format_fuse_event(&expected[index]),
+            format_fuse_event(&observed[index]),
+        ),
+        None => format!(
+            "event count mismatch: expected {}, got {}",
+            expected.len(),
+            observed.len()
+        ),
+    }
+}
+
 fn run_fuse_case(input: &FuseInput) -> FuseObserved {
     let mut z80 = Z80::new();
     let mut memory = deadbeef_memory();
+    let mut events = Vec::new();
     apply_memory_blocks(&mut memory, &input.memory);
 
     z80.regs.af = input.af;
@@ -463,6 +698,7 @@ fn run_fuse_case(input: &FuseInput) -> FuseObserved {
     let max_half_cycles = input.requested_tstates.saturating_add(64).saturating_mul(2);
 
     while (half_cycles / 2) < input.requested_tstates || !at_instruction_boundary(&z80) {
+        record_step_start_events(&z80, &memory, &mut events, current_tstate(half_cycles));
         z80.tick();
 
         if z80.mreq && z80.rd {
@@ -487,6 +723,7 @@ fn run_fuse_case(input: &FuseInput) -> FuseObserved {
     }
 
     FuseObserved {
+        events,
         af: z80.regs.af,
         bc: z80.regs.bc,
         de: z80.regs.de,
@@ -676,6 +913,13 @@ fn run_fuse_z80_reference_suite() {
             observed.final_tstates,
             expected_case.final_tstates
         );
+
+        if observed.events != expected_case.events {
+            errors.push(format!(
+                "events: {}",
+                describe_event_mismatch(&expected_case.events, &observed.events)
+            ));
+        }
 
         if observed.memory != expected_memory {
             let mut mismatches = Vec::new();

@@ -54,6 +54,10 @@ pub enum MStep {
     /// 3 T-states (6 half-cycles): memory read.
     PopHi,
 
+    /// Contended memory cycle at PC without a read strobe.
+    /// 3 T-states (6 half-cycles): address and MREQ only.
+    ContendPc,
+
     /// Read from I/O port (staged addr = port address).
     /// 4 T-states (8 half-cycles): I/O read.
     IoRead,
@@ -90,7 +94,8 @@ impl MStep {
             | MStep::PushHi
             | MStep::PushLo
             | MStep::PopLo
-            | MStep::PopHi => 6, // 3 T-states
+            | MStep::PopHi
+            | MStep::ContendPc => 6, // 3 T-states
 
             MStep::IoRead | MStep::IoWrite => 8, // 4 T-states
 
@@ -244,24 +249,22 @@ pub static SEQ_JP_CC_NN: &[MStep] = &[MStep::FetchByte, MStep::FetchByteHi, MSte
 /// M1 + fetch displacement + internal(5) + execute.
 pub static SEQ_JR_E: &[MStep] = &[MStep::FetchByte, MStep::Internal(5), MStep::Execute];
 
-/// JR cc, e — Execute checks condition, Internal(5) if taken.
-/// Not-taken: M1(4) + FetchByte(3) + Execute(0) = 7T
-/// Taken: M1(4) + FetchByte(3) + Execute(0) + Internal(5) = 12T
-pub static SEQ_JR_CC: &[MStep] = &[
-    MStep::FetchByte,
-    MStep::Execute, // check condition; if not taken, done=true
-    MStep::Internal(5),
-];
+/// JR cc, e taken — same bus activity as JR e.
+pub static SEQ_JR_CC_TAKEN: &[MStep] = &[MStep::FetchByte, MStep::Internal(5), MStep::Execute];
 
-/// DJNZ e — Execute checks B, then Internal(5) if taken.
-/// Not-taken: M1(4) + Internal(1) + FetchByte(3) + Execute(0) = 8T
-/// Taken: M1(4) + Internal(1) + FetchByte(3) + Execute(0) + Internal(5) = 13T
-pub static SEQ_DJNZ: &[MStep] = &[
+/// JR cc, e not taken — contend on PC for 3T, then advance PC past the displacement.
+pub static SEQ_JR_CC_NOT_TAKEN: &[MStep] = &[MStep::ContendPc, MStep::Execute];
+
+/// DJNZ e taken.
+pub static SEQ_DJNZ_TAKEN: &[MStep] = &[
     MStep::Internal(1),
     MStep::FetchByte,
-    MStep::Execute, // dec B, check; if not taken, done=true skips Internal(5)
     MStep::Internal(5),
+    MStep::Execute,
 ];
+
+/// DJNZ e not taken — contend on PC for 3T instead of reading the displacement.
+pub static SEQ_DJNZ_NOT_TAKEN: &[MStep] = &[MStep::Internal(1), MStep::ContendPc, MStep::Execute];
 
 /// JP (HL) — jump to address in HL. Just an execute (sets PC = HL).
 pub static SEQ_JP_HL: &[MStep] = &[MStep::Execute];

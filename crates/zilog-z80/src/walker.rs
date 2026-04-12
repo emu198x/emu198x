@@ -99,6 +99,7 @@ impl Walker {
             | MStep::ReadAddrHi
             | MStep::PopLo
             | MStep::PopHi => Some(Phase::MemRead(MemPhase::T1Rise)),
+            MStep::ContendPc => Some(Phase::Contend(MemPhase::T1Rise)),
             MStep::WriteAddr | MStep::WriteAddrHi | MStep::PushHi | MStep::PushLo => {
                 Some(Phase::MemWrite(MemPhase::T1Rise))
             }
@@ -148,6 +149,9 @@ impl Walker {
             }
             MStep::PopLo | MStep::PopHi => {
                 *addr = regs.sp;
+            }
+            MStep::ContendPc => {
+                *addr = regs.pc;
             }
             MStep::IoRead => {
                 *addr = self.staged.addr;
