@@ -1,5 +1,7 @@
 # Spectrum Test Results
 
+> Note: only the CPU test section below has been refreshed against the fresh Rust workspace as of 2026-04-12. The later system, performance, and media sections are historical notes and should not be treated as current status until they are rerun.
+
 ## CPU tests
 
 | Suite | Result | Command |
@@ -7,27 +9,28 @@
 | Tom Harte | 1,604,000 / 1,604,000 (100%) | `cargo test -p zilog-z80 --test single_step_tests run_all -- --ignored --nocapture` |
 | ZEXDOC | Pass | `cargo test --release -p zilog-z80 --test zex_tests run_zexdoc -- --ignored --nocapture` |
 | ZEXALL | Pass | `cargo test --release -p zilog-z80 --test zex_tests run_zexall -- --ignored --nocapture` |
-| FUSE | 1,351 / 1,356 (99.6%) | Integration test |
+| FUSE | 1,350 / 1,356 exact, 6 accepted disagreements, 0 unexpected | `cargo test -p zilog-z80 run_fuse_z80_reference_suite -- --ignored --nocapture` |
 
-### FUSE failures (5 remaining) — investigated, accepted
+### FUSE disagreements (6 accepted) — investigated, recorded
 
-These 5 failures are documented disagreements between FUSE and Tom Harte. Tom Harte is derived from silicon-level testing of real hardware and is the more accurate of the two. We pass Tom Harte at 100% (all 1,604,000 cases) and our values for these specific instructions match Tom Harte's expected outputs. The five FUSE cases below are reported because future regressions could touch these code paths and we want to know exactly which cases are "expected to disagree" rather than treat the failure count as a black box.
+These 6 cases are documented disagreements between FUSE and the combination of Tom Harte plus the current fresh-workspace Z80 core. Tom Harte remains the primary CPU oracle. The FUSE harness is currently a chip-level compatibility pass over final register state, memory effects, and final T-state counts; per-event trace comparison is still pending.
 
 | FUSE test | Opcode | Instruction | Disagreement | Tom Harte agrees with us |
 |-----------|--------|-------------|--------------|--------------------------|
 | `76` | `0x76` | `HALT` | PC: got `0x0001`, FUSE expected `0x0000` | Yes |
-| `edb2_1` | `0xED 0xB2` | `INIR` | F bits 2,3 (P/V + X-undocumented): got `0x00`, FUSE expected `0x0C` | Yes |
-| `edb3_1` | `0xED 0xB3` | `OTIR` | F bits 2,4 (H + P/V): got `0x03`, FUSE expected `0x17` | Yes |
+| `edb2_1` | `0xED 0xB2` | `INIR` | F bits 2,3 differ and `WZ` ends at `0x0001` instead of `0x0A41` | Yes |
+| `edb3_1` | `0xED 0xB3` | `OTIR` | F bits 2,4 differ and `WZ` ends at `0x0001` instead of `0x02E1` | Yes |
 | `edb9_2` | `0xED 0xB9` | `CPDR` | F bit 3 (X-undocumented): got `0xAF`, FUSE expected `0xA7` | Yes |
-| `edbb_1` | `0xED 0xBB` | `OTDR` | F bits 2,4 (H + P/V): got `0x03`, FUSE expected `0x17` | Yes |
+| `edba_1` | `0xED 0xBA` | `INDR` | `WZ`: got `0x0001`, FUSE expected `0x069E` | Yes |
+| `edbb_1` | `0xED 0xBB` | `OTDR` | F bits 2,4 differ and `WZ` ends at `0x0001` instead of `0x033A` | Yes |
 
-**Pattern.** Four of the five are block I/O / block compare instructions (`INIR`, `OTIR`, `CPDR`, `OTDR`). The H, P/V, and X (undocumented bit 3) flag formulas for these instructions are notoriously underspecified — different reference sources publish different formulas, and FUSE's expected values predate the modern reverse-engineering work that underpins the Tom Harte suite. The Z80 silicon implements these flags in terms of intermediate values from the CPU's internal computation, which the older sources approximated incorrectly.
+**Pattern.** Five of the six are block I/O / block compare instructions (`INIR`, `OTIR`, `CPDR`, `INDR`, `OTDR`). The flag formulas and `WZ` behaviour for these paths are among the messiest parts of Z80 compatibility work, and older references disagree. The important point for this repo is that the disagreements are now explicit and named instead of being hidden behind a vague pass count.
 
-The fifth (`HALT` at `0x76`) is a PC-bookkeeping convention difference: when `HALT` executes, the real Z80 has already incremented PC past the HALT opcode, and resumes at PC after a wake-up interrupt. We model PC advancing past the HALT (Tom Harte's convention); FUSE leaves PC pointing at the HALT and re-fetches it on each wake-up cycle. The two are observationally equivalent because both produce the same execution sequence, but the recorded PC at the moment FUSE checks differs by one byte.
+`HALT` at `0x76` remains the same PC-bookkeeping convention difference as before: we keep `PC` advanced past the HALT opcode, while FUSE leaves it pointing at the HALT.
 
-**What would actually be a regression.** If a future Z80 change causes any *other* FUSE test to start failing — i.e. the count goes above 5, or any test outside this list appears in the failure output — that's a real regression and needs investigation. The five tests above stay on this list as long as we side with Tom Harte; if any of them ever flip and we agree with FUSE on something we previously disagreed with, that's worth investigating too because it suggests an unintended behaviour change.
+**What would actually be a regression.** If a future Z80 change causes any other FUSE case to diverge, or changes the mismatch fields for one of the six listed above, that is a real regression and the harness will fail. The allowlist is explicit in the test code so the suite does not silently absorb extra disagreements.
 
-**How to verify.** `cargo test -p machine-sinclair-zx-spectrum-48k --test fuse_tests -- --nocapture` prints the current pass/fail count and the first ten failures. Should always be exactly 5 failures and the test names should match the table above.
+**How to verify.** `cargo test -p zilog-z80 run_fuse_z80_reference_suite -- --ignored --nocapture` should report `1,350 / 1,356 exact, 6 accepted disagreements, 0 unexpected`.
 
 ## System tests
 

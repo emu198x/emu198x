@@ -1062,6 +1062,10 @@ impl Z80 {
 }
 
 #[cfg(test)]
+#[path = "z80_fuse_tests.rs"]
+mod fuse_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

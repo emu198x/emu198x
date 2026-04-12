@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Fresh-workspace FUSE Z80 compatibility harness is established
+
+**Type:** milestone
+**Trigger:** After Tom Harte, `zexdoc`, and `zexall` were all passing in the fresh workspace, the next missing external verification pass was FUSE. The older repo claimed a five-failure FUSE result, but there was no current harness in this workspace and no reason to trust that old count without rerunning it here.
+**Result:** the fresh workspace now has a local FUSE Z80 harness in `crates/zilog-z80/src/z80_fuse_tests.rs`:
+1. Added a parser for the local FUSE `tests.in` and `tests.expected` fixture files, including register state, final T-state counts, expected memory deltas, and the event list for future use.
+2. Added a chip-level runner that initializes the FUSE DEADBEEF memory background, applies fixture memory overlays, runs the half-cycle Z80 until the real post-instruction boundary, and compares final registers, memory, and T-state totals.
+3. Established the current fresh-workspace FUSE baseline: **1,350 / 1,356 exact matches, 6 accepted disagreements, 0 unexpected**.
+4. Made the six accepted disagreements explicit in the harness so any new FUSE drift or changed mismatch pattern fails the test immediately instead of hiding behind a generic percentage.
+5. Corrected the stale repo narrative: the fresh workspace does not currently show the old "five failures" story. It shows six named disagreements, including an additional `INDR` `WZ` difference.
+**Verification:** `cargo test -p zilog-z80 run_fuse_z80_reference_suite -- --ignored --nocapture` passes with `1,350 / 1,356 exact, 6 accepted disagreements, 0 unexpected`. `cargo clippy -p zilog-z80 --tests -- -D warnings` passes.
+**Next dependency:** if we need FUSE-level event-trace comparison rather than final-state compatibility, the remaining work is not parser or fixture setup. It is trace instrumentation for internal `MC` / `PC` timing phases that are not fully visible on the public pin surface.
+
+---
+
 ## 2026-04-12 — ZEX snapshots, cached resume, and full suite reruns are established
 
 **Type:** milestone
