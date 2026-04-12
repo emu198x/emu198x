@@ -56,9 +56,11 @@ The fix for the final 1,996 Tom Harte failures:
 
 ## Test results
 
+As of 2026-04-12 in the fresh Rust workspace, the Tom Harte corpus has been rerun locally and passes in full. The ZEX and FUSE rows below are still useful reference targets, but they have not yet both been re-established end-to-end in this workspace after the recent harness rewrite.
+
 | Suite | Result |
 |-------|--------|
-| Tom Harte | 1,604,000 / 1,604,000 (100%) |
-| ZEXDOC | 268/268 |
-| ZEXALL | 268/268 |
-| FUSE | 1,351 / 1,356 (99.6%) |
+| Tom Harte | 1,604,000 / 1,604,000 (100%) — rerun locally on 2026-04-12 |
+| ZEXDOC | Harness wired to local binaries; full rerun pending |
+| ZEXALL | Harness wired to local binaries; full rerun pending |
+| FUSE | Reference target; fresh-workspace rerun pending |

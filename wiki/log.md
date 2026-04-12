@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Z80 local verification corpora are wired back in; Tom Harte rerun passes cleanly
+
+**Type:** milestone
+**Trigger:** After the instruction-level integration coverage work, the next useful step was to stop treating `zexdoc`, `zexall`, and the Tom Harte corpus as aspirational references and make the fresh workspace actually discover and run the local verification assets that already exist on disk.
+**Result:** the Z80 verification harnesses now use explicit local-corpus discovery instead of brittle hard-coded paths:
+1. Added shared test-support lookup in `crates/zilog-z80/tests/support/mod.rs` for the Tom Harte Z80 corpus, ZEX binaries, and future FUSE fixtures. The harnesses now respect explicit environment variables first and then fall back to known local archive roots, including `~/Projects/Emu198x-Unclean/Reference/test-suites/...`.
+2. Updated `single_step_tests.rs` to use that shared lookup path. The full Tom Harte run was then executed against the local `processor-tests/z80/v1` corpus and passed completely: **1,604,000 / 1,604,000 cases passing, 0 failed opcodes**.
+3. Updated `zex_tests.rs` to discover local `zexdoc.com` / `zexall.com`, treat BDOS function 9 output as line-level progress rather than raw character spam, stop duplicating each BDOS call four times, and honor the exerciser's own `"complete"` message as the intended completion boundary instead of relying only on a final `HALT`.
+4. Added an explicit reference-adjudication note to `wiki/concepts/test-methodology.md`: Tom Harte remains the primary per-instruction oracle, ZEX remains the program-level CPU regression suite, and FUSE stays a strong secondary reference for Spectrum-visible timing and bus behavior. Disagreements are to be recorded and resolved, not papered over.
+**Verification:** `cargo test -p zilog-z80 --test single_step_tests run_opcode_00 -- --ignored --nocapture` passes against the local corpus (`1000/1000`). `cargo test -p zilog-z80 --test single_step_tests run_all -- --ignored --nocapture` passes with `1,604,000 / 1,604,000` cases. The improved `zexdoc` harness was exercised far enough to confirm correct local binary discovery and sane block-by-block progress reporting, but a full fresh-workspace ZEX rerun was not completed in this session.
+**Next dependency:** if we want routine ZEX use rather than occasional long manual runs, the worthwhile next step is the per-block stop/resume or snapshot instrumentation Steve mentioned earlier, so a failing exerciser block can be isolated without replaying the entire program from the beginning.
+
+---
+
 ## 2026-04-12 — Z80 ED edge cases and repeat variants narrow further
 
 **Type:** milestone

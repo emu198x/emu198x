@@ -4,8 +4,12 @@
 /// register state and memory changes for every opcode.
 ///
 /// Run with: cargo test -p zilog-z80 --test single_step_tests -- --ignored --nocapture
+mod support;
+
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::path::Path;
+use support::find_tom_harte_z80_dir;
 use zilog_z80::Z80;
 
 #[derive(Deserialize)]
@@ -221,7 +225,7 @@ fn run_test(test: &TestCase) -> Vec<String> {
 }
 
 /// Run all tests in a single JSON file.
-fn run_opcode_tests(path: &std::path::Path) -> (usize, usize, Vec<String>) {
+fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
     let data = std::fs::read_to_string(path).expect("Failed to read test file");
     let tests: Vec<TestCase> = serde_json::from_str(&data).expect("Failed to parse JSON");
 
@@ -254,18 +258,17 @@ fn run_opcode_tests(path: &std::path::Path) -> (usize, usize, Vec<String>) {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires local Tom Harte Z80 corpus and runs for minutes"]
 fn run_all() {
-    let test_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test-data/z80/v1");
-    let test_path = std::path::Path::new(test_dir);
+    let test_path = match find_tom_harte_z80_dir() {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("{message}");
+            return;
+        }
+    };
 
-    if !test_path.exists() {
-        eprintln!("Tom Harte test data not found at {}", test_dir);
-        eprintln!("Download from: https://github.com/TomHarte/ProcessorTests");
-        return;
-    }
-
-    let read_dir = match std::fs::read_dir(test_path) {
+    let read_dir = match std::fs::read_dir(&test_path) {
         Ok(read_dir) => read_dir,
         Err(error) => panic!(
             "failed to read test directory {}: {error}",
@@ -336,18 +339,16 @@ fn run_all() {
 /// Run tests for a single opcode (useful for debugging).
 /// Example: cargo test -p zilog-z80 --test single_step_tests run_opcode_00 -- --ignored --nocapture
 #[test]
-#[ignore]
+#[ignore = "requires local Tom Harte Z80 corpus"]
 fn run_opcode_00() {
-    let path = format!(
-        "{}/../../test-data/z80/v1/00.json",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    let path = std::path::Path::new(&path);
-    if !path.exists() {
-        eprintln!("Test file not found: {}", path.display());
-        return;
-    }
-    let (pass, fail, failures) = run_opcode_tests(path);
+    let path = match find_tom_harte_z80_dir() {
+        Ok(dir) => dir.join("00.json"),
+        Err(message) => {
+            eprintln!("{message}");
+            return;
+        }
+    };
+    let (pass, fail, failures) = run_opcode_tests(&path);
     println!("00 (NOP): {}/{} pass", pass, pass + fail);
     for f in &failures {
         println!("  {}", f);

@@ -6,7 +6,15 @@
 ///
 /// We load them at $0100 (CP/M TPA), trap BDOS calls at $0005 for console
 /// output, and trap JP $0000 (warm boot) as exit.
+mod support;
+
+use support::find_zex_binary;
 use zilog_z80::Z80;
+
+struct ZexRunResult {
+    output: String,
+    completed: bool,
+}
 
 /// Minimal CP/M memory: 64K flat, .COM loaded at $0100.
 struct CpmMemory {
@@ -35,11 +43,13 @@ impl CpmMemory {
     }
 }
 
-/// Run a ZEX .COM file, returning the console output.
-fn run_zex(com_data: &[u8]) -> String {
+/// Run a ZEX .COM file, returning the console output and completion status.
+fn run_zex(com_data: &[u8]) -> ZexRunResult {
     let mut mem = CpmMemory::new(com_data);
     let mut z80 = Z80::new();
     let mut output = String::new();
+    let mut completed = false;
+    let mut bdos_call_active = false;
 
     // CP/M entry: PC = $0100, SP = $FFFE (below BDOS)
     z80.regs.pc = 0x0100;
@@ -62,8 +72,10 @@ fn run_zex(com_data: &[u8]) -> String {
             z80.data_in = 0xFF;
         }
 
-        // Check for BDOS call: PC at $0005 during M1 fetch
-        if z80.m1 && z80.addr == 0x0005 {
+        // Check for BDOS call: handle it once when the M1 fetch at $0005 begins.
+        let at_bdos_fetch = z80.m1 && z80.addr == 0x0005;
+        if at_bdos_fetch && !bdos_call_active {
+            bdos_call_active = true;
             let func = z80.regs.bc & 0xFF; // C register = BDOS function
             match func as u8 {
                 2 => {
@@ -75,19 +87,35 @@ fn run_zex(com_data: &[u8]) -> String {
                 9 => {
                     // Print string (DE = address, '$' terminated)
                     let mut addr = z80.regs.de;
+                    let mut message = String::new();
                     loop {
                         let ch = mem.read(addr);
                         if ch == b'$' {
                             break;
                         }
-                        output.push(ch as char);
-                        eprint!("{}", ch as char);
+                        let ch = ch as char;
+                        output.push(ch);
+                        message.push(ch);
                         addr = addr.wrapping_add(1);
+                    }
+                    let message = message.trim().to_string();
+                    if !message.is_empty() {
+                        eprintln!("{message}");
+                        if message.contains("complete") {
+                            completed = true;
+                        }
                     }
                 }
                 _ => {}
             }
             // The RET at $0005 will pop back to the caller
+        } else if !at_bdos_fetch {
+            bdos_call_active = false;
+        }
+
+        if completed {
+            eprintln!("\nZEX complete after {} cycles", cycle_count);
+            break;
         }
 
         // Check for warm boot (HALT at $0000)
@@ -102,32 +130,32 @@ fn run_zex(com_data: &[u8]) -> String {
         }
     }
 
-    output
+    ZexRunResult { output, completed }
 }
 
 #[test]
-#[ignore] // Long-running test (~minutes)
+#[ignore = "requires local ZEX corpus and runs for minutes"]
 fn run_zexdoc() {
-    let Some(home_dir) = dirs::home_dir() else {
-        eprintln!("home directory not available");
-        return;
+    let path = match find_zex_binary("zexdoc") {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("{message}");
+            return;
+        }
     };
-    let path = home_dir.join("Projects/Reference/sinclair/spectrum/zexdoc.com");
-    if !path.exists() {
-        eprintln!("zexdoc.com not found at {}", path.display());
-        return;
-    }
     let com = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) => panic!("failed to read {}: {error}", path.display()),
     };
-    let output = run_zex(&com);
+    let result = run_zex(&com);
+    let output = &result.output;
 
     // Count passes and failures
     let tests_ok = output.matches("OK").count();
     let tests_fail = output.matches("ERROR").count();
     eprintln!("ZEXDOC: {} OK, {} ERROR", tests_ok, tests_fail);
 
+    assert!(result.completed, "ZEXDOC did not report completion");
     assert_eq!(
         tests_fail, 0,
         "ZEXDOC had {} failures:\n{}",
@@ -136,27 +164,27 @@ fn run_zexdoc() {
 }
 
 #[test]
-#[ignore] // Long-running test (~minutes)
+#[ignore = "requires local ZEX corpus and runs for minutes"]
 fn run_zexall() {
-    let Some(home_dir) = dirs::home_dir() else {
-        eprintln!("home directory not available");
-        return;
+    let path = match find_zex_binary("zexall") {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("{message}");
+            return;
+        }
     };
-    let path = home_dir.join("Projects/Reference/sinclair/spectrum/zexall.com");
-    if !path.exists() {
-        eprintln!("zexall.com not found at {}", path.display());
-        return;
-    }
     let com = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) => panic!("failed to read {}: {error}", path.display()),
     };
-    let output = run_zex(&com);
+    let result = run_zex(&com);
+    let output = &result.output;
 
     let tests_ok = output.matches("OK").count();
     let tests_fail = output.matches("ERROR").count();
     eprintln!("ZEXALL: {} OK, {} ERROR", tests_ok, tests_fail);
 
+    assert!(result.completed, "ZEXALL did not report completion");
     assert_eq!(
         tests_fail, 0,
         "ZEXALL had {} failures:\n{}",

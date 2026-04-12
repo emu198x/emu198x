@@ -22,6 +22,16 @@ CP/M test programs that exercise documented (ZEXDOC) and undocumented (ZEXALL) Z
 
 Parse notes: `-1` is a sentinel (>= 0x10000 for addresses, >= 0x100 for bytes).
 
+## Reference adjudication
+
+These suites do not all answer the same question, and they are not treated as interchangeable:
+
+- **Tom Harte** is the primary per-instruction oracle for CPU before/after state and instruction-level bus-visible behaviour.
+- **ZEXDOC / ZEXALL** are program-level regression suites for the Z80 core running real software in a simple host environment.
+- **FUSE** is a strong secondary reference for Spectrum-visible timing, contention, I/O, and interrupt behaviour, especially where machine integration matters more than isolated opcode semantics.
+
+If Tom Harte and FUSE disagree, do not "average" them or silently pick whichever is more convenient. Record the disagreement, identify what behaviour is actually being measured, and resolve it against additional evidence such as hardware documentation, other trusted emulators, captured traces, and whether the difference is CPU-generic or Spectrum-specific.
+
 ## System test suites
 
 Per-system tests verify correct behaviour at the integration level:
