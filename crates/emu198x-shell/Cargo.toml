@@ -4,7 +4,6 @@ description = "Cross-system shared control surface, machine registry types, and 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 postcard = { workspace = true }

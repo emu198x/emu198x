@@ -60,46 +60,48 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     match model {
-        Model::Spectrum48KPal => MachineProfile::new(
-            MachineId::from("sinclair-zx-spectrum"),
-            ProfileId::from(model.profile_id()),
-            model.display_name(),
-            Family::Spectrum,
-            Region::Pal,
-            SupportTier::Research,
-            1982,
-            "48K PAL baseline for the first reference Spectrum implementation.",
-            ClockDesc::new("master-cycle", ClockRate::from_hz(14_000_000)),
-            vec![FirmwareRequirement::new(
+        Model::Spectrum48KPal => MachineProfile {
+            machine_id: MachineId::from("sinclair-zx-spectrum"),
+            profile_id: ProfileId::from(model.profile_id()),
+            display_name: model.display_name().into(),
+            family: Family::Spectrum,
+            region: Region::Pal,
+            support_tier: SupportTier::Research,
+            release_year: 1982,
+            summary: "48K PAL baseline for the first reference Spectrum implementation.".into(),
+            clock: ClockDesc::new("master-cycle", ClockRate::from_hz(14_000_000)),
+            firmware: vec![FirmwareRequirement::new(
                 "sinclair-zx-spectrum-48k-rom",
                 "ZX Spectrum 48K ROM",
                 false,
             )],
-            vec![MediaSlot::new(
+            media_slots: vec![MediaSlot::new(
                 "tape-1",
                 "Tape Deck",
                 MediaKind::Tape,
                 false,
                 WritebackPolicy::InMemoryOnly,
             )],
-            CapabilitySet::with_all([
+            capabilities: CapabilitySet::with_all([
                 known_capability("keyboard-matrix"),
                 known_capability("tape-input"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
             ]),
-        ),
-        Model::Spectrum128KPal => MachineProfile::new(
-            MachineId::from("sinclair-zx-spectrum"),
-            ProfileId::from(model.profile_id()),
-            model.display_name(),
-            Family::Spectrum,
-            Region::Pal,
-            SupportTier::Research,
-            1985,
-            "128K PAL follow-on profile with banked memory, AY audio, and tape-era baseline media.",
-            ClockDesc::new("master-cycle", ClockRate::from_hz(17_734_475)),
-            vec![
+        },
+        Model::Spectrum128KPal => MachineProfile {
+            machine_id: MachineId::from("sinclair-zx-spectrum"),
+            profile_id: ProfileId::from(model.profile_id()),
+            display_name: model.display_name().into(),
+            family: Family::Spectrum,
+            region: Region::Pal,
+            support_tier: SupportTier::Research,
+            release_year: 1985,
+            summary:
+                "128K PAL follow-on profile with banked memory, AY audio, and tape-era baseline media."
+                    .into(),
+            clock: ClockDesc::new("master-cycle", ClockRate::from_hz(17_734_475)),
+            firmware: vec![
                 FirmwareRequirement::new(
                     "sinclair-zx-spectrum-128k-rom-0",
                     "ZX Spectrum 128K ROM 0",
@@ -111,14 +113,14 @@ pub fn profile_for(model: Model) -> MachineProfile {
                     false,
                 ),
             ],
-            vec![MediaSlot::new(
+            media_slots: vec![MediaSlot::new(
                 "tape-1",
                 "Tape Deck",
                 MediaKind::Tape,
                 false,
                 WritebackPolicy::InMemoryOnly,
             )],
-            CapabilitySet::with_all([
+            capabilities: CapabilitySet::with_all([
                 known_capability("ay-audio"),
                 known_capability("banked-memory"),
                 known_capability("keyboard-matrix"),
@@ -126,7 +128,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
             ]),
-        ),
+        },
     }
 }
 

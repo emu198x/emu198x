@@ -4,7 +4,6 @@ description = "Sinclair ZX Spectrum runtime metadata and future family runtime l
 edition.workspace = true
 version.workspace = true
 license.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell" }

@@ -130,37 +130,10 @@ pub struct MachineProfile {
 }
 
 impl MachineProfile {
-    /// Creates one machine profile.
-    #[must_use]
-    pub fn new(
-        machine_id: MachineId,
-        profile_id: ProfileId,
-        display_name: impl Into<Cow<'static, str>>,
-        family: Family,
-        region: Region,
-        support_tier: SupportTier,
-        release_year: u16,
-        summary: impl Into<Cow<'static, str>>,
-        clock: ClockDesc,
-        firmware: Vec<FirmwareRequirement>,
-        media_slots: Vec<MediaSlot>,
-        capabilities: CapabilitySet,
-    ) -> Self {
-        Self {
-            machine_id,
-            profile_id,
-            display_name: display_name.into(),
-            family,
-            region,
-            support_tier,
-            release_year,
-            summary: summary.into(),
-            clock,
-            firmware,
-            media_slots,
-            capabilities,
-        }
-    }
+    // Intentionally no wide convenience constructor here.
+    //
+    // Machine profiles have enough fields that a giant positional constructor
+    // becomes harder to read than a struct literal and tends to fight clippy.
 }
 
 /// Reset variants exposed by the shared control surface.
