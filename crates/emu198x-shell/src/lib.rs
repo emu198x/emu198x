@@ -13,6 +13,7 @@ pub mod headless;
 pub mod host;
 pub mod machine;
 pub mod media;
+pub mod query;
 pub mod script;
 pub mod session;
 pub mod time;
@@ -32,8 +33,10 @@ pub use machine::{
     StopReason, SupportTier,
 };
 pub use media::{FirmwareRequirement, MediaImage, MediaKind, MediaSet, MediaSlot, WritebackPolicy};
+pub use query::{QueryError, QueryPathsResult, QueryResult, SESSION_QUERY_PATHS};
 pub use script::{
-    HeadlessScript, ScriptError, ScriptMediaKind, ScriptMediaTransportAction, ScriptStep,
+    HeadlessScript, ScriptError, ScriptMediaKind, ScriptMediaTransportAction, ScriptObservation,
+    ScriptStep,
 };
 pub use session::{HeadlessSession, SessionError};
 pub use time::{ClockDesc, ClockRate, MachineTime};

@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Shared session query surface and script observations land
+
+**Type:** milestone
+**Trigger:** The shell layer could already boot machines, load media, run frames, save captures, and execute JSON scripts, but scripts still only drove side effects. There was no shared way to ask the live session what it knew or to get structured results back from the script path itself.
+**Result:** `emu198x-shell` now owns the first reusable observability surface above one live machine runtime:
+1. New `query` module defines stable generic session paths, typed `QueryResult` / `QueryPathsResult` responses, and path resolution for current shell-owned state such as session time, profile metadata, capture availability, and the most recent run result.
+2. `HeadlessSession` now tracks `last_run_result` and exposes `query()` plus `query_paths()`, so host-side tools can inspect live state without downcasting into family runtimes.
+3. `HeadlessScript` and `ScriptStep` now support `query` and `query_paths` actions, and they return structured `ScriptObservation` values for `run_frames`, `query`, and `query_paths` instead of acting as pure fire-and-forget control flow.
+4. `emu198x-script-spectrum` now emits one JSON report on stdout when `--script PATH` is used. That report includes structured observations plus final machine state (`time`, `tape_loaded`, `tape_playing`), which gives automation and future MCP-style hosts a real machine-readable result boundary.
+**Documentation note:** `docs/features/scripting.md` now describes the current fresh-workspace contract instead of the older JSON-RPC-style scripting proposal. It reflects the real `action`-based step format, current shared actions, the implemented generic query paths, and the current JSON report shape.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass. New coverage includes shell tests for query-path filtering, run-state query resolution, session query access, script query observations, and a Spectrum runner test that executes a shared script and inspects the structured observation report.
+**Next dependency:** the next useful increment is to widen observability carefully, likely with family-owned query namespaces above the same shell surface rather than by smuggling debugger or chip-inspection policy into `MachineCore`.
+
+---
+
 ## 2026-04-12 — Shared headless session and JSON script runner land
 
 **Type:** milestone

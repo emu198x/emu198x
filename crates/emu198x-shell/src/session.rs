@@ -11,6 +11,7 @@ use crate::headless::prepare_machine;
 use crate::host::{HostIo, InputEvent, NullTraceSink};
 use crate::machine::{MachineCore, RunResult};
 use crate::media::MediaSet;
+use crate::query::{QueryError, QueryPathsResult, QueryResult, query_paths, query_value};
 use crate::time::MachineTime;
 
 /// Error surfaced by shared headless session helpers.
@@ -37,6 +38,7 @@ pub struct HeadlessSession<M> {
     frame_capture: LatestFrameCapture,
     audio_capture: AudioCapture,
     trace_sink: NullTraceSink,
+    last_run_result: Option<RunResult>,
 }
 
 impl<M> HeadlessSession<M> {
@@ -50,6 +52,7 @@ impl<M> HeadlessSession<M> {
             frame_capture: LatestFrameCapture::default(),
             audio_capture: AudioCapture::default(),
             trace_sink: NullTraceSink,
+            last_run_result: None,
         }
     }
 
@@ -77,6 +80,31 @@ impl<M: MachineCore> HeadlessSession<M> {
     #[must_use]
     pub fn time(&self) -> MachineTime {
         self.machine.time()
+    }
+
+    /// Returns the most recent run result, when one exists.
+    #[must_use]
+    pub const fn last_run_result(&self) -> Option<RunResult> {
+        self.last_run_result
+    }
+
+    /// Returns the supported shared query paths, optionally filtered by prefix.
+    #[must_use]
+    pub fn query_paths(&self, prefix: Option<&str>) -> QueryPathsResult {
+        query_paths(prefix)
+    }
+
+    /// Resolves one shared query path against the current session state.
+    pub fn query(&self, path: &str) -> Result<QueryResult, QueryError> {
+        query_value(
+            self.machine.profile(),
+            self.time(),
+            self.native_frame_ticks,
+            self.frame_capture.frame().is_some(),
+            self.audio_capture.audio().is_some(),
+            self.last_run_result,
+            path,
+        )
     }
 
     /// Queues one input event for the next execution slice.
@@ -170,6 +198,7 @@ impl<M: MachineCore> HeadlessSession<M> {
             trace_sink: &mut self.trace_sink,
         };
         let result = self.machine.run_until(target, &mut host)?;
+        self.last_run_result = Some(result);
         Ok(result)
     }
 
@@ -354,6 +383,7 @@ mod tests {
         assert_eq!(session.time(), MachineTime::new(139_776));
         assert!(session.screenshot_png_bytes().is_ok());
         assert!(session.audio_wav_bytes().is_ok());
+        assert_eq!(session.last_run_result(), Some(result));
     }
 
     #[test]
@@ -437,5 +467,29 @@ mod tests {
             result,
             Err(SessionError::Capture(CaptureError::MissingAudio))
         ));
+    }
+
+    #[test]
+    fn session_can_query_shared_status_paths() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+        session.run_frames(1).expect("frame should run");
+
+        let time = session
+            .query("session.time")
+            .expect("time query should resolve");
+        let capabilities = session
+            .query("session.profile.capabilities")
+            .expect("capability query should resolve");
+        let paths = session.query_paths(Some("run.last."));
+
+        assert_eq!(time.value, serde_json::json!(69888));
+        assert_eq!(capabilities.value, serde_json::json!([]));
+        assert_eq!(
+            paths.paths,
+            vec![
+                "run.last.reached".to_owned(),
+                "run.last.stop_reason".to_owned()
+            ]
+        );
     }
 }

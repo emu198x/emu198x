@@ -8,6 +8,7 @@ use thiserror::Error;
 use crate::control::ControlCommand;
 use crate::machine::MachineCore;
 use crate::media::{MediaImage, MediaKind, MediaSet};
+use crate::query::{QueryError, QueryPathsResult, QueryResult};
 use crate::session::{HeadlessSession, SessionError};
 
 /// One user-facing script media kind with stable JSON spellings.
@@ -80,6 +81,16 @@ pub enum ScriptStep {
         /// Number of native video frames to execute.
         frames: u32,
     },
+    /// Resolve one shared query path.
+    Query {
+        /// The query path to resolve.
+        path: String,
+    },
+    /// List supported query paths, optionally filtered by prefix.
+    QueryPaths {
+        /// Optional prefix filter.
+        prefix: Option<String>,
+    },
     /// Restore one snapshot file into the live machine.
     LoadSnapshot {
         /// Path to the snapshot on disk.
@@ -113,6 +124,31 @@ pub struct HeadlessScript {
     pub steps: Vec<ScriptStep>,
 }
 
+/// One structured observation emitted by the shared script layer.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ScriptObservation {
+    /// Result of a frame-run step.
+    RunFrames {
+        /// Number of requested native frames.
+        frames: u32,
+        /// Machine time reached after the run.
+        reached: crate::MachineTime,
+        /// Why the machine stopped.
+        stop_reason: crate::StopReason,
+    },
+    /// Result of resolving one query path.
+    Query {
+        /// Resolved query data.
+        result: QueryResult,
+    },
+    /// Result of listing supported query paths.
+    QueryPaths {
+        /// Query-path listing response.
+        result: QueryPathsResult,
+    },
+}
+
 impl HeadlessScript {
     /// Parses one script from UTF-8 JSON text.
     ///
@@ -142,11 +178,27 @@ impl HeadlessScript {
         &self,
         session: &mut HeadlessSession<M>,
     ) -> Result<(), ScriptError> {
+        self.execute_collect(session).map(|_| ())
+    }
+
+    /// Executes this script and returns any structured observations it emits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if file I/O, machine control, query resolution, or
+    /// capture output fails.
+    pub fn execute_collect<M: MachineCore>(
+        &self,
+        session: &mut HeadlessSession<M>,
+    ) -> Result<Vec<ScriptObservation>, ScriptError> {
+        let mut observations = Vec::new();
         for step in &self.steps {
-            step.execute(session)?;
+            if let Some(observation) = step.execute_collect(session)? {
+                observations.push(observation);
+            }
         }
 
-        Ok(())
+        Ok(observations)
     }
 }
 
@@ -160,43 +212,75 @@ impl ScriptStep {
         &self,
         session: &mut HeadlessSession<M>,
     ) -> Result<(), ScriptError> {
+        self.execute_collect(session).map(|_| ())
+    }
+
+    /// Executes one script step and returns any structured observation it
+    /// produces.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if file I/O, machine control, query resolution, or
+    /// capture output fails.
+    pub fn execute_collect<M: MachineCore>(
+        &self,
+        session: &mut HeadlessSession<M>,
+    ) -> Result<Option<ScriptObservation>, ScriptError> {
         match self {
             Self::LoadMedia { slot, kind, path } => {
                 let bytes = std::fs::read(path)?;
                 let mut media = MediaSet::new();
                 media.push(MediaImage::new(slot.clone(), (*kind).into(), &bytes));
                 session.load_media(&media)?;
+                Ok(None)
             }
             Self::MediaTransport { slot, transport } => {
                 session.command(&ControlCommand::MediaTransport(
                     crate::MediaTransportCommand::new(slot.clone(), (*transport).into()),
                 ))?;
+                Ok(None)
             }
             Self::Input { events } => {
                 session.queue_inputs(events.iter().cloned());
+                Ok(None)
             }
             Self::RunFrames { frames } => {
-                session.run_frames(*frames)?;
+                let result = session.run_frames(*frames)?;
+                Ok(Some(ScriptObservation::RunFrames {
+                    frames: *frames,
+                    reached: result.reached,
+                    stop_reason: result.stop_reason,
+                }))
+            }
+            Self::Query { path } => {
+                let result = session.query(path)?;
+                Ok(Some(ScriptObservation::Query { result }))
+            }
+            Self::QueryPaths { prefix } => {
+                let result = session.query_paths(prefix.as_deref());
+                Ok(Some(ScriptObservation::QueryPaths { result }))
             }
             Self::LoadSnapshot { path } => {
                 let bytes = std::fs::read(path)?;
                 session.restore_snapshot(&bytes)?;
+                Ok(None)
             }
             Self::SaveSnapshot { path } => {
                 session.save_snapshot(path)?;
+                Ok(None)
             }
             Self::SaveScreenshot { path } => {
                 session.save_screenshot(path)?;
+                Ok(None)
             }
             Self::SaveAudioCapture { path, reset_after } => {
                 session.save_audio_capture(path)?;
                 if *reset_after {
                     session.clear_audio_capture();
                 }
+                Ok(None)
             }
         }
-
-        Ok(())
     }
 }
 
@@ -214,6 +298,10 @@ pub enum ScriptError {
     /// Session execution failed.
     #[error(transparent)]
     Session(#[from] SessionError),
+
+    /// Query resolution failed.
+    #[error(transparent)]
+    Query(#[from] QueryError),
 }
 
 const fn default_true() -> bool {
@@ -336,6 +424,7 @@ mod tests {
             r#"
             [
               {"action":"run_frames","frames":2},
+              {"action":"query","path":"session.time"},
               {"action":"save_screenshot","path":"boot.png"}
             ]
             "#,
@@ -346,6 +435,9 @@ mod tests {
             script.steps,
             vec![
                 ScriptStep::RunFrames { frames: 2 },
+                ScriptStep::Query {
+                    path: "session.time".to_owned()
+                },
                 ScriptStep::SaveScreenshot {
                     path: PathBuf::from("boot.png")
                 }
@@ -400,12 +492,20 @@ mod tests {
         };
 
         let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
-        script
-            .execute(&mut session)
+        let observations = script
+            .execute_collect(&mut session)
             .expect("script should run to completion");
 
         assert_eq!(session.machine().tape_loaded, 1);
         assert_eq!(session.machine().commands, 1);
+        assert_eq!(
+            observations,
+            vec![ScriptObservation::RunFrames {
+                frames: 1,
+                reached: MachineTime::new(69888),
+                stop_reason: StopReason::ReachedTarget,
+            }]
+        );
         assert!(screenshot_path.is_file());
         assert!(audio_path.is_file());
         assert!(snapshot_path.is_file());
@@ -414,5 +514,48 @@ mod tests {
         let _ = std::fs::remove_file(screenshot_path);
         let _ = std::fs::remove_file(audio_path);
         let _ = std::fs::remove_file(snapshot_path);
+    }
+
+    #[test]
+    fn headless_script_collects_query_observations() {
+        let script = HeadlessScript {
+            steps: vec![
+                ScriptStep::RunFrames { frames: 1 },
+                ScriptStep::Query {
+                    path: "session.time".to_owned(),
+                },
+                ScriptStep::QueryPaths {
+                    prefix: Some("capture.".to_owned()),
+                },
+            ],
+        };
+
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+        let observations = script
+            .execute_collect(&mut session)
+            .expect("script should produce observations");
+
+        assert_eq!(observations.len(), 3);
+        assert_eq!(
+            observations[1],
+            ScriptObservation::Query {
+                result: QueryResult {
+                    path: "session.time".to_owned(),
+                    value: serde_json::json!(69888),
+                }
+            }
+        );
+        assert_eq!(
+            observations[2],
+            ScriptObservation::QueryPaths {
+                result: QueryPathsResult {
+                    prefix: Some("capture.".to_owned()),
+                    paths: vec![
+                        "capture.has_audio".to_owned(),
+                        "capture.has_frame".to_owned()
+                    ],
+                }
+            }
+        );
     }
 }

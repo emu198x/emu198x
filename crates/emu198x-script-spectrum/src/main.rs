@@ -11,9 +11,11 @@ use std::process;
 use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::{
     BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
-    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
+    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    ScriptObservation, boot_machine,
 };
 use runtime_sinclair_zx_spectrum::Spectrum48kRuntime;
+use serde::Serialize;
 
 const DEFAULT_ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -57,6 +59,14 @@ struct LoadedMedia {
     bytes: Vec<u8>,
 }
 
+#[derive(Debug, Serialize)]
+struct RunnerReport {
+    observations: Vec<ScriptObservation>,
+    time: u64,
+    tape_loaded: bool,
+    tape_playing: bool,
+}
+
 const USAGE: &str = "\
 Usage: emu198x-script-spectrum [OPTIONS]
 
@@ -92,10 +102,27 @@ Examples:
 
 fn main() {
     let cli = parse_cli(std::env::args().skip(1));
-    if let Err(err) = run(cli) {
-        eprintln!("error: {err}");
-        process::exit(1);
-    }
+    let script_mode = cli.script.is_some();
+    match run(cli) {
+        Ok(report) => {
+            if script_mode {
+                let json = serde_json::to_string(&report).unwrap_or_else(|err| {
+                    eprintln!("error: failed to serialize runner report: {err}");
+                    process::exit(1);
+                });
+                println!("{json}");
+            } else {
+                println!(
+                    "Spectrum 48K runtime: time={} tape_loaded={} tape_playing={}",
+                    report.time, report.tape_loaded, report.tape_playing
+                );
+            }
+        }
+        Err(err) => {
+            eprintln!("error: {err}");
+            process::exit(1);
+        }
+    };
 }
 
 fn parse_cli<I>(args: I) -> Cli
@@ -232,7 +259,7 @@ fn die(message: &str) -> ! {
     process::exit(2);
 }
 
-fn run(cli: Cli) -> Result<(), String> {
+fn run(cli: Cli) -> Result<RunnerReport, String> {
     if (cli.screenshot.is_some() || cli.audio_capture.is_some())
         && cli.frames == 0
         && cli.script.is_none()
@@ -259,11 +286,12 @@ fn run(cli: Cli) -> Result<(), String> {
         .prepare(&media, &cli.commands)
         .map_err(|err| format!("machine preparation failed: {err}"))?;
 
+    let mut observations = Vec::new();
     if let Some(path) = &cli.script {
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        script
-            .execute(&mut session)
+        observations = script
+            .execute_collect(&mut session)
             .map_err(|err| format!("script execution failed: {err}"))?;
     }
 
@@ -291,14 +319,12 @@ fn run(cli: Cli) -> Result<(), String> {
             .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
 
-    println!(
-        "Spectrum 48K runtime: time={} tape_loaded={} tape_playing={}",
-        session.time().get(),
-        session.machine().machine().tape_is_loaded(),
-        session.machine().machine().tape_is_playing()
-    );
-
-    Ok(())
+    Ok(RunnerReport {
+        observations,
+        time: session.time().get(),
+        tape_loaded: session.machine().machine().tape_is_loaded(),
+        tape_playing: session.machine().machine().tape_is_playing(),
+    })
 }
 
 fn boot_runtime(cli: &Cli) -> Result<Spectrum48kRuntime, String> {
@@ -562,6 +588,7 @@ mod tests {
                 r#"
                 [
                   {{"action":"run_frames","frames":1}},
+                  {{"action":"query","path":"session.time"}},
                   {{"action":"save_screenshot","path":"{}"}},
                   {{"action":"save_audio_capture","path":"{}","reset_after":true}}
                 ]
@@ -590,6 +617,25 @@ mod tests {
         assert!(result.is_ok(), "runner should execute script: {result:?}");
         assert!(screenshot_path.is_file());
         assert!(audio_path.is_file());
+        let report = result.expect("script result should be available");
+        assert_eq!(report.observations.len(), 2);
+        assert_eq!(
+            report.observations[0],
+            ScriptObservation::RunFrames {
+                frames: 1,
+                reached: emu198x_shell::MachineTime::new(report.time),
+                stop_reason: emu198x_shell::StopReason::ReachedTarget,
+            }
+        );
+        assert_eq!(
+            report.observations[1],
+            ScriptObservation::Query {
+                result: emu198x_shell::QueryResult {
+                    path: "session.time".to_owned(),
+                    value: serde_json::json!(report.time),
+                },
+            }
+        );
 
         let _ = fs::remove_file(rom_path);
         let _ = fs::remove_file(script_path);

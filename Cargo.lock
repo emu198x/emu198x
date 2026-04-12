@@ -86,6 +86,8 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-shell",
  "runtime-sinclair-zx-spectrum",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
