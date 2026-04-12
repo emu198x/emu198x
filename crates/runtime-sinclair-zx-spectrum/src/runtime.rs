@@ -9,11 +9,21 @@ use common_sinclair_zx_spectrum::{RomImageError, SPECTRUM_PALETTE, TapeBlock};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
-    ResetKind, RunResult, StopReason, SupportTier, known_capability,
+    QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason, SupportTier,
+    known_capability,
 };
 use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k, Spectrum48kSnapshot};
+use serde_json::json;
 
 use crate::{Model, profile_for};
+
+const SPECTRUM_QUERY_PATHS: &[&str] = &[
+    "spectrum.keyboard.rows",
+    "spectrum.machine.half_cycle_in_frame",
+    "spectrum.machine.issue",
+    "spectrum.tape.loaded",
+    "spectrum.tape.playing",
+];
 
 /// Runtime wrapper over the concrete 48K Spectrum machine.
 pub struct Spectrum48kRuntime {
@@ -29,6 +39,10 @@ struct SnapshotEnvelopeV1 {
     time: MachineTime,
     machine: Spectrum48kSnapshot,
 }
+
+/// Spectrum-family query provider layered above the shared shell surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SpectrumSessionQueryProvider;
 
 impl Spectrum48kRuntime {
     /// Creates an Issue 3 runtime from one validated 16 KiB ROM image.
@@ -133,6 +147,46 @@ impl Spectrum48kRuntime {
         }
 
         Ok(())
+    }
+}
+
+impl SessionQueryProvider<Spectrum48kRuntime> for SpectrumSessionQueryProvider {
+    fn query_paths(&self, _machine: &Spectrum48kRuntime, prefix: Option<&str>) -> Vec<String> {
+        let mut paths: Vec<String> = SPECTRUM_QUERY_PATHS
+            .iter()
+            .copied()
+            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+            .map(str::to_owned)
+            .collect();
+        paths.sort_unstable();
+        paths
+    }
+
+    fn query(
+        &self,
+        machine: &Spectrum48kRuntime,
+        path: &str,
+    ) -> Result<Option<QueryResult>, QueryError> {
+        let value = match path {
+            "spectrum.keyboard.rows" => json!(machine.machine().keyboard().rows()),
+            "spectrum.machine.half_cycle_in_frame" => json!(machine.machine().hc()),
+            "spectrum.machine.issue" => json!(board_issue_name(machine.machine().issue())),
+            "spectrum.tape.loaded" => json!(machine.machine().tape_is_loaded()),
+            "spectrum.tape.playing" => json!(machine.machine().tape_is_playing()),
+            _ => return Ok(None),
+        };
+
+        Ok(Some(QueryResult {
+            path: path.to_owned(),
+            value,
+        }))
+    }
+}
+
+fn board_issue_name(issue: BoardIssue) -> &'static str {
+    match issue {
+        BoardIssue::Issue2 => "issue2",
+        BoardIssue::Issue3 => "issue3",
     }
 }
 

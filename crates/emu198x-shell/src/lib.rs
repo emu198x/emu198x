@@ -33,7 +33,10 @@ pub use machine::{
     StopReason, SupportTier,
 };
 pub use media::{FirmwareRequirement, MediaImage, MediaKind, MediaSet, MediaSlot, WritebackPolicy};
-pub use query::{QueryError, QueryPathsResult, QueryResult, SESSION_QUERY_PATHS};
+pub use query::{
+    NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SESSION_QUERY_PATHS,
+    SessionQueryProvider,
+};
 pub use script::{
     HeadlessScript, ScriptError, ScriptMediaKind, ScriptMediaTransportAction, ScriptObservation,
     ScriptStep,

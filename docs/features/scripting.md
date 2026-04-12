@@ -127,6 +127,15 @@ than family-specific chip state. The implemented paths today are:
 For automation, prefer `query_paths` before hard-coding a query path. That
 keeps scripts resilient as the shared shell surface expands.
 
+Runners can also add family-owned namespaces on top of the shared shell layer.
+The current Spectrum runner adds:
+
+- `spectrum.keyboard.rows`
+- `spectrum.machine.half_cycle_in_frame`
+- `spectrum.machine.issue`
+- `spectrum.tape.loaded`
+- `spectrum.tape.playing`
+
 ## Output
 
 When `--script PATH` is used, the Spectrum runner writes one JSON report to
@@ -146,8 +155,8 @@ Current shape:
     {
       "kind": "query",
       "result": {
-        "path": "session.time",
-        "value": 13977600
+        "path": "spectrum.machine.issue",
+        "value": "issue3"
       }
     }
   ],
@@ -175,6 +184,7 @@ time, and save a screenshot:
   {"action":"run_frames","frames":200},
   {"action":"query_paths","prefix":"session.profile."},
   {"action":"query","path":"session.time"},
+  {"action":"query","path":"spectrum.machine.issue"},
   {"action":"save_screenshot","path":"spectrum_boot.png"}
 ]
 ```

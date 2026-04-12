@@ -14,7 +14,7 @@ use emu198x_shell::{
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
     ScriptObservation, boot_machine,
 };
-use runtime_sinclair_zx_spectrum::Spectrum48kRuntime;
+use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
 use serde::Serialize;
 
 const DEFAULT_ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
@@ -271,7 +271,11 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     }
 
     let machine = boot_runtime(&cli)?;
-    let mut session = HeadlessSession::new(machine, u64::from(TIMING_48K.halfcycles_per_frame));
+    let mut session = HeadlessSession::new_with_query_provider(
+        machine,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
 
     let media_storage = load_media_bytes(&cli.media)?;
     let mut media = MediaSet::new();
@@ -589,6 +593,7 @@ mod tests {
                 [
                   {{"action":"run_frames","frames":1}},
                   {{"action":"query","path":"session.time"}},
+                  {{"action":"query","path":"spectrum.machine.issue"}},
                   {{"action":"save_screenshot","path":"{}"}},
                   {{"action":"save_audio_capture","path":"{}","reset_after":true}}
                 ]
@@ -618,7 +623,7 @@ mod tests {
         assert!(screenshot_path.is_file());
         assert!(audio_path.is_file());
         let report = result.expect("script result should be available");
-        assert_eq!(report.observations.len(), 2);
+        assert_eq!(report.observations.len(), 3);
         assert_eq!(
             report.observations[0],
             ScriptObservation::RunFrames {
@@ -633,6 +638,15 @@ mod tests {
                 result: emu198x_shell::QueryResult {
                     path: "session.time".to_owned(),
                     value: serde_json::json!(report.time),
+                },
+            }
+        );
+        assert_eq!(
+            report.observations[2],
+            ScriptObservation::Query {
+                result: emu198x_shell::QueryResult {
+                    path: "spectrum.machine.issue".to_owned(),
+                    value: serde_json::json!("issue3"),
                 },
             }
         );

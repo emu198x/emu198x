@@ -12,7 +12,7 @@ use emu198x_shell::{
 
 mod runtime;
 
-pub use runtime::Spectrum48kRuntime;
+pub use runtime::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
 
 /// Supported Spectrum family models in the initial bootstrap pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -150,6 +150,7 @@ mod tests {
         AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FramePacket, FrameSink,
         HostIo, InputEvent, MachineCore, MachineError, MachineTime, MediaImage, MediaSet,
         MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
+        SessionQueryProvider,
     };
 
     #[test]
@@ -343,6 +344,54 @@ mod tests {
             .expect("restored snapshot should encode");
 
         assert_eq!(after_restore, before_restore);
+    }
+
+    #[test]
+    fn spectrum_query_provider_lists_supported_paths() {
+        let runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let provider = SpectrumSessionQueryProvider;
+
+        let paths = provider.query_paths(&runtime, Some("spectrum.tape."));
+
+        assert_eq!(
+            paths,
+            vec![
+                "spectrum.tape.loaded".to_owned(),
+                "spectrum.tape.playing".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn spectrum_query_provider_reads_runtime_state() {
+        let mut runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let tap = minimal_tap();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &tap));
+        runtime
+            .load_media(&media)
+            .expect("valid TAP should load before query");
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("tape start command should succeed");
+        let provider = SpectrumSessionQueryProvider;
+
+        let issue = provider
+            .query(&runtime, "spectrum.machine.issue")
+            .expect("issue query should resolve")
+            .expect("provider should own issue path");
+        let tape = provider
+            .query(&runtime, "spectrum.tape.playing")
+            .expect("tape query should resolve")
+            .expect("provider should own tape path");
+
+        assert_eq!(issue.value, serde_json::json!("issue3"));
+        assert_eq!(tape.value, serde_json::json!(true));
     }
 
     fn minimal_tap() -> Vec<u8> {

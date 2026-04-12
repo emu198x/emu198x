@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::control::ControlCommand;
 use crate::machine::MachineCore;
 use crate::media::{MediaImage, MediaKind, MediaSet};
-use crate::query::{QueryError, QueryPathsResult, QueryResult};
+use crate::query::{QueryError, QueryPathsResult, QueryResult, SessionQueryProvider};
 use crate::session::{HeadlessSession, SessionError};
 
 /// One user-facing script media kind with stable JSON spellings.
@@ -174,9 +174,9 @@ impl HeadlessScript {
     /// # Errors
     ///
     /// Returns an error if file I/O, machine control, or capture output fails.
-    pub fn execute<M: MachineCore>(
+    pub fn execute<M: MachineCore, Q: SessionQueryProvider<M>>(
         &self,
-        session: &mut HeadlessSession<M>,
+        session: &mut HeadlessSession<M, Q>,
     ) -> Result<(), ScriptError> {
         self.execute_collect(session).map(|_| ())
     }
@@ -187,9 +187,9 @@ impl HeadlessScript {
     ///
     /// Returns an error if file I/O, machine control, query resolution, or
     /// capture output fails.
-    pub fn execute_collect<M: MachineCore>(
+    pub fn execute_collect<M: MachineCore, Q: SessionQueryProvider<M>>(
         &self,
-        session: &mut HeadlessSession<M>,
+        session: &mut HeadlessSession<M, Q>,
     ) -> Result<Vec<ScriptObservation>, ScriptError> {
         let mut observations = Vec::new();
         for step in &self.steps {
@@ -208,9 +208,9 @@ impl ScriptStep {
     /// # Errors
     ///
     /// Returns an error if file I/O, machine control, or capture output fails.
-    pub fn execute<M: MachineCore>(
+    pub fn execute<M: MachineCore, Q: SessionQueryProvider<M>>(
         &self,
-        session: &mut HeadlessSession<M>,
+        session: &mut HeadlessSession<M, Q>,
     ) -> Result<(), ScriptError> {
         self.execute_collect(session).map(|_| ())
     }
@@ -222,9 +222,9 @@ impl ScriptStep {
     ///
     /// Returns an error if file I/O, machine control, query resolution, or
     /// capture output fails.
-    pub fn execute_collect<M: MachineCore>(
+    pub fn execute_collect<M: MachineCore, Q: SessionQueryProvider<M>>(
         &self,
-        session: &mut HeadlessSession<M>,
+        session: &mut HeadlessSession<M, Q>,
     ) -> Result<Option<ScriptObservation>, ScriptError> {
         match self {
             Self::LoadMedia { slot, kind, path } => {

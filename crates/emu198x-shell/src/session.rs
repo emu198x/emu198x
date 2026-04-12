@@ -11,7 +11,10 @@ use crate::headless::prepare_machine;
 use crate::host::{HostIo, InputEvent, NullTraceSink};
 use crate::machine::{MachineCore, RunResult};
 use crate::media::MediaSet;
-use crate::query::{QueryError, QueryPathsResult, QueryResult, query_paths, query_value};
+use crate::query::{
+    NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SessionQueryProvider,
+    query_paths, query_value,
+};
 use crate::time::MachineTime;
 
 /// Error surfaced by shared headless session helpers.
@@ -31,7 +34,7 @@ pub enum SessionError {
 }
 
 /// Shared host-side session around one live machine runtime.
-pub struct HeadlessSession<M> {
+pub struct HeadlessSession<M, Q = NoAdditionalQueries> {
     machine: M,
     native_frame_ticks: u64,
     queued_input: Vec<InputEvent>,
@@ -39,12 +42,22 @@ pub struct HeadlessSession<M> {
     audio_capture: AudioCapture,
     trace_sink: NullTraceSink,
     last_run_result: Option<RunResult>,
+    query_provider: Q,
 }
 
-impl<M> HeadlessSession<M> {
+impl<M> HeadlessSession<M, NoAdditionalQueries> {
     /// Creates a new session around one live machine runtime.
     #[must_use]
     pub fn new(machine: M, native_frame_ticks: u64) -> Self {
+        Self::new_with_query_provider(machine, native_frame_ticks, NoAdditionalQueries)
+    }
+}
+
+impl<M, Q> HeadlessSession<M, Q> {
+    /// Creates a new session around one live machine runtime with one
+    /// additional family-owned query provider.
+    #[must_use]
+    pub fn new_with_query_provider(machine: M, native_frame_ticks: u64, query_provider: Q) -> Self {
         Self {
             machine,
             native_frame_ticks,
@@ -53,6 +66,7 @@ impl<M> HeadlessSession<M> {
             audio_capture: AudioCapture::default(),
             trace_sink: NullTraceSink,
             last_run_result: None,
+            query_provider,
         }
     }
 
@@ -75,7 +89,7 @@ impl<M> HeadlessSession<M> {
     }
 }
 
-impl<M: MachineCore> HeadlessSession<M> {
+impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     /// Returns the current authoritative machine time.
     #[must_use]
     pub fn time(&self) -> MachineTime {
@@ -91,12 +105,18 @@ impl<M: MachineCore> HeadlessSession<M> {
     /// Returns the supported shared query paths, optionally filtered by prefix.
     #[must_use]
     pub fn query_paths(&self, prefix: Option<&str>) -> QueryPathsResult {
-        query_paths(prefix)
+        let mut result = query_paths(prefix);
+        result
+            .paths
+            .extend(self.query_provider.query_paths(&self.machine, prefix));
+        result.paths.sort_unstable();
+        result.paths.dedup();
+        result
     }
 
     /// Resolves one shared query path against the current session state.
     pub fn query(&self, path: &str) -> Result<QueryResult, QueryError> {
-        query_value(
+        match query_value(
             self.machine.profile(),
             self.time(),
             self.native_frame_ticks,
@@ -104,7 +124,16 @@ impl<M: MachineCore> HeadlessSession<M> {
             self.audio_capture.audio().is_some(),
             self.last_run_result,
             path,
-        )
+        ) {
+            Ok(result) => Ok(result),
+            Err(QueryError::UnknownPath { .. }) => self
+                .query_provider
+                .query(&self.machine, path)?
+                .ok_or_else(|| QueryError::UnknownPath {
+                    path: path.to_owned(),
+                }),
+            Err(err) => Err(err),
+        }
     }
 
     /// Queues one input event for the next execution slice.
@@ -266,8 +295,10 @@ mod tests {
         Family, MachineId, MachineProfile, ProfileId, Region, ResetKind, StopReason, SupportTier,
     };
     use crate::media::{FirmwareRequirement, MediaSlot, WritebackPolicy};
+    use crate::query::SessionQueryProvider;
     use crate::time::{ClockDesc, ClockRate};
     use crate::{MediaImage, MediaKind};
+    use serde_json::json;
 
     struct DummyMachine {
         profile: MachineProfile,
@@ -371,6 +402,33 @@ mod tests {
 
         fn capabilities(&self) -> CapabilitySet {
             CapabilitySet::new()
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default)]
+    struct DummyQueryProvider;
+
+    impl SessionQueryProvider<DummyMachine> for DummyQueryProvider {
+        fn query_paths(&self, _machine: &DummyMachine, prefix: Option<&str>) -> Vec<String> {
+            ["dummy.time"]
+                .into_iter()
+                .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+                .map(str::to_owned)
+                .collect()
+        }
+
+        fn query(
+            &self,
+            machine: &DummyMachine,
+            path: &str,
+        ) -> Result<Option<QueryResult>, QueryError> {
+            match path {
+                "dummy.time" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(machine.time.get()),
+                })),
+                _ => Ok(None),
+            }
         }
     }
 
@@ -491,5 +549,23 @@ mod tests {
                 "run.last.stop_reason".to_owned()
             ]
         );
+    }
+
+    #[test]
+    fn session_query_provider_extends_shared_surface() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69888,
+            DummyQueryProvider,
+        );
+        session.run_frames(1).expect("frame should run");
+
+        let extra = session
+            .query("dummy.time")
+            .expect("provider query should resolve");
+        let paths = session.query_paths(Some("dummy."));
+
+        assert_eq!(extra.value, json!(69_888));
+        assert_eq!(paths.paths, vec!["dummy.time".to_owned()]);
     }
 }

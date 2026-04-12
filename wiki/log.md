@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Spectrum family query namespace lands without widening `MachineCore`
+
+**Type:** milestone
+**Trigger:** The shared shell query surface was useful, but it only exposed session-owned state. The next gap was family-specific observability. That needed to land without turning `MachineCore` into a debugger or chip-inspection dumping ground.
+**Result:** The shell now supports family-owned query namespaces through a separate `SessionQueryProvider` hook:
+1. `emu198x-shell` now distinguishes between shared session queries and optional machine-family query providers. `HeadlessSession` can be created with a provider, and it merges provider-owned paths into `query_paths()` while falling back to provider-owned `query()` resolution only when a path is not part of the shared shell surface.
+2. `runtime-sinclair-zx-spectrum` now ships `SpectrumSessionQueryProvider`, which owns the initial `spectrum.*` namespace: board issue, current half-cycle within the frame, keyboard matrix rows, and tape loaded/playing state.
+3. `emu198x-script-spectrum` now boots its session with that provider, so shared JSON scripts can resolve both generic shell paths and Spectrum family paths through the same `query` / `query_paths` actions.
+**Boundary note:** This was kept intentionally out of `MachineCore`. The runtime opts into family observability explicitly, and the shell still owns only the generic session model. That keeps chip- and family-specific inspection narrow and composable instead of making it part of the mandatory runtime contract for every machine.
+**Documentation note:** `docs/features/scripting.md` now records the current Spectrum-owned `spectrum.*` paths in addition to the shared shell query paths.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass. New coverage includes a shell test for provider-backed query extension, runtime tests for Spectrum query-path discovery and value resolution, and a Spectrum runner test that executes a script querying `spectrum.machine.issue`.
+**Next dependency:** the next honest step is to decide how far family observability should go before we start needing explicit debugger namespaces, memory views, or trace/capture query surfaces. The current structure supports that growth, but it should stay deliberately narrow unless a concrete workflow needs more.
+
+---
+
 ## 2026-04-12 — Shared session query surface and script observations land
 
 **Type:** milestone

@@ -31,6 +31,28 @@ pub const SESSION_QUERY_PATHS: &[&str] = &[
     "session.time",
 ];
 
+/// Optional family-owned query surface that can extend one headless session.
+pub trait SessionQueryProvider<M> {
+    /// Returns additional query paths owned by this provider.
+    #[must_use]
+    fn query_paths(&self, _machine: &M, _prefix: Option<&str>) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Resolves one provider-owned query path.
+    ///
+    /// Returns `Ok(None)` when the provider does not own the path.
+    fn query(&self, _machine: &M, _path: &str) -> Result<Option<QueryResult>, QueryError> {
+        Ok(None)
+    }
+}
+
+/// Default query provider with no family-owned paths.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NoAdditionalQueries;
+
+impl<M> SessionQueryProvider<M> for NoAdditionalQueries {}
+
 /// Error surfaced by the shared session query layer.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum QueryError {

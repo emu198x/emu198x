@@ -13,6 +13,7 @@ format-sinclair-zx-spectrum-tzx = { path = "../format-sinclair-zx-spectrum-tzx" 
 machine-sinclair-zx-spectrum-48k = { path = "../machine-sinclair-zx-spectrum-48k" }
 postcard = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
