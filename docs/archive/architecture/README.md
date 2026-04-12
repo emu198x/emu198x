@@ -1,0 +1,12 @@
+# Archived Architecture Docs
+
+These files capture earlier architecture guidance that was useful during prior
+passes but is no longer the active design baseline.
+
+Current architecture authority lives in:
+
+- [coherent development plan](../../plans/2026-04-12-emulator-suite-coherent-development-plan.md)
+- `wiki/decisions/`
+
+Keep these docs for historical reasoning and comparison, not as implementation
+instructions.

@@ -1,0 +1,15 @@
+[package]
+name = "emu198x-shell"
+description = "Cross-system shared control surface, machine registry types, and host I/O contracts"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+postcard = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
