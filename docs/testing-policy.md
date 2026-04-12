@@ -38,6 +38,13 @@ The practical goals are:
 - A crate should not be marked `Complete` unless it meets the expectations in
   this policy or documents the remaining gap explicitly.
 
+Coverage is still useful as a signal, but only as a secondary one:
+
+- coverage scores help identify untested areas and shallow wrapper crates
+- coverage scores do not prove correctness, timing accuracy, or source backing
+- a high coverage percentage is not a substitute for the verification ladder
+- a low coverage percentage should trigger audit work, not status inflation
+
 ## Evidence Hierarchy
 
 Use reference material in this order:
@@ -186,6 +193,31 @@ Use at least three practical tiers:
 
 Fast tests should be cheap enough to run routinely while changing the crate
 they cover.
+
+## Coverage Reporting
+
+The repository now exposes a repeatable coverage path for the fresh Rust
+workspace:
+
+- local command: `./scripts/coverage.sh`
+- CI workflow: `.github/workflows/coverage.yml`
+
+That path produces:
+
+- `target/llvm-cov/coverage-summary.txt`
+- `target/llvm-cov/coverage-summary.json`
+- `target/llvm-cov/lcov.info`
+- `target/llvm-cov/html/index.html`
+
+The CI workflow also publishes the total coverage line in the GitHub job
+summary and uploads the text, JSON, LCOV, and HTML reports as artifacts.
+
+Interpretation rules:
+
+- use the total score as a directional signal, not a quality gate on its own
+- use the HTML and JSON outputs to find gaps worth auditing
+- treat missing or low coverage in machine wrappers and runtime crates as a
+  prompt to add isolated tests where possible
 
 ## Change Policy
 

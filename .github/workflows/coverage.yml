@@ -1,0 +1,67 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run coverage suite
+        run: ./scripts/coverage.sh
+
+      - name: Publish coverage summary
+        run: |
+          total_line="$(grep '^TOTAL' target/llvm-cov/coverage-summary.txt | tail -n 1)"
+          {
+            echo "## Coverage"
+            echo
+            echo '```text'
+            echo "${total_line}"
+            echo '```'
+            echo
+            echo "- Text summary: \`target/llvm-cov/coverage-summary.txt\`"
+            echo "- JSON summary: \`target/llvm-cov/coverage-summary.json\`"
+            echo "- LCOV export: \`target/llvm-cov/lcov.info\`"
+            echo "- HTML report: uploaded as the \`coverage-html\` artifact"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload coverage summary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: |
+            target/llvm-cov/coverage-summary.txt
+            target/llvm-cov/coverage-summary.json
+            target/llvm-cov/lcov.info
+
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: target/llvm-cov/html

@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Coverage workflow and local reporting path land
+
+**Type:** milestone
+**Trigger:** The workspace had strong fast-test discipline and strict CI, but it still lacked one quantitative signal for how much of the current Rust surface was actually exercised. That made it harder to spot shallow wrappers, newly added untested code paths, and where the verification audit should focus first.
+**Result:** Coverage reporting now exists as a first-class repo workflow:
+1. `rust-toolchain.toml` now includes `llvm-tools-preview`, so the local toolchain can support source-based coverage without a separate manual component install.
+2. New local entry point `scripts/coverage.sh` runs `cargo llvm-cov` for the whole workspace and writes four durable outputs under `target/llvm-cov/`: text summary, JSON summary, LCOV export, and HTML report.
+3. New GitHub Actions workflow `.github/workflows/coverage.yml` runs that same script on pushes, pull requests, and manual dispatch. It publishes the `TOTAL` coverage line in the GitHub job summary and uploads both summary artifacts and the HTML report for inspection.
+4. `docs/testing-policy.md` now records the intended use of coverage in this project: a directional audit signal, not a substitute for spec-driven testing or the verification ladder.
+**Policy note:** This intentionally does not turn coverage percentage into the primary gate. The repo still treats reference-backed behavior and timing tests as the real bar. Coverage is there to show where the test surface is thin, not to certify cycle accuracy by itself.
+**Verification:** The new coverage path was exercised locally with `./scripts/coverage.sh`, alongside the normal `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` gates.
+**Next dependency:** the next useful step is a crate-by-crate coverage audit against the testing policy, especially for thin runtime and runner crates where percentages can now be compared against the actual verification matrix.
+
+---
+
 ## 2026-04-12 — Spectrum family query namespace lands without widening `MachineCore`
 
 **Type:** milestone
