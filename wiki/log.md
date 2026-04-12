@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — ZEX harness now supports checkpoint-targeted reruns
+
+**Type:** milestone
+**Trigger:** After wiring the local ZEX binaries back into the fresh workspace, the remaining weakness in the harness was failure granularity. A failing `zexdoc` or `zexall` run still only told us that some point in a long exerciser program had gone wrong, not which labelled block had failed.
+**Result:** `crates/zilog-z80/tests/zex_tests.rs` now treats the exerciser's own progress output as ordered checkpoints instead of raw console text:
+1. Added the canonical 67 ZEX block labels as an explicit ordered checkpoint list, sourced from the local archived ZEX source files but now kept in-repo so the harness does not depend on those external source trees at runtime.
+2. Reworked the CP/M console capture to preserve line structure from BDOS output, parse `OK` / `ERROR` status at line completion time, and record per-checkpoint metadata including index, label, and cycle count.
+3. Kept the existing full-suite ignored tests for `run_zexdoc` and `run_zexall`, but added targeted ignored tests `run_zexdoc_checkpoint` and `run_zexall_checkpoint` driven by `EMU198X_ZEX_CHECKPOINT`, so a specific labelled block can be rerun intentionally.
+4. Added fast parser-level tests so ordinary `cargo test` now verifies the checkpoint parser without needing local ZEX binaries or long exerciser runs.
+**Verification:** `cargo test -p zilog-z80 --test zex_tests` passes. `cargo clippy -p zilog-z80 --test zex_tests -- -D warnings` passes. `EMU198X_ZEX_CHECKPOINT=1 cargo test -p zilog-z80 --test zex_tests run_zexdoc_checkpoint -- --ignored --nocapture` and the equivalent `run_zexall_checkpoint` both pass locally, each stopping cleanly after checkpoint 1 at `4,520,939,783` half-cycles and roughly `236s`.
+**Next dependency:** checkpoint targeting improves diagnosis, but it does not make late-block reruns cheap because each targeted run still replays the prefix from reset. If we want practical routine use beyond early checkpoints, the next real improvement is save-state or resume support between checkpoints.
+
+---
+
 ## 2026-04-12 — Z80 local verification corpora are wired back in; Tom Harte rerun passes cleanly
 
 **Type:** milestone

@@ -16,6 +16,8 @@ Per-instruction tests with full before/after state. Generated from a known-good 
 
 CP/M test programs that exercise documented (ZEXDOC) and undocumented (ZEXALL) Z80 behaviour. Run as self-hosted programs within the emulated system. CRC-based pass/fail.
 
+The harness should preserve the exerciser's own labelled progress blocks as checkpoints. That gives a concrete failure boundary such as "checkpoint 37 failed" instead of only "zexall failed somewhere." Checkpoint-targeted reruns are useful for diagnosis, but unless resume support exists they still replay the suite from reset.
+
 ### FUSE test suite
 
 1,356 tests at `fuse-emulator-fuse/z80/tests/`. Test contention timing, I/O timing, interrupt timing. Background memory: DEADBEEF repeating. 6 event types: MR/MW/MC/PR/PW/PC.
