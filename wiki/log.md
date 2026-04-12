@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Z80 ED-prefixed execute coverage expands through block, port, and 16-bit paths
+
+**Type:** milestone
+**Trigger:** After the previous execute-path passes, the biggest remaining holes in the Z80 core had shifted into the ED-prefixed space: interrupt-mode control, stack return paths, `IN` / `OUT` register forms, 16-bit ED arithmetic and indirect loads, nibble-rotate memory operations, and the backward or repeating variants of the block instructions.
+**Result:** `crates/zilog-z80/tests/integration.rs` now drives another substantial ED-prefixed slice through real instruction streams:
+1. Added direct integration coverage for `LD A,I`, `RETN`, `IM 1`, `IM 2`, `IM 0`, `IN r,(C)`, `OUT (C),r`, `ADC HL,rr`, `SBC HL,rr`, `LD (nn),rr`, `LD rr,(nn)`, `RLD`, `RRD`, and `LDD`.
+2. Added backward and repeat-path coverage for the block families that were still thin after the earlier pass: `CPDR`, `IND`, and `OTDR`.
+3. The new tests continue to verify machine-facing outcomes rather than internal helper state: stack-pop return addresses, restored interrupt flip-flops, `WZ` side effects, actual I/O bus writes, backward address movement, repeat termination when `B` reaches zero, and the flag behavior that real software depends on.
+4. While landing the new `IN r,(C)` coverage, one test assumption had to be corrected: the parity flag for input value `0x81` is set, not clear, because the byte has even parity. The test now asserts the real flag result instead of the mistaken one.
+**Coverage note:** On the current local coverage run, `zilog-z80/src/execute.rs` improved from `57.48%` line coverage to `74.17%`, `zilog-z80/src/alu.rs` improved from `68.63%` to `69.02%`, total workspace region coverage improved from `75.48%` to `78.36%`, and total workspace line coverage improved from `78.32%` to `81.16%`.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p zilog-z80 --test integration`, `cargo test --workspace`, and `./scripts/coverage.sh` all pass.
+**Next dependency:** the next worthwhile Z80 pass is to keep narrowing the remaining ED-prefixed gaps, especially the refresh-register transfer path (`LD R,A`, `LD A,R`) and any still-thin repeat or interrupt-control behavior that only shows up under real machine software.
+
+---
+
 ## 2026-04-12 — Z80 direct transfer, rotate, flag, exchange, and port paths expand
 
 **Type:** milestone
