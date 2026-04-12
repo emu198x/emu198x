@@ -1,39 +1,75 @@
 //! `emu198x-script-spectrum` — minimal headless Spectrum runner.
 //!
-//! This runner exists to exercise the new runtime boundary directly. It owns
-//! firmware supply, tape insertion and playback, frame advancement, and
-//! runtime snapshot load/save without introducing any frontend concerns.
+//! This binary is intentionally thin. It parses file-path arguments, reads
+//! bytes from disk, and delegates the actual boot/media/control policy to the
+//! shared shell helpers plus the Spectrum runtime's profile-aware constructor.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 
 use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::{
-    HostIo, MachineCore, MediaImage, MediaKind, MediaSet, NullAudioSink, NullFrameSink,
-    NullTraceSink,
+    BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HostIo, MachineCore, MediaImage,
+    MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullAudioSink, NullFrameSink,
+    NullTraceSink, boot_machine, prepare_machine,
 };
 use runtime_sinclair_zx_spectrum::Spectrum48kRuntime;
 
+const DEFAULT_ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
+const DEFAULT_TAPE_SLOT: &str = "tape-1";
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Cli {
-    rom: Option<PathBuf>,
-    tape: Option<PathBuf>,
+    firmware: Vec<FirmwareArg>,
+    media: Vec<MediaArg>,
     load_snapshot: Option<PathBuf>,
     save_snapshot: Option<PathBuf>,
     frames: u32,
-    play_tape: bool,
+    commands: Vec<ControlCommand>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct FirmwareArg {
+    id: String,
+    path: PathBuf,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct MediaArg {
+    slot: String,
+    kind: MediaKind,
+    path: PathBuf,
+}
+
+#[derive(Debug)]
+struct LoadedFirmware {
+    id: String,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct LoadedMedia {
+    slot: String,
+    kind: MediaKind,
+    bytes: Vec<u8>,
 }
 
 const USAGE: &str = "\
 Usage: emu198x-script-spectrum [OPTIONS]
 
 Cold boot:
-    --rom PATH                 16 KiB Spectrum 48K ROM image
+    --firmware ID=PATH         firmware image by stable id
+    --rom PATH                 alias for --firmware sinclair-zx-spectrum-48k-rom=PATH
 
-Media and state:
-    --tape PATH                TAP or TZX image to load into tape-1
-    --play-tape                start tape playback after loading media
+Media and control:
+    --media SLOT:KIND=PATH     media image by slot and kind
+    --tape PATH                alias for --media tape-1:tape=PATH
+    --start-slot SLOT          start or resume media transport on one slot
+    --stop-slot SLOT           stop media transport on one slot
+    --play-tape                alias for --start-slot tape-1
+
+State:
     --load-snapshot PATH       restore a runtime snapshot before running
     --save-snapshot PATH       write a runtime snapshot after running
 
@@ -44,9 +80,9 @@ Other:
     --help, -h                 show this help
 
 Examples:
-    emu198x-script-spectrum --rom 48.rom --frames 200
-    emu198x-script-spectrum --rom 48.rom --tape manic_miner.tzx --play-tape --frames 500
-    emu198x-script-spectrum --load-snapshot state.pst --frames 50 --save-snapshot out.pst
+    emu198x-script-spectrum --firmware sinclair-zx-spectrum-48k-rom=48.rom --frames 200
+    emu198x-script-spectrum --media tape-1:tape=manic_miner.tzx --start-slot tape-1 --load-snapshot state.pst --frames 500
+    emu198x-script-spectrum --rom 48.rom --tape demo.tap --play-tape --frames 100
 ";
 
 fn main() {
@@ -66,8 +102,42 @@ where
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
-            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--firmware" => cli
+                .firmware
+                .push(parse_firmware_arg(&next_arg(&mut iter, "--firmware"))),
+            "--rom" => cli.firmware.push(FirmwareArg {
+                id: DEFAULT_ROM_ID.to_owned(),
+                path: PathBuf::from(next_arg(&mut iter, "--rom")),
+            }),
+            "--media" => cli
+                .media
+                .push(parse_media_arg(&next_arg(&mut iter, "--media"))),
+            "--tape" => cli.media.push(MediaArg {
+                slot: DEFAULT_TAPE_SLOT.to_owned(),
+                kind: MediaKind::Tape,
+                path: PathBuf::from(next_arg(&mut iter, "--tape")),
+            }),
+            "--start-slot" => {
+                cli.commands
+                    .push(ControlCommand::MediaTransport(MediaTransportCommand::new(
+                        next_arg(&mut iter, "--start-slot"),
+                        MediaTransportAction::Start,
+                    )))
+            }
+            "--stop-slot" => {
+                cli.commands
+                    .push(ControlCommand::MediaTransport(MediaTransportCommand::new(
+                        next_arg(&mut iter, "--stop-slot"),
+                        MediaTransportAction::Stop,
+                    )))
+            }
+            "--play-tape" => {
+                cli.commands
+                    .push(ControlCommand::MediaTransport(MediaTransportCommand::new(
+                        DEFAULT_TAPE_SLOT,
+                        MediaTransportAction::Start,
+                    )))
+            }
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -79,7 +149,6 @@ where
                     .parse()
                     .unwrap_or_else(|_| die("--frames requires a non-negative integer"));
             }
-            "--play-tape" => cli.play_tape = true,
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -89,6 +158,49 @@ where
     }
 
     cli
+}
+
+fn parse_firmware_arg(spec: &str) -> FirmwareArg {
+    let (id, path) = spec
+        .split_once('=')
+        .unwrap_or_else(|| die("--firmware requires ID=PATH"));
+    if id.is_empty() || path.is_empty() {
+        die("--firmware requires ID=PATH");
+    }
+
+    FirmwareArg {
+        id: id.to_owned(),
+        path: PathBuf::from(path),
+    }
+}
+
+fn parse_media_arg(spec: &str) -> MediaArg {
+    let (slot_and_kind, path) = spec
+        .split_once('=')
+        .unwrap_or_else(|| die("--media requires SLOT:KIND=PATH"));
+    let (slot, kind) = slot_and_kind
+        .split_once(':')
+        .unwrap_or_else(|| die("--media requires SLOT:KIND=PATH"));
+    if slot.is_empty() || kind.is_empty() || path.is_empty() {
+        die("--media requires SLOT:KIND=PATH");
+    }
+
+    MediaArg {
+        slot: slot.to_owned(),
+        kind: parse_media_kind(kind),
+        path: PathBuf::from(path),
+    }
+}
+
+fn parse_media_kind(kind: &str) -> MediaKind {
+    match kind {
+        "tape" => MediaKind::Tape,
+        "disk" => MediaKind::Disk,
+        "cartridge" => MediaKind::Cartridge,
+        "optical" => MediaKind::Optical,
+        "snapshot" => MediaKind::Snapshot,
+        _ => die(&format!("unknown media kind: {kind}")),
+    }
 }
 
 fn next_arg<I>(iter: &mut I, flag: &str) -> String
@@ -107,30 +219,42 @@ fn die(message: &str) -> ! {
 }
 
 fn run(cli: Cli) -> Result<(), String> {
-    if cli.rom.is_none() && cli.load_snapshot.is_none() {
-        return Err("either --rom or --load-snapshot must be provided".into());
+    let firmware_storage = load_firmware_bytes(&cli.firmware)?;
+    let mut firmware = FirmwareSet::new();
+    for image in &firmware_storage {
+        firmware.push(FirmwareImage::new(image.id.clone(), &image.bytes));
     }
 
-    let mut runtime = match &cli.rom {
-        Some(path) => load_runtime_from_rom(path)?,
-        None => Spectrum48kRuntime::blank(),
+    let snapshot_bytes = match &cli.load_snapshot {
+        Some(path) => Some(
+            fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?,
+        ),
+        None => None,
     };
 
-    if let Some(snapshot_path) = &cli.load_snapshot {
-        let snapshot = fs::read(snapshot_path)
-            .map_err(|err| format!("failed to read {}: {err}", snapshot_path.display()))?;
-        runtime
-            .restore(&snapshot)
-            .map_err(|err| format!("failed to restore {}: {err}", snapshot_path.display()))?;
+    let artifacts = BootArtifacts {
+        firmware,
+        snapshot: snapshot_bytes.as_deref(),
+    };
+    let mut runtime = boot_machine(
+        &artifacts,
+        Spectrum48kRuntime::from_firmware,
+        Spectrum48kRuntime::blank,
+    )
+    .map_err(|err| format!("boot failed: {err}"))?;
+
+    let media_storage = load_media_bytes(&cli.media)?;
+    let mut media = MediaSet::new();
+    for image in &media_storage {
+        media.push(MediaImage::new(
+            image.slot.clone(),
+            image.kind,
+            &image.bytes,
+        ));
     }
 
-    if let Some(tape_path) = &cli.tape {
-        load_tape(&mut runtime, tape_path)?;
-    }
-
-    if cli.play_tape {
-        runtime.play_tape();
-    }
+    prepare_machine(&mut runtime, &media, &cli.commands)
+        .map_err(|err| format!("machine preparation failed: {err}"))?;
 
     if cli.frames > 0 {
         let target = runtime
@@ -168,20 +292,45 @@ fn run(cli: Cli) -> Result<(), String> {
     Ok(())
 }
 
-fn load_runtime_from_rom(path: &Path) -> Result<Spectrum48kRuntime, String> {
-    let rom = fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    Spectrum48kRuntime::from_rom_bytes(&rom)
-        .map_err(|err| format!("failed to load ROM {}: {err}", path.display()))
+fn load_firmware_bytes(entries: &[FirmwareArg]) -> Result<Vec<LoadedFirmware>, String> {
+    entries
+        .iter()
+        .map(|entry| {
+            fs::read(&entry.path)
+                .map(|bytes| LoadedFirmware {
+                    id: entry.id.clone(),
+                    bytes,
+                })
+                .map_err(|err| {
+                    format!(
+                        "failed to read firmware {} from {}: {err}",
+                        entry.id,
+                        entry.path.display()
+                    )
+                })
+        })
+        .collect()
 }
 
-fn load_tape(runtime: &mut Spectrum48kRuntime, path: &Path) -> Result<(), String> {
-    let bytes =
-        fs::read(path).map_err(|err| format!("failed to read tape {}: {err}", path.display()))?;
-    let mut media = MediaSet::new();
-    media.push(MediaImage::new("tape-1", MediaKind::Tape, &bytes));
-    runtime
-        .load_media(&media)
-        .map_err(|err| format!("failed to load tape {}: {err}", path.display()))
+fn load_media_bytes(entries: &[MediaArg]) -> Result<Vec<LoadedMedia>, String> {
+    entries
+        .iter()
+        .map(|entry| {
+            fs::read(&entry.path)
+                .map(|bytes| LoadedMedia {
+                    slot: entry.slot.clone(),
+                    kind: entry.kind,
+                    bytes,
+                })
+                .map_err(|err| {
+                    format!(
+                        "failed to read media {} from {}: {err}",
+                        entry.slot,
+                        entry.path.display()
+                    )
+                })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -189,13 +338,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_accepts_rom_tape_and_snapshot_paths() {
+    fn parse_cli_accepts_generic_firmware_media_and_commands() {
         let cli = parse_cli([
-            "--rom".to_string(),
-            "48.rom".to_string(),
-            "--tape".to_string(),
-            "demo.tzx".to_string(),
-            "--play-tape".to_string(),
+            "--firmware".to_string(),
+            "sinclair-zx-spectrum-48k-rom=48.rom".to_string(),
+            "--media".to_string(),
+            "tape-1:tape=demo.tzx".to_string(),
+            "--start-slot".to_string(),
+            "tape-1".to_string(),
             "--frames".to_string(),
             "10".to_string(),
             "--save-snapshot".to_string(),
@@ -205,12 +355,55 @@ mod tests {
         assert_eq!(
             cli,
             Cli {
-                rom: Some(PathBuf::from("48.rom")),
-                tape: Some(PathBuf::from("demo.tzx")),
+                firmware: vec![FirmwareArg {
+                    id: "sinclair-zx-spectrum-48k-rom".to_owned(),
+                    path: PathBuf::from("48.rom"),
+                }],
+                media: vec![MediaArg {
+                    slot: "tape-1".to_owned(),
+                    kind: MediaKind::Tape,
+                    path: PathBuf::from("demo.tzx"),
+                }],
                 load_snapshot: None,
                 save_snapshot: Some(PathBuf::from("out.pst")),
                 frames: 10,
-                play_tape: true,
+                commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
+                    "tape-1",
+                    MediaTransportAction::Start,
+                ))],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_cli_keeps_legacy_spectrum_aliases_working() {
+        let cli = parse_cli([
+            "--rom".to_string(),
+            "48.rom".to_string(),
+            "--tape".to_string(),
+            "demo.tap".to_string(),
+            "--play-tape".to_string(),
+        ]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                firmware: vec![FirmwareArg {
+                    id: DEFAULT_ROM_ID.to_owned(),
+                    path: PathBuf::from("48.rom"),
+                }],
+                media: vec![MediaArg {
+                    slot: DEFAULT_TAPE_SLOT.to_owned(),
+                    kind: MediaKind::Tape,
+                    path: PathBuf::from("demo.tap"),
+                }],
+                load_snapshot: None,
+                save_snapshot: None,
+                frames: 0,
+                commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
+                    DEFAULT_TAPE_SLOT,
+                    MediaTransportAction::Start,
+                ))],
             }
         );
     }
@@ -230,12 +423,15 @@ mod tests {
         fs::write(&rom_path, [0u8; 16 * 1024]).expect("temporary ROM write should succeed");
 
         let result = run(Cli {
-            rom: Some(rom_path.clone()),
-            tape: None,
+            firmware: vec![FirmwareArg {
+                id: DEFAULT_ROM_ID.to_owned(),
+                path: rom_path.clone(),
+            }],
+            media: vec![],
             load_snapshot: None,
             save_snapshot: Some(snapshot_path.clone()),
             frames: 1,
-            play_tape: false,
+            commands: vec![],
         });
 
         assert!(result.is_ok(), "runner should complete: {result:?}");

@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 
 use crate::capability::CapabilitySet;
+use crate::control::ControlCommand;
 use crate::error::MachineError;
 use crate::host::HostIo;
 use crate::media::{FirmwareRequirement, MediaSet, MediaSlot};
@@ -219,6 +220,18 @@ pub trait MachineCore {
     ///
     /// Returns an error if snapshot validation or decoding fails.
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError>;
+
+    /// Applies one host-side control command.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine does not support the command or if the
+    /// command is invalid for the current media/configuration state.
+    fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: command.operation_name(),
+        })
+    }
 
     /// Returns the currently available capability set.
     fn capabilities(&self) -> CapabilitySet;

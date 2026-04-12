@@ -7,9 +7,9 @@
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::{RomImageError, SPECTRUM_PALETTE, TapeBlock};
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, FramePacket, HostIo, MachineCore, MachineError, MachineProfile,
-    MachineTime, MediaKind, MediaSet, ResetKind, RunResult, StopReason, SupportTier,
-    known_capability,
+    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
+    ResetKind, RunResult, StopReason, SupportTier, known_capability,
 };
 use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k, Spectrum48kSnapshot};
 
@@ -42,6 +42,7 @@ impl Spectrum48kRuntime {
             known_capability("snapshot-export"),
             known_capability("snapshot-import"),
             known_capability("tape-input"),
+            known_capability("tape-transport-control"),
             known_capability("scripted-input"),
         ]);
 
@@ -62,6 +63,28 @@ impl Spectrum48kRuntime {
             .try_into()
             .map_err(|_| RomImageError::WrongSize { actual: rom.len() })?;
         Ok(Self::new(rom))
+    }
+
+    /// Creates an Issue 3 runtime from the profile-declared firmware set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required firmware is missing, if unknown firmware is
+    /// supplied, or if the ROM image fails validation.
+    pub fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        let profile = profile_for(Model::Spectrum48KPal);
+        let rom_id = "sinclair-zx-spectrum-48k-rom";
+        firmware.validate_for_profile(&profile)?;
+        let rom = firmware
+            .bytes(rom_id)
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: rom_id.to_owned(),
+            })?;
+
+        Self::from_rom_bytes(rom).map_err(|reason| MachineError::InvalidFirmware {
+            id: rom_id.to_owned(),
+            reason: reason.to_string(),
+        })
     }
 
     /// Creates a runtime backed by a zero-filled ROM image.
@@ -86,16 +109,6 @@ impl Spectrum48kRuntime {
     #[must_use]
     pub const fn time(&self) -> MachineTime {
         self.time
-    }
-
-    /// Starts or resumes tape playback on the active machine.
-    pub fn play_tape(&mut self) {
-        self.machine.play_tape();
-    }
-
-    /// Stops tape playback on the active machine.
-    pub fn stop_tape(&mut self) {
-        self.machine.stop_tape();
     }
 
     fn load_tape_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
@@ -225,6 +238,33 @@ impl MachineCore for Spectrum48kRuntime {
             .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
         self.time = snapshot.time;
         Ok(())
+    }
+
+    fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
+        match command {
+            ControlCommand::MediaTransport(command) => {
+                if command.slot.as_ref() != "tape-1" {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: command.slot.as_ref().to_owned(),
+                    });
+                }
+
+                match command.action {
+                    MediaTransportAction::Start => self.machine.play_tape(),
+                    MediaTransportAction::Stop => self.machine.stop_tape(),
+                    _ => {
+                        return Err(MachineError::UnsupportedOperation {
+                            operation: "media-transport",
+                        });
+                    }
+                }
+
+                Ok(())
+            }
+            _ => Err(MachineError::UnsupportedOperation {
+                operation: command.operation_name(),
+            }),
+        }
     }
 
     fn capabilities(&self) -> CapabilitySet {

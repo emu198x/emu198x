@@ -92,6 +92,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("keyboard-matrix"),
                 known_capability("snapshot-export"),
                 known_capability("tape-input"),
+                known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
             ]),
@@ -132,6 +133,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("banked-memory"),
                 known_capability("keyboard-matrix"),
                 known_capability("tape-input"),
+                known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
             ]),
@@ -145,8 +147,9 @@ mod tests {
     use common_sinclair_zx_spectrum::MemoryBus;
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
     use emu198x_shell::{
-        AudioPacket, AudioSink, FramePacket, FrameSink, HostIo, InputEvent, MachineCore,
-        MachineError, MachineTime, MediaImage, MediaSet, NullTraceSink, PixelFormat,
+        AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FramePacket, FrameSink,
+        HostIo, InputEvent, MachineCore, MachineError, MachineTime, MediaImage, MediaSet,
+        MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
     };
 
     #[test]
@@ -194,6 +197,21 @@ mod tests {
 
         assert!(runtime.machine().tape_is_loaded());
         assert!(!runtime.machine().tape_is_playing());
+    }
+
+    #[test]
+    fn runtime_can_boot_from_declared_firmware_set() {
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(
+            "sinclair-zx-spectrum-48k-rom",
+            &[0; 16 * 1024],
+        ));
+
+        let runtime = Spectrum48kRuntime::from_firmware(&firmware);
+        assert!(
+            runtime.is_ok(),
+            "declared 48K firmware should boot the runtime"
+        );
     }
 
     #[test]
@@ -249,6 +267,34 @@ mod tests {
     }
 
     #[test]
+    fn runtime_command_controls_tape_transport() {
+        let mut runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let tap = minimal_tap();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &tap));
+        runtime
+            .load_media(&media)
+            .expect("valid TAP should load before transport commands");
+
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("tape start command should succeed");
+        assert!(runtime.machine().tape_is_playing());
+
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Stop,
+            )))
+            .expect("tape stop command should succeed");
+        assert!(!runtime.machine().tape_is_playing());
+    }
+
+    #[test]
     fn runtime_snapshot_roundtrips_machine_state() {
         let mut runtime =
             Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
@@ -263,7 +309,12 @@ mod tests {
             name: "q".into(),
             pressed: true,
         });
-        runtime.play_tape();
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("tape start command should succeed");
 
         let mut frame_sink = RecordingFrameSink::default();
         let mut audio_sink = RecordingAudioSink::default();

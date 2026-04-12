@@ -4,6 +4,22 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Shared firmware bootstrap and media transport control land
+
+**Type:** milestone
+**Trigger:** The first Spectrum headless runner worked, but it still owned too much host policy itself: firmware was a hard-coded `--rom` path interpreted directly by the binary, and tape start/stop bypassed the shared control surface via `Spectrum48kRuntime` methods.
+**Result:** `emu198x-shell` now owns the first reusable host-side bootstrap/control layer:
+1. New shared firmware types `FirmwareImage` and `FirmwareSet` validate declared firmware ids against `MachineProfile` requirements, catching missing, duplicate, and unknown firmware before family runtimes try to boot.
+2. `MachineCore` now accepts shared `ControlCommand`s, with the first concrete command family being media transport (`start` / `stop` on a named slot).
+3. New `boot_machine()` and `prepare_machine()` helpers formalize the thin-runner path: construct from firmware or a blank runtime for snapshot restore, then apply media inserts plus shared control commands.
+4. `runtime-sinclair-zx-spectrum` now implements that contract directly: `Spectrum48kRuntime::from_firmware()` resolves the declared 48K ROM id, and tape playback is driven through shared media-transport commands on slot `tape-1`.
+5. `emu198x-script-spectrum` is now a genuinely thin adapter. It still supports the Spectrum-friendly aliases (`--rom`, `--tape`, `--play-tape`), but its real path is shared and profile-driven: `--firmware ID=PATH`, `--media SLOT:KIND=PATH`, `--start-slot`, `--stop-slot`, snapshot load/save, then frame execution.
+**Boundary note:** This is intentionally still host-side policy. The runtime validates firmware and honors transport commands, but it does not gain any filesystem or CLI knowledge, and the machine core still owns only hardware state and timing.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass. New coverage includes shell tests for firmware validation and bootstrap/control helpers, runtime tests for declared-firmware boot plus tape transport commands, and script-runner tests for both generic flags and Spectrum compatibility aliases.
+**Next dependency:** the next useful step is to keep extracting headless policy out of one binary by building capture/scripting entry points on the same shared shell surface rather than teaching each family runner its own bespoke workflow.
+
+---
+
 ## 2026-04-12 — Spectrum runtime snapshots and headless runner land
 
 **Type:** milestone

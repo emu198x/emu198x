@@ -37,6 +37,43 @@ pub enum MachineError {
         reason: String,
     },
 
+    /// The supplied firmware set is missing a required image.
+    #[error("firmware {id} is missing")]
+    MissingFirmware {
+        /// Stable firmware identifier.
+        id: String,
+    },
+
+    /// The supplied firmware set contains a duplicate image identifier.
+    #[error("firmware {id} is duplicated")]
+    DuplicateFirmware {
+        /// Stable firmware identifier.
+        id: String,
+    },
+
+    /// The supplied firmware set contains an image the target profile does not use.
+    #[error("firmware {id} is not known for this profile")]
+    UnknownFirmware {
+        /// Stable firmware identifier.
+        id: String,
+    },
+
+    /// One supplied firmware image failed profile-specific validation.
+    #[error("firmware {id} is invalid: {reason}")]
+    InvalidFirmware {
+        /// Stable firmware identifier.
+        id: String,
+        /// Human-readable validation detail.
+        reason: String,
+    },
+
+    /// The host requested an invalid control or bootstrap configuration.
+    #[error("request is invalid: {reason}")]
+    InvalidRequest {
+        /// Human-readable validation detail.
+        reason: String,
+    },
+
     /// The requested operation does not exist for the current machine.
     #[error("operation {operation} is not supported")]
     UnsupportedOperation {
