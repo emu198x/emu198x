@@ -1,0 +1,16 @@
+[package]
+name = "zilog-z80"
+description = "Z80 CPU — half-cycle signal-level state machine"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+dirs = "6"
+serde_json = "1"
+
+[lints]
+workspace = true

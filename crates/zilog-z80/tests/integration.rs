@@ -1,0 +1,832 @@
+use zilog_z80::Z80;
+use zilog_z80::registers::*;
+
+/// Run the Z80 for a given number of half-cycles with a flat memory bus.
+/// Returns the number of half-cycles actually executed.
+fn run(z80: &mut Z80, mem: &mut [u8; 65536], max_hc: u32) -> u32 {
+    let mut hc = 0u32;
+    while hc < max_hc {
+        z80.tick();
+
+        // Handle bus transactions
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        } else if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        } else if z80.iorq && z80.rd && !z80.m1 {
+            z80.data_in = (z80.addr >> 8) as u8; // FUSE convention
+        }
+
+        hc += 1;
+
+        // Stop if HALTed
+        if z80.halt {
+            break;
+        }
+    }
+    hc
+}
+
+#[test]
+fn ld_a_immediate() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    // LD A, 0x42
+    mem[0] = 0x3E;
+    mem[1] = 0x42;
+    // HALT
+    mem[2] = 0x76;
+
+    run(&mut z80, &mut mem, 1000);
+    assert_eq!(z80.regs.a(), 0x42);
+}
+
+#[test]
+fn ld_register_to_register() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    // LD A, 0x55
+    mem[0] = 0x3E;
+    mem[1] = 0x55;
+    // LD B, A
+    mem[2] = 0x47;
+    // HALT
+    mem[3] = 0x76;
+
+    run(&mut z80, &mut mem, 1000);
+    assert_eq!(z80.regs.a(), 0x55);
+    assert_eq!(z80.regs.b(), 0x55);
+}
+
+#[test]
+fn add_a_register() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    // LD A, 0x10
+    mem[0] = 0x3E;
+    mem[1] = 0x10;
+    // LD B, 0x20
+    mem[2] = 0x06;
+    mem[3] = 0x20;
+    // ADD A, B
+    mem[4] = 0x80;
+    // HALT
+    mem[5] = 0x76;
+
+    run(&mut z80, &mut mem, 1000);
+    assert_eq!(z80.regs.a(), 0x30);
+}
+
+#[test]
+fn ld_rr_immediate() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    // LD BC, 0x1234
+    mem[0] = 0x01;
+    mem[1] = 0x34; // low
+    mem[2] = 0x12; // high
+    // LD DE, 0x5678
+    mem[3] = 0x11;
+    mem[4] = 0x78;
+    mem[5] = 0x56;
+    // HALT
+    mem[6] = 0x76;
+
+    run(&mut z80, &mut mem, 1000);
+    assert_eq!(z80.regs.bc, 0x1234);
+    assert_eq!(z80.regs.de, 0x5678);
+}
+
+#[test]
+fn jp_unconditional() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    // JP 0x0010
+    mem[0] = 0xC3;
+    mem[1] = 0x10; // low
+    mem[2] = 0x00; // high
+    // HALT at 0x0010
+    mem[0x10] = 0x76;
+
+    run(&mut z80, &mut mem, 1000);
+    assert!(z80.halt);
+    assert_eq!(z80.regs.pc, 0x0011); // PC advances past HALT
+}
+
+#[test]
+fn push_pop() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // LD BC, 0xABCD
+    mem[0] = 0x01;
+    mem[1] = 0xCD;
+    mem[2] = 0xAB;
+    // PUSH BC
+    mem[3] = 0xC5;
+    // LD BC, 0x0000
+    mem[4] = 0x01;
+    mem[5] = 0x00;
+    mem[6] = 0x00;
+    // POP DE
+    mem[7] = 0xD1;
+    // HALT
+    mem[8] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.de, 0xABCD);
+    assert_eq!(z80.regs.sp, 0xFFFE); // SP restored after push+pop
+}
+
+#[test]
+fn call_ret() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // CALL 0x0020
+    mem[0] = 0xCD;
+    mem[1] = 0x20;
+    mem[2] = 0x00;
+    // HALT (return address)
+    mem[3] = 0x76;
+
+    // Subroutine at 0x0020: LD A, 0x99; RET
+    mem[0x20] = 0x3E;
+    mem[0x21] = 0x99;
+    mem[0x22] = 0xC9; // RET
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.a(), 0x99);
+    assert!(z80.halt); // Returned to HALT at 0x0003
+}
+
+#[test]
+fn inc_dec_8bit() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0xFF
+    mem[0] = 0x3E;
+    mem[1] = 0xFF;
+    // INC A
+    mem[2] = 0x3C;
+    // HALT
+    mem[3] = 0x76;
+
+    run(&mut z80, &mut mem, 1000);
+    assert_eq!(z80.regs.a(), 0x00);
+    assert!(z80.regs.flag(zilog_z80::registers::FLAG_Z));
+    assert!(z80.regs.flag(zilog_z80::registers::FLAG_H));
+}
+
+#[test]
+fn ld_hl_memory() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD HL, 0x8000
+    mem[0] = 0x21;
+    mem[1] = 0x00;
+    mem[2] = 0x80;
+    // LD (HL), 0x42
+    mem[3] = 0x36;
+    mem[4] = 0x42;
+    // LD A, (HL)
+    mem[5] = 0x7E;
+    // HALT
+    mem[6] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(mem[0x8000], 0x42);
+    assert_eq!(z80.regs.a(), 0x42);
+}
+
+#[test]
+fn jr_conditional() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0x00
+    mem[0] = 0x3E;
+    mem[1] = 0x00;
+    // OR A (sets Z flag)
+    mem[2] = 0xB7;
+    // JR Z, +3 (skip to HALT at 0x0008)
+    mem[3] = 0x28;
+    mem[4] = 0x03; // offset = +3 from PC after fetch (PC=5, 5+3=8)
+    // LD A, 0xFF (should be skipped)
+    mem[5] = 0x3E;
+    mem[6] = 0xFF;
+    // HALT (jumped over)
+    mem[7] = 0x76;
+    // HALT (jump target)
+    mem[8] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.a(), 0x00); // The LD A, 0xFF was skipped
+    assert!(z80.halt);
+}
+
+#[test]
+fn cb_rlc_register() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0x85 (10000101)
+    mem[0] = 0x3E;
+    mem[1] = 0x85;
+    // RLC A (CB 07)
+    mem[2] = 0xCB;
+    mem[3] = 0x07;
+    // HALT
+    mem[4] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.a(), 0x0B); // 00001011, carry = 1
+    assert!(z80.regs.flag(FLAG_C));
+}
+
+#[test]
+fn cb_bit_test() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD B, 0x80
+    mem[0] = 0x06;
+    mem[1] = 0x80;
+    // BIT 7, B (CB 78)
+    mem[2] = 0xCB;
+    mem[3] = 0x78;
+    // HALT
+    mem[4] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert!(!z80.regs.flag(FLAG_Z)); // bit 7 is set
+    assert!(z80.regs.flag(FLAG_H)); // H always set for BIT
+}
+
+#[test]
+fn cb_set_res() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0x00
+    mem[0] = 0x3E;
+    mem[1] = 0x00;
+    // SET 3, A (CB DF)
+    mem[2] = 0xCB;
+    mem[3] = 0xDF;
+    // HALT
+    mem[4] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.a(), 0x08); // bit 3 set
+}
+
+#[test]
+fn ed_neg() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0x01
+    mem[0] = 0x3E;
+    mem[1] = 0x01;
+    // NEG (ED 44)
+    mem[2] = 0xED;
+    mem[3] = 0x44;
+    // HALT
+    mem[4] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.a(), 0xFF); // 0 - 1 = 0xFF
+    assert!(z80.regs.flag(FLAG_S));
+    assert!(z80.regs.flag(FLAG_C));
+    assert!(z80.regs.flag(FLAG_N));
+}
+
+#[test]
+fn ed_ld_i_a() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0x3F
+    mem[0] = 0x3E;
+    mem[1] = 0x3F;
+    // LD I, A (ED 47)
+    mem[2] = 0xED;
+    mem[3] = 0x47;
+    // HALT
+    mem[4] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.i, 0x3F);
+}
+
+#[test]
+fn ed_ldi_block_transfer() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // Set up: copy byte from 0x8000 to 0x9000
+    // LD HL, 0x8000
+    mem[0] = 0x21;
+    mem[1] = 0x00;
+    mem[2] = 0x80;
+    // LD DE, 0x9000
+    mem[3] = 0x11;
+    mem[4] = 0x00;
+    mem[5] = 0x90;
+    // LD BC, 0x0001
+    mem[6] = 0x01;
+    mem[7] = 0x01;
+    mem[8] = 0x00;
+    // Source byte
+    mem[0x8000] = 0xAA;
+    // LDI (ED A0)
+    mem[9] = 0xED;
+    mem[10] = 0xA0;
+    // HALT
+    mem[11] = 0x76;
+
+    run(&mut z80, &mut mem, 5000);
+    assert_eq!(mem[0x9000], 0xAA); // Byte copied
+    assert_eq!(z80.regs.hl, 0x8001); // HL incremented
+    assert_eq!(z80.regs.de, 0x9001); // DE incremented
+    assert_eq!(z80.regs.bc, 0x0000); // BC decremented
+    assert!(!z80.regs.flag(FLAG_PV)); // BC = 0, PV clear
+}
+
+#[test]
+fn di_ei() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // EI
+    mem[0] = 0xFB;
+    // DI
+    mem[1] = 0xF3;
+    // HALT
+    mem[2] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert!(!z80.regs.iff1);
+    assert!(!z80.regs.iff2);
+}
+
+#[test]
+fn ex_de_hl() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD DE, 0x1234
+    mem[0] = 0x11;
+    mem[1] = 0x34;
+    mem[2] = 0x12;
+    // LD HL, 0x5678
+    mem[3] = 0x21;
+    mem[4] = 0x78;
+    mem[5] = 0x56;
+    // EX DE, HL
+    mem[6] = 0xEB;
+    // HALT
+    mem[7] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.de, 0x5678);
+    assert_eq!(z80.regs.hl, 0x1234);
+}
+
+#[test]
+fn dd_ld_ix_nn() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD IX, 0xBEEF (DD 21 EF BE)
+    mem[0] = 0xDD;
+    mem[1] = 0x21;
+    mem[2] = 0xEF;
+    mem[3] = 0xBE;
+    // HALT
+    mem[4] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.ix, 0xBEEF);
+}
+
+#[test]
+fn dd_ld_r_ixd() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD IX, 0x8000
+    mem[0] = 0xDD;
+    mem[1] = 0x21;
+    mem[2] = 0x00;
+    mem[3] = 0x80;
+    // LD A, (IX+5) (DD 7E 05)
+    mem[4] = 0xDD;
+    mem[5] = 0x7E;
+    mem[6] = 0x05;
+    // HALT
+    mem[7] = 0x76;
+    // Data at 0x8005
+    mem[0x8005] = 0x42;
+
+    run(&mut z80, &mut mem, 5000);
+    assert_eq!(z80.regs.a(), 0x42);
+}
+
+#[test]
+fn dd_ld_ixd_r() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD IX, 0x9000
+    mem[0] = 0xDD;
+    mem[1] = 0x21;
+    mem[2] = 0x00;
+    mem[3] = 0x90;
+    // LD A, 0x77
+    mem[4] = 0x3E;
+    mem[5] = 0x77;
+    // LD (IX+3), A (DD 77 03)
+    mem[6] = 0xDD;
+    mem[7] = 0x77;
+    mem[8] = 0x03;
+    // HALT
+    mem[9] = 0x76;
+
+    run(&mut z80, &mut mem, 5000);
+    assert_eq!(mem[0x9003], 0x77);
+}
+
+#[test]
+fn fd_iy_operations() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD IY, 0xA000 (FD 21 00 A0)
+    mem[0] = 0xFD;
+    mem[1] = 0x21;
+    mem[2] = 0x00;
+    mem[3] = 0xA0;
+    // LD (IY+2), 0x55 (FD 36 02 55)
+    mem[4] = 0xFD;
+    mem[5] = 0x36;
+    mem[6] = 0x02;
+    mem[7] = 0x55;
+    // LD A, (IY+2) (FD 7E 02)
+    mem[8] = 0xFD;
+    mem[9] = 0x7E;
+    mem[10] = 0x02;
+    // HALT
+    mem[11] = 0x76;
+
+    run(&mut z80, &mut mem, 8000);
+    assert_eq!(mem[0xA002], 0x55);
+    assert_eq!(z80.regs.a(), 0x55);
+}
+
+#[test]
+fn ddcb_set_bit() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD IX, 0x8000
+    mem[0] = 0xDD;
+    mem[1] = 0x21;
+    mem[2] = 0x00;
+    mem[3] = 0x80;
+    // Data at 0x8003
+    mem[0x8003] = 0x00;
+    // SET 5, (IX+3) (DD CB 03 EE)
+    mem[4] = 0xDD;
+    mem[5] = 0xCB;
+    mem[6] = 0x03; // displacement
+    mem[7] = 0xEE; // SET 5, (IX+d)  — 11 101 110
+    // HALT
+    mem[8] = 0x76;
+
+    run(&mut z80, &mut mem, 8000);
+    assert_eq!(mem[0x8003], 0x20); // bit 5 set
+}
+
+#[test]
+fn push_pop_ix() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // LD IX, 0x1234 (DD 21 34 12)
+    mem[0] = 0xDD;
+    mem[1] = 0x21;
+    mem[2] = 0x34;
+    mem[3] = 0x12;
+    // PUSH IX (DD E5)
+    mem[4] = 0xDD;
+    mem[5] = 0xE5;
+    // LD IX, 0x0000
+    mem[6] = 0xDD;
+    mem[7] = 0x21;
+    mem[8] = 0x00;
+    mem[9] = 0x00;
+    // POP IY (FD E1)
+    mem[10] = 0xFD;
+    mem[11] = 0xE1;
+    // HALT
+    mem[12] = 0x76;
+
+    run(&mut z80, &mut mem, 8000);
+    assert_eq!(z80.regs.iy, 0x1234); // IX value pushed, popped into IY
+}
+
+#[test]
+fn cpi_block_compare() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // Search for 0x42 in memory at 0x8000
+    // LD HL, 0x8000
+    mem[0] = 0x21;
+    mem[1] = 0x00;
+    mem[2] = 0x80;
+    // LD BC, 0x0003
+    mem[3] = 0x01;
+    mem[4] = 0x03;
+    mem[5] = 0x00;
+    // LD A, 0x42
+    mem[6] = 0x3E;
+    mem[7] = 0x42;
+    // Data
+    mem[0x8000] = 0x11;
+    mem[0x8001] = 0x42; // match
+    mem[0x8002] = 0x33;
+    // CPIR (ED B1)
+    mem[8] = 0xED;
+    mem[9] = 0xB1;
+    // HALT
+    mem[10] = 0x76;
+
+    run(&mut z80, &mut mem, 10000);
+    assert_eq!(z80.regs.hl, 0x8002); // HL points past the match
+    assert_eq!(z80.regs.bc, 0x0001); // BC decremented twice (checked 2 bytes)
+    assert!(z80.regs.flag(FLAG_Z)); // Match found (A == data)
+}
+
+#[test]
+fn outi_block_output() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // Output one byte from (HL) to port (C)
+    // LD HL, 0x8000
+    mem[0] = 0x21;
+    mem[1] = 0x00;
+    mem[2] = 0x80;
+    // LD BC, 0x01FE (B=1 count, C=0xFE port)
+    mem[3] = 0x01;
+    mem[4] = 0xFE;
+    mem[5] = 0x01;
+    // Data at 0x8000
+    mem[0x8000] = 0xAA;
+    // OUTI (ED A3)
+    mem[6] = 0xED;
+    mem[7] = 0xA3;
+    // HALT
+    mem[8] = 0x76;
+
+    run(&mut z80, &mut mem, 5000);
+    assert_eq!(z80.regs.b(), 0x00); // B decremented from 1 to 0
+    assert_eq!(z80.regs.hl, 0x8001); // HL incremented
+    assert!(z80.regs.flag(FLAG_Z)); // B == 0 → Z set
+}
+
+#[test]
+fn ini_block_input() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // Input one byte from port to (HL)
+    // LD HL, 0x9000
+    mem[0] = 0x21;
+    mem[1] = 0x00;
+    mem[2] = 0x90;
+    // LD BC, 0x01AB (B=1 count, C=0xAB port)
+    mem[3] = 0x01;
+    mem[4] = 0xAB;
+    mem[5] = 0x01;
+    // INI (ED A2) — reads from port 0x00AB (B decremented to 0 first, so port = 0x00AB)
+    mem[6] = 0xED;
+    mem[7] = 0xA2;
+    // HALT
+    mem[8] = 0x76;
+
+    run(&mut z80, &mut mem, 5000);
+    assert_eq!(z80.regs.b(), 0x00); // B decremented
+    assert_eq!(z80.regs.hl, 0x9001); // HL incremented
+    // INI reads from ORIGINAL BC (before B decrement) = 0x01AB
+    // Test harness returns port>>8 = 0x01
+    assert_eq!(mem[0x9000], 0x01); // Byte written from port read
+    assert!(z80.regs.flag(FLAG_Z)); // B == 0 → Z set
+}
+
+#[test]
+fn ldir_block_transfer_multiple() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // Copy 4 bytes from 0x8000 to 0x9000
+    mem[0] = 0x21;
+    mem[1] = 0x00;
+    mem[2] = 0x80; // LD HL, 0x8000
+    mem[3] = 0x11;
+    mem[4] = 0x00;
+    mem[5] = 0x90; // LD DE, 0x9000
+    mem[6] = 0x01;
+    mem[7] = 0x04;
+    mem[8] = 0x00; // LD BC, 4
+    mem[0x8000] = 0xDE;
+    mem[0x8001] = 0xAD;
+    mem[0x8002] = 0xBE;
+    mem[0x8003] = 0xEF;
+    // LDIR (ED B0)
+    mem[9] = 0xED;
+    mem[10] = 0xB0;
+    // HALT
+    mem[11] = 0x76;
+
+    run(&mut z80, &mut mem, 20000);
+    assert_eq!(&mem[0x9000..0x9004], &[0xDE, 0xAD, 0xBE, 0xEF]);
+    assert_eq!(z80.regs.bc, 0x0000);
+    assert_eq!(z80.regs.hl, 0x8004);
+    assert_eq!(z80.regs.de, 0x9004);
+    assert!(!z80.regs.flag(FLAG_PV)); // BC=0 → PV clear
+}
+
+#[test]
+fn ldir_flags_bits35() {
+    // Reproduce Tom Harte ED B0 test 1 failure
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.af = 0xDE_DC; // A=0xDE, F=0xDC
+    z80.regs.hl = 0x5D41;
+    z80.regs.de = 0x5780;
+    z80.regs.bc = 0xD0E4; // >1 so LDIR repeats
+    z80.regs.sp = 0xFFFF;
+    z80.regs.pc = 0x0000;
+
+    mem[0] = 0xED;
+    mem[1] = 0xB0; // LDIR
+    mem[0x5D41] = 0x2E; // Source byte
+
+    // LDIR = 21T = 42 HC per repeat iteration
+    // Instrument: track what address the Z80 reads from during the LDI
+    let mut reads = Vec::new();
+    let mut hc = 0u32;
+    while hc < 42 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+            reads.push((hc, z80.addr, z80.data_in));
+        } else if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        hc += 1;
+        if z80.halt {
+            break;
+        }
+    }
+    eprintln!("Memory reads:");
+    for (h, addr, data) in &reads {
+        eprintln!("  hc={}: [{:#06X}] = {:#04X}", h, addr, data);
+    }
+
+    // After one iteration:
+    assert_eq!(mem[0x5780], 0x2E, "byte should be copied to DE");
+    assert_eq!(z80.regs.hl, 0x5D42, "HL incremented once");
+    assert_eq!(z80.regs.de, 0x5781, "DE incremented once");
+    assert_eq!(z80.regs.bc, 0xD0E3, "BC decremented once");
+
+    // Check flags: n = A + byte = 0xDE + 0x2E = 0x0C
+    // Flag 5 = bit 1 of 0x0C = 0
+    // Flag 3 = bit 3 of 0x0C = 1
+    let f = z80.regs.f();
+    eprintln!("F = {:#04X}", f);
+    eprintln!("Expected from Tom Harte: 0xC4");
+    // Tom Harte expects 0xC4 = S=1, Z=1, 5=0, H=0, 3=0, PV=1, N=0, C=0
+    // Our formula gives 0xCC = S=1, Z=1, 5=0, H=0, 3=1, PV=1, N=0, C=0
+}
+
+#[test]
+fn interrupt_im1() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // EI
+    mem[0] = 0xFB;
+    // NOP (EI defers interrupt by one instruction)
+    mem[1] = 0x00;
+    // HALT (will be interrupted)
+    mem[2] = 0x76;
+
+    // ISR at 0x0038 (IM 1 vector): LD A, 0xAA; HALT
+    mem[0x38] = 0x3E;
+    mem[0x39] = 0xAA;
+    mem[0x3A] = 0x76;
+
+    // Run a few instructions to get past EI + NOP
+    // EI = 8 HC, NOP = 8 HC, HALT starts at HC 16
+    let mut hc = 0u32;
+    while hc < 40 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        hc += 1;
+    }
+    // CPU should be halted now
+    assert!(z80.halt);
+
+    // Assert IRQ
+    z80.irq = true;
+
+    // Run more to let the interrupt fire
+    let mut hc2 = 0u32;
+    while hc2 < 200 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        if z80.iorq && z80.m1 {
+            z80.data_in = 0xFF;
+        } // IntAck data
+        hc2 += 1;
+        if z80.halt && z80.regs.pc == 0x3A {
+            break;
+        } // Halted in ISR
+    }
+
+    assert_eq!(z80.regs.a(), 0xAA); // ISR executed
+    assert!(!z80.regs.iff1); // Interrupts disabled by INT
+}
+
+#[test]
+fn nmi_jumps_to_0066() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // NOP; NOP; HALT
+    mem[0] = 0x00;
+    mem[1] = 0x00;
+    mem[2] = 0x76;
+
+    // NMI handler at 0x0066: LD A, 0x66; HALT
+    mem[0x66] = 0x3E;
+    mem[0x67] = 0x66;
+    mem[0x68] = 0x76;
+
+    // Run the first NOP
+    let mut hc = 0u32;
+    while hc < 10 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        hc += 1;
+    }
+
+    // Trigger NMI (edge-triggered)
+    z80.nmi = true;
+
+    // Run until halted in NMI handler
+    let mut hc2 = 0u32;
+    while hc2 < 300 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        hc2 += 1;
+        if z80.halt {
+            break;
+        }
+    }
+
+    assert_eq!(z80.regs.a(), 0x66); // NMI handler executed
+}

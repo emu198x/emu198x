@@ -14,6 +14,17 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Z80 crate ported into the fresh workspace
+
+**Type:** milestone
+**Trigger:** The Spectrum path reached the point where another support crate would just defer the real dependency. The next honest move was the CPU.
+**Result:** `zilog-z80` is now present in the fresh workspace as the real half-cycle, pin-level Z80 core from the fresh-start lineage: public bus pins (`addr`, `data`, `mreq`, `iorq`, `rd`, `wr`, `m1`, `rfsh`, `halt`), input pins (`data_in`, `wait`, `irq`, `nmi`), static M-step sequences, and the instruction walker/ALU/register file needed for real execution.
+**Verification:** Workspace checks pass with the imported crate under the current repo lint bar: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. The port carries 19 unit tests and 31 integration tests locally, plus ignored Tom Harte and ZEX harnesses.
+**Quality note:** The initial quick port temporarily allowed `clippy::unwrap_used` in the test harnesses. That was immediately removed and the harnesses were rewritten to use explicit control flow instead, so the crate now matches the repo policy cleanly rather than by exception.
+**Next dependency:** the Ferranti 6C001E ULA wrapper and the first real 48K machine loop that wires ULA gating to the Z80 pins.
+
+---
+
 ## 2026-04-10 — Amiga boot screen debugging: root cause narrowed
 
 **Type:** investigation
