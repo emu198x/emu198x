@@ -875,6 +875,34 @@ fn ed_ld_i_a() {
 }
 
 #[test]
+fn ed_ld_r_a_then_ld_a_r_roundtrip_matches_refresh_counter_rules() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.set_a(0x55);
+    z80.regs.set_f(FLAG_C);
+    z80.regs.iff2 = true;
+
+    // LD R, A; LD A, R; HALT
+    mem[0] = 0xED;
+    mem[1] = 0x4F;
+    mem[2] = 0xED;
+    mem[3] = 0x5F;
+    mem[4] = 0x76;
+
+    run(&mut z80, &mut mem, 4000);
+    assert_eq!(z80.regs.a(), 0x57);
+    assert!(z80.regs.flag(FLAG_C));
+    assert!(z80.regs.flag(FLAG_PV));
+    assert!(!z80.regs.flag(FLAG_3));
+    assert!(!z80.regs.flag(FLAG_5));
+    assert!(!z80.regs.flag(FLAG_S));
+    assert!(!z80.regs.flag(FLAG_Z));
+    assert!(!z80.regs.flag(FLAG_H));
+    assert!(!z80.regs.flag(FLAG_N));
+}
+
+#[test]
 fn ed_ld_a_i_sets_flags_from_i_and_iff2() {
     let mut z80 = Z80::new();
     let mut mem = [0u8; 65536];
@@ -947,6 +975,22 @@ fn ed_im_mode_switches_cover_1_2_and_0() {
 }
 
 #[test]
+fn ed_im_undocumented_opcode_still_selects_mode_0() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.im = 2;
+
+    // Undocumented IM 0 opcode (ED 4E)
+    mem[0] = 0xED;
+    mem[1] = 0x4E;
+    mem[2] = 0x76;
+
+    run(&mut z80, &mut mem, 3000);
+    assert_eq!(z80.regs.im, 0);
+}
+
+#[test]
 fn ed_in_r_c_reads_port_data_and_sets_flags() {
     let mut z80 = Z80::new();
     let mut mem = [0u8; 65536];
@@ -972,6 +1016,28 @@ fn ed_in_r_c_reads_port_data_and_sets_flags() {
 }
 
 #[test]
+fn ed_in_f_c_updates_flags_without_overwriting_registers() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.af = 0xAA01;
+    z80.regs.bc = 0x00FE;
+    z80.regs.hl = 0x1234;
+
+    // Undocumented IN F, (C) form (ED 70)
+    mem[0] = 0xED;
+    mem[1] = 0x70;
+    mem[2] = 0x76;
+
+    run(&mut z80, &mut mem, 3000);
+    assert_eq!(z80.regs.a(), 0xAA);
+    assert_eq!(z80.regs.bc, 0x00FE);
+    assert_eq!(z80.regs.hl, 0x1234);
+    assert_eq!(z80.regs.f(), FLAG_Z | FLAG_PV | FLAG_C);
+    assert_eq!(z80.regs.wz, 0x00FF);
+}
+
+#[test]
 fn ed_out_c_r_drives_io_bus() {
     let mut z80 = Z80::new();
     let mut mem = [0u8; 65536];
@@ -994,6 +1060,31 @@ fn ed_out_c_r_drives_io_bus() {
         }]
     );
     assert_eq!(z80.regs.wz, 0x12FF);
+}
+
+#[test]
+fn ed_out_c_zero_uses_zero_for_undocumented_r6_form() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.bc = 0x34FE;
+    z80.regs.hl = 0xBEEF;
+
+    // Undocumented OUT (C), 0 form (ED 71)
+    mem[0] = 0xED;
+    mem[1] = 0x71;
+    mem[2] = 0x76;
+
+    let writes = run_with_io_trace(&mut z80, &mut mem, 3000);
+    assert_eq!(
+        writes,
+        vec![IoWrite {
+            addr: 0x34FE,
+            data: 0x00,
+        }]
+    );
+    assert_eq!(z80.regs.hl, 0xBEEF);
+    assert_eq!(z80.regs.wz, 0x34FF);
 }
 
 #[test]
@@ -1170,6 +1261,30 @@ fn ed_ldd_block_transfer_moves_backward() {
     assert_eq!(z80.regs.hl, 0x8000);
     assert_eq!(z80.regs.de, 0x9000);
     assert_eq!(z80.regs.bc, 0x0000);
+    assert!(!z80.regs.flag(FLAG_PV));
+}
+
+#[test]
+fn lddr_block_transfer_multiple_moves_backward_until_bc_zero() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.hl = 0x8001;
+    z80.regs.de = 0x9001;
+    z80.regs.bc = 0x0002;
+    mem[0x8000] = 0xDE;
+    mem[0x8001] = 0xAD;
+
+    // LDDR (ED B8)
+    mem[0] = 0xED;
+    mem[1] = 0xB8;
+    mem[2] = 0x76;
+
+    run(&mut z80, &mut mem, 12000);
+    assert_eq!(&mem[0x9000..0x9002], &[0xDE, 0xAD]);
+    assert_eq!(z80.regs.bc, 0x0000);
+    assert_eq!(z80.regs.hl, 0x7FFF);
+    assert_eq!(z80.regs.de, 0x8FFF);
     assert!(!z80.regs.flag(FLAG_PV));
 }
 
@@ -1467,6 +1582,29 @@ fn cpi_block_compare() {
 }
 
 #[test]
+fn cpd_block_compare_moves_backward_once() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.hl = 0x8001;
+    z80.regs.bc = 0x0001;
+    z80.regs.set_a(0x42);
+    mem[0x8001] = 0x33;
+
+    // CPD (ED A9)
+    mem[0] = 0xED;
+    mem[1] = 0xA9;
+    mem[2] = 0x76;
+
+    run(&mut z80, &mut mem, 5000);
+    assert_eq!(z80.regs.hl, 0x8000);
+    assert_eq!(z80.regs.bc, 0x0000);
+    assert!(z80.regs.flag(FLAG_N));
+    assert!(!z80.regs.flag(FLAG_Z));
+    assert!(!z80.regs.flag(FLAG_PV));
+}
+
+#[test]
 fn cpdr_block_compare_repeats_backward_until_match() {
     let mut z80 = Z80::new();
     let mut mem = [0u8; 65536];
@@ -1516,6 +1654,40 @@ fn outi_block_output() {
     assert_eq!(z80.regs.b(), 0x00); // B decremented from 1 to 0
     assert_eq!(z80.regs.hl, 0x8001); // HL incremented
     assert!(z80.regs.flag(FLAG_Z)); // B == 0 → Z set
+}
+
+#[test]
+fn otir_block_output_repeats_forward_until_b_zero() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.hl = 0x8000;
+    z80.regs.bc = 0x02FE;
+    mem[0x8000] = 0xAA;
+    mem[0x8001] = 0x55;
+
+    // OTIR (ED B3)
+    mem[0] = 0xED;
+    mem[1] = 0xB3;
+    mem[2] = 0x76;
+
+    let writes = run_with_io_trace(&mut z80, &mut mem, 12000);
+    assert_eq!(
+        writes,
+        vec![
+            IoWrite {
+                addr: 0x01FE,
+                data: 0xAA,
+            },
+            IoWrite {
+                addr: 0x00FE,
+                data: 0x55,
+            },
+        ]
+    );
+    assert_eq!(z80.regs.b(), 0x00);
+    assert_eq!(z80.regs.hl, 0x8002);
+    assert!(z80.regs.flag(FLAG_Z));
 }
 
 #[test]
@@ -1580,6 +1752,27 @@ fn ini_block_input() {
     // Test harness returns port>>8 = 0x01
     assert_eq!(mem[0x9000], 0x01); // Byte written from port read
     assert!(z80.regs.flag(FLAG_Z)); // B == 0 → Z set
+}
+
+#[test]
+fn inir_block_input_repeats_forward_until_b_zero() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    z80.regs.hl = 0x9000;
+    z80.regs.bc = 0x02AB;
+
+    // INIR (ED B2)
+    mem[0] = 0xED;
+    mem[1] = 0xB2;
+    mem[2] = 0x76;
+
+    run(&mut z80, &mut mem, 12000);
+    assert_eq!(mem[0x9000], 0x02);
+    assert_eq!(mem[0x9001], 0x01);
+    assert_eq!(z80.regs.b(), 0x00);
+    assert_eq!(z80.regs.hl, 0x9002);
+    assert!(z80.regs.flag(FLAG_Z));
 }
 
 #[test]

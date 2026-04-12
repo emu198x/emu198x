@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Z80 ED edge cases and repeat variants narrow further
+
+**Type:** milestone
+**Trigger:** After the previous ED-prefixed pass, the remaining execute gaps were no longer broad instruction families. What stayed thin were the edge forms and line-distinct variants that matter to compatibility work: refresh-register transfers, undocumented `IN` / `OUT` register forms, the undocumented `IM 0` opcode alias, and the repeat or non-repeat variants whose implementation paths are separate in `execute.rs`.
+**Result:** `crates/zilog-z80/tests/integration.rs` now covers another focused ED slice through real instruction streams:
+1. Added direct coverage for `LD R,A` plus `LD A,R`, including the refresh-counter interaction across prefixed fetches and the resulting flag state from the loaded `R` value.
+2. Added explicit coverage for the undocumented ED forms `IM 0` via `ED 4E`, `IN F,(C)` as flags-only input, and `OUT (C),0` as zero-valued output.
+3. Added the remaining distinct block-opcode variants that were still separate execute arms: `LDDR`, `CPD`, `INIR`, and `OTIR`.
+4. The tests continue to assert externally meaningful behavior rather than internal helper details: actual emitted I/O writes, preserved registers on flags-only input, `HL` / `DE` directionality, repeat termination when `B` or `BC` reaches zero, and refresh-register effects that real machine code can observe indirectly.
+**Coverage note:** On the current local coverage run, `zilog-z80/src/execute.rs` improved from `74.17%` line coverage to `78.07%`, total workspace region coverage improved from `78.36%` to `79.00%`, and total workspace line coverage improved from `81.16%` to `81.80%`.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p zilog-z80 --test integration`, `cargo test --workspace`, and `./scripts/coverage.sh` all pass.
+**Next dependency:** the next Z80-side work should stop being “cover every obvious ED arm” and shift toward the remaining genuinely thin machine-relevant behavior, likely interrupt sequencing, refresh-visible quirks, and any compatibility failures that show up once fuller machine software is driving the core.
+
+---
+
 ## 2026-04-12 — Z80 ED-prefixed execute coverage expands through block, port, and 16-bit paths
 
 **Type:** milestone
