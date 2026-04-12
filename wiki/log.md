@@ -4,6 +4,18 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Spectrum tape progression lands; ROM-backed boot smoke test added
+
+**Type:** milestone
+**Trigger:** The 48K machine had a real ULA/Z80 frame loop but tape was still only a static EAR-line override. The next honest step was to make media advance on the real 3.5 MHz T-state cadence.
+**Result:** `common-sinclair-zx-spectrum` now owns a shared pulse-driven `TapePlayer` plus standard ROM-speed block-to-pulse helpers. `machine-sinclair-zx-spectrum-48k` now wires that player into the live frame loop: the machine advances tape every T-state (`hc % 4 == 2`), exposes the current EAR level through `$FE`, keeps the external `TapeInput` override as a higher-priority boundary for non-player sources, and adds machine-local load/play/stop helpers for raw pulses and standard blocks.
+**Boot-path note:** The 48K machine now also carries an ignored ROM-backed smoke test that loads `~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`, runs 200 frames, and asserts that the ROM has populated both pixel RAM and attribute RAM. This is intentionally a smoke test, not a claim of completeness.
+**Quality note:** The imported tape player was tightened while porting: `play()` now resumes a partially consumed pulse instead of rewinding it, and zero-length pulses are consumed without risking an infinite loop.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` all pass. The workspace now includes shared tape unit tests, machine tests for T-state-driven tape progression, and an ignored ROM-backed boot test hook.
+**Next dependency:** actual media format ingestion at the machine/runtime boundary (`.tap` / `.tzx`) and then the 48K beeper/EAR audio path, both driven from this same T-state cadence rather than from host-time shortcuts.
+
+---
+
 ## 2026-04-12 — Spectrum 48K machine crate lands; firmware boundary gap noted
 
 **Type:** milestone + design note

@@ -4,7 +4,8 @@
 //! - `wiki/systems/spectrum/variants.md`
 //!
 //! The actual `$FE` port logic now lives in the Ferranti ULA crate. This
-//! module keeps only the external tape input state that can override bit 6.
+//! module keeps only an external tape input override for cases where the
+//! machine is being driven by something other than the built-in tape player.
 
 /// External tape EAR line state visible to port `$FE`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

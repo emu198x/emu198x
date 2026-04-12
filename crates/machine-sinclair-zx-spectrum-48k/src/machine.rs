@@ -5,7 +5,9 @@
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
-use common_sinclair_zx_spectrum::{MemoryBus, RomImageError, Spectrum48kMemory};
+use common_sinclair_zx_spectrum::{
+    MemoryBus, RomImageError, Spectrum48kMemory, TapeBlock, TapePlayer,
+};
 use emu198x_shell::InputEvent;
 use ferranti_ula_6c001e::{BoardIssue, FerrantiUla};
 use zilog_z80::Z80;
@@ -19,6 +21,7 @@ pub struct Spectrum48k {
     ula: FerrantiUla,
     memory: Spectrum48kMemory,
     keyboard: KeyboardMatrix,
+    tape: TapePlayer,
     tape_input: TapeInput,
     framebuffer: Vec<u8>,
     hc: u32,
@@ -39,6 +42,7 @@ impl Spectrum48k {
             ula: FerrantiUla::new(issue),
             memory: Spectrum48kMemory::new(),
             keyboard: KeyboardMatrix::new(),
+            tape: TapePlayer::new(),
             tape_input: TapeInput::new(),
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
@@ -53,6 +57,7 @@ impl Spectrum48k {
             ula: FerrantiUla::new(issue),
             memory: Spectrum48kMemory::with_rom(rom),
             keyboard: KeyboardMatrix::new(),
+            tape: TapePlayer::new(),
             tape_input: TapeInput::new(),
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
@@ -151,6 +156,38 @@ impl Spectrum48k {
         self.tape_input.set_level(level);
     }
 
+    /// Loads a raw pulse stream as the current tape media.
+    pub fn load_tape_pulses(&mut self, pulses: Vec<u32>) {
+        self.tape.load_pulses(pulses);
+    }
+
+    /// Loads standard-speed tape blocks as the current tape media.
+    pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
+        self.tape.load_blocks(blocks);
+    }
+
+    /// Starts or resumes emulated tape playback.
+    pub fn play_tape(&mut self) {
+        self.tape.play();
+    }
+
+    /// Stops emulated tape playback without rewinding it.
+    pub fn stop_tape(&mut self) {
+        self.tape.stop();
+    }
+
+    /// Returns whether emulated tape media is currently loaded.
+    #[must_use]
+    pub fn tape_is_loaded(&self) -> bool {
+        self.tape.has_tape()
+    }
+
+    /// Returns whether emulated tape playback is currently active.
+    #[must_use]
+    pub fn tape_is_playing(&self) -> bool {
+        self.tape.is_playing()
+    }
+
     /// Returns the current border colour.
     #[must_use]
     pub fn border_color(&self) -> u8 {
@@ -166,8 +203,8 @@ impl Spectrum48k {
     #[must_use]
     pub fn read_fe(&self, port: u16) -> u8 {
         let mut value = self.ula.read_fe(port, self.keyboard.rows());
-        if self.tape_input.connected() {
-            value = (value & !0x40) | if self.tape_input.level() { 0x40 } else { 0x00 };
+        if let Some(level) = self.current_tape_level() {
+            value = (value & !0x40) | if level { 0x40 } else { 0x00 };
         }
         value
     }
@@ -184,28 +221,10 @@ impl Spectrum48k {
     /// Runs one native 48K video frame.
     pub fn run_frame(&mut self) {
         while self.hc < TIMING_48K.halfcycles_per_frame {
-            if self.hc & 1 == 0 {
-                self.ula.tick(
-                    &self.memory,
-                    self.z80.addr,
-                    self.z80.mreq,
-                    self.z80.iorq,
-                    &mut self.framebuffer,
-                );
-
-                if self.ula.cpu_clock_active() {
-                    self.z80.tick();
-                    self.handle_bus();
-                }
-
-                self.z80.irq = self.ula.interrupt_active();
-            }
-
-            self.hc += 1;
+            self.tick_halfcycle();
         }
 
-        self.ula.end_frame();
-        self.hc -= TIMING_48K.halfcycles_per_frame;
+        self.end_frame();
     }
 
     fn handle_bus(&mut self) {
@@ -233,6 +252,56 @@ impl Spectrum48k {
     fn io_write(&mut self, port: u16, data: u8) {
         if port & 0x01 == 0 {
             self.ula.write_fe(data);
+        }
+    }
+
+    fn current_tape_level(&self) -> Option<bool> {
+        if self.tape_input.connected() {
+            Some(self.tape_input.level())
+        } else if self.tape.has_tape() {
+            Some(self.tape.ear_level())
+        } else {
+            None
+        }
+    }
+
+    fn tick_halfcycle(&mut self) {
+        if self.hc & 1 == 0 {
+            self.ula.tick(
+                &self.memory,
+                self.z80.addr,
+                self.z80.mreq,
+                self.z80.iorq,
+                &mut self.framebuffer,
+            );
+
+            if self.ula.cpu_clock_active() {
+                self.z80.tick();
+                self.handle_bus();
+            }
+
+            self.z80.irq = self.ula.interrupt_active();
+
+            if self.hc % 4 == 2 {
+                self.tape.advance_tstates(1);
+            }
+        }
+
+        self.hc += 1;
+    }
+
+    fn end_frame(&mut self) {
+        self.ula.end_frame();
+        self.hc -= TIMING_48K.halfcycles_per_frame;
+    }
+
+    #[cfg(test)]
+    fn advance_halfcycles(&mut self, halfcycles: u32) {
+        for _ in 0..halfcycles {
+            self.tick_halfcycle();
+            if self.hc >= TIMING_48K.halfcycles_per_frame {
+                self.end_frame();
+            }
         }
     }
 }
@@ -265,6 +334,8 @@ impl MemoryBus for Spectrum48k {
 mod tests {
     use super::*;
     use crate::keyboard::SpectrumKey;
+    use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn machine_defaults_to_issue3() {
@@ -337,6 +408,41 @@ mod tests {
     }
 
     #[test]
+    fn emulated_tape_advances_on_tstate_boundaries() {
+        let mut machine = Spectrum48k::new();
+
+        machine.load_tape_pulses(vec![1, 1, 2]);
+        machine.play_tape();
+        assert!(machine.tape_is_loaded());
+        assert!(machine.tape_is_playing());
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+
+        machine.advance_halfcycles(3);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+
+        machine.advance_halfcycles(4);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+
+        machine.advance_halfcycles(8);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+        assert!(!machine.tape_is_playing());
+    }
+
+    #[test]
+    fn external_tape_input_overrides_emulated_tape() {
+        let mut machine = Spectrum48k::new();
+
+        machine.load_tape_pulses(vec![1]);
+        machine.play_tape();
+        machine.advance_halfcycles(3);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+
+        machine.set_tape_connected(true);
+        machine.set_tape_level(false);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+    }
+
+    #[test]
     fn machine_allows_direct_keyboard_access_for_tests() {
         let mut machine = Spectrum48k::new();
         machine.keyboard_mut().press_key(SpectrumKey::Enter);
@@ -349,5 +455,52 @@ mod tests {
         let machine = Spectrum48k::new();
 
         assert_eq!(machine.io_read(0xffff), 0xff);
+    }
+
+    #[test]
+    #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+    fn boot_rom_populates_screen_memory() {
+        let Some(rom_path) = spectrum_48k_rom_path() else {
+            eprintln!("HOME is not set; skipping ROM-backed boot smoke test");
+            return;
+        };
+
+        if !rom_path.is_file() {
+            eprintln!("ROM not found at {}", rom_path.display());
+            return;
+        }
+
+        let rom = match fs::read(&rom_path) {
+            Ok(rom) => rom,
+            Err(err) => panic!("failed to read {}: {err}", rom_path.display()),
+        };
+
+        let mut machine = Spectrum48k::new();
+        machine
+            .load_rom_bytes(&rom)
+            .expect("48K ROM path should contain a 16 KiB image");
+        machine.reset();
+
+        for _ in 0..200 {
+            machine.run_frame();
+        }
+
+        let pixel_non_zero = (0x4000u16..=0x57ff)
+            .filter(|&addr| machine.read(addr) != 0)
+            .count();
+        let attribute_non_zero = (0x5800u16..=0x5aff)
+            .filter(|&addr| machine.read(addr) != 0)
+            .count();
+
+        assert!(pixel_non_zero > 0, "expected boot ROM to draw pixel data");
+        assert!(
+            attribute_non_zero > 0,
+            "expected boot ROM to program attribute memory"
+        );
+    }
+
+    fn spectrum_48k_rom_path() -> Option<PathBuf> {
+        std::env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom"))
     }
 }
