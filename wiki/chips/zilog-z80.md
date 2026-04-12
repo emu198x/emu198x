@@ -56,11 +56,11 @@ The fix for the final 1,996 Tom Harte failures:
 
 ## Test results
 
-As of 2026-04-12 in the fresh Rust workspace, the Tom Harte corpus has been rerun locally and passes in full. The ZEX harness now supports checkpoint-targeted reruns keyed to the exerciser's own labelled blocks, but full fresh-workspace end-to-end reruns for ZEX and FUSE are still outstanding.
+As of 2026-04-12 in the fresh Rust workspace, the Tom Harte corpus has been rerun locally and passes in full. `zexdoc` and `zexall` now both pass end-to-end in the fresh harness as well, and the local ZEX runner supports checkpoint-targeted reruns plus cached resume from saved checkpoints. FUSE remains the next CPU-validation target after these suites.
 
 | Suite | Result |
 |-------|--------|
 | Tom Harte | 1,604,000 / 1,604,000 (100%) — rerun locally on 2026-04-12 |
-| ZEXDOC | Harness wired to local binaries with checkpoint-targeted reruns; full rerun pending |
-| ZEXALL | Harness wired to local binaries with checkpoint-targeted reruns; full rerun pending |
+| ZEXDOC | Pass — end-to-end rerun locally on 2026-04-12 |
+| ZEXALL | Pass — end-to-end rerun locally on 2026-04-12 |
 | FUSE | Reference target; fresh-workspace rerun pending |

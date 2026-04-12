@@ -18,6 +18,8 @@ CP/M test programs that exercise documented (ZEXDOC) and undocumented (ZEXALL) Z
 
 The harness should preserve the exerciser's own labelled progress blocks as checkpoints. That gives a concrete failure boundary such as "checkpoint 37 failed" instead of only "zexall failed somewhere." Checkpoint-targeted reruns are useful for diagnosis, but unless resume support exists they still replay the suite from reset.
 
+For routine local reruns, use `--release`. The full exerciser suites are CPU-bound enough that debug builds distort turnaround time and make checkpoint-level work look worse than it is.
+
 ### FUSE test suite
 
 1,356 tests at `fuse-emulator-fuse/z80/tests/`. Test contention timing, I/O timing, interrupt timing. Background memory: DEADBEEF repeating. 6 event types: MR/MW/MC/PR/PW/PC.

@@ -4,6 +4,26 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — ZEX snapshots, cached resume, and full suite reruns are established
+
+**Type:** milestone
+**Trigger:** After adding checkpoint-targeted reruns, the remaining problem was practicality. Late checkpoint reruns still replayed the suite from reset, and the first full fresh-workspace `zexdoc` release run exposed two harness edge cases at real suite completion that the shorter tests had not covered.
+**Result:** `crates/zilog-z80/tests/zex_tests.rs` now supports practical local ZEX iteration and has been proven against full suite runs:
+1. Added a local snapshot format for the ZEX harness under `target/zex-snapshots` (or `EMU198X_ZEX_SNAPSHOT_DIR`) that stores the Z80 state, 64K CP/M memory image, completed checkpoint list, and cycle count.
+2. Targeted checkpoint runs now resume from the highest cached checkpoint below the requested target instead of always restarting from reset. Full-suite runs also resume from the highest cached checkpoint when available.
+3. Added fast harness tests covering snapshot round-trips, highest-checkpoint selection, completion-line handling, and extra summary output after the final checkpoint.
+4. Fixed the two harness bugs discovered by real end-to-end runs:
+   - `Tests complete` must count as completion even when it does not contain `OK`.
+   - extra post-checkpoint summary output after checkpoint 67 must not be treated as a parser error.
+5. Re-ran both exerciser suites end-to-end in release mode in the fresh workspace, and both now pass:
+   - `zexdoc`: 67 checkpoints, 67 OK, 0 ERROR
+   - `zexall`: 67 checkpoints, 67 OK, 0 ERROR
+**Verification:** `cargo test -p zilog-z80 --test zex_tests`, `cargo clippy -p zilog-z80 --test zex_tests -- -D warnings`, `EMU198X_ZEX_SNAPSHOT_DIR=/tmp/emu198x-zex-resume-proof EMU198X_ZEX_CHECKPOINT=1 cargo test -p zilog-z80 --test zex_tests run_zexdoc_checkpoint -- --ignored --nocapture`, `EMU198X_ZEX_SNAPSHOT_DIR=/tmp/emu198x-zex-resume-proof EMU198X_ZEX_CHECKPOINT=2 cargo test -p zilog-z80 --test zex_tests run_zexdoc_checkpoint -- --ignored --nocapture`, `EMU198X_ZEX_SNAPSHOT_DIR=/tmp/emu198x-zex-release-full cargo test --release -p zilog-z80 --test zex_tests run_zexdoc -- --ignored --nocapture`, and `EMU198X_ZEX_SNAPSHOT_DIR=/tmp/emu198x-zexall-release-full cargo test --release -p zilog-z80 --test zex_tests run_zexall -- --ignored --nocapture` all pass.
+**Performance note:** The release build matters here. The resumed checkpoint-2 `zexdoc` run took about `129s` in debug and `17.30s` in release from the same cached checkpoint.
+**Next dependency:** FUSE is now the next external Z80 verification pass worth re-establishing in the fresh workspace, using the same “reference, not oracle” adjudication rule against Tom Harte and the now-passing ZEX suites.
+
+---
+
 ## 2026-04-12 — ZEX harness now supports checkpoint-targeted reruns
 
 **Type:** milestone

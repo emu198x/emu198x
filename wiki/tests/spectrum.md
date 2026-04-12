@@ -5,8 +5,8 @@
 | Suite | Result | Command |
 |-------|--------|---------|
 | Tom Harte | 1,604,000 / 1,604,000 (100%) | `cargo test -p zilog-z80 --test single_step_tests run_all -- --ignored --nocapture` |
-| ZEXDOC | 268/268 | Integration test |
-| ZEXALL | 268/268 | Integration test |
+| ZEXDOC | Pass | `cargo test --release -p zilog-z80 --test zex_tests run_zexdoc -- --ignored --nocapture` |
+| ZEXALL | Pass | `cargo test --release -p zilog-z80 --test zex_tests run_zexall -- --ignored --nocapture` |
 | FUSE | 1,351 / 1,356 (99.6%) | Integration test |
 
 ### FUSE failures (5 remaining) — investigated, accepted
