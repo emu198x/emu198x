@@ -1,0 +1,9 @@
+[package]
+name = "format-sinclair-zx-spectrum-tap"
+description = "TAP tape format parser for Sinclair ZX Spectrum media"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Spectrum media parsers, runtime wrapper, and beeper audio land
+
+**Type:** milestone
+**Trigger:** The 48K machine had a real frame loop and tape progression, but there was still no honest shell-facing media path and no machine-emitted audio packet path.
+**Result:** Three connected changes landed together:
+1. New crates `format-sinclair-zx-spectrum-tap` and `format-sinclair-zx-spectrum-tzx` now parse the two baseline Spectrum tape formats into machine-usable structures/pulse streams.
+2. `common-sinclair-zx-spectrum` gained `BeeperAudio`, and `machine-sinclair-zx-spectrum-48k` now models the beeper/EAR speaker path at T-state precision, emitting one mono audio frame alongside each video frame.
+3. `runtime-sinclair-zx-spectrum` now includes `Spectrum48kRuntime`, the first fresh-workspace `MachineCore` implementation: it owns a real 48K profile, validates ROM bytes at construction, accepts `MediaSet` tape loads on slot `tape-1`, forwards host key events into the keyboard matrix, and emits indexed video plus mono audio packets through the shell sinks.
+**Accuracy note:** Tape EAR no longer keeps driving `$FE` after the virtual deck stops. Tightening that behavior fixed an earlier overreach in the machine tests; once playback ends, bit 6 falls back to the ULA/tape-input boundary rather than a stale tape level.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` all pass. New coverage includes TAP/TZX parser tests, machine audio tests, and runtime tests for `MediaSet` loading plus frame/audio emission.
+**Next dependency:** snapshot import/export on the new runtime boundary and then a real family product/runner layer that can supply firmware and drive tape control without smuggling policy into the machine core.
+
+---
+
 ## 2026-04-12 — Spectrum tape progression lands; ROM-backed boot smoke test added
 
 **Type:** milestone

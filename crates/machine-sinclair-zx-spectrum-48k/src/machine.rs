@@ -1,8 +1,10 @@
 //! ZX Spectrum 48K machine-local composition.
 //!
 //! This crate now owns the first working 48K machine loop: the Z80 and Ferranti
-//! ULA are wired together against the 48K memory map and keyboard matrix.
+//! ULA are wired together against the 48K memory map, keyboard matrix, tape
+//! path, and beeper/EAR audio path.
 
+use common_sinclair_zx_spectrum::audio::BeeperAudio;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::{
@@ -15,6 +17,8 @@ use zilog_z80::Z80;
 use crate::keyboard::KeyboardMatrix;
 use crate::port::TapeInput;
 
+const AUDIO_SAMPLE_RATE: u32 = 44_100;
+
 /// Machine-local state for a stock ZX Spectrum 48K.
 pub struct Spectrum48k {
     z80: Z80,
@@ -23,6 +27,10 @@ pub struct Spectrum48k {
     keyboard: KeyboardMatrix,
     tape: TapePlayer,
     tape_input: TapeInput,
+    audio: BeeperAudio,
+    audio_frame: Vec<f32>,
+    beeper_state: bool,
+    last_ear: bool,
     framebuffer: Vec<u8>,
     hc: u32,
 }
@@ -44,6 +52,22 @@ impl Spectrum48k {
             keyboard: KeyboardMatrix::new(),
             tape: TapePlayer::new(),
             tape_input: TapeInput::new(),
+            audio: BeeperAudio::new(
+                AUDIO_SAMPLE_RATE,
+                TIMING_48K.tstates_per_frame,
+                (TIMING_48K.master_hz / u64::from(TIMING_48K.cpu_divisor)) as u32,
+            ),
+            audio_frame: vec![
+                0.0;
+                BeeperAudio::new(
+                    AUDIO_SAMPLE_RATE,
+                    TIMING_48K.tstates_per_frame,
+                    (TIMING_48K.master_hz / u64::from(TIMING_48K.cpu_divisor)) as u32,
+                )
+                .samples_per_frame()
+            ],
+            beeper_state: false,
+            last_ear: false,
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
         }
@@ -59,6 +83,22 @@ impl Spectrum48k {
             keyboard: KeyboardMatrix::new(),
             tape: TapePlayer::new(),
             tape_input: TapeInput::new(),
+            audio: BeeperAudio::new(
+                AUDIO_SAMPLE_RATE,
+                TIMING_48K.tstates_per_frame,
+                (TIMING_48K.master_hz / u64::from(TIMING_48K.cpu_divisor)) as u32,
+            ),
+            audio_frame: vec![
+                0.0;
+                BeeperAudio::new(
+                    AUDIO_SAMPLE_RATE,
+                    TIMING_48K.tstates_per_frame,
+                    (TIMING_48K.master_hz / u64::from(TIMING_48K.cpu_divisor)) as u32,
+                )
+                .samples_per_frame()
+            ],
+            beeper_state: false,
+            last_ear: false,
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
         }
@@ -106,6 +146,24 @@ impl Spectrum48k {
         &mut self.framebuffer
     }
 
+    /// Returns the current mono audio frame.
+    #[must_use]
+    pub fn audio_frame(&self) -> &[f32] {
+        &self.audio_frame
+    }
+
+    /// Returns the output sample rate for the beeper/EAR mixer.
+    #[must_use]
+    pub const fn audio_sample_rate(&self) -> u32 {
+        AUDIO_SAMPLE_RATE
+    }
+
+    /// Returns the number of mono samples emitted per video frame.
+    #[must_use]
+    pub fn audio_samples_per_frame(&self) -> usize {
+        self.audio_frame.len()
+    }
+
     /// Returns the current half-cycle counter.
     #[must_use]
     pub const fn hc(&self) -> u32 {
@@ -149,31 +207,37 @@ impl Spectrum48k {
     /// Sets whether the tape input is connected.
     pub fn set_tape_connected(&mut self, connected: bool) {
         self.tape_input.set_connected(connected);
+        self.sync_ear_level();
     }
 
     /// Sets the current tape EAR level.
     pub fn set_tape_level(&mut self, level: bool) {
         self.tape_input.set_level(level);
+        self.sync_ear_level();
     }
 
     /// Loads a raw pulse stream as the current tape media.
     pub fn load_tape_pulses(&mut self, pulses: Vec<u32>) {
         self.tape.load_pulses(pulses);
+        self.sync_ear_level();
     }
 
     /// Loads standard-speed tape blocks as the current tape media.
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.tape.load_blocks(blocks);
+        self.sync_ear_level();
     }
 
     /// Starts or resumes emulated tape playback.
     pub fn play_tape(&mut self) {
         self.tape.play();
+        self.sync_ear_level();
     }
 
     /// Stops emulated tape playback without rewinding it.
     pub fn stop_tape(&mut self) {
         self.tape.stop();
+        self.sync_ear_level();
     }
 
     /// Returns whether emulated tape media is currently loaded.
@@ -197,6 +261,7 @@ impl Spectrum48k {
     /// Writes to port `$FE`.
     pub fn write_fe(&mut self, value: u8) {
         self.ula.write_fe(value);
+        self.sync_beeper_level(value);
     }
 
     /// Reads port `$FE`.
@@ -214,8 +279,17 @@ impl Spectrum48k {
         let issue = self.issue();
         self.z80 = Z80::new();
         self.ula = FerrantiUla::new(issue);
+        self.audio = BeeperAudio::new(
+            AUDIO_SAMPLE_RATE,
+            TIMING_48K.tstates_per_frame,
+            (TIMING_48K.master_hz / u64::from(TIMING_48K.cpu_divisor)) as u32,
+        );
+        self.audio_frame.fill(0.0);
+        self.beeper_state = false;
+        self.last_ear = false;
         self.hc = 0;
         self.framebuffer.fill(0);
+        self.sync_ear_level();
     }
 
     /// Runs one native 48K video frame.
@@ -251,17 +325,45 @@ impl Spectrum48k {
 
     fn io_write(&mut self, port: u16, data: u8) {
         if port & 0x01 == 0 {
-            self.ula.write_fe(data);
+            self.write_fe(data);
         }
     }
 
     fn current_tape_level(&self) -> Option<bool> {
         if self.tape_input.connected() {
             Some(self.tape_input.level())
-        } else if self.tape.has_tape() {
+        } else if self.tape.is_playing() {
             Some(self.tape.ear_level())
         } else {
             None
+        }
+    }
+
+    fn current_tstate(&self) -> u32 {
+        TIMING_48K.hc_to_tstates(self.hc)
+    }
+
+    fn speaker_level(&self) -> f32 {
+        let beeper = if self.beeper_state { 0.8 } else { 0.0 };
+        let ear = if self.last_ear { 0.2 } else { 0.0 };
+        beeper + ear
+    }
+
+    fn sync_beeper_level(&mut self, value: u8) {
+        let beeper_state = value & 0x10 != 0;
+        if beeper_state != self.beeper_state {
+            self.beeper_state = beeper_state;
+            self.audio
+                .set_level(self.current_tstate(), self.speaker_level());
+        }
+    }
+
+    fn sync_ear_level(&mut self) {
+        let ear = self.current_tape_level().unwrap_or(false);
+        if ear != self.last_ear {
+            self.last_ear = ear;
+            self.audio
+                .set_level(self.current_tstate(), self.speaker_level());
         }
     }
 
@@ -284,6 +386,7 @@ impl Spectrum48k {
 
             if self.hc % 4 == 2 {
                 self.tape.advance_tstates(1);
+                self.sync_ear_level();
             }
         }
 
@@ -292,6 +395,7 @@ impl Spectrum48k {
 
     fn end_frame(&mut self) {
         self.ula.end_frame();
+        self.audio.end_frame(&mut self.audio_frame);
         self.hc -= TIMING_48K.halfcycles_per_frame;
     }
 
@@ -408,6 +512,18 @@ mod tests {
     }
 
     #[test]
+    fn stopped_tape_does_not_override_ula_feedback() {
+        let mut machine = Spectrum48k::new();
+
+        machine.write_fe(0x10);
+        machine.load_tape_pulses(vec![1, 1, 1]);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+
+        machine.write_fe(0x00);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+    }
+
+    #[test]
     fn emulated_tape_advances_on_tstate_boundaries() {
         let mut machine = Spectrum48k::new();
 
@@ -424,15 +540,15 @@ mod tests {
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
 
         machine.advance_halfcycles(8);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
         assert!(!machine.tape_is_playing());
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
     }
 
     #[test]
     fn external_tape_input_overrides_emulated_tape() {
         let mut machine = Spectrum48k::new();
 
-        machine.load_tape_pulses(vec![1]);
+        machine.load_tape_pulses(vec![1, 2]);
         machine.play_tape();
         machine.advance_halfcycles(3);
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
@@ -440,6 +556,18 @@ mod tests {
         machine.set_tape_connected(true);
         machine.set_tape_level(false);
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+    }
+
+    #[test]
+    fn beeper_audio_is_emitted_per_frame() {
+        let mut machine = Spectrum48k::new();
+
+        machine.write_fe(0x10);
+        machine.run_frame();
+
+        assert_eq!(machine.audio_sample_rate(), AUDIO_SAMPLE_RATE);
+        assert!(machine.audio_samples_per_frame() > 0);
+        assert!(machine.audio_frame().iter().any(|&sample| sample > 0.0));
     }
 
     #[test]

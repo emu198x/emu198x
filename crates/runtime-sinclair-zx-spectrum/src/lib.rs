@@ -1,13 +1,18 @@
 //! Sinclair ZX Spectrum family metadata.
 //!
-//! This crate intentionally begins with profile and model metadata only. The
-//! timing model, CPU, ULA, media path, and concrete machine implementations
-//! will land in later passes against the fresh architecture.
+//! This crate owns the Spectrum family's metadata catalogue plus the first
+//! runtime wrapper over the 48K machine implementation. The wrapper is the
+//! shared-control-surface boundary: it translates `MediaSet`, host input
+//! events, and frame/audio sinks into concrete 48K machine operations.
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
     MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
+
+mod runtime;
+
+pub use runtime::Spectrum48kRuntime;
 
 /// Supported Spectrum family models in the initial bootstrap pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -83,9 +88,9 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 WritebackPolicy::InMemoryOnly,
             )],
             capabilities: CapabilitySet::with_all([
+                known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
                 known_capability("tape-input"),
-                known_capability("snapshot-import"),
                 known_capability("scripted-input"),
             ]),
         },
@@ -135,6 +140,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
+    use emu198x_shell::{
+        AudioPacket, AudioSink, FramePacket, FrameSink, HostIo, InputEvent, MachineCore,
+        MachineError, MachineTime, MediaImage, MediaSet, NullTraceSink, PixelFormat,
+    };
 
     #[test]
     fn profile_ids_are_unique() {
@@ -164,6 +174,112 @@ mod tests {
                 "{} should declare firmware",
                 profile.display_name
             );
+        }
+    }
+
+    #[test]
+    fn runtime_loads_tap_media_into_tape_slot() {
+        let mut runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let tap = minimal_tap();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &tap));
+
+        runtime
+            .load_media(&media)
+            .expect("valid TAP should load into runtime");
+
+        assert!(runtime.machine().tape_is_loaded());
+        assert!(!runtime.machine().tape_is_playing());
+    }
+
+    #[test]
+    fn runtime_rejects_unknown_media_slot() {
+        let mut runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let tap = minimal_tap();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-9", MediaKind::Tape, &tap));
+
+        let err = runtime
+            .load_media(&media)
+            .expect_err("unknown slot must be rejected");
+        assert!(matches!(
+            err,
+            MachineError::UnknownMediaSlot { ref slot } if slot == "tape-9"
+        ));
+    }
+
+    #[test]
+    fn runtime_run_until_emits_frame_and_audio_packets() {
+        let mut runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let mut frame_sink = RecordingFrameSink::default();
+        let mut audio_sink = RecordingAudioSink::default();
+        let mut trace_sink = NullTraceSink;
+        let inputs = [InputEvent::Key {
+            name: "q".into(),
+            pressed: true,
+        }];
+        let target = MachineTime::new(u64::from(TIMING_48K.halfcycles_per_frame));
+        let mut host = HostIo {
+            input_events: &inputs,
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+
+        let result = runtime
+            .run_until(target, &mut host)
+            .expect("one frame should run");
+
+        assert_eq!(result.reached, target);
+        assert_eq!(frame_sink.frames, 1);
+        assert_eq!(
+            frame_sink.last_dimensions,
+            Some((SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32))
+        );
+        assert_eq!(frame_sink.last_format, Some(PixelFormat::Indexed8));
+        assert_eq!(audio_sink.packets, 1);
+        assert!(audio_sink.last_samples > 0);
+        assert_eq!(runtime.machine().read_fe(0xfbfe) & 0x01, 0x00);
+    }
+
+    fn minimal_tap() -> Vec<u8> {
+        let mut tap = vec![0x13, 0x00];
+        tap.push(0x00);
+        tap.extend_from_slice(&[0; 17]);
+        tap.push(0x00);
+        tap
+    }
+
+    #[derive(Default)]
+    struct RecordingFrameSink {
+        frames: usize,
+        last_dimensions: Option<(u32, u32)>,
+        last_format: Option<PixelFormat>,
+    }
+
+    impl FrameSink for RecordingFrameSink {
+        fn push_frame(&mut self, frame: FramePacket<'_>) -> Result<(), MachineError> {
+            self.frames += 1;
+            self.last_dimensions = Some((frame.width, frame.height));
+            self.last_format = Some(frame.format);
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingAudioSink {
+        packets: usize,
+        last_samples: usize,
+    }
+
+    impl AudioSink for RecordingAudioSink {
+        fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
+            self.packets += 1;
+            self.last_samples = packet.samples.len();
+            Ok(())
         }
     }
 }

@@ -76,6 +76,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-sinclair-zx-spectrum-tap"
+version = "0.1.0"
+
+[[package]]
+name = "format-sinclair-zx-spectrum-tzx"
+version = "0.1.0"
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -174,7 +182,11 @@ dependencies = [
 name = "runtime-sinclair-zx-spectrum"
 version = "0.1.0"
 dependencies = [
+ "common-sinclair-zx-spectrum",
  "emu198x-shell",
+ "format-sinclair-zx-spectrum-tap",
+ "format-sinclair-zx-spectrum-tzx",
+ "machine-sinclair-zx-spectrum-48k",
 ]
 
 [[package]]
