@@ -1,0 +1,13 @@
+[package]
+name = "machine-sinclair-zx-spectrum-48k"
+description = "ZX Spectrum 48K machine state and $FE I/O surface"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+emu198x-shell = { path = "../emu198x-shell" }
+
+[lints]
+workspace = true

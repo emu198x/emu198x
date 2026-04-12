@@ -4,6 +4,16 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Spectrum 48K machine crate lands; firmware boundary gap noted
+
+**Type:** milestone + design note
+**Trigger:** First fresh-workspace machine-layer implementation for the Spectrum 48K.
+**Result:** New crate `machine-sinclair-zx-spectrum-48k` owns the first honest machine-local state: 48K memory delegation, the 8 half-row keyboard matrix, shell `InputEvent::Key` translation, tape EAR input state, and board-issue-correct `$FE` read/write behaviour (Issue 2 vs Issue 3 bit-6 feedback, with tape override when connected).
+**Source notes:** The matrix key encoding ports cleanly from the older runtime crate; the board-issue `$FE` behaviour ports from the old Ferranti ULA tests. The old bus loop and ULA timing code were deliberately *not* reused here.
+**Design note for future sessions:** `emu198x-shell::MachineCore` still has media loading but no firmware-loading boundary. That means ROM-dependent machine crates should stay *below* the shell trait for now rather than faking firmware as media or inventing half-initialized constructors. Revisit the shell boundary after at least one real machine path proves what the firmware handoff actually needs to look like.
+
+---
+
 ## 2026-04-10 — Amiga boot screen debugging: root cause narrowed
 
 **Type:** investigation
