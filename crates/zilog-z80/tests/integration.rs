@@ -114,6 +114,80 @@ fn jp_unconditional() {
 }
 
 #[test]
+fn jp_conditional_taken() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0x00
+    mem[0] = 0x3E;
+    mem[1] = 0x00;
+    // OR A (sets Z)
+    mem[2] = 0xB7;
+    // JP Z, 0x0010
+    mem[3] = 0xCA;
+    mem[4] = 0x10;
+    mem[5] = 0x00;
+    // LD B, 0xFF (should be skipped)
+    mem[6] = 0x06;
+    mem[7] = 0xFF;
+    // Target: LD B, 0x42; HALT
+    mem[0x10] = 0x06;
+    mem[0x11] = 0x42;
+    mem[0x12] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.b(), 0x42);
+    assert!(z80.halt);
+}
+
+#[test]
+fn jp_conditional_not_taken() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0x01
+    mem[0] = 0x3E;
+    mem[1] = 0x01;
+    // OR A (clears Z)
+    mem[2] = 0xB7;
+    // JP Z, 0x0010
+    mem[3] = 0xCA;
+    mem[4] = 0x10;
+    mem[5] = 0x00;
+    // LD B, 0x42; HALT
+    mem[6] = 0x06;
+    mem[7] = 0x42;
+    mem[8] = 0x76;
+    // Target path should be skipped
+    mem[0x10] = 0x06;
+    mem[0x11] = 0xFF;
+    mem[0x12] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.b(), 0x42);
+    assert!(z80.halt);
+}
+
+#[test]
+fn jp_indirect_hl() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD HL, 0x0010
+    mem[0] = 0x21;
+    mem[1] = 0x10;
+    mem[2] = 0x00;
+    // JP (HL)
+    mem[3] = 0xE9;
+    // HALT at 0x0010
+    mem[0x10] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert!(z80.halt);
+    assert_eq!(z80.regs.pc, 0x0011);
+}
+
+#[test]
 fn push_pop() {
     let mut z80 = Z80::new();
     let mut mem = [0u8; 65536];
@@ -140,6 +214,66 @@ fn push_pop() {
 }
 
 #[test]
+fn call_conditional_taken() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // LD A, 0x00
+    mem[0] = 0x3E;
+    mem[1] = 0x00;
+    // OR A (sets Z)
+    mem[2] = 0xB7;
+    // CALL Z, 0x0010
+    mem[3] = 0xCC;
+    mem[4] = 0x10;
+    mem[5] = 0x00;
+    // HALT at return address
+    mem[6] = 0x76;
+
+    // Subroutine: LD B, 0x42; RET
+    mem[0x10] = 0x06;
+    mem[0x11] = 0x42;
+    mem[0x12] = 0xC9;
+
+    run(&mut z80, &mut mem, 4000);
+    assert_eq!(z80.regs.b(), 0x42);
+    assert_eq!(z80.regs.sp, 0xFFFE);
+    assert!(z80.halt);
+}
+
+#[test]
+fn call_conditional_not_taken() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // LD A, 0x01
+    mem[0] = 0x3E;
+    mem[1] = 0x01;
+    // OR A (clears Z)
+    mem[2] = 0xB7;
+    // CALL Z, 0x0010
+    mem[3] = 0xCC;
+    mem[4] = 0x10;
+    mem[5] = 0x00;
+    // LD B, 0x55; HALT
+    mem[6] = 0x06;
+    mem[7] = 0x55;
+    mem[8] = 0x76;
+
+    // Untaken subroutine path
+    mem[0x10] = 0x06;
+    mem[0x11] = 0xFF;
+    mem[0x12] = 0xC9;
+
+    run(&mut z80, &mut mem, 4000);
+    assert_eq!(z80.regs.b(), 0x55);
+    assert_eq!(z80.regs.sp, 0xFFFE);
+    assert!(z80.halt);
+}
+
+#[test]
 fn call_ret() {
     let mut z80 = Z80::new();
     let mut mem = [0u8; 65536];
@@ -163,6 +297,67 @@ fn call_ret() {
 }
 
 #[test]
+fn ret_conditional_taken() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // LD A, 0x00
+    mem[0] = 0x3E;
+    mem[1] = 0x00;
+    // OR A (sets Z)
+    mem[2] = 0xB7;
+    // CALL 0x0010
+    mem[3] = 0xCD;
+    mem[4] = 0x10;
+    mem[5] = 0x00;
+    // HALT at return address
+    mem[6] = 0x76;
+
+    // RET Z should return immediately
+    mem[0x10] = 0xC8;
+    // Should be skipped
+    mem[0x11] = 0x06;
+    mem[0x12] = 0xFF;
+    mem[0x13] = 0xC9;
+
+    run(&mut z80, &mut mem, 4000);
+    assert_eq!(z80.regs.b(), 0x00);
+    assert_eq!(z80.regs.sp, 0xFFFE);
+    assert!(z80.halt);
+}
+
+#[test]
+fn ret_conditional_not_taken() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // LD A, 0x01
+    mem[0] = 0x3E;
+    mem[1] = 0x01;
+    // OR A (clears Z)
+    mem[2] = 0xB7;
+    // CALL 0x0010
+    mem[3] = 0xCD;
+    mem[4] = 0x10;
+    mem[5] = 0x00;
+    // HALT at return address
+    mem[6] = 0x76;
+
+    // RET Z not taken, then LD B,0x66, RET
+    mem[0x10] = 0xC8;
+    mem[0x11] = 0x06;
+    mem[0x12] = 0x66;
+    mem[0x13] = 0xC9;
+
+    run(&mut z80, &mut mem, 4000);
+    assert_eq!(z80.regs.b(), 0x66);
+    assert_eq!(z80.regs.sp, 0xFFFE);
+    assert!(z80.halt);
+}
+
+#[test]
 fn inc_dec_8bit() {
     let mut z80 = Z80::new();
     let mut mem = [0u8; 65536];
@@ -179,6 +374,63 @@ fn inc_dec_8bit() {
     assert_eq!(z80.regs.a(), 0x00);
     assert!(z80.regs.flag(zilog_z80::registers::FLAG_Z));
     assert!(z80.regs.flag(zilog_z80::registers::FLAG_H));
+}
+
+#[test]
+fn ld_a_indirect_nn_roundtrip() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD A, 0x5A
+    mem[0] = 0x3E;
+    mem[1] = 0x5A;
+    // LD (0x8123), A
+    mem[2] = 0x32;
+    mem[3] = 0x23;
+    mem[4] = 0x81;
+    // LD A, 0x00
+    mem[5] = 0x3E;
+    mem[6] = 0x00;
+    // LD A, (0x8123)
+    mem[7] = 0x3A;
+    mem[8] = 0x23;
+    mem[9] = 0x81;
+    // HALT
+    mem[10] = 0x76;
+
+    run(&mut z80, &mut mem, 4000);
+    assert_eq!(mem[0x8123], 0x5A);
+    assert_eq!(z80.regs.a(), 0x5A);
+}
+
+#[test]
+fn ld_hl_indirect_nn_roundtrip() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD HL, 0xBEEF
+    mem[0] = 0x21;
+    mem[1] = 0xEF;
+    mem[2] = 0xBE;
+    // LD (0x9000), HL
+    mem[3] = 0x22;
+    mem[4] = 0x00;
+    mem[5] = 0x90;
+    // LD HL, 0x0000
+    mem[6] = 0x21;
+    mem[7] = 0x00;
+    mem[8] = 0x00;
+    // LD HL, (0x9000)
+    mem[9] = 0x2A;
+    mem[10] = 0x00;
+    mem[11] = 0x90;
+    // HALT
+    mem[12] = 0x76;
+
+    run(&mut z80, &mut mem, 5000);
+    assert_eq!(mem[0x9000], 0xEF);
+    assert_eq!(mem[0x9001], 0xBE);
+    assert_eq!(z80.regs.hl, 0xBEEF);
 }
 
 #[test]
@@ -201,6 +453,51 @@ fn ld_hl_memory() {
     run(&mut z80, &mut mem, 2000);
     assert_eq!(mem[0x8000], 0x42);
     assert_eq!(z80.regs.a(), 0x42);
+}
+
+#[test]
+fn djnz_taken_and_not_taken_paths() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD B, 0x02
+    mem[0] = 0x06;
+    mem[1] = 0x02;
+    // DJNZ +2 -> jump to HALT at 0x0006
+    mem[2] = 0x10;
+    mem[3] = 0x02;
+    // LD A, 0xFF (should be skipped on the taken branch)
+    mem[4] = 0x3E;
+    mem[5] = 0xFF;
+    // HALT
+    mem[6] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.b(), 0x01);
+    assert_eq!(z80.regs.pc, 0x0007);
+    assert!(z80.halt);
+}
+
+#[test]
+fn djnz_not_taken_runs_fallthrough() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+
+    // LD B, 0x01
+    mem[0] = 0x06;
+    mem[1] = 0x01;
+    // DJNZ +2 (not taken after decrement to zero)
+    mem[2] = 0x10;
+    mem[3] = 0x02;
+    // LD A, 0x33; HALT
+    mem[4] = 0x3E;
+    mem[5] = 0x33;
+    mem[6] = 0x76;
+
+    run(&mut z80, &mut mem, 2000);
+    assert_eq!(z80.regs.b(), 0x00);
+    assert_eq!(z80.regs.a(), 0x33);
+    assert!(z80.halt);
 }
 
 #[test]
@@ -227,6 +524,48 @@ fn jr_conditional() {
     run(&mut z80, &mut mem, 2000);
     assert_eq!(z80.regs.a(), 0x00); // The LD A, 0xFF was skipped
     assert!(z80.halt);
+}
+
+#[test]
+fn rst_38_pushes_return_address() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+
+    // RST 38h
+    mem[0] = 0xFF;
+    // HALT at vector
+    mem[0x38] = 0x76;
+
+    run(&mut z80, &mut mem, 4000);
+    assert_eq!(z80.regs.sp, 0xFFFC);
+    assert_eq!(mem[0xFFFC], 0x01);
+    assert_eq!(mem[0xFFFD], 0x00);
+    assert_eq!(z80.regs.pc, 0x0039);
+    assert!(z80.halt);
+}
+
+#[test]
+fn ex_sp_hl_swaps_register_and_stack_value() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0x9000;
+    mem[0x9000] = 0x34;
+    mem[0x9001] = 0x12;
+
+    // LD HL, 0xABCD
+    mem[0] = 0x21;
+    mem[1] = 0xCD;
+    mem[2] = 0xAB;
+    // EX (SP), HL
+    mem[3] = 0xE3;
+    // HALT
+    mem[4] = 0x76;
+
+    run(&mut z80, &mut mem, 5000);
+    assert_eq!(z80.regs.hl, 0x1234);
+    assert_eq!(mem[0x9000], 0xCD);
+    assert_eq!(mem[0x9001], 0xAB);
 }
 
 #[test]

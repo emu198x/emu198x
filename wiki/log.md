@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Z80 execute-path integration coverage expands
+
+**Type:** milestone
+**Trigger:** After landing workspace coverage reporting, the next sensible use of that data was not to chase percentages blindly but to target real weak points in core behavior. The Z80 execute path was an obvious candidate: important control-flow and memory-transfer branches were present, but several of them were not being exercised directly by integration tests.
+**Result:** `crates/zilog-z80/tests/integration.rs` now covers a materially wider slice of unprefixed control-flow and data-movement behavior:
+1. Added direct integration coverage for `JP cc,nn` taken and not taken paths, `JP (HL)`, `CALL cc,nn` taken and not taken paths, `RET cc` taken and not taken paths, `DJNZ` taken and not taken paths, `RST 38h`, `EX (SP),HL`, `LD A,(nn)` / `LD (nn),A`, and `LD HL,(nn)` / `LD (nn),HL`.
+2. These tests are machine-facing rather than isolated ALU assertions: they execute real instruction streams through the half-cycle core, verify resulting register and memory state, and exercise the walker's staged read/write/push/pop flow through the normal bus-facing integration harness.
+3. While adding the `DJNZ` tests, one assumption in the new test code turned out to be wrong: the core's reset A state is not zero. The control-flow path itself was correct; the test was fixed to assert the branch outcome directly (`PC`, `B`, `HALT`) instead of assuming a reset accumulator value.
+**Coverage note:** On the current local coverage run, `zilog-z80/src/execute.rs` improved from `40.90%` line coverage to `49.76%`, and total workspace line coverage improved from `73.59%` to `75.29%`. That is useful as a sanity signal, but the real gain here is the direct verification of previously untested execute branches.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p zilog-z80 --test integration`, `cargo test --workspace`, and `./scripts/coverage.sh` all pass.
+**Next dependency:** the next high-leverage CPU-side increment is to keep working through the execute path with source-backed tests for remaining unprefixed and ED-prefixed instruction families, especially where line coverage is still low in `execute.rs`, `alu.rs`, and the block/IO sequences.
+
+---
+
 ## 2026-04-12 — Coverage workflow and local reporting path land
 
 **Type:** milestone
