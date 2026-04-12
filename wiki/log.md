@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-12 — Z80 direct transfer, rotate, flag, exchange, and port paths expand
+
+**Type:** milestone
+**Trigger:** After the previous execute-path pass, the remaining obvious holes in the Z80 core were no longer mostly control-flow branches. The thinnest areas had shifted to direct memory-transfer instructions, 16-bit pair arithmetic, rotate and flag-manipulation opcodes, alternate-register exchanges, and the single-byte port-I/O path.
+**Result:** `crates/zilog-z80/tests/integration.rs` now covers another substantial slice of the execute engine through real instruction streams:
+1. Added direct bus-facing coverage for `LD A,(BC)`, `LD A,(DE)`, `LD (BC),A`, `LD (DE),A`, `INC (HL)`, `DEC (HL)`, `INC rr`, `DEC rr`, `ADD HL,rr`, `RLCA`, `RRCA`, `RLA`, `RRA`, `DAA`, `CPL`, `SCF`, `CCF`, `EX AF,AF'`, `EXX`, `IN A,(n)`, and `OUT (n),A`.
+2. Added a dedicated I/O-write trace helper in the integration harness so single-byte port output is asserted at the transaction level instead of being inferred indirectly from internal state.
+3. The new tests deliberately assert externally meaningful outcomes: memory bytes, register-pair values, carry/half-carry/sign behavior, alternate-register swaps, `WZ` updates where the core models them, and actual emitted I/O writes on the bus.
+**Coverage note:** On the current local coverage run, `zilog-z80/src/execute.rs` improved from `49.76%` line coverage to `57.48%`, `zilog-z80/src/alu.rs` improved from `49.02%` to `68.63%`, total workspace region coverage improved from `72.08%` to `75.48%`, and total workspace line coverage improved from `75.29%` to `78.32%`.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p zilog-z80 --test integration`, `cargo test --workspace`, and `./scripts/coverage.sh` all pass.
+**Next dependency:** the next worthwhile Z80 pass is to keep driving down the remaining execute gaps in ED-prefixed and block/port behavior, plus any still-thin unprefixed instructions whose timing or side effects matter to real machine software.
+
+---
+
 ## 2026-04-12 — Z80 execute-path integration coverage expands
 
 **Type:** milestone
