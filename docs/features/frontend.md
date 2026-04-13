@@ -5,7 +5,9 @@
 > covers windowed video, keyboard input, tape control, launch-time autoload,
 > live audio, and cycle-faithful tape turbo; C64 currently covers windowed
 > video, keyboard input, startup snapshot/program import, reset, and live mono
-> audio. Everything else in this document remains design intent: launcher
+> audio. Both shells are still verifier tools rather than polished end-user
+> frontends; input remains a little soft subjectively even after sub-frame host
+> stepping. Everything else in this document remains design intent: launcher
 > screens, media panels, debugger layouts, web/WASM targets, and the other
 > family frontends are not implemented yet.
 

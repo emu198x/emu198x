@@ -36,6 +36,8 @@ As of April 13, 2026, the fresh Rust workspace currently provides:
   - headless runner, native verifier UI, screenshots, snapshots, and queryable
     boot detection
   - real-software regressions including Manic Miner and Jet Set Willy
+  - native shell input is usable for verification, but still feels softer than
+    target and should not yet be treated as a polished frontend
 
 - **Commodore 64**
   - live 6502/CIA/VIC-II/SID board loop
@@ -44,6 +46,8 @@ As of April 13, 2026, the fresh Rust workspace currently provides:
     detection, and mono audio output
   - host-side `.prg` import
   - host-side plain-text `.bas` import via Commodore BASIC tokenisation
+  - native shell input is usable for verification, but still feels softer than
+    target and should not yet be treated as a polished frontend
 
 Notably not claimed yet:
 

@@ -13,6 +13,7 @@ Append-only record of ingests, queries, and lint passes.
 2. Applied the same change to `emu198x-spectrum` outside tape-turbo mode, so both native shells now share the same lower-latency host loop shape.
 3. Kept timing honest: the shells still use the same underlying machine clocks and frame cadence; only host wake-up granularity changed.
 4. Added shell-local timing-budget tests so future refactors do not quietly collapse the slice scheduler back to full-frame stepping.
+5. The shells remain verifier-grade rather than polished frontends. Subjective input feel is improved but still softer than target, so the remaining work is documented rather than silently implied away.
 **Verification:** `cargo fmt --all`, `cargo test -p emu198x-c64 -p emu198x-spectrum`, and `cargo clippy -p emu198x-c64 -p emu198x-spectrum --all-targets -- -D warnings` should pass.
 **Next dependency:** if input still feels soft after this, the next place to look is not the host scheduler but machine-side keyboard handling cadence under the ROM/KERNAL paths themselves.
 
