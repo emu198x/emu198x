@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Live VIC-II replaces the C64 board shadow registers
+
+**Type:** milestone
+**Trigger:** After the 6502 and both CIAs were live, the main remaining board-local fake on the C64 path was the VIC-II. Keeping register shadows any longer would have stalled the bring-up at exactly the point where BA, raster IRQs, and framebuffer ownership start to matter.
+**Result:** the fresh-workspace C64 now owns a real VIC-II chip instead of a board-local placeholder:
+1. Added `mos-vic-ii` with the archived raster state machine, badline detection, sprite BA lead-in, register bus, raster IRQs, light-pen latch, visible framebuffer, and text/bitmap/sprite render paths.
+2. Implemented `mos_vic_ii::VicMemory` for `C64Memory`, so VIC-visible banked RAM, character ROM windows, and colour RAM now flow through the real machine memory router rather than through chip-local test hooks.
+3. Reworked `machine-commodore-c64` to own a live `Vic`, route CIA2 bank selection into it, OR its IRQ into the CPU IRQ line, and gate CPU reads with `BA -> RDY` instead of assuming the CPU is always ready.
+4. Kept the scope honest: SID is still shadowed, sprite and text rendering use the archived batch-fetch compromise, and the fresh workspace still does not claim a booted KERNAL. But the board no longer fakes the VIC side of the machine.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should pass, including the new `mos-vic-ii` unit suite and C64 board tests for VIC raster IRQ and badline BA read stalling.
+**Next dependency:** the next C64 step is to keep wiring toward a real boot path: tighten the VIC/CPU interaction where the new board loop exposes gaps, then bring in SID and the first runtime shell once the machine can show meaningful KERNAL output.
+
+---
+
 ## 2026-04-13 — Live CIA chips replace the C64 board shadows
 
 **Type:** milestone

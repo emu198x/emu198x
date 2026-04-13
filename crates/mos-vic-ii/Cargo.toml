@@ -1,0 +1,13 @@
+[package]
+name = "mos-vic-ii"
+description = "MOS 6569 PAL / 6567 NTSC VIC-II video chip for Commodore systems"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[lints]
+workspace = true

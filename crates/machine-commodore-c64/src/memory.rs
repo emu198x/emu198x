@@ -1,5 +1,6 @@
 //! C64 memory subsystem with 6510-controlled banking.
 
+use mos_vic_ii::VicMemory;
 use thiserror::Error;
 
 const BASIC_ROM_SIZE: usize = 0x2000;
@@ -189,6 +190,16 @@ fn boxed_array_from_slice<const N: usize>(
     let mut array = Box::new([0; N]);
     array.copy_from_slice(bytes);
     Ok(array)
+}
+
+impl VicMemory for C64Memory {
+    fn read_vram(&self, addr: u16) -> u8 {
+        self.vic_read((addr >> 14) as u8, addr & 0x3FFF)
+    }
+
+    fn read_colour(&self, offset: u16) -> u8 {
+        self.colour_ram_read(offset)
+    }
 }
 
 #[cfg(test)]

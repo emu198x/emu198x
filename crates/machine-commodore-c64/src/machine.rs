@@ -3,12 +3,12 @@
 use common_commodore_c64::timing::C64Timing;
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
+use mos_vic_ii::{Vic, VicModel};
 
 use crate::config::{C64Config, C64Model};
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::{C64Memory, MemoryInitError};
 
-const VIC_REGISTER_COUNT: usize = 0x40;
 const SID_REGISTER_COUNT: usize = 0x20;
 
 /// Fresh-workspace C64 machine substrate.
@@ -16,16 +16,13 @@ const SID_REGISTER_COUNT: usize = 0x20;
 pub struct C64 {
     model: C64Model,
     cpu: M6502,
+    vic: Vic,
     cia1: Cia6526,
     cia2: Cia6526,
     memory: C64Memory,
     keyboard: KeyboardMatrix,
     phi2_cycles: u64,
     frame_count: u64,
-    raster_line: u16,
-    cycle_in_line: u8,
-    vic_bank: u8,
-    vic_registers: [u8; VIC_REGISTER_COUNT],
     sid_registers: [u8; SID_REGISTER_COUNT],
 }
 
@@ -40,26 +37,33 @@ impl C64 {
         let mut cpu = M6502::new();
         cpu.reset();
         let timing = config.model.timing();
+
         let mut cia1 = Cia6526::new_with_tod(timing.cia_tod_divider);
         cia1.write(0x02, 0xFF);
         cia1.write(0x03, 0x00);
         cia1.write(0x00, 0xFF);
+
         let mut cia2 = Cia6526::new_with_tod(timing.cia_tod_divider);
         cia2.write(0x02, 0x03);
         cia2.write(0x00, 0x03);
+
+        let vic_model = match config.model {
+            C64Model::PalBreadbin => VicModel::Pal6569,
+            C64Model::NtscBreadbin => VicModel::Ntsc6567,
+        };
+        let mut vic = Vic::new(vic_model);
+        vic.set_bank(0);
+
         let mut machine = Self {
             model: config.model,
             cpu,
+            vic,
             cia1,
             cia2,
             memory,
             keyboard: KeyboardMatrix::new(),
             phi2_cycles: 0,
             frame_count: 0,
-            raster_line: 0,
-            cycle_in_line: 0,
-            vic_bank: 0,
-            vic_registers: [0; VIC_REGISTER_COUNT],
             sid_registers: [0; SID_REGISTER_COUNT],
         };
         machine.refresh_keyboard_scan();
@@ -77,6 +81,12 @@ impl C64 {
     #[must_use]
     pub fn cpu(&self) -> &M6502 {
         &self.cpu
+    }
+
+    /// VIC-II state.
+    #[must_use]
+    pub const fn vic(&self) -> &Vic {
+        &self.vic
     }
 
     /// CIA1 state.
@@ -123,20 +133,20 @@ impl C64 {
 
     /// Current raster line within the frame.
     #[must_use]
-    pub const fn raster_line(&self) -> u16 {
-        self.raster_line
+    pub fn raster_line(&self) -> u16 {
+        self.vic.raster_line()
     }
 
     /// Current `phi2` cycle within the raster line.
     #[must_use]
-    pub const fn cycle_in_line(&self) -> u8 {
-        self.cycle_in_line
+    pub fn cycle_in_line(&self) -> u8 {
+        self.vic.raster_cycle()
     }
 
-    /// Current VIC bank selected by CIA2 Port A bits 0-1, inverted.
+    /// Current VIC bank selected by CIA2 port A bits 0-1, inverted.
     #[must_use]
-    pub const fn vic_bank(&self) -> u8 {
-        self.vic_bank
+    pub fn vic_bank(&self) -> u8 {
+        self.vic.bank()
     }
 
     /// Current CIA1 Port B input value after keyboard scan.
@@ -145,10 +155,10 @@ impl C64 {
         self.cia1.pb_in
     }
 
-    /// Reads one shadowed VIC-II register.
+    /// Reads one live VIC-II register without side effects.
     #[must_use]
     pub fn vic_register(&self, index: u8) -> u8 {
-        self.vic_registers[usize::from(index & 0x3F)]
+        self.vic.peek(index)
     }
 
     /// Reads one shadowed SID register.
@@ -157,40 +167,41 @@ impl C64 {
         self.sid_registers[usize::from(index & 0x1F)]
     }
 
+    /// Borrow the VIC-II framebuffer.
+    #[must_use]
+    pub fn framebuffer(&self) -> &[u32] {
+        self.vic.framebuffer()
+    }
+
     /// Advances the board by one `phi2` cycle.
     ///
-    /// Returns `true` when this tick wrapped the frame counter.
+    /// Returns `true` when this tick completed a frame.
     pub fn tick(&mut self) -> bool {
         self.phi2_cycles = self.phi2_cycles.saturating_add(1);
+        let _cpu_stalled = self.vic.tick(&self.memory);
         self.refresh_keyboard_scan();
         self.cia1.tick();
         self.cia2.tick();
         self.refresh_vic_bank();
-        self.cpu.irq = self.cia1.irq;
+        self.cpu.irq = self.vic.irq || self.cia1.irq;
         self.cpu.nmi = self.cia2.irq;
-        self.cpu.rdy = true;
+        self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
-        if self.cpu.rw {
-            self.cpu.data_in = self.cpu_read(self.cpu.addr);
-        } else {
-            self.cpu_write(self.cpu.addr, self.cpu.data);
-        }
-        self.cpu.tick();
-
-        self.cycle_in_line = self.cycle_in_line.wrapping_add(1);
-        if self.cycle_in_line < self.timing().cycles_per_line {
-            return false;
+        if self.cpu.rdy {
+            if self.cpu.rw {
+                self.cpu.data_in = self.cpu_read(self.cpu.addr);
+            } else {
+                self.cpu_write(self.cpu.addr, self.cpu.data);
+            }
+            self.cpu.tick();
         }
 
-        self.cycle_in_line = 0;
-        self.raster_line = self.raster_line.saturating_add(1);
-        if self.raster_line < self.timing().lines_per_frame {
-            return false;
+        if self.vic.take_frame_complete() {
+            self.frame_count = self.frame_count.saturating_add(1);
+            return true;
         }
 
-        self.raster_line = 0;
-        self.frame_count = self.frame_count.saturating_add(1);
-        true
+        false
     }
 
     /// Advances the board by a fixed number of `phi2` cycles.
@@ -202,9 +213,9 @@ impl C64 {
 
     /// Advances exactly one frame and returns the number of cycles executed.
     pub fn run_frame(&mut self) -> u32 {
-        let cycles = self.timing().cycles_per_frame;
-        self.advance_phi2_cycles(u64::from(cycles));
-        cycles
+        let start = self.phi2_cycles;
+        while !self.tick() {}
+        (self.phi2_cycles - start) as u32
     }
 
     /// CPU-visible read through banked memory and the current board I/O state.
@@ -226,12 +237,12 @@ impl C64 {
     /// Reads the current VIC-visible byte from the active bank.
     #[must_use]
     pub fn vic_read(&self, offset: u16) -> u8 {
-        self.memory.vic_read(self.vic_bank, offset)
+        self.memory.vic_read(self.vic.bank(), offset)
     }
 
     fn io_read(&mut self, addr: u16) -> u8 {
         match addr {
-            0xD000..=0xD3FF => self.vic_registers[usize::from(addr & 0x3F)],
+            0xD000..=0xD3FF => self.vic.read((addr & 0x3F) as u8),
             0xD400..=0xD7FF => self.sid_registers[usize::from(addr & 0x1F)],
             0xD800..=0xDBFF => self.memory.colour_ram_read(addr - 0xD800),
             0xDC00..=0xDCFF => {
@@ -246,7 +257,7 @@ impl C64 {
 
     fn io_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0xD000..=0xD3FF => self.vic_registers[usize::from(addr & 0x3F)] = value,
+            0xD000..=0xD3FF => self.vic.write((addr & 0x3F) as u8, value),
             0xD400..=0xD7FF => self.sid_registers[usize::from(addr & 0x1F)] = value,
             0xD800..=0xDBFF => self.memory.colour_ram_write(addr - 0xD800, value),
             0xDC00..=0xDCFF => {
@@ -267,7 +278,7 @@ impl C64 {
     }
 
     fn refresh_vic_bank(&mut self) {
-        self.vic_bank = (!self.cia2.pa) & 0x03;
+        self.vic.set_bank((!self.cia2.pa) & 0x03);
     }
 }
 
@@ -393,10 +404,10 @@ mod tests {
     }
 
     #[test]
-    fn visible_io_writes_hit_vic_shadow_and_underlying_ram() {
+    fn visible_io_writes_hit_vic_and_underlying_ram() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         machine.cpu_write(0xD020, 0x06);
-        assert_eq!(machine.vic_register(0x20), 0x06);
+        assert_eq!(machine.vic_register(0x20) & 0x0F, 0x06);
         assert_eq!(machine.memory().ram_read(0xD020), 0x06);
     }
 
@@ -445,5 +456,39 @@ mod tests {
         machine.tick();
         assert!(machine.cia2().irq);
         assert!(machine.cpu().nmi);
+    }
+
+    #[test]
+    fn vic_raster_irq_reaches_cpu_irq_line() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xD012, 0x01);
+        machine.cpu_write(0xD01A, 0x01);
+        for _ in 0..63 {
+            machine.tick();
+        }
+        assert!(machine.vic().irq);
+        assert!(machine.cpu().irq);
+    }
+
+    #[test]
+    fn badline_ba_stalls_cpu_reads() {
+        let mut machine = stub_machine_with_reset_vector(C64Model::PalBreadbin, 0x0400);
+        machine.memory.ram_write(0x0400, 0xEA);
+        machine.memory.ram_write(0x0401, 0xEA);
+        machine.memory.ram_write(0x0402, 0xEA);
+        machine.cpu_write(0xD011, 0x1B);
+
+        machine.tick();
+        machine.tick();
+        let target_cycles = (0x33u64 * 63) + 13;
+        while machine.phi2_cycles() < target_cycles {
+            machine.tick();
+        }
+
+        let pc_before = machine.cpu().regs.pc;
+        assert!(machine.vic().ba_low);
+        assert!(machine.cpu().rw);
+        machine.tick();
+        assert_eq!(machine.cpu().regs.pc, pc_before);
     }
 }

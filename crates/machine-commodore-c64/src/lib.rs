@@ -4,8 +4,8 @@
 //! board-level behaviours that future chip models will need:
 //! - 6510 `$00`/`$01` port semantics and memory banking
 //! - colour RAM and VIC-visible character ROM access rules
-//! - CIA-side keyboard scan and VIC bank selection latches
-//! - `phi2`-driven raster/frame timing
+//! - live CIA keyboard scan and VIC bank selection
+//! - live VIC-II raster, BA, IRQ, and framebuffer ownership
 
 pub mod config;
 pub mod keyboard;

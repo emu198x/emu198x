@@ -13,6 +13,7 @@ members = [
     "crates/machine-sinclair-zx-spectrum-48k",
     "crates/mos-6502",
     "crates/mos-cia-6526",
+    "crates/mos-vic-ii",
     "crates/runtime-commodore-c64",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/zilog-z80",
@@ -29,6 +30,7 @@ pixels = "0.15"
 png = "0.17"
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 serde = { version = "1", features = ["derive"] }
+serde-big-array = "0.5"
 serde_json = "1"
 thiserror = "2"
 winit = "0.30"
