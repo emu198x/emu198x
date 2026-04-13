@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Live CIA chips replace the C64 board shadows
+
+**Type:** milestone
+**Trigger:** The C64 board had reached real CPU-driven execution, but keyboard scan, bank selection, and interrupt sources were still hand-rolled shadows. The next honest step had to replace those with live chip behaviour instead of adding more board-local fakes.
+**Result:** the fresh C64 path now owns real CIA chips:
+1. Added `mos-cia-6526` with live ports, DDR masking, Timer A/B countdown, ICR mask/status handling, TOD divider logic, serial-shift completion tracking, and IRQ pin output.
+2. Replaced `machine-commodore-c64`'s CIA shadow latches with two live `Cia6526` instances. CIA1 now owns keyboard-facing port state and IRQ generation; CIA2 now owns VIC bank-select port state and the NMI-side interrupt source.
+3. Reworked the board tick order so keyboard scan feeds CIA1 before the chip ticks, both CIAs tick once per `phi2`, VIC bank selection is refreshed from CIA2's live PA pins, and the 6502 sees real CIA-driven `irq`/`nmi` levels.
+4. Kept the scope honest: VIC-II and SID are still shadowed, but the machine no longer fakes the CIA side of the board.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should pass, including C64 board tests proving CIA keyboard scan, bank selection, and CPU interrupt-line routing.
+**Next dependency:** the next C64 step is the VIC-II, because that is now the main missing live chip between this board loop and a real KERNAL boot path.
+
+---
+
 ## 2026-04-13 — Fresh-workspace C64 now has a real 6502 and CPU-driven board loop
 
 **Type:** milestone

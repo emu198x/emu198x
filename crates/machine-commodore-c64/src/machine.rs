@@ -2,6 +2,7 @@
 
 use common_commodore_c64::timing::C64Timing;
 use mos_6502::M6502;
+use mos_cia_6526::Cia6526;
 
 use crate::config::{C64Config, C64Model};
 use crate::keyboard::KeyboardMatrix;
@@ -10,47 +11,19 @@ use crate::memory::{C64Memory, MemoryInitError};
 const VIC_REGISTER_COUNT: usize = 0x40;
 const SID_REGISTER_COUNT: usize = 0x20;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct CiaPort {
-    data: u8,
-    ddr: u8,
-    input: u8,
-}
-
-impl Default for CiaPort {
-    fn default() -> Self {
-        Self {
-            data: 0,
-            ddr: 0,
-            input: 0xFF,
-        }
-    }
-}
-
-impl CiaPort {
-    const fn output(self) -> u8 {
-        (self.data & self.ddr) | !self.ddr
-    }
-
-    const fn read(self) -> u8 {
-        (self.data & self.ddr) | (self.input & !self.ddr)
-    }
-}
-
 /// Fresh-workspace C64 machine substrate.
 #[derive(Clone)]
 pub struct C64 {
     model: C64Model,
     cpu: M6502,
+    cia1: Cia6526,
+    cia2: Cia6526,
     memory: C64Memory,
     keyboard: KeyboardMatrix,
     phi2_cycles: u64,
     frame_count: u64,
     raster_line: u16,
     cycle_in_line: u8,
-    cia1_port_a: CiaPort,
-    cia1_port_b: CiaPort,
-    cia2_port_a: CiaPort,
     vic_bank: u8,
     vic_registers: [u8; VIC_REGISTER_COUNT],
     sid_registers: [u8; SID_REGISTER_COUNT],
@@ -66,30 +39,25 @@ impl C64 {
         let memory = C64Memory::new(config.kernal_rom, config.basic_rom, config.character_rom)?;
         let mut cpu = M6502::new();
         cpu.reset();
+        let timing = config.model.timing();
+        let mut cia1 = Cia6526::new_with_tod(timing.cia_tod_divider);
+        cia1.write(0x02, 0xFF);
+        cia1.write(0x03, 0x00);
+        cia1.write(0x00, 0xFF);
+        let mut cia2 = Cia6526::new_with_tod(timing.cia_tod_divider);
+        cia2.write(0x02, 0x03);
+        cia2.write(0x00, 0x03);
         let mut machine = Self {
             model: config.model,
             cpu,
+            cia1,
+            cia2,
             memory,
             keyboard: KeyboardMatrix::new(),
             phi2_cycles: 0,
             frame_count: 0,
             raster_line: 0,
             cycle_in_line: 0,
-            cia1_port_a: CiaPort {
-                data: 0xFF,
-                ddr: 0xFF,
-                input: 0xFF,
-            },
-            cia1_port_b: CiaPort {
-                data: 0x00,
-                ddr: 0x00,
-                input: 0xFF,
-            },
-            cia2_port_a: CiaPort {
-                data: 0x03,
-                ddr: 0x03,
-                input: 0xFF,
-            },
             vic_bank: 0,
             vic_registers: [0; VIC_REGISTER_COUNT],
             sid_registers: [0; SID_REGISTER_COUNT],
@@ -109,6 +77,18 @@ impl C64 {
     #[must_use]
     pub fn cpu(&self) -> &M6502 {
         &self.cpu
+    }
+
+    /// CIA1 state.
+    #[must_use]
+    pub const fn cia1(&self) -> &Cia6526 {
+        &self.cia1
+    }
+
+    /// CIA2 state.
+    #[must_use]
+    pub const fn cia2(&self) -> &Cia6526 {
+        &self.cia2
     }
 
     /// Timing descriptor for the current model.
@@ -162,7 +142,7 @@ impl C64 {
     /// Current CIA1 Port B input value after keyboard scan.
     #[must_use]
     pub const fn cia1_port_b_input(&self) -> u8 {
-        self.cia1_port_b.input
+        self.cia1.pb_in
     }
 
     /// Reads one shadowed VIC-II register.
@@ -183,9 +163,11 @@ impl C64 {
     pub fn tick(&mut self) -> bool {
         self.phi2_cycles = self.phi2_cycles.saturating_add(1);
         self.refresh_keyboard_scan();
+        self.cia1.tick();
+        self.cia2.tick();
         self.refresh_vic_bank();
-        self.cpu.irq = false;
-        self.cpu.nmi = false;
+        self.cpu.irq = self.cia1.irq;
+        self.cpu.nmi = self.cia2.irq;
         self.cpu.rdy = true;
 
         if self.cpu.rw {
@@ -252,15 +234,11 @@ impl C64 {
             0xD000..=0xD3FF => self.vic_registers[usize::from(addr & 0x3F)],
             0xD400..=0xD7FF => self.sid_registers[usize::from(addr & 0x1F)],
             0xD800..=0xDBFF => self.memory.colour_ram_read(addr - 0xD800),
-            0xDC00 => self.cia1_port_a.read(),
-            0xDC01 => {
+            0xDC00..=0xDCFF => {
                 self.refresh_keyboard_scan();
-                self.cia1_port_b.read()
+                self.cia1.read((addr & 0x0F) as u8)
             }
-            0xDC02 => self.cia1_port_a.ddr,
-            0xDC03 => self.cia1_port_b.ddr,
-            0xDD00 => self.cia2_port_a.read(),
-            0xDD02 => self.cia2_port_a.ddr,
+            0xDD00..=0xDDFF => self.cia2.read((addr & 0x0F) as u8),
             0xDE00..=0xDFFF => 0xFF,
             _ => 0xFF,
         }
@@ -271,22 +249,12 @@ impl C64 {
             0xD000..=0xD3FF => self.vic_registers[usize::from(addr & 0x3F)] = value,
             0xD400..=0xD7FF => self.sid_registers[usize::from(addr & 0x1F)] = value,
             0xD800..=0xDBFF => self.memory.colour_ram_write(addr - 0xD800, value),
-            0xDC00 => {
-                self.cia1_port_a.data = value;
+            0xDC00..=0xDCFF => {
+                self.cia1.write((addr & 0x0F) as u8, value);
                 self.refresh_keyboard_scan();
             }
-            0xDC01 => self.cia1_port_b.data = value,
-            0xDC02 => {
-                self.cia1_port_a.ddr = value;
-                self.refresh_keyboard_scan();
-            }
-            0xDC03 => self.cia1_port_b.ddr = value,
-            0xDD00 => {
-                self.cia2_port_a.data = value;
-                self.refresh_vic_bank();
-            }
-            0xDD02 => {
-                self.cia2_port_a.ddr = value;
+            0xDD00..=0xDDFF => {
+                self.cia2.write((addr & 0x0F) as u8, value);
                 self.refresh_vic_bank();
             }
             0xDE00..=0xDFFF => {}
@@ -295,11 +263,11 @@ impl C64 {
     }
 
     fn refresh_keyboard_scan(&mut self) {
-        self.cia1_port_b.input = self.keyboard.scan(self.cia1_port_a.output());
+        self.cia1.pb_in = self.keyboard.scan(self.cia1.pa);
     }
 
     fn refresh_vic_bank(&mut self) {
-        self.vic_bank = (!self.cia2_port_a.output()) & 0x03;
+        self.vic_bank = (!self.cia2.pa) & 0x03;
     }
 }
 
@@ -413,6 +381,7 @@ mod tests {
         machine.keyboard_mut().set_key(1, 1, true);
         machine.cpu_write(0xDC00, 0xFD);
         assert_eq!(machine.cpu_read(0xDC01) & 0x02, 0x00);
+        assert_eq!(machine.cia1_port_b_input() & 0x02, 0x00);
     }
 
     #[test]
@@ -450,5 +419,31 @@ mod tests {
         machine.cpu_write(0xDD00, 0x02);
         assert_eq!(machine.vic_bank(), 1);
         assert_eq!(machine.vic_read(0x1000), 0xAA);
+    }
+
+    #[test]
+    fn cia1_timer_irq_reaches_cpu_irq_line() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC04, 0x00);
+        machine.cpu_write(0xDC05, 0x00);
+        machine.cpu_write(0xDC0D, 0x81);
+        machine.cpu_write(0xDC0E, 0x01);
+        assert!(!machine.cpu().irq);
+        machine.tick();
+        assert!(machine.cia1().irq);
+        assert!(machine.cpu().irq);
+    }
+
+    #[test]
+    fn cia2_timer_irq_reaches_cpu_nmi_line() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDD04, 0x00);
+        machine.cpu_write(0xDD05, 0x00);
+        machine.cpu_write(0xDD0D, 0x81);
+        machine.cpu_write(0xDD0E, 0x01);
+        assert!(!machine.cpu().nmi);
+        machine.tick();
+        assert!(machine.cia2().irq);
+        assert!(machine.cpu().nmi);
     }
 }

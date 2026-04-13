@@ -1137,6 +1137,7 @@ version = "0.1.0"
 dependencies = [
  "common-commodore-c64",
  "mos-6502",
+ "mos-cia-6526",
  "thiserror 2.0.18",
 ]
 
@@ -1208,6 +1209,13 @@ dependencies = [
 
 [[package]]
 name = "mos-6502"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "mos-cia-6526"
 version = "0.1.0"
 dependencies = [
  "serde",
