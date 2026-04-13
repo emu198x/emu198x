@@ -40,6 +40,7 @@ const DEFAULT_ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
 const DEFAULT_SCALE: u32 = 2;
 const WINDOW_TITLE_BASE: &str = "Emu198x Spectrum 48K";
+const INPUT_SLICES_PER_FRAME: u32 = 8;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_TURBO_TAPE_FRAMES: u32 = 32;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
@@ -232,7 +233,13 @@ impl SpectrumRunner {
     }
 
     fn run_frame(&mut self, input_events: &[InputEvent]) -> Result<(), AppError> {
-        let target = self.runtime.time().saturating_add(self.native_frame_ticks);
+        let _ = self.run_ticks(input_events, self.native_frame_ticks)?;
+        Ok(())
+    }
+
+    fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, AppError> {
+        let previous_frame_timestamp = self.frame().map(|frame| frame.timestamp);
+        let target = self.runtime.time().saturating_add(ticks);
         let mut trace_sink = NullTraceSink;
         let mut host = HostIo {
             input_events,
@@ -241,7 +248,7 @@ impl SpectrumRunner {
             trace_sink: &mut trace_sink,
         };
         self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
-        Ok(())
+        Ok(self.frame().map(|frame| frame.timestamp) != previous_frame_timestamp)
     }
 
     fn frame(&self) -> Option<&CapturedFrame> {
@@ -525,8 +532,9 @@ fn interleaved_to_mono(samples: &[f32], channels: u8) -> Vec<f32> {
 struct SpectrumApp {
     runner: SpectrumRunner,
     scale: u32,
-    frame_duration: Duration,
-    next_frame_at: Instant,
+    slice_ticks: u64,
+    slice_duration: Duration,
+    next_slice_at: Instant,
     turbo_tape: bool,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
@@ -541,11 +549,14 @@ impl SpectrumApp {
             return Err(AppError::InvalidScale { value: scale });
         }
 
+        let slice_ticks = subframe_ticks(runner.native_frame_ticks);
+        let slice_duration = subframe_duration(spectrum_frame_duration());
         Ok(Self {
             runner,
             scale,
-            frame_duration: spectrum_frame_duration(),
-            next_frame_at: Instant::now(),
+            slice_ticks,
+            slice_duration,
+            next_slice_at: Instant::now(),
             turbo_tape,
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
@@ -586,7 +597,7 @@ impl SpectrumApp {
 
         self.window = Some(window);
         self.pixels = Some(pixels);
-        self.next_frame_at = Instant::now();
+        self.next_slice_at = Instant::now();
         Ok(())
     }
 
@@ -612,7 +623,7 @@ impl SpectrumApp {
 
     fn set_turbo_tape(&mut self, enabled: bool) {
         self.turbo_tape = enabled;
-        self.next_frame_at = Instant::now() + self.frame_duration;
+        self.next_slice_at = Instant::now() + self.slice_duration;
     }
 
     fn advance_machine(&mut self) -> Result<bool, AppError> {
@@ -623,28 +634,30 @@ impl SpectrumApp {
                 self.runner.run_frame(&inputs)?;
                 ran_frames += 1;
             }
-            self.next_frame_at = Instant::now() + self.frame_duration;
+            self.next_slice_at = Instant::now() + self.slice_duration;
             return Ok(ran_frames != 0);
         }
 
         let now = Instant::now();
-        if now < self.next_frame_at {
+        if now < self.next_slice_at {
             return Ok(false);
         }
 
-        let mut ran_frames = 0;
-        while Instant::now() >= self.next_frame_at && ran_frames < MAX_CATCH_UP_FRAMES {
+        let mut ran_slices = 0;
+        let max_catch_up_slices = MAX_CATCH_UP_FRAMES.saturating_mul(INPUT_SLICES_PER_FRAME);
+        let mut frame_completed = false;
+        while Instant::now() >= self.next_slice_at && ran_slices < max_catch_up_slices {
             let inputs = std::mem::take(&mut self.pending_inputs);
-            self.runner.run_frame(&inputs)?;
-            self.next_frame_at += self.frame_duration;
-            ran_frames += 1;
+            frame_completed |= self.runner.run_ticks(&inputs, self.slice_ticks)?;
+            self.next_slice_at += self.slice_duration;
+            ran_slices += 1;
         }
 
-        if ran_frames == MAX_CATCH_UP_FRAMES && Instant::now() >= self.next_frame_at {
-            self.next_frame_at = Instant::now() + self.frame_duration;
+        if ran_slices == max_catch_up_slices && Instant::now() >= self.next_slice_at {
+            self.next_slice_at = Instant::now() + self.slice_duration;
         }
 
-        Ok(ran_frames != 0)
+        Ok(frame_completed)
     }
 
     fn render(&mut self) -> Result<(), AppError> {
@@ -683,14 +696,14 @@ impl SpectrumApp {
                     .copied()
                     .map(|name| spectrum_key_event(name, true)),
             );
-            self.next_frame_at = Instant::now();
+            self.next_slice_at = Instant::now();
         } else if let Some(names) = self.pressed_keys.remove(&code) {
             self.pending_inputs.extend(
                 names
                     .into_iter()
                     .map(|name| spectrum_key_event(name, false)),
             );
-            self.next_frame_at = Instant::now();
+            self.next_slice_at = Instant::now();
         }
     }
 
@@ -706,7 +719,7 @@ impl SpectrumApp {
                     .map(|name| spectrum_key_event(name, false)),
             );
         }
-        self.next_frame_at = Instant::now();
+        self.next_slice_at = Instant::now();
     }
 
     fn handle_shortcut(
@@ -829,7 +842,7 @@ impl ApplicationHandler for SpectrumApp {
         if self.turbo_tape_active() {
             event_loop.set_control_flow(ControlFlow::Poll);
         } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
         }
     }
 }
@@ -931,9 +944,19 @@ fn default_rom_path() -> PathBuf {
 }
 
 fn spectrum_frame_duration() -> Duration {
-    Duration::from_secs_f64(
-        f64::from(TIMING_48K.halfcycles_per_frame) / TIMING_48K.master_hz as f64,
-    )
+    spectrum_duration_for_ticks(u64::from(TIMING_48K.halfcycles_per_frame))
+}
+
+fn spectrum_duration_for_ticks(halfcycles: u64) -> Duration {
+    Duration::from_secs_f64(halfcycles as f64 / TIMING_48K.master_hz as f64)
+}
+
+fn subframe_ticks(frame_ticks: u64) -> u64 {
+    frame_ticks.div_ceil(u64::from(INPUT_SLICES_PER_FRAME))
+}
+
+fn subframe_duration(frame_duration: Duration) -> Duration {
+    Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(INPUT_SLICES_PER_FRAME))
 }
 
 fn spectrum_key_event(name: &'static str, pressed: bool) -> InputEvent {
@@ -1161,5 +1184,17 @@ mod tests {
             convert_audio_packet(&[1.0, -1.0, -1.0, 1.0, 0.5, 0.5, -0.5, -0.5], 4, 2, 2, 1);
 
         assert_eq!(converted, vec![0.0, 0.5]);
+    }
+
+    #[test]
+    fn subframe_helpers_preserve_timing_budget() {
+        let frame_ticks = u64::from(TIMING_48K.halfcycles_per_frame);
+        let slice_ticks = subframe_ticks(frame_ticks);
+        let slice_duration = subframe_duration(spectrum_frame_duration());
+
+        assert!(slice_ticks < frame_ticks);
+        assert!(slice_ticks * u64::from(INPUT_SLICES_PER_FRAME) >= frame_ticks);
+        assert!(slice_duration < spectrum_frame_duration());
+        assert!(spectrum_duration_for_ticks(slice_ticks) < spectrum_frame_duration());
     }
 }

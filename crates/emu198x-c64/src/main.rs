@@ -40,6 +40,7 @@ const BASIC_ID: &str = "commodore-c64-basic-rom";
 const CHARACTER_ID: &str = "commodore-c64-character-rom";
 const DEFAULT_SCALE: u32 = 2;
 const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
+const INPUT_SLICES_PER_FRAME: u32 = 8;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
 
@@ -208,7 +209,13 @@ impl C64Runner {
     }
 
     fn run_frame(&mut self, input_events: &[InputEvent]) -> Result<(), AppError> {
-        let target = self.runtime.time().saturating_add(self.native_frame_ticks);
+        let _ = self.run_ticks(input_events, self.native_frame_ticks)?;
+        Ok(())
+    }
+
+    fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, AppError> {
+        let previous_frame_timestamp = self.frame().map(|frame| frame.timestamp);
+        let target = self.runtime.time().saturating_add(ticks);
         let mut trace_sink = NullTraceSink;
         let mut host = HostIo {
             input_events,
@@ -217,7 +224,7 @@ impl C64Runner {
             trace_sink: &mut trace_sink,
         };
         self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
-        Ok(())
+        Ok(self.frame().map(|frame| frame.timestamp) != previous_frame_timestamp)
     }
 
     fn frame(&self) -> Option<&CapturedFrame> {
@@ -476,8 +483,9 @@ fn interleaved_to_mono(samples: &[f32], channels: u8) -> Vec<f32> {
 struct C64App {
     runner: C64Runner,
     scale: u32,
-    frame_duration: Duration,
-    next_frame_at: Instant,
+    slice_ticks: u64,
+    slice_duration: Duration,
+    next_slice_at: Instant,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
     window: Option<Arc<Window>>,
@@ -486,16 +494,22 @@ struct C64App {
 }
 
 impl C64App {
-    fn new(runner: C64Runner, scale: u32, frame_duration: Duration) -> Result<Self, AppError> {
+    fn new(runner: C64Runner, scale: u32) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
 
+        let slice_ticks = subframe_ticks(runner.native_frame_ticks);
+        let slice_duration = subframe_duration(c64_frame_duration_for_ticks(
+            runner.native_frame_ticks,
+            runner.runtime.profile().clock.rate.numerator_hz,
+        ));
         Ok(Self {
             runner,
             scale,
-            frame_duration,
-            next_frame_at: Instant::now(),
+            slice_ticks,
+            slice_duration,
+            next_slice_at: Instant::now(),
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
             window: None,
@@ -536,7 +550,7 @@ impl C64App {
 
         self.window = Some(window);
         self.pixels = Some(pixels);
-        self.next_frame_at = Instant::now();
+        self.next_slice_at = Instant::now();
         Ok(())
     }
 
@@ -546,23 +560,25 @@ impl C64App {
 
     fn advance_machine(&mut self) -> Result<bool, AppError> {
         let now = Instant::now();
-        if now < self.next_frame_at {
+        if now < self.next_slice_at {
             return Ok(false);
         }
 
-        let mut ran_frames = 0;
-        while Instant::now() >= self.next_frame_at && ran_frames < MAX_CATCH_UP_FRAMES {
+        let mut ran_slices = 0;
+        let max_catch_up_slices = MAX_CATCH_UP_FRAMES.saturating_mul(INPUT_SLICES_PER_FRAME);
+        let mut frame_completed = false;
+        while Instant::now() >= self.next_slice_at && ran_slices < max_catch_up_slices {
             let inputs = std::mem::take(&mut self.pending_inputs);
-            self.runner.run_frame(&inputs)?;
-            self.next_frame_at += self.frame_duration;
-            ran_frames += 1;
+            frame_completed |= self.runner.run_ticks(&inputs, self.slice_ticks)?;
+            self.next_slice_at += self.slice_duration;
+            ran_slices += 1;
         }
 
-        if ran_frames == MAX_CATCH_UP_FRAMES && Instant::now() >= self.next_frame_at {
-            self.next_frame_at = Instant::now() + self.frame_duration;
+        if ran_slices == max_catch_up_slices && Instant::now() >= self.next_slice_at {
+            self.next_slice_at = Instant::now() + self.slice_duration;
         }
 
-        Ok(ran_frames != 0)
+        Ok(frame_completed)
     }
 
     fn render(&mut self) -> Result<(), AppError> {
@@ -597,11 +613,11 @@ impl C64App {
             self.pressed_keys.insert(code, names.to_vec());
             self.pending_inputs
                 .extend(names.iter().copied().map(|name| c64_key_event(name, true)));
-            self.next_frame_at = Instant::now();
+            self.next_slice_at = Instant::now();
         } else if let Some(names) = self.pressed_keys.remove(&code) {
             self.pending_inputs
                 .extend(names.into_iter().map(|name| c64_key_event(name, false)));
-            self.next_frame_at = Instant::now();
+            self.next_slice_at = Instant::now();
         }
     }
 
@@ -614,7 +630,7 @@ impl C64App {
             self.pending_inputs
                 .extend(names.into_iter().map(|name| c64_key_event(name, false)));
         }
-        self.next_frame_at = Instant::now();
+        self.next_slice_at = Instant::now();
     }
 
     fn handle_shortcut(
@@ -716,7 +732,7 @@ impl ApplicationHandler for C64App {
             }
         }
 
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
     }
 }
 
@@ -731,9 +747,8 @@ fn main() {
 fn run(cli: Cli) -> Result<(), AppError> {
     println!("Controls: Esc quit, F12 reset.");
 
-    let frame_duration = cli.frame_duration();
     let runner = C64Runner::from_cli(&cli)?;
-    let mut app = C64App::new(runner, cli.scale, frame_duration)?;
+    let mut app = C64App::new(runner, cli.scale)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -955,12 +970,16 @@ fn resolve_rom_path(
     ))
 }
 
-fn c64_frame_duration(model: ModelArg) -> Duration {
-    let timing = match model {
-        ModelArg::Pal => TIMING_PAL_BREADBIN,
-        ModelArg::Ntsc => TIMING_NTSC_BREADBIN,
-    };
-    Duration::from_secs_f64(f64::from(timing.cycles_per_frame) / timing.cpu_hz as f64)
+fn c64_frame_duration_for_ticks(ticks: u64, clock_hz: u64) -> Duration {
+    Duration::from_secs_f64(ticks as f64 / clock_hz as f64)
+}
+
+fn subframe_ticks(frame_ticks: u64) -> u64 {
+    frame_ticks.div_ceil(u64::from(INPUT_SLICES_PER_FRAME))
+}
+
+fn subframe_duration(frame_duration: Duration) -> Duration {
+    Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(INPUT_SLICES_PER_FRAME))
 }
 
 fn c64_key_event(name: &'static str, pressed: bool) -> InputEvent {
@@ -1083,10 +1102,6 @@ impl Cli {
         }
     }
 
-    fn frame_duration(&self) -> Duration {
-        c64_frame_duration(self.model)
-    }
-
     fn window_title_base(&self) -> String {
         match self.model {
             ModelArg::Pal => "Emu198x Commodore 64 (PAL Breadbin)".to_owned(),
@@ -1152,5 +1167,17 @@ mod tests {
         assert_eq!(map_c64_keys(KeyCode::F8), Some(&["lshift", "f7"][..]));
         assert_eq!(map_c64_keys(KeyCode::Tab), Some(&["runstop"][..]));
         assert_eq!(map_c64_keys(KeyCode::AltLeft), Some(&["commodore"][..]));
+    }
+
+    #[test]
+    fn subframe_helpers_preserve_timing_budget() {
+        let frame_ticks = u64::from(TIMING_PAL_BREADBIN.cycles_per_frame);
+        let frame_duration = c64_frame_duration_for_ticks(frame_ticks, TIMING_PAL_BREADBIN.cpu_hz);
+        let slice_ticks = subframe_ticks(frame_ticks);
+        let slice_duration = subframe_duration(frame_duration);
+
+        assert!(slice_ticks < frame_ticks);
+        assert!(slice_ticks * u64::from(INPUT_SLICES_PER_FRAME) >= frame_ticks);
+        assert!(slice_duration < frame_duration);
     }
 }

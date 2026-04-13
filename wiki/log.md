@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Native Spectrum and C64 shells now step in sub-frame slices
+
+**Type:** milestone
+**Trigger:** After the first C64 verifier-shell pass, keyboard input still felt soft even once the immediate wake-up fix landed. The remaining problem was host scheduling granularity: both native shells still advanced the machine only one full frame at a time outside turbo mode, so host input was effectively quantized to frame boundaries.
+**Result:** both native verifier shells now step the machine in smaller real-time slices while keeping presentation at real frame completion:
+1. Added sub-frame scheduling to `emu198x-c64`, so normal execution now advances in 1/8-frame slices instead of whole-frame chunks. Input events are applied on the next slice, but redraw still waits for a real new machine frame.
+2. Applied the same change to `emu198x-spectrum` outside tape-turbo mode, so both native shells now share the same lower-latency host loop shape.
+3. Kept timing honest: the shells still use the same underlying machine clocks and frame cadence; only host wake-up granularity changed.
+4. Added shell-local timing-budget tests so future refactors do not quietly collapse the slice scheduler back to full-frame stepping.
+**Verification:** `cargo fmt --all`, `cargo test -p emu198x-c64 -p emu198x-spectrum`, and `cargo clippy -p emu198x-c64 -p emu198x-spectrum --all-targets -- -D warnings` should pass.
+**Next dependency:** if input still feels soft after this, the next place to look is not the host scheduler but machine-side keyboard handling cadence under the ROM/KERNAL paths themselves.
+
+---
+
 ## 2026-04-13 — Native shell naming is prefixed and C64 now has a verifier window
 
 **Type:** milestone
