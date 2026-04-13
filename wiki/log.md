@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — C64 machine substrate now has real banking, keyboard, and timing
+
+**Type:** milestone
+**Trigger:** The profile/timing bootstrap made the C64 family visible in the fresh workspace, but the next useful slice had to stop being metadata and start becoming board behaviour the future boot path can actually stand on.
+**Result:** the new `machine-commodore-c64` crate now owns the first durable machine substrate for the fresh workspace:
+1. Added a real 6510 memory subsystem with `$00`/`$01` port semantics, BASIC/KERNAL/character ROM visibility rules, colour RAM, and VIC-visible character ROM banking.
+2. Added the 8×8 keyboard matrix as a pure active-low scan surface.
+3. Added a minimal board loop with `phi2` cycle counting, raster/frame progression for PAL and NTSC, CIA-side keyboard scan latches, CIA2-driven VIC bank selection, and shadowed VIC/SID register storage for I/O-visible accesses.
+4. Kept the scope honest: no 6502 core, no live VIC-II/CIA/SID behaviour, and no runtime yet. This is substrate only, not a runnable C64.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should pass with the new crate wired into the workspace.
+**Next dependency:** the next real C64 step is the processor/chip wave above this substrate, starting with the 6502/6510 side and then replacing the current CIA/VIC register shadows with live chip models.
+
+---
+
 ## 2026-04-13 — C64 bootstrap lands as timing and profile truth only
 
 **Type:** milestone

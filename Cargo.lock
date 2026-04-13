@@ -1132,6 +1132,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-commodore-c64"
+version = "0.1.0"
+dependencies = [
+ "common-commodore-c64",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "machine-sinclair-zx-spectrum-48k"
 version = "0.1.0"
 dependencies = [
