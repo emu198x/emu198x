@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Native shell tape controls are standardized around play, stop, turbo, reset
+
+**Type:** milestone
+**Trigger:** After the first C64 native-shell tape pass, the live hotkeys had diverged in the wrong way. Spectrum still used `F5`-`F8`, while C64 had `F9`/`F10` plus an `F11` autoload macro. That made the host layer inconsistent and mixed startup workflow actions with ongoing transport actions.
+**Result:** the current native verifier shells now share one temporary host-control layout, while keeping autoload as a startup workflow:
+1. `emu198x-spectrum` now uses `F9` start, `F10` stop, `F11` turbo, and `F12` reset instead of the older `F5`-`F8` bindings.
+2. `emu198x-c64` keeps `F9` start, `F10` stop, and `F12` reset, but `F11` now toggles cycle-faithful tape turbo instead of triggering a live autoload macro.
+3. Added `--turbo-tape` to `emu198x-c64`, matching the existing Spectrum startup option so both verifier shells can launch with tape turbo armed.
+4. Left `--autoload-tape` in place for both families as a startup-only host workflow over the real ROM/KERNAL path, not a normal live transport control.
+**Verification:** `cargo fmt --all --check`, `cargo test -p emu198x-c64 -p emu198x-spectrum`, `cargo clippy -p emu198x-c64 -p emu198x-spectrum --all-targets -- -D warnings`, and `cargo run -p emu198x-c64 -- --help` / `cargo run -p emu198x-spectrum -- --help` should pass.
+**Next dependency:** if a later family needs different raw keys, standardize the host actions instead of forcing the same unmodified key range across machines.
+
+---
+
 ## 2026-04-13 — Native C64 tape controls now reuse the same runtime autoload path
 
 **Type:** milestone

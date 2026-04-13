@@ -59,10 +59,10 @@ Options:
 
 Controls:
     Esc                quit
-    F5                 hard reset
-    F6                 start tape
-    F7                 stop tape
-    F8                 toggle tape turbo
+    F9                 start tape
+    F10                stop tape
+    F11                toggle tape turbo
+    F12                hard reset
     Left/Down/Up/Right host aliases for Spectrum 5/6/7/8 game keys
     Alt                Symbol Shift
 
@@ -731,7 +731,7 @@ impl SpectrumApp {
         if !pressed {
             return matches!(
                 code,
-                KeyCode::Escape | KeyCode::F5 | KeyCode::F6 | KeyCode::F7 | KeyCode::F8
+                KeyCode::Escape | KeyCode::F9 | KeyCode::F10 | KeyCode::F11 | KeyCode::F12
             );
         }
 
@@ -741,23 +741,23 @@ impl SpectrumApp {
                     event_loop.exit();
                     return true;
                 }
-                KeyCode::F5 => {
-                    self.release_all_keys();
-                    self.runner.reset()
-                }
-                KeyCode::F6 => self.runner.command(&ControlCommand::MediaTransport(
+                KeyCode::F9 => self.runner.command(&ControlCommand::MediaTransport(
                     MediaTransportCommand::new(DEFAULT_TAPE_SLOT, MediaTransportAction::Start),
                 )),
-                KeyCode::F7 => self.runner.command(&ControlCommand::MediaTransport(
+                KeyCode::F10 => self.runner.command(&ControlCommand::MediaTransport(
                     MediaTransportCommand::new(DEFAULT_TAPE_SLOT, MediaTransportAction::Stop),
                 )),
-                KeyCode::F8 => {
+                KeyCode::F11 => {
                     self.set_turbo_tape(!self.turbo_tape);
                     if let Some(window) = &self.window {
                         window.set_title(&self.window_title());
                         window.request_redraw();
                     }
                     return true;
+                }
+                KeyCode::F12 => {
+                    self.release_all_keys();
+                    self.runner.reset()
                 }
                 _ => return false,
             };
@@ -856,7 +856,7 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F5 reset, F6 tape start, F7 tape stop, F8 tape turbo.");
+    println!("Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset.");
 
     let runner = SpectrumRunner::from_cli(&cli)?;
     let mut app = SpectrumApp::new(runner, cli.scale, cli.turbo_tape)?;

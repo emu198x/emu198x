@@ -2,8 +2,9 @@
 //!
 //! This is intentionally narrow: one PAL/NTSC breadbin window, optional
 //! startup snapshot/program/tape import, direct keyboard input, hard reset,
-//! optional tape autoload, and live audio/video over the existing runtime. It
-//! does not introduce a parallel emulation stack or fake media behavior.
+//! optional tape autoload, cycle-faithful tape turbo, and live audio/video
+//! over the existing runtime. It does not introduce a parallel emulation stack
+//! or fake media behavior.
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -45,6 +46,7 @@ const DEFAULT_SCALE: u32 = 2;
 const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 const INPUT_SLICES_PER_FRAME: u32 = 8;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
+const MAX_TURBO_TAPE_FRAMES: u32 = 32;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
 
 const USAGE: &str = "\
@@ -60,6 +62,7 @@ Options:
     --tape PATH          insert one TAP image into datasette slot at startup
     --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape         start the inserted tape immediately at startup
+    --turbo-tape         run unthrottled while the tape is playing
     --load-snapshot PATH restore a runtime snapshot before starting
     --scale N            integer window scale, default 2
     --help, -h           show this help
@@ -68,7 +71,7 @@ Controls:
     Esc                  quit
     F9                   start tape
     F10                  stop tape
-    F11                  autoload inserted tape
+    F11                  toggle tape turbo
     F12                  hard reset
     Arrow keys           C64 cursor keys
     F1-F8                C64 function keys
@@ -93,6 +96,7 @@ struct Cli {
     tape: Option<PathBuf>,
     autoload_tape: bool,
     start_tape: bool,
+    turbo_tape: bool,
     load_snapshot: Option<PathBuf>,
     scale: u32,
 }
@@ -163,7 +167,6 @@ enum AppError {
 }
 
 struct C64Runner {
-    model: Model,
     runtime: C64Runtime,
     query_provider: C64SessionQueryProvider,
     frame_capture: LatestFrameCapture,
@@ -243,7 +246,6 @@ impl C64Runner {
         let frame_height = runtime.machine().vic().framebuffer_height();
         let audio_output = C64AudioOutput::new(runtime.machine().audio_sample_rate())?;
         let mut runner = Self {
-            model: cli.model.to_model(),
             runtime,
             query_provider: C64SessionQueryProvider,
             frame_capture: LatestFrameCapture::default(),
@@ -347,36 +349,6 @@ impl C64Runner {
                 DEFAULT_TAPE_AUTOLOAD_SLOT,
                 MediaTransportAction::Stop,
             )))?;
-        self.run_frame(&[])?;
-        Ok(())
-    }
-
-    fn autoload_tape(&mut self) -> Result<(), AppError> {
-        if !self.tape_loaded() {
-            return Err(AppError::Setup {
-                reason: "no tape is inserted in slot tape-1".to_owned(),
-            });
-        }
-
-        let runtime = std::mem::replace(&mut self.runtime, C64Runtime::blank(self.model));
-        let mut session = HeadlessSession::new_with_query_provider(
-            runtime,
-            self.native_frame_ticks,
-            C64SessionQueryProvider,
-        );
-        let result = autoload_basic_tape(
-            &mut session,
-            DEFAULT_TAPE_AUTOLOAD_SLOT,
-            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
-        );
-        self.runtime = session.into_machine();
-        result.map_err(|err| AppError::Setup {
-            reason: format!("tape autoload failed: {err}"),
-        })?;
-        self.last_run_result = None;
-        self.frame_capture = LatestFrameCapture::default();
-        self.audio_output.clear();
         self.run_frame(&[])?;
         Ok(())
     }
@@ -610,6 +582,7 @@ struct C64App {
     slice_ticks: u64,
     slice_duration: Duration,
     next_slice_at: Instant,
+    turbo_tape: bool,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
     window: Option<Arc<Window>>,
@@ -618,7 +591,7 @@ struct C64App {
 }
 
 impl C64App {
-    fn new(runner: C64Runner, scale: u32) -> Result<Self, AppError> {
+    fn new(runner: C64Runner, scale: u32, turbo_tape: bool) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
@@ -634,6 +607,7 @@ impl C64App {
             slice_ticks,
             slice_duration,
             next_slice_at: Instant::now(),
+            turbo_tape,
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
             window: None,
@@ -661,7 +635,7 @@ impl C64App {
         let logical_width = f64::from(frame_width.saturating_mul(self.scale));
         let logical_height = f64::from(frame_height.saturating_mul(self.scale));
         let attributes = WindowAttributes::default()
-            .with_title(self.runner.window_title())
+            .with_title(self.window_title())
             .with_inner_size(LogicalSize::new(logical_width, logical_height))
             .with_min_inner_size(LogicalSize::new(
                 f64::from(frame_width),
@@ -682,7 +656,39 @@ impl C64App {
         self.window.as_ref().map(|window| window.id())
     }
 
+    fn turbo_tape_active(&self) -> bool {
+        self.turbo_tape && self.runner.tape_playing()
+    }
+
+    fn window_title(&self) -> String {
+        let mut title = self.runner.window_title();
+        if self.turbo_tape {
+            if self.runner.tape_playing() {
+                title.push_str(" | turbo");
+            } else {
+                title.push_str(" | turbo armed");
+            }
+        }
+        title
+    }
+
+    fn set_turbo_tape(&mut self, enabled: bool) {
+        self.turbo_tape = enabled;
+        self.next_slice_at = Instant::now() + self.slice_duration;
+    }
+
     fn advance_machine(&mut self) -> Result<bool, AppError> {
+        if self.turbo_tape_active() {
+            let mut ran_frames = 0;
+            while ran_frames < MAX_TURBO_TAPE_FRAMES && self.turbo_tape_active() {
+                let inputs = std::mem::take(&mut self.pending_inputs);
+                self.runner.run_frame(&inputs)?;
+                ran_frames += 1;
+            }
+            self.next_slice_at = Instant::now() + self.slice_duration;
+            return Ok(ran_frames != 0);
+        }
+
         let now = Instant::now();
         if now < self.next_slice_at {
             return Ok(false);
@@ -778,12 +784,12 @@ impl C64App {
             KeyCode::F9 => self.runner.start_tape(),
             KeyCode::F10 => self.runner.stop_tape(),
             KeyCode::F11 => {
-                if !self.runner.tape_loaded() {
-                    eprintln!("No tape is inserted.");
-                    return true;
+                self.set_turbo_tape(!self.turbo_tape);
+                if let Some(window) = &self.window {
+                    window.set_title(&self.window_title());
+                    window.request_redraw();
                 }
-                self.release_all_keys();
-                self.runner.autoload_tape()
+                return true;
             }
             KeyCode::F12 => {
                 self.release_all_keys();
@@ -858,7 +864,7 @@ impl ApplicationHandler for C64App {
         match self.advance_machine() {
             Ok(true) => {
                 if let Some(window) = &self.window {
-                    window.set_title(&self.runner.window_title());
+                    window.set_title(&self.window_title());
                     window.request_redraw();
                 }
             }
@@ -869,7 +875,11 @@ impl ApplicationHandler for C64App {
             }
         }
 
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
+        if self.turbo_tape_active() {
+            event_loop.set_control_flow(ControlFlow::Poll);
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
+        }
     }
 }
 
@@ -882,10 +892,10 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F9 start tape, F10 stop tape, F11 autoload tape, F12 reset.");
+    println!("Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset.");
 
     let runner = C64Runner::from_cli(&cli)?;
-    let mut app = C64App::new(runner, cli.scale)?;
+    let mut app = C64App::new(runner, cli.scale, cli.turbo_tape)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -917,6 +927,7 @@ where
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
+            "--turbo-tape" => cli.turbo_tape = true,
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -1290,6 +1301,7 @@ mod tests {
                 tape: None,
                 autoload_tape: false,
                 start_tape: false,
+                turbo_tape: false,
                 load_snapshot: Some(PathBuf::from("ready.c64.pst")),
                 scale: 3,
             }
@@ -1316,6 +1328,30 @@ mod tests {
                 tape: Some(PathBuf::from("game.tap")),
                 autoload_tape: true,
                 start_tape: false,
+                turbo_tape: false,
+                load_snapshot: None,
+                scale: DEFAULT_SCALE,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_tape_turbo_flag() {
+        let cli = parse_cli(["--turbo-tape".to_string()]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                model: ModelArg::Pal,
+                rom_dir: None,
+                kernal: None,
+                basic: None,
+                chargen: None,
+                load: None,
+                tape: None,
+                autoload_tape: false,
+                start_tape: false,
+                turbo_tape: true,
                 load_snapshot: None,
                 scale: DEFAULT_SCALE,
             }

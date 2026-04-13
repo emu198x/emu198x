@@ -123,7 +123,8 @@ Example:
 cargo run -p emu198x-c64 -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --tape game.tap \
-  --autoload-tape
+  --autoload-tape \
+  --turbo-tape
 ```
 
 Live controls:
@@ -131,7 +132,7 @@ Live controls:
 - `Esc` quit
 - `F9` start tape
 - `F10` stop tape
-- `F11` autoload inserted tape via real `SHIFT+RUN/STOP`
+- `F11` toggle cycle-faithful tape turbo
 - `F12` hard reset
 
 ### Spectrum 48K headless runner
