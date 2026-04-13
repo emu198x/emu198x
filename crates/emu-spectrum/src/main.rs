@@ -5,18 +5,20 @@
 //! verification. It sits above the existing runtime and shared shell boundary;
 //! it does not introduce a parallel emulation stack.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
-    AssetLoadError, CapturedFrame, ControlCommand, FirmwareImage, FirmwareSet, HostIo, InputEvent,
-    LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
-    MediaTransportAction, MediaTransportCommand, NullAudioSink, NullTraceSink, PixelFormat,
+    AssetLoadError, AudioPacket, AudioSink, CapturedFrame, ControlCommand, FirmwareImage,
+    FirmwareSet, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage,
+    MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
     QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider, read_firmware_asset,
     read_media_asset,
 };
@@ -36,6 +38,7 @@ const DEFAULT_TAPE_SLOT: &str = "tape-1";
 const DEFAULT_SCALE: u32 = 2;
 const WINDOW_TITLE_BASE: &str = "Emu198x Spectrum 48K";
 const MAX_CATCH_UP_FRAMES: u32 = 4;
+const MAX_AUDIO_BUFFER_MS: u32 = 250;
 
 const USAGE: &str = "\
 Usage: emu-spectrum [OPTIONS]
@@ -83,6 +86,9 @@ enum AppError {
     #[error(transparent)]
     Query(#[from] QueryError),
 
+    #[error("audio backend failed: {reason}")]
+    AudioBackend { reason: String },
+
     #[error(transparent)]
     Pixels(#[from] pixels::Error),
 
@@ -125,6 +131,7 @@ struct SpectrumRunner {
     runtime: Spectrum48kRuntime,
     query_provider: SpectrumSessionQueryProvider,
     frame_capture: LatestFrameCapture,
+    audio_output: SpectrumAudioOutput,
     last_run_result: Option<RunResult>,
     native_frame_ticks: u64,
 }
@@ -159,10 +166,12 @@ impl SpectrumRunner {
             )))?;
         }
 
+        let audio_output = SpectrumAudioOutput::new(runtime.machine().audio_sample_rate())?;
         let mut runner = Self {
             runtime,
             query_provider: SpectrumSessionQueryProvider,
             frame_capture: LatestFrameCapture::default(),
+            audio_output,
             last_run_result: None,
             native_frame_ticks: u64::from(TIMING_48K.halfcycles_per_frame),
         };
@@ -174,6 +183,7 @@ impl SpectrumRunner {
         self.runtime.reset(ResetKind::Hard);
         self.last_run_result = None;
         self.frame_capture = LatestFrameCapture::default();
+        self.audio_output.clear();
         self.run_frame(&[])?;
         Ok(())
     }
@@ -185,12 +195,11 @@ impl SpectrumRunner {
 
     fn run_frame(&mut self, input_events: &[InputEvent]) -> Result<(), AppError> {
         let target = self.runtime.time().saturating_add(self.native_frame_ticks);
-        let mut audio_sink = NullAudioSink;
         let mut trace_sink = NullTraceSink;
         let mut host = HostIo {
             input_events,
             frame_sink: &mut self.frame_capture,
-            audio_sink: &mut audio_sink,
+            audio_sink: &mut self.audio_output,
             trace_sink: &mut trace_sink,
         };
         self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
@@ -263,6 +272,212 @@ impl SpectrumRunner {
             format!("{WINDOW_TITLE_BASE} | {boot} | {tape} | {prompt}")
         }
     }
+}
+
+struct SpectrumAudioOutput {
+    _stream: Stream,
+    shared: Arc<Mutex<AudioBuffer>>,
+    sample_rate: u32,
+    channels: u16,
+}
+
+impl SpectrumAudioOutput {
+    fn new(_source_rate: u32) -> Result<Self, AppError> {
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| AppError::AudioBackend {
+                reason: "no default output device is available".to_owned(),
+            })?;
+        let supported = device
+            .default_output_config()
+            .map_err(|err| AppError::AudioBackend {
+                reason: format!("failed to query the default output config: {err}"),
+            })?;
+        let config = supported.config();
+        let max_samples = usize::try_from(
+            (u64::from(config.sample_rate.0)
+                * u64::from(config.channels)
+                * u64::from(MAX_AUDIO_BUFFER_MS))
+                / 1_000,
+        )
+        .unwrap_or(usize::MAX)
+        .max(1);
+        let shared = Arc::new(Mutex::new(AudioBuffer::new(max_samples)));
+        let stream = build_output_stream(&device, &config, supported.sample_format(), &shared)?;
+        stream.play().map_err(|err| AppError::AudioBackend {
+            reason: format!("failed to start the audio stream: {err}"),
+        })?;
+
+        Ok(Self {
+            _stream: stream,
+            shared,
+            sample_rate: config.sample_rate.0,
+            channels: config.channels,
+        })
+    }
+
+    fn clear(&mut self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.samples.clear();
+        }
+    }
+}
+
+impl AudioSink for SpectrumAudioOutput {
+    fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
+        let samples = convert_audio_packet(
+            packet.samples,
+            packet.sample_rate,
+            packet.channels,
+            self.sample_rate,
+            self.channels,
+        );
+        let mut shared = self.shared.lock().map_err(|_| MachineError::Host {
+            reason: "audio buffer lock poisoned".to_owned(),
+        })?;
+        shared.push(&samples);
+        Ok(())
+    }
+}
+
+struct AudioBuffer {
+    samples: VecDeque<f32>,
+    max_samples: usize,
+}
+
+impl AudioBuffer {
+    fn new(max_samples: usize) -> Self {
+        Self {
+            samples: VecDeque::with_capacity(max_samples),
+            max_samples,
+        }
+    }
+
+    fn push(&mut self, samples: &[f32]) {
+        self.samples.extend(samples.iter().copied());
+        while self.samples.len() > self.max_samples {
+            let _ = self.samples.pop_front();
+        }
+    }
+}
+
+fn build_output_stream(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    shared: &Arc<Mutex<AudioBuffer>>,
+) -> Result<Stream, AppError> {
+    match sample_format {
+        SampleFormat::F32 => build_typed_output_stream::<f32>(device, config, shared),
+        SampleFormat::I16 => build_typed_output_stream::<i16>(device, config, shared),
+        SampleFormat::U16 => build_typed_output_stream::<u16>(device, config, shared),
+        other => Err(AppError::AudioBackend {
+            reason: format!("unsupported output sample format {other:?}"),
+        }),
+    }
+}
+
+fn build_typed_output_stream<T>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    shared: &Arc<Mutex<AudioBuffer>>,
+) -> Result<Stream, AppError>
+where
+    T: SizedSample + FromSample<f32>,
+{
+    let shared = Arc::clone(shared);
+    device
+        .build_output_stream(
+            config,
+            move |data: &mut [T], _| write_output_data(data, &shared),
+            move |err| eprintln!("audio stream error: {err}"),
+            None,
+        )
+        .map_err(|err| AppError::AudioBackend {
+            reason: format!("failed to build the output stream: {err}"),
+        })
+}
+
+fn write_output_data<T>(data: &mut [T], shared: &Arc<Mutex<AudioBuffer>>)
+where
+    T: SizedSample + FromSample<f32>,
+{
+    let Ok(mut shared) = shared.lock() else {
+        for slot in data.iter_mut() {
+            *slot = T::from_sample(0.0);
+        }
+        return;
+    };
+
+    for slot in data.iter_mut() {
+        let sample = shared.samples.pop_front().unwrap_or(0.0);
+        *slot = T::from_sample(sample);
+    }
+}
+
+fn convert_audio_packet(
+    samples: &[f32],
+    source_rate: u32,
+    source_channels: u8,
+    output_rate: u32,
+    output_channels: u16,
+) -> Vec<f32> {
+    if samples.is_empty() || source_rate == 0 || output_rate == 0 || output_channels == 0 {
+        return Vec::new();
+    }
+
+    let mono = interleaved_to_mono(samples, source_channels);
+    let frames_out = if source_rate == output_rate {
+        mono.len()
+    } else {
+        usize::try_from(
+            (mono.len() as u64 * u64::from(output_rate)).div_ceil(u64::from(source_rate)),
+        )
+        .unwrap_or(usize::MAX)
+    };
+    let channel_count = usize::from(output_channels);
+    let mut converted = Vec::with_capacity(frames_out.saturating_mul(channel_count));
+
+    if source_rate == output_rate {
+        for &sample in &mono {
+            for _ in 0..channel_count {
+                converted.push(sample);
+            }
+        }
+        return converted;
+    }
+
+    let step = f64::from(source_rate) / f64::from(output_rate);
+    let last = mono.len().saturating_sub(1);
+
+    for frame in 0..frames_out {
+        let position = frame as f64 * step;
+        let index = position.floor() as usize;
+        let frac = (position - index as f64) as f32;
+        let a = mono[index.min(last)];
+        let b = mono[(index + 1).min(last)];
+        let sample = a + (b - a) * frac;
+        for _ in 0..channel_count {
+            converted.push(sample);
+        }
+    }
+
+    converted
+}
+
+fn interleaved_to_mono(samples: &[f32], channels: u8) -> Vec<f32> {
+    let channel_count = usize::from(channels.max(1));
+    if channel_count == 1 {
+        return samples.to_vec();
+    }
+
+    let mut mono = Vec::with_capacity(samples.len().div_ceil(channel_count));
+    for frame in samples.chunks(channel_count) {
+        let sum: f32 = frame.iter().copied().sum();
+        mono.push(sum / frame.len() as f32);
+    }
+    mono
 }
 
 struct SpectrumApp {
@@ -787,5 +1002,20 @@ mod tests {
             map_spectrum_keys(KeyCode::NumpadEnter),
             Some(&["enter"][..])
         );
+    }
+
+    #[test]
+    fn audio_conversion_duplicates_mono_to_stereo() {
+        let converted = convert_audio_packet(&[0.25, -0.5], 44_100, 1, 44_100, 2);
+
+        assert_eq!(converted, vec![0.25, 0.25, -0.5, -0.5]);
+    }
+
+    #[test]
+    fn audio_conversion_resamples_and_downmixes_to_output_rate() {
+        let converted =
+            convert_audio_packet(&[1.0, -1.0, -1.0, 1.0, 0.5, 0.5, -0.5, -0.5], 4, 2, 2, 1);
+
+        assert_eq!(converted, vec![0.0, 0.5]);
     }
 }

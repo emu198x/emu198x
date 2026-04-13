@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Spectrum verifier shell now plays live beeper and tape audio
+
+**Type:** milestone
+**Trigger:** Once the Spectrum UI shell could boot and load real tape software, the next gap was obvious during manual verification: the frontend was still discarding the runtime’s audio packets, so there was no beeper output and no tape screech while loading.
+**Result:** `emu-spectrum` now owns a real host-side audio path over the existing machine contract:
+1. Added a `cpal`-backed audio sink in the frontend crate, using the default host output device and a bounded host-side queue.
+2. Threaded the live audio sink through `SpectrumRunner::run_frame` instead of `NullAudioSink`, without changing the runtime or machine audio contract.
+3. Kept conversion policy in the host layer: mono Spectrum packets are duplicated across the device channel count, and output-rate mismatch is handled by a small frontend resampler rather than by touching machine timing.
+4. Added frontend-local tests covering mono-to-stereo duplication and the simple downmix/resample path.
+**Verification:** `cargo test -p emu-spectrum`, `cargo clippy -p emu-spectrum --all-targets -- -D warnings`, and `cargo fmt --all --check` all pass.
+**Next dependency:** the next useful frontend follow-up is host-configurable audio/input policy, not more machine-facing work in this area.
+
+---
+
 ## 2026-04-13 — Spectrum tape loading now handles TZX pauses as timing spans, and Manic Miner loads end to end
 
 **Type:** milestone

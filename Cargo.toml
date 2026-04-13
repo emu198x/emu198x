@@ -19,6 +19,7 @@ version = "0.1.0"
 license = "MIT"
 
 [workspace.dependencies]
+cpal = "0.15"
 pixels = "0.15"
 png = "0.17"
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
