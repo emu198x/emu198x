@@ -17,13 +17,16 @@ use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
     AssetLoadError, AudioPacket, AudioSink, CapturedFrame, ControlCommand, FirmwareImage,
-    FirmwareSet, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage,
-    MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
-    QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider, read_firmware_asset,
-    read_media_asset,
+    FirmwareSet, HeadlessSession, HostIo, InputEvent, LatestFrameCapture, MachineCore,
+    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    NullTraceSink, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
+    SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
-use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
+use runtime_sinclair_zx_spectrum::{
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, Spectrum48kRuntime,
+    SpectrumSessionQueryProvider, autoload_basic_tape,
+};
 use thiserror::Error;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -47,6 +50,7 @@ Options:
     --rom PATH         48K ROM image or zip containing one ROM candidate
     --tape PATH        TAP/TZX image or zip containing one tape candidate
     --play-tape        start tape transport immediately after media load
+    --autoload-tape    wait for boot, type LOAD \"\", and start tape-1
     --scale N          integer window scale, default 2
     --help, -h         show this help
 
@@ -61,6 +65,7 @@ Controls:
 Examples:
     emu-spectrum
     emu-spectrum --rom 48.rom --tape manic_miner.zip
+    emu-spectrum --tape manic_miner.zip --autoload-tape
     emu-spectrum --tape '/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip'
 ";
 
@@ -69,6 +74,7 @@ struct Cli {
     rom: Option<PathBuf>,
     tape: Option<PathBuf>,
     play_tape: bool,
+    autoload_tape: bool,
     scale: u32,
 }
 
@@ -85,6 +91,12 @@ enum AppError {
 
     #[error(transparent)]
     Query(#[from] QueryError),
+
+    #[error(transparent)]
+    Session(#[from] emu198x_shell::SessionError),
+
+    #[error(transparent)]
+    SpectrumAutoload(#[from] runtime_sinclair_zx_spectrum::SpectrumAutoloadError),
 
     #[error("audio backend failed: {reason}")]
     AudioBackend { reason: String },
@@ -109,6 +121,9 @@ enum AppError {
 
     #[error("tape transport requested without tape media")]
     MissingTape,
+
+    #[error("--autoload-tape conflicts with --play-tape")]
+    ConflictingTapeWorkflow,
 
     #[error("frame packet used unsupported format {format:?}")]
     UnsupportedPixelFormat { format: PixelFormat },
@@ -138,12 +153,21 @@ struct SpectrumRunner {
 
 impl SpectrumRunner {
     fn from_cli(cli: &Cli) -> Result<Self, AppError> {
+        if cli.play_tape && cli.autoload_tape {
+            return Err(AppError::ConflictingTapeWorkflow);
+        }
+
         let rom_path = resolve_rom_path(cli)?;
         let rom = read_firmware_asset(&rom_path)?.bytes;
 
         let mut firmware = FirmwareSet::new();
         firmware.push(FirmwareImage::new(DEFAULT_ROM_ID, &rom));
-        let mut runtime = Spectrum48kRuntime::from_firmware(&firmware)?;
+        let runtime = Spectrum48kRuntime::from_firmware(&firmware)?;
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_48K.halfcycles_per_frame),
+            SpectrumSessionQueryProvider,
+        );
 
         if let Some(tape_path) = &cli.tape {
             let tape = read_media_asset(tape_path, MediaKind::Tape)?;
@@ -153,19 +177,29 @@ impl SpectrumRunner {
                 MediaKind::Tape,
                 &tape.bytes,
             ));
-            runtime.load_media(&media)?;
+            session.load_media(&media)?;
         }
 
-        if cli.play_tape {
+        if cli.autoload_tape {
             if cli.tape.is_none() {
                 return Err(AppError::MissingTape);
             }
-            runtime.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            autoload_basic_tape(
+                &mut session,
+                DEFAULT_TAPE_AUTOLOAD_SLOT,
+                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            )?;
+        } else if cli.play_tape {
+            if cli.tape.is_none() {
+                return Err(AppError::MissingTape);
+            }
+            session.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
                 DEFAULT_TAPE_SLOT,
                 MediaTransportAction::Start,
             )))?;
         }
 
+        let runtime = session.into_machine();
         let audio_output = SpectrumAudioOutput::new(runtime.machine().audio_sample_rate())?;
         let mut runner = Self {
             runtime,
@@ -778,6 +812,7 @@ where
             "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--play-tape" => cli.play_tape = true,
+            "--autoload-tape" => cli.autoload_tape = true,
             "--scale" => {
                 cli.scale = next_arg(&mut iter, "--scale")
                     .parse()
@@ -944,6 +979,7 @@ mod tests {
                 rom: None,
                 tape: None,
                 play_tape: false,
+                autoload_tape: false,
                 scale: 2,
             }
         );
@@ -967,7 +1003,28 @@ mod tests {
                 rom: Some(PathBuf::from("48.rom")),
                 tape: Some(PathBuf::from("manic.zip")),
                 play_tape: true,
+                autoload_tape: false,
                 scale: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_tape_autoload() {
+        let cli = parse_cli([
+            "--tape".to_owned(),
+            "manic.zip".to_owned(),
+            "--autoload-tape".to_owned(),
+        ]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                rom: None,
+                tape: Some(PathBuf::from("manic.zip")),
+                play_tape: false,
+                autoload_tape: true,
+                scale: 2,
             }
         );
     }
@@ -982,6 +1039,7 @@ mod tests {
                 rom: None,
                 tape: Some(PathBuf::from("manic.zip")),
                 play_tape: false,
+                autoload_tape: false,
                 scale: 2,
             }
         );

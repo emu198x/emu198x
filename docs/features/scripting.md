@@ -45,6 +45,7 @@ You can combine `--script` with normal runner flags such as:
 - `--start-slot SLOT`
 - `--stop-slot SLOT`
 - `--play-tape`
+- `--autoload-tape`
 - `--load-snapshot PATH`
 - `--save-snapshot PATH`
 - `--screenshot PATH`
@@ -53,6 +54,11 @@ You can combine `--script` with normal runner flags such as:
 
 Those flags prepare the machine before or after the shared script steps. The
 script itself handles the reusable in-session workflow.
+
+`--autoload-tape` is currently a Spectrum-specific convenience layered above
+the shared session surface. It waits for the 48K ROM boot banner, types the
+standard `LOAD ""` command through the real ROM editor, and starts tape
+transport on `tape-1`. It is not an instant-loader shortcut.
 
 ## Script Format
 
@@ -229,4 +235,14 @@ Run it with:
 cargo run -p emu198x-script-spectrum -- \
   --rom 48.rom \
   --script capture.json
+```
+
+For the current Spectrum runner, the equivalent launch-time convenience is:
+
+```bash
+cargo run -p emu198x-script-spectrum -- \
+  --rom 48.rom \
+  --tape manic_miner.tzx \
+  --autoload-tape \
+  --frames 12000
 ```

@@ -1,8 +1,9 @@
 # Frontend
 
 > **Mixed status.** `emu-spectrum` now exists as a minimal native 48K
-> verification shell with windowed video output, keyboard input, and basic tape
-> transport control. Everything else in this document remains design intent:
+> verification shell with windowed video output, keyboard input, basic tape
+> transport control, live audio, and launch-time tape autoload. Everything else
+> in this document remains design intent:
 > launcher screens, media panels, debugger layouts, web/WASM targets, and the
 > other family frontends are not implemented yet.
 

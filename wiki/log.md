@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Spectrum tape autoload is now a real host workflow
+
+**Type:** milestone
+**Trigger:** After Manic Miner and Jet Set Willy were both loading end to end, the next obvious friction point was that every real tape workflow still depended on hand-authored `LOAD ""` key choreography in tests or manual typing in the UI.
+**Result:** the fresh Spectrum path now has a reusable tape autoload helper above the runtime boundary instead of burying that sequence inside ignored tests:
+1. Added `runtime-sinclair-zx-spectrum::autoload_basic_tape()`, which waits for the 48K boot banner, exposes the BASIC prompt if needed, types the real `LOAD ""` keyword sequence through the ROM editor, and then starts tape transport on `tape-1`.
+2. Kept that helper honest: it operates through `HeadlessSession`, shared input events, and normal media transport commands. It does not patch ROM code, skip leader tones, or bypass tape decoding.
+3. Added `HeadlessSession::into_machine()` so the native verifier shell can reuse the same startup workflow without introducing a parallel machine-control path.
+4. Wired `--autoload-tape` into both `emu198x-script-spectrum` and `emu-spectrum`, and added clear runner-level errors for missing tape media or conflicting `--play-tape` usage.
+5. Replaced the duplicated hand-typed `LOAD ""` sequence in the ignored Manic Miner and Jet Set Willy ROM-backed regressions with the new helper.
+**Verification:** `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo test -p runtime-sinclair-zx-spectrum spectrum_boots_and_loads_manic_miner_from_zipped_tzx -- --ignored --nocapture`, and `cargo test -p runtime-sinclair-zx-spectrum spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx -- --ignored --nocapture` all pass locally.
+**Next dependency:** the next quality-of-life improvement worth doing is turbo loading as uncapped exact execution on the real machine path, not an instant-load shortcut.
+
+---
+
 ## 2026-04-13 — Jet Set Willy joins the ROM-backed Spectrum software regressions
 
 **Type:** milestone

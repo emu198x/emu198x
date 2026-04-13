@@ -157,6 +157,12 @@ impl<M, Q> HeadlessSession<M, Q> {
     pub const fn native_frame_ticks(&self) -> u64 {
         self.native_frame_ticks
     }
+
+    /// Consumes the session and returns the wrapped machine runtime.
+    #[must_use]
+    pub fn into_machine(self) -> M {
+        self.machine
+    }
 }
 
 impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {

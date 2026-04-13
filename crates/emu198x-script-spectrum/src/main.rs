@@ -14,7 +14,10 @@ use emu198x_shell::{
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
     ScriptObservation, boot_machine, read_firmware_asset, read_media_asset,
 };
-use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
+use runtime_sinclair_zx_spectrum::{
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, Spectrum48kRuntime,
+    SpectrumSessionQueryProvider, autoload_basic_tape,
+};
 use serde::Serialize;
 
 const DEFAULT_ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
@@ -30,6 +33,7 @@ struct Cli {
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
     wait_for_boot: Option<u32>,
+    autoload_tape: bool,
     frames: u32,
     commands: Vec<ControlCommand>,
 }
@@ -81,6 +85,7 @@ Media and control:
     --start-slot SLOT          start or resume media transport on one slot
     --stop-slot SLOT           stop media transport on one slot
     --play-tape                alias for --start-slot tape-1
+    --autoload-tape            wait for boot, type LOAD \"\", and start tape-1
 
 State and automation:
     --load-snapshot PATH       restore a runtime snapshot before running
@@ -100,6 +105,7 @@ Examples:
     emu198x-script-spectrum --rom 48.rom --frames 200 --screenshot boot.png
     emu198x-script-spectrum --rom 48.rom --wait-for-boot 250 --screenshot boot.png
     emu198x-script-spectrum --rom 48.rom --tape manic_miner.tzx --play-tape --frames 500
+    emu198x-script-spectrum --rom 48.rom --tape manic_miner.tzx --autoload-tape --frames 12000
     emu198x-script-spectrum --rom 48.rom --script capture.json
 ";
 
@@ -173,6 +179,7 @@ where
                         MediaTransportAction::Start,
                     )))
             }
+            "--autoload-tape" => cli.autoload_tape = true,
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -270,6 +277,19 @@ fn die(message: &str) -> ! {
 }
 
 fn run(cli: Cli) -> Result<RunnerReport, String> {
+    if cli.autoload_tape
+        && cli.commands.iter().any(|command| {
+            matches!(
+                command,
+                ControlCommand::MediaTransport(transport)
+                    if transport.slot.as_ref() == DEFAULT_TAPE_SLOT
+                        && transport.action == MediaTransportAction::Start
+            )
+        })
+    {
+        return Err("--autoload-tape conflicts with explicit tape-start commands".into());
+    }
+
     if (cli.screenshot.is_some() || cli.audio_capture.is_some())
         && cli.frames == 0
         && cli.script.is_none()
@@ -299,6 +319,22 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     session
         .prepare(&media, &cli.commands)
         .map_err(|err| format!("machine preparation failed: {err}"))?;
+
+    if cli.autoload_tape {
+        let has_tape = media_storage
+            .iter()
+            .any(|image| image.slot == DEFAULT_TAPE_AUTOLOAD_SLOT && image.kind == MediaKind::Tape);
+        if !has_tape {
+            return Err("--autoload-tape requires tape media in slot tape-1".into());
+        }
+
+        autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        )
+        .map_err(|err| format!("tape autoload failed: {err}"))?;
+    }
 
     let mut observations = Vec::new();
     if let Some(max_frames) = cli.wait_for_boot {
@@ -466,6 +502,7 @@ mod tests {
                 audio_capture: Some(PathBuf::from("boot.wav")),
                 script: Some(PathBuf::from("steps.json")),
                 wait_for_boot: Some(120),
+                autoload_tape: false,
                 frames: 10,
                 commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
                     "tape-1",
@@ -503,11 +540,47 @@ mod tests {
                 audio_capture: None,
                 script: None,
                 wait_for_boot: None,
+                autoload_tape: false,
                 frames: 0,
                 commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
                     DEFAULT_TAPE_SLOT,
                     MediaTransportAction::Start,
                 ))],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_tape_autoload_flag() {
+        let cli = parse_cli([
+            "--rom".to_string(),
+            "48.rom".to_string(),
+            "--tape".to_string(),
+            "demo.tap".to_string(),
+            "--autoload-tape".to_string(),
+        ]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                firmware: vec![FirmwareArg {
+                    id: DEFAULT_ROM_ID.to_owned(),
+                    path: PathBuf::from("48.rom"),
+                }],
+                media: vec![MediaArg {
+                    slot: DEFAULT_TAPE_SLOT.to_owned(),
+                    kind: MediaKind::Tape,
+                    path: PathBuf::from("demo.tap"),
+                }],
+                load_snapshot: None,
+                save_snapshot: None,
+                screenshot: None,
+                audio_capture: None,
+                script: None,
+                wait_for_boot: None,
+                autoload_tape: true,
+                frames: 0,
+                commands: vec![],
             }
         );
     }
@@ -538,6 +611,7 @@ mod tests {
             audio_capture: None,
             script: None,
             wait_for_boot: None,
+            autoload_tape: false,
             frames: 1,
             commands: vec![],
         });
@@ -579,6 +653,7 @@ mod tests {
             audio_capture: Some(audio_path.clone()),
             script: None,
             wait_for_boot: None,
+            autoload_tape: false,
             frames: 1,
             commands: vec![],
         });
@@ -646,6 +721,7 @@ mod tests {
             audio_capture: None,
             script: Some(script_path.clone()),
             wait_for_boot: None,
+            autoload_tape: false,
             frames: 0,
             commands: vec![],
         });
@@ -710,6 +786,7 @@ mod tests {
             audio_capture: None,
             script: None,
             wait_for_boot: Some(1),
+            autoload_tape: false,
             frames: 0,
             commands: vec![],
         });
@@ -717,6 +794,44 @@ mod tests {
         assert!(
             matches!(result, Err(ref err) if err.contains("boot wait failed")),
             "zero-ROM runner should report boot wait timeout: {result:?}"
+        );
+
+        let _ = fs::remove_file(rom_path);
+    }
+
+    #[test]
+    fn run_rejects_tape_autoload_without_tape_media() {
+        let temp_dir = std::env::temp_dir();
+        let rom_path = temp_dir.join(format!(
+            "emu198x-script-spectrum-{}-autoload-rom.bin",
+            std::process::id()
+        ));
+
+        fs::write(&rom_path, [0u8; 16 * 1024]).expect("temporary ROM write should succeed");
+
+        let result = run(Cli {
+            firmware: vec![FirmwareArg {
+                id: DEFAULT_ROM_ID.to_owned(),
+                path: rom_path.clone(),
+            }],
+            media: vec![],
+            load_snapshot: None,
+            save_snapshot: None,
+            screenshot: None,
+            audio_capture: None,
+            script: None,
+            wait_for_boot: None,
+            autoload_tape: true,
+            frames: 0,
+            commands: vec![],
+        });
+
+        assert!(
+            matches!(
+                result,
+                Err(ref err) if err.contains("--autoload-tape requires tape media")
+            ),
+            "autoload without media should fail clearly: {result:?}"
         );
 
         let _ = fs::remove_file(rom_path);

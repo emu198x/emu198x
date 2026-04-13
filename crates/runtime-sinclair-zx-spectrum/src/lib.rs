@@ -10,8 +10,13 @@ use emu198x_shell::{
     MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
 
+mod autoload;
 mod runtime;
 
+pub use autoload::{
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumAutoloadError,
+    SpectrumTapeAutoloadResult, autoload_basic_tape,
+};
 pub use runtime::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
 
 /// Supported Spectrum family models in the initial bootstrap pass.
@@ -678,24 +683,14 @@ mod tests {
             .expect("48K ROM should reach boot detection within 250 frames");
         assert_eq!(boot.row, Some(23));
 
-        tap_key(&mut session, "enter");
-        let prompt_lines = screen_text_lines_from_session(&session);
-        assert_eq!(prompt_lines[23].trim_end(), "K");
-
-        tap_key(&mut session, "j");
-        tap_symbol_combo(&mut session, "p");
-        tap_symbol_combo(&mut session, "p");
-        tap_key(&mut session, "enter");
-        session
-            .run_frames(10)
-            .expect("typed load command should settle before tape start");
-
-        session
-            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                "tape-1",
-                MediaTransportAction::Start,
-            )))
-            .expect("tape transport should start");
+        let autoload = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        )
+        .expect("autoload should type LOAD \"\" and start tape transport");
+        assert_eq!(autoload.boot.row, Some(23));
+        assert_eq!(autoload.slot, DEFAULT_TAPE_AUTOLOAD_SLOT);
 
         let loaded = session
             .wait_for_query_text_contains("screen.text.lines", "MANIC MINER", 12_000)
@@ -751,21 +746,14 @@ mod tests {
             .expect("48K ROM should reach boot detection within 250 frames");
         assert_eq!(boot.row, Some(23));
 
-        tap_key(&mut session, "enter");
-        tap_key(&mut session, "j");
-        tap_symbol_combo(&mut session, "p");
-        tap_symbol_combo(&mut session, "p");
-        tap_key(&mut session, "enter");
-        session
-            .run_frames(10)
-            .expect("typed load command should settle before tape start");
-
-        session
-            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                "tape-1",
-                MediaTransportAction::Start,
-            )))
-            .expect("tape transport should start");
+        let autoload = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        )
+        .expect("autoload should type LOAD \"\" and start tape transport");
+        assert_eq!(autoload.boot.row, Some(23));
+        assert_eq!(autoload.slot, DEFAULT_TAPE_AUTOLOAD_SLOT);
 
         let loaded = session
             .wait_for_query_text_contains(
@@ -832,60 +820,6 @@ mod tests {
                     .to_owned()
             })
             .collect()
-    }
-
-    fn tap_key(
-        session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
-        name: &'static str,
-    ) {
-        session.queue_input(InputEvent::Key {
-            name: name.into(),
-            pressed: true,
-        });
-        session
-            .run_frames(2)
-            .expect("key press should advance the machine");
-        session.queue_input(InputEvent::Key {
-            name: name.into(),
-            pressed: false,
-        });
-        session
-            .run_frames(2)
-            .expect("key release should advance the machine");
-    }
-
-    fn tap_symbol_combo(
-        session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
-        name: &'static str,
-    ) {
-        session.queue_input(InputEvent::Key {
-            name: "symbol".into(),
-            pressed: true,
-        });
-        session
-            .run_frames(2)
-            .expect("symbol shift press should advance the machine");
-        session.queue_input(InputEvent::Key {
-            name: name.into(),
-            pressed: true,
-        });
-        session
-            .run_frames(2)
-            .expect("symbol combo press should advance the machine");
-        session.queue_input(InputEvent::Key {
-            name: name.into(),
-            pressed: false,
-        });
-        session
-            .run_frames(2)
-            .expect("symbol combo release should advance the machine");
-        session.queue_input(InputEvent::Key {
-            name: "symbol".into(),
-            pressed: false,
-        });
-        session
-            .run_frames(2)
-            .expect("symbol shift release should advance the machine");
     }
 
     #[derive(Default)]
