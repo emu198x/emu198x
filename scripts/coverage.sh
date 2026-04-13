@@ -7,10 +7,13 @@ cd "${repo_root}"
 
 mkdir -p target/llvm-cov
 
-cargo llvm-cov --workspace "$@" | tee target/llvm-cov/coverage-summary.txt
-cargo llvm-cov report --json --summary-only --output-path target/llvm-cov/coverage-summary.json
-cargo llvm-cov report --lcov --output-path target/llvm-cov/lcov.info
-cargo llvm-cov report --html --output-dir target/llvm-cov
+coverage_toolchain="+nightly"
+coverage_flags=(--branch)
+
+cargo "${coverage_toolchain}" llvm-cov "${coverage_flags[@]}" --workspace "$@" | tee target/llvm-cov/coverage-summary.txt
+cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" --json --summary-only --output-path target/llvm-cov/coverage-summary.json
+cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" --lcov --output-path target/llvm-cov/lcov.info
+cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" --html --output-dir target/llvm-cov
 
 echo
 echo "Coverage total:"

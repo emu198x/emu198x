@@ -211,6 +211,11 @@ That path produces:
 
 The CI workflow also publishes the total coverage line in the GitHub job
 summary and uploads the text, JSON, LCOV, and HTML reports as artifacts.
+Branch coverage is enabled in the same path as an extra audit signal. At the
+moment this still relies on `cargo +nightly llvm-cov --branch`, which upstream
+marks as unstable, so the coverage path intentionally uses nightly even though
+the normal workspace toolchain remains stable and minor report-shape changes
+across tool updates are still possible.
 
 Interpretation rules:
 

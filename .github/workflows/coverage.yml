@@ -25,10 +25,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libasound2-dev
 
-      - name: Install Rust toolchain
+      - name: Install nightly Rust toolchain for branch coverage
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: nightly
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
@@ -50,6 +50,7 @@ jobs:
             echo "${total_line}"
             echo '```'
             echo
+            echo "- Branch coverage is enabled in this report path."
             echo "- Text summary: \`target/llvm-cov/coverage-summary.txt\`"
             echo "- JSON summary: \`target/llvm-cov/coverage-summary.json\`"
             echo "- LCOV export: \`target/llvm-cov/lcov.info\`"
