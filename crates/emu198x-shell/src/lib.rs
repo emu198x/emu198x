@@ -43,5 +43,5 @@ pub use script::{
     HeadlessScript, ScriptError, ScriptMediaKind, ScriptMediaTransportAction, ScriptObservation,
     ScriptStep,
 };
-pub use session::{HeadlessSession, QueryTextWaitResult, SessionError};
+pub use session::{HeadlessSession, QueryBoolWaitResult, QueryTextWaitResult, SessionError};
 pub use time::{ClockDesc, ClockRate, MachineTime};

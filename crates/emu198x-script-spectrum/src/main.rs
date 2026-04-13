@@ -33,6 +33,7 @@ struct Cli {
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
     wait_for_boot: Option<u32>,
+    wait_for_tape_stop: Option<u32>,
     autoload_tape: bool,
     frames: u32,
     commands: Vec<ControlCommand>,
@@ -92,6 +93,7 @@ State and automation:
     --save-snapshot PATH       write a runtime snapshot after running
     --script PATH              execute shared JSON session steps after boot
     --wait-for-boot N          run up to N frames until boot.detected is true
+    --wait-for-tape-stop N     run up to N frames until spectrum.tape.playing is false
     --screenshot PATH          write the last emitted frame as PNG
     --audio-capture PATH       write emitted audio as 16-bit PCM WAV
 
@@ -105,7 +107,7 @@ Examples:
     emu198x-script-spectrum --rom 48.rom --frames 200 --screenshot boot.png
     emu198x-script-spectrum --rom 48.rom --wait-for-boot 250 --screenshot boot.png
     emu198x-script-spectrum --rom 48.rom --tape manic_miner.tzx --play-tape --frames 500
-    emu198x-script-spectrum --rom 48.rom --tape manic_miner.tzx --autoload-tape --frames 12000
+    emu198x-script-spectrum --rom 48.rom --tape manic_miner.tzx --autoload-tape --wait-for-tape-stop 12000
     emu198x-script-spectrum --rom 48.rom --script capture.json
 ";
 
@@ -194,6 +196,15 @@ where
                     next_arg(&mut iter, "--wait-for-boot")
                         .parse()
                         .unwrap_or_else(|_| die("--wait-for-boot requires a non-negative integer")),
+                );
+            }
+            "--wait-for-tape-stop" => {
+                cli.wait_for_tape_stop = Some(
+                    next_arg(&mut iter, "--wait-for-tape-stop")
+                        .parse()
+                        .unwrap_or_else(|_| {
+                            die("--wait-for-tape-stop requires a non-negative integer")
+                        }),
                 );
             }
             "--screenshot" => {
@@ -359,6 +370,18 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         );
     }
 
+    if let Some(max_frames) = cli.wait_for_tape_stop {
+        let result = session
+            .wait_for_query_bool("spectrum.tape.playing", false, max_frames)
+            .map_err(|err| format!("tape-stop wait failed: {err}"))?;
+        observations.push(ScriptObservation::WaitForQueryBool {
+            path: result.path,
+            value: result.expected,
+            frames: result.frames,
+            reached: result.reached,
+        });
+    }
+
     if cli.frames > 0 {
         session
             .run_frames(cli.frames)
@@ -502,6 +525,7 @@ mod tests {
                 audio_capture: Some(PathBuf::from("boot.wav")),
                 script: Some(PathBuf::from("steps.json")),
                 wait_for_boot: Some(120),
+                wait_for_tape_stop: None,
                 autoload_tape: false,
                 frames: 10,
                 commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
@@ -540,6 +564,7 @@ mod tests {
                 audio_capture: None,
                 script: None,
                 wait_for_boot: None,
+                wait_for_tape_stop: None,
                 autoload_tape: false,
                 frames: 0,
                 commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
@@ -578,6 +603,7 @@ mod tests {
                 audio_capture: None,
                 script: None,
                 wait_for_boot: None,
+                wait_for_tape_stop: None,
                 autoload_tape: true,
                 frames: 0,
                 commands: vec![],
@@ -611,6 +637,7 @@ mod tests {
             audio_capture: None,
             script: None,
             wait_for_boot: None,
+            wait_for_tape_stop: None,
             autoload_tape: false,
             frames: 1,
             commands: vec![],
@@ -653,6 +680,7 @@ mod tests {
             audio_capture: Some(audio_path.clone()),
             script: None,
             wait_for_boot: None,
+            wait_for_tape_stop: None,
             autoload_tape: false,
             frames: 1,
             commands: vec![],
@@ -721,6 +749,7 @@ mod tests {
             audio_capture: None,
             script: Some(script_path.clone()),
             wait_for_boot: None,
+            wait_for_tape_stop: None,
             autoload_tape: false,
             frames: 0,
             commands: vec![],
@@ -786,6 +815,7 @@ mod tests {
             audio_capture: None,
             script: None,
             wait_for_boot: Some(1),
+            wait_for_tape_stop: None,
             autoload_tape: false,
             frames: 0,
             commands: vec![],
@@ -821,6 +851,7 @@ mod tests {
             audio_capture: None,
             script: None,
             wait_for_boot: None,
+            wait_for_tape_stop: None,
             autoload_tape: true,
             frames: 0,
             commands: vec![],
@@ -832,6 +863,79 @@ mod tests {
                 Err(ref err) if err.contains("--autoload-tape requires tape media")
             ),
             "autoload without media should fail clearly: {result:?}"
+        );
+
+        let _ = fs::remove_file(rom_path);
+    }
+
+    #[test]
+    fn parse_cli_accepts_wait_for_tape_stop() {
+        let cli = parse_cli([
+            "--rom".to_string(),
+            "48.rom".to_string(),
+            "--wait-for-tape-stop".to_string(),
+            "240".to_string(),
+        ]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                firmware: vec![FirmwareArg {
+                    id: DEFAULT_ROM_ID.to_owned(),
+                    path: PathBuf::from("48.rom"),
+                }],
+                media: vec![],
+                load_snapshot: None,
+                save_snapshot: None,
+                screenshot: None,
+                audio_capture: None,
+                script: None,
+                wait_for_boot: None,
+                wait_for_tape_stop: Some(240),
+                autoload_tape: false,
+                frames: 0,
+                commands: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn run_can_report_immediate_tape_stop_state() {
+        let temp_dir = std::env::temp_dir();
+        let rom_path = temp_dir.join(format!(
+            "emu198x-script-spectrum-{}-tape-stop-rom.bin",
+            std::process::id()
+        ));
+
+        fs::write(&rom_path, [0u8; 16 * 1024]).expect("temporary ROM write should succeed");
+
+        let result = run(Cli {
+            firmware: vec![FirmwareArg {
+                id: DEFAULT_ROM_ID.to_owned(),
+                path: rom_path.clone(),
+            }],
+            media: vec![],
+            load_snapshot: None,
+            save_snapshot: None,
+            screenshot: None,
+            audio_capture: None,
+            script: None,
+            wait_for_boot: None,
+            wait_for_tape_stop: Some(10),
+            autoload_tape: false,
+            frames: 0,
+            commands: vec![],
+        });
+
+        let report = result.expect("tape-stop wait should succeed immediately when tape is idle");
+        assert_eq!(
+            report.observations,
+            vec![ScriptObservation::WaitForQueryBool {
+                path: "spectrum.tape.playing".to_owned(),
+                value: false,
+                frames: 0,
+                reached: emu198x_shell::MachineTime::new(0),
+            }]
         );
 
         let _ = fs::remove_file(rom_path);

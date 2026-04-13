@@ -50,6 +50,7 @@ You can combine `--script` with normal runner flags such as:
 - `--save-snapshot PATH`
 - `--screenshot PATH`
 - `--audio-capture PATH`
+- `--wait-for-tape-stop N`
 - `--frames N`
 
 Those flags prepare the machine before or after the shared script steps. The
@@ -59,6 +60,11 @@ script itself handles the reusable in-session workflow.
 the shared session surface. It waits for the 48K ROM boot banner, types the
 standard `LOAD ""` command through the real ROM editor, and starts tape
 transport on `tape-1`. It is not an instant-loader shortcut.
+
+`--wait-for-tape-stop N` is the current Spectrum runner alias for waiting until
+`spectrum.tape.playing` becomes `false`. It runs after any autoload and script
+steps, so it can block on a real tape load finishing before extra frame
+execution or capture.
 
 ## Script Format
 
@@ -85,6 +91,7 @@ Supported shared actions today:
 | `input` | `events` | none |
 | `run_frames` | `frames` | `run_frames` observation |
 | `wait_for_boot` | `max_frames` | `wait_for_boot` observation |
+| `wait_for_query_bool` | `path`, `value`, `max_frames` | `wait_for_query_bool` observation |
 | `query` | `path` | `query` observation |
 | `query_paths` | `prefix` (optional) | `query_paths` observation |
 | `load_snapshot` | `path` | none |
@@ -190,6 +197,13 @@ Current shape:
       "row": 23
     },
     {
+      "kind": "wait_for_query_bool",
+      "path": "spectrum.tape.playing",
+      "value": false,
+      "frames": 10672,
+      "reached": 3026356224
+    },
+    {
       "kind": "query",
       "result": {
         "path": "spectrum.machine.issue",
@@ -207,6 +221,7 @@ Current shape:
 
 - `run_frames`
 - `wait_for_boot`
+- `wait_for_query_bool`
 - `query`
 - `query_paths`
 
@@ -244,5 +259,5 @@ cargo run -p emu198x-script-spectrum -- \
   --rom 48.rom \
   --tape manic_miner.tzx \
   --autoload-tape \
-  --frames 12000
+  --wait-for-tape-stop 12000
 ```

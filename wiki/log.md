@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Shared boolean query waits land, with a Spectrum tape-stop alias
+
+**Type:** milestone
+**Trigger:** After the UI got cycle-faithful tape turbo, the next practical automation gap was obvious: scripts and headless runs still had no clean way to block on a tape load finishing except by guessing a frame count.
+**Result:** the shared shell now has a reusable boolean wait primitive, and the Spectrum headless runner exposes the tape-stop case directly:
+1. Added `HeadlessSession::wait_for_query_bool(path, expected, max_frames)` plus a typed `QueryBoolWaitResult`.
+2. Added `wait_for_query_bool` to the shared JSON script surface so automation can wait on boolean machine state without inventing ad hoc polling loops.
+3. Added `--wait-for-tape-stop N` to `emu198x-script-spectrum` as a Spectrum-specific alias for waiting until `spectrum.tape.playing == false`.
+4. Kept the alias ordered after autoload and script execution, so one command line can autoload a tape, wait for playback to finish, and then continue with any extra frame or capture steps.
+**Verification:** `cargo test -p emu198x-shell -p emu198x-script-spectrum`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass.
+**Next dependency:** if we want to push this pattern further, the next useful addition is a more general query-equality wait only when a concrete workflow needs it. Right now boolean state and text containment cover the real use cases.
+
+---
+
 ## 2026-04-13 — Spectrum verifier shell now has cycle-faithful tape turbo
 
 **Type:** milestone

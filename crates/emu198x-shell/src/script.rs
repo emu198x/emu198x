@@ -96,6 +96,16 @@ pub enum ScriptStep {
         /// Maximum number of native video frames to execute while waiting.
         max_frames: u32,
     },
+    /// Run native frames until one boolean query path reaches one target
+    /// value.
+    WaitForQueryBool {
+        /// The query path to poll.
+        path: String,
+        /// The required boolean value.
+        value: bool,
+        /// Maximum number of native video frames to execute while waiting.
+        max_frames: u32,
+    },
     /// Resolve one shared query path.
     Query {
         /// The query path to resolve.
@@ -177,6 +187,17 @@ pub enum ScriptObservation {
         line: Option<u64>,
         /// The actual matching line or string.
         matched_text: String,
+    },
+    /// Result of waiting for one boolean query to reach one target value.
+    WaitForQueryBool {
+        /// The query path that matched.
+        path: String,
+        /// The required boolean value.
+        value: bool,
+        /// Number of native frames executed while waiting.
+        frames: u32,
+        /// Machine time reached when the wait completed.
+        reached: crate::MachineTime,
     },
     /// Result of resolving one query path.
     Query {
@@ -315,6 +336,19 @@ impl ScriptStep {
                     reached: result.reached,
                     line: result.line,
                     matched_text: result.matched_text,
+                }))
+            }
+            Self::WaitForQueryBool {
+                path,
+                value,
+                max_frames,
+            } => {
+                let result = session.wait_for_query_bool(path, *value, *max_frames)?;
+                Ok(Some(ScriptObservation::WaitForQueryBool {
+                    path: result.path,
+                    value: result.expected,
+                    frames: result.frames,
+                    reached: result.reached,
                 }))
             }
             Self::Query { path } => {
@@ -518,6 +552,10 @@ mod tests {
                     } else {
                         None::<u64>
                     }),
+                })),
+                "dummy.flag" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(machine.time.get() >= 2 * 69_888),
                 })),
                 "screen.text.lines" => Ok(Some(QueryResult {
                     path: path.to_owned(),
@@ -727,6 +765,36 @@ mod tests {
                 reached: MachineTime::new(279_552),
                 line: Some(1),
                 matched_text: "MANIC MINER".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn headless_script_waits_for_query_bool_and_reports_result() {
+        let script = HeadlessScript {
+            steps: vec![ScriptStep::WaitForQueryBool {
+                path: "dummy.flag".to_owned(),
+                value: true,
+                max_frames: 2,
+            }],
+        };
+
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+        let observations = script
+            .execute_collect(&mut session)
+            .expect("script should wait for dummy boolean query");
+
+        assert_eq!(
+            observations,
+            vec![ScriptObservation::WaitForQueryBool {
+                path: "dummy.flag".to_owned(),
+                value: true,
+                frames: 2,
+                reached: MachineTime::new(139_776),
             }]
         );
     }

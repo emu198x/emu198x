@@ -64,6 +64,17 @@ pub enum SessionError {
         /// Maximum number of frames the wait helper was allowed to run.
         max_frames: u32,
     },
+
+    /// One boolean query path did not reach the requested state.
+    #[error("query path {path} did not become {expected} within {max_frames} frames")]
+    QueryBoolTimeout {
+        /// The boolean query path that was polled.
+        path: String,
+        /// The requested boolean value.
+        expected: bool,
+        /// Maximum number of frames the wait helper was allowed to run.
+        max_frames: u32,
+    },
 }
 
 /// Result of waiting for one machine to report `boot.detected = true`.
@@ -94,6 +105,19 @@ pub struct QueryTextWaitResult {
     pub line: Option<u64>,
     /// The actual matched text fragment container.
     pub matched_text: String,
+}
+
+/// Result of waiting for one boolean query path to reach one target value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueryBoolWaitResult {
+    /// The query path that matched.
+    pub path: String,
+    /// The requested boolean value.
+    pub expected: bool,
+    /// Number of native frames executed while waiting.
+    pub frames: u32,
+    /// Machine time reached when the wait completed.
+    pub reached: MachineTime,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -297,6 +321,48 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         })
     }
 
+    /// Runs native frames until one boolean query path reaches one target
+    /// value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query does not exist, if it resolves to a value
+    /// that is not boolean, or if the frame budget expires before the target
+    /// value is observed.
+    pub fn wait_for_query_bool(
+        &mut self,
+        path: &str,
+        expected: bool,
+        max_frames: u32,
+    ) -> Result<QueryBoolWaitResult, SessionError> {
+        if self.query_bool_at(path)? == expected {
+            return Ok(QueryBoolWaitResult {
+                path: path.to_owned(),
+                expected,
+                frames: 0,
+                reached: self.time(),
+            });
+        }
+
+        for frames in 1..=max_frames {
+            let result = self.run_frames(1)?;
+            if self.query_bool_at(path)? == expected {
+                return Ok(QueryBoolWaitResult {
+                    path: path.to_owned(),
+                    expected,
+                    frames,
+                    reached: result.reached,
+                });
+            }
+        }
+
+        Err(SessionError::QueryBoolTimeout {
+            path: path.to_owned(),
+            expected,
+            max_frames,
+        })
+    }
+
     /// Queues one input event for the next execution slice.
     pub fn queue_input(&mut self, event: InputEvent) {
         self.queued_input.push(event);
@@ -461,6 +527,10 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     }
 
     fn query_bool(&self, path: &str) -> Result<bool, SessionError> {
+        self.query_bool_at(path)
+    }
+
+    fn query_bool_at(&self, path: &str) -> Result<bool, SessionError> {
         let result = self.query(path)?;
         result
             .value
@@ -646,6 +716,7 @@ mod tests {
                 "boot.reason",
                 "boot.row",
                 "dummy.time",
+                "dummy.flag",
                 "screen.text.lines",
             ]
             .into_iter()
@@ -683,6 +754,10 @@ mod tests {
                 "dummy.time" => Ok(Some(QueryResult {
                     path: path.to_owned(),
                     value: json!(machine.time.get()),
+                })),
+                "dummy.flag" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(machine.time.get() >= 2 * 69_888),
                 })),
                 "screen.text.lines" => Ok(Some(QueryResult {
                     path: path.to_owned(),
@@ -835,7 +910,10 @@ mod tests {
         let paths = session.query_paths(Some("dummy."));
 
         assert_eq!(extra.value, json!(69_888));
-        assert_eq!(paths.paths, vec!["dummy.time".to_owned()]);
+        assert_eq!(
+            paths.paths,
+            vec!["dummy.flag".to_owned(), "dummy.time".to_owned()]
+        );
     }
 
     #[test]
@@ -928,6 +1006,51 @@ mod tests {
                 ref needle,
                 max_frames: 3
             } if path == "screen.text.lines" && needle == "MANIC MINER"
+        ));
+    }
+
+    #[test]
+    fn session_wait_for_query_bool_runs_until_match() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+
+        let result = session
+            .wait_for_query_bool("dummy.flag", true, 2)
+            .expect("boolean query should become true on frame two");
+
+        assert_eq!(
+            result,
+            QueryBoolWaitResult {
+                path: "dummy.flag".to_owned(),
+                expected: true,
+                frames: 2,
+                reached: MachineTime::new(139_776),
+            }
+        );
+    }
+
+    #[test]
+    fn session_wait_for_query_bool_times_out() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+
+        let error = session
+            .wait_for_query_bool("dummy.flag", true, 1)
+            .expect_err("one frame should not reach the boolean query target");
+
+        assert!(matches!(
+            error,
+            SessionError::QueryBoolTimeout {
+                ref path,
+                expected: true,
+                max_frames: 1
+            } if path == "dummy.flag"
         ));
     }
 }
