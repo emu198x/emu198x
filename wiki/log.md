@@ -4,6 +4,22 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Spectrum boot detection is now queryable through the shared headless surface
+
+**Type:** milestone
+**Trigger:** After the machine-level timing checks landed, the next useful system-facing hook was not more synthetic tracing. It was a real boot-detected state that scripting, MCP, and future autoloading can consume directly instead of hard-coding frame counts or relying on screenshots.
+**Result:** the Spectrum runtime now exposes generic machine-semantic boot and screen-text queries above the shared shell surface:
+1. Added `screen.text.rows`, `screen.text.cols`, and `screen.text.lines` to the Spectrum query provider. For the 48K machine today these are derived by decoding the bitmap screen against the resident ROM font at `$3D00`, which is accurate for ROM text screens such as the boot banner.
+   The ROM copyright glyph is normalized to Unicode `©` so the decoded line remains one text cell wide.
+2. Added `boot.detected`, `boot.reason`, and `boot.row` on top of that decoded text surface. The current 48K boot detector reports success when the ROM copyright banner `(C) 1982 Sinclair Research Ltd` is visible on the decoded text screen.
+3. Kept the implementation in the family runtime rather than the shared shell contract. The shell still owns generic query transport, while the Spectrum runtime owns the machine-specific meaning of “booted” and “text screen”.
+4. Added synthetic unit tests for the bitmap-to-text decoder and boot-status parser, plus a new ignored ROM-backed runtime test that boots the real 48K ROM for 200 frames and proves that `boot.detected` becomes `true` with the expected reason and decoded text row.
+5. Updated the scripting, MCP, and observability docs so the current repo stops describing `boot_detected` and `get_screen_text` as only future dedicated tools. Spectrum can now answer those concepts today through `query`.
+**Verification:** `cargo test -p runtime-sinclair-zx-spectrum`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should all pass. The ROM-backed proof also passes locally with `cargo test -p runtime-sinclair-zx-spectrum spectrum_query_provider_detects_booted_48k_rom -- --ignored --nocapture` when the 48K ROM is present at `~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`.
+**Next dependency:** the next useful step is to let host workflows consume this directly: a simple boot-wait helper in the Spectrum runner or shared session layer, followed by the same query contract being adopted by the next runnable family.
+
+---
+
 ## 2026-04-13 — Spectrum 48K machine loop now has normal-CI contention proofs
 
 **Type:** milestone

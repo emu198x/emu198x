@@ -152,6 +152,8 @@ mod tests {
         MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
         SessionQueryProvider,
     };
+    use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn profile_ids_are_unique() {
@@ -364,6 +366,33 @@ mod tests {
     }
 
     #[test]
+    fn spectrum_query_provider_lists_boot_and_screen_text_paths() {
+        let runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let provider = SpectrumSessionQueryProvider;
+
+        let boot_paths = provider.query_paths(&runtime, Some("boot."));
+        let screen_paths = provider.query_paths(&runtime, Some("screen.text."));
+
+        assert_eq!(
+            boot_paths,
+            vec![
+                "boot.detected".to_owned(),
+                "boot.reason".to_owned(),
+                "boot.row".to_owned()
+            ]
+        );
+        assert_eq!(
+            screen_paths,
+            vec![
+                "screen.text.cols".to_owned(),
+                "screen.text.lines".to_owned(),
+                "screen.text.rows".to_owned()
+            ]
+        );
+    }
+
+    #[test]
     fn spectrum_query_provider_reads_runtime_state() {
         let mut runtime =
             Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
@@ -386,6 +415,18 @@ mod tests {
             .query(&runtime, "spectrum.machine.issue")
             .expect("issue query should resolve")
             .expect("provider should own issue path");
+        let boot = provider
+            .query(&runtime, "boot.detected")
+            .expect("boot query should resolve")
+            .expect("provider should own boot path");
+        let cols = provider
+            .query(&runtime, "screen.text.cols")
+            .expect("screen text cols query should resolve")
+            .expect("provider should own screen text cols path");
+        let lines = provider
+            .query(&runtime, "screen.text.lines")
+            .expect("screen text lines query should resolve")
+            .expect("provider should own screen text lines path");
         let tstate = provider
             .query(&runtime, "spectrum.machine.tstate_in_frame")
             .expect("tstate query should resolve")
@@ -396,8 +437,95 @@ mod tests {
             .expect("provider should own tape path");
 
         assert_eq!(issue.value, serde_json::json!("issue3"));
+        assert_eq!(boot.value, serde_json::json!(false));
+        assert_eq!(cols.value, serde_json::json!(32));
+        assert_eq!(
+            lines
+                .value
+                .as_array()
+                .expect("screen text lines should be returned as a JSON array")
+                .len(),
+            24
+        );
         assert_eq!(tstate.value, serde_json::json!(9));
         assert_eq!(tape.value, serde_json::json!(true));
+    }
+
+    #[test]
+    #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+    fn spectrum_query_provider_detects_booted_48k_rom() {
+        let Some(rom_path) = spectrum_48k_rom_path() else {
+            eprintln!("HOME is not set; skipping ROM-backed Spectrum boot detection test");
+            return;
+        };
+
+        if !rom_path.is_file() {
+            eprintln!("ROM not found at {}", rom_path.display());
+            return;
+        }
+
+        let rom = match fs::read(&rom_path) {
+            Ok(rom) => rom,
+            Err(err) => panic!("failed to read {}: {err}", rom_path.display()),
+        };
+
+        let mut runtime = Spectrum48kRuntime::from_rom_bytes(&rom)
+            .expect("48K ROM path should contain a valid 16 KiB image");
+        let mut frame_sink = RecordingFrameSink::default();
+        let mut audio_sink = RecordingAudioSink::default();
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        let provider = SpectrumSessionQueryProvider;
+
+        runtime
+            .run_until(
+                MachineTime::new(u64::from(TIMING_48K.halfcycles_per_frame) * 200),
+                &mut host,
+            )
+            .expect("48K runtime should reach the copyright screen");
+
+        let detected = provider
+            .query(&runtime, "boot.detected")
+            .expect("boot detection query should resolve")
+            .expect("provider should own boot detection path");
+        let reason = provider
+            .query(&runtime, "boot.reason")
+            .expect("boot reason query should resolve")
+            .expect("provider should own boot reason path");
+        let row = provider
+            .query(&runtime, "boot.row")
+            .expect("boot row query should resolve")
+            .expect("provider should own boot row path");
+        let lines = provider
+            .query(&runtime, "screen.text.lines")
+            .expect("screen text lines query should resolve")
+            .expect("provider should own screen text lines path");
+        let line_values = lines
+            .value
+            .as_array()
+            .expect("screen text lines should be returned as a JSON array");
+        let detected_row =
+            row.value
+                .as_u64()
+                .expect("boot row should resolve to one decoded text row") as usize;
+
+        assert_eq!(detected.value, serde_json::json!(true));
+        assert_eq!(
+            reason.value,
+            serde_json::json!(format!("found copyright banner on row {detected_row}"))
+        );
+        assert!(detected_row < line_values.len());
+        assert!(
+            line_values[detected_row]
+                .as_str()
+                .is_some_and(|line| line.contains("© 1982 Sinclair Research Ltd")),
+            "decoded screen text should contain the 48K copyright banner"
+        );
     }
 
     fn minimal_tap() -> Vec<u8> {
@@ -406,6 +534,11 @@ mod tests {
         tap.extend_from_slice(&[0; 17]);
         tap.push(0x00);
         tap
+    }
+
+    fn spectrum_48k_rom_path() -> Option<PathBuf> {
+        std::env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom"))
     }
 
     #[derive(Default)]

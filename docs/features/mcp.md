@@ -26,6 +26,18 @@ instead of separate `query_registers`, `query_video`, and `query_audio` calls.
 
 The tool list below still describes the broader long-term MCP surface we want.
 
+For the current Spectrum runner, the future `get_screen_text` and
+`boot_detected` helpers can already be synthesized through `query`:
+
+- `screen.text.rows`, `screen.text.cols`, and `screen.text.lines`
+- `boot.detected`, `boot.reason`, and `boot.row`
+
+The current Spectrum implementation derives text rows by matching the bitmap
+screen against the resident ROM font. That is suitable for ROM text screens and
+automation hooks such as boot detection; it is not a generic OCR layer for
+arbitrary graphics output. The 48K ROM copyright glyph is normalized to Unicode
+`©` so the exported text stays one cell wide.
+
 ### Recommended Query Flow
 
 For agents and external tooling, the stable pattern is:
@@ -210,6 +222,9 @@ Response:
 
 Read the text screen as rows of ASCII.
 
+Current Spectrum equivalent: query `screen.text.rows`, `screen.text.cols`, and
+`screen.text.lines`.
+
 Response:
 
 ```json
@@ -229,6 +244,9 @@ Response:
 
 Check whether the boot banner is present on the text screen.
 
+Current Spectrum equivalent: query `boot.detected`, `boot.reason`, and
+`boot.row`.
+
 Response:
 
 ```json
@@ -241,6 +259,9 @@ Response:
 #### `boot_status`
 
 Return boot detection along with screen contents and frame count.
+
+Current Spectrum equivalent: combine `boot.*`, `screen.text.*`, and
+`session.time`.
 
 Response:
 

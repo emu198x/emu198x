@@ -5,7 +5,7 @@
 //! and the concrete 48K machine crate.
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
-use common_sinclair_zx_spectrum::{RomImageError, SPECTRUM_PALETTE, TapeBlock};
+use common_sinclair_zx_spectrum::{MemoryBus, RomImageError, SPECTRUM_PALETTE, TapeBlock};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
@@ -18,6 +18,12 @@ use serde_json::json;
 use crate::{Model, profile_for};
 
 const SPECTRUM_QUERY_PATHS: &[&str] = &[
+    "boot.detected",
+    "boot.reason",
+    "boot.row",
+    "screen.text.cols",
+    "screen.text.lines",
+    "screen.text.rows",
     "spectrum.keyboard.rows",
     "spectrum.machine.half_cycle_in_frame",
     "spectrum.machine.tstate_in_frame",
@@ -25,6 +31,16 @@ const SPECTRUM_QUERY_PATHS: &[&str] = &[
     "spectrum.tape.loaded",
     "spectrum.tape.playing",
 ];
+
+const SCREEN_TEXT_COLS: usize = 32;
+const SCREEN_TEXT_ROWS: usize = 24;
+const ROM_TEXT_GLYPH_BASE: u16 = 0x3d00;
+const ROM_TEXT_GLYPH_FIRST: u8 = 0x20;
+const ROM_TEXT_GLYPH_COUNT: usize = 96;
+const ROM_TEXT_GLYPH_COPYRIGHT: u8 = 0x7f;
+const BOOT_BANNER: &str = "(C) 1982 Sinclair Research Ltd";
+const BOOT_BANNER_FALLBACK: &str = "1982 Sinclair Research Ltd";
+const BOOT_BANNER_UNICODE: &str = "© 1982 Sinclair Research Ltd";
 
 /// Runtime wrapper over the concrete 48K Spectrum machine.
 pub struct Spectrum48kRuntime {
@@ -39,6 +55,13 @@ struct SnapshotEnvelopeV1 {
     profile_id: String,
     time: MachineTime,
     machine: Spectrum48kSnapshot,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SpectrumBootStatus {
+    detected: bool,
+    reason: String,
+    row: Option<usize>,
 }
 
 /// Spectrum-family query provider layered above the shared shell surface.
@@ -151,6 +174,88 @@ impl Spectrum48kRuntime {
     }
 }
 
+fn spectrum_screen_text_lines(machine: &Spectrum48k) -> Vec<String> {
+    let glyphs = spectrum_rom_glyphs(machine);
+    let mut lines = Vec::with_capacity(SCREEN_TEXT_ROWS);
+
+    for row in 0..SCREEN_TEXT_ROWS {
+        let mut line = String::with_capacity(SCREEN_TEXT_COLS);
+        for col in 0..SCREEN_TEXT_COLS {
+            let cell = spectrum_screen_cell(machine, row, col);
+            line.push(decode_screen_char(&glyphs, cell));
+        }
+        lines.push(line);
+    }
+
+    lines
+}
+
+fn spectrum_boot_status(lines: &[String]) -> SpectrumBootStatus {
+    if let Some((row, _)) = lines.iter().enumerate().find(|(_, line)| {
+        line.contains(BOOT_BANNER)
+            || line.contains(BOOT_BANNER_UNICODE)
+            || line.contains(BOOT_BANNER_FALLBACK)
+    }) {
+        return SpectrumBootStatus {
+            detected: true,
+            reason: format!("found copyright banner on row {row}"),
+            row: Some(row),
+        };
+    }
+
+    SpectrumBootStatus {
+        detected: false,
+        reason: "copyright banner not visible".to_owned(),
+        row: None,
+    }
+}
+
+fn spectrum_rom_glyphs(machine: &Spectrum48k) -> Vec<[u8; 8]> {
+    let mut glyphs = Vec::with_capacity(ROM_TEXT_GLYPH_COUNT);
+
+    for glyph_index in 0..ROM_TEXT_GLYPH_COUNT {
+        let glyph_base = ROM_TEXT_GLYPH_BASE + (glyph_index as u16 * 8);
+        let mut glyph = [0u8; 8];
+        for (row, byte) in glyph.iter_mut().enumerate() {
+            *byte = machine.read(glyph_base + row as u16);
+        }
+        glyphs.push(glyph);
+    }
+
+    glyphs
+}
+
+fn spectrum_screen_cell(machine: &Spectrum48k, text_row: usize, text_col: usize) -> [u8; 8] {
+    let mut cell = [0u8; 8];
+
+    for (pixel_row, byte) in cell.iter_mut().enumerate() {
+        let y = text_row * 8 + pixel_row;
+        let addr = 0x4000
+            + (((y & 0b1100_0000) as u16) << 5)
+            + (((y & 0b0011_1000) as u16) << 2)
+            + (((y & 0b0000_0111) as u16) << 8)
+            + text_col as u16;
+        *byte = machine.read(addr);
+    }
+
+    cell
+}
+
+fn decode_screen_char(glyphs: &[[u8; 8]], cell: [u8; 8]) -> char {
+    for (glyph_index, glyph) in glyphs.iter().enumerate() {
+        if *glyph == cell {
+            let code = ROM_TEXT_GLYPH_FIRST + glyph_index as u8;
+            return match code {
+                0x20..=0x7e => code as char,
+                ROM_TEXT_GLYPH_COPYRIGHT => '©',
+                _ => '?',
+            };
+        }
+    }
+
+    '?'
+}
+
 impl SessionQueryProvider<Spectrum48kRuntime> for SpectrumSessionQueryProvider {
     fn query_paths(&self, _machine: &Spectrum48kRuntime, prefix: Option<&str>) -> Vec<String> {
         let mut paths: Vec<String> = SPECTRUM_QUERY_PATHS
@@ -169,6 +274,18 @@ impl SessionQueryProvider<Spectrum48kRuntime> for SpectrumSessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
+            "boot.detected" => {
+                json!(spectrum_boot_status(&spectrum_screen_text_lines(machine.machine())).detected)
+            }
+            "boot.reason" => {
+                json!(spectrum_boot_status(&spectrum_screen_text_lines(machine.machine())).reason)
+            }
+            "boot.row" => {
+                json!(spectrum_boot_status(&spectrum_screen_text_lines(machine.machine())).row)
+            }
+            "screen.text.cols" => json!(SCREEN_TEXT_COLS),
+            "screen.text.lines" => json!(spectrum_screen_text_lines(machine.machine())),
+            "screen.text.rows" => json!(SCREEN_TEXT_ROWS),
             "spectrum.keyboard.rows" => json!(machine.machine().keyboard().rows()),
             "spectrum.machine.half_cycle_in_frame" => json!(machine.machine().hc()),
             "spectrum.machine.tstate_in_frame" => json!(machine.machine().tstate_in_frame()),
@@ -354,4 +471,70 @@ fn tap_blocks_to_tape_blocks(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_screen_cell(
+        machine: &mut Spectrum48k,
+        text_row: usize,
+        text_col: usize,
+        glyph: [u8; 8],
+    ) {
+        for (pixel_row, byte) in glyph.into_iter().enumerate() {
+            let y = text_row * 8 + pixel_row;
+            let addr = 0x4000
+                + (((y & 0b1100_0000) as u16) << 5)
+                + (((y & 0b0011_1000) as u16) << 2)
+                + (((y & 0b0000_0111) as u16) << 8)
+                + text_col as u16;
+            machine.write(addr, byte);
+        }
+    }
+
+    #[test]
+    fn screen_text_lines_decode_rom_glyph_cells() {
+        let mut rom = [0u8; 16 * 1024];
+        let glyph_a = [0x18, 0x24, 0x42, 0x7e, 0x42, 0x42, 0x42, 0x00];
+        let glyph_base =
+            (ROM_TEXT_GLYPH_BASE as usize) + (usize::from(b'A' - ROM_TEXT_GLYPH_FIRST) * 8);
+        rom[glyph_base..glyph_base + 8].copy_from_slice(&glyph_a);
+
+        let mut machine = Spectrum48k::new();
+        machine
+            .load_rom_bytes(&rom)
+            .expect("synthetic ROM should load into the 48K machine");
+        write_screen_cell(&mut machine, 2, 3, glyph_a);
+
+        let lines = spectrum_screen_text_lines(&machine);
+
+        assert_eq!(lines.len(), SCREEN_TEXT_ROWS);
+        assert_eq!(lines[2].len(), SCREEN_TEXT_COLS);
+        assert_eq!(lines[2].chars().nth(3), Some('A'));
+    }
+
+    #[test]
+    fn boot_status_detects_copyright_banner() {
+        let mut lines = vec![" ".repeat(SCREEN_TEXT_COLS); SCREEN_TEXT_ROWS];
+        lines[20] = format!("{BOOT_BANNER:<32}");
+
+        let status = spectrum_boot_status(&lines);
+
+        assert!(status.detected);
+        assert_eq!(status.row, Some(20));
+        assert_eq!(status.reason, "found copyright banner on row 20");
+    }
+
+    #[test]
+    fn boot_status_reports_absence_when_banner_is_missing() {
+        let lines = vec![" ".repeat(SCREEN_TEXT_COLS); SCREEN_TEXT_ROWS];
+
+        let status = spectrum_boot_status(&lines);
+
+        assert!(!status.detected);
+        assert_eq!(status.row, None);
+        assert_eq!(status.reason, "copyright banner not visible");
+    }
 }

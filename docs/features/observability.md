@@ -18,6 +18,10 @@ exposes internal state for education and debugging.
   through MCP as `query_paths`.
 - Scripts can use the same `query` and `query_paths` methods because script
   runners dispatch through the MCP layer.
+- The current Spectrum runner also exposes higher-level `boot.*` and
+  `screen.text.*` query paths for automation. These are currently backed by a
+  ROM-font-based text-screen decode suitable for boot banners and other text
+  screens, not arbitrary graphics OCR.
 - Structured full-machine snapshots and trace capture are not implemented yet.
 
 ## Principles

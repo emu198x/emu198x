@@ -127,8 +127,23 @@ than family-specific chip state. The implemented paths today are:
 For automation, prefer `query_paths` before hard-coding a query path. That
 keeps scripts resilient as the shared shell surface expands.
 
-Runners can also add family-owned namespaces on top of the shared shell layer.
-The current Spectrum runner adds:
+Runners can also add machine-owned query paths on top of the shared shell layer.
+The current Spectrum runner adds these generic automation paths:
+
+- `boot.detected`
+- `boot.reason`
+- `boot.row`
+- `screen.text.cols`
+- `screen.text.lines`
+- `screen.text.rows`
+
+For the 48K Spectrum today, `screen.text.lines` is derived by matching the
+bitmap screen against the resident ROM font. That is precise for ROM text
+screens such as the boot banner, but it is not a general OCR path for arbitrary
+graphics screens. The ROM copyright glyph is normalized to Unicode `©` so the
+decoded line stays one cell wide and script-friendly.
+
+It also adds these family-specific paths:
 
 - `spectrum.keyboard.rows`
 - `spectrum.machine.half_cycle_in_frame`
@@ -184,6 +199,8 @@ time, and save a screenshot:
 [
   {"action":"run_frames","frames":200},
   {"action":"query_paths","prefix":"session.profile."},
+  {"action":"query","path":"boot.detected"},
+  {"action":"query","path":"screen.text.lines"},
   {"action":"query","path":"session.time"},
   {"action":"query","path":"spectrum.machine.issue"},
   {"action":"save_screenshot","path":"spectrum_boot.png"}
