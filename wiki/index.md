@@ -16,7 +16,7 @@
 
 ## Systems
 ### Commodore 64
-- [Overview](systems/commodore-c64.md) — 4 chips ported (6502/CIA/SID/VIC-II), machine wiring landed, **KERNAL boots to `READY.` prompt end-to-end**, runtime + headless CLI ship PNG screenshots via the shell's capture pipeline
+- [Overview](systems/commodore-c64.md) — live 6502/CIA/VIC-II board loop, **KERNAL boots to `READY.` prompt end-to-end**, runtime + headless CLI now ship PNG screenshots and runtime snapshots via the shared shell; SID remains shadowed
 
 ### Nintendo NES
 - [Overview](systems/nintendo-nes.md) — 2A03 CPU + 2C02 PPU + APU + Mapper wired, master-clock tick loop, **nestest 8991/8991 passing**, **Super Mario Bros. renders**, System trait integrated

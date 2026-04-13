@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — C64 snapshots and the first fresh-workspace headless runner land
+
+**Type:** milestone
+**Trigger:** Once the PAL C64 could boot real ROMs through the shared runtime, the next useful host-facing step was a thin runner and honest snapshot support. The runtime could not claim save states safely until the chip state serialization itself was complete.
+**Result:** the fresh workspace now has a usable C64 automation path instead of just an internal runtime:
+1. Added `emu198x-script-c64` as the first fresh-workspace C64 headless runner, with ROM directory resolution, PAL/NTSC model selection, boot waits, shared JSON script execution, PNG screenshots, and snapshot load/save.
+2. Added real runtime snapshot import/export to `runtime-commodore-c64` using the same `postcard` envelope pattern as the Spectrum runtime.
+3. Added machine-local `C64Snapshot` and `C64MemorySnapshot` state capture/restore in `machine-commodore-c64`, so the runtime is not trying to serialize board state ad hoc.
+4. Tightened snapshot fidelity by serializing the 6502's in-flight cycle state and the VIC-II framebuffer instead of silently dropping them at snapshot boundaries.
+5. Updated profile metadata and scripting docs so C64 now advertises runtime snapshot support honestly, while still leaving media support out of scope.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should pass. The new C64 runtime test exercises snapshot round-tripping mid-cycle, and the runner can boot or restore from the local ROM set at `~/.emu198x/roms/commodore-c64`.
+**Next dependency:** the next honest C64 step is media and software workflows above this runner boundary, not more shell scaffolding.
+
+---
+
 ## 2026-04-13 — C64 runtime now emits frames and detects the READY. boot state
 
 **Type:** milestone

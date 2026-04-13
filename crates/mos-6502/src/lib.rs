@@ -20,9 +20,7 @@ pub struct M6502 {
     pub(crate) nmi_prev: bool,
     pub halted: bool,
     pub decimal_disabled: bool,
-    #[serde(skip)]
     pub(crate) cs: cycle::CycleState,
-    #[serde(skip)]
     pub(crate) reset_phase: u8,
 }
 

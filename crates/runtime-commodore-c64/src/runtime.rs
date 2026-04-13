@@ -5,7 +5,7 @@ use emu198x_shell::{
     MachineProfile, MachineTime, QueryError, QueryResult, ResetKind, RunResult,
     SessionQueryProvider, StopReason,
 };
-use machine_commodore_c64::{C64, C64Config, C64Model};
+use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
 use serde_json::json;
 
 use crate::{Model, profile_for};
@@ -37,6 +37,14 @@ pub struct C64Runtime {
     basic_rom: Vec<u8>,
     character_rom: Vec<u8>,
     rgba_framebuffer: Vec<u8>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SnapshotEnvelopeV1 {
+    version: u32,
+    profile_id: String,
+    time: MachineTime,
+    machine: C64Snapshot,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,23 +135,31 @@ impl C64Runtime {
     }
 
     /// Creates a runtime backed by zero-filled ROMs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if machine construction fails.
-    pub fn blank(model: Model) -> Result<Self, MachineError> {
-        Self::new(
+    #[must_use]
+    pub fn blank(model: Model) -> Self {
+        match Self::new(
             model,
             vec![0; KERNAL_ROM_SIZE],
             vec![0; BASIC_ROM_SIZE],
             vec![0; CHARACTER_ROM_SIZE],
-        )
+        ) {
+            Ok(runtime) => runtime,
+            Err(reason) => unreachable!(
+                "blank C64 runtime should always construct from fixed-size ROM images: {reason}"
+            ),
+        }
     }
 
     /// Returns the wrapped C64 machine.
     #[must_use]
     pub fn machine(&self) -> &C64 {
         &self.machine
+    }
+
+    /// Returns mutable access to the wrapped C64 machine.
+    #[must_use]
+    pub fn machine_mut(&mut self) -> &mut C64 {
+        &mut self.machine
     }
 
     /// Returns the current runtime time in `phi2` cycles.
@@ -241,15 +257,44 @@ impl MachineCore for C64Runtime {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "snapshot",
+        postcard::to_allocvec(&SnapshotEnvelopeV1 {
+            version: 1,
+            profile_id: self.profile.profile_id.as_str().to_owned(),
+            time: self.time,
+            machine: self.machine.snapshot_state(),
+        })
+        .map_err(|reason| MachineError::InvalidSnapshot {
+            reason: format!("encode failed: {reason}"),
         })
     }
 
-    fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "restore",
-        })
+    fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let snapshot: SnapshotEnvelopeV1 =
+            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
+                reason: format!("decode failed: {reason}"),
+            })?;
+
+        if snapshot.version != 1 {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!("unsupported snapshot version {}", snapshot.version),
+            });
+        }
+
+        if snapshot.profile_id != self.profile.profile_id.as_str() {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!(
+                    "snapshot profile {} does not match runtime profile {}",
+                    snapshot.profile_id,
+                    self.profile.profile_id.as_str()
+                ),
+            });
+        }
+
+        self.machine
+            .restore_snapshot_state(snapshot.machine)
+            .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
+        self.time = snapshot.time;
+        Ok(())
     }
 
     fn capabilities(&self) -> CapabilitySet {
@@ -561,6 +606,88 @@ mod tests {
         assert_eq!(reason.value, json!("READY. screen codes not visible"));
 
         assert!(matches!(provider.query(&runtime, "not-a-path"), Ok(None)));
+    }
+
+    #[test]
+    fn snapshot_round_trip_preserves_mid_cycle_runtime_state() {
+        let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+            .expect("blank C64 firmware should construct a runtime");
+        let mut frame_sink = FrameCollector::default();
+        let mut audio_sink = NullAudioSink;
+        let mut trace_sink = NullTraceSink;
+        let target = MachineTime::new(3);
+
+        runtime
+            .run_until(
+                target,
+                &mut HostIo {
+                    input_events: &[],
+                    frame_sink: &mut frame_sink,
+                    audio_sink: &mut audio_sink,
+                    trace_sink: &mut trace_sink,
+                },
+            )
+            .expect("blank C64 runtime should run a few cycles");
+
+        let snapshot = runtime
+            .snapshot()
+            .expect("blank C64 runtime should snapshot");
+        let mut expected_machine = runtime.machine.clone();
+        let expected_time = runtime.time();
+
+        let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+        restored
+            .restore(&snapshot)
+            .expect("snapshot restore should succeed");
+
+        assert_eq!(restored.time(), expected_time);
+        assert_eq!(restored.machine().cpu().regs, expected_machine.cpu().regs);
+        assert_eq!(restored.machine().cpu().addr, expected_machine.cpu().addr);
+        assert_eq!(restored.machine().cpu().rw, expected_machine.cpu().rw);
+        assert_eq!(restored.machine().cpu().sync, expected_machine.cpu().sync);
+        assert_eq!(
+            restored.machine().raster_line(),
+            expected_machine.raster_line()
+        );
+        assert_eq!(
+            restored.machine().cycle_in_line(),
+            expected_machine.cycle_in_line()
+        );
+        assert_eq!(
+            restored.machine().framebuffer(),
+            expected_machine.framebuffer()
+        );
+
+        for _ in 0..8 {
+            let expected_frame_complete = expected_machine.tick();
+            let restored_frame_complete = restored.machine_mut().tick();
+            assert_eq!(restored_frame_complete, expected_frame_complete);
+            assert_eq!(restored.machine().cpu().regs, expected_machine.cpu().regs);
+            assert_eq!(restored.machine().cpu().addr, expected_machine.cpu().addr);
+            assert_eq!(restored.machine().cpu().rw, expected_machine.cpu().rw);
+            assert_eq!(restored.machine().cpu().sync, expected_machine.cpu().sync);
+            assert_eq!(
+                restored.machine().cpu().total_cycles,
+                expected_machine.cpu().total_cycles
+            );
+            assert_eq!(
+                restored.machine().raster_line(),
+                expected_machine.raster_line()
+            );
+            assert_eq!(
+                restored.machine().cycle_in_line(),
+                expected_machine.cycle_in_line()
+            );
+            assert_eq!(restored.machine().vic().irq, expected_machine.vic().irq);
+            assert_eq!(
+                restored.machine().vic().ba_low,
+                expected_machine.vic().ba_low
+            );
+            assert_eq!(
+                restored.machine().framebuffer(),
+                expected_machine.framebuffer()
+            );
+        }
     }
 
     #[test]

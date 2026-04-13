@@ -1,15 +1,18 @@
 [package]
-name = "runtime-commodore-c64"
-description = "Commodore 64 profile metadata and future runtime layer"
+name = "emu198x-script-c64"
+description = "Headless Commodore 64 runner for boot, capture, and snapshot workflows"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "emu198x-script-c64"
+path = "src/main.rs"
+
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64" }
 emu198x-shell = { path = "../emu198x-shell" }
-machine-commodore-c64 = { path = "../machine-commodore-c64" }
-postcard = { workspace = true }
+runtime-commodore-c64 = { path = "../runtime-commodore-c64" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

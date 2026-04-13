@@ -1,10 +1,12 @@
 //! C64 keyboard matrix state.
 
+use serde::{Deserialize, Serialize};
+
 /// 8×8 keyboard matrix.
 ///
 /// Internally indexed by column. Each column byte stores one bit per row,
 /// where `1` means pressed.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyboardMatrix {
     cols: [u8; 8],
 }

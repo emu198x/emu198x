@@ -104,7 +104,6 @@ pub struct Vic {
     is_badline: bool,
     den_latch: bool,
     frame_complete: bool,
-    #[serde(skip, default = "default_framebuffer")]
     framebuffer: Vec<u32>,
     #[serde(with = "BigArray")]
     screen_row: [u8; 40],
@@ -129,10 +128,6 @@ pub struct Vic {
     last_visible_line: u16,
     lp_triggered: bool,
     last_bus_data: u8,
-}
-
-fn default_framebuffer() -> Vec<u32> {
-    vec![0xFF00_0000; FB_WIDTH as usize * FB_HEIGHT as usize]
 }
 
 impl Vic {

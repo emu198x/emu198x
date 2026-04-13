@@ -7,7 +7,7 @@ use mos_vic_ii::{Vic, VicModel};
 
 use crate::config::{C64Config, C64Model};
 use crate::keyboard::KeyboardMatrix;
-use crate::memory::{C64Memory, MemoryInitError};
+use crate::memory::{C64Memory, C64MemorySnapshot, MemoryInitError};
 
 const SID_REGISTER_COUNT: usize = 0x20;
 
@@ -20,6 +20,20 @@ pub struct C64 {
     cia1: Cia6526,
     cia2: Cia6526,
     memory: C64Memory,
+    keyboard: KeyboardMatrix,
+    phi2_cycles: u64,
+    frame_count: u64,
+    sid_registers: [u8; SID_REGISTER_COUNT],
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct C64Snapshot {
+    model: C64Model,
+    cpu: M6502,
+    vic: Vic,
+    cia1: Cia6526,
+    cia2: Cia6526,
+    memory: C64MemorySnapshot,
     keyboard: KeyboardMatrix,
     phi2_cycles: u64,
     frame_count: u64,
@@ -216,6 +230,51 @@ impl C64 {
         let start = self.phi2_cycles;
         while !self.tick() {}
         (self.phi2_cycles - start) as u32
+    }
+
+    /// Captures the machine state for runtime snapshot serialization.
+    #[must_use]
+    pub fn snapshot_state(&self) -> C64Snapshot {
+        C64Snapshot {
+            model: self.model,
+            cpu: self.cpu.clone(),
+            vic: self.vic.clone(),
+            cia1: self.cia1.clone(),
+            cia2: self.cia2.clone(),
+            memory: self.memory.snapshot_state(),
+            keyboard: self.keyboard.clone(),
+            phi2_cycles: self.phi2_cycles,
+            frame_count: self.frame_count,
+            sid_registers: self.sid_registers,
+        }
+    }
+
+    /// Restores a machine state produced by [`Self::snapshot_state`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the snapshot belongs to a different model or any
+    /// captured memory image has the wrong size.
+    pub fn restore_snapshot_state(&mut self, snapshot: C64Snapshot) -> Result<(), String> {
+        if snapshot.model != self.model {
+            return Err(format!(
+                "snapshot model {:?} does not match machine model {:?}",
+                snapshot.model, self.model
+            ));
+        }
+
+        self.cpu = snapshot.cpu;
+        self.vic = snapshot.vic;
+        self.cia1 = snapshot.cia1;
+        self.cia2 = snapshot.cia2;
+        self.memory = C64Memory::from_snapshot(snapshot.memory)?;
+        self.keyboard = snapshot.keyboard;
+        self.phi2_cycles = snapshot.phi2_cycles;
+        self.frame_count = snapshot.frame_count;
+        self.sid_registers = snapshot.sid_registers;
+        self.refresh_keyboard_scan();
+        self.refresh_vic_bank();
+        Ok(())
     }
 
     /// CPU-visible read through banked memory and the current board I/O state.
@@ -547,5 +606,54 @@ mod tests {
             found.is_some(),
             "C64 did not reach READY. prompt within 200 frames"
         );
+    }
+
+    #[test]
+    fn snapshot_round_trip_restores_machine_mid_instruction() {
+        let mut machine = stub_machine_with_reset_vector(C64Model::PalBreadbin, 0x0400);
+        machine.memory.ram_write(0x0400, 0xAD);
+        machine.memory.ram_write(0x0401, 0x00);
+        machine.memory.ram_write(0x0402, 0x20);
+        machine.memory.ram_write(0x2000, 0x42);
+        machine.keyboard_mut().set_key(2, 3, true);
+
+        machine.tick();
+        machine.tick();
+        machine.tick();
+
+        let snapshot = machine.snapshot_state();
+        let mut expected = machine.clone();
+        machine.tick();
+        machine.tick();
+        machine
+            .restore_snapshot_state(snapshot)
+            .expect("snapshot restore should succeed");
+
+        assert_eq!(machine.cpu().regs.pc, expected.cpu().regs.pc);
+        assert_eq!(machine.cpu().addr, expected.cpu().addr);
+        assert_eq!(machine.cpu().rw, expected.cpu().rw);
+        assert_eq!(machine.vic_bank(), expected.vic_bank());
+        assert_eq!(machine.cia1_port_b_input(), expected.cia1_port_b_input());
+        assert_eq!(machine.memory().ram(), expected.memory().ram());
+        assert_eq!(
+            machine.memory().colour_ram(),
+            expected.memory().colour_ram()
+        );
+
+        for _ in 0..8 {
+            let expected_frame_complete = expected.tick();
+            let restored_frame_complete = machine.tick();
+            assert_eq!(restored_frame_complete, expected_frame_complete);
+            assert_eq!(machine.cpu().regs, expected.cpu().regs);
+            assert_eq!(machine.cpu().addr, expected.cpu().addr);
+            assert_eq!(machine.cpu().rw, expected.cpu().rw);
+            assert_eq!(machine.cpu().sync, expected.cpu().sync);
+            assert_eq!(machine.cpu().total_cycles, expected.cpu().total_cycles);
+            assert_eq!(machine.raster_line(), expected.raster_line());
+            assert_eq!(machine.cycle_in_line(), expected.cycle_in_line());
+            assert_eq!(machine.vic().irq, expected.vic().irq);
+            assert_eq!(machine.vic().ba_low, expected.vic().ba_low);
+            assert_eq!(machine.framebuffer(), expected.framebuffer());
+        }
     }
 }

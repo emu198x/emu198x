@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum AddrMode {
     Implied,
     Accumulator,
@@ -23,7 +25,7 @@ pub(crate) enum AddrMode {
     Jam,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum OpCategory {
     Read,
     Write,
@@ -32,7 +34,7 @@ pub(crate) enum OpCategory {
     Implied,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum Operation {
     Lda,
     Ldx,
@@ -110,7 +112,7 @@ pub(crate) enum Operation {
     Jam,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct OpcodeInfo {
     pub addr_mode: AddrMode,
     pub operation: Operation,
@@ -174,7 +176,7 @@ impl Operation {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct CycleState {
     pub cycle: u8,
     pub opcode: u8,

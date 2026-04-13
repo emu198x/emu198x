@@ -1,6 +1,7 @@
 //! C64 memory subsystem with 6510-controlled banking.
 
 use mos_vic_ii::VicMemory;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const BASIC_ROM_SIZE: usize = 0x2000;
@@ -34,6 +35,17 @@ pub struct C64Memory {
     port_data: u8,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct C64MemorySnapshot {
+    ram: Vec<u8>,
+    basic_rom: Vec<u8>,
+    kernal_rom: Vec<u8>,
+    character_rom: Vec<u8>,
+    colour_ram: Vec<u8>,
+    port_ddr: u8,
+    port_data: u8,
+}
+
 impl C64Memory {
     /// Constructs the memory subsystem from ROM bytes.
     ///
@@ -54,6 +66,55 @@ impl C64Memory {
             port_ddr: 0x2F,
             port_data: 0x37,
         })
+    }
+
+    /// Rebuilds one memory subsystem from a previously captured snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any stored array has the wrong size.
+    pub(crate) fn from_snapshot(snapshot: C64MemorySnapshot) -> Result<Self, String> {
+        if snapshot.ram.len() != RAM_SIZE {
+            return Err(format!(
+                "snapshot RAM has {} bytes, expected {}",
+                snapshot.ram.len(),
+                RAM_SIZE
+            ));
+        }
+
+        if snapshot.colour_ram.len() != COLOUR_RAM_SIZE {
+            return Err(format!(
+                "snapshot colour RAM has {} bytes, expected {}",
+                snapshot.colour_ram.len(),
+                COLOUR_RAM_SIZE
+            ));
+        }
+
+        let mut memory = Self::new(
+            &snapshot.kernal_rom,
+            &snapshot.basic_rom,
+            &snapshot.character_rom,
+        )
+        .map_err(|reason| reason.to_string())?;
+        memory.ram.copy_from_slice(&snapshot.ram);
+        memory.colour_ram.copy_from_slice(&snapshot.colour_ram);
+        memory.port_ddr = snapshot.port_ddr;
+        memory.port_data = snapshot.port_data;
+        Ok(memory)
+    }
+
+    /// Captures the full memory state for runtime snapshot serialization.
+    #[must_use]
+    pub(crate) fn snapshot_state(&self) -> C64MemorySnapshot {
+        C64MemorySnapshot {
+            ram: self.ram.as_slice().to_vec(),
+            basic_rom: self.basic_rom.as_slice().to_vec(),
+            kernal_rom: self.kernal_rom.as_slice().to_vec(),
+            character_rom: self.character_rom.as_slice().to_vec(),
+            colour_ram: self.colour_ram.to_vec(),
+            port_ddr: self.port_ddr,
+            port_data: self.port_data,
+        }
     }
 
     /// Current 6510 port DDR value at `$0000`.
@@ -129,6 +190,12 @@ impl C64Memory {
         self.ram[usize::from(addr)]
     }
 
+    /// Borrows the full underlying RAM image.
+    #[must_use]
+    pub fn ram(&self) -> &[u8] {
+        self.ram.as_slice()
+    }
+
     /// Direct RAM write bypassing overlays.
     pub fn ram_write(&mut self, addr: u16, value: u8) {
         self.ram[usize::from(addr)] = value;
@@ -160,6 +227,12 @@ impl C64Memory {
         if let Some(slot) = self.colour_ram.get_mut(usize::from(offset)) {
             *slot = value & 0x0F;
         }
+    }
+
+    /// Borrows the full underlying colour RAM image.
+    #[must_use]
+    pub fn colour_ram(&self) -> &[u8] {
+        &self.colour_ram
     }
 
     const fn hiram(&self) -> bool {

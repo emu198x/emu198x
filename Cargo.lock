@@ -620,6 +620,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-script-c64"
+version = "0.1.0"
+dependencies = [
+ "common-commodore-c64",
+ "emu198x-shell",
+ "runtime-commodore-c64",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-script-spectrum"
 version = "0.1.0"
 dependencies = [
@@ -1139,6 +1150,7 @@ dependencies = [
  "mos-6502",
  "mos-cia-6526",
  "mos-vic-ii",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1909,6 +1921,8 @@ dependencies = [
  "common-commodore-c64",
  "emu198x-shell",
  "machine-commodore-c64",
+ "postcard",
+ "serde",
  "serde_json",
 ]
 

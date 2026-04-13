@@ -1,10 +1,11 @@
 # Scripting
 
 > **Current fresh-workspace status.** Shared headless scripting exists today in
-> `emu198x-shell`, and `emu198x-script-spectrum` is the first runner exposing
-> that path. References in older docs to C64, NES, Amiga, or JSON-RPC/MCP
-> scripting flows should be treated as historical until those families and
-> host surfaces land again in this Rust workspace.
+> `emu198x-shell`, and the current fresh-workspace runners exposing that path
+> are `emu198x-script-spectrum` and `emu198x-script-c64`. References in older
+> docs to NES, Amiga, or JSON-RPC/MCP scripting flows should be treated as
+> historical until those families and host surfaces land again in this Rust
+> workspace.
 
 ## Overview
 
@@ -28,7 +29,8 @@ surfaces, not for embedding UI policy into machine runtimes.
 
 ## CLI Usage
 
-The current runner is `emu198x-script-spectrum`:
+The current runners are `emu198x-script-spectrum` and `emu198x-script-c64`.
+Spectrum currently exposes the richer family-specific workflow surface:
 
 ```bash
 cargo run -p emu198x-script-spectrum -- \

@@ -4,6 +4,7 @@ members = [
     "crates/common-commodore-c64",
     "crates/common-sinclair-zx-spectrum",
     "crates/emu-spectrum",
+    "crates/emu198x-script-c64",
     "crates/emu198x-script-spectrum",
     "crates/emu198x-shell",
     "crates/ferranti-ula-6c001e",

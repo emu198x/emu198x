@@ -10,6 +10,7 @@ common-commodore-c64 = { path = "../common-commodore-c64" }
 mos-6502 = { path = "../mos-6502" }
 mos-cia-6526 = { path = "../mos-cia-6526" }
 mos-vic-ii = { path = "../mos-vic-ii" }
+serde = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]
