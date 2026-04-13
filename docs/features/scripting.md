@@ -68,13 +68,22 @@ transport on `tape-1`. It is not an instant-loader shortcut.
 steps, so it can block on a real tape load finishing before extra frame
 execution or capture.
 
-C64 currently exposes a narrower software-import surface:
+C64 currently exposes both a narrower host-side software-import surface and the
+first real datasette media path:
 
 ```bash
 cargo run -p emu198x-script-c64 -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --load demo.bas \
   --save-snapshot demo.c64.pst
+```
+
+```bash
+cargo run -p emu198x-script-c64 -- \
+  --rom-dir ~/.emu198x/roms/commodore-c64 \
+  --tape game.tap \
+  --start-tape \
+  --wait-for-tape-stop 12000
 ```
 
 You can combine `--script` with normal C64 runner flags such as:
@@ -85,9 +94,12 @@ You can combine `--script` with normal C64 runner flags such as:
 - `--chargen PATH`
 - `--model pal|ntsc`
 - `--load PATH`
+- `--tape PATH`
+- `--start-tape`
 - `--load-snapshot PATH`
 - `--save-snapshot PATH`
 - `--wait-for-boot N`
+- `--wait-for-tape-stop N`
 - `--screenshot PATH`
 - `--frames N`
 
@@ -102,6 +114,11 @@ This is not emulated tape or disk loading. It is a fast host-side software
 injection path for development, scripting, and future editor workflows. The
 same concept will likely exist for other families later, but tokenisation and
 editor semantics remain family-specific.
+
+`--tape PATH` is different: it inserts a real Commodore TAP image into the
+datasette slot, and `--start-tape` / `--wait-for-tape-stop` operate on the live
+transport through the shared media-control boundary. `T64` is still a separate
+follow-up format and is not currently claimed as pulse-accurate tape media.
 
 ## Script Format
 
@@ -209,6 +226,17 @@ It also adds these family-specific paths:
 - `spectrum.machine.issue`
 - `spectrum.tape.loaded`
 - `spectrum.tape.playing`
+
+The current C64 runner adds these family-specific paths:
+
+- `c64.machine.cycle_in_line`
+- `c64.machine.raster_line`
+- `c64.tape.loaded`
+- `c64.tape.playing`
+- `c64.cia1.irq`
+- `c64.cia2.irq`
+- `c64.vic.ba_low`
+- `c64.vic.irq`
 
 ## Output
 

@@ -4,6 +4,22 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — C64 datasette TAP path is live through the 6510 and CIA1 FLAG
+
+**Type:** milestone
+**Trigger:** Once the fresh-workspace C64 could boot to `READY.`, emit video/audio, and import host-side `.prg` / `.bas` files, the biggest remaining honesty gap on the software-loading side was obvious: the datasette slot existed in profile metadata, but there was still no real tape medium on the board path.
+**Result:** the first honest C64 tape path now exists:
+1. Added `format-commodore-c64-tap`, which parses Commodore TAP headers and pulse streams into native machine-cycle pulse lengths rather than flattening them into a fake file loader.
+2. Added a board-local datasette component to `machine-commodore-c64`, serialized in snapshots and advanced one `phi2` cycle at a time.
+3. Wired datasette sense and motor semantics into the 6510 `$0001` port boundary, so PLAY state and motor control live on the machine path instead of in the runtime.
+4. Wired datasette flux changes into `CIA1 FLAG`, which is the real interrupt-visible read path the C64 uses for tape input.
+5. Updated `runtime-commodore-c64` and `emu198x-script-c64` so `tape-1` now supports media load plus start/stop transport control and exposes `c64.tape.loaded` / `c64.tape.playing` queries.
+6. Kept scope honest: this is TAP only for now. `T64` remains a separate follow-up format and is not being misrepresented as pulse-accurate datasette media.
+**Verification:** `cargo fmt --all`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings` should pass. New coverage includes TAP parser tests, board tests for 6510 sense + motor gating + CIA1 FLAG delivery, and runtime/runner integration staying green under the broader workspace gates.
+**Next dependency:** the next meaningful C64 media step is real software validation on this datasette path, then either native-shell tape insertion/control or the 1541/disk side once the second-computer scope is justified.
+
+---
+
 ## 2026-04-13 — Native Spectrum and C64 shells now step in sub-frame slices
 
 **Type:** milestone

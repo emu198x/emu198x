@@ -44,6 +44,8 @@ As of April 13, 2026, the fresh Rust workspace currently provides:
   - KERNAL boots to `READY.`
   - headless runner, native verifier UI, screenshots, snapshots, boot
     detection, and mono audio output
+  - TAP-backed datasette media insertion plus real tape transport control on
+    the C64 board path
   - host-side `.prg` import
   - host-side plain-text `.bas` import via Commodore BASIC tokenisation
   - native shell input is usable for verification, but still feels softer than
@@ -68,6 +70,9 @@ Examples:
   real tape transport, not an instant-load trap.
 - `--load demo.bas` for the current C64 runner is a host-side program import
   path, not fake disk or tape emulation.
+- `--tape game.tap` for the current C64 runner is real datasette media on the
+  board path; `T64` is still a separate follow-up and should not be conflated
+  with pulse-timed TAP playback.
 
 ## Building
 
@@ -157,6 +162,14 @@ cargo run -p emu198x-script-c64 -- \
   --save-snapshot demo.c64.pst
 ```
 
+```bash
+cargo run -p emu198x-script-c64 -- \
+  --rom-dir ~/.emu198x/roms/commodore-c64 \
+  --tape game.tap \
+  --start-tape \
+  --wait-for-tape-stop 12000
+```
+
 ## Verification Strategy
 
 This repo does not treat “boots one thing” as sufficient proof.
@@ -174,6 +187,8 @@ Current examples include:
   compatibility harness
 - Spectrum machine and software regressions over real ROM and tape paths
 - C64 ROM-backed `READY.` boot detection plus snapshot round-trip checks
+- C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense, and
+  CIA1 FLAG delivery
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

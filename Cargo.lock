@@ -751,6 +751,14 @@ name = "format-commodore-c64-prg"
 version = "0.1.0"
 
 [[package]]
+name = "format-commodore-c64-tap"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-sinclair-zx-spectrum-tap"
 version = "0.1.0"
 
@@ -1169,6 +1177,7 @@ version = "0.1.0"
 dependencies = [
  "common-commodore-c64",
  "format-commodore-c64-prg",
+ "format-commodore-c64-tap",
  "mos-6502",
  "mos-cia-6526",
  "mos-sid-6581",

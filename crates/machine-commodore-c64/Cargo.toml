@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64" }
 format-commodore-c64-prg = { path = "../format-commodore-c64-prg" }
+format-commodore-c64-tap = { path = "../format-commodore-c64-tap" }
 mos-6502 = { path = "../mos-6502" }
 mos-cia-6526 = { path = "../mos-cia-6526" }
 mos-sid-6581 = { path = "../mos-sid-6581" }

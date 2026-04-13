@@ -1,16 +1,19 @@
 //! Board-level C64 machine substrate.
 
 use common_commodore_c64::timing::C64Timing;
+use format_commodore_c64_tap::{TapParseError, TapSystem, parse_tap};
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
 use mos_sid_6581::{Sid6581, SidModel};
 use mos_vic_ii::{Vic, VicModel};
 
 use crate::config::{C64Config, C64Model};
+use crate::datasette::Datasette;
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::{C64Memory, C64MemorySnapshot, MemoryInitError};
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
+const PORT_INPUT_PULLUPS: u8 = 0x37;
 
 /// Fresh-workspace C64 machine substrate.
 #[derive(Clone)]
@@ -21,6 +24,7 @@ pub struct C64 {
     cia1: Cia6526,
     cia2: Cia6526,
     sid: Sid6581,
+    datasette: Datasette,
     memory: C64Memory,
     keyboard: KeyboardMatrix,
     phi2_cycles: u64,
@@ -35,6 +39,7 @@ pub struct C64Snapshot {
     cia1: Cia6526,
     cia2: Cia6526,
     sid: Sid6581,
+    datasette: Datasette,
     memory: C64MemorySnapshot,
     keyboard: KeyboardMatrix,
     phi2_cycles: u64,
@@ -77,6 +82,7 @@ impl C64 {
             cia1,
             cia2,
             sid,
+            datasette: Datasette::new(),
             memory,
             keyboard: KeyboardMatrix::new(),
             phi2_cycles: 0,
@@ -84,6 +90,7 @@ impl C64 {
         };
         machine.refresh_keyboard_scan();
         machine.refresh_vic_bank();
+        machine.refresh_datasette_port_lines();
         Ok(machine)
     }
 
@@ -183,6 +190,18 @@ impl C64 {
         &self.sid
     }
 
+    /// Returns `true` when one tape image is currently inserted.
+    #[must_use]
+    pub const fn tape_is_loaded(&self) -> bool {
+        self.datasette.is_loaded()
+    }
+
+    /// Returns `true` when the datasette transport is engaged.
+    #[must_use]
+    pub const fn tape_is_playing(&self) -> bool {
+        self.datasette.is_playing()
+    }
+
     /// Output sample rate used by the machine-local SID mixer.
     #[must_use]
     pub const fn audio_sample_rate(&self) -> u32 {
@@ -201,12 +220,50 @@ impl C64 {
         self.vic.framebuffer()
     }
 
+    /// Loads one Commodore TAP image into the datasette.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the TAP header or pulse stream is invalid.
+    pub fn load_tap_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let image = parse_tap(bytes).map_err(|reason| match reason {
+            TapParseError::UnsupportedVersion { version } => {
+                format!("unsupported TAP version {version}")
+            }
+            other => other.to_string(),
+        })?;
+
+        if image.system != TapSystem::C64 {
+            return Err(format!(
+                "expected a C64 TAP image, found {:?}",
+                image.system
+            ));
+        }
+
+        self.datasette.load_tap(image);
+        self.refresh_datasette_port_lines();
+        Ok(())
+    }
+
+    /// Presses PLAY on the currently inserted datasette image.
+    pub fn play_tape(&mut self) {
+        self.datasette.play();
+        self.refresh_datasette_port_lines();
+    }
+
+    /// Stops the datasette transport without ejecting the image.
+    pub fn stop_tape(&mut self) {
+        self.datasette.stop();
+        self.refresh_datasette_port_lines();
+    }
+
     /// Advances the board by one `phi2` cycle.
     ///
     /// Returns `true` when this tick completed a frame.
     pub fn tick(&mut self) -> bool {
         self.phi2_cycles = self.phi2_cycles.saturating_add(1);
         let _cpu_stalled = self.vic.tick(&self.memory);
+        self.cia1.flag = !self.datasette.advance_phi2_cycle();
         self.refresh_keyboard_scan();
         self.cia1.tick();
         self.cia2.tick();
@@ -269,6 +326,7 @@ impl C64 {
             cia1: self.cia1.clone(),
             cia2: self.cia2.clone(),
             sid: self.sid.clone(),
+            datasette: self.datasette.clone(),
             memory: self.memory.snapshot_state(),
             keyboard: self.keyboard.clone(),
             phi2_cycles: self.phi2_cycles,
@@ -295,17 +353,22 @@ impl C64 {
         self.cia1 = snapshot.cia1;
         self.cia2 = snapshot.cia2;
         self.sid = snapshot.sid;
+        self.datasette = snapshot.datasette;
         self.memory = C64Memory::from_snapshot(snapshot.memory)?;
         self.keyboard = snapshot.keyboard;
         self.phi2_cycles = snapshot.phi2_cycles;
         self.frame_count = snapshot.frame_count;
         self.refresh_keyboard_scan();
         self.refresh_vic_bank();
+        self.refresh_datasette_port_lines();
         Ok(())
     }
 
     /// CPU-visible read through banked memory and the current board I/O state.
     pub fn cpu_read(&mut self, addr: u16) -> u8 {
+        if addr == 0x0001 {
+            return self.cpu_port_read();
+        }
         if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
             return self.io_read(addr);
         }
@@ -315,6 +378,9 @@ impl C64 {
     /// CPU-visible write through banked memory and the current board I/O state.
     pub fn cpu_write(&mut self, addr: u16, value: u8) {
         self.memory.cpu_write(addr, value);
+        if matches!(addr, 0x0000 | 0x0001) {
+            self.refresh_datasette_port_lines();
+        }
         if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
             self.io_write(addr, value);
         }
@@ -365,6 +431,33 @@ impl C64 {
 
     fn refresh_vic_bank(&mut self) {
         self.vic.set_bank((!self.cia2.pa) & 0x03);
+    }
+
+    fn cpu_port_read(&self) -> u8 {
+        let ddr = self.memory.port_ddr();
+        let data = self.memory.port_data();
+        let mut value = (data & ddr) | (PORT_INPUT_PULLUPS & !ddr);
+
+        if self.datasette.sense_active() && (ddr & 0x10) == 0 {
+            value &= !0x10;
+        }
+
+        if self.datasette.write_input_active() && (ddr & 0x08) == 0 {
+            value &= !0x08;
+        }
+
+        if self.datasette.motor_input_active() && (ddr & 0x20) == 0 {
+            value &= !0x20;
+        }
+
+        value
+    }
+
+    fn refresh_datasette_port_lines(&mut self) {
+        let ddr = self.memory.port_ddr();
+        let data = self.memory.port_data();
+        let motor_on = (ddr & 0x20) != 0 && (data & 0x20) == 0;
+        self.datasette.set_motor_on(motor_on);
     }
 }
 
@@ -508,6 +601,51 @@ mod tests {
         machine.cpu_write(0xDD02, 0x03);
         machine.cpu_write(0xDD00, 0x01);
         assert_eq!(machine.vic_bank(), 2);
+    }
+
+    fn make_tap(payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0; 20];
+        bytes[..12].copy_from_slice(b"C64-TAPE-RAW");
+        bytes[12] = 1;
+        bytes[13] = 0;
+        bytes[14] = 0;
+        bytes[16..20].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    #[test]
+    fn tape_start_pulls_sense_low_on_cpu_port() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine
+            .load_tap_bytes(&make_tap(&[0x24]))
+            .expect("synthetic TAP should load");
+
+        assert_ne!(machine.cpu_read(0x0001) & 0x10, 0);
+        machine.play_tape();
+        assert_eq!(machine.cpu_read(0x0001) & 0x10, 0);
+    }
+
+    #[test]
+    fn tape_pulses_raise_cia1_flag_when_motor_runs() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine
+            .load_tap_bytes(&make_tap(&[0x01]))
+            .expect("synthetic TAP should load");
+        machine.play_tape();
+
+        for _ in 0..7 {
+            machine.tick();
+        }
+        assert_eq!(machine.cia1.read(0x0D) & 0x10, 0x00);
+
+        machine.cpu_write(0x0001, machine.memory().port_data() & !0x20);
+        for _ in 0..8 {
+            machine.tick();
+        }
+
+        assert_eq!(machine.cia1.read(0x0D) & 0x10, 0x10);
+        assert!(!machine.tape_is_playing());
     }
 
     #[test]

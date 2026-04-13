@@ -10,8 +10,9 @@ use std::process;
 
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
-    BootArtifacts, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, ScriptObservation,
-    boot_machine, read_firmware_asset, read_program_asset,
+    BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
+    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    ScriptObservation, boot_machine, read_firmware_asset, read_media_asset, read_program_asset,
 };
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, Model, file_loader::load_host_file,
@@ -31,11 +32,14 @@ struct Cli {
     basic: Option<PathBuf>,
     chargen: Option<PathBuf>,
     load: Option<PathBuf>,
+    tape: Option<PathBuf>,
+    start_tape: bool,
     load_snapshot: Option<PathBuf>,
     save_snapshot: Option<PathBuf>,
     screenshot: Option<PathBuf>,
     script: Option<PathBuf>,
     wait_for_boot: Option<u32>,
+    wait_for_tape_stop: Option<u32>,
     frames: u32,
 }
 
@@ -77,12 +81,15 @@ Cold boot:
     --chargen PATH            override character ROM path
     --model MODEL             pal or ntsc [default: pal]
     --load PATH               import one .prg or plain-text .bas file after boot
+    --tape PATH               insert one TAP image into datasette slot
+    --start-tape              press PLAY on the inserted datasette image
 
 State and automation:
     --load-snapshot PATH      restore a runtime snapshot before running
     --save-snapshot PATH      write a runtime snapshot after running
     --script PATH             execute shared JSON session steps after boot
     --wait-for-boot N         run up to N frames until boot.detected is true
+    --wait-for-tape-stop N    run up to N frames until c64.tape.playing is false
     --screenshot PATH         write the last emitted frame as PNG
 
 Execution:
@@ -105,6 +112,7 @@ Filename resolution inside the ROM directory:
 Examples:
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --screenshot ready.png
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
+    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --start-tape --wait-for-tape-stop 12000
     emu198x-script-c64 --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --script capture.json
 ";
@@ -152,6 +160,8 @@ where
             "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
             "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
             "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
+            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--start-tape" => cli.start_tape = true,
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -164,6 +174,15 @@ where
                     next_arg(&mut iter, "--wait-for-boot")
                         .parse()
                         .unwrap_or_else(|_| die("--wait-for-boot requires a non-negative integer")),
+                );
+            }
+            "--wait-for-tape-stop" => {
+                cli.wait_for_tape_stop = Some(
+                    next_arg(&mut iter, "--wait-for-tape-stop")
+                        .parse()
+                        .unwrap_or_else(|_| {
+                            die("--wait-for-tape-stop requires a non-negative integer")
+                        }),
                 );
             }
             "--screenshot" => {
@@ -249,6 +268,16 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         }
     }
 
+    if let Some(path) = &cli.tape {
+        let loaded = read_media_asset(path, MediaKind::Tape)
+            .map_err(|err| format!("failed to load tape asset {}: {err}", path.display()))?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+        session
+            .load_media(&media)
+            .map_err(|err| format!("tape load failed: {err}"))?;
+    }
+
     let mut loaded_program = None;
     if let Some(path) = &cli.load {
         let loaded = load_program_bytes(path)?;
@@ -266,6 +295,27 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
                 .execute_collect(&mut session)
                 .map_err(|err| format!("script execution failed: {err}"))?,
         );
+    }
+
+    if cli.start_tape {
+        session
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .map_err(|err| format!("failed to start tape transport: {err}"))?;
+    }
+
+    if let Some(max_frames) = cli.wait_for_tape_stop {
+        let result = session
+            .wait_for_query_bool("c64.tape.playing", false, max_frames)
+            .map_err(|err| format!("tape-stop wait failed: {err}"))?;
+        observations.push(ScriptObservation::WaitForQueryBool {
+            path: result.path,
+            value: result.expected,
+            frames: result.frames,
+            reached: result.reached,
+        });
     }
 
     if cli.frames > 0 {
@@ -514,11 +564,14 @@ mod tests {
                 basic: None,
                 chargen: None,
                 load: None,
+                tape: None,
+                start_tape: false,
                 load_snapshot: Some(PathBuf::from("in.c64.pst")),
                 save_snapshot: Some(PathBuf::from("out.c64.pst")),
                 screenshot: Some(PathBuf::from("ready.png")),
                 script: None,
                 wait_for_boot: Some(180),
+                wait_for_tape_stop: None,
                 frames: 12,
             }
         );

@@ -1,0 +1,13 @@
+[package]
+name = "format-commodore-c64-tap"
+description = "Commodore TAP image parsing for pulse-accurate datasette playback"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

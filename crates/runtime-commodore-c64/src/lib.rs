@@ -65,14 +65,14 @@ pub fn profile_for(model: Model) -> MachineProfile {
         Model::C64PalBreadbin => (
             Region::Pal,
             SupportTier::Boots,
-            "PAL breadbin baseline now boots real BASIC/KERNAL/CHARGEN ROMs to the BASIC READY. prompt in the fresh workspace. Live 6502, CIA, VIC-II, and SID are wired; headless frame and mono audio output plus runtime snapshot import/export now work. Media is still pending.",
+            "PAL breadbin baseline now boots real BASIC/KERNAL/CHARGEN ROMs to the BASIC READY. prompt in the fresh workspace. Live 6502, CIA, VIC-II, and SID are wired; headless frame and mono audio output plus runtime snapshot import/export now work. TAP-backed datasette transport is now wired through the 6510/CIA path; broader software validation is still pending.",
             ClockRate::from_hz(TIMING_PAL_BREADBIN.cpu_hz),
             1982,
         ),
         Model::C64NtscBreadbin => (
             Region::Ntsc,
             SupportTier::Research,
-            "NTSC breadbin follow-on profile on the same live 6502/CIA/VIC-II/SID substrate. Fresh-workspace frame and audio execution plus runtime snapshot support exist, but NTSC boot validation and media are still pending.",
+            "NTSC breadbin follow-on profile on the same live 6502/CIA/VIC-II/SID substrate. Fresh-workspace frame and audio execution plus runtime snapshot support exist; datasette transport is on the shared board path, but NTSC boot validation and software/media verification are still pending.",
             ClockRate::from_hz(TIMING_NTSC_BREADBIN.cpu_hz),
             1982,
         ),
@@ -125,6 +125,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             known_capability("snapshot-export"),
             known_capability("snapshot-import"),
             known_capability("scripted-input"),
+            known_capability("tape-transport-control"),
         ]),
     }
 }

@@ -121,7 +121,8 @@ Known gaps from the archive that were deliberately not ported in this first pass
 - **Cartridge support** (CRT files, EXROM/GAME lines, ROML/ROMH overlays, Ultimax mode). The memory decoder's PLA variants are wired in the archive via `cart.exrom` / `cart.game`; ours is the EXROM=1, GAME=1 case only.
 - **1541 disk drive** — full second 6502 + 6522 VIAs + GCR encoder + head-tracking model.
 - **IEC serial bus** — three-wire protocol between C64 and drive. Not needed without a drive.
-- **Datasette** — pulse-level model, TAP loading, tape trap in the KERNAL.
+- **Datasette TAP software validation** — the fresh workspace now has pulse-level TAP parsing, datasette transport, 6510 motor/sense wiring, and CIA1 FLAG delivery, but it does not yet claim a ROM-backed real-title tape-load regression.
+- **T64** — still deferred as a separate container/import format. It should not be conflated with the pulse-timed TAP datasette path.
 - **REU** — RAM Expansion Unit with DMA.
 - **Symbolic keyboard mapping** — host `KeyboardEvent.code` strings → C64 key matrix positions + shift overrides.
 - **Timed input queue** — scheduled keystrokes for the automated boot-and-type workflow.

@@ -6,8 +6,10 @@
 //! - colour RAM and VIC-visible character ROM access rules
 //! - live CIA keyboard scan and VIC bank selection
 //! - live VIC-II raster, BA, IRQ, and framebuffer ownership
+//! - first datasette transport and pulse-to-FLAG integration
 
 pub mod config;
+mod datasette;
 pub mod keyboard;
 pub mod machine;
 pub mod memory;

@@ -1,9 +1,10 @@
 //! Runtime wrapper for the fresh-workspace Commodore 64.
 
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore,
-    MachineError, MachineProfile, MachineTime, QueryError, QueryResult, ResetKind, RunResult,
-    SessionQueryProvider, StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
+    MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet,
+    MediaTransportAction, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
+    StopReason,
 };
 use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
 use serde_json::json;
@@ -18,6 +19,8 @@ const C64_QUERY_PATHS: &[&str] = &[
     "c64.cia2.irq",
     "c64.machine.cycle_in_line",
     "c64.machine.raster_line",
+    "c64.tape.loaded",
+    "c64.tape.playing",
     "c64.vic.ba_low",
     "c64.vic.irq",
 ];
@@ -218,29 +221,27 @@ impl MachineCore for C64Runtime {
             .expect("C64 runtime reset should rebuild from already-validated ROMs");
     }
 
-    fn load_media(&mut self, media: &emu198x_shell::MediaSet<'_>) -> Result<(), MachineError> {
-        if let Some(image) = media.images.first() {
-            let Some(slot) = self
-                .profile
-                .media_slots
-                .iter()
-                .find(|slot| slot.id.as_ref() == image.slot.as_ref())
-            else {
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        for image in &media.images {
+            if image.slot.as_ref() != "tape-1" {
                 return Err(MachineError::UnknownMediaSlot {
                     slot: image.slot.as_ref().to_owned(),
                 });
-            };
+            }
 
-            if slot.kind != image.kind {
+            if image.kind != MediaKind::Tape {
                 return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
             }
 
-            Err(MachineError::UnsupportedOperation {
-                operation: "load_media",
-            })
-        } else {
-            Ok(())
+            self.machine.load_tap_bytes(image.bytes).map_err(|reason| {
+                MachineError::InvalidMedia {
+                    slot: image.slot.as_ref().to_owned(),
+                    reason,
+                }
+            })?;
         }
+
+        Ok(())
     }
 
     fn run_until(
@@ -319,6 +320,33 @@ impl MachineCore for C64Runtime {
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }
+
+    fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
+        match command {
+            ControlCommand::MediaTransport(command) => {
+                if command.slot.as_ref() != "tape-1" {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: command.slot.as_ref().to_owned(),
+                    });
+                }
+
+                match command.action {
+                    MediaTransportAction::Start => self.machine.play_tape(),
+                    MediaTransportAction::Stop => self.machine.stop_tape(),
+                    _ => {
+                        return Err(MachineError::UnsupportedOperation {
+                            operation: "media-transport",
+                        });
+                    }
+                }
+
+                Ok(())
+            }
+            _ => Err(MachineError::UnsupportedOperation {
+                operation: command.operation_name(),
+            }),
+        }
+    }
 }
 
 impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
@@ -342,6 +370,8 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "boot.offset" => json!(boot.offset),
             "c64.machine.raster_line" => json!(machine.machine().raster_line()),
             "c64.machine.cycle_in_line" => json!(machine.machine().cycle_in_line()),
+            "c64.tape.loaded" => json!(machine.machine().tape_is_loaded()),
+            "c64.tape.playing" => json!(machine.machine().tape_is_playing()),
             "c64.vic.ba_low" => json!(machine.machine().vic().ba_is_low()),
             "c64.vic.irq" => json!(machine.machine().vic().irq_active()),
             "c64.cia1.irq" => json!(machine.machine().cia1().irq_active()),
@@ -510,8 +540,9 @@ mod tests {
     use super::*;
     use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
     use emu198x_shell::{
-        AudioPacket, AudioSink, FirmwareImage, FirmwareSet, FrameSink, NullAudioSink,
-        NullTraceSink, PixelFormat,
+        AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FrameSink,
+        MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+        NullAudioSink, NullTraceSink, PixelFormat,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -571,6 +602,17 @@ mod tests {
             &[0; CHARACTER_ROM_SIZE],
         ));
         firmware
+    }
+
+    fn make_tap(payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0; 20];
+        bytes[..12].copy_from_slice(b"C64-TAPE-RAW");
+        bytes[12] = 1;
+        bytes[13] = 0;
+        bytes[14] = 0;
+        bytes[16..20].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
     }
 
     fn local_rom_firmware() -> FirmwareSet<'static> {
@@ -674,7 +716,73 @@ mod tests {
             .expect("boot.reason should resolve");
         assert_eq!(reason.value, json!("READY. screen codes not visible"));
 
+        let tape_loaded = provider
+            .query(&runtime, "c64.tape.loaded")
+            .expect("c64.tape.loaded query should not fail")
+            .expect("c64.tape.loaded should resolve");
+        assert_eq!(tape_loaded.value, json!(false));
+
         assert!(matches!(provider.query(&runtime, "not-a-path"), Ok(None)));
+    }
+
+    #[test]
+    fn runtime_load_media_and_transport_update_tape_queries() {
+        let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+            .expect("blank C64 firmware should construct a runtime");
+        let tape = make_tap(&[0x01, 0x01]);
+        let provider = C64SessionQueryProvider;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &tape));
+
+        runtime
+            .load_media(&media)
+            .expect("synthetic TAP should load through runtime");
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.tape.loaded")
+                .expect("c64.tape.loaded query should not fail")
+                .expect("c64.tape.loaded should resolve")
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.tape.playing")
+                .expect("c64.tape.playing query should not fail")
+                .expect("c64.tape.playing should resolve")
+                .value,
+            json!(false)
+        );
+
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("tape transport should start");
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.tape.playing")
+                .expect("c64.tape.playing query should not fail")
+                .expect("c64.tape.playing should resolve")
+                .value,
+            json!(true)
+        );
+
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Stop,
+            )))
+            .expect("tape transport should stop");
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.tape.playing")
+                .expect("c64.tape.playing query should not fail")
+                .expect("c64.tape.playing should resolve")
+                .value,
+            json!(false)
+        );
     }
 
     #[test]

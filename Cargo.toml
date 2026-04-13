@@ -11,6 +11,7 @@ members = [
     "crates/ferranti-ula-6c001e",
     "crates/format-commodore-c64-bas",
     "crates/format-commodore-c64-prg",
+    "crates/format-commodore-c64-tap",
     "crates/format-sinclair-zx-spectrum-tap",
     "crates/format-sinclair-zx-spectrum-tzx",
     "crates/machine-commodore-c64",
