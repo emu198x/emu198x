@@ -123,7 +123,7 @@ Known gaps from the archive that were deliberately not ported in this first pass
 - **Cartridge support** (CRT files, EXROM/GAME lines, ROML/ROMH overlays, Ultimax mode). The memory decoder's PLA variants are wired in the archive via `cart.exrom` / `cart.game`; ours is the EXROM=1, GAME=1 case only.
 - **1541 disk drive** — full second 6502 + 6522 VIAs + GCR encoder + head-tracking model.
 - **IEC serial bus** — three-wire protocol between C64 and drive. Not needed without a drive.
-- **Datasette TAP software validation** — the fresh workspace now has a ROM-backed real-title tape regression for `Thinker`, but only up through the KERNAL `FOUND` / `LOADING` path so far, not a full end-of-tape software-complete claim.
+- **Datasette TAP software validation** — the fresh workspace now has a ROM-backed real-title tape regression for `Thinker` that reaches a second post-load `READY.` state. That is stronger than the earlier `FOUND` / `LOADING` proof, but it is still not yet a full end-of-tape software-complete claim.
 - **T64 pulse media** — still deferred. `T64` now exists only as a separate host-side container/import format and should not be conflated with the pulse-timed TAP datasette path.
 - **REU** — RAM Expansion Unit with DMA.
 - **Symbolic keyboard mapping** — host `KeyboardEvent.code` strings → C64 key matrix positions + shift overrides.

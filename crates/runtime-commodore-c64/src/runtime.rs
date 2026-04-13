@@ -700,6 +700,48 @@ mod tests {
         )
     }
 
+    fn screen_text_lines(
+        session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+    ) -> Vec<String> {
+        let result = session
+            .query("screen.text.lines")
+            .expect("screen.text.lines query should succeed");
+        let lines = result
+            .value
+            .as_array()
+            .expect("screen.text.lines should be an array");
+        lines
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .expect("screen.text.lines entries should be strings")
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    fn wait_for_screen_line_contains(
+        session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+        row: usize,
+        needle: &str,
+        max_frames: u32,
+    ) {
+        for _ in 0..max_frames {
+            if screen_text_lines(session)
+                .get(row)
+                .is_some_and(|line| line.contains(needle))
+            {
+                return;
+            }
+            session
+                .run_frames(1)
+                .expect("screen-line wait should be able to run one frame");
+        }
+
+        panic!("screen row {row} did not contain {needle:?} within {max_frames} frames");
+    }
+
     #[test]
     fn runtime_can_build_from_declared_firmware() {
         let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware());
@@ -1005,7 +1047,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires local C64 ROMs and Thinker TAP archive"]
-    fn real_tap_autoload_reaches_loading_banner() {
+    fn real_tap_autoload_reaches_post_load_ready() {
         let firmware = local_rom_firmware();
         let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
             .expect("real PAL C64 firmware should construct a runtime");
@@ -1044,6 +1086,24 @@ mod tests {
             .wait_for_query_text_contains("screen.text.lines", "LOADING", 3000)
             .expect("Thinker tape should reach LOADING banner");
         assert_eq!(loading.line, Some(13));
+
+        wait_for_screen_line_contains(&mut session, 14, "READY.", 5000);
+        let lines = screen_text_lines(&session);
+        assert!(
+            lines[12].contains("FOUND THINKER"),
+            "post-load screen should retain FOUND banner: {:?}",
+            lines[12]
+        );
+        assert!(
+            lines[13].contains("LOADING"),
+            "post-load screen should retain LOADING banner: {:?}",
+            lines[13]
+        );
+        assert!(
+            lines[14].contains("READY."),
+            "post-load screen should reach READY. line: {:?}",
+            lines[14]
+        );
         assert!(session.machine().machine().tape_is_playing());
     }
 }

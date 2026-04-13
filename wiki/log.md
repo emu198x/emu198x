@@ -4,7 +4,7 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
-## 2026-04-13 — C64 tape autoload now drives the real KERNAL path, and Thinker reaches FOUND/LOADING
+## 2026-04-13 — C64 tape autoload now drives the real KERNAL path, and Thinker reaches post-load READY.
 
 **Type:** milestone
 **Trigger:** Once TAP playback was wired through the 6510 and `CIA1 FLAG`, the remaining question was not whether pulses existed but whether the actual C64 ROM workflow could use them. We needed a host helper over the real machine path and at least one concrete software proof above raw transport control.
@@ -12,8 +12,8 @@ Append-only record of ingests, queries, and lint passes.
 1. Added `runtime-commodore-c64::autoload_basic_tape()`, which waits for `READY.`, presses the real `SHIFT+RUN/STOP` KERNAL shortcut, waits for `PRESS PLAY ON TAPE`, and only then starts `tape-1`.
 2. Added decoded `screen.text.lines` plus `boot.row` to the C64 query provider, so scripting and future MCP automation can observe text-mode KERNAL states directly instead of relying on screenshots.
 3. Wired `--autoload-tape` into `emu198x-script-c64`, keeping it explicitly separate from raw `--start-tape`.
-4. Added a new ignored ROM-backed runtime test against the local `Thinker, The (1984)(Atlantis)` TAP archive. The current proof reaches both `FOUND THINKER` and `LOADING` under the real KERNAL tape path.
-**Verification:** `cargo test -p runtime-commodore-c64 -p emu198x-script-c64`, `cargo clippy -p runtime-commodore-c64 -p emu198x-script-c64 --all-targets -- -D warnings`, and `cargo test -p runtime-commodore-c64 real_tap_autoload_reaches_loading_banner -- --ignored --nocapture` all pass locally. The ignored `Thinker` proof completed in `38.29s`.
+4. Added a new ignored ROM-backed runtime test against the local `Thinker, The (1984)(Atlantis)` TAP archive. The current proof reaches `FOUND THINKER`, `LOADING`, and then a second post-load `READY.` line under the real KERNAL tape path.
+**Verification:** `cargo test -p runtime-commodore-c64 -p emu198x-script-c64`, `cargo clippy -p runtime-commodore-c64 -p emu198x-script-c64 --all-targets -- -D warnings`, and `cargo test -p runtime-commodore-c64 real_tap_autoload_reaches_post_load_ready -- --ignored --nocapture` all pass locally. The stronger ignored `Thinker` proof completed in `43.37s`.
 **Next dependency:** the next honest C64 tape milestone is either a full end-of-load software regression on a tractable TAP title or native-shell tape insertion/control above the same runtime path.
 
 ---

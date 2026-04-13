@@ -192,8 +192,8 @@ Current examples include:
 - Spectrum machine and software regressions over real ROM and tape paths
 - C64 ROM-backed `READY.` boot detection plus snapshot round-trip checks
 - C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense,
-  CIA1 FLAG delivery, and a ROM-backed `Thinker` TAP path that reaches KERNAL
-  `FOUND` and `LOADING`
+  CIA1 FLAG delivery, and a ROM-backed `Thinker` TAP path that reaches a
+  post-load KERNAL `READY.`
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 
