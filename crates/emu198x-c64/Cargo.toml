@@ -1,15 +1,15 @@
 [package]
-name = "emu198x-spectrum"
+name = "emu198x-c64"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+common-commodore-c64 = { path = "../common-commodore-c64" }
 cpal.workspace = true
 emu198x-shell = { path = "../emu198x-shell" }
 pixels.workspace = true
-runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
+runtime-commodore-c64 = { path = "../runtime-commodore-c64" }
 thiserror.workspace = true
 winit.workspace = true
 

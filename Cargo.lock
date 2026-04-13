@@ -607,14 +607,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
-name = "emu-spectrum"
+name = "emu198x-c64"
 version = "0.1.0"
 dependencies = [
- "common-sinclair-zx-spectrum",
+ "common-commodore-c64",
  "cpal",
  "emu198x-shell",
  "pixels",
- "runtime-sinclair-zx-spectrum",
+ "runtime-commodore-c64",
  "thiserror 2.0.18",
  "winit",
 ]
@@ -651,6 +651,19 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "zip",
+]
+
+[[package]]
+name = "emu198x-spectrum"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "cpal",
+ "emu198x-shell",
+ "pixels",
+ "runtime-sinclair-zx-spectrum",
+ "thiserror 2.0.18",
+ "winit",
 ]
 
 [[package]]

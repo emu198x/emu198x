@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Native shell naming is prefixed and C64 now has a verifier window
+
+**Type:** milestone
+**Trigger:** Once the fresh-workspace C64 had live 6502/CIA/VIC-II/SID execution, boot detection, snapshots, and host-side program import, the next practical gap was the same one Spectrum had already exposed: a thin native verifier shell makes real-machine checking dramatically faster. At the same time, the shell naming had drifted toward short `emu-*` package names even though cross-project infrastructure already uses the `emu198x-*` prefix.
+**Result:** the native shell surface is now consistent and the C64 has its first windowed runner:
+1. Added `emu198x-c64`, a thin `winit` + `pixels` native verifier shell over `runtime-commodore-c64`. It boots PAL or NTSC breadbin profiles through the shared shell/runtime boundary, renders the live VIC-II framebuffer, plays the runtime's mono audio stream, forwards keyboard input into the real matrix, and supports hard reset plus optional startup snapshot/program import.
+2. Expanded the C64 host key namespace in `runtime-commodore-c64` so the native shell can drive real function keys, cursor aliases, delete/home, control keys, and common punctuation without inventing a second input path.
+3. Renamed the Spectrum native shell package from `emu-spectrum` to `emu198x-spectrum`, keeping the crate directory in place but aligning the public runner name with the project prefix.
+4. Updated the active README/frontend/docs surface so current commands and crate names point at `emu198x-spectrum` and `emu198x-c64` instead of the shorter `emu-*` forms.
+**Verification:** `cargo fmt --all`, `cargo test -p emu198x-c64 -p runtime-commodore-c64 -p emu198x-spectrum`, `cargo run -p emu198x-c64 -- --help`, and `cargo run -p emu198x-spectrum -- --help` should pass before the full workspace gates.
+**Next dependency:** with both Spectrum 48K and the C64 now having working native verifier shells, the next honest C64 step is real media hardware rather than more shell scaffolding.
+
+---
+
 ## 2026-04-13 — C64 SID is live and the runtime now emits audio
 
 **Type:** milestone

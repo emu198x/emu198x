@@ -68,7 +68,7 @@ Naming is where conventions decay first. If I'm about to propose or create any o
 
 **Bad names to reject:**
 
-- Short / unprefixed names: `emu-spectrum`, `chip-z80`, `chip-6502`, `core`, `utils`
+- Short / unprefixed names: `emu-spectrum`, `emu-c64`, `chip-z80`, `chip-6502`, `core`, `utils`
 - Un-namespaced formats: `format-tap`, `format-tzx`, `format-dsk`, `format-sna` — every format crate must include the full system name even if currently unique
 - Ambiguous chip names missing the manufacturer prefix
 - Generic dumping grounds: `shared`, `helpers`, `misc`, `util`

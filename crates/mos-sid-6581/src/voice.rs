@@ -41,17 +41,12 @@ impl Voice {
             return;
         }
 
-        self.accumulator =
-            self.accumulator.wrapping_add(u32::from(self.frequency)) & 0x00FF_FFFF;
+        self.accumulator = self.accumulator.wrapping_add(u32::from(self.frequency)) & 0x00FF_FFFF;
     }
 
     pub fn clock_noise(&mut self) {
         let msb19 = self.accumulator & (1 << 19) != 0;
-        let prev19 = self
-            .accumulator
-            .wrapping_sub(u32::from(self.frequency))
-            & (1 << 19)
-            != 0;
+        let prev19 = self.accumulator.wrapping_sub(u32::from(self.frequency)) & (1 << 19) != 0;
 
         if msb19 && !prev19 {
             let bit17 = (self.noise_lfsr >> 17) & 1;

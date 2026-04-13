@@ -319,7 +319,11 @@ mod tests {
         }
 
         let buffer = sid.take_buffer();
-        assert!(buffer.len() > 100, "want lots of samples, got {}", buffer.len());
+        assert!(
+            buffer.len() > 100,
+            "want lots of samples, got {}",
+            buffer.len()
+        );
         assert!(buffer.iter().any(|&sample| sample > 0.01));
         assert!(buffer.iter().any(|&sample| sample < -0.01));
     }

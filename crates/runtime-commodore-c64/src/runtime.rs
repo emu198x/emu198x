@@ -437,7 +437,14 @@ fn apply_input_event(machine: &mut C64, event: &InputEvent) {
 fn c64_key_position(name: &str) -> Option<(u8, u8)> {
     let upper = name.to_ascii_uppercase();
     match upper.as_str() {
+        "DELETE" | "DEL" | "BACKSPACE" => Some((0, 0)),
         "RETURN" | "ENTER" => Some((0, 1)),
+        "RIGHT" | "CRSRRIGHT" => Some((0, 2)),
+        "F7" => Some((0, 3)),
+        "F1" => Some((0, 4)),
+        "F3" => Some((0, 5)),
+        "F5" => Some((0, 6)),
+        "DOWN" | "CRSRDOWN" => Some((0, 7)),
         "3" => Some((1, 0)),
         "W" => Some((1, 1)),
         "A" => Some((1, 2)),
@@ -470,16 +477,30 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
         "K" => Some((4, 5)),
         "O" => Some((4, 6)),
         "N" => Some((4, 7)),
+        "PLUS" => Some((5, 0)),
         "P" => Some((5, 1)),
         "L" => Some((5, 2)),
+        "MINUS" => Some((5, 3)),
         "." | "PERIOD" => Some((5, 4)),
+        ":" | "COLON" => Some((5, 5)),
+        "@" | "AT" => Some((5, 6)),
         "," | "COMMA" => Some((5, 7)),
+        "POUND" | "STERLING" => Some((6, 0)),
+        "ASTERISK" | "STAR" => Some((6, 1)),
+        "SEMICOLON" => Some((6, 2)),
+        "HOME" => Some((6, 3)),
         "RSHIFT" => Some((6, 4)),
+        "=" | "EQUALS" | "EQUAL" => Some((6, 5)),
+        "UP" | "CRSRUP" => Some((6, 6)),
         "/" | "SLASH" => Some((6, 7)),
         "1" => Some((7, 0)),
+        "LEFTARROW" => Some((7, 1)),
+        "CTRL" | "CONTROL" => Some((7, 2)),
         "2" => Some((7, 3)),
         "SPACE" => Some((7, 4)),
+        "COMMODORE" | "CBM" => Some((7, 5)),
         "Q" => Some((7, 6)),
+        "RUNSTOP" | "RUN/STOP" => Some((7, 7)),
         _ => None,
     }
 }
@@ -617,7 +638,10 @@ mod tests {
         assert_eq!(frame_sink.last_format, Some(PixelFormat::Rgba8888));
         assert_eq!(audio_sink.count, 1);
         assert_eq!(audio_sink.last_timestamp, target);
-        assert_eq!(audio_sink.last_sample_rate, runtime.machine().audio_sample_rate());
+        assert_eq!(
+            audio_sink.last_sample_rate,
+            runtime.machine().audio_sample_rate()
+        );
         assert_eq!(audio_sink.last_channels, 1);
         assert!(audio_sink.last_samples_len > 0);
     }
@@ -651,6 +675,21 @@ mod tests {
         assert_eq!(reason.value, json!("READY. screen codes not visible"));
 
         assert!(matches!(provider.query(&runtime, "not-a-path"), Ok(None)));
+    }
+
+    #[test]
+    fn input_mapping_covers_native_shell_keys() {
+        assert_eq!(c64_key_position("delete"), Some((0, 0)));
+        assert_eq!(c64_key_position("right"), Some((0, 2)));
+        assert_eq!(c64_key_position("down"), Some((0, 7)));
+        assert_eq!(c64_key_position("f1"), Some((0, 4)));
+        assert_eq!(c64_key_position("f7"), Some((0, 3)));
+        assert_eq!(c64_key_position("plus"), Some((5, 0)));
+        assert_eq!(c64_key_position("home"), Some((6, 3)));
+        assert_eq!(c64_key_position("equals"), Some((6, 5)));
+        assert_eq!(c64_key_position("up"), Some((6, 6)));
+        assert_eq!(c64_key_position("commodore"), Some((7, 5)));
+        assert_eq!(c64_key_position("runstop"), Some((7, 7)));
     }
 
     #[test]

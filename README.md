@@ -40,7 +40,8 @@ As of April 13, 2026, the fresh Rust workspace currently provides:
 - **Commodore 64**
   - live 6502/CIA/VIC-II/SID board loop
   - KERNAL boots to `READY.`
-  - headless runner, screenshots, snapshots, boot detection, and mono audio output
+  - headless runner, native verifier UI, screenshots, snapshots, boot
+    detection, and mono audio output
   - host-side `.prg` import
   - host-side plain-text `.bas` import via Commodore BASIC tokenisation
 
@@ -88,10 +89,27 @@ If `--rom` is omitted, the runner looks for:
 Example:
 
 ```bash
-cargo run -p emu-spectrum -- \
+cargo run -p emu198x-spectrum -- \
   --tape '/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip' \
   --autoload-tape \
   --turbo-tape
+```
+
+### C64 native verifier shell
+
+The C64 native verifier resolves ROMs from:
+
+1. `--rom-dir DIR`
+2. `EMU198X_C64_ROM_DIR`
+3. `~/.emu198x/roms/commodore-c64`
+4. `~/.emu198x/roms/c64`
+
+Example:
+
+```bash
+cargo run -p emu198x-c64 -- \
+  --rom-dir ~/.emu198x/roms/commodore-c64 \
+  --load demo.bas
 ```
 
 ### Spectrum 48K headless runner

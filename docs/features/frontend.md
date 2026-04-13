@@ -1,23 +1,25 @@
 # Frontend
 
-> **Mixed status.** `emu-spectrum` now exists as a minimal native 48K
-> verification shell with windowed video output, keyboard input, basic tape
-> transport control, live audio, launch-time tape autoload, and cycle-faithful
-> tape turbo. Everything else in this document remains design intent:
-> launcher screens, media panels, debugger layouts, web/WASM targets, and the
-> other family frontends are not implemented yet.
+> **Mixed status.** `emu198x-spectrum` and `emu198x-c64` now exist as minimal
+> native verifier shells over the fresh-workspace runtimes. Spectrum currently
+> covers windowed video, keyboard input, tape control, launch-time autoload,
+> live audio, and cycle-faithful tape turbo; C64 currently covers windowed
+> video, keyboard input, startup snapshot/program import, reset, and live mono
+> audio. Everything else in this document remains design intent: launcher
+> screens, media panels, debugger layouts, web/WASM targets, and the other
+> family frontends are not implemented yet.
 
 ## Overview
 
 The intended shape is still one **separate binary per system**:
 
-- `emu-spectrum`
-- `emu-c64`
-- `emu-nes`
-- `emu-amiga`
+- `emu198x-spectrum`
+- `emu198x-c64`
+- `emu198x-nes`
+- `emu198x-amiga`
 
-Today only `emu-spectrum` is real, and only at verifier-shell scope. The full
-target for each binary is:
+Today `emu198x-spectrum` and `emu198x-c64` are real, and both are still at
+verifier-shell scope. The full target for each binary is:
 
 - System launcher with variant/option selection
 - Visual media controls (tape deck, disk drive)
@@ -172,13 +174,13 @@ Each binary opens with a launcher screen for that system. This is where you conf
 
 ```bash
 # Skip launcher, use defaults
-emu-spectrum --start game.tap
+emu198x-spectrum --start game.tap
 
 # Skip launcher, specify config
-emu-spectrum --model 128k --start game.tap
+emu198x-spectrum --model 128k --start game.tap
 
 # Open launcher with file pre-selected
-emu-spectrum game.tap
+emu198x-spectrum game.tap
 ```
 
 **"Start" button:**
@@ -216,10 +218,10 @@ A thin wrapper binary (`emu198x`) can provide convenience:
 
 ```bash
 # Detect file type, spawn correct emulator
-emu198x game.tap        # → spawns emu-spectrum
-emu198x game.d64        # → spawns emu-c64
-emu198x game.nes        # → spawns emu-nes
-emu198x game.adf        # → spawns emu-amiga
+emu198x game.tap        # → spawns emu198x-spectrum
+emu198x game.d64        # → spawns emu198x-c64
+emu198x game.nes        # → spawns emu198x-nes
+emu198x game.adf        # → spawns emu198x-amiga
 
 # No file: show system picker, then spawn
 emu198x
@@ -535,7 +537,7 @@ After launching from the system launcher:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ emu-c64                                          [─][□][×]  │
+│ emu198x-c64                                      [─][□][×]  │
 ├─────────────────────────────────────────────────────────────┤
 │ File  System  Media  Input  View  Help                      │
 ├─────────────────────────────────────────────────────────────┤
@@ -724,10 +726,10 @@ The UI is a visual representation of the same operations the headless modes prov
 
 WASM builds are **per-system**. Each system is a separate JS/WASM package:
 
-- `emu-spectrum-wasm`
-- `emu-c64-wasm`
-- `emu-nes-wasm`
-- `emu-amiga-wasm`
+- `emu198x-spectrum-wasm`
+- `emu198x-c64-wasm`
+- `emu198x-nes-wasm`
+- `emu198x-amiga-wasm`
 
 Embed only what you need. A Spectrum lesson page doesn't download C64 code.
 
@@ -747,7 +749,7 @@ The launcher becomes the initial HTML/JS UI before loading the WASM module:
 <canvas id="screen" style="display:none"></canvas>
 
 <script type="module">
-  import init, { Emulator } from './emu-spectrum-wasm.js';
+  import init, { Emulator } from './emu198x-spectrum-wasm.js';
   
   document.getElementById('start').onclick = async () => {
     await init();

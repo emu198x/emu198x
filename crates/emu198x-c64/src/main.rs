@@ -1,31 +1,30 @@
-//! `emu198x-spectrum` — minimal native Spectrum verification shell.
+//! `emu198x-c64` — minimal native Commodore 64 verification shell.
 //!
-//! This is intentionally narrow: one 48K window, optional ROM/tape loading,
-//! direct keyboard input, and basic media transport control for interactive
-//! verification. It sits above the existing runtime and shared shell boundary;
-//! it does not introduce a parallel emulation stack.
+//! This is intentionally narrow: one PAL/NTSC breadbin window, optional
+//! startup snapshot/program import, direct keyboard input, hard reset, and live
+//! audio/video over the existing runtime. It does not introduce a parallel
+//! emulation stack or fake media behavior.
 
 use std::collections::{HashMap, VecDeque};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
+use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
-    AssetLoadError, AudioPacket, AudioSink, CapturedFrame, ControlCommand, FirmwareImage,
-    FirmwareSet, HeadlessSession, HostIo, InputEvent, LatestFrameCapture, MachineCore,
-    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    AudioPacket, AudioSink, BootArtifacts, CapturedFrame, FirmwareImage, FirmwareSet,
+    HeadlessSession, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError,
     NullTraceSink, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
-    SessionQueryProvider, read_firmware_asset, read_media_asset,
+    SessionQueryProvider, boot_machine, read_firmware_asset, read_program_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
-use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, Spectrum48kRuntime,
-    SpectrumSessionQueryProvider, autoload_basic_tape,
+use runtime_commodore_c64::{
+    C64Runtime, C64SessionQueryProvider, Model, file_loader::load_host_file,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -36,60 +35,75 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-const DEFAULT_ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
-const DEFAULT_TAPE_SLOT: &str = "tape-1";
+const KERNAL_ID: &str = "commodore-c64-kernal-rom";
+const BASIC_ID: &str = "commodore-c64-basic-rom";
+const CHARACTER_ID: &str = "commodore-c64-character-rom";
 const DEFAULT_SCALE: u32 = 2;
-const WINDOW_TITLE_BASE: &str = "Emu198x Spectrum 48K";
+const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
-const MAX_TURBO_TAPE_FRAMES: u32 = 32;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
 
 const USAGE: &str = "\
-Usage: emu198x-spectrum [OPTIONS]
+Usage: emu198x-c64 [OPTIONS]
 
 Options:
-    --rom PATH         48K ROM image or zip containing one ROM candidate
-    --tape PATH        TAP/TZX image or zip containing one tape candidate
-    --play-tape        start tape transport immediately after media load
-    --autoload-tape    wait for boot, type LOAD \"\", and start tape-1
-    --turbo-tape       run unthrottled while the tape is playing
-    --scale N          integer window scale, default 2
-    --help, -h         show this help
+    --rom-dir DIR        directory containing Commodore ROM images
+    --kernal PATH        override KERNAL ROM path
+    --basic PATH         override BASIC ROM path
+    --chargen PATH       override character ROM path
+    --model MODEL        pal or ntsc [default: pal]
+    --load PATH          import one .prg or plain-text .bas file after boot
+    --load-snapshot PATH restore a runtime snapshot before starting
+    --scale N            integer window scale, default 2
+    --help, -h           show this help
 
 Controls:
-    Esc                quit
-    F5                 hard reset
-    F6                 start tape
-    F7                 stop tape
-    F8                 toggle tape turbo
-    Left/Down/Up/Right host aliases for Spectrum 5/6/7/8 game keys
-    Alt                Symbol Shift
+    Esc                  quit
+    F12                  hard reset
+    Arrow keys           C64 cursor keys
+    F1-F8                C64 function keys
+    Alt / Command        Commodore key
+    Tab                  Run/Stop
 
 Examples:
-    emu198x-spectrum
-    emu198x-spectrum --rom 48.rom --tape manic_miner.zip
-    emu198x-spectrum --tape manic_miner.zip --autoload-tape
-    emu198x-spectrum --tape '/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip'
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas
+    emu198x-c64 --load-snapshot ready.c64.pst
 ";
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Cli {
-    rom: Option<PathBuf>,
-    tape: Option<PathBuf>,
-    play_tape: bool,
-    autoload_tape: bool,
-    turbo_tape: bool,
+    model: ModelArg,
+    rom_dir: Option<PathBuf>,
+    kernal: Option<PathBuf>,
+    basic: Option<PathBuf>,
+    chargen: Option<PathBuf>,
+    load: Option<PathBuf>,
+    load_snapshot: Option<PathBuf>,
     scale: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum ModelArg {
+    #[default]
+    Pal,
+    Ntsc,
+}
+
+#[derive(Debug)]
+struct LoadedFirmware {
+    id: &'static str,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct LoadedProgram {
+    name: String,
+    bytes: Vec<u8>,
 }
 
 #[derive(Debug, Error)]
 enum AppError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-
-    #[error(transparent)]
-    Asset(#[from] AssetLoadError),
-
     #[error(transparent)]
     Machine(#[from] MachineError),
 
@@ -98,12 +112,6 @@ enum AppError {
 
     #[error(transparent)]
     Session(#[from] emu198x_shell::SessionError),
-
-    #[error(transparent)]
-    SpectrumAutoload(#[from] runtime_sinclair_zx_spectrum::SpectrumAutoloadError),
-
-    #[error("audio backend failed: {reason}")]
-    AudioBackend { reason: String },
 
     #[error(transparent)]
     Pixels(#[from] pixels::Error),
@@ -117,23 +125,17 @@ enum AppError {
     #[error(transparent)]
     Os(#[from] OsError),
 
+    #[error("audio backend failed: {reason}")]
+    AudioBackend { reason: String },
+
     #[error("invalid --scale value {value}")]
     InvalidScale { value: u32 },
 
-    #[error("no ROM supplied and default Spectrum ROM was not found at {path}")]
-    MissingRom { path: String },
-
-    #[error("tape transport requested without tape media")]
-    MissingTape,
-
-    #[error("--autoload-tape conflicts with --play-tape")]
-    ConflictingTapeWorkflow,
+    #[error("{reason}")]
+    Setup { reason: String },
 
     #[error("frame packet used unsupported format {format:?}")]
     UnsupportedPixelFormat { format: PixelFormat },
-
-    #[error("indexed frame is missing a palette")]
-    MissingPalette,
 
     #[error(
         "frame geometry {width}x{height} does not match expected {expected_width}x{expected_height}"
@@ -146,72 +148,51 @@ enum AppError {
     },
 }
 
-struct SpectrumRunner {
-    runtime: Spectrum48kRuntime,
-    query_provider: SpectrumSessionQueryProvider,
+struct C64Runner {
+    runtime: C64Runtime,
+    query_provider: C64SessionQueryProvider,
     frame_capture: LatestFrameCapture,
-    audio_output: SpectrumAudioOutput,
+    audio_output: C64AudioOutput,
     last_run_result: Option<RunResult>,
     native_frame_ticks: u64,
+    frame_width: u32,
+    frame_height: u32,
+    title_base: String,
 }
 
-impl SpectrumRunner {
+impl C64Runner {
     fn from_cli(cli: &Cli) -> Result<Self, AppError> {
-        if cli.play_tape && cli.autoload_tape {
-            return Err(AppError::ConflictingTapeWorkflow);
-        }
-
-        let rom_path = resolve_rom_path(cli)?;
-        let rom = read_firmware_asset(&rom_path)?.bytes;
-
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new(DEFAULT_ROM_ID, &rom));
-        let runtime = Spectrum48kRuntime::from_firmware(&firmware)?;
+        let machine = boot_runtime(cli).map_err(|reason| AppError::Setup { reason })?;
+        let native_frame_ticks = cli.native_frame_ticks();
         let mut session = HeadlessSession::new_with_query_provider(
-            runtime,
-            u64::from(TIMING_48K.halfcycles_per_frame),
-            SpectrumSessionQueryProvider,
+            machine,
+            native_frame_ticks,
+            C64SessionQueryProvider,
         );
 
-        if let Some(tape_path) = &cli.tape {
-            let tape = read_media_asset(tape_path, MediaKind::Tape)?;
-            let mut media = MediaSet::new();
-            media.push(MediaImage::new(
-                DEFAULT_TAPE_SLOT,
-                MediaKind::Tape,
-                &tape.bytes,
-            ));
-            session.load_media(&media)?;
-        }
+        if let Some(path) = &cli.load {
+            let _ = session.wait_for_boot(DEFAULT_IMPORT_BOOT_FRAMES)?;
 
-        if cli.autoload_tape {
-            if cli.tape.is_none() {
-                return Err(AppError::MissingTape);
-            }
-            autoload_basic_tape(
-                &mut session,
-                DEFAULT_TAPE_AUTOLOAD_SLOT,
-                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-            )?;
-        } else if cli.play_tape {
-            if cli.tape.is_none() {
-                return Err(AppError::MissingTape);
-            }
-            session.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                DEFAULT_TAPE_SLOT,
-                MediaTransportAction::Start,
-            )))?;
+            let loaded = load_program_bytes(path).map_err(|reason| AppError::Setup { reason })?;
+            let message = load_host_file(session.machine_mut(), &loaded.name, &loaded.bytes)
+                .map_err(|reason| AppError::Setup { reason })?;
+            println!("{message}");
         }
 
         let runtime = session.into_machine();
-        let audio_output = SpectrumAudioOutput::new(runtime.machine().audio_sample_rate())?;
+        let frame_width = runtime.machine().vic().framebuffer_width();
+        let frame_height = runtime.machine().vic().framebuffer_height();
+        let audio_output = C64AudioOutput::new(runtime.machine().audio_sample_rate())?;
         let mut runner = Self {
             runtime,
-            query_provider: SpectrumSessionQueryProvider,
+            query_provider: C64SessionQueryProvider,
             frame_capture: LatestFrameCapture::default(),
             audio_output,
             last_run_result: None,
-            native_frame_ticks: u64::from(TIMING_48K.halfcycles_per_frame),
+            native_frame_ticks,
+            frame_width,
+            frame_height,
+            title_base: cli.window_title_base(),
         };
         runner.run_frame(&[])?;
         Ok(runner)
@@ -223,11 +204,6 @@ impl SpectrumRunner {
         self.frame_capture = LatestFrameCapture::default();
         self.audio_output.clear();
         self.run_frame(&[])?;
-        Ok(())
-    }
-
-    fn command(&mut self, command: &ControlCommand) -> Result<(), AppError> {
-        self.runtime.command(command)?;
         Ok(())
     }
 
@@ -246,6 +222,10 @@ impl SpectrumRunner {
 
     fn frame(&self) -> Option<&CapturedFrame> {
         self.frame_capture.frame()
+    }
+
+    fn frame_size(&self) -> (u32, u32) {
+        (self.frame_width, self.frame_height)
     }
 
     fn query(&self, path: &str) -> Result<QueryResult, AppError> {
@@ -277,53 +257,24 @@ impl SpectrumRunner {
             .unwrap_or(false)
     }
 
-    fn query_text_line(&self, path: &str, line_index: usize) -> Option<String> {
-        self.query(path)
-            .ok()
-            .and_then(|result| result.value.as_array().cloned())
-            .and_then(|lines| lines.get(line_index).cloned())
-            .and_then(|line| line.as_str().map(str::to_owned))
-    }
-
     fn window_title(&self) -> String {
         let boot = if self.query_bool("boot.detected") {
             "booted"
         } else {
             "booting"
         };
-        let tape = match (
-            self.query_bool("spectrum.tape.loaded"),
-            self.query_bool("spectrum.tape.playing"),
-        ) {
-            (true, true) => "tape playing",
-            (true, false) => "tape loaded",
-            (false, _) => "no tape",
-        };
-        let prompt = self
-            .query_text_line("screen.text.lines", 23)
-            .unwrap_or_default();
-        let prompt = prompt.trim();
-
-        if prompt.is_empty() {
-            format!("{WINDOW_TITLE_BASE} | {boot} | {tape}")
-        } else {
-            format!("{WINDOW_TITLE_BASE} | {boot} | {tape} | {prompt}")
-        }
-    }
-
-    fn tape_playing(&self) -> bool {
-        self.query_bool("spectrum.tape.playing")
+        format!("{} | {}", self.title_base, boot)
     }
 }
 
-struct SpectrumAudioOutput {
+struct C64AudioOutput {
     _stream: Stream,
     shared: Arc<Mutex<AudioBuffer>>,
     sample_rate: u32,
     channels: u16,
 }
 
-impl SpectrumAudioOutput {
+impl C64AudioOutput {
     fn new(_source_rate: u32) -> Result<Self, AppError> {
         let host = cpal::default_host();
         let device = host
@@ -366,7 +317,7 @@ impl SpectrumAudioOutput {
     }
 }
 
-impl AudioSink for SpectrumAudioOutput {
+impl AudioSink for C64AudioOutput {
     fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
         let samples = convert_audio_packet(
             packet.samples,
@@ -522,12 +473,11 @@ fn interleaved_to_mono(samples: &[f32], channels: u8) -> Vec<f32> {
     mono
 }
 
-struct SpectrumApp {
-    runner: SpectrumRunner,
+struct C64App {
+    runner: C64Runner,
     scale: u32,
     frame_duration: Duration,
     next_frame_at: Instant,
-    turbo_tape: bool,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
     window: Option<Arc<Window>>,
@@ -535,8 +485,8 @@ struct SpectrumApp {
     fatal_error: Option<AppError>,
 }
 
-impl SpectrumApp {
-    fn new(runner: SpectrumRunner, scale: u32, turbo_tape: bool) -> Result<Self, AppError> {
+impl C64App {
+    fn new(runner: C64Runner, scale: u32, frame_duration: Duration) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
@@ -544,9 +494,8 @@ impl SpectrumApp {
         Ok(Self {
             runner,
             scale,
-            frame_duration: spectrum_frame_duration(),
+            frame_duration,
             next_frame_at: Instant::now(),
-            turbo_tape,
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
             window: None,
@@ -570,19 +519,20 @@ impl SpectrumApp {
             return Ok(());
         }
 
-        let logical_width = f64::from((SCREEN_WIDTH as u32).saturating_mul(self.scale));
-        let logical_height = f64::from((SCREEN_HEIGHT as u32).saturating_mul(self.scale));
+        let (frame_width, frame_height) = self.runner.frame_size();
+        let logical_width = f64::from(frame_width.saturating_mul(self.scale));
+        let logical_height = f64::from(frame_height.saturating_mul(self.scale));
         let attributes = WindowAttributes::default()
-            .with_title(self.window_title())
+            .with_title(self.runner.window_title())
             .with_inner_size(LogicalSize::new(logical_width, logical_height))
             .with_min_inner_size(LogicalSize::new(
-                f64::from(SCREEN_WIDTH as u32),
-                f64::from(SCREEN_HEIGHT as u32),
+                f64::from(frame_width),
+                f64::from(frame_height),
             ));
         let window = Arc::new(event_loop.create_window(attributes)?);
         let size = window.inner_size();
         let surface = SurfaceTexture::new(size.width, size.height, window.clone());
-        let pixels = Pixels::new(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32, surface)?;
+        let pixels = Pixels::new(frame_width, frame_height, surface)?;
 
         self.window = Some(window);
         self.pixels = Some(pixels);
@@ -594,39 +544,7 @@ impl SpectrumApp {
         self.window.as_ref().map(|window| window.id())
     }
 
-    fn turbo_tape_active(&self) -> bool {
-        self.turbo_tape && self.runner.tape_playing()
-    }
-
-    fn window_title(&self) -> String {
-        let mut title = self.runner.window_title();
-        if self.turbo_tape {
-            if self.runner.tape_playing() {
-                title.push_str(" | turbo");
-            } else {
-                title.push_str(" | turbo armed");
-            }
-        }
-        title
-    }
-
-    fn set_turbo_tape(&mut self, enabled: bool) {
-        self.turbo_tape = enabled;
-        self.next_frame_at = Instant::now() + self.frame_duration;
-    }
-
     fn advance_machine(&mut self) -> Result<bool, AppError> {
-        if self.turbo_tape_active() {
-            let mut ran_frames = 0;
-            while ran_frames < MAX_TURBO_TAPE_FRAMES && self.turbo_tape_active() {
-                let inputs = std::mem::take(&mut self.pending_inputs);
-                self.runner.run_frame(&inputs)?;
-                ran_frames += 1;
-            }
-            self.next_frame_at = Instant::now() + self.frame_duration;
-            return Ok(ran_frames != 0);
-        }
-
         let now = Instant::now();
         if now < self.next_frame_at {
             return Ok(false);
@@ -655,7 +573,7 @@ impl SpectrumApp {
             return Ok(());
         };
 
-        blit_indexed_frame(frame, pixels.frame_mut())?;
+        blit_rgba_frame(frame, pixels.frame_mut())?;
         pixels.render()?;
         Ok(())
     }
@@ -668,7 +586,7 @@ impl SpectrumApp {
     }
 
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
-        let Some(names) = map_spectrum_keys(code) else {
+        let Some(names) = map_c64_keys(code) else {
             return;
         };
 
@@ -677,29 +595,19 @@ impl SpectrumApp {
                 return;
             }
             self.pressed_keys.insert(code, names.to_vec());
-            self.pending_inputs.extend(
-                names
-                    .iter()
-                    .copied()
-                    .map(|name| spectrum_key_event(name, true)),
-            );
+            self.pending_inputs
+                .extend(names.iter().copied().map(|name| c64_key_event(name, true)));
         } else if let Some(names) = self.pressed_keys.remove(&code) {
-            self.pending_inputs.extend(
-                names
-                    .into_iter()
-                    .map(|name| spectrum_key_event(name, false)),
-            );
+            self.pending_inputs
+                .extend(names.into_iter().map(|name| c64_key_event(name, false)));
         }
     }
 
     fn release_all_keys(&mut self) {
         let keys = std::mem::take(&mut self.pressed_keys);
         for names in keys.into_values() {
-            self.pending_inputs.extend(
-                names
-                    .into_iter()
-                    .map(|name| spectrum_key_event(name, false)),
-            );
+            self.pending_inputs
+                .extend(names.into_iter().map(|name| c64_key_event(name, false)));
         }
     }
 
@@ -710,38 +618,20 @@ impl SpectrumApp {
         pressed: bool,
     ) -> bool {
         if !pressed {
-            return matches!(
-                code,
-                KeyCode::Escape | KeyCode::F5 | KeyCode::F6 | KeyCode::F7 | KeyCode::F8
-            );
+            return matches!(code, KeyCode::Escape | KeyCode::F12);
         }
 
-        let result =
-            match code {
-                KeyCode::Escape => {
-                    event_loop.exit();
-                    return true;
-                }
-                KeyCode::F5 => {
-                    self.release_all_keys();
-                    self.runner.reset()
-                }
-                KeyCode::F6 => self.runner.command(&ControlCommand::MediaTransport(
-                    MediaTransportCommand::new(DEFAULT_TAPE_SLOT, MediaTransportAction::Start),
-                )),
-                KeyCode::F7 => self.runner.command(&ControlCommand::MediaTransport(
-                    MediaTransportCommand::new(DEFAULT_TAPE_SLOT, MediaTransportAction::Stop),
-                )),
-                KeyCode::F8 => {
-                    self.set_turbo_tape(!self.turbo_tape);
-                    if let Some(window) = &self.window {
-                        window.set_title(&self.window_title());
-                        window.request_redraw();
-                    }
-                    return true;
-                }
-                _ => return false,
-            };
+        let result = match code {
+            KeyCode::Escape => {
+                event_loop.exit();
+                return true;
+            }
+            KeyCode::F12 => {
+                self.release_all_keys();
+                self.runner.reset()
+            }
+            _ => return false,
+        };
 
         if let Err(err) = result {
             self.fail(event_loop, err);
@@ -750,7 +640,7 @@ impl SpectrumApp {
     }
 }
 
-impl ApplicationHandler for SpectrumApp {
+impl ApplicationHandler for C64App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(err) = self.create_window(event_loop) {
             self.fail(event_loop, err);
@@ -809,7 +699,7 @@ impl ApplicationHandler for SpectrumApp {
         match self.advance_machine() {
             Ok(true) => {
                 if let Some(window) = &self.window {
-                    window.set_title(&self.window_title());
+                    window.set_title(&self.runner.window_title());
                     window.request_redraw();
                 }
             }
@@ -820,11 +710,7 @@ impl ApplicationHandler for SpectrumApp {
             }
         }
 
-        if self.turbo_tape_active() {
-            event_loop.set_control_flow(ControlFlow::Poll);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
-        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
     }
 }
 
@@ -837,10 +723,11 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F5 reset, F6 tape start, F7 tape stop, F8 tape turbo.");
+    println!("Controls: Esc quit, F12 reset.");
 
-    let runner = SpectrumRunner::from_cli(&cli)?;
-    let mut app = SpectrumApp::new(runner, cli.scale, cli.turbo_tape)?;
+    let frame_duration = cli.frame_duration();
+    let runner = C64Runner::from_cli(&cli)?;
+    let mut app = C64App::new(runner, cli.scale, frame_duration)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -863,11 +750,15 @@ where
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
-            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
-            "--play-tape" => cli.play_tape = true,
-            "--autoload-tape" => cli.autoload_tape = true,
-            "--turbo-tape" => cli.turbo_tape = true,
+            "--rom-dir" => cli.rom_dir = Some(PathBuf::from(next_arg(&mut iter, "--rom-dir"))),
+            "--kernal" => cli.kernal = Some(PathBuf::from(next_arg(&mut iter, "--kernal"))),
+            "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
+            "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
+            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
+            "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
+            "--load-snapshot" => {
+                cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
+            }
             "--scale" => {
                 cli.scale = next_arg(&mut iter, "--scale")
                     .parse()
@@ -877,18 +768,19 @@ where
                 println!("{USAGE}");
                 process::exit(0);
             }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ => {
-                if cli.tape.is_none() {
-                    cli.tape = Some(PathBuf::from(arg));
-                } else {
-                    die("only one positional tape path is supported");
-                }
-            }
+            _ => die(&format!("unknown flag: {arg}")),
         }
     }
 
     cli
+}
+
+fn parse_model_arg(value: &str) -> ModelArg {
+    match value {
+        "pal" => ModelArg::Pal,
+        "ntsc" => ModelArg::Ntsc,
+        _ => die("--model expects pal or ntsc"),
+    }
 }
 
 fn next_arg<I>(iter: &mut I, flag: &str) -> String
@@ -901,43 +793,178 @@ where
 
 fn die(message: &str) -> ! {
     eprintln!("error: {message}");
-    process::exit(1);
+    eprintln!();
+    eprintln!("{USAGE}");
+    process::exit(2);
 }
 
-fn resolve_rom_path(cli: &Cli) -> Result<PathBuf, AppError> {
-    if let Some(path) = &cli.rom {
-        return Ok(path.clone());
+fn boot_runtime(cli: &Cli) -> Result<C64Runtime, String> {
+    let firmware_storage = load_firmware_bytes(cli)?;
+    let mut firmware = FirmwareSet::new();
+    for image in &firmware_storage {
+        firmware.push(FirmwareImage::new(image.id, &image.bytes));
     }
 
-    let default = default_rom_path();
-    if default.is_file() {
-        Ok(default)
-    } else {
-        Err(AppError::MissingRom {
-            path: default.display().to_string(),
+    let snapshot_bytes = match &cli.load_snapshot {
+        Some(path) => Some(
+            fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?,
+        ),
+        None => None,
+    };
+
+    boot_machine(
+        &BootArtifacts {
+            firmware,
+            snapshot: snapshot_bytes.as_deref(),
+        },
+        |firmware| C64Runtime::from_firmware(cli.model.to_model(), firmware),
+        || C64Runtime::blank(cli.model.to_model()),
+    )
+    .map_err(|err| format!("boot failed: {err}"))
+}
+
+fn load_firmware_bytes(cli: &Cli) -> Result<Vec<LoadedFirmware>, String> {
+    let rom_dir = resolve_rom_dir(cli)?;
+    let entries = [
+        (
+            KERNAL_ID,
+            resolve_rom_path(
+                cli.kernal.as_deref(),
+                rom_dir.as_deref(),
+                &["kernal.rom", "c64-kernal.rom"],
+            )?,
+        ),
+        (
+            BASIC_ID,
+            resolve_rom_path(
+                cli.basic.as_deref(),
+                rom_dir.as_deref(),
+                &["basic.rom", "c64-basic.rom"],
+            )?,
+        ),
+        (
+            CHARACTER_ID,
+            resolve_rom_path(
+                cli.chargen.as_deref(),
+                rom_dir.as_deref(),
+                &["chargen.rom", "c64-chargen.rom"],
+            )?,
+        ),
+    ];
+
+    entries
+        .into_iter()
+        .filter_map(|(id, path)| path.map(|path| (id, path)))
+        .map(|(id, path)| {
+            read_firmware_asset(&path)
+                .map(|loaded| LoadedFirmware {
+                    id,
+                    bytes: loaded.bytes,
+                })
+                .map_err(|err| {
+                    format!(
+                        "failed to read firmware {id} from {}: {err}",
+                        path.display()
+                    )
+                })
         })
+        .collect()
+}
+
+fn load_program_bytes(path: &Path) -> Result<LoadedProgram, String> {
+    let loaded = read_program_asset(path)
+        .map_err(|err| format!("failed to read program {}: {err}", path.display()))?;
+    let name = loaded.archive_member.unwrap_or_else(|| {
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| path.display().to_string())
+    });
+
+    Ok(LoadedProgram {
+        name,
+        bytes: loaded.bytes,
+    })
+}
+
+fn resolve_rom_dir(cli: &Cli) -> Result<Option<PathBuf>, String> {
+    if let Some(dir) = &cli.rom_dir {
+        return Ok(Some(dir.clone()));
     }
-}
 
-fn default_rom_path() -> PathBuf {
-    let home = std::env::var_os("HOME").unwrap_or_default();
-    Path::new(&home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom")
-}
+    if let Ok(dir) = std::env::var("EMU198X_C64_ROM_DIR") {
+        return Ok(Some(PathBuf::from(dir)));
+    }
 
-fn spectrum_frame_duration() -> Duration {
-    Duration::from_secs_f64(
-        f64::from(TIMING_48K.halfcycles_per_frame) / TIMING_48K.master_hz as f64,
+    let Some(home) = std::env::var_os("HOME") else {
+        return Ok(None);
+    };
+    let commodore_dir = PathBuf::from(&home).join(".emu198x/roms/commodore-c64");
+    if commodore_dir.exists() {
+        return Ok(Some(commodore_dir));
+    }
+
+    let legacy_dir = PathBuf::from(home).join(".emu198x/roms/c64");
+    if legacy_dir.exists() {
+        return Ok(Some(legacy_dir));
+    }
+
+    if cli.kernal.is_some()
+        || cli.basic.is_some()
+        || cli.chargen.is_some()
+        || cli.load_snapshot.is_some()
+    {
+        return Ok(None);
+    }
+
+    Err(
+        "no C64 ROM directory found — pass --rom-dir DIR, set EMU198X_C64_ROM_DIR, or create ~/.emu198x/roms/commodore-c64".into(),
     )
 }
 
-fn spectrum_key_event(name: &'static str, pressed: bool) -> InputEvent {
+fn resolve_rom_path(
+    explicit: Option<&Path>,
+    rom_dir: Option<&Path>,
+    filenames: &[&str],
+) -> Result<Option<PathBuf>, String> {
+    if let Some(path) = explicit {
+        return Ok(Some(path.to_path_buf()));
+    }
+
+    let Some(rom_dir) = rom_dir else {
+        return Ok(None);
+    };
+
+    for filename in filenames {
+        let candidate = rom_dir.join(filename);
+        if candidate.exists() {
+            return Ok(Some(candidate));
+        }
+    }
+
+    Err(format!(
+        "missing required ROM in {} (looked for {})",
+        rom_dir.display(),
+        filenames.join(", ")
+    ))
+}
+
+fn c64_frame_duration(model: ModelArg) -> Duration {
+    let timing = match model {
+        ModelArg::Pal => TIMING_PAL_BREADBIN,
+        ModelArg::Ntsc => TIMING_NTSC_BREADBIN,
+    };
+    Duration::from_secs_f64(f64::from(timing.cycles_per_frame) / timing.cpu_hz as f64)
+}
+
+fn c64_key_event(name: &'static str, pressed: bool) -> InputEvent {
     InputEvent::Key {
         name: name.into(),
         pressed,
     }
 }
 
-fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
+fn map_c64_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
         KeyCode::KeyB => &["b"],
@@ -975,49 +1002,100 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Digit7 => &["7"],
         KeyCode::Digit8 => &["8"],
         KeyCode::Digit9 => &["9"],
-        KeyCode::Enter | KeyCode::NumpadEnter => &["enter"],
+        KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
         KeyCode::Space => &["space"],
-        KeyCode::ShiftLeft | KeyCode::ShiftRight => &["caps"],
-        KeyCode::AltLeft | KeyCode::AltRight => &["symbol"],
-        // Host arrow keys are gameplay aliases for 5/6/7/8 in the minimal
-        // verifier shell. Synthesizing literal Caps Shift cursor combos causes
-        // false extra controls in games that read the matrix directly.
-        KeyCode::ArrowLeft => &["5"],
-        KeyCode::ArrowDown => &["6"],
-        KeyCode::ArrowUp => &["7"],
-        KeyCode::ArrowRight => &["8"],
-        KeyCode::Backspace => &["caps", "0"],
-        KeyCode::Quote => &["symbol", "p"],
+        KeyCode::Backspace | KeyCode::Delete => &["delete"],
+        KeyCode::ShiftLeft => &["lshift"],
+        KeyCode::ShiftRight => &["rshift"],
+        KeyCode::ControlLeft | KeyCode::ControlRight => &["ctrl"],
+        KeyCode::AltLeft | KeyCode::AltRight | KeyCode::SuperLeft | KeyCode::SuperRight => {
+            &["commodore"]
+        }
+        KeyCode::ArrowRight => &["right"],
+        KeyCode::ArrowLeft => &["lshift", "right"],
+        KeyCode::ArrowDown => &["down"],
+        KeyCode::ArrowUp => &["lshift", "down"],
+        KeyCode::Home => &["home"],
+        KeyCode::F1 => &["f1"],
+        KeyCode::F2 => &["lshift", "f1"],
+        KeyCode::F3 => &["f3"],
+        KeyCode::F4 => &["lshift", "f3"],
+        KeyCode::F5 => &["f5"],
+        KeyCode::F6 => &["lshift", "f5"],
+        KeyCode::F7 => &["f7"],
+        KeyCode::F8 => &["lshift", "f7"],
+        KeyCode::Minus => &["minus"],
+        KeyCode::Equal => &["equals"],
+        KeyCode::Comma => &["comma"],
+        KeyCode::Period => &["period"],
+        KeyCode::Slash => &["slash"],
+        KeyCode::Semicolon => &["semicolon"],
+        KeyCode::Quote => &["colon"],
+        KeyCode::BracketLeft => &["at"],
+        KeyCode::BracketRight => &["asterisk"],
+        KeyCode::Backslash => &["plus"],
+        KeyCode::Backquote => &["leftarrow"],
+        KeyCode::Tab => &["runstop"],
         _ => return None,
     })
 }
 
-fn blit_indexed_frame(frame: &CapturedFrame, target: &mut [u8]) -> Result<(), AppError> {
-    if frame.format != PixelFormat::Indexed8 {
+fn blit_rgba_frame(frame: &CapturedFrame, dst: &mut [u8]) -> Result<(), AppError> {
+    if frame.format != PixelFormat::Rgba8888 {
         return Err(AppError::UnsupportedPixelFormat {
             format: frame.format,
         });
     }
 
-    if frame.width != SCREEN_WIDTH as u32 || frame.height != SCREEN_HEIGHT as u32 {
+    let expected_len = usize::try_from(frame.width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(frame.height)
+                .ok()
+                .map(|height| width.saturating_mul(height).saturating_mul(4))
+        })
+        .unwrap_or(usize::MAX);
+
+    if frame.pixels.len() != expected_len || dst.len() != expected_len {
         return Err(AppError::UnexpectedFrameGeometry {
             width: frame.width,
             height: frame.height,
-            expected_width: SCREEN_WIDTH as u32,
-            expected_height: SCREEN_HEIGHT as u32,
+            expected_width: frame.width,
+            expected_height: frame.height,
         });
     }
 
-    let palette = frame.palette.as_ref().ok_or(AppError::MissingPalette)?;
-    for (index, rgba) in frame.pixels.iter().zip(target.chunks_exact_mut(4)) {
-        let value = palette[*index as usize];
-        rgba[0] = (value >> 24) as u8;
-        rgba[1] = (value >> 16) as u8;
-        rgba[2] = (value >> 8) as u8;
-        rgba[3] = value as u8;
+    dst.copy_from_slice(&frame.pixels);
+    Ok(())
+}
+
+impl Cli {
+    fn native_frame_ticks(&self) -> u64 {
+        match self.model {
+            ModelArg::Pal => u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            ModelArg::Ntsc => u64::from(TIMING_NTSC_BREADBIN.cycles_per_frame),
+        }
     }
 
-    Ok(())
+    fn frame_duration(&self) -> Duration {
+        c64_frame_duration(self.model)
+    }
+
+    fn window_title_base(&self) -> String {
+        match self.model {
+            ModelArg::Pal => "Emu198x Commodore 64 (PAL Breadbin)".to_owned(),
+            ModelArg::Ntsc => "Emu198x Commodore 64 (NTSC Breadbin)".to_owned(),
+        }
+    }
+}
+
+impl ModelArg {
+    const fn to_model(self) -> Model {
+        match self {
+            Self::Pal => Model::C64PalBreadbin,
+            Self::Ntsc => Model::C64NtscBreadbin,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1025,135 +1103,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_defaults_to_scale_two() {
-        let cli = parse_cli(std::iter::empty::<String>());
-
-        assert_eq!(
-            cli,
-            Cli {
-                rom: None,
-                tape: None,
-                play_tape: false,
-                autoload_tape: false,
-                turbo_tape: false,
-                scale: 2,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_rom_tape_and_scale() {
+    fn parse_cli_accepts_expected_flags() {
         let cli = parse_cli([
-            "--rom".to_owned(),
-            "48.rom".to_owned(),
-            "--tape".to_owned(),
-            "manic.zip".to_owned(),
-            "--play-tape".to_owned(),
-            "--scale".to_owned(),
-            "3".to_owned(),
+            "--model".to_string(),
+            "ntsc".to_string(),
+            "--rom-dir".to_string(),
+            "roms".to_string(),
+            "--load".to_string(),
+            "demo.bas".to_string(),
+            "--load-snapshot".to_string(),
+            "ready.c64.pst".to_string(),
+            "--scale".to_string(),
+            "3".to_string(),
         ]);
 
         assert_eq!(
             cli,
             Cli {
-                rom: Some(PathBuf::from("48.rom")),
-                tape: Some(PathBuf::from("manic.zip")),
-                play_tape: true,
-                autoload_tape: false,
-                turbo_tape: false,
+                model: ModelArg::Ntsc,
+                rom_dir: Some(PathBuf::from("roms")),
+                kernal: None,
+                basic: None,
+                chargen: None,
+                load: Some(PathBuf::from("demo.bas")),
+                load_snapshot: Some(PathBuf::from("ready.c64.pst")),
                 scale: 3,
             }
         );
     }
 
     #[test]
-    fn parse_cli_accepts_tape_autoload() {
-        let cli = parse_cli([
-            "--tape".to_owned(),
-            "manic.zip".to_owned(),
-            "--autoload-tape".to_owned(),
-        ]);
-
+    fn key_map_covers_cursors_and_shifted_function_keys() {
         assert_eq!(
-            cli,
-            Cli {
-                rom: None,
-                tape: Some(PathBuf::from("manic.zip")),
-                play_tape: false,
-                autoload_tape: true,
-                turbo_tape: false,
-                scale: 2,
-            }
+            map_c64_keys(KeyCode::ArrowLeft),
+            Some(&["lshift", "right"][..])
         );
-    }
-
-    #[test]
-    fn parse_cli_accepts_tape_turbo() {
-        let cli = parse_cli([
-            "--tape".to_owned(),
-            "manic.zip".to_owned(),
-            "--turbo-tape".to_owned(),
-        ]);
-
         assert_eq!(
-            cli,
-            Cli {
-                rom: None,
-                tape: Some(PathBuf::from("manic.zip")),
-                play_tape: false,
-                autoload_tape: false,
-                turbo_tape: true,
-                scale: 2,
-            }
+            map_c64_keys(KeyCode::ArrowUp),
+            Some(&["lshift", "down"][..])
         );
-    }
-
-    #[test]
-    fn parse_cli_accepts_positional_tape_path() {
-        let cli = parse_cli(["manic.zip".to_owned()]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                rom: None,
-                tape: Some(PathBuf::from("manic.zip")),
-                play_tape: false,
-                autoload_tape: false,
-                turbo_tape: false,
-                scale: 2,
-            }
-        );
-    }
-
-    #[test]
-    fn cursor_keys_map_to_game_key_aliases() {
-        assert_eq!(map_spectrum_keys(KeyCode::ArrowLeft), Some(&["5"][..]));
-        assert_eq!(map_spectrum_keys(KeyCode::ArrowUp), Some(&["7"][..]));
-        assert_eq!(map_spectrum_keys(KeyCode::ArrowRight), Some(&["8"][..]));
-        assert_eq!(map_spectrum_keys(KeyCode::AltLeft), Some(&["symbol"][..]));
-    }
-
-    #[test]
-    fn enter_maps_from_main_and_keypad_return() {
-        assert_eq!(map_spectrum_keys(KeyCode::Enter), Some(&["enter"][..]));
-        assert_eq!(
-            map_spectrum_keys(KeyCode::NumpadEnter),
-            Some(&["enter"][..])
-        );
-    }
-
-    #[test]
-    fn audio_conversion_duplicates_mono_to_stereo() {
-        let converted = convert_audio_packet(&[0.25, -0.5], 44_100, 1, 44_100, 2);
-
-        assert_eq!(converted, vec![0.25, 0.25, -0.5, -0.5]);
-    }
-
-    #[test]
-    fn audio_conversion_resamples_and_downmixes_to_output_rate() {
-        let converted =
-            convert_audio_packet(&[1.0, -1.0, -1.0, 1.0, 0.5, 0.5, -0.5, -0.5], 4, 2, 2, 1);
-
-        assert_eq!(converted, vec![0.0, 0.5]);
+        assert_eq!(map_c64_keys(KeyCode::F2), Some(&["lshift", "f1"][..]));
+        assert_eq!(map_c64_keys(KeyCode::F8), Some(&["lshift", "f7"][..]));
+        assert_eq!(map_c64_keys(KeyCode::Tab), Some(&["runstop"][..]));
+        assert_eq!(map_c64_keys(KeyCode::AltLeft), Some(&["commodore"][..]));
     }
 }

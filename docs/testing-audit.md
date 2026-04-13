@@ -186,17 +186,17 @@ crate inventory, see [inventory.md](inventory.md).
 
 ## Runnable Packages
 
-- `emu-spectrum`: `Strong`. Direct tests and overall system maturity give it a
+- `emu198x-spectrum`: `Strong`. Direct tests and overall system maturity give it a
   good runnable-surface baseline. Next: keep CLI, script, and MCP entry points
   explicitly covered as those features expand.
-- `emu-c64`: `Strong`. Large test surface supports both the system and the host-
+- `emu198x-c64`: `Strong`. Large test surface supports both the system and the host-
   facing runner behavior. Next: keep media-loading and batch-mode paths
   explicit.
-- `emu-nes`: `Good`. Direct tests now cover CLI validation, MCP helpers,
+- `emu198x-nes`: `Good`. Direct tests now cover CLI validation, MCP helpers,
   media-loading failure paths, minimal valid iNES loading, and headless capture
   mode promotion. Next: if the runner grows further, add more output-error and
   event-loop lifecycle coverage.
-- `emu-amiga`: `Good`. Direct tests now cover argument parsing, model-derived
+- `emu198x-amiga`: `Good`. Direct tests now cover argument parsing, model-derived
   chipset selection, help/error paths, and headless capture mode promotion.
   Next: expand workflow coverage further if the runner grows new host-facing
   features.
