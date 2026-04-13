@@ -52,7 +52,7 @@ Controls:
     F5                 hard reset
     F6                 start tape
     F7                 stop tape
-    Left/Down/Up/Right Spectrum cursor keys via Caps Shift combos
+    Left/Down/Up/Right host aliases for Spectrum 5/6/7/8 game keys
     Alt                Symbol Shift
 
 Examples:
@@ -670,14 +670,17 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Digit7 => &["7"],
         KeyCode::Digit8 => &["8"],
         KeyCode::Digit9 => &["9"],
-        KeyCode::Enter => &["enter"],
+        KeyCode::Enter | KeyCode::NumpadEnter => &["enter"],
         KeyCode::Space => &["space"],
         KeyCode::ShiftLeft | KeyCode::ShiftRight => &["caps"],
         KeyCode::AltLeft | KeyCode::AltRight => &["symbol"],
-        KeyCode::ArrowLeft => &["caps", "5"],
-        KeyCode::ArrowDown => &["caps", "6"],
-        KeyCode::ArrowUp => &["caps", "7"],
-        KeyCode::ArrowRight => &["caps", "8"],
+        // Host arrow keys are gameplay aliases for 5/6/7/8 in the minimal
+        // verifier shell. Synthesizing literal Caps Shift cursor combos causes
+        // false extra controls in games that read the matrix directly.
+        KeyCode::ArrowLeft => &["5"],
+        KeyCode::ArrowDown => &["6"],
+        KeyCode::ArrowUp => &["7"],
+        KeyCode::ArrowRight => &["8"],
         KeyCode::Backspace => &["caps", "0"],
         KeyCode::Quote => &["symbol", "p"],
         _ => return None,
@@ -770,15 +773,19 @@ mod tests {
     }
 
     #[test]
-    fn cursor_keys_expand_to_caps_shift_combos() {
-        assert_eq!(
-            map_spectrum_keys(KeyCode::ArrowLeft),
-            Some(&["caps", "5"][..])
-        );
-        assert_eq!(
-            map_spectrum_keys(KeyCode::ArrowUp),
-            Some(&["caps", "7"][..])
-        );
+    fn cursor_keys_map_to_game_key_aliases() {
+        assert_eq!(map_spectrum_keys(KeyCode::ArrowLeft), Some(&["5"][..]));
+        assert_eq!(map_spectrum_keys(KeyCode::ArrowUp), Some(&["7"][..]));
+        assert_eq!(map_spectrum_keys(KeyCode::ArrowRight), Some(&["8"][..]));
         assert_eq!(map_spectrum_keys(KeyCode::AltLeft), Some(&["symbol"][..]));
+    }
+
+    #[test]
+    fn enter_maps_from_main_and_keypad_return() {
+        assert_eq!(map_spectrum_keys(KeyCode::Enter), Some(&["enter"][..]));
+        assert_eq!(
+            map_spectrum_keys(KeyCode::NumpadEnter),
+            Some(&["enter"][..])
+        );
     }
 }
