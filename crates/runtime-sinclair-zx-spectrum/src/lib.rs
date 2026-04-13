@@ -156,6 +156,7 @@ mod tests {
     use std::path::PathBuf;
 
     const MANIC_MINER_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip";
+    const JET_SET_WILLY_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Jet Set Willy (1984)(Software Projects).zip";
 
     #[test]
     fn profile_ids_are_unique() {
@@ -703,6 +704,80 @@ mod tests {
         assert!(loaded.matched_text.contains("MANIC MINER"));
     }
 
+    #[test]
+    #[ignore = "requires local 48K ROM and Jet Set Willy TZX zip"]
+    fn spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx() {
+        let Some(rom_path) = spectrum_48k_rom_path() else {
+            eprintln!("HOME is not set; skipping ROM-backed Jet Set Willy load test");
+            return;
+        };
+        let Some(tape_path) = spectrum_jet_set_willy_tzx_path() else {
+            eprintln!(
+                "Jet Set Willy TZX zip not found; set EMU198X_SPECTRUM_JET_SET_WILLY_TZX or place it at {}",
+                JET_SET_WILLY_TZX_ZIP_PATH
+            );
+            return;
+        };
+
+        if !rom_path.is_file() {
+            eprintln!("ROM not found at {}", rom_path.display());
+            return;
+        }
+
+        let rom = match fs::read(&rom_path) {
+            Ok(rom) => rom,
+            Err(err) => panic!("failed to read {}: {err}", rom_path.display()),
+        };
+        let tape = match read_media_asset(&tape_path, MediaKind::Tape) {
+            Ok(tape) => tape,
+            Err(err) => panic!("failed to read {}: {err}", tape_path.display()),
+        };
+
+        let runtime = Spectrum48kRuntime::from_rom_bytes(&rom)
+            .expect("48K ROM path should contain a valid 16 KiB image");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_48K.halfcycles_per_frame),
+            SpectrumSessionQueryProvider,
+        );
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &tape.bytes));
+        session
+            .load_media(&media)
+            .expect("zipped Jet Set Willy TZX should load into the tape deck");
+
+        let boot = session
+            .wait_for_boot(250)
+            .expect("48K ROM should reach boot detection within 250 frames");
+        assert_eq!(boot.row, Some(23));
+
+        tap_key(&mut session, "enter");
+        tap_key(&mut session, "j");
+        tap_symbol_combo(&mut session, "p");
+        tap_symbol_combo(&mut session, "p");
+        tap_key(&mut session, "enter");
+        session
+            .run_frames(10)
+            .expect("typed load command should settle before tape start");
+
+        session
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("tape transport should start");
+
+        let loaded = session
+            .wait_for_query_text_contains(
+                "screen.text.lines",
+                "Enter Code at grid location",
+                12_000,
+            )
+            .expect("Jet Set Willy should reach the copy-protection code screen");
+        assert_eq!(loaded.line, Some(8));
+        assert!(loaded.matched_text.contains("Enter Code at grid location"));
+    }
+
     fn minimal_tap() -> Vec<u8> {
         let mut tap = vec![0x13, 0x00];
         tap.push(0x00);
@@ -725,6 +800,18 @@ mod tests {
         }
 
         let default = PathBuf::from(MANIC_MINER_TZX_ZIP_PATH);
+        default.is_file().then_some(default)
+    }
+
+    fn spectrum_jet_set_willy_tzx_path() -> Option<PathBuf> {
+        let env_path = std::env::var_os("EMU198X_SPECTRUM_JET_SET_WILLY_TZX")
+            .map(PathBuf::from)
+            .filter(|path| path.is_file());
+        if env_path.is_some() {
+            return env_path;
+        }
+
+        let default = PathBuf::from(JET_SET_WILLY_TZX_ZIP_PATH);
         default.is_file().then_some(default)
     }
 

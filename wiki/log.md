@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Jet Set Willy joins the ROM-backed Spectrum software regressions
+
+**Type:** milestone
+**Trigger:** After Manic Miner became a real end-to-end tape regression, the next useful Spectrum software target needed to cover a different post-load path instead of just another early title-screen success.
+**Result:** `runtime-sinclair-zx-spectrum` now has a second ignored ROM-backed tape regression for the original Jet Set Willy TZX:
+1. Added a local fixture lookup for `Jet Set Willy (1984)(Software Projects).zip`.
+2. Added an ignored test that boots the real 48K ROM, types `LOAD ""`, starts the tape, and waits for the copy-protection code screen text `Enter Code at grid location`.
+3. Verified that this is a better automated target than the cracked image for now. The original build exposes a stable decoded text screen; the cracked build reaches a stopped post-load state, but its stylized title screen is not currently a strong text-query target.
+**Verification:** `cargo test -p runtime-sinclair-zx-spectrum spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx -- --ignored --nocapture`, `cargo test -p runtime-sinclair-zx-spectrum`, and `cargo clippy -p runtime-sinclair-zx-spectrum --all-targets -- -D warnings` all pass locally.
+**Next dependency:** Knight Lore and Atic Atac are still good manual/UI targets, but they need either a later post-load assertion or a different observable than decoded text before they become strong headless regressions.
+
+---
+
 ## 2026-04-13 — Spectrum verifier shell now plays live beeper and tape audio
 
 **Type:** milestone
