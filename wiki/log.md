@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Native C64 tape controls now reuse the same runtime autoload path
+
+**Type:** milestone
+**Trigger:** Once the headless C64 path could insert TAP media, drive real `SHIFT+RUN/STOP`, and prove a ROM-backed Thinker load, the native verifier shell still lagged behind. It could boot and import host-side files, but it had no equivalent tape insertion or autoload workflow above the same runtime boundary.
+**Result:** `emu198x-c64` now speaks the same tape control language as the headless runner instead of inventing a UI-only path:
+1. Added startup `--tape`, `--autoload-tape`, and `--start-tape` handling in the native shell, with the same conflict rules and media loading semantics as `emu198x-script-c64`.
+2. Added live `F9` start, `F10` stop, and `F11` autoload controls. `F11` routes through `runtime-commodore-c64::autoload_basic_tape()` over a temporary `HeadlessSession`, so it still drives the real KERNAL prompt and datasette transport instead of synthesizing machine state.
+3. Updated the native window title and shell help so tape state is visible (`tape playing`, `tape loaded`, or `no tape`) and the verifier workflow is discoverable.
+4. Added CLI coverage for the new tape flags in `emu198x-c64` tests.
+**Verification:** `cargo fmt --all`, `cargo test -p emu198x-c64 -p runtime-commodore-c64`, `cargo clippy -p emu198x-c64 --all-targets -- -D warnings`, and `cargo run -p emu198x-c64 -- --help` all pass locally.
+**Next dependency:** the next honest C64 tape milestone is a native-shell regression target or additional real software validation above the same TAP path, not a second UI-only media flow.
+
+---
+
 ## 2026-04-13 — C64 tape autoload now drives the real KERNAL path, and Thinker reaches post-load READY.
 
 **Type:** milestone

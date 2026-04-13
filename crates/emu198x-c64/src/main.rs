@@ -1,9 +1,9 @@
 //! `emu198x-c64` — minimal native Commodore 64 verification shell.
 //!
 //! This is intentionally narrow: one PAL/NTSC breadbin window, optional
-//! startup snapshot/program import, direct keyboard input, hard reset, and live
-//! audio/video over the existing runtime. It does not introduce a parallel
-//! emulation stack or fake media behavior.
+//! startup snapshot/program/tape import, direct keyboard input, hard reset,
+//! optional tape autoload, and live audio/video over the existing runtime. It
+//! does not introduce a parallel emulation stack or fake media behavior.
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -17,14 +17,17 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
-    AudioPacket, AudioSink, BootArtifacts, CapturedFrame, FirmwareImage, FirmwareSet,
-    HeadlessSession, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError,
+    AudioPacket, AudioSink, BootArtifacts, CapturedFrame, ControlCommand, FirmwareImage,
+    FirmwareSet, HeadlessSession, HostIo, InputEvent, LatestFrameCapture, MachineCore,
+    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
     NullTraceSink, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
-    SessionQueryProvider, boot_machine, read_firmware_asset, read_program_asset,
+    SessionQueryProvider, boot_machine, read_firmware_asset, read_media_asset, read_program_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, Model, file_loader::load_host_file,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_tape,
+    file_loader::load_host_file,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -54,12 +57,18 @@ Options:
     --chargen PATH       override character ROM path
     --model MODEL        pal or ntsc [default: pal]
     --load PATH          import one .prg or plain-text .bas file after boot
+    --tape PATH          insert one TAP image into datasette slot at startup
+    --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
+    --start-tape         start the inserted tape immediately at startup
     --load-snapshot PATH restore a runtime snapshot before starting
     --scale N            integer window scale, default 2
     --help, -h           show this help
 
 Controls:
     Esc                  quit
+    F9                   start tape
+    F10                  stop tape
+    F11                  autoload inserted tape
     F12                  hard reset
     Arrow keys           C64 cursor keys
     F1-F8                C64 function keys
@@ -69,6 +78,7 @@ Controls:
 Examples:
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape
     emu198x-c64 --load-snapshot ready.c64.pst
 ";
 
@@ -80,6 +90,9 @@ struct Cli {
     basic: Option<PathBuf>,
     chargen: Option<PathBuf>,
     load: Option<PathBuf>,
+    tape: Option<PathBuf>,
+    autoload_tape: bool,
+    start_tape: bool,
     load_snapshot: Option<PathBuf>,
     scale: u32,
 }
@@ -150,6 +163,7 @@ enum AppError {
 }
 
 struct C64Runner {
+    model: Model,
     runtime: C64Runtime,
     query_provider: C64SessionQueryProvider,
     frame_capture: LatestFrameCapture,
@@ -163,6 +177,17 @@ struct C64Runner {
 
 impl C64Runner {
     fn from_cli(cli: &Cli) -> Result<Self, AppError> {
+        if cli.autoload_tape && cli.start_tape {
+            return Err(AppError::Setup {
+                reason: "--autoload-tape conflicts with --start-tape".to_owned(),
+            });
+        }
+        if (cli.autoload_tape || cli.start_tape) && cli.tape.is_none() {
+            return Err(AppError::Setup {
+                reason: "--autoload-tape and --start-tape require --tape PATH".to_owned(),
+            });
+        }
+
         let machine = boot_runtime(cli).map_err(|reason| AppError::Setup { reason })?;
         let native_frame_ticks = cli.native_frame_ticks();
         let mut session = HeadlessSession::new_with_query_provider(
@@ -170,6 +195,39 @@ impl C64Runner {
             native_frame_ticks,
             C64SessionQueryProvider,
         );
+
+        if let Some(path) = &cli.tape {
+            let loaded =
+                read_media_asset(path, MediaKind::Tape).map_err(|err| AppError::Setup {
+                    reason: format!("failed to load tape asset {}: {err}", path.display()),
+                })?;
+            let mut media = MediaSet::new();
+            media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+            session.load_media(&media).map_err(|err| AppError::Setup {
+                reason: format!("tape load failed: {err}"),
+            })?;
+        }
+
+        if cli.autoload_tape {
+            autoload_basic_tape(
+                &mut session,
+                DEFAULT_TAPE_AUTOLOAD_SLOT,
+                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+                DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+            )
+            .map_err(|err| AppError::Setup {
+                reason: format!("tape autoload failed: {err}"),
+            })?;
+        } else if cli.start_tape {
+            session
+                .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                    DEFAULT_TAPE_AUTOLOAD_SLOT,
+                    MediaTransportAction::Start,
+                )))
+                .map_err(|err| AppError::Setup {
+                    reason: format!("failed to start tape transport: {err}"),
+                })?;
+        }
 
         if let Some(path) = &cli.load {
             let _ = session.wait_for_boot(DEFAULT_IMPORT_BOOT_FRAMES)?;
@@ -185,6 +243,7 @@ impl C64Runner {
         let frame_height = runtime.machine().vic().framebuffer_height();
         let audio_output = C64AudioOutput::new(runtime.machine().audio_sample_rate())?;
         let mut runner = Self {
+            model: cli.model.to_model(),
             runtime,
             query_provider: C64SessionQueryProvider,
             frame_capture: LatestFrameCapture::default(),
@@ -264,13 +323,78 @@ impl C64Runner {
             .unwrap_or(false)
     }
 
+    fn tape_loaded(&self) -> bool {
+        self.runtime.machine().tape_is_loaded()
+    }
+
+    fn tape_playing(&self) -> bool {
+        self.runtime.machine().tape_is_playing()
+    }
+
+    fn start_tape(&mut self) -> Result<(), AppError> {
+        self.runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                DEFAULT_TAPE_AUTOLOAD_SLOT,
+                MediaTransportAction::Start,
+            )))?;
+        self.run_frame(&[])?;
+        Ok(())
+    }
+
+    fn stop_tape(&mut self) -> Result<(), AppError> {
+        self.runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                DEFAULT_TAPE_AUTOLOAD_SLOT,
+                MediaTransportAction::Stop,
+            )))?;
+        self.run_frame(&[])?;
+        Ok(())
+    }
+
+    fn autoload_tape(&mut self) -> Result<(), AppError> {
+        if !self.tape_loaded() {
+            return Err(AppError::Setup {
+                reason: "no tape is inserted in slot tape-1".to_owned(),
+            });
+        }
+
+        let runtime = std::mem::replace(&mut self.runtime, C64Runtime::blank(self.model));
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            self.native_frame_ticks,
+            C64SessionQueryProvider,
+        );
+        let result = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        );
+        self.runtime = session.into_machine();
+        result.map_err(|err| AppError::Setup {
+            reason: format!("tape autoload failed: {err}"),
+        })?;
+        self.last_run_result = None;
+        self.frame_capture = LatestFrameCapture::default();
+        self.audio_output.clear();
+        self.run_frame(&[])?;
+        Ok(())
+    }
+
     fn window_title(&self) -> String {
         let boot = if self.query_bool("boot.detected") {
             "booted"
         } else {
             "booting"
         };
-        format!("{} | {}", self.title_base, boot)
+        let tape = if self.tape_playing() {
+            "tape playing"
+        } else if self.tape_loaded() {
+            "tape loaded"
+        } else {
+            "no tape"
+        };
+        format!("{} | {} | {}", self.title_base, boot, tape)
     }
 }
 
@@ -640,13 +764,26 @@ impl C64App {
         pressed: bool,
     ) -> bool {
         if !pressed {
-            return matches!(code, KeyCode::Escape | KeyCode::F12);
+            return matches!(
+                code,
+                KeyCode::Escape | KeyCode::F9 | KeyCode::F10 | KeyCode::F11 | KeyCode::F12
+            );
         }
 
         let result = match code {
             KeyCode::Escape => {
                 event_loop.exit();
                 return true;
+            }
+            KeyCode::F9 => self.runner.start_tape(),
+            KeyCode::F10 => self.runner.stop_tape(),
+            KeyCode::F11 => {
+                if !self.runner.tape_loaded() {
+                    eprintln!("No tape is inserted.");
+                    return true;
+                }
+                self.release_all_keys();
+                self.runner.autoload_tape()
             }
             KeyCode::F12 => {
                 self.release_all_keys();
@@ -745,7 +882,7 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F12 reset.");
+    println!("Controls: Esc quit, F9 start tape, F10 stop tape, F11 autoload tape, F12 reset.");
 
     let runner = C64Runner::from_cli(&cli)?;
     let mut app = C64App::new(runner, cli.scale)?;
@@ -777,6 +914,9 @@ where
             "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
             "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
             "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
+            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--autoload-tape" => cli.autoload_tape = true,
+            "--start-tape" => cli.start_tape = true,
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -1147,8 +1287,37 @@ mod tests {
                 basic: None,
                 chargen: None,
                 load: Some(PathBuf::from("demo.bas")),
+                tape: None,
+                autoload_tape: false,
+                start_tape: false,
                 load_snapshot: Some(PathBuf::from("ready.c64.pst")),
                 scale: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_tape_flags() {
+        let cli = parse_cli([
+            "--tape".to_string(),
+            "game.tap".to_string(),
+            "--autoload-tape".to_string(),
+        ]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                model: ModelArg::Pal,
+                rom_dir: None,
+                kernal: None,
+                basic: None,
+                chargen: None,
+                load: None,
+                tape: Some(PathBuf::from("game.tap")),
+                autoload_tape: true,
+                start_tape: false,
+                load_snapshot: None,
+                scale: DEFAULT_SCALE,
             }
         );
     }

@@ -122,8 +122,17 @@ Example:
 ```bash
 cargo run -p emu198x-c64 -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
-  --load demo.bas
+  --tape game.tap \
+  --autoload-tape
 ```
+
+Live controls:
+
+- `Esc` quit
+- `F9` start tape
+- `F10` stop tape
+- `F11` autoload inserted tape via real `SHIFT+RUN/STOP`
+- `F12` hard reset
 
 ### Spectrum 48K headless runner
 
