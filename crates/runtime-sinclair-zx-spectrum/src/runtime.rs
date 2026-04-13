@@ -20,6 +20,7 @@ use crate::{Model, profile_for};
 const SPECTRUM_QUERY_PATHS: &[&str] = &[
     "spectrum.keyboard.rows",
     "spectrum.machine.half_cycle_in_frame",
+    "spectrum.machine.tstate_in_frame",
     "spectrum.machine.issue",
     "spectrum.tape.loaded",
     "spectrum.tape.playing",
@@ -170,6 +171,7 @@ impl SessionQueryProvider<Spectrum48kRuntime> for SpectrumSessionQueryProvider {
         let value = match path {
             "spectrum.keyboard.rows" => json!(machine.machine().keyboard().rows()),
             "spectrum.machine.half_cycle_in_frame" => json!(machine.machine().hc()),
+            "spectrum.machine.tstate_in_frame" => json!(machine.machine().tstate_in_frame()),
             "spectrum.machine.issue" => json!(board_issue_name(machine.machine().issue())),
             "spectrum.tape.loaded" => json!(machine.machine().tape_is_loaded()),
             "spectrum.tape.playing" => json!(machine.machine().tape_is_playing()),

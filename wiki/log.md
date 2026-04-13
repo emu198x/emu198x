@@ -4,6 +4,23 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Spectrum 48K machine loop now has normal-CI contention proofs
+
+**Type:** milestone
+**Trigger:** After the Z80 branch/contention fix was verified against FUSE, Tom Harte, `zexdoc`, and `zexall`, the remaining risk moved back up one level: we still needed proof that the fresh Spectrum 48K machine loop was actually exposing those bus patterns through the ULA-driven clocking model, not just inside the CPU in isolation.
+**Result:** `machine-sinclair-zx-spectrum-48k` now has deterministic timing and trace coverage at machine level:
+1. Added exact stepping helpers on the concrete 48K machine for half-cycles, T-states, and current frame-local T-state position. This stays below the shared runtime contract, but gives the machine crate a reusable deterministic timing surface for verification work.
+2. Added Spectrum machine-loop trace helpers in the test module that record the real bus state seen after each CPU half-cycle under the ULA-driven outer loop.
+3. Added a contention integration test proving that active-display fetches from contended RAM insert real CPU-clock gaps, while the same fetches from uncontended RAM do not.
+4. Added machine-level regression tests for not-taken `DJNZ` and not-taken `JR cc` showing the fresh Spectrum loop now exposes the correct fallthrough behaviour:
+   - a contended `PC` cycle with `MREQ` active and no read strobe
+   - no displacement-byte memory read on the not-taken path
+5. Exposed `spectrum.machine.tstate_in_frame` through the Spectrum query provider so headless scripts and future tooling can observe the machine timing state directly instead of inferring it from half-cycles.
+**Verification:** `cargo test -p machine-sinclair-zx-spectrum-48k`, `cargo test -p runtime-sinclair-zx-spectrum`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass.
+**Next dependency:** the next useful step is a stronger ROM- or software-driven system check that uses this verified timing surface to validate real Spectrum execution under display contention, rather than only synthetic instruction traces.
+
+---
+
 ## 2026-04-12 — FUSE exact-trace verification is now live, and relative-branch contention is corrected
 
 **Type:** milestone

@@ -379,18 +379,24 @@ mod tests {
                 MediaTransportAction::Start,
             )))
             .expect("tape start command should succeed");
+        runtime.machine_mut().advance_tstates(9);
         let provider = SpectrumSessionQueryProvider;
 
         let issue = provider
             .query(&runtime, "spectrum.machine.issue")
             .expect("issue query should resolve")
             .expect("provider should own issue path");
+        let tstate = provider
+            .query(&runtime, "spectrum.machine.tstate_in_frame")
+            .expect("tstate query should resolve")
+            .expect("provider should own tstate path");
         let tape = provider
             .query(&runtime, "spectrum.tape.playing")
             .expect("tape query should resolve")
             .expect("provider should own tape path");
 
         assert_eq!(issue.value, serde_json::json!("issue3"));
+        assert_eq!(tstate.value, serde_json::json!(9));
         assert_eq!(tape.value, serde_json::json!(true));
     }
 

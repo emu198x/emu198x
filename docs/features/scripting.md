@@ -132,6 +132,7 @@ The current Spectrum runner adds:
 
 - `spectrum.keyboard.rows`
 - `spectrum.machine.half_cycle_in_frame`
+- `spectrum.machine.tstate_in_frame`
 - `spectrum.machine.issue`
 - `spectrum.tape.loaded`
 - `spectrum.tape.playing`

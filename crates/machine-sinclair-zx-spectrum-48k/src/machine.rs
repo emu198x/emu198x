@@ -187,6 +187,12 @@ impl Spectrum48k {
         self.hc
     }
 
+    /// Returns the current T-state position within the frame.
+    #[must_use]
+    pub const fn tstate_in_frame(&self) -> u32 {
+        TIMING_48K.hc_to_tstates(self.hc)
+    }
+
     /// Loads a 16 KiB ROM image.
     ///
     /// # Errors
@@ -382,6 +388,21 @@ impl Spectrum48k {
         self.end_frame();
     }
 
+    /// Advances the machine by an exact number of master-clock half-cycles.
+    pub fn advance_halfcycles(&mut self, halfcycles: u32) {
+        for _ in 0..halfcycles {
+            self.tick_halfcycle();
+            if self.hc >= TIMING_48K.halfcycles_per_frame {
+                self.end_frame();
+            }
+        }
+    }
+
+    /// Advances the machine by an exact number of CPU T-states.
+    pub fn advance_tstates(&mut self, tstates: u32) {
+        self.advance_halfcycles(TIMING_48K.tstates_to_hc(tstates));
+    }
+
     fn handle_bus(&mut self) {
         if self.z80.mreq && self.z80.rd {
             self.z80.data_in = self.memory.read(self.z80.addr);
@@ -421,7 +442,7 @@ impl Spectrum48k {
     }
 
     fn current_tstate(&self) -> u32 {
-        TIMING_48K.hc_to_tstates(self.hc)
+        self.tstate_in_frame()
     }
 
     fn speaker_level(&self) -> f32 {
@@ -479,16 +500,6 @@ impl Spectrum48k {
         self.audio.end_frame(&mut self.audio_frame);
         self.hc -= TIMING_48K.halfcycles_per_frame;
     }
-
-    #[cfg(test)]
-    fn advance_halfcycles(&mut self, halfcycles: u32) {
-        for _ in 0..halfcycles {
-            self.tick_halfcycle();
-            if self.hc >= TIMING_48K.halfcycles_per_frame {
-                self.end_frame();
-            }
-        }
-    }
 }
 
 impl Default for Spectrum48k {
@@ -521,6 +532,88 @@ mod tests {
     use crate::keyboard::SpectrumKey;
     use std::fs;
     use std::path::PathBuf;
+
+    #[derive(Clone, Copy, Debug)]
+    struct CpuTraceSample {
+        hc: u32,
+        addr: u16,
+        mreq: bool,
+        iorq: bool,
+        rd: bool,
+        wr: bool,
+        m1: bool,
+    }
+
+    fn configure_machine_for_timing_test(machine: &mut Spectrum48k, pc: u16) {
+        machine.advance_tstates(TIMING_48K.contention_start_tstate);
+        machine.z80 = Z80::new();
+        machine.z80.regs.pc = pc;
+        machine.z80.regs.sp = 0xffff;
+    }
+
+    fn trace_until_fetch(
+        machine: &mut Spectrum48k,
+        fetch_addr: u16,
+        max_halfcycles: u32,
+    ) -> Vec<CpuTraceSample> {
+        let mut trace = Vec::new();
+
+        for _ in 0..max_halfcycles {
+            if let Some(sample) = advance_halfcycle_with_trace(machine) {
+                trace.push(sample);
+                if sample.m1 && sample.addr == fetch_addr {
+                    return trace;
+                }
+            }
+        }
+
+        panic!(
+            "timed out waiting for opcode fetch at {fetch_addr:#06x}; captured {} CPU samples",
+            trace.len()
+        );
+    }
+
+    fn advance_halfcycle_with_trace(machine: &mut Spectrum48k) -> Option<CpuTraceSample> {
+        let mut sample = None;
+
+        if machine.hc & 1 == 0 {
+            machine.ula.tick(
+                &machine.memory,
+                machine.z80.addr,
+                machine.z80.mreq,
+                machine.z80.iorq,
+                &mut machine.framebuffer,
+            );
+
+            if machine.ula.cpu_clock_active() {
+                machine.z80.tick();
+                machine.handle_bus();
+                sample = Some(CpuTraceSample {
+                    hc: machine.hc,
+                    addr: machine.z80.addr,
+                    mreq: machine.z80.mreq,
+                    iorq: machine.z80.iorq,
+                    rd: machine.z80.rd,
+                    wr: machine.z80.wr,
+                    m1: machine.z80.m1,
+                });
+            }
+
+            machine.z80.irq = machine.ula.interrupt_active();
+
+            if machine.hc % 4 == 2 {
+                machine.tape.advance_tstates(1);
+                machine.sync_ear_level();
+            }
+        }
+
+        machine.hc += 1;
+        if machine.hc >= TIMING_48K.halfcycles_per_frame {
+            machine.end_frame();
+        }
+
+        sample
+    }
 
     #[test]
     fn machine_defaults_to_issue3() {
@@ -623,6 +716,99 @@ mod tests {
         machine.advance_halfcycles(8);
         assert!(!machine.tape_is_playing());
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+    }
+
+    #[test]
+    fn advance_tstates_tracks_frame_tstate_position() {
+        let mut machine = Spectrum48k::new();
+
+        machine.advance_tstates(7);
+        assert_eq!(machine.tstate_in_frame(), 7);
+
+        machine.advance_tstates(5);
+        assert_eq!(machine.tstate_in_frame(), 12);
+    }
+
+    #[test]
+    fn contended_ram_fetch_inserts_cpu_clock_gaps_during_active_display() {
+        let mut contended = Spectrum48k::new();
+        configure_machine_for_timing_test(&mut contended, 0x4000);
+        for addr in 0x4000..=0x4004 {
+            contended.write(addr, 0x00);
+        }
+
+        let contended_trace = trace_until_fetch(&mut contended, 0x4004, 2_048);
+
+        let mut uncontended = Spectrum48k::new();
+        configure_machine_for_timing_test(&mut uncontended, 0x8000);
+        for addr in 0x8000..=0x8004 {
+            uncontended.write(addr, 0x00);
+        }
+
+        let uncontended_trace = trace_until_fetch(&mut uncontended, 0x8004, 2_048);
+
+        assert!(
+            contended_trace
+                .windows(2)
+                .any(|pair| pair[1].hc.saturating_sub(pair[0].hc) > 2),
+            "expected contended instruction fetch to stall the CPU clock"
+        );
+        assert!(
+            uncontended_trace
+                .windows(2)
+                .all(|pair| pair[1].hc.saturating_sub(pair[0].hc) == 2),
+            "expected uncontended instruction fetch to advance on every CPU half-cycle"
+        );
+    }
+
+    #[test]
+    fn not_taken_djnz_uses_mreq_only_fallthrough_cycle() {
+        let mut machine = Spectrum48k::new();
+        configure_machine_for_timing_test(&mut machine, 0x4000);
+        machine.z80.regs.set_b(1);
+        machine.write(0x4000, 0x10);
+        machine.write(0x4001, 0xfd);
+        machine.write(0x4002, 0x00);
+
+        let trace = trace_until_fetch(&mut machine, 0x4002, 1024);
+
+        assert!(
+            trace.iter().any(|sample| {
+                sample.addr == 0x4001 && sample.mreq && !sample.rd && !sample.wr && !sample.iorq
+            }),
+            "expected DJNZ fallthrough to expose a contended PC cycle at the displacement address"
+        );
+        assert!(
+            !trace
+                .iter()
+                .any(|sample| sample.addr == 0x4001 && sample.mreq && sample.rd),
+            "not-taken DJNZ must not read the displacement byte"
+        );
+    }
+
+    #[test]
+    fn not_taken_jr_cc_uses_mreq_only_fallthrough_cycle() {
+        let mut machine = Spectrum48k::new();
+        configure_machine_for_timing_test(&mut machine, 0x4000);
+        machine.z80.regs.set_f(0x00);
+        machine.write(0x4000, 0x28);
+        machine.write(0x4001, 0x02);
+        machine.write(0x4002, 0x00);
+
+        let trace = trace_until_fetch(&mut machine, 0x4002, 1024);
+
+        assert!(
+            trace.iter().any(|sample| {
+                sample.addr == 0x4001 && sample.mreq && !sample.rd && !sample.wr && !sample.iorq
+            }),
+            "expected not-taken JR cc to expose a contended PC cycle at the displacement address"
+        );
+        assert!(
+            !trace
+                .iter()
+                .any(|sample| sample.addr == 0x4001 && sample.mreq && sample.rd),
+            "not-taken JR cc must not read the displacement byte"
+        );
     }
 
     #[test]
