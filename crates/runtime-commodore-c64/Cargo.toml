@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64" }
 emu198x-shell = { path = "../emu198x-shell" }
+format-commodore-c64-bas = { path = "../format-commodore-c64-bas" }
 machine-commodore-c64 = { path = "../machine-commodore-c64" }
 postcard = { workspace = true }
 serde = { workspace = true }

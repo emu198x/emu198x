@@ -68,6 +68,41 @@ transport on `tape-1`. It is not an instant-loader shortcut.
 steps, so it can block on a real tape load finishing before extra frame
 execution or capture.
 
+C64 currently exposes a narrower software-import surface:
+
+```bash
+cargo run -p emu198x-script-c64 -- \
+  --rom-dir ~/.emu198x/roms/commodore-c64 \
+  --load demo.bas \
+  --save-snapshot demo.c64.pst
+```
+
+You can combine `--script` with normal C64 runner flags such as:
+
+- `--rom-dir DIR`
+- `--kernal PATH`
+- `--basic PATH`
+- `--chargen PATH`
+- `--model pal|ntsc`
+- `--load PATH`
+- `--load-snapshot PATH`
+- `--save-snapshot PATH`
+- `--wait-for-boot N`
+- `--screenshot PATH`
+- `--frames N`
+
+`--load PATH` is currently a C64-specific host convenience above the runtime
+boundary:
+
+- `.prg` files are imported directly into RAM using their declared load address
+- `.bas` files are treated as UTF-8 plain-text BASIC source, tokenised, then
+  imported as a BASIC program
+
+This is not emulated tape or disk loading. It is a fast host-side software
+injection path for development, scripting, and future editor workflows. The
+same concept will likely exist for other families later, but tokenisation and
+editor semantics remain family-specific.
+
 ## Script Format
 
 A script file is a JSON array of shared steps. Each step uses an `action` field
@@ -177,10 +212,10 @@ It also adds these family-specific paths:
 
 ## Output
 
-When `--script PATH` is used, the Spectrum runner writes one JSON report to
+When `--script PATH` is used, the current runners write one JSON report to
 stdout after the run finishes.
 
-Current shape:
+Current Spectrum shape:
 
 ```json
 {

@@ -3,6 +3,7 @@
 //! This crate currently owns the C64 family profile catalogue for the fresh
 //! workspace and the first firmware-backed C64 runtime surface.
 
+pub mod file_loader;
 mod runtime;
 
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};

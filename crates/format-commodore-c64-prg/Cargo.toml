@@ -1,0 +1,9 @@
+[package]
+name = "format-commodore-c64-prg"
+description = "Commodore 64 PRG parser and direct RAM loader"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

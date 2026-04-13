@@ -730,6 +730,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
+name = "format-commodore-c64-bas"
+version = "0.1.0"
+
+[[package]]
+name = "format-commodore-c64-prg"
+version = "0.1.0"
+
+[[package]]
 name = "format-sinclair-zx-spectrum-tap"
 version = "0.1.0"
 
@@ -1147,6 +1155,7 @@ name = "machine-commodore-c64"
 version = "0.1.0"
 dependencies = [
  "common-commodore-c64",
+ "format-commodore-c64-prg",
  "mos-6502",
  "mos-cia-6526",
  "mos-vic-ii",
@@ -1920,6 +1929,7 @@ version = "0.1.0"
 dependencies = [
  "common-commodore-c64",
  "emu198x-shell",
+ "format-commodore-c64-bas",
  "machine-commodore-c64",
  "postcard",
  "serde",

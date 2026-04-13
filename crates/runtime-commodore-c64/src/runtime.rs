@@ -168,6 +168,17 @@ impl C64Runtime {
         self.time
     }
 
+    /// Imports one PRG byte stream into raw RAM and returns its load address.
+    ///
+    /// This is a host-side convenience path, not emulated media.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PRG header is malformed.
+    pub fn load_prg_bytes(&mut self, data: &[u8]) -> Result<u16, String> {
+        self.machine.load_prg(data)
+    }
+
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {
         self.machine = build_machine(
             self.model,

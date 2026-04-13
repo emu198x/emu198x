@@ -1,5 +1,6 @@
 //! C64 memory subsystem with 6510-controlled banking.
 
+use format_commodore_c64_prg::RamAccess;
 use mos_vic_ii::VicMemory;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -272,6 +273,16 @@ impl VicMemory for C64Memory {
 
     fn read_colour(&self, offset: u16) -> u8 {
         self.colour_ram_read(offset)
+    }
+}
+
+impl RamAccess for C64Memory {
+    fn ram_read(&self, addr: u16) -> u8 {
+        self.ram_read(addr)
+    }
+
+    fn ram_write(&mut self, addr: u16, val: u8) {
+        self.ram_write(addr, val);
     }
 }
 

@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — C64 headless runner now imports PRG and plain-text BASIC
+
+**Type:** milestone
+**Trigger:** Once the fresh-workspace C64 had a booted runtime, snapshots, and a headless runner, the next practical gap was software injection. The immediate need was developer-grade program loading, including plain-text BASIC source rather than only pre-tokenised artifacts.
+**Result:** the C64 host workflow now has an explicit software-import path above the runtime boundary:
+1. Added `format-commodore-c64-prg`, which parses PRG files, imports them into RAM through a narrow `RamAccess` trait, and relinks BASIC pointers when the load address is `$0801`.
+2. Added `format-commodore-c64-bas`, which tokenises UTF-8 plain-text Commodore BASIC source into PRG bytes without pretending that source import is a shared cross-family format concern.
+3. Added `runtime-commodore-c64::file_loader`, which treats `.prg` and `.bas` as host-side convenience imports over the live machine instead of as emulated media devices.
+4. Wired `--load PATH` into `emu198x-script-c64`. The runner now waits for `READY.` automatically before importing, so BASIC/KERNAL startup does not immediately overwrite the injected program.
+5. Kept the boundary honest in the docs: this is not tape or disk support, and Spectrum will need its own family-specific text-import path later because tokenisation rules differ.
+**Verification:** `cargo test -p format-commodore-c64-prg -p format-commodore-c64-bas -p machine-commodore-c64 -p runtime-commodore-c64 -p emu198x-script-c64`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should pass. A real runner proof also succeeds locally with `emu198x-script-c64 --load /tmp/emu198x-demo.bas --save-snapshot /tmp/emu198x-demo.c64.pst`.
+**Next dependency:** the next honest C64 software path is real media support, starting with PRG-friendly disk or tape workflows only when the corresponding hardware path is modeled directly enough to deserve the claim.
+
+---
+
 ## 2026-04-13 — C64 snapshots and the first fresh-workspace headless runner land
 
 **Type:** milestone

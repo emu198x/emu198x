@@ -76,6 +76,17 @@ pub fn read_firmware_asset(path: &Path) -> Result<LoadedAsset, AssetLoadError> {
     read_asset(path, "firmware image", &["rom", "bin"])
 }
 
+/// Reads one host-side source or program asset from disk, expanding a zip
+/// archive when required.
+///
+/// # Errors
+///
+/// Returns an error if file I/O fails, the zip container is invalid, or the
+/// archive does not contain exactly one `.bas` or `.prg` member.
+pub fn read_program_asset(path: &Path) -> Result<LoadedAsset, AssetLoadError> {
+    read_asset(path, "program file", &["bas", "prg"])
+}
+
 /// Reads one media asset from disk, expanding a zip archive when required.
 ///
 /// # Errors

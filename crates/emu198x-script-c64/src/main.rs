@@ -11,14 +11,17 @@ use std::process;
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
     BootArtifacts, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, ScriptObservation,
-    boot_machine, read_firmware_asset,
+    boot_machine, read_firmware_asset, read_program_asset,
 };
-use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, Model};
+use runtime_commodore_c64::{
+    C64Runtime, C64SessionQueryProvider, Model, file_loader::load_host_file,
+};
 use serde::Serialize;
 
 const KERNAL_ID: &str = "commodore-c64-kernal-rom";
 const BASIC_ID: &str = "commodore-c64-basic-rom";
 const CHARACTER_ID: &str = "commodore-c64-character-rom";
+const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Cli {
@@ -27,6 +30,7 @@ struct Cli {
     kernal: Option<PathBuf>,
     basic: Option<PathBuf>,
     chargen: Option<PathBuf>,
+    load: Option<PathBuf>,
     load_snapshot: Option<PathBuf>,
     save_snapshot: Option<PathBuf>,
     screenshot: Option<PathBuf>,
@@ -48,12 +52,19 @@ struct LoadedFirmware {
     bytes: Vec<u8>,
 }
 
+#[derive(Debug)]
+struct LoadedProgram {
+    name: String,
+    bytes: Vec<u8>,
+}
+
 #[derive(Debug, Serialize)]
 struct RunnerReport {
     observations: Vec<ScriptObservation>,
     time: u64,
     boot_detected: bool,
     boot_reason: String,
+    loaded_program: Option<String>,
 }
 
 const USAGE: &str = "\
@@ -65,6 +76,7 @@ Cold boot:
     --basic PATH              override BASIC ROM path
     --chargen PATH            override character ROM path
     --model MODEL             pal or ntsc [default: pal]
+    --load PATH               import one .prg or plain-text .bas file after boot
 
 State and automation:
     --load-snapshot PATH      restore a runtime snapshot before running
@@ -92,6 +104,7 @@ Filename resolution inside the ROM directory:
 
 Examples:
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --screenshot ready.png
+    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
     emu198x-script-c64 --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --script capture.json
 ";
@@ -112,6 +125,9 @@ fn main() {
                     "C64 runtime: time={} boot_detected={} boot_reason={}",
                     report.time, report.boot_detected, report.boot_reason
                 );
+                if let Some(message) = &report.loaded_program {
+                    println!("{message}");
+                }
             }
         }
         Err(err) => {
@@ -135,6 +151,7 @@ where
             "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
             "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
             "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
+            "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -215,16 +232,30 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     );
 
     let mut observations = Vec::new();
-    if let Some(max_frames) = cli.wait_for_boot {
+    let needs_boot_before_import = cli.load.is_some();
+    if cli.wait_for_boot.is_some() || needs_boot_before_import {
+        let explicit_wait = cli.wait_for_boot.is_some();
+        let max_frames = cli.wait_for_boot.unwrap_or(DEFAULT_IMPORT_BOOT_FRAMES);
         let result = session
             .wait_for_boot(max_frames)
             .map_err(|err| format!("boot wait failed: {err}"))?;
-        observations.push(ScriptObservation::WaitForBoot {
-            frames: result.frames,
-            reached: result.reached,
-            reason: result.reason,
-            row: result.row,
-        });
+        if explicit_wait {
+            observations.push(ScriptObservation::WaitForBoot {
+                frames: result.frames,
+                reached: result.reached,
+                reason: result.reason,
+                row: result.row,
+            });
+        }
+    }
+
+    let mut loaded_program = None;
+    if let Some(path) = &cli.load {
+        let loaded = load_program_bytes(path)?;
+        loaded_program = Some(
+            load_host_file(session.machine_mut(), &loaded.name, &loaded.bytes)
+                .map_err(|err| format!("program import failed: {err}"))?,
+        );
     }
 
     if let Some(path) = &cli.script {
@@ -264,6 +295,7 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         time: session.time().get(),
         boot_detected,
         boot_reason,
+        loaded_program,
     })
 }
 
@@ -338,6 +370,22 @@ fn load_firmware_bytes(cli: &Cli) -> Result<Vec<LoadedFirmware>, String> {
                 })
         })
         .collect()
+}
+
+fn load_program_bytes(path: &Path) -> Result<LoadedProgram, String> {
+    let loaded = read_program_asset(path)
+        .map_err(|err| format!("failed to read program {}: {err}", path.display()))?;
+    let name = loaded.archive_member.unwrap_or_else(|| {
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| path.display().to_string())
+    });
+
+    Ok(LoadedProgram {
+        name,
+        bytes: loaded.bytes,
+    })
 }
 
 fn resolve_rom_dir(cli: &Cli) -> Result<Option<PathBuf>, String> {
@@ -465,6 +513,7 @@ mod tests {
                 kernal: None,
                 basic: None,
                 chargen: None,
+                load: None,
                 load_snapshot: Some(PathBuf::from("in.c64.pst")),
                 save_snapshot: Some(PathBuf::from("out.c64.pst")),
                 screenshot: Some(PathBuf::from("ready.png")),
@@ -485,5 +534,17 @@ mod tests {
         .expect("explicit ROM path should resolve");
 
         assert_eq!(resolved, Some(PathBuf::from("override/kernal.rom")));
+    }
+
+    #[test]
+    fn parse_cli_accepts_program_import() {
+        let cli = parse_cli([
+            "--rom-dir".to_string(),
+            "roms".to_string(),
+            "--load".to_string(),
+            "demo.bas".to_string(),
+        ]);
+
+        assert_eq!(cli.load, Some(PathBuf::from("demo.bas")));
     }
 }

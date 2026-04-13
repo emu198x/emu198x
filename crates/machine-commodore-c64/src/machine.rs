@@ -232,6 +232,18 @@ impl C64 {
         (self.phi2_cycles - start) as u32
     }
 
+    /// Loads one PRG file into raw RAM and returns its load address.
+    ///
+    /// This is a host-side import convenience, not an emulated disk or tape
+    /// path. It matches the direct-RAM effect of a completed KERNAL LOAD.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PRG header is malformed.
+    pub fn load_prg(&mut self, data: &[u8]) -> Result<u16, String> {
+        format_commodore_c64_prg::load_prg(&mut self.memory, data)
+    }
+
     /// Captures the machine state for runtime snapshot serialization.
     #[must_use]
     pub fn snapshot_state(&self) -> C64Snapshot {
@@ -655,5 +667,20 @@ mod tests {
             assert_eq!(machine.vic().ba_low, expected.vic().ba_low);
             assert_eq!(machine.framebuffer(), expected.framebuffer());
         }
+    }
+
+    #[test]
+    fn load_prg_imports_basic_program_and_updates_vartab() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let prg = [0x01, 0x08, 0x07, 0x08, 0x0A, 0x00, 0x80, 0x00, 0x00, 0x00];
+
+        let load_addr = machine.load_prg(&prg).expect("PRG should load");
+
+        assert_eq!(load_addr, 0x0801);
+        assert_eq!(machine.memory().ram_read(0x0801), 0x07);
+        assert_eq!(machine.memory().ram_read(0x0802), 0x08);
+        let vartab = u16::from(machine.memory().ram_read(0x2D))
+            | (u16::from(machine.memory().ram_read(0x2E)) << 8);
+        assert_eq!(vartab, 0x0809);
     }
 }

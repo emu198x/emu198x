@@ -19,7 +19,9 @@ pub mod script;
 pub mod session;
 pub mod time;
 
-pub use asset::{AssetLoadError, LoadedAsset, read_firmware_asset, read_media_asset};
+pub use asset::{
+    AssetLoadError, LoadedAsset, read_firmware_asset, read_media_asset, read_program_asset,
+};
 pub use capability::{CapabilityId, CapabilitySet, known_capability};
 pub use capture::{AudioCapture, CaptureError, CapturedAudio, CapturedFrame, LatestFrameCapture};
 pub use control::{ControlCommand, MediaTransportAction, MediaTransportCommand};
