@@ -5,5 +5,8 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+
 [lints]
 workspace = true

@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Spectrum tape loading now handles TZX pauses as timing spans, and Manic Miner loads end to end
+
+**Type:** milestone
+**Trigger:** Manual Spectrum verification had reached the first real software path, and Manic Miner was failing late with `R Tape loading error, 20:6` after the striped loader phase. That ruled out trivial command-entry mistakes and pointed toward the real tape path.
+**Result:** the fresh Spectrum tape stack now models the missing semantics cleanly enough to load the zipped local Manic Miner fixture under the real 48K ROM:
+1. Replaced the old flat pulse-only tape representation with a shared timing-span stream in `common-sinclair-zx-spectrum`. The tape player now supports edge-delimited pulses, held-level spans, and explicit stop markers, which are needed for TZX pause and direct-recording semantics.
+2. Updated `format-sinclair-zx-spectrum-tzx` to parse TZX blocks into that richer span stream, including direct recording, pause blocks, signal-level directives, and loop expansion.
+3. Corrected the machine-level tape override on port `$FE` bit 6 to follow the repo’s own Spectrum docs when tape is connected: external EAR high now reads as bit 6 low, and EAR low reads as bit 6 high.
+4. Re-ran the real 48K ROM + zipped Manic Miner path headlessly and confirmed that the title now loads end to end. The successful run reached `screen.text.lines` containing `MANIC MINER` on row 19 after `10,672` frames of tape playback.
+5. Added a new ignored local regression in `runtime-sinclair-zx-spectrum` that boots the real 48K ROM, types `LOAD ""` with the timing the Spectrum editor actually accepts, starts tape transport, and waits for the Manic Miner title screen from the zipped TZX fixture.
+**Verification:** `cargo test -p common-sinclair-zx-spectrum`, `cargo test -p format-sinclair-zx-spectrum-tzx`, `cargo test -p machine-sinclair-zx-spectrum-48k`, `cargo test -p runtime-sinclair-zx-spectrum`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and `cargo test -p runtime-sinclair-zx-spectrum spectrum_boots_and_loads_manic_miner_from_zipped_tzx -- --ignored --nocapture` all pass locally with the required ROM and tape assets present.
+**Next dependency:** the next useful pass is to turn the brittle Spectrum command-entry sequence into a higher-level host helper for scripting and MCP, so media autoloading does not depend on hand-authored key choreography.
+
+---
+
 ## 2026-04-13 — Minimal native Spectrum verifier shell is live
 
 **Type:** milestone

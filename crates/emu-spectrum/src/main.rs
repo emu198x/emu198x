@@ -779,9 +779,6 @@ mod tests {
             map_spectrum_keys(KeyCode::ArrowUp),
             Some(&["caps", "7"][..])
         );
-        assert_eq!(
-            map_spectrum_keys(KeyCode::AltLeft),
-            Some(&["symbol"][..])
-        );
+        assert_eq!(map_spectrum_keys(KeyCode::AltLeft), Some(&["symbol"][..]));
     }
 }

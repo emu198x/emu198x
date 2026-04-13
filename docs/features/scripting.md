@@ -86,6 +86,13 @@ Supported shared actions today:
 | `save_screenshot` | `path` | none |
 | `save_audio_capture` | `path`, `reset_after` (optional, default `true`) | none |
 
+`input` events use the current `InputEvent` JSON form from the shared shell.
+For example, one key tap looks like:
+
+```json
+{"action":"input","events":[{"Key":{"name":"enter","pressed":true}}]}
+```
+
 Media kinds currently accepted by the shared script layer:
 
 - `tape`

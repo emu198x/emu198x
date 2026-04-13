@@ -590,6 +590,9 @@ version = "0.1.0"
 [[package]]
 name = "format-sinclair-zx-spectrum-tzx"
 version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+]
 
 [[package]]
 name = "futures-core"

@@ -64,7 +64,10 @@ See [SPECTRUM-VARIANTS.md](../../docs/SPECTRUM-VARIANTS.md) for the full table. 
 - **Contention**: [detailed model](contention.md) — three different ULA implementations
 - **Variants**: [differences table](variants.md) — memory maps, I/O ports, paging
 - **Audio**: beeper (port $FE bit 4) + tape EAR mixed by area-averaging accumulator. AY via Bresenham downsampling. Mixed 30/70 beeper/AY through RC low-pass (~10 kHz)
-- **Tape**: pulse-sequence player. TAP (standard timing) and TZX (arbitrary timing) both reduce to `Vec<u32>` of pulse durations in T-states. Player toggles EAR level after each pulse elapses.
+- **Tape**: timing-span player. TAP (standard timing) and TZX (arbitrary timing)
+  both reduce to a shared stream of pulse spans, held-level spans, and stop
+  markers in CPU T-state units. Playback advances on the real machine cadence
+  and drives the EAR line seen at `$FE`.
 - **Interrupt**: INT asserted at vertical blank start for 32 T-states. IM 2 vector: `(I << 8) | $FF` on 48K (bus floats high, no device responds).
 
 ## Test results

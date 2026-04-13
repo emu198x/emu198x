@@ -151,14 +151,14 @@ impl Spectrum48kRuntime {
 
     fn load_tape_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
         if is_tzx(bytes) {
-            let pulses =
-                format_sinclair_zx_spectrum_tzx::tzx_to_pulses(bytes).map_err(|reason| {
+            let stream =
+                format_sinclair_zx_spectrum_tzx::tzx_to_stream(bytes).map_err(|reason| {
                     MachineError::InvalidMedia {
                         slot: slot.to_owned(),
                         reason,
                     }
                 })?;
-            self.machine.load_tape_pulses(pulses);
+            self.machine.load_tape_stream(stream);
         } else {
             let blocks = format_sinclair_zx_spectrum_tap::parse_tap(bytes).map_err(|reason| {
                 MachineError::InvalidMedia {

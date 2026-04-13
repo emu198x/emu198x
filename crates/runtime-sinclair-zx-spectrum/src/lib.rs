@@ -630,6 +630,79 @@ mod tests {
         assert!(!runtime.machine().tape_is_playing());
     }
 
+    #[test]
+    #[ignore = "requires local 48K ROM and Manic Miner TZX zip"]
+    fn spectrum_boots_and_loads_manic_miner_from_zipped_tzx() {
+        let Some(rom_path) = spectrum_48k_rom_path() else {
+            eprintln!("HOME is not set; skipping ROM-backed Manic Miner load test");
+            return;
+        };
+        let Some(tape_path) = spectrum_manic_miner_tzx_path() else {
+            eprintln!(
+                "Manic Miner TZX zip not found; set EMU198X_SPECTRUM_MANIC_MINER_TZX or place it at {}",
+                MANIC_MINER_TZX_ZIP_PATH
+            );
+            return;
+        };
+
+        if !rom_path.is_file() {
+            eprintln!("ROM not found at {}", rom_path.display());
+            return;
+        }
+
+        let rom = match fs::read(&rom_path) {
+            Ok(rom) => rom,
+            Err(err) => panic!("failed to read {}: {err}", rom_path.display()),
+        };
+        let tape = match read_media_asset(&tape_path, MediaKind::Tape) {
+            Ok(tape) => tape,
+            Err(err) => panic!("failed to read {}: {err}", tape_path.display()),
+        };
+
+        let runtime = Spectrum48kRuntime::from_rom_bytes(&rom)
+            .expect("48K ROM path should contain a valid 16 KiB image");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_48K.halfcycles_per_frame),
+            SpectrumSessionQueryProvider,
+        );
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &tape.bytes));
+        session
+            .load_media(&media)
+            .expect("zipped Manic Miner TZX should load into the tape deck");
+
+        let boot = session
+            .wait_for_boot(250)
+            .expect("48K ROM should reach boot detection within 250 frames");
+        assert_eq!(boot.row, Some(23));
+
+        tap_key(&mut session, "enter");
+        let prompt_lines = screen_text_lines_from_session(&session);
+        assert_eq!(prompt_lines[23].trim_end(), "K");
+
+        tap_key(&mut session, "j");
+        tap_symbol_combo(&mut session, "p");
+        tap_symbol_combo(&mut session, "p");
+        tap_key(&mut session, "enter");
+        session
+            .run_frames(10)
+            .expect("typed load command should settle before tape start");
+
+        session
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("tape transport should start");
+
+        let loaded = session
+            .wait_for_query_text_contains("screen.text.lines", "MANIC MINER", 12_000)
+            .expect("Manic Miner should load from the zipped TZX fixture");
+        assert_eq!(loaded.line, Some(19));
+        assert!(loaded.matched_text.contains("MANIC MINER"));
+    }
+
     fn minimal_tap() -> Vec<u8> {
         let mut tap = vec![0x13, 0x00];
         tap.push(0x00);
@@ -672,6 +745,60 @@ mod tests {
                     .to_owned()
             })
             .collect()
+    }
+
+    fn tap_key(
+        session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+        name: &'static str,
+    ) {
+        session.queue_input(InputEvent::Key {
+            name: name.into(),
+            pressed: true,
+        });
+        session
+            .run_frames(2)
+            .expect("key press should advance the machine");
+        session.queue_input(InputEvent::Key {
+            name: name.into(),
+            pressed: false,
+        });
+        session
+            .run_frames(2)
+            .expect("key release should advance the machine");
+    }
+
+    fn tap_symbol_combo(
+        session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+        name: &'static str,
+    ) {
+        session.queue_input(InputEvent::Key {
+            name: "symbol".into(),
+            pressed: true,
+        });
+        session
+            .run_frames(2)
+            .expect("symbol shift press should advance the machine");
+        session.queue_input(InputEvent::Key {
+            name: name.into(),
+            pressed: true,
+        });
+        session
+            .run_frames(2)
+            .expect("symbol combo press should advance the machine");
+        session.queue_input(InputEvent::Key {
+            name: name.into(),
+            pressed: false,
+        });
+        session
+            .run_frames(2)
+            .expect("symbol combo release should advance the machine");
+        session.queue_input(InputEvent::Key {
+            name: "symbol".into(),
+            pressed: false,
+        });
+        session
+            .run_frames(2)
+            .expect("symbol shift release should advance the machine");
     }
 
     #[derive(Default)]

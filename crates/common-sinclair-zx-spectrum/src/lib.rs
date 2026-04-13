@@ -18,4 +18,4 @@ pub use audio::BeeperAudio;
 pub use error::RomImageError;
 pub use memory::{MemoryBus, Spectrum48kMemory};
 pub use palette::SPECTRUM_PALETTE;
-pub use tape::{TapeBlock, TapePlayer};
+pub use tape::{TapeBlock, TapePlayer, TapeSpan};

@@ -8,7 +8,7 @@ use common_sinclair_zx_spectrum::audio::BeeperAudio;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::{
-    MemoryBus, RomImageError, Spectrum48kMemory, TapeBlock, TapePlayer,
+    MemoryBus, RomImageError, Spectrum48kMemory, TapeBlock, TapePlayer, TapeSpan,
 };
 use emu198x_shell::InputEvent;
 use ferranti_ula_6c001e::{BoardIssue, FerrantiUla};
@@ -245,6 +245,12 @@ impl Spectrum48k {
         self.sync_ear_level();
     }
 
+    /// Loads a timing stream as the current tape media.
+    pub fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
+        self.tape.load_stream(stream);
+        self.sync_ear_level();
+    }
+
     /// Loads standard-speed tape blocks as the current tape media.
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.tape.load_blocks(blocks);
@@ -292,7 +298,7 @@ impl Spectrum48k {
     pub fn read_fe(&self, port: u16) -> u8 {
         let mut value = self.ula.read_fe(port, self.keyboard.rows());
         if let Some(level) = self.current_tape_level() {
-            value = (value & !0x40) | if level { 0x40 } else { 0x00 };
+            value = (value & !0x40) | if level { 0x00 } else { 0x40 };
         }
         value
     }
@@ -679,10 +685,10 @@ mod tests {
         machine.write_fe(0x10);
         machine.set_tape_connected(true);
         machine.set_tape_level(false);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
 
         machine.set_tape_level(true);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
     }
 
     #[test]
@@ -705,13 +711,13 @@ mod tests {
         machine.play_tape();
         assert!(machine.tape_is_loaded());
         assert!(machine.tape_is_playing());
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
-
-        machine.advance_halfcycles(3);
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
 
-        machine.advance_halfcycles(4);
+        machine.advance_halfcycles(3);
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+
+        machine.advance_halfcycles(4);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
 
         machine.advance_halfcycles(8);
         assert!(!machine.tape_is_playing());
@@ -818,11 +824,11 @@ mod tests {
         machine.load_tape_pulses(vec![1, 2]);
         machine.play_tape();
         machine.advance_halfcycles(3);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
 
         machine.set_tape_connected(true);
         machine.set_tape_level(false);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
     }
 
     #[test]

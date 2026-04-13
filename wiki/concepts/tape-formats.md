@@ -1,6 +1,9 @@
 # Tape Formats
 
-Tape loading reduces all formats to a common representation: a sequence of pulse durations in T-states. The player toggles the EAR level after each pulse elapses.
+Tape loading reduces all formats to a common machine-facing timing stream.
+Most entries are pulse durations in T-states, but the shared representation
+also has explicit held-level spans and stop markers for TZX pause and direct
+recording semantics.
 
 ## Supported formats
 
@@ -12,7 +15,9 @@ Standard ROM timing. Each block has a flag byte, data bytes, and checksum. Pulse
 
 ### TZX
 
-Arbitrary timing per block. Supports custom pilot tones, pause blocks, direct recording, and hardware-specific blocks. Parses to `Vec<u32>` of pulse durations.
+Arbitrary timing per block. Supports custom pilot tones, pause blocks, direct
+recording, and hardware-specific blocks. Parses to tape timing spans rather
+than only edge-delimited pulses.
 
 **Crate**: `format-tzx`
 
