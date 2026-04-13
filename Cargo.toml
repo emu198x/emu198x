@@ -16,6 +16,7 @@ members = [
     "crates/machine-sinclair-zx-spectrum-48k",
     "crates/mos-6502",
     "crates/mos-cia-6526",
+    "crates/mos-sid-6581",
     "crates/mos-vic-ii",
     "crates/runtime-commodore-c64",
     "crates/runtime-sinclair-zx-spectrum",

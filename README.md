@@ -38,9 +38,9 @@ As of April 13, 2026, the fresh Rust workspace currently provides:
   - real-software regressions including Manic Miner and Jet Set Willy
 
 - **Commodore 64**
-  - live 6502/CIA/VIC-II board loop
+  - live 6502/CIA/VIC-II/SID board loop
   - KERNAL boots to `READY.`
-  - headless runner, screenshots, snapshots, and boot detection
+  - headless runner, screenshots, snapshots, boot detection, and mono audio output
   - host-side `.prg` import
   - host-side plain-text `.bas` import via Commodore BASIC tokenisation
 

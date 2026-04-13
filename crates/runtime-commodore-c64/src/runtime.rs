@@ -1,8 +1,8 @@
 //! Runtime wrapper for the fresh-workspace Commodore 64.
 
 use emu198x_shell::{
-    CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore, MachineError,
-    MachineProfile, MachineTime, QueryError, QueryResult, ResetKind, RunResult,
+    AudioPacket, CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore,
+    MachineError, MachineProfile, MachineTime, QueryError, QueryResult, ResetKind, RunResult,
     SessionQueryProvider, StopReason,
 };
 use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
@@ -258,10 +258,18 @@ impl MachineCore for C64Runtime {
 
             if frame_complete {
                 self.emit_frame(host)?;
+                let audio = self.machine.take_audio_buffer();
+                if !audio.is_empty() {
+                    host.audio_sink.push_audio(AudioPacket {
+                        timestamp: self.time,
+                        sample_rate: self.machine.audio_sample_rate(),
+                        channels: 1,
+                        samples: &audio,
+                    })?;
+                }
             }
         }
 
-        let _ = &host.audio_sink;
         let _ = &host.trace_sink;
 
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
@@ -481,7 +489,8 @@ mod tests {
     use super::*;
     use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
     use emu198x_shell::{
-        FirmwareImage, FirmwareSet, FrameSink, NullAudioSink, NullTraceSink, PixelFormat,
+        AudioPacket, AudioSink, FirmwareImage, FirmwareSet, FrameSink, NullAudioSink,
+        NullTraceSink, PixelFormat,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -495,6 +504,15 @@ mod tests {
         last_format: Option<PixelFormat>,
     }
 
+    #[derive(Default)]
+    struct AudioCollector {
+        count: usize,
+        last_timestamp: MachineTime,
+        last_sample_rate: u32,
+        last_channels: u8,
+        last_samples_len: usize,
+    }
+
     impl FrameSink for FrameCollector {
         fn push_frame(&mut self, frame: FramePacket<'_>) -> Result<(), MachineError> {
             self.count += 1;
@@ -502,6 +520,17 @@ mod tests {
             self.last_width = frame.width;
             self.last_height = frame.height;
             self.last_format = Some(frame.format);
+            Ok(())
+        }
+    }
+
+    impl AudioSink for AudioCollector {
+        fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
+            self.count += 1;
+            self.last_timestamp = packet.timestamp;
+            self.last_sample_rate = packet.sample_rate;
+            self.last_channels = packet.channels;
+            self.last_samples_len = packet.samples.len();
             Ok(())
         }
     }
@@ -563,7 +592,7 @@ mod tests {
         let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
             .expect("blank C64 firmware should construct a runtime");
         let mut frame_sink = FrameCollector::default();
-        let mut audio_sink = NullAudioSink;
+        let mut audio_sink = AudioCollector::default();
         let mut trace_sink = NullTraceSink;
         let target = MachineTime::new(u64::from(TIMING_PAL_BREADBIN.cycles_per_frame));
 
@@ -586,6 +615,11 @@ mod tests {
         assert_eq!(frame_sink.last_width, 416);
         assert_eq!(frame_sink.last_height, 312);
         assert_eq!(frame_sink.last_format, Some(PixelFormat::Rgba8888));
+        assert_eq!(audio_sink.count, 1);
+        assert_eq!(audio_sink.last_timestamp, target);
+        assert_eq!(audio_sink.last_sample_rate, runtime.machine().audio_sample_rate());
+        assert_eq!(audio_sink.last_channels, 1);
+        assert!(audio_sink.last_samples_len > 0);
     }
 
     #[test]

@@ -3,13 +3,14 @@
 use common_commodore_c64::timing::C64Timing;
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
+use mos_sid_6581::{Sid6581, SidModel};
 use mos_vic_ii::{Vic, VicModel};
 
 use crate::config::{C64Config, C64Model};
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::{C64Memory, C64MemorySnapshot, MemoryInitError};
 
-const SID_REGISTER_COUNT: usize = 0x20;
+const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
 /// Fresh-workspace C64 machine substrate.
 #[derive(Clone)]
@@ -19,11 +20,11 @@ pub struct C64 {
     vic: Vic,
     cia1: Cia6526,
     cia2: Cia6526,
+    sid: Sid6581,
     memory: C64Memory,
     keyboard: KeyboardMatrix,
     phi2_cycles: u64,
     frame_count: u64,
-    sid_registers: [u8; SID_REGISTER_COUNT],
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -33,11 +34,11 @@ pub struct C64Snapshot {
     vic: Vic,
     cia1: Cia6526,
     cia2: Cia6526,
+    sid: Sid6581,
     memory: C64MemorySnapshot,
     keyboard: KeyboardMatrix,
     phi2_cycles: u64,
     frame_count: u64,
-    sid_registers: [u8; SID_REGISTER_COUNT],
 }
 
 impl C64 {
@@ -67,6 +68,7 @@ impl C64 {
         };
         let mut vic = Vic::new(vic_model);
         vic.set_bank(0);
+        let sid = Sid6581::new_with_model(timing.cpu_hz, AUDIO_SAMPLE_RATE, SidModel::Mos6581);
 
         let mut machine = Self {
             model: config.model,
@@ -74,11 +76,11 @@ impl C64 {
             vic,
             cia1,
             cia2,
+            sid,
             memory,
             keyboard: KeyboardMatrix::new(),
             phi2_cycles: 0,
             frame_count: 0,
-            sid_registers: [0; SID_REGISTER_COUNT],
         };
         machine.refresh_keyboard_scan();
         machine.refresh_vic_bank();
@@ -175,10 +177,22 @@ impl C64 {
         self.vic.peek(index)
     }
 
-    /// Reads one shadowed SID register.
+    /// Live SID state.
     #[must_use]
-    pub fn sid_register(&self, index: u8) -> u8 {
-        self.sid_registers[usize::from(index & 0x1F)]
+    pub const fn sid(&self) -> &Sid6581 {
+        &self.sid
+    }
+
+    /// Output sample rate used by the machine-local SID mixer.
+    #[must_use]
+    pub const fn audio_sample_rate(&self) -> u32 {
+        AUDIO_SAMPLE_RATE
+    }
+
+    /// Drains the current mixed SID output buffer.
+    #[must_use]
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        self.sid.take_buffer()
     }
 
     /// Borrow the VIC-II framebuffer.
@@ -209,6 +223,7 @@ impl C64 {
             }
             self.cpu.tick();
         }
+        self.sid.tick();
 
         if self.vic.take_frame_complete() {
             self.frame_count = self.frame_count.saturating_add(1);
@@ -253,11 +268,11 @@ impl C64 {
             vic: self.vic.clone(),
             cia1: self.cia1.clone(),
             cia2: self.cia2.clone(),
+            sid: self.sid.clone(),
             memory: self.memory.snapshot_state(),
             keyboard: self.keyboard.clone(),
             phi2_cycles: self.phi2_cycles,
             frame_count: self.frame_count,
-            sid_registers: self.sid_registers,
         }
     }
 
@@ -279,11 +294,11 @@ impl C64 {
         self.vic = snapshot.vic;
         self.cia1 = snapshot.cia1;
         self.cia2 = snapshot.cia2;
+        self.sid = snapshot.sid;
         self.memory = C64Memory::from_snapshot(snapshot.memory)?;
         self.keyboard = snapshot.keyboard;
         self.phi2_cycles = snapshot.phi2_cycles;
         self.frame_count = snapshot.frame_count;
-        self.sid_registers = snapshot.sid_registers;
         self.refresh_keyboard_scan();
         self.refresh_vic_bank();
         Ok(())
@@ -314,7 +329,7 @@ impl C64 {
     fn io_read(&mut self, addr: u16) -> u8 {
         match addr {
             0xD000..=0xD3FF => self.vic.read((addr & 0x3F) as u8),
-            0xD400..=0xD7FF => self.sid_registers[usize::from(addr & 0x1F)],
+            0xD400..=0xD7FF => self.sid.read((addr & 0x1F) as u8),
             0xD800..=0xDBFF => self.memory.colour_ram_read(addr - 0xD800),
             0xDC00..=0xDCFF => {
                 self.refresh_keyboard_scan();
@@ -329,7 +344,7 @@ impl C64 {
     fn io_write(&mut self, addr: u16, value: u8) {
         match addr {
             0xD000..=0xD3FF => self.vic.write((addr & 0x3F) as u8, value),
-            0xD400..=0xD7FF => self.sid_registers[usize::from(addr & 0x1F)] = value,
+            0xD400..=0xD7FF => self.sid.write((addr & 0x1F) as u8, value),
             0xD800..=0xDBFF => self.memory.colour_ram_write(addr - 0xD800, value),
             0xDC00..=0xDCFF => {
                 self.cia1.write((addr & 0x0F) as u8, value);
@@ -492,6 +507,20 @@ mod tests {
     }
 
     #[test]
+    fn visible_sid_io_writes_reach_live_sid_and_underlying_ram() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xD400, 0x34);
+        machine.cpu_write(0xD401, 0x12);
+        machine.cpu_write(0xD418, 0x0F);
+
+        assert_eq!(machine.sid().voices[0].frequency, 0x1234);
+        assert_eq!(machine.sid().volume, 0x0F);
+        assert_eq!(machine.memory().ram_read(0xD400), 0x34);
+        assert_eq!(machine.memory().ram_read(0xD401), 0x12);
+        assert_eq!(machine.memory().ram_read(0xD418), 0x0F);
+    }
+
+    #[test]
     fn hidden_io_reads_and_writes_fall_back_to_ram() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         machine.cpu_write(0x0000, 0xFF);
@@ -510,6 +539,24 @@ mod tests {
         machine.cpu_write(0xDD00, 0x02);
         assert_eq!(machine.vic_bank(), 1);
         assert_eq!(machine.vic_read(0x1000), 0xAA);
+    }
+
+    #[test]
+    fn sid_generates_audio_samples_after_voice_programming() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xD400, 0x37);
+        machine.cpu_write(0xD401, 0x1D);
+        machine.cpu_write(0xD404, 0x21);
+        machine.cpu_write(0xD405, 0x00);
+        machine.cpu_write(0xD406, 0xF0);
+        machine.cpu_write(0xD418, 0x0F);
+
+        machine.advance_phi2_cycles(19_656);
+        let audio = machine.take_audio_buffer();
+
+        assert!(!audio.is_empty(), "SID should emit mixed audio samples");
+        assert!(audio.iter().any(|sample| sample.abs() > 0.001));
+        assert_eq!(machine.audio_sample_rate(), AUDIO_SAMPLE_RATE);
     }
 
     #[test]

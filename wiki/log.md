@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — C64 SID is live and the runtime now emits audio
+
+**Type:** milestone
+**Trigger:** Once the fresh-workspace C64 could boot to `READY.` and import host-side programs, the biggest remaining board-level dishonesty was obvious: the SID was still only a register shadow, so the machine claimed a C64 audio path without actually modelling or emitting one.
+**Result:** the fresh-workspace C64 now has a real SID and end-to-end runtime audio:
+1. Added `mos-sid-6581` to the workspace with the archived three-voice oscillator, ADSR envelopes, state-variable filter, and downsampled audio buffer, including its 9-chip tests.
+2. Replaced `machine-commodore-c64`'s shadowed SID register array with a live `Sid6581`, clocked once per `phi2` tick and serialized as part of machine snapshots.
+3. Kept the board boundary honest: `$D400-$D7FF` now routes to the real SID register bus, and the machine exposes a real mixed audio buffer instead of pretending that writes alone constitute sound support.
+4. Updated `runtime-commodore-c64` so frame execution now also drains the SID buffer and emits mono audio packets through the shared shell audio sink.
+5. Tightened the fresh-workspace summaries so the C64 no longer describes SID as shadowed in the runtime/profile/readme layer.
+**Verification:** `cargo test -p mos-sid-6581 -p machine-commodore-c64 -p runtime-commodore-c64`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should pass. New coverage includes C64 board tests for live SID register writes and generated audio samples, plus a runtime test proving one frame now emits both RGBA video and mono audio packets.
+**Next dependency:** the next C64 step is still not more shell work. It is either a minimal native verifier shell over this now-audible runtime, or the first honest media path once the corresponding hardware is modelled far enough to deserve the claim.
+
+---
+
 ## 2026-04-13 — C64 headless runner now imports PRG and plain-text BASIC
 
 **Type:** milestone

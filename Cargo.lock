@@ -1158,6 +1158,7 @@ dependencies = [
  "format-commodore-c64-prg",
  "mos-6502",
  "mos-cia-6526",
+ "mos-sid-6581",
  "mos-vic-ii",
  "serde",
  "thiserror 2.0.18",
@@ -1238,6 +1239,13 @@ dependencies = [
 
 [[package]]
 name = "mos-cia-6526"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "mos-sid-6581"
 version = "0.1.0"
 dependencies = [
  "serde",

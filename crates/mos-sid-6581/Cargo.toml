@@ -1,0 +1,12 @@
+[package]
+name = "mos-sid-6581"
+description = "MOS 6581 / 8580 SID (Sound Interface Device) with three voices, ADSR envelopes, multi-mode filter, and downsampled audio output"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true
