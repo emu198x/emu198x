@@ -63,7 +63,7 @@ impl SpectrumKey {
     pub fn from_name(name: &str) -> Option<Self> {
         let upper = name.to_ascii_uppercase();
         Some(match upper.as_str() {
-            "CAPSSHIFT" | "CAPS" | "LSHIFT" | "RSHIFT" => Self::CapsShift,
+            "CAPSSHIFT" | "CAPS_SHIFT" | "CAPS" | "LSHIFT" | "RSHIFT" => Self::CapsShift,
             "Z" => Self::Z,
             "X" => Self::X,
             "C" => Self::C,
@@ -99,7 +99,7 @@ impl SpectrumKey {
             "J" => Self::J,
             "H" => Self::H,
             "SPACE" => Self::Space,
-            "SYMBOLSHIFT" | "SYMBOL" | "SS" => Self::SymbolShift,
+            "SYMBOLSHIFT" | "SYMBOL_SHIFT" | "SYMBOL" | "SS" => Self::SymbolShift,
             "M" => Self::M,
             "N" => Self::N,
             "B" => Self::B,
@@ -253,9 +253,17 @@ mod tests {
     #[test]
     fn key_name_aliases_resolve_case_insensitively() {
         assert_eq!(SpectrumKey::from_name("caps"), Some(SpectrumKey::CapsShift));
+        assert_eq!(
+            SpectrumKey::from_name("caps_shift"),
+            Some(SpectrumKey::CapsShift)
+        );
         assert_eq!(SpectrumKey::from_name("Return"), Some(SpectrumKey::Enter));
         assert_eq!(
             SpectrumKey::from_name("symbol"),
+            Some(SpectrumKey::SymbolShift)
+        );
+        assert_eq!(
+            SpectrumKey::from_name("symbol_shift"),
             Some(SpectrumKey::SymbolShift)
         );
         assert_eq!(SpectrumKey::from_name("?"), None);

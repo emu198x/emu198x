@@ -673,13 +673,13 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Enter => &["enter"],
         KeyCode::Space => &["space"],
         KeyCode::ShiftLeft | KeyCode::ShiftRight => &["caps"],
-        KeyCode::AltLeft | KeyCode::AltRight => &["symbol_shift"],
+        KeyCode::AltLeft | KeyCode::AltRight => &["symbol"],
         KeyCode::ArrowLeft => &["caps", "5"],
         KeyCode::ArrowDown => &["caps", "6"],
         KeyCode::ArrowUp => &["caps", "7"],
         KeyCode::ArrowRight => &["caps", "8"],
         KeyCode::Backspace => &["caps", "0"],
-        KeyCode::Quote => &["symbol_shift", "p"],
+        KeyCode::Quote => &["symbol", "p"],
         _ => return None,
     })
 }
@@ -781,7 +781,7 @@ mod tests {
         );
         assert_eq!(
             map_spectrum_keys(KeyCode::AltLeft),
-            Some(&["symbol_shift"][..])
+            Some(&["symbol"][..])
         );
     }
 }
