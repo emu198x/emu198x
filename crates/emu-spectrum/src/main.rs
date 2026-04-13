@@ -41,6 +41,7 @@ const DEFAULT_TAPE_SLOT: &str = "tape-1";
 const DEFAULT_SCALE: u32 = 2;
 const WINDOW_TITLE_BASE: &str = "Emu198x Spectrum 48K";
 const MAX_CATCH_UP_FRAMES: u32 = 4;
+const MAX_TURBO_TAPE_FRAMES: u32 = 32;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
 
 const USAGE: &str = "\
@@ -51,6 +52,7 @@ Options:
     --tape PATH        TAP/TZX image or zip containing one tape candidate
     --play-tape        start tape transport immediately after media load
     --autoload-tape    wait for boot, type LOAD \"\", and start tape-1
+    --turbo-tape       run unthrottled while the tape is playing
     --scale N          integer window scale, default 2
     --help, -h         show this help
 
@@ -59,6 +61,7 @@ Controls:
     F5                 hard reset
     F6                 start tape
     F7                 stop tape
+    F8                 toggle tape turbo
     Left/Down/Up/Right host aliases for Spectrum 5/6/7/8 game keys
     Alt                Symbol Shift
 
@@ -75,6 +78,7 @@ struct Cli {
     tape: Option<PathBuf>,
     play_tape: bool,
     autoload_tape: bool,
+    turbo_tape: bool,
     scale: u32,
 }
 
@@ -306,6 +310,10 @@ impl SpectrumRunner {
             format!("{WINDOW_TITLE_BASE} | {boot} | {tape} | {prompt}")
         }
     }
+
+    fn tape_playing(&self) -> bool {
+        self.query_bool("spectrum.tape.playing")
+    }
 }
 
 struct SpectrumAudioOutput {
@@ -519,6 +527,7 @@ struct SpectrumApp {
     scale: u32,
     frame_duration: Duration,
     next_frame_at: Instant,
+    turbo_tape: bool,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
     window: Option<Arc<Window>>,
@@ -527,7 +536,7 @@ struct SpectrumApp {
 }
 
 impl SpectrumApp {
-    fn new(runner: SpectrumRunner, scale: u32) -> Result<Self, AppError> {
+    fn new(runner: SpectrumRunner, scale: u32, turbo_tape: bool) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
@@ -537,6 +546,7 @@ impl SpectrumApp {
             scale,
             frame_duration: spectrum_frame_duration(),
             next_frame_at: Instant::now(),
+            turbo_tape,
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
             window: None,
@@ -563,7 +573,7 @@ impl SpectrumApp {
         let logical_width = f64::from((SCREEN_WIDTH as u32).saturating_mul(self.scale));
         let logical_height = f64::from((SCREEN_HEIGHT as u32).saturating_mul(self.scale));
         let attributes = WindowAttributes::default()
-            .with_title(self.runner.window_title())
+            .with_title(self.window_title())
             .with_inner_size(LogicalSize::new(logical_width, logical_height))
             .with_min_inner_size(LogicalSize::new(
                 f64::from(SCREEN_WIDTH as u32),
@@ -584,7 +594,39 @@ impl SpectrumApp {
         self.window.as_ref().map(|window| window.id())
     }
 
+    fn turbo_tape_active(&self) -> bool {
+        self.turbo_tape && self.runner.tape_playing()
+    }
+
+    fn window_title(&self) -> String {
+        let mut title = self.runner.window_title();
+        if self.turbo_tape {
+            if self.runner.tape_playing() {
+                title.push_str(" | turbo");
+            } else {
+                title.push_str(" | turbo armed");
+            }
+        }
+        title
+    }
+
+    fn set_turbo_tape(&mut self, enabled: bool) {
+        self.turbo_tape = enabled;
+        self.next_frame_at = Instant::now() + self.frame_duration;
+    }
+
     fn advance_machine(&mut self) -> Result<bool, AppError> {
+        if self.turbo_tape_active() {
+            let mut ran_frames = 0;
+            while ran_frames < MAX_TURBO_TAPE_FRAMES && self.turbo_tape_active() {
+                let inputs = std::mem::take(&mut self.pending_inputs);
+                self.runner.run_frame(&inputs)?;
+                ran_frames += 1;
+            }
+            self.next_frame_at = Instant::now() + self.frame_duration;
+            return Ok(ran_frames != 0);
+        }
+
         let now = Instant::now();
         if now < self.next_frame_at {
             return Ok(false);
@@ -670,7 +712,7 @@ impl SpectrumApp {
         if !pressed {
             return matches!(
                 code,
-                KeyCode::Escape | KeyCode::F5 | KeyCode::F6 | KeyCode::F7
+                KeyCode::Escape | KeyCode::F5 | KeyCode::F6 | KeyCode::F7 | KeyCode::F8
             );
         }
 
@@ -690,6 +732,14 @@ impl SpectrumApp {
                 KeyCode::F7 => self.runner.command(&ControlCommand::MediaTransport(
                     MediaTransportCommand::new(DEFAULT_TAPE_SLOT, MediaTransportAction::Stop),
                 )),
+                KeyCode::F8 => {
+                    self.set_turbo_tape(!self.turbo_tape);
+                    if let Some(window) = &self.window {
+                        window.set_title(&self.window_title());
+                        window.request_redraw();
+                    }
+                    return true;
+                }
                 _ => return false,
             };
 
@@ -759,7 +809,7 @@ impl ApplicationHandler for SpectrumApp {
         match self.advance_machine() {
             Ok(true) => {
                 if let Some(window) = &self.window {
-                    window.set_title(&self.runner.window_title());
+                    window.set_title(&self.window_title());
                     window.request_redraw();
                 }
             }
@@ -770,7 +820,11 @@ impl ApplicationHandler for SpectrumApp {
             }
         }
 
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
+        if self.turbo_tape_active() {
+            event_loop.set_control_flow(ControlFlow::Poll);
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
+        }
     }
 }
 
@@ -783,10 +837,10 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F5 reset, F6 tape start, F7 tape stop.");
+    println!("Controls: Esc quit, F5 reset, F6 tape start, F7 tape stop, F8 tape turbo.");
 
     let runner = SpectrumRunner::from_cli(&cli)?;
-    let mut app = SpectrumApp::new(runner, cli.scale)?;
+    let mut app = SpectrumApp::new(runner, cli.scale, cli.turbo_tape)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -813,6 +867,7 @@ where
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--play-tape" => cli.play_tape = true,
             "--autoload-tape" => cli.autoload_tape = true,
+            "--turbo-tape" => cli.turbo_tape = true,
             "--scale" => {
                 cli.scale = next_arg(&mut iter, "--scale")
                     .parse()
@@ -980,6 +1035,7 @@ mod tests {
                 tape: None,
                 play_tape: false,
                 autoload_tape: false,
+                turbo_tape: false,
                 scale: 2,
             }
         );
@@ -1004,6 +1060,7 @@ mod tests {
                 tape: Some(PathBuf::from("manic.zip")),
                 play_tape: true,
                 autoload_tape: false,
+                turbo_tape: false,
                 scale: 3,
             }
         );
@@ -1024,6 +1081,28 @@ mod tests {
                 tape: Some(PathBuf::from("manic.zip")),
                 play_tape: false,
                 autoload_tape: true,
+                turbo_tape: false,
+                scale: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_tape_turbo() {
+        let cli = parse_cli([
+            "--tape".to_owned(),
+            "manic.zip".to_owned(),
+            "--turbo-tape".to_owned(),
+        ]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                rom: None,
+                tape: Some(PathBuf::from("manic.zip")),
+                play_tape: false,
+                autoload_tape: false,
+                turbo_tape: true,
                 scale: 2,
             }
         );
@@ -1040,6 +1119,7 @@ mod tests {
                 tape: Some(PathBuf::from("manic.zip")),
                 play_tape: false,
                 autoload_tape: false,
+                turbo_tape: false,
                 scale: 2,
             }
         );

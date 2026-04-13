@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Spectrum verifier shell now has cycle-faithful tape turbo
+
+**Type:** milestone
+**Trigger:** Once tape autoload existed, the next quality-of-life gap was purely host-side: the native Spectrum shell still ran at wall-clock speed during long tape loads, even though the project explicitly rejects fake instant-load shortcuts.
+**Result:** `emu-spectrum` now has a tape-only turbo mode that preserves exact machine execution:
+1. Added `--turbo-tape` at launch and `F8` at runtime to arm or toggle tape turbo in the native verifier shell.
+2. Turbo mode only engages while the tape is actually playing. When active, the host loop stops sleeping and runs bounded batches of real Spectrum frames as fast as the machine can execute them.
+3. The implementation does not skip pilot tones, alter TZX/TAP semantics, or bypass ROM/tape behaviour. It is only a host scheduling change over the same machine path.
+4. The window title now reports when turbo is armed or active so manual verification stays legible.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p emu-spectrum`, and `cargo test --workspace` all pass.
+**Next dependency:** if we want more tape QoL after this, the next honest step is a “wait until tape stops / wait until query matches” convenience above the current headless session surface, not any form of instant loader.
+
+---
+
 ## 2026-04-13 — Spectrum tape autoload is now a real host workflow
 
 **Type:** milestone
