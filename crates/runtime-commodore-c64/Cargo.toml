@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64" }
 emu198x-shell = { path = "../emu198x-shell" }
+machine-commodore-c64 = { path = "../machine-commodore-c64" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

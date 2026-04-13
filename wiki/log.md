@@ -4,6 +4,23 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — C64 runtime now emits frames and detects the READY. boot state
+
+**Type:** milestone
+**Trigger:** Once the fresh C64 machine could boot real ROMs to `READY.` inside the machine crate, the next honest step was to push that proof through the shared shell boundary instead of leaving C64 as metadata plus chip tests.
+**Result:** the fresh workspace now has its first real C64 runtime surface:
+1. Added `C64Runtime` in `runtime-commodore-c64`, backed by the live `machine-commodore-c64` board and the real BASIC/KERNAL/CHARGEN firmware set.
+2. `run_until()` now advances the C64 in authoritative `phi2` cycles and emits RGBA framebuffer packets to the shared host sinks, so the family is no longer “catalogue only.”
+3. Added `C64SessionQueryProvider` with a minimal boot/query namespace: `boot.detected`, `boot.reason`, `boot.offset`, plus current raster/IRQ/BA state.
+4. Added two ROM-backed proofs of the visible boot path:
+   - an ignored machine test that boots the PAL C64 and finds `READY.` in screen RAM
+   - an ignored runtime test that drives the same ROM set through `run_until()` and resolves `boot.detected = true`
+5. Tightened the profile honesty: PAL now reports `SupportTier::Boots`; NTSC stays at `Research` until it is verified on the same footing.
+**Verification:** `cargo test -p machine-commodore-c64 boots_kernal_to_ready_prompt -- --ignored --nocapture`, `cargo test -p runtime-commodore-c64 query_provider_detects_ready_on_real_pal_boot -- --ignored --nocapture`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings` all pass locally.
+**Next dependency:** the next C64 step is a thin runner above this runtime, then PRG/media support and SID if the booted machine path stays stable under real software.
+
+---
+
 ## 2026-04-13 — Live VIC-II replaces the C64 board shadow registers
 
 **Type:** milestone

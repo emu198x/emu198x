@@ -1908,6 +1908,8 @@ version = "0.1.0"
 dependencies = [
  "common-commodore-c64",
  "emu198x-shell",
+ "machine-commodore-c64",
+ "serde_json",
 ]
 
 [[package]]

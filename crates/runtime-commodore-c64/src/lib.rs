@@ -1,13 +1,17 @@
 //! Commodore 64 family metadata.
 //!
 //! This crate currently owns the C64 family profile catalogue for the fresh
-//! workspace. It does not yet expose a runnable C64 machine runtime.
+//! workspace and the first firmware-backed C64 runtime surface.
+
+mod runtime;
 
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
     MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
+
+pub use runtime::{C64Runtime, C64SessionQueryProvider};
 
 /// Supported C64 models in the fresh workspace bootstrap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -56,16 +60,18 @@ pub fn profiles() -> Vec<MachineProfile> {
 /// Returns the profile metadata for one C64 model.
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
-    let (region, summary, clock_rate, release_year) = match model {
+    let (region, support_tier, summary, clock_rate, release_year) = match model {
         Model::C64PalBreadbin => (
             Region::Pal,
-            "Research-tier PAL breadbin baseline for the fresh C64 bring-up: 6510, VIC-II, SID, CIA, IEC, datasette, and cartridge behaviour remain to be implemented in this workspace.",
+            SupportTier::Boots,
+            "PAL breadbin baseline now boots real BASIC/KERNAL/CHARGEN ROMs to the BASIC READY. prompt in the fresh workspace. Live 6502, CIA, and VIC-II are wired; SID remains shadowed and media plus snapshots are still pending.",
             ClockRate::from_hz(TIMING_PAL_BREADBIN.cpu_hz),
             1982,
         ),
         Model::C64NtscBreadbin => (
             Region::Ntsc,
-            "Research-tier NTSC breadbin follow-on profile for the fresh C64 bring-up, keeping the same hardware scope under 6567 timing.",
+            SupportTier::Research,
+            "NTSC breadbin follow-on profile on the same live 6502/CIA/VIC-II substrate. Fresh-workspace frame execution exists, but NTSC boot validation and media plus snapshot support are still pending.",
             ClockRate::from_hz(TIMING_NTSC_BREADBIN.cpu_hz),
             1982,
         ),
@@ -77,7 +83,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::C64,
         region,
-        support_tier: SupportTier::Research,
+        support_tier,
         release_year,
         summary: summary.into(),
         clock: ClockDesc::new("phi2-cycle", clock_rate),
@@ -114,11 +120,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ),
         ],
         capabilities: CapabilitySet::with_all([
-            known_capability("joystick-port"),
             known_capability("keyboard-matrix"),
             known_capability("scripted-input"),
-            known_capability("snapshot-export"),
-            known_capability("snapshot-import"),
         ]),
     }
 }
@@ -192,8 +195,13 @@ mod tests {
 
     #[test]
     fn profiles_stay_honest_about_current_support_tier() {
-        for profile in profiles() {
-            assert_eq!(profile.support_tier, SupportTier::Research);
-        }
+        assert_eq!(
+            profile_for(Model::C64PalBreadbin).support_tier,
+            SupportTier::Boots
+        );
+        assert_eq!(
+            profile_for(Model::C64NtscBreadbin).support_tier,
+            SupportTier::Research
+        );
     }
 }

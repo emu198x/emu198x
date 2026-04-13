@@ -285,6 +285,8 @@ impl C64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
 
     fn stub_machine(model: C64Model) -> C64 {
         stub_machine_with_reset_vector(model, 0xE000)
@@ -301,6 +303,13 @@ mod tests {
             character_rom: &[0xCC; 0x1000],
         })
         .expect("stub ROM sizes should be valid")
+    }
+
+    fn c64_rom_dir() -> PathBuf {
+        PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for ROM-backed C64 tests"),
+        )
+        .join(".emu198x/roms/commodore-c64")
     }
 
     #[test]
@@ -490,5 +499,53 @@ mod tests {
         assert!(machine.cpu().rw);
         machine.tick();
         assert_eq!(machine.cpu().regs.pc, pc_before);
+    }
+
+    #[test]
+    #[ignore = "requires real C64 BASIC/KERNAL/CHARGEN ROMs at ~/.emu198x/roms/commodore-c64"]
+    fn boots_kernal_to_ready_prompt() {
+        let rom_dir = c64_rom_dir();
+        let kernal = fs::read(rom_dir.join("kernal.rom")).expect("KERNAL ROM");
+        let basic = fs::read(rom_dir.join("basic.rom")).expect("BASIC ROM");
+        let chargen = fs::read(rom_dir.join("chargen.rom")).expect("character ROM");
+
+        let mut machine = C64::new(C64Config {
+            model: C64Model::PalBreadbin,
+            kernal_rom: &kernal,
+            basic_rom: &basic,
+            character_rom: &chargen,
+        })
+        .expect("real C64 ROM set should construct a machine");
+
+        // Screen codes for READY.
+        const READY: [u8; 6] = [18, 5, 1, 4, 25, 46];
+
+        let mut found = None;
+        for frame in 0..200u32 {
+            machine.run_frame();
+
+            for offset in 0..=(0x07E8u16 - 0x0400 - READY.len() as u16) {
+                let mut matched = true;
+                for (i, &expected) in READY.iter().enumerate() {
+                    if machine.memory().ram_read(0x0400 + offset + i as u16) != expected {
+                        matched = false;
+                        break;
+                    }
+                }
+                if matched {
+                    found = Some((frame + 1, offset));
+                    break;
+                }
+            }
+
+            if found.is_some() {
+                break;
+            }
+        }
+
+        assert!(
+            found.is_some(),
+            "C64 did not reach READY. prompt within 200 frames"
+        );
     }
 }
