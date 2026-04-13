@@ -1,6 +1,7 @@
 //! Board-level C64 machine substrate.
 
 use common_commodore_c64::timing::C64Timing;
+use mos_6502::M6502;
 
 use crate::config::{C64Config, C64Model};
 use crate::keyboard::KeyboardMatrix;
@@ -40,6 +41,7 @@ impl CiaPort {
 #[derive(Clone)]
 pub struct C64 {
     model: C64Model,
+    cpu: M6502,
     memory: C64Memory,
     keyboard: KeyboardMatrix,
     phi2_cycles: u64,
@@ -62,8 +64,11 @@ impl C64 {
     /// Returns an error if any ROM size is incorrect.
     pub fn new(config: C64Config<'_>) -> Result<Self, MemoryInitError> {
         let memory = C64Memory::new(config.kernal_rom, config.basic_rom, config.character_rom)?;
+        let mut cpu = M6502::new();
+        cpu.reset();
         let mut machine = Self {
             model: config.model,
+            cpu,
             memory,
             keyboard: KeyboardMatrix::new(),
             phi2_cycles: 0,
@@ -98,6 +103,12 @@ impl C64 {
     #[must_use]
     pub const fn model(&self) -> C64Model {
         self.model
+    }
+
+    /// CPU state.
+    #[must_use]
+    pub fn cpu(&self) -> &M6502 {
+        &self.cpu
     }
 
     /// Timing descriptor for the current model.
@@ -173,6 +184,16 @@ impl C64 {
         self.phi2_cycles = self.phi2_cycles.saturating_add(1);
         self.refresh_keyboard_scan();
         self.refresh_vic_bank();
+        self.cpu.irq = false;
+        self.cpu.nmi = false;
+        self.cpu.rdy = true;
+
+        if self.cpu.rw {
+            self.cpu.data_in = self.cpu_read(self.cpu.addr);
+        } else {
+            self.cpu_write(self.cpu.addr, self.cpu.data);
+        }
+        self.cpu.tick();
 
         self.cycle_in_line = self.cycle_in_line.wrapping_add(1);
         if self.cycle_in_line < self.timing().cycles_per_line {
@@ -287,9 +308,16 @@ mod tests {
     use super::*;
 
     fn stub_machine(model: C64Model) -> C64 {
+        stub_machine_with_reset_vector(model, 0xE000)
+    }
+
+    fn stub_machine_with_reset_vector(model: C64Model, start_pc: u16) -> C64 {
+        let mut kernal = [0xEA; 0x2000];
+        kernal[0x1FFC] = start_pc as u8;
+        kernal[0x1FFD] = (start_pc >> 8) as u8;
         C64::new(C64Config {
             model,
-            kernal_rom: &[0xEE; 0x2000],
+            kernal_rom: &kernal,
             basic_rom: &[0xBB; 0x2000],
             character_rom: &[0xCC; 0x1000],
         })
@@ -304,7 +332,9 @@ mod tests {
         assert_eq!(machine.raster_line(), 0);
         assert_eq!(machine.cycle_in_line(), 0);
         assert_eq!(machine.vic_bank(), 0);
-        assert_eq!(machine.cpu_read_from_init(0xDC00), 0xFF);
+        assert_eq!(machine.cpu().addr, 0xFFFC);
+        assert!(machine.cpu().rw);
+        assert!(!machine.cpu().sync);
     }
 
     #[test]
@@ -341,6 +371,40 @@ mod tests {
         assert_eq!(machine.frame_count(), 1);
         assert_eq!(machine.raster_line(), 0);
         assert_eq!(machine.cycle_in_line(), 0);
+    }
+
+    #[test]
+    fn cpu_reset_bootstrap_reaches_first_opcode_fetch() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        assert!(!machine.tick());
+        assert!(machine.cpu().rw);
+        assert_eq!(machine.cpu().addr, 0xFFFD);
+
+        assert!(!machine.tick());
+        assert!(machine.cpu().sync);
+        assert_eq!(machine.cpu().addr, 0xE000);
+        assert_eq!(machine.cpu().regs.pc, 0xE000);
+        assert!(machine.cpu().instruction_complete());
+    }
+
+    #[test]
+    fn cpu_can_execute_load_and_store_through_board_bus() {
+        let mut machine = stub_machine_with_reset_vector(C64Model::PalBreadbin, 0x0400);
+        machine.memory.ram_write(0x0400, 0xA9);
+        machine.memory.ram_write(0x0401, 0x42);
+        machine.memory.ram_write(0x0402, 0x8D);
+        machine.memory.ram_write(0x0403, 0x00);
+        machine.memory.ram_write(0x0404, 0x02);
+
+        machine.tick();
+        machine.tick();
+        for _ in 0..6 {
+            machine.tick();
+        }
+
+        assert_eq!(machine.cpu().regs.a, 0x42);
+        assert_eq!(machine.memory().ram_read(0x0200), 0x42);
+        assert_eq!(machine.cpu().regs.pc, 0x0405);
     }
 
     #[test]
@@ -386,14 +450,5 @@ mod tests {
         machine.cpu_write(0xDD00, 0x02);
         assert_eq!(machine.vic_bank(), 1);
         assert_eq!(machine.vic_read(0x1000), 0xAA);
-    }
-
-    impl C64 {
-        fn cpu_read_from_init(&self, addr: u16) -> u8 {
-            match addr {
-                0xDC00 => self.cia1_port_a.read(),
-                _ => 0xFF,
-            }
-        }
     }
 }

@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Fresh-workspace C64 now has a real 6502 and CPU-driven board loop
+
+**Type:** milestone
+**Trigger:** The C64 board substrate had real banking, keyboard scan state, and timing, but it was still only a timed board shell. The next honest step had to be a real processor on the bus.
+**Result:** the fresh workspace now has the first CPU-driven C64 slice instead of only static board behaviour:
+1. Added `mos-6502` as a standalone cycle-accurate pin-level CPU crate with opcode decode, per-cycle bus scheduling, decimal-mode support, and core execution tests.
+2. Reworked `machine-commodore-c64` to own a real 6502, reset it through the KERNAL reset vector, and drive one actual CPU bus transaction per `phi2` cycle over the existing 6510-style memory banking and I/O shadows.
+3. Kept the board scope honest: IRQ/NMI/RDY sources are still placeholders until live CIA/VIC models arrive, but the CPU is now executing through the real memory map rather than through synthetic state changes.
+4. Added machine-level proofs that the board boots through the reset vector to the first opcode fetch and can execute `LDA`/`STA` through the board bus into RAM and I/O-visible register space.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass with the new `mos-6502` crate and the CPU-driven C64 board loop.
+**Next dependency:** the next C64 step is to replace the current CIA/VIC shadows with live chip crates and start surfacing real interrupt, bank-select, and bad-line behaviour through the same board loop.
+
+---
+
 ## 2026-04-13 — C64 machine substrate now has real banking, keyboard, and timing
 
 **Type:** milestone

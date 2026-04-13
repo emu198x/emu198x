@@ -1,0 +1,12 @@
+[package]
+name = "mos-6502"
+description = "MOS 6502 CPU with a cycle-accurate pin-level bus interface"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

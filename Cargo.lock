@@ -1136,6 +1136,7 @@ name = "machine-commodore-c64"
 version = "0.1.0"
 dependencies = [
  "common-commodore-c64",
+ "mos-6502",
  "thiserror 2.0.18",
 ]
 
@@ -1203,6 +1204,13 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "mos-6502"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
