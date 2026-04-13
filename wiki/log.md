@@ -4,6 +4,34 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — C64 tape autoload now drives the real KERNAL path, and Thinker reaches FOUND/LOADING
+
+**Type:** milestone
+**Trigger:** Once TAP playback was wired through the 6510 and `CIA1 FLAG`, the remaining question was not whether pulses existed but whether the actual C64 ROM workflow could use them. We needed a host helper over the real machine path and at least one concrete software proof above raw transport control.
+**Result:** the fresh-workspace C64 now has a real tape-autoload workflow and a ROM-backed tape regression:
+1. Added `runtime-commodore-c64::autoload_basic_tape()`, which waits for `READY.`, presses the real `SHIFT+RUN/STOP` KERNAL shortcut, waits for `PRESS PLAY ON TAPE`, and only then starts `tape-1`.
+2. Added decoded `screen.text.lines` plus `boot.row` to the C64 query provider, so scripting and future MCP automation can observe text-mode KERNAL states directly instead of relying on screenshots.
+3. Wired `--autoload-tape` into `emu198x-script-c64`, keeping it explicitly separate from raw `--start-tape`.
+4. Added a new ignored ROM-backed runtime test against the local `Thinker, The (1984)(Atlantis)` TAP archive. The current proof reaches both `FOUND THINKER` and `LOADING` under the real KERNAL tape path.
+**Verification:** `cargo test -p runtime-commodore-c64 -p emu198x-script-c64`, `cargo clippy -p runtime-commodore-c64 -p emu198x-script-c64 --all-targets -- -D warnings`, and `cargo test -p runtime-commodore-c64 real_tap_autoload_reaches_loading_banner -- --ignored --nocapture` all pass locally. The ignored `Thinker` proof completed in `38.29s`.
+**Next dependency:** the next honest C64 tape milestone is either a full end-of-load software regression on a tractable TAP title or native-shell tape insertion/control above the same runtime path.
+
+---
+
+## 2026-04-13 — C64 T64 support lands as a host-side container import, not fake datasette media
+
+**Type:** milestone
+**Trigger:** With TAP now living on the real datasette path, the separate `T64` request needed to be handled without eroding the repo’s “no shortcuts” accuracy bar.
+**Result:** `T64` support now exists, but on the correct side of the emulation boundary:
+1. Added `format-commodore-c64-t64`, which parses `T64` headers and extracts the first loadable entry as a PRG byte stream.
+2. Extended the shell asset loader so zipped or plain `.t64` files are recognized as host-side program assets.
+3. Updated `runtime-commodore-c64::file_loader` so `--load demo.t64` imports the first loadable archive entry into RAM, just like a host-side PRG convenience path.
+4. Kept the boundary explicit in code and docs: `T64` is a container import path under `--load`, not a claim of pulse-timed datasette playback.
+**Verification:** `cargo test -p format-commodore-c64-t64 -p runtime-commodore-c64 -p emu198x-script-c64 -p emu198x-shell` and `cargo clippy -p format-commodore-c64-t64 -p runtime-commodore-c64 -p emu198x-script-c64 -p emu198x-shell --all-targets -- -D warnings` both pass locally.
+**Next dependency:** if we want richer `T64` handling later, the next honest extension is entry selection and metadata exposure, not pretending the container is equivalent to raw TAP pulse media.
+
+---
+
 ## 2026-04-13 — C64 datasette TAP path is live through the 6510 and CIA1 FLAG
 
 **Type:** milestone

@@ -13,6 +13,7 @@ use crate::{Model, profile_for};
 
 const C64_QUERY_PATHS: &[&str] = &[
     "boot.detected",
+    "boot.row",
     "boot.reason",
     "boot.offset",
     "c64.cia1.irq",
@@ -23,12 +24,16 @@ const C64_QUERY_PATHS: &[&str] = &[
     "c64.tape.playing",
     "c64.vic.ba_low",
     "c64.vic.irq",
+    "screen.text.lines",
 ];
 
 const READY_SCREEN_CODES: [u8; 6] = [18, 5, 1, 4, 25, 46];
 const KERNAL_ROM_SIZE: usize = 0x2000;
 const BASIC_ROM_SIZE: usize = 0x2000;
 const CHARACTER_ROM_SIZE: usize = 0x1000;
+const SCREEN_RAM_BASE: u16 = 0x0400;
+const SCREEN_TEXT_WIDTH: usize = 40;
+const SCREEN_TEXT_HEIGHT: usize = 25;
 
 /// Firmware-backed Commodore 64 runtime.
 pub struct C64Runtime {
@@ -55,6 +60,7 @@ struct C64BootStatus {
     detected: bool,
     reason: String,
     offset: Option<u16>,
+    row: Option<u64>,
 }
 
 /// C64-family query provider layered above the shared shell surface.
@@ -366,6 +372,7 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
 
         let value = match path {
             "boot.detected" => json!(boot.detected),
+            "boot.row" => json!(boot.row),
             "boot.reason" => json!(boot.reason),
             "boot.offset" => json!(boot.offset),
             "c64.machine.raster_line" => json!(machine.machine().raster_line()),
@@ -376,6 +383,7 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.vic.irq" => json!(machine.machine().vic().irq_active()),
             "c64.cia1.irq" => json!(machine.machine().cia1().irq_active()),
             "c64.cia2.irq" => json!(machine.machine().cia2().irq_active()),
+            "screen.text.lines" => json!(decode_screen_text_lines(machine.machine())),
             _ => return Ok(None),
         };
 
@@ -441,10 +449,12 @@ fn c64_boot_status(machine: &C64) -> C64BootStatus {
         }
 
         if matched {
+            let row = u64::from(offset / SCREEN_TEXT_WIDTH as u16);
             return C64BootStatus {
                 detected: true,
-                reason: format!("found READY. screen codes at offset ${offset:04X}"),
+                reason: format!("found READY. screen codes at offset ${offset:04X} on row {row}"),
                 offset: Some(offset),
+                row: Some(row),
             };
         }
     }
@@ -453,6 +463,39 @@ fn c64_boot_status(machine: &C64) -> C64BootStatus {
         detected: false,
         reason: "READY. screen codes not visible".to_owned(),
         offset: None,
+        row: None,
+    }
+}
+
+fn decode_screen_text_lines(machine: &C64) -> Vec<String> {
+    let mut lines = Vec::with_capacity(SCREEN_TEXT_HEIGHT);
+    for row in 0..SCREEN_TEXT_HEIGHT {
+        let mut line = String::with_capacity(SCREEN_TEXT_WIDTH);
+        for col in 0..SCREEN_TEXT_WIDTH {
+            let address = SCREEN_RAM_BASE + (row * SCREEN_TEXT_WIDTH + col) as u16;
+            let code = machine.memory().ram_read(address);
+            line.push(decode_screen_code(code));
+        }
+        lines.push(line);
+    }
+    lines
+}
+
+fn decode_screen_code(code: u8) -> char {
+    match code {
+        0x00 => '@',
+        0x01..=0x1A => char::from(b'A' + (code - 1)),
+        0x20 => ' ',
+        0x21..=0x3F => char::from(code),
+        0x40..=0x5A => char::from(code),
+        0x5B => '[',
+        0x5C => '\\',
+        0x5D => ']',
+        0x5E => '^',
+        0x5F => '_',
+        0x60 => '`',
+        0x61..=0x7A => char::from(code - 0x20),
+        _ => '?',
     }
 }
 
@@ -538,11 +581,15 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT,
+        DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_tape,
+    };
     use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
     use emu198x_shell::{
         AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FrameSink,
-        MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-        NullAudioSink, NullTraceSink, PixelFormat,
+        HeadlessSession, MediaImage, MediaKind, MediaSet, MediaTransportAction,
+        MediaTransportCommand, NullAudioSink, NullTraceSink, PixelFormat, read_media_asset,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -644,6 +691,15 @@ mod tests {
         firmware
     }
 
+    fn local_thinker_tap_zip() -> PathBuf {
+        PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
+        )
+        .join(
+            "Projects/Emu198x-Unclean/Reference/commodore/c64/Educational/[TAP]/Thinker, The (1984)(Atlantis).zip",
+        )
+    }
+
     #[test]
     fn runtime_can_build_from_declared_firmware() {
         let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware());
@@ -700,7 +756,8 @@ mod tests {
             vec![
                 "boot.detected".to_owned(),
                 "boot.offset".to_owned(),
-                "boot.reason".to_owned()
+                "boot.reason".to_owned(),
+                "boot.row".to_owned(),
             ]
         );
 
@@ -716,11 +773,32 @@ mod tests {
             .expect("boot.reason should resolve");
         assert_eq!(reason.value, json!("READY. screen codes not visible"));
 
+        let row = provider
+            .query(&runtime, "boot.row")
+            .expect("boot.row query should not fail")
+            .expect("boot.row should resolve");
+        assert_eq!(row.value, json!(null));
+
         let tape_loaded = provider
             .query(&runtime, "c64.tape.loaded")
             .expect("c64.tape.loaded query should not fail")
             .expect("c64.tape.loaded should resolve");
         assert_eq!(tape_loaded.value, json!(false));
+
+        let text_lines = provider
+            .query(&runtime, "screen.text.lines")
+            .expect("screen.text.lines query should not fail")
+            .expect("screen.text.lines should resolve");
+        let lines = text_lines
+            .value
+            .as_array()
+            .expect("screen.text.lines should be an array");
+        assert_eq!(lines.len(), SCREEN_TEXT_HEIGHT);
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.as_str().is_some_and(|line| line.len() == 40))
+        );
 
         assert!(matches!(provider.query(&runtime, "not-a-path"), Ok(None)));
     }
@@ -917,5 +995,55 @@ mod tests {
             .expect("boot.offset query should not fail")
             .expect("boot.offset should resolve");
         assert_ne!(offset.value, json!(null));
+
+        let row = provider
+            .query(&runtime, "boot.row")
+            .expect("boot.row query should not fail")
+            .expect("boot.row should resolve");
+        assert_ne!(row.value, json!(null));
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs and Thinker TAP archive"]
+    fn real_tap_autoload_reaches_loading_banner() {
+        let firmware = local_rom_firmware();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("real PAL C64 firmware should construct a runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let tape = read_media_asset(&local_thinker_tap_zip(), MediaKind::Tape)
+            .expect("local Thinker TAP archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            MediaKind::Tape,
+            &tape.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("local Thinker TAP should insert");
+
+        let autoload = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("autoload should reach PRESS PLAY ON TAPE and start transport");
+        assert_eq!(autoload.slot, DEFAULT_TAPE_AUTOLOAD_SLOT);
+
+        let found = session
+            .wait_for_query_text_contains("screen.text.lines", "FOUND THINKER", 1500)
+            .expect("Thinker tape should reach FOUND banner");
+        assert_eq!(found.line, Some(12));
+
+        let loading = session
+            .wait_for_query_text_contains("screen.text.lines", "LOADING", 3000)
+            .expect("Thinker tape should reach LOADING banner");
+        assert_eq!(loading.line, Some(13));
+        assert!(session.machine().machine().tape_is_playing());
     }
 }

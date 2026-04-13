@@ -82,9 +82,9 @@ pub fn read_firmware_asset(path: &Path) -> Result<LoadedAsset, AssetLoadError> {
 /// # Errors
 ///
 /// Returns an error if file I/O fails, the zip container is invalid, or the
-/// archive does not contain exactly one `.bas` or `.prg` member.
+/// archive does not contain exactly one `.bas`, `.prg`, or `.t64` member.
 pub fn read_program_asset(path: &Path) -> Result<LoadedAsset, AssetLoadError> {
-    read_asset(path, "program file", &["bas", "prg"])
+    read_asset(path, "program file", &["bas", "prg", "t64"])
 }
 
 /// Reads one media asset from disk, expanding a zip archive when required.

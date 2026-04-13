@@ -15,7 +15,9 @@ use emu198x_shell::{
     ScriptObservation, boot_machine, read_firmware_asset, read_media_asset, read_program_asset,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, Model, file_loader::load_host_file,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_tape,
+    file_loader::load_host_file,
 };
 use serde::Serialize;
 
@@ -33,6 +35,7 @@ struct Cli {
     chargen: Option<PathBuf>,
     load: Option<PathBuf>,
     tape: Option<PathBuf>,
+    autoload_tape: bool,
     start_tape: bool,
     load_snapshot: Option<PathBuf>,
     save_snapshot: Option<PathBuf>,
@@ -82,6 +85,7 @@ Cold boot:
     --model MODEL             pal or ntsc [default: pal]
     --load PATH               import one .prg or plain-text .bas file after boot
     --tape PATH               insert one TAP image into datasette slot
+    --autoload-tape           wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape              press PLAY on the inserted datasette image
 
 State and automation:
@@ -112,7 +116,7 @@ Filename resolution inside the ROM directory:
 Examples:
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --screenshot ready.png
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --start-tape --wait-for-tape-stop 12000
+    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --wait-for-tape-stop 12000
     emu198x-script-c64 --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --script capture.json
 ";
@@ -161,6 +165,7 @@ where
             "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
             "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
@@ -228,6 +233,10 @@ fn die(message: &str) -> ! {
 }
 
 fn run(cli: Cli) -> Result<RunnerReport, String> {
+    if cli.autoload_tape && cli.start_tape {
+        return Err("--autoload-tape conflicts with --start-tape".into());
+    }
+
     if cli.screenshot.is_some()
         && cli.frames == 0
         && cli.script.is_none()
@@ -276,6 +285,20 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         session
             .load_media(&media)
             .map_err(|err| format!("tape load failed: {err}"))?;
+    }
+
+    if cli.autoload_tape {
+        if !session.machine().machine().tape_is_loaded() {
+            return Err("--autoload-tape requires tape media in slot tape-1".into());
+        }
+
+        autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        )
+        .map_err(|err| format!("tape autoload failed: {err}"))?;
     }
 
     let mut loaded_program = None;
@@ -565,6 +588,7 @@ mod tests {
                 chargen: None,
                 load: None,
                 tape: None,
+                autoload_tape: false,
                 start_tape: false,
                 load_snapshot: Some(PathBuf::from("in.c64.pst")),
                 save_snapshot: Some(PathBuf::from("out.c64.pst")),
@@ -573,6 +597,41 @@ mod tests {
                 wait_for_boot: Some(180),
                 wait_for_tape_stop: None,
                 frames: 12,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_tape_autoload_flag() {
+        let cli = parse_cli([
+            "--rom-dir".to_string(),
+            "roms".to_string(),
+            "--tape".to_string(),
+            "game.tap".to_string(),
+            "--autoload-tape".to_string(),
+            "--wait-for-tape-stop".to_string(),
+            "12000".to_string(),
+        ]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                model: ModelArg::Pal,
+                rom_dir: Some(PathBuf::from("roms")),
+                kernal: None,
+                basic: None,
+                chargen: None,
+                load: None,
+                tape: Some(PathBuf::from("game.tap")),
+                autoload_tape: true,
+                start_tape: false,
+                load_snapshot: None,
+                save_snapshot: None,
+                screenshot: None,
+                script: None,
+                wait_for_boot: None,
+                wait_for_tape_stop: Some(12000),
+                frames: 0,
             }
         );
     }

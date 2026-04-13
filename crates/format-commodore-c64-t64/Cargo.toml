@@ -1,0 +1,12 @@
+[package]
+name = "format-commodore-c64-t64"
+description = "Commodore 64 T64 container parser"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

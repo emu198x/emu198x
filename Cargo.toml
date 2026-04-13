@@ -12,6 +12,7 @@ members = [
     "crates/format-commodore-c64-bas",
     "crates/format-commodore-c64-prg",
     "crates/format-commodore-c64-tap",
+    "crates/format-commodore-c64-t64",
     "crates/format-sinclair-zx-spectrum-tap",
     "crates/format-sinclair-zx-spectrum-tzx",
     "crates/machine-commodore-c64",

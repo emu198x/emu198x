@@ -43,11 +43,13 @@ As of April 13, 2026, the fresh Rust workspace currently provides:
   - live 6502/CIA/VIC-II/SID board loop
   - KERNAL boots to `READY.`
   - headless runner, native verifier UI, screenshots, snapshots, boot
-    detection, and mono audio output
+    detection, decoded screen-text queries, and mono audio output
   - TAP-backed datasette media insertion plus real tape transport control on
     the C64 board path
+  - host-side `SHIFT+RUN/STOP` tape autoload helper over the real KERNAL path
   - host-side `.prg` import
   - host-side plain-text `.bas` import via Commodore BASIC tokenisation
+  - host-side `.t64` import by extracting the first loadable archive entry
   - native shell input is usable for verification, but still feels softer than
     target and should not yet be treated as a polished frontend
 
@@ -71,8 +73,10 @@ Examples:
 - `--load demo.bas` for the current C64 runner is a host-side program import
   path, not fake disk or tape emulation.
 - `--tape game.tap` for the current C64 runner is real datasette media on the
-  board path; `T64` is still a separate follow-up and should not be conflated
-  with pulse-timed TAP playback.
+  board path.
+- `--load demo.t64` for the current C64 runner is a host-side container import
+  path that extracts the first loadable entry; it is not pulse-timed datasette
+  playback.
 
 ## Building
 
@@ -166,7 +170,7 @@ cargo run -p emu198x-script-c64 -- \
 cargo run -p emu198x-script-c64 -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --tape game.tap \
-  --start-tape \
+  --autoload-tape \
   --wait-for-tape-stop 12000
 ```
 
@@ -187,8 +191,9 @@ Current examples include:
   compatibility harness
 - Spectrum machine and software regressions over real ROM and tape paths
 - C64 ROM-backed `READY.` boot detection plus snapshot round-trip checks
-- C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense, and
-  CIA1 FLAG delivery
+- C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense,
+  CIA1 FLAG delivery, and a ROM-backed `Thinker` TAP path that reaches KERNAL
+  `FOUND` and `LOADING`
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

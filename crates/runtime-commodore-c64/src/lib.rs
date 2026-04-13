@@ -3,6 +3,7 @@
 //! This crate currently owns the C64 family profile catalogue for the fresh
 //! workspace and the first firmware-backed C64 runtime surface.
 
+mod autoload;
 pub mod file_loader;
 mod runtime;
 
@@ -12,6 +13,10 @@ use emu198x_shell::{
     MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
 
+pub use autoload::{
+    C64AutoloadError, C64TapeAutoloadResult, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_tape,
+};
 pub use runtime::{C64Runtime, C64SessionQueryProvider};
 
 /// Supported C64 models in the fresh workspace bootstrap.

@@ -82,7 +82,7 @@ cargo run -p emu198x-script-c64 -- \
 cargo run -p emu198x-script-c64 -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --tape game.tap \
-  --start-tape \
+  --autoload-tape \
   --wait-for-tape-stop 12000
 ```
 
@@ -95,6 +95,7 @@ You can combine `--script` with normal C64 runner flags such as:
 - `--model pal|ntsc`
 - `--load PATH`
 - `--tape PATH`
+- `--autoload-tape`
 - `--start-tape`
 - `--load-snapshot PATH`
 - `--save-snapshot PATH`
@@ -109,6 +110,8 @@ boundary:
 - `.prg` files are imported directly into RAM using their declared load address
 - `.bas` files are treated as UTF-8 plain-text BASIC source, tokenised, then
   imported as a BASIC program
+- `.t64` files are treated as host-side containers, with the first loadable
+  entry extracted and imported as a PRG
 
 This is not emulated tape or disk loading. It is a fast host-side software
 injection path for development, scripting, and future editor workflows. The
@@ -116,9 +119,14 @@ same concept will likely exist for other families later, but tokenisation and
 editor semantics remain family-specific.
 
 `--tape PATH` is different: it inserts a real Commodore TAP image into the
-datasette slot, and `--start-tape` / `--wait-for-tape-stop` operate on the live
-transport through the shared media-control boundary. `T64` is still a separate
-follow-up format and is not currently claimed as pulse-accurate tape media.
+datasette slot. `--autoload-tape` waits for `READY.`, presses the real
+`SHIFT+RUN/STOP` KERNAL shortcut, waits for `PRESS PLAY ON TAPE`, and then
+starts `tape-1` through the shared media-control boundary. `--start-tape` and
+`--wait-for-tape-stop` operate on that same live transport path.
+
+`T64` support is intentionally separate. It currently lives under `--load PATH`
+as a host-side container import path, not as a claim of pulse-accurate
+datasette media.
 
 ## Script Format
 
@@ -229,6 +237,11 @@ It also adds these family-specific paths:
 
 The current C64 runner adds these family-specific paths:
 
+- `boot.detected`
+- `boot.offset`
+- `boot.reason`
+- `boot.row`
+- `screen.text.lines`
 - `c64.machine.cycle_in_line`
 - `c64.machine.raster_line`
 - `c64.tape.loaded`
@@ -237,6 +250,10 @@ The current C64 runner adds these family-specific paths:
 - `c64.cia2.irq`
 - `c64.vic.ba_low`
 - `c64.vic.irq`
+
+For the current C64 runtime, `screen.text.lines` is decoded directly from
+screen RAM and is useful for KERNAL text states such as `READY.`, `SEARCHING`,
+`FOUND ...`, and `LOADING`.
 
 ## Output
 

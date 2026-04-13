@@ -30,13 +30,15 @@ See the [C64 per-subsystem source map](../decisions/archives-as-source.md#c64) f
 
 This is the single biggest validation milestone of the whole C64 port. Every architectural decision — pin-level CPU bus (`RULES.md` item 6), `VicMemory` trait, one-op-per-tick discipline, tick ordering, IRQ routing, RDY-only-gates-reads semantics — held up under the hardest possible test: running real Commodore ROM code through to the operating-system prompt.
 
-**Phase 4 runtime + CLI: complete.** `runtime-commodore-c64` implements the cross-family [`System`](../../crates/emu198x-shell/src/system.rs) trait on top of `machine-commodore-c64`. `emu198x-script-c64` is a headless CLI binary that boots the C64 from ROM files, advances N frames, and writes a PNG screenshot. Uses the shell's `encode_png_to_file` capture pipeline end-to-end.
+**Phase 4 runtime + CLI: active.** `runtime-commodore-c64` is the fresh-workspace C64 runtime over `machine-commodore-c64`, and `emu198x-script-c64` is the current headless runner. In the current Rust workspace it boots ROMs, exposes snapshots/screenshots and queryable boot state, supports host-side `.prg` / `.bas` / `.t64` import, and now drives real TAP-backed datasette media through the shared session/control surface.
 
 **🎯 2026-04-09: C64 `READY.` screenshot rendered as PNG.** Running:
 
 ```sh
-emu198x-script-c64 --roms ~/Projects/Emu198x-archive-april2026/roms/c64 \
-                   --frames 120 --screenshot ready.png
+cargo run -p emu198x-script-c64 -- \
+  --rom-dir ~/.emu198x/roms/commodore-c64 \
+  --frames 120 \
+  --screenshot ready.png
 ```
 
 produces a 416×312 8-bit RGBA PNG showing the classic `**** COMMODORE 64 BASIC V2 ****` / `64K RAM SYSTEM  38911 BASIC BYTES FREE` / `READY.` banner in the light-blue-on-blue C64 palette. This is the first *visible* proof the port chain works: VIC-II framebuffer → runtime RGBA re-pack → shell `encode_png` → PNG file on disk.
@@ -121,8 +123,8 @@ Known gaps from the archive that were deliberately not ported in this first pass
 - **Cartridge support** (CRT files, EXROM/GAME lines, ROML/ROMH overlays, Ultimax mode). The memory decoder's PLA variants are wired in the archive via `cart.exrom` / `cart.game`; ours is the EXROM=1, GAME=1 case only.
 - **1541 disk drive** — full second 6502 + 6522 VIAs + GCR encoder + head-tracking model.
 - **IEC serial bus** — three-wire protocol between C64 and drive. Not needed without a drive.
-- **Datasette TAP software validation** — the fresh workspace now has pulse-level TAP parsing, datasette transport, 6510 motor/sense wiring, and CIA1 FLAG delivery, but it does not yet claim a ROM-backed real-title tape-load regression.
-- **T64** — still deferred as a separate container/import format. It should not be conflated with the pulse-timed TAP datasette path.
+- **Datasette TAP software validation** — the fresh workspace now has a ROM-backed real-title tape regression for `Thinker`, but only up through the KERNAL `FOUND` / `LOADING` path so far, not a full end-of-tape software-complete claim.
+- **T64 pulse media** — still deferred. `T64` now exists only as a separate host-side container/import format and should not be conflated with the pulse-timed TAP datasette path.
 - **REU** — RAM Expansion Unit with DMA.
 - **Symbolic keyboard mapping** — host `KeyboardEvent.code` strings → C64 key matrix positions + shift overrides.
 - **Timed input queue** — scheduled keystrokes for the automated boot-and-type workflow.
