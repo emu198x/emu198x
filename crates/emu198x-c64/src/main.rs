@@ -597,18 +597,24 @@ impl C64App {
             self.pressed_keys.insert(code, names.to_vec());
             self.pending_inputs
                 .extend(names.iter().copied().map(|name| c64_key_event(name, true)));
+            self.next_frame_at = Instant::now();
         } else if let Some(names) = self.pressed_keys.remove(&code) {
             self.pending_inputs
                 .extend(names.into_iter().map(|name| c64_key_event(name, false)));
+            self.next_frame_at = Instant::now();
         }
     }
 
     fn release_all_keys(&mut self) {
         let keys = std::mem::take(&mut self.pressed_keys);
+        if keys.is_empty() {
+            return;
+        }
         for names in keys.into_values() {
             self.pending_inputs
                 .extend(names.into_iter().map(|name| c64_key_event(name, false)));
         }
+        self.next_frame_at = Instant::now();
     }
 
     fn handle_shortcut(
