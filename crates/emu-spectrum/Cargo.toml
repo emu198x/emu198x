@@ -1,0 +1,16 @@
+[package]
+name = "emu-spectrum"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+emu198x-shell = { path = "../emu198x-shell" }
+pixels.workspace = true
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
+thiserror.workspace = true
+winit.workspace = true
+
+[lints]
+workspace = true

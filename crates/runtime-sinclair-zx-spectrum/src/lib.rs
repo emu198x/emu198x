@@ -150,10 +150,12 @@ mod tests {
         AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FramePacket, FrameSink,
         HeadlessSession, HostIo, InputEvent, MachineCore, MachineError, MachineTime, MediaImage,
         MediaSet, MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
-        SessionQueryProvider,
+        SessionQueryProvider, read_media_asset,
     };
     use std::fs;
     use std::path::PathBuf;
+
+    const MANIC_MINER_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip";
 
     #[test]
     fn profile_ids_are_unique() {
@@ -600,6 +602,34 @@ mod tests {
         );
     }
 
+    #[test]
+    #[ignore = "requires local Manic Miner TZX zip"]
+    fn runtime_loads_zipped_manic_miner_tzx_media() {
+        let Some(tape_path) = spectrum_manic_miner_tzx_path() else {
+            eprintln!(
+                "Manic Miner TZX zip not found; set EMU198X_SPECTRUM_MANIC_MINER_TZX or place it at {}",
+                MANIC_MINER_TZX_ZIP_PATH
+            );
+            return;
+        };
+
+        let tape = match read_media_asset(&tape_path, MediaKind::Tape) {
+            Ok(tape) => tape,
+            Err(err) => panic!("failed to read {}: {err}", tape_path.display()),
+        };
+
+        let mut runtime =
+            Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &tape.bytes));
+
+        runtime
+            .load_media(&media)
+            .expect("zipped Manic Miner TZX should load into tape slot");
+        assert!(runtime.machine().tape_is_loaded());
+        assert!(!runtime.machine().tape_is_playing());
+    }
+
     fn minimal_tap() -> Vec<u8> {
         let mut tap = vec![0x13, 0x00];
         tap.push(0x00);
@@ -611,6 +641,18 @@ mod tests {
     fn spectrum_48k_rom_path() -> Option<PathBuf> {
         std::env::var_os("HOME")
             .map(|home| PathBuf::from(home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom"))
+    }
+
+    fn spectrum_manic_miner_tzx_path() -> Option<PathBuf> {
+        let env_path = std::env::var_os("EMU198X_SPECTRUM_MANIC_MINER_TZX")
+            .map(PathBuf::from)
+            .filter(|path| path.is_file());
+        if env_path.is_some() {
+            return env_path;
+        }
+
+        let default = PathBuf::from(MANIC_MINER_TZX_ZIP_PATH);
+        default.is_file().then_some(default)
     }
 
     fn screen_text_lines_from_session(

@@ -12,7 +12,7 @@ use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::{
     BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    ScriptObservation, boot_machine,
+    ScriptObservation, boot_machine, read_firmware_asset, read_media_asset,
 };
 use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
 use serde::Serialize;
@@ -384,10 +384,10 @@ fn load_firmware_bytes(entries: &[FirmwareArg]) -> Result<Vec<LoadedFirmware>, S
     entries
         .iter()
         .map(|entry| {
-            fs::read(&entry.path)
-                .map(|bytes| LoadedFirmware {
+            read_firmware_asset(&entry.path)
+                .map(|loaded| LoadedFirmware {
                     id: entry.id.clone(),
-                    bytes,
+                    bytes: loaded.bytes,
                 })
                 .map_err(|err| {
                     format!(
@@ -404,11 +404,11 @@ fn load_media_bytes(entries: &[MediaArg]) -> Result<Vec<LoadedMedia>, String> {
     entries
         .iter()
         .map(|entry| {
-            fs::read(&entry.path)
-                .map(|bytes| LoadedMedia {
+            read_media_asset(&entry.path, entry.kind)
+                .map(|loaded| LoadedMedia {
                     slot: entry.slot.clone(),
                     kind: entry.kind,
-                    bytes,
+                    bytes: loaded.bytes,
                 })
                 .map_err(|err| {
                     format!(

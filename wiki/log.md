@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Minimal native Spectrum verifier shell is live
+
+**Type:** milestone
+**Trigger:** The headless Spectrum path had reached the point where the next bottleneck was not another query or script primitive. It was the lack of a human-verifiable native frontend for real-time manual checking. At the same time, zipped local assets were already becoming normal, so the first UI needed to speak that host-side asset boundary instead of bypassing it.
+**Result:** the repo now has a first native UI runner in `crates/emu-spectrum`:
+1. Added `emu-spectrum`, a thin `winit` + `pixels` desktop shell over the existing 48K runtime. It boots the same `Spectrum48kRuntime`, renders the real indexed framebuffer in a native window, and drives the machine at Spectrum frame cadence instead of inventing a separate execution path.
+2. Wired the UI shell to the shared asset boundary. `--rom` and `--tape` now accept plain files or zip archives with one matching candidate, using the same host-side asset loading code as the headless path.
+3. Added practical live controls: host keyboard mapping for the Spectrum matrix, `Esc` to quit, `F5` hard reset, `F6` tape start, `F7` tape stop, cursor-key combos via `Caps Shift`, and `Alt` as `Symbol Shift`.
+4. Kept the earlier ZIP-media work but narrowed the unfinished Manic Miner experiment back to a safe local smoke test. The fresh runtime now has an ignored test that verifies the zipped Manic Miner TZX fixture loads into the tape slot, without pretending the full autoload path is solved yet.
+5. Corrected the frontend docs so they no longer claim that all family frontends already exist, while also no longer pretending there is no native frontend at all.
+**Verification:** `cargo run -p emu-spectrum -- --help`, `cargo test -p emu-spectrum`, `cargo test -p emu198x-shell`, `cargo test -p emu198x-script-spectrum`, `cargo test -p runtime-sinclair-zx-spectrum`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass.
+**Next dependency:** the highest-value follow-up is to use this real windowed shell to debug the first honest software-loading path, especially the `LOAD ""` and Manic Miner tape workflow, rather than guessing from headless snapshots alone.
+
+---
+
 ## 2026-04-13 — Boot detection is now a reusable headless workflow, not just a query
 
 **Type:** milestone

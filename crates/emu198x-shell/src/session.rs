@@ -53,6 +53,17 @@ pub enum SessionError {
         /// The last reported boot reason, when available.
         reason: String,
     },
+
+    /// One text-bearing query path did not produce the requested match.
+    #[error("query path {path} did not contain {needle:?} within {max_frames} frames")]
+    QueryTextTimeout {
+        /// The text-bearing query path that was polled.
+        path: String,
+        /// The requested substring.
+        needle: String,
+        /// Maximum number of frames the wait helper was allowed to run.
+        max_frames: u32,
+    },
 }
 
 /// Result of waiting for one machine to report `boot.detected = true`.
@@ -66,6 +77,23 @@ pub struct BootWaitResult {
     pub reason: String,
     /// Optional decoded text row reported by `boot.row`.
     pub row: Option<u64>,
+}
+
+/// Result of waiting for one text-bearing query to contain one substring.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueryTextWaitResult {
+    /// The query path that matched.
+    pub path: String,
+    /// The requested substring.
+    pub needle: String,
+    /// Number of native frames executed while waiting.
+    pub frames: u32,
+    /// Machine time reached when the wait completed.
+    pub reached: MachineTime,
+    /// Matching line index when the query returned an array of strings.
+    pub line: Option<u64>,
+    /// The actual matched text fragment container.
+    pub matched_text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -213,6 +241,53 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         Err(SessionError::BootTimeout {
             max_frames,
             reason: state.reason,
+        })
+    }
+
+    /// Runs native frames until one text-bearing query contains one substring.
+    ///
+    /// The query value must be either one string or one array of strings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query does not exist, if it resolves to a value
+    /// that is not text-bearing, or if the frame budget expires before the
+    /// substring is observed.
+    pub fn wait_for_query_text_contains(
+        &mut self,
+        path: &str,
+        needle: &str,
+        max_frames: u32,
+    ) -> Result<QueryTextWaitResult, SessionError> {
+        if let Some((line, matched_text)) = self.query_text_contains(path, needle)? {
+            return Ok(QueryTextWaitResult {
+                path: path.to_owned(),
+                needle: needle.to_owned(),
+                frames: 0,
+                reached: self.time(),
+                line,
+                matched_text,
+            });
+        }
+
+        for frames in 1..=max_frames {
+            let result = self.run_frames(1)?;
+            if let Some((line, matched_text)) = self.query_text_contains(path, needle)? {
+                return Ok(QueryTextWaitResult {
+                    path: path.to_owned(),
+                    needle: needle.to_owned(),
+                    frames,
+                    reached: result.reached,
+                    line,
+                    matched_text,
+                });
+            }
+        }
+
+        Err(SessionError::QueryTextTimeout {
+            path: path.to_owned(),
+            needle: needle.to_owned(),
+            max_frames,
         })
     }
 
@@ -403,6 +478,37 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
             Err(QueryError::UnknownPath { .. } | QueryError::UnavailablePath { .. }) => None,
         }
     }
+
+    fn query_text_contains(
+        &self,
+        path: &str,
+        needle: &str,
+    ) -> Result<Option<(Option<u64>, String)>, SessionError> {
+        let result = self.query(path)?;
+        if let Some(text) = result.value.as_str() {
+            return Ok(text.contains(needle).then(|| (None, text.to_owned())));
+        }
+
+        if let Some(lines) = result.value.as_array() {
+            for (index, line) in lines.iter().enumerate() {
+                let Some(text) = line.as_str() else {
+                    return Err(SessionError::UnexpectedQueryValue {
+                        path: path.to_owned(),
+                        expected: "a string or array of strings",
+                    });
+                };
+                if text.contains(needle) {
+                    return Ok(Some((Some(index as u64), text.to_owned())));
+                }
+            }
+            return Ok(None);
+        }
+
+        Err(SessionError::UnexpectedQueryValue {
+            path: path.to_owned(),
+            expected: "a string or array of strings",
+        })
+    }
 }
 
 #[cfg(test)]
@@ -529,11 +635,17 @@ mod tests {
 
     impl SessionQueryProvider<DummyMachine> for DummyQueryProvider {
         fn query_paths(&self, _machine: &DummyMachine, prefix: Option<&str>) -> Vec<String> {
-            ["boot.detected", "boot.reason", "boot.row", "dummy.time"]
-                .into_iter()
-                .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
-                .map(str::to_owned)
-                .collect()
+            [
+                "boot.detected",
+                "boot.reason",
+                "boot.row",
+                "dummy.time",
+                "screen.text.lines",
+            ]
+            .into_iter()
+            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+            .map(str::to_owned)
+            .collect()
         }
 
         fn query(
@@ -565,6 +677,18 @@ mod tests {
                 "dummy.time" => Ok(Some(QueryResult {
                     path: path.to_owned(),
                     value: json!(machine.time.get()),
+                })),
+                "screen.text.lines" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(if machine.time.get() >= 4 * 69_888 {
+                        vec![
+                            "READY".to_owned(),
+                            "MANIC MINER".to_owned(),
+                            "PRESS ENTER".to_owned(),
+                        ]
+                    } else {
+                        vec!["READY".to_owned(), "LOADING".to_owned(), " ".to_owned()]
+                    }),
                 })),
                 _ => Ok(None),
             }
@@ -752,5 +876,52 @@ mod tests {
             } if reason == "dummy boot banner not visible yet"
         ));
         assert_eq!(session.time(), MachineTime::new(139_776));
+    }
+
+    #[test]
+    fn session_wait_for_query_text_contains_runs_until_match() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+
+        let result = session
+            .wait_for_query_text_contains("screen.text.lines", "MANIC MINER", 4)
+            .expect("text match should be detected on frame four");
+
+        assert_eq!(
+            result,
+            QueryTextWaitResult {
+                path: "screen.text.lines".to_owned(),
+                needle: "MANIC MINER".to_owned(),
+                frames: 4,
+                reached: MachineTime::new(279_552),
+                line: Some(1),
+                matched_text: "MANIC MINER".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn session_wait_for_query_text_contains_times_out() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+
+        let error = session
+            .wait_for_query_text_contains("screen.text.lines", "MANIC MINER", 3)
+            .expect_err("three frames should not reach the title text");
+
+        assert!(matches!(
+            error,
+            SessionError::QueryTextTimeout {
+                ref path,
+                ref needle,
+                max_frames: 3
+            } if path == "screen.text.lines" && needle == "MANIC MINER"
+        ));
     }
 }

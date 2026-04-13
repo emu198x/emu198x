@@ -1,21 +1,22 @@
 # Frontend
 
-> **Design spec.** This document describes the intended UI. The runnable
-> packages exist as `emu-spectrum`, `emu-c64`, `emu-nes`, and
-> `emu-amiga` with windowed and headless modes, but
-> launcher screens, media panels, debugger layouts, and the web/WASM frontend
-> are not yet implemented.
+> **Mixed status.** `emu-spectrum` now exists as a minimal native 48K
+> verification shell with windowed video output, keyboard input, and basic tape
+> transport control. Everything else in this document remains design intent:
+> launcher screens, media panels, debugger layouts, web/WASM targets, and the
+> other family frontends are not implemented yet.
 
 ## Overview
 
-Each system is a **separate binary**:
+The intended shape is still one **separate binary per system**:
 
 - `emu-spectrum`
 - `emu-c64`
 - `emu-nes`
 - `emu-amiga`
 
-Each binary provides:
+Today only `emu-spectrum` is real, and only at verifier-shell scope. The full
+target for each binary is:
 
 - System launcher with variant/option selection
 - Visual media controls (tape deck, disk drive)

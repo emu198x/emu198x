@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::asset::{AssetLoadError, read_media_asset};
 use crate::control::ControlCommand;
 use crate::machine::MachineCore;
 use crate::media::{MediaImage, MediaKind, MediaSet};
@@ -86,6 +87,15 @@ pub enum ScriptStep {
         /// Maximum number of native video frames to execute while waiting.
         max_frames: u32,
     },
+    /// Run native frames until one text-bearing query contains one substring.
+    WaitForQueryContains {
+        /// The query path to poll.
+        path: String,
+        /// The required substring.
+        needle: String,
+        /// Maximum number of native video frames to execute while waiting.
+        max_frames: u32,
+    },
     /// Resolve one shared query path.
     Query {
         /// The query path to resolve.
@@ -152,6 +162,21 @@ pub enum ScriptObservation {
         reason: String,
         /// Optional decoded text row reported by `boot.row`.
         row: Option<u64>,
+    },
+    /// Result of waiting for one text-bearing query to contain one substring.
+    WaitForQueryContains {
+        /// The query path that matched.
+        path: String,
+        /// The required substring.
+        needle: String,
+        /// Number of native frames executed while waiting.
+        frames: u32,
+        /// Machine time reached when the wait completed.
+        reached: crate::MachineTime,
+        /// Matching line index when the query returned an array of strings.
+        line: Option<u64>,
+        /// The actual matching line or string.
+        matched_text: String,
     },
     /// Result of resolving one query path.
     Query {
@@ -244,9 +269,9 @@ impl ScriptStep {
     ) -> Result<Option<ScriptObservation>, ScriptError> {
         match self {
             Self::LoadMedia { slot, kind, path } => {
-                let bytes = std::fs::read(path)?;
+                let loaded = read_media_asset(path, (*kind).into())?;
                 let mut media = MediaSet::new();
-                media.push(MediaImage::new(slot.clone(), (*kind).into(), &bytes));
+                media.push(MediaImage::new(slot.clone(), (*kind).into(), &loaded.bytes));
                 session.load_media(&media)?;
                 Ok(None)
             }
@@ -275,6 +300,21 @@ impl ScriptStep {
                     reached: result.reached,
                     reason: result.reason,
                     row: result.row,
+                }))
+            }
+            Self::WaitForQueryContains {
+                path,
+                needle,
+                max_frames,
+            } => {
+                let result = session.wait_for_query_text_contains(path, needle, *max_frames)?;
+                Ok(Some(ScriptObservation::WaitForQueryContains {
+                    path: result.path,
+                    needle: result.needle,
+                    frames: result.frames,
+                    reached: result.reached,
+                    line: result.line,
+                    matched_text: result.matched_text,
                 }))
             }
             Self::Query { path } => {
@@ -312,6 +352,10 @@ impl ScriptStep {
 /// Error surfaced by the shared JSON script layer.
 #[derive(Debug, Error)]
 pub enum ScriptError {
+    /// Asset loading or archive extraction failed.
+    #[error(transparent)]
+    Asset(#[from] AssetLoadError),
+
     /// One filesystem operation failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -473,6 +517,14 @@ mod tests {
                         Some(23u64)
                     } else {
                         None::<u64>
+                    }),
+                })),
+                "screen.text.lines" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(if machine.time.get() >= 4 * 69_888 {
+                        vec!["READY".to_owned(), "MANIC MINER".to_owned()]
+                    } else {
+                        vec!["READY".to_owned(), "LOADING".to_owned()]
                     }),
                 })),
                 _ => Ok(None),
@@ -643,6 +695,38 @@ mod tests {
                 reached: MachineTime::new(209_664),
                 reason: "dummy boot banner is visible".to_owned(),
                 row: Some(23),
+            }]
+        );
+    }
+
+    #[test]
+    fn headless_script_waits_for_query_text_and_reports_result() {
+        let script = HeadlessScript {
+            steps: vec![ScriptStep::WaitForQueryContains {
+                path: "screen.text.lines".to_owned(),
+                needle: "MANIC MINER".to_owned(),
+                max_frames: 4,
+            }],
+        };
+
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+        let observations = script
+            .execute_collect(&mut session)
+            .expect("script should wait for dummy title text");
+
+        assert_eq!(
+            observations,
+            vec![ScriptObservation::WaitForQueryContains {
+                path: "screen.text.lines".to_owned(),
+                needle: "MANIC MINER".to_owned(),
+                frames: 4,
+                reached: MachineTime::new(279_552),
+                line: Some(1),
+                matched_text: "MANIC MINER".to_owned(),
             }]
         );
     }
