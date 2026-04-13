@@ -484,10 +484,22 @@ mod tests {
     #[test]
     fn keyboard_scan_flows_through_dc01() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
-        machine.keyboard_mut().set_key(1, 1, true);
-        machine.cpu_write(0xDC00, 0xFD);
+        machine.keyboard_mut().set_key(0, 1, true);
+        machine.cpu_write(0xDC00, 0xFE);
         assert_eq!(machine.cpu_read(0xDC01) & 0x02, 0x00);
         assert_eq!(machine.cia1_port_b_input() & 0x02, 0x00);
+    }
+
+    #[test]
+    fn keyboard_scan_does_not_transpose_row_and_column() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.keyboard_mut().set_key(0, 1, true);
+
+        machine.cpu_write(0xDC00, 0xFD);
+        assert_eq!(machine.cpu_read(0xDC01), 0xFF);
+
+        machine.cpu_write(0xDC00, 0xFE);
+        assert_eq!(machine.cpu_read(0xDC01) & 0x02, 0x00);
     }
 
     #[test]
