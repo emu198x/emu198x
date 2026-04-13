@@ -377,6 +377,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-commodore-c64"
+version = "0.1.0"
+
+[[package]]
 name = "common-sinclair-zx-spectrum"
 version = "0.1.0"
 dependencies = [
@@ -1864,6 +1868,14 @@ name = "renderdoc-sys"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
+
+[[package]]
+name = "runtime-commodore-c64"
+version = "0.1.0"
+dependencies = [
+ "common-commodore-c64",
+ "emu198x-shell",
+]
 
 [[package]]
 name = "runtime-sinclair-zx-spectrum"

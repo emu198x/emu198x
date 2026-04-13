@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/common-commodore-c64",
     "crates/common-sinclair-zx-spectrum",
     "crates/emu-spectrum",
     "crates/emu198x-script-spectrum",
@@ -9,6 +10,7 @@ members = [
     "crates/format-sinclair-zx-spectrum-tap",
     "crates/format-sinclair-zx-spectrum-tzx",
     "crates/machine-sinclair-zx-spectrum-48k",
+    "crates/runtime-commodore-c64",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/zilog-z80",
 ]

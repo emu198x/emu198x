@@ -1,5 +1,7 @@
 # Commodore 64
 
+> Historical note: the status sections on this page describe archived work, not the current fresh Rust workspace in this repository. Treat the hardware summary as reference material only until the new `common-commodore-c64` and `runtime-commodore-c64` crates grow into a real machine/runtime stack.
+
 The C64 is an 8-bit home computer from Commodore, released 1982. Roughly:
 
 - **CPU**: MOS 6510 at 985 248 Hz PAL / 1 022 727 Hz NTSC — a 6502 with an integrated 6-bit I/O port at `$00`/`$01` for bank switching.

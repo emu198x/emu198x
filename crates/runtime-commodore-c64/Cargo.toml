@@ -1,0 +1,13 @@
+[package]
+name = "runtime-commodore-c64"
+description = "Commodore 64 profile metadata and future runtime layer"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-commodore-c64 = { path = "../common-commodore-c64" }
+emu198x-shell = { path = "../emu198x-shell" }
+
+[lints]
+workspace = true

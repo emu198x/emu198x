@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — C64 bootstrap lands as timing and profile truth only
+
+**Type:** milestone
+**Trigger:** Spectrum 48K is now strong enough that the next architectural test should be a second family, but the repo also carries stale C64 status documents from older workspaces that would make it too easy to overstate progress.
+**Result:** the fresh workspace now has an honest C64 bootstrap instead of another archive-shaped mirage:
+1. Added `common-commodore-c64` with baseline PAL and NTSC breadbin timing constants: φ2 clock, raster geometry, CIA TOD dividers, and archived VIC-II capture window dimensions.
+2. Added `runtime-commodore-c64` as the new family catalogue crate. It currently exposes PAL and NTSC breadbin research-tier profiles only, with three required ROMs and baseline tape/disk/cartridge slots.
+3. Chose `phi2-cycle` as the authoritative profile clock for now instead of inventing a master-clock contract before the fresh workspace has a live VIC-II/6510 timing loop to anchor it.
+4. Added a historical warning at the top of `wiki/systems/commodore-c64.md` so the old archived implementation-status text stops reading like current repo truth.
+**Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should pass once the new crates are wired in.
+**Next dependency:** the next real C64 slice is no longer more metadata. It is the first machine-facing substrate: 6510/port banking boundaries, keyboard matrix state, and the minimal VIC-II/CIA-aware clock model that a future boot path can actually stand on.
+
+---
+
 ## 2026-04-13 — Shared boolean query waits land, with a Spectrum tape-stop alias
 
 **Type:** milestone

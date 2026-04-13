@@ -1,0 +1,9 @@
+[package]
+name = "common-commodore-c64"
+description = "Shared Commodore 64 family timing and configuration constants"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
