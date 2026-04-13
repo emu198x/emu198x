@@ -78,6 +78,7 @@ Supported shared actions today:
 | `media_transport` | `slot`, `transport` | none |
 | `input` | `events` | none |
 | `run_frames` | `frames` | `run_frames` observation |
+| `wait_for_boot` | `max_frames` | `wait_for_boot` observation |
 | `query` | `path` | `query` observation |
 | `query_paths` | `prefix` (optional) | `query_paths` observation |
 | `load_snapshot` | `path` | none |
@@ -169,6 +170,13 @@ Current shape:
       "stop_reason": "reached_target"
     },
     {
+      "kind": "wait_for_boot",
+      "frames": 200,
+      "reached": 55910400,
+      "reason": "found copyright banner on row 23",
+      "row": 23
+    },
+    {
       "kind": "query",
       "result": {
         "path": "spectrum.machine.issue",
@@ -185,6 +193,7 @@ Current shape:
 `observations` only includes steps that return structured data today:
 
 - `run_frames`
+- `wait_for_boot`
 - `query`
 - `query_paths`
 
@@ -197,7 +206,7 @@ time, and save a screenshot:
 
 ```json
 [
-  {"action":"run_frames","frames":200},
+  {"action":"wait_for_boot","max_frames":250},
   {"action":"query_paths","prefix":"session.profile."},
   {"action":"query","path":"boot.detected"},
   {"action":"query","path":"screen.text.lines"},

@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-13 — Boot detection is now a reusable headless workflow, not just a query
+
+**Type:** milestone
+**Trigger:** Once `boot.detected` and `screen.text.lines` were queryable, the next gap was obvious: host tooling still had to hand-roll frame polling to use them. That was enough for experimentation, but not enough for scripting, CLI automation, or ROM-backed workflow tests.
+**Result:** the shared headless surface now has a first real boot-wait primitive, and Spectrum uses it for an honest keyboard-at-prompt system test:
+1. Added `HeadlessSession::wait_for_boot(max_frames)` in `emu198x-shell`. It polls the generic `boot.detected` query once per native frame, returns a structured result (`frames`, `reached`, `reason`, `row`) on success, and fails with a typed timeout that carries the last `boot.reason`.
+2. Added `wait_for_boot` as a shared JSON script step with a matching structured observation, so automation can block on boot semantically instead of hard-coding frame counts.
+3. Added `--wait-for-boot N` to `emu198x-script-spectrum`, layered on the same shared helper. The runner now reports that wait in its JSON observations and fails explicitly when boot does not become visible within the requested frame budget.
+4. Added shell and script tests around the new helper using a dummy query provider, plus a runner test proving zero-ROM boot waits time out instead of silently pretending success.
+5. Added a new ignored ROM-backed Spectrum test that uses `wait_for_boot(250)`, then injects real key events at the BASIC prompt and verifies the decoded text screen changes from the prompt line to `NEW...` after pressing `A`. That is the first fresh-workspace proof that boot wait, keyboard injection, ROM code, and decoded screen text all work together on one real machine path.
+**Verification:** `cargo test -p emu198x-shell`, `cargo test -p emu198x-script-spectrum`, `cargo test -p runtime-sinclair-zx-spectrum`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should all pass. The new ROM-backed prompt test also passes locally with `cargo test -p runtime-sinclair-zx-spectrum spectrum_boot_wait_and_prompt_input_change_decoded_text -- --ignored --nocapture` when the 48K ROM is present.
+**Next dependency:** the next high-value Spectrum system check is the same pattern applied to tape: boot, optionally wait for boot, start tape transport, and verify one concrete loaded-software path instead of stopping at ROM prompt interaction.
+
+---
+
 ## 2026-04-13 — Spectrum boot detection is now queryable through the shared headless surface
 
 **Type:** milestone

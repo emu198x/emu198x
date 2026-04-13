@@ -81,6 +81,11 @@ pub enum ScriptStep {
         /// Number of native video frames to execute.
         frames: u32,
     },
+    /// Run native frames until `boot.detected = true`.
+    WaitForBoot {
+        /// Maximum number of native video frames to execute while waiting.
+        max_frames: u32,
+    },
     /// Resolve one shared query path.
     Query {
         /// The query path to resolve.
@@ -136,6 +141,17 @@ pub enum ScriptObservation {
         reached: crate::MachineTime,
         /// Why the machine stopped.
         stop_reason: crate::StopReason,
+    },
+    /// Result of waiting for boot detection.
+    WaitForBoot {
+        /// Number of native frames executed while waiting.
+        frames: u32,
+        /// Machine time reached when boot was detected.
+        reached: crate::MachineTime,
+        /// Human-readable boot status note.
+        reason: String,
+        /// Optional decoded text row reported by `boot.row`.
+        row: Option<u64>,
     },
     /// Result of resolving one query path.
     Query {
@@ -252,6 +268,15 @@ impl ScriptStep {
                     stop_reason: result.stop_reason,
                 }))
             }
+            Self::WaitForBoot { max_frames } => {
+                let result = session.wait_for_boot(*max_frames)?;
+                Ok(Some(ScriptObservation::WaitForBoot {
+                    frames: result.frames,
+                    reached: result.reached,
+                    reason: result.reason,
+                    row: result.row,
+                }))
+            }
             Self::Query { path } => {
                 let result = session.query(path)?;
                 Ok(Some(ScriptObservation::Query { result }))
@@ -319,7 +344,9 @@ mod tests {
         SupportTier,
     };
     use crate::media::{FirmwareRequirement, MediaSlot, WritebackPolicy};
+    use crate::query::SessionQueryProvider;
     use crate::time::{ClockDesc, ClockRate, MachineTime};
+    use serde_json::json;
 
     struct DummyMachine {
         profile: MachineProfile,
@@ -415,6 +442,41 @@ mod tests {
 
         fn capabilities(&self) -> CapabilitySet {
             CapabilitySet::new()
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default)]
+    struct DummyQueryProvider;
+
+    impl SessionQueryProvider<DummyMachine> for DummyQueryProvider {
+        fn query(
+            &self,
+            machine: &DummyMachine,
+            path: &str,
+        ) -> Result<Option<QueryResult>, QueryError> {
+            match path {
+                "boot.detected" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(machine.time.get() >= 3 * 69_888),
+                })),
+                "boot.reason" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(if machine.time.get() >= 3 * 69_888 {
+                        "dummy boot banner is visible"
+                    } else {
+                        "dummy boot banner not visible yet"
+                    }),
+                })),
+                "boot.row" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(if machine.time.get() >= 3 * 69_888 {
+                        Some(23u64)
+                    } else {
+                        None::<u64>
+                    }),
+                })),
+                _ => Ok(None),
+            }
         }
     }
 
@@ -556,6 +618,32 @@ mod tests {
                     ],
                 }
             }
+        );
+    }
+
+    #[test]
+    fn headless_script_waits_for_boot_and_reports_result() {
+        let script = HeadlessScript {
+            steps: vec![ScriptStep::WaitForBoot { max_frames: 3 }],
+        };
+
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+        let observations = script
+            .execute_collect(&mut session)
+            .expect("script should wait for dummy boot");
+
+        assert_eq!(
+            observations,
+            vec![ScriptObservation::WaitForBoot {
+                frames: 3,
+                reached: MachineTime::new(209_664),
+                reason: "dummy boot banner is visible".to_owned(),
+                row: Some(23),
+            }]
         );
     }
 }

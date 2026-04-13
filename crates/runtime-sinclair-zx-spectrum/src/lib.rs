@@ -148,8 +148,8 @@ mod tests {
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
     use emu198x_shell::{
         AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FramePacket, FrameSink,
-        HostIo, InputEvent, MachineCore, MachineError, MachineTime, MediaImage, MediaSet,
-        MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
+        HeadlessSession, HostIo, InputEvent, MachineCore, MachineError, MachineTime, MediaImage,
+        MediaSet, MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
         SessionQueryProvider,
     };
     use std::fs;
@@ -528,6 +528,78 @@ mod tests {
         );
     }
 
+    #[test]
+    #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+    fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
+        let Some(rom_path) = spectrum_48k_rom_path() else {
+            eprintln!("HOME is not set; skipping ROM-backed Spectrum prompt input test");
+            return;
+        };
+
+        if !rom_path.is_file() {
+            eprintln!("ROM not found at {}", rom_path.display());
+            return;
+        }
+
+        let rom = match fs::read(&rom_path) {
+            Ok(rom) => rom,
+            Err(err) => panic!("failed to read {}: {err}", rom_path.display()),
+        };
+
+        let runtime = Spectrum48kRuntime::from_rom_bytes(&rom)
+            .expect("48K ROM path should contain a valid 16 KiB image");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_48K.halfcycles_per_frame),
+            SpectrumSessionQueryProvider,
+        );
+
+        let boot = session
+            .wait_for_boot(250)
+            .expect("48K ROM should reach boot detection within 250 frames");
+        assert_eq!(boot.row, Some(23));
+
+        session.queue_input(InputEvent::Key {
+            name: "enter".into(),
+            pressed: true,
+        });
+        session
+            .run_frames(2)
+            .expect("prompt exposure should advance with Enter held");
+        session.queue_input(InputEvent::Key {
+            name: "enter".into(),
+            pressed: false,
+        });
+        session
+            .run_frames(2)
+            .expect("prompt exposure should advance after Enter release");
+
+        let prompt_lines = screen_text_lines_from_session(&session);
+        assert_eq!(prompt_lines[23].trim_end(), "K");
+
+        session.queue_input(InputEvent::Key {
+            name: "a".into(),
+            pressed: true,
+        });
+        session
+            .run_frames(2)
+            .expect("keyword entry should advance with A held");
+        session.queue_input(InputEvent::Key {
+            name: "a".into(),
+            pressed: false,
+        });
+        session
+            .run_frames(2)
+            .expect("keyword entry should advance after A release");
+
+        let edited_lines = screen_text_lines_from_session(&session);
+        assert!(
+            edited_lines[23].starts_with("NEW"),
+            "expected BASIC prompt input to begin entering NEW, got {:?}",
+            edited_lines[23]
+        );
+    }
+
     fn minimal_tap() -> Vec<u8> {
         let mut tap = vec![0x13, 0x00];
         tap.push(0x00);
@@ -539,6 +611,25 @@ mod tests {
     fn spectrum_48k_rom_path() -> Option<PathBuf> {
         std::env::var_os("HOME")
             .map(|home| PathBuf::from(home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom"))
+    }
+
+    fn screen_text_lines_from_session(
+        session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    ) -> Vec<String> {
+        let result = session
+            .query("screen.text.lines")
+            .expect("screen text lines query should resolve");
+        result
+            .value
+            .as_array()
+            .expect("screen text lines query should return a JSON array")
+            .iter()
+            .map(|line| {
+                line.as_str()
+                    .expect("screen text lines should contain strings")
+                    .to_owned()
+            })
+            .collect()
     }
 
     #[derive(Default)]

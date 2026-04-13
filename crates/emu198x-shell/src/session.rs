@@ -24,6 +24,10 @@ pub enum SessionError {
     #[error(transparent)]
     Machine(#[from] MachineError),
 
+    /// One query resolution failed.
+    #[error(transparent)]
+    Query(#[from] QueryError),
+
     /// One capture conversion failed.
     #[error(transparent)]
     Capture(#[from] CaptureError),
@@ -31,6 +35,44 @@ pub enum SessionError {
     /// One filesystem operation failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    /// One query path resolved to an unexpected JSON value shape.
+    #[error("query path {path} returned a value that is not {expected}")]
+    UnexpectedQueryValue {
+        /// The path that resolved to the wrong shape.
+        path: String,
+        /// The expected JSON value shape.
+        expected: &'static str,
+    },
+
+    /// Boot was not detected within the requested frame budget.
+    #[error("boot was not detected within {max_frames} frames: {reason}")]
+    BootTimeout {
+        /// Maximum number of frames the wait helper was allowed to run.
+        max_frames: u32,
+        /// The last reported boot reason, when available.
+        reason: String,
+    },
+}
+
+/// Result of waiting for one machine to report `boot.detected = true`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BootWaitResult {
+    /// Number of native frames executed while waiting.
+    pub frames: u32,
+    /// Machine time reached when the wait completed.
+    pub reached: MachineTime,
+    /// Human-readable boot status note from `boot.reason`.
+    pub reason: String,
+    /// Optional decoded text row reported by `boot.row`.
+    pub row: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BootQueryState {
+    detected: bool,
+    reason: String,
+    row: Option<u64>,
 }
 
 /// Shared host-side session around one live machine runtime.
@@ -134,6 +176,44 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
                 }),
             Err(err) => Err(err),
         }
+    }
+
+    /// Runs native frames until the machine reports `boot.detected = true`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying machine run fails, if the runtime
+    /// does not expose the generic `boot.*` query paths, if those paths resolve
+    /// to unexpected value shapes, or if the frame budget expires before boot
+    /// is detected.
+    pub fn wait_for_boot(&mut self, max_frames: u32) -> Result<BootWaitResult, SessionError> {
+        let mut state = self.boot_query_state()?;
+        if state.detected {
+            return Ok(BootWaitResult {
+                frames: 0,
+                reached: self.time(),
+                reason: state.reason,
+                row: state.row,
+            });
+        }
+
+        for frames in 1..=max_frames {
+            let result = self.run_frames(1)?;
+            state = self.boot_query_state()?;
+            if state.detected {
+                return Ok(BootWaitResult {
+                    frames,
+                    reached: result.reached,
+                    reason: state.reason,
+                    row: state.row,
+                });
+            }
+        }
+
+        Err(SessionError::BootTimeout {
+            max_frames,
+            reason: state.reason,
+        })
     }
 
     /// Queues one input event for the next execution slice.
@@ -284,6 +364,45 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     pub fn clear_audio_capture(&mut self) {
         self.audio_capture = AudioCapture::default();
     }
+
+    fn boot_query_state(&self) -> Result<BootQueryState, SessionError> {
+        let detected = self.query_bool("boot.detected")?;
+        let reason = self
+            .optional_query_string("boot.reason")
+            .unwrap_or_else(|| "boot.detected remained false".to_owned());
+        let row = self.optional_query_u64("boot.row");
+
+        Ok(BootQueryState {
+            detected,
+            reason,
+            row,
+        })
+    }
+
+    fn query_bool(&self, path: &str) -> Result<bool, SessionError> {
+        let result = self.query(path)?;
+        result
+            .value
+            .as_bool()
+            .ok_or_else(|| SessionError::UnexpectedQueryValue {
+                path: path.to_owned(),
+                expected: "a boolean",
+            })
+    }
+
+    fn optional_query_string(&self, path: &str) -> Option<String> {
+        match self.query(path) {
+            Ok(result) => result.value.as_str().map(str::to_owned),
+            Err(QueryError::UnknownPath { .. } | QueryError::UnavailablePath { .. }) => None,
+        }
+    }
+
+    fn optional_query_u64(&self, path: &str) -> Option<u64> {
+        match self.query(path) {
+            Ok(result) => result.value.as_u64(),
+            Err(QueryError::UnknownPath { .. } | QueryError::UnavailablePath { .. }) => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -410,7 +529,7 @@ mod tests {
 
     impl SessionQueryProvider<DummyMachine> for DummyQueryProvider {
         fn query_paths(&self, _machine: &DummyMachine, prefix: Option<&str>) -> Vec<String> {
-            ["dummy.time"]
+            ["boot.detected", "boot.reason", "boot.row", "dummy.time"]
                 .into_iter()
                 .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
                 .map(str::to_owned)
@@ -423,6 +542,26 @@ mod tests {
             path: &str,
         ) -> Result<Option<QueryResult>, QueryError> {
             match path {
+                "boot.detected" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(machine.time.get() >= 3 * 69_888),
+                })),
+                "boot.reason" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(if machine.time.get() >= 3 * 69_888 {
+                        "dummy boot banner is visible"
+                    } else {
+                        "dummy boot banner not visible yet"
+                    }),
+                })),
+                "boot.row" => Ok(Some(QueryResult {
+                    path: path.to_owned(),
+                    value: json!(if machine.time.get() >= 3 * 69_888 {
+                        Some(23u64)
+                    } else {
+                        None::<u64>
+                    }),
+                })),
                 "dummy.time" => Ok(Some(QueryResult {
                     path: path.to_owned(),
                     value: json!(machine.time.get()),
@@ -567,5 +706,51 @@ mod tests {
 
         assert_eq!(extra.value, json!(69_888));
         assert_eq!(paths.paths, vec!["dummy.time".to_owned()]);
+    }
+
+    #[test]
+    fn session_wait_for_boot_runs_until_detected() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+
+        let result = session
+            .wait_for_boot(3)
+            .expect("dummy boot should be detected on frame three");
+
+        assert_eq!(
+            result,
+            BootWaitResult {
+                frames: 3,
+                reached: MachineTime::new(209_664),
+                reason: "dummy boot banner is visible".to_owned(),
+                row: Some(23),
+            }
+        );
+        assert_eq!(session.time(), MachineTime::new(209_664));
+    }
+
+    #[test]
+    fn session_wait_for_boot_times_out_with_last_reason() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+
+        let error = session
+            .wait_for_boot(2)
+            .expect_err("two frames should not reach dummy boot");
+
+        assert!(matches!(
+            error,
+            SessionError::BootTimeout {
+                max_frames: 2,
+                reason
+            } if reason == "dummy boot banner not visible yet"
+        ));
+        assert_eq!(session.time(), MachineTime::new(139_776));
     }
 }

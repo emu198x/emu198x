@@ -29,6 +29,7 @@ struct Cli {
     screenshot: Option<PathBuf>,
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
+    wait_for_boot: Option<u32>,
     frames: u32,
     commands: Vec<ControlCommand>,
 }
@@ -85,6 +86,7 @@ State and automation:
     --load-snapshot PATH       restore a runtime snapshot before running
     --save-snapshot PATH       write a runtime snapshot after running
     --script PATH              execute shared JSON session steps after boot
+    --wait-for-boot N          run up to N frames until boot.detected is true
     --screenshot PATH          write the last emitted frame as PNG
     --audio-capture PATH       write emitted audio as 16-bit PCM WAV
 
@@ -96,6 +98,7 @@ Other:
 
 Examples:
     emu198x-script-spectrum --rom 48.rom --frames 200 --screenshot boot.png
+    emu198x-script-spectrum --rom 48.rom --wait-for-boot 250 --screenshot boot.png
     emu198x-script-spectrum --rom 48.rom --tape manic_miner.tzx --play-tape --frames 500
     emu198x-script-spectrum --rom 48.rom --script capture.json
 ";
@@ -178,6 +181,13 @@ where
             }
             "--script" => {
                 cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script")));
+            }
+            "--wait-for-boot" => {
+                cli.wait_for_boot = Some(
+                    next_arg(&mut iter, "--wait-for-boot")
+                        .parse()
+                        .unwrap_or_else(|_| die("--wait-for-boot requires a non-negative integer")),
+                );
             }
             "--screenshot" => {
                 cli.screenshot = Some(PathBuf::from(next_arg(&mut iter, "--screenshot")));
@@ -291,12 +301,26 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         .map_err(|err| format!("machine preparation failed: {err}"))?;
 
     let mut observations = Vec::new();
+    if let Some(max_frames) = cli.wait_for_boot {
+        let result = session
+            .wait_for_boot(max_frames)
+            .map_err(|err| format!("boot wait failed: {err}"))?;
+        observations.push(ScriptObservation::WaitForBoot {
+            frames: result.frames,
+            reached: result.reached,
+            reason: result.reason,
+            row: result.row,
+        });
+    }
+
     if let Some(path) = &cli.script {
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        observations = script
-            .execute_collect(&mut session)
-            .map_err(|err| format!("script execution failed: {err}"))?;
+        observations.extend(
+            script
+                .execute_collect(&mut session)
+                .map_err(|err| format!("script execution failed: {err}"))?,
+        );
     }
 
     if cli.frames > 0 {
@@ -412,6 +436,8 @@ mod tests {
             "tape-1".to_string(),
             "--script".to_string(),
             "steps.json".to_string(),
+            "--wait-for-boot".to_string(),
+            "120".to_string(),
             "--frames".to_string(),
             "10".to_string(),
             "--screenshot".to_string(),
@@ -439,6 +465,7 @@ mod tests {
                 screenshot: Some(PathBuf::from("boot.png")),
                 audio_capture: Some(PathBuf::from("boot.wav")),
                 script: Some(PathBuf::from("steps.json")),
+                wait_for_boot: Some(120),
                 frames: 10,
                 commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
                     "tape-1",
@@ -475,6 +502,7 @@ mod tests {
                 screenshot: None,
                 audio_capture: None,
                 script: None,
+                wait_for_boot: None,
                 frames: 0,
                 commands: vec![ControlCommand::MediaTransport(MediaTransportCommand::new(
                     DEFAULT_TAPE_SLOT,
@@ -509,6 +537,7 @@ mod tests {
             screenshot: None,
             audio_capture: None,
             script: None,
+            wait_for_boot: None,
             frames: 1,
             commands: vec![],
         });
@@ -549,6 +578,7 @@ mod tests {
             screenshot: Some(screenshot_path.clone()),
             audio_capture: Some(audio_path.clone()),
             script: None,
+            wait_for_boot: None,
             frames: 1,
             commands: vec![],
         });
@@ -615,6 +645,7 @@ mod tests {
             screenshot: None,
             audio_capture: None,
             script: Some(script_path.clone()),
+            wait_for_boot: None,
             frames: 0,
             commands: vec![],
         });
@@ -655,5 +686,39 @@ mod tests {
         let _ = fs::remove_file(script_path);
         let _ = fs::remove_file(screenshot_path);
         let _ = fs::remove_file(audio_path);
+    }
+
+    #[test]
+    fn run_reports_boot_wait_timeout_with_zero_rom() {
+        let temp_dir = std::env::temp_dir();
+        let rom_path = temp_dir.join(format!(
+            "emu198x-script-spectrum-{}-wait-rom.bin",
+            std::process::id()
+        ));
+
+        fs::write(&rom_path, [0u8; 16 * 1024]).expect("temporary ROM write should succeed");
+
+        let result = run(Cli {
+            firmware: vec![FirmwareArg {
+                id: DEFAULT_ROM_ID.to_owned(),
+                path: rom_path.clone(),
+            }],
+            media: vec![],
+            load_snapshot: None,
+            save_snapshot: None,
+            screenshot: None,
+            audio_capture: None,
+            script: None,
+            wait_for_boot: Some(1),
+            frames: 0,
+            commands: vec![],
+        });
+
+        assert!(
+            matches!(result, Err(ref err) if err.contains("boot wait failed")),
+            "zero-ROM runner should report boot wait timeout: {result:?}"
+        );
+
+        let _ = fs::remove_file(rom_path);
     }
 }
