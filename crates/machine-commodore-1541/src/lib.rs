@@ -8,6 +8,7 @@
 //! - VIA1 and VIA2 register decode at `$1800`/`$1C00`
 
 use common_commodore_iec::IecBus;
+use format_commodore_c64_d64::{D64FileType, D64ParseError, parse_directory};
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,7 @@ pub struct Drive1541 {
     via2: Via6522,
     ram: [u8; RAM_SIZE],
     rom: [u8; ROM_SIZE],
+    disk: Option<Drive1541Disk>,
     device_number: u8,
     cycles: u64,
 }
@@ -38,8 +40,46 @@ pub struct Drive1541Snapshot {
     via2: Via6522,
     ram: Vec<u8>,
     rom: Vec<u8>,
+    disk: Option<Drive1541Disk>,
     device_number: u8,
     cycles: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Drive1541Disk {
+    image_bytes: Vec<u8>,
+    disk_name: String,
+    disk_id: String,
+    directory_entries: Vec<Drive1541DirectoryEntry>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Drive1541DirectoryEntry {
+    pub name: String,
+    pub file_type: String,
+    pub blocks: u16,
+}
+
+impl Drive1541Disk {
+    #[must_use]
+    pub fn image_bytes(&self) -> &[u8] {
+        &self.image_bytes
+    }
+
+    #[must_use]
+    pub fn disk_name(&self) -> &str {
+        &self.disk_name
+    }
+
+    #[must_use]
+    pub fn disk_id(&self) -> &str {
+        &self.disk_id
+    }
+
+    #[must_use]
+    pub fn directory_entries(&self) -> &[Drive1541DirectoryEntry] {
+        &self.directory_entries
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -51,6 +91,12 @@ pub struct Drive1541Config<'a> {
 pub enum Drive1541InitError {
     #[error("expected 1541 DOS ROM of {expected:#06X} bytes, got {actual:#06X}")]
     InvalidRomSize { expected: usize, actual: usize },
+}
+
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum Drive1541MediaError {
+    #[error("invalid D64 media: {0}")]
+    InvalidD64(#[from] D64ParseError),
 }
 
 impl Drive1541 {
@@ -79,6 +125,7 @@ impl Drive1541 {
             via2: Via6522::new(),
             ram: [0; RAM_SIZE],
             rom,
+            disk: None,
             device_number: DEFAULT_DEVICE_NUMBER,
             cycles: 0,
         })
@@ -110,6 +157,44 @@ impl Drive1541 {
     }
 
     #[must_use]
+    pub const fn disk(&self) -> Option<&Drive1541Disk> {
+        self.disk.as_ref()
+    }
+
+    #[must_use]
+    pub const fn disk_inserted(&self) -> bool {
+        self.disk.is_some()
+    }
+
+    /// Loads one decoded `D64` image into the drive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `D64` image is malformed.
+    pub fn load_d64_bytes(&mut self, bytes: &[u8]) -> Result<(), Drive1541MediaError> {
+        let directory = parse_directory(bytes)?;
+        self.disk = Some(Drive1541Disk {
+            image_bytes: bytes.to_vec(),
+            disk_name: directory.disk_name,
+            disk_id: directory.disk_id,
+            directory_entries: directory
+                .entries
+                .into_iter()
+                .map(|entry| Drive1541DirectoryEntry {
+                    name: entry.name,
+                    file_type: d64_file_type_name(entry.file_type).to_owned(),
+                    blocks: entry.blocks,
+                })
+                .collect(),
+        });
+        Ok(())
+    }
+
+    pub fn eject_disk(&mut self) {
+        self.disk = None;
+    }
+
+    #[must_use]
     pub fn snapshot_state(&self) -> Drive1541Snapshot {
         Drive1541Snapshot {
             cpu: self.cpu.clone(),
@@ -117,6 +202,7 @@ impl Drive1541 {
             via2: self.via2.clone(),
             ram: self.ram.to_vec(),
             rom: self.rom.to_vec(),
+            disk: self.disk.clone(),
             device_number: self.device_number,
             cycles: self.cycles,
         }
@@ -147,6 +233,7 @@ impl Drive1541 {
         self.via2 = snapshot.via2;
         self.ram.copy_from_slice(&snapshot.ram);
         self.rom.copy_from_slice(&snapshot.rom);
+        self.disk = snapshot.disk;
         self.device_number = snapshot.device_number;
         self.cycles = snapshot.cycles;
         Ok(())
@@ -184,6 +271,7 @@ impl Drive1541 {
             via2: snapshot.via2,
             ram,
             rom,
+            disk: snapshot.disk,
             device_number: snapshot.device_number,
             cycles: snapshot.cycles,
         })
@@ -300,10 +388,24 @@ impl Drive1541 {
     }
 }
 
+const fn d64_file_type_name(kind: D64FileType) -> &'static str {
+    match kind {
+        D64FileType::Del => "DEL",
+        D64FileType::Seq => "SEQ",
+        D64FileType::Prg => "PRG",
+        D64FileType::Usr => "USR",
+        D64FileType::Rel => "REL",
+        D64FileType::Unknown(_) => "UNKNOWN",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Drive1541, Drive1541Config, Drive1541InitError, ROM_SIZE};
     use common_commodore_iec::IecBus;
+
+    const D64_STANDARD_SIZE: usize = 174_848;
+    const D64_SECTOR_SIZE: usize = 256;
 
     fn make_rom(program: &[(u16, &[u8])], reset_vector: u16) -> [u8; ROM_SIZE] {
         let mut rom = [0xEA; ROM_SIZE];
@@ -333,6 +435,56 @@ mod tests {
             }
         }
         machine.cycles() - before
+    }
+
+    fn d64_linear_sector_index(track: u8, sector_num: u8) -> usize {
+        const TRACK_SECTOR_COUNTS: [u8; 35] = [
+            21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 19, 19, 19, 19, 19,
+            19, 19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 17,
+        ];
+        TRACK_SECTOR_COUNTS[..usize::from(track - 1)]
+            .iter()
+            .map(|&count| usize::from(count))
+            .sum::<usize>()
+            + usize::from(sector_num)
+    }
+
+    fn write_d64_sector(
+        bytes: &mut [u8],
+        track: u8,
+        sector_num: u8,
+        sector: &[u8; D64_SECTOR_SIZE],
+    ) {
+        let offset = d64_linear_sector_index(track, sector_num) * D64_SECTOR_SIZE;
+        bytes[offset..offset + D64_SECTOR_SIZE].copy_from_slice(sector);
+    }
+
+    fn synthetic_d64() -> Vec<u8> {
+        let mut bytes = vec![0u8; D64_STANDARD_SIZE];
+
+        let mut bam = [0u8; D64_SECTOR_SIZE];
+        bam[0] = 18;
+        bam[1] = 1;
+        bam[0x90..0x98].copy_from_slice(b"DEMO DIS");
+        bam[0x98] = b'K';
+        bam[0xA2..0xA4].copy_from_slice(b"42");
+        write_d64_sector(&mut bytes, 18, 0, &bam);
+
+        let mut directory = [0u8; D64_SECTOR_SIZE];
+        directory[2] = 0x82;
+        directory[3] = 1;
+        directory[4] = 0;
+        directory[5..10].copy_from_slice(b"HELLO");
+        directory[30..32].copy_from_slice(&(1u16).to_le_bytes());
+        write_d64_sector(&mut bytes, 18, 1, &directory);
+
+        let mut file_sector = [0u8; D64_SECTOR_SIZE];
+        file_sector[0] = 0;
+        file_sector[1] = 6;
+        file_sector[2..7].copy_from_slice(&[0x01, 0x08, 0x11, 0x22, 0x33]);
+        write_d64_sector(&mut bytes, 1, 0, &file_sector);
+
+        bytes
     }
 
     #[test]
@@ -430,6 +582,25 @@ mod tests {
     }
 
     #[test]
+    fn drive_can_mount_d64_and_report_directory() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+
+        let disk = machine.disk().expect("disk should be inserted");
+        assert_eq!(disk.disk_name, "DEMO DISK");
+        assert_eq!(disk.disk_id, "42");
+        assert_eq!(disk.directory_entries.len(), 1);
+        assert_eq!(disk.directory_entries[0].name, "HELLO");
+        assert_eq!(disk.directory_entries[0].file_type, "PRG");
+        assert_eq!(disk.directory_entries[0].blocks, 1);
+    }
+
+    #[test]
     fn snapshot_round_trip_preserves_drive_state() {
         let rom = make_rom(&[(0xC000, &[0xA9, 0x34, 0x8D, 0x00, 0x04])], 0xC000);
         let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
@@ -439,6 +610,9 @@ mod tests {
         assert_eq!(run_one(&mut machine), 2);
         assert_eq!(run_one(&mut machine), 4);
         machine.write_with_iec_bus(0x1802, 0xFF, &mut IecBus::new());
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
 
         let snapshot = machine.snapshot_state();
         let restored = Drive1541::from_snapshot(snapshot).expect("1541 snapshot should round-trip");
@@ -454,5 +628,10 @@ mod tests {
         assert_eq!(restored.peek(0x0400), machine.peek(0x0400));
         assert_eq!(restored.cycles(), machine.cycles());
         assert_eq!(restored.device_number(), machine.device_number());
+        assert!(restored.disk_inserted());
+        assert_eq!(
+            restored.disk().expect("disk should be restored").disk_name,
+            "DEMO DISK"
+        );
     }
 }

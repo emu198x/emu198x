@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 common-commodore-iec = { path = "../common-commodore-iec" }
+format-commodore-c64-d64 = { path = "../format-commodore-c64-d64" }
 mos-6502 = { path = "../mos-6502" }
 mos-via-6522 = { path = "../mos-via-6522" }
 serde = { workspace = true }

@@ -1197,6 +1197,7 @@ name = "machine-commodore-1541"
 version = "0.1.0"
 dependencies = [
  "common-commodore-iec",
+ "format-commodore-c64-d64",
  "mos-6502",
  "mos-via-6522",
  "serde",

@@ -70,6 +70,10 @@ const C64_QUERY_PATHS: &[&str] = &[
     "c64.drive8.via2.irq",
     "c64.drive8.via2.pa",
     "c64.drive8.via2.pb",
+    "c64.drive8.disk.inserted",
+    "c64.drive8.disk.name",
+    "c64.drive8.disk.id",
+    "c64.drive8.disk.directory",
     "c64.iec.cpu_port",
     "c64.iec.drive_port",
     "c64.memory.effective_port",
@@ -353,9 +357,18 @@ impl MachineCore for C64Runtime {
                     if image.kind != MediaKind::Disk {
                         return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
                     }
-                    return Err(MachineError::UnsupportedOperation {
-                        operation: "drive-8-disk-media",
-                    });
+                    let drive =
+                        self.drive8
+                            .as_mut()
+                            .ok_or_else(|| MachineError::MissingFirmware {
+                                id: "commodore-1541-dos-rom".to_owned(),
+                            })?;
+                    drive.load_d64_bytes(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: image.slot.as_ref().to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
                 }
                 _ => {
                     return Err(MachineError::UnknownMediaSlot {
@@ -615,6 +628,27 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.drive8.via2.irq" => json!(machine.drive8().map(|drive| drive.via2().irq)),
             "c64.drive8.via2.pa" => json!(machine.drive8().map(|drive| drive.via2().pa)),
             "c64.drive8.via2.pb" => json!(machine.drive8().map(|drive| drive.via2().pb)),
+            "c64.drive8.disk.inserted" => {
+                json!(machine.drive8().is_some_and(|drive| drive.disk_inserted()))
+            }
+            "c64.drive8.disk.name" => json!(
+                machine
+                    .drive8()
+                    .and_then(|drive| drive.disk())
+                    .map(|disk| disk.disk_name())
+            ),
+            "c64.drive8.disk.id" => json!(
+                machine
+                    .drive8()
+                    .and_then(|drive| drive.disk())
+                    .map(|disk| disk.disk_id())
+            ),
+            "c64.drive8.disk.directory" => json!(
+                machine
+                    .drive8()
+                    .and_then(|drive| drive.disk())
+                    .map(|disk| disk.directory_entries())
+            ),
             "c64.iec.cpu_port" => json!(machine.iec_bus.cpu_port()),
             "c64.iec.drive_port" => json!(machine.iec_bus.drive_port()),
             "c64.memory.effective_port" => json!(machine.machine().memory().effective_port()),
@@ -965,6 +999,51 @@ mod tests {
         bytes
     }
 
+    fn d64_linear_sector_index(track: u8, sector_num: u8) -> usize {
+        const TRACK_SECTOR_COUNTS: [u8; 35] = [
+            21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 19, 19, 19, 19, 19,
+            19, 19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 17,
+        ];
+        TRACK_SECTOR_COUNTS[..usize::from(track - 1)]
+            .iter()
+            .map(|&count| usize::from(count))
+            .sum::<usize>()
+            + usize::from(sector_num)
+    }
+
+    fn write_d64_sector(bytes: &mut [u8], track: u8, sector_num: u8, sector: &[u8; 256]) {
+        let offset = d64_linear_sector_index(track, sector_num) * 256;
+        bytes[offset..offset + 256].copy_from_slice(sector);
+    }
+
+    fn make_d64() -> Vec<u8> {
+        let mut bytes = vec![0u8; 174_848];
+
+        let mut bam = [0u8; 256];
+        bam[0] = 18;
+        bam[1] = 1;
+        bam[0x90..0x98].copy_from_slice(b"DEMO DIS");
+        bam[0x98] = b'K';
+        bam[0xA2..0xA4].copy_from_slice(b"42");
+        write_d64_sector(&mut bytes, 18, 0, &bam);
+
+        let mut directory = [0u8; 256];
+        directory[2] = 0x82;
+        directory[3] = 1;
+        directory[4] = 0;
+        directory[5..10].copy_from_slice(b"HELLO");
+        directory[30..32].copy_from_slice(&(1u16).to_le_bytes());
+        write_d64_sector(&mut bytes, 18, 1, &directory);
+
+        let mut file_sector = [0u8; 256];
+        file_sector[0] = 0;
+        file_sector[1] = 6;
+        file_sector[2..7].copy_from_slice(&[0x01, 0x08, 0x11, 0x22, 0x33]);
+        write_d64_sector(&mut bytes, 1, 0, &file_sector);
+
+        bytes
+    }
+
     fn local_rom_firmware() -> FirmwareSet<'static> {
         let rom_dir = PathBuf::from(
             std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
@@ -1043,6 +1122,15 @@ mod tests {
         )
         .join(
             "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[TAP]/Ghostbusters (1984)(Activision).zip",
+        )
+    }
+
+    fn local_bruce_lee_d64_zip() -> PathBuf {
+        PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for local C64 D64 tests"),
+        )
+        .join(
+            "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[D64]/Bruce Lee (1984)(Datasoft).zip",
         )
     }
 
@@ -1321,6 +1409,75 @@ mod tests {
     }
 
     #[test]
+    fn runtime_rejects_drive_media_without_attached_1541() {
+        let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+            .expect("blank C64 firmware should construct a runtime");
+        let disk = make_d64();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("drive-8", MediaKind::Disk, &disk));
+
+        let err = runtime
+            .load_media(&media)
+            .expect_err("drive-8 should require an attached 1541 ROM");
+        assert!(matches!(
+            err,
+            MachineError::MissingFirmware { ref id } if id == "commodore-1541-dos-rom"
+        ));
+    }
+
+    #[test]
+    fn runtime_load_media_mounts_d64_into_attached_drive() {
+        let mut runtime =
+            C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware_with_drive())
+                .expect("blank C64 firmware with drive should construct a runtime");
+        let provider = C64SessionQueryProvider;
+        let disk = make_d64();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("drive-8", MediaKind::Disk, &disk));
+
+        runtime
+            .load_media(&media)
+            .expect("synthetic D64 should mount into the attached 1541");
+
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.disk.inserted")
+                .expect("disk inserted query should not fail")
+                .expect("disk inserted query should resolve")
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.disk.name")
+                .expect("disk name query should not fail")
+                .expect("disk name query should resolve")
+                .value,
+            json!("DEMO DISK")
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.disk.id")
+                .expect("disk id query should not fail")
+                .expect("disk id query should resolve")
+                .value,
+            json!("42")
+        );
+        let directory = provider
+            .query(&runtime, "c64.drive8.disk.directory")
+            .expect("disk directory query should not fail")
+            .expect("disk directory query should resolve")
+            .value;
+        let entries = directory
+            .as_array()
+            .expect("disk directory should be an array");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["name"], json!("HELLO"));
+        assert_eq!(entries[0]["file_type"], json!("PRG"));
+        assert_eq!(entries[0]["blocks"], json!(1));
+    }
+
+    #[test]
     fn input_mapping_covers_native_shell_keys() {
         assert_eq!(c64_key_position("delete"), Some((0, 0)));
         assert_eq!(c64_key_position("right"), Some((0, 2)));
@@ -1501,6 +1658,56 @@ mod tests {
             .as_u64()
             .expect("drive cycles should be a u64");
         assert!(drive_cycles > 0);
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+    fn real_d64_mount_bruce_lee_reports_disk_metadata() {
+        let mut runtime =
+            C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware_with_drive())
+                .expect("local ROMs should construct a C64 runtime");
+        let provider = C64SessionQueryProvider;
+        let disk = read_media_asset(&local_bruce_lee_d64_zip(), MediaKind::Disk)
+            .expect("local Bruce Lee D64 archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("drive-8", MediaKind::Disk, &disk.bytes));
+
+        runtime
+            .load_media(&media)
+            .expect("Bruce Lee D64 should mount into drive-8");
+
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.attached")
+                .expect("drive attachment query should not fail")
+                .expect("drive attachment query should resolve")
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.disk.inserted")
+                .expect("disk inserted query should not fail")
+                .expect("disk inserted query should resolve")
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.disk.name")
+                .expect("disk name query should not fail")
+                .expect("disk name query should resolve")
+                .value,
+            json!("BRUCELEE")
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.disk.id")
+                .expect("disk id query should not fail")
+                .expect("disk id query should resolve")
+                .value,
+            json!("00")
+        );
     }
 
     #[test]

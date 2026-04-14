@@ -4,6 +4,24 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — Live 1541 runtime now owns mounted D64 media
+
+**Type:** milestone
+**Trigger:** After the optional live 1541 runtime attachment landed, the next honest disk step was to stop treating `D64` as only a host-side import helper and let the attached drive actually own inserted disk media.
+**Result:** the fresh workspace now has the first mounted-disk path on the live 1541:
+1. `machine-commodore-1541` now owns mounted `D64` state directly, including raw image bytes plus parsed disk-name / id / directory metadata.
+2. `runtime-commodore-c64` now accepts `drive-8` disk media when a 1541 ROM is attached, exposes `c64.drive8.disk.*` query paths, and fails honestly with missing-firmware when callers try to mount a disk without a live drive.
+3. `emu198x-script-c64` and `emu198x-c64` now accept `--disk PATH`, which inserts a `D64` into the live drive-8 path rather than faking a load.
+4. A real local `Bruce Lee (1984)(Datasoft)` `D64` mount now reports `c64.drive8.attached=true`, `c64.drive8.disk.inserted=true`, `c64.drive8.disk.name=\"BRUCELEE\"`, and `c64.drive8.disk.id=\"00\"` through the headless runner.
+**Verification:** locally, this slice passes:
+- `cargo fmt --all`
+- `cargo test -p machine-commodore-1541 -p runtime-commodore-c64 -p emu198x-script-c64 -p emu198x-c64`
+- `cargo clippy -p machine-commodore-1541 -p runtime-commodore-c64 -p emu198x-script-c64 -p emu198x-c64 --all-targets -- -D warnings`
+- `cargo test --workspace`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bruce Lee (1984)(Datasoft).zip' --wait-for-boot 200 --print-query c64.drive8.attached --print-query c64.drive8.disk.inserted --print-query c64.drive8.disk.name --print-query c64.drive8.disk.id --frames 1`
+**Consequence:** the disk path is still not yet DOS/IEC-backed file loading, but the attached 1541 now owns real disk media instead of the runtime stopping at an empty board plus host-side `D64` import shortcuts.
+
 ## 2026-04-14 — C64 runtime can now attach a live 1541 and observe it honestly
 
 **Type:** milestone

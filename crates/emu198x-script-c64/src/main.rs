@@ -38,6 +38,7 @@ struct Cli {
     basic: Option<PathBuf>,
     chargen: Option<PathBuf>,
     load: Option<PathBuf>,
+    disk: Option<PathBuf>,
     tape: Option<PathBuf>,
     autoload_tape: bool,
     start_tape: bool,
@@ -150,6 +151,7 @@ Cold boot:
     --chargen PATH            override character ROM path
     --model MODEL             pal or ntsc [default: pal]
     --load PATH               import one .prg/.bas/.t64/.d64 file after boot
+    --disk PATH               insert one D64 image into drive-8
     --tape PATH               insert one TAP image into datasette slot
     --autoload-tape           wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape              press PLAY on the inserted datasette image
@@ -188,6 +190,7 @@ Examples:
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --screenshot ready.png
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load game.d64 --save-snapshot game.c64.pst
+    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --wait-for-boot 200 --print-query c64.drive8.disk.name
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --wait-for-tape-stop 12000
     emu198x-script-c64 --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --frames 300 --trace-vic-colours
@@ -255,6 +258,7 @@ where
             "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
             "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
             "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
+            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
@@ -384,6 +388,16 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         session
             .load_media(&media)
             .map_err(|err| format!("tape load failed: {err}"))?;
+    }
+
+    if let Some(path) = &cli.disk {
+        let loaded = read_media_asset(path, MediaKind::Disk)
+            .map_err(|err| format!("failed to load disk asset {}: {err}", path.display()))?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("drive-8", MediaKind::Disk, &loaded.bytes));
+        session
+            .load_media(&media)
+            .map_err(|err| format!("disk load failed: {err}"))?;
     }
 
     if cli.autoload_tape {
@@ -795,6 +809,7 @@ mod tests {
                 basic: None,
                 chargen: None,
                 load: None,
+                disk: None,
                 tape: None,
                 autoload_tape: false,
                 start_tape: false,
@@ -834,6 +849,7 @@ mod tests {
                 basic: None,
                 chargen: None,
                 load: None,
+                disk: None,
                 tape: Some(PathBuf::from("game.tap")),
                 autoload_tape: true,
                 start_tape: false,
@@ -874,5 +890,13 @@ mod tests {
         ]);
 
         assert_eq!(cli.load, Some(PathBuf::from("demo.bas")));
+    }
+
+    #[test]
+    fn parse_cli_accepts_disk_flag() {
+        let cli = parse_cli(["--disk".to_string(), "game.d64".to_string()]);
+
+        assert_eq!(cli.disk, Some(PathBuf::from("game.d64")));
+        assert_eq!(cli.tape, None);
     }
 }

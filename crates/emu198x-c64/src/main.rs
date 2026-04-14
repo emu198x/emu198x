@@ -60,6 +60,7 @@ Options:
     --chargen PATH       override character ROM path
     --model MODEL        pal or ntsc [default: pal]
     --load PATH          import one .prg or plain-text .bas file after boot
+    --disk PATH          insert one D64 image into drive-8 at startup
     --tape PATH          insert one TAP image into datasette slot at startup
     --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape         start the inserted tape immediately at startup
@@ -82,6 +83,7 @@ Controls:
 Examples:
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape
     emu198x-c64 --load-snapshot ready.c64.pst
 ";
@@ -94,6 +96,7 @@ struct Cli {
     basic: Option<PathBuf>,
     chargen: Option<PathBuf>,
     load: Option<PathBuf>,
+    disk: Option<PathBuf>,
     tape: Option<PathBuf>,
     autoload_tape: bool,
     start_tape: bool,
@@ -209,6 +212,18 @@ impl C64Runner {
             media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
             session.load_media(&media).map_err(|err| AppError::Setup {
                 reason: format!("tape load failed: {err}"),
+            })?;
+        }
+
+        if let Some(path) = &cli.disk {
+            let loaded =
+                read_media_asset(path, MediaKind::Disk).map_err(|err| AppError::Setup {
+                    reason: format!("failed to load disk asset {}: {err}", path.display()),
+                })?;
+            let mut media = MediaSet::new();
+            media.push(MediaImage::new("drive-8", MediaKind::Disk, &loaded.bytes));
+            session.load_media(&media).map_err(|err| AppError::Setup {
+                reason: format!("disk load failed: {err}"),
             })?;
         }
 
@@ -367,7 +382,12 @@ impl C64Runner {
         } else {
             "no tape"
         };
-        format!("{} | {} | {}", self.title_base, boot, tape)
+        let disk = if self.query_bool("c64.drive8.disk.inserted") {
+            "disk loaded"
+        } else {
+            "no disk"
+        };
+        format!("{} | {} | {} | {}", self.title_base, boot, tape, disk)
     }
 }
 
@@ -925,6 +945,7 @@ where
             "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
             "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
             "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
+            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
@@ -1307,6 +1328,7 @@ mod tests {
                 basic: None,
                 chargen: None,
                 load: Some(PathBuf::from("demo.bas")),
+                disk: None,
                 tape: None,
                 autoload_tape: false,
                 start_tape: false,
@@ -1334,6 +1356,7 @@ mod tests {
                 basic: None,
                 chargen: None,
                 load: None,
+                disk: None,
                 tape: Some(PathBuf::from("game.tap")),
                 autoload_tape: true,
                 start_tape: false,
@@ -1357,6 +1380,7 @@ mod tests {
                 basic: None,
                 chargen: None,
                 load: None,
+                disk: None,
                 tape: None,
                 autoload_tape: false,
                 start_tape: false,
@@ -1365,6 +1389,14 @@ mod tests {
                 scale: DEFAULT_SCALE,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_accepts_disk_flag() {
+        let cli = parse_cli(["--disk".to_string(), "game.d64".to_string()]);
+
+        assert_eq!(cli.disk, Some(PathBuf::from("game.d64")));
+        assert_eq!(cli.tape, None);
     }
 
     #[test]
