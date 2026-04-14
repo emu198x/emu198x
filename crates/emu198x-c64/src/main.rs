@@ -42,6 +42,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 const KERNAL_ID: &str = "commodore-c64-kernal-rom";
 const BASIC_ID: &str = "commodore-c64-basic-rom";
 const CHARACTER_ID: &str = "commodore-c64-character-rom";
+const DRIVE1541_ID: &str = "commodore-1541-dos-rom";
 const DEFAULT_SCALE: u32 = 2;
 const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 const INPUT_SLICES_PER_FRAME: u32 = 8;
@@ -1020,6 +1021,14 @@ fn load_firmware_bytes(cli: &Cli) -> Result<Vec<LoadedFirmware>, String> {
                 cli.chargen.as_deref(),
                 rom_dir.as_deref(),
                 &["chargen.rom", "c64-chargen.rom"],
+            )?,
+        ),
+        (
+            DRIVE1541_ID,
+            resolve_rom_path(
+                None,
+                rom_dir.as_deref(),
+                &["1541.rom", "dos1541.rom", "c1541.rom"],
             )?,
         ),
     ];

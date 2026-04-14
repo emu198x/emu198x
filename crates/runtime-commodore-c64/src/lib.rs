@@ -101,6 +101,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 "C64 Character Generator ROM",
                 false,
             ),
+            FirmwareRequirement::new("commodore-1541-dos-rom", "1541 DOS ROM", true),
         ],
         media_slots: vec![
             MediaSlot::new(
@@ -170,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn both_profiles_require_all_three_roms() {
+    fn both_profiles_require_declared_roms() {
         for profile in profiles() {
             let ids: Vec<&str> = profile.firmware.iter().map(|rom| rom.id.as_ref()).collect();
             assert_eq!(
@@ -179,8 +180,13 @@ mod tests {
                     "commodore-c64-basic-rom",
                     "commodore-c64-kernal-rom",
                     "commodore-c64-character-rom",
+                    "commodore-1541-dos-rom",
                 ]
             );
+            assert!(!profile.firmware[0].optional);
+            assert!(!profile.firmware[1].optional);
+            assert!(!profile.firmware[2].optional);
+            assert!(profile.firmware[3].optional);
         }
     }
 

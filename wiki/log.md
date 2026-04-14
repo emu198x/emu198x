@@ -4,6 +4,23 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — C64 runtime can now attach a live 1541 and observe it honestly
+
+**Type:** milestone
+**Trigger:** After the first shared IEC line-state slice landed, the next honest step was to stop keeping the 1541 board isolated and actually let the C64 runtime run with an attached live drive before disk media mechanics exist.
+**Result:** the fresh workspace now has the first runtime-level C64+1541 execution path:
+1. `runtime-commodore-c64` can optionally consume a `commodore-1541-dos-rom` firmware image and attach a live `machine-commodore-1541` board on the shared IEC bus.
+2. The C64 query surface now exposes attached-drive visibility (`c64.drive8.*` plus raw IEC port views), so later DOS/IEC work can be debugged through the same shell/session surface instead of bespoke probes.
+3. Attached-drive snapshots are now explicit and tested via a dedicated `Drive1541Snapshot`, rather than relying on accidental serde support for large board arrays.
+4. Synthetic runtime tests now prove drive attachment, cycle advancement, and snapshot round-trip; a local ignored ROM-backed test also proves real 1541 ROM execution is visible through the runtime query surface.
+**Verification:** locally, this slice passes:
+- `cargo fmt --all`
+- `cargo test -p machine-commodore-1541 -p runtime-commodore-c64 -p emu198x-script-c64 -p emu198x-c64`
+- `cargo clippy -p machine-commodore-1541 -p runtime-commodore-c64 -p emu198x-script-c64 -p emu198x-c64 --all-targets -- -D warnings`
+- `cargo test --workspace`
+- `cargo test -p runtime-commodore-c64 query_provider_reports_real_attached_drive_progress -- --ignored --nocapture`
+**Consequence:** the disk path is still not real 1541 media loading yet, but the repo now has a live runtime-level C64↔1541 execution/debug surface instead of only separate board crates and host-side `D64` import.
+
 ## 2026-04-14 — C64 and 1541 now share a real IEC line-state model
 
 **Type:** milestone

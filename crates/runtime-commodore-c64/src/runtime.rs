@@ -2,12 +2,14 @@
 
 use std::borrow::Cow;
 
+use common_commodore_iec::IecBus;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
     MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet,
     MediaTransportAction, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
     StopReason, TraceEvent,
 };
+use machine_commodore_1541::{DRIVE1541_CPU_HZ, Drive1541, Drive1541Config, Drive1541Snapshot};
 use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
 use serde_json::json;
 
@@ -50,6 +52,26 @@ const C64_QUERY_PATHS: &[&str] = &[
     "c64.cia2.timer_a_latch",
     "c64.cia2.timer_b",
     "c64.cia2.timer_b_latch",
+    "c64.drive8.attached",
+    "c64.drive8.cpu.addr",
+    "c64.drive8.cpu.cycles",
+    "c64.drive8.cpu.data",
+    "c64.drive8.cpu.instruction_complete",
+    "c64.drive8.cpu.p",
+    "c64.drive8.cpu.pc",
+    "c64.drive8.cpu.rw",
+    "c64.drive8.cpu.sp",
+    "c64.drive8.cpu.sync",
+    "c64.drive8.cpu.x",
+    "c64.drive8.cpu.y",
+    "c64.drive8.via1.irq",
+    "c64.drive8.via1.pa",
+    "c64.drive8.via1.pb",
+    "c64.drive8.via2.irq",
+    "c64.drive8.via2.pa",
+    "c64.drive8.via2.pb",
+    "c64.iec.cpu_port",
+    "c64.iec.drive_port",
     "c64.memory.effective_port",
     "c64.memory.io_visible",
     "c64.memory.port_data",
@@ -75,6 +97,7 @@ const READY_SCREEN_CODES: [u8; 6] = [18, 5, 1, 4, 25, 46];
 const KERNAL_ROM_SIZE: usize = 0x2000;
 const BASIC_ROM_SIZE: usize = 0x2000;
 const CHARACTER_ROM_SIZE: usize = 0x1000;
+const DOS1541_ROM_SIZE: usize = 0x4000;
 const SCREEN_RAM_BASE: u16 = 0x0400;
 const SCREEN_TEXT_WIDTH: usize = 40;
 const SCREEN_TEXT_HEIGHT: usize = 25;
@@ -88,6 +111,10 @@ pub struct C64Runtime {
     kernal_rom: Vec<u8>,
     basic_rom: Vec<u8>,
     character_rom: Vec<u8>,
+    drive8_dos_rom: Option<Vec<u8>>,
+    drive8: Option<Drive1541>,
+    iec_bus: IecBus,
+    drive8_cycle_accum: u64,
     rgba_framebuffer: Vec<u8>,
     trace_vic_colour_writes: bool,
 }
@@ -98,6 +125,9 @@ struct SnapshotEnvelopeV1 {
     profile_id: String,
     time: MachineTime,
     machine: C64Snapshot,
+    drive8: Option<Drive1541Snapshot>,
+    iec_bus: IecBus,
+    drive8_cycle_accum: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,6 +162,7 @@ impl C64Runtime {
         kernal_rom: Vec<u8>,
         basic_rom: Vec<u8>,
         character_rom: Vec<u8>,
+        drive8_dos_rom: Option<Vec<u8>>,
     ) -> Result<Self, MachineError> {
         validate_rom_size("commodore-c64-kernal-rom", &kernal_rom, KERNAL_ROM_SIZE)?;
         validate_rom_size("commodore-c64-basic-rom", &basic_rom, BASIC_ROM_SIZE)?;
@@ -140,8 +171,13 @@ impl C64Runtime {
             &character_rom,
             CHARACTER_ROM_SIZE,
         )?;
+        if let Some(drive_rom) = drive8_dos_rom.as_deref() {
+            validate_rom_size("commodore-1541-dos-rom", drive_rom, DOS1541_ROM_SIZE)?;
+        }
 
         let machine = build_machine(model, &kernal_rom, &basic_rom, &character_rom)?;
+        let mut iec_bus = IecBus::new();
+        let drive8 = build_drive(&drive8_dos_rom, &mut iec_bus)?;
         let rgba_framebuffer = vec![
             0;
             (machine.vic().framebuffer_width() * machine.vic().framebuffer_height() * 4)
@@ -156,6 +192,10 @@ impl C64Runtime {
             kernal_rom,
             basic_rom,
             character_rom,
+            drive8_dos_rom,
+            drive8,
+            iec_bus,
+            drive8_cycle_accum: 0,
             rgba_framebuffer,
             trace_vic_colour_writes: false,
         })
@@ -185,8 +225,15 @@ impl C64Runtime {
             .ok_or_else(|| MachineError::MissingFirmware {
                 id: "commodore-c64-character-rom".to_owned(),
             })?;
+        let drive8_dos_rom = firmware.bytes("commodore-1541-dos-rom").map(<[u8]>::to_vec);
 
-        Self::new(model, kernal.to_vec(), basic.to_vec(), character.to_vec())
+        Self::new(
+            model,
+            kernal.to_vec(),
+            basic.to_vec(),
+            character.to_vec(),
+            drive8_dos_rom,
+        )
     }
 
     /// Creates a runtime backed by zero-filled ROMs.
@@ -197,6 +244,7 @@ impl C64Runtime {
             vec![0; KERNAL_ROM_SIZE],
             vec![0; BASIC_ROM_SIZE],
             vec![0; CHARACTER_ROM_SIZE],
+            None,
         ) {
             Ok(runtime) => runtime,
             Err(reason) => unreachable!(
@@ -215,6 +263,11 @@ impl C64Runtime {
     #[must_use]
     pub fn machine_mut(&mut self) -> &mut C64 {
         &mut self.machine
+    }
+
+    #[must_use]
+    pub fn drive8(&self) -> Option<&Drive1541> {
+        self.drive8.as_ref()
     }
 
     /// Returns the current runtime time in `phi2` cycles.
@@ -241,6 +294,9 @@ impl C64Runtime {
             &self.basic_rom,
             &self.character_rom,
         )?;
+        self.iec_bus = IecBus::new();
+        self.drive8 = build_drive(&self.drive8_dos_rom, &mut self.iec_bus)?;
+        self.drive8_cycle_accum = 0;
         self.time = MachineTime::default();
         Ok(())
     }
@@ -280,22 +336,33 @@ impl MachineCore for C64Runtime {
 
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
         for image in &media.images {
-            if image.slot.as_ref() != "tape-1" {
-                return Err(MachineError::UnknownMediaSlot {
-                    slot: image.slot.as_ref().to_owned(),
-                });
-            }
+            match image.slot.as_ref() {
+                "tape-1" => {
+                    if image.kind != MediaKind::Tape {
+                        return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+                    }
 
-            if image.kind != MediaKind::Tape {
-                return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
-            }
-
-            self.machine.load_tap_bytes(image.bytes).map_err(|reason| {
-                MachineError::InvalidMedia {
-                    slot: image.slot.as_ref().to_owned(),
-                    reason,
+                    self.machine.load_tap_bytes(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: image.slot.as_ref().to_owned(),
+                            reason,
+                        }
+                    })?;
                 }
-            })?;
+                "drive-8" => {
+                    if image.kind != MediaKind::Disk {
+                        return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+                    }
+                    return Err(MachineError::UnsupportedOperation {
+                        operation: "drive-8-disk-media",
+                    });
+                }
+                _ => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: image.slot.as_ref().to_owned(),
+                    });
+                }
+            }
         }
 
         Ok(())
@@ -314,7 +381,18 @@ impl MachineCore for C64Runtime {
         let mut prev_background = self.machine.vic_register(0x21) & 0x0F;
 
         while self.time < target {
-            let frame_complete = self.machine.tick();
+            let frame_complete = if let Some(drive8) = self.drive8.as_mut() {
+                let frame_complete = self.machine.tick_with_iec_bus(&mut self.iec_bus);
+                self.drive8_cycle_accum = self.drive8_cycle_accum.saturating_add(DRIVE1541_CPU_HZ);
+                let c64_hz = self.machine.timing().cpu_hz;
+                while self.drive8_cycle_accum >= c64_hz {
+                    drive8.tick_with_iec_bus(&mut self.iec_bus);
+                    self.drive8_cycle_accum -= c64_hz;
+                }
+                frame_complete
+            } else {
+                self.machine.tick()
+            };
             self.time = MachineTime::new(self.machine.phi2_cycles());
 
             if self.trace_vic_colour_writes {
@@ -384,6 +462,9 @@ impl MachineCore for C64Runtime {
             profile_id: self.profile.profile_id.as_str().to_owned(),
             time: self.time,
             machine: self.machine.snapshot_state(),
+            drive8: self.drive8.as_ref().map(Drive1541::snapshot_state),
+            iec_bus: self.iec_bus.clone(),
+            drive8_cycle_accum: self.drive8_cycle_accum,
         })
         .map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("encode failed: {reason}"),
@@ -415,6 +496,13 @@ impl MachineCore for C64Runtime {
         self.machine
             .restore_snapshot_state(snapshot.machine)
             .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
+        self.drive8 = snapshot
+            .drive8
+            .map(Drive1541::from_snapshot)
+            .transpose()
+            .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
+        self.iec_bus = snapshot.iec_bus;
+        self.drive8_cycle_accum = snapshot.drive8_cycle_accum;
         self.time = snapshot.time;
         Ok(())
     }
@@ -503,6 +591,32 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.cia2.timer_a_latch" => json!(machine.machine().cia2().timer_a_latch()),
             "c64.cia2.timer_b" => json!(machine.machine().cia2().timer_b()),
             "c64.cia2.timer_b_latch" => json!(machine.machine().cia2().timer_b_latch()),
+            "c64.drive8.attached" => json!(machine.drive8().is_some()),
+            "c64.drive8.cpu.addr" => json!(machine.drive8().map(|drive| drive.cpu().addr)),
+            "c64.drive8.cpu.cycles" => json!(machine.drive8().map(|drive| drive.cycles())),
+            "c64.drive8.cpu.data" => json!(machine.drive8().map(|drive| drive.cpu().data)),
+            "c64.drive8.cpu.instruction_complete" => {
+                json!(
+                    machine
+                        .drive8()
+                        .map(|drive| drive.cpu().instruction_complete())
+                )
+            }
+            "c64.drive8.cpu.p" => json!(machine.drive8().map(|drive| drive.cpu().regs.p)),
+            "c64.drive8.cpu.pc" => json!(machine.drive8().map(|drive| drive.cpu().regs.pc)),
+            "c64.drive8.cpu.rw" => json!(machine.drive8().map(|drive| drive.cpu().rw)),
+            "c64.drive8.cpu.sp" => json!(machine.drive8().map(|drive| drive.cpu().regs.sp)),
+            "c64.drive8.cpu.sync" => json!(machine.drive8().map(|drive| drive.cpu().sync)),
+            "c64.drive8.cpu.x" => json!(machine.drive8().map(|drive| drive.cpu().regs.x)),
+            "c64.drive8.cpu.y" => json!(machine.drive8().map(|drive| drive.cpu().regs.y)),
+            "c64.drive8.via1.irq" => json!(machine.drive8().map(|drive| drive.via1().irq)),
+            "c64.drive8.via1.pa" => json!(machine.drive8().map(|drive| drive.via1().pa)),
+            "c64.drive8.via1.pb" => json!(machine.drive8().map(|drive| drive.via1().pb)),
+            "c64.drive8.via2.irq" => json!(machine.drive8().map(|drive| drive.via2().irq)),
+            "c64.drive8.via2.pa" => json!(machine.drive8().map(|drive| drive.via2().pa)),
+            "c64.drive8.via2.pb" => json!(machine.drive8().map(|drive| drive.via2().pb)),
+            "c64.iec.cpu_port" => json!(machine.iec_bus.cpu_port()),
+            "c64.iec.drive_port" => json!(machine.iec_bus.drive_port()),
             "c64.memory.effective_port" => json!(machine.machine().memory().effective_port()),
             "c64.memory.io_visible" => json!(machine.machine().memory().is_io_visible()),
             "c64.memory.port_data" => json!(machine.machine().memory().port_data()),
@@ -563,6 +677,24 @@ fn build_machine(
     .map_err(|reason| MachineError::InvalidRequest {
         reason: reason.to_string(),
     })
+}
+
+fn build_drive(
+    drive8_dos_rom: &Option<Vec<u8>>,
+    iec_bus: &mut IecBus,
+) -> Result<Option<Drive1541>, MachineError> {
+    let Some(rom) = drive8_dos_rom.as_deref() else {
+        return Ok(None);
+    };
+
+    let mut drive = Drive1541::new(Drive1541Config { dos_rom: rom }).map_err(|reason| {
+        MachineError::InvalidFirmware {
+            id: "commodore-1541-dos-rom".to_owned(),
+            reason: reason.to_string(),
+        }
+    })?;
+    drive.sync_iec_bus(iec_bus);
+    Ok(Some(drive))
 }
 
 fn validate_rom_size(id: &'static str, bytes: &[u8], expected: usize) -> Result<(), MachineError> {
@@ -805,6 +937,23 @@ mod tests {
         firmware
     }
 
+    fn stub_drive_rom_bytes() -> &'static [u8] {
+        let mut rom = vec![0xEA; DOS1541_ROM_SIZE];
+        let vector = DOS1541_ROM_SIZE - 4;
+        rom[vector] = 0x00;
+        rom[vector + 1] = 0xC0;
+        Box::leak(rom.into_boxed_slice())
+    }
+
+    fn blank_firmware_with_drive() -> FirmwareSet<'static> {
+        let mut firmware = blank_firmware();
+        firmware.push(FirmwareImage::new(
+            "commodore-1541-dos-rom",
+            stub_drive_rom_bytes(),
+        ));
+        firmware
+    }
+
     fn make_tap(payload: &[u8]) -> Vec<u8> {
         let mut bytes = vec![0; 20];
         bytes[..12].copy_from_slice(b"C64-TAPE-RAW");
@@ -842,6 +991,22 @@ mod tests {
         firmware.push(FirmwareImage::new("commodore-c64-kernal-rom", kernal));
         firmware.push(FirmwareImage::new("commodore-c64-basic-rom", basic));
         firmware.push(FirmwareImage::new("commodore-c64-character-rom", chargen));
+        firmware
+    }
+
+    fn local_rom_firmware_with_drive() -> FirmwareSet<'static> {
+        let rom_dir = PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
+        )
+        .join(".emu198x/roms/commodore-c64");
+        let drive = Box::leak(
+            fs::read(rom_dir.join("1541.rom"))
+                .expect("local 1541 DOS ROM should exist")
+                .into_boxed_slice(),
+        );
+
+        let mut firmware = local_rom_firmware();
+        firmware.push(FirmwareImage::new("commodore-1541-dos-rom", drive));
         firmware
     }
 
@@ -930,6 +1095,24 @@ mod tests {
     }
 
     #[test]
+    fn runtime_can_attach_optional_drive_rom() {
+        let runtime =
+            C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware_with_drive())
+                .expect("blank C64 firmware with optional drive ROM should construct");
+        let provider = C64SessionQueryProvider;
+
+        assert!(runtime.drive8().is_some());
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.attached")
+                .expect("drive attachment query should not fail")
+                .expect("drive attachment query should resolve")
+                .value,
+            json!(true)
+        );
+    }
+
+    #[test]
     fn runtime_run_until_emits_rgba_frame() {
         let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
             .expect("blank C64 firmware should construct a runtime");
@@ -965,6 +1148,33 @@ mod tests {
         );
         assert_eq!(audio_sink.last_channels, 1);
         assert!(audio_sink.last_samples_len > 0);
+    }
+
+    #[test]
+    fn runtime_run_until_advances_attached_drive_cycles() {
+        let mut runtime =
+            C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware_with_drive())
+                .expect("blank C64 firmware with drive should construct a runtime");
+        let mut frame_sink = FrameCollector::default();
+        let mut audio_sink = AudioCollector::default();
+        let mut trace_sink = NullTraceSink;
+        let target = MachineTime::new(64);
+
+        runtime
+            .run_until(
+                target,
+                &mut HostIo {
+                    input_events: &[],
+                    frame_sink: &mut frame_sink,
+                    audio_sink: &mut audio_sink,
+                    trace_sink: &mut trace_sink,
+                },
+            )
+            .expect("runtime with an attached drive should run");
+
+        let drive = runtime.drive8().expect("drive should stay attached");
+        assert!(drive.cycles() > 0);
+        assert!(drive.cpu().regs.pc >= 0xC000);
     }
 
     #[test]
@@ -1205,6 +1415,92 @@ mod tests {
                 expected_machine.framebuffer()
             );
         }
+    }
+
+    #[test]
+    fn snapshot_round_trip_preserves_attached_drive_state() {
+        let mut runtime =
+            C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware_with_drive())
+                .expect("blank C64 firmware with drive should construct a runtime");
+        let mut frame_sink = FrameCollector::default();
+        let mut audio_sink = NullAudioSink;
+        let mut trace_sink = NullTraceSink;
+
+        runtime
+            .run_until(
+                MachineTime::new(64),
+                &mut HostIo {
+                    input_events: &[],
+                    frame_sink: &mut frame_sink,
+                    audio_sink: &mut audio_sink,
+                    trace_sink: &mut trace_sink,
+                },
+            )
+            .expect("runtime with an attached drive should run");
+
+        let expected_cycles = runtime
+            .drive8()
+            .expect("drive should be attached before snapshot")
+            .cycles();
+        let expected_pc = runtime
+            .drive8()
+            .expect("drive should be attached before snapshot")
+            .cpu()
+            .regs
+            .pc;
+
+        let snapshot = runtime.snapshot().expect("runtime should snapshot");
+        let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+        restored
+            .restore(&snapshot)
+            .expect("snapshot restore should succeed");
+
+        let drive = restored
+            .drive8()
+            .expect("drive should restore from snapshot");
+        assert_eq!(drive.cycles(), expected_cycles);
+        assert_eq!(drive.cpu().regs.pc, expected_pc);
+    }
+
+    #[test]
+    #[ignore = "requires local C64 and 1541 ROMs at ~/.emu198x/roms/commodore-c64"]
+    fn query_provider_reports_real_attached_drive_progress() {
+        let mut runtime =
+            C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware_with_drive())
+                .expect("local ROMs should construct a C64 runtime");
+        let mut frame_sink = FrameCollector::default();
+        let mut audio_sink = NullAudioSink;
+        let mut trace_sink = NullTraceSink;
+        let provider = C64SessionQueryProvider;
+
+        runtime
+            .run_until(
+                MachineTime::new(512),
+                &mut HostIo {
+                    input_events: &[],
+                    frame_sink: &mut frame_sink,
+                    audio_sink: &mut audio_sink,
+                    trace_sink: &mut trace_sink,
+                },
+            )
+            .expect("real ROM-backed runtime should run");
+
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.attached")
+                .expect("drive attachment query should not fail")
+                .expect("drive attachment query should resolve")
+                .value,
+            json!(true)
+        );
+        let drive_cycles = provider
+            .query(&runtime, "c64.drive8.cpu.cycles")
+            .expect("drive cycle query should not fail")
+            .expect("drive cycle query should resolve")
+            .value
+            .as_u64()
+            .expect("drive cycles should be a u64");
+        assert!(drive_cycles > 0);
     }
 
     #[test]

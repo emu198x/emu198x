@@ -10,11 +10,15 @@
 use common_commodore_iec::IecBus;
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const RAM_SIZE: usize = 0x0800;
 const ROM_SIZE: usize = 0x4000;
 const DEFAULT_DEVICE_NUMBER: u8 = 8;
+
+/// Nominal 1541 6502 clock used for first-pass combined C64/drive scheduling.
+pub const DRIVE1541_CPU_HZ: u64 = 1_000_000;
 
 #[derive(Clone)]
 pub struct Drive1541 {
@@ -23,6 +27,17 @@ pub struct Drive1541 {
     via2: Via6522,
     ram: [u8; RAM_SIZE],
     rom: [u8; ROM_SIZE],
+    device_number: u8,
+    cycles: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Drive1541Snapshot {
+    cpu: M6502,
+    via1: Via6522,
+    via2: Via6522,
+    ram: Vec<u8>,
+    rom: Vec<u8>,
     device_number: u8,
     cycles: u64,
 }
@@ -92,6 +107,86 @@ impl Drive1541 {
     #[must_use]
     pub const fn device_number(&self) -> u8 {
         self.device_number
+    }
+
+    #[must_use]
+    pub fn snapshot_state(&self) -> Drive1541Snapshot {
+        Drive1541Snapshot {
+            cpu: self.cpu.clone(),
+            via1: self.via1.clone(),
+            via2: self.via2.clone(),
+            ram: self.ram.to_vec(),
+            rom: self.rom.to_vec(),
+            device_number: self.device_number,
+            cycles: self.cycles,
+        }
+    }
+
+    /// Restores a board from a serialized snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the snapshot contains the wrong RAM or ROM sizes.
+    pub fn restore_snapshot_state(&mut self, snapshot: Drive1541Snapshot) -> Result<(), String> {
+        if snapshot.ram.len() != RAM_SIZE {
+            return Err(format!(
+                "1541 snapshot RAM size mismatch: expected {RAM_SIZE:#06X} bytes, got {:#06X}",
+                snapshot.ram.len()
+            ));
+        }
+
+        if snapshot.rom.len() != ROM_SIZE {
+            return Err(format!(
+                "1541 snapshot ROM size mismatch: expected {ROM_SIZE:#06X} bytes, got {:#06X}",
+                snapshot.rom.len()
+            ));
+        }
+
+        self.cpu = snapshot.cpu;
+        self.via1 = snapshot.via1;
+        self.via2 = snapshot.via2;
+        self.ram.copy_from_slice(&snapshot.ram);
+        self.rom.copy_from_slice(&snapshot.rom);
+        self.device_number = snapshot.device_number;
+        self.cycles = snapshot.cycles;
+        Ok(())
+    }
+
+    /// Rebuilds a 1541 board from a serialized snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the snapshot contains the wrong RAM or ROM sizes.
+    pub fn from_snapshot(snapshot: Drive1541Snapshot) -> Result<Self, String> {
+        if snapshot.ram.len() != RAM_SIZE {
+            return Err(format!(
+                "1541 snapshot RAM size mismatch: expected {RAM_SIZE:#06X} bytes, got {:#06X}",
+                snapshot.ram.len()
+            ));
+        }
+
+        if snapshot.rom.len() != ROM_SIZE {
+            return Err(format!(
+                "1541 snapshot ROM size mismatch: expected {ROM_SIZE:#06X} bytes, got {:#06X}",
+                snapshot.rom.len()
+            ));
+        }
+
+        let mut ram = [0u8; RAM_SIZE];
+        ram.copy_from_slice(&snapshot.ram);
+
+        let mut rom = [0u8; ROM_SIZE];
+        rom.copy_from_slice(&snapshot.rom);
+
+        Ok(Self {
+            cpu: snapshot.cpu,
+            via1: snapshot.via1,
+            via2: snapshot.via2,
+            ram,
+            rom,
+            device_number: snapshot.device_number,
+            cycles: snapshot.cycles,
+        })
     }
 
     #[must_use]
@@ -332,5 +427,32 @@ mod tests {
         machine.write_with_iec_bus(0x1800, 0xF7, &mut bus);
 
         assert_eq!(bus.cpu_port() & 0x80, 0x00);
+    }
+
+    #[test]
+    fn snapshot_round_trip_preserves_drive_state() {
+        let rom = make_rom(&[(0xC000, &[0xA9, 0x34, 0x8D, 0x00, 0x04])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        boot(&mut machine);
+        assert_eq!(run_one(&mut machine), 2);
+        assert_eq!(run_one(&mut machine), 4);
+        machine.write_with_iec_bus(0x1802, 0xFF, &mut IecBus::new());
+
+        let snapshot = machine.snapshot_state();
+        let restored = Drive1541::from_snapshot(snapshot).expect("1541 snapshot should round-trip");
+
+        assert_eq!(restored.cpu().regs, machine.cpu().regs);
+        assert_eq!(restored.cpu().addr, machine.cpu().addr);
+        assert_eq!(restored.cpu().rw, machine.cpu().rw);
+        assert_eq!(restored.cpu().sync, machine.cpu().sync);
+        assert_eq!(restored.via1().pa, machine.via1().pa);
+        assert_eq!(restored.via1().pb, machine.via1().pb);
+        assert_eq!(restored.via2().pa, machine.via2().pa);
+        assert_eq!(restored.via2().pb, machine.via2().pb);
+        assert_eq!(restored.peek(0x0400), machine.peek(0x0400));
+        assert_eq!(restored.cycles(), machine.cycles());
+        assert_eq!(restored.device_number(), machine.device_number());
     }
 }

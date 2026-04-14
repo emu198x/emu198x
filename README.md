@@ -76,6 +76,9 @@ Examples:
 - `--load demo.d64` for the current C64 runner is a host-side container import
   path that extracts the first PRG directory entry; it is not full 1541
   emulation.
+- an optional 1541 ROM in the current C64 runtime means a live drive board now
+  executes on the shared IEC bus, but that is still drive-side board execution
+  and query/debug visibility, not yet real disk-media loading.
 - `--tape game.tap` for the current C64 runner is real datasette media on the
   board path.
 - `--load demo.t64` for the current C64 runner is a host-side container import
@@ -216,7 +219,9 @@ Current examples include:
   software triage, plus a new drive-side `mos-via-6522` / `machine-commodore-1541`
   substrate that now boots a real 1541 reset vector, mirrors RAM correctly,
   decodes both VIA windows, and now shares first-pass IEC line state with the
-  C64 board through `common-commodore-iec`
+  C64 board through `common-commodore-iec`; the runtime can now optionally
+  attach that live 1541 with queryable drive CPU/VIA state and snapshot
+  coverage
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 
