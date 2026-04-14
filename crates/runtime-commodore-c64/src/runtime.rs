@@ -700,6 +700,15 @@ mod tests {
         )
     }
 
+    fn local_thomas_tap_zip() -> PathBuf {
+        PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
+        )
+        .join(
+            "Projects/Emu198x-Unclean/Reference/commodore/c64/Educational/[TAP]/Thomas the Tank Engine (1990)(Alternative Software).zip",
+        )
+    }
+
     fn screen_text_lines(
         session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
     ) -> Vec<String> {
@@ -1102,6 +1111,68 @@ mod tests {
         assert!(
             lines[14].contains("READY."),
             "post-load screen should reach READY. line: {:?}",
+            lines[14]
+        );
+        assert!(session.machine().machine().tape_is_playing());
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs and Thomas the Tank Engine TAP archive"]
+    fn real_tap_autoload_reaches_thomas_loading_ready_banner() {
+        let firmware = local_rom_firmware();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("real PAL C64 firmware should construct a runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let tape = read_media_asset(&local_thomas_tap_zip(), MediaKind::Tape)
+            .expect("local Thomas TAP archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            MediaKind::Tape,
+            &tape.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("local Thomas TAP should insert");
+
+        let autoload = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("autoload should reach PRESS PLAY ON TAPE and start transport");
+        assert_eq!(autoload.slot, DEFAULT_TAPE_AUTOLOAD_SLOT);
+
+        let found = session
+            .wait_for_query_text_contains("screen.text.lines", "FOUND THOMAS", 1500)
+            .expect("Thomas tape should reach FOUND banner");
+        assert_eq!(found.line, Some(12));
+
+        let loading = session
+            .wait_for_query_text_contains("screen.text.lines", "LOADING", 3000)
+            .expect("Thomas tape should reach LOADING banner");
+        assert_eq!(loading.line, Some(13));
+
+        wait_for_screen_line_contains(&mut session, 14, "READY.", 3000);
+        let lines = screen_text_lines(&session);
+        assert!(
+            lines[12].contains("FOUND THOMAS"),
+            "Thomas screen should retain FOUND banner: {:?}",
+            lines[12]
+        );
+        assert!(
+            lines[13].contains("LOADING"),
+            "Thomas screen should retain LOADING banner: {:?}",
+            lines[13]
+        );
+        assert!(
+            lines[14].contains("READY."),
+            "Thomas screen should reach READY. line: {:?}",
             lines[14]
         );
         assert!(session.machine().machine().tape_is_playing());

@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — C64 datasette software validation now includes Thomas alongside Thinker
+
+**Type:** milestone
+**Trigger:** After the first ROM-backed C64 tape regression (`Thinker`) was in place, the next useful step was not more transport plumbing but a second real title with a fast, queryable, decoded screen state. Several local TAP candidates either stayed visually blank under text decoding or never settled into a useful automated stop condition, so the target needed to be chosen by actual headless probe rather than by filename.
+**Result:** the fresh-workspace C64 now has a second ROM-backed datasette software regression:
+1. Added a local TAP fixture helper for `Thomas the Tank Engine (1990)(Alternative Software)`.
+2. Added an ignored runtime test that boots the real PAL C64 ROM set, inserts the Thomas TAP archive, drives the real `SHIFT+RUN/STOP` KERNAL autoload path, and proves the decoded screen reaches `FOUND THOMAS`, `LOADING`, and then `READY.` on the following line.
+3. Updated the active README and C64 system note so the current software-validation state reflects both `Thinker` and `Thomas`, instead of implying there is only one real-title tape proof.
+**Verification:** `cargo test -p runtime-commodore-c64 real_tap_autoload_reaches_thomas_loading_ready_banner -- --ignored --nocapture`, `cargo test -p runtime-commodore-c64`, and `cargo clippy -p runtime-commodore-c64 --all-targets -- -D warnings` should pass locally.
+**Next dependency:** the next honest C64 media step is either one more well-chosen TAP title with a stronger end state, or moving on to the 1541/disk path once datasette coverage feels sufficient.
+
+---
+
 ## 2026-04-13 — Native shell tape controls are standardized around play, stop, turbo, reset
 
 **Type:** milestone
