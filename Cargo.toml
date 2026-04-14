@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/common-commodore-c64",
+    "crates/common-commodore-iec",
     "crates/common-sinclair-zx-spectrum",
     "crates/emu198x-c64",
     "crates/emu198x-spectrum",

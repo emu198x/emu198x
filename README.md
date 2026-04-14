@@ -215,7 +215,8 @@ Current examples include:
 - C64 disk groundwork at two levels: host-side `D64` parsing/import for quick
   software triage, plus a new drive-side `mos-via-6522` / `machine-commodore-1541`
   substrate that now boots a real 1541 reset vector, mirrors RAM correctly,
-  and decodes both VIA windows
+  decodes both VIA windows, and now shares first-pass IEC line state with the
+  C64 board through `common-commodore-iec`
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

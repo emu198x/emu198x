@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64" }
+common-commodore-iec = { path = "../common-commodore-iec" }
 format-commodore-c64-prg = { path = "../format-commodore-c64-prg" }
 format-commodore-c64-tap = { path = "../format-commodore-c64-tap" }
 mos-6502 = { path = "../mos-6502" }
@@ -15,6 +16,9 @@ mos-sid-6581 = { path = "../mos-sid-6581" }
 mos-vic-ii = { path = "../mos-vic-ii" }
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+machine-commodore-1541 = { path = "../machine-commodore-1541" }
 
 [lints]
 workspace = true

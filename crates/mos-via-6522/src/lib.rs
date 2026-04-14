@@ -163,6 +163,12 @@ impl Via6522 {
         result
     }
 
+    pub fn read_port_b_with_value(&mut self, value: u8) -> u8 {
+        self.clear_port_b_interrupts();
+        self.update_pins();
+        value
+    }
+
     #[must_use]
     pub fn peek(&self, reg: u8) -> u8 {
         match reg & 0x0F {
@@ -241,6 +247,26 @@ impl Via6522 {
         }
 
         self.update_pins();
+    }
+
+    #[must_use]
+    pub const fn ora(&self) -> u8 {
+        self.ora
+    }
+
+    #[must_use]
+    pub const fn orb(&self) -> u8 {
+        self.orb
+    }
+
+    #[must_use]
+    pub const fn ddra(&self) -> u8 {
+        self.ddra
+    }
+
+    #[must_use]
+    pub const fn ddrb(&self) -> u8 {
+        self.ddrb
     }
 
     fn poll_lines(&mut self) {

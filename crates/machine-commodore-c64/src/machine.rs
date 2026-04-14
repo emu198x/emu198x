@@ -1,6 +1,7 @@
 //! Board-level C64 machine substrate.
 
 use common_commodore_c64::timing::C64Timing;
+use common_commodore_iec::IecBus;
 use format_commodore_c64_tap::{TapParseError, TapSystem, parse_tap};
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
@@ -314,6 +315,40 @@ impl C64 {
         false
     }
 
+    /// Advances the board by one `phi2` cycle with one shared IEC bus.
+    ///
+    /// Returns `true` when this tick completed a frame.
+    pub fn tick_with_iec_bus(&mut self, bus: &mut IecBus) -> bool {
+        self.phi2_cycles = self.phi2_cycles.saturating_add(1);
+        let _cpu_stalled = self.vic.tick(&self.memory);
+        self.cia1.flag = !self.datasette.advance_phi2_cycle();
+        self.refresh_keyboard_scan();
+        self.sync_iec_bus(bus);
+        self.cia1.tick();
+        self.cia2.tick();
+        self.refresh_vic_bank();
+        self.cpu.irq = self.vic.irq || self.cia1.irq;
+        self.cpu.nmi = self.cia2.irq;
+        self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
+
+        if self.cpu.rdy {
+            if self.cpu.rw {
+                self.cpu.data_in = self.cpu_read_with_iec_bus(self.cpu.addr, bus);
+            } else {
+                self.cpu_write_with_iec_bus(self.cpu.addr, self.cpu.data, bus);
+            }
+            self.cpu.tick();
+        }
+        self.sid.tick();
+
+        if self.vic.take_frame_complete() {
+            self.frame_count = self.frame_count.saturating_add(1);
+            return true;
+        }
+
+        false
+    }
+
     /// Advances the board by a fixed number of `phi2` cycles.
     pub fn advance_phi2_cycles(&mut self, cycles: u64) {
         for _ in 0..cycles {
@@ -399,6 +434,20 @@ impl C64 {
         self.memory.cpu_read(addr)
     }
 
+    /// CPU-visible read through banked memory and one shared IEC bus.
+    pub fn cpu_read_with_iec_bus(&mut self, addr: u16, bus: &mut IecBus) -> u8 {
+        if addr == 0x0001 {
+            return self.cpu_port_read();
+        }
+        if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
+            if (0xDD00..=0xDDFF).contains(&addr) {
+                self.sync_iec_bus(bus);
+            }
+            return self.io_read(addr);
+        }
+        self.memory.cpu_read(addr)
+    }
+
     /// CPU-visible write through banked memory and the current board I/O state.
     pub fn cpu_write(&mut self, addr: u16, value: u8) {
         self.memory.cpu_write(addr, value);
@@ -407,6 +456,21 @@ impl C64 {
         }
         if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
             self.io_write(addr, value);
+        }
+    }
+
+    /// CPU-visible write through banked memory and one shared IEC bus.
+    pub fn cpu_write_with_iec_bus(&mut self, addr: u16, value: u8, bus: &mut IecBus) {
+        self.memory.cpu_write(addr, value);
+        if matches!(addr, 0x0000 | 0x0001) {
+            self.refresh_datasette_port_lines();
+        }
+        if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
+            self.io_write(addr, value);
+            if (0xDD00..=0xDDFF).contains(&addr) {
+                self.drive_iec_outputs(bus);
+                self.sync_iec_bus(bus);
+            }
         }
     }
 
@@ -457,6 +521,14 @@ impl C64 {
         self.vic.set_bank((!self.cia2.pa) & 0x03);
     }
 
+    pub fn sync_iec_bus(&mut self, bus: &mut IecBus) {
+        self.cia2.pa_in = (self.cia2.pa_in & 0x3F) | (bus.cpu_port() & 0xC0);
+    }
+
+    fn drive_iec_outputs(&self, bus: &mut IecBus) {
+        bus.write_cpu_port_a(self.cia2.pa);
+    }
+
     fn cpu_port_read(&self) -> u8 {
         let ddr = self.memory.port_ddr();
         let data = self.memory.port_data();
@@ -485,6 +557,8 @@ impl C64 {
 mod tests {
     use super::*;
     use crate::datasette::MOTOR_DELAY_CYCLES;
+    use common_commodore_iec::IecBus;
+    use machine_commodore_1541::{Drive1541, Drive1541Config};
     use std::fs;
     use std::path::PathBuf;
 
@@ -523,6 +597,13 @@ mod tests {
         assert_eq!(machine.cpu().addr, 0xFFFC);
         assert!(machine.cpu().rw);
         assert!(!machine.cpu().sync);
+    }
+
+    fn drive_rom() -> [u8; 0x4000] {
+        let mut rom = [0xEA; 0x4000];
+        rom[0x3FFC] = 0x00;
+        rom[0x3FFD] = 0xC0;
+        rom
     }
 
     #[test]
@@ -986,5 +1067,39 @@ mod tests {
         let vartab = u16::from(machine.memory().ram_read(0x2D))
             | (u16::from(machine.memory().ram_read(0x2E)) << 8);
         assert_eq!(vartab, 0x0809);
+    }
+
+    #[test]
+    fn iec_bus_updates_cia2_input_bits() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut bus = IecBus::new();
+
+        machine.cpu_write_with_iec_bus(0xDD02, 0x3F, &mut bus);
+        machine.cpu_write_with_iec_bus(0xDD00, 0xE7, &mut bus);
+
+        assert_eq!(bus.drive_port() & 0x84, 0x84);
+    }
+
+    #[test]
+    fn c64_and_1541_share_iec_data_and_atn_lines() {
+        let mut c64 = stub_machine(C64Model::PalBreadbin);
+        let mut drive = Drive1541::new(Drive1541Config {
+            dos_rom: &drive_rom(),
+        })
+        .expect("1541 ROM should be valid");
+        let mut bus = IecBus::new();
+
+        drive.write_with_iec_bus(0x1802, 0xFF, &mut bus);
+        drive.write_with_iec_bus(0x1800, 0xF7, &mut bus);
+        c64.sync_iec_bus(&mut bus);
+
+        assert_eq!(c64.cpu_read_with_iec_bus(0xDD00, &mut bus) & 0x80, 0x00);
+
+        c64.cpu_write_with_iec_bus(0xDD02, 0x3F, &mut bus);
+        c64.cpu_write_with_iec_bus(0xDD00, 0xEF, &mut bus);
+        drive.sync_iec_bus(&mut bus);
+
+        assert!(!bus.drive_atn_high());
+        assert_eq!(drive.read_with_iec_bus(0x1800, &bus) & 0x80, 0x80);
     }
 }

@@ -4,6 +4,22 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — C64 and 1541 now share a real IEC line-state model
+
+**Type:** milestone
+**Trigger:** After the standalone 1541 substrate landed, the next honest disk step was to stop treating IEC as future glue and wire the C64 CIA2 side and the 1541 VIA1 side through one shared serial-bus model.
+**Result:** the fresh workspace now has the first line-level C64↔1541 IEC path:
+1. Added `common-commodore-iec`, a new shared crate that mirrors the open-collector IEC DATA/CLOCK/ATN line encoding closely enough for both boards to agree on one bus state.
+2. Extended `machine-commodore-1541` with custom VIA1 port-B reads, IEC-aware board reads/writes, and a `tick_with_iec_bus` path instead of pretending VIA1 port B behaves like a generic 6522 register.
+3. Extended `machine-commodore-c64` with matching IEC-aware CIA2 reads/writes and a `tick_with_iec_bus` path, while keeping the standalone C64 board behaviour unchanged.
+4. Added line-level tests proving that drive-side DATA pulls reach CIA2 input bits and that C64-side ATN changes are visible through the 1541 VIA1 register view.
+**Verification:** locally, this slice passes:
+- `cargo fmt --all`
+- `cargo test -p common-commodore-iec -p mos-via-6522 -p machine-commodore-1541 -p machine-commodore-c64`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace`
+**Consequence:** the disk path is no longer just a host-side `D64` parser plus an isolated 1541 board. The fresh workspace now has the first honest shared C64/1541 serial-bus state, which is the right base for the next drive-side DOS/IEC command work.
+
 ## 2026-04-14 — 1541 path now has a real second-computer substrate
 
 **Type:** milestone

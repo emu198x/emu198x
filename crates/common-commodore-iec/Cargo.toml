@@ -1,0 +1,12 @@
+[package]
+name = "common-commodore-iec"
+description = "Shared IEC serial bus line state for Commodore machines and drives"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

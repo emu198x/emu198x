@@ -7,12 +7,14 @@
 //! - 16KB DOS ROM mapping
 //! - VIA1 and VIA2 register decode at `$1800`/`$1C00`
 
+use common_commodore_iec::IecBus;
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
 use thiserror::Error;
 
 const RAM_SIZE: usize = 0x0800;
 const ROM_SIZE: usize = 0x4000;
+const DEFAULT_DEVICE_NUMBER: u8 = 8;
 
 #[derive(Clone)]
 pub struct Drive1541 {
@@ -21,6 +23,7 @@ pub struct Drive1541 {
     via2: Via6522,
     ram: [u8; RAM_SIZE],
     rom: [u8; ROM_SIZE],
+    device_number: u8,
     cycles: u64,
 }
 
@@ -61,6 +64,7 @@ impl Drive1541 {
             via2: Via6522::new(),
             ram: [0; RAM_SIZE],
             rom,
+            device_number: DEFAULT_DEVICE_NUMBER,
             cycles: 0,
         })
     }
@@ -83,6 +87,11 @@ impl Drive1541 {
     #[must_use]
     pub const fn cycles(&self) -> u64 {
         self.cycles
+    }
+
+    #[must_use]
+    pub const fn device_number(&self) -> u8 {
+        self.device_number
     }
 
     #[must_use]
@@ -121,11 +130,85 @@ impl Drive1541 {
         self.cycles += 1;
         completed
     }
+
+    pub fn tick_with_iec_bus(&mut self, bus: &mut IecBus) -> bool {
+        self.apply_iec_inputs(bus);
+        self.cpu.irq = self.via1.irq || self.via2.irq;
+
+        if self.cpu.rw {
+            self.cpu.data_in = self.read_with_iec_bus(self.cpu.addr, bus);
+        } else {
+            self.write_with_iec_bus(self.cpu.addr, self.cpu.data, bus);
+        }
+
+        let completed = self.cpu.tick();
+        self.apply_iec_inputs(bus);
+        self.via1.tick();
+        self.via2.tick();
+        self.cycles += 1;
+        completed
+    }
+
+    #[must_use]
+    pub fn peek_with_iec_bus(&self, addr: u16, bus: &IecBus) -> u8 {
+        match addr {
+            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
+            0x1800..=0x18FF if (addr & 0x0F) == 0x00 => self.via1_port_b_read(bus),
+            0x1800..=0x18FF => self.via1.peek((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF => self.via2.peek((addr & 0x0F) as u8),
+            0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
+            _ => 0xFF,
+        }
+    }
+
+    pub fn read_with_iec_bus(&mut self, addr: u16, bus: &IecBus) -> u8 {
+        match addr {
+            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
+            0x1800..=0x18FF if (addr & 0x0F) == 0x00 => {
+                let value = self.via1_port_b_read(bus);
+                self.via1.read_port_b_with_value(value)
+            }
+            0x1800..=0x18FF => self.via1.read((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF => self.via2.read((addr & 0x0F) as u8),
+            0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
+            _ => 0xFF,
+        }
+    }
+
+    pub fn write_with_iec_bus(&mut self, addr: u16, value: u8, bus: &mut IecBus) {
+        match addr {
+            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)] = value,
+            0x1800..=0x18FF => {
+                self.via1.write((addr & 0x0F) as u8, value);
+                self.drive_iec_outputs(bus);
+            }
+            0x1C00..=0x1CFF => self.via2.write((addr & 0x0F) as u8, value),
+            0xC000..=0xFFFF => {}
+            _ => {}
+        }
+    }
+
+    pub fn sync_iec_bus(&mut self, bus: &mut IecBus) {
+        self.apply_iec_inputs(bus);
+    }
+
+    fn drive_iec_outputs(&self, bus: &mut IecBus) {
+        bus.write_drive_port_b(self.device_number, self.via1.pb);
+    }
+
+    fn apply_iec_inputs(&mut self, bus: &IecBus) {
+        self.via1.ca1 = bus.drive_atn_high();
+    }
+
+    fn via1_port_b_read(&self, bus: &IecBus) -> u8 {
+        ((self.via1.orb() & 0x1A) | bus.drive_port()) ^ 0x85
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Drive1541, Drive1541Config, Drive1541InitError, ROM_SIZE};
+    use common_commodore_iec::IecBus;
 
     fn make_rom(program: &[(u16, &[u8])], reset_vector: u16) -> [u8; ROM_SIZE] {
         let mut rom = [0xEA; ROM_SIZE];
@@ -223,5 +306,31 @@ mod tests {
         assert_eq!(run_one(&mut machine), 4);
 
         assert_eq!(machine.peek(0x1802), 0xFF);
+    }
+
+    #[test]
+    fn via1_port_b_read_reflects_iec_lines() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut bus = IecBus::new();
+
+        machine.poke(0x1800, 0x1A);
+        machine.sync_iec_bus(&mut bus);
+
+        assert_eq!(machine.peek_with_iec_bus(0x1800, &bus), 0x1A);
+    }
+
+    #[test]
+    fn via1_port_b_output_pulls_cpu_data_line_low() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut bus = IecBus::new();
+
+        machine.write_with_iec_bus(0x1802, 0xFF, &mut bus);
+        machine.write_with_iec_bus(0x1800, 0xF7, &mut bus);
+
+        assert_eq!(bus.cpu_port() & 0x80, 0x00);
     }
 }

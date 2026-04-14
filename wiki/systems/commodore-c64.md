@@ -10,8 +10,9 @@ The C64 is an 8-bit home computer from Commodore, released 1982. Roughly:
 - **Audio**: MOS 6581 (early) / 8580 (late) SID — three voices, ADSR, state-variable filter.
 - **I/O**: 2× MOS 6526 CIA — CIA1 for the keyboard matrix and joystick port 2; CIA2 for the serial (IEC) bus, VIC bank select, user port, and NMI source.
 - **Peripherals**: Datasette is live in the fresh workspace; 1541 is now at
-  the second-computer substrate stage (6502 + 2x VIA + board decode), while
-  REU and cartridges remain unwired.
+  the second-computer substrate + shared IEC line-state stage (6502 + 2x VIA +
+  board decode + first-pass C64/drive serial wiring), while REU and cartridges
+  remain unwired.
 
 See the [C64 per-subsystem source map](../decisions/archives-as-source.md#c64) for port sourcing and the per-chip wiki pages for details of each chip's public contract.
 
@@ -123,8 +124,8 @@ When I/O is visible, `$D000-$DFFF` routes to a specific chip:
 Known gaps from the archive that were deliberately not ported in this first pass:
 
 - **Cartridge support** (CRT files, EXROM/GAME lines, ROML/ROMH overlays, Ultimax mode). The memory decoder's PLA variants are wired in the archive via `cart.exrom` / `cart.game`; ours is the EXROM=1, GAME=1 case only.
-- **1541 disk drive** — the fresh workspace now has the first honest second-computer substrate: `mos-via-6522` plus `machine-commodore-1541` with 6502, 2 KB RAM, 16 KB DOS ROM decode, and VIA1/VIA2 register windows. IEC, on-disk mechanics, and GCR are still pending.
-- **IEC serial bus** — three-wire protocol between C64 and drive. Not needed without a drive.
+- **1541 disk drive** — the fresh workspace now has the first honest second-computer substrate: `mos-via-6522` plus `machine-commodore-1541` with 6502, 2 KB RAM, 16 KB DOS ROM decode, VIA1/VIA2 register windows, and first-pass IEC port-B/CA1 board wiring. DOS command flow, on-disk mechanics, and GCR are still pending.
+- **IEC serial bus** — line-level C64↔1541 state now exists via `common-commodore-iec`, and the C64 CIA2 / 1541 VIA1 register views are covered by cross-board tests. Higher-level IEC protocol handling still needs drive-side ROM/command integration.
 - **Datasette TAP loader-banner validation** — the fresh workspace now has ROM-backed real-title tape regressions for `Thinker` and `Thomas the Tank Engine`. Both titles reach stable observable KERNAL text states under the real datasette flow (`FOUND ...`, `LOADING`, and a following `READY.` line), which is useful loader pressure, but it is not yet proof that either title fully loaded, auto-started, or handed off correctly.
 - **Ghostbusters later-loader validation** — `Ghostbusters (1984)(Activision)` now goes materially beyond the earlier `FOUND MAIN` stall. After correcting the 6510 banking-bit mapping at `$0001`, the fresh workspace reaches a later graphics-heavy loader state with I/O still visible and CIA2 Timer A programmed. This is stronger than a KERNAL text-banner proof, but it is still not yet a full “title has completely loaded and started” claim.
 - **Thing on a Spring interaction validation** — `Thing on a Spring (1985)(Gremlin)` is currently the strongest real-title C64 tape proof in the fresh workspace. It reaches a stable post-load menu with readable score-table and control text (`LEFT - Z`, `RIGHT - X`, `UP - ;`, `DOWN - /`, `FIRE - SPACE`) after consuming the full TAP, and then enters a stable started state when `SPACE` is pressed through the live keyboard path.
