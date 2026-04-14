@@ -4,6 +4,24 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — 6502 verification harnesses land, and the first Tom Harte fix closes a real C64-relevant timing bug
+
+**Type:** milestone
+**Trigger:** `Ghostbusters` on the fresh-workspace C64 datasette path exposed a real gap in confidence: the tape loader reached `FOUND MAIN` / `LOADING`, then stalled without progressing into useful software state. At the same time, branch coverage had slipped, and the 6502 still lacked the same kind of external verification bar the Z80 already had.
+**Result:** the 6502 now has real external verification harnesses, and they have already paid off:
+1. Added `tests/single_step_tests.rs` to `mos-6502`, wired to the local Tom Harte NMOS 6502 corpus under `~/Projects/Emu198x-Unclean/65x02/6502/v1` (or `EMU198X_6502_TOM_HARTE_DIR`).
+2. Added `tests/lorenz_tests.rs` to `mos-6502`, wired to the local Wolfgang Lorenz C64 CPU suite plus a real KERNAL ROM. The harness mirrors the archived C64-style trap setup instead of inventing a new execution environment.
+3. Added fixture discovery helpers in `tests/support/mod.rs` for Tom Harte, Lorenz, and the local C64 KERNAL ROM.
+4. Corrected the Lorenz harness budgeting so long-running ADC/SBC and flow/branch cases stop being misreported as CPU failures when they simply exceed an unrealistically low cycle cap.
+5. Fixed a real documented-core bug in `tick_absolute`: absolute indexed reads without page crossing were incorrectly taking the longer page-cross path. Tom Harte documented-opcode failures for `ORA abs,X` / `ORA abs,Y` dropped to zero immediately after the fix.
+**Verification:** locally, the current state is:
+- Lorenz smoke `ldab`: pass (`14,259,836` cycles)
+- Lorenz `adcb`: pass (`20,888,066` cycles)
+- Lorenz CPU subset: `212 / 222` passed, with the remaining failures concentrated in undocumented-opcode families (`ARR`, `ANC`, `ANE`, `LXA`, `LAS`, `SHX`, `SHY`, `SHS`, plus one remaining long-running `ancb` path)
+- Tom Harte full NMOS 6502 corpus: improved from `2,402,361 / 2,560,000` to `2,485,211 / 2,560,000` passing after the `tick_absolute` fix
+- `Ghostbusters` still does not complete end-to-end, which is now better framed as a remaining CPU/machine-verification problem rather than a blind TAP-loader guess
+**Next dependency:** keep driving Tom Harte and Lorenz until the remaining failure surface is small and named, then circle back to `Ghostbusters` and other real C64 titles with that stronger CPU baseline.
+
 ## 2026-04-14 — C64 datasette software validation now includes Thomas alongside Thinker
 
 **Type:** milestone

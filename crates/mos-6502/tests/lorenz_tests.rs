@@ -1,0 +1,486 @@
+/// Wolfgang Lorenz 6502 test harness.
+///
+/// Runs the CPU-focused subset of Wolfgang Lorenz's C64-based 6502 suite
+/// against the fresh-workspace `mos-6502` core.
+///
+/// Run one smoke case:
+/// `cargo test -p mos-6502 --test lorenz_tests run_lorenz_6502_smoke_ldab -- --ignored --nocapture`
+///
+/// Run one named case:
+/// `EMU198X_6502_LORENZ_CASE=arrb cargo test -p mos-6502 --test lorenz_tests run_lorenz_6502_case -- --ignored --nocapture`
+///
+/// Run the full CPU subset:
+/// `cargo test -p mos-6502 --test lorenz_tests run_lorenz_6502_cpu_suite -- --ignored --nocapture`
+mod support;
+
+use std::fmt::Write as _;
+use std::fs;
+
+use mos_6502::M6502;
+use mos_6502::registers::FLAG_I;
+use support::{find_c64_kernal_rom, find_lorenz_6502_dir};
+
+const KERNAL_BASE: usize = 0xE000;
+const TRAP_PRINT_CHAR: u16 = 0xFFD2;
+const TRAP_SCAN_KEYBOARD: u16 = 0xFFE4;
+const TRAP_FAIL_1: u16 = 0x8000;
+const TRAP_FAIL_2: u16 = 0xA474;
+const TRAP_SUCCESS: u16 = 0xE16F;
+const DEFAULT_SAFETY_CYCLE_BUDGET: u64 = 20_000_000;
+const FLOW_BRANCH_SAFETY_CYCLE_BUDGET: u64 = 50_000_000;
+const ADC_SBC_SAFETY_CYCLE_BUDGET: u64 = 1_500_000_000;
+const CASE_ENV: &str = "EMU198X_6502_LORENZ_CASE";
+const LIMIT_ENV: &str = "EMU198X_6502_LORENZ_LIMIT";
+const CYCLE_BUDGET_ENV: &str = "EMU198X_6502_LORENZ_CYCLE_BUDGET";
+
+struct LorenzHarness {
+    cpu: M6502,
+    mem: [u8; 0x10000],
+    output: Vec<u8>,
+    last_opcode_addr: u16,
+}
+
+enum StepOutcome {
+    Continue,
+    Success,
+    Failure(String),
+}
+
+impl LorenzHarness {
+    fn new(program_bytes: &[u8], kernal_rom: &[u8]) -> Result<Self, String> {
+        if program_bytes.len() < 2 {
+            return Err("Lorenz test file is too short to contain a load address".to_owned());
+        }
+        if kernal_rom.len() < 0x2000 {
+            return Err(format!(
+                "expected at least 8192 bytes of C64 KERNAL ROM, got {}",
+                kernal_rom.len()
+            ));
+        }
+
+        let mut mem = [0u8; 0x10000];
+        let load_addr = u16::from_le_bytes([program_bytes[0], program_bytes[1]]) as usize;
+        let contents = &program_bytes[2..];
+        let end = load_addr
+            .checked_add(contents.len())
+            .ok_or_else(|| "Lorenz test file load address overflowed memory".to_owned())?;
+        if end > mem.len() {
+            return Err(format!(
+                "Lorenz test file would overrun memory: ${load_addr:04X}..${:04X}",
+                end - 1
+            ));
+        }
+
+        mem[load_addr..end].copy_from_slice(contents);
+        mem[KERNAL_BASE..KERNAL_BASE + 0x2000].copy_from_slice(&kernal_rom[..0x2000]);
+
+        // Match the setup from the long-standing Lorenz harness used in other
+        // projects: default vectors, IRQ stub, and self-loop at the KERNAL
+        // load routine to signal success.
+        mem[0xD011] = 0xFF;
+        mem[0x0316] = 0x66;
+        mem[0x0317] = 0xFE;
+        mem[0x0314] = 0x31;
+        mem[0x0315] = 0xEA;
+        mem[0x0002] = 0x00;
+        mem[0xA002] = 0x00;
+        mem[0xA003] = 0x80;
+        mem[0x01FE] = 0xFF;
+        mem[0x01FF] = 0x7F;
+        mem[0xFFFE] = 0x48;
+        mem[0xFFFF] = 0xFF;
+
+        let irq_handler: [u8; 19] = [
+            0x48, 0x8A, 0x48, 0x98, 0x48, 0xBA, 0xBD, 0x04, 0x01, 0x29, 0x10, 0xF0, 0x03, 0x6C,
+            0x16, 0x03, 0x6C, 0x14, 0x03,
+        ];
+        mem[0xFF48..0xFF48 + irq_handler.len()].copy_from_slice(&irq_handler);
+
+        mem[TRAP_PRINT_CHAR as usize] = 0x60;
+        mem[TRAP_SCAN_KEYBOARD as usize] = 0x60;
+        mem[TRAP_FAIL_1 as usize] = 0x60;
+        mem[TRAP_FAIL_2 as usize] = 0x60;
+        mem[TRAP_SUCCESS as usize] = 0x4C;
+        mem[TRAP_SUCCESS as usize + 1] = 0x6F;
+        mem[TRAP_SUCCESS as usize + 2] = 0xE1;
+
+        mem[0xFFFC] = 0x01;
+        mem[0xFFFD] = 0x08;
+
+        let mut cpu = M6502::new();
+        cpu.reset();
+
+        let mut harness = Self {
+            cpu,
+            mem,
+            output: Vec::new(),
+            last_opcode_addr: 0x0000,
+        };
+        harness.complete_reset();
+        harness.cpu.regs.a = 0x00;
+        harness.cpu.regs.x = 0x00;
+        harness.cpu.regs.y = 0x00;
+        harness.cpu.regs.sp = 0xFD;
+        harness.cpu.regs.p = FLAG_I;
+        harness.cpu.total_cycles = 0;
+
+        Ok(harness)
+    }
+
+    fn complete_reset(&mut self) {
+        while !(self.cpu.instruction_complete() && self.cpu.sync && self.cpu.addr == 0x0801) {
+            self.step_bus_only();
+        }
+    }
+
+    fn run_until_terminal(&mut self, safety_cycle_budget: u64) -> Result<u64, String> {
+        while self.cpu.total_cycles < safety_cycle_budget {
+            match self.step() {
+                StepOutcome::Continue => {}
+                StepOutcome::Success => return Ok(self.cpu.total_cycles),
+                StepOutcome::Failure(message) => return Err(message),
+            }
+        }
+
+        Err(format!(
+            "Lorenz test exceeded safety budget of {safety_cycle_budget} cycles; last opcode at ${:04X}; output: {}",
+            self.last_opcode_addr,
+            self.petscii_output()
+        ))
+    }
+
+    fn step(&mut self) -> StepOutcome {
+        if self.cpu.sync && self.cpu.rw {
+            self.last_opcode_addr = self.cpu.addr;
+            match self.cpu.addr {
+                TRAP_PRINT_CHAR => {
+                    self.mem[0x030C] = 0x00;
+                    self.output.push(self.cpu.regs.a);
+                }
+                TRAP_SCAN_KEYBOARD => {
+                    self.cpu.regs.a = 0x03;
+                }
+                TRAP_FAIL_1 | TRAP_FAIL_2 => {
+                    return StepOutcome::Failure(format!(
+                        "Lorenz test reported failure at ${:04X}: {}",
+                        self.cpu.addr,
+                        self.petscii_output()
+                    ));
+                }
+                0x0000 => {
+                    return StepOutcome::Failure("execution hit $0000".to_owned());
+                }
+                TRAP_SUCCESS => return StepOutcome::Success,
+                _ => {}
+            }
+        }
+
+        self.step_bus_only();
+        if self.cpu.halted {
+            return StepOutcome::Failure(format!(
+                "processor jammed unexpectedly at ${:04X}; output: {}",
+                self.last_opcode_addr,
+                self.petscii_output()
+            ));
+        }
+
+        StepOutcome::Continue
+    }
+
+    fn step_bus_only(&mut self) {
+        if self.cpu.rw {
+            self.cpu.data_in = self.mem[self.cpu.addr as usize];
+        } else {
+            self.mem[self.cpu.addr as usize] = self.cpu.data;
+        }
+        self.cpu.tick();
+    }
+
+    fn petscii_output(&self) -> String {
+        let mut output = String::new();
+        for &byte in &self.output {
+            match byte {
+                0x0D => output.push('\n'),
+                0x20..=0x5A => output.push(byte as char),
+                0x5B => output.push('['),
+                0x5C => output.push('\\'),
+                0x5D => output.push(']'),
+                0x5E => output.push('^'),
+                0x5F => output.push('_'),
+                0x61..=0x7A => output.push((byte - 0x20) as char),
+                _ => {
+                    let _ = write!(output, "<{byte:02X}>");
+                }
+            }
+        }
+        output
+    }
+}
+
+fn load_lorenz_program(name: &str) -> Result<Vec<u8>, String> {
+    let path = find_lorenz_6502_dir()?.join(name);
+    fs::read(&path).map_err(|error| format!("failed to read {}: {error}", path.display()))
+}
+
+fn load_kernal_rom() -> Result<Vec<u8>, String> {
+    let path = find_c64_kernal_rom()?;
+    fs::read(&path).map_err(|error| format!("failed to read {}: {error}", path.display()))
+}
+
+fn cycle_budget_from_env() -> Option<u64> {
+    match std::env::var(CYCLE_BUDGET_ENV) {
+        Ok(value) if !value.trim().is_empty() => {
+            Some(value.trim().parse().unwrap_or_else(|error| {
+                panic!("failed to parse {CYCLE_BUDGET_ENV}='{value}': {error}")
+            }))
+        }
+        _ => None,
+    }
+}
+
+fn safety_cycle_budget(name: &str) -> u64 {
+    match cycle_budget_from_env() {
+        Some(budget) => budget,
+        None if name.starts_with("adc") || name.starts_with("sbc") => ADC_SBC_SAFETY_CYCLE_BUDGET,
+        None if matches!(
+            name,
+            "brkn"
+                | "rtin"
+                | "jsrw"
+                | "rtsn"
+                | "jmpw"
+                | "jmpi"
+                | "beqr"
+                | "bner"
+                | "bmir"
+                | "bplr"
+                | "bcsr"
+                | "bccr"
+                | "bvsr"
+                | "bvcr"
+        ) =>
+        {
+            FLOW_BRANCH_SAFETY_CYCLE_BUDGET
+        }
+        None => DEFAULT_SAFETY_CYCLE_BUDGET,
+    }
+}
+
+fn run_case(name: &str, kernal_rom: &[u8]) -> Result<u64, String> {
+    let program = load_lorenz_program(name)?;
+    let mut harness = LorenzHarness::new(&program, kernal_rom)?;
+    harness.run_until_terminal(safety_cycle_budget(name))
+}
+
+fn cpu_test_names() -> Vec<String> {
+    let mut tests = Vec::new();
+
+    tests.push(" start".to_owned());
+    extend(
+        &mut tests,
+        "lda",
+        &["b", "z", "zx", "a", "ax", "ay", "ix", "iy"],
+    );
+    extend(&mut tests, "sta", &["z", "zx", "a", "ax", "ay", "ix", "iy"]);
+    extend(&mut tests, "ldx", &["b", "z", "zy", "a", "ay"]);
+    extend(&mut tests, "stx", &["z", "zy", "a"]);
+    extend(&mut tests, "ldy", &["b", "z", "zx", "a", "ax"]);
+    extend(&mut tests, "sty", &["z", "zx", "a"]);
+    extend(
+        &mut tests,
+        "",
+        &["taxn", "tayn", "txan", "tyan", "tsxn", "txsn"],
+    );
+    extend(&mut tests, "", &["phan", "plan", "phpn", "plpn"]);
+    extend(
+        &mut tests,
+        "",
+        &[
+            "inxn", "inyn", "dexn", "deyn", "incz", "inczx", "inca", "incax", "decz", "deczx",
+            "deca", "decax",
+        ],
+    );
+    extend(&mut tests, "asl", &["n", "z", "zx", "a", "ax"]);
+    extend(&mut tests, "lsr", &["n", "z", "zx", "a", "ax"]);
+    extend(&mut tests, "rol", &["n", "z", "zx", "a", "ax"]);
+    extend(&mut tests, "ror", &["n", "z", "zx", "a", "ax"]);
+    extend(
+        &mut tests,
+        "and",
+        &["b", "z", "zx", "a", "ax", "ay", "ix", "iy"],
+    );
+    extend(
+        &mut tests,
+        "ora",
+        &["b", "z", "zx", "a", "ax", "ay", "ix", "iy"],
+    );
+    extend(
+        &mut tests,
+        "eor",
+        &["b", "z", "zx", "a", "ax", "ay", "ix", "iy"],
+    );
+    extend(
+        &mut tests,
+        "",
+        &["clcn", "secn", "cldn", "sedn", "clin", "sein", "clvn"],
+    );
+    extend(
+        &mut tests,
+        "adc",
+        &["b", "z", "zx", "a", "ax", "ay", "ix", "iy"],
+    );
+    extend(
+        &mut tests,
+        "sbc",
+        &["b", "z", "zx", "a", "ax", "ay", "ix", "iy"],
+    );
+    extend(
+        &mut tests,
+        "cmp",
+        &["b", "z", "zx", "a", "ax", "ay", "ix", "iy"],
+    );
+    extend(&mut tests, "cpx", &["b", "z", "a"]);
+    extend(&mut tests, "cpy", &["b", "z", "a"]);
+    extend(&mut tests, "bit", &["z", "a"]);
+    extend(
+        &mut tests,
+        "",
+        &["brkn", "rtin", "jsrw", "rtsn", "jmpw", "jmpi"],
+    );
+    extend(
+        &mut tests,
+        "",
+        &[
+            "beqr", "bner", "bmir", "bplr", "bcsr", "bccr", "bvsr", "bvcr",
+        ],
+    );
+    extend(&mut tests, "nop", &["n", "b", "z", "zx", "a", "ax"]);
+    extend(&mut tests, "aso", &["z", "zx", "a", "ax", "ay", "ix", "iy"]);
+    extend(&mut tests, "rla", &["z", "zx", "a", "ax", "ay", "ix", "iy"]);
+    extend(&mut tests, "lse", &["z", "zx", "a", "ax", "ay", "ix", "iy"]);
+    extend(&mut tests, "rra", &["z", "zx", "a", "ax", "ay", "ix", "iy"]);
+    extend(&mut tests, "dcm", &["z", "zx", "a", "ax", "ay", "ix", "iy"]);
+    extend(&mut tests, "ins", &["z", "zx", "a", "ax", "ay", "ix", "iy"]);
+    extend(&mut tests, "lax", &["z", "zy", "a", "ay", "ix", "iy"]);
+    extend(&mut tests, "axs", &["z", "zy", "a", "ix"]);
+    extend(
+        &mut tests,
+        "",
+        &[
+            "alrb", "arrb", "sbxb", "shxay", "shyax", "shsay", "lxab", "aneb", "ancb", "lasay",
+            "sbcb(eb)",
+        ],
+    );
+    extend(&mut tests, "sha", &["ay", "iy"]);
+
+    tests
+}
+
+fn extend(target: &mut Vec<String>, stem: &str, suffixes: &[&str]) {
+    target.extend(suffixes.iter().map(|suffix| format!("{stem}{suffix}")));
+}
+
+fn selected_case_from_env() -> Option<String> {
+    match std::env::var(CASE_ENV) {
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        _ => None,
+    }
+}
+
+fn selected_limit_from_env() -> Option<usize> {
+    match std::env::var(LIMIT_ENV) {
+        Ok(value) if !value.trim().is_empty() => Some(
+            value
+                .parse()
+                .unwrap_or_else(|error| panic!("failed to parse {LIMIT_ENV}='{value}': {error}")),
+        ),
+        _ => None,
+    }
+}
+
+#[test]
+fn lorenz_cpu_test_inventory_contains_key_cases() {
+    let names = cpu_test_names();
+    assert!(names.iter().any(|name| name == "ldab"));
+    assert!(names.iter().any(|name| name == "arrb"));
+    assert!(names.iter().any(|name| name == "jmpi"));
+    assert!(names.iter().any(|name| name == "sbcb(eb)"));
+    assert!(!names.iter().any(|name| name == "cpuport"));
+    assert!(!names.iter().any(|name| name == "cputiming"));
+}
+
+#[test]
+#[ignore = "requires local Wolfgang Lorenz 6502 suite and C64 KERNAL ROM"]
+fn run_lorenz_6502_smoke_ldab() {
+    let kernal = load_kernal_rom().expect("local C64 KERNAL ROM should be available");
+    let cycles = run_case("ldab", &kernal).expect("ldab should complete successfully");
+    println!("Lorenz smoke ldab passed in {cycles} cycles");
+}
+
+#[test]
+#[ignore = "requires local Wolfgang Lorenz 6502 suite and C64 KERNAL ROM"]
+fn run_lorenz_6502_case() {
+    let Some(case_name) = selected_case_from_env() else {
+        panic!("set {CASE_ENV} to one Lorenz case name, for example 'arrb' or 'jmpi'");
+    };
+    let kernal = load_kernal_rom().expect("local C64 KERNAL ROM should be available");
+    let cycles = run_case(&case_name, &kernal)
+        .unwrap_or_else(|message| panic!("Lorenz case '{case_name}' failed: {message}"));
+    println!("Lorenz case {case_name} passed in {cycles} cycles");
+}
+
+#[test]
+#[ignore = "requires local Wolfgang Lorenz 6502 suite and runs for minutes"]
+fn run_lorenz_6502_cpu_suite() {
+    let kernal = load_kernal_rom().expect("local C64 KERNAL ROM should be available");
+    let mut tests = cpu_test_names();
+    if let Some(limit) = selected_limit_from_env() {
+        tests.truncate(limit);
+    }
+
+    let total = tests.len();
+    let mut pass = 0usize;
+    let mut fail = 0usize;
+    let mut first_failures = Vec::new();
+
+    println!("=== Wolfgang Lorenz 6502 CPU Tests ===");
+    println!(
+        "Suite root: {}",
+        find_lorenz_6502_dir()
+            .expect("suite should exist")
+            .display()
+    );
+    println!(
+        "KERNAL ROM: {}",
+        find_c64_kernal_rom_path_for_report().display()
+    );
+    println!("Running {total} cases");
+
+    for name in tests {
+        match run_case(&name, &kernal) {
+            Ok(cycles) => {
+                pass += 1;
+                if pass <= 5 {
+                    println!("PASS {name} ({cycles} cycles)");
+                }
+            }
+            Err(message) => {
+                fail += 1;
+                if first_failures.len() < 8 {
+                    first_failures.push(format!("FAIL {name}: {message}"));
+                }
+            }
+        }
+    }
+
+    println!("Lorenz 6502 CPU subset: {pass}/{total} passed, {fail} failed");
+    for failure in &first_failures {
+        println!("{failure}");
+    }
+
+    assert_eq!(fail, 0, "Lorenz 6502 CPU subset reported {fail} failures");
+}
+
+fn find_c64_kernal_rom_path_for_report() -> std::path::PathBuf {
+    find_c64_kernal_rom().expect("local C64 KERNAL ROM should be available")
+}

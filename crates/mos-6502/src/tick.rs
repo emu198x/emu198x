@@ -206,6 +206,7 @@ impl M6502 {
 
     fn tick_absolute(&mut self, op: Operation, index: u8) -> bool {
         let category = op.category();
+        let is_read = matches!(category, OpCategory::Read | OpCategory::Implied);
         let indexed = index != 0;
 
         match self.cs.cycle {
@@ -226,9 +227,13 @@ impl M6502 {
                     self.cs.addr = base.wrapping_add(index as u16);
                     self.cs.page_crossed = (base & 0xFF00) != (self.cs.addr & 0xFF00);
                     self.cs.cycle = 3;
-                    let wrong = (self.cs.addr & 0x00FF)
-                        | (self.cs.addr.wrapping_sub(index as u16) & 0xFF00);
-                    self.schedule_read(wrong);
+                    if is_read && !self.cs.page_crossed {
+                        self.schedule_read(self.cs.addr);
+                    } else {
+                        let wrong = (self.cs.addr & 0x00FF)
+                            | (self.cs.addr.wrapping_sub(index as u16) & 0xFF00);
+                        self.schedule_read(wrong);
+                    }
                 } else {
                     self.cs.cycle = 4;
                     self.schedule_zp_abs_cycle3(category, op);
@@ -236,6 +241,10 @@ impl M6502 {
                 false
             }
             3 => {
+                if is_read && !self.cs.page_crossed {
+                    self.apply_read(op, self.data_in);
+                    return true;
+                }
                 self.cs.cycle = 4;
                 self.schedule_zp_abs_cycle3(category, op);
                 false
