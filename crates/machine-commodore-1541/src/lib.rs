@@ -66,6 +66,7 @@ pub struct Drive1541 {
     sync_active: bool,
     byte_ready_level: bool,
     byte_ready_edge: bool,
+    byte_ready_delay_ref_cycles: u8,
     sync_event_count: u64,
     byte_ready_event_count: u64,
     rotation_accum: u64,
@@ -96,6 +97,7 @@ pub struct Drive1541Snapshot {
     sync_active: bool,
     byte_ready_level: bool,
     byte_ready_edge: bool,
+    byte_ready_delay_ref_cycles: u8,
     sync_event_count: u64,
     byte_ready_event_count: u64,
     rotation_accum: u64,
@@ -218,6 +220,7 @@ impl Drive1541 {
             sync_active: false,
             byte_ready_level: false,
             byte_ready_edge: false,
+            byte_ready_delay_ref_cycles: 0,
             sync_event_count: 0,
             byte_ready_event_count: 0,
             rotation_accum: 0,
@@ -368,6 +371,7 @@ impl Drive1541 {
             sync_active: self.sync_active,
             byte_ready_level: self.byte_ready_level,
             byte_ready_edge: self.byte_ready_edge,
+            byte_ready_delay_ref_cycles: self.byte_ready_delay_ref_cycles,
             sync_event_count: self.sync_event_count,
             byte_ready_event_count: self.byte_ready_event_count,
             rotation_accum: self.rotation_accum,
@@ -418,6 +422,7 @@ impl Drive1541 {
         self.sync_active = snapshot.sync_active;
         self.byte_ready_level = snapshot.byte_ready_level;
         self.byte_ready_edge = snapshot.byte_ready_edge;
+        self.byte_ready_delay_ref_cycles = snapshot.byte_ready_delay_ref_cycles;
         self.sync_event_count = snapshot.sync_event_count;
         self.byte_ready_event_count = snapshot.byte_ready_event_count;
         self.rotation_accum = snapshot.rotation_accum;
@@ -476,6 +481,7 @@ impl Drive1541 {
             sync_active: snapshot.sync_active,
             byte_ready_level: snapshot.byte_ready_level,
             byte_ready_edge: snapshot.byte_ready_edge,
+            byte_ready_delay_ref_cycles: snapshot.byte_ready_delay_ref_cycles,
             sync_event_count: snapshot.sync_event_count,
             byte_ready_event_count: snapshot.byte_ready_event_count,
             rotation_accum: snapshot.rotation_accum,
@@ -822,16 +828,21 @@ impl Drive1541 {
                 self.clear_byte_ready_level();
             }
             0x02 => self.refresh_drive_mechanics(),
+            0x0C => {
+                if !self.is_read_mode() || !self.byte_ready_active() {
+                    self.clear_byte_ready();
+                }
+            }
             _ => {}
         }
     }
 
     fn byte_ready_not_asserted(&self) -> bool {
-        !(self.byte_ready_level && self.byte_ready_active())
+        !(self.byte_ready_active() && (self.byte_ready_level || self.byte_ready_edge))
     }
 
     fn byte_ready_so_not_asserted(&self) -> bool {
-        !(self.byte_ready_active() && (self.byte_ready_level || self.byte_ready_edge))
+        self.byte_ready_not_asserted()
     }
 
     fn sync_not_detected(&self) -> bool {
@@ -847,6 +858,7 @@ impl Drive1541 {
     fn clear_byte_ready(&mut self) {
         self.byte_ready_level = false;
         self.byte_ready_edge = false;
+        self.byte_ready_delay_ref_cycles = 0;
     }
 
     fn clear_byte_ready_level(&mut self) {
@@ -862,6 +874,7 @@ impl Drive1541 {
         self.sync_active = false;
         self.byte_ready_level = false;
         self.byte_ready_edge = false;
+        self.byte_ready_delay_ref_cycles = 0;
         self.sync_event_count = 0;
         self.byte_ready_event_count = 0;
         self.rotation_accum = 0;
@@ -894,7 +907,6 @@ impl Drive1541 {
         let target = BUS_READ_DELAY_REF_CYCLES as u8;
         if self.rotation_ref_phase < target {
             self.advance_rotation_ref_cycles(u64::from(target - self.rotation_ref_phase));
-            self.rotation_ref_phase = target;
         }
     }
 
@@ -911,19 +923,70 @@ impl Drive1541 {
             return;
         }
 
-        self.rotation_accum = self.rotation_accum.saturating_add(
-            READ_BITS_PER_SECOND_BY_ZONE[usize::from(self.density_code)] * ref_cycles,
-        );
+        let bits_per_second = READ_BITS_PER_SECOND_BY_ZONE[usize::from(self.density_code)];
         let ref_hz = DRIVE1541_CPU_HZ * ROTATION_REF_CYCLES_PER_CPU_CYCLE;
-        let bits_to_advance = self.rotation_accum / ref_hz;
-        self.rotation_accum %= ref_hz;
+        let mut remaining = ref_cycles;
 
-        for _ in 0..bits_to_advance {
-            self.rotate_one_bit();
+        while remaining > 0 {
+            let to_next_bit = self.ref_cycles_until_next_bit(bits_per_second, ref_hz);
+            let to_byte_ready = if self.byte_ready_delay_ref_cycles == 0 {
+                u64::MAX
+            } else {
+                u64::from(self.byte_ready_delay_ref_cycles)
+            };
+            let step = remaining.min(to_next_bit.min(to_byte_ready));
+            debug_assert!(step > 0);
+
+            self.rotation_accum = self
+                .rotation_accum
+                .saturating_add(bits_per_second.saturating_mul(step));
+            self.rotation_ref_phase = self
+                .rotation_ref_phase
+                .saturating_add(u8::try_from(step).unwrap_or(u8::MAX));
+            self.advance_byte_ready_delay_ref_cycles(step);
+            remaining -= step;
+
+            if self.rotation_accum >= ref_hz {
+                self.rotation_accum -= ref_hz;
+                let edge_phase = self.rotation_ref_phase.saturating_sub(1);
+                self.rotate_one_bit(edge_phase);
+            }
         }
     }
 
-    fn rotate_one_bit(&mut self) {
+    fn ref_cycles_until_next_bit(&self, bits_per_second: u64, ref_hz: u64) -> u64 {
+        let remaining = ref_hz.saturating_sub(self.rotation_accum);
+        remaining.div_ceil(bits_per_second).max(1)
+    }
+
+    fn advance_byte_ready_delay_ref_cycles(&mut self, ref_cycles: u64) {
+        if self.byte_ready_delay_ref_cycles == 0 {
+            return;
+        }
+
+        if ref_cycles >= u64::from(self.byte_ready_delay_ref_cycles) {
+            self.byte_ready_delay_ref_cycles = 0;
+            self.byte_ready_level = true;
+            self.byte_ready_edge = true;
+            self.byte_ready_event_count += 1;
+        } else {
+            self.byte_ready_delay_ref_cycles -= ref_cycles as u8;
+        }
+    }
+
+    fn schedule_byte_ready(&mut self, edge_phase: u8) {
+        if !self.byte_ready_active() {
+            return;
+        }
+
+        let mut delay = 16 - (edge_phase & 0x0F);
+        if delay < 10 {
+            delay += 16;
+        }
+        self.byte_ready_delay_ref_cycles = delay;
+    }
+
+    fn rotate_one_bit(&mut self, edge_phase: u8) {
         let total_bits = self.current_track_bit_len();
         if total_bits == 0 {
             self.last_read_window = (self.last_read_window << 1) & 0x03FF;
@@ -946,6 +1009,7 @@ impl Drive1541 {
             }
             self.sync_active = true;
             self.bit_counter = 0;
+            self.clear_byte_ready();
             return;
         }
         self.sync_active = false;
@@ -954,11 +1018,7 @@ impl Drive1541 {
         if self.bit_counter == 8 {
             self.bit_counter = 0;
             self.gcr_read = self.last_read_window as u8;
-            if self.byte_ready_active() {
-                self.byte_ready_level = true;
-                self.byte_ready_edge = true;
-                self.byte_ready_event_count += 1;
-            }
+            self.schedule_byte_ready(edge_phase);
         }
     }
 
@@ -982,11 +1042,11 @@ impl Drive1541 {
     }
 
     fn is_read_mode(&self) -> bool {
-        self.via2.cb2_out
+        self.via2.peek(0x0C) & 0x20 != 0
     }
 
     fn byte_ready_active(&self) -> bool {
-        self.via2.ca2_out
+        self.via2.peek(0x0C) & 0x02 != 0
     }
 }
 
@@ -1145,7 +1205,10 @@ const fn d64_file_type_name(kind: D64FileType) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drive1541, Drive1541Config, Drive1541InitError, ROM_SIZE, track_slot_index};
+    use super::{
+        Drive1541, Drive1541Config, Drive1541InitError, Drive1541TrackData, ROM_SIZE,
+        TRACK_SLOT_COUNT, track_slot_index,
+    };
     use common_commodore_iec::IecBus;
 
     const D64_STANDARD_SIZE: usize = 174_848;
@@ -1402,6 +1465,24 @@ mod tests {
     }
 
     #[test]
+    fn via2_pcr_controls_read_mode_and_byte_ready_enable() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        machine.poke(0x1C0C, 0x22);
+        assert!(machine.is_read_mode());
+        assert!(machine.byte_ready_active());
+
+        machine.poke(0x1C0C, 0xEC);
+        assert!(machine.is_read_mode());
+        assert!(
+            !machine.byte_ready_active(),
+            "PCR bit 1 disables byte-ready even when CA2 output state is high"
+        );
+    }
+
+    #[test]
     fn drive_can_mount_d64_and_report_directory() {
         let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
         let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
@@ -1509,6 +1590,47 @@ mod tests {
             !machine.byte_ready(),
             "reading VIA2 Port A should clear byte ready"
         );
+    }
+
+    #[test]
+    fn byte_ready_asserts_only_after_scheduled_delay() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        machine.byte_ready_delay_ref_cycles = 11;
+        machine.advance_byte_ready_delay_ref_cycles(10);
+        assert!(!machine.byte_ready_level);
+        assert!(!machine.byte_ready_edge);
+        assert_eq!(machine.byte_ready_event_count, 0);
+
+        machine.advance_byte_ready_delay_ref_cycles(1);
+        assert!(machine.byte_ready_level);
+        assert!(machine.byte_ready_edge);
+        assert_eq!(machine.byte_ready_event_count, 1);
+    }
+
+    #[test]
+    fn sync_clears_pending_and_latched_byte_ready() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        machine.track_data = Some(Drive1541TrackData {
+            tracks: vec![vec![0xFF]; TRACK_SLOT_COUNT],
+        });
+        machine.head_position = 2;
+        machine.last_read_window = 0x01FF;
+        machine.byte_ready_level = true;
+        machine.byte_ready_edge = true;
+        machine.byte_ready_delay_ref_cycles = 7;
+
+        machine.rotate_one_bit(0);
+
+        assert!(machine.sync_active);
+        assert!(!machine.byte_ready_level);
+        assert!(!machine.byte_ready_edge);
+        assert_eq!(machine.byte_ready_delay_ref_cycles, 0);
     }
 
     #[test]

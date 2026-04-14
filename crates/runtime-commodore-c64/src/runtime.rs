@@ -157,6 +157,8 @@ pub struct C64Runtime {
     drive8_cycle_accum: u64,
     rgba_framebuffer: Vec<u8>,
     trace_vic_colour_writes: bool,
+    trace_drive_rom_window: Option<(u16, u16)>,
+    last_drive_trace_state: Option<DriveRomTraceState>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -176,6 +178,33 @@ struct C64BootStatus {
     reason: String,
     offset: Option<u16>,
     row: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DriveRomTraceState {
+    pc: u16,
+    opcode: u8,
+    via1_ifr: u8,
+    via1_ier: u8,
+    via1_pcr: u8,
+    via1_pb: u8,
+    via2_ifr: u8,
+    via2_ier: u8,
+    via2_pcr: u8,
+    via2_pb: u8,
+    via2_pa: u8,
+    zp_001c: u8,
+    zp_001d: u8,
+    zp_006f: u8,
+    zp_0070: u8,
+    zp_0072: u8,
+    zp_007f: u8,
+    zp_0082: u8,
+    zp_0086: u8,
+    mem_022b: u8,
+    mem_025b: u8,
+    mem_026c: u8,
+    mem_026d: u8,
 }
 
 /// C64-family query provider layered above the shared shell surface.
@@ -238,6 +267,8 @@ impl C64Runtime {
             drive8_cycle_accum: 0,
             rgba_framebuffer,
             trace_vic_colour_writes: false,
+            trace_drive_rom_window: None,
+            last_drive_trace_state: None,
         })
     }
 
@@ -357,6 +388,41 @@ impl C64Runtime {
     /// Enables or disables one targeted VIC colour-write trace stream.
     pub fn set_trace_vic_colour_writes(&mut self, enabled: bool) {
         self.trace_vic_colour_writes = enabled;
+    }
+
+    /// Enables or disables one targeted 1541 DOS-ROM trace window.
+    pub fn set_trace_drive_rom_window(&mut self, window: Option<(u16, u16)>) {
+        self.trace_drive_rom_window = window;
+        self.last_drive_trace_state = None;
+    }
+
+    fn drive_trace_state(&self, drive: &Drive1541) -> DriveRomTraceState {
+        let cpu = drive.cpu();
+        DriveRomTraceState {
+            pc: cpu.regs.pc,
+            opcode: drive.peek_with_iec_bus(cpu.regs.pc, &self.iec_bus),
+            via1_ifr: drive.via1().peek(0x0D),
+            via1_ier: drive.via1().peek(0x0E),
+            via1_pcr: drive.via1().peek(0x0C),
+            via1_pb: drive.via1().pb,
+            via2_ifr: drive.via2().peek(0x0D),
+            via2_ier: drive.via2().peek(0x0E),
+            via2_pcr: drive.via2().peek(0x0C),
+            via2_pb: drive.via2().pb,
+            via2_pa: drive.via2().pa,
+            zp_001c: drive.peek_with_iec_bus(0x001C, &self.iec_bus),
+            zp_001d: drive.peek_with_iec_bus(0x001D, &self.iec_bus),
+            zp_006f: drive.peek_with_iec_bus(0x006F, &self.iec_bus),
+            zp_0070: drive.peek_with_iec_bus(0x0070, &self.iec_bus),
+            zp_0072: drive.peek_with_iec_bus(0x0072, &self.iec_bus),
+            zp_007f: drive.peek_with_iec_bus(0x007F, &self.iec_bus),
+            zp_0082: drive.peek_with_iec_bus(0x0082, &self.iec_bus),
+            zp_0086: drive.peek_with_iec_bus(0x0086, &self.iec_bus),
+            mem_022b: drive.peek_with_iec_bus(0x022B, &self.iec_bus),
+            mem_025b: drive.peek_with_iec_bus(0x025B, &self.iec_bus),
+            mem_026c: drive.peek_with_iec_bus(0x026C, &self.iec_bus),
+            mem_026d: drive.peek_with_iec_bus(0x026D, &self.iec_bus),
+        }
     }
 }
 
@@ -483,6 +549,53 @@ impl MachineCore for C64Runtime {
                         payload: &payload,
                     })?;
                     prev_background = background;
+                }
+            }
+
+            if let (Some((start, end)), Some(drive8)) =
+                (self.trace_drive_rom_window, self.drive8.as_ref())
+            {
+                let pc = drive8.cpu().regs.pc;
+                if drive8.cpu().sync && (start..=end).contains(&pc) {
+                    let state = self.drive_trace_state(drive8);
+                    if self.last_drive_trace_state.as_ref() != Some(&state) {
+                        let payload = serde_json::to_vec(&json!({
+                            "pc": state.pc,
+                            "opcode": state.opcode,
+                            "via1_ifr": state.via1_ifr,
+                            "via1_ier": state.via1_ier,
+                            "via1_pcr": state.via1_pcr,
+                            "via1_pb": state.via1_pb,
+                            "via2_ifr": state.via2_ifr,
+                            "via2_ier": state.via2_ier,
+                            "via2_pcr": state.via2_pcr,
+                            "via2_pb": state.via2_pb,
+                            "via2_pa": state.via2_pa,
+                            "zp_001c": state.zp_001c,
+                            "zp_001d": state.zp_001d,
+                            "zp_006f": state.zp_006f,
+                            "zp_0070": state.zp_0070,
+                            "zp_0072": state.zp_0072,
+                            "zp_007f": state.zp_007f,
+                            "zp_0082": state.zp_0082,
+                            "zp_0086": state.zp_0086,
+                            "mem_022b": state.mem_022b,
+                            "mem_025b": state.mem_025b,
+                            "mem_026c": state.mem_026c,
+                            "mem_026d": state.mem_026d,
+                        }))
+                        .map_err(|reason| MachineError::Host {
+                            reason: format!("failed to encode drive trace payload: {reason}"),
+                        })?;
+                        host.trace_sink.push_trace(TraceEvent {
+                            timestamp: self.time,
+                            kind: Cow::Borrowed("c64.drive8.rom_trace"),
+                            payload: &payload,
+                        })?;
+                        self.last_drive_trace_state = Some(state);
+                    }
+                } else {
+                    self.last_drive_trace_state = None;
                 }
             }
 

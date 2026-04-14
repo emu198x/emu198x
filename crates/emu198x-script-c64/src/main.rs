@@ -53,6 +53,7 @@ struct Cli {
     print_queries: Vec<String>,
     print_screen_text: bool,
     trace_vic_colours: bool,
+    trace_drive_rom_window: Option<(u16, u16)>,
     trace_limit: usize,
     frames: u32,
 }
@@ -168,6 +169,7 @@ State and automation:
     --print-query PATH        resolve one query path after running (repeatable)
     --print-screen-text       print decoded screen-text lines after running
     --trace-vic-colours       trace D020/D021 changes during the explicit --frames run
+    --trace-drive-rom S E     trace drive-8 ROM activity for inclusive hex window S..E during the explicit --frames run
     --trace-limit N           maximum traced colour-write events to retain [default: 512]
     --screenshot PATH         write the last emitted frame as PNG
 
@@ -198,6 +200,7 @@ Examples:
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --wait-for-tape-stop 12000
     emu198x-script-c64 --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --frames 300 --trace-vic-colours
+    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk --frames 1200 --trace-drive-rom EC20 ECA0
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --script capture.json
 ";
 
@@ -293,6 +296,18 @@ where
             "--print-query" => cli.print_queries.push(next_arg(&mut iter, "--print-query")),
             "--print-screen-text" => cli.print_screen_text = true,
             "--trace-vic-colours" => cli.trace_vic_colours = true,
+            "--trace-drive-rom" => {
+                let start = parse_hex_u16(&next_arg(&mut iter, "--trace-drive-rom"))
+                    .unwrap_or_else(|| {
+                        die("--trace-drive-rom start must be a hexadecimal address")
+                    });
+                let end = parse_hex_u16(&next_arg(&mut iter, "--trace-drive-rom"))
+                    .unwrap_or_else(|| die("--trace-drive-rom end must be a hexadecimal address"));
+                if start > end {
+                    die("--trace-drive-rom start must be <= end");
+                }
+                cli.trace_drive_rom_window = Some((start, end));
+            }
             "--trace-limit" => {
                 cli.trace_limit = next_arg(&mut iter, "--trace-limit")
                     .parse()
@@ -323,6 +338,14 @@ fn parse_model_arg(value: &str) -> ModelArg {
         "ntsc" => ModelArg::Ntsc,
         _ => die("--model expects pal or ntsc"),
     }
+}
+
+fn parse_hex_u16(value: &str) -> Option<u16> {
+    let trimmed = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    u16::from_str_radix(trimmed, 16).ok()
 }
 
 fn next_arg<I>(iter: &mut I, flag: &str) -> String
@@ -468,8 +491,13 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         );
     }
 
-    let trace_lines = if cli.trace_vic_colours {
-        session.machine_mut().set_trace_vic_colour_writes(true);
+    let trace_lines = if cli.trace_vic_colours || cli.trace_drive_rom_window.is_some() {
+        session
+            .machine_mut()
+            .set_trace_vic_colour_writes(cli.trace_vic_colours);
+        session
+            .machine_mut()
+            .set_trace_drive_rom_window(cli.trace_drive_rom_window);
         let mut collector = TraceCollector::with_limit(cli.trace_limit);
         if cli.frames > 0 {
             session
@@ -477,6 +505,7 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
                 .map_err(|err| format!("run failed: {err}"))?;
         }
         session.machine_mut().set_trace_vic_colour_writes(false);
+        session.machine_mut().set_trace_drive_rom_window(None);
         Some(collector.into_lines())
     } else {
         if cli.frames > 0 {
@@ -842,6 +871,7 @@ mod tests {
                 print_queries: vec![],
                 print_screen_text: true,
                 trace_vic_colours: false,
+                trace_drive_rom_window: None,
                 trace_limit: DEFAULT_TRACE_LIMIT,
                 frames: 12,
             }
@@ -883,10 +913,25 @@ mod tests {
                 print_queries: vec![],
                 print_screen_text: false,
                 trace_vic_colours: false,
+                trace_drive_rom_window: None,
                 trace_limit: DEFAULT_TRACE_LIMIT,
                 frames: 0,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_accepts_drive_rom_trace_window() {
+        let cli = parse_cli([
+            "--disk".to_string(),
+            "game.d64".to_string(),
+            "--trace-drive-rom".to_string(),
+            "EC20".to_string(),
+            "ECA0".to_string(),
+        ]);
+
+        assert_eq!(cli.disk, Some(PathBuf::from("game.d64")));
+        assert_eq!(cli.trace_drive_rom_window, Some((0xEC20, 0xECA0)));
     }
 
     #[test]
