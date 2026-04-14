@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — 1541 path now has a real second-computer substrate
+
+**Type:** milestone
+**Trigger:** After the `D64` container/parser slice, the next honest disk step was to stop treating the 1541 as future glue and build the drive-side computer that IEC and disk mechanics will eventually talk to.
+**Result:** the fresh workspace now has the first real 1541 board substrate:
+1. Added `mos-via-6522`, a new standalone VIA crate with live port direction, `ACR`/`PCR`, `IFR`/`IER`/`IRQ`, `T1`/`T2`, and edge-triggered `CA1`/`CA2`/`CB1`/`CB2` behavior.
+2. Added `machine-commodore-1541`, which wires a real `mos-6502` to 2 KB mirrored RAM, 16 KB DOS ROM, and the two VIA windows at `$1800` and `$1C00`.
+3. Proved the reset-vector path and board decode locally with direct unit tests: ROM reset boot, RAM mirroring, VIA register mirroring, and CPU writes through the board bus into VIA space.
+**Verification:** locally, this slice passes:
+- `cargo test -p mos-via-6522 -p machine-commodore-1541`
+- `cargo clippy -p mos-via-6522 -p machine-commodore-1541 --all-targets -- -D warnings`
+- `cargo test --workspace`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+**Consequence:** the C64 disk path is no longer only a `D64` parser plus host import bridge. The repo now has the first honest second-computer substrate needed for real 1541/IEC work.
+
 ## 2026-04-14 — Thing on a Spring now proves a real post-load interaction, not just menu reach
 
 **Type:** milestone

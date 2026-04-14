@@ -1,0 +1,15 @@
+[package]
+name = "machine-commodore-1541"
+description = "Commodore 1541 disk-drive machine substrate"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+mos-6502 = { path = "../mos-6502" }
+mos-via-6522 = { path = "../mos-via-6522" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

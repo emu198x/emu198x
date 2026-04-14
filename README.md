@@ -74,7 +74,8 @@ Examples:
 - `--load demo.bas` for the current C64 runner is a host-side program import
   path, not fake disk or tape emulation.
 - `--load demo.d64` for the current C64 runner is a host-side container import
-  path that extracts the first PRG directory entry; it is not 1541 emulation.
+  path that extracts the first PRG directory entry; it is not full 1541
+  emulation.
 - `--tape game.tap` for the current C64 runner is real datasette media on the
   board path.
 - `--load demo.t64` for the current C64 runner is a host-side container import
@@ -211,6 +212,10 @@ Current examples include:
   after the first-stage `FOUND MAIN` banner, plus a `Thing on a Spring` TAP
   regression that reaches a stable post-load menu with readable controls and
   then enters a stable started state after `SPACE`
+- C64 disk groundwork at two levels: host-side `D64` parsing/import for quick
+  software triage, plus a new drive-side `mos-via-6522` / `machine-commodore-1541`
+  substrate that now boots a real 1541 reset vector, mirrors RAM correctly,
+  and decodes both VIA windows
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

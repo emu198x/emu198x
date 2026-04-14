@@ -1186,6 +1186,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-commodore-1541"
+version = "0.1.0"
+dependencies = [
+ "mos-6502",
+ "mos-via-6522",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "machine-commodore-c64"
 version = "0.1.0"
 dependencies = [
@@ -1283,6 +1293,13 @@ dependencies = [
 
 [[package]]
 name = "mos-sid-6581"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "mos-via-6522"
 version = "0.1.0"
 dependencies = [
  "serde",

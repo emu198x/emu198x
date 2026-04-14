@@ -9,7 +9,9 @@ The C64 is an 8-bit home computer from Commodore, released 1982. Roughly:
 - **Video**: MOS 6569 (PAL) / 6567 (NTSC) VIC-II — 40×25 text, 320×200 bitmap, 8 hardware sprites, 16 fixed colours.
 - **Audio**: MOS 6581 (early) / 8580 (late) SID — three voices, ADSR, state-variable filter.
 - **I/O**: 2× MOS 6526 CIA — CIA1 for the keyboard matrix and joystick port 2; CIA2 for the serial (IEC) bus, VIC bank select, user port, and NMI source.
-- **Peripherals** (not yet wired in this port): 1541 disk drive, Datasette, REU RAM expansion, cartridges.
+- **Peripherals**: Datasette is live in the fresh workspace; 1541 is now at
+  the second-computer substrate stage (6502 + 2x VIA + board decode), while
+  REU and cartridges remain unwired.
 
 See the [C64 per-subsystem source map](../decisions/archives-as-source.md#c64) for port sourcing and the per-chip wiki pages for details of each chip's public contract.
 
@@ -30,7 +32,7 @@ See the [C64 per-subsystem source map](../decisions/archives-as-source.md#c64) f
 
 This is the single biggest validation milestone of the whole C64 port. Every architectural decision — pin-level CPU bus (`RULES.md` item 6), `VicMemory` trait, one-op-per-tick discipline, tick ordering, IRQ routing, RDY-only-gates-reads semantics — held up under the hardest possible test: running real Commodore ROM code through to the operating-system prompt.
 
-**Phase 4 runtime + CLI: active.** `runtime-commodore-c64` is the fresh-workspace C64 runtime over `machine-commodore-c64`, and `emu198x-script-c64` is the current headless runner. In the current Rust workspace it boots ROMs, exposes snapshots/screenshots and queryable boot state, supports host-side `.prg` / `.bas` / `.t64` import, and now drives real TAP-backed datasette media through the shared session/control surface.
+**Phase 4 runtime + CLI: active.** `runtime-commodore-c64` is the fresh-workspace C64 runtime over `machine-commodore-c64`, and `emu198x-script-c64` is the current headless runner. In the current Rust workspace it boots ROMs, exposes snapshots/screenshots and queryable boot state, supports host-side `.prg` / `.bas` / `.t64` / `.d64` import, and now drives real TAP-backed datasette media through the shared session/control surface.
 
 **🎯 2026-04-09: C64 `READY.` screenshot rendered as PNG.** Running:
 
@@ -121,7 +123,7 @@ When I/O is visible, `$D000-$DFFF` routes to a specific chip:
 Known gaps from the archive that were deliberately not ported in this first pass:
 
 - **Cartridge support** (CRT files, EXROM/GAME lines, ROML/ROMH overlays, Ultimax mode). The memory decoder's PLA variants are wired in the archive via `cart.exrom` / `cart.game`; ours is the EXROM=1, GAME=1 case only.
-- **1541 disk drive** — full second 6502 + 6522 VIAs + GCR encoder + head-tracking model.
+- **1541 disk drive** — the fresh workspace now has the first honest second-computer substrate: `mos-via-6522` plus `machine-commodore-1541` with 6502, 2 KB RAM, 16 KB DOS ROM decode, and VIA1/VIA2 register windows. IEC, on-disk mechanics, and GCR are still pending.
 - **IEC serial bus** — three-wire protocol between C64 and drive. Not needed without a drive.
 - **Datasette TAP loader-banner validation** — the fresh workspace now has ROM-backed real-title tape regressions for `Thinker` and `Thomas the Tank Engine`. Both titles reach stable observable KERNAL text states under the real datasette flow (`FOUND ...`, `LOADING`, and a following `READY.` line), which is useful loader pressure, but it is not yet proof that either title fully loaded, auto-started, or handed off correctly.
 - **Ghostbusters later-loader validation** — `Ghostbusters (1984)(Activision)` now goes materially beyond the earlier `FOUND MAIN` stall. After correcting the 6510 banking-bit mapping at `$0001`, the fresh workspace reaches a later graphics-heavy loader state with I/O still visible and CIA2 Timer A programmed. This is stronger than a KERNAL text-banner proof, but it is still not yet a full “title has completely loaded and started” claim.
