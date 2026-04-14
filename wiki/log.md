@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — C64 datasette state split tightened against manuals/VICE; Ghostbusters still stops after first stage
+
+**Type:** milestone
+**Trigger:** manual `Ghostbusters` verification showed that the fresh-workspace C64 datasette path still was not credible as a full software-loading proof, and the first implementation review against the Commodore service manuals and VICE exposed that the live datasette state was still collapsing distinct physical signals together.
+**Result:** the live C64 datasette path is now less lossy and more explicit:
+1. Split the datasette state so the latched PLAY button (`sense`) is no longer conflated with actual tape motion. The machine now distinguishes “button down” from “motor running with pulses left”.
+2. Removed the fabricated bit-5 “motor input” from the 6510 port read path; bit 5 remains the motor-control output unless/until a real external motor-input source is modeled.
+3. Added a new query path, `c64.tape.sense`, so scripts and debugging can inspect the latched transport-button state separately from `c64.tape.playing`.
+4. Corrected `emu198x-script-c64 --wait-for-tape-stop` so it now waits for `c64.tape.playing` to become true and then false, rather than returning immediately when PLAY is latched before the motor starts.
+**Verification:** locally, the updated slice passes:
+- `cargo test -p machine-commodore-c64`
+- `cargo test -p runtime-commodore-c64 -p emu198x-script-c64`
+- manual headless Ghostbusters repro via `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --tape '.../Ghostbusters (1984)(Activision).zip' --autoload-tape --wait-for-tape-stop 12000 --frames 120 --print-screen-text`
+**Consequence:** this did not solve Ghostbusters. The title still reaches `SEARCHING`, `FOUND MAIN`, and then stops after the first loader stage. That makes the remaining issue more likely to be deeper C64 machine behavior around datasette stage transitions, CIA timing, or VIC-visible loader behavior, rather than the runner or the 6502 core.
+
 ## 2026-04-14 — C64 tape wording corrected: current proofs are loader-banner states, not full title loads
 
 **Type:** correction

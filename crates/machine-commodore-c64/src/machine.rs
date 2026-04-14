@@ -196,9 +196,15 @@ impl C64 {
         self.datasette.is_loaded()
     }
 
+    /// Returns `true` when the datasette sense line is active.
+    #[must_use]
+    pub const fn tape_sense_active(&self) -> bool {
+        self.datasette.sense_active()
+    }
+
     /// Returns `true` when the datasette transport is engaged.
     #[must_use]
-    pub const fn tape_is_playing(&self) -> bool {
+    pub fn tape_is_playing(&self) -> bool {
         self.datasette.is_playing()
     }
 
@@ -446,10 +452,6 @@ impl C64 {
             value &= !0x08;
         }
 
-        if self.datasette.motor_input_active() && (ddr & 0x20) == 0 {
-            value &= !0x20;
-        }
-
         value
     }
 
@@ -627,6 +629,19 @@ mod tests {
     }
 
     #[test]
+    fn tape_start_latches_sense_before_motor_runs() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine
+            .load_tap_bytes(&make_tap(&[0x24]))
+            .expect("synthetic TAP should load");
+
+        machine.play_tape();
+
+        assert_eq!(machine.cpu_read(0x0001) & 0x10, 0);
+        assert!(!machine.tape_is_playing());
+    }
+
+    #[test]
     fn tape_pulses_raise_cia1_flag_when_motor_runs() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         machine
@@ -646,6 +661,26 @@ mod tests {
 
         assert_eq!(machine.cia1.read(0x0D) & 0x10, 0x10);
         assert!(!machine.tape_is_playing());
+    }
+
+    #[test]
+    fn tape_end_keeps_sense_low_until_stop() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine
+            .load_tap_bytes(&make_tap(&[0x01]))
+            .expect("synthetic TAP should load");
+        machine.play_tape();
+        machine.cpu_write(0x0001, machine.memory().port_data() & !0x20);
+
+        for _ in 0..8 {
+            machine.tick();
+        }
+
+        assert_eq!(machine.cpu_read(0x0001) & 0x10, 0x00);
+        assert!(!machine.tape_is_playing());
+
+        machine.stop_tape();
+        assert_ne!(machine.cpu_read(0x0001) & 0x10, 0x00);
     }
 
     #[test]

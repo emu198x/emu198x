@@ -95,7 +95,7 @@ State and automation:
     --save-snapshot PATH      write a runtime snapshot after running
     --script PATH             execute shared JSON session steps after boot
     --wait-for-boot N         run up to N frames until boot.detected is true
-    --wait-for-tape-stop N    run up to N frames until c64.tape.playing is false
+    --wait-for-tape-stop N    run up to N frames until c64.tape.playing has started and then stops
     --print-screen-text       print decoded screen-text lines after running
     --screenshot PATH         write the last emitted frame as PNG
 
@@ -340,15 +340,10 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     }
 
     if let Some(max_frames) = cli.wait_for_tape_stop {
-        let result = session
-            .wait_for_query_bool("c64.tape.playing", false, max_frames)
-            .map_err(|err| format!("tape-stop wait failed: {err}"))?;
-        observations.push(ScriptObservation::WaitForQueryBool {
-            path: result.path,
-            value: result.expected,
-            frames: result.frames,
-            reached: result.reached,
-        });
+        observations.push(
+            wait_for_tape_motion_to_stop(&mut session, max_frames)
+                .map_err(|err| format!("tape-stop wait failed: {err}"))?,
+        );
     }
 
     if cli.frames > 0 {
@@ -582,6 +577,42 @@ fn query_string_list(
                 .ok_or_else(|| format!("query {path} contained a non-string entry"))
         })
         .collect()
+}
+
+fn wait_for_tape_motion_to_stop(
+    session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+    max_frames: u32,
+) -> Result<ScriptObservation, String> {
+    let mut frames = 0;
+    let mut saw_motion = false;
+
+    loop {
+        let playing = query_bool(session, "c64.tape.playing")?;
+        if playing {
+            saw_motion = true;
+        } else if saw_motion {
+            return Ok(ScriptObservation::WaitForQueryBool {
+                path: "c64.tape.playing".to_owned(),
+                value: false,
+                frames,
+                reached: session.time(),
+            });
+        }
+
+        if frames >= max_frames {
+            return Ok(ScriptObservation::WaitForQueryBool {
+                path: "c64.tape.playing".to_owned(),
+                value: false,
+                frames,
+                reached: session.time(),
+            });
+        }
+
+        session
+            .run_frames(1)
+            .map_err(|err| format!("run failed while waiting for tape stop: {err}"))?;
+        frames += 1;
+    }
 }
 
 impl ModelArg {

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Datasette {
     tape: Option<TapImage>,
-    playing: bool,
+    play_pressed: bool,
     motor_on: bool,
     next_pulse_index: usize,
     cycles_until_flux: Option<u32>,
@@ -16,7 +16,7 @@ impl Datasette {
     pub const fn new() -> Self {
         Self {
             tape: None,
-            playing: false,
+            play_pressed: false,
             motor_on: false,
             next_pulse_index: 0,
             cycles_until_flux: None,
@@ -25,7 +25,7 @@ impl Datasette {
 
     pub fn load_tap(&mut self, tape: TapImage) {
         self.tape = Some(tape);
-        self.playing = false;
+        self.play_pressed = false;
         self.next_pulse_index = 0;
         self.cycles_until_flux = None;
     }
@@ -36,18 +36,25 @@ impl Datasette {
     }
 
     #[must_use]
-    pub const fn is_playing(&self) -> bool {
-        self.playing
+    pub fn is_playing(&self) -> bool {
+        self.play_pressed
+            && self.motor_on
+            && self
+                .tape
+                .as_ref()
+                .is_some_and(|tape| self.next_pulse_index < tape.pulses.len())
     }
 
     pub fn play(&mut self) {
         if self.tape.is_some() {
-            self.playing = true;
+            self.play_pressed = true;
+            self.cycles_until_flux = None;
         }
     }
 
     pub fn stop(&mut self) {
-        self.playing = false;
+        self.play_pressed = false;
+        self.cycles_until_flux = None;
     }
 
     pub fn set_motor_on(&mut self, motor_on: bool) {
@@ -56,12 +63,7 @@ impl Datasette {
 
     #[must_use]
     pub const fn sense_active(&self) -> bool {
-        self.playing
-    }
-
-    #[must_use]
-    pub const fn motor_input_active(&self) -> bool {
-        self.playing && self.motor_on
+        self.play_pressed
     }
 
     #[must_use]
@@ -71,17 +73,16 @@ impl Datasette {
 
     #[must_use]
     pub fn advance_phi2_cycle(&mut self) -> bool {
-        if !self.playing || !self.motor_on {
+        if !self.play_pressed || !self.motor_on {
             return false;
         }
 
         let Some(tape) = &self.tape else {
-            self.playing = false;
+            self.play_pressed = false;
             return false;
         };
 
         if self.next_pulse_index >= tape.pulses.len() {
-            self.playing = false;
             self.cycles_until_flux = None;
             return false;
         }
@@ -97,9 +98,6 @@ impl Datasette {
 
         self.next_pulse_index += 1;
         self.cycles_until_flux = None;
-        if self.next_pulse_index >= tape.pulses.len() {
-            self.playing = false;
-        }
         true
     }
 }

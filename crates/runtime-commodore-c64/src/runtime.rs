@@ -22,6 +22,7 @@ const C64_QUERY_PATHS: &[&str] = &[
     "c64.machine.raster_line",
     "c64.tape.loaded",
     "c64.tape.playing",
+    "c64.tape.sense",
     "c64.vic.ba_low",
     "c64.vic.irq",
     "screen.text.lines",
@@ -379,6 +380,7 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.machine.cycle_in_line" => json!(machine.machine().cycle_in_line()),
             "c64.tape.loaded" => json!(machine.machine().tape_is_loaded()),
             "c64.tape.playing" => json!(machine.machine().tape_is_playing()),
+            "c64.tape.sense" => json!(machine.machine().tape_sense_active()),
             "c64.vic.ba_low" => json!(machine.machine().vic().ba_is_low()),
             "c64.vic.irq" => json!(machine.machine().vic().irq_active()),
             "c64.cia1.irq" => json!(machine.machine().cia1().irq_active()),
@@ -882,6 +884,14 @@ mod tests {
                 .value,
             json!(false)
         );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.tape.sense")
+                .expect("c64.tape.sense query should not fail")
+                .expect("c64.tape.sense should resolve")
+                .value,
+            json!(false)
+        );
 
         runtime
             .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
@@ -894,6 +904,14 @@ mod tests {
                 .query(&runtime, "c64.tape.playing")
                 .expect("c64.tape.playing query should not fail")
                 .expect("c64.tape.playing should resolve")
+                .value,
+            json!(false)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.tape.sense")
+                .expect("c64.tape.sense query should not fail")
+                .expect("c64.tape.sense should resolve")
                 .value,
             json!(true)
         );
@@ -909,6 +927,14 @@ mod tests {
                 .query(&runtime, "c64.tape.playing")
                 .expect("c64.tape.playing query should not fail")
                 .expect("c64.tape.playing should resolve")
+                .value,
+            json!(false)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.tape.sense")
+                .expect("c64.tape.sense query should not fail")
+                .expect("c64.tape.sense should resolve")
                 .value,
             json!(false)
         );
