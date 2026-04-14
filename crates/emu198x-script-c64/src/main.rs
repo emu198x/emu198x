@@ -20,6 +20,7 @@ use runtime_commodore_c64::{
     file_loader::load_host_file,
 };
 use serde::Serialize;
+use serde_json::Value;
 
 const KERNAL_ID: &str = "commodore-c64-kernal-rom";
 const BASIC_ID: &str = "commodore-c64-basic-rom";
@@ -43,6 +44,7 @@ struct Cli {
     script: Option<PathBuf>,
     wait_for_boot: Option<u32>,
     wait_for_tape_stop: Option<u32>,
+    print_queries: Vec<String>,
     print_screen_text: bool,
     frames: u32,
 }
@@ -73,7 +75,14 @@ struct RunnerReport {
     boot_detected: bool,
     boot_reason: String,
     loaded_program: Option<String>,
+    query_values: Vec<ReportedQuery>,
     screen_text_lines: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReportedQuery {
+    path: String,
+    value: Value,
 }
 
 const USAGE: &str = "\
@@ -96,6 +105,7 @@ State and automation:
     --script PATH             execute shared JSON session steps after boot
     --wait-for-boot N         run up to N frames until boot.detected is true
     --wait-for-tape-stop N    run up to N frames until c64.tape.playing has started and then stops
+    --print-query PATH        resolve one query path after running (repeatable)
     --print-screen-text       print decoded screen-text lines after running
     --screenshot PATH         write the last emitted frame as PNG
 
@@ -142,6 +152,9 @@ fn main() {
                 );
                 if let Some(message) = &report.loaded_program {
                     println!("{message}");
+                }
+                for query in &report.query_values {
+                    println!("{}={}", query.path, query.value);
                 }
                 if let Some(lines) = &report.screen_text_lines {
                     println!("screen_text_lines:");
@@ -199,6 +212,7 @@ where
                         }),
                 );
             }
+            "--print-query" => cli.print_queries.push(next_arg(&mut iter, "--print-query")),
             "--print-screen-text" => cli.print_screen_text = true,
             "--screenshot" => {
                 cli.screenshot = Some(PathBuf::from(next_arg(&mut iter, "--screenshot")));
@@ -367,6 +381,7 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     let boot_detected = query_bool(&session, "boot.detected")?;
     let boot_reason = query_string(&session, "boot.reason")?
         .unwrap_or_else(|| "boot.detected remained false".to_owned());
+    let query_values = collect_queries(&session, &cli.print_queries)?;
     let screen_text_lines = if cli.print_screen_text {
         Some(query_string_list(&session, "screen.text.lines")?)
     } else {
@@ -379,6 +394,7 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         boot_detected,
         boot_reason,
         loaded_program,
+        query_values,
         screen_text_lines,
     })
 }
@@ -547,6 +563,16 @@ fn query_bool(
         .ok_or_else(|| format!("query {path} did not return a boolean value"))
 }
 
+fn query_value(
+    session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+    path: &str,
+) -> Result<Value, String> {
+    session
+        .query(path)
+        .map(|result| result.value)
+        .map_err(|err| format!("query {path} failed: {err}"))
+}
+
 fn query_string(
     session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
     path: &str,
@@ -575,6 +601,21 @@ fn query_string_list(
                 .as_str()
                 .map(str::to_owned)
                 .ok_or_else(|| format!("query {path} contained a non-string entry"))
+        })
+        .collect()
+}
+
+fn collect_queries(
+    session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+    paths: &[String],
+) -> Result<Vec<ReportedQuery>, String> {
+    paths
+        .iter()
+        .map(|path| {
+            query_value(session, path).map(|value| ReportedQuery {
+                path: path.clone(),
+                value,
+            })
         })
         .collect()
 }
@@ -666,6 +707,7 @@ mod tests {
                 script: None,
                 wait_for_boot: Some(180),
                 wait_for_tape_stop: None,
+                print_queries: vec![],
                 print_screen_text: true,
                 frames: 12,
             }
@@ -702,6 +744,7 @@ mod tests {
                 script: None,
                 wait_for_boot: None,
                 wait_for_tape_stop: Some(12000),
+                print_queries: vec![],
                 print_screen_text: false,
                 frames: 0,
             }

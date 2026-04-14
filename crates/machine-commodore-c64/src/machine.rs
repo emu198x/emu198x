@@ -202,6 +202,24 @@ impl C64 {
         self.datasette.sense_active()
     }
 
+    /// Returns `true` when the datasette motor line is actively driving tape motion.
+    #[must_use]
+    pub const fn tape_motor_on(&self) -> bool {
+        self.datasette.motor_on()
+    }
+
+    /// Current position within the loaded TAP pulse stream.
+    #[must_use]
+    pub const fn tape_pulse_index(&self) -> usize {
+        self.datasette.pulse_index()
+    }
+
+    /// Total number of pulses in the loaded TAP image.
+    #[must_use]
+    pub fn tape_pulse_count(&self) -> usize {
+        self.datasette.pulse_count()
+    }
+
     /// Returns `true` when the datasette transport is engaged.
     #[must_use]
     pub fn tape_is_playing(&self) -> bool {

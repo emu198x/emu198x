@@ -67,6 +67,21 @@ impl Datasette {
     }
 
     #[must_use]
+    pub const fn motor_on(&self) -> bool {
+        self.motor_on
+    }
+
+    #[must_use]
+    pub const fn pulse_index(&self) -> usize {
+        self.next_pulse_index
+    }
+
+    #[must_use]
+    pub fn pulse_count(&self) -> usize {
+        self.tape.as_ref().map_or(0, |tape| tape.pulses.len())
+    }
+
+    #[must_use]
     pub const fn write_input_active(&self) -> bool {
         false
     }

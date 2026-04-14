@@ -4,6 +4,18 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — C64 trace/query surface proves Ghostbusters consumes the full TAP and still stalls in loaded code
+
+**Type:** milestone
+**Trigger:** After the datasette-state split and the full 6502 verification push, `Ghostbusters` was still not reaching a useful post-load title state. At that point the project needed machine-level visibility into the live C64 state instead of more guesswork about whether the parser or CPU core were broadly wrong.
+**Result:** the fresh-workspace C64 runtime and headless runner now expose a temporary-but-useful machine trace surface:
+1. Added C64 query paths for CPU registers and pins (`pc`, `a/x/y`, `sp`, `p`, `rw`, `addr`, `data`, `sync`, `irq`, `nmi`, `rdy`, `total_cycles`), CIA1 tape-relevant state (`flag`, `icr_status`, `icr_mask`, `timer_a`, `timer_b`), VIC border/background colour, frame count, and datasette pulse position/motor state.
+2. Added `emu198x-script-c64 --print-query PATH`, so headless reproductions can dump the exact post-run machine state without adding one-off debug code for each title.
+3. Used that surface to prove that `Ghostbusters` is multi-stage, does restart the motor after `FOUND MAIN`, and eventually consumes the full TAP pulse stream.
+4. Confirmed that after the full TAP stream is consumed, the machine still does not reach a title/menu state: it settles with the tape at end-of-stream, the screen stuck on loader-era text, and the CPU held in a late loaded-code state around `$CEBE`.
+**Verification:** locally, this slice passes `cargo test -p runtime-commodore-c64 -p emu198x-script-c64` and `cargo clippy -p runtime-commodore-c64 -p emu198x-script-c64 --all-targets -- -D warnings`. The headless Ghostbusters repro is now directly inspectable with repeated `--print-query` arguments on `emu198x-script-c64`.
+**Consequence:** the remaining Ghostbusters issue is now much less likely to be “the TAP parser is obviously wrong” or “the 6502 is broadly wrong”. The next debugging surface should be deeper C64 machine behaviour after load handoff: RAM-side loader state, CIA tape/IRQ timing, VIC-visible loader behaviour, or related integration gaps.
+
 ## 2026-04-14 — C64 datasette state split tightened against manuals/VICE; Ghostbusters still stops after first stage
 
 **Type:** milestone
