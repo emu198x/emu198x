@@ -148,7 +148,7 @@ Cold boot:
     --basic PATH              override BASIC ROM path
     --chargen PATH            override character ROM path
     --model MODEL             pal or ntsc [default: pal]
-    --load PATH               import one .prg or plain-text .bas file after boot
+    --load PATH               import one .prg/.bas/.t64/.d64 file after boot
     --tape PATH               insert one TAP image into datasette slot
     --autoload-tape           wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape              press PLAY on the inserted datasette image
@@ -185,6 +185,7 @@ Filename resolution inside the ROM directory:
 Examples:
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --screenshot ready.png
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
+    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load game.d64 --save-snapshot game.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --wait-for-tape-stop 12000
     emu198x-script-c64 --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --frames 300 --trace-vic-colours

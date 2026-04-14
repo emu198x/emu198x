@@ -3,6 +3,7 @@
 //! These paths are explicit convenience imports, not emulated media.
 
 use format_commodore_c64_bas::tokenise;
+use format_commodore_c64_d64::extract_first_prg;
 use format_commodore_c64_t64::extract_first_program;
 
 use crate::C64Runtime;
@@ -13,6 +14,7 @@ use crate::C64Runtime;
 /// - `.prg`: imported directly into RAM
 /// - `.bas`: tokenised to PRG bytes, then imported into RAM
 /// - `.t64`: first loadable archive entry extracted and imported into RAM
+/// - `.d64`: first PRG directory entry extracted and imported into RAM
 ///
 /// # Errors
 ///
@@ -50,8 +52,19 @@ pub fn load_host_file(machine: &mut C64Runtime, name: &str, data: &[u8]) -> Resu
         ));
     }
 
+    if lower.ends_with(".d64") {
+        let program =
+            extract_first_prg(data).map_err(|err| format!("failed to parse D64 image: {err}"))?;
+        let load_addr = machine.load_prg_bytes(&program.data)?;
+        return Ok(format!(
+            "Imported D64 entry: {} from {name} ({} bytes, load address ${load_addr:04X})",
+            program.name,
+            program.data.len()
+        ));
+    }
+
     Err(format!(
-        "unrecognised file extension: {name}. Supported: .prg, .bas, .t64"
+        "unrecognised file extension: {name}. Supported: .prg, .bas, .t64, .d64"
     ))
 }
 
@@ -103,5 +116,38 @@ mod tests {
         assert_eq!(runtime.machine().memory().ram_read(0xC000), 0x11);
         assert_eq!(runtime.machine().memory().ram_read(0xC001), 0x22);
         assert_eq!(runtime.machine().memory().ram_read(0xC002), 0x33);
+    }
+
+    #[test]
+    fn imports_first_d64_entry() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let mut image = vec![0; 174_848];
+
+        let mut bam = [0u8; 256];
+        bam[0] = 18;
+        bam[1] = 1;
+        let bam_offset = 357 * 256;
+        image[bam_offset..bam_offset + 256].copy_from_slice(&bam);
+
+        let mut directory = [0u8; 256];
+        directory[2] = 0x82;
+        directory[3] = 1;
+        directory[4] = 0;
+        directory[5..9].copy_from_slice(b"DEMO");
+        directory[30..32].copy_from_slice(&(1u16).to_le_bytes());
+        let dir_offset = 358 * 256;
+        image[dir_offset..dir_offset + 256].copy_from_slice(&directory);
+
+        let mut file_sector = [0u8; 256];
+        file_sector[0] = 0;
+        file_sector[1] = 5;
+        file_sector[2..6].copy_from_slice(&[0x00, 0xC0, 0x11, 0x22]);
+        image[..256].copy_from_slice(&file_sector);
+
+        let msg = load_host_file(&mut runtime, "demo.d64", &image).expect("D64 should import");
+
+        assert!(msg.contains("Imported D64 entry"));
+        assert_eq!(runtime.machine().memory().ram_read(0xC000), 0x11);
+        assert_eq!(runtime.machine().memory().ram_read(0xC001), 0x22);
     }
 }

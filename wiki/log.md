@@ -17,6 +17,17 @@ Append-only record of ingests, queries, and lint passes.
 - `cargo test --release -p runtime-commodore-c64 real_tap_autoload_thing_on_a_spring_starts_after_space -- --ignored --nocapture`
 **Consequence:** `Thing on a Spring` is now more than a menu anchor. It is the first fresh-workspace C64 tape title that proves real post-load interaction through the live keyboard path.
 
+## 2026-04-14 — C64 disk bootstrap begins with D64 container parsing and host-side import
+
+**Type:** milestone
+**Trigger:** After the first C64 tape title reached a real post-load interaction proof, the next storage step was disk. The fresh workspace still had no 1541/VIA/IEC path, so the smallest honest bootstrap was the `D64` container layer first.
+**Result:** the fresh-workspace C64 now has a real `D64` parser plus host-side import support:
+1. Added `format-commodore-c64-d64`, which parses standard 35-track `D64` images, reads the BAM/directory, and follows PRG sector chains with loop detection.
+2. Wired `.d64` into the existing C64 `--load PATH` host-convenience path, alongside `.prg`, `.bas`, and `.t64`.
+3. Chose original single-file `Bruce Lee (1984)(Datasoft)` and `Aztec Challenge (1983)(Cosmi)` as the first disk-software anchors, because they are cleaner initial targets than cracked multi-stage or multi-disk images such as `Last Ninja`.
+**Verification:** locally, this slice passes the new direct `format-commodore-c64-d64` tests plus the updated C64 runtime/script tests and clippy.
+**Consequence:** this is not 1541 emulation yet, but it gives the disk path a real container/parser substrate and an immediately usable host-side bridge while the drive/VIA/IEC machine work is still ahead.
+
 ## 2026-04-14 — Thing on a Spring becomes the strongest C64 tape regression so far
 
 **Type:** milestone

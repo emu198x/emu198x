@@ -81,6 +81,13 @@ cargo run -p emu198x-script-c64 -- \
 ```bash
 cargo run -p emu198x-script-c64 -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
+  --load game.d64 \
+  --save-snapshot game.c64.pst
+```
+
+```bash
+cargo run -p emu198x-script-c64 -- \
+  --rom-dir ~/.emu198x/roms/commodore-c64 \
   --tape game.tap \
   --autoload-tape \
   --wait-for-tape-stop 12000
@@ -110,6 +117,8 @@ boundary:
 - `.prg` files are imported directly into RAM using their declared load address
 - `.bas` files are treated as UTF-8 plain-text BASIC source, tokenised, then
   imported as a BASIC program
+- `.d64` files are treated as host-side disk containers, with the first PRG
+  directory entry extracted and imported
 - `.t64` files are treated as host-side containers, with the first loadable
   entry extracted and imported as a PRG
 
@@ -124,9 +133,9 @@ datasette slot. `--autoload-tape` waits for `READY.`, presses the real
 starts `tape-1` through the shared media-control boundary. `--start-tape` and
 `--wait-for-tape-stop` operate on that same live transport path.
 
-`T64` support is intentionally separate. It currently lives under `--load PATH`
-as a host-side container import path, not as a claim of pulse-accurate
-datasette media.
+`D64` and `T64` support are intentionally separate. They currently live under
+`--load PATH` as host-side container import paths, not as claims of 1541 or
+pulse-accurate datasette media.
 
 ## Script Format
 

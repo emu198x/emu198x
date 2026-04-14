@@ -49,6 +49,7 @@ As of April 13, 2026, the fresh Rust workspace currently provides:
   - host-side `SHIFT+RUN/STOP` tape autoload helper over the real KERNAL path
   - host-side `.prg` import
   - host-side plain-text `.bas` import via Commodore BASIC tokenisation
+  - host-side `.d64` import by extracting the first PRG directory entry
   - host-side `.t64` import by extracting the first loadable archive entry
   - native shell input is usable for verification, but still feels softer than
     target and should not yet be treated as a polished frontend
@@ -72,6 +73,8 @@ Examples:
   real tape transport, not an instant-load trap.
 - `--load demo.bas` for the current C64 runner is a host-side program import
   path, not fake disk or tape emulation.
+- `--load demo.d64` for the current C64 runner is a host-side container import
+  path that extracts the first PRG directory entry; it is not 1541 emulation.
 - `--tape game.tap` for the current C64 runner is real datasette media on the
   board path.
 - `--load demo.t64` for the current C64 runner is a host-side container import

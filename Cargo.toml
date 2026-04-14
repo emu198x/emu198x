@@ -10,6 +10,7 @@ members = [
     "crates/emu198x-shell",
     "crates/ferranti-ula-6c001e",
     "crates/format-commodore-c64-bas",
+    "crates/format-commodore-c64-d64",
     "crates/format-commodore-c64-prg",
     "crates/format-commodore-c64-tap",
     "crates/format-commodore-c64-t64",

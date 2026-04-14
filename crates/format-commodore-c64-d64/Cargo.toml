@@ -1,0 +1,11 @@
+[package]
+name = "format-commodore-c64-d64"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

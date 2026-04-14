@@ -9,6 +9,7 @@ license.workspace = true
 common-commodore-c64 = { path = "../common-commodore-c64" }
 emu198x-shell = { path = "../emu198x-shell" }
 format-commodore-c64-bas = { path = "../format-commodore-c64-bas" }
+format-commodore-c64-d64 = { path = "../format-commodore-c64-d64" }
 format-commodore-c64-t64 = { path = "../format-commodore-c64-t64" }
 machine-commodore-c64 = { path = "../machine-commodore-c64" }
 postcard = { workspace = true }
