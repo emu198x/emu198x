@@ -237,15 +237,15 @@ impl C64Memory {
     }
 
     const fn hiram(&self) -> bool {
-        self.effective_port() & 0x04 != 0
-    }
-
-    const fn loram(&self) -> bool {
         self.effective_port() & 0x02 != 0
     }
 
-    const fn charen(&self) -> bool {
+    const fn loram(&self) -> bool {
         self.effective_port() & 0x01 != 0
+    }
+
+    const fn charen(&self) -> bool {
+        self.effective_port() & 0x04 != 0
     }
 }
 
@@ -336,7 +336,7 @@ mod tests {
     fn character_rom_appears_when_charen_is_clear() {
         let mut memory = make_memory();
         memory.cpu_write(0x0000, 0xFF);
-        memory.cpu_write(0x0001, 0x36);
+        memory.cpu_write(0x0001, 0x33);
         assert_eq!(memory.cpu_read(0xD000), 0xCC);
         assert!(memory.is_character_rom_visible_to_cpu());
     }

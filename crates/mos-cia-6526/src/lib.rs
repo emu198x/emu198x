@@ -282,8 +282,18 @@ impl Cia6526 {
     }
 
     #[must_use]
+    pub fn timer_a_latch(&self) -> u16 {
+        self.timer_a_latch
+    }
+
+    #[must_use]
     pub fn timer_b(&self) -> u16 {
         self.timer_b
+    }
+
+    #[must_use]
+    pub fn timer_b_latch(&self) -> u16 {
+        self.timer_b_latch
     }
 
     #[must_use]

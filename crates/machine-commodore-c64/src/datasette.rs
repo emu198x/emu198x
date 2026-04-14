@@ -1,12 +1,17 @@
 use format_commodore_c64_tap::TapImage;
 use serde::{Deserialize, Serialize};
 
+pub(crate) const MOTOR_DELAY_CYCLES: u32 = 32_000;
+
 /// Datasette state owned by the C64 board.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Datasette {
     tape: Option<TapImage>,
     play_pressed: bool,
-    motor_on: bool,
+    motor_requested: bool,
+    motor_running: bool,
+    pending_motor_state: Option<bool>,
+    motor_delay_remaining: u32,
     next_pulse_index: usize,
     cycles_until_flux: Option<u32>,
 }
@@ -17,7 +22,10 @@ impl Datasette {
         Self {
             tape: None,
             play_pressed: false,
-            motor_on: false,
+            motor_requested: false,
+            motor_running: false,
+            pending_motor_state: None,
+            motor_delay_remaining: 0,
             next_pulse_index: 0,
             cycles_until_flux: None,
         }
@@ -38,7 +46,7 @@ impl Datasette {
     #[must_use]
     pub fn is_playing(&self) -> bool {
         self.play_pressed
-            && self.motor_on
+            && self.motor_running
             && self
                 .tape
                 .as_ref()
@@ -58,7 +66,23 @@ impl Datasette {
     }
 
     pub fn set_motor_on(&mut self, motor_on: bool) {
-        self.motor_on = motor_on;
+        self.motor_requested = motor_on;
+
+        if motor_on {
+            if self.motor_running {
+                self.pending_motor_state = None;
+                self.motor_delay_remaining = 0;
+            } else {
+                self.pending_motor_state = Some(true);
+                self.motor_delay_remaining = MOTOR_DELAY_CYCLES;
+            }
+        } else if self.motor_running {
+            self.pending_motor_state = Some(false);
+            self.motor_delay_remaining = MOTOR_DELAY_CYCLES;
+        } else {
+            self.pending_motor_state = None;
+            self.motor_delay_remaining = 0;
+        }
     }
 
     #[must_use]
@@ -68,7 +92,7 @@ impl Datasette {
 
     #[must_use]
     pub const fn motor_on(&self) -> bool {
-        self.motor_on
+        self.motor_running
     }
 
     #[must_use]
@@ -88,7 +112,9 @@ impl Datasette {
 
     #[must_use]
     pub fn advance_phi2_cycle(&mut self) -> bool {
-        if !self.play_pressed || !self.motor_on {
+        self.advance_motor_state();
+
+        if !self.play_pressed || !self.motor_running {
             return false;
         }
 
@@ -114,6 +140,21 @@ impl Datasette {
         self.next_pulse_index += 1;
         self.cycles_until_flux = None;
         true
+    }
+
+    fn advance_motor_state(&mut self) {
+        let Some(target_state) = self.pending_motor_state else {
+            return;
+        };
+
+        if self.motor_delay_remaining > 1 {
+            self.motor_delay_remaining -= 1;
+            return;
+        }
+
+        self.motor_running = target_state;
+        self.pending_motor_state = None;
+        self.motor_delay_remaining = 0;
     }
 }
 
@@ -149,10 +190,38 @@ mod tests {
 
         assert!(!datasette.advance_phi2_cycle());
         datasette.set_motor_on(true);
-        for _ in 0..7 {
+        for _ in 0..(MOTOR_DELAY_CYCLES - 1) {
+            assert!(!datasette.advance_phi2_cycle());
+        }
+        assert!(!datasette.motor_on());
+        assert!(!datasette.advance_phi2_cycle());
+        assert!(datasette.motor_on());
+        for _ in 0..6 {
             assert!(!datasette.advance_phi2_cycle());
         }
         assert!(datasette.advance_phi2_cycle());
         assert!(!datasette.is_playing());
+    }
+
+    #[test]
+    fn motor_stop_is_delayed_after_line_drops() {
+        let mut datasette = Datasette::new();
+        datasette.load_tap(stub_tape(&[1, 1, 1]));
+        datasette.play();
+        datasette.set_motor_on(true);
+
+        for _ in 0..MOTOR_DELAY_CYCLES {
+            let _ = datasette.advance_phi2_cycle();
+        }
+        assert!(datasette.motor_on());
+
+        datasette.set_motor_on(false);
+        for _ in 0..(MOTOR_DELAY_CYCLES - 1) {
+            let _ = datasette.advance_phi2_cycle();
+            assert!(datasette.motor_on());
+        }
+
+        assert!(!datasette.advance_phi2_cycle());
+        assert!(!datasette.motor_on());
     }
 }

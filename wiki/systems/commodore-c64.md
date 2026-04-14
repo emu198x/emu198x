@@ -124,6 +124,7 @@ Known gaps from the archive that were deliberately not ported in this first pass
 - **1541 disk drive** — full second 6502 + 6522 VIAs + GCR encoder + head-tracking model.
 - **IEC serial bus** — three-wire protocol between C64 and drive. Not needed without a drive.
 - **Datasette TAP loader-banner validation** — the fresh workspace now has ROM-backed real-title tape regressions for `Thinker` and `Thomas the Tank Engine`. Both titles reach stable observable KERNAL text states under the real datasette flow (`FOUND ...`, `LOADING`, and a following `READY.` line), which is useful loader pressure, but it is not yet proof that either title fully loaded, auto-started, or handed off correctly.
+- **Ghostbusters later-loader validation** — `Ghostbusters (1984)(Activision)` now goes materially beyond the earlier `FOUND MAIN` stall. After correcting the 6510 banking-bit mapping at `$0001`, the fresh workspace reaches a later graphics-heavy loader state with I/O still visible and CIA2 Timer A programmed. This is stronger than a KERNAL text-banner proof, but it is still not yet a full “title has completely loaded and started” claim.
 - **T64 pulse media** — still deferred. `T64` now exists only as a separate host-side container/import format and should not be conflated with the pulse-timed TAP datasette path.
 - **REU** — RAM Expansion Unit with DMA.
 - **Symbolic keyboard mapping** — host `KeyboardEvent.code` strings → C64 key matrix positions + shift overrides.

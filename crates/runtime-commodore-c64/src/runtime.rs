@@ -20,6 +20,7 @@ const C64_QUERY_PATHS: &[&str] = &[
     "c64.cpu.addr",
     "c64.cpu.data",
     "c64.cpu.irq",
+    "c64.cpu.instruction_complete",
     "c64.cpu.nmi",
     "c64.cpu.p",
     "c64.cpu.pc",
@@ -35,10 +36,25 @@ const C64_QUERY_PATHS: &[&str] = &[
     "c64.cia1.icr_mask",
     "c64.cia1.icr_status",
     "c64.cia1.timer_a",
+    "c64.cia1.timer_a_latch",
     "c64.cia1.timer_b",
+    "c64.cia1.timer_b_latch",
     "c64.cia2.irq",
+    "c64.cia2.cra",
+    "c64.cia2.crb",
+    "c64.cia2.icr_mask",
+    "c64.cia2.icr_status",
+    "c64.cia2.timer_a",
+    "c64.cia2.timer_a_latch",
+    "c64.cia2.timer_b",
+    "c64.cia2.timer_b_latch",
+    "c64.memory.effective_port",
+    "c64.memory.io_visible",
+    "c64.memory.port_data",
+    "c64.memory.port_ddr",
     "c64.machine.cycle_in_line",
     "c64.machine.frame_count",
+    "c64.memory.ram.<hex16>",
     "c64.machine.raster_line",
     "c64.tape.loaded",
     "c64.tape.motor_on",
@@ -405,6 +421,9 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.cpu.addr" => json!(machine.machine().cpu().addr),
             "c64.cpu.data" => json!(machine.machine().cpu().data),
             "c64.cpu.irq" => json!(machine.machine().cpu().irq),
+            "c64.cpu.instruction_complete" => {
+                json!(machine.machine().cpu().instruction_complete())
+            }
             "c64.cpu.nmi" => json!(machine.machine().cpu().nmi),
             "c64.cpu.p" => json!(machine.machine().cpu().regs.p),
             "c64.cpu.pc" => json!(machine.machine().cpu().regs.pc),
@@ -419,7 +438,21 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.cia1.icr_mask" => json!(machine.machine().cia1().icr_mask()),
             "c64.cia1.icr_status" => json!(machine.machine().cia1().icr_status()),
             "c64.cia1.timer_a" => json!(machine.machine().cia1().timer_a()),
+            "c64.cia1.timer_a_latch" => json!(machine.machine().cia1().timer_a_latch()),
             "c64.cia1.timer_b" => json!(machine.machine().cia1().timer_b()),
+            "c64.cia1.timer_b_latch" => json!(machine.machine().cia1().timer_b_latch()),
+            "c64.cia2.cra" => json!(machine.machine().cia2().cra()),
+            "c64.cia2.crb" => json!(machine.machine().cia2().crb()),
+            "c64.cia2.icr_mask" => json!(machine.machine().cia2().icr_mask()),
+            "c64.cia2.icr_status" => json!(machine.machine().cia2().icr_status()),
+            "c64.cia2.timer_a" => json!(machine.machine().cia2().timer_a()),
+            "c64.cia2.timer_a_latch" => json!(machine.machine().cia2().timer_a_latch()),
+            "c64.cia2.timer_b" => json!(machine.machine().cia2().timer_b()),
+            "c64.cia2.timer_b_latch" => json!(machine.machine().cia2().timer_b_latch()),
+            "c64.memory.effective_port" => json!(machine.machine().memory().effective_port()),
+            "c64.memory.io_visible" => json!(machine.machine().memory().is_io_visible()),
+            "c64.memory.port_data" => json!(machine.machine().memory().port_data()),
+            "c64.memory.port_ddr" => json!(machine.machine().memory().port_ddr()),
             "c64.machine.raster_line" => json!(machine.machine().raster_line()),
             "c64.machine.cycle_in_line" => json!(machine.machine().cycle_in_line()),
             "c64.machine.frame_count" => json!(machine.machine().frame_count()),
@@ -436,6 +469,13 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.cia1.irq" => json!(machine.machine().cia1().irq_active()),
             "c64.cia2.irq" => json!(machine.machine().cia2().irq_active()),
             "screen.text.lines" => json!(decode_screen_text_lines(machine.machine())),
+            _ if path.starts_with("c64.memory.ram.") => {
+                let suffix = &path["c64.memory.ram.".len()..];
+                let addr = parse_hex_u16(suffix).ok_or_else(|| QueryError::UnknownPath {
+                    path: path.to_owned(),
+                })?;
+                json!(machine.machine().memory().ram_read(addr))
+            }
             _ => return Ok(None),
         };
 
@@ -444,6 +484,14 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             value,
         }))
     }
+}
+
+fn parse_hex_u16(value: &str) -> Option<u16> {
+    let trimmed = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    u16::from_str_radix(trimmed, 16).ok()
 }
 
 fn build_machine(
@@ -758,6 +806,15 @@ mod tests {
         )
         .join(
             "Projects/Emu198x-Unclean/Reference/commodore/c64/Educational/[TAP]/Thomas the Tank Engine (1990)(Alternative Software).zip",
+        )
+    }
+
+    fn local_ghostbusters_tap_zip() -> PathBuf {
+        PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
+        )
+        .join(
+            "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[TAP]/Ghostbusters (1984)(Activision).zip",
         )
     }
 
@@ -1252,5 +1309,76 @@ mod tests {
             lines[14]
         );
         assert!(session.machine().machine().tape_is_playing());
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs and Ghostbusters TAP archive"]
+    fn real_tap_autoload_ghostbusters_reaches_later_loader_state() {
+        let firmware = local_rom_firmware();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("real PAL C64 firmware should construct a runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let tape = read_media_asset(&local_ghostbusters_tap_zip(), MediaKind::Tape)
+            .expect("local Ghostbusters TAP archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            MediaKind::Tape,
+            &tape.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("local Ghostbusters TAP should insert");
+
+        let autoload = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("autoload should reach PRESS PLAY ON TAPE and start transport");
+        assert_eq!(autoload.slot, DEFAULT_TAPE_AUTOLOAD_SLOT);
+
+        let found = session
+            .wait_for_query_text_contains("screen.text.lines", "FOUND MAIN", 1500)
+            .expect("Ghostbusters tape should reach FOUND MAIN banner");
+        assert_eq!(found.line, Some(12));
+
+        session
+            .run_frames(25_000)
+            .expect("Ghostbusters loader should run past the first-stage banner");
+
+        let lines = screen_text_lines(&session);
+        assert!(
+            !lines.iter().any(|line| line.contains("FOUND MAIN")),
+            "Ghostbusters should move past FOUND MAIN: {:?}",
+            lines
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("LOADING")),
+            "Ghostbusters should move past LOADING banner: {:?}",
+            lines
+        );
+
+        let machine = session.machine().machine();
+        assert!(
+            machine.memory().is_io_visible(),
+            "Ghostbusters loader should keep CIA/VIC I/O visible in the later state"
+        );
+        assert_eq!(
+            machine.cia2().timer_a_latch(),
+            280,
+            "Ghostbusters later loader should have programmed CIA2 Timer A"
+        );
+        assert!(!machine.tape_is_playing());
+        assert!(!machine.tape_motor_on());
+        assert!(
+            machine.tape_pulse_index() > 460_000,
+            "Ghostbusters should consume almost the entire TAP before the later state"
+        );
     }
 }

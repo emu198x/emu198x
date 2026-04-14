@@ -4,6 +4,23 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — C64 Ghostbusters root cause narrowed to wrong 6510 banking bits; later loader state now proven
+
+**Type:** milestone
+**Trigger:** manual Ghostbusters verification showed that the fresh-workspace C64 datasette path was still wrong in a way that loader-banner tests had not exposed. The machine reached `FOUND MAIN`, but not the expected later loading behaviour, and the next task was to prove whether that was CPU, tape, CIA, or bank-selection related.
+**Result:** the critical C64 bug was not in the 6502 core or the raw TAP parser. It was in the 6510 memory-configuration wiring:
+1. Added temporary-but-useful C64 query paths for CIA timer latches and 6510 port state (`port_ddr`, `port_data`, `effective_port`, `io_visible`), on top of the earlier Ghostbusters trace surface.
+2. Used those queries to prove that the late Ghostbusters state had `effective_port = $16`. On a real C64 that still leaves `CHAREN=1`, but the fresh workspace was interpreting the low three bits incorrectly and was hiding I/O when it should have been visible.
+3. Corrected the 6510 banking-bit assignments in `machine-commodore-c64`: bit 0 is `LORAM`, bit 1 is `HIRAM`, and bit 2 is `CHAREN`.
+4. Tightened the datasette model at the same time with explicit motor spin-up/spin-down delay, separate tape sense vs motion, and cleaner tape-state queries so the debug surface matched the service manuals and VICE more closely.
+5. Added a new ignored ROM-backed Ghostbusters regression that proves the current machine now moves beyond the first-stage `FOUND MAIN` banner into a later graphics-heavy loader state, with I/O visible and CIA2 Timer A programmed (`latch = 280`), instead of stalling at the old post-banner state.
+**Verification:** locally, this slice passes:
+- `cargo test -p machine-commodore-c64 -p runtime-commodore-c64 -p emu198x-script-c64`
+- `cargo clippy -p machine-commodore-c64 -p runtime-commodore-c64 -p emu198x-script-c64 -p mos-cia-6526 --all-targets -- -D warnings`
+- `cargo test --release -p runtime-commodore-c64 real_tap_autoload_ghostbusters_reaches_later_loader_state -- --ignored --nocapture`
+- repeated `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --tape '.../Ghostbusters (1984)(Activision).zip' --autoload-tape --frames 25000 ...`
+**Consequence:** the fresh-workspace C64 datasette path is now materially more credible, and Ghostbusters is no longer evidence that the whole tape path is fundamentally broken. The remaining work is narrower: complete-title handoff, more real-title proofs, and any remaining CIA/VIC integration gaps that show up after the later loader state.
+
 ## 2026-04-14 — C64 trace/query surface proves Ghostbusters consumes the full TAP and still stalls in loaded code
 
 **Type:** milestone

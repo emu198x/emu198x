@@ -484,6 +484,7 @@ impl C64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datasette::MOTOR_DELAY_CYCLES;
     use std::fs;
     use std::path::PathBuf;
 
@@ -673,6 +674,11 @@ mod tests {
         assert_eq!(machine.cia1.read(0x0D) & 0x10, 0x00);
 
         machine.cpu_write(0x0001, machine.memory().port_data() & !0x20);
+        for _ in 0..MOTOR_DELAY_CYCLES {
+            machine.tick();
+        }
+
+        assert!(machine.tape_motor_on());
         for _ in 0..8 {
             machine.tick();
         }
@@ -690,6 +696,9 @@ mod tests {
         machine.play_tape();
         machine.cpu_write(0x0001, machine.memory().port_data() & !0x20);
 
+        for _ in 0..MOTOR_DELAY_CYCLES {
+            machine.tick();
+        }
         for _ in 0..8 {
             machine.tick();
         }
@@ -699,6 +708,51 @@ mod tests {
 
         machine.stop_tape();
         assert_ne!(machine.cpu_read(0x0001) & 0x10, 0x00);
+    }
+
+    #[test]
+    fn tape_motor_line_has_real_spin_up_delay() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine
+            .load_tap_bytes(&make_tap(&[0x01]))
+            .expect("synthetic TAP should load");
+        machine.play_tape();
+        machine.cpu_write(0x0001, machine.memory().port_data() & !0x20);
+
+        for _ in 0..(MOTOR_DELAY_CYCLES - 1) {
+            machine.tick();
+        }
+        assert!(!machine.tape_motor_on());
+        assert!(!machine.tape_is_playing());
+
+        machine.tick();
+        assert!(machine.tape_motor_on());
+        assert!(machine.tape_is_playing());
+    }
+
+    #[test]
+    fn motor_stop_is_delayed_after_cpu_drops_line() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine
+            .load_tap_bytes(&make_tap(&[0x01, 0x01, 0x01]))
+            .expect("synthetic TAP should load");
+        machine.play_tape();
+        machine.cpu_write(0x0001, machine.memory().port_data() & !0x20);
+
+        for _ in 0..MOTOR_DELAY_CYCLES {
+            machine.tick();
+        }
+        assert!(machine.tape_motor_on());
+
+        machine.cpu_write(0x0001, machine.memory().port_data() | 0x20);
+        for _ in 0..(MOTOR_DELAY_CYCLES - 1) {
+            machine.tick();
+            assert!(machine.tape_motor_on());
+        }
+
+        machine.tick();
+        assert!(!machine.tape_motor_on());
+        assert!(!machine.tape_is_playing());
     }
 
     #[test]
