@@ -36,6 +36,8 @@ pub struct Via6522 {
     t1_counter: u16,
     t1_latch: u16,
     t1_running: bool,
+    t1_irq_armed: bool,
+    t1_reload_pending: bool,
     t1_pb7_output: bool,
     t2_counter: u16,
     t2_latch_low: u8,
@@ -84,6 +86,8 @@ impl Via6522 {
             t1_counter: 0,
             t1_latch: 0,
             t1_running: false,
+            t1_irq_armed: false,
+            t1_reload_pending: false,
             t1_pb7_output: false,
             t2_counter: 0,
             t2_latch_low: 0,
@@ -112,16 +116,21 @@ impl Via6522 {
         self.poll_lines();
 
         if self.t1_running {
-            if self.t1_counter == 0 {
-                self.raise_interrupt(IRQ_T1);
-                if self.t1_pb7_enabled() {
-                    self.t1_pb7_output = !self.t1_pb7_output;
+            if self.t1_reload_pending {
+                self.t1_counter = self.t1_latch;
+                self.t1_reload_pending = false;
+            } else if self.t1_counter == 0 {
+                if self.t1_irq_armed {
+                    self.raise_interrupt(IRQ_T1);
+                    if self.t1_pb7_enabled() {
+                        self.t1_pb7_output = !self.t1_pb7_output;
+                    }
+                    if !self.t1_free_run() {
+                        self.t1_irq_armed = false;
+                    }
                 }
-                if self.t1_free_run() {
-                    self.t1_counter = self.t1_latch;
-                } else {
-                    self.t1_running = false;
-                }
+                self.t1_counter = u16::MAX;
+                self.t1_reload_pending = true;
             } else {
                 self.t1_counter -= 1;
             }
@@ -155,7 +164,6 @@ impl Via6522 {
             0x01 => self.clear_port_a_interrupts(),
             0x04 => self.clear_interrupts(IRQ_T1),
             0x08 => self.clear_interrupts(IRQ_T2),
-            0x0D => self.ifr = 0,
             _ => {}
         }
 
@@ -220,6 +228,9 @@ impl Via6522 {
                 self.t1_latch = (self.t1_latch & 0x00FF) | (u16::from(value) << 8);
                 self.t1_counter = self.t1_latch;
                 self.t1_running = true;
+                self.t1_irq_armed = true;
+                self.t1_reload_pending = false;
+                self.t1_pb7_output = false;
                 self.clear_interrupts(IRQ_T1);
             }
             0x06 => self.t1_latch = (self.t1_latch & 0xFF00) | u16::from(value),
@@ -544,16 +555,21 @@ mod tests {
         via.tick();
         via.tick();
         via.tick();
-
         assert!(via.irq);
         assert_eq!(via.peek(0x0D) & IRQ_T1, IRQ_T1);
+        assert!(via.t1_running);
+        assert_eq!(via.peek(0x04), 0xFF);
+
+        via.tick();
+
         assert!(via.t1_running);
         assert_eq!(via.peek(0x04), 0x02);
     }
 
     #[test]
-    fn timer1_stops_in_one_shot_mode() {
+    fn timer1_one_shot_keeps_visible_counter_advancing_after_irq() {
         let mut via = Via6522::new();
+        via.write(0x0E, 0x80 | IRQ_T1);
         via.write(0x0B, 0x00);
         via.write(0x04, 0x01);
         via.write(0x05, 0x00);
@@ -561,8 +577,18 @@ mod tests {
         via.tick();
         via.tick();
 
-        assert!(!via.t1_running);
+        assert!(via.irq);
         assert_eq!(via.peek(0x0D) & IRQ_T1, IRQ_T1);
+        assert!(via.t1_running);
+        assert_eq!(via.peek(0x04), 0xFF);
+        assert!(!via.t1_irq_armed);
+
+        via.tick();
+        via.tick();
+
+        assert_eq!(via.peek(0x0D) & IRQ_T1, IRQ_T1);
+        assert!(via.t1_running);
+        assert_eq!(via.peek(0x04), 0x00);
     }
 
     #[test]
@@ -640,6 +666,18 @@ mod tests {
 
         via.write(0x0D, IRQ_CB2);
         assert_eq!(via.peek(0x0D) & IRQ_CB2, 0);
+    }
+
+    #[test]
+    fn reading_ifr_does_not_clear_pending_flags() {
+        let mut via = Via6522::new();
+        via.write(0x0E, 0x80 | IRQ_CA1);
+        via.ca1 = false;
+        via.tick();
+
+        assert_eq!(via.peek(0x0D) & IRQ_CA1, IRQ_CA1);
+        assert_eq!(via.read(0x0D) & IRQ_CA1, IRQ_CA1);
+        assert_eq!(via.peek(0x0D) & IRQ_CA1, IRQ_CA1);
     }
 
     #[test]

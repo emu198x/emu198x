@@ -8,9 +8,14 @@
 //! - VIA1 and VIA2 register decode at `$1800`/`$1C00`
 //! - IEC-visible VIA1 wiring
 //! - first-pass drive-side status/mechanics signals
+//!
+//! It now also includes the first read-only D64-backed GCR/rotation layer the
+//! DOS ROM needs for honest disk reads.
 
 use common_commodore_iec::IecBus;
-use format_commodore_c64_d64::{D64FileType, D64ParseError, parse_directory};
+use format_commodore_c64_d64::{
+    D64FileType, D64ParseError, parse_directory, read_sector, sectors_in_track,
+};
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
@@ -21,6 +26,19 @@ const ROM_SIZE: usize = 0x4000;
 const DEFAULT_DEVICE_NUMBER: u8 = 8;
 const INITIAL_HEAD_POSITION: u8 = 36;
 const MAX_HEAD_POSITION: u8 = 84;
+const GCR_CONVERSION_TABLE: [u8; 16] = [
+    0x0A, 0x0B, 0x12, 0x13, 0x0E, 0x0F, 0x16, 0x17, 0x09, 0x19, 0x1A, 0x1B, 0x0D, 0x1D, 0x1E, 0x15,
+];
+const READ_BITS_PER_SECOND_BY_ZONE: [u64; 4] = [250_000, 266_667, 285_714, 307_692];
+const RAW_TRACK_SIZE_BY_ZONE: [usize; 4] = [6_250, 6_666, 7_142, 7_692];
+const GAP_SIZE_BY_ZONE: [usize; 4] = [9, 12, 17, 8];
+const HEADER_GAP_SIZE: usize = 9;
+const SYNC_SIZE: usize = 5;
+const SECTOR_GCR_SIZE_WITH_HEADER: usize = 335;
+const TRACK_SLOT_COUNT: usize = (MAX_HEAD_POSITION as usize) - 1;
+const IO_TRACE_LIMIT: usize = 64;
+const ROTATION_REF_CYCLES_PER_CPU_CYCLE: u64 = 16;
+const BUS_READ_DELAY_REF_CYCLES: u64 = 14;
 
 /// Nominal 1541 6502 clock used for first-pass combined C64/drive scheduling.
 pub const DRIVE1541_CPU_HZ: u64 = 1_000_000;
@@ -33,12 +51,26 @@ pub struct Drive1541 {
     ram: [u8; RAM_SIZE],
     rom: [u8; ROM_SIZE],
     disk: Option<Drive1541Disk>,
+    track_data: Option<Drive1541TrackData>,
     device_number: u8,
     head_position: u8,
     stepper_phase: u8,
     motor_on: bool,
     activity_led: bool,
     density_code: u8,
+    gcr_read: u8,
+    gcr_write_value: u8,
+    gcr_head_offset: usize,
+    last_read_window: u16,
+    bit_counter: u8,
+    sync_active: bool,
+    byte_ready_level: bool,
+    byte_ready_edge: bool,
+    sync_event_count: u64,
+    byte_ready_event_count: u64,
+    rotation_accum: u64,
+    rotation_ref_phase: u8,
+    recent_io_writes: Vec<Drive1541IoWriteEvent>,
     cycles: u64,
 }
 
@@ -56,7 +88,32 @@ pub struct Drive1541Snapshot {
     motor_on: bool,
     activity_led: bool,
     density_code: u8,
+    gcr_read: u8,
+    gcr_write_value: u8,
+    gcr_head_offset: usize,
+    last_read_window: u16,
+    bit_counter: u8,
+    sync_active: bool,
+    byte_ready_level: bool,
+    byte_ready_edge: bool,
+    sync_event_count: u64,
+    byte_ready_event_count: u64,
+    rotation_accum: u64,
+    rotation_ref_phase: u8,
     cycles: u64,
+}
+
+#[derive(Clone, Default)]
+struct Drive1541TrackData {
+    tracks: Vec<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Drive1541IoWriteEvent {
+    pub cycle: u64,
+    pub pc: u16,
+    pub addr: u16,
+    pub value: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -146,12 +203,26 @@ impl Drive1541 {
             ram: [0; RAM_SIZE],
             rom,
             disk: None,
+            track_data: None,
             device_number: DEFAULT_DEVICE_NUMBER,
             head_position: INITIAL_HEAD_POSITION,
             stepper_phase: 0x03,
             motor_on: false,
             activity_led: false,
             density_code: 0,
+            gcr_read: 0x11,
+            gcr_write_value: 0,
+            gcr_head_offset: 0,
+            last_read_window: 0,
+            bit_counter: 0,
+            sync_active: false,
+            byte_ready_level: false,
+            byte_ready_edge: false,
+            sync_event_count: 0,
+            byte_ready_event_count: 0,
+            rotation_accum: 0,
+            rotation_ref_phase: 0,
+            recent_io_writes: Vec::new(),
             cycles: 0,
         })
     }
@@ -202,8 +273,38 @@ impl Drive1541 {
     }
 
     #[must_use]
+    pub const fn gcr_read(&self) -> u8 {
+        self.gcr_read
+    }
+
+    #[must_use]
+    pub const fn byte_ready(&self) -> bool {
+        self.byte_ready_level
+    }
+
+    #[must_use]
+    pub fn sync_detected(&self) -> bool {
+        !self.sync_not_detected()
+    }
+
+    #[must_use]
+    pub const fn sync_event_count(&self) -> u64 {
+        self.sync_event_count
+    }
+
+    #[must_use]
+    pub const fn byte_ready_event_count(&self) -> u64 {
+        self.byte_ready_event_count
+    }
+
+    #[must_use]
     pub const fn disk(&self) -> Option<&Drive1541Disk> {
         self.disk.as_ref()
+    }
+
+    #[must_use]
+    pub fn recent_io_writes(&self) -> &[Drive1541IoWriteEvent] {
+        &self.recent_io_writes
     }
 
     #[must_use]
@@ -218,6 +319,7 @@ impl Drive1541 {
     /// Returns an error if the `D64` image is malformed.
     pub fn load_d64_bytes(&mut self, bytes: &[u8]) -> Result<(), Drive1541MediaError> {
         let directory = parse_directory(bytes)?;
+        self.track_data = Some(build_track_data(bytes)?);
         self.disk = Some(Drive1541Disk {
             image_bytes: bytes.to_vec(),
             disk_name: directory.disk_name,
@@ -233,11 +335,14 @@ impl Drive1541 {
                 })
                 .collect(),
         });
+        self.reset_rotation_state();
         Ok(())
     }
 
     pub fn eject_disk(&mut self) {
         self.disk = None;
+        self.track_data = None;
+        self.reset_rotation_state();
     }
 
     #[must_use]
@@ -255,6 +360,18 @@ impl Drive1541 {
             motor_on: self.motor_on,
             activity_led: self.activity_led,
             density_code: self.density_code,
+            gcr_read: self.gcr_read,
+            gcr_write_value: self.gcr_write_value,
+            gcr_head_offset: self.gcr_head_offset,
+            last_read_window: self.last_read_window,
+            bit_counter: self.bit_counter,
+            sync_active: self.sync_active,
+            byte_ready_level: self.byte_ready_level,
+            byte_ready_edge: self.byte_ready_edge,
+            sync_event_count: self.sync_event_count,
+            byte_ready_event_count: self.byte_ready_event_count,
+            rotation_accum: self.rotation_accum,
+            rotation_ref_phase: self.rotation_ref_phase,
             cycles: self.cycles,
         }
     }
@@ -285,12 +402,28 @@ impl Drive1541 {
         self.ram.copy_from_slice(&snapshot.ram);
         self.rom.copy_from_slice(&snapshot.rom);
         self.disk = snapshot.disk;
+        self.track_data = rebuild_track_data(self.disk.as_ref())
+            .map_err(|err| format!("1541 snapshot disk rebuild failed: {err}"))?;
         self.device_number = snapshot.device_number;
         self.head_position = snapshot.head_position;
         self.stepper_phase = snapshot.stepper_phase;
         self.motor_on = snapshot.motor_on;
         self.activity_led = snapshot.activity_led;
         self.density_code = snapshot.density_code;
+        self.gcr_read = snapshot.gcr_read;
+        self.gcr_write_value = snapshot.gcr_write_value;
+        self.gcr_head_offset = snapshot.gcr_head_offset;
+        self.last_read_window = snapshot.last_read_window;
+        self.bit_counter = snapshot.bit_counter;
+        self.sync_active = snapshot.sync_active;
+        self.byte_ready_level = snapshot.byte_ready_level;
+        self.byte_ready_edge = snapshot.byte_ready_edge;
+        self.sync_event_count = snapshot.sync_event_count;
+        self.byte_ready_event_count = snapshot.byte_ready_event_count;
+        self.rotation_accum = snapshot.rotation_accum;
+        self.rotation_ref_phase = snapshot.rotation_ref_phase;
+        self.recent_io_writes.clear();
+        self.normalize_head_offset();
         self.cycles = snapshot.cycles;
         Ok(())
     }
@@ -328,13 +461,33 @@ impl Drive1541 {
             ram,
             rom,
             disk: snapshot.disk,
+            track_data: None,
             device_number: snapshot.device_number,
             head_position: snapshot.head_position,
             stepper_phase: snapshot.stepper_phase,
             motor_on: snapshot.motor_on,
             activity_led: snapshot.activity_led,
             density_code: snapshot.density_code,
+            gcr_read: snapshot.gcr_read,
+            gcr_write_value: snapshot.gcr_write_value,
+            gcr_head_offset: snapshot.gcr_head_offset,
+            last_read_window: snapshot.last_read_window,
+            bit_counter: snapshot.bit_counter,
+            sync_active: snapshot.sync_active,
+            byte_ready_level: snapshot.byte_ready_level,
+            byte_ready_edge: snapshot.byte_ready_edge,
+            sync_event_count: snapshot.sync_event_count,
+            byte_ready_event_count: snapshot.byte_ready_event_count,
+            rotation_accum: snapshot.rotation_accum,
+            rotation_ref_phase: snapshot.rotation_ref_phase,
+            recent_io_writes: Vec::new(),
             cycles: snapshot.cycles,
+        })
+        .and_then(|mut machine| {
+            machine.track_data = rebuild_track_data(machine.disk.as_ref())
+                .map_err(|err| format!("1541 snapshot disk rebuild failed: {err}"))?;
+            machine.normalize_head_offset();
+            Ok(machine)
         })
     }
 
@@ -356,8 +509,16 @@ impl Drive1541 {
     pub fn poke(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)] = value,
-            0x1800..=0x18FF => self.via1.write((addr & 0x0F) as u8, value),
-            0x1C00..=0x1CFF => self.via2.write((addr & 0x0F) as u8, value),
+            0x1800..=0x18FF => {
+                self.via1.write((addr & 0x0F) as u8, value);
+                self.record_io_write(addr, value);
+            }
+            0x1C00..=0x1CFF => {
+                let reg = (addr & 0x0F) as u8;
+                self.via2.write(reg, value);
+                self.after_via2_write(reg, value);
+                self.record_io_write(addr, value);
+            }
             0xC000..=0xFFFF => {}
             _ => {}
         }
@@ -368,18 +529,22 @@ impl Drive1541 {
         self.cpu.irq = self.via1.irq || self.via2.irq;
 
         if self.cpu.rw {
-            self.cpu.data_in = self.peek(self.cpu.addr);
+            self.cpu.data_in = self.read_without_iec_bus(self.cpu.addr);
         } else {
-            self.poke(self.cpu.addr, self.cpu.data);
+            self.write_without_iec_bus(self.cpu.addr, self.cpu.data);
         }
 
+        self.cpu.so = self.byte_ready_so_not_asserted();
         let completed = self.cpu.tick();
+        self.byte_ready_edge = false;
+        self.cpu.so = true;
         self.apply_drive_inputs(None);
         self.via1.tick();
         self.via2.tick();
         self.refresh_drive_mechanics();
-        self.apply_drive_inputs(None);
         self.cycles += 1;
+        self.finish_cycle_rotation();
+        self.apply_drive_inputs(None);
         completed
     }
 
@@ -393,13 +558,17 @@ impl Drive1541 {
             self.write_with_iec_bus(self.cpu.addr, self.cpu.data, bus);
         }
 
+        self.cpu.so = self.byte_ready_so_not_asserted();
         let completed = self.cpu.tick();
+        self.byte_ready_edge = false;
+        self.cpu.so = true;
         self.apply_drive_inputs(Some(bus));
         self.via1.tick();
         self.via2.tick();
         self.refresh_drive_mechanics();
-        self.apply_drive_inputs(Some(bus));
         self.cycles += 1;
+        self.finish_cycle_rotation();
+        self.apply_drive_inputs(Some(bus));
         completed
     }
 
@@ -431,11 +600,15 @@ impl Drive1541 {
             }
             0x1800..=0x18FF => self.via1.read((addr & 0x0F) as u8),
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
+                self.rotate_disk_bus_read();
                 let value = self.via2_port_b_read();
+                self.clear_byte_ready_level();
                 self.via2.read_port_b_with_value(value)
             }
             0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
+                self.rotate_disk_bus_read();
                 let value = self.via2_port_a_read();
+                self.clear_byte_ready_level();
                 self.via2.read_port_a_with_value(value)
             }
             0x1C00..=0x1CFF => self.via2.read((addr & 0x0F) as u8),
@@ -449,9 +622,15 @@ impl Drive1541 {
             0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)] = value,
             0x1800..=0x18FF => {
                 self.via1.write((addr & 0x0F) as u8, value);
+                self.record_io_write(addr, value);
                 self.drive_iec_outputs(bus);
             }
-            0x1C00..=0x1CFF => self.via2.write((addr & 0x0F) as u8, value),
+            0x1C00..=0x1CFF => {
+                let reg = (addr & 0x0F) as u8;
+                self.via2.write(reg, value);
+                self.after_via2_write(reg, value);
+                self.record_io_write(addr, value);
+            }
             0xC000..=0xFFFF => {}
             _ => {}
         }
@@ -471,27 +650,95 @@ impl Drive1541 {
         self.via1.ca1 = !self.bus_atn_high(bus);
         self.via2.pa_in = self.via2_port_a_input();
         self.via2.pb_in = self.via2_port_b_input();
-        self.via2.ca1 = self.byte_ready_not_asserted() || !self.so_enable();
+        self.via2.ca1 = self.byte_ready_not_asserted();
     }
 
     fn refresh_drive_mechanics(&mut self) {
+        let was_motor_on = self.motor_on;
         let port_b = self.via2.port_b_drive_state();
-        let phase = port_b & 0x03;
-        let movement = phase.wrapping_sub(self.stepper_phase) & 0x03;
+        let new_stepper_position = port_b & 0x03;
+        let old_stepper_position = self.head_position.saturating_sub(2) & 0x03;
+        let step_count = new_stepper_position.wrapping_sub(old_stepper_position) & 0x03;
 
         self.motor_on = port_b & 0x04 != 0;
         self.activity_led = port_b & 0x08 != 0;
         self.density_code = (port_b >> 5) & 0x03;
 
-        if self.motor_on && (movement & 0x01) != 0 {
-            if (movement & 0x02) == 0 {
-                self.head_position = self.head_position.saturating_add(1).min(MAX_HEAD_POSITION);
-            } else {
-                self.head_position = self.head_position.saturating_sub(1);
+        if self.motor_on {
+            match step_count {
+                1 => {
+                    self.head_position =
+                        self.head_position.saturating_add(1).min(MAX_HEAD_POSITION);
+                }
+                3 => {
+                    self.head_position = self.head_position.saturating_sub(1);
+                }
+                _ => {}
             }
         }
 
-        self.stepper_phase = phase;
+        if !self.motor_on && was_motor_on {
+            self.clear_byte_ready();
+            self.last_read_window = 0;
+            self.bit_counter = 0;
+            self.sync_active = false;
+            self.rotation_accum = 0;
+            self.rotation_ref_phase = 0;
+        } else if self.motor_on && !was_motor_on {
+            self.rotation_accum = 0;
+            self.rotation_ref_phase = 0;
+        }
+
+        self.normalize_head_offset();
+        self.stepper_phase = new_stepper_position;
+    }
+
+    fn read_without_iec_bus(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
+            0x1800..=0x18FF if (addr & 0x0F) == 0x00 => {
+                let value = self.via1_port_b_read(None);
+                self.via1.read_port_b_with_value(value)
+            }
+            0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
+                let value = self.via1_port_a_read();
+                self.via1.read_port_a_with_value(value)
+            }
+            0x1800..=0x18FF => self.via1.read((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
+                self.rotate_disk_bus_read();
+                let value = self.via2_port_b_read();
+                self.clear_byte_ready_level();
+                self.via2.read_port_b_with_value(value)
+            }
+            0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
+                self.rotate_disk_bus_read();
+                let value = self.via2_port_a_read();
+                self.clear_byte_ready_level();
+                self.via2.read_port_a_with_value(value)
+            }
+            0x1C00..=0x1CFF => self.via2.read((addr & 0x0F) as u8),
+            0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
+            _ => 0xFF,
+        }
+    }
+
+    fn write_without_iec_bus(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)] = value,
+            0x1800..=0x18FF => {
+                self.via1.write((addr & 0x0F) as u8, value);
+                self.record_io_write(addr, value);
+            }
+            0x1C00..=0x1CFF => {
+                let reg = (addr & 0x0F) as u8;
+                self.via2.write(reg, value);
+                self.after_via2_write(reg, value);
+                self.record_io_write(addr, value);
+            }
+            0xC000..=0xFFFF => {}
+            _ => {}
+        }
     }
 
     fn via1_port_a_read(&self) -> u8 {
@@ -512,7 +759,7 @@ impl Drive1541 {
     }
 
     fn via1_port_a_input(&self) -> u8 {
-        0xFE | u8::from(self.head_position != 0)
+        0xFE | u8::from(self.head_position != 2)
     }
 
     fn via1_port_b_input(&self, bus: Option<&IecBus>) -> u8 {
@@ -520,7 +767,7 @@ impl Drive1541 {
     }
 
     fn via2_port_a_input(&self) -> u8 {
-        0xFF
+        self.gcr_read
     }
 
     fn via2_port_b_input(&self) -> u8 {
@@ -564,26 +811,324 @@ impl Drive1541 {
         bus.is_none_or(|bus| bus.drive_port() & 0x01 != 0)
     }
 
-    fn so_enable(&self) -> bool {
-        if self.via2.ca2_drive {
-            self.via2.ca2_out
-        } else {
-            true
+    fn after_via2_write(&mut self, reg: u8, value: u8) {
+        match reg & 0x0F {
+            0x00 => {
+                self.refresh_drive_mechanics();
+                self.clear_byte_ready_level();
+            }
+            0x01 | 0x0F => {
+                self.gcr_write_value = value;
+                self.clear_byte_ready_level();
+            }
+            0x02 => self.refresh_drive_mechanics(),
+            _ => {}
         }
     }
 
     fn byte_ready_not_asserted(&self) -> bool {
-        true
+        !(self.byte_ready_level && self.byte_ready_active())
+    }
+
+    fn byte_ready_so_not_asserted(&self) -> bool {
+        !(self.byte_ready_active() && (self.byte_ready_level || self.byte_ready_edge))
     }
 
     fn sync_not_detected(&self) -> bool {
-        true
+        !self.is_read_mode() || self.last_read_window != 0x03FF
     }
 
     fn write_protect_not_asserted(&self) -> bool {
         self.disk
             .as_ref()
             .is_some_and(|disk| !disk.write_protected())
+    }
+
+    fn clear_byte_ready(&mut self) {
+        self.byte_ready_level = false;
+        self.byte_ready_edge = false;
+    }
+
+    fn clear_byte_ready_level(&mut self) {
+        self.byte_ready_level = false;
+    }
+
+    fn reset_rotation_state(&mut self) {
+        self.gcr_read = 0x11;
+        self.gcr_write_value = 0;
+        self.gcr_head_offset = 0;
+        self.last_read_window = 0;
+        self.bit_counter = 0;
+        self.sync_active = false;
+        self.byte_ready_level = false;
+        self.byte_ready_edge = false;
+        self.sync_event_count = 0;
+        self.byte_ready_event_count = 0;
+        self.rotation_accum = 0;
+        self.rotation_ref_phase = 0;
+        self.recent_io_writes.clear();
+    }
+
+    fn record_io_write(&mut self, addr: u16, value: u8) {
+        if self.recent_io_writes.len() == IO_TRACE_LIMIT {
+            self.recent_io_writes.remove(0);
+        }
+        self.recent_io_writes.push(Drive1541IoWriteEvent {
+            cycle: self.cycles,
+            pc: self.cpu.regs.pc,
+            addr,
+            value,
+        });
+    }
+
+    fn normalize_head_offset(&mut self) {
+        let total_bits = self.current_track_bit_len();
+        if total_bits == 0 {
+            self.gcr_head_offset = 0;
+        } else {
+            self.gcr_head_offset %= total_bits;
+        }
+    }
+
+    fn rotate_disk_bus_read(&mut self) {
+        let target = BUS_READ_DELAY_REF_CYCLES as u8;
+        if self.rotation_ref_phase < target {
+            self.advance_rotation_ref_cycles(u64::from(target - self.rotation_ref_phase));
+            self.rotation_ref_phase = target;
+        }
+    }
+
+    fn finish_cycle_rotation(&mut self) {
+        let full_cycle = ROTATION_REF_CYCLES_PER_CPU_CYCLE as u8;
+        if self.rotation_ref_phase < full_cycle {
+            self.advance_rotation_ref_cycles(u64::from(full_cycle - self.rotation_ref_phase));
+        }
+        self.rotation_ref_phase = 0;
+    }
+
+    fn advance_rotation_ref_cycles(&mut self, ref_cycles: u64) {
+        if ref_cycles == 0 || !self.motor_on || !self.is_read_mode() {
+            return;
+        }
+
+        self.rotation_accum = self.rotation_accum.saturating_add(
+            READ_BITS_PER_SECOND_BY_ZONE[usize::from(self.density_code)] * ref_cycles,
+        );
+        let ref_hz = DRIVE1541_CPU_HZ * ROTATION_REF_CYCLES_PER_CPU_CYCLE;
+        let bits_to_advance = self.rotation_accum / ref_hz;
+        self.rotation_accum %= ref_hz;
+
+        for _ in 0..bits_to_advance {
+            self.rotate_one_bit();
+        }
+    }
+
+    fn rotate_one_bit(&mut self) {
+        let total_bits = self.current_track_bit_len();
+        if total_bits == 0 {
+            self.last_read_window = (self.last_read_window << 1) & 0x03FF;
+            self.bit_counter = 0;
+            self.gcr_read = 0x11;
+            return;
+        }
+
+        let bit = self.current_track_bit(self.gcr_head_offset);
+        self.gcr_head_offset += 1;
+        if self.gcr_head_offset >= total_bits {
+            self.gcr_head_offset = 0;
+        }
+
+        self.last_read_window = ((self.last_read_window << 1) | u16::from(bit)) & 0x03FF;
+        let sync_now = self.last_read_window == 0x03FF;
+        if sync_now {
+            if !self.sync_active {
+                self.sync_event_count += 1;
+            }
+            self.sync_active = true;
+            self.bit_counter = 0;
+            return;
+        }
+        self.sync_active = false;
+
+        self.bit_counter = self.bit_counter.wrapping_add(1);
+        if self.bit_counter == 8 {
+            self.bit_counter = 0;
+            self.gcr_read = self.last_read_window as u8;
+            if self.byte_ready_active() {
+                self.byte_ready_level = true;
+                self.byte_ready_edge = true;
+                self.byte_ready_event_count += 1;
+            }
+        }
+    }
+
+    fn current_track_bit(&self, bit_offset: usize) -> u8 {
+        let Some(track) = self.current_track_bytes() else {
+            return 0;
+        };
+
+        let byte_index = bit_offset / 8;
+        let bit_index = 7 - (bit_offset & 0x07);
+        u8::from(track[byte_index] & (1 << bit_index) != 0)
+    }
+
+    fn current_track_bit_len(&self) -> usize {
+        self.current_track_bytes()
+            .map_or(0, |track| track.len() * 8)
+    }
+
+    fn current_track_bytes(&self) -> Option<&[u8]> {
+        self.track_data.as_ref()?.track_bytes(self.head_position)
+    }
+
+    fn is_read_mode(&self) -> bool {
+        self.via2.cb2_out
+    }
+
+    fn byte_ready_active(&self) -> bool {
+        self.via2.ca2_out
+    }
+}
+
+impl Drive1541TrackData {
+    fn track_bytes(&self, head_position: u8) -> Option<&[u8]> {
+        let slot = track_slot_index(head_position)?;
+        let track = self.tracks.get(slot)?;
+        if track.is_empty() { None } else { Some(track) }
+    }
+}
+
+fn rebuild_track_data(
+    disk: Option<&Drive1541Disk>,
+) -> Result<Option<Drive1541TrackData>, D64ParseError> {
+    disk.map(|disk| build_track_data(disk.image_bytes()))
+        .transpose()
+}
+
+fn build_track_data(bytes: &[u8]) -> Result<Drive1541TrackData, D64ParseError> {
+    let bam = read_sector(bytes, 18, 0)?;
+    let id1 = bam[0xA2];
+    let id2 = bam[0xA3];
+    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
+    let mut track_offset = 0usize;
+
+    for track in 1..=35u8 {
+        let zone = speed_zone_for_track(track);
+        let track_size = RAW_TRACK_SIZE_BY_ZONE[usize::from(zone)];
+        let sectors = usize::from(sectors_in_track(track)?);
+        let sector_size = SECTOR_GCR_SIZE_WITH_HEADER
+            + HEADER_GAP_SIZE
+            + GAP_SIZE_BY_ZONE[usize::from(zone)]
+            + (SYNC_SIZE * 2);
+        let mut temp = vec![0x55; track_size];
+        let gap_size = GAP_SIZE_BY_ZONE[usize::from(zone)];
+
+        for sector in 0..sectors {
+            let offset = sector * sector_size;
+            encode_sector_to_gcr(
+                read_sector(bytes, track, sector as u8)?,
+                &mut temp[offset..offset + sector_size],
+                GcrHeader {
+                    sector: sector as u8,
+                    track,
+                    id2,
+                    id1,
+                },
+                gap_size,
+            );
+        }
+
+        track_offset += (sectors * sector_size).saturating_sub(gap_size);
+        track_offset += (track_size * 100) / 270;
+        track_offset %= track_size;
+
+        let mut raw = vec![0x55; track_size];
+        raw[track_offset..].copy_from_slice(&temp[..track_size - track_offset]);
+        raw[..track_offset].copy_from_slice(&temp[track_size - track_offset..]);
+
+        let slot = usize::from((track * 2) - 2);
+        tracks[slot] = raw.clone();
+        if slot + 1 < tracks.len() {
+            tracks[slot + 1] = raw;
+        }
+    }
+
+    Ok(Drive1541TrackData { tracks })
+}
+
+#[derive(Clone, Copy)]
+struct GcrHeader {
+    sector: u8,
+    track: u8,
+    id2: u8,
+    id1: u8,
+}
+
+fn encode_sector_to_gcr(source: &[u8], dest: &mut [u8], header: GcrHeader, gap_size: usize) {
+    debug_assert_eq!(source.len(), 256);
+    debug_assert_eq!(
+        dest.len(),
+        SECTOR_GCR_SIZE_WITH_HEADER + HEADER_GAP_SIZE + gap_size + (SYNC_SIZE * 2)
+    );
+
+    dest.fill(0x55);
+    let mut offset = 0usize;
+    dest[offset..offset + SYNC_SIZE].fill(0xFF);
+    offset += SYNC_SIZE;
+
+    let mut block = [0u8; 4];
+    block[0] = 0x08;
+    block[1] = header.sector ^ header.track ^ header.id2 ^ header.id1;
+    block[2] = header.sector;
+    block[3] = header.track;
+    encode_4bytes_to_gcr(block, &mut dest[offset..offset + 5]);
+    offset += 5;
+
+    block = [header.id2, header.id1, 0x0F, 0x0F];
+    encode_4bytes_to_gcr(block, &mut dest[offset..offset + 5]);
+    offset += 5;
+
+    offset += HEADER_GAP_SIZE;
+    dest[offset..offset + SYNC_SIZE].fill(0xFF);
+    offset += SYNC_SIZE;
+
+    let mut checksum = source[0] ^ source[1] ^ source[2];
+    block = [0x07, source[0], source[1], source[2]];
+    encode_4bytes_to_gcr(block, &mut dest[offset..offset + 5]);
+    offset += 5;
+
+    let mut index = 3usize;
+    for _ in 0..63 {
+        block.copy_from_slice(&source[index..index + 4]);
+        checksum ^= block[0] ^ block[1] ^ block[2] ^ block[3];
+        encode_4bytes_to_gcr(block, &mut dest[offset..offset + 5]);
+        offset += 5;
+        index += 4;
+    }
+
+    block = [source[255], checksum ^ source[255], 0, 0];
+    encode_4bytes_to_gcr(block, &mut dest[offset..offset + 5]);
+}
+
+fn encode_4bytes_to_gcr(source: [u8; 4], dest: &mut [u8]) {
+    let mut encoded = 0u64;
+    for byte in source {
+        encoded = (encoded << 5) | u64::from(GCR_CONVERSION_TABLE[usize::from(byte >> 4)]);
+        encoded = (encoded << 5) | u64::from(GCR_CONVERSION_TABLE[usize::from(byte & 0x0F)]);
+    }
+
+    dest.copy_from_slice(&encoded.to_be_bytes()[3..]);
+}
+
+const fn speed_zone_for_track(track: u8) -> u8 {
+    (track < 31) as u8 + (track < 25) as u8 + (track < 18) as u8
+}
+
+fn track_slot_index(head_position: u8) -> Option<usize> {
+    if (2..TRACK_SLOT_COUNT as u8 + 2).contains(&head_position) {
+        Some(usize::from(head_position - 2))
+    } else {
+        None
     }
 }
 
@@ -600,7 +1145,7 @@ const fn d64_file_type_name(kind: D64FileType) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drive1541, Drive1541Config, Drive1541InitError, ROM_SIZE};
+    use super::{Drive1541, Drive1541Config, Drive1541InitError, ROM_SIZE, track_slot_index};
     use common_commodore_iec::IecBus;
 
     const D64_STANDARD_SIZE: usize = 174_848;
@@ -781,12 +1326,25 @@ mod tests {
     }
 
     #[test]
+    fn via1_port_b_input_bits_do_not_drive_iec_bus_low() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut bus = IecBus::new();
+
+        machine.write_with_iec_bus(0x1802, 0x1A, &mut bus);
+        machine.write_with_iec_bus(0x1800, 0x01, &mut bus);
+
+        assert_eq!(bus.cpu_port() & 0xC0, 0xC0);
+    }
+
+    #[test]
     fn via_status_ports_reflect_track_zero_and_write_protect() {
         let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
         let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
             .expect("1541 scaffold ROM should be valid");
         let bus = IecBus::new();
-        machine.head_position = 0;
+        machine.head_position = 2;
         machine
             .load_d64_bytes(&synthetic_d64())
             .expect("synthetic D64 should mount");
@@ -801,11 +1359,26 @@ mod tests {
             0x00,
             "write-protect sense should pull VIA2 PB4 low for mounted read-only media"
         );
-        assert_eq!(
-            machine.peek_with_iec_bus(0x1C00, &bus) & 0x80,
-            0x80,
-            "sync should stay inactive until GCR/sector mechanics exist"
+        assert!(
+            machine.peek_with_iec_bus(0x1C00, &bus) & 0x80 != 0,
+            "sync should stay inactive while the spindle is stopped"
         );
+    }
+
+    #[test]
+    fn halftrack_positions_map_back_to_whole_d64_tracks() {
+        assert_eq!(track_slot_index(0), None);
+        assert_eq!(track_slot_index(1), None);
+        assert_eq!(track_slot_index(2), Some(0));
+        assert_eq!(track_slot_index(3), Some(1));
+        assert_eq!(track_slot_index(34), Some(32));
+        assert_eq!(track_slot_index(35), Some(33));
+        assert_eq!(track_slot_index(36), Some(34));
+        assert_eq!(track_slot_index(70), Some(68));
+        assert_eq!(track_slot_index(71), Some(69));
+        assert_eq!(track_slot_index(72), Some(70));
+        assert_eq!(track_slot_index(84), Some(82));
+        assert_eq!(track_slot_index(85), None);
     }
 
     #[test]
@@ -846,6 +1419,96 @@ mod tests {
         assert_eq!(disk.directory_entries[0].name, "HELLO");
         assert_eq!(disk.directory_entries[0].file_type, "PRG");
         assert_eq!(disk.directory_entries[0].blocks, 1);
+    }
+
+    #[test]
+    fn mounted_d64_produces_byte_ready_and_gcr_data_in_read_mode() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        machine.head_position = 2;
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x04);
+        machine.poke(0x1C0C, 0x22);
+
+        let mut saw_byte_ready = false;
+        for _ in 0..512 {
+            machine.tick();
+            saw_byte_ready |= machine.byte_ready();
+            if saw_byte_ready {
+                break;
+            }
+        }
+
+        assert!(
+            saw_byte_ready,
+            "mounted D64 should eventually latch a byte-ready edge in read mode"
+        );
+        assert_ne!(machine.gcr_read(), 0x11);
+    }
+
+    #[test]
+    fn mounted_d64_halftrack_still_produces_readable_flux() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        machine.head_position = 3;
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x04);
+        machine.poke(0x1C0C, 0x22);
+
+        let mut saw_byte_ready = false;
+        for _ in 0..512 {
+            machine.tick();
+            saw_byte_ready |= machine.byte_ready();
+            if saw_byte_ready {
+                break;
+            }
+        }
+
+        assert!(
+            saw_byte_ready,
+            "mirrored halftracks should still yield readable byte-ready edges"
+        );
+        assert_ne!(machine.gcr_read(), 0x11);
+    }
+
+    #[test]
+    fn reading_via2_port_a_clears_byte_ready() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bus = IecBus::new();
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        machine.head_position = 2;
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x04);
+        machine.poke(0x1C0C, 0x22);
+
+        for _ in 0..512 {
+            machine.tick();
+            if machine.byte_ready() {
+                break;
+            }
+        }
+
+        assert!(
+            machine.byte_ready(),
+            "track should eventually assert byte ready"
+        );
+        let _ = machine.read_with_iec_bus(0x1C01, &bus);
+        assert!(
+            !machine.byte_ready(),
+            "reading VIA2 Port A should clear byte ready"
+        );
     }
 
     #[test]

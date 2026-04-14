@@ -526,7 +526,7 @@ impl C64 {
     }
 
     fn drive_iec_outputs(&self, bus: &mut IecBus) {
-        bus.write_cpu_port_a(self.cia2.pa);
+        bus.write_cpu_port_a(self.cia2.port_a_drive_state());
     }
 
     fn cpu_port_read(&self) -> u8 {
@@ -703,6 +703,20 @@ mod tests {
         machine.cpu_write(0xDD02, 0x03);
         machine.cpu_write(0xDD00, 0x01);
         assert_eq!(machine.vic_bank(), 2);
+    }
+
+    #[test]
+    fn cia2_iec_outputs_use_port_drive_state() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut bus = IecBus::new();
+
+        machine.cpu_write(0xDD02, 0x3F);
+        machine.cpu_write(0xDD00, 0x67);
+        machine.sync_iec_bus(&mut bus);
+        machine.drive_iec_outputs(&mut bus);
+
+        assert_eq!(machine.cia2.port_a_drive_state(), 0xE7);
+        assert_eq!(bus.drive_port() & 0x84, 0x84);
     }
 
     fn make_tap(payload: &[u8]) -> Vec<u8> {
