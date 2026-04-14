@@ -169,6 +169,12 @@ impl Via6522 {
         value
     }
 
+    pub fn read_port_a_with_value(&mut self, value: u8) -> u8 {
+        self.clear_port_a_interrupts();
+        self.update_pins();
+        value
+    }
+
     #[must_use]
     pub fn peek(&self, reg: u8) -> u8 {
         match reg & 0x0F {
@@ -267,6 +273,26 @@ impl Via6522 {
     #[must_use]
     pub const fn ddrb(&self) -> u8 {
         self.ddrb
+    }
+
+    #[must_use]
+    pub fn compose_port_a_read(&self, input: u8) -> u8 {
+        (self.ora & self.ddra) | (input & !self.ddra)
+    }
+
+    #[must_use]
+    pub fn compose_port_b_read(&self, input: u8) -> u8 {
+        (self.port_b_output() & self.ddrb) | (input & !self.ddrb)
+    }
+
+    #[must_use]
+    pub fn port_a_drive_state(&self) -> u8 {
+        (self.ora & self.ddra) | !self.ddra
+    }
+
+    #[must_use]
+    pub fn port_b_drive_state(&self) -> u8 {
+        (self.port_b_output() & self.ddrb) | !self.ddrb
     }
 
     fn poll_lines(&mut self) {

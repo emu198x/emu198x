@@ -14,8 +14,10 @@ use emu198x_shell::{
 };
 
 pub use autoload::{
-    C64AutoloadError, C64TapeAutoloadResult, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_tape,
+    C64AutoloadError, C64DiskAutoloadResult, C64TapeAutoloadResult, DEFAULT_DISK_AUTOLOAD_SLOT,
+    DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk,
+    autoload_basic_tape,
 };
 pub use runtime::{C64Runtime, C64SessionQueryProvider};
 

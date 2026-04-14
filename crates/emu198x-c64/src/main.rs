@@ -26,9 +26,10 @@ use emu198x_shell::{
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_tape,
-    file_loader::load_host_file,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
+    DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
+    autoload_basic_tape, file_loader::load_host_file,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -62,6 +63,7 @@ Options:
     --load PATH          import one .prg or plain-text .bas file after boot
     --disk PATH          insert one D64 image into drive-8 at startup
     --tape PATH          insert one TAP image into datasette slot at startup
+    --autoload-disk      wait for READY. and type LOAD\"*\",8,1 for drive-8
     --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape         start the inserted tape immediately at startup
     --turbo-tape         run unthrottled while the tape is playing
@@ -84,6 +86,7 @@ Examples:
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk
     emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape
     emu198x-c64 --load-snapshot ready.c64.pst
 ";
@@ -98,6 +101,7 @@ struct Cli {
     load: Option<PathBuf>,
     disk: Option<PathBuf>,
     tape: Option<PathBuf>,
+    autoload_disk: bool,
     autoload_tape: bool,
     start_tape: bool,
     turbo_tape: bool,
@@ -184,6 +188,11 @@ struct C64Runner {
 
 impl C64Runner {
     fn from_cli(cli: &Cli) -> Result<Self, AppError> {
+        if cli.autoload_disk && cli.autoload_tape {
+            return Err(AppError::Setup {
+                reason: "--autoload-disk conflicts with --autoload-tape".to_owned(),
+            });
+        }
         if cli.autoload_tape && cli.start_tape {
             return Err(AppError::Setup {
                 reason: "--autoload-tape conflicts with --start-tape".to_owned(),
@@ -236,6 +245,16 @@ impl C64Runner {
             )
             .map_err(|err| AppError::Setup {
                 reason: format!("tape autoload failed: {err}"),
+            })?;
+        } else if cli.autoload_disk {
+            autoload_basic_disk(
+                &mut session,
+                DEFAULT_DISK_AUTOLOAD_SLOT,
+                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+                DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+            )
+            .map_err(|err| AppError::Setup {
+                reason: format!("disk autoload failed: {err}"),
             })?;
         } else if cli.start_tape {
             session
@@ -947,6 +966,7 @@ where
             "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
             "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--autoload-disk" => cli.autoload_disk = true,
             "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
             "--turbo-tape" => cli.turbo_tape = true,
@@ -1330,6 +1350,7 @@ mod tests {
                 load: Some(PathBuf::from("demo.bas")),
                 disk: None,
                 tape: None,
+                autoload_disk: false,
                 autoload_tape: false,
                 start_tape: false,
                 turbo_tape: false,
@@ -1358,6 +1379,7 @@ mod tests {
                 load: None,
                 disk: None,
                 tape: Some(PathBuf::from("game.tap")),
+                autoload_disk: false,
                 autoload_tape: true,
                 start_tape: false,
                 turbo_tape: false,
@@ -1382,6 +1404,7 @@ mod tests {
                 load: None,
                 disk: None,
                 tape: None,
+                autoload_disk: false,
                 autoload_tape: false,
                 start_tape: false,
                 turbo_tape: true,
@@ -1397,6 +1420,14 @@ mod tests {
 
         assert_eq!(cli.disk, Some(PathBuf::from("game.d64")));
         assert_eq!(cli.tape, None);
+    }
+
+    #[test]
+    fn parse_cli_accepts_disk_autoload_flag() {
+        let cli = parse_cli(["--autoload-disk".to_string()]);
+
+        assert!(cli.autoload_disk);
+        assert!(!cli.autoload_tape);
     }
 
     #[test]

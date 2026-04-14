@@ -79,6 +79,9 @@ Examples:
 - `--disk game.d64` for the current C64 runners mounts a `D64` into the live
   drive-8 path when a 1541 ROM is present; this is real drive-owned media
   insertion, but it is not yet DOS/IEC-backed file loading.
+- `--autoload-disk` for the current C64 runners is a host workflow over the
+  real BASIC editor: it types `LOAD"*",8,1` and waits for the live 1541 path
+  to reach the KERNAL search banner.
 - an optional 1541 ROM in the current C64 runtime means a live drive board now
   executes on the shared IEC bus, but that is still drive-side board execution
   and query/debug visibility, not yet real disk-media loading.
@@ -135,6 +138,11 @@ cargo run -p emu198x-c64 -- \
   --tape game.tap \
   --autoload-tape \
   --turbo-tape
+
+cargo run -p emu198x-c64 -- \
+  --rom-dir ~/.emu198x/roms/commodore-c64 \
+  --disk game.d64 \
+  --autoload-disk
 ```
 
 Live controls:
@@ -224,7 +232,9 @@ Current examples include:
   decodes both VIA windows, and now shares first-pass IEC line state with the
   C64 board through `common-commodore-iec`; the runtime can now optionally
   attach that live 1541 with queryable drive CPU/VIA state, snapshot coverage,
-  and real `D64` media insertion into `drive-8`
+  real `D64` media insertion into `drive-8`, and a first ROM-backed `Bruce Lee`
+  proof that typed `LOAD"*",8,1` reaches `SEARCHING FOR` and moves the live
+  1541 head afterward
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

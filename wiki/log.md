@@ -4,6 +4,22 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — Live 1541 path now enters real BASIC disk autoload
+
+**Type:** milestone
+**Trigger:** After mounted `D64` media and the first drive-side mechanics/status slice landed, the next honest disk step was to stop assuming `SHIFT+RUN/STOP` would enter the 1541 path and prove a real BASIC-side disk command over the live attached drive.
+**Result:** the fresh workspace now has the first ROM-backed live-disk autoload proof:
+1. `runtime-commodore-c64::autoload_basic_disk()` now types the real BASIC command `LOAD"*",8,1` instead of incorrectly assuming the tape-oriented `SHIFT+RUN/STOP` shortcut would enter the disk path.
+2. `emu198x-script-c64` and `emu198x-c64` now expose that host-side workflow through `--autoload-disk`, while keeping it clearly above the emulation boundary.
+3. `machine-commodore-1541` now reads VIA1 Port B with a VICE-style mixed IEC/status byte instead of a generic DDR-masked port value, which makes the live DOS-side port view more faithful.
+4. A real local `Bruce Lee (1984)(Datasoft)` `D64` proof now reaches the KERNAL `SEARCHING FOR` banner and then moves the live 1541 head, which is the first honest sign that the attached drive path has entered command-side motion beyond mere media insertion.
+**Verification:** locally, this slice passes:
+- `cargo fmt --all`
+- `cargo test -p machine-commodore-1541 -p runtime-commodore-c64 -p emu198x-script-c64 -p emu198x-c64`
+- `cargo clippy -p machine-commodore-1541 -p runtime-commodore-c64 -p emu198x-script-c64 -p emu198x-c64 --all-targets -- -D warnings`
+- `cargo test -p runtime-commodore-c64 real_d64_autoload_bruce_lee_starts_drive_motion -- --ignored --nocapture`
+**Consequence:** the live disk path is still not yet full DOS-sector/GCR loading, but the C64 is now entering the real disk search path through the BASIC editor and provoking observable 1541 head movement instead of stopping at “disk mounted” plus board scaffolding.
+
 ## 2026-04-14 — Live 1541 runtime now owns mounted D64 media
 
 **Type:** milestone

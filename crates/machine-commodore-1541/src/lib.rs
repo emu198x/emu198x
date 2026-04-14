@@ -1,11 +1,13 @@
 //! Board-level Commodore 1541 substrate.
 //!
-//! This crate deliberately stops before IEC, GCR, and mechanics. It owns the
+//! This crate deliberately stops before GCR and sector mechanics. It owns the
 //! durable drive-side board behavior that those later layers will need:
 //! - 6502 CPU bus loop
 //! - 2KB RAM with mirroring
 //! - 16KB DOS ROM mapping
 //! - VIA1 and VIA2 register decode at `$1800`/`$1C00`
+//! - IEC-visible VIA1 wiring
+//! - first-pass drive-side status/mechanics signals
 
 use common_commodore_iec::IecBus;
 use format_commodore_c64_d64::{D64FileType, D64ParseError, parse_directory};
@@ -17,6 +19,8 @@ use thiserror::Error;
 const RAM_SIZE: usize = 0x0800;
 const ROM_SIZE: usize = 0x4000;
 const DEFAULT_DEVICE_NUMBER: u8 = 8;
+const INITIAL_HEAD_POSITION: u8 = 36;
+const MAX_HEAD_POSITION: u8 = 84;
 
 /// Nominal 1541 6502 clock used for first-pass combined C64/drive scheduling.
 pub const DRIVE1541_CPU_HZ: u64 = 1_000_000;
@@ -30,6 +34,11 @@ pub struct Drive1541 {
     rom: [u8; ROM_SIZE],
     disk: Option<Drive1541Disk>,
     device_number: u8,
+    head_position: u8,
+    stepper_phase: u8,
+    motor_on: bool,
+    activity_led: bool,
+    density_code: u8,
     cycles: u64,
 }
 
@@ -42,6 +51,11 @@ pub struct Drive1541Snapshot {
     rom: Vec<u8>,
     disk: Option<Drive1541Disk>,
     device_number: u8,
+    head_position: u8,
+    stepper_phase: u8,
+    motor_on: bool,
+    activity_led: bool,
+    density_code: u8,
     cycles: u64,
 }
 
@@ -50,6 +64,7 @@ pub struct Drive1541Disk {
     image_bytes: Vec<u8>,
     disk_name: String,
     disk_id: String,
+    write_protected: bool,
     directory_entries: Vec<Drive1541DirectoryEntry>,
 }
 
@@ -74,6 +89,11 @@ impl Drive1541Disk {
     #[must_use]
     pub fn disk_id(&self) -> &str {
         &self.disk_id
+    }
+
+    #[must_use]
+    pub const fn write_protected(&self) -> bool {
+        self.write_protected
     }
 
     #[must_use]
@@ -127,6 +147,11 @@ impl Drive1541 {
             rom,
             disk: None,
             device_number: DEFAULT_DEVICE_NUMBER,
+            head_position: INITIAL_HEAD_POSITION,
+            stepper_phase: 0x03,
+            motor_on: false,
+            activity_led: false,
+            density_code: 0,
             cycles: 0,
         })
     }
@@ -157,6 +182,26 @@ impl Drive1541 {
     }
 
     #[must_use]
+    pub const fn head_position(&self) -> u8 {
+        self.head_position
+    }
+
+    #[must_use]
+    pub const fn motor_on(&self) -> bool {
+        self.motor_on
+    }
+
+    #[must_use]
+    pub const fn activity_led(&self) -> bool {
+        self.activity_led
+    }
+
+    #[must_use]
+    pub const fn density_code(&self) -> u8 {
+        self.density_code
+    }
+
+    #[must_use]
     pub const fn disk(&self) -> Option<&Drive1541Disk> {
         self.disk.as_ref()
     }
@@ -177,6 +222,7 @@ impl Drive1541 {
             image_bytes: bytes.to_vec(),
             disk_name: directory.disk_name,
             disk_id: directory.disk_id,
+            write_protected: true,
             directory_entries: directory
                 .entries
                 .into_iter()
@@ -204,6 +250,11 @@ impl Drive1541 {
             rom: self.rom.to_vec(),
             disk: self.disk.clone(),
             device_number: self.device_number,
+            head_position: self.head_position,
+            stepper_phase: self.stepper_phase,
+            motor_on: self.motor_on,
+            activity_led: self.activity_led,
+            density_code: self.density_code,
             cycles: self.cycles,
         }
     }
@@ -235,6 +286,11 @@ impl Drive1541 {
         self.rom.copy_from_slice(&snapshot.rom);
         self.disk = snapshot.disk;
         self.device_number = snapshot.device_number;
+        self.head_position = snapshot.head_position;
+        self.stepper_phase = snapshot.stepper_phase;
+        self.motor_on = snapshot.motor_on;
+        self.activity_led = snapshot.activity_led;
+        self.density_code = snapshot.density_code;
         self.cycles = snapshot.cycles;
         Ok(())
     }
@@ -273,6 +329,11 @@ impl Drive1541 {
             rom,
             disk: snapshot.disk,
             device_number: snapshot.device_number,
+            head_position: snapshot.head_position,
+            stepper_phase: snapshot.stepper_phase,
+            motor_on: snapshot.motor_on,
+            activity_led: snapshot.activity_led,
+            density_code: snapshot.density_code,
             cycles: snapshot.cycles,
         })
     }
@@ -281,7 +342,11 @@ impl Drive1541 {
     pub fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
+            0x1800..=0x18FF if (addr & 0x0F) == 0x00 => self.via1_port_b_read(None),
+            0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => self.via1_port_a_read(),
             0x1800..=0x18FF => self.via1.peek((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => self.via2_port_b_read(),
+            0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => self.via2_port_a_read(),
             0x1C00..=0x1CFF => self.via2.peek((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
             _ => 0xFF,
@@ -299,6 +364,7 @@ impl Drive1541 {
     }
 
     pub fn tick(&mut self) -> bool {
+        self.apply_drive_inputs(None);
         self.cpu.irq = self.via1.irq || self.via2.irq;
 
         if self.cpu.rw {
@@ -308,14 +374,17 @@ impl Drive1541 {
         }
 
         let completed = self.cpu.tick();
+        self.apply_drive_inputs(None);
         self.via1.tick();
         self.via2.tick();
+        self.refresh_drive_mechanics();
+        self.apply_drive_inputs(None);
         self.cycles += 1;
         completed
     }
 
     pub fn tick_with_iec_bus(&mut self, bus: &mut IecBus) -> bool {
-        self.apply_iec_inputs(bus);
+        self.apply_drive_inputs(Some(bus));
         self.cpu.irq = self.via1.irq || self.via2.irq;
 
         if self.cpu.rw {
@@ -325,9 +394,11 @@ impl Drive1541 {
         }
 
         let completed = self.cpu.tick();
-        self.apply_iec_inputs(bus);
+        self.apply_drive_inputs(Some(bus));
         self.via1.tick();
         self.via2.tick();
+        self.refresh_drive_mechanics();
+        self.apply_drive_inputs(Some(bus));
         self.cycles += 1;
         completed
     }
@@ -336,8 +407,11 @@ impl Drive1541 {
     pub fn peek_with_iec_bus(&self, addr: u16, bus: &IecBus) -> u8 {
         match addr {
             0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
-            0x1800..=0x18FF if (addr & 0x0F) == 0x00 => self.via1_port_b_read(bus),
+            0x1800..=0x18FF if (addr & 0x0F) == 0x00 => self.via1_port_b_read(Some(bus)),
+            0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => self.via1_port_a_read(),
             0x1800..=0x18FF => self.via1.peek((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => self.via2_port_b_read(),
+            0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => self.via2_port_a_read(),
             0x1C00..=0x1CFF => self.via2.peek((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
             _ => 0xFF,
@@ -348,10 +422,22 @@ impl Drive1541 {
         match addr {
             0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
             0x1800..=0x18FF if (addr & 0x0F) == 0x00 => {
-                let value = self.via1_port_b_read(bus);
+                let value = self.via1_port_b_read(Some(bus));
                 self.via1.read_port_b_with_value(value)
             }
+            0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
+                let value = self.via1_port_a_read();
+                self.via1.read_port_a_with_value(value)
+            }
             0x1800..=0x18FF => self.via1.read((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
+                let value = self.via2_port_b_read();
+                self.via2.read_port_b_with_value(value)
+            }
+            0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
+                let value = self.via2_port_a_read();
+                self.via2.read_port_a_with_value(value)
+            }
             0x1C00..=0x1CFF => self.via2.read((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
             _ => 0xFF,
@@ -372,19 +458,132 @@ impl Drive1541 {
     }
 
     pub fn sync_iec_bus(&mut self, bus: &mut IecBus) {
-        self.apply_iec_inputs(bus);
+        self.apply_drive_inputs(Some(bus));
     }
 
     fn drive_iec_outputs(&self, bus: &mut IecBus) {
-        bus.write_drive_port_b(self.device_number, self.via1.pb);
+        bus.write_drive_port_b(self.device_number, self.via1.port_b_drive_state());
     }
 
-    fn apply_iec_inputs(&mut self, bus: &IecBus) {
-        self.via1.ca1 = bus.drive_atn_high();
+    fn apply_drive_inputs(&mut self, bus: Option<&IecBus>) {
+        self.via1.pa_in = self.via1_port_a_input();
+        self.via1.pb_in = self.via1_port_b_input(bus);
+        self.via1.ca1 = !self.bus_atn_high(bus);
+        self.via2.pa_in = self.via2_port_a_input();
+        self.via2.pb_in = self.via2_port_b_input();
+        self.via2.ca1 = self.byte_ready_not_asserted() || !self.so_enable();
     }
 
-    fn via1_port_b_read(&self, bus: &IecBus) -> u8 {
-        ((self.via1.orb() & 0x1A) | bus.drive_port()) ^ 0x85
+    fn refresh_drive_mechanics(&mut self) {
+        let port_b = self.via2.port_b_drive_state();
+        let phase = port_b & 0x03;
+        let movement = phase.wrapping_sub(self.stepper_phase) & 0x03;
+
+        self.motor_on = port_b & 0x04 != 0;
+        self.activity_led = port_b & 0x08 != 0;
+        self.density_code = (port_b >> 5) & 0x03;
+
+        if self.motor_on && (movement & 0x01) != 0 {
+            if (movement & 0x02) == 0 {
+                self.head_position = self.head_position.saturating_add(1).min(MAX_HEAD_POSITION);
+            } else {
+                self.head_position = self.head_position.saturating_sub(1);
+            }
+        }
+
+        self.stepper_phase = phase;
+    }
+
+    fn via1_port_a_read(&self) -> u8 {
+        self.via1.compose_port_a_read(self.via1_port_a_input())
+    }
+
+    fn via1_port_b_read(&self, bus: Option<&IecBus>) -> u8 {
+        (((self.via1.orb() & 0x1A) | self.via1_bus_port(bus)) ^ 0x85)
+            | (self.device_select_bits() << 5)
+    }
+
+    fn via2_port_a_read(&self) -> u8 {
+        self.via2.compose_port_a_read(self.via2_port_a_input())
+    }
+
+    fn via2_port_b_read(&self) -> u8 {
+        self.via2.compose_port_b_read(self.via2_port_b_input())
+    }
+
+    fn via1_port_a_input(&self) -> u8 {
+        0xFE | u8::from(self.head_position != 0)
+    }
+
+    fn via1_port_b_input(&self, bus: Option<&IecBus>) -> u8 {
+        self.via1_bus_port(bus)
+    }
+
+    fn via2_port_a_input(&self) -> u8 {
+        0xFF
+    }
+
+    fn via2_port_b_input(&self) -> u8 {
+        let mut value = 0x6F;
+        if self.sync_not_detected() {
+            value |= 0x80;
+        }
+        if self.write_protect_not_asserted() {
+            value |= 0x10;
+        }
+        value
+    }
+
+    fn device_select_bits(&self) -> u8 {
+        self.device_number.saturating_sub(DEFAULT_DEVICE_NUMBER) & 0x03
+    }
+
+    fn via1_bus_port(&self, bus: Option<&IecBus>) -> u8 {
+        let mut value = 0;
+        if self.bus_data_high(bus) {
+            value |= 0x01;
+        }
+        if self.bus_clock_high(bus) {
+            value |= 0x04;
+        }
+        if self.bus_atn_high(bus) {
+            value |= 0x80;
+        }
+        value
+    }
+
+    fn bus_atn_high(&self, bus: Option<&IecBus>) -> bool {
+        bus.is_none_or(IecBus::drive_atn_high)
+    }
+
+    fn bus_clock_high(&self, bus: Option<&IecBus>) -> bool {
+        bus.is_none_or(|bus| bus.drive_port() & 0x04 != 0)
+    }
+
+    fn bus_data_high(&self, bus: Option<&IecBus>) -> bool {
+        bus.is_none_or(|bus| bus.drive_port() & 0x01 != 0)
+    }
+
+    fn so_enable(&self) -> bool {
+        if self.via2.ca2_drive {
+            self.via2.ca2_out
+        } else {
+            true
+        }
+    }
+
+    fn byte_ready_not_asserted(&self) -> bool {
+        true
+    }
+
+    fn sync_not_detected(&self) -> bool {
+        true
+    }
+
+    fn write_protect_not_asserted(&self) -> bool {
+        self.disk
+            .as_ref()
+            .is_some_and(|disk| !disk.write_protected())
     }
 }
 
@@ -582,6 +781,54 @@ mod tests {
     }
 
     #[test]
+    fn via_status_ports_reflect_track_zero_and_write_protect() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bus = IecBus::new();
+        machine.head_position = 0;
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+
+        assert_eq!(
+            machine.peek_with_iec_bus(0x1801, &bus) & 0x01,
+            0x00,
+            "track-zero sense should pull VIA1 PA0 low"
+        );
+        assert_eq!(
+            machine.peek_with_iec_bus(0x1C00, &bus) & 0x10,
+            0x00,
+            "write-protect sense should pull VIA2 PB4 low for mounted read-only media"
+        );
+        assert_eq!(
+            machine.peek_with_iec_bus(0x1C00, &bus) & 0x80,
+            0x80,
+            "sync should stay inactive until GCR/sector mechanics exist"
+        );
+    }
+
+    #[test]
+    fn via2_outputs_drive_motor_led_and_head_motion() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine.head_position = 10;
+        machine.stepper_phase = 0;
+
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x0C);
+        machine.tick();
+        machine.poke(0x1C00, 0x0D);
+        machine.tick();
+
+        assert!(machine.motor_on());
+        assert!(machine.activity_led());
+        assert_eq!(machine.density_code(), 0);
+        assert_eq!(machine.head_position(), 11);
+    }
+
+    #[test]
     fn drive_can_mount_d64_and_report_directory() {
         let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
         let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
@@ -594,6 +841,7 @@ mod tests {
         let disk = machine.disk().expect("disk should be inserted");
         assert_eq!(disk.disk_name, "DEMO DISK");
         assert_eq!(disk.disk_id, "42");
+        assert!(disk.write_protected());
         assert_eq!(disk.directory_entries.len(), 1);
         assert_eq!(disk.directory_entries[0].name, "HELLO");
         assert_eq!(disk.directory_entries[0].file_type, "PRG");
@@ -628,6 +876,10 @@ mod tests {
         assert_eq!(restored.peek(0x0400), machine.peek(0x0400));
         assert_eq!(restored.cycles(), machine.cycles());
         assert_eq!(restored.device_number(), machine.device_number());
+        assert_eq!(restored.head_position(), machine.head_position());
+        assert_eq!(restored.motor_on(), machine.motor_on());
+        assert_eq!(restored.activity_led(), machine.activity_led());
+        assert_eq!(restored.density_code(), machine.density_code());
         assert!(restored.disk_inserted());
         assert_eq!(
             restored.disk().expect("disk should be restored").disk_name,

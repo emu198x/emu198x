@@ -70,9 +70,14 @@ const C64_QUERY_PATHS: &[&str] = &[
     "c64.drive8.via2.irq",
     "c64.drive8.via2.pa",
     "c64.drive8.via2.pb",
+    "c64.drive8.motor_on",
+    "c64.drive8.activity_led",
+    "c64.drive8.head_position",
+    "c64.drive8.density_code",
     "c64.drive8.disk.inserted",
     "c64.drive8.disk.name",
     "c64.drive8.disk.id",
+    "c64.drive8.disk.write_protected",
     "c64.drive8.disk.directory",
     "c64.iec.cpu_port",
     "c64.iec.drive_port",
@@ -628,6 +633,16 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.drive8.via2.irq" => json!(machine.drive8().map(|drive| drive.via2().irq)),
             "c64.drive8.via2.pa" => json!(machine.drive8().map(|drive| drive.via2().pa)),
             "c64.drive8.via2.pb" => json!(machine.drive8().map(|drive| drive.via2().pb)),
+            "c64.drive8.motor_on" => json!(machine.drive8().map(|drive| drive.motor_on())),
+            "c64.drive8.activity_led" => {
+                json!(machine.drive8().map(|drive| drive.activity_led()))
+            }
+            "c64.drive8.head_position" => {
+                json!(machine.drive8().map(|drive| drive.head_position()))
+            }
+            "c64.drive8.density_code" => {
+                json!(machine.drive8().map(|drive| drive.density_code()))
+            }
             "c64.drive8.disk.inserted" => {
                 json!(machine.drive8().is_some_and(|drive| drive.disk_inserted()))
             }
@@ -642,6 +657,12 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
                     .drive8()
                     .and_then(|drive| drive.disk())
                     .map(|disk| disk.disk_id())
+            ),
+            "c64.drive8.disk.write_protected" => json!(
+                machine
+                    .drive8()
+                    .and_then(|drive| drive.disk())
+                    .map(|disk| disk.write_protected())
             ),
             "c64.drive8.disk.directory" => json!(
                 machine
@@ -902,8 +923,9 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
 mod tests {
     use super::*;
     use crate::{
+        DEFAULT_DISK_AUTOLOAD_SLOT, DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
         DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT,
-        DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_tape,
+        DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk, autoload_basic_tape,
     };
     use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
     use emu198x_shell::{
@@ -1463,6 +1485,14 @@ mod tests {
                 .value,
             json!("42")
         );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.disk.write_protected")
+                .expect("disk write-protect query should not fail")
+                .expect("disk write-protect query should resolve")
+                .value,
+            json!(true)
+        );
         let directory = provider
             .query(&runtime, "c64.drive8.disk.directory")
             .expect("disk directory query should not fail")
@@ -1707,6 +1737,70 @@ mod tests {
                 .expect("disk id query should resolve")
                 .value,
             json!("00")
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "c64.drive8.disk.write_protected")
+                .expect("disk write-protect query should not fail")
+                .expect("disk write-protect query should resolve")
+                .value,
+            json!(true)
+        );
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+    fn real_d64_autoload_bruce_lee_starts_drive_motion() {
+        let firmware = local_rom_firmware_with_drive();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("local ROMs should construct a C64 runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let disk = read_media_asset(&local_bruce_lee_d64_zip(), MediaKind::Disk)
+            .expect("local Bruce Lee D64 archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            MediaKind::Disk,
+            &disk.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("Bruce Lee D64 should mount into drive-8");
+
+        let autoload = autoload_basic_disk(
+            &mut session,
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("disk autoload should reach SEARCHING FOR");
+        assert_eq!(autoload.slot, DEFAULT_DISK_AUTOLOAD_SLOT);
+
+        let start_head = session
+            .query("c64.drive8.head_position")
+            .expect("head position query should not fail")
+            .value
+            .as_u64()
+            .expect("head position should be numeric");
+
+        session
+            .run_frames(2_000)
+            .expect("Bruce Lee disk autoload should advance the attached drive");
+
+        let end_head = session
+            .query("c64.drive8.head_position")
+            .expect("head position query should not fail")
+            .value
+            .as_u64()
+            .expect("head position should stay numeric");
+
+        assert!(
+            end_head != start_head,
+            "Bruce Lee disk autoload should move the 1541 head after SEARCHING FOR: start={start_head} end={end_head}"
         );
     }
 
