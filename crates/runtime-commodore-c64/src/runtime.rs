@@ -1,10 +1,12 @@
 //! Runtime wrapper for the fresh-workspace Commodore 64.
 
+use std::borrow::Cow;
+
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
     MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet,
     MediaTransportAction, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
-    StopReason,
+    StopReason, TraceEvent,
 };
 use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
 use serde_json::json;
@@ -87,6 +89,7 @@ pub struct C64Runtime {
     basic_rom: Vec<u8>,
     character_rom: Vec<u8>,
     rgba_framebuffer: Vec<u8>,
+    trace_vic_colour_writes: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -154,6 +157,7 @@ impl C64Runtime {
             basic_rom,
             character_rom,
             rgba_framebuffer,
+            trace_vic_colour_writes: false,
         })
     }
 
@@ -253,6 +257,11 @@ impl C64Runtime {
         })?;
         Ok(())
     }
+
+    /// Enables or disables one targeted VIC colour-write trace stream.
+    pub fn set_trace_vic_colour_writes(&mut self, enabled: bool) {
+        self.trace_vic_colour_writes = enabled;
+    }
 }
 
 impl MachineCore for C64Runtime {
@@ -301,9 +310,54 @@ impl MachineCore for C64Runtime {
             apply_input_event(&mut self.machine, event);
         }
 
+        let mut prev_border = self.machine.vic_register(0x20) & 0x0F;
+        let mut prev_background = self.machine.vic_register(0x21) & 0x0F;
+
         while self.time < target {
             let frame_complete = self.machine.tick();
             self.time = MachineTime::new(self.machine.phi2_cycles());
+
+            if self.trace_vic_colour_writes {
+                let border = self.machine.vic_register(0x20) & 0x0F;
+                if border != prev_border {
+                    let payload = serde_json::to_vec(&json!({
+                        "register": "d020",
+                        "value": border,
+                        "raster_line": self.machine.raster_line(),
+                        "cycle_in_line": self.machine.cycle_in_line(),
+                        "cpu_pc": self.machine.cpu().regs.pc,
+                    }))
+                    .map_err(|reason| MachineError::Host {
+                        reason: format!("failed to encode trace payload: {reason}"),
+                    })?;
+                    host.trace_sink.push_trace(TraceEvent {
+                        timestamp: self.time,
+                        kind: Cow::Borrowed("c64.vic.colour_write"),
+                        payload: &payload,
+                    })?;
+                    prev_border = border;
+                }
+
+                let background = self.machine.vic_register(0x21) & 0x0F;
+                if background != prev_background {
+                    let payload = serde_json::to_vec(&json!({
+                        "register": "d021",
+                        "value": background,
+                        "raster_line": self.machine.raster_line(),
+                        "cycle_in_line": self.machine.cycle_in_line(),
+                        "cpu_pc": self.machine.cpu().regs.pc,
+                    }))
+                    .map_err(|reason| MachineError::Host {
+                        reason: format!("failed to encode trace payload: {reason}"),
+                    })?;
+                    host.trace_sink.push_trace(TraceEvent {
+                        timestamp: self.time,
+                        kind: Cow::Borrowed("c64.vic.colour_write"),
+                        payload: &payload,
+                    })?;
+                    prev_background = background;
+                }
+            }
 
             if frame_complete {
                 self.emit_frame(host)?;

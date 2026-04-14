@@ -4,6 +4,23 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — C64 VIC colour-write tracing shows Ghostbusters border flashes start late, not “dropped per frame”
+
+**Type:** milestone
+**Trigger:** After the 6510 banking fix, Ghostbusters loads far enough to reach the copyright screen, but the expected early loading bars still did not appear in the native verifier shell. The next question was whether those bars were being lost in host presentation, or whether the machine was simply not generating the corresponding VIC colour writes yet.
+**Result:** the fresh workspace now has one targeted C64 debug tool and one concrete finding:
+1. Added `emu198x-script-c64 --trace-vic-colours`, which traces `D020`/`D021` changes during the explicit `--frames` run window and records machine time, raster line, cycle-in-line, and `PC`.
+2. Added one narrow runtime hook that emits these trace events only when explicitly enabled, so normal runs remain unchanged.
+3. Used the new trace against Ghostbusters after `--autoload-tape`.
+4. Confirmed that there are **no** `D020`/`D021` changes at all in the first `1200` post-autoload frames.
+5. Confirmed that later in the load there is a dense stream of `D020` toggles, all from the loaded-code border-flash routine around `PC=$CEC0`, alternating border colours `11` and `14` over many raster positions.
+**Verification:** locally, this slice passes:
+- `cargo test -p emu198x-shell -p runtime-commodore-c64 -p emu198x-script-c64`
+- `cargo clippy -p emu198x-shell -p runtime-commodore-c64 -p emu198x-script-c64 --all-targets -- -D warnings`
+- `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --tape '.../Ghostbusters (1984)(Activision).zip' --autoload-tape --frames 1200 --trace-vic-colours`
+- `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --tape '.../Ghostbusters (1984)(Activision).zip' --autoload-tape --frames 6000 --trace-vic-colours --trace-limit 200`
+**Consequence:** the missing early bars are not well explained by “the frontend only updates on full frames” when turbo is off. The current machine path simply does not execute the relevant VIC colour-write activity in that earlier window. The remaining discrepancy is more likely an earlier loader/timing difference than a generic presentation bug.
+
 ## 2026-04-14 — C64 Ghostbusters root cause narrowed to wrong 6510 banking bits; later loader state now proven
 
 **Type:** milestone

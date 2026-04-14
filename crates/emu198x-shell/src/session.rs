@@ -8,7 +8,7 @@ use crate::capture::{AudioCapture, CaptureError, LatestFrameCapture};
 use crate::control::ControlCommand;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
-use crate::host::{HostIo, InputEvent, NullTraceSink};
+use crate::host::{HostIo, InputEvent, NullTraceSink, TraceSink};
 use crate::machine::{MachineCore, RunResult};
 use crate::media::MediaSet;
 use crate::query::{
@@ -458,6 +458,30 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         Ok(result)
     }
 
+    /// Runs the machine until the requested target time, emitting trace events
+    /// to one caller-provided sink for this execution request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine or one host-side sink rejects the
+    /// execution request.
+    pub fn run_until_with_trace_sink(
+        &mut self,
+        target: MachineTime,
+        trace_sink: &mut dyn TraceSink,
+    ) -> Result<RunResult, SessionError> {
+        let inputs = std::mem::take(&mut self.queued_input);
+        let mut host = HostIo {
+            input_events: &inputs,
+            frame_sink: &mut self.frame_capture,
+            audio_sink: &mut self.audio_capture,
+            trace_sink,
+        };
+        let result = self.machine.run_until(target, &mut host)?;
+        self.last_run_result = Some(result);
+        Ok(result)
+    }
+
     /// Runs the machine for `count` native video frames.
     ///
     /// # Errors
@@ -467,6 +491,22 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     pub fn run_frames(&mut self, count: u32) -> Result<RunResult, SessionError> {
         let delta = self.native_frame_ticks.saturating_mul(u64::from(count));
         self.run_until(self.time().saturating_add(delta))
+    }
+
+    /// Runs the machine for `count` native video frames while emitting trace
+    /// events to one caller-provided sink.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine or one host-side sink rejects the
+    /// execution request.
+    pub fn run_frames_with_trace_sink(
+        &mut self,
+        count: u32,
+        trace_sink: &mut dyn TraceSink,
+    ) -> Result<RunResult, SessionError> {
+        let delta = self.native_frame_ticks.saturating_mul(u64::from(count));
+        self.run_until_with_trace_sink(self.time().saturating_add(delta), trace_sink)
     }
 
     /// Encodes the latest emitted frame as PNG.

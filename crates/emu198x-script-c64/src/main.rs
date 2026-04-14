@@ -12,7 +12,8 @@ use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
     BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    ScriptObservation, boot_machine, read_firmware_asset, read_media_asset, read_program_asset,
+    ScriptObservation, TraceEvent, TraceSink, boot_machine, read_firmware_asset,
+    read_media_asset, read_program_asset,
 };
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
@@ -26,6 +27,7 @@ const KERNAL_ID: &str = "commodore-c64-kernal-rom";
 const BASIC_ID: &str = "commodore-c64-basic-rom";
 const CHARACTER_ID: &str = "commodore-c64-character-rom";
 const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
+const DEFAULT_TRACE_LIMIT: usize = 512;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Cli {
@@ -46,6 +48,8 @@ struct Cli {
     wait_for_tape_stop: Option<u32>,
     print_queries: Vec<String>,
     print_screen_text: bool,
+    trace_vic_colours: bool,
+    trace_limit: usize,
     frames: u32,
 }
 
@@ -77,12 +81,58 @@ struct RunnerReport {
     loaded_program: Option<String>,
     query_values: Vec<ReportedQuery>,
     screen_text_lines: Option<Vec<String>>,
+    trace_lines: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
 struct ReportedQuery {
     path: String,
     value: Value,
+}
+
+#[derive(Debug, Default)]
+struct TraceCollector {
+    lines: Vec<String>,
+    limit: usize,
+    dropped: usize,
+}
+
+impl TraceCollector {
+    fn with_limit(limit: usize) -> Self {
+        Self {
+            lines: Vec::new(),
+            limit,
+            dropped: 0,
+        }
+    }
+
+    fn into_lines(mut self) -> Vec<String> {
+        if self.dropped != 0 {
+            self.lines
+                .push(format!("... truncated {} further trace events", self.dropped));
+        }
+        self.lines
+    }
+}
+
+impl TraceSink for TraceCollector {
+    fn push_trace(&mut self, event: TraceEvent<'_>) -> Result<(), emu198x_shell::MachineError> {
+        if self.lines.len() >= self.limit {
+            self.dropped = self.dropped.saturating_add(1);
+            return Ok(());
+        }
+
+        let payload = std::str::from_utf8(event.payload).map_err(|err| emu198x_shell::MachineError::Host {
+            reason: format!("trace payload was not utf-8: {err}"),
+        })?;
+        self.lines.push(format!(
+            "{} {} {}",
+            event.timestamp.get(),
+            event.kind,
+            payload
+        ));
+        Ok(())
+    }
 }
 
 const USAGE: &str = "\
@@ -107,6 +157,8 @@ State and automation:
     --wait-for-tape-stop N    run up to N frames until c64.tape.playing has started and then stops
     --print-query PATH        resolve one query path after running (repeatable)
     --print-screen-text       print decoded screen-text lines after running
+    --trace-vic-colours       trace D020/D021 changes during the explicit --frames run
+    --trace-limit N           maximum traced colour-write events to retain [default: 512]
     --screenshot PATH         write the last emitted frame as PNG
 
 Execution:
@@ -131,6 +183,7 @@ Examples:
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --wait-for-tape-stop 12000
     emu198x-script-c64 --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
+    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --frames 300 --trace-vic-colours
     emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --script capture.json
 ";
 
@@ -158,11 +211,17 @@ fn main() {
                 }
                 if let Some(lines) = &report.screen_text_lines {
                     println!("screen_text_lines:");
-                    for line in lines {
-                        println!("{line}");
-                    }
+                for line in lines {
+                    println!("{line}");
                 }
             }
+            if let Some(lines) = &report.trace_lines {
+                println!("trace_lines:");
+                for line in lines {
+                    println!("{line}");
+                }
+            }
+        }
         }
         Err(err) => {
             eprintln!("error: {err}");
@@ -175,7 +234,10 @@ fn parse_cli<I>(args: I) -> Cli
 where
     I: IntoIterator<Item = String>,
 {
-    let mut cli = Cli::default();
+    let mut cli = Cli {
+        trace_limit: DEFAULT_TRACE_LIMIT,
+        ..Cli::default()
+    };
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -214,6 +276,12 @@ where
             }
             "--print-query" => cli.print_queries.push(next_arg(&mut iter, "--print-query")),
             "--print-screen-text" => cli.print_screen_text = true,
+            "--trace-vic-colours" => cli.trace_vic_colours = true,
+            "--trace-limit" => {
+                cli.trace_limit = next_arg(&mut iter, "--trace-limit")
+                    .parse()
+                    .unwrap_or_else(|_| die("--trace-limit requires a non-negative integer"));
+            }
             "--screenshot" => {
                 cli.screenshot = Some(PathBuf::from(next_arg(&mut iter, "--screenshot")));
             }
@@ -360,11 +428,28 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         );
     }
 
-    if cli.frames > 0 {
+    let trace_lines = if cli.trace_vic_colours {
         session
-            .run_frames(cli.frames)
-            .map_err(|err| format!("run failed: {err}"))?;
-    }
+            .machine_mut()
+            .set_trace_vic_colour_writes(true);
+        let mut collector = TraceCollector::with_limit(cli.trace_limit);
+        if cli.frames > 0 {
+            session
+                .run_frames_with_trace_sink(cli.frames, &mut collector)
+                .map_err(|err| format!("run failed: {err}"))?;
+        }
+        session
+            .machine_mut()
+            .set_trace_vic_colour_writes(false);
+        Some(collector.into_lines())
+    } else {
+        if cli.frames > 0 {
+            session
+                .run_frames(cli.frames)
+                .map_err(|err| format!("run failed: {err}"))?;
+        }
+        None
+    };
 
     if let Some(path) = &cli.save_snapshot {
         session
@@ -396,6 +481,7 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         loaded_program,
         query_values,
         screen_text_lines,
+        trace_lines,
     })
 }
 
@@ -709,6 +795,8 @@ mod tests {
                 wait_for_tape_stop: None,
                 print_queries: vec![],
                 print_screen_text: true,
+                trace_vic_colours: false,
+                trace_limit: DEFAULT_TRACE_LIMIT,
                 frames: 12,
             }
         );
@@ -746,6 +834,8 @@ mod tests {
                 wait_for_tape_stop: Some(12000),
                 print_queries: vec![],
                 print_screen_text: false,
+                trace_vic_colours: false,
+                trace_limit: DEFAULT_TRACE_LIMIT,
                 frames: 0,
             }
         );
