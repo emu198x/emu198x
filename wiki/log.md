@@ -4,6 +4,16 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — C64 tape wording corrected: current proofs are loader-banner states, not full title loads
+
+**Type:** correction
+**Trigger:** The active C64 docs had drifted into implying that the current `Thinker` and `Thomas the Tank Engine` TAP regressions proved successful end-to-end software loading. That overstates what the tests actually show.
+**Correction:** the current C64 TAP regressions prove stable observable KERNAL loader-banner states under the real datasette path:
+1. `Thinker` reaches `FOUND THINKER`, `LOADING`, and a following `READY.` line.
+2. `Thomas the Tank Engine` reaches `FOUND THOMAS`, `LOADING`, and a following `READY.` line.
+3. These are useful loader-stage proofs, but they are not yet proof that either title fully loaded, auto-started, or reached a software-complete title/game state.
+**Follow-up:** the next real tape milestone should be a stronger end state on at least one title, plus a direct cross-check of TAP behavior against a known-good reference path where useful.
+
 ## 2026-04-14 — 6502 core reaches full Harte, Lorenz, and Dormann green; Ghostbusters remains a C64-system issue
 
 **Type:** milestone

@@ -203,7 +203,7 @@ Current examples include:
 - C64 ROM-backed `READY.` boot detection plus snapshot round-trip checks
 - C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense,
   CIA1 FLAG delivery, plus ROM-backed `Thinker` and `Thomas` TAP paths that
-  reach observable KERNAL software states over the real datasette flow
+  reach observable loader-banner states over the real datasette flow
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

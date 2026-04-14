@@ -43,6 +43,7 @@ struct Cli {
     script: Option<PathBuf>,
     wait_for_boot: Option<u32>,
     wait_for_tape_stop: Option<u32>,
+    print_screen_text: bool,
     frames: u32,
 }
 
@@ -72,6 +73,7 @@ struct RunnerReport {
     boot_detected: bool,
     boot_reason: String,
     loaded_program: Option<String>,
+    screen_text_lines: Option<Vec<String>>,
 }
 
 const USAGE: &str = "\
@@ -94,6 +96,7 @@ State and automation:
     --script PATH             execute shared JSON session steps after boot
     --wait-for-boot N         run up to N frames until boot.detected is true
     --wait-for-tape-stop N    run up to N frames until c64.tape.playing is false
+    --print-screen-text       print decoded screen-text lines after running
     --screenshot PATH         write the last emitted frame as PNG
 
 Execution:
@@ -139,6 +142,12 @@ fn main() {
                 );
                 if let Some(message) = &report.loaded_program {
                     println!("{message}");
+                }
+                if let Some(lines) = &report.screen_text_lines {
+                    println!("screen_text_lines:");
+                    for line in lines {
+                        println!("{line}");
+                    }
                 }
             }
         }
@@ -190,6 +199,7 @@ where
                         }),
                 );
             }
+            "--print-screen-text" => cli.print_screen_text = true,
             "--screenshot" => {
                 cli.screenshot = Some(PathBuf::from(next_arg(&mut iter, "--screenshot")));
             }
@@ -362,6 +372,11 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     let boot_detected = query_bool(&session, "boot.detected")?;
     let boot_reason = query_string(&session, "boot.reason")?
         .unwrap_or_else(|| "boot.detected remained false".to_owned());
+    let screen_text_lines = if cli.print_screen_text {
+        Some(query_string_list(&session, "screen.text.lines")?)
+    } else {
+        None
+    };
 
     Ok(RunnerReport {
         observations,
@@ -369,6 +384,7 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         boot_detected,
         boot_reason,
         loaded_program,
+        screen_text_lines,
     })
 }
 
@@ -546,6 +562,28 @@ fn query_string(
     Ok(result.value.as_str().map(str::to_owned))
 }
 
+fn query_string_list(
+    session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+    path: &str,
+) -> Result<Vec<String>, String> {
+    let result = session
+        .query(path)
+        .map_err(|err| format!("query {path} failed: {err}"))?;
+    let values = result
+        .value
+        .as_array()
+        .ok_or_else(|| format!("query {path} did not return an array value"))?;
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("query {path} contained a non-string entry"))
+        })
+        .collect()
+}
+
 impl ModelArg {
     const fn to_model(self) -> Model {
         match self {
@@ -572,6 +610,7 @@ mod tests {
             "out.c64.pst".to_string(),
             "--wait-for-boot".to_string(),
             "180".to_string(),
+            "--print-screen-text".to_string(),
             "--frames".to_string(),
             "12".to_string(),
             "--screenshot".to_string(),
@@ -596,6 +635,7 @@ mod tests {
                 script: None,
                 wait_for_boot: Some(180),
                 wait_for_tape_stop: None,
+                print_screen_text: true,
                 frames: 12,
             }
         );
@@ -631,6 +671,7 @@ mod tests {
                 script: None,
                 wait_for_boot: None,
                 wait_for_tape_stop: Some(12000),
+                print_screen_text: false,
                 frames: 0,
             }
         );
