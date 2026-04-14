@@ -254,7 +254,9 @@ impl Via6522 {
             }
         }
 
-        if !self.ca2_is_output() && self.edge_matches(self.prev_ca2, self.ca2, self.ca2_active_high()) {
+        if !self.ca2_is_output()
+            && self.edge_matches(self.prev_ca2, self.ca2, self.ca2_active_high())
+        {
             self.raise_interrupt(IRQ_CA2);
         }
 
@@ -268,7 +270,9 @@ impl Via6522 {
             }
         }
 
-        if !self.cb2_is_output() && self.edge_matches(self.prev_cb2, self.cb2, self.cb2_active_high()) {
+        if !self.cb2_is_output()
+            && self.edge_matches(self.prev_cb2, self.cb2, self.cb2_active_high())
+        {
             self.raise_interrupt(IRQ_CB2);
         }
 

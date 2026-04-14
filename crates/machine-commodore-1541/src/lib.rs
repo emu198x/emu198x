@@ -214,10 +214,7 @@ mod tests {
 
     #[test]
     fn cpu_can_write_through_board_to_via_space() {
-        let rom = make_rom(
-            &[(0xC000, &[0xA9, 0xFF, 0x8D, 0x02, 0x18, 0xEA])],
-            0xC000,
-        );
+        let rom = make_rom(&[(0xC000, &[0xA9, 0xFF, 0x8D, 0x02, 0x18, 0xEA])], 0xC000);
         let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
             .expect("1541 scaffold ROM should be valid");
 
