@@ -12,8 +12,8 @@ use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
     BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    ScriptObservation, TraceEvent, TraceSink, boot_machine, read_firmware_asset,
-    read_media_asset, read_program_asset,
+    ScriptObservation, TraceEvent, TraceSink, boot_machine, read_firmware_asset, read_media_asset,
+    read_program_asset,
 };
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
@@ -108,8 +108,10 @@ impl TraceCollector {
 
     fn into_lines(mut self) -> Vec<String> {
         if self.dropped != 0 {
-            self.lines
-                .push(format!("... truncated {} further trace events", self.dropped));
+            self.lines.push(format!(
+                "... truncated {} further trace events",
+                self.dropped
+            ));
         }
         self.lines
     }
@@ -122,8 +124,10 @@ impl TraceSink for TraceCollector {
             return Ok(());
         }
 
-        let payload = std::str::from_utf8(event.payload).map_err(|err| emu198x_shell::MachineError::Host {
-            reason: format!("trace payload was not utf-8: {err}"),
+        let payload = std::str::from_utf8(event.payload).map_err(|err| {
+            emu198x_shell::MachineError::Host {
+                reason: format!("trace payload was not utf-8: {err}"),
+            }
         })?;
         self.lines.push(format!(
             "{} {} {}",
@@ -211,17 +215,17 @@ fn main() {
                 }
                 if let Some(lines) = &report.screen_text_lines {
                     println!("screen_text_lines:");
-                for line in lines {
-                    println!("{line}");
+                    for line in lines {
+                        println!("{line}");
+                    }
+                }
+                if let Some(lines) = &report.trace_lines {
+                    println!("trace_lines:");
+                    for line in lines {
+                        println!("{line}");
+                    }
                 }
             }
-            if let Some(lines) = &report.trace_lines {
-                println!("trace_lines:");
-                for line in lines {
-                    println!("{line}");
-                }
-            }
-        }
         }
         Err(err) => {
             eprintln!("error: {err}");
@@ -429,18 +433,14 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     }
 
     let trace_lines = if cli.trace_vic_colours {
-        session
-            .machine_mut()
-            .set_trace_vic_colour_writes(true);
+        session.machine_mut().set_trace_vic_colour_writes(true);
         let mut collector = TraceCollector::with_limit(cli.trace_limit);
         if cli.frames > 0 {
             session
                 .run_frames_with_trace_sink(cli.frames, &mut collector)
                 .map_err(|err| format!("run failed: {err}"))?;
         }
-        session
-            .machine_mut()
-            .set_trace_vic_colour_writes(false);
+        session.machine_mut().set_trace_vic_colour_writes(false);
         Some(collector.into_lines())
     } else {
         if cli.frames > 0 {

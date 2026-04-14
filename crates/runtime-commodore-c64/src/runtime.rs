@@ -1516,4 +1516,91 @@ mod tests {
             "Thing on a Spring should consume the full TAP by the menu state"
         );
     }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs and Thing on a Spring TAP archive"]
+    fn real_tap_autoload_thing_on_a_spring_starts_after_space() {
+        let firmware = local_rom_firmware();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("real PAL C64 firmware should construct a runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let tape = read_media_asset(&local_thing_on_a_spring_tap_zip(), MediaKind::Tape)
+            .expect("local Thing on a Spring TAP archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            MediaKind::Tape,
+            &tape.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("local Thing on a Spring TAP should insert");
+
+        autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("autoload should reach PRESS PLAY ON TAPE and start transport");
+
+        session
+            .run_frames(25_000)
+            .expect("Thing on a Spring should reach its post-load menu state");
+
+        let menu_lines = screen_text_lines(&session);
+        assert!(
+            menu_lines[16].contains("600-MICRO"),
+            "Thing on a Spring should show the score table before start: {:?}",
+            menu_lines[16]
+        );
+        let menu_frame = session.machine().machine().framebuffer().to_vec();
+
+        session.queue_input(InputEvent::Key {
+            name: "space".into(),
+            pressed: true,
+        });
+        session
+            .run_frames(3)
+            .expect("Thing on a Spring should advance with SPACE held");
+        session.queue_input(InputEvent::Key {
+            name: "space".into(),
+            pressed: false,
+        });
+        session
+            .run_frames(480)
+            .expect("Thing on a Spring should settle into its started state");
+
+        let started_lines = screen_text_lines(&session);
+        assert_eq!(
+            started_lines[0], " @A!!!!!!!!!!!!DE  JKLMN  @A!!!!!!!!!DE ",
+            "Thing on a Spring should replace the menu banner after SPACE"
+        );
+        assert_eq!(
+            started_lines[8], " HI############LM QRSTUVW HI#########LM ",
+            "Thing on a Spring should reach its stable started screen after SPACE"
+        );
+        assert!(
+            !started_lines[16].contains("600-MICRO"),
+            "Thing on a Spring should leave the score table after SPACE: {:?}",
+            started_lines[16]
+        );
+        assert_ne!(
+            session.machine().machine().framebuffer(),
+            menu_frame.as_slice(),
+            "Thing on a Spring framebuffer should change after SPACE starts the title"
+        );
+
+        let machine = session.machine().machine();
+        assert!(!machine.tape_is_playing());
+        assert_eq!(
+            machine.tape_pulse_index(),
+            machine.tape_pulse_count(),
+            "Thing on a Spring should still have consumed the full TAP after SPACE"
+        );
+    }
 }

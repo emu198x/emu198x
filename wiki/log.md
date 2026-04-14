@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — Thing on a Spring now proves a real post-load interaction, not just menu reach
+
+**Type:** milestone
+**Trigger:** After `Thing on a Spring` became the strongest C64 tape regression by reaching a stable readable menu, the next useful question was whether the loaded title would actually respond correctly to live keyboard input instead of merely sitting at a post-load attract/menu state.
+**Result:** the fresh-workspace C64 now has a stronger ROM-backed `Thing on a Spring` proof:
+1. Probed the live title headlessly and confirmed that pressing `SPACE` after the menu is reached transitions reliably into a distinct started/game screen.
+2. Confirmed that the post-`SPACE` decoded screen state is stable across later frame windows, rather than a transient redraw.
+3. Added an ignored ROM-backed regression that boots, autoloads the real TAP, reaches the menu, presses `SPACE` through the normal input path, and checks both a stable started-screen signature and a changed framebuffer.
+**Verification:** locally, this slice passes:
+- `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --tape '.../Thing on a Spring (1985)(Gremlin).zip' --autoload-tape --script /tmp/thing-space-after.json`
+- `cargo test --release -p runtime-commodore-c64 real_tap_autoload_thing_on_a_spring_starts_after_space -- --ignored --nocapture`
+**Consequence:** `Thing on a Spring` is now more than a menu anchor. It is the first fresh-workspace C64 tape title that proves real post-load interaction through the live keyboard path.
+
 ## 2026-04-14 — Thing on a Spring becomes the strongest C64 tape regression so far
 
 **Type:** milestone
