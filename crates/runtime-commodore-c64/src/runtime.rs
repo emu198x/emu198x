@@ -863,6 +863,15 @@ mod tests {
         )
     }
 
+    fn local_thing_on_a_spring_tap_zip() -> PathBuf {
+        PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
+        )
+        .join(
+            "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[TAP]/Thing on a Spring (1985)(Gremlin).zip",
+        )
+    }
+
     fn local_ghostbusters_tap_zip() -> PathBuf {
         PathBuf::from(
             std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
@@ -1433,6 +1442,78 @@ mod tests {
         assert!(
             machine.tape_pulse_index() > 460_000,
             "Ghostbusters should consume almost the entire TAP before the later state"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs and Thing on a Spring TAP archive"]
+    fn real_tap_autoload_thing_on_a_spring_reaches_menu() {
+        let firmware = local_rom_firmware();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("real PAL C64 firmware should construct a runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let tape = read_media_asset(&local_thing_on_a_spring_tap_zip(), MediaKind::Tape)
+            .expect("local Thing on a Spring TAP archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            MediaKind::Tape,
+            &tape.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("local Thing on a Spring TAP should insert");
+
+        let autoload = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("autoload should reach PRESS PLAY ON TAPE and start transport");
+        assert_eq!(autoload.slot, DEFAULT_TAPE_AUTOLOAD_SLOT);
+
+        session
+            .run_frames(25_000)
+            .expect("Thing on a Spring should reach its post-load menu state");
+
+        let lines = screen_text_lines(&session);
+        assert!(
+            lines[16].contains("600-MICRO"),
+            "Thing on a Spring should show the score table: {:?}",
+            lines[16]
+        );
+        assert!(
+            lines[17].contains("500-PROJECTS"),
+            "Thing on a Spring should show the score table: {:?}",
+            lines[17]
+        );
+        assert!(
+            lines[20].contains("200-GREMLIN"),
+            "Thing on a Spring should show the publisher line: {:?}",
+            lines[20]
+        );
+        assert!(
+            lines[17].contains("RIGHT - X"),
+            "Thing on a Spring should show the control legend: {:?}",
+            lines[17]
+        );
+        assert!(
+            lines[20].contains("FIRE  - SPACE"),
+            "Thing on a Spring should show the fire control: {:?}",
+            lines[20]
+        );
+
+        let machine = session.machine().machine();
+        assert!(!machine.tape_is_playing());
+        assert_eq!(
+            machine.tape_pulse_index(),
+            machine.tape_pulse_count(),
+            "Thing on a Spring should consume the full TAP by the menu state"
         );
     }
 }

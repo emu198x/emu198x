@@ -205,7 +205,8 @@ Current examples include:
   CIA1 FLAG delivery, plus ROM-backed `Thinker` and `Thomas` TAP paths that
   reach observable loader-banner states over the real datasette flow, and a
   `Ghostbusters` TAP regression that now reaches a later graphics/loader state
-  after the first-stage `FOUND MAIN` banner
+  after the first-stage `FOUND MAIN` banner, plus a `Thing on a Spring` TAP
+  regression that reaches a stable post-load menu with readable controls
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — Thing on a Spring becomes the strongest C64 tape regression so far
+
+**Type:** milestone
+**Trigger:** After Ghostbusters was repaired enough to reach its copyright/later-loader state, the next useful question was which real C64 tape title would give the cleanest, most reproducible end-to-end regression target instead of another loader-only checkpoint.
+**Result:** three candidate titles were triaged headlessly with the same fresh-workspace PAL C64 tape path:
+1. `Thing on a Spring (1985)(Gremlin)` reached the clearest stable end state by far: a readable post-load menu with score-table and control text.
+2. `Impossible Mission (1984)(Epyx)` reached a later state that still appears to want `RUN`, but it is not yet as clean or self-evident a regression target.
+3. `Paperboy (1986)(Elite)` reached a later graphical state, but not one with decoded text good enough to use as the next primary software proof.
+4. Added an ignored ROM-backed `Thing on a Spring` regression that boots, autoloads the real TAP, runs to the stable menu state, checks multiple readable menu/control lines, and confirms the full TAP has been consumed.
+**Verification:** locally, this slice passes:
+- `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --tape '.../Thing on a Spring (1985)(Gremlin).zip' --autoload-tape --frames 25000 --print-screen-text`
+- `cargo test --release -p runtime-commodore-c64 real_tap_autoload_thing_on_a_spring_reaches_menu -- --ignored --nocapture`
+**Consequence:** `Thing on a Spring` is now the best real-software C64 tape regression in the fresh workspace. It is a better next anchor than Ghostbusters for broad C64 software confidence because it reaches a stable, readable menu instead of only a loader or graphics-heavy transitional state.
+
 ## 2026-04-14 — C64 VIC colour-write tracing shows Ghostbusters border flashes start late, not “dropped per frame”
 
 **Type:** milestone
