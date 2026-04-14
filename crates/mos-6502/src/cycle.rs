@@ -108,6 +108,13 @@ pub(crate) enum Operation {
     Alr,
     Arr,
     Axs,
+    Ane,
+    Lxa,
+    Sha,
+    Shx,
+    Shy,
+    Tas,
+    Las,
     NopRead,
     Jam,
 }
@@ -139,8 +146,18 @@ impl Operation {
             | Self::Anc
             | Self::Alr
             | Self::Arr
-            | Self::Axs => OpCategory::Read,
-            Self::Sta | Self::Stx | Self::Sty | Self::Sax => OpCategory::Write,
+            | Self::Axs
+            | Self::Ane
+            | Self::Lxa
+            | Self::Las => OpCategory::Read,
+            Self::Sta
+            | Self::Stx
+            | Self::Sty
+            | Self::Sax
+            | Self::Sha
+            | Self::Shx
+            | Self::Shy
+            | Self::Tas => OpCategory::Write,
             Self::Asl
             | Self::Lsr
             | Self::Rol
@@ -1087,35 +1104,35 @@ pub(crate) fn decode(opcode: u8) -> OpcodeInfo {
 
         0x9C => OpcodeInfo {
             addr_mode: A::AbsoluteX,
-            operation: O::NopRead,
+            operation: O::Shy,
         },
         0x9E => OpcodeInfo {
             addr_mode: A::AbsoluteY,
-            operation: O::NopRead,
+            operation: O::Shx,
         },
         0x9F => OpcodeInfo {
             addr_mode: A::AbsoluteY,
-            operation: O::NopRead,
+            operation: O::Sha,
         },
         0x93 => OpcodeInfo {
             addr_mode: A::IndirectY,
-            operation: O::NopRead,
+            operation: O::Sha,
         },
         0x9B => OpcodeInfo {
             addr_mode: A::AbsoluteY,
-            operation: O::NopRead,
+            operation: O::Tas,
         },
         0xBB => OpcodeInfo {
             addr_mode: A::AbsoluteY,
-            operation: O::NopRead,
+            operation: O::Las,
         },
         0xAB => OpcodeInfo {
             addr_mode: A::Immediate,
-            operation: O::Lax,
+            operation: O::Lxa,
         },
         0x8B => OpcodeInfo {
             addr_mode: A::Immediate,
-            operation: O::NopRead,
+            operation: O::Ane,
         },
 
         0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {

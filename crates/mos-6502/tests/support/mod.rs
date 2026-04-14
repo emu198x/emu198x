@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 const LORENZ_6502_DIR_ENV: &str = "EMU198X_6502_LORENZ_DIR";
 const TOM_HARTE_6502_DIR_ENV: &str = "EMU198X_6502_TOM_HARTE_DIR";
+const DORMANN_6502_DIR_ENV: &str = "EMU198X_6502_DORMANN_DIR";
 const C64_KERNAL_ROM_ENV: &str = "EMU198X_C64_KERNAL_ROM";
 
 pub fn find_lorenz_6502_dir() -> Result<PathBuf, String> {
@@ -65,6 +66,33 @@ pub fn find_tom_harte_6502_dir() -> Result<PathBuf, String> {
                 home_projects_path("Emu198x-Unclean/65x02/6502/v1"),
                 home_projects_path("Emu198x-Unclean/Reference/test-suites/processor-tests/6502/v1"),
                 home_projects_path("Reference/test-suites/processor-tests/6502/v1"),
+            ],
+        )
+    })
+}
+
+pub fn find_dormann_6502_dir() -> Result<PathBuf, String> {
+    let repo_root = repo_root();
+    let mut candidates = Vec::new();
+
+    if let Some(path) = std::env::var_os(DORMANN_6502_DIR_ENV) {
+        candidates.push(PathBuf::from(path));
+    }
+
+    candidates.push(repo_root.join("test-data/6502_65C02_functional_tests"));
+    candidates.push(home_projects_path(
+        "Emu198x-Unclean/6502_65C02_functional_tests",
+    ));
+    candidates.push(home_projects_path("Reference/6502_65C02_functional_tests"));
+
+    first_existing_path(candidates).ok_or_else(|| {
+        missing_fixture_message(
+            "Dormann 6502 functional suite",
+            DORMANN_6502_DIR_ENV,
+            &[
+                repo_root.join("test-data/6502_65C02_functional_tests"),
+                home_projects_path("Emu198x-Unclean/6502_65C02_functional_tests"),
+                home_projects_path("Reference/6502_65C02_functional_tests"),
             ],
         )
     })

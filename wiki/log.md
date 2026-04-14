@@ -4,6 +4,24 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-14 — 6502 core reaches full Harte, Lorenz, and Dormann green; Ghostbusters remains a C64-system issue
+
+**Type:** milestone
+**Trigger:** After the first 6502 verification slice, Ghostbusters still failed on the fresh-workspace C64 datasette path. That made it necessary to keep pushing CPU verification until the remaining gap was small enough to either explain the title failure or rule the CPU out cleanly.
+**Result:** the live `mos-6502` core is now externally clean on all three currently wired verification families:
+1. Completed the missing undocumented-opcode semantics in the live core for `ARR`, `ANC`, `ANE`, `LXA`, `LAS`, `SHA`, `SHX`, `SHY`, and `TAS`, instead of leaving them as `NopRead` placeholders.
+2. Fixed a second real timing bug in the addressing-mode scheduler: zero-page and absolute indexed paths had been deciding whether they were indexed from the runtime index value (`X=0`/`Y=0`) instead of from the opcode's addressing mode, which broke both documented and undocumented timing on cases such as `ORA zp,X` and `ASL zp,X` when the index register happened to be zero.
+3. Corrected the `ANE` unstable mask to match the external vectors and added a decimal-mode `ARR` path that matches the real NMOS behavior more closely instead of panicking in debug builds.
+4. Added `tests/dormann_tests.rs`, wired to the packaged local Klaus Dormann functional memory image under `~/Projects/Emu198x-Unclean/6502_65C02_functional_tests`.
+5. Extended test fixture discovery so Tom Harte, Lorenz, Dormann, and the C64 KERNAL ROM all resolve consistently from local external paths or explicit environment variables.
+**Verification:** locally, the current state is:
+- Tom Harte full NMOS 6502 corpus: `2,560,000 / 2,560,000` passed
+- Lorenz CPU subset: `222 / 222` passed
+- Dormann functional test: pass, reaching success loop `$3469` in `96,241,367` cycles
+- `cargo test -p mos-6502`
+- `cargo clippy -p mos-6502 --all-targets -- -D warnings`
+**Consequence:** Ghostbusters still does not progress into a useful end state after the first tape stage even with the now-verified 6502 core, so the remaining issue is no longer credibly “the CPU is probably wrong.” The next debugging surface should be the wider C64 machine path: datasette stage transitions, CIA/VIC-visible loader behavior, and machine-level trace/query instrumentation.
+
 ## 2026-04-14 — 6502 verification harnesses land, and the first Tom Harte fix closes a real C64-relevant timing bug
 
 **Type:** milestone

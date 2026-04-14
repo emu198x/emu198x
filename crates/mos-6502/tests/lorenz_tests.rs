@@ -241,7 +241,9 @@ fn cycle_budget_from_env() -> Option<u64> {
 fn safety_cycle_budget(name: &str) -> u64 {
     match cycle_budget_from_env() {
         Some(budget) => budget,
-        None if name.starts_with("adc") || name.starts_with("sbc") => ADC_SBC_SAFETY_CYCLE_BUDGET,
+        None if name.starts_with("adc") || name.starts_with("sbc") || name.starts_with("anc") => {
+            ADC_SBC_SAFETY_CYCLE_BUDGET
+        }
         None if matches!(
             name,
             "brkn"

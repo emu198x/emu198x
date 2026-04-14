@@ -3,6 +3,9 @@ use crate::cycle::{self, AddrMode, OpCategory, Operation};
 use crate::registers::*;
 
 impl M6502 {
+    const ANE_MAGIC: u8 = 0xEE;
+    const LXA_MAGIC: u8 = 0xEE;
+
     pub fn tick(&mut self) -> bool {
         self.total_cycles += 1;
 
@@ -70,12 +73,12 @@ impl M6502 {
         let done = match info.addr_mode {
             AddrMode::Implied | AddrMode::Accumulator => self.tick_implied(info.operation),
             AddrMode::Immediate => self.tick_immediate(info.operation),
-            AddrMode::ZeroPage => self.tick_zero_page(info.operation, 0),
-            AddrMode::ZeroPageX => self.tick_zero_page(info.operation, self.regs.x),
-            AddrMode::ZeroPageY => self.tick_zero_page(info.operation, self.regs.y),
-            AddrMode::Absolute => self.tick_absolute(info.operation, 0),
-            AddrMode::AbsoluteX => self.tick_absolute(info.operation, self.regs.x),
-            AddrMode::AbsoluteY => self.tick_absolute(info.operation, self.regs.y),
+            AddrMode::ZeroPage => self.tick_zero_page(info.operation, 0, false),
+            AddrMode::ZeroPageX => self.tick_zero_page(info.operation, self.regs.x, true),
+            AddrMode::ZeroPageY => self.tick_zero_page(info.operation, self.regs.y, true),
+            AddrMode::Absolute => self.tick_absolute(info.operation, 0, false),
+            AddrMode::AbsoluteX => self.tick_absolute(info.operation, self.regs.x, true),
+            AddrMode::AbsoluteY => self.tick_absolute(info.operation, self.regs.y, true),
             AddrMode::IndirectX => self.tick_indirect_x(info.operation),
             AddrMode::IndirectY => self.tick_indirect_y(info.operation),
             AddrMode::Relative => self.tick_relative(info.operation),
@@ -156,9 +159,8 @@ impl M6502 {
         true
     }
 
-    fn tick_zero_page(&mut self, op: Operation, index: u8) -> bool {
+    fn tick_zero_page(&mut self, op: Operation, index: u8, indexed: bool) -> bool {
         let category = op.category();
-        let indexed = index != 0;
 
         match self.cs.cycle {
             1 => {
@@ -204,10 +206,9 @@ impl M6502 {
         }
     }
 
-    fn tick_absolute(&mut self, op: Operation, index: u8) -> bool {
+    fn tick_absolute(&mut self, op: Operation, index: u8, indexed: bool) -> bool {
         let category = op.category();
         let is_read = matches!(category, OpCategory::Read | OpCategory::Implied);
-        let indexed = index != 0;
 
         match self.cs.cycle {
             1 => {
@@ -279,7 +280,11 @@ impl M6502 {
             OpCategory::Read | OpCategory::Implied | OpCategory::ReadModWrite => {
                 self.schedule_read(self.cs.addr)
             }
-            OpCategory::Write => self.schedule_write(self.cs.addr, self.get_write_data(op)),
+            OpCategory::Write => {
+                let data = self.get_write_data(op);
+                let addr = self.get_write_addr(op, data);
+                self.schedule_write(addr, data);
+            }
             OpCategory::Control => self.schedule_read(self.cs.addr),
         }
     }
@@ -752,13 +757,17 @@ impl M6502 {
                 self.regs.set_nz(self.regs.a);
             }
             Operation::Arr => {
-                self.regs.a &= data;
-                let carry = self.regs.carry() as u8;
-                self.regs.a = (self.regs.a >> 1) | (carry << 7);
-                self.regs.set_nz(self.regs.a);
-                self.regs.set_flag(FLAG_C, self.regs.a & 0x40 != 0);
-                self.regs
-                    .set_flag(FLAG_V, ((self.regs.a >> 6) ^ (self.regs.a >> 5)) & 1 != 0);
+                if self.regs.decimal() && !self.decimal_disabled {
+                    self.alu_arr_bcd(data);
+                } else {
+                    self.regs.a &= data;
+                    let carry = self.regs.carry() as u8;
+                    self.regs.a = (self.regs.a >> 1) | (carry << 7);
+                    self.regs.set_nz(self.regs.a);
+                    self.regs.set_flag(FLAG_C, self.regs.a & 0x40 != 0);
+                    self.regs
+                        .set_flag(FLAG_V, ((self.regs.a >> 6) ^ (self.regs.a >> 5)) & 1 != 0);
+                }
             }
             Operation::Axs => {
                 let ax = self.regs.a & self.regs.x;
@@ -766,6 +775,23 @@ impl M6502 {
                 self.regs.x = val;
                 self.regs.set_nz(val);
                 self.regs.set_flag(FLAG_C, ax >= data);
+            }
+            Operation::Ane => {
+                self.regs.a = (self.regs.a | Self::ANE_MAGIC) & self.regs.x & data;
+                self.regs.set_nz(self.regs.a);
+            }
+            Operation::Lxa => {
+                let result = (self.regs.a | Self::LXA_MAGIC) & data;
+                self.regs.a = result;
+                self.regs.x = result;
+                self.regs.set_nz(result);
+            }
+            Operation::Las => {
+                let result = data & self.regs.sp;
+                self.regs.sp = result;
+                self.regs.a = result;
+                self.regs.x = result;
+                self.regs.set_nz(result);
             }
             Operation::NopRead | Operation::Nop => {}
             _ => {}
@@ -922,13 +948,40 @@ impl M6502 {
         }
     }
 
-    fn get_write_data(&self, op: Operation) -> u8 {
+    fn get_write_data(&mut self, op: Operation) -> u8 {
         match op {
             Operation::Sta => self.regs.a,
             Operation::Stx => self.regs.x,
             Operation::Sty => self.regs.y,
             Operation::Sax => self.regs.a & self.regs.x,
+            Operation::Sha => self.regs.a & self.regs.x & self.unstable_store_high_mask(),
+            Operation::Shx => self.regs.x & self.unstable_store_high_mask(),
+            Operation::Shy => self.regs.y & self.unstable_store_high_mask(),
+            Operation::Tas => {
+                self.regs.sp = self.regs.a & self.regs.x;
+                self.regs.sp & self.unstable_store_high_mask()
+            }
             _ => 0,
+        }
+    }
+
+    fn get_write_addr(&self, op: Operation, data: u8) -> u16 {
+        match op {
+            Operation::Sha | Operation::Shx | Operation::Shy | Operation::Tas
+                if self.cs.page_crossed =>
+            {
+                (self.cs.addr & 0x00FF) | ((data as u16) << 8)
+            }
+            _ => self.cs.addr,
+        }
+    }
+
+    fn unstable_store_high_mask(&self) -> u8 {
+        let high = (self.cs.addr >> 8) as u8;
+        if self.cs.page_crossed {
+            high
+        } else {
+            high.wrapping_add(1)
         }
     }
 
@@ -989,6 +1042,31 @@ impl M6502 {
         }
 
         self.regs.a = (hi << 4) | (lo & 0x0F);
+    }
+
+    fn alu_arr_bcd(&mut self, data: u8) {
+        let tmp = self.regs.a & data;
+        let mut shifted = tmp as u16;
+        shifted |= (self.regs.carry() as u16) << 8;
+        shifted >>= 1;
+
+        self.regs.set_flag(FLAG_N, self.regs.carry());
+        self.regs.set_flag(FLAG_Z, (shifted as u8) == 0);
+        self.regs
+            .set_flag(FLAG_V, ((shifted as u8 ^ tmp) & 0x40) != 0);
+
+        if (u16::from(tmp & 0x0F) + u16::from(tmp & 0x01)) > 0x05 {
+            shifted = (shifted & 0xF0) | ((shifted + 0x06) & 0x0F);
+        }
+
+        if (u16::from(tmp & 0xF0) + u16::from(tmp & 0x10)) > 0x50 {
+            shifted = (shifted & 0x0F) | ((shifted + 0x60) & 0xF0);
+            self.regs.set_flag(FLAG_C, true);
+        } else {
+            self.regs.set_flag(FLAG_C, false);
+        }
+
+        self.regs.a = shifted as u8;
     }
 
     fn alu_sbc(&mut self, data: u8) {

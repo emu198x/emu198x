@@ -195,6 +195,28 @@ mod tests {
     }
 
     #[test]
+    fn ora_zero_page_x_with_zero_index_keeps_extra_cycle() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x15, 0x7C, 0xEA]);
+        fixture.mem[0x007C] = 0x92;
+        fixture.boot();
+        let cycles = fixture.run_one();
+        assert_eq!(cycles, 4);
+        assert_eq!(fixture.cpu.regs.a, 0x92);
+        assert_eq!(fixture.cpu.regs.pc, 0x0402);
+    }
+
+    #[test]
+    fn asl_zero_page_x_with_zero_index_keeps_rmw_timing() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x16, 0x37, 0xEA]);
+        fixture.mem[0x0037] = 0x29;
+        fixture.boot();
+        let cycles = fixture.run_one();
+        assert_eq!(cycles, 6);
+        assert_eq!(fixture.mem[0x0037], 0x52);
+        assert_eq!(fixture.cpu.regs.pc, 0x0402);
+    }
+
+    #[test]
     fn sta_absolute_writes_correct_address() {
         let mut fixture = Fixture::with_program(0x0400, &[0xA9, 0x42, 0x8D, 0x00, 0x02]);
         fixture.boot();
