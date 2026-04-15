@@ -232,10 +232,11 @@ Current examples include:
   decodes both VIA windows, and now shares first-pass IEC line state with the
   C64 board through `common-commodore-iec`; the runtime can now optionally
   attach that live 1541 with queryable drive CPU/VIA state, snapshot coverage,
-  real `D64` media insertion into `drive-8`, and ROM-backed `Bruce Lee`
-  proofs that typed `LOAD"*",8,1` reaches `LOADING`, `RUN` reaches the
-  title screen, joystick fire advances beyond it, and joystick movement
-  changes the rendered scene after the drive has already gone idle
+  real `D64` media insertion into `drive-8`, plus ROM-backed disk proofs:
+  `Bruce Lee` now reaches `LOADING`, advances to a title after `RUN`, then
+  responds to joystick input beyond that title; `Aztec Challenge` now returns
+  to BASIC after load and reaches a readable instruction screen after `RUN`
+  and `F1` on the same live 1541 path
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

@@ -17,6 +17,26 @@ Append-only record of ingests, queries, and lint passes.
 6. the next focused trace checklist for getting from `SEARCHING FOR *` to `LOADING`
 **Consequence:** the 1541 work now has a single repo-local reference for the current blocker, so the next implementation/debugging pass can target the live DOS/VIA/IEC handoff directly instead of re-deriving the same board and ROM facts from raw sources.
 
+## 2026-04-15 — `Aztec Challenge` becomes a second readable C64 disk anchor
+
+**Type:** milestone
+**Trigger:** After `Bruce Lee` proved the live 1541 path could go beyond `LOADING`, the next honest question was whether that path generalized to another plain `D64` title instead of only one software stack.
+**Result:** local `Aztec Challenge (1983)(Cosmi)` now provides that second anchor on the same live attached-drive path:
+1. typed `LOAD"*",8,1` reaches `LOADING`
+2. the first disk stage returns to BASIC cleanly with the drive idle
+3. typing `RUN` reaches a readable player-select screen
+4. pressing `F1` reaches the readable `THE GAUNTLET` instruction screen with `PRESS FIRE BUTTON TO START`
+5. an ignored ROM-backed regression now preserves that path in `runtime-commodore-c64`
+
+`Bomb Jack (1986)(Elite)` was also probed on the same path and already shows a useful multi-stage loader signature (`SEARCHING FOR .1`, `LOADING`, `SEARCHING FOR .2`, `LOADING`), but it was not promoted to the main disk anchor in this slice.
+
+**Verification:** locally, this slice passes:
+- `./target/release/emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Aztec Challenge (1983)(Cosmi).zip' --autoload-disk --script /tmp/aztec_run.json`
+- `./target/release/emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Aztec Challenge (1983)(Cosmi).zip' --autoload-disk --script /tmp/aztec_f1.json`
+- `./target/release/emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bomb Jack (1986)(Elite).zip' --autoload-disk --script /tmp/bombjack_longer.json`
+
+**Consequence:** the live 1541 path is no longer anchored only on `Bruce Lee`. The repo now has a second plain `D64` title with a readable post-load software state, which is a better basis for judging whether future disk fixes are general or title-specific.
+
 ## 2026-04-15 — `Bruce Lee` now advances past the title and responds to joystick input on the live 1541 path
 
 **Type:** milestone

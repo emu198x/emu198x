@@ -1418,6 +1418,15 @@ mod tests {
         )
     }
 
+    fn local_aztec_challenge_d64_zip() -> PathBuf {
+        PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for local C64 D64 tests"),
+        )
+        .join(
+            "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[D64]/Aztec Challenge (1983)(Cosmi).zip",
+        )
+    }
+
     fn screen_text_lines(
         session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
     ) -> Vec<String> {
@@ -2392,6 +2401,87 @@ mod tests {
             .expect("drive should stay attached");
         assert!(!drive.motor_on());
         assert!(!drive.activity_led());
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs, 1541 ROM, and Aztec Challenge D64 archive"]
+    fn real_d64_autoload_aztec_challenge_reaches_instruction_screen() {
+        let firmware = local_rom_firmware_with_drive();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("local ROMs should construct a C64 runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let disk = read_media_asset(&local_aztec_challenge_d64_zip(), MediaKind::Disk)
+            .expect("local Aztec Challenge D64 archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            MediaKind::Disk,
+            &disk.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("Aztec Challenge D64 should mount into drive-8");
+
+        autoload_basic_disk(
+            &mut session,
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("disk autoload should reach SEARCHING FOR");
+
+        session
+            .wait_for_query_text_contains("screen.text.lines", "LOADING", 1_500)
+            .expect("Aztec Challenge disk autoload should reach LOADING");
+        session
+            .run_frames(4_000)
+            .expect("Aztec Challenge should return to BASIC after the initial disk stage");
+
+        let ready_lines = screen_text_lines(&session);
+        assert!(
+            ready_lines[10].contains("READY."),
+            "Aztec Challenge should return to BASIC before RUN: {:?}",
+            ready_lines[10]
+        );
+
+        for key in ["r", "u", "n", "return"] {
+            press_key(&mut session, key, 3);
+        }
+
+        session
+            .run_frames(5_000)
+            .expect("Aztec Challenge should reach the player-select screen after RUN");
+        press_key(&mut session, "f1", 3);
+        session
+            .run_frames(2_000)
+            .expect("Aztec Challenge should reach its instruction screen after F1");
+
+        let lines = screen_text_lines(&session);
+        assert_eq!(
+            lines[3], "  PLAYER 1                  PLAYER 2    ",
+            "Aztec Challenge should show the player headers on its instruction screen"
+        );
+        assert_eq!(
+            lines[17], "            THE GAUNTLET                ",
+            "Aztec Challenge should identify the first phase after F1"
+        );
+        assert_eq!(
+            lines[24], "      PRESS FIRE BUTTON TO START        ",
+            "Aztec Challenge should show the readable start prompt after F1"
+        );
+
+        let drive = session
+            .machine()
+            .drive8()
+            .expect("drive should stay attached");
+        assert!(!drive.motor_on());
+        assert!(!drive.activity_led());
+        assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 0);
+        assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 0);
     }
 
     #[test]
