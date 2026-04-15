@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-15 — 1541 live-disk blocker synthesized into a drive bring-up note
+
+**Type:** note
+**Trigger:** After the live `1541` path reached a stable `SEARCHING FOR *` stall on plain `D64` titles, the project needed a concise working note that merged the new 1541-specific references into one debug map instead of leaving the relevant facts scattered across manuals, OCR, and ROM listings.
+**Result:** added [1541-DISK-BRINGUP-NOTES.md](/Users/stevehill/Projects/Emu198x/docs/platforms/commodore-64/hardware/1541-DISK-BRINGUP-NOTES.md), which captures:
+1. the exact current boundary of the live disk problem
+2. what is already ruled out
+3. the 1541 board split between `UC3` serial-side `VIA` and `UC2` read/mechanics `VIA`
+4. the `6522` interrupt / handshake behavior that still matters
+5. the key DOS ROM landmarks and RAM variables around the current hot loop
+6. the next focused trace checklist for getting from `SEARCHING FOR *` to `LOADING`
+**Consequence:** the 1541 work now has a single repo-local reference for the current blocker, so the next implementation/debugging pass can target the live DOS/VIA/IEC handoff directly instead of re-deriving the same board and ROM facts from raw sources.
+
 ## 2026-04-14 — Live 1541 path now enters real BASIC disk autoload
 
 **Type:** milestone
