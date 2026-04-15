@@ -17,6 +17,21 @@ Append-only record of ingests, queries, and lint passes.
 6. the next focused trace checklist for getting from `SEARCHING FOR *` to `LOADING`
 **Consequence:** the 1541 work now has a single repo-local reference for the current blocker, so the next implementation/debugging pass can target the live DOS/VIA/IEC handoff directly instead of re-deriving the same board and ROM facts from raw sources.
 
+## 2026-04-15 — `Bruce Lee` now advances past the title and responds to joystick input on the live 1541 path
+
+**Type:** milestone
+**Trigger:** Once the live 1541 path could reach `LOADING` and then Bruce Lee's title screen after `RUN`, the next honest question was whether the attached-drive path had only reached a static presentation layer or whether the loaded software was actually live enough to respond to controller input.
+**Result:** the fresh workspace now has a stronger disk-software proof on top of the same ROM-backed `Bruce Lee (1984)(Datasoft)` path:
+1. C64 joystick input is now wired into the board through CIA1 port reads instead of only the keyboard matrix.
+2. After the existing `LOAD"*",8,1` plus `RUN` path, joystick fire on port 2 advances Bruce Lee beyond the title screen into a stable later scene with different screen codes and colours.
+3. From that post-title state, joystick-right changes the rendered framebuffer again while the live 1541 is already idle, which is a much stronger sign that real loaded software is still running rather than the machine parking on another static splash screen.
+4. Ignored ROM-backed regressions now preserve both the post-title fire transition and the later joystick-motion response in `runtime-commodore-c64`.
+**Verification:** locally, this slice passes:
+- `cargo test -p machine-commodore-c64 -p runtime-commodore-c64`
+- `./target/release/emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bruce Lee (1984)(Datasoft).zip' --autoload-disk --script /tmp/bruce_lee_after_fire.json`
+- `./target/release/emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bruce Lee (1984)(Datasoft).zip' --autoload-disk --script /tmp/bruce_lee_fire_then_right_compare.json`
+**Consequence:** the current live-disk path is now beyond “title starts after `RUN`.” The next honest C64 disk question is no longer whether the machine can leave BASIC and paint a title screen; it is how far this live 1541 path can be driven into clearly playable/control-responsive software across Bruce Lee and the next plain `D64` titles.
+
 ## 2026-04-15 — C64 IEC output inversion fix moves live 1541 path to `LOADING`
 
 **Type:** fix

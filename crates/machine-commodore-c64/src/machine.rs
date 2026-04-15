@@ -2,7 +2,7 @@
 
 use common_commodore_c64::timing::C64Timing;
 use common_commodore_iec::IecBus;
-use format_commodore_c64_tap::{TapParseError, TapSystem, parse_tap};
+use format_commodore_c64_tap::{parse_tap, TapParseError, TapSystem};
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
 use mos_sid_6581::{Sid6581, SidModel};
@@ -28,6 +28,7 @@ pub struct C64 {
     datasette: Datasette,
     memory: C64Memory,
     keyboard: KeyboardMatrix,
+    joysticks: [JoystickState; 2],
     phi2_cycles: u64,
     frame_count: u64,
 }
@@ -43,8 +44,52 @@ pub struct C64Snapshot {
     datasette: Datasette,
     memory: C64MemorySnapshot,
     keyboard: KeyboardMatrix,
+    joysticks: [JoystickState; 2],
     phi2_cycles: u64,
     frame_count: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct JoystickState {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    fire: bool,
+}
+
+impl JoystickState {
+    fn set_control(&mut self, name: &str, pressed: bool) -> bool {
+        match name.to_ascii_uppercase().as_str() {
+            "UP" => self.up = pressed,
+            "DOWN" => self.down = pressed,
+            "LEFT" => self.left = pressed,
+            "RIGHT" => self.right = pressed,
+            "FIRE" => self.fire = pressed,
+            _ => return false,
+        }
+        true
+    }
+
+    const fn input_mask(self) -> u8 {
+        let mut value = 0xFF;
+        if self.up {
+            value &= !0x01;
+        }
+        if self.down {
+            value &= !0x02;
+        }
+        if self.left {
+            value &= !0x04;
+        }
+        if self.right {
+            value &= !0x08;
+        }
+        if self.fire {
+            value &= !0x10;
+        }
+        value
+    }
 }
 
 impl C64 {
@@ -86,6 +131,7 @@ impl C64 {
             datasette: Datasette::new(),
             memory,
             keyboard: KeyboardMatrix::new(),
+            joysticks: [JoystickState::default(); 2],
             phi2_cycles: 0,
             frame_count: 0,
         };
@@ -141,6 +187,20 @@ impl C64 {
     #[must_use]
     pub fn keyboard_mut(&mut self) -> &mut KeyboardMatrix {
         &mut self.keyboard
+    }
+
+    /// Sets one joystick control on controller port 1 or 2.
+    ///
+    /// Returns `false` when the port or control name is unknown.
+    pub fn set_joystick_control(&mut self, port: u8, name: &str, pressed: bool) -> bool {
+        let Some(joystick) = self.joystick_mut(port) else {
+            return false;
+        };
+        if !joystick.set_control(name, pressed) {
+            return false;
+        }
+        self.refresh_keyboard_scan();
+        true
     }
 
     /// `phi2` cycles elapsed since construction.
@@ -388,6 +448,7 @@ impl C64 {
             datasette: self.datasette.clone(),
             memory: self.memory.snapshot_state(),
             keyboard: self.keyboard.clone(),
+            joysticks: self.joysticks,
             phi2_cycles: self.phi2_cycles,
             frame_count: self.frame_count,
         }
@@ -415,6 +476,7 @@ impl C64 {
         self.datasette = snapshot.datasette;
         self.memory = C64Memory::from_snapshot(snapshot.memory)?;
         self.keyboard = snapshot.keyboard;
+        self.joysticks = snapshot.joysticks;
         self.phi2_cycles = snapshot.phi2_cycles;
         self.frame_count = snapshot.frame_count;
         self.refresh_keyboard_scan();
@@ -487,7 +549,11 @@ impl C64 {
             0xD800..=0xDBFF => self.memory.colour_ram_read(addr - 0xD800),
             0xDC00..=0xDCFF => {
                 self.refresh_keyboard_scan();
-                self.cia1.read((addr & 0x0F) as u8)
+                match addr & 0x0F {
+                    0x00 => self.cia1_port_a_read(),
+                    0x01 => self.cia1_port_b_read(),
+                    reg => self.cia1.read(reg as u8),
+                }
             }
             0xDD00..=0xDDFF => self.cia2.read((addr & 0x0F) as u8),
             0xDE00..=0xDFFF => 0xFF,
@@ -514,7 +580,8 @@ impl C64 {
     }
 
     fn refresh_keyboard_scan(&mut self) {
-        self.cia1.pb_in = self.keyboard.scan(self.cia1.pa);
+        self.cia1.pa_in = self.joystick_input(2);
+        self.cia1.pb_in = self.keyboard.scan(self.cia1.pa) & self.joystick_input(1);
     }
 
     fn refresh_vic_bank(&mut self) {
@@ -553,6 +620,30 @@ impl C64 {
         let data = self.memory.port_data();
         let motor_on = (ddr & 0x20) != 0 && (data & 0x20) == 0;
         self.datasette.set_motor_on(motor_on);
+    }
+
+    fn joystick_mut(&mut self, port: u8) -> Option<&mut JoystickState> {
+        match port {
+            1 => Some(&mut self.joysticks[0]),
+            2 => Some(&mut self.joysticks[1]),
+            _ => None,
+        }
+    }
+
+    fn joystick_input(&self, port: u8) -> u8 {
+        match port {
+            1 => self.joysticks[0].input_mask(),
+            2 => self.joysticks[1].input_mask(),
+            _ => 0xFF,
+        }
+    }
+
+    fn cia1_port_a_read(&self) -> u8 {
+        self.cia1.port_a_drive_state() & self.joystick_input(2)
+    }
+
+    fn cia1_port_b_read(&self) -> u8 {
+        self.cia1.port_b_drive_state() & self.keyboard.scan(self.cia1.pa) & self.joystick_input(1)
     }
 }
 
@@ -698,6 +789,26 @@ mod tests {
 
         machine.cpu_write(0xDC00, 0xFE);
         assert_eq!(machine.cpu_read(0xDC01) & 0x02, 0x00);
+    }
+
+    #[test]
+    fn joystick_port_2_fire_pulls_dc00_low() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0xFF);
+        machine.cpu_write(0xDC00, 0xFF);
+        assert!(machine.set_joystick_control(2, "fire", true));
+
+        assert_eq!(machine.cpu_read(0xDC00) & 0x10, 0x00);
+    }
+
+    #[test]
+    fn joystick_port_1_fire_pulls_dc01_low() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0xFF);
+        machine.cpu_write(0xDC00, 0xFF);
+        assert!(machine.set_joystick_control(1, "fire", true));
+
+        assert_eq!(machine.cpu_read(0xDC01) & 0x10, 0x00);
     }
 
     #[test]

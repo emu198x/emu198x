@@ -233,8 +233,9 @@ Current examples include:
   C64 board through `common-commodore-iec`; the runtime can now optionally
   attach that live 1541 with queryable drive CPU/VIA state, snapshot coverage,
   real `D64` media insertion into `drive-8`, and ROM-backed `Bruce Lee`
-  proofs that typed `LOAD"*",8,1` reaches `LOADING` and `RUN` reaches the
-  title screen on the live 1541 path
+  proofs that typed `LOAD"*",8,1` reaches `LOADING`, `RUN` reaches the
+  title screen, joystick fire advances beyond it, and joystick movement
+  changes the rendered scene after the drive has already gone idle
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

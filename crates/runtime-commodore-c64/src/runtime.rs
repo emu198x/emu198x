@@ -9,12 +9,12 @@ use emu198x_shell::{
     MediaTransportAction, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
     StopReason, TraceEvent,
 };
-use machine_commodore_1541::{DRIVE1541_CPU_HZ, Drive1541, Drive1541Config, Drive1541Snapshot};
-use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
+use machine_commodore_1541::{Drive1541, Drive1541Config, Drive1541Snapshot, DRIVE1541_CPU_HZ};
+use machine_commodore_c64::{C64Config, C64Model, C64Snapshot, C64};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::{Model, profile_for};
+use crate::{profile_for, Model};
 
 const C64_QUERY_PATHS: &[&str] = &[
     "boot.detected",
@@ -825,11 +825,9 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.drive8.cpu.cycles" => json!(machine.drive8().map(|drive| drive.cycles())),
             "c64.drive8.cpu.data" => json!(machine.drive8().map(|drive| drive.cpu().data)),
             "c64.drive8.cpu.instruction_complete" => {
-                json!(
-                    machine
-                        .drive8()
-                        .map(|drive| drive.cpu().instruction_complete())
-                )
+                json!(machine
+                    .drive8()
+                    .map(|drive| drive.cpu().instruction_complete()))
             }
             "c64.drive8.cpu.p" => json!(machine.drive8().map(|drive| drive.cpu().regs.p)),
             "c64.drive8.cpu.pc" => json!(machine.drive8().map(|drive| drive.cpu().regs.pc)),
@@ -896,30 +894,22 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.drive8.disk.inserted" => {
                 json!(machine.drive8().is_some_and(|drive| drive.disk_inserted()))
             }
-            "c64.drive8.disk.name" => json!(
-                machine
-                    .drive8()
-                    .and_then(|drive| drive.disk())
-                    .map(|disk| disk.disk_name())
-            ),
-            "c64.drive8.disk.id" => json!(
-                machine
-                    .drive8()
-                    .and_then(|drive| drive.disk())
-                    .map(|disk| disk.disk_id())
-            ),
-            "c64.drive8.disk.write_protected" => json!(
-                machine
-                    .drive8()
-                    .and_then(|drive| drive.disk())
-                    .map(|disk| disk.write_protected())
-            ),
-            "c64.drive8.disk.directory" => json!(
-                machine
-                    .drive8()
-                    .and_then(|drive| drive.disk())
-                    .map(|disk| disk.directory_entries())
-            ),
+            "c64.drive8.disk.name" => json!(machine
+                .drive8()
+                .and_then(|drive| drive.disk())
+                .map(|disk| disk.disk_name())),
+            "c64.drive8.disk.id" => json!(machine
+                .drive8()
+                .and_then(|drive| drive.disk())
+                .map(|disk| disk.disk_id())),
+            "c64.drive8.disk.write_protected" => json!(machine
+                .drive8()
+                .and_then(|drive| drive.disk())
+                .map(|disk| disk.write_protected())),
+            "c64.drive8.disk.directory" => json!(machine
+                .drive8()
+                .and_then(|drive| drive.disk())
+                .map(|disk| disk.directory_entries())),
             "c64.drive8.trace.recent_writes" => {
                 json!(machine.drive8().map(|drive| drive.recent_io_writes()))
             }
@@ -957,11 +947,9 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
                 let addr = parse_hex_u16(suffix).ok_or_else(|| QueryError::UnknownPath {
                     path: path.to_owned(),
                 })?;
-                json!(
-                    machine
-                        .drive8()
-                        .map(|drive| drive.peek_with_iec_bus(addr, &machine.iec_bus))
-                )
+                json!(machine
+                    .drive8()
+                    .map(|drive| drive.peek_with_iec_bus(addr, &machine.iec_bus)))
             }
             _ => return Ok(None),
         };
@@ -1105,10 +1093,20 @@ fn decode_screen_code(code: u8) -> char {
 }
 
 fn apply_input_event(machine: &mut C64, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event
-        && let Some((row, col)) = c64_key_position(name.as_ref())
-    {
-        machine.keyboard_mut().set_key(row, col, *pressed);
+    match event {
+        InputEvent::Key { name, pressed } => {
+            if let Some((row, col)) = c64_key_position(name.as_ref()) {
+                machine.keyboard_mut().set_key(row, col, *pressed);
+            }
+        }
+        InputEvent::Button {
+            port,
+            name,
+            pressed,
+        } => {
+            let _ = machine.set_joystick_control(*port, name.as_ref(), *pressed);
+        }
+        _ => {}
     }
 }
 
@@ -1187,15 +1185,15 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
 mod tests {
     use super::*;
     use crate::{
-        DEFAULT_DISK_AUTOLOAD_SLOT, DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
-        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT,
-        DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk, autoload_basic_tape,
+        autoload_basic_disk, autoload_basic_tape, DEFAULT_DISK_AUTOLOAD_SLOT,
+        DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
     };
     use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
     use emu198x_shell::{
-        AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FrameSink,
-        HeadlessSession, MediaImage, MediaKind, MediaSet, MediaTransportAction,
-        MediaTransportCommand, NullAudioSink, NullTraceSink, PixelFormat, read_media_asset,
+        read_media_asset, AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet,
+        FrameSink, HeadlessSession, MediaImage, MediaKind, MediaSet, MediaTransportAction,
+        MediaTransportCommand, NullAudioSink, NullTraceSink, PixelFormat,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1462,6 +1460,45 @@ mod tests {
         panic!("screen row {row} did not contain {needle:?} within {max_frames} frames");
     }
 
+    fn press_key(
+        session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+        key: &str,
+        held_frames: u32,
+    ) {
+        session.queue_input(InputEvent::Key {
+            name: key.to_ascii_lowercase().into(),
+            pressed: true,
+        });
+        session
+            .run_frames(held_frames)
+            .expect("key press should advance the runtime");
+        session.queue_input(InputEvent::Key {
+            name: key.to_ascii_lowercase().into(),
+            pressed: false,
+        });
+    }
+
+    fn press_button(
+        session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+        port: u8,
+        name: &str,
+        held_frames: u32,
+    ) {
+        session.queue_input(InputEvent::Button {
+            port,
+            name: name.to_ascii_lowercase().into(),
+            pressed: true,
+        });
+        session
+            .run_frames(held_frames)
+            .expect("button press should advance the runtime");
+        session.queue_input(InputEvent::Button {
+            port,
+            name: name.to_ascii_lowercase().into(),
+            pressed: false,
+        });
+    }
+
     #[test]
     fn runtime_can_build_from_declared_firmware() {
         let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware());
@@ -1601,11 +1638,9 @@ mod tests {
             .as_array()
             .expect("screen.text.lines should be an array");
         assert_eq!(lines.len(), SCREEN_TEXT_HEIGHT);
-        assert!(
-            lines
-                .iter()
-                .all(|line| line.as_str().is_some_and(|line| line.len() == 40))
-        );
+        assert!(lines
+            .iter()
+            .all(|line| line.as_str().is_some_and(|line| line.len() == 40)));
 
         assert!(matches!(provider.query(&runtime, "not-a-path"), Ok(None)));
     }
@@ -2150,26 +2185,14 @@ mod tests {
             "Bruce Lee should return to BASIC before RUN: {:?}",
             ready_lines[10]
         );
-        assert!(
-            !session
-                .machine()
-                .drive8()
-                .expect("drive should stay attached")
-                .motor_on()
-        );
+        assert!(!session
+            .machine()
+            .drive8()
+            .expect("drive should stay attached")
+            .motor_on());
 
         for key in ["r", "u", "n", "return"] {
-            session.queue_input(InputEvent::Key {
-                name: key.into(),
-                pressed: true,
-            });
-            session
-                .run_frames(3)
-                .expect("Bruce Lee should advance while RUN is typed");
-            session.queue_input(InputEvent::Key {
-                name: key.into(),
-                pressed: false,
-            });
+            press_key(&mut session, key, 3);
         }
 
         session
@@ -2199,6 +2222,176 @@ mod tests {
             .expect("drive should stay attached");
         assert!(drive.motor_on());
         assert!(drive.activity_led());
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+    fn real_d64_autoload_bruce_lee_advances_after_fire() {
+        let firmware = local_rom_firmware_with_drive();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("local ROMs should construct a C64 runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let disk = read_media_asset(&local_bruce_lee_d64_zip(), MediaKind::Disk)
+            .expect("local Bruce Lee D64 archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            MediaKind::Disk,
+            &disk.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("Bruce Lee D64 should mount into drive-8");
+
+        autoload_basic_disk(
+            &mut session,
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("disk autoload should reach SEARCHING FOR");
+
+        session
+            .wait_for_query_text_contains("screen.text.lines", "LOADING", 1_500)
+            .expect("Bruce Lee disk autoload should reach LOADING");
+        session
+            .run_frames(2_400)
+            .expect("Bruce Lee should return to BASIC after the initial disk stage");
+
+        for key in ["r", "u", "n", "return"] {
+            press_key(&mut session, key, 3);
+        }
+
+        session
+            .run_frames(16_000)
+            .expect("Bruce Lee should reach its stable title screen after RUN");
+
+        let title_frame = session.machine().machine().framebuffer().to_vec();
+        let title_lines = screen_text_lines(&session);
+        assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 6);
+        assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 6);
+        assert!(!session
+            .machine()
+            .drive8()
+            .expect("drive should stay attached")
+            .motor_on());
+
+        press_button(&mut session, 2, "fire", 6);
+        session
+            .run_frames(3_000)
+            .expect("Bruce Lee should advance beyond the title after joystick fire");
+
+        let post_fire_lines = screen_text_lines(&session);
+        assert_ne!(
+            session.machine().machine().framebuffer(),
+            title_frame.as_slice(),
+            "Bruce Lee framebuffer should change after joystick fire"
+        );
+        assert_ne!(
+            post_fire_lines, title_lines,
+            "Bruce Lee screen codes should change after joystick fire"
+        );
+        assert_eq!(
+            post_fire_lines[0], "X?????Q??I?Q???C?CL?D?@?@??P??P???????O?",
+            "Bruce Lee should reach the stable post-title scene after joystick fire"
+        );
+        assert_eq!(
+            post_fire_lines[24], "@????????@?????C??G? ??P??A?@??8?X????X?",
+            "Bruce Lee should keep the expected lower HUD row after joystick fire"
+        );
+        assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 0);
+        assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 12);
+
+        let drive = session
+            .machine()
+            .drive8()
+            .expect("drive should stay attached");
+        assert!(!drive.motor_on());
+        assert!(!drive.activity_led());
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+    fn real_d64_autoload_bruce_lee_responds_to_joystick_right_after_fire() {
+        let firmware = local_rom_firmware_with_drive();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("local ROMs should construct a C64 runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let disk = read_media_asset(&local_bruce_lee_d64_zip(), MediaKind::Disk)
+            .expect("local Bruce Lee D64 archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            MediaKind::Disk,
+            &disk.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("Bruce Lee D64 should mount into drive-8");
+
+        autoload_basic_disk(
+            &mut session,
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("disk autoload should reach SEARCHING FOR");
+
+        session
+            .wait_for_query_text_contains("screen.text.lines", "LOADING", 1_500)
+            .expect("Bruce Lee disk autoload should reach LOADING");
+        session
+            .run_frames(2_400)
+            .expect("Bruce Lee should return to BASIC after the initial disk stage");
+
+        for key in ["r", "u", "n", "return"] {
+            press_key(&mut session, key, 3);
+        }
+
+        session
+            .run_frames(16_000)
+            .expect("Bruce Lee should reach its stable title screen after RUN");
+
+        press_button(&mut session, 2, "fire", 6);
+        session
+            .run_frames(3_000)
+            .expect("Bruce Lee should advance beyond the title after joystick fire");
+
+        let post_fire_frame = session.machine().machine().framebuffer().to_vec();
+        let post_fire_lines = screen_text_lines(&session);
+        assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 0);
+        assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 12);
+
+        press_button(&mut session, 2, "right", 30);
+        session
+            .run_frames(300)
+            .expect("Bruce Lee should keep running after joystick-right input");
+
+        assert_eq!(
+            screen_text_lines(&session),
+            post_fire_lines,
+            "Bruce Lee keeps the same screen-code overlay while the gameplay scene animates"
+        );
+        assert_ne!(
+            session.machine().machine().framebuffer(),
+            post_fire_frame.as_slice(),
+            "Bruce Lee framebuffer should respond to joystick-right after the post-title scene starts"
+        );
+
+        let drive = session
+            .machine()
+            .drive8()
+            .expect("drive should stay attached");
+        assert!(!drive.motor_on());
+        assert!(!drive.activity_led());
     }
 
     #[test]
