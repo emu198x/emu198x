@@ -9,12 +9,12 @@ use emu198x_shell::{
     MediaTransportAction, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
     StopReason, TraceEvent,
 };
-use machine_commodore_1541::{Drive1541, Drive1541Config, Drive1541Snapshot, DRIVE1541_CPU_HZ};
-use machine_commodore_c64::{C64Config, C64Model, C64Snapshot, C64};
+use machine_commodore_1541::{DRIVE1541_CPU_HZ, Drive1541, Drive1541Config, Drive1541Snapshot};
+use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::{profile_for, Model};
+use crate::{Model, profile_for};
 
 const C64_QUERY_PATHS: &[&str] = &[
     "boot.detected",
@@ -825,9 +825,11 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.drive8.cpu.cycles" => json!(machine.drive8().map(|drive| drive.cycles())),
             "c64.drive8.cpu.data" => json!(machine.drive8().map(|drive| drive.cpu().data)),
             "c64.drive8.cpu.instruction_complete" => {
-                json!(machine
-                    .drive8()
-                    .map(|drive| drive.cpu().instruction_complete()))
+                json!(
+                    machine
+                        .drive8()
+                        .map(|drive| drive.cpu().instruction_complete())
+                )
             }
             "c64.drive8.cpu.p" => json!(machine.drive8().map(|drive| drive.cpu().regs.p)),
             "c64.drive8.cpu.pc" => json!(machine.drive8().map(|drive| drive.cpu().regs.pc)),
@@ -894,22 +896,30 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "c64.drive8.disk.inserted" => {
                 json!(machine.drive8().is_some_and(|drive| drive.disk_inserted()))
             }
-            "c64.drive8.disk.name" => json!(machine
-                .drive8()
-                .and_then(|drive| drive.disk())
-                .map(|disk| disk.disk_name())),
-            "c64.drive8.disk.id" => json!(machine
-                .drive8()
-                .and_then(|drive| drive.disk())
-                .map(|disk| disk.disk_id())),
-            "c64.drive8.disk.write_protected" => json!(machine
-                .drive8()
-                .and_then(|drive| drive.disk())
-                .map(|disk| disk.write_protected())),
-            "c64.drive8.disk.directory" => json!(machine
-                .drive8()
-                .and_then(|drive| drive.disk())
-                .map(|disk| disk.directory_entries())),
+            "c64.drive8.disk.name" => json!(
+                machine
+                    .drive8()
+                    .and_then(|drive| drive.disk())
+                    .map(|disk| disk.disk_name())
+            ),
+            "c64.drive8.disk.id" => json!(
+                machine
+                    .drive8()
+                    .and_then(|drive| drive.disk())
+                    .map(|disk| disk.disk_id())
+            ),
+            "c64.drive8.disk.write_protected" => json!(
+                machine
+                    .drive8()
+                    .and_then(|drive| drive.disk())
+                    .map(|disk| disk.write_protected())
+            ),
+            "c64.drive8.disk.directory" => json!(
+                machine
+                    .drive8()
+                    .and_then(|drive| drive.disk())
+                    .map(|disk| disk.directory_entries())
+            ),
             "c64.drive8.trace.recent_writes" => {
                 json!(machine.drive8().map(|drive| drive.recent_io_writes()))
             }
@@ -947,9 +957,11 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
                 let addr = parse_hex_u16(suffix).ok_or_else(|| QueryError::UnknownPath {
                     path: path.to_owned(),
                 })?;
-                json!(machine
-                    .drive8()
-                    .map(|drive| drive.peek_with_iec_bus(addr, &machine.iec_bus)))
+                json!(
+                    machine
+                        .drive8()
+                        .map(|drive| drive.peek_with_iec_bus(addr, &machine.iec_bus))
+                )
             }
             _ => return Ok(None),
         };
@@ -1185,15 +1197,15 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
 mod tests {
     use super::*;
     use crate::{
-        autoload_basic_disk, autoload_basic_tape, DEFAULT_DISK_AUTOLOAD_SLOT,
-        DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-        DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        DEFAULT_DISK_AUTOLOAD_SLOT, DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT,
+        DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk, autoload_basic_tape,
     };
     use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
     use emu198x_shell::{
-        read_media_asset, AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet,
-        FrameSink, HeadlessSession, MediaImage, MediaKind, MediaSet, MediaTransportAction,
-        MediaTransportCommand, NullAudioSink, NullTraceSink, PixelFormat,
+        AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FrameSink,
+        HeadlessSession, MediaImage, MediaKind, MediaSet, MediaTransportAction,
+        MediaTransportCommand, NullAudioSink, NullTraceSink, PixelFormat, read_media_asset,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1656,9 +1668,11 @@ mod tests {
             .as_array()
             .expect("screen.text.lines should be an array");
         assert_eq!(lines.len(), SCREEN_TEXT_HEIGHT);
-        assert!(lines
-            .iter()
-            .all(|line| line.as_str().is_some_and(|line| line.len() == 40)));
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.as_str().is_some_and(|line| line.len() == 40))
+        );
 
         assert!(matches!(provider.query(&runtime, "not-a-path"), Ok(None)));
     }
@@ -2203,11 +2217,13 @@ mod tests {
             "Bruce Lee should return to BASIC before RUN: {:?}",
             ready_lines[10]
         );
-        assert!(!session
-            .machine()
-            .drive8()
-            .expect("drive should stay attached")
-            .motor_on());
+        assert!(
+            !session
+                .machine()
+                .drive8()
+                .expect("drive should stay attached")
+                .motor_on()
+        );
 
         for key in ["r", "u", "n", "return"] {
             press_key(&mut session, key, 3);
@@ -2292,11 +2308,13 @@ mod tests {
         let title_lines = screen_text_lines(&session);
         assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 6);
         assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 6);
-        assert!(!session
-            .machine()
-            .drive8()
-            .expect("drive should stay attached")
-            .motor_on());
+        assert!(
+            !session
+                .machine()
+                .drive8()
+                .expect("drive should stay attached")
+                .motor_on()
+        );
 
         press_button(&mut session, 2, "fire", 6);
         session

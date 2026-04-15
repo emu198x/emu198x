@@ -2,7 +2,7 @@
 
 use common_commodore_c64::timing::C64Timing;
 use common_commodore_iec::IecBus;
-use format_commodore_c64_tap::{parse_tap, TapParseError, TapSystem};
+use format_commodore_c64_tap::{TapParseError, TapSystem, parse_tap};
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
 use mos_sid_6581::{Sid6581, SidModel};
