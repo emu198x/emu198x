@@ -2106,6 +2106,102 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+    fn real_d64_autoload_bruce_lee_starts_after_run() {
+        let firmware = local_rom_firmware_with_drive();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("local ROMs should construct a C64 runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let disk = read_media_asset(&local_bruce_lee_d64_zip(), MediaKind::Disk)
+            .expect("local Bruce Lee D64 archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            MediaKind::Disk,
+            &disk.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("Bruce Lee D64 should mount into drive-8");
+
+        autoload_basic_disk(
+            &mut session,
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("disk autoload should reach SEARCHING FOR");
+
+        session
+            .wait_for_query_text_contains("screen.text.lines", "LOADING", 1_500)
+            .expect("Bruce Lee disk autoload should reach LOADING");
+        session
+            .run_frames(2_400)
+            .expect("Bruce Lee should return to BASIC after the initial disk stage");
+
+        let ready_frame = session.machine().machine().framebuffer().to_vec();
+        let ready_lines = screen_text_lines(&session);
+        assert!(
+            ready_lines[10].contains("READY."),
+            "Bruce Lee should return to BASIC before RUN: {:?}",
+            ready_lines[10]
+        );
+        assert!(
+            !session
+                .machine()
+                .drive8()
+                .expect("drive should stay attached")
+                .motor_on()
+        );
+
+        for key in ["r", "u", "n", "return"] {
+            session.queue_input(InputEvent::Key {
+                name: key.into(),
+                pressed: true,
+            });
+            session
+                .run_frames(3)
+                .expect("Bruce Lee should advance while RUN is typed");
+            session.queue_input(InputEvent::Key {
+                name: key.into(),
+                pressed: false,
+            });
+        }
+
+        session
+            .run_frames(1_800)
+            .expect("Bruce Lee should reach its title screen after RUN");
+
+        let title_lines = screen_text_lines(&session);
+        assert_eq!(
+            title_lines[0], "????\"QQQQ?????Q1????R????&???L??\"\"R1\"\"\"F",
+            "Bruce Lee should replace the BASIC screen with title-screen data"
+        );
+        assert_eq!(
+            title_lines[1], "DDDDDDDD????R????&???L??'QQQQQQQQQQQQQQZ",
+            "Bruce Lee should show the stable title-screen top rows after RUN"
+        );
+        assert_ne!(
+            session.machine().machine().framebuffer(),
+            ready_frame.as_slice(),
+            "Bruce Lee framebuffer should change after RUN starts the title"
+        );
+        assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 14);
+        assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 0);
+
+        let drive = session
+            .machine()
+            .drive8()
+            .expect("drive should stay attached");
+        assert!(drive.motor_on());
+        assert!(drive.activity_led());
+    }
+
+    #[test]
     #[ignore = "requires local C64 ROMs at ~/.emu198x/roms/commodore-c64"]
     fn query_provider_detects_ready_on_real_pal_boot() {
         let firmware = local_rom_firmware();

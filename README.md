@@ -232,8 +232,9 @@ Current examples include:
   decodes both VIA windows, and now shares first-pass IEC line state with the
   C64 board through `common-commodore-iec`; the runtime can now optionally
   attach that live 1541 with queryable drive CPU/VIA state, snapshot coverage,
-  real `D64` media insertion into `drive-8`, and a ROM-backed `Bruce Lee`
-  proof that typed `LOAD"*",8,1` now reaches `LOADING` on the live 1541 path
+  real `D64` media insertion into `drive-8`, and ROM-backed `Bruce Lee`
+  proofs that typed `LOAD"*",8,1` reaches `LOADING` and `RUN` reaches the
+  title screen on the live 1541 path
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

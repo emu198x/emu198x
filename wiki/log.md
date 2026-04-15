@@ -28,6 +28,20 @@ Append-only record of ingests, queries, and lint passes.
 - `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bruce Lee (1984)(Datasoft).zip' --autoload-disk --frames 400 --print-screen-text`
 **Consequence:** the live disk path is still not yet full end-to-end 1541 DOS-sector loading, but it has crossed the main stalled boundary. The next honest target is no longer “leave `SEARCHING FOR *` at all”; it is “how far past `LOADING` does the real attached-drive path get on plain disk software.”
 
+## 2026-04-15 — `Bruce Lee` now reaches its title screen after `RUN` on the live 1541 path
+
+**Type:** milestone
+**Trigger:** Once the IEC polarity fix moved the live attached-drive path from `SEARCHING FOR *` to `LOADING`, the next honest question was whether a plain disk title would actually start correctly after the normal post-load BASIC action instead of dropping back into another broken state.
+**Result:** local `Bruce Lee (1984)(Datasoft)` now behaves like a real multi-stage disk title on the live 1541 path:
+1. typed `LOAD"*",8,1` reaches `LOADING`
+2. the first disk stage returns to BASIC cleanly
+3. typing `RUN` through the normal C64 keyboard path reaches the title screen, with the live drive still active for the next stage
+4. an ignored ROM-backed regression now preserves that path in `runtime-commodore-c64`
+**Verification:** locally, this slice passes:
+- `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bruce Lee (1984)(Datasoft).zip' --autoload-disk --script /tmp/bruce_lee_run_after_load.json --print-screen-text`
+- `cargo test -p runtime-commodore-c64 real_d64_autoload_bruce_lee_starts_after_run -- --ignored --nocapture`
+**Consequence:** the current disk path is now well beyond “KERNAL banner plus head movement.” The repo has a real title-start proof on the live `1541` path, which is a much better anchor for the remaining disk work than the earlier `SEARCHING FOR *` stall.
+
 ## 2026-04-14 — Live 1541 path now enters real BASIC disk autoload
 
 **Type:** milestone
