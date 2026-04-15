@@ -1,0 +1,8 @@
+[package]
+name = "format-nintendo-nes-ines"
+description = "iNES / NES 2.0 cartridge header parser + Mapper trait. This port carries only Mapper 0 (NROM); the remaining 47 archive mappers are deferred until the PPU is back online and there is something for them to drive."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]

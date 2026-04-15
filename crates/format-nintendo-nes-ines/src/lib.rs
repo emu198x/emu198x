@@ -1,0 +1,612 @@
+//! iNES / NES 2.0 cartridge header parser and the [`Mapper`] trait.
+//!
+//! # Scope of this port
+//!
+//! The archive crate
+//! (`Emu198x-archive/crates/format-nintendo-nes-ines`) implemented 48
+//! mapper variants covering virtually every licensed NES/Famicom
+//! game. This port carries only **Mapper 0 (NROM)** — the trait, the
+//! header parser, and the one mapper needed to boot a `nestest.nes`
+//! or any other flat-layout test ROM against the freshly ported
+//! 2A03 CPU.
+//!
+//! The other 47 mappers are archive-provenance (see
+//! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
+//! and will be lifted one at a time *once the PPU crate is back
+//! online*, because there is no point porting address-translation
+//! logic with no bus for the translated addresses to serve.
+//!
+//! # Scope of the `Mapper` trait
+//!
+//! The trait defined here is intentionally **leaner** than the
+//! archive version. It carries the CPU/CHR bus methods, mirroring,
+//! IRQ pending, and the MMC3 A12 notifier — everything the
+//! [nes-clock-topology.md](../../wiki/decisions/nes-clock-topology.md)
+//! decision record says the machine layer and the (future) PPU need
+//! to call. It drops the archive's save-state, peek-chr, expansion
+//! audio, and PRG-RAM accessor methods; those are features of
+//! higher-layer mappers (MMC3, Sunsoft 5B, VRC6) and have no callers
+//! yet. They will land back in the trait as default methods when the
+//! mappers that need them get ported.
+//!
+//! # Mirroring
+//!
+//! [`Mirroring`] is defined here rather than re-exported from a PPU
+//! crate because the PPU is not yet ported. When `ricoh-ppu-2c02` is
+//! rewritten in the dot-driven architecture, the canonical
+//! `Mirroring` will live in that crate and this one will re-export
+//! it — matching the archive's shape. The enum is small enough
+//! (five variants) that re-defining it here is cheap and the future
+//! reconciliation will be a one-line re-export change.
+
+#![allow(clippy::cast_possible_truncation)]
+
+// ─── Mirroring ─────────────────────────────────────────────────────
+
+/// Nametable mirroring mode.
+///
+/// Determined by the cartridge, not the PPU. The PPU queries the
+/// mapper on every nametable access (`$2000-$2FFF`) to find which
+/// physical nametable a given logical address should route to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mirroring {
+    /// A-A / B-B — both horizontal strips share a nametable. Games
+    /// with vertical scrolling (e.g. *Ice Climber*) use this.
+    Horizontal,
+    /// A-B / A-B — both vertical strips share a nametable. Games
+    /// with horizontal scrolling (e.g. *Super Mario Bros.*) use this.
+    Vertical,
+    /// Four unique nametables — requires cartridge VRAM on top of
+    /// the PPU's 2 KiB. Used by *Gauntlet* and a few others.
+    FourScreen,
+    /// All four logical nametables point at the lower physical
+    /// bank. Set by MMC1 on power-up and via control register.
+    SingleScreenLower,
+    /// All four logical nametables point at the upper physical
+    /// bank. MMC1 control register.
+    SingleScreenUpper,
+}
+
+// ─── Mapper trait ──────────────────────────────────────────────────
+
+/// Cartridge mapper: translates CPU addresses in `$4020-$FFFF` and
+/// PPU addresses in `$0000-$1FFF` to ROM, RAM, or bank-switched
+/// memory on the cartridge.
+///
+/// Implementations are per-mapper-number. The parser in
+/// [`parse_ines`] inspects the iNES header's mapper field and
+/// constructs the right concrete type. This port carries [`Nrom`]
+/// (mapper 0) only.
+///
+/// ## Design notes
+///
+/// - `chr_read` takes `&mut self` because some mappers (MMC2, MMC4)
+///   update internal latches when the PPU reads from pattern table
+///   addresses. NROM ignores the `&mut` but the trait keeps the
+///   method signature uniform across all mappers.
+///
+/// - `irq_pending()` is the mapper's IRQ output pin, polled by the
+///   machine layer once per CPU cycle and OR'd into the CPU's
+///   `irq` input. Default returns `false` — most mappers don't do
+///   IRQ.
+///
+/// - `notify_a12_rendering` is the MMC3 IRQ counter hook. Called
+///   from inside the PPU tick when the PPU address bus transitions
+///   A12 during background or sprite fetches. See
+///   [nes-clock-topology.md](../../wiki/decisions/nes-clock-topology.md#pin-contracts)
+///   for the rationale.
+pub trait Mapper: Send {
+    /// CPU-side bus read. Called by the machine layer's `cpu_read`
+    /// for addresses in `$4020-$FFFF`. Returns the byte the
+    /// cartridge would drive onto the CPU data bus.
+    fn cpu_read(&self, addr: u16) -> u8;
+
+    /// CPU-side bus write. Called by the machine layer's
+    /// `cpu_write` for addresses in `$4020-$FFFF`. The mapper
+    /// decides whether to latch the value (bank switching), write
+    /// to PRG RAM, or ignore.
+    fn cpu_write(&mut self, addr: u16, value: u8);
+
+    /// PPU-side bus read for pattern table addresses
+    /// (`$0000-$1FFF`). `&mut self` is required for mappers with
+    /// read-side-effect latches (MMC2, MMC4).
+    fn chr_read(&mut self, addr: u16) -> u8;
+
+    /// PPU-side bus write for pattern table addresses
+    /// (`$0000-$1FFF`). Ignored for CHR ROM cartridges; writes CHR
+    /// RAM on cartridges without CHR ROM.
+    fn chr_write(&mut self, addr: u16, value: u8);
+
+    /// Current nametable mirroring mode. Queried by the PPU on
+    /// every nametable access — mappers may change this on the fly
+    /// (MMC1, MMC3) but NROM does not.
+    fn mirroring(&self) -> Mirroring;
+
+    /// Level-triggered IRQ output. Default: never asserted.
+    ///
+    /// The machine layer ORs this with other IRQ sources (e.g. APU
+    /// frame IRQ, DMC IRQ) and drives the CPU's `irq` input.
+    fn irq_pending(&self) -> bool {
+        false
+    }
+
+    /// MMC3 IRQ counter hook. Called from inside the PPU tick when
+    /// the PPU address bus A12 line changes during background or
+    /// sprite fetches. The mapper applies its own debounce filter
+    /// (MMC3 ignores transitions < 15 dots apart).
+    ///
+    /// Default: no-op. NROM has no IRQ counter.
+    fn notify_a12_rendering(&mut self, _a12_high: bool) {}
+}
+
+// ─── NROM (Mapper 0) ───────────────────────────────────────────────
+
+/// NROM (Mapper 0): no bank switching.
+///
+/// The simplest cartridge: 16 KiB or 32 KiB of PRG ROM wired
+/// directly to `$8000-$FFFF`, and 8 KiB of CHR (ROM or RAM) wired
+/// directly to `$0000-$1FFF` on the PPU bus. Used by *Super Mario
+/// Bros.*, *Donkey Kong*, *Ice Climber*, *Excitebike*, *Balloon
+/// Fight*, and most of Nintendo's first-party launch titles.
+///
+/// ## Memory map
+///
+/// - `$6000-$7FFF` — 8 KiB work RAM. Many test ROMs (blargg's) use
+///   NROM and write their results to this region, so the port
+///   carries the RAM even though *Super Mario Bros.* doesn't touch
+///   it.
+/// - `$8000-$BFFF` — first 16 KiB of PRG ROM.
+/// - `$C000-$FFFF` — second 16 KiB of PRG ROM for 32 KiB carts, or
+///   a mirror of `$8000-$BFFF` for 16 KiB carts.
+/// - PPU `$0000-$1FFF` — 8 KiB CHR ROM, or 8 KiB CHR RAM if the
+///   iNES header reports zero CHR banks.
+pub struct Nrom {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    mirroring: Mirroring,
+    prg_ram: [u8; 8192],
+}
+
+impl Nrom {
+    /// Construct an NROM from the parsed iNES payload.
+    ///
+    /// `chr_data` is the raw CHR ROM bytes from the iNES file; pass
+    /// an empty `Vec` for a CHR-RAM cartridge (8 KiB of writable
+    /// RAM will be allocated).
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr,
+            chr_is_ram,
+            mirroring,
+            prg_ram: [0; 8192],
+        }
+    }
+}
+
+impl Mapper for Nrom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize],
+            0x8000..=0xFFFF => {
+                let offset = (addr - 0x8000) as usize;
+                if self.prg_rom.len() == 16384 {
+                    // 16 KiB cart — mirror $8000-$BFFF to
+                    // $C000-$FFFF.
+                    self.prg_rom[offset % 16384]
+                } else {
+                    // 32 KiB cart — direct mapping (modulo for
+                    // safety against malformed headers).
+                    self.prg_rom[offset % self.prg_rom.len()]
+                }
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if (0x6000..=0x7FFF).contains(&addr) {
+            self.prg_ram[(addr - 0x6000) as usize] = value;
+        }
+        // Writes to $8000-$FFFF are ignored on NROM — there is no
+        // bank-switching register to latch into.
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[(addr as usize) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            self.chr[(addr as usize) & 0x1FFF] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
+// ─── iNES header + parser ──────────────────────────────────────────
+
+/// Parsed iNES header fields. Both iNES 1.0 and NES 2.0 files map
+/// onto this struct; the NES 2.0 upper nibbles are folded into the
+/// 12-bit `mapper_number` and the extended PRG/CHR sizes are
+/// reported via the byte counts the parser passes to [`Nrom::new`].
+#[derive(Debug, Clone, Copy)]
+pub struct CartridgeHeader {
+    /// Number of 16 KiB PRG ROM banks as reported by byte 4 of the
+    /// header. For NES 2.0 the full size is in bytes.
+    pub prg_rom_banks: u8,
+    /// Number of 8 KiB CHR ROM banks. Zero means the cartridge has
+    /// CHR RAM instead.
+    pub chr_rom_banks: u8,
+    /// 12-bit mapper number (iNES 1.0 uses only the low 8 bits).
+    pub mapper_number: u16,
+    /// Mirroring mode derived from header flag bits.
+    pub mirroring: Mirroring,
+    /// Whether the cartridge reports battery-backed PRG RAM.
+    pub has_battery: bool,
+}
+
+/// Result of a successful [`parse_ines`] call.
+///
+/// The `mapper` field is boxed because different cartridges use
+/// different mapper types; the machine layer only ever interacts
+/// with the trait.
+pub struct ParsedCartridge {
+    /// The constructed mapper, ready to be plugged into the machine
+    /// layer's `cpu_read`/`cpu_write`/`chr_read`/`chr_write`
+    /// routers.
+    pub mapper: Box<dyn Mapper>,
+    /// Mirror of [`CartridgeHeader::has_battery`] — hoisted here
+    /// because the machine layer needs it to decide whether to
+    /// look for a `.sav` file.
+    pub has_battery: bool,
+    /// Full header, hoisted so callers can introspect the mapper
+    /// number, CHR bank count, etc. without having to re-parse.
+    pub header: CartridgeHeader,
+}
+
+/// Parse an iNES / NES 2.0 file and return a [`ParsedCartridge`]
+/// ready to drive the NES machine layer.
+///
+/// # Errors
+///
+/// Returns a human-readable error string if:
+/// - The file is shorter than 16 bytes (no header).
+/// - The magic bytes are not `NES\x1A`.
+/// - The declared PRG/CHR size exceeds the file's actual length.
+/// - The mapper number is not supported by this port — see the
+///   crate-level doc comment for the scope statement. Non-NROM
+///   mappers return `Err("Unsupported mapper: N")`.
+pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
+    if data.len() < 16 {
+        return Err("iNES file too short (< 16 bytes)".to_string());
+    }
+    if &data[0..4] != b"NES\x1a" {
+        return Err("Invalid iNES magic (expected NES\\x1A)".to_string());
+    }
+
+    let prg_banks = data[4];
+    let chr_banks = data[5];
+    let flags6 = data[6];
+    let flags7 = data[7];
+
+    let mapper_lo = (flags6 >> 4) & 0x0F;
+    let mapper_hi = flags7 & 0xF0;
+
+    // NES 2.0 detection: bits 3-2 of flags7 == 0b10.
+    let is_nes_2_0 = (flags7 & 0x0C) == 0x08;
+
+    let (mapper_number, prg_size, chr_size) = if is_nes_2_0 {
+        // NES 2.0: 12-bit mapper number + extended 12-bit bank
+        // counts (byte 9 holds the high nibbles of each).
+        let mapper8 = data[8];
+        let mapper_number =
+            u16::from(mapper_lo) | u16::from(mapper_hi) | (u16::from(mapper8 & 0x0F) << 8);
+
+        let prg_hi = usize::from(data[9] & 0x0F);
+        let prg_size = ((prg_hi << 8) | usize::from(prg_banks)) * 16384;
+
+        let chr_hi = usize::from((data[9] >> 4) & 0x0F);
+        let chr_size = ((chr_hi << 8) | usize::from(chr_banks)) * 8192;
+
+        (mapper_number, prg_size, chr_size)
+    } else {
+        // iNES 1.0: 8-bit mapper number.
+        let mapper_number = u16::from(mapper_hi | mapper_lo);
+        let prg_size = usize::from(prg_banks) * 16384;
+        let chr_size = usize::from(chr_banks) * 8192;
+        (mapper_number, prg_size, chr_size)
+    };
+
+    let mirroring = if flags6 & 0x08 != 0 {
+        Mirroring::FourScreen
+    } else if flags6 & 0x01 != 0 {
+        Mirroring::Vertical
+    } else {
+        Mirroring::Horizontal
+    };
+
+    let has_battery = flags6 & 0x02 != 0;
+    let has_trainer = flags6 & 0x04 != 0;
+
+    let header = CartridgeHeader {
+        prg_rom_banks: prg_banks,
+        chr_rom_banks: chr_banks,
+        mapper_number,
+        mirroring,
+        has_battery,
+    };
+
+    // iNES layout: [16-byte header][optional 512-byte trainer][PRG ROM][CHR ROM].
+    let prg_start = if has_trainer { 16 + 512 } else { 16 };
+    let chr_start = prg_start + prg_size;
+
+    if data.len() < chr_start + chr_size {
+        return Err(format!(
+            "iNES file too short: expected {} bytes, got {}",
+            chr_start + chr_size,
+            data.len()
+        ));
+    }
+
+    let prg_rom = data[prg_start..prg_start + prg_size].to_vec();
+    let chr_data = if chr_size > 0 {
+        data[chr_start..chr_start + chr_size].to_vec()
+    } else {
+        Vec::new() // CHR RAM cartridge
+    };
+
+    let mapper: Box<dyn Mapper> = match header.mapper_number {
+        0 => Box::new(Nrom::new(prg_rom, chr_data, mirroring)),
+        n => {
+            return Err(format!(
+                "Unsupported mapper: {n} — this port only carries Mapper 0 \
+                 (NROM). The other 47 mappers will land once the PPU crate \
+                 is back online."
+            ));
+        }
+    };
+
+    Ok(ParsedCartridge {
+        mapper,
+        has_battery,
+        header,
+    })
+}
+
+// ─── Tests ─────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal iNES 1.0 file with the given bank counts and
+    /// flags6. PRG bytes are filled with their offset mod 256 so
+    /// tests can identify which byte was served by a read.
+    fn make_ines(prg_banks: u8, chr_banks: u8, flags6: u8) -> Vec<u8> {
+        let prg_size = usize::from(prg_banks) * 16384;
+        let chr_size = usize::from(chr_banks) * 8192;
+        let mut data = vec![0u8; 16 + prg_size + chr_size];
+        data[0..4].copy_from_slice(b"NES\x1a");
+        data[4] = prg_banks;
+        data[5] = chr_banks;
+        data[6] = flags6;
+        for i in 0..prg_size {
+            data[16 + i] = (i & 0xFF) as u8;
+        }
+        for i in 0..chr_size {
+            data[16 + prg_size + i] = ((i + 0x80) & 0xFF) as u8;
+        }
+        data
+    }
+
+    #[test]
+    fn parse_valid_nrom_16k() {
+        let data = make_ines(1, 1, 0x00);
+        let parsed = parse_ines(&data).expect("parse failed");
+        assert_eq!(parsed.header.mapper_number, 0);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Horizontal);
+        // PRG at $8000 is the first byte of the ROM.
+        assert_eq!(parsed.mapper.cpu_read(0x8000), 0x00);
+        // 16 KiB cart: $C000 mirrors $8000.
+        assert_eq!(parsed.mapper.cpu_read(0xC000), 0x00);
+    }
+
+    #[test]
+    fn parse_valid_nrom_32k() {
+        let data = make_ines(2, 1, 0x01);
+        let parsed = parse_ines(&data).expect("parse failed");
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Vertical);
+        assert_eq!(parsed.mapper.cpu_read(0x8000), 0x00);
+        // 32 KiB cart: $C000 starts the second 16 KiB. Offset
+        // 0x4000 mod 256 == 0.
+        assert_eq!(parsed.mapper.cpu_read(0xC000), 0x00);
+    }
+
+    #[test]
+    fn nrom_16k_mirrors_high_half() {
+        // 16 KiB cart, distinct PRG bytes: confirm $C001 mirrors
+        // $8001 (both return 0x01 from the offset-fill pattern).
+        let data = make_ines(1, 1, 0x00);
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
+        assert_eq!(mapper.cpu_read(0x8001), 0x01);
+        assert_eq!(mapper.cpu_read(0xC001), 0x01);
+    }
+
+    #[test]
+    fn nrom_cpu_write_prg_ram_roundtrip() {
+        let data = make_ines(1, 1, 0x00);
+        let mut mapper = parse_ines(&data).expect("parse failed").mapper;
+        mapper.cpu_write(0x6123, 0x42);
+        assert_eq!(mapper.cpu_read(0x6123), 0x42);
+    }
+
+    #[test]
+    fn nrom_prg_rom_not_writable() {
+        let data = make_ines(1, 1, 0x00);
+        let mut mapper = parse_ines(&data).expect("parse failed").mapper;
+        let before = mapper.cpu_read(0x8000);
+        mapper.cpu_write(0x8000, 0xFF);
+        assert_eq!(mapper.cpu_read(0x8000), before);
+    }
+
+    #[test]
+    fn nrom_chr_ram_roundtrip() {
+        let data = make_ines(1, 0, 0x00); // CHR RAM (chr_banks == 0)
+        let mut mapper = parse_ines(&data).expect("parse failed").mapper;
+        assert_eq!(mapper.chr_read(0x0000), 0);
+        mapper.chr_write(0x0000, 0xAB);
+        assert_eq!(mapper.chr_read(0x0000), 0xAB);
+    }
+
+    #[test]
+    fn nrom_chr_rom_not_writable() {
+        let data = make_ines(1, 1, 0x00);
+        let mut mapper = parse_ines(&data).expect("parse failed").mapper;
+        let before = mapper.chr_read(0x0000);
+        mapper.chr_write(0x0000, 0xFF);
+        assert_eq!(mapper.chr_read(0x0000), before);
+    }
+
+    #[test]
+    fn nrom_default_irq_not_pending() {
+        let data = make_ines(1, 1, 0x00);
+        let mapper = parse_ines(&data).expect("parse failed").mapper;
+        assert!(!mapper.irq_pending());
+    }
+
+    #[test]
+    fn parse_rejects_short_file() {
+        let data = vec![0u8; 8];
+        assert!(parse_ines(&data).is_err());
+    }
+
+    #[test]
+    fn parse_rejects_bad_magic() {
+        let data = vec![0u8; 32];
+        assert!(parse_ines(&data).is_err());
+    }
+
+    /// `ParsedCartridge` contains a `Box<dyn Mapper>` which does
+    /// not implement `Debug`, so `.expect_err()` can't be used in
+    /// these negative tests. This helper unwraps the error arm
+    /// with a custom message and drops the `Ok` side.
+    fn expect_err(result: Result<ParsedCartridge, String>, ctx: &str) -> String {
+        match result {
+            Ok(_) => panic!("{ctx}: expected error, got Ok"),
+            Err(e) => e,
+        }
+    }
+
+    #[test]
+    fn parse_rejects_unsupported_mapper() {
+        // Put mapper number 1 in the high nibble of flags6.
+        let mut data = make_ines(1, 1, 0x10);
+        // Ensure flags7 high nibble is zero.
+        data[7] = 0;
+        let err = expect_err(parse_ines(&data), "mapper 1 should be rejected");
+        assert!(err.contains("Unsupported mapper: 1"), "got: {err}");
+    }
+
+    #[test]
+    fn parse_rejects_truncated_prg() {
+        // Header claims 2 PRG banks but the file only carries one.
+        let mut data = make_ines(1, 1, 0x00);
+        data[4] = 2;
+        let err = expect_err(parse_ines(&data), "truncated file should be rejected");
+        assert!(err.contains("too short"), "got: {err}");
+    }
+
+    #[test]
+    fn parse_battery_flag() {
+        let data = make_ines(1, 1, 0x02); // battery bit set
+        let parsed = parse_ines(&data).expect("parse failed");
+        assert!(parsed.has_battery);
+        assert!(parsed.header.has_battery);
+    }
+
+    #[test]
+    fn parse_four_screen_mirroring() {
+        let data = make_ines(1, 1, 0x08);
+        let parsed = parse_ines(&data).expect("parse failed");
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::FourScreen);
+    }
+
+    // ─── NES 2.0 header tests ──────────────────────────────────────
+
+    /// Build a minimal NES 2.0 file with the given bank counts and
+    /// 12-bit mapper number.
+    fn make_nes2(prg_banks: u16, chr_banks: u16, mapper: u16) -> Vec<u8> {
+        let prg_lo = (prg_banks & 0xFF) as u8;
+        let prg_hi = ((prg_banks >> 8) & 0x0F) as u8;
+        let chr_lo = (chr_banks & 0xFF) as u8;
+        let chr_hi = ((chr_banks >> 8) & 0x0F) as u8;
+
+        let mapper_lo = (mapper & 0x0F) as u8;
+        let mapper_mid = ((mapper >> 4) & 0x0F) as u8;
+        let mapper_hi = ((mapper >> 8) & 0x0F) as u8;
+
+        let flags6 = mapper_lo << 4;
+        let flags7 = (mapper_mid << 4) | 0x08; // NES 2.0 signature
+        let byte8 = mapper_hi;
+
+        let prg_size = prg_banks as usize * 16384;
+        let chr_size = chr_banks as usize * 8192;
+
+        let mut data = vec![0u8; 16 + prg_size + chr_size];
+        data[0..4].copy_from_slice(b"NES\x1a");
+        data[4] = prg_lo;
+        data[5] = chr_lo;
+        data[6] = flags6;
+        data[7] = flags7;
+        data[8] = byte8;
+        data[9] = (chr_hi << 4) | prg_hi;
+
+        for i in 0..prg_size {
+            data[16 + i] = (i & 0xFF) as u8;
+        }
+        for i in 0..chr_size {
+            data[16 + prg_size + i] = ((i + 0x80) & 0xFF) as u8;
+        }
+        data
+    }
+
+    #[test]
+    fn nes2_detected_and_parsed() {
+        let data = make_nes2(2, 1, 0);
+        let parsed = parse_ines(&data).expect("NES 2.0 parse failed");
+        assert_eq!(parsed.header.mapper_number, 0);
+        assert_eq!(parsed.mapper.cpu_read(0x8000), 0x00);
+    }
+
+    #[test]
+    fn nes2_mapper_number_12bit() {
+        // Mapper 256 is beyond the 8-bit range, so a correct NES
+        // 2.0 parser sees it as mapper 256 and this port rejects
+        // it as unsupported. This confirms the 12-bit extraction
+        // is wired in.
+        let data = make_nes2(1, 1, 256);
+        let err = expect_err(parse_ines(&data), "mapper 256 should be rejected");
+        assert!(err.contains("256"), "got: {err}");
+    }
+
+    #[test]
+    fn ines1_still_works_after_nes2_support() {
+        // An iNES 1.0 file must keep parsing correctly even though
+        // the parser now has an NES 2.0 branch.
+        let data = make_ines(2, 1, 0x01);
+        let parsed = parse_ines(&data).expect("iNES 1.0 parse failed");
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Vertical);
+    }
+}

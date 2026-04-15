@@ -638,6 +638,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-script-nes"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "runtime-nintendo-nes",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-script-spectrum"
 version = "0.1.0"
 dependencies = [
@@ -778,6 +788,10 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
 ]
+
+[[package]]
+name = "format-nintendo-nes-ines"
+version = "0.1.0"
 
 [[package]]
 name = "format-sinclair-zx-spectrum-tap"
@@ -1219,6 +1233,16 @@ dependencies = [
  "mos-vic-ii",
  "serde",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "machine-nintendo-nes"
+version = "0.1.0"
+dependencies = [
+ "format-nintendo-nes-ines",
+ "mos-6502",
+ "ricoh-apu-2a03",
+ "ricoh-ppu-2c02",
 ]
 
 [[package]]
@@ -1997,6 +2021,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
+name = "ricoh-apu-2a03"
+version = "0.1.0"
+
+[[package]]
+name = "ricoh-ppu-2c02"
+version = "0.1.0"
+dependencies = [
+ "format-nintendo-nes-ines",
+]
+
+[[package]]
 name = "runtime-commodore-c64"
 version = "0.1.0"
 dependencies = [
@@ -2012,6 +2047,16 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "runtime-nintendo-nes"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "format-nintendo-nes-ines",
+ "machine-nintendo-nes",
+ "serde_json",
 ]
 
 [[package]]

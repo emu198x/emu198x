@@ -1,0 +1,15 @@
+[package]
+name = "machine-nintendo-nes"
+description = "NES machine wiring — master-clock-driven tick loop, PPU every dot, CPU every 3rd dot. Ties the 2A03 CPU, 2C02 PPU, and cartridge mapper together with internal RAM, OAMDMA, and controller I/O."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines" }
+mos-6502 = { path = "../mos-6502" }
+ricoh-apu-2a03 = { path = "../ricoh-apu-2a03" }
+ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02" }
+
+[lints]
+workspace = true

@@ -4,6 +4,25 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-15 — Fresh-workspace NES headless path restored
+
+**Type:** milestone
+**Trigger:** With Spectrum and C64 now both in the “working but incomplete” bucket, the next project goal was to get the third platform back onto a real fresh-workspace footing instead of leaving NES as only historical wiki claims and archive references.
+**Result:** the fresh workspace now has a live NES baseline again:
+1. restored `format-nintendo-nes-ines`, `ricoh-ppu-2c02`, `ricoh-apu-2a03`, and `machine-nintendo-nes` from the older workspace into the active cargo workspace
+2. added a new current-style `runtime-nintendo-nes` crate on the shared `MachineCore` boundary instead of reviving the older `System` trait wrapper
+3. added `emu198x-script-nes`, a fresh headless runner that loads `cartridge-1` media, runs native NES frames, saves screenshots/audio, and accepts shared scripted input
+4. left the boundary honest: firmwareless cartridge boot works, but snapshots are still unsupported and mapper coverage is still NROM-only
+5. added one ignored local `Super Mario Bros.` regression hook in `runtime-nintendo-nes`
+
+**Verification:** locally, this slice passes:
+- `cargo test -p format-nintendo-nes-ines -p ricoh-ppu-2c02 -p ricoh-apu-2a03 -p machine-nintendo-nes -p runtime-nintendo-nes -p emu198x-script-nes`
+- `cargo clippy -p format-nintendo-nes-ines -p ricoh-ppu-2c02 -p ricoh-apu-2a03 -p machine-nintendo-nes -p runtime-nintendo-nes -p emu198x-script-nes --all-targets -- -D warnings`
+- `cargo run --release -p emu198x-script-nes -- --rom '/Users/stevehill/Projects/Emu198x-Unclean/Reference/nintendo/nes/test-suites/other/nestest.nes' --frames 60 --screenshot /tmp/nes-nestest.png`
+- `cargo run --release -p emu198x-script-nes -- --rom '/Users/stevehill/Projects/Emu198x-Unclean/Reference/nintendo/nes/Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes' --frames 240 --screenshot /tmp/nes-smb.png`
+
+**Consequence:** the repo no longer needs to describe NES as having “no fresh-workspace product path.” The current honest state is: headless NES cartridge boot exists and runs real NROM software, while mapper breadth, snapshots, and a native verifier UI are still pending.
+
 ## 2026-04-15 — 1541 live-disk blocker synthesized into a drive bring-up note
 
 **Type:** note

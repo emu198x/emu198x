@@ -7,6 +7,7 @@ The current implementation focus is:
 
 - Sinclair ZX Spectrum 48K
 - Commodore 64
+- Nintendo Entertainment System
 
 This repository also contains older research and planning material from previous
 attempts. Treat the fresh Rust workspace as the implementation truth, and treat
@@ -26,7 +27,7 @@ stay incomplete rather than faking the missing behavior.
 
 ## Current Fresh-Workspace State
 
-As of April 13, 2026, the fresh Rust workspace currently provides:
+As of April 15, 2026, the fresh Rust workspace currently provides:
 
 - **Spectrum 48K**
   - real Z80 + ULA-driven machine loop
@@ -54,9 +55,18 @@ As of April 13, 2026, the fresh Rust workspace currently provides:
   - native shell input is usable for verification, but still feels softer than
     target and should not yet be treated as a polished frontend
 
+- **Nintendo NES**
+  - live 2A03/2C02/APU machine loop
+  - iNES cartridge loading with NROM mapper support
+  - headless runner, screenshots, mono audio capture, and scripted controller
+    input
+  - `nestest.nes` smoke coverage plus local headless ROM smokes for
+    `nestest.nes` and `Super Mario Bros.`
+  - native verifier UI and mapper coverage beyond NROM are still pending
+
 Notably not claimed yet:
 
-- no fresh-workspace NES product path
+- no fresh-workspace NES native verifier UI
 - no fresh-workspace Amiga product path
 - no claim that disk/tape/cartridge support exists unless the corresponding
   hardware path is actually modeled
@@ -202,6 +212,15 @@ cargo run -p emu198x-script-c64 -- \
   --wait-for-tape-stop 12000
 ```
 
+### NES headless runner
+
+```bash
+cargo run -p emu198x-script-nes -- \
+  --rom '/Users/stevehill/Projects/Emu198x-Unclean/Reference/nintendo/nes/test-suites/other/nestest.nes' \
+  --frames 60 \
+  --screenshot nestest.png
+```
+
 ## Verification Strategy
 
 This repo does not treat “boots one thing” as sufficient proof.
@@ -219,6 +238,9 @@ Current examples include:
   compatibility harness
 - Spectrum machine and software regressions over real ROM and tape paths
 - C64 ROM-backed `READY.` boot detection plus snapshot round-trip checks
+- NES machine regressions over real `nestest.nes`, plus a fresh headless
+  cartridge path that now runs `nestest.nes` and `Super Mario Bros.` through
+  `emu198x-script-nes` and emits screenshots
 - C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense,
   CIA1 FLAG delivery, plus ROM-backed `Thinker` and `Thomas` TAP paths that
   reach observable loader-banner states over the real datasette flow, and a

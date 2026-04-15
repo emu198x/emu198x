@@ -1,0 +1,15 @@
+[package]
+name = "runtime-nintendo-nes"
+description = "Fresh-workspace NES family metadata and headless runtime wrapper"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
+format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines" }
+machine-nintendo-nes = { path = "../machine-nintendo-nes" }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
