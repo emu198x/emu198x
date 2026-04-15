@@ -81,7 +81,7 @@ Examples:
   insertion, but it is not yet DOS/IEC-backed file loading.
 - `--autoload-disk` for the current C64 runners is a host workflow over the
   real BASIC editor: it types `LOAD"*",8,1` and waits for the live 1541 path
-  to reach the KERNAL search banner.
+  to reach the real 1541-backed load path.
 - an optional 1541 ROM in the current C64 runtime means a live drive board now
   executes on the shared IEC bus, but that is still drive-side board execution
   and query/debug visibility, not yet real disk-media loading.
@@ -232,9 +232,8 @@ Current examples include:
   decodes both VIA windows, and now shares first-pass IEC line state with the
   C64 board through `common-commodore-iec`; the runtime can now optionally
   attach that live 1541 with queryable drive CPU/VIA state, snapshot coverage,
-  real `D64` media insertion into `drive-8`, and a first ROM-backed `Bruce Lee`
-  proof that typed `LOAD"*",8,1` reaches `SEARCHING FOR` and moves the live
-  1541 head afterward
+  real `D64` media insertion into `drive-8`, and a ROM-backed `Bruce Lee`
+  proof that typed `LOAD"*",8,1` now reaches `LOADING` on the live 1541 path
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

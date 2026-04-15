@@ -11,6 +11,7 @@ use emu198x_shell::{
 };
 use machine_commodore_1541::{DRIVE1541_CPU_HZ, Drive1541, Drive1541Config, Drive1541Snapshot};
 use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
+use serde::Serialize;
 use serde_json::json;
 
 use crate::{Model, profile_for};
@@ -180,29 +181,65 @@ struct C64BootStatus {
     row: Option<u64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 struct DriveRomTraceState {
+    host_cpu_pc: u16,
+    host_cia2_pa: u8,
+    host_cia2_port_a_latch: u8,
+    host_cia2_ddra: u8,
     pc: u16,
     opcode: u8,
+    a: u8,
+    x: u8,
+    y: u8,
+    sp: u8,
+    p: u8,
+    iec_cpu_bus: u8,
+    iec_cpu_port: u8,
+    iec_drive_bus: u8,
+    iec_drive_data: u8,
+    iec_drive_port: u8,
     via1_ifr: u8,
     via1_ier: u8,
     via1_pcr: u8,
+    via1_pa: u8,
     via1_pb: u8,
+    via1_ora: u8,
+    via1_orb: u8,
+    via1_ddrb: u8,
     via2_ifr: u8,
     via2_ier: u8,
     via2_pcr: u8,
     via2_pb: u8,
     via2_pa: u8,
+    job_0000: u8,
+    job_0001: u8,
+    job_0002: u8,
+    job_0003: u8,
+    job_0004: u8,
+    job_0005: u8,
+    zp_007c: u8,
+    zp_007d: u8,
     zp_001c: u8,
     zp_001d: u8,
     zp_006f: u8,
     zp_0070: u8,
     zp_0072: u8,
+    zp_0077: u8,
+    zp_0078: u8,
+    zp_0079: u8,
+    zp_007a: u8,
     zp_007f: u8,
     zp_0082: u8,
+    zp_0083: u8,
     zp_0086: u8,
+    mem_00e2: u8,
     mem_022b: u8,
+    mem_024d: u8,
     mem_025b: u8,
+    mem_028c: u8,
+    mem_028d: u8,
+    mem_028e: u8,
     mem_026c: u8,
     mem_026d: u8,
 }
@@ -399,27 +436,63 @@ impl C64Runtime {
     fn drive_trace_state(&self, drive: &Drive1541) -> DriveRomTraceState {
         let cpu = drive.cpu();
         DriveRomTraceState {
+            host_cpu_pc: self.machine.cpu().regs.pc,
+            host_cia2_pa: self.machine.cia2().pa,
+            host_cia2_port_a_latch: self.machine.cia2().port_a_latch(),
+            host_cia2_ddra: self.machine.cia2().ddr_a(),
             pc: cpu.regs.pc,
             opcode: drive.peek_with_iec_bus(cpu.regs.pc, &self.iec_bus),
+            a: cpu.regs.a,
+            x: cpu.regs.x,
+            y: cpu.regs.y,
+            sp: cpu.regs.sp,
+            p: cpu.regs.p,
+            iec_cpu_bus: self.iec_bus.cpu_bus(),
+            iec_cpu_port: self.iec_bus.cpu_port(),
+            iec_drive_bus: self.iec_bus.drive_bus(8).unwrap_or(0xFF),
+            iec_drive_data: self.iec_bus.drive_data(8).unwrap_or(0xFF),
+            iec_drive_port: self.iec_bus.drive_port(),
             via1_ifr: drive.via1().peek(0x0D),
             via1_ier: drive.via1().peek(0x0E),
             via1_pcr: drive.via1().peek(0x0C),
+            via1_pa: drive.via1().pa,
             via1_pb: drive.via1().pb,
+            via1_ora: drive.via1().ora(),
+            via1_orb: drive.via1().orb(),
+            via1_ddrb: drive.via1().ddrb(),
             via2_ifr: drive.via2().peek(0x0D),
             via2_ier: drive.via2().peek(0x0E),
             via2_pcr: drive.via2().peek(0x0C),
             via2_pb: drive.via2().pb,
             via2_pa: drive.via2().pa,
+            job_0000: drive.peek_with_iec_bus(0x0000, &self.iec_bus),
+            job_0001: drive.peek_with_iec_bus(0x0001, &self.iec_bus),
+            job_0002: drive.peek_with_iec_bus(0x0002, &self.iec_bus),
+            job_0003: drive.peek_with_iec_bus(0x0003, &self.iec_bus),
+            job_0004: drive.peek_with_iec_bus(0x0004, &self.iec_bus),
+            job_0005: drive.peek_with_iec_bus(0x0005, &self.iec_bus),
+            zp_007c: drive.peek_with_iec_bus(0x007C, &self.iec_bus),
+            zp_007d: drive.peek_with_iec_bus(0x007D, &self.iec_bus),
             zp_001c: drive.peek_with_iec_bus(0x001C, &self.iec_bus),
             zp_001d: drive.peek_with_iec_bus(0x001D, &self.iec_bus),
             zp_006f: drive.peek_with_iec_bus(0x006F, &self.iec_bus),
             zp_0070: drive.peek_with_iec_bus(0x0070, &self.iec_bus),
             zp_0072: drive.peek_with_iec_bus(0x0072, &self.iec_bus),
+            zp_0077: drive.peek_with_iec_bus(0x0077, &self.iec_bus),
+            zp_0078: drive.peek_with_iec_bus(0x0078, &self.iec_bus),
+            zp_0079: drive.peek_with_iec_bus(0x0079, &self.iec_bus),
+            zp_007a: drive.peek_with_iec_bus(0x007A, &self.iec_bus),
             zp_007f: drive.peek_with_iec_bus(0x007F, &self.iec_bus),
             zp_0082: drive.peek_with_iec_bus(0x0082, &self.iec_bus),
+            zp_0083: drive.peek_with_iec_bus(0x0083, &self.iec_bus),
             zp_0086: drive.peek_with_iec_bus(0x0086, &self.iec_bus),
+            mem_00e2: drive.peek_with_iec_bus(0x00E2, &self.iec_bus),
             mem_022b: drive.peek_with_iec_bus(0x022B, &self.iec_bus),
+            mem_024d: drive.peek_with_iec_bus(0x024D, &self.iec_bus),
             mem_025b: drive.peek_with_iec_bus(0x025B, &self.iec_bus),
+            mem_028c: drive.peek_with_iec_bus(0x028C, &self.iec_bus),
+            mem_028d: drive.peek_with_iec_bus(0x028D, &self.iec_bus),
+            mem_028e: drive.peek_with_iec_bus(0x028E, &self.iec_bus),
             mem_026c: drive.peek_with_iec_bus(0x026C, &self.iec_bus),
             mem_026d: drive.peek_with_iec_bus(0x026D, &self.iec_bus),
         }
@@ -497,13 +570,19 @@ impl MachineCore for C64Runtime {
 
         while self.time < target {
             let frame_complete = if let Some(drive8) = self.drive8.as_mut() {
-                let frame_complete = self.machine.tick_with_iec_bus(&mut self.iec_bus);
-                self.drive8_cycle_accum = self.drive8_cycle_accum.saturating_add(DRIVE1541_CPU_HZ);
-                let c64_hz = self.machine.timing().cpu_hz;
-                while self.drive8_cycle_accum >= c64_hz {
+                let c64_hz = u128::from(self.machine.timing().cpu_hz);
+                let next_c64_tick = u128::from(self.machine.phi2_cycles().saturating_add(1))
+                    * u128::from(DRIVE1541_CPU_HZ);
+                let next_drive_tick = u128::from(drive8.cycles().saturating_add(1)) * c64_hz;
+
+                if next_drive_tick <= next_c64_tick {
                     drive8.tick_with_iec_bus(&mut self.iec_bus);
-                    self.drive8_cycle_accum -= c64_hz;
+                    self.machine.sync_iec_bus(&mut self.iec_bus);
+                    continue;
                 }
+
+                let frame_complete = self.machine.tick_with_iec_bus(&mut self.iec_bus);
+                drive8.sync_iec_bus(&mut self.iec_bus);
                 frame_complete
             } else {
                 self.machine.tick()
@@ -559,34 +638,10 @@ impl MachineCore for C64Runtime {
                 if drive8.cpu().sync && (start..=end).contains(&pc) {
                     let state = self.drive_trace_state(drive8);
                     if self.last_drive_trace_state.as_ref() != Some(&state) {
-                        let payload = serde_json::to_vec(&json!({
-                            "pc": state.pc,
-                            "opcode": state.opcode,
-                            "via1_ifr": state.via1_ifr,
-                            "via1_ier": state.via1_ier,
-                            "via1_pcr": state.via1_pcr,
-                            "via1_pb": state.via1_pb,
-                            "via2_ifr": state.via2_ifr,
-                            "via2_ier": state.via2_ier,
-                            "via2_pcr": state.via2_pcr,
-                            "via2_pb": state.via2_pb,
-                            "via2_pa": state.via2_pa,
-                            "zp_001c": state.zp_001c,
-                            "zp_001d": state.zp_001d,
-                            "zp_006f": state.zp_006f,
-                            "zp_0070": state.zp_0070,
-                            "zp_0072": state.zp_0072,
-                            "zp_007f": state.zp_007f,
-                            "zp_0082": state.zp_0082,
-                            "zp_0086": state.zp_0086,
-                            "mem_022b": state.mem_022b,
-                            "mem_025b": state.mem_025b,
-                            "mem_026c": state.mem_026c,
-                            "mem_026d": state.mem_026d,
-                        }))
-                        .map_err(|reason| MachineError::Host {
-                            reason: format!("failed to encode drive trace payload: {reason}"),
-                        })?;
+                        let payload =
+                            serde_json::to_vec(&state).map_err(|reason| MachineError::Host {
+                                reason: format!("failed to encode drive trace payload: {reason}"),
+                            })?;
                         host.trace_sink.push_trace(TraceEvent {
                             timestamp: self.time,
                             kind: Cow::Borrowed("c64.drive8.rom_trace"),
@@ -2011,6 +2066,43 @@ mod tests {
             end_head != start_head,
             "Bruce Lee disk autoload should move the 1541 head after SEARCHING FOR: start={start_head} end={end_head}"
         );
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+    fn real_d64_autoload_bruce_lee_reaches_loading() {
+        let firmware = local_rom_firmware_with_drive();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("local ROMs should construct a C64 runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let disk = read_media_asset(&local_bruce_lee_d64_zip(), MediaKind::Disk)
+            .expect("local Bruce Lee D64 archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            MediaKind::Disk,
+            &disk.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("Bruce Lee D64 should mount into drive-8");
+
+        autoload_basic_disk(
+            &mut session,
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("disk autoload should reach SEARCHING FOR");
+
+        let loading = session
+            .wait_for_query_text_contains("screen.text.lines", "LOADING", 1_500)
+            .expect("Bruce Lee disk autoload should reach LOADING");
+        assert_eq!(loading.needle, "LOADING");
     }
 
     #[test]

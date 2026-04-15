@@ -526,7 +526,10 @@ impl C64 {
     }
 
     fn drive_iec_outputs(&self, bus: &mut IecBus) {
-        bus.write_cpu_port_a(self.cia2.port_a_drive_state());
+        // The C64 serial bus lines on CIA2 Port A are active-low. VICE feeds
+        // the IEC layer with `~(PRA | ~DDRA)`, not the mixed port-drive state
+        // directly.
+        bus.write_cpu_port_a(!self.cia2.port_a_drive_state());
     }
 
     fn cpu_port_read(&self) -> u8 {
@@ -711,12 +714,12 @@ mod tests {
         let mut bus = IecBus::new();
 
         machine.cpu_write(0xDD02, 0x3F);
-        machine.cpu_write(0xDD00, 0x67);
+        machine.cpu_write(0xDD00, 0x00);
         machine.sync_iec_bus(&mut bus);
         machine.drive_iec_outputs(&mut bus);
 
-        assert_eq!(machine.cia2.port_a_drive_state(), 0xE7);
-        assert_eq!(bus.drive_port() & 0x84, 0x84);
+        assert_eq!(machine.cia2.port_a_drive_state(), 0xC0);
+        assert_eq!(bus.drive_port() & 0x85, 0x85);
     }
 
     fn make_tap(payload: &[u8]) -> Vec<u8> {
@@ -1089,9 +1092,9 @@ mod tests {
         let mut bus = IecBus::new();
 
         machine.cpu_write_with_iec_bus(0xDD02, 0x3F, &mut bus);
-        machine.cpu_write_with_iec_bus(0xDD00, 0xE7, &mut bus);
+        machine.cpu_write_with_iec_bus(0xDD00, 0x00, &mut bus);
 
-        assert_eq!(bus.drive_port() & 0x84, 0x84);
+        assert_eq!(bus.drive_port() & 0x85, 0x85);
     }
 
     #[test]
@@ -1110,7 +1113,7 @@ mod tests {
         assert_eq!(c64.cpu_read_with_iec_bus(0xDD00, &mut bus) & 0x80, 0x00);
 
         c64.cpu_write_with_iec_bus(0xDD02, 0x3F, &mut bus);
-        c64.cpu_write_with_iec_bus(0xDD00, 0xEF, &mut bus);
+        c64.cpu_write_with_iec_bus(0xDD00, 0x08, &mut bus);
         drive.sync_iec_bus(&mut bus);
 
         assert!(!bus.drive_atn_high());

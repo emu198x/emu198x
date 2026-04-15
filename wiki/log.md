@@ -17,6 +17,17 @@ Append-only record of ingests, queries, and lint passes.
 6. the next focused trace checklist for getting from `SEARCHING FOR *` to `LOADING`
 **Consequence:** the 1541 work now has a single repo-local reference for the current blocker, so the next implementation/debugging pass can target the live DOS/VIA/IEC handoff directly instead of re-deriving the same board and ROM facts from raw sources.
 
+## 2026-04-15 — C64 IEC output inversion fix moves live 1541 path to `LOADING`
+
+**Type:** fix
+**Trigger:** The live `1541` path had narrowed to a stubborn `SEARCHING FOR *` stall even though the drive ROM, mounted `D64`, GCR read path, and disk-controller `VIA` activity were all live. Focused tracing showed the 1541 never latched the expected serial `ATN` interrupt path, and the suspicious clue was that the drive already saw `ATN` low at the C64 `READY.` prompt before `LOAD"*",8,1` even started.
+**Result:** the C64-side IEC glue in `machine-commodore-c64` now matches VICE more closely by inverting the mixed `CIA2 Port A` drive state before handing it to `common-commodore-iec`. That fixes the active-low serial output mapping and removes the false pre-command `ATN` assertion on the bus. A new ignored ROM-backed regression proves that local `Bruce Lee (1984)(Datasoft)` now advances from `SEARCHING FOR *` to `LOADING` on the live `1541` path.
+**Verification:** locally, this slice passes:
+- `cargo test -p machine-commodore-c64`
+- `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --print-query c64.cia2.port_a_latch --print-query c64.cia2.ddra --print-query c64.iec.cpu_port --print-query c64.iec.drive_port`
+- `cargo run --release -p emu198x-script-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bruce Lee (1984)(Datasoft).zip' --autoload-disk --frames 400 --print-screen-text`
+**Consequence:** the live disk path is still not yet full end-to-end 1541 DOS-sector loading, but it has crossed the main stalled boundary. The next honest target is no longer “leave `SEARCHING FOR *` at all”; it is “how far past `LOADING` does the real attached-drive path get on plain disk software.”
+
 ## 2026-04-14 — Live 1541 path now enters real BASIC disk autoload
 
 **Type:** milestone
