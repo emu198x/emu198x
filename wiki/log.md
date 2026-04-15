@@ -17,6 +17,25 @@ Append-only record of ingests, queries, and lint passes.
 6. the next focused trace checklist for getting from `SEARCHING FOR *` to `LOADING`
 **Consequence:** the 1541 work now has a single repo-local reference for the current blocker, so the next implementation/debugging pass can target the live DOS/VIA/IEC handoff directly instead of re-deriving the same board and ROM facts from raw sources.
 
+## 2026-04-15 — `Bomb Jack` becomes a third live-1541 disk proof
+
+**Type:** milestone
+**Trigger:** After `Aztec Challenge` became the second readable disk anchor, the next useful title to probe was something loader-heavier to check whether the same live 1541 path could survive a multi-stage disk flow without collapsing back to a one-stage BASIC proof.
+**Result:** local `Bomb Jack (1986)(Elite)` now provides that third proof on the same attached-drive path:
+1. typed `LOAD"*",8,1` reaches a visible multi-stage loader (`SEARCHING FOR *`, `LOADING`, `SEARCHING FOR .1`, `LOADING`, `SEARCHING FOR .2`, `LOADING`)
+2. after the loader settles and the drive goes idle, the real framebuffer shows the readable Bomb Jack title screen with `PRESS FIRE TO PLAY`
+3. joystick port 2 does not move that title, but joystick port 1 does: port-1 fire advances to a later `TOP TEN BOMBJACKERS` screen
+4. an ignored ROM-backed regression now preserves the title-to-port-1-fire transition in `runtime-commodore-c64`
+
+**Verification:** locally, this slice passes:
+- `./target/release/emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bomb Jack (1986)(Elite).zip' --autoload-disk --script /tmp/bombjack_very_long.json`
+- `./target/release/emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk '.../Bomb Jack (1986)(Elite).zip' --autoload-disk --script /tmp/bombjack_fire_port1.json`
+
+**Consequence:** the live 1541 path now has three distinct disk software anchors with different pressure:
+- `Bruce Lee` for later-title input-driven progression
+- `Aztec Challenge` for readable post-load menu/instruction flow
+- `Bomb Jack` for multi-stage loader survival plus bitmap-title input response
+
 ## 2026-04-15 — `Aztec Challenge` becomes a second readable C64 disk anchor
 
 **Type:** milestone

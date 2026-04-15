@@ -236,7 +236,9 @@ Current examples include:
   `Bruce Lee` now reaches `LOADING`, advances to a title after `RUN`, then
   responds to joystick input beyond that title; `Aztec Challenge` now returns
   to BASIC after load and reaches a readable instruction screen after `RUN`
-  and `F1` on the same live 1541 path
+  and `F1`; `Bomb Jack` now completes a multi-stage loader, reaches a readable
+  title screen, and responds to joystick port-1 fire on the same live 1541
+  path
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

@@ -1427,6 +1427,15 @@ mod tests {
         )
     }
 
+    fn local_bomb_jack_d64_zip() -> PathBuf {
+        PathBuf::from(
+            std::env::var("HOME").expect("HOME should be available for local C64 D64 tests"),
+        )
+        .join(
+            "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[D64]/Bomb Jack (1986)(Elite).zip",
+        )
+    }
+
     fn screen_text_lines(
         session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
     ) -> Vec<String> {
@@ -2482,6 +2491,75 @@ mod tests {
         assert!(!drive.activity_led());
         assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 0);
         assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 0);
+    }
+
+    #[test]
+    #[ignore = "requires local C64 ROMs, 1541 ROM, and Bomb Jack D64 archive"]
+    fn real_d64_autoload_bomb_jack_responds_to_port1_fire() {
+        let firmware = local_rom_firmware_with_drive();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("local ROMs should construct a C64 runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let disk = read_media_asset(&local_bomb_jack_d64_zip(), MediaKind::Disk)
+            .expect("local Bomb Jack D64 archive should load");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            MediaKind::Disk,
+            &disk.bytes,
+        ));
+        session
+            .load_media(&media)
+            .expect("Bomb Jack D64 should mount into drive-8");
+
+        autoload_basic_disk(
+            &mut session,
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        )
+        .expect("disk autoload should reach SEARCHING FOR");
+
+        session
+            .wait_for_query_text_contains("screen.text.lines", "LOADING", 1_500)
+            .expect("Bomb Jack disk autoload should reach LOADING");
+        session
+            .run_frames(50_000)
+            .expect("Bomb Jack should settle into its title screen after the multi-stage loader");
+
+        let title_frame = session.machine().machine().framebuffer().to_vec();
+        let drive = session
+            .machine()
+            .drive8()
+            .expect("drive should stay attached");
+        assert!(!drive.motor_on());
+        assert!(!drive.activity_led());
+        assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 0);
+        assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 6);
+
+        press_button(&mut session, 1, "fire", 6);
+        session
+            .run_frames(4_000)
+            .expect("Bomb Jack should advance after joystick port-1 fire");
+
+        assert_ne!(
+            session.machine().machine().framebuffer(),
+            title_frame.as_slice(),
+            "Bomb Jack framebuffer should change after joystick port-1 fire"
+        );
+
+        let drive = session
+            .machine()
+            .drive8()
+            .expect("drive should stay attached");
+        assert!(!drive.motor_on());
+        assert!(!drive.activity_led());
+        assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 0);
+        assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 6);
     }
 
     #[test]
