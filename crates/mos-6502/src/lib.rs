@@ -16,8 +16,10 @@ pub struct M6502 {
     pub data_in: u8,
     pub irq: bool,
     pub nmi: bool,
+    pub so: bool,
     pub rdy: bool,
     pub(crate) nmi_prev: bool,
+    pub(crate) so_prev: bool,
     pub halted: bool,
     pub decimal_disabled: bool,
     pub(crate) cs: cycle::CycleState,
@@ -46,8 +48,10 @@ impl M6502 {
             data_in: 0,
             irq: false,
             nmi: false,
+            so: true,
             rdy: true,
             nmi_prev: false,
+            so_prev: true,
             halted: false,
             decimal_disabled: !decimal_enabled,
             cs: cycle::CycleState::default(),
@@ -70,6 +74,8 @@ impl M6502 {
         self.sync = false;
         self.data = 0;
         self.data_in = 0;
+        self.so = true;
+        self.so_prev = true;
     }
 
     #[must_use]
@@ -119,6 +125,16 @@ mod tests {
         cpu.reset();
         assert!(!cpu.irq);
         assert!(!cpu.nmi);
+    }
+
+    #[test]
+    fn reset_restores_so_high() {
+        let mut cpu = M6502::new();
+        cpu.so = false;
+        cpu.so_prev = false;
+        cpu.reset();
+        assert!(cpu.so);
+        assert!(cpu.so_prev);
     }
 
     #[test]
@@ -202,6 +218,17 @@ mod tests {
         let cycles = fixture.run_one();
         assert_eq!(cycles, 4);
         assert_eq!(fixture.cpu.regs.a, 0x92);
+        assert_eq!(fixture.cpu.regs.pc, 0x0402);
+    }
+
+    #[test]
+    fn falling_so_edge_sets_overflow_before_branch_eval() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x50, 0x00, 0xEA]);
+        fixture.boot();
+        fixture.cpu.so = false;
+        let cycles = fixture.run_one();
+        assert_eq!(cycles, 2);
+        assert!(fixture.cpu.regs.overflow());
         assert_eq!(fixture.cpu.regs.pc, 0x0402);
     }
 

@@ -7,7 +7,7 @@
 use emu198x_shell::session::BootWaitResult;
 use emu198x_shell::{
     ControlCommand, HeadlessSession, InputEvent, MachineTime, MediaTransportAction,
-    MediaTransportCommand, SessionError, SessionQueryProvider,
+    MediaTransportCommand, NullTraceSink, SessionError, SessionQueryProvider, TraceSink,
 };
 use thiserror::Error;
 
@@ -118,6 +118,26 @@ pub fn autoload_basic_tape(
     max_boot_frames: u32,
     max_prompt_frames: u32,
 ) -> Result<C64TapeAutoloadResult, C64AutoloadError> {
+    let mut trace_sink = NullTraceSink;
+    autoload_basic_tape_with_trace_sink(
+        session,
+        slot,
+        max_boot_frames,
+        max_prompt_frames,
+        &mut trace_sink,
+    )
+}
+
+/// Same as [`autoload_basic_tape`], but also streams any machine-local trace
+/// events emitted during the boot, keypress, prompt-wait, and tape-start path
+/// into one caller-provided sink.
+pub fn autoload_basic_tape_with_trace_sink(
+    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+    slot: &str,
+    max_boot_frames: u32,
+    max_prompt_frames: u32,
+    trace_sink: &mut dyn TraceSink,
+) -> Result<C64TapeAutoloadResult, C64AutoloadError> {
     if slot != DEFAULT_TAPE_AUTOLOAD_SLOT {
         return Err(C64AutoloadError::UnsupportedSlot {
             expected: DEFAULT_TAPE_AUTOLOAD_SLOT,
@@ -131,13 +151,14 @@ pub fn autoload_basic_tape(
         });
     }
 
-    let boot = session.wait_for_boot(max_boot_frames)?;
-    tap_key_chord(session, &["lshift", "runstop"])?;
-    session.run_frames(COMMAND_SETTLE_FRAMES)?;
-    let _ = session.wait_for_query_text_contains(
+    let boot = session.wait_for_boot_with_trace_sink(max_boot_frames, trace_sink)?;
+    tap_key_chord(session, &["lshift", "runstop"], trace_sink)?;
+    session.run_frames_with_trace_sink(COMMAND_SETTLE_FRAMES, trace_sink)?;
+    let _ = session.wait_for_query_text_contains_with_trace_sink(
         "screen.text.lines",
         PRESS_PLAY_PROMPT,
         max_prompt_frames,
+        trace_sink,
     )?;
     session.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
         slot.to_owned(),
@@ -168,6 +189,26 @@ pub fn autoload_basic_disk(
     max_boot_frames: u32,
     max_prompt_frames: u32,
 ) -> Result<C64DiskAutoloadResult, C64AutoloadError> {
+    let mut trace_sink = NullTraceSink;
+    autoload_basic_disk_with_trace_sink(
+        session,
+        slot,
+        max_boot_frames,
+        max_prompt_frames,
+        &mut trace_sink,
+    )
+}
+
+/// Same as [`autoload_basic_disk`], but also streams any machine-local trace
+/// events emitted during the boot, keypress, and serial search path into one
+/// caller-provided sink.
+pub fn autoload_basic_disk_with_trace_sink(
+    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+    slot: &str,
+    max_boot_frames: u32,
+    max_prompt_frames: u32,
+    trace_sink: &mut dyn TraceSink,
+) -> Result<C64DiskAutoloadResult, C64AutoloadError> {
     if slot != DEFAULT_DISK_AUTOLOAD_SLOT {
         return Err(C64AutoloadError::UnsupportedSlot {
             expected: DEFAULT_DISK_AUTOLOAD_SLOT,
@@ -187,14 +228,15 @@ pub fn autoload_basic_disk(
         });
     }
 
-    let boot = session.wait_for_boot(max_boot_frames)?;
-    type_basic_command(session, DISK_AUTOLOAD_COMMAND)?;
-    tap_key_chord(session, &["return"])?;
-    session.run_frames(COMMAND_SETTLE_FRAMES)?;
-    let search = session.wait_for_query_text_contains(
+    let boot = session.wait_for_boot_with_trace_sink(max_boot_frames, trace_sink)?;
+    type_basic_command(session, DISK_AUTOLOAD_COMMAND, trace_sink)?;
+    tap_key_chord(session, &["return"], trace_sink)?;
+    session.run_frames_with_trace_sink(COMMAND_SETTLE_FRAMES, trace_sink)?;
+    let search = session.wait_for_query_text_contains_with_trace_sink(
         "screen.text.lines",
         SEARCHING_FOR_PROMPT,
         max_prompt_frames,
+        trace_sink,
     )?;
 
     Ok(C64DiskAutoloadResult {
@@ -207,20 +249,21 @@ pub fn autoload_basic_disk(
 fn tap_key_chord(
     session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
     keys: &[&'static str],
+    trace_sink: &mut dyn TraceSink,
 ) -> Result<(), SessionError> {
     for key in keys {
         session.queue_input(InputEvent::Key {
             name: (*key).into(),
             pressed: true,
         });
-        session.run_frames(KEY_EDGE_FRAMES)?;
+        session.run_frames_with_trace_sink(KEY_EDGE_FRAMES, trace_sink)?;
     }
     for key in keys.iter().rev() {
         session.queue_input(InputEvent::Key {
             name: (*key).into(),
             pressed: false,
         });
-        session.run_frames(KEY_EDGE_FRAMES)?;
+        session.run_frames_with_trace_sink(KEY_EDGE_FRAMES, trace_sink)?;
     }
     Ok(())
 }
@@ -228,6 +271,7 @@ fn tap_key_chord(
 fn type_basic_command(
     session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
     command: &str,
+    trace_sink: &mut dyn TraceSink,
 ) -> Result<(), C64AutoloadError> {
     for ch in command.chars() {
         let keys: &[&'static str] = match ch {
@@ -279,7 +323,7 @@ fn type_basic_command(
             '=' => &["equals"],
             _ => return Err(C64AutoloadError::UnsupportedCommandChar { ch }),
         };
-        tap_key_chord(session, keys)?;
+        tap_key_chord(session, keys, trace_sink)?;
     }
     Ok(())
 }
@@ -333,7 +377,8 @@ mod tests {
         let mut session =
             HeadlessSession::new_with_query_provider(runtime, 1, C64SessionQueryProvider);
 
-        type_basic_command(&mut session, DISK_AUTOLOAD_COMMAND)
+        let mut trace_sink = NullTraceSink;
+        type_basic_command(&mut session, DISK_AUTOLOAD_COMMAND, &mut trace_sink)
             .expect("disk autoload command should be typable");
     }
 

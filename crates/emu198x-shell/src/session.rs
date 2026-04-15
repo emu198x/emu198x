@@ -274,6 +274,49 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         })
     }
 
+    /// Runs native frames until the machine reports `boot.detected = true`,
+    /// emitting trace events to one caller-provided sink for this wait.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying machine run fails, if the runtime
+    /// does not expose the generic `boot.*` query paths, if those paths resolve
+    /// to unexpected value shapes, or if the frame budget expires before boot
+    /// is detected.
+    pub fn wait_for_boot_with_trace_sink(
+        &mut self,
+        max_frames: u32,
+        trace_sink: &mut dyn TraceSink,
+    ) -> Result<BootWaitResult, SessionError> {
+        let mut state = self.boot_query_state()?;
+        if state.detected {
+            return Ok(BootWaitResult {
+                frames: 0,
+                reached: self.time(),
+                reason: state.reason,
+                row: state.row,
+            });
+        }
+
+        for frames in 1..=max_frames {
+            let result = self.run_frames_with_trace_sink(1, trace_sink)?;
+            state = self.boot_query_state()?;
+            if state.detected {
+                return Ok(BootWaitResult {
+                    frames,
+                    reached: result.reached,
+                    reason: state.reason,
+                    row: state.row,
+                });
+            }
+        }
+
+        Err(SessionError::BootTimeout {
+            max_frames,
+            reason: state.reason,
+        })
+    }
+
     /// Runs native frames until one text-bearing query contains one substring.
     ///
     /// The query value must be either one string or one array of strings.
@@ -302,6 +345,55 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
 
         for frames in 1..=max_frames {
             let result = self.run_frames(1)?;
+            if let Some((line, matched_text)) = self.query_text_contains(path, needle)? {
+                return Ok(QueryTextWaitResult {
+                    path: path.to_owned(),
+                    needle: needle.to_owned(),
+                    frames,
+                    reached: result.reached,
+                    line,
+                    matched_text,
+                });
+            }
+        }
+
+        Err(SessionError::QueryTextTimeout {
+            path: path.to_owned(),
+            needle: needle.to_owned(),
+            max_frames,
+        })
+    }
+
+    /// Runs native frames until one text-bearing query contains one substring,
+    /// emitting trace events to one caller-provided sink for this wait.
+    ///
+    /// The query value must be either one string or one array of strings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query does not exist, if it resolves to a value
+    /// that is not text-bearing, or if the frame budget expires before the
+    /// substring is observed.
+    pub fn wait_for_query_text_contains_with_trace_sink(
+        &mut self,
+        path: &str,
+        needle: &str,
+        max_frames: u32,
+        trace_sink: &mut dyn TraceSink,
+    ) -> Result<QueryTextWaitResult, SessionError> {
+        if let Some((line, matched_text)) = self.query_text_contains(path, needle)? {
+            return Ok(QueryTextWaitResult {
+                path: path.to_owned(),
+                needle: needle.to_owned(),
+                frames: 0,
+                reached: self.time(),
+                line,
+                matched_text,
+            });
+        }
+
+        for frames in 1..=max_frames {
+            let result = self.run_frames_with_trace_sink(1, trace_sink)?;
             if let Some((line, matched_text)) = self.query_text_contains(path, needle)? {
                 return Ok(QueryTextWaitResult {
                     path: path.to_owned(),

@@ -316,6 +316,36 @@ impl Cia6526 {
         self.crb
     }
 
+    #[must_use]
+    pub fn port_a_latch(&self) -> u8 {
+        self.port_a
+    }
+
+    #[must_use]
+    pub fn port_b_latch(&self) -> u8 {
+        self.port_b
+    }
+
+    #[must_use]
+    pub fn ddr_a(&self) -> u8 {
+        self.ddr_a
+    }
+
+    #[must_use]
+    pub fn ddr_b(&self) -> u8 {
+        self.ddr_b
+    }
+
+    #[must_use]
+    pub fn port_a_drive_state(&self) -> u8 {
+        (self.port_a & self.ddr_a) | !self.ddr_a
+    }
+
+    #[must_use]
+    pub fn port_b_drive_state(&self) -> u8 {
+        (self.port_b & self.ddr_b) | !self.ddr_b
+    }
+
     fn update_pins(&mut self) {
         self.pa = (self.port_a & self.ddr_a) | (self.pa_in & !self.ddr_a);
         self.pb = (self.port_b & self.ddr_b) | (self.pb_in & !self.ddr_b);

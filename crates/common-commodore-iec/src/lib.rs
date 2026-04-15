@@ -23,6 +23,8 @@ pub struct IecBus {
     cpu_port: u8,
     drive_bus: [u8; DRIVE_COUNT],
     drive_data: [u8; DRIVE_COUNT],
+    #[serde(default)]
+    drive_active: [bool; DRIVE_COUNT],
     drive_port: u8,
 }
 
@@ -35,6 +37,7 @@ impl IecBus {
             cpu_port: 0xFF,
             drive_bus: [0xFF; DRIVE_COUNT],
             drive_data: [0xFF; DRIVE_COUNT],
+            drive_active: [false; DRIVE_COUNT],
             drive_port: DRIVE_READ_DATA | DRIVE_READ_CLOCK | DRIVE_READ_ATN,
         };
         bus.recompute_ports();
@@ -43,10 +46,14 @@ impl IecBus {
 
     /// Updates the C64-side IEC output lines from CIA2 Port A.
     pub fn write_cpu_port_a(&mut self, port_a: u8) {
-        let data = !port_a;
-        self.cpu_bus = ((data << 2) & CPU_READ_DATA)
-            | ((data << 2) & CPU_READ_CLOCK)
-            | ((data << 1) & CPU_WRITE_ATN);
+        self.cpu_bus = ((port_a << 2) & CPU_READ_DATA)
+            | ((port_a << 2) & CPU_READ_CLOCK)
+            | ((port_a << 1) & CPU_WRITE_ATN);
+        for index in 0..DRIVE_COUNT {
+            if self.drive_active[index] {
+                self.recompute_drive_bus_entry(index);
+            }
+        }
         self.recompute_ports();
     }
 
@@ -58,8 +65,8 @@ impl IecBus {
 
         let data = !port_b;
         self.drive_data[index] = data;
-        self.drive_bus[index] = ((data << 3) & CPU_READ_CLOCK)
-            | ((data << 6) & (((!data) ^ self.cpu_bus) << 3) & CPU_READ_DATA);
+        self.drive_active[index] = true;
+        self.recompute_drive_bus_entry(index);
         self.recompute_ports();
     }
 
@@ -69,10 +76,28 @@ impl IecBus {
         self.cpu_port
     }
 
+    /// Current raw C64-side IEC bus contribution before drive inputs are folded in.
+    #[must_use]
+    pub const fn cpu_bus(&self) -> u8 {
+        self.cpu_bus
+    }
+
     /// Current drive-visible IEC input bits as read through VIA1 Port B.
     #[must_use]
     pub const fn drive_port(&self) -> u8 {
         self.drive_port
+    }
+
+    /// Current raw IEC contribution from one drive bus entry.
+    #[must_use]
+    pub fn drive_bus(&self, drive_number: u8) -> Option<u8> {
+        Self::drive_index(drive_number).map(|index| self.drive_bus[index])
+    }
+
+    /// Current raw decoded IEC output bits for one drive.
+    #[must_use]
+    pub fn drive_data(&self, drive_number: u8) -> Option<u8> {
+        Self::drive_index(drive_number).map(|index| self.drive_data[index])
     }
 
     /// Returns `true` when the ATN line is released high on the drive side.
@@ -98,6 +123,12 @@ impl IecBus {
         } else {
             None
         }
+    }
+
+    fn recompute_drive_bus_entry(&mut self, index: usize) {
+        let data = self.drive_data[index];
+        self.drive_bus[index] = ((data << 3) & CPU_READ_CLOCK)
+            | ((data << 6) & (((!data) ^ self.cpu_bus) << 3) & CPU_READ_DATA);
     }
 }
 
@@ -132,11 +163,11 @@ mod tests {
     fn cpu_can_pull_drive_atn_low() {
         let mut bus = IecBus::new();
 
-        bus.write_cpu_port_a(0xEF);
+        bus.write_cpu_port_a(0xF7);
 
         assert_eq!(bus.drive_port() & DRIVE_READ_ATN, 0x00);
         assert_eq!(bus.drive_port() & DRIVE_READ_CLOCK, DRIVE_READ_CLOCK);
-        assert_eq!(bus.drive_port() & DRIVE_READ_DATA, 0x00);
+        assert_eq!(bus.drive_port() & DRIVE_READ_DATA, DRIVE_READ_DATA);
         assert!(!bus.drive_atn_high());
     }
 
@@ -148,5 +179,19 @@ mod tests {
 
         assert_eq!(bus.cpu_port() & CPU_READ_DATA, 0x00);
         assert_eq!(bus.cpu_port() & CPU_READ_CLOCK, CPU_READ_CLOCK);
+    }
+
+    #[test]
+    fn cpu_bus_updates_recompute_drive_data_fold() {
+        let mut bus = IecBus::new();
+
+        bus.write_cpu_port_a(0xF7);
+        bus.write_drive_port_b(8, 0x05);
+        let initial_drive_bus = bus.drive_bus(8).expect("drive-8 should exist");
+
+        bus.write_cpu_port_a(0xFF);
+
+        let updated_drive_bus = bus.drive_bus(8).expect("drive-8 should exist");
+        assert_ne!(initial_drive_bus, updated_drive_bus);
     }
 }

@@ -36,7 +36,7 @@ const HEADER_GAP_SIZE: usize = 9;
 const SYNC_SIZE: usize = 5;
 const SECTOR_GCR_SIZE_WITH_HEADER: usize = 335;
 const TRACK_SLOT_COUNT: usize = (MAX_HEAD_POSITION as usize) - 1;
-const IO_TRACE_LIMIT: usize = 64;
+const IO_TRACE_LIMIT: usize = 2048;
 const ROTATION_REF_CYCLES_PER_CPU_CYCLE: u64 = 16;
 const BUS_READ_DELAY_REF_CYCLES: u64 = 14;
 
@@ -608,7 +608,6 @@ impl Drive1541 {
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
                 self.rotate_disk_bus_read();
                 let value = self.via2_port_b_read();
-                self.clear_byte_ready_level();
                 self.via2.read_port_b_with_value(value)
             }
             0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
@@ -647,13 +646,19 @@ impl Drive1541 {
     }
 
     fn drive_iec_outputs(&self, bus: &mut IecBus) {
+        // VICE stores the 1541 IEC contribution from the VIA1 Port B mixed
+        // output state (`PRB | ~DDRB`), so input-configured bits release the
+        // open-collector lines high immediately when DDR changes.
         bus.write_drive_port_b(self.device_number, self.via1.port_b_drive_state());
     }
 
     fn apply_drive_inputs(&mut self, bus: Option<&IecBus>) {
         self.via1.pa_in = self.via1_port_a_input();
         self.via1.pb_in = self.via1_port_b_input(bus);
-        self.via1.ca1 = !self.bus_atn_high(bus);
+        // The 1541 serial glue presents IEC ATN to VIA1 CA1 inverted: ATN low
+        // becomes a CA1 rising edge, matching VICE's `viacore_signal(...,
+        // VIA_SIG_CA1, VIA_SIG_RISE)` path for 1541-style drives.
+        self.via1.set_ca1_level(!self.bus_atn_high(bus));
         self.via2.pa_in = self.via2_port_a_input();
         self.via2.pb_in = self.via2_port_b_input();
         self.via2.ca1 = self.byte_ready_not_asserted();
@@ -714,7 +719,6 @@ impl Drive1541 {
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
                 self.rotate_disk_bus_read();
                 let value = self.via2_port_b_read();
-                self.clear_byte_ready_level();
                 self.via2.read_port_b_with_value(value)
             }
             0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
@@ -765,7 +769,11 @@ impl Drive1541 {
     }
 
     fn via1_port_a_input(&self) -> u8 {
-        0xFE | u8::from(self.head_position != 2)
+        // On a plain 1541, VIA1 Port A is not the track-zero/byte-ready status
+        // port used by the dual-drive DOS heritage. VICE models it as pulled
+        // high unless parallel-cable hardware is active, which we do not yet
+        // emulate here.
+        0xFF
     }
 
     fn via1_port_b_input(&self, bus: Option<&IecBus>) -> u8 {
@@ -773,7 +781,11 @@ impl Drive1541 {
     }
 
     fn via2_port_a_input(&self) -> u8 {
-        self.gcr_read
+        if self.selected_internal_drive_present() {
+            self.gcr_read
+        } else {
+            0
+        }
     }
 
     fn via2_port_b_input(&self) -> u8 {
@@ -853,9 +865,11 @@ impl Drive1541 {
     }
 
     fn write_protect_not_asserted(&self) -> bool {
-        self.disk
-            .as_ref()
-            .is_some_and(|disk| !disk.write_protected())
+        self.selected_internal_drive_present()
+            && self
+                .disk
+                .as_ref()
+                .is_some_and(|disk| !disk.write_protected())
     }
 
     fn clear_byte_ready(&mut self) {
@@ -1031,15 +1045,42 @@ impl Drive1541 {
     }
 
     fn current_track_bytes(&self) -> Option<&[u8]> {
+        if !self.selected_internal_drive_present() {
+            return None;
+        }
         self.track_data.as_ref()?.track_bytes(self.head_position)
     }
 
+    fn selected_internal_drive(&self) -> u8 {
+        self.ram[0x007F] & 0x01
+    }
+
+    fn selected_internal_drive_present(&self) -> bool {
+        self.selected_internal_drive() == 0
+    }
+
     fn is_read_mode(&self) -> bool {
-        self.via2.peek(0x0C) & 0x20 != 0
+        self.cb2_line_high()
     }
 
     fn byte_ready_active(&self) -> bool {
-        self.via2.peek(0x0C) & 0x02 != 0
+        self.ca2_line_high()
+    }
+
+    fn ca2_line_high(&self) -> bool {
+        if self.via2.ca2_drive {
+            self.via2.ca2_out
+        } else {
+            self.via2.peek(0x0C) & 0x02 != 0
+        }
+    }
+
+    fn cb2_line_high(&self) -> bool {
+        if self.via2.cb2_drive {
+            self.via2.cb2_out
+        } else {
+            self.via2.peek(0x0C) & 0x20 != 0
+        }
     }
 }
 
@@ -1199,14 +1240,14 @@ mod tests {
         Drive1541, Drive1541Config, Drive1541InitError, Drive1541TrackData, ROM_SIZE,
         TRACK_SLOT_COUNT, build_track_data, track_slot_index,
     };
-    use format_commodore_c64_d64::read_sector;
     use common_commodore_iec::IecBus;
+    use format_commodore_c64_d64::read_sector;
 
     const D64_STANDARD_SIZE: usize = 174_848;
     const D64_SECTOR_SIZE: usize = 256;
     const FROM_GCR_CONVERSION_TABLE: [u8; 32] = [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 1, 0, 12, 4, 5, 0, 0, 2, 3, 0, 15, 6, 7, 0, 9, 10, 11,
-        0, 13, 14, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 1, 0, 12, 4, 5, 0, 0, 2, 3, 0, 15, 6, 7, 0, 9, 10, 11, 0,
+        13, 14, 0,
     ];
 
     fn make_rom(program: &[(u16, &[u8])], reset_vector: u16) -> [u8; ROM_SIZE] {
@@ -1289,7 +1330,11 @@ mod tests {
         bytes
     }
 
-    fn gcr_find_sync(raw: &[u8], mut bit_offset: usize, mut remaining_bits: usize) -> Option<usize> {
+    fn gcr_find_sync(
+        raw: &[u8],
+        mut bit_offset: usize,
+        mut remaining_bits: usize,
+    ) -> Option<usize> {
         if raw.is_empty() {
             return None;
         }
@@ -1503,7 +1548,48 @@ mod tests {
     }
 
     #[test]
-    fn via_status_ports_reflect_track_zero_and_write_protect() {
+    fn atn_falling_edge_reaches_via1_ca1_as_a_rising_edge() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut bus = IecBus::new();
+
+        machine.poke(0x180C, 0x01);
+        machine.sync_iec_bus(&mut bus);
+        assert!(
+            !machine.via1().ca1,
+            "idle IEC ATN high should present CA1 low"
+        );
+        assert_eq!(machine.via1().peek(0x0D) & 0x02, 0x00);
+
+        bus.write_cpu_port_a(0xF7);
+        machine.sync_iec_bus(&mut bus);
+
+        assert!(machine.via1().ca1, "C64 ATN low should present CA1 high");
+        assert_eq!(
+            machine.via1().peek(0x0D) & 0x02,
+            0x02,
+            "ATN low should reach VIA1 CA1 as the configured rising-edge interrupt"
+        );
+    }
+
+    #[test]
+    fn via1_port_a_reads_high_on_plain_1541() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bus = IecBus::new();
+        machine.head_position = 2;
+
+        assert_eq!(
+            machine.peek_with_iec_bus(0x1801, &bus),
+            0xFF,
+            "plain 1541 VIA1 Port A should read high without parallel hardware"
+        );
+    }
+
+    #[test]
+    fn via2_status_port_reflects_write_protect_and_sync() {
         let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
         let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
             .expect("1541 scaffold ROM should be valid");
@@ -1513,11 +1599,6 @@ mod tests {
             .load_d64_bytes(&synthetic_d64())
             .expect("synthetic D64 should mount");
 
-        assert_eq!(
-            machine.peek_with_iec_bus(0x1801, &bus) & 0x01,
-            0x00,
-            "track-zero sense should pull VIA1 PA0 low"
-        );
         assert_eq!(
             machine.peek_with_iec_bus(0x1C00, &bus) & 0x10,
             0x00,
@@ -1653,7 +1734,9 @@ mod tests {
     fn mounted_d64_gcr_track_round_trips_sector_zero() {
         let bytes = synthetic_d64();
         let track_data = build_track_data(&bytes).expect("synthetic D64 should build GCR data");
-        let raw_track = track_data.track_bytes(2).expect("track 1 should be present");
+        let raw_track = track_data
+            .track_bytes(2)
+            .expect("track 1 should be present");
         let sector = gcr_read_sector_from_raw_track(raw_track, 0)
             .expect("raw GCR track should decode sector 0");
         let expected = read_sector(&bytes, 1, 0).expect("synthetic D64 sector should exist");
@@ -1724,6 +1807,38 @@ mod tests {
         assert!(
             !machine.byte_ready(),
             "reading VIA2 Port A should clear byte ready"
+        );
+    }
+
+    #[test]
+    fn reading_via2_port_b_does_not_clear_byte_ready() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bus = IecBus::new();
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        machine.head_position = 2;
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x04);
+        machine.poke(0x1C0C, 0x22);
+
+        for _ in 0..512 {
+            machine.tick();
+            if machine.byte_ready() {
+                break;
+            }
+        }
+
+        assert!(
+            machine.byte_ready(),
+            "track should eventually assert byte ready"
+        );
+        let _ = machine.read_with_iec_bus(0x1C00, &bus);
+        assert!(
+            machine.byte_ready(),
+            "reading VIA2 Port B should not clear byte ready"
         );
     }
 

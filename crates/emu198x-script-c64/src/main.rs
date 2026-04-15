@@ -19,7 +19,8 @@ use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
-    autoload_basic_tape, file_loader::load_host_file,
+    autoload_basic_disk_with_trace_sink, autoload_basic_tape, autoload_basic_tape_with_trace_sink,
+    file_loader::load_host_file,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -168,8 +169,8 @@ State and automation:
     --wait-for-tape-stop N    run up to N frames until c64.tape.playing has started and then stops
     --print-query PATH        resolve one query path after running (repeatable)
     --print-screen-text       print decoded screen-text lines after running
-    --trace-vic-colours       trace D020/D021 changes during the explicit --frames run
-    --trace-drive-rom S E     trace drive-8 ROM activity for inclusive hex window S..E during the explicit --frames run
+    --trace-vic-colours       trace D020/D021 changes during autoload and the explicit --frames run
+    --trace-drive-rom S E     trace drive-8 ROM activity for inclusive hex window S..E during autoload and the explicit --frames run
     --trace-limit N           maximum traced colour-write events to retain [default: 512]
     --screenshot PATH         write the last emitted frame as PNG
 
@@ -393,15 +394,23 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         native_frame_ticks,
         C64SessionQueryProvider,
     );
+    let tracing_enabled = cli.trace_vic_colours || cli.trace_drive_rom_window.is_some();
+    let mut trace_collector = None;
 
     let mut observations = Vec::new();
     let needs_boot_before_import = cli.load.is_some();
     if cli.wait_for_boot.is_some() || needs_boot_before_import {
         let explicit_wait = cli.wait_for_boot.is_some();
         let max_frames = cli.wait_for_boot.unwrap_or(DEFAULT_IMPORT_BOOT_FRAMES);
-        let result = session
-            .wait_for_boot(max_frames)
-            .map_err(|err| format!("boot wait failed: {err}"))?;
+        let result = if let Some(collector) = trace_collector.as_mut() {
+            session
+                .wait_for_boot_with_trace_sink(max_frames, collector)
+                .map_err(|err| format!("boot wait failed: {err}"))?
+        } else {
+            session
+                .wait_for_boot(max_frames)
+                .map_err(|err| format!("boot wait failed: {err}"))?
+        };
         if explicit_wait {
             observations.push(ScriptObservation::WaitForBoot {
                 frames: result.frames,
@@ -433,27 +442,67 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     }
 
     if cli.autoload_tape {
+        if trace_collector.is_none() && tracing_enabled {
+            session
+                .machine_mut()
+                .set_trace_vic_colour_writes(cli.trace_vic_colours);
+            session
+                .machine_mut()
+                .set_trace_drive_rom_window(cli.trace_drive_rom_window);
+            trace_collector = Some(TraceCollector::with_limit(cli.trace_limit));
+        }
         if !session.machine().machine().tape_is_loaded() {
             return Err("--autoload-tape requires tape media in slot tape-1".into());
         }
 
-        autoload_basic_tape(
-            &mut session,
-            DEFAULT_TAPE_AUTOLOAD_SLOT,
-            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
-        )
-        .map_err(|err| format!("tape autoload failed: {err}"))?;
+        if let Some(collector) = trace_collector.as_mut() {
+            autoload_basic_tape_with_trace_sink(
+                &mut session,
+                DEFAULT_TAPE_AUTOLOAD_SLOT,
+                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+                DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+                collector,
+            )
+            .map_err(|err| format!("tape autoload failed: {err}"))?;
+        } else {
+            autoload_basic_tape(
+                &mut session,
+                DEFAULT_TAPE_AUTOLOAD_SLOT,
+                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+                DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+            )
+            .map_err(|err| format!("tape autoload failed: {err}"))?;
+        }
     }
 
     if cli.autoload_disk {
-        autoload_basic_disk(
-            &mut session,
-            DEFAULT_DISK_AUTOLOAD_SLOT,
-            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
-        )
-        .map_err(|err| format!("disk autoload failed: {err}"))?;
+        if trace_collector.is_none() && tracing_enabled {
+            session
+                .machine_mut()
+                .set_trace_vic_colour_writes(cli.trace_vic_colours);
+            session
+                .machine_mut()
+                .set_trace_drive_rom_window(cli.trace_drive_rom_window);
+            trace_collector = Some(TraceCollector::with_limit(cli.trace_limit));
+        }
+        if let Some(collector) = trace_collector.as_mut() {
+            autoload_basic_disk_with_trace_sink(
+                &mut session,
+                DEFAULT_DISK_AUTOLOAD_SLOT,
+                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+                DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+                collector,
+            )
+            .map_err(|err| format!("disk autoload failed: {err}"))?;
+        } else {
+            autoload_basic_disk(
+                &mut session,
+                DEFAULT_DISK_AUTOLOAD_SLOT,
+                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+                DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+            )
+            .map_err(|err| format!("disk autoload failed: {err}"))?;
+        }
     }
 
     let mut loaded_program = None;
@@ -491,30 +540,36 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         );
     }
 
-    let trace_lines = if cli.trace_vic_colours || cli.trace_drive_rom_window.is_some() {
-        session
-            .machine_mut()
-            .set_trace_vic_colour_writes(cli.trace_vic_colours);
-        session
-            .machine_mut()
-            .set_trace_drive_rom_window(cli.trace_drive_rom_window);
-        let mut collector = TraceCollector::with_limit(cli.trace_limit);
+    if let Some(collector) = trace_collector.as_mut() {
         if cli.frames > 0 {
             session
-                .run_frames_with_trace_sink(cli.frames, &mut collector)
+                .run_frames_with_trace_sink(cli.frames, collector)
                 .map_err(|err| format!("run failed: {err}"))?;
         }
         session.machine_mut().set_trace_vic_colour_writes(false);
         session.machine_mut().set_trace_drive_rom_window(None);
-        Some(collector.into_lines())
-    } else {
-        if cli.frames > 0 {
+    } else if cli.frames > 0 {
+        if tracing_enabled {
+            session
+                .machine_mut()
+                .set_trace_vic_colour_writes(cli.trace_vic_colours);
+            session
+                .machine_mut()
+                .set_trace_drive_rom_window(cli.trace_drive_rom_window);
+            let mut collector = TraceCollector::with_limit(cli.trace_limit);
+            session
+                .run_frames_with_trace_sink(cli.frames, &mut collector)
+                .map_err(|err| format!("run failed: {err}"))?;
+            session.machine_mut().set_trace_vic_colour_writes(false);
+            session.machine_mut().set_trace_drive_rom_window(None);
+            trace_collector = Some(collector);
+        } else {
             session
                 .run_frames(cli.frames)
                 .map_err(|err| format!("run failed: {err}"))?;
         }
-        None
-    };
+    }
+    let trace_lines = trace_collector.map(TraceCollector::into_lines);
 
     if let Some(path) = &cli.save_snapshot {
         session

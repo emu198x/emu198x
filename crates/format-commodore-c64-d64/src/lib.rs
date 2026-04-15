@@ -184,6 +184,30 @@ pub fn extract_first_prg(bytes: &[u8]) -> Result<D64Program, D64ParseError> {
     })
 }
 
+/// Returns the number of sectors on one standard 35-track `D64` track.
+///
+/// # Errors
+///
+/// Returns an error if the track is outside the supported 35-track range.
+pub fn sectors_in_track(track: u8) -> Result<u8, D64ParseError> {
+    if track == 0 || usize::from(track) > TRACK_SECTOR_COUNTS.len() {
+        return Err(D64ParseError::InvalidTrack { track });
+    }
+
+    Ok(TRACK_SECTOR_COUNTS[usize::from(track - 1)])
+}
+
+/// Returns one raw decoded 256-byte sector from a `D64` image.
+///
+/// # Errors
+///
+/// Returns an error if the image is not a supported standard size or the
+/// track/sector pair is outside the image geometry.
+pub fn read_sector(bytes: &[u8], track: u8, sector_num: u8) -> Result<&[u8], D64ParseError> {
+    validate_d64_size(bytes)?;
+    sector(bytes, track, sector_num)
+}
+
 impl D64FileType {
     const fn from_byte(value: u8) -> Self {
         match value {
@@ -378,6 +402,26 @@ mod tests {
         assert_eq!(program.name, "HELLO");
         assert_eq!(program.blocks, 1);
         assert_eq!(program.data, vec![0x01, 0x08, 0x11, 0x22, 0x33]);
+    }
+
+    #[test]
+    fn exposes_track_geometry() {
+        assert_eq!(sectors_in_track(1), Ok(21));
+        assert_eq!(sectors_in_track(18), Ok(19));
+        assert_eq!(sectors_in_track(25), Ok(18));
+        assert_eq!(sectors_in_track(31), Ok(17));
+        assert_eq!(
+            sectors_in_track(36),
+            Err(D64ParseError::InvalidTrack { track: 36 })
+        );
+    }
+
+    #[test]
+    fn reads_raw_decoded_sector_bytes() {
+        let image = synthetic_image();
+        let sector = read_sector(&image, 1, 0).expect("synthetic D64 sector should read");
+
+        assert_eq!(&sector[..7], &[0x00, 0x06, 0x01, 0x08, 0x11, 0x22, 0x33]);
     }
 
     #[test]

@@ -8,6 +8,10 @@ impl M6502 {
 
     pub fn tick(&mut self) -> bool {
         self.total_cycles += 1;
+        if self.so_prev && !self.so {
+            self.regs.set_flag(FLAG_V, true);
+        }
+        self.so_prev = self.so;
 
         if self.reset_phase != 0 {
             return self.tick_reset();

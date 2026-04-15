@@ -183,6 +183,25 @@ impl Via6522 {
         value
     }
 
+    /// Applies one external CA1 level change immediately.
+    ///
+    /// This models board wiring that can present a CA1 edge between full VIA
+    /// `phi2` ticks, such as the IEC ATN transition on the 1541 serial VIA.
+    pub fn set_ca1_level(&mut self, level_high: bool) {
+        self.ca1 = level_high;
+        if self.edge_matches(self.prev_ca1, self.ca1, self.ca1_active_high()) {
+            self.raise_interrupt(IRQ_CA1);
+            if self.pa_latch_enabled() {
+                self.ira = self.pa_in;
+            }
+            if self.ca2_is_output() && self.ca2_output_mode() == 0x00 {
+                self.ca2_handshake_high = false;
+            }
+        }
+        self.prev_ca1 = self.ca1;
+        self.update_pins();
+    }
+
     #[must_use]
     pub fn peek(&self, reg: u8) -> u8 {
         match reg & 0x0F {
@@ -639,6 +658,20 @@ mod tests {
         assert_eq!(via.read(0x01), 0xFF);
         assert_eq!(via.peek(0x0D) & IRQ_CA1, 0);
         assert!(!via.irq);
+    }
+
+    #[test]
+    fn set_ca1_level_raises_interrupt_without_tick() {
+        let mut via = Via6522::new();
+        via.write(0x0E, 0x80 | IRQ_CA1);
+        via.write(0x0C, 0x01);
+
+        via.set_ca1_level(false);
+        assert_eq!(via.peek(0x0D) & IRQ_CA1, 0);
+
+        via.set_ca1_level(true);
+        assert_eq!(via.peek(0x0D) & IRQ_CA1, IRQ_CA1);
+        assert!(via.irq);
     }
 
     #[test]
