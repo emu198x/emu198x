@@ -1,0 +1,1394 @@
+//! Commodore 8364 Paula — interrupt controller, audio DMA, and disk DMA.
+//!
+//! Paula manages the Amiga's interrupt priority system, mapping 14 interrupt
+//! sources to 6 CPU interrupt levels. It also handles audio channel DMA and
+//! floppy disk DMA.
+
+use std::collections::VecDeque;
+
+const AUDIO_DMA_MASTER: u16 = 0x0200;
+const AUDIO_DMA_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
+const AUDIO_DMA_RETURN_LATENCY_CCK: u8 = 14;
+const MIN_AUDIO_PERIOD_CCK: u16 = 124;
+const ADKCON_USE_VOLUME_BITS: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
+const ADKCON_USE_PERIOD_BITS: [u16; 4] = [0x0010, 0x0020, 0x0040, 0x0080];
+const ADKCON_FAST_DISK: u16 = 0x0100;
+const DISK_BYTE_CCK_FAST: u8 = 14;
+const DISK_BYTE_CCK_SLOW: u8 = 28;
+
+/// DAC non-linearity lookup table modelling the A500 resistor-ladder output.
+///
+/// On real hardware the DAC has a slight S-curve around zero crossing and
+/// compression at the extremes. This table maps the signed 8-bit sample value
+/// (index 0 = $80 = -128, index 255 = $7F = +127) to a normalised f32 in
+/// roughly [-1.0, 1.0].
+///
+/// The polynomial approximation is derived from measurements of A500 Paula
+/// output stages (cf. UAE/WinUAE DAC curve). The dominant non-linearity is a
+/// small cubic term that compresses peaks by ~2%.
+fn build_dac_table() -> [f32; 256] {
+    let mut table = [0.0f32; 256];
+    for i in 0..256u16 {
+        // Index matches two's complement `i8 as u8` mapping:
+        // 0→0, 127→+127, 128→-128, 255→-1.
+        let sample = i as u8 as i8;
+        let x = f32::from(sample) / 128.0; // linear normalisation
+        // Slight cubic non-linearity: compresses peaks, sharper zero crossing.
+        let y = x - 0.02 * x * x * x;
+        table[i as usize] = y;
+    }
+    table
+}
+
+static DAC_TABLE: std::sync::LazyLock<[f32; 256]> = std::sync::LazyLock::new(build_dac_table);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioOutputEvent {
+    HighByte(u16),
+    LowByte(u16),
+}
+
+impl AudioOutputEvent {
+    fn word(self) -> u16 {
+        match self {
+            Self::HighByte(word) | Self::LowByte(word) => word,
+        }
+    }
+
+    fn is_word_complete(self) -> bool {
+        matches!(self, Self::LowByte(_))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AudioChannel {
+    lc: u32,
+    ptr: u32,
+    len_words: u16,
+    words_remaining: u32,
+    per: u16,
+    vol: u8,
+    dat: u16,
+    current_word: Option<u16>,
+    next_word: Option<u16>,
+    next_byte_is_hi: bool,
+    period_counter: u16,
+    output_sample: i8,
+    dma_active: bool,
+    dma_enabled_prev: bool,
+    dma_requests_pending: u8,
+    dma_return_countdown: u8,
+    dma_return_word: Option<u16>,
+}
+
+impl Default for AudioChannel {
+    fn default() -> Self {
+        Self {
+            lc: 0,
+            ptr: 0,
+            len_words: 0,
+            words_remaining: 0,
+            per: 124,
+            vol: 0,
+            dat: 0,
+            current_word: None,
+            next_word: None,
+            next_byte_is_hi: true,
+            period_counter: 124,
+            output_sample: 0,
+            dma_active: false,
+            dma_enabled_prev: false,
+            dma_requests_pending: 0,
+            dma_return_countdown: 0,
+            dma_return_word: None,
+        }
+    }
+}
+
+impl AudioChannel {
+    fn effective_period(&self) -> u16 {
+        self.per.max(MIN_AUDIO_PERIOD_CCK)
+    }
+
+    fn programmed_length_words(&self) -> u32 {
+        if self.len_words == 0 {
+            65_536
+        } else {
+            u32::from(self.len_words)
+        }
+    }
+
+    fn start_dma(&mut self) {
+        self.ptr = self.lc & 0x00FF_FFFE;
+        self.words_remaining = self.programmed_length_words();
+        self.current_word = None;
+        self.next_word = None;
+        self.next_byte_is_hi = true;
+        self.period_counter = self.effective_period();
+        self.dma_active = true;
+        // Seed two requests to bootstrap current+next word fill in the simplified
+        // model, while still routing all actual fetches through audio DMA slots.
+        self.dma_requests_pending = 2;
+        self.dma_return_countdown = 0;
+        self.dma_return_word = None;
+    }
+
+    fn stop_dma(&mut self) {
+        self.dma_active = false;
+        self.current_word = None;
+        self.next_word = None;
+        self.next_byte_is_hi = true;
+        self.dma_requests_pending = 0;
+        self.dma_return_countdown = 0;
+        self.dma_return_word = None;
+    }
+
+    fn sync_dma_enable(&mut self, enabled: bool) -> bool {
+        let mut block_started = false;
+        if enabled && !self.dma_enabled_prev {
+            self.start_dma();
+            block_started = true;
+        } else if !enabled && self.dma_enabled_prev {
+            self.stop_dma();
+        }
+        self.dma_enabled_prev = enabled;
+        block_started
+    }
+
+    fn write_dat(&mut self, val: u16) {
+        self.dat = val;
+        // One-shot/non-DMA playback path: let CPU-written AUDxDAT feed the DAC.
+        if !self.dma_active {
+            self.current_word = Some(val);
+            self.next_word = None;
+            self.next_byte_is_hi = true;
+            self.period_counter = self.effective_period();
+        }
+    }
+
+    fn write_period(&mut self, val: u16) {
+        self.per = val;
+        if self.period_counter == 0 {
+            self.period_counter = self.effective_period();
+        }
+    }
+
+    fn write_volume(&mut self, val: u16) {
+        self.vol = (val & 0x7F).min(64) as u8;
+    }
+
+    fn push_dma_word(&mut self, word: u16) {
+        self.dat = word;
+
+        if self.current_word.is_none() {
+            self.current_word = Some(word);
+            self.next_byte_is_hi = true;
+        } else if self.next_word.is_none() {
+            self.next_word = Some(word);
+        }
+    }
+
+    fn fetch_dma_word<F>(&mut self, mut read_chip_byte: F) -> Option<(u16, bool)>
+    where
+        F: FnMut(u32) -> u8,
+    {
+        if !self.dma_active {
+            return None;
+        }
+
+        // Keep one word actively playing and one word prefetched.
+        if self.current_word.is_some() && self.next_word.is_some() {
+            return None;
+        }
+
+        // End of block: raise audio IRQ and loop from LC while DMA remains enabled.
+        let mut wrapped = false;
+        if self.words_remaining == 0 {
+            self.ptr = self.lc & 0x00FF_FFFE;
+            self.words_remaining = self.programmed_length_words();
+            if self.words_remaining == 0 {
+                return None;
+            }
+            wrapped = true;
+        }
+
+        let hi = read_chip_byte(self.ptr);
+        let lo = read_chip_byte(self.ptr | 1);
+        self.ptr = self.ptr.wrapping_add(2);
+        self.words_remaining = self.words_remaining.saturating_sub(1);
+
+        let word = (u16::from(hi) << 8) | u16::from(lo);
+        Some((word, wrapped))
+    }
+
+    fn queue_dma_request(&mut self) {
+        if self.dma_active {
+            self.dma_requests_pending = self.dma_requests_pending.saturating_add(1);
+        }
+    }
+
+    fn service_dma_slot<F>(&mut self, read_chip_byte: F) -> Option<bool>
+    where
+        F: FnMut(u32) -> u8,
+    {
+        if self.dma_requests_pending == 0 {
+            return None;
+        }
+        if self.dma_return_word.is_some() {
+            return None;
+        }
+
+        let (word, wrapped) = self.fetch_dma_word(read_chip_byte)?;
+        self.dma_requests_pending = self.dma_requests_pending.saturating_sub(1);
+        self.dma_return_word = Some(word);
+        self.dma_return_countdown = AUDIO_DMA_RETURN_LATENCY_CCK;
+        Some(wrapped)
+    }
+
+    fn tick_dma_return(&mut self, return_progress_this_cck: bool) {
+        if self.dma_return_word.is_none() {
+            return;
+        }
+        if return_progress_this_cck && self.dma_return_countdown > 0 {
+            self.dma_return_countdown -= 1;
+        }
+        if self.dma_return_countdown == 0
+            && let Some(word) = self.dma_return_word.take()
+        {
+            self.push_dma_word(word);
+        }
+    }
+
+    fn tick_output(&mut self, consume_word_each_transition: bool) -> Option<AudioOutputEvent> {
+        if self.period_counter == 0 {
+            self.period_counter = self.effective_period();
+        }
+
+        self.period_counter = self.period_counter.saturating_sub(1);
+        if self.period_counter != 0 {
+            return None;
+        }
+        self.period_counter = self.effective_period();
+
+        if self.current_word.is_none()
+            && let Some(next) = self.next_word.take()
+        {
+            self.current_word = Some(next);
+            self.next_byte_is_hi = true;
+        }
+
+        let word = self.current_word?;
+
+        let sample_byte = if self.next_byte_is_hi {
+            (word >> 8) as u8
+        } else {
+            word as u8
+        };
+        self.output_sample = sample_byte as i8;
+
+        if self.next_byte_is_hi {
+            self.next_byte_is_hi = false;
+            if consume_word_each_transition && let Some(next) = self.next_word.take() {
+                self.current_word = Some(next);
+            }
+            return Some(AudioOutputEvent::HighByte(word));
+        }
+
+        self.next_byte_is_hi = true;
+        if let Some(next) = self.next_word.take() {
+            self.current_word = Some(next);
+        } else if !consume_word_each_transition {
+            self.current_word = None;
+        }
+        Some(AudioOutputEvent::LowByte(word))
+    }
+
+    fn mix_sample(&self) -> f32 {
+        // Use the DAC non-linearity table instead of linear division.
+        // output_sample is i8; convert to table index (0 = -128, 255 = +127).
+        let idx = (self.output_sample as u8) as usize;
+        let amplitude = DAC_TABLE[idx];
+        let volume = f32::from(self.vol.min(64)) / 64.0;
+        amplitude * volume
+    }
+}
+
+pub struct Paula8364 {
+    pub intena: u16,
+    pub intreq: u16,
+    pub adkcon: u16,
+    pub dsklen: u16,
+    pub dsklen_prev: u16,
+    pub dsksync: u16,
+    pub dskdatr: u16,
+    pub dskdat: u16,
+    dskbytr_data: u8,
+    dskbytr_next_data: Option<u8>,
+    dskbytr_next_delay_cck: u8,
+    dskbytr_valid: bool,
+    dskbytr_wordequal: bool,
+    dskbytr_wordequal_delay_cck: u8,
+    dskdat_queue: VecDeque<u16>,
+    disk_write_dma_log: Vec<u16>,
+    disk_write_pio_log: Vec<u16>,
+    pub disk_dma_pending: bool,
+    /// Disk PLL phase accumulator for variable-rate MFM streams.
+    ///
+    /// For standard tracks (fixed byte rate) this stays at zero — the
+    /// existing `disk_byte_cck_delay()` timing applies unchanged.
+    ///
+    /// For variable-rate IPF tracks, the machine crate feeds per-bit timing
+    /// deltas through `disk_pll_accumulate()`. When the accumulator crosses
+    /// the byte boundary (16 bits = 1 MFM word), `disk_pll_word_ready()`
+    /// returns true and the accumulator resets.
+    disk_pll_phase: u16,
+    /// Whether the PLL is in variable-rate mode (driven by IPF timing data).
+    pub disk_pll_variable_rate: bool,
+    audio: [AudioChannel; 4],
+}
+
+impl Paula8364 {
+    pub fn new() -> Self {
+        Self {
+            intena: 0,
+            intreq: 0,
+            adkcon: 0,
+            dsklen: 0,
+            dsklen_prev: 0,
+            dsksync: 0,
+            dskdatr: 0,
+            dskdat: 0,
+            dskbytr_data: 0,
+            dskbytr_next_data: None,
+            dskbytr_next_delay_cck: 0,
+            dskbytr_valid: false,
+            dskbytr_wordequal: false,
+            dskbytr_wordequal_delay_cck: 0,
+            dskdat_queue: VecDeque::new(),
+            disk_write_dma_log: Vec::new(),
+            disk_write_pio_log: Vec::new(),
+            disk_dma_pending: false,
+            disk_pll_phase: 0,
+            disk_pll_variable_rate: false,
+            audio: [AudioChannel::default(); 4],
+        }
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    /// Return per-channel audio state: (period, volume, output_sample).
+    ///
+    /// Returns `None` if `ch` is out of range (0..3).
+    pub fn audio_channel_state(&self, ch: usize) -> Option<(u16, u8, i8)> {
+        self.audio
+            .get(ch)
+            .map(|ac| (ac.per, ac.vol, ac.output_sample))
+    }
+
+    pub fn write_intena(&mut self, val: u16) {
+        if val & 0x8000 != 0 {
+            self.intena |= val & 0x7FFF;
+        } else {
+            self.intena &= !(val & 0x7FFF);
+        }
+    }
+
+    pub fn write_intreq(&mut self, val: u16) {
+        if val & 0x8000 != 0 {
+            self.intreq |= val & 0x7FFF;
+        } else {
+            self.intreq &= !(val & 0x7FFF);
+        }
+    }
+
+    pub fn request_interrupt(&mut self, bit: u8) {
+        self.intreq |= 1 << bit;
+    }
+
+    pub fn write_adkcon(&mut self, val: u16) {
+        if val & 0x8000 != 0 {
+            self.adkcon |= val & 0x7FFF;
+        } else {
+            self.adkcon &= !(val & 0x7FFF);
+        }
+    }
+
+    fn audio_channel_is_modulator(&self, index: usize) -> bool {
+        let use_volume = (self.adkcon & ADKCON_USE_VOLUME_BITS[index]) != 0;
+        let use_period = (self.adkcon & ADKCON_USE_PERIOD_BITS[index]) != 0;
+        use_volume || use_period
+    }
+
+    fn audio_dma_request_on_event(&self, index: usize, event: AudioOutputEvent) -> bool {
+        let use_volume = (self.adkcon & ADKCON_USE_VOLUME_BITS[index]) != 0;
+        let use_period = (self.adkcon & ADKCON_USE_PERIOD_BITS[index]) != 0;
+
+        match (use_period, use_volume, event) {
+            (false, false, AudioOutputEvent::LowByte(_)) => true, // normal mode
+            (false, false, AudioOutputEvent::HighByte(_)) => false,
+            (false, true, AudioOutputEvent::LowByte(_)) => true, // attach volume == normal
+            (false, true, AudioOutputEvent::HighByte(_)) => false,
+            (true, false, AudioOutputEvent::HighByte(_)) => true, // attach period
+            (true, false, AudioOutputEvent::LowByte(_)) => false,
+            (true, true, _) => true, // combined attach on both transitions
+        }
+    }
+
+    fn apply_audio_modulation_event(&mut self, source: usize, event: AudioOutputEvent) {
+        let use_volume = (self.adkcon & ADKCON_USE_VOLUME_BITS[source]) != 0;
+        let use_period = (self.adkcon & ADKCON_USE_PERIOD_BITS[source]) != 0;
+        if !use_volume && !use_period {
+            return;
+        }
+
+        // HRM: attach-period updates occur on 010->011 (upper-byte output),
+        // attach-volume on 011->010 (word completion). When both are set,
+        // modulation uses both transitions: period on the upper-byte transition,
+        // volume on the lower-byte transition.
+        let should_apply = match (use_period, use_volume, event) {
+            (true, false, AudioOutputEvent::HighByte(_)) => true,
+            (true, false, AudioOutputEvent::LowByte(_)) => false,
+            (false, true, AudioOutputEvent::HighByte(_)) => false,
+            (false, true, AudioOutputEvent::LowByte(_)) => true,
+            (true, true, _) => true,
+            (false, false, _) => false,
+        };
+        if !should_apply {
+            return;
+        }
+
+        let word = event.word();
+
+        if source + 1 >= self.audio.len() {
+            return;
+        }
+
+        let (_left, right) = self.audio.split_at_mut(source + 1);
+        let target = &mut right[0];
+
+        match (use_period, use_volume) {
+            (true, true) => match event {
+                AudioOutputEvent::HighByte(_) => target.write_period(word),
+                AudioOutputEvent::LowByte(_) => target.write_volume(word),
+            },
+            (true, false) => target.write_period(word),
+            (false, true) => target.write_volume(word),
+            (false, false) => {}
+        }
+    }
+
+    /// Write one Paula audio register (AUDx*), returning true if handled.
+    pub fn write_audio_register(&mut self, offset: u16, val: u16) -> bool {
+        if !(0x0A0..=0x0DA).contains(&offset) {
+            return false;
+        }
+        let rel = offset - 0x0A0;
+        let channel = usize::from(rel / 0x10);
+        if channel >= self.audio.len() {
+            return false;
+        }
+        let reg = (rel % 0x10) / 2;
+        let ch = &mut self.audio[channel];
+
+        match reg {
+            0 => {
+                ch.lc = (ch.lc & 0x0000_FFFF) | (u32::from(val) << 16);
+                true
+            }
+            1 => {
+                ch.lc = (ch.lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+                true
+            }
+            2 => {
+                ch.len_words = val;
+                true
+            }
+            3 => {
+                ch.write_period(val);
+                true
+            }
+            4 => {
+                ch.write_volume(val);
+                true
+            }
+            5 => {
+                ch.write_dat(val);
+                true
+            }
+            _ => true,
+        }
+    }
+
+    /// Read one Paula audio register (AUDx*), returning `None` if unsupported.
+    pub fn read_audio_register(&self, offset: u16) -> Option<u16> {
+        if !(0x0A0..=0x0DA).contains(&offset) {
+            return None;
+        }
+        let rel = offset - 0x0A0;
+        let channel = usize::from(rel / 0x10);
+        if channel >= self.audio.len() {
+            return None;
+        }
+        let reg = (rel % 0x10) / 2;
+        let ch = &self.audio[channel];
+
+        match reg {
+            0 => Some((ch.lc >> 16) as u16),
+            1 => Some((ch.lc & 0xFFFF) as u16),
+            2 => Some(ch.len_words),
+            3 => Some(ch.per),
+            4 => Some(u16::from(ch.vol)),
+            5 => Some(ch.dat),
+            _ => Some(0),
+        }
+    }
+
+    /// Tick Paula audio one color clock (CCK).
+    ///
+    /// `dmacon` is the current Agnus DMACON value. `audio_dma_slot` indicates
+    /// whether this CCK is the dedicated DMA slot for a specific audio channel.
+    pub fn tick_audio_cck<F>(&mut self, dmacon: u16, audio_dma_slot: Option<u8>, read_chip_byte: F)
+    where
+        F: FnMut(u32) -> u8,
+    {
+        self.tick_audio_cck_with_bus(dmacon, audio_dma_slot, true, read_chip_byte);
+    }
+
+    /// Tick Paula audio one color clock (CCK), with a machine-provided hint
+    /// indicating whether Agnus bus progress is available for pending DMA
+    /// return data this CCK.
+    pub fn tick_audio_cck_with_bus<F>(
+        &mut self,
+        dmacon: u16,
+        audio_dma_slot: Option<u8>,
+        return_progress_this_cck: bool,
+        mut read_chip_byte: F,
+    ) where
+        F: FnMut(u32) -> u8,
+    {
+        let mut irq_mask = 0u16;
+        for (index, channel) in self.audio.iter_mut().enumerate() {
+            let dma_enabled =
+                (dmacon & AUDIO_DMA_MASTER) != 0 && (dmacon & AUDIO_DMA_BITS[index]) != 0;
+            if channel.sync_dma_enable(dma_enabled) {
+                irq_mask |= 1 << (7 + index);
+            }
+            channel.tick_dma_return(return_progress_this_cck);
+        }
+
+        if let Some(index_u8) = audio_dma_slot {
+            let index = usize::from(index_u8);
+            if index < self.audio.len() {
+                let block_reloaded = self.audio[index].service_dma_slot(&mut read_chip_byte);
+                if block_reloaded == Some(true) {
+                    irq_mask |= 1 << (7 + index);
+                }
+            }
+        }
+
+        let mut output_events = [None; 4];
+        for (index, channel) in self.audio.iter_mut().enumerate() {
+            let combined_attach = (self.adkcon & ADKCON_USE_PERIOD_BITS[index]) != 0
+                && (self.adkcon & ADKCON_USE_VOLUME_BITS[index]) != 0;
+            let output_event = channel.tick_output(combined_attach);
+            if output_event.is_some_and(AudioOutputEvent::is_word_complete) && !channel.dma_active {
+                irq_mask |= 1 << (7 + index);
+            }
+            output_events[index] = output_event;
+        }
+
+        for (index, output_event) in output_events.into_iter().enumerate() {
+            if let Some(event) = output_event {
+                if self.audio_dma_request_on_event(index, event) {
+                    self.audio[index].queue_dma_request();
+                }
+                self.apply_audio_modulation_event(index, event);
+            }
+        }
+
+        if irq_mask != 0 {
+            self.intreq |= irq_mask;
+        }
+    }
+
+    /// Mixed stereo output in the range `[-1.0, 1.0]`.
+    pub fn mix_audio_stereo(&self) -> (f32, f32) {
+        // OCS stereo routing: channels 0+3 left, 1+2 right.
+        let ch0 = if self.audio_channel_is_modulator(0) {
+            0.0
+        } else {
+            self.audio[0].mix_sample()
+        };
+        let ch1 = if self.audio_channel_is_modulator(1) {
+            0.0
+        } else {
+            self.audio[1].mix_sample()
+        };
+        let ch2 = if self.audio_channel_is_modulator(2) {
+            0.0
+        } else {
+            self.audio[2].mix_sample()
+        };
+        let ch3 = if self.audio_channel_is_modulator(3) {
+            0.0
+        } else {
+            self.audio[3].mix_sample()
+        };
+        let left = (ch0 + ch3) * 0.5;
+        let right = (ch1 + ch2) * 0.5;
+        (left.clamp(-1.0, 1.0), right.clamp(-1.0, 1.0))
+    }
+
+    /// Double-write protocol: DMA starts only when DSKLEN is written
+    /// twice in a row with bit 15 set. Sets `disk_dma_pending` for the
+    /// machine crate to perform the actual transfer and fire DSKBLK.
+    pub fn write_dsklen(&mut self, val: u16) {
+        let prev = self.dsklen;
+        self.dsklen = val;
+        self.dsklen_prev = prev;
+
+        // Detect double-write with DMA enable (bit 15 set on both writes).
+        if val & 0x8000 != 0 && prev & 0x8000 != 0 {
+            self.disk_dma_pending = true;
+        }
+    }
+
+    pub fn write_dskdat(&mut self, val: u16) {
+        self.dskdat = val;
+        self.dskdat_queue.push_back(val);
+    }
+
+    pub fn take_dskdat_queued_word(&mut self) -> Option<u16> {
+        self.dskdat_queue.pop_front()
+    }
+
+    pub fn dskdat_queue_len(&self) -> usize {
+        self.dskdat_queue.len()
+    }
+
+    pub fn note_disk_read_word(&mut self, word: u16) -> bool {
+        self.dskdatr = word;
+        self.dskbytr_data = (word >> 8) as u8;
+        self.dskbytr_next_data = Some(word as u8);
+        self.dskbytr_next_delay_cck = self.disk_byte_cck_delay();
+        self.dskbytr_valid = true;
+        let wordequal = word == self.dsksync;
+        self.dskbytr_wordequal = wordequal;
+        self.dskbytr_wordequal_delay_cck = if wordequal {
+            self.disk_byte_cck_delay()
+        } else {
+            0
+        };
+        wordequal
+    }
+
+    pub fn read_dskbytr(&mut self, dmacon: u16) -> u16 {
+        // HRM DSKBYTR:
+        //   bit15 DSKBYT, bit14 DMAON, bit13 DISKWRITE, bit12 WORDEQUAL, bits7..0 DATA.
+        let dmaon = (self.dsklen & 0x8000 != 0) && (dmacon & 0x0210 == 0x0210);
+        let diskwrite = self.dsklen & 0x4000 != 0;
+
+        let mut value = u16::from(self.dskbytr_data);
+        if self.dskbytr_valid {
+            value |= 1 << 15;
+        }
+        if dmaon {
+            value |= 1 << 14;
+        }
+        if diskwrite {
+            value |= 1 << 13;
+        }
+        if self.dskbytr_wordequal {
+            value |= 1 << 12;
+        }
+
+        // DSKBYT clears on DSKBYTR read (HRM).
+        self.dskbytr_valid = false;
+        value
+    }
+
+    pub fn tick_disk_cck(&mut self) {
+        if self.dskbytr_wordequal && self.dskbytr_wordequal_delay_cck != 0 {
+            self.dskbytr_wordequal_delay_cck -= 1;
+            if self.dskbytr_wordequal_delay_cck == 0 {
+                self.dskbytr_wordequal = false;
+            }
+        }
+
+        if self.dskbytr_next_data.is_some() && self.dskbytr_next_delay_cck != 0 {
+            self.dskbytr_next_delay_cck -= 1;
+        }
+
+        if self.dskbytr_next_data.is_some()
+            && self.dskbytr_next_delay_cck == 0
+            && let Some(next) = self.dskbytr_next_data.take()
+        {
+            // Single-byte receive register semantics: a later byte can replace an
+            // unread earlier byte in this simplified model (overrun not modeled).
+            self.dskbytr_data = next;
+            self.dskbytr_valid = true;
+        }
+    }
+
+    /// Accumulate one MFM bit-cell duration into the disk PLL.
+    ///
+    /// Call once per CCK in variable-rate mode with the bit-cell timing value
+    /// from the IPF track data. Returns `true` when a full MFM word (16 bits)
+    /// has been clocked in and is ready for consumption.
+    pub fn disk_pll_accumulate(&mut self, bit_cells: u16) -> bool {
+        self.disk_pll_phase += bit_cells;
+        if self.disk_pll_phase >= 16 {
+            self.disk_pll_phase -= 16;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Reset the disk PLL phase accumulator.
+    pub fn disk_pll_reset(&mut self) {
+        self.disk_pll_phase = 0;
+    }
+
+    pub fn note_disk_write_dma_word(&mut self, word: u16) {
+        self.disk_write_dma_log.push(word);
+    }
+
+    pub fn disk_write_dma_log(&self) -> &[u16] {
+        &self.disk_write_dma_log
+    }
+
+    pub fn clear_disk_write_dma_log(&mut self) {
+        self.disk_write_dma_log.clear();
+    }
+
+    pub fn note_disk_write_pio_word(&mut self, word: u16) {
+        self.disk_write_pio_log.push(word);
+    }
+
+    pub fn disk_write_pio_log(&self) -> &[u16] {
+        &self.disk_write_pio_log
+    }
+
+    pub fn clear_disk_write_pio_log(&mut self) {
+        self.disk_write_pio_log.clear();
+    }
+
+    fn disk_byte_cck_delay(&self) -> u8 {
+        if (self.adkcon & ADKCON_FAST_DISK) != 0 {
+            DISK_BYTE_CCK_FAST
+        } else {
+            DISK_BYTE_CCK_SLOW
+        }
+    }
+
+    pub fn compute_ipl(&self) -> u8 {
+        // Master enable: bit 14
+        if self.intena & 0x4000 == 0 {
+            return 0;
+        }
+
+        let active = self.intena & self.intreq & 0x3FFF;
+        if active == 0 {
+            return 0;
+        }
+
+        // Amiga Hardware Reference Manual interrupt priority mapping:
+        //   L6: bit 13 EXTER (CIA-B)
+        //   L5: bit 12 DSKSYN, bit 11 RBF
+        //   L4: bit 10 AUD3, bit 9 AUD2, bit 8 AUD1, bit 7 AUD0
+        //   L3: bit 6 BLIT, bit 5 VERTB, bit 4 COPER
+        //   L2: bit 3 PORTS (CIA-A)
+        //   L1: bit 2 SOFT, bit 1 DSKBLK, bit 0 TBE
+        if active & 0x2000 != 0 {
+            return 6;
+        } // EXTER
+        if active & 0x1800 != 0 {
+            return 5;
+        } // DSKSYN, RBF
+        if active & 0x0780 != 0 {
+            return 4;
+        } // AUD3-0
+        if active & 0x0070 != 0 {
+            return 3;
+        } // BLIT, VERTB, COPER
+        if active & 0x0008 != 0 {
+            return 2;
+        } // PORTS
+        if active & 0x0007 != 0 {
+            return 1;
+        } // SOFT, DSKBLK, TBE
+
+        0
+    }
+}
+
+impl Default for Paula8364 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ADKCON_FAST_DISK, AUDIO_DMA_RETURN_LATENCY_CCK, DISK_BYTE_CCK_FAST, Paula8364};
+
+    const ADKCON_SETCLR: u16 = 0x8000;
+    const ADKCON_USE0V1: u16 = 0x0001;
+    const ADKCON_USE0P1: u16 = 0x0010;
+
+    #[test]
+    fn writes_and_reads_audio_registers() {
+        let mut paula = Paula8364::new();
+        assert!(paula.write_audio_register(0x0A0, 0x1234));
+        assert!(paula.write_audio_register(0x0A2, 0x5678));
+        assert!(paula.write_audio_register(0x0A4, 0x0020));
+        assert!(paula.write_audio_register(0x0A6, 0x0100));
+        assert!(paula.write_audio_register(0x0A8, 0x007F)); // clamps to 64
+        assert!(paula.write_audio_register(0x0AA, 0xABCD));
+
+        assert_eq!(paula.read_audio_register(0x0A0), Some(0x1234));
+        assert_eq!(paula.read_audio_register(0x0A2), Some(0x5678 & 0xFFFE));
+        assert_eq!(paula.read_audio_register(0x0A4), Some(0x0020));
+        assert_eq!(paula.read_audio_register(0x0A6), Some(0x0100));
+        assert_eq!(paula.read_audio_register(0x0A8), Some(64));
+        assert_eq!(paula.read_audio_register(0x0AA), Some(0xABCD));
+    }
+
+    #[test]
+    fn audio_dma_fetch_updates_left_mix() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
+
+        assert!(paula.write_audio_register(0x0A0, 0x0000));
+        assert!(paula.write_audio_register(0x0A2, 0x1000));
+        assert!(paula.write_audio_register(0x0A4, 0x0001));
+        assert!(paula.write_audio_register(0x0A6, 124));
+        assert!(paula.write_audio_register(0x0A8, 64));
+
+        let read = |addr: u32| -> u8 {
+            match addr {
+                0x0000_1000 => 0x7F,
+                0x0000_1001 => 0x80,
+                _ => 0,
+            }
+        };
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+        }
+        let (left, right) = paula.mix_audio_stereo();
+
+        assert!(left > 0.4, "left={left}");
+        assert!(right.abs() < 0.01, "right={right}");
+    }
+
+    #[test]
+    fn audio_dma_word_arrival_is_delayed_after_slot_service() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
+
+        assert!(paula.write_audio_register(0x0A0, 0x0000));
+        assert!(paula.write_audio_register(0x0A2, 0x1000));
+        assert!(paula.write_audio_register(0x0A4, 0x0001));
+        assert!(paula.write_audio_register(0x0A6, 500));
+
+        let read = |_addr: u32| -> u8 { 0x55 };
+
+        // First tick: DMA starts and the audio slot services a request, but the
+        // fetched word should return later (not immediately visible to playback).
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        assert_eq!(paula.audio[0].current_word, None);
+        assert!(paula.audio[0].dma_return_word.is_some());
+
+        for _ in 0..(AUDIO_DMA_RETURN_LATENCY_CCK - 1) {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.audio[0].current_word, None,
+            "word should not arrive before the configured DMA return latency"
+        );
+
+        paula.tick_audio_cck(dmacon, None, read);
+        assert_eq!(
+            paula.audio[0].current_word,
+            Some(0x5555),
+            "word should become visible after the DMA return latency elapses"
+        );
+    }
+
+    #[test]
+    fn audio_period_write_is_clamped_for_playback_but_readback_preserves_value() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
+
+        assert!(paula.write_audio_register(0x0A0, 0x0000));
+        assert!(paula.write_audio_register(0x0A2, 0x1000));
+        assert!(paula.write_audio_register(0x0A4, 0x0001));
+        assert!(paula.write_audio_register(0x0A6, 1)); // below hardware minimum
+        assert!(paula.write_audio_register(0x0A8, 64));
+        assert_eq!(paula.read_audio_register(0x0A6), Some(1));
+
+        let read = |addr: u32| -> u8 {
+            match addr {
+                0x0000_1000 => 0x7F,
+                0x0000_1001 => 0x80,
+                _ => 0,
+            }
+        };
+
+        for _ in 0..123 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+        }
+        let (left_before, _) = paula.mix_audio_stereo();
+        assert!(left_before.abs() < 0.01, "left_before={left_before}");
+
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        let (left_after, _) = paula.mix_audio_stereo();
+        assert!(left_after > 0.4, "left_after={left_after}");
+    }
+
+    #[test]
+    fn audio_dma_interrupt_occurs_on_block_start_and_reload() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
+
+        assert!(paula.write_audio_register(0x0A0, 0x0000));
+        assert!(paula.write_audio_register(0x0A2, 0x1000));
+        assert!(paula.write_audio_register(0x0A4, 0x0001)); // one word block
+        assert!(paula.write_audio_register(0x0A6, 124));
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        assert_ne!(
+            paula.intreq & 0x0080,
+            0,
+            "AUD0 IRQ should fire on DMA start"
+        );
+
+        paula.intreq = 0;
+        for _ in 0..(AUDIO_DMA_RETURN_LATENCY_CCK - 1) {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+            assert_eq!(
+                paula.intreq & 0x0080,
+                0,
+                "reload IRQ should not fire before DMA data return latency elapses"
+            );
+        }
+
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        assert_ne!(
+            paula.intreq & 0x0080,
+            0,
+            "AUD0 IRQ should fire when the one-word block reload is serviced after return latency"
+        );
+    }
+
+    #[test]
+    fn direct_mode_interrupt_occurs_after_two_samples_from_audxdat() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // DMA disabled -> direct AUDxDAT mode
+
+        assert!(paula.write_audio_register(0x0A6, 124));
+        assert!(paula.write_audio_register(0x0AA, 0x7F80));
+        assert_eq!(paula.intreq & 0x0080, 0, "no IRQ on AUD0DAT write");
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.intreq & 0x0080,
+            0,
+            "no IRQ after first sample (upper byte) output"
+        );
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_ne!(
+            paula.intreq & 0x0080,
+            0,
+            "IRQ after second sample (lower byte) output"
+        );
+    }
+
+    #[test]
+    fn direct_mode_interrupt_respects_period_clamp() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // direct mode
+
+        assert!(paula.write_audio_register(0x0A6, 1)); // below hardware min
+        assert!(paula.write_audio_register(0x0AA, 0x7F80));
+        let read = |_addr: u32| -> u8 { 0 };
+
+        for _ in 0..247 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(paula.intreq & 0x0080, 0);
+
+        paula.tick_audio_cck(dmacon, None, read);
+        assert_ne!(paula.intreq & 0x0080, 0);
+    }
+
+    #[test]
+    fn adkcon_volume_modulation_mutes_source_and_updates_successor_on_word_completion() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // direct mode
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0A8, 64)); // AUD0VOL
+        assert!(paula.write_audio_register(0x0B8, 5)); // AUD1VOL
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0V1);
+        assert!(paula.write_audio_register(0x0AA, 0x7F32)); // hi byte would be audible if not muted
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        let (left, _) = paula.mix_audio_stereo();
+        assert!(
+            left.abs() < 0.01,
+            "modulator output should be muted (left={left})"
+        );
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(5),
+            "volume modulation should not apply until the full word completes"
+        );
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(0x32),
+            "AUD0 data word low 7 bits should modulate AUD1VOL"
+        );
+    }
+
+    #[test]
+    fn adkcon_period_modulation_updates_successor_period_on_first_byte_transition() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000; // direct mode
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0B6, 400)); // AUD1PER
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1);
+        assert!(paula.write_audio_register(0x0AA, 0x0001));
+
+        let read = |_addr: u32| -> u8 { 0 };
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B6),
+            Some(1),
+            "attach-period modulation should apply on the 010->011 transition"
+        );
+
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B6),
+            Some(1),
+            "period modulation should remain latched after the lower-byte transition"
+        );
+    }
+
+    #[test]
+    fn adkcon_combined_period_and_volume_modulation_uses_both_transitions_in_dma_mode() {
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0200 | 0x0001; // DMAEN + AUD0EN
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0A0, 0x0000)); // AUD0LCH
+        assert!(paula.write_audio_register(0x0A2, 0x1000)); // AUD0LCL
+        assert!(paula.write_audio_register(0x0A4, 4)); // AUD0LEN
+        assert!(paula.write_audio_register(0x0B6, 500)); // AUD1PER
+        assert!(paula.write_audio_register(0x0B8, 7)); // AUD1VOL
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
+
+        let read = |addr: u32| -> u8 {
+            match addr {
+                0x0000_1000 => 0x01,
+                0x0000_1001 => 0x23, // period
+                0x0000_1002 => 0x00,
+                0x0000_1003 => 0x40, // volume
+                0x0000_1004 => 0x00,
+                0x0000_1005 => 0x02, // period
+                0x0000_1006 => 0x00,
+                0x0000_1007 => 0x20, // volume
+                _ => 0,
+            }
+        };
+
+        // Start DMA and fetch the first words. The first tick also decrements the
+        // period counter once, so the first transition is 123 more CCKs away.
+        paula.tick_audio_cck(dmacon, Some(0), read);
+        for _ in 0..122 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+        }
+        assert_eq!(paula.read_audio_register(0x0B6), Some(500));
+        assert_eq!(paula.read_audio_register(0x0B8), Some(7));
+
+        paula.tick_audio_cck(dmacon, Some(0), read); // 010->011: period attach
+        assert_eq!(paula.read_audio_register(0x0B6), Some(0x0123));
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(7),
+            "first combined modulation transition should target period"
+        );
+
+        for _ in 0..123 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+        }
+        assert_eq!(paula.read_audio_register(0x0B8), Some(7));
+
+        paula.tick_audio_cck(dmacon, Some(0), read); // 011->010: volume attach
+        assert_eq!(paula.read_audio_register(0x0B6), Some(0x0123));
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(64),
+            "second combined modulation transition should target volume"
+        );
+
+        for _ in 0..123 {
+            paula.tick_audio_cck(dmacon, Some(0), read);
+        }
+        assert_eq!(paula.read_audio_register(0x0B6), Some(0x0123));
+
+        paula.tick_audio_cck(dmacon, Some(0), read); // 010->011: next period attach
+        assert_eq!(
+            paula.read_audio_register(0x0B6),
+            Some(2),
+            "combined mode should use both transitions and return to period on the next 010->011"
+        );
+    }
+
+    #[test]
+    fn dskbytr_returns_high_then_low_byte_for_received_disk_word() {
+        let mut paula = Paula8364::new();
+        paula.dsklen = 0x8002; // DMA enable in DSKLEN (read mode)
+        let dmacon = 0x0200 | 0x0010; // DMAEN + DSKEN
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_FAST_DISK);
+        paula.dsksync = 0x4489;
+
+        assert!(paula.note_disk_read_word(0x4489));
+
+        let first = paula.read_dskbytr(dmacon);
+        assert_ne!(first & 0x8000, 0, "DSKBYT should be set for first byte");
+        assert_ne!(first & 0x4000, 0, "DMAON should reflect active disk DMA");
+        assert_eq!(first & 0x2000, 0, "DISKWRITE should be clear in read mode");
+        assert_ne!(first & 0x1000, 0, "WORDEQUAL should be set on sync match");
+        assert_eq!(first & 0x00FF, 0x0044, "first byte should be high byte");
+
+        // Second byte should not arrive until the configured disk-byte cadence.
+        let second = paula.read_dskbytr(dmacon);
+        assert_eq!(
+            second & 0x8000,
+            0,
+            "DSKBYT should clear immediately after the first read until the next byte arrives"
+        );
+        assert_ne!(
+            second & 0x1000,
+            0,
+            "WORDEQUAL may still be visible until the sync-match pulse times out"
+        );
+
+        for _ in 0..(DISK_BYTE_CCK_FAST - 1) {
+            paula.tick_disk_cck();
+        }
+        let too_early = paula.read_dskbytr(dmacon);
+        assert_eq!(
+            too_early & 0x8000,
+            0,
+            "second byte should still be pending before full delay"
+        );
+
+        paula.tick_disk_cck();
+        let third = paula.read_dskbytr(dmacon);
+        assert_ne!(
+            third & 0x8000,
+            0,
+            "DSKBYT should be set once the delayed second byte arrives"
+        );
+        assert_eq!(third & 0x00FF, 0x0089, "second byte should be low byte");
+        assert_eq!(
+            third & 0x1000,
+            0,
+            "WORDEQUAL pulse should expire before the delayed second byte"
+        );
+
+        let fourth = paula.read_dskbytr(dmacon);
+        assert_eq!(
+            fourth & 0x8000,
+            0,
+            "DSKBYT should clear after both bytes are consumed"
+        );
+    }
+
+    #[test]
+    fn dskdat_writes_queue_in_program_order() {
+        let mut paula = Paula8364::new();
+
+        paula.write_dskdat(0x1234);
+        paula.write_dskdat(0xABCD);
+
+        assert_eq!(paula.dskdat, 0xABCD);
+        assert_eq!(paula.dskdat_queue_len(), 2);
+        assert_eq!(paula.take_dskdat_queued_word(), Some(0x1234));
+        assert_eq!(paula.take_dskdat_queued_word(), Some(0xABCD));
+        assert_eq!(paula.take_dskdat_queued_word(), None);
+    }
+
+    #[test]
+    fn disk_write_dma_and_programmed_logs_are_separate() {
+        let mut paula = Paula8364::new();
+
+        paula.note_disk_write_pio_word(0x1111);
+        paula.note_disk_write_dma_word(0x2222);
+        paula.note_disk_write_pio_word(0x3333);
+
+        assert_eq!(paula.disk_write_pio_log(), &[0x1111, 0x3333]);
+        assert_eq!(paula.disk_write_dma_log(), &[0x2222]);
+    }
+
+    // --- A5: Modulation audit tests ---
+
+    #[test]
+    fn modulator_channel_output_is_muted_in_stereo_mix() {
+        // When channel 0 is a period modulator for channel 1, its audio
+        // output should be zero in the stereo mix even if it has data.
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000;
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0A8, 64)); // AUD0VOL
+        assert!(paula.write_audio_register(0x0AA, 0x7F7F)); // loud data
+
+        // Enable period modulation: ch0 modulates ch1's period.
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1);
+
+        let read = |_addr: u32| -> u8 { 0 };
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+
+        let (left, _right) = paula.mix_audio_stereo();
+        assert!(
+            left.abs() < 0.01,
+            "period modulator should be silent in mix (left={left})"
+        );
+    }
+
+    #[test]
+    fn volume_modulation_clamps_to_max_64() {
+        // When modulation writes a volume > 64, playback should clamp.
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000;
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0B6, 124)); // AUD1PER
+        assert!(paula.write_audio_register(0x0B8, 1)); // AUD1VOL = 1
+        assert!(paula.write_audio_register(0x0BA, 0x7F7F)); // AUD1DAT
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0V1);
+
+        // Write AUD0DAT with low byte 0x7F (127 > 64).
+        assert!(paula.write_audio_register(0x0AA, 0x007F));
+
+        let read = |_addr: u32| -> u8 { 0 };
+        // Advance through both byte transitions so modulation applies.
+        for _ in 0..248 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+
+        // Volume write clamps at 64 on the way in — readback shows clamped value.
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(64),
+            "volume register should show clamped value (write_volume clamps to 64)"
+        );
+
+        // But the mix should use clamped volume (64).
+        let (_left, right) = paula.mix_audio_stereo();
+        assert!(
+            right.abs() > 0.01,
+            "channel 1 should produce audible output after modulation"
+        );
+    }
+
+    #[test]
+    fn combined_modulation_period_before_volume_within_one_word() {
+        // Combined attach: period updates on 010→011, volume on 011→010.
+        // Verify both happen in the correct order within one word cycle.
+        let mut paula = Paula8364::new();
+        let dmacon = 0x0000;
+
+        assert!(paula.write_audio_register(0x0A6, 124)); // AUD0PER
+        assert!(paula.write_audio_register(0x0B6, 500)); // AUD1PER
+        assert!(paula.write_audio_register(0x0B8, 10)); // AUD1VOL
+        paula.write_adkcon(ADKCON_SETCLR | ADKCON_USE0P1 | ADKCON_USE0V1);
+        assert!(paula.write_audio_register(0x0AA, 0x0120)); // hi=0x01, lo=0x20
+
+        let read = |_addr: u32| -> u8 { 0 };
+
+        // First 124 CCKs: 010→011 transition, period modulation.
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B6),
+            Some(0x0120),
+            "period should update on first (hi-byte) transition"
+        );
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(10),
+            "volume should NOT update on first transition"
+        );
+
+        // Next 124 CCKs: 011→010 transition, volume modulation.
+        for _ in 0..124 {
+            paula.tick_audio_cck(dmacon, None, read);
+        }
+        assert_eq!(
+            paula.read_audio_register(0x0B8),
+            Some(0x20),
+            "volume should update on second (lo-byte) transition"
+        );
+    }
+
+    #[test]
+    fn dac_table_zero_sample_is_near_zero() {
+        // Verify the DAC non-linearity table maps sample 0 to ~0.0.
+        let idx = 0u8 as usize; // sample 0
+        let val = super::DAC_TABLE[idx];
+        assert!(
+            val.abs() < 0.001,
+            "DAC table at sample 0 should be near zero (got {val})"
+        );
+    }
+
+    #[test]
+    fn dac_table_extremes_are_compressed() {
+        // The non-linear DAC should compress peaks: |table[127]| < 1.0
+        // and |table[128]| < 1.0 (representing +127 and -128).
+        let pos_peak = super::DAC_TABLE[127u8 as usize]; // +127 → idx 127
+        let neg_peak = super::DAC_TABLE[128u8 as usize]; // -128 → idx 128
+        assert!(
+            pos_peak < 1.0 && pos_peak > 0.95,
+            "positive peak should be compressed below 1.0 (got {pos_peak})"
+        );
+        assert!(
+            neg_peak > -1.01 && neg_peak < -0.95,
+            "negative peak should be compressed above -1.0 (got {neg_peak})"
+        );
+    }
+}

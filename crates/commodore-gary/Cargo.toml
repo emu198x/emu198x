@@ -1,0 +1,11 @@
+[package]
+name = "commodore-gary"
+description = "Commodore Gary — Amiga central address decoder. Maps 24-bit addresses to chip selects for custom registers, CIAs, ROM, and RAM regions."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

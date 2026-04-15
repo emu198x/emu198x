@@ -377,6 +377,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "commodore-agnus-ocs"
+version = "0.1.0"
+
+[[package]]
+name = "commodore-denise-ocs"
+version = "0.1.0"
+
+[[package]]
+name = "commodore-gary"
+version = "0.1.0"
+
+[[package]]
+name = "commodore-paula-8364"
+version = "0.1.0"
+
+[[package]]
 name = "common-commodore-c64"
 version = "0.1.0"
 
@@ -627,6 +643,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-script-amiga"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "runtime-commodore-amiga",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-script-c64"
 version = "0.1.0"
 dependencies = [
@@ -758,6 +784,10 @@ name = "foreign-types-shared"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
+
+[[package]]
+name = "format-commodore-amiga-adf"
+version = "0.1.0"
 
 [[package]]
 name = "format-commodore-c64-bas"
@@ -1219,6 +1249,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-commodore-amiga"
+version = "0.1.0"
+dependencies = [
+ "commodore-agnus-ocs",
+ "commodore-denise-ocs",
+ "commodore-gary",
+ "commodore-paula-8364",
+ "format-commodore-amiga-adf",
+ "mos-cia-8520",
+ "motorola-68000",
+ "peripheral-commodore-amiga-floppy",
+ "peripheral-commodore-amiga-keyboard",
+]
+
+[[package]]
 name = "machine-commodore-c64"
 version = "0.1.0"
 dependencies = [
@@ -1327,6 +1372,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mos-cia-8520"
+version = "0.1.0"
+
+[[package]]
 name = "mos-sid-6581"
 version = "0.1.0"
 dependencies = [
@@ -1346,6 +1395,14 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde-big-array",
+]
+
+[[package]]
+name = "motorola-68000"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "serde_json",
 ]
 
 [[package]]
@@ -1785,6 +1842,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "peripheral-commodore-amiga-floppy"
+version = "0.1.0"
+dependencies = [
+ "format-commodore-amiga-adf",
+]
+
+[[package]]
+name = "peripheral-commodore-amiga-keyboard"
+version = "0.1.0"
+
+[[package]]
 name = "pin-project"
 version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2029,6 +2097,17 @@ name = "ricoh-ppu-2c02"
 version = "0.1.0"
 dependencies = [
  "format-nintendo-nes-ines",
+]
+
+[[package]]
+name = "runtime-commodore-amiga"
+version = "0.1.0"
+dependencies = [
+ "commodore-agnus-ocs",
+ "emu198x-shell",
+ "format-commodore-amiga-adf",
+ "machine-commodore-amiga",
+ "serde_json",
 ]
 
 [[package]]

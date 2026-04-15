@@ -1,0 +1,12 @@
+[package]
+name = "peripheral-commodore-amiga-floppy"
+description = "Amiga floppy drive mechanism — head positioning, motor control, disk change detection, MFM track encoding."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
+
+[lints]
+workspace = true

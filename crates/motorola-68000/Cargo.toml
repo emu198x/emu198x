@@ -1,0 +1,15 @@
+[package]
+name = "motorola-68000"
+description = "Motorola 68000 CPU family — per-4-clock micro-op state machine with pin-level bus interface. Supports 68000/68010/68020/68030 with prefetch pipeline, instruction and data caches, and on-chip MMU."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+serde_json = { workspace = true }
+flate2 = "1"
+
+[lints]
+workspace = true

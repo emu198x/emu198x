@@ -8,6 +8,7 @@ The current implementation focus is:
 - Sinclair ZX Spectrum 48K
 - Commodore 64
 - Nintendo Entertainment System
+- Commodore Amiga (A500 OCS PAL baseline)
 
 This repository also contains older research and planning material from previous
 attempts. Treat the fresh Rust workspace as the implementation truth, and treat
@@ -52,6 +53,8 @@ As of April 15, 2026, the fresh Rust workspace currently provides:
   - host-side plain-text `.bas` import via Commodore BASIC tokenisation
   - host-side `.d64` import by extracting the first PRG directory entry
   - host-side `.t64` import by extracting the first loadable archive entry
+  - optional live `1541` drive-8 execution with real `D64` media insertion and
+    real `LOAD"*",8,1` progress on plain disk titles
   - native shell input is usable for verification, but still feels softer than
     target and should not yet be treated as a polished frontend
 
@@ -64,10 +67,21 @@ As of April 15, 2026, the fresh Rust workspace currently provides:
     `nestest.nes` and `Super Mario Bros.`
   - native verifier UI and mapper coverage beyond NROM are still pending
 
+- **Commodore Amiga**
+  - live A500 OCS PAL board loop over `motorola-68000`, Agnus, Denise, Paula,
+    Gary, dual `8520` CIAs, keyboard, and DF0 floppy
+  - headless runner, screenshots, stereo audio capture, shared scripted
+    keyboard input, and queryable boot/disk state
+  - Kickstart boot reaches visible output in the fresh workspace
+  - DF0 accepts zipped/unzipped `ADF` media through the shared shell path
+  - native verifier UI, snapshots, and stronger software proofs are still
+    pending
+
 Notably not claimed yet:
 
 - no fresh-workspace NES native verifier UI
-- no fresh-workspace Amiga product path
+- no fresh-workspace Amiga native verifier UI
+- no fresh-workspace Amiga snapshot support
 - no claim that disk/tape/cartridge support exists unless the corresponding
   hardware path is actually modeled
 
@@ -88,13 +102,14 @@ Examples:
   emulation.
 - `--disk game.d64` for the current C64 runners mounts a `D64` into the live
   drive-8 path when a 1541 ROM is present; this is real drive-owned media
-  insertion, but it is not yet DOS/IEC-backed file loading.
+  insertion on the shared IEC bus.
 - `--autoload-disk` for the current C64 runners is a host workflow over the
   real BASIC editor: it types `LOAD"*",8,1` and waits for the live 1541 path
-  to reach the real 1541-backed load path.
+  to perform the real DOS/IEC disk load.
 - an optional 1541 ROM in the current C64 runtime means a live drive board now
-  executes on the shared IEC bus, but that is still drive-side board execution
-  and query/debug visibility, not yet real disk-media loading.
+  executes on the shared IEC bus and now loads plain disk titles such as
+  `Bruce Lee`, `Aztec Challenge`, and `Bomb Jack`; write/save paths and broader
+  compatibility are still incomplete.
 - `--tape game.tap` for the current C64 runner is real datasette media on the
   board path.
 - `--load demo.t64` for the current C64 runner is a host-side container import
@@ -221,6 +236,40 @@ cargo run -p emu198x-script-nes -- \
   --screenshot nestest.png
 ```
 
+### Amiga headless runner
+
+The Amiga runner resolves Kickstart ROMs from:
+
+1. `--rom-dir DIR`
+2. `EMU198X_AMIGA_ROM_DIR`
+3. `~/.emu198x/roms/commodore-amiga`
+4. `~/.emu198x/roms/amiga`
+
+Expected Kickstart names:
+
+- `kick13.rom`
+- `kick12.rom`
+- `kick31.rom`
+- `kickstart.rom`
+- `kick.rom`
+
+Examples:
+
+```bash
+cargo run -p emu198x-script-amiga -- \
+  --rom-dir ~/.emu198x/roms/commodore-amiga \
+  --wait-for-boot 300 \
+  --screenshot amiga-kick13.png
+```
+
+```bash
+cargo run -p emu198x-script-amiga -- \
+  --rom-dir ~/.emu198x/roms/commodore-amiga \
+  --disk '/Users/stevehill/Projects/Emu198x-Unclean/Reference/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' \
+  --wait-for-boot 300 \
+  --screenshot amiga-workbench.png
+```
+
 ## Verification Strategy
 
 This repo does not treat “boots one thing” as sufficient proof.
@@ -241,6 +290,9 @@ Current examples include:
 - NES machine regressions over real `nestest.nes`, plus a fresh headless
   cartridge path that now runs `nestest.nes` and `Super Mario Bros.` through
   `emu198x-script-nes` and emits screenshots
+- Amiga machine/runtime tests over the imported A500 OCS PAL chip stack, plus
+  fresh headless smokes that boot Kickstart 1.3 to visible output and accept
+  DF0 `ADF` insertion through `emu198x-script-amiga`
 - C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense,
   CIA1 FLAG delivery, plus ROM-backed `Thinker` and `Thomas` TAP paths that
   reach observable loader-banner states over the real datasette flow, and a

@@ -4,6 +4,26 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-15 — Fresh-workspace Amiga headless baseline restored
+
+**Type:** milestone
+**Trigger:** With Spectrum, C64, and NES all back on real fresh-workspace footing, the next project goal was to stop describing Amiga as archive-only and give it the same minimum modern baseline: runnable machine crates, a fresh runtime, and a headless proof that a real Kickstart ROM executes.
+**Result:** the fresh workspace now has a real Amiga baseline again:
+1. restored the A500 OCS chip/machine crates from `Emu198x-Older`: `motorola-68000`, `mos-cia-8520`, `commodore-gary`, `commodore-agnus-ocs`, `commodore-denise-ocs`, `commodore-paula-8364`, `format-commodore-amiga-adf`, `peripheral-commodore-amiga-floppy`, `peripheral-commodore-amiga-keyboard`, and `machine-commodore-amiga`
+2. added `runtime-commodore-amiga`, a fresh `MachineCore` runtime over the A500 OCS PAL machine with Kickstart validation, RGBA framebuffer output, stereo audio output, DF0 media insertion, shared keyboard input, and a small boot/disk query surface
+3. added `emu198x-script-amiga`, a headless runner that resolves Kickstart ROMs from the shared ROM directory conventions, accepts zipped or plain `ADF` images, runs scripted keys, and captures PNG/WAV output
+4. kept the boundary honest: the fresh workspace now proves Kickstart-visible output and DF0 media insertion, but it does not yet claim a native verifier UI, snapshot support, or a full Workbench/game boot proof
+5. cleaned the imported `motorola-68000` warnings so the new slice can live under the workspace `fmt`/`clippy -D warnings` bar
+
+**Verification:** locally, this slice passes:
+- `cargo fmt --all --check`
+- `cargo test -p motorola-68000 -p mos-cia-8520 -p commodore-gary -p commodore-agnus-ocs -p commodore-denise-ocs -p commodore-paula-8364 -p format-commodore-amiga-adf -p peripheral-commodore-amiga-floppy -p peripheral-commodore-amiga-keyboard -p machine-commodore-amiga -p runtime-commodore-amiga -p emu198x-script-amiga`
+- `cargo clippy -p motorola-68000 -p mos-cia-8520 -p commodore-gary -p commodore-agnus-ocs -p commodore-denise-ocs -p commodore-paula-8364 -p format-commodore-amiga-adf -p peripheral-commodore-amiga-floppy -p peripheral-commodore-amiga-keyboard -p machine-commodore-amiga -p runtime-commodore-amiga -p emu198x-script-amiga --all-targets -- -D warnings`
+- `cargo run --release -p emu198x-script-amiga -- --rom-dir ~/.emu198x/roms/commodore-amiga --wait-for-boot 300 --screenshot /tmp/amiga-kick13.png`
+- `cargo run --release -p emu198x-script-amiga -- --rom-dir ~/.emu198x/roms/commodore-amiga --disk '/Users/stevehill/Projects/Emu198x-Unclean/Reference/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' --wait-for-boot 300 --frames 1000 --print-query amiga.disk.inserted --print-query amiga.disk.motor_on --print-query amiga.disk.motor_spinning --print-query amiga.cpu.pc`
+
+**Consequence:** the repo no longer needs to say “no fresh-workspace Amiga product path.” The current honest state is: the Amiga now has a real headless A500 OCS PAL baseline in the active workspace, while native UI, snapshots, and stronger software proofs are still pending.
+
 ## 2026-04-15 — Fresh-workspace NES headless path restored
 
 **Type:** milestone

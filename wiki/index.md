@@ -24,14 +24,8 @@
 - `format-nintendo-nes-ines` — iNES / NES 2.0 header parser + Mapper trait + NROM (mapper 0). Other 47 mappers deferred.
 
 ### Commodore Amiga
-- [Port plan](decisions/amiga-port-plan.md) — 9-phase plan, OCS (A500) first, 68000 pin conversion, ~35K lines in archive
-- `machine-commodore-amiga` — A500 OCS machine wiring: master clock → Agnus CCK → DMA slots → CPU + Denise + Paula + floppy + keyboard. 16 tests. Phases 1-7 complete.
-- `format-commodore-amiga-adf` — ADF image parser (DD/HD, 6 tests)
-- `peripheral-commodore-amiga-floppy` — drive mechanism + MFM encode/decode (24 tests)
-- `peripheral-commodore-amiga-keyboard` — init sequence + keycode transmission (8 tests)
-- `runtime-commodore-amiga` — RGBA framebuffer, 724×568 display crop (4 tests)
-- `emu198x-script-amiga` — headless CLI for Kickstart boot + ADF loading + PNG capture
-- **Status:** Phases 1-8 complete. Kickstart 1.3 boots through exec.library init, reaches idle loop, handles VERTB interrupts. Boot animation requires graphics.library task scheduling fix (CPU accuracy issue). **Next: debug 68000 execution to get the hand/insert-disk screen.**
+- [Overview](systems/commodore-amiga.md) — fresh A500 OCS PAL headless baseline, Kickstart-visible output, DF0 `ADF` insertion, screenshots, stereo audio, and scripted keyboard input
+- [Port plan](decisions/amiga-port-plan.md) — the archive-to-fresh-workspace port plan this baseline came from
 
 ### ZX Spectrum
 - [Overview](systems/spectrum/overview.md) — 11 variants (16K, 48K, 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, TC2048, TS2068), ULA-drives architecture

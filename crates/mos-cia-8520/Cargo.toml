@@ -1,0 +1,11 @@
+[package]
+name = "mos-cia-8520"
+description = "MOS 8520 Complex Interface Adapter — Amiga variant of the 6526 CIA. Binary 24-bit TOD (not BCD), two 16-bit timers, 8-bit I/O ports, serial shift register, interrupt controller."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

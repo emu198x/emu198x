@@ -1,0 +1,16 @@
+[package]
+name = "runtime-commodore-amiga"
+description = "Fresh-workspace Commodore Amiga runtime and profile surface."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+emu198x-shell = { path = "../emu198x-shell" }
+format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
+machine-commodore-amiga = { path = "../machine-commodore-amiga" }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

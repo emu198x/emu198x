@@ -1,0 +1,11 @@
+[package]
+name = "peripheral-commodore-amiga-keyboard"
+description = "Amiga keyboard controller emulator — power-up init sequence, rotated keycode transmission via CIA-A SDR."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

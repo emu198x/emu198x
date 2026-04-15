@@ -1,0 +1,264 @@
+//! Copper - Coprocessor for synchronized register updates.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum State {
+    Idle,
+    Fetch1, // Fetch first word
+    Fetch2, // Fetch second word
+    Wait,   // Waiting for beam position
+}
+
+pub struct Copper {
+    pub state: State,
+    pub cop1lc: u32,
+    pub cop2lc: u32,
+    pub pc: u32,
+    pub ir1: u16,
+    pub ir2: u16,
+    pub waiting: bool,
+    pub danger: bool, // COPCON bit 1
+}
+
+impl Copper {
+    pub fn new() -> Self {
+        Self {
+            state: State::Idle,
+            cop1lc: 0,
+            cop2lc: 0,
+            pc: 0,
+            ir1: 0,
+            ir2: 0,
+            waiting: false,
+            danger: false,
+        }
+    }
+
+    pub fn restart_cop1(&mut self) {
+        self.pc = self.cop1lc;
+        self.state = State::Fetch1;
+        self.waiting = false;
+    }
+
+    pub fn restart_cop2(&mut self) {
+        self.pc = self.cop2lc;
+        self.state = State::Fetch1;
+        self.waiting = false;
+    }
+
+    /// Perform one Copper cycle.
+    /// returns Some((reg_offset, value)) if a MOVE instruction completed.
+    pub fn tick(
+        &mut self,
+        vpos: u16,
+        hpos: u16,
+        blitter_busy: bool,
+        read_mem: impl Fn(u32) -> u16,
+    ) -> Option<(u16, u16)> {
+        match self.state {
+            State::Idle => None,
+            State::Fetch1 => {
+                self.ir1 = read_mem(self.pc);
+                self.pc = self.pc.wrapping_add(2);
+                self.state = State::Fetch2;
+                None
+            }
+            State::Fetch2 => {
+                self.ir2 = read_mem(self.pc);
+                self.pc = self.pc.wrapping_add(2);
+                self.execute(vpos, hpos, blitter_busy)
+            }
+            State::Wait => {
+                if self.check_wait(vpos, hpos, blitter_busy) {
+                    self.waiting = false;
+                    self.state = State::Fetch1;
+                }
+                None
+            }
+        }
+    }
+
+    fn execute(&mut self, vpos: u16, hpos: u16, blitter_busy: bool) -> Option<(u16, u16)> {
+        if (self.ir1 & 1) == 0 {
+            // MOVE
+            let reg = self.ir1 & 0x01FE;
+            let val = self.ir2;
+            self.state = State::Fetch1;
+            Some((reg, val))
+        } else {
+            // WAIT or SKIP
+            let is_skip = (self.ir2 & 1) != 0;
+            if is_skip {
+                // SKIP: if beam position reached, skip next instruction
+                if self.check_wait(vpos, hpos, blitter_busy) {
+                    self.pc = self.pc.wrapping_add(4);
+                }
+                self.state = State::Fetch1;
+                None
+            } else {
+                // WAIT
+                self.waiting = true;
+                if self.check_wait(vpos, hpos, blitter_busy) {
+                    self.waiting = false;
+                    self.state = State::Fetch1;
+                } else {
+                    self.state = State::Wait;
+                }
+                None
+            }
+        }
+    }
+
+    fn check_wait(&self, vpos: u16, hpos: u16, blitter_busy: bool) -> bool {
+        // End-of-list marker ($FFFF,$FFFE): never resolves.
+        if self.ir1 == 0xFFFF && self.ir2 == 0xFFFE {
+            return false;
+        }
+
+        // BFD (bit 15 of ir2): Blitter-Finished Disable.
+        // When BFD=0, the copper also waits for the blitter to be idle.
+        // When BFD=1, the blitter state is ignored.
+        let bfd = (self.ir2 & 0x8000) != 0;
+        if !bfd && blitter_busy {
+            return false;
+        }
+
+        let wait_v = (self.ir1 >> 8) & 0xFF;
+        let wait_h = (self.ir1 >> 1) & 0x7F;
+        let mask_v = (self.ir2 >> 8) & 0x7F;
+        let mask_h = (self.ir2 >> 1) & 0x7F;
+
+        let cur_v = vpos & 0xFF;
+        let cur_h = (hpos >> 1) & 0x7F;
+
+        // V7 (bit 7 of the vertical beam counter) is always compared on
+        // real hardware even though the mask register has no V7 bit. Force
+        // it into the comparison so WAIT $F4xx never falsely fires at $74
+        // and WAIT $44xx doesn't fire late at $C4.
+        let cmp_cur_v = cur_v & (mask_v | 0x80);
+        let cmp_wait_v = wait_v & (mask_v | 0x80);
+
+        let cmp_cur = (cmp_cur_v << 7) | (cur_h & mask_h);
+        let cmp_wait = (cmp_wait_v << 7) | (wait_h & mask_h);
+        cmp_cur >= cmp_wait
+    }
+}
+
+impl Default for Copper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build a Copper that has just fetched a WAIT instruction
+    /// with the given VP/HP/mask and is in the Wait state.
+    fn copper_in_wait(wait_v: u16, wait_h: u16, mask_v: u16, mask_h: u16) -> Copper {
+        let mut cop = Copper::new();
+        cop.ir1 = ((wait_v & 0xFF) << 8) | ((wait_h & 0x7F) << 1) | 1;
+        cop.ir2 = ((mask_v & 0x7F) << 8) | ((mask_h & 0x7F) << 1);
+        cop.state = State::Wait;
+        cop.waiting = true;
+        cop
+    }
+
+    #[test]
+    fn v7_wait_at_line_above_128_does_not_trigger_below_128() {
+        // WAIT VP=$F4 (V7=1) with mask=$7F should NOT trigger at line $74.
+        let cop = copper_in_wait(0xF4, 0, 0x7F, 0x7F);
+        assert!(
+            !cop.check_wait(0x74, 0x40, false),
+            "V7=1 wait must not fire when beam V7=0"
+        );
+    }
+
+    #[test]
+    fn v7_wait_at_line_above_128_triggers_when_reached() {
+        // WAIT VP=$F4 with mask=$7F should trigger at line $F4.
+        let cop = copper_in_wait(0xF4, 0, 0x7F, 0x7F);
+        assert!(
+            cop.check_wait(0xF4, 0x40, false),
+            "V7=1 wait must fire when beam also V7=1 and position reached"
+        );
+    }
+
+    #[test]
+    fn v7_wait_at_line_below_128_resolves_above_128() {
+        // WAIT VP=$44 (V7=0) at line $C4 (V7=1): beam has passed the target,
+        // so the wait resolves. V7 always-compare doesn't block this because
+        // $C4 > $44.
+        let cop = copper_in_wait(0x44, 0, 0x7F, 0x7F);
+        assert!(
+            cop.check_wait(0xC4, 0x40, false),
+            "V7=0 wait must resolve when beam is past the target line"
+        );
+    }
+
+    #[test]
+    fn v7_wait_at_line_below_128_triggers_when_reached() {
+        // WAIT VP=$44 with mask=$7F should trigger at line $44.
+        let cop = copper_in_wait(0x44, 0, 0x7F, 0x7F);
+        assert!(
+            cop.check_wait(0x44, 0x40, false),
+            "V7=0 wait must fire when beam matches"
+        );
+    }
+
+    #[test]
+    fn skip_advances_pc_when_condition_met() {
+        let mut cop = Copper::new();
+        // Place a SKIP instruction: wait for vpos >= 0, hpos >= 0 (always true)
+        // ir1: VP=0 HP=0 with bit 0 set (second word marker)
+        // ir2: mask all, bit 0 = 1 (SKIP)
+        //
+        // Memory layout at address 0:
+        //   $0000: ir1 = $0001 (WAIT/SKIP marker)
+        //   $0002: ir2 = $8001 (V mask=$80, H mask=$00, SKIP bit set)
+        //   $0004: (next instruction — should be skipped)
+        //   $0008: (instruction after skip)
+        let mem = |addr: u32| -> u16 {
+            match addr {
+                0 => 0x0001, // ir1: vp=0, hp=0, bit0=1
+                2 => 0x8001, // ir2: mask_v=$80, mask_h=$00, skip=1
+                _ => 0x0000,
+            }
+        };
+
+        cop.pc = 0;
+        cop.state = State::Fetch1;
+
+        // Fetch1: reads ir1 from addr 0, advances PC to 2
+        cop.tick(100, 100, false, mem);
+        assert_eq!(cop.state, State::Fetch2);
+
+        // Fetch2 + execute: reads ir2 from addr 2, advances PC to 4,
+        // then SKIP condition is met (vpos=100 >= 0), so PC advances +4 to 8
+        cop.tick(100, 100, false, mem);
+        assert_eq!(cop.state, State::Fetch1);
+        assert_eq!(cop.pc, 8); // Skipped one instruction (4 bytes)
+    }
+
+    #[test]
+    fn skip_does_not_advance_when_condition_not_met() {
+        let mut cop = Copper::new();
+        // SKIP waiting for vpos >= 200 — current beam at line 50, so not met
+        let mem = |addr: u32| -> u16 {
+            match addr {
+                0 => 0xC801, // ir1: vp=$C8 (200), hp=0, bit0=1
+                2 => 0xFF01, // ir2: full mask, skip=1
+                _ => 0x0000,
+            }
+        };
+
+        cop.pc = 0;
+        cop.state = State::Fetch1;
+
+        cop.tick(50, 0, false, mem); // Fetch1
+        cop.tick(50, 0, false, mem); // Fetch2 + execute
+
+        assert_eq!(cop.state, State::Fetch1);
+        assert_eq!(cop.pc, 4); // No skip — proceeds to next instruction normally
+    }
+}
