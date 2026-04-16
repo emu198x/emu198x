@@ -1,7 +1,10 @@
 //! Tom Harte 680x0 single-step test harness.
 //!
-//! Runs the canonical Tom Harte fixture suite at
-//! `~/Projects/Emu198x-archive/test-data/680x0/68000/v1/*.json.gz`
+//! Runs the canonical Tom Harte fixture suite from a local fixture root
+//! such as:
+//! - `~/Projects/Emu198x-Unclean/680x0/68000/v1/*.json.gz`
+//! - `~/Projects/Emu198x-archive/test-data/680x0/68000/v1/*.json.gz`
+//!
 //! against the pin-level CPU core.
 //!
 //! Each fixture file contains ~8000 single-instruction tests for
@@ -84,9 +87,27 @@ impl SparseMem {
 
 // ─── Fixture loading ──────────────────────────────────────────────
 
-fn fixture_root() -> PathBuf {
+fn candidate_fixture_roots() -> Vec<PathBuf> {
     let home = std::env::var("HOME").expect("HOME set");
-    PathBuf::from(home).join("Projects/Emu198x-archive/test-data/680x0/68000/v1")
+    let home = PathBuf::from(home);
+
+    let mut roots = Vec::new();
+    if let Ok(path) = std::env::var("EMU198X_68000_TOM_HARTE_ROOT") {
+        roots.push(PathBuf::from(path));
+    }
+    roots.push(home.join("Projects/Emu198x-Unclean/680x0/68000/v1"));
+    roots.push(home.join("Projects/Emu198x-archive/test-data/680x0/68000/v1"));
+    roots
+}
+
+fn fixture_root() -> PathBuf {
+    candidate_fixture_roots()
+        .into_iter()
+        .find(|path| path.is_dir())
+        .unwrap_or_else(|| {
+            let home = std::env::var("HOME").expect("HOME set");
+            PathBuf::from(home).join("Projects/Emu198x-Unclean/680x0/68000/v1")
+        })
 }
 
 fn load_fixture(path: &Path) -> Option<Vec<Value>> {
@@ -190,11 +211,12 @@ fn service_bus(cpu: &mut Cpu68000, mem: &mut SparseMem) {
 /// So "instruction complete" = `instr_start_pc` has changed AWAY
 /// from `fixture PC`. We count ticks with a wide bound to allow
 /// even the longest instructions (TRAP, MOVEM, etc.) to finish.
-fn run_one_instruction(cpu: &mut Cpu68000, mem: &mut SparseMem, fixture_pc: u32) -> bool {
+fn run_one_instruction(cpu: &mut Cpu68000, mem: &mut SparseMem, _fixture_pc: u32) -> bool {
+    let start_count = cpu.instruction_starts;
     for _ in 0..400 {
         service_bus(cpu, mem);
         cpu.tick();
-        if cpu.instr_start_pc != fixture_pc {
+        if cpu.instruction_starts > start_count {
             return true;
         }
     }
@@ -298,7 +320,20 @@ struct FixtureResult {
     name: String,
     total: usize,
     passed: usize,
+    skipped: usize,
     first_fail: Option<(String, Vec<Mismatch>)>,
+}
+
+fn known_invalid_case(case_name: &str) -> Option<&'static str> {
+    match case_name {
+        // Both of these vectors are for the same byte-sized ASL opcode (E502),
+        // but the expected final D2 mutates the upper 24 bits. A 68000 byte
+        // operation on Dn can only replace the low byte of that register, and
+        // the rest of the ASL.b corpus obeys that rule. Treat these as bad
+        // fixture rows rather than bending the core around impossible state.
+        "e502 [ASL.b Q, D2] 1583" | "e502 [ASL.b Q, D2] 1761" => Some("invalid ASL.b fixture row"),
+        _ => None,
+    }
 }
 
 fn run_fixture(path: &Path) -> Option<FixtureResult> {
@@ -311,11 +346,16 @@ fn run_fixture(path: &Path) -> Option<FixtureResult> {
         .to_string();
 
     let mut passed = 0;
+    let mut skipped = 0;
     let mut first_fail: Option<(String, Vec<Mismatch>)> = None;
 
     for test in &tests {
         let t = test.as_object().unwrap();
         let case_name = t["name"].as_str().unwrap_or("?").to_string();
+        if known_invalid_case(&case_name).is_some() {
+            skipped += 1;
+            continue;
+        }
         let initial = &t["initial"];
         let final_state = &t["final"];
 
@@ -350,8 +390,9 @@ fn run_fixture(path: &Path) -> Option<FixtureResult> {
 
     Some(FixtureResult {
         name,
-        total: tests.len(),
+        total: tests.len().saturating_sub(skipped),
         passed,
+        skipped,
         first_fail,
     })
 }
@@ -366,6 +407,13 @@ fn print_result(r: &FixtureResult) {
         "  {:<24} {:>5}/{:<5} ({:>5.1}%)",
         r.name, r.passed, r.total, rate
     );
+    if r.skipped > 0 {
+        println!(
+            "    skipped: {} invalid fixture row{}",
+            r.skipped,
+            if r.skipped == 1 { "" } else { "s" }
+        );
+    }
     if let Some((case, mismatches)) = &r.first_fail {
         println!("    first fail: {case}");
         for m in mismatches.iter().take(6) {
@@ -469,6 +517,7 @@ fn harte_full_sweep() {
     let mut total_tests = 0usize;
     let mut fully_passing = 0usize;
     let mut fully_failing = 0usize;
+    let mut total_skipped = 0usize;
 
     for path in &entries {
         let Some(r) = run_fixture(path) else {
@@ -477,6 +526,7 @@ fn harte_full_sweep() {
         print_result(&r);
         total_passed += r.passed;
         total_tests += r.total;
+        total_skipped += r.skipped;
         if r.passed == r.total {
             fully_passing += 1;
         } else if r.passed == 0 {
@@ -490,6 +540,55 @@ fn harte_full_sweep() {
         "FULL TOTAL: {}/{} ({:.2}%)",
         total_passed, total_tests, rate
     );
+    if total_skipped > 0 {
+        println!("  skipped invalid fixture rows: {}", total_skipped);
+    }
     println!("  fully passing: {} / {}", fully_passing, entries.len());
     println!("  fully failing: {} / {}", fully_failing, entries.len());
+}
+
+/// Run only the remaining non-green opcode groups so iteration does not
+/// require another full multi-minute sweep.
+#[test]
+#[ignore]
+fn harte_focus_remaining() {
+    let root = fixture_root();
+    if !root.exists() {
+        eprintln!("Skipping: fixture dir not found at {}", root.display());
+        return;
+    }
+
+    let focus = ["ASL.b", "DIVS", "DIVU"];
+
+    println!();
+    println!("Tom Harte 680x0 focused sweep ({} opcodes):", focus.len());
+    let mut total_passed = 0usize;
+    let mut total_tests = 0usize;
+    let mut fail_count = 0usize;
+    let mut total_skipped = 0usize;
+
+    for name in focus {
+        let path = root.join(format!("{name}.json.gz"));
+        let Some(r) = run_fixture(&path) else {
+            println!("  {name:<24} (fixture not found)");
+            continue;
+        };
+        print_result(&r);
+        total_passed += r.passed;
+        total_tests += r.total;
+        total_skipped += r.skipped;
+        if r.passed != r.total {
+            fail_count += 1;
+        }
+    }
+
+    println!();
+    let rate = (total_passed as f64 / total_tests as f64) * 100.0;
+    println!(
+        "FOCUS TOTAL: {}/{} ({:.2}%) — {} opcodes with failures",
+        total_passed, total_tests, rate, fail_count
+    );
+    if total_skipped > 0 {
+        println!("  skipped invalid fixture rows: {}", total_skipped);
+    }
 }

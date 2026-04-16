@@ -27,53 +27,6 @@ impl Cpu68000 {
                 .dst_mode
                 .expect("destination mode should be resolved before execute/writeback");
             if !matches!(dst, AddrMode::AddrReg(_)) {
-                let src_is_reg = matches!(
-                    self.src_mode,
-                    Some(AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate)
-                );
-
-                // The real 68000's 16-bit ALU evaluates MOVE flags in stages
-                // during the write bus cycle. On write AE, the frame SR reflects
-                // how far evaluation progressed before the fault.
-                if self.size == Size::Long {
-                    if src_is_reg {
-                        // Register/immediate source: flags not yet evaluated
-                        // when write starts for simple destinations.
-                        if matches!(dst, AddrMode::AddrInd(_) | AddrMode::AddrIndPostInc(_)) {
-                            self.pre_move_sr = Some(self.regs.sr);
-                        } else if matches!(
-                            dst,
-                            AddrMode::AddrIndDisp(_) | AddrMode::AddrIndIndex(_)
-                        ) {
-                            self.pre_move_vc = Some(self.regs.sr);
-                        }
-                        // -(An), abs.w, abs.l: flags fully committed, no save
-                    } else {
-                        // Memory source: the 68000's 16-bit ALU evaluates flags
-                        // from the last word read (lo word). The write starts
-                        // immediately for simple destinations, so the AE frame
-                        // reflects lo-word-based flags.
-                        if matches!(
-                            dst,
-                            AddrMode::AddrInd(_) | AddrMode::AddrIndPostInc(_) | AddrMode::AbsLong
-                        ) {
-                            let pre_sr = self.regs.sr;
-                            self.set_flags_move(self.data, self.size);
-                            // Build synthetic SR with lo-word N,Z and cleared V,C
-                            let lo = self.data as u16;
-                            let mut lo_sr = pre_sr & !0x000F;
-                            if lo == 0 {
-                                lo_sr |= 0x0004;
-                            } // Z from lo word
-                            if lo & 0x8000 != 0 {
-                                lo_sr |= 0x0008;
-                            } // N from lo word
-                            self.pre_move_sr = Some(lo_sr);
-                            return;
-                        }
-                    }
-                }
-
                 self.set_flags_move(self.data, self.size);
             }
             return;

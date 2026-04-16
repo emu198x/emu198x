@@ -542,6 +542,13 @@ pub struct Cpu68000 {
     /// line on the bus (from a RESET instruction). The machine
     /// layer checks and clears this after each tick.
     pub reset_out: bool,
+
+    /// Monotonic count of instruction starts observed by the prefetch
+    /// pipeline. Useful for single-step harnesses, including branch-to-self
+    /// cases where `instr_start_pc` does not change across an instruction.
+    pub instruction_starts: u64,
+    /// Opcode word captured when the current instruction started.
+    pub(crate) opcode_at_start: u16,
 }
 
 impl Cpu68000 {
@@ -615,6 +622,8 @@ impl Cpu68000 {
             bus_status: BusStatus::Wait,
             ipl: 0,
             reset_out: false,
+            instruction_starts: 0,
+            opcode_at_start: 0,
         }
     }
 
@@ -843,6 +852,7 @@ impl Cpu68000 {
     /// micro-op so the next tick will decode the instruction.
     pub fn setup_prefetch(&mut self, opcode: u16, irc: u16) {
         self.ir = opcode;
+        self.opcode_at_start = opcode;
         self.irc = irc;
         // IRC was fetched from PC-2 (the word before current PC)
         self.irc_addr = self.regs.pc.wrapping_sub(2);
@@ -855,6 +865,7 @@ impl Cpu68000 {
         self.in_followup = false;
         self.followup_tag = 0;
         self.state = State::Idle;
+        self.instruction_starts = 1;
     }
 
     /// Consume the current IRC value and queue a FetchIRC to replace it.
@@ -1186,6 +1197,8 @@ impl Cpu68000 {
     fn promote_pipeline(&mut self) {
         self.instr_start_pc = self.irc_addr;
         self.ir = self.irc;
+        self.opcode_at_start = self.ir;
+        self.instruction_starts = self.instruction_starts.wrapping_add(1);
         // Standard 68000: PC points past the opcode word
         self.regs.pc = self.instr_start_pc.wrapping_add(2);
         self.in_followup = false;
@@ -1527,11 +1540,12 @@ impl Cpu68000 {
             return true;
         }
 
-        // Determine function code.
-        // FetchIRC is always program space. EA reads use program space for
-        // PC-relative modes (PcDisp, PcIndex), data space otherwise.
+        // Determine function code for the group-0 frame.
+        // The Harte/MAME fixtures expect only instruction-fetch faults to
+        // report program-space FC bits; data operand faults, including
+        // PC-relative operands, report data-space FC bits.
         let is_sup = self.regs.is_supervisor();
-        let is_program = matches!(op, MicroOp::FetchIRC) || self.program_space_access;
+        let is_program = matches!(op, MicroOp::FetchIRC);
         let fc = match (is_sup, is_program) {
             (true, true) => FunctionCode::SupervisorProgram,
             (true, false) => FunctionCode::SupervisorData,
@@ -1572,37 +1586,27 @@ impl Cpu68000 {
         }
 
         // Undo post-increment/predecrement on AE when the transfer wasn't committed.
-        if let Some((reg, amount, is_postinc, is_dst)) = self.ae_undo_reg.take() {
-            // CMPM (An)+,(An)+: opcode = 1011 Ax 1 ss 001 Ay
-            let is_cmpm = (self.ir & 0xF138) == 0xB108;
-
+        if let Some((reg, amount, is_postinc, _is_dst)) = self.ae_undo_reg.take() {
             let undo = if is_postinc {
                 if !is_read {
                     // Write AE: always undo postincrement (write never committed).
                     true
-                } else if self.size == Size::Long {
-                    // Long read AE: always undo (two-phase read incomplete).
-                    true
-                } else if is_dst && is_cmpm {
-                    // CMPM destination (Ax)+ read AE: the 68000 reverts
-                    // the second register for all sizes.
-                    true
                 } else {
-                    // Word/byte source read AE (or non-CMPM destination):
-                    // postincrement sticks.
+                    // Standard postincrement source reads stick, even for long
+                    // transfers; the odd/partial access faults after the
+                    // address register update has committed.
                     false
                 }
             } else {
                 // Predecrement undo rules:
-                // - ADDX/SUBX -(Ay),-(Ax): always undo on AE (source read
-                //   never committed, so the predecrement must be reversed).
+                // - ADDX/SUBX -(Ay),-(Ax): byte/word source predecrement
+                //   sticks on AE. Long only commits the first -2 step.
                 // - Standard -(An) EA: only undo on write AE for Long size.
                 //   The real 68000 keeps the decremented value for byte/word
                 //   write AE, but undoes it for long (verified by DL tests).
                 // ADDX/SUBX -(Ay),-(Ax) long: the 68000 decrements by 2
                 // (word-sized step) before checking alignment. AE fires after
-                // the first -2, so the register must be fully restored.
-                // Byte/word ADDX/SUBX: natural-sized decrement sticks.
+                // the first -2, so only half the predecrement gets undone.
                 let is_addx_subx_long = self.size == Size::Long
                     && matches!(self.ir & 0xF130, 0xD100 | 0x9100)
                     && (self.ir & 0x0008) != 0;
@@ -1615,15 +1619,13 @@ impl Cpu68000 {
             if undo {
                 let r = reg as usize;
                 let current = self.regs.a(r);
-                // CMPM source Long read AE: partial undo. The 68000 reads long
-                // values word-by-word, incrementing by 2 each time. On AE at
-                // ReadLongHi, only 2 of the 4-byte increment is reverted.
-                let undo_amount =
-                    if is_postinc && is_read && !is_dst && is_cmpm && self.size == Size::Long {
-                        2
-                    } else {
-                        amount
-                    };
+                let partial_long_predec = !is_postinc
+                    && self.size == Size::Long
+                    && ((is_read
+                        && matches!(self.ir & 0xF130, 0xD100 | 0x9100)
+                        && (self.ir & 0x0008) != 0)
+                        || (!is_read && (self.ir >> 12) == 2 && ((self.ir >> 6) & 7) == 4));
+                let undo_amount = if partial_long_predec { 2 } else { amount };
                 if is_postinc {
                     self.regs.set_a(r, current.wrapping_sub(undo_amount));
                 } else {
@@ -1632,11 +1634,16 @@ impl Cpu68000 {
             }
         }
 
-        // DBcc: undo the Dn.w decrement when branch target is odd.
-        if is_read && let Some((r, original_w)) = self.dbcc_dn_undo.take() {
-            self.regs.d[r as usize] =
-                (self.regs.d[r as usize] & 0xFFFF_0000) | u32::from(original_w);
+        // MOVEM mem→reg with postincrement advances the address register a
+        // word at a time. If the first read faults, the +2 step has already
+        // committed even for long transfers.
+        if is_read && (self.ir & 0xFF80) == 0x4C80 && self.movem_an_reg != 0xFF {
+            let r = self.movem_an_reg as usize;
+            self.regs.set_a(r, self.addr.wrapping_add(2));
         }
+
+        // DBcc with an odd taken target keeps the Dn.w decrement. The fetch
+        // that faults is for the next instruction, not part of the decrement.
         self.dbcc_dn_undo = None;
 
         // For MOVE write AE: restore flags to match the 68000's flag
@@ -1658,16 +1665,7 @@ impl Cpu68000 {
         // captures old_sr, so the AE frame also gets the restored SR.
         self.ae_saved_sr = self.regs.sr;
 
-        // Determine which IR value to push in the frame. For MOVE.w write AE
-        // with -(An) destination, the real 68000's pipeline has already
-        // advanced past IR, so it pushes IRC instead.
-        let is_move_w = (self.ir >> 12) == 3;
-        let dst_is_predec = ((self.ir >> 6) & 7) == 4;
-        self.ae_frame_ir = if !is_read && is_move_w && dst_is_predec {
-            self.irc
-        } else {
-            self.ir
-        };
+        self.ae_frame_ir = self.opcode_at_start;
 
         self.ae_access_info = (self.ae_frame_ir & 0xFFE0)
             | (if is_read { 0x10 } else { 0 })
@@ -1815,11 +1813,13 @@ impl Cpu68000 {
             return self.instr_start_pc.wrapping_add(4);
         }
 
-        // CMPM (An)+,(An)+ and ADDX/SUBX -(An),-(An): always ISP + 4
-        if matches!(top, 0x9 | 0xB | 0xD) {
+        // ADDX/SUBX -(An),-(An): address errors report the instruction start
+        // PC, not ISP + 4. The long predecrement path only commits the first
+        // word-sized decrement before the alignment fault trips.
+        if matches!(top, 0x9 | 0xD) {
             let opmode = (self.ir >> 6) & 7;
             if (4..=6).contains(&opmode) && ea_mode == 1 {
-                return self.instr_start_pc.wrapping_add(4);
+                return self.instr_start_pc;
             }
         }
 
@@ -1861,6 +1861,13 @@ impl Cpu68000 {
         // d16(An) and d8(An,Xn) extension words.
         let disp_adj: u32 = if ea_mode == 5 || ea_mode == 6 { 2 } else { 0 };
 
+        // d16(PC) and d8(PC,Xn) extension words.
+        let pc_rel_adj: u32 = if ea_mode == 7 && matches!(ea_reg, 2 | 3) {
+            2
+        } else {
+            0
+        };
+
         // Group 0 (immediate ops like ADDI/SUBI/ORI/ANDI/EORI/CMPI):
         // immediate extension words are consumed before the EA.
         let imm_adj: u32 = if top == 0 {
@@ -1878,7 +1885,7 @@ impl Cpu68000 {
         };
 
         self.instr_start_pc
-            .wrapping_add(abs_adj + disp_adj + imm_adj)
+            .wrapping_add(abs_adj + disp_adj + pc_rel_adj + imm_adj)
     }
 
     /// Compute the frame PC for MOVE instruction address errors.
@@ -1900,34 +1907,32 @@ impl Cpu68000 {
         let src_ext = Self::ext_word_count_for_mode(&src, size);
 
         if is_read {
-            // Read AE: fault during source operand fetch
-            match src {
-                AddrMode::AbsShort | AddrMode::AbsLong => {
-                    // Absolute sources: PC advanced past consumed ext words
-                    self.instr_start_pc.wrapping_add(2 + u32::from(src_ext) * 2)
-                }
-                AddrMode::AddrIndPreDec(_) => {
-                    if size == Size::Long {
-                        self.instr_start_pc.wrapping_add(2)
-                    } else {
-                        self.instr_start_pc.wrapping_add(4)
-                    }
-                }
-                _ => self.instr_start_pc.wrapping_add(2),
-            }
+            // For MOVE source-read address errors, the frame PC tracks only
+            // extension words already consumed for the source EA.
+            self.instr_start_pc.wrapping_add(u32::from(src_ext) * 2)
         } else {
-            // Write AE: fault during destination write.
-            //
-            // The real 68000 has advanced the pipeline past the opcode
-            // word by the time the write fires, but the exact PC depends
-            // on the source addressing mode. Verified against Tom Harte:
-            //   - Register/immediate source: ISP + 2
-            //   - Memory source (any mode): ISP + 2
-            //
-            // Both cases yield ISP + 2 because the pipeline's "saved PC"
-            // for a MOVE write AE is consistently instr_start_pc + 2
-            // regardless of how many extension words were consumed.
-            self.instr_start_pc.wrapping_add(2)
+            let dst = AddrMode::decode(((self.ir >> 6) & 7) as u8, ((self.ir >> 9) & 7) as u8)
+                .unwrap_or(AddrMode::DataReg(0));
+            let dst_ext = Self::ext_word_count_for_mode(&dst, size);
+            if matches!(dst, AddrMode::AddrInd(_) | AddrMode::AddrIndPostInc(_)) {
+                return self.instr_start_pc.wrapping_add(u32::from(src_ext) * 2);
+            }
+
+            let src_is_register_like = matches!(
+                src,
+                AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate
+            );
+            if src_is_register_like {
+                let extra = src_ext.saturating_add(dst_ext.saturating_sub(1));
+                return self.instr_start_pc.wrapping_add(2 + u32::from(extra) * 2);
+            }
+
+            // MOVE write AEs save a PC that tracks the source-side extension
+            // words consumed to obtain the value being written. The common
+            // cases also include the opcode-word bump; destination extension
+            // words do not further advance the saved PC on the 68000's
+            // group-0 frame.
+            self.instr_start_pc.wrapping_add(2 + u32::from(src_ext) * 2)
         }
     }
 

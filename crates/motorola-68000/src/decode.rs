@@ -1548,7 +1548,11 @@ impl Cpu68000 {
         if (opcode & 0xFFF8) == 0x4E50 {
             let r = (opcode & 7) as u8;
             // Push An, then An = SP, then SP += displacement
-            self.data = self.regs.a(r as usize);
+            self.data = if r == 7 {
+                self.regs.active_sp().wrapping_sub(4)
+            } else {
+                self.regs.a(r as usize)
+            };
             self.ea_reg = r;
             self.in_followup = true;
             self.followup_tag = TAG_LINK_DISP;
@@ -2891,8 +2895,8 @@ impl Cpu68000 {
                     self.begin_group1_exception(6, frame_pc);
                     self.micro_ops.push_front(MicroOp::Internal(4));
                 } else {
-                    // In bounds: clear NZVC, no trap
-                    self.regs.sr &= 0xFFF0;
+                    // In bounds: preserve X/N, clear ZVC, no trap
+                    self.regs.sr &= !0x0007;
                     let d = self.internal_delay(6, 0);
                     if d > 0 {
                         self.micro_ops.push(MicroOp::Internal(d));
@@ -3349,7 +3353,10 @@ impl Cpu68000 {
                     (0x8000, 3) => {
                         // DIVU: unsigned word divide
                         if src_word == 0 {
-                            self.begin_group1_exception(5, self.irc_addr);
+                            // 68000 exception frames capture the divider state after the
+                            // instruction has invalidated NZVC, while preserving X.
+                            self.regs.sr &= !0x000F;
+                            self.begin_group1_exception(5, self.instr_start_pc);
                             return;
                         }
                         let dividend = self.regs.d[dn];
@@ -3364,9 +3371,9 @@ impl Cpu68000 {
                                     self.regs.sr |= 0x0008; // N
                                 }
                             } else {
-                                // 68000/010: V=1, N=1, C=0, Z=0, X unchanged
-                                let mut sr = self.regs.sr & !0x000F;
-                                sr |= 0x000A; // V + N
+                                // 68000/010: overflow preserves N/Z/X, clears C, sets V.
+                                let mut sr = self.regs.sr & !0x0003;
+                                sr |= 0x0002;
                                 self.regs.sr = sr;
                             }
                         } else {
@@ -3397,7 +3404,9 @@ impl Cpu68000 {
                     (0x8000, 7) => {
                         // DIVS: signed word divide
                         if src_word == 0 {
-                            self.begin_group1_exception(5, self.irc_addr);
+                            // Match DIVU.W divide-by-zero frame semantics on 68000.
+                            self.regs.sr &= !0x000F;
+                            self.begin_group1_exception(5, self.instr_start_pc);
                             return;
                         }
                         let dividend = self.regs.d[dn] as i32;
@@ -3423,9 +3432,9 @@ impl Cpu68000 {
                                     }
                                 }
                             } else {
-                                // 68000/010: V=1, N=1, C=0, Z=0, X unchanged
-                                let mut sr = self.regs.sr & !0x000F;
-                                sr |= 0x000A; // V + N
+                                // 68000/010: overflow preserves N/Z/X, clears C, sets V.
+                                let mut sr = self.regs.sr & !0x0003;
+                                sr |= 0x0002;
                                 self.regs.sr = sr;
                             }
                         } else {

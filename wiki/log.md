@@ -4,6 +4,34 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-16 — 68000 Harte sweep brought to green, with two invalid `ASL.b` rows quarantined
+
+**Type:** milestone
+**Trigger:** The fresh-workspace Amiga boot path had reached the real Kickstart insert-disk screen, but Workbench disk boot was still stuck far enough downstream that the `68000` core itself became a plausible upstream suspect again. Running the in-tree Tom Harte harness against the local `68000` corpus confirmed that suspicion: the first smoke pass was only `328,887 / 346,795` (`94.8%`) and the full sweep still had real failures in `MOVE`, `MOVEM`, `DBcc`, `CHK`, `LINK`, `ADDX/SUBX`, `DIVS/DIVU`, and shift groups.
+**Result:** the `motorola-68000` core and harness were tightened until the full sweep went green on all runnable fixture rows:
+1. fixed the Harte harness to resolve the active local corpus under `~/Projects/Emu198x-Unclean/680x0/68000/v1` instead of only the stale archive path
+2. made instruction-boundary detection robust by tracking instruction starts directly, which stopped false branch/loop timeouts
+3. fixed several real 68000 core bugs that Harte exposed and that are directly load-bearing for Amiga ROM/device code:
+   - address-error frame IR / saved-PC selection
+   - `DBcc` odd-target address-error state
+   - long `MOVE` write address-error PC calculation
+   - `ADDX/SUBX` predecrement long address-error undo/frame rules
+   - `LINK A7,#` push semantics
+   - `CHK` in-range flag handling
+   - `DIVS/DIVU` overflow and divide-by-zero frame semantics
+4. added a focused ignored Harte entry point for the final opcode groups so remaining failures could be iterated in seconds instead of waiting for another full multi-minute sweep
+5. isolated the final `ASL.b` remainder to two exact rows, both for opcode `E502`, whose expected `D2` values mutate the upper 24 bits on a byte-sized shift; the harness now quarantines those two rows as invalid fixture data instead of warping the CPU core around impossible state
+
+**Verification:** locally, this slice passes:
+- `cargo test -p motorola-68000`
+- `cargo clippy -p motorola-68000 --all-targets -- -D warnings`
+- `cargo test -p motorola-68000 --test tom_harte harte_focus_remaining -- --ignored --nocapture`
+- `cargo test -p motorola-68000 --test tom_harte harte_full_sweep -- --ignored --nocapture`
+
+**Sweep result:** `1,000,058 / 1,000,058` runnable Harte rows passing (`100.00%`), with exactly `2` invalid `ASL.b` rows skipped and documented.
+
+**Consequence:** the `68000` core is no longer an unbounded “maybe” under the Amiga boot blocker. The next Amiga pass can target the DF0 ready/select/read path and later `trackdisk.device` bring-up from a materially cleaner CPU baseline.
+
 ## 2026-04-16 — Amiga Kickstart insert-disk screen restored
 
 **Type:** milestone
