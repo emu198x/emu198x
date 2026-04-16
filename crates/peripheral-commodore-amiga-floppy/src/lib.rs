@@ -215,15 +215,6 @@ impl AmigaFloppyDrive {
     /// Current drive status for CIA-A PRA input.
     /// All values are active-low booleans (true = signal asserted = pin low).
     pub fn status(&self) -> DriveStatus {
-        if !self.selected {
-            return DriveStatus {
-                disk_change: false,
-                write_protect: false,
-                track0: false,
-                ready: false,
-            };
-        }
-
         DriveStatus {
             disk_change: self.disk_changed,
             write_protect: false, // Not write-protected
@@ -234,16 +225,13 @@ impl AmigaFloppyDrive {
 
     /// Encode the current track as raw MFM data. Returns `None` if no disk.
     pub fn encode_mfm_track(&self) -> Option<Vec<u8>> {
-        if !self.read_data_available() {
-            return None;
-        }
         self.disk
             .as_ref()?
             .encode_mfm_track(self.cylinder, self.head)
     }
 
     pub fn read_data_available(&self) -> bool {
-        self.selected && self.motor_spinning && self.disk.is_some()
+        self.motor_spinning && self.disk.is_some()
     }
 
     pub fn has_disk(&self) -> bool {
@@ -425,14 +413,23 @@ mod tests {
     }
 
     #[test]
-    fn deselected_drive_does_not_drive_status_lines() {
+    fn spun_up_drive_reports_status_after_deselect() {
         let mut drive = AmigaFloppyDrive::new();
         let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk(adf);
+        drive.acknowledge_disk_change();
+        drive.update_control(false, false, false, true, true);
+        for _ in 0..MOTOR_SPINUP_TICKS {
+            drive.tick();
+        }
+        drive.update_control(false, false, false, false, true);
+
         let status = drive.status();
         assert!(!status.disk_change);
-        assert!(!status.track0);
-        assert!(!status.ready);
+        assert!(status.track0);
+        assert!(status.ready);
+        assert!(drive.read_data_available());
+        assert!(drive.encode_mfm_track().is_some());
     }
 
     #[test]
