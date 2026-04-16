@@ -228,7 +228,7 @@ impl AmigaFloppyDrive {
             disk_change: self.disk_changed,
             write_protect: false, // Not write-protected
             track0: self.cylinder == 0,
-            ready: self.motor_spinning && self.disk.is_some(),
+            ready: self.motor_spinning,
         }
     }
 

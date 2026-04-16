@@ -46,7 +46,10 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
     "amiga.cpu.sr",
     "amiga.cpu.a0",
     "amiga.cpu.a1",
+    "amiga.cpu.a2",
+    "amiga.cpu.a3",
     "amiga.cpu.a6",
+    "amiga.cpu.a7",
     "amiga.display.non_black_pixels",
     "amiga.display.non_white_pixels",
     "amiga.display.white_pixels",
@@ -293,6 +296,28 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
         let boot = machine.boot_status();
         let disk_status = machine.machine.floppy.status();
         let exec_base = exec_base(&machine.machine);
+
+        if let Some(addr) = parse_debug_addr(path, "amiga.memory.u8.") {
+            return Ok(Some(QueryResult {
+                path: path.to_owned(),
+                value: json!(machine.machine.memory.read_byte(addr)),
+            }));
+        }
+        if let Some(addr) = parse_debug_addr(path, "amiga.memory.u16.") {
+            return Ok(Some(QueryResult {
+                path: path.to_owned(),
+                value: json!(machine.machine.memory.read_word(addr)),
+            }));
+        }
+        if let Some(addr) = parse_debug_addr(path, "amiga.memory.u32.") {
+            let value = (u32::from(machine.machine.memory.read_word(addr)) << 16)
+                | u32::from(machine.machine.memory.read_word(addr.wrapping_add(2)));
+            return Ok(Some(QueryResult {
+                path: path.to_owned(),
+                value: json!(value),
+            }));
+        }
+
         let value = match path {
             "boot.detected" => json!(boot.detected),
             "boot.reason" => json!(boot.reason),
@@ -328,7 +353,10 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
             "amiga.cpu.sr" => json!(machine.machine.cpu.regs.sr),
             "amiga.cpu.a0" => json!(machine.machine.cpu.regs.a[0]),
             "amiga.cpu.a1" => json!(machine.machine.cpu.regs.a[1]),
+            "amiga.cpu.a2" => json!(machine.machine.cpu.regs.a[2]),
+            "amiga.cpu.a3" => json!(machine.machine.cpu.regs.a[3]),
             "amiga.cpu.a6" => json!(machine.machine.cpu.regs.a[6]),
+            "amiga.cpu.a7" => json!(machine.machine.cpu.regs.active_sp()),
             "amiga.display.non_black_pixels" => json!(machine.non_black_pixels),
             "amiga.display.non_white_pixels" => json!(machine.non_white_pixels),
             "amiga.display.white_pixels" => json!(machine.white_pixels),
@@ -373,6 +401,15 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
             path: path.to_owned(),
             value,
         }))
+    }
+}
+
+fn parse_debug_addr(path: &str, prefix: &str) -> Option<u32> {
+    let raw = path.strip_prefix(prefix)?;
+    if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).ok()
+    } else {
+        raw.parse().ok()
     }
 }
 
@@ -475,7 +512,9 @@ fn build_machine(model: Model, kickstart_rom: &[u8]) -> Amiga {
 fn exec_base(machine: &Amiga) -> Option<u32> {
     let value = (u32::from(machine.memory.read_word(0x000004)) << 16)
         | u32::from(machine.memory.read_word(0x000006));
-    if (0x000400..0x100000).contains(&value) && value & 1 == 0 {
+    let in_chip = (0x000400..0x100000).contains(&value);
+    let in_slow = (0xC00000..0xC80000).contains(&value);
+    if (in_chip || in_slow) && value & 1 == 0 {
         Some(value)
     } else {
         None
