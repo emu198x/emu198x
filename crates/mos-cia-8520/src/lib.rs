@@ -304,13 +304,17 @@ impl Cia8520 {
     fn write_tod_register(&mut self, byte_index: u8, value: u8) {
         let shift = u32::from(byte_index) * 8;
         let mask = !(0xFFu32 << shift);
-        if self.crb & 0x80 == 0 {
+        if self.tod_write_targets_alarm() {
             self.tod_alarm = (self.tod_alarm & mask) | (u32::from(value) << shift);
             self.tod_alarm &= 0xFFFFFF;
         } else {
             self.tod_counter = (self.tod_counter & mask) | (u32::from(value) << shift);
             self.tod_counter &= 0xFFFFFF;
         }
+    }
+
+    fn tod_write_targets_alarm(&self) -> bool {
+        self.crb & 0x80 == 0
     }
 
     pub fn tod_counter(&self) -> u32 {
@@ -390,6 +394,13 @@ impl Cia8520 {
     pub fn receive_serial_byte(&mut self, byte: u8) {
         self.sdr = byte;
         self.icr_status |= 0x08;
+    }
+
+    /// FLAG pin negative edge.
+    ///
+    /// On the Amiga, CIA-B uses this for the floppy index pulse.
+    pub fn flag_falling_edge(&mut self) {
+        self.icr_status |= 0x10;
     }
 
     /// Hardware reset: clears all registers to power-on state.
@@ -608,6 +619,22 @@ mod tests {
         assert_eq!(masked_on & 0x80, 0x80);
         assert_eq!(cia.icr_status(), 0);
         assert!(!cia.irq_active());
+    }
+
+    #[test]
+    fn flag_falling_edge_sets_flag_status_and_irq_when_masked() {
+        let mut cia = Cia8520::new("T");
+        cia.flag_falling_edge();
+        assert_eq!(cia.icr_status() & 0x10, 0x10);
+        assert!(!cia.irq_active());
+
+        cia.read_icr_and_clear();
+        cia.write(0x0D, 0x90); // set FLAG mask bit
+        cia.flag_falling_edge();
+
+        assert_eq!(cia.icr_status() & 0x10, 0x10);
+        assert!(cia.irq_active());
+        assert_eq!(cia.read_icr_and_clear() & 0x90, 0x90);
     }
 
     #[test]

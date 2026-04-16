@@ -73,6 +73,8 @@ impl DiskImage for AdfDiskImage {
 
 /// E-clock ticks for motor spin-up (~500ms at 709 kHz).
 const MOTOR_SPINUP_TICKS: u32 = 350_000;
+/// E-clock ticks per disk revolution at 300 RPM (~200ms at 709 kHz).
+const INDEX_PULSE_TICKS: u32 = 141_876;
 
 /// Drive status bits for CIA-A PRA (active-low: 0 = asserted).
 pub struct DriveStatus {
@@ -93,6 +95,7 @@ pub struct AmigaFloppyDrive {
     motor_on: bool,
     motor_spinning: bool,
     spin_timer: u32,
+    index_timer: u32,
     selected: bool,
     disk_changed: bool,
     prev_step: bool,
@@ -115,6 +118,7 @@ impl AmigaFloppyDrive {
             motor_on: false,
             motor_spinning: false,
             spin_timer: 0,
+            index_timer: 0,
             selected: false,
             disk_changed: true, // No disk at power-on
             prev_step: true,    // Active-low: idle = high
@@ -172,6 +176,7 @@ impl AmigaFloppyDrive {
             if !motor {
                 self.motor_spinning = false;
                 self.spin_timer = 0;
+                self.index_timer = 0;
             }
         }
         self.selected = sel;
@@ -202,19 +207,46 @@ impl AmigaFloppyDrive {
         }
     }
 
-    /// Advance motor spin-up timer. Call at E-clock rate.
-    pub fn tick(&mut self) {
+    /// Advance motor spin-up and rotational timing. Call at E-clock rate.
+    /// Returns `true` when the selected drive emits one index pulse.
+    pub fn tick(&mut self) -> bool {
         if self.motor_on && !self.motor_spinning {
             self.spin_timer += 1;
             if self.spin_timer >= MOTOR_SPINUP_TICKS {
                 self.motor_spinning = true;
+                self.index_timer = 0;
             }
+            return false;
         }
+
+        if !(self.motor_spinning && self.selected && self.disk.is_some()) {
+            if !self.motor_spinning || !self.motor_on {
+                self.index_timer = 0;
+            }
+            return false;
+        }
+
+        self.index_timer += 1;
+        if self.index_timer >= INDEX_PULSE_TICKS {
+            self.index_timer = 0;
+            return true;
+        }
+
+        false
     }
 
     /// Current drive status for CIA-A PRA input.
     /// All values are active-low booleans (true = signal asserted = pin low).
     pub fn status(&self) -> DriveStatus {
+        if !self.selected {
+            return DriveStatus {
+                disk_change: false,
+                write_protect: false,
+                track0: false,
+                ready: false,
+            };
+        }
+
         DriveStatus {
             disk_change: self.disk_changed,
             write_protect: false, // Not write-protected
@@ -382,6 +414,20 @@ mod tests {
     }
 
     #[test]
+    fn status_is_inactive_when_drive_is_not_selected() {
+        let mut drive = AmigaFloppyDrive::new();
+        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk(adf);
+        drive.acknowledge_disk_change();
+
+        let status = drive.status();
+        assert!(!status.disk_change);
+        assert!(!status.write_protect);
+        assert!(!status.track0);
+        assert!(!status.ready);
+    }
+
+    #[test]
     fn motor_spinup() {
         let mut drive = AmigaFloppyDrive::new();
         let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
@@ -391,9 +437,25 @@ mod tests {
         assert!(!drive.status().ready);
 
         for _ in 0..MOTOR_SPINUP_TICKS {
-            drive.tick();
+            assert!(!drive.tick());
         }
         assert!(drive.status().ready);
+    }
+
+    #[test]
+    fn spun_up_selected_drive_emits_index_pulse_once_per_revolution() {
+        let mut drive = AmigaFloppyDrive::new();
+        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk(adf);
+        drive.acknowledge_disk_change();
+        drive.update_control(false, false, false, true, true);
+        for _ in 0..MOTOR_SPINUP_TICKS {
+            assert!(!drive.tick());
+        }
+        for _ in 0..(INDEX_PULSE_TICKS - 1) {
+            assert!(!drive.tick());
+        }
+        assert!(drive.tick());
     }
 
     #[test]
@@ -413,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn spun_up_drive_reports_status_after_deselect() {
+    fn spun_up_drive_hides_status_after_deselect_but_keeps_media_available() {
         let mut drive = AmigaFloppyDrive::new();
         let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk(adf);
@@ -426,8 +488,8 @@ mod tests {
 
         let status = drive.status();
         assert!(!status.disk_change);
-        assert!(status.track0);
-        assert!(status.ready);
+        assert!(!status.track0);
+        assert!(!status.ready);
         assert!(drive.read_data_available());
         assert!(drive.encode_mfm_track().is_some());
     }

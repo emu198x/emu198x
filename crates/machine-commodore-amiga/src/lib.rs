@@ -36,6 +36,8 @@ const ECLOCK_CCK_DIVISOR: u64 = 5;
 pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// CCK frequency for audio downsampling phase accumulator.
 const PAL_CCK_HZ: u64 = 28_375_160 / 8;
+/// MFM stream cadence: one word roughly every 112 CCKs at 300 RPM.
+const DISK_STREAM_WORD_CCKS: u16 = 112;
 
 /// Raster framebuffer dimensions (re-exported from Denise).
 pub use commodore_denise_ocs::{PAL_RASTER_FB_HEIGHT, RASTER_FB_WIDTH};
@@ -49,6 +51,14 @@ struct DiskDmaRuntime {
     is_write: bool,
     wordsync_enabled: bool,
     wordsync_waiting: bool,
+}
+
+struct DiskReadRuntime {
+    data: Vec<u8>,
+    byte_index: usize,
+    word_cck_counter: u16,
+    cylinder: u32,
+    head: u32,
 }
 
 // ─── Machine ──────────────────────────────────────────────────────────
@@ -82,6 +92,7 @@ pub struct Amiga {
 
     // Disk DMA
     disk_dma_runtime: Option<DiskDmaRuntime>,
+    disk_read_runtime: Option<DiskReadRuntime>,
 
     // Register pipeline delays (Agnus→Denise 2 CCK)
     bplcon0_denise_pending: Option<(u16, u8)>,
@@ -186,6 +197,7 @@ impl Amiga {
             cia_a_cra_sp_prev: false,
             sprite_dma_phase: [0; 8],
             disk_dma_runtime: None,
+            disk_read_runtime: None,
             bplcon0_denise_pending: None,
             ddfstrt_pending: None,
             ddfstop_pending: None,
@@ -364,6 +376,7 @@ impl Amiga {
             audio_return_progress,
             |addr| self.memory.read_chip_byte(addr),
         );
+        self.tick_disk_read_stream();
         self.paula.tick_disk_cck();
 
         // ── Audio downsampling ────────────────────────────────────
@@ -1002,6 +1015,60 @@ impl Amiga {
 
     // ─── Disk DMA ─────────────────────────────────────────────────
 
+    fn tick_disk_read_stream(&mut self) {
+        if self.disk_dma_runtime.is_some() {
+            return;
+        }
+        if !(self.floppy.selected() && self.floppy.read_data_available()) {
+            self.disk_read_runtime = None;
+            return;
+        }
+
+        let cylinder = self.floppy.cylinder();
+        let head = self.floppy.head();
+        let reload = self
+            .disk_read_runtime
+            .as_ref()
+            .is_none_or(|runtime| runtime.cylinder != cylinder || runtime.head != head);
+        if reload {
+            let Some(data) = self.floppy.encode_mfm_track() else {
+                self.disk_read_runtime = None;
+                return;
+            };
+            self.disk_read_runtime = Some(DiskReadRuntime {
+                data,
+                byte_index: 0,
+                word_cck_counter: 0,
+                cylinder,
+                head,
+            });
+        }
+
+        let Some(runtime) = self.disk_read_runtime.as_mut() else {
+            return;
+        };
+        if runtime.data.len() < 2 {
+            return;
+        }
+
+        runtime.word_cck_counter = runtime.word_cck_counter.saturating_add(1);
+        if runtime.word_cck_counter < DISK_STREAM_WORD_CCKS {
+            return;
+        }
+        runtime.word_cck_counter -= DISK_STREAM_WORD_CCKS;
+
+        let len = runtime.data.len();
+        let hi = runtime.data[runtime.byte_index % len];
+        let lo = runtime.data[(runtime.byte_index + 1) % len];
+        runtime.byte_index = (runtime.byte_index + 2) % len;
+        let word = (u16::from(hi) << 8) | u16::from(lo);
+
+        let matched_sync = self.paula.note_disk_read_word(word);
+        if matched_sync {
+            self.paula.request_interrupt(12); // DSKSYN
+        }
+    }
+
     fn start_disk_dma_transfer(&mut self) {
         let word_count = (self.paula.dsklen & 0x3FFF) as u32;
         let is_write = self.paula.dsklen & 0x4000 != 0;
@@ -1111,8 +1178,13 @@ impl Amiga {
             self.paula.request_interrupt(13); // EXTER (CIA-B)
         }
 
-        // Floppy motor spin-up timer.
-        self.floppy.tick();
+        // Floppy motor spin-up and index pulse.
+        if self.floppy.tick() {
+            self.cia_b.flag_falling_edge();
+            if self.cia_b.irq_active() {
+                self.paula.request_interrupt(13); // EXTER (CIA-B)
+            }
+        }
 
         // Update CIA-A PRA with floppy status (active-low signals).
         let status = self.floppy.status();
@@ -1683,6 +1755,7 @@ mod tests {
     )]
 
     use super::*;
+    use std::path::Path;
 
     fn dummy_kickstart() -> Vec<u8> {
         // 256 KiB Kickstart ROM. Write initial SSP at $0, PC at $4.
@@ -1701,6 +1774,56 @@ mod tests {
         ks[8] = 0x60;
         ks[9] = 0xFE;
         ks
+    }
+
+    fn make_bootable_adf() -> Adf {
+        let mut data = vec![0u8; format_commodore_amiga_adf::ADF_SIZE_DD];
+
+        // DOS\0 header
+        data[0] = b'D';
+        data[1] = b'O';
+        data[2] = b'S';
+        data[3] = 0;
+
+        // Standard root block pointer.
+        let root_block: u32 = 880;
+        data[8] = (root_block >> 24) as u8;
+        data[9] = (root_block >> 16) as u8;
+        data[10] = (root_block >> 8) as u8;
+        data[11] = root_block as u8;
+
+        // Boot code:
+        //   MOVE.L #$DEADBEEF, ($7FC00).L
+        //   MOVEQ  #0, D0
+        //   RTS
+        let code: &[u8] = &[
+            0x23, 0xFC, // MOVE.L #imm, (xxx).L
+            0xDE, 0xAD, 0xBE, 0xEF, //   #$DEADBEEF
+            0x00, 0x07, 0xFC, 0x00, //   $0007FC00
+            0x70, 0x00, // MOVEQ #0, D0
+            0x4E, 0x75, // RTS
+        ];
+        data[12..12 + code.len()].copy_from_slice(code);
+
+        // Bootblock checksum: total sum with carry must equal $FFFF_FFFF.
+        let mut sum: u32 = 0;
+        for i in 0..256 {
+            let offset = i * 4;
+            let long = u32::from_be_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
+            let (next, carry) = sum.overflowing_add(long);
+            sum = next;
+            if carry {
+                sum = sum.wrapping_add(1);
+            }
+        }
+        data[4..8].copy_from_slice(&(!sum).to_be_bytes());
+
+        Adf::from_bytes(data).expect("synthetic boot ADF should be valid")
     }
 
     #[test]
@@ -1790,6 +1913,101 @@ mod tests {
         let vhposr = amiga.read_custom_reg(0x006);
         // At startup, vpos=0, hpos=0.
         assert_eq!(vhposr, 0x0000);
+    }
+
+    #[test]
+    fn pre_dma_selected_spun_up_disk_surfaces_dskbytr_bytes() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+        amiga.insert_disk(make_bootable_adf());
+        amiga.floppy.acknowledge_disk_change();
+        amiga.floppy
+            .update_control(false, false, false, true, true);
+
+        for _ in 0..350_000 {
+            amiga.floppy.tick();
+        }
+        assert!(amiga.floppy.motor_spinning());
+
+        let track = amiga
+            .floppy
+            .encode_mfm_track()
+            .expect("selected disk should expose MFM track data");
+        let expected_hi = u16::from(track[0]);
+        let expected_lo = u16::from(track[1]);
+
+        for _ in 0..u32::from(DISK_STREAM_WORD_CCKS) {
+            amiga.tick_cck();
+        }
+
+        let first = amiga.read_custom_reg(0x01A);
+        assert_ne!(first & 0x8000, 0, "first pre-DMA disk byte should be visible");
+        assert_eq!(first & 0x00FF, expected_hi, "expected high byte first");
+
+        let immediate_second = amiga.read_custom_reg(0x01A);
+        assert_eq!(
+            immediate_second & 0x8000,
+            0,
+            "second byte should not be visible immediately"
+        );
+
+        let mut delayed_second = None;
+        for _ in 0..64 {
+            amiga.tick_cck();
+            let value = amiga.read_custom_reg(0x01A);
+            if value & 0x8000 != 0 {
+                delayed_second = Some(value);
+                break;
+            }
+        }
+
+        let second = delayed_second.expect("expected delayed low byte to arrive");
+        assert_eq!(second & 0x00FF, expected_lo, "expected low byte second");
+    }
+
+    #[test]
+    #[ignore]
+    fn synthetic_bootable_adf_executes_bootblock() {
+        let rom_path = Path::new("/Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom");
+        if !rom_path.exists() {
+            eprintln!("Skipping: missing Kickstart ROM at {}", rom_path.display());
+            return;
+        }
+
+        let mut amiga =
+            Amiga::new(std::fs::read(rom_path).expect("Kickstart 1.3 ROM should read"));
+        amiga.insert_disk(make_bootable_adf());
+        amiga.floppy.acknowledge_disk_change();
+
+        let marker_addr = 0x0007_FC00u32;
+        let expected = 0xDEAD_BEEFu32;
+        let mut executed = false;
+
+        // Roughly 10-12 seconds of PAL time, matching the older ADF boot diag.
+        for _ in 0..600 {
+            amiga.run_frame();
+            let observed = (u32::from(amiga.memory.read_chip_byte(marker_addr)) << 24)
+                | (u32::from(amiga.memory.read_chip_byte(marker_addr + 1)) << 16)
+                | (u32::from(amiga.memory.read_chip_byte(marker_addr + 2)) << 8)
+                | u32::from(amiga.memory.read_chip_byte(marker_addr + 3));
+            if observed == expected {
+                executed = true;
+                break;
+            }
+        }
+
+        assert!(
+            executed,
+            "synthetic bootblock never executed; PC=${:08X} cyl={} ready={} motor_on={} motor_spinning={} DSKLEN=${:04X} DSKPT=${:08X} DSKSYNC=${:04X} DSKDATR=${:04X}",
+            amiga.cpu.instr_start_pc,
+            amiga.floppy.cylinder(),
+            amiga.floppy.status().ready,
+            amiga.floppy.motor_on(),
+            amiga.floppy.motor_spinning(),
+            amiga.paula.dsklen,
+            amiga.agnus.dsk_pt,
+            amiga.paula.dsksync,
+            amiga.paula.dskdatr,
+        );
     }
 
     #[test]
