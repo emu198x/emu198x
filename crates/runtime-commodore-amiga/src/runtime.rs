@@ -15,17 +15,72 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
+    "amiga.agnus.dskpt",
+    "amiga.copper.cop1lc",
+    "amiga.copper.cop2lc",
+    "amiga.copper.pc",
+    "amiga.cia_a.external_a",
+    "amiga.cia_a.ddr_a",
+    "amiga.cia_a.port_a_latch",
+    "amiga.cia_a.port_a_output",
+    "amiga.cia_b.external_b",
+    "amiga.cia_b.crb",
+    "amiga.cia_b.ddr_b",
+    "amiga.cia_b.icr_mask",
+    "amiga.cia_b.icr_status",
+    "amiga.cia_b.port_b_latch",
+    "amiga.cia_b.port_b_output",
+    "amiga.cia_b.cra",
+    "amiga.cia_b.tod_alarm",
+    "amiga.cia_b.tod_counter",
+    "amiga.cia_b.tod_halted",
+    "amiga.cia_b.timer_a_running",
+    "amiga.cia_b.timer_b_running",
+    "amiga.cpu.d0",
+    "amiga.cpu.d1",
+    "amiga.cpu.d2",
+    "amiga.cpu.d3",
+    "amiga.cpu.d7",
+    "amiga.cpu.instr_pc",
     "amiga.cpu.pc",
+    "amiga.cpu.sr",
+    "amiga.cpu.a0",
+    "amiga.cpu.a1",
+    "amiga.cpu.a6",
     "amiga.display.non_black_pixels",
+    "amiga.display.non_white_pixels",
+    "amiga.display.white_pixels",
+    "amiga.display.color00",
+    "amiga.disk.change",
     "amiga.disk.cylinder",
     "amiga.disk.head",
     "amiga.disk.inserted",
     "amiga.disk.motor_on",
     "amiga.disk.motor_spinning",
+    "amiga.disk.ready",
+    "amiga.disk.step_events",
     "amiga.keyboard.queued",
     "amiga.keyboard.state",
     "amiga.machine.cck_count",
+    "amiga.machine.cia_b_prb_writes",
+    "amiga.machine.cia_a_reads",
+    "amiga.machine.cia_b_reads",
+    "amiga.machine.cia_b_writes",
+    "amiga.machine.custom_writes",
     "amiga.machine.frame_count",
+    "amiga.machine.reset_count",
+    "amiga.memory.overlay",
+    "amiga.paula.disk_dma_pending",
+    "amiga.paula.dskdatr",
+    "amiga.paula.dsklen",
+    "amiga.paula.dsklen_prev",
+    "amiga.paula.dsksync",
+    "amiga.paula.intena",
+    "amiga.paula.intena_writes",
+    "amiga.paula.intreq",
+    "amiga.paula.intreq_writes",
+    "amiga.exec.base",
+    "amiga.exec.last_alert0",
 ];
 
 const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
@@ -61,6 +116,8 @@ pub struct AmigaRuntime {
     frame_count: u64,
     first_active_row: Option<u32>,
     non_black_pixels: u32,
+    non_white_pixels: u32,
+    white_pixels: u32,
 }
 
 impl AmigaRuntime {
@@ -84,6 +141,8 @@ impl AmigaRuntime {
             frame_count: 0,
             first_active_row: None,
             non_black_pixels: 0,
+            non_white_pixels: 0,
+            white_pixels: 0,
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)
@@ -138,6 +197,9 @@ impl AmigaRuntime {
             reason: reason.to_string(),
         })?;
         self.machine.insert_disk(adf);
+        if self.time == MachineTime::default() && self.frame_count == 0 {
+            self.machine.floppy.acknowledge_disk_change();
+        }
         self.floppy0_bytes = Some(bytes.to_vec());
         Ok(())
     }
@@ -146,6 +208,8 @@ impl AmigaRuntime {
         let framebuffer = self.machine.framebuffer();
         let (source_width, source_height) = self.machine.framebuffer_size();
         let mut non_black_pixels = 0u32;
+        let mut non_white_pixels = 0u32;
+        let mut white_pixels = 0u32;
         let mut first_active_row = None;
 
         for dy in 0..DISPLAY_HEIGHT {
@@ -174,19 +238,34 @@ impl AmigaRuntime {
                         first_active_row = Some(dy);
                     }
                 }
+                if pixel & 0x00FF_FFFF != 0x00FF_FFFF {
+                    non_white_pixels = non_white_pixels.saturating_add(1);
+                } else {
+                    white_pixels = white_pixels.saturating_add(1);
+                }
             }
         }
 
         self.non_black_pixels = non_black_pixels;
+        self.non_white_pixels = non_white_pixels;
+        self.white_pixels = white_pixels;
         self.first_active_row = first_active_row;
     }
 
     fn boot_status(&self) -> AmigaBootStatus {
-        if let Some(row) = self.first_active_row {
+        if let Some(row) = self.first_active_row
+            && self.non_white_pixels > 1_000
+        {
             AmigaBootStatus {
                 detected: true,
                 reason: "display-active",
                 row: Some(row),
+            }
+        } else if self.non_black_pixels > 0 {
+            AmigaBootStatus {
+                detected: false,
+                reason: "monochrome-framebuffer",
+                row: self.first_active_row,
             }
         } else {
             AmigaBootStatus {
@@ -212,21 +291,81 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
 
     fn query(&self, machine: &AmigaRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let boot = machine.boot_status();
+        let disk_status = machine.machine.floppy.status();
+        let exec_base = exec_base(&machine.machine);
         let value = match path {
             "boot.detected" => json!(boot.detected),
             "boot.reason" => json!(boot.reason),
             "boot.row" => json!(boot.row),
+            "amiga.agnus.dskpt" => json!(machine.machine.agnus.dsk_pt),
+            "amiga.copper.cop1lc" => json!(machine.machine.copper.cop1lc),
+            "amiga.copper.cop2lc" => json!(machine.machine.copper.cop2lc),
+            "amiga.copper.pc" => json!(machine.machine.copper.pc),
+            "amiga.cia_a.external_a" => json!(machine.machine.cia_a.external_a),
+            "amiga.cia_a.ddr_a" => json!(machine.machine.cia_a.ddr_a()),
+            "amiga.cia_a.port_a_latch" => json!(machine.machine.cia_a.port_a_latch()),
+            "amiga.cia_a.port_a_output" => json!(machine.machine.cia_a.port_a_output()),
+            "amiga.cia_b.external_b" => json!(machine.machine.cia_b.external_b),
+            "amiga.cia_b.cra" => json!(machine.machine.cia_b.cra()),
+            "amiga.cia_b.crb" => json!(machine.machine.cia_b.crb()),
+            "amiga.cia_b.ddr_b" => json!(machine.machine.cia_b.ddr_b()),
+            "amiga.cia_b.icr_mask" => json!(machine.machine.cia_b.icr_mask()),
+            "amiga.cia_b.icr_status" => json!(machine.machine.cia_b.icr_status()),
+            "amiga.cia_b.port_b_latch" => json!(machine.machine.cia_b.port_b_latch()),
+            "amiga.cia_b.port_b_output" => json!(machine.machine.cia_b.port_b_output()),
+            "amiga.cia_b.tod_alarm" => json!(machine.machine.cia_b.tod_alarm()),
+            "amiga.cia_b.tod_counter" => json!(machine.machine.cia_b.tod_counter()),
+            "amiga.cia_b.tod_halted" => json!(machine.machine.cia_b.tod_halted()),
+            "amiga.cia_b.timer_a_running" => json!(machine.machine.cia_b.timer_a_running()),
+            "amiga.cia_b.timer_b_running" => json!(machine.machine.cia_b.timer_b_running()),
+            "amiga.cpu.d0" => json!(machine.machine.cpu.regs.d[0]),
+            "amiga.cpu.d1" => json!(machine.machine.cpu.regs.d[1]),
+            "amiga.cpu.d2" => json!(machine.machine.cpu.regs.d[2]),
+            "amiga.cpu.d3" => json!(machine.machine.cpu.regs.d[3]),
+            "amiga.cpu.d7" => json!(machine.machine.cpu.regs.d[7]),
+            "amiga.cpu.instr_pc" => json!(machine.machine.cpu.instr_start_pc),
             "amiga.cpu.pc" => json!(machine.machine.cpu.regs.pc),
+            "amiga.cpu.sr" => json!(machine.machine.cpu.regs.sr),
+            "amiga.cpu.a0" => json!(machine.machine.cpu.regs.a[0]),
+            "amiga.cpu.a1" => json!(machine.machine.cpu.regs.a[1]),
+            "amiga.cpu.a6" => json!(machine.machine.cpu.regs.a[6]),
             "amiga.display.non_black_pixels" => json!(machine.non_black_pixels),
+            "amiga.display.non_white_pixels" => json!(machine.non_white_pixels),
+            "amiga.display.white_pixels" => json!(machine.white_pixels),
+            "amiga.display.color00" => json!(machine.machine.denise.palette[0]),
+            "amiga.disk.change" => json!(disk_status.disk_change),
             "amiga.disk.inserted" => json!(machine.machine.has_disk()),
             "amiga.disk.cylinder" => json!(machine.machine.floppy.cylinder()),
             "amiga.disk.head" => json!(machine.machine.floppy.head()),
             "amiga.disk.motor_on" => json!(machine.machine.floppy.motor_on()),
             "amiga.disk.motor_spinning" => json!(machine.machine.floppy.motor_spinning()),
+            "amiga.disk.ready" => json!(disk_status.ready),
+            "amiga.disk.step_events" => json!(machine.machine.floppy.step_event_counter()),
             "amiga.keyboard.queued" => json!(machine.machine.keyboard.queued_key_count()),
             "amiga.keyboard.state" => json!(machine.machine.keyboard.debug_state_name()),
             "amiga.machine.frame_count" => json!(machine.frame_count),
             "amiga.machine.cck_count" => json!(machine.machine.cck_count),
+            "amiga.machine.reset_count" => json!(machine.machine.reset_count),
+            "amiga.machine.cia_b_prb_writes" => json!(machine.machine.debug_cia_b_prb_log),
+            "amiga.machine.cia_a_reads" => json!(machine.machine.debug_cia_a_read_log),
+            "amiga.machine.cia_b_reads" => json!(machine.machine.debug_cia_b_read_log),
+            "amiga.machine.cia_b_writes" => json!(machine.machine.debug_cia_b_write_log),
+            "amiga.machine.custom_writes" => json!(machine.machine.debug_custom_write_log),
+            "amiga.memory.overlay" => json!(machine.machine.memory.overlay),
+            "amiga.paula.disk_dma_pending" => json!(machine.machine.paula.disk_dma_pending),
+            "amiga.paula.dskdatr" => json!(machine.machine.paula.dskdatr),
+            "amiga.paula.dsklen" => json!(machine.machine.paula.dsklen),
+            "amiga.paula.dsklen_prev" => json!(machine.machine.paula.dsklen_prev),
+            "amiga.paula.dsksync" => json!(machine.machine.paula.dsksync),
+            "amiga.paula.intena" => json!(machine.machine.paula.intena),
+            "amiga.paula.intena_writes" => json!(machine.machine.paula.intena_write_log),
+            "amiga.paula.intreq" => json!(machine.machine.paula.intreq),
+            "amiga.paula.intreq_writes" => json!(machine.machine.paula.intreq_write_log),
+            "amiga.exec.base" => json!(exec_base),
+            "amiga.exec.last_alert0" => json!(exec_base.map(|base| {
+                (u32::from(machine.machine.memory.read_word(base.wrapping_add(0x202))) << 16)
+                    | u32::from(machine.machine.memory.read_word(base.wrapping_add(0x204)))
+            })),
             _ => return Ok(None),
         };
 
@@ -327,7 +466,19 @@ impl MachineCore for AmigaRuntime {
 
 fn build_machine(model: Model, kickstart_rom: &[u8]) -> Amiga {
     match model {
-        Model::A500OcsPal => Amiga::new(kickstart_rom.to_vec()),
+        // KS 1.2+ A500/A2000 boot paths depend on 512 KiB trapdoor slow RAM at
+        // $C00000 so ExecBase can live there instead of consuming scarce chip RAM.
+        Model::A500OcsPal => Amiga::new_with_slow_ram(kickstart_rom.to_vec(), 512 * 1024),
+    }
+}
+
+fn exec_base(machine: &Amiga) -> Option<u32> {
+    let value = (u32::from(machine.memory.read_word(0x000004)) << 16)
+        | u32::from(machine.memory.read_word(0x000006));
+    if (0x000400..0x100000).contains(&value) && value & 1 == 0 {
+        Some(value)
+    } else {
+        None
     }
 }
 
@@ -414,6 +565,8 @@ mod tests {
     use format_commodore_amiga_adf::{ADF_SIZE_DD, ADF_SIZE_HD};
     use std::fs;
     use std::path::Path;
+
+    const WORKBENCH13_DISK_PATH: &str = "/Users/stevehill/Projects/Emu198x-Unclean/Reference/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip";
 
     fn dummy_kickstart() -> Vec<u8> {
         let mut kickstart = vec![0u8; 256 * 1024];
@@ -525,8 +678,8 @@ mod tests {
         let boot = runtime.boot_status();
         assert!(boot.detected, "Kickstart 1.3 should produce visible output");
         assert!(
-            runtime.non_black_pixels > 10_000,
-            "Kickstart 1.3 should render a substantial visible screen"
+            runtime.non_white_pixels > 10_000,
+            "Kickstart 1.3 should render substantial non-white screen content"
         );
     }
 
@@ -557,5 +710,74 @@ mod tests {
             .load_media(&media)
             .expect("HD-sized ADF bytes should still insert");
         assert!(runtime.machine().has_disk());
+    }
+
+    fn run_headless(runtime: &mut AmigaRuntime, frames: u64) {
+        let target = MachineTime::new(A500_PAL_FRAME_TICKS * frames);
+        let mut frame_sink = NullFrameSink;
+        let mut audio_sink = NullAudioSink;
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        runtime
+            .run_until(target, &mut host)
+            .expect("Amiga runtime should run for the requested frame budget");
+    }
+
+    fn chip_ram_contains(haystack: &[u8], needle: &[u8]) -> bool {
+        !needle.is_empty()
+            && haystack.len() >= needle.len()
+            && haystack
+                .windows(needle.len())
+                .any(|window| window == needle)
+    }
+
+    #[test]
+    #[ignore]
+    fn real_workbench13_disk_bootblock_reaches_chip_ram() {
+        let kickstart_path = Path::new("/Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom");
+        let disk_path = Path::new(WORKBENCH13_DISK_PATH);
+        if !kickstart_path.exists() || !disk_path.exists() {
+            eprintln!(
+                "Skipping: missing Kickstart or Workbench 1.3 assets ({} / {})",
+                kickstart_path.display(),
+                disk_path.display()
+            );
+            return;
+        }
+
+        let kickstart = fs::read(kickstart_path).expect("Kickstart ROM should read");
+        let loaded = read_media_asset(disk_path, MediaKind::Disk)
+            .expect("Workbench disk archive should expand to one ADF");
+        let bootblock = &loaded.bytes[..1024];
+
+        let mut with_disk = AmigaRuntime::new(Model::A500OcsPal, kickstart.clone())
+            .expect("Kickstart 1.3 should construct");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("floppy-0", MediaKind::Disk, &loaded.bytes));
+        with_disk
+            .load_media(&media)
+            .expect("Workbench ADF should insert into DF0");
+        run_headless(&mut with_disk, 3300);
+
+        let mut no_disk = AmigaRuntime::new(Model::A500OcsPal, kickstart)
+            .expect("Kickstart 1.3 should construct");
+        run_headless(&mut no_disk, 3300);
+
+        let with_disk_contains = chip_ram_contains(&with_disk.machine().memory.chip_ram, bootblock);
+        let no_disk_contains = chip_ram_contains(&no_disk.machine().memory.chip_ram, bootblock);
+
+        assert!(
+            with_disk_contains,
+            "Workbench disk bootblock should be DMA-loaded into chip RAM somewhere during boot"
+        );
+        assert!(
+            !no_disk_contains,
+            "No-disk boot should not coincidentally contain the full Workbench bootblock in chip RAM"
+        );
     }
 }

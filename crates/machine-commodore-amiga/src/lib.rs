@@ -25,6 +25,7 @@ use motorola_68000::bus::{BusStatus, FunctionCode};
 use motorola_68000::cpu::{Cpu68000, State};
 use peripheral_commodore_amiga_floppy::AmigaFloppyDrive;
 use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
+use std::collections::VecDeque;
 
 // ─── Clock constants ──────────────────────────────────────────────────
 
@@ -105,6 +106,12 @@ pub struct Amiga {
 
     // Debug counters
     pub vertb_count: u64,
+    pub reset_count: u64,
+    pub debug_custom_write_log: VecDeque<String>,
+    pub debug_cia_b_prb_log: VecDeque<String>,
+    pub debug_cia_b_write_log: VecDeque<String>,
+    pub debug_cia_a_read_log: VecDeque<String>,
+    pub debug_cia_b_read_log: VecDeque<String>,
 }
 
 impl Amiga {
@@ -193,6 +200,12 @@ impl Amiga {
             serper: 0,
             serial_shift_countdown: 0,
             vertb_count: 0,
+            reset_count: 0,
+            debug_custom_write_log: VecDeque::new(),
+            debug_cia_b_prb_log: VecDeque::new(),
+            debug_cia_b_write_log: VecDeque::new(),
+            debug_cia_a_read_log: VecDeque::new(),
+            debug_cia_b_read_log: VecDeque::new(),
         }
     }
 
@@ -458,7 +471,16 @@ impl Amiga {
                     let reg = ((addr24 >> 8) & 0x0F) as u8;
                     if is_read {
                         let val = if addr24 & 1 != 0 {
-                            u16::from(self.cia_a.read(reg))
+                            let cia_val = self.cia_a.read(reg);
+                            if reg == 0x00 || reg == 0x0D {
+                                self.debug_cia_a_read_log.push_back(format!(
+                                    "reg=${reg:02X} fc={fc:?} is_word={is_word} val=${cia_val:02X}"
+                                ));
+                                if self.debug_cia_a_read_log.len() > 64 {
+                                    self.debug_cia_a_read_log.pop_front();
+                                }
+                            }
+                            u16::from(cia_val)
                         } else {
                             0xFF00
                         };
@@ -490,7 +512,16 @@ impl Amiga {
                     let reg = ((addr24 >> 8) & 0x0F) as u8;
                     if is_read {
                         let val = if addr24 & 1 == 0 {
-                            let cia_val = u16::from(self.cia_b.read(reg));
+                            let cia_read = self.cia_b.read(reg);
+                            if matches!(reg, 0x08..=0x0A | 0x0D | 0x0F) {
+                                self.debug_cia_b_read_log.push_back(format!(
+                                    "reg=${reg:02X} fc={fc:?} is_word={is_word} val=${cia_read:02X}"
+                                ));
+                                if self.debug_cia_b_read_log.len() > 64 {
+                                    self.debug_cia_b_read_log.pop_front();
+                                }
+                            }
+                            let cia_val = u16::from(cia_read);
                             // Word reads: CIA-B data on D8-D15 (high byte), D0-D7 float to 0xFF.
                             // Byte reads: return in low bits to match CPU ReadByte convention.
                             if is_word {
@@ -510,15 +541,29 @@ impl Amiga {
                             } else {
                                 data.unwrap_or(0) as u8
                             };
+                            self.debug_cia_b_write_log.push_back(format!(
+                                "reg=${reg:02X} fc={fc:?} is_word={is_word} val=${val:02X}"
+                            ));
+                            if self.debug_cia_b_write_log.len() > 64 {
+                                self.debug_cia_b_write_log.pop_front();
+                            }
                             self.cia_b.write(reg, val);
                             // Floppy control is on CIA-B PRB.
                             if reg == 0x01 {
                                 let prb = self.cia_b.port_b_output();
                                 let step = prb & 0x01 == 0;
+                                // CIA-B PRB bit 1 is DIR: 0 = inward/towards higher tracks,
+                                // 1 = outward/towards track 0.
                                 let dir_inward = prb & 0x02 == 0;
                                 let side_upper = prb & 0x04 == 0;
                                 let sel = prb & 0x08 == 0;
                                 let motor = prb & 0x80 == 0;
+                                self.debug_cia_b_prb_log.push_back(format!(
+                                    "val=${prb:02X} step={step} dir_inward={dir_inward} side_upper={side_upper} sel={sel} motor={motor}"
+                                ));
+                                if self.debug_cia_b_prb_log.len() > 32 {
+                                    self.debug_cia_b_prb_log.pop_front();
+                                }
                                 self.floppy
                                     .update_control(step, dir_inward, side_upper, sel, motor);
                             }
@@ -566,6 +611,14 @@ impl Amiga {
                                 lane_word
                             }
                         };
+                        if matches!(offset, 0x09A | 0x09C) {
+                            self.debug_custom_write_log.push_back(format!(
+                                "addr=${addr24:06X} offset=${offset:03X} fc={fc:?} is_word={is_word} val=${val:04X}"
+                            ));
+                            if self.debug_custom_write_log.len() > 32 {
+                                self.debug_custom_write_log.pop_front();
+                            }
+                        }
                         self.queue_pipelined_write(offset, val);
                         self.write_custom_reg(offset, val);
                         self.cpu.bus_status = BusStatus::Ready(0);
@@ -628,6 +681,7 @@ impl Amiga {
         // Handle RESET instruction output.
         if self.cpu.reset_out {
             self.cpu.reset_out = false;
+            self.reset_count = self.reset_count.wrapping_add(1);
             self.cia_a.reset();
             self.cia_b.reset();
             self.memory.overlay = true;
@@ -957,19 +1011,15 @@ impl Amiga {
             return;
         }
 
-        // Encode current track from floppy, or silent stream if no disk.
-        let data = self
-            .floppy
-            .encode_mfm_track()
-            .unwrap_or_else(|| vec![0u8; 32]);
-        let has_disk = self.floppy.has_disk();
+        let data = self.floppy.encode_mfm_track().unwrap_or_default();
+        let read_data_available = self.floppy.read_data_available();
         self.disk_dma_runtime = Some(DiskDmaRuntime {
             data,
             byte_index: 0,
             words_remaining: word_count,
             is_write,
-            wordsync_enabled: !is_write && has_disk && (self.paula.adkcon & 0x0400 != 0),
-            wordsync_waiting: !is_write && has_disk && (self.paula.adkcon & 0x0400 != 0),
+            wordsync_enabled: !is_write && read_data_available && (self.paula.adkcon & 0x0400 != 0),
+            wordsync_waiting: !is_write && read_data_available && (self.paula.adkcon & 0x0400 != 0),
         });
     }
 
@@ -985,6 +1035,19 @@ impl Amiga {
 
         let mut completed = false;
         if !runtime.is_write {
+            if !self.floppy.read_data_available() {
+                return;
+            }
+
+            if runtime.data.len() < 2 {
+                if let Some(data) = self.floppy.encode_mfm_track() {
+                    runtime.data = data;
+                    runtime.byte_index = 0;
+                } else {
+                    return;
+                }
+            }
+
             if runtime.data.len() >= 2 {
                 let len = runtime.data.len();
                 let hi = runtime.data[runtime.byte_index % len];
@@ -2443,6 +2506,40 @@ mod tests {
                         eprintln!("  pixel({mid_x},{y}) = ${:08X}", fb[idx]);
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn disasm_trackdisk_hotspots() {
+        let rom_path = "/Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom";
+        let Ok(kickstart) = std::fs::read(rom_path) else {
+            eprintln!("Skipping: cannot read {rom_path}");
+            return;
+        };
+
+        let amiga = Amiga::new_with_slow_ram(kickstart, 512 * 1024);
+        let read_byte = |addr: u32| -> u8 { amiga.memory.read_byte(addr) };
+
+        for &base in &[
+            0xFC0734u32,
+            0xFC0788,
+            0xFE9A90,
+            0xFE9AA8,
+            0xFE9720u32,
+            0xFE97BE,
+            0xFE9AAC,
+            0xFE9C4E,
+            0xFE9E30,
+            0xFE9E80,
+        ] {
+            eprintln!("== ${base:06X} ==");
+            let mut pc = base;
+            for _ in 0..16 {
+                let (dis, len) = motorola_68000::disasm::disassemble(pc, read_byte);
+                eprintln!("${pc:06X}: {dis}");
+                pc = pc.wrapping_add(len as u32);
             }
         }
     }

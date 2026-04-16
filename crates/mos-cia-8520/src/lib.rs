@@ -248,14 +248,18 @@ impl Cia8520 {
             // writing LSB restarts it.
             0x08 => {
                 self.write_tod_register(0, value);
-                self.tod_halted = false; // writing LSB restarts counter
+                if !self.tod_write_targets_alarm() {
+                    self.tod_halted = false; // writing LSB restarts counter
+                }
             }
             0x09 => {
                 self.write_tod_register(1, value);
             }
             0x0A => {
                 self.write_tod_register(2, value);
-                self.tod_halted = true; // writing MSB halts counter
+                if !self.tod_write_targets_alarm() {
+                    self.tod_halted = true; // writing MSB halts counter
+                }
             }
             0x0C => self.sdr = value,
             0x0D => {
@@ -304,19 +308,17 @@ impl Cia8520 {
     fn write_tod_register(&mut self, byte_index: u8, value: u8) {
         let shift = u32::from(byte_index) * 8;
         let mask = !(0xFFu32 << shift);
-        if self.crb & 0x80 == 0 {
-            // CRB bit 7 = 0: write to TOD alarm
-            // NOTE: this is inverted from the 6526/8520 datasheet convention
-            // (where bit 7=0 means counter, bit 7=1 means alarm). The archive
-            // code and Kickstart 1.3 behaviour require this mapping. Needs
-            // further investigation against real hardware.
+        if self.tod_write_targets_alarm() {
             self.tod_alarm = (self.tod_alarm & mask) | (u32::from(value) << shift);
             self.tod_alarm &= 0xFFFFFF;
         } else {
-            // CRB bit 7 = 1: write to TOD counter
             self.tod_counter = (self.tod_counter & mask) | (u32::from(value) << shift);
             self.tod_counter &= 0xFFFFFF;
         }
+    }
+
+    fn tod_write_targets_alarm(&self) -> bool {
+        self.crb & 0x80 != 0
     }
 
     pub fn tod_counter(&self) -> u32 {
@@ -361,6 +363,22 @@ impl Cia8520 {
 
     pub fn port_b_output(&self) -> u8 {
         (self.port_b & self.ddr_b) | (self.external_b & !self.ddr_b)
+    }
+
+    pub fn port_a_latch(&self) -> u8 {
+        self.port_a
+    }
+
+    pub fn port_b_latch(&self) -> u8 {
+        self.port_b
+    }
+
+    pub fn ddr_a(&self) -> u8 {
+        self.ddr_a
+    }
+
+    pub fn ddr_b(&self) -> u8 {
+        self.ddr_b
     }
 
     pub fn cra(&self) -> u8 {
@@ -636,5 +654,44 @@ mod tests {
         cia.cnt_pulse();
         assert_eq!(cia.timer_b(), 0x0001);
         assert_ne!(cia.icr_status() & 0x02, 0);
+    }
+
+    #[test]
+    fn tod_writes_target_clock_when_alarm_bit_clear() {
+        let mut cia = Cia8520::new("T");
+        cia.write(0x0F, 0x00);
+        cia.write(0x0A, 0x12);
+        assert!(cia.tod_halted());
+        cia.write(0x09, 0x34);
+        cia.write(0x08, 0x56);
+        assert!(!cia.tod_halted());
+        assert_eq!(cia.tod_counter(), 0x123456);
+        assert_eq!(cia.tod_alarm(), 0x000000);
+    }
+
+    #[test]
+    fn tod_writes_target_alarm_when_alarm_bit_set_without_halting_clock() {
+        let mut cia = Cia8520::new("T");
+        cia.write(0x0F, 0x80);
+        cia.write(0x0A, 0x12);
+        assert!(!cia.tod_halted());
+        cia.write(0x09, 0x34);
+        cia.write(0x08, 0x56);
+        assert!(!cia.tod_halted());
+        assert_eq!(cia.tod_counter(), 0x000000);
+        assert_eq!(cia.tod_alarm(), 0x123456);
+    }
+
+    #[test]
+    fn tod_alarm_write_does_not_restart_or_halt_clock() {
+        let mut cia = Cia8520::new("T");
+        cia.set_tod_counter(0x00ABCD);
+        cia.write(0x0F, 0x80);
+        cia.write(0x0A, 0x12);
+        assert!(!cia.tod_halted());
+        cia.write(0x09, 0x34);
+        cia.write(0x08, 0x56);
+        assert_eq!(cia.tod_counter(), 0x00ABCD);
+        assert_eq!(cia.tod_alarm(), 0x123456);
     }
 }

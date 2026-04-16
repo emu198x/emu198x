@@ -316,6 +316,8 @@ impl AudioChannel {
 pub struct Paula8364 {
     pub intena: u16,
     pub intreq: u16,
+    pub intena_write_log: VecDeque<u16>,
+    pub intreq_write_log: VecDeque<u16>,
     pub adkcon: u16,
     pub dsklen: u16,
     pub dsklen_prev: u16,
@@ -352,6 +354,8 @@ impl Paula8364 {
         Self {
             intena: 0,
             intreq: 0,
+            intena_write_log: VecDeque::new(),
+            intreq_write_log: VecDeque::new(),
             adkcon: 0,
             dsklen: 0,
             dsklen_prev: 0,
@@ -388,6 +392,10 @@ impl Paula8364 {
     }
 
     pub fn write_intena(&mut self, val: u16) {
+        self.intena_write_log.push_back(val);
+        if self.intena_write_log.len() > 16 {
+            self.intena_write_log.pop_front();
+        }
         if val & 0x8000 != 0 {
             self.intena |= val & 0x7FFF;
         } else {
@@ -396,6 +404,10 @@ impl Paula8364 {
     }
 
     pub fn write_intreq(&mut self, val: u16) {
+        self.intreq_write_log.push_back(val);
+        if self.intreq_write_log.len() > 16 {
+            self.intreq_write_log.pop_front();
+        }
         if val & 0x8000 != 0 {
             self.intreq |= val & 0x7FFF;
         } else {

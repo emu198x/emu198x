@@ -141,6 +141,17 @@ impl AmigaFloppyDrive {
         self.disk_changed = true;
     }
 
+    /// Acknowledge an already-present disk so `/DSKCHANGE` reads inactive.
+    ///
+    /// This is useful when the emulator starts with media already mounted:
+    /// the user expectation is "disk is already in the drive", not "a new
+    /// insertion is still waiting for the first post-insert step pulse".
+    pub fn acknowledge_disk_change(&mut self) {
+        if self.disk.is_some() {
+            self.disk_changed = false;
+        }
+    }
+
     /// Update control signals from CIA-B PRB.
     /// All active-low: the boolean parameters are true when the signal
     /// is asserted (pin driven low).
@@ -152,9 +163,8 @@ impl AmigaFloppyDrive {
         sel: bool,
         motor: bool,
     ) {
-        // Drive select latches motor state (active-low select)
-        if sel {
-            self.selected = true;
+        // Drive select latches motor state on the assertion edge.
+        if sel && !self.selected {
             self.motor_on = motor;
             if motor && !self.motor_spinning {
                 self.spin_timer = 0;
@@ -163,19 +173,20 @@ impl AmigaFloppyDrive {
                 self.motor_spinning = false;
                 self.spin_timer = 0;
             }
-        } else {
-            self.selected = false;
         }
+        self.selected = sel;
 
         // Head side: 0 = upper (head 1), 1 = lower (head 0)
         // The parameter is already decoded: side_upper = true means DSKSIDE* asserted (low)
-        self.head = if side_upper { 1 } else { 0 };
+        if self.selected {
+            self.head = if side_upper { 1 } else { 0 };
+        }
 
         // Step on falling edge (prev was high/deasserted, now low/asserted)
         let step_edge = step && !self.prev_step;
         self.prev_step = step;
 
-        if step_edge {
+        if step_edge && self.selected {
             self.step_event_counter = self.step_event_counter.wrapping_add(1);
             if dir_inward {
                 if self.cylinder < 79 {
@@ -204,23 +215,43 @@ impl AmigaFloppyDrive {
     /// Current drive status for CIA-A PRA input.
     /// All values are active-low booleans (true = signal asserted = pin low).
     pub fn status(&self) -> DriveStatus {
+        if !self.selected {
+            return DriveStatus {
+                disk_change: false,
+                write_protect: false,
+                track0: false,
+                ready: false,
+            };
+        }
+
         DriveStatus {
             disk_change: self.disk_changed,
             write_protect: false, // Not write-protected
             track0: self.cylinder == 0,
-            ready: self.motor_spinning,
+            ready: self.motor_spinning && self.disk.is_some(),
         }
     }
 
     /// Encode the current track as raw MFM data. Returns `None` if no disk.
     pub fn encode_mfm_track(&self) -> Option<Vec<u8>> {
+        if !self.read_data_available() {
+            return None;
+        }
         self.disk
             .as_ref()?
             .encode_mfm_track(self.cylinder, self.head)
     }
 
+    pub fn read_data_available(&self) -> bool {
+        self.selected && self.motor_spinning && self.disk.is_some()
+    }
+
     pub fn has_disk(&self) -> bool {
         self.disk.is_some()
+    }
+
+    pub fn selected(&self) -> bool {
+        self.selected
     }
 
     pub fn cylinder(&self) -> u32 {
@@ -357,13 +388,17 @@ mod tests {
 
     #[test]
     fn track0_status() {
-        let drive = AmigaFloppyDrive::new();
+        let mut drive = AmigaFloppyDrive::new();
+        drive.update_control(false, false, false, true, true);
         assert!(drive.status().track0);
     }
 
     #[test]
     fn motor_spinup() {
         let mut drive = AmigaFloppyDrive::new();
+        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk(adf);
+        drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
         assert!(!drive.status().ready);
 
@@ -374,14 +409,43 @@ mod tests {
     }
 
     #[test]
+    fn motor_state_is_latched_on_select_edge() {
+        let mut drive = AmigaFloppyDrive::new();
+        drive.update_control(false, false, false, true, true);
+        assert!(drive.motor_on());
+
+        // Changing /MTR while the drive stays selected should not change the
+        // latched motor state until /SEL is asserted again.
+        drive.update_control(false, false, false, true, false);
+        assert!(drive.motor_on());
+
+        drive.update_control(false, false, false, false, false);
+        drive.update_control(false, false, false, true, false);
+        assert!(!drive.motor_on());
+    }
+
+    #[test]
+    fn deselected_drive_does_not_drive_status_lines() {
+        let mut drive = AmigaFloppyDrive::new();
+        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk(adf);
+        let status = drive.status();
+        assert!(!status.disk_change);
+        assert!(!status.track0);
+        assert!(!status.ready);
+    }
+
+    #[test]
     fn disk_change_cleared_by_step() {
         let mut drive = AmigaFloppyDrive::new();
         let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk(adf);
+        drive.update_control(false, true, false, true, true);
         // CHNG active after insert — cleared by head step, matching real hardware
         assert!(drive.status().disk_change);
 
         drive.eject_disk();
+        drive.update_control(false, true, false, true, true);
         assert!(drive.status().disk_change);
 
         // Insert new disk — CHNG still active until step
@@ -401,6 +465,11 @@ mod tests {
         let mut drive = AmigaFloppyDrive::new();
         let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk(adf);
+        drive.acknowledge_disk_change();
+        drive.update_control(false, false, false, true, true);
+        for _ in 0..MOTOR_SPINUP_TICKS {
+            drive.tick();
+        }
 
         let mfm = drive.encode_mfm_track();
         assert!(mfm.is_some());
