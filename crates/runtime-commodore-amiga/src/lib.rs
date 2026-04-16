@@ -65,7 +65,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             region: Region::Pal,
             support_tier: SupportTier::Boots,
             release_year: 1987,
-            summary: "A500 OCS PAL baseline with Kickstart-backed headless boot, cropped RGBA framebuffer output, stereo Paula audio capture, DF0 ADF insertion, and shared keyboard input. Native verifier UI, snapshots, and broader software validation are still pending.".into(),
+            summary: "A500 OCS PAL baseline with Kickstart-backed headless boot, viewport RGBA framebuffer output, stereo Paula audio capture, DF0 ADF insertion, and shared keyboard input. Native verifier UI, snapshots, and broader software validation are still pending.".into(),
             clock: ClockDesc::new("cck", ClockRate::from_hz(A500_PAL_CCK_HZ)),
             firmware: vec![FirmwareRequirement::new(
                 "commodore-amiga-kickstart-rom",

@@ -21,7 +21,7 @@
 
 - A500 OCS PAL master-clock machine loop in the fresh workspace.
 - Kickstart ROM validation and boot through the fresh `MachineCore` runtime.
-- Cropped RGBA framebuffer output from Denise.
+- Standard-viewport RGBA framebuffer output from Denise.
 - Stereo audio capture through Paula.
 - `floppy-0` / DF0 media insertion with zipped or plain `ADF` images.
 - Shared scripted keyboard input routed through the Amiga keyboard peripheral.
@@ -29,7 +29,7 @@
 
 ### Validated
 
-- **Kickstart 1.3 headless smoke** — the fresh `emu198x-script-amiga` path boots a real Kickstart ROM, reaches visible output, and emits a PNG screenshot.
+- **Kickstart 1.3 insert-disk proof** — the fresh `emu198x-script-amiga` path boots a real Kickstart ROM, reaches the real insert-disk screen, and matches the old blessed screen closely enough to compare visually and by palette.
 - **Workbench disk insertion smoke** — the same runner accepts a zipped Workbench 1.3 `ADF`, keeps it mounted in DF0 across a long post-boot run, and exposes the inserted-drive state through the query surface.
 - **Workspace verification** — the imported Amiga crates and fresh runtime/runner pass their current unit-test slice in the active workspace.
 
@@ -37,7 +37,7 @@
 
 - **Native verifier UI** — there is no fresh-workspace `emu198x-amiga` shell yet.
 - **Snapshots** — the fresh Amiga runtime deliberately reports snapshot import/export as unsupported.
-- **Software proof beyond Kickstart-visible output** — the current honest bar is Kickstart boot plus disk insertion, not yet a proven Workbench or game boot.
+- **Software proof beyond Kickstart insert-disk** — the current honest bar is a correct no-disk KS1.3 boot plus disk insertion, not yet a proven Workbench or game boot.
 - **Broader platform hardening** — joystick/mouse paths, stronger disk/software regressions, and frontend ergonomics are still pending.
 
 ## Architecture

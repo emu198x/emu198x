@@ -72,7 +72,7 @@ As of April 15, 2026, the fresh Rust workspace currently provides:
     Gary, dual `8520` CIAs, keyboard, and DF0 floppy
   - headless runner, screenshots, stereo audio capture, shared scripted
     keyboard input, and queryable boot/disk state
-  - Kickstart boot reaches visible output in the fresh workspace
+  - Kickstart 1.3 now reaches the real insert-disk screen in the fresh workspace
   - DF0 accepts zipped/unzipped `ADF` media through the shared shell path
   - native verifier UI, snapshots, and stronger software proofs are still
     pending
@@ -291,8 +291,8 @@ Current examples include:
   cartridge path that now runs `nestest.nes` and `Super Mario Bros.` through
   `emu198x-script-nes` and emits screenshots
 - Amiga machine/runtime tests over the imported A500 OCS PAL chip stack, plus
-  fresh headless smokes that boot Kickstart 1.3 to visible output and accept
-  DF0 `ADF` insertion through `emu198x-script-amiga`
+  fresh headless smokes that boot Kickstart 1.3 to the insert-disk screen and
+  accept DF0 `ADF` insertion through `emu198x-script-amiga`
 - C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense,
   CIA1 FLAG delivery, plus ROM-backed `Thinker` and `Thomas` TAP paths that
   reach observable loader-banner states over the real datasette flow, and a

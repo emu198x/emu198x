@@ -619,7 +619,6 @@ impl Amiga {
                                 self.debug_custom_write_log.pop_front();
                             }
                         }
-                        self.queue_pipelined_write(offset, val);
                         self.write_custom_reg(offset, val);
                         self.cpu.bus_status = BusStatus::Ready(0);
                     }
@@ -777,6 +776,8 @@ impl Amiga {
     // ─── Custom register writes ───────────────────────────────────
 
     fn write_custom_reg(&mut self, offset: u16, val: u16) {
+        self.queue_pipelined_write(offset, val);
+
         // Sprite pointer low-word write resets DMA fetch phase.
         if (0x120..=0x13E).contains(&offset) && (offset & 2) != 0 {
             let idx = ((offset - 0x120) / 4) as usize;
@@ -1760,6 +1761,30 @@ mod tests {
     }
 
     #[test]
+    fn custom_reg_write_applies_pipelined_palette_and_bplcon0() {
+        let mut amiga = Amiga::new(dummy_kickstart());
+
+        amiga.write_custom_reg(0x100, 0x2302);
+        amiga.write_custom_reg(0x180, 0x000F);
+        amiga.write_custom_reg(0x182, 0x0FFF);
+
+        assert_eq!(amiga.agnus.bplcon0, 0x2302);
+        assert_eq!(amiga.denise.bplcon0, 0);
+        assert_eq!(amiga.denise.palette[0], 0);
+        assert_eq!(amiga.denise.palette[1], 0);
+
+        amiga.tick_cck();
+        assert_eq!(amiga.denise.bplcon0, 0);
+        assert_eq!(amiga.denise.palette[0], 0);
+        assert_eq!(amiga.denise.palette[1], 0);
+
+        amiga.tick_cck();
+        assert_eq!(amiga.denise.bplcon0, 0x2302);
+        assert_eq!(amiga.denise.palette[0], 0x000F);
+        assert_eq!(amiga.denise.palette[1], 0x0FFF);
+    }
+
+    #[test]
     fn custom_reg_read_vhposr() {
         let mut amiga = Amiga::new(dummy_kickstart());
         let vhposr = amiga.read_custom_reg(0x006);
@@ -2508,6 +2533,150 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn trace_waitio_replymsg_path() {
+        use std::io::Write;
+
+        fn read_u32(mem: &memory::Memory, addr: u32) -> u32 {
+            (u32::from(mem.read_word(addr)) << 16) | u32::from(mem.read_word(addr.wrapping_add(2)))
+        }
+
+        let rom_path = "/Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom";
+        let Ok(kickstart) = std::fs::read(rom_path) else {
+            eprintln!("Skipping: cannot read {rom_path}");
+            return;
+        };
+
+        let ccks_per_frame = u64::from(commodore_agnus_ocs::PAL_CCKS_PER_LINE)
+            * u64::from(commodore_agnus_ocs::PAL_LINES_PER_FRAME);
+        let max_ticks = 1_700 * ccks_per_frame;
+
+        let discover_waitio = |kickstart: &[u8]| -> Option<(u32, u32)> {
+            let mut amiga = Amiga::new_with_slow_ram(kickstart.to_vec(), 512 * 1024);
+            for _ in 0..max_ticks {
+                amiga.tick_cck();
+            }
+            if amiga.cpu.instr_start_pc != 0xFC0734 {
+                return None;
+            }
+            let ioreq = amiga.cpu.regs.a[1];
+            let reply_port = read_u32(&amiga.memory, ioreq.wrapping_add(0x0E));
+            Some((ioreq, reply_port))
+        };
+
+        let Some((ioreq, reply_port)) = discover_waitio(&kickstart) else {
+            panic!("did not end in WaitIO at $FC0734");
+        };
+
+        let mut amiga = Amiga::new_with_slow_ram(kickstart, 512 * 1024);
+        let mut out = std::io::BufWriter::new(
+            std::fs::File::create("/tmp/amiga_waitio_replymsg_trace.txt").unwrap(),
+        );
+
+        writeln!(
+            out,
+            "watching ioreq=${ioreq:08X} reply_port=${reply_port:08X}"
+        )
+        .unwrap();
+
+        let mut prev_instr_pc = u32::MAX;
+        let mut prev_ln_type = 0xFF;
+        let mut prev_reply_ptr = u32::MAX;
+        let mut prev_succ = u32::MAX;
+        let mut prev_pred = u32::MAX;
+        let mut prev_head = u32::MAX;
+        let mut prev_tail = u32::MAX;
+        let mut prev_tailpred = u32::MAX;
+
+        for tick in 0..max_ticks {
+            amiga.tick_cck();
+
+            let pc = amiga.cpu.instr_start_pc;
+            let ln_type = amiga.memory.read_byte(ioreq.wrapping_add(0x08));
+            let reply_ptr = read_u32(&amiga.memory, ioreq.wrapping_add(0x0E));
+            let succ = read_u32(&amiga.memory, ioreq);
+            let pred = read_u32(&amiga.memory, ioreq.wrapping_add(0x04));
+            let head = read_u32(&amiga.memory, reply_port.wrapping_add(20));
+            let tail = read_u32(&amiga.memory, reply_port.wrapping_add(24));
+            let tailpred = read_u32(&amiga.memory, reply_port.wrapping_add(28));
+
+            if ln_type != prev_ln_type
+                || reply_ptr != prev_reply_ptr
+                || succ != prev_succ
+                || pred != prev_pred
+                || head != prev_head
+                || tail != prev_tail
+                || tailpred != prev_tailpred
+            {
+                let (dis, _) =
+                    motorola_68000::disasm::disassemble(pc, |addr| amiga.memory.read_byte(addr));
+                let sp = amiga.cpu.regs.active_sp();
+                let ret = read_u32(&amiga.memory, sp);
+                writeln!(
+                    out,
+                    "[tick {tick:>9}] state pc=${pc:06X} ret=${ret:08X} \
+                     A0=${:08X} A1=${:08X} D0=${:08X} D1=${:08X}  {}",
+                    amiga.cpu.regs.a[0],
+                    amiga.cpu.regs.a[1],
+                    amiga.cpu.regs.d[0],
+                    amiga.cpu.regs.d[1],
+                    dis,
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "             type={prev_ln_type:02X}->{ln_type:02X} \
+                     reply=${prev_reply_ptr:08X}->{reply_ptr:08X} \
+                     succ=${prev_succ:08X}->{succ:08X} pred=${prev_pred:08X}->{pred:08X}"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "             head=${prev_head:08X}->{head:08X} \
+                     tail=${prev_tail:08X}->{tail:08X} \
+                     tailpred=${prev_tailpred:08X}->{tailpred:08X}"
+                )
+                .unwrap();
+
+                prev_ln_type = ln_type;
+                prev_reply_ptr = reply_ptr;
+                prev_succ = succ;
+                prev_pred = pred;
+                prev_head = head;
+                prev_tail = tail;
+                prev_tailpred = tailpred;
+            }
+
+            if pc != prev_instr_pc
+                && ((0xFC1B70..=0xFC1C30).contains(&pc) || pc == 0xFE9E30 || pc == 0xFC0734)
+            {
+                let (dis, _) =
+                    motorola_68000::disasm::disassemble(pc, |addr| amiga.memory.read_byte(addr));
+                let sp = amiga.cpu.regs.active_sp();
+                let ret = read_u32(&amiga.memory, sp);
+                writeln!(
+                    out,
+                    "[tick {tick:>9}] exec  pc=${pc:06X} ret=${ret:08X} \
+                     A0=${:08X} A1=${:08X} D0=${:08X} D1=${:08X} \
+                     type={ln_type:02X} head=${head:08X} tailpred=${tailpred:08X}  {}",
+                    amiga.cpu.regs.a[0],
+                    amiga.cpu.regs.a[1],
+                    amiga.cpu.regs.d[0],
+                    amiga.cpu.regs.d[1],
+                    dis,
+                )
+                .unwrap();
+                prev_instr_pc = pc;
+            }
+        }
+
+        out.flush().unwrap();
+        eprintln!(
+            "trace_waitio_replymsg_path: wrote /tmp/amiga_waitio_replymsg_trace.txt for ioreq=${ioreq:08X} reply_port=${reply_port:08X}"
+        );
     }
 
     #[test]

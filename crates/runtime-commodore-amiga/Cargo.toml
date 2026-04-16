@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs" }
 emu198x-shell = { path = "../emu198x-shell" }
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
 machine-commodore-amiga = { path = "../machine-commodore-amiga" }

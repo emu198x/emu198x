@@ -1,5 +1,6 @@
 //! Runtime wrapper for the fresh-workspace Commodore Amiga baseline.
 
+use commodore_denise_ocs::ViewportPreset;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
     MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, QueryError,
@@ -15,6 +16,8 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
+    "amiga.agnus.bplcon0",
+    "amiga.agnus.dmacon",
     "amiga.agnus.dskpt",
     "amiga.copper.cop1lc",
     "amiga.copper.cop2lc",
@@ -54,6 +57,10 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
     "amiga.display.non_white_pixels",
     "amiga.display.white_pixels",
     "amiga.display.color00",
+    "amiga.display.color01",
+    "amiga.display.color02",
+    "amiga.display.color03",
+    "amiga.denise.bplcon0",
     "amiga.disk.change",
     "amiga.disk.cylinder",
     "amiga.disk.head",
@@ -89,12 +96,10 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
 const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
 const VALID_KICKSTART_SIZES: &[usize] = &[256 * 1024, 512 * 1024];
 
-/// Display-area crop from the Denise raster framebuffer.
-pub const DISPLAY_WIDTH: u32 = 724;
-/// Display-area crop from the Denise raster framebuffer.
-pub const DISPLAY_HEIGHT: u32 = 568;
-const DISPLAY_X_START: u32 = 456;
-const DISPLAY_Y_START: u32 = 26;
+/// Standard PAL Amiga display viewport width.
+pub const DISPLAY_WIDTH: u32 = 768;
+/// Standard PAL Amiga display viewport height.
+pub const DISPLAY_HEIGHT: u32 = 576;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AmigaBootStatus {
@@ -208,44 +213,42 @@ impl AmigaRuntime {
     }
 
     fn update_rgba_framebuffer(&mut self) {
-        let framebuffer = self.machine.framebuffer();
-        let (source_width, source_height) = self.machine.framebuffer_size();
+        let viewport = self
+            .machine
+            .denise
+            .extract_viewport(ViewportPreset::Standard, true, true)
+            .to_display();
+        debug_assert_eq!(viewport.width, DISPLAY_WIDTH);
+        debug_assert_eq!(viewport.height, DISPLAY_HEIGHT);
         let mut non_black_pixels = 0u32;
         let mut non_white_pixels = 0u32;
         let mut white_pixels = 0u32;
         let mut first_active_row = None;
 
-        for dy in 0..DISPLAY_HEIGHT {
-            let src_y = DISPLAY_Y_START + dy;
-            if src_y >= source_height {
-                break;
+        if self.rgba_framebuffer.len() != (viewport.width * viewport.height * 4) as usize {
+            self.rgba_framebuffer
+                .resize((viewport.width * viewport.height * 4) as usize, 0);
+        }
+
+        for (index, pixel) in viewport.pixels.iter().copied().enumerate() {
+            let dy = index as u32 / viewport.width;
+            let base = index * 4;
+
+            self.rgba_framebuffer[base] = ((pixel >> 16) & 0xFF) as u8;
+            self.rgba_framebuffer[base + 1] = ((pixel >> 8) & 0xFF) as u8;
+            self.rgba_framebuffer[base + 2] = (pixel & 0xFF) as u8;
+            self.rgba_framebuffer[base + 3] = ((pixel >> 24) & 0xFF) as u8;
+
+            if pixel & 0x00FF_FFFF != 0 {
+                non_black_pixels = non_black_pixels.saturating_add(1);
+                if first_active_row.is_none() {
+                    first_active_row = Some(dy);
+                }
             }
-            for dx in 0..DISPLAY_WIDTH {
-                let src_x = DISPLAY_X_START + dx;
-                if src_x >= source_width {
-                    break;
-                }
-
-                let src_index = (src_y * source_width + src_x) as usize;
-                let pixel = framebuffer.get(src_index).copied().unwrap_or(0xFF00_0000);
-                let base = ((dy * DISPLAY_WIDTH + dx) * 4) as usize;
-
-                self.rgba_framebuffer[base] = ((pixel >> 16) & 0xFF) as u8;
-                self.rgba_framebuffer[base + 1] = ((pixel >> 8) & 0xFF) as u8;
-                self.rgba_framebuffer[base + 2] = (pixel & 0xFF) as u8;
-                self.rgba_framebuffer[base + 3] = ((pixel >> 24) & 0xFF) as u8;
-
-                if pixel & 0x00FF_FFFF != 0 {
-                    non_black_pixels = non_black_pixels.saturating_add(1);
-                    if first_active_row.is_none() {
-                        first_active_row = Some(dy);
-                    }
-                }
-                if pixel & 0x00FF_FFFF != 0x00FF_FFFF {
-                    non_white_pixels = non_white_pixels.saturating_add(1);
-                } else {
-                    white_pixels = white_pixels.saturating_add(1);
-                }
+            if pixel & 0x00FF_FFFF != 0x00FF_FFFF {
+                non_white_pixels = non_white_pixels.saturating_add(1);
+            } else {
+                white_pixels = white_pixels.saturating_add(1);
             }
         }
 
@@ -322,6 +325,8 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
             "boot.detected" => json!(boot.detected),
             "boot.reason" => json!(boot.reason),
             "boot.row" => json!(boot.row),
+            "amiga.agnus.bplcon0" => json!(machine.machine.agnus.bplcon0),
+            "amiga.agnus.dmacon" => json!(machine.machine.agnus.dmacon),
             "amiga.agnus.dskpt" => json!(machine.machine.agnus.dsk_pt),
             "amiga.copper.cop1lc" => json!(machine.machine.copper.cop1lc),
             "amiga.copper.cop2lc" => json!(machine.machine.copper.cop2lc),
@@ -361,6 +366,10 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
             "amiga.display.non_white_pixels" => json!(machine.non_white_pixels),
             "amiga.display.white_pixels" => json!(machine.white_pixels),
             "amiga.display.color00" => json!(machine.machine.denise.palette[0]),
+            "amiga.display.color01" => json!(machine.machine.denise.palette[1]),
+            "amiga.display.color02" => json!(machine.machine.denise.palette[2]),
+            "amiga.display.color03" => json!(machine.machine.denise.palette[3]),
+            "amiga.denise.bplcon0" => json!(machine.machine.denise.bplcon0),
             "amiga.disk.change" => json!(disk_status.disk_change),
             "amiga.disk.inserted" => json!(machine.machine.has_disk()),
             "amiga.disk.cylinder" => json!(machine.machine.floppy.cylinder()),
@@ -676,7 +685,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn real_kickstart13_boot_reaches_visible_display() {
+    fn real_kickstart13_boot_reaches_insert_disk_screen() {
         let kickstart_path = Path::new("/Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom");
         if !kickstart_path.exists() {
             eprintln!("Skipping: cannot read {}", kickstart_path.display());
@@ -686,39 +695,27 @@ mod tests {
         let kickstart = fs::read(kickstart_path).expect("Kickstart ROM should read");
         let mut runtime = AmigaRuntime::new(Model::A500OcsPal, kickstart)
             .expect("Kickstart 1.3 should construct");
-
-        let disk_path = Path::new(
-            "/Users/stevehill/Projects/Emu198x-Unclean/Reference/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip",
-        );
-        if disk_path.exists() {
-            let loaded = read_media_asset(disk_path, MediaKind::Disk)
-                .expect("Workbench disk archive should expand to one ADF");
-            let mut media = MediaSet::new();
-            media.push(MediaImage::new("floppy-0", MediaKind::Disk, &loaded.bytes));
-            runtime
-                .load_media(&media)
-                .expect("Workbench ADF should insert into DF0");
-        }
-
-        let target = MachineTime::new(A500_PAL_FRAME_TICKS * 300);
-        let mut frame_sink = NullFrameSink;
-        let mut audio_sink = NullAudioSink;
-        let mut trace_sink = NullTraceSink;
-        let mut host = HostIo {
-            input_events: &[],
-            frame_sink: &mut frame_sink,
-            audio_sink: &mut audio_sink,
-            trace_sink: &mut trace_sink,
-        };
-        runtime
-            .run_until(target, &mut host)
-            .expect("Kickstart boot should run");
+        run_headless(&mut runtime, 1_700);
 
         let boot = runtime.boot_status();
         assert!(boot.detected, "Kickstart 1.3 should produce visible output");
+        assert_eq!(
+            boot.reason, "display-active",
+            "Kickstart 1.3 should reach the insert-disk display, not just a blank framebuffer"
+        );
+        assert_eq!(runtime.machine.denise.palette[0], 0x0FFF);
+        assert_eq!(runtime.machine.denise.palette[1], 0x0000);
+        assert_eq!(runtime.machine.denise.palette[2], 0x077C);
+        assert_eq!(runtime.machine.denise.palette[3], 0x0BBB);
+        assert_eq!(
+            runtime.machine.agnus.bplcon0, runtime.machine.denise.bplcon0,
+            "Agnus and Denise should agree on the steady-state boot display mode"
+        );
+        assert_eq!(runtime.machine.denise.bplcon0, 0x0302);
         assert!(
-            runtime.non_white_pixels > 10_000,
-            "Kickstart 1.3 should render substantial non-white screen content"
+            (25_000..40_000).contains(&runtime.non_white_pixels),
+            "Kickstart 1.3 insert-disk screen should render a bounded amount of non-white content, got {}",
+            runtime.non_white_pixels
         );
     }
 

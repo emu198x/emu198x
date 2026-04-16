@@ -4,6 +4,27 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-16 — Amiga Kickstart insert-disk screen restored
+
+**Type:** milestone
+**Trigger:** The fresh-workspace Amiga baseline was booting far enough to spin DF0 and reach a live display state, but the no-disk KS1.3 path was still only proving “visible output,” not the real insert-disk hand screen. Comparison against `Emu198x-Oldest` showed the old blessed screen was four-colour, while the fresh runtime had regressed to a two-colour white frame.
+**Result:** the missing bug was in the custom-register write path, not in Exec or trackdisk. CPU writes were queueing the Agnus→Denise 2-CCK pipeline, but Copper writes were bypassing it, which silently dropped Copper palette writes and left `BPLCON0`/`COLORxx` in the wrong steady state. This slice:
+1. moved the custom-register pipeline queue into `machine-commodore-amiga::write_custom_reg()` so CPU and Copper writes share the same path
+2. added a machine-level regression proving `write_custom_reg()` applies pipelined `BPLCON0` and palette writes after the expected 2 CCK delay
+3. switched the Amiga runtime framebuffer export from the temporary crop to Denise’s standard viewport extractor
+4. strengthened the ignored runtime proof from “visible output” to a real no-disk Kickstart 1.3 insert-disk screen, asserting the steady-state palette and display mode
+5. compared the fresh screenshot directly against the old blessed screenshot; the images are visually identical and differ by only 32 pixels at the chosen capture frame
+
+**Verification:** locally, this slice passes:
+- `cargo fmt --all --check`
+- `cargo test -p machine-commodore-amiga custom_reg_write_applies_pipelined_palette_and_bplcon0`
+- `cargo test -p runtime-commodore-amiga`
+- `cargo test --release -p runtime-commodore-amiga real_kickstart13_boot_reaches_insert_disk_screen -- --ignored --nocapture`
+- `cargo run --release -q -p emu198x-script-amiga -- --kickstart /Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom --frames 1700 --screenshot /tmp/amiga-kick-1700-viewport.png --print-query boot.detected --print-query boot.reason --print-query amiga.agnus.bplcon0 --print-query amiga.denise.bplcon0 --print-query amiga.display.color00 --print-query amiga.display.color01 --print-query amiga.display.color02 --print-query amiga.display.color03`
+- `compare -metric AE /tmp/amiga-kick-1700-viewport.png /Users/stevehill/Projects/Emu198x-Oldest/test_output/amiga/boot_kick13_a500_display.png null:`
+
+**Consequence:** the fresh-workspace Amiga baseline now has a real Kickstart-screen proof again. The next blocker is no longer “can it draw the hand screen?” It is the later Workbench/game boot path, starting with the existing `real_workbench13_disk_bootblock_reaches_chip_ram` regression.
+
 ## 2026-04-15 — Fresh-workspace Amiga headless baseline restored
 
 **Type:** milestone

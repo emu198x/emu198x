@@ -2104,6 +2104,7 @@ name = "runtime-commodore-amiga"
 version = "0.1.0"
 dependencies = [
  "commodore-agnus-ocs",
+ "commodore-denise-ocs",
  "emu198x-shell",
  "format-commodore-amiga-adf",
  "machine-commodore-amiga",
