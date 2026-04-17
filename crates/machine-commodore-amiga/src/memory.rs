@@ -14,6 +14,9 @@ pub struct Memory {
     pub overlay: bool,
     pub slow_ram: Vec<u8>,
     pub slow_ram_mask: u32,
+    /// Diagnostic: log every write to an address range. (addr, size, value).
+    pub watch_range: Option<(u32, u32)>,
+    pub watch_log: Vec<(u32, char, u32)>,
 }
 
 impl Memory {
@@ -32,6 +35,16 @@ impl Memory {
             overlay: true,
             slow_ram: vec![0; slow_ram_size],
             slow_ram_mask,
+            watch_range: None,
+            watch_log: Vec::new(),
+        }
+    }
+
+    fn log_write(&mut self, addr: u32, size: char, val: u32) {
+        if let Some((lo, hi)) = self.watch_range {
+            if addr >= lo && addr < hi {
+                self.watch_log.push((addr, size, val));
+            }
         }
     }
 
@@ -72,6 +85,7 @@ impl Memory {
 
     pub fn write_byte(&mut self, addr: u32, val: u8) {
         let addr = addr & 0xFF_FFFF;
+        self.log_write(addr, 'b', u32::from(val));
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
         } else if !self.slow_ram.is_empty()
@@ -84,8 +98,13 @@ impl Memory {
     }
 
     pub fn write_word(&mut self, addr: u32, val: u16) {
+        let addr24 = addr & 0xFF_FFFF;
+        self.log_write(addr24, 'w', u32::from(val));
+        // Suppress per-byte logging below to avoid duplicates.
+        let saved = self.watch_range.take();
         self.write_byte(addr, (val >> 8) as u8);
         self.write_byte(addr | 1, val as u8);
+        self.watch_range = saved;
     }
 }
 
