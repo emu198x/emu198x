@@ -633,11 +633,15 @@ impl Amiga {
                                 lane_word
                             }
                         };
-                        if matches!(offset, 0x09A | 0x09C) {
+                        if matches!(offset, 0x09A | 0x09C | 0x080 | 0x082 | 0x084 | 0x086) {
+                            let pc = self.cpu.instr_start_pc;
+                            let a0 = self.cpu.regs.a[0];
+                            let a1 = self.cpu.regs.a[1];
+                            let d0 = self.cpu.regs.d[0];
                             self.debug_custom_write_log.push_back(format!(
-                                "addr=${addr24:06X} offset=${offset:03X} fc={fc:?} is_word={is_word} val=${val:04X}"
+                                "pc=${pc:08X} offset=${offset:03X} val=${val:04X} a0=${a0:08X} a1=${a1:08X} d0=${d0:08X}"
                             ));
-                            if self.debug_custom_write_log.len() > 32 {
+                            if self.debug_custom_write_log.len() > 64 {
                                 self.debug_custom_write_log.pop_front();
                             }
                         }
