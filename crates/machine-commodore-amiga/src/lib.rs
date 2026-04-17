@@ -38,7 +38,6 @@ pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
 const PAL_CCK_HZ: u64 = 28_375_160 / 8;
 /// MFM stream cadence: one word roughly every 112 CCKs at 300 RPM.
 const DISK_STREAM_WORD_CCKS: u16 = 112;
-
 /// Raster framebuffer dimensions (re-exported from Denise).
 pub use commodore_denise_ocs::{PAL_RASTER_FB_HEIGHT, RASTER_FB_WIDTH};
 
@@ -120,6 +119,7 @@ pub struct Amiga {
     pub reset_count: u64,
     pub debug_custom_write_log: VecDeque<String>,
     pub debug_cia_b_prb_log: VecDeque<String>,
+    pub debug_cia_a_write_log: VecDeque<String>,
     pub debug_cia_b_write_log: VecDeque<String>,
     pub debug_cia_a_read_log: VecDeque<String>,
     pub debug_cia_b_read_log: VecDeque<String>,
@@ -215,6 +215,7 @@ impl Amiga {
             reset_count: 0,
             debug_custom_write_log: VecDeque::new(),
             debug_cia_b_prb_log: VecDeque::new(),
+            debug_cia_a_write_log: VecDeque::new(),
             debug_cia_b_write_log: VecDeque::new(),
             debug_cia_a_read_log: VecDeque::new(),
             debug_cia_b_read_log: VecDeque::new(),
@@ -485,7 +486,7 @@ impl Amiga {
                     if is_read {
                         let val = if addr24 & 1 != 0 {
                             let cia_val = self.cia_a.read(reg);
-                            if reg == 0x00 || reg == 0x0D {
+                            if reg == 0x00 || matches!(reg, 0x04..=0x0A | 0x0D..=0x0F) {
                                 self.debug_cia_a_read_log.push_back(format!(
                                     "reg=${reg:02X} fc={fc:?} is_word={is_word} val=${cia_val:02X}"
                                 ));
@@ -502,6 +503,14 @@ impl Amiga {
                         let should_write = (addr24 & 1 != 0) || is_word;
                         if should_write {
                             let val = data.unwrap_or(0) as u8;
+                            if reg == 0x00 || matches!(reg, 0x04..=0x0A | 0x0D..=0x0F) {
+                                self.debug_cia_a_write_log.push_back(format!(
+                                    "reg=${reg:02X} fc={fc:?} is_word={is_word} val=${val:02X}"
+                                ));
+                                if self.debug_cia_a_write_log.len() > 64 {
+                                    self.debug_cia_a_write_log.pop_front();
+                                }
+                            }
                             self.cia_a.write(reg, val);
                             // PRA bit 0 = /OVL
                             if reg == 0 || reg == 2 {
@@ -1079,19 +1088,41 @@ impl Amiga {
             return;
         }
 
-        let data = self.floppy.encode_mfm_track().unwrap_or_default();
-        let read_data_available = self.floppy.read_data_available();
+        let data = if is_write {
+            Vec::new()
+        } else {
+            // When no disk is inserted, produce a silent MFM stream (all zeros)
+            // so the DMA transfer completes and trackdisk gets its DSKBLK
+            // interrupt. Without this, the DMA hangs forever waiting for data.
+            self.floppy
+                .encode_mfm_track()
+                .unwrap_or_else(|| vec![0u8; 32])
+        };
+        let has_disk = self.floppy.has_disk();
         self.disk_dma_runtime = Some(DiskDmaRuntime {
             data,
             byte_index: 0,
             words_remaining: word_count,
             is_write,
-            wordsync_enabled: !is_write && read_data_available && (self.paula.adkcon & 0x0400 != 0),
-            wordsync_waiting: !is_write && read_data_available && (self.paula.adkcon & 0x0400 != 0),
+            wordsync_enabled: !is_write && has_disk && (self.paula.adkcon & 0x0400 != 0),
+            wordsync_waiting: !is_write && has_disk && (self.paula.adkcon & 0x0400 != 0),
         });
     }
 
     fn service_disk_dma_slot(&mut self) {
+        if self.disk_dma_runtime.is_none() {
+            // Simplified programmed-I/O disk write path: consume queued DSKDAT
+            // words on disk slots when write mode is selected and no DMA
+            // transfer is active.
+            if (self.paula.dsklen & 0x4000) != 0
+                && let Some(word) = self.paula.take_dskdat_queued_word()
+            {
+                self.floppy.note_write_mfm_word(word);
+                self.paula.note_disk_write_pio_word(word);
+            }
+            return;
+        }
+
         let Some(runtime) = self.disk_dma_runtime.as_mut() else {
             return;
         };
@@ -1101,63 +1132,65 @@ impl Amiga {
             return;
         }
 
-        let mut completed = false;
+        let mut dma_word_completed = false;
         if !runtime.is_write {
-            if !self.floppy.read_data_available() {
-                return;
-            }
-
-            if runtime.data.len() < 2 {
-                if let Some(data) = self.floppy.encode_mfm_track() {
-                    runtime.data = data;
-                    runtime.byte_index = 0;
-                } else {
-                    return;
-                }
-            }
-
+            let mut stream_word: Option<(u8, u8, u16)> = None;
             if runtime.data.len() >= 2 {
                 let len = runtime.data.len();
                 let hi = runtime.data[runtime.byte_index % len];
                 let lo = runtime.data[(runtime.byte_index + 1) % len];
                 runtime.byte_index = (runtime.byte_index + 2) % len;
                 let word = (u16::from(hi) << 8) | u16::from(lo);
+                stream_word = Some((hi, lo, word));
+            }
 
+            if let Some((hi, lo, word)) = stream_word {
+                // Simplified disk path: surface Paula disk read state from the
+                // DMA stream even though the full serial disk decoder is not modeled.
                 let matched_sync = self.paula.note_disk_read_word(word);
                 if matched_sync {
                     self.paula.request_interrupt(12); // DSKSYN
                 }
 
-                let suppress = if runtime.wordsync_enabled {
+                let suppress_dma_write = if runtime.wordsync_enabled {
                     if runtime.wordsync_waiting {
                         if matched_sync {
+                            // HRM: DMA starts with the following word after a DSKSYNC match.
                             runtime.wordsync_waiting = false;
                         }
                         true
                     } else {
+                        // HRM: during read DMA, resync every time the match word is found.
                         matched_sync
                     }
                 } else {
                     false
                 };
 
-                if !suppress {
-                    let addr = self.agnus.dsk_pt;
+                if !suppress_dma_write {
+                    let mut addr = self.agnus.dsk_pt;
                     self.memory.write_byte(addr, hi);
-                    self.memory.write_byte(addr.wrapping_add(1), lo);
-                    self.agnus.dsk_pt = addr.wrapping_add(2);
-                    completed = true;
+                    addr = addr.wrapping_add(1);
+                    self.memory.write_byte(addr, lo);
+                    addr = addr.wrapping_add(1);
+                    self.agnus.dsk_pt = addr;
+                    dma_word_completed = true;
                 }
             }
         } else {
-            let addr = self.agnus.dsk_pt;
-            let _hi = self.memory.read_chip_byte(addr);
-            let _lo = self.memory.read_chip_byte(addr.wrapping_add(1));
-            self.agnus.dsk_pt = addr.wrapping_add(2);
-            completed = true;
+            let mut addr = self.agnus.dsk_pt;
+            let hi = self.memory.read_chip_byte(addr);
+            addr = addr.wrapping_add(1);
+            let lo = self.memory.read_chip_byte(addr);
+            addr = addr.wrapping_add(1);
+            let word = (u16::from(hi) << 8) | u16::from(lo);
+            self.floppy.note_write_mfm_word(word);
+            self.paula.note_disk_write_dma_word(word);
+            self.agnus.dsk_pt = addr;
+            dma_word_completed = true;
         }
 
-        if completed {
+        if dma_word_completed {
             runtime.words_remaining = runtime.words_remaining.saturating_sub(1);
             if runtime.words_remaining == 0 {
                 self.disk_dma_runtime = None;
@@ -1757,6 +1790,14 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    fn tail_log(log: &std::collections::VecDeque<String>, count: usize) -> Vec<String> {
+        let len = log.len();
+        log.iter()
+            .skip(len.saturating_sub(count))
+            .cloned()
+            .collect()
+    }
+
     fn dummy_kickstart() -> Vec<u8> {
         // 256 KiB Kickstart ROM. Write initial SSP at $0, PC at $4.
         let mut ks = vec![0u8; 256 * 1024];
@@ -1973,18 +2014,98 @@ mod tests {
             return;
         }
 
-        let mut amiga =
-            Amiga::new(std::fs::read(rom_path).expect("Kickstart 1.3 ROM should read"));
+        let mut amiga = Amiga::new(std::fs::read(rom_path).expect("Kickstart 1.3 ROM should read"));
         amiga.insert_disk(make_bootable_adf());
+        // This models DF0 as already populated at power-on rather than as a
+        // hot insertion awaiting the first post-insert step pulse.
         amiga.floppy.acknowledge_disk_change();
 
         let marker_addr = 0x0007_FC00u32;
         let expected = 0xDEAD_BEEFu32;
         let mut executed = false;
+        let mut prev_pc = u32::MAX;
+        let mut hot_pc_log = std::collections::VecDeque::new();
+        const TRACKDISK_TASK: usize = 0x621E;
+        const HOT_PCS: &[u32] = &[
+            0x00FC0D14, // L3 handler
+            0x00FC0D44, // VERTB dispatch
+            0x00FE9046, // timer.device BeginIO
+            0x00FE935A, // timer.device server
+            0x00FE946C, // timer.device program_timer
+            0x00FE94B6, // timer.device stop_timer
+            0x00FEA0E2, // motor control
+            0x00FEA170, // delay
+            0x00FEAA6E, // GetUnit call
+            0x00FEAA72, // GetUnit result check
+            0x00FEAA78, // Wait($0400)
+            0x00FEAA90, // retry loop
+            0x00FEAA92, // success path
+            0x00FEAAC2, // GiveUnit
+            0x00FC0F90, // STOP
+            0x00FC0F94, // idle loop branch
+        ];
 
-        // Roughly 10-12 seconds of PAL time, matching the older ADF boot diag.
-        for _ in 0..600 {
-            amiga.run_frame();
+        let ccks_per_frame = u64::from(amiga.agnus.lines_per_frame)
+            * u64::from(commodore_agnus_ocs::PAL_CCKS_PER_LINE);
+
+        // Trace the early boot path at CCK granularity so the hot-PC log
+        // captures trackdisk/timer transitions instead of only the idle loop.
+        let traced_frames = 220u64;
+        for tick in 0..(traced_frames * ccks_per_frame) {
+            amiga.tick_cck();
+            let pc = amiga.cpu.instr_start_pc;
+            if pc != prev_pc && HOT_PCS.contains(&pc) {
+                let chip = &amiga.memory.chip_ram;
+                let sigwait = if TRACKDISK_TASK + 0x19 < chip.len() {
+                    (u32::from(chip[TRACKDISK_TASK + 0x16]) << 24)
+                        | (u32::from(chip[TRACKDISK_TASK + 0x17]) << 16)
+                        | (u32::from(chip[TRACKDISK_TASK + 0x18]) << 8)
+                        | u32::from(chip[TRACKDISK_TASK + 0x19])
+                } else {
+                    0
+                };
+                let sigrecvd = if TRACKDISK_TASK + 0x1D < chip.len() {
+                    (u32::from(chip[TRACKDISK_TASK + 0x1A]) << 24)
+                        | (u32::from(chip[TRACKDISK_TASK + 0x1B]) << 16)
+                        | (u32::from(chip[TRACKDISK_TASK + 0x1C]) << 8)
+                        | u32::from(chip[TRACKDISK_TASK + 0x1D])
+                } else {
+                    0
+                };
+                hot_pc_log.push_back(format!(
+                    "tick={tick} frame={} pc=${pc:08X} d0=${:08X} d1=${:08X} a0=${:08X} a1=${:08X} a6=${:08X} sigwait=${sigwait:08X} sigrecvd=${sigrecvd:08X} ciaa_ta=${:04X} ciaa_tb=${:04X} ciaa_tod=${:06X}/${:06X} ciaa_halted={} ciaa_icr=${:02X}/${:02X} ciab_tod=${:06X}/${:06X} ciab_halted={} ciab_icr=${:02X}/${:02X} intena=${:04X} intreq=${:04X} cyl={} ready={} motor_on={} spinning={} dsklen=${:04X} dskpt=${:08X}",
+                    tick / ccks_per_frame,
+                    amiga.cpu.regs.d[0],
+                    amiga.cpu.regs.d[1],
+                    amiga.cpu.regs.a[0],
+                    amiga.cpu.regs.a[1],
+                    amiga.cpu.regs.a[6],
+                    amiga.cia_a.timer_a(),
+                    amiga.cia_a.timer_b(),
+                    amiga.cia_a.tod_counter(),
+                    amiga.cia_a.tod_alarm(),
+                    amiga.cia_a.tod_halted(),
+                    amiga.cia_a.icr_status(),
+                    amiga.cia_a.icr_mask(),
+                    amiga.cia_b.tod_counter(),
+                    amiga.cia_b.tod_alarm(),
+                    amiga.cia_b.tod_halted(),
+                    amiga.cia_b.icr_status(),
+                    amiga.cia_b.icr_mask(),
+                    amiga.paula.intena,
+                    amiga.paula.intreq,
+                    amiga.floppy.cylinder(),
+                    amiga.floppy.status().ready,
+                    amiga.floppy.motor_on(),
+                    amiga.floppy.motor_spinning(),
+                    amiga.paula.dsklen,
+                    amiga.agnus.dsk_pt,
+                ));
+                if hot_pc_log.len() > 24 {
+                    hot_pc_log.pop_front();
+                }
+            }
+            prev_pc = pc;
             let observed = (u32::from(amiga.memory.read_chip_byte(marker_addr)) << 24)
                 | (u32::from(amiga.memory.read_chip_byte(marker_addr + 1)) << 16)
                 | (u32::from(amiga.memory.read_chip_byte(marker_addr + 2)) << 8)
@@ -1995,9 +2116,25 @@ mod tests {
             }
         }
 
+        if !executed {
+            // Continue out to the original long window without the per-CCK
+            // tracing overhead.
+            for _ in traced_frames..600 {
+                amiga.run_frame();
+                let observed = (u32::from(amiga.memory.read_chip_byte(marker_addr)) << 24)
+                    | (u32::from(amiga.memory.read_chip_byte(marker_addr + 1)) << 16)
+                    | (u32::from(amiga.memory.read_chip_byte(marker_addr + 2)) << 8)
+                    | u32::from(amiga.memory.read_chip_byte(marker_addr + 3));
+                if observed == expected {
+                    executed = true;
+                    break;
+                }
+            }
+        }
+
         assert!(
             executed,
-            "synthetic bootblock never executed; PC=${:08X} cyl={} ready={} motor_on={} motor_spinning={} DSKLEN=${:04X} DSKPT=${:08X} DSKSYNC=${:04X} DSKDATR=${:04X}",
+            "synthetic bootblock never executed; PC=${:08X} cyl={} ready={} motor_on={} motor_spinning={} DSKLEN=${:04X} DSKPT=${:08X} DSKSYNC=${:04X} DSKDATR=${:04X}\nhot PCs: {:?}\nCIA-A reads: {:?}\nCIA-A writes: {:?}\nCIA-B writes: {:?}\nCIA-B PRB: {:?}\ncustom writes: {:?}",
             amiga.cpu.instr_start_pc,
             amiga.floppy.cylinder(),
             amiga.floppy.status().ready,
@@ -2007,6 +2144,12 @@ mod tests {
             amiga.agnus.dsk_pt,
             amiga.paula.dsksync,
             amiga.paula.dskdatr,
+            hot_pc_log,
+            tail_log(&amiga.debug_cia_a_read_log, 8),
+            tail_log(&amiga.debug_cia_a_write_log, 8),
+            tail_log(&amiga.debug_cia_b_write_log, 8),
+            tail_log(&amiga.debug_cia_b_prb_log, 8),
+            tail_log(&amiga.debug_custom_write_log, 8),
         );
     }
 
@@ -2912,6 +3055,13 @@ mod tests {
         for &base in &[
             0xFC0734u32,
             0xFC0788,
+            0xFC1E98,
+            0xFC1F14,
+            0xFC1F62,
+            0xFEA05A,
+            0xFEA170,
+            0xFEA1A4,
+            0xFEA3B4,
             0xFE9A90,
             0xFE9AA8,
             0xFE9720u32,

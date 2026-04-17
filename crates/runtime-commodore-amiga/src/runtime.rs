@@ -816,4 +816,226 @@ mod tests {
             "No-disk boot should not coincidentally contain the full Workbench bootblock in chip RAM"
         );
     }
+
+    #[test]
+    #[ignore]
+    fn trace_real_workbench13_getunit_path() {
+        use std::io::Write;
+
+        let kickstart_path = Path::new("/Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom");
+        let disk_path = Path::new(WORKBENCH13_DISK_PATH);
+        if !kickstart_path.exists() || !disk_path.exists() {
+            eprintln!(
+                "Skipping: missing Kickstart or Workbench 1.3 assets ({} / {})",
+                kickstart_path.display(),
+                disk_path.display()
+            );
+            return;
+        }
+
+        let kickstart = fs::read(kickstart_path).expect("Kickstart ROM should read");
+        let loaded = read_media_asset(disk_path, MediaKind::Disk)
+            .expect("Workbench disk archive should expand to one ADF");
+
+        let mut runtime = AmigaRuntime::new(Model::A500OcsPal, kickstart)
+            .expect("Kickstart 1.3 should construct");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("floppy-0", MediaKind::Disk, &loaded.bytes));
+        runtime
+            .load_media(&media)
+            .expect("Workbench ADF should insert into DF0");
+
+        const TRACE_PATH: &str = "/tmp/amiga_workbench_getunit_trace_release.txt";
+        let mut out = std::io::BufWriter::new(std::fs::File::create(TRACE_PATH).unwrap());
+        let mut prev_pc = u32::MAX;
+        let mut prev_trackdisk_sig = (u32::MAX, u32::MAX);
+        let mut prev_stop_sig = (u32::MAX, u32::MAX, u32::MAX, u32::MAX);
+        let mut logged_reply_port = false;
+
+        const HOT_PCS: &[u32] = &[
+            0x00FC0D14, // L3 handler
+            0x00FC0D44, // VERTB dispatch
+            0x00FC1E98, // wait-signal return path
+            0x00FC1F14, // wait-signal block path
+            0x00FC1F62, // wait-signal resume path
+            0x00FE9046, // timer.device BeginIO
+            0x00FE935A, // timer.device server
+            0x00FE946C, // timer.device program_timer
+            0x00FE94B6, // timer.device stop_timer
+            0x00FE960C, // DiskStatusCheck
+            0x00FE9C9C, // PerformIO
+            0x00FEA05A, // seek
+            0x00FEA0E2, // motor control
+            0x00FEA170, // delay
+            0x00FEA1A4, // DiskDMARead
+            0x00FEA3B4, // CMD_READ
+            0x00FEAA6E, // GetUnit call
+            0x00FEAA72, // GetUnit result check
+            0x00FEAA78, // Wait($0400)
+            0x00FEAA90, // retry
+            0x00FEAA92, // success
+            0x00FEAAC2, // GiveUnit
+            0x00FC0F90, // STOP
+            0x00FC0F94, // idle loop branch
+        ];
+
+        let total_ticks = 3_300u64 * A500_PAL_FRAME_TICKS;
+        const TRACKDISK_TASK: u32 = 0x00C0485E;
+        for tick in 0..total_ticks {
+            runtime.machine.tick_cck();
+            let pc = runtime.machine.cpu.instr_start_pc;
+            let pc_transition = pc != prev_pc;
+            let trackdisk_wait = read_task_field_u32(&runtime.machine, TRACKDISK_TASK, 0x16);
+            let trackdisk_recvd = read_task_field_u32(&runtime.machine, TRACKDISK_TASK, 0x1A);
+            let disk_resource_current = read_bus_long(&runtime.machine, 0x00C01B20);
+            let cia_a_timer_a = runtime.machine.cia_a.timer_a();
+            let cia_a_timer_b = runtime.machine.cia_a.timer_b();
+            let cia_a_cra = runtime.machine.cia_a.cra();
+            let cia_a_crb = runtime.machine.cia_a.crb();
+            let cia_a_icr_status = runtime.machine.cia_a.icr_status();
+            let cia_a_icr_mask = runtime.machine.cia_a.icr_mask();
+            let cia_a_tod = runtime.machine.cia_a.tod_counter();
+            let cia_b_timer_a = runtime.machine.cia_b.timer_a();
+            let cia_b_timer_b = runtime.machine.cia_b.timer_b();
+            let cia_b_cra = runtime.machine.cia_b.cra();
+            let cia_b_crb = runtime.machine.cia_b.crb();
+            let cia_b_icr_status = runtime.machine.cia_b.icr_status();
+            let cia_b_icr_mask = runtime.machine.cia_b.icr_mask();
+
+            if pc_transition && HOT_PCS.contains(&pc) {
+                let mut extra = String::new();
+                if pc == 0x00FE9046 {
+                    let a1 = runtime.machine.cpu.regs.a[1];
+                    extra = format!(
+                        " cmd={} io_unit=${:08X} io_reply=${:08X} tv_secs={} tv_micro={}",
+                        read_bus_word(&runtime.machine, a1.wrapping_add(0x1C)),
+                        read_bus_long(&runtime.machine, a1.wrapping_add(0x18)),
+                        read_bus_long(&runtime.machine, a1.wrapping_add(0x0E)),
+                        read_bus_long(&runtime.machine, a1.wrapping_add(0x20)),
+                        read_bus_long(&runtime.machine, a1.wrapping_add(0x24)),
+                    );
+                } else if pc == 0x00FE946C {
+                    extra = format!(" a3=${:08X}", runtime.machine.cpu.regs.a[3]);
+                } else if pc == 0x00FE9C9C {
+                    let a1 = runtime.machine.cpu.regs.a[1];
+                    extra = format!(
+                        " cmd={} io_error=${:02X} io_actual=${:08X}",
+                        read_bus_word(&runtime.machine, a1.wrapping_add(0x1C)),
+                        read_bus_word(&runtime.machine, a1.wrapping_add(0x1E)) & 0x00FF,
+                        read_bus_long(&runtime.machine, a1.wrapping_add(0x20)),
+                    );
+                } else if pc == 0x00FEA170 {
+                    extra = format!(" delay_d0=${:08X}", runtime.machine.cpu.regs.d[0]);
+                }
+                writeln!(
+                    out,
+                    "[tick {tick:>10}] pc=${pc:08X} a0=${:08X} a1=${:08X} a2=${:08X} a3=${:08X} d0=${:08X} d1=${:08X} sigwait_td=${trackdisk_wait:08X} sigrecvd_td=${trackdisk_recvd:08X} cyl={} motor_on={} spinning={} ready={} dsklen=${:04X} dskpt=${:08X} dskdatr=${:04X} cia_a_ta=${cia_a_timer_a:04X} cia_a_tb=${cia_a_timer_b:04X} cia_a_cra=${cia_a_cra:02X} cia_a_crb=${cia_a_crb:02X} cia_a_icr=${cia_a_icr_status:02X}/${cia_a_icr_mask:02X} cia_a_tod=${cia_a_tod:06X} cia_b_ta=${cia_b_timer_a:04X} cia_b_tb=${cia_b_timer_b:04X} cia_b_cra=${cia_b_cra:02X} cia_b_crb=${cia_b_crb:02X} cia_b_icr=${cia_b_icr_status:02X}/${cia_b_icr_mask:02X} intena=${:04X} intreq=${:04X}{extra}",
+                    runtime.machine.cpu.regs.a[0],
+                    runtime.machine.cpu.regs.a[1],
+                    runtime.machine.cpu.regs.a[2],
+                    runtime.machine.cpu.regs.a[3],
+                    runtime.machine.cpu.regs.d[0],
+                    runtime.machine.cpu.regs.d[1],
+                    runtime.machine.floppy.cylinder(),
+                    runtime.machine.floppy.motor_on(),
+                    runtime.machine.floppy.motor_spinning(),
+                    runtime.machine.floppy.status().ready,
+                    runtime.machine.paula.dsklen,
+                    runtime.machine.agnus.dsk_pt,
+                    runtime.machine.paula.dskdatr,
+                    runtime.machine.paula.intena,
+                    runtime.machine.paula.intreq,
+                )
+                .unwrap();
+            }
+
+            if !logged_reply_port && trackdisk_wait == 0x0000_0400 {
+                let io_req = 0x00C0478Eu32;
+                let reply_port = read_bus_long(&runtime.machine, io_req.wrapping_add(0x0E));
+                let sig_bit = read_bus_byte(&runtime.machine, reply_port.wrapping_add(0x0F));
+                let sig_task = read_bus_long(&runtime.machine, reply_port.wrapping_add(0x10));
+                let reply_head = read_bus_long(&runtime.machine, reply_port.wrapping_add(0x14));
+                let reply_tail = read_bus_long(&runtime.machine, reply_port.wrapping_add(0x18));
+                writeln!(
+                    out,
+                    "[tick {tick:>10}] reply-port io_req=${io_req:08X} reply_port=${reply_port:08X} sig_bit={} sig_mask=${:08X} sig_task=${sig_task:08X} head=${reply_head:08X} tail=${reply_tail:08X}",
+                    sig_bit,
+                    if sig_bit < 32 { 1u32 << sig_bit } else { 0 },
+                )
+                .unwrap();
+                logged_reply_port = true;
+            }
+
+            let trackdisk_sig = (trackdisk_wait, trackdisk_recvd);
+            if trackdisk_sig != prev_trackdisk_sig {
+                writeln!(
+                    out,
+                    "[tick {tick:>10}] trackdisk-signal pc=${pc:08X} a0=${:08X} a1=${:08X} d0=${:08X} d1=${:08X} sigwait_td=${trackdisk_wait:08X} sigrecvd_td=${trackdisk_recvd:08X} cia_b_ta=${cia_b_timer_a:04X} cia_b_tb=${cia_b_timer_b:04X} cra=${cia_b_cra:02X} crb=${cia_b_crb:02X} icr=${cia_b_icr_status:02X}/${cia_b_icr_mask:02X}",
+                    runtime.machine.cpu.regs.a[0],
+                    runtime.machine.cpu.regs.a[1],
+                    runtime.machine.cpu.regs.d[0],
+                    runtime.machine.cpu.regs.d[1],
+                )
+                .unwrap();
+                prev_trackdisk_sig = trackdisk_sig;
+            }
+
+            let stop_sig = (
+                read_bus_long(&runtime.machine, 0x00C0038A),
+                trackdisk_wait,
+                trackdisk_recvd,
+                disk_resource_current,
+            );
+            if pc == 0x00FC0F90 && (prev_pc != 0x00FC0F90 || stop_sig != prev_stop_sig) {
+                writeln!(
+                    out,
+                    "[tick {tick:>10}] STOP this_task=${:08X} trackdisk_wait=${trackdisk_wait:08X} trackdisk_recvd=${trackdisk_recvd:08X} disk_resource_current=${disk_resource_current:08X} cia_b_ta=${cia_b_timer_a:04X} cia_b_tb=${cia_b_timer_b:04X} cra=${cia_b_cra:02X} crb=${cia_b_crb:02X} icr=${cia_b_icr_status:02X}/${cia_b_icr_mask:02X} intena=${:04X} intreq=${:04X}",
+                    stop_sig.0,
+                    runtime.machine.paula.intena,
+                    runtime.machine.paula.intreq,
+                )
+                .unwrap();
+                prev_stop_sig = stop_sig;
+            }
+
+            prev_pc = pc;
+        }
+
+        writeln!(out, "\n=== CIA-B write log ===").unwrap();
+        for line in &runtime.machine.debug_cia_b_write_log {
+            writeln!(out, "{line}").unwrap();
+        }
+        writeln!(out, "\n=== CIA-B PRB log ===").unwrap();
+        for line in &runtime.machine.debug_cia_b_prb_log {
+            writeln!(out, "{line}").unwrap();
+        }
+        writeln!(out, "\n=== CIA-A read log ===").unwrap();
+        for line in &runtime.machine.debug_cia_a_read_log {
+            writeln!(out, "{line}").unwrap();
+        }
+        writeln!(out, "\n=== CIA-B read log ===").unwrap();
+        for line in &runtime.machine.debug_cia_b_read_log {
+            writeln!(out, "{line}").unwrap();
+        }
+
+        out.flush().unwrap();
+        eprintln!("wrote {TRACE_PATH}");
+    }
+
+    fn read_bus_word(machine: &Amiga, addr: u32) -> u16 {
+        machine.memory.read_word(addr)
+    }
+
+    fn read_bus_byte(machine: &Amiga, addr: u32) -> u8 {
+        machine.memory.read_byte(addr)
+    }
+
+    fn read_bus_long(machine: &Amiga, addr: u32) -> u32 {
+        (u32::from(machine.memory.read_word(addr)) << 16)
+            | u32::from(machine.memory.read_word(addr.wrapping_add(2)))
+    }
+
+    fn read_task_field_u32(machine: &Amiga, task: u32, offset: u32) -> u32 {
+        read_bus_long(machine, task.wrapping_add(offset))
+    }
 }

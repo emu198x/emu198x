@@ -247,15 +247,21 @@ impl Cia8520 {
             // TOD write with halt: writing MSB stops counter,
             // writing LSB restarts it.
             0x08 => {
+                let writes_alarm = self.tod_write_targets_alarm();
                 self.write_tod_register(0, value);
-                self.tod_halted = false; // writing LSB restarts counter
+                if !writes_alarm {
+                    self.tod_halted = false; // writing LSB restarts counter
+                }
             }
             0x09 => {
                 self.write_tod_register(1, value);
             }
             0x0A => {
+                let writes_alarm = self.tod_write_targets_alarm();
                 self.write_tod_register(2, value);
-                self.tod_halted = true; // writing MSB halts counter
+                if !writes_alarm {
+                    self.tod_halted = true; // writing MSB halts counter
+                }
             }
             0x0C => self.sdr = value,
             0x0D => {
@@ -314,7 +320,7 @@ impl Cia8520 {
     }
 
     fn tod_write_targets_alarm(&self) -> bool {
-        self.crb & 0x80 == 0
+        self.crb & 0x80 != 0
     }
 
     pub fn tod_counter(&self) -> u32 {
@@ -676,22 +682,23 @@ mod tests {
     }
 
     #[test]
-    fn tod_writes_target_alarm_when_alarm_bit_clear() {
+    fn tod_writes_target_alarm_when_alarm_bit_set() {
         let mut cia = Cia8520::new("T");
-        cia.write(0x0F, 0x00);
+        cia.tod_counter = 0x00AA55;
+        cia.write(0x0F, 0x80);
         cia.write(0x0A, 0x12);
-        assert!(cia.tod_halted());
+        assert!(!cia.tod_halted());
         cia.write(0x09, 0x34);
         cia.write(0x08, 0x56);
         assert!(!cia.tod_halted());
-        assert_eq!(cia.tod_counter(), 0x000000);
+        assert_eq!(cia.tod_counter(), 0x00AA55);
         assert_eq!(cia.tod_alarm(), 0x123456);
     }
 
     #[test]
-    fn tod_writes_target_clock_when_alarm_bit_set() {
+    fn tod_writes_target_clock_when_alarm_bit_clear() {
         let mut cia = Cia8520::new("T");
-        cia.write(0x0F, 0x80);
+        cia.write(0x0F, 0x00);
         cia.write(0x0A, 0x12);
         assert!(cia.tod_halted());
         cia.write(0x09, 0x34);
@@ -705,7 +712,7 @@ mod tests {
     fn tod_clock_write_preserves_alarm_value_with_normal_halt_protocol() {
         let mut cia = Cia8520::new("T");
         cia.tod_alarm = 0x00ABCD;
-        cia.write(0x0F, 0x80);
+        cia.write(0x0F, 0x00);
         cia.write(0x0A, 0x12);
         assert!(cia.tod_halted());
         cia.write(0x09, 0x34);
@@ -713,5 +720,22 @@ mod tests {
         assert!(!cia.tod_halted());
         assert_eq!(cia.tod_counter(), 0x123456);
         assert_eq!(cia.tod_alarm(), 0x00ABCD);
+    }
+
+    #[test]
+    fn tod_alarm_write_does_not_restart_a_halted_clock() {
+        let mut cia = Cia8520::new("T");
+        cia.write(0x0F, 0x00);
+        cia.write(0x0A, 0x12);
+        assert!(cia.tod_halted());
+
+        cia.write(0x0F, 0x80);
+        cia.write(0x0A, 0xAB);
+        cia.write(0x09, 0xCD);
+        cia.write(0x08, 0xEF);
+
+        assert!(cia.tod_halted());
+        assert_eq!(cia.tod_counter(), 0x120000);
+        assert_eq!(cia.tod_alarm(), 0xABCDEF);
     }
 }

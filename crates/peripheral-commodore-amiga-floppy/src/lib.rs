@@ -167,8 +167,9 @@ impl AmigaFloppyDrive {
         sel: bool,
         motor: bool,
     ) {
-        // Drive select latches motor state on the assertion edge.
-        if sel && !self.selected {
+        // Drive select updates the current motor state while asserted.
+        if sel {
+            self.selected = true;
             self.motor_on = motor;
             if motor && !self.motor_spinning {
                 self.spin_timer = 0;
@@ -178,12 +179,14 @@ impl AmigaFloppyDrive {
                 self.spin_timer = 0;
                 self.index_timer = 0;
             }
+        } else {
+            self.selected = false;
         }
-        self.selected = sel;
 
-        // Head side: 0 = upper (head 1), 1 = lower (head 0)
-        // The parameter is already decoded: side_upper = true means DSKSIDE* asserted (low)
+        // Only the selected drive responds to side select changes.
         if self.selected {
+            // Head side: 0 = upper (head 1), 1 = lower (head 0)
+            // The parameter is already decoded: side_upper = true means DSKSIDE* asserted (low)
             self.head = if side_upper { 1 } else { 0 };
         }
 
@@ -208,7 +211,7 @@ impl AmigaFloppyDrive {
     }
 
     /// Advance motor spin-up and rotational timing. Call at E-clock rate.
-    /// Returns `true` when the selected drive emits one index pulse.
+    /// Returns `true` when the spinning drive emits one index pulse.
     pub fn tick(&mut self) -> bool {
         if self.motor_on && !self.motor_spinning {
             self.spin_timer += 1;
@@ -219,7 +222,7 @@ impl AmigaFloppyDrive {
             return false;
         }
 
-        if !(self.motor_spinning && self.selected && self.disk.is_some()) {
+        if !(self.selected && self.motor_spinning && self.disk.is_some()) {
             if !self.motor_spinning || !self.motor_on {
                 self.index_timer = 0;
             }
@@ -238,15 +241,6 @@ impl AmigaFloppyDrive {
     /// Current drive status for CIA-A PRA input.
     /// All values are active-low booleans (true = signal asserted = pin low).
     pub fn status(&self) -> DriveStatus {
-        if !self.selected {
-            return DriveStatus {
-                disk_change: false,
-                write_protect: false,
-                track0: false,
-                ready: false,
-            };
-        }
-
         DriveStatus {
             disk_change: self.disk_changed,
             write_protect: false, // Not write-protected
@@ -263,7 +257,7 @@ impl AmigaFloppyDrive {
     }
 
     pub fn read_data_available(&self) -> bool {
-        self.motor_spinning && self.disk.is_some()
+        self.selected && self.motor_spinning && self.disk.is_some()
     }
 
     pub fn has_disk(&self) -> bool {
@@ -414,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn status_is_inactive_when_drive_is_not_selected() {
+    fn deselected_drive_still_reports_mechanical_status() {
         let mut drive = AmigaFloppyDrive::new();
         let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk(adf);
@@ -423,7 +417,7 @@ mod tests {
         let status = drive.status();
         assert!(!status.disk_change);
         assert!(!status.write_protect);
-        assert!(!status.track0);
+        assert!(status.track0);
         assert!(!status.ready);
     }
 
@@ -459,23 +453,34 @@ mod tests {
     }
 
     #[test]
-    fn motor_state_is_latched_on_select_edge() {
+    fn spun_up_deselected_drive_stops_emitting_index_pulses() {
+        let mut drive = AmigaFloppyDrive::new();
+        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk(adf);
+        drive.acknowledge_disk_change();
+        drive.update_control(false, false, false, true, true);
+        for _ in 0..MOTOR_SPINUP_TICKS {
+            assert!(!drive.tick());
+        }
+        drive.update_control(false, false, false, false, true);
+        for _ in 0..INDEX_PULSE_TICKS {
+            assert!(!drive.tick());
+        }
+    }
+
+    #[test]
+    fn motor_state_updates_while_selected() {
         let mut drive = AmigaFloppyDrive::new();
         drive.update_control(false, false, false, true, true);
         assert!(drive.motor_on());
 
-        // Changing /MTR while the drive stays selected should not change the
-        // latched motor state until /SEL is asserted again.
-        drive.update_control(false, false, false, true, false);
-        assert!(drive.motor_on());
-
-        drive.update_control(false, false, false, false, false);
+        // Changing /MTR while the drive remains selected updates the drive.
         drive.update_control(false, false, false, true, false);
         assert!(!drive.motor_on());
     }
 
     #[test]
-    fn spun_up_drive_hides_status_after_deselect_but_keeps_media_available() {
+    fn spun_up_drive_keeps_status_but_hides_read_data_after_deselect() {
         let mut drive = AmigaFloppyDrive::new();
         let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk(adf);
@@ -488,9 +493,9 @@ mod tests {
 
         let status = drive.status();
         assert!(!status.disk_change);
-        assert!(!status.track0);
-        assert!(!status.ready);
-        assert!(drive.read_data_available());
+        assert!(status.track0);
+        assert!(status.ready);
+        assert!(!drive.read_data_available());
         assert!(drive.encode_mfm_track().is_some());
     }
 
