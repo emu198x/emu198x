@@ -47,9 +47,11 @@ impl Memory {
         // on a 512K system — matching real hardware.
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize]
-        } else if (0xC0_0000..0xE0_0000).contains(&addr) && !self.slow_ram.is_empty() {
-            let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
-            self.slow_ram[offset as usize]
+        } else if !self.slow_ram.is_empty()
+            && addr >= 0xC0_0000
+            && (addr - 0xC0_0000) < self.slow_ram.len() as u32
+        {
+            self.slow_ram[(addr - 0xC0_0000) as usize]
         } else if addr >= ROM_BASE {
             self.kickstart[(addr & self.kickstart_mask) as usize]
         } else {
@@ -72,9 +74,11 @@ impl Memory {
         let addr = addr & 0xFF_FFFF;
         if addr < 0x20_0000 {
             self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
-        } else if (0xC0_0000..0xE0_0000).contains(&addr) && !self.slow_ram.is_empty() {
-            let offset = (addr - 0xC0_0000) & self.slow_ram_mask;
-            self.slow_ram[offset as usize] = val;
+        } else if !self.slow_ram.is_empty()
+            && addr >= 0xC0_0000
+            && (addr - 0xC0_0000) < self.slow_ram.len() as u32
+        {
+            self.slow_ram[(addr - 0xC0_0000) as usize] = val;
         }
         // ROM and unmapped space silently drop writes.
     }
