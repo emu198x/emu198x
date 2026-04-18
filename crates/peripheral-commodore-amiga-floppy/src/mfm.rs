@@ -44,10 +44,15 @@ pub const MFM_TRACK_BYTES: usize = 13_630;
 pub fn encode_mfm_track(track_sectors: &[u8], track_num: u8, sectors_per_track: u32) -> Vec<u8> {
     let mut buf = Vec::with_capacity(MFM_TRACK_BYTES);
 
+    // Carries the last data bit across long boundaries so MFM clock
+    // bits at the start of each long are computed correctly.
+    let mut last_bit: u32 = 0;
+
     for sector in 0..sectors_per_track {
         let sector_data = &track_sectors[sector as usize * 512..(sector as usize + 1) * 512];
         encode_sector(
             &mut buf,
+            &mut last_bit,
             track_num,
             sector as u8,
             sectors_per_track as u8,
@@ -64,57 +69,87 @@ pub fn encode_mfm_track(track_sectors: &[u8], track_num: u8, sectors_per_track: 
     buf
 }
 
-fn encode_sector(buf: &mut Vec<u8>, track: u8, sector: u8, sectors_per_track: u8, data: &[u8]) {
-    // 1. Gap: 2 words $AAAA
-    buf.extend_from_slice(&[0xAA, 0xAA, 0xAA, 0xAA]);
+fn encode_sector(
+    buf: &mut Vec<u8>,
+    last_bit: &mut u32,
+    track: u8,
+    sector: u8,
+    sectors_per_track: u8,
+    data: &[u8],
+) {
+    // Helper: encode one long using the running `last_bit` state, emit
+    // its bytes, and update `last_bit` to this long's LSB (the last
+    // data bit transmitted, at bit position 0 of the MFM long).
+    fn emit_encoded_long(buf: &mut Vec<u8>, last_bit: &mut u32, data: u32) {
+        let mfm = mfm_encode_long_with_prev(data, *last_bit);
+        buf.extend_from_slice(&mfm.to_be_bytes());
+        *last_bit = mfm & 1;
+    }
+    // Helper: emit raw bytes (gap/sync) that contain fixed MFM patterns;
+    // update `last_bit` to the LSB of the last byte.
+    fn emit_raw(buf: &mut Vec<u8>, last_bit: &mut u32, bytes: &[u8]) {
+        buf.extend_from_slice(bytes);
+        if let Some(&last) = bytes.last() {
+            *last_bit = u32::from(last) & 1;
+        }
+    }
 
-    // 2. Sync: 2 words $4489
-    buf.extend_from_slice(&[0x44, 0x89, 0x44, 0x89]);
+    // 1. Gap: 2 words $AAAA — 1010 pattern, last bit = 0.
+    emit_raw(buf, last_bit, &[0xAA, 0xAA, 0xAA, 0xAA]);
+
+    // 2. Sync: 2 words $4489 — the Amiga's magic constant. Its last
+    //    bit (LSB of $89 = 1) becomes the "previous data bit" for the
+    //    header that follows.
+    emit_raw(buf, last_bit, &[0x44, 0x89, 0x44, 0x89]);
 
     // 3. Header info: 4 bytes = [format, track, sector, sectors_to_gap]
-    // Format byte $FF means standard AmigaDOS.
-    // sectors_to_gap = number of sectors remaining before the gap
-    // (decrements from sectors_per_track-1 to 0).
     let sectors_to_gap = sectors_per_track - sector - 1;
     let info_bytes = [0xFF, track, sector, sectors_to_gap];
-
-    // The header info is encoded as one longword with odd/even split + MFM.
     let info_long = u32::from_be_bytes(info_bytes);
-    let info_odd = mfm_encode_long(odd_bits(info_long));
-    let info_even = mfm_encode_long(even_bits(info_long));
-    buf.extend_from_slice(&info_odd.to_be_bytes());
-    buf.extend_from_slice(&info_even.to_be_bytes());
+    // Accumulate the full pre-emit values so the checksum stays
+    // stable regardless of the clock-bit carry.
+    let info_odd_mfm = mfm_encode_long_with_prev(odd_bits(info_long), *last_bit);
+    emit_encoded_long(buf, last_bit, odd_bits(info_long));
+    let info_even_mfm = mfm_encode_long_with_prev(even_bits(info_long), *last_bit);
+    emit_encoded_long(buf, last_bit, even_bits(info_long));
+    let _ = (info_odd_mfm, info_even_mfm);
 
     // 4. Sector label: 16 zero bytes (4 longs), odd/even split + MFM
     let label_zeros = [0u32; 4];
     let mut label_mfm_odd = [0u32; 4];
     let mut label_mfm_even = [0u32; 4];
     for i in 0..4 {
-        label_mfm_odd[i] = mfm_encode_long(odd_bits(label_zeros[i]));
-        label_mfm_even[i] = mfm_encode_long(even_bits(label_zeros[i]));
+        label_mfm_odd[i] = mfm_encode_long_with_prev(odd_bits(label_zeros[i]), *last_bit);
+        emit_encoded_long(buf, last_bit, odd_bits(label_zeros[i]));
     }
-    for &l in &label_mfm_odd {
-        buf.extend_from_slice(&l.to_be_bytes());
-    }
-    for &l in &label_mfm_even {
-        buf.extend_from_slice(&l.to_be_bytes());
+    for i in 0..4 {
+        label_mfm_even[i] = mfm_encode_long_with_prev(even_bits(label_zeros[i]), *last_bit);
+        emit_encoded_long(buf, last_bit, even_bits(label_zeros[i]));
     }
 
-    // 5. Header checksum: XOR of all MFM header longs (info + label),
-    //    masked with $55555555 to strip clock bits (HRM Appendix C).
+    // 5. Header checksum: XOR of all MFM header longs (info + label).
+    // Note: we must XOR the *actual emitted* MFM longs, since clock
+    // bits are part of the stream Kickstart hashes. Recompute them
+    // with the running last_bit state replayed — but simpler: re-run
+    // the encode with a scratch state that mirrors what emit produced.
+    // Since label_mfm_odd/even above were sampled before each emit,
+    // they're accurate-for-checksum only if the encode didn't depend
+    // on last_bit. To keep the checksum aligned with the stream,
+    // Kickstart uses: hdr_cksum = XOR of stream longs AND $55555555,
+    // which strips clock bits entirely. So it's safe to XOR the data
+    // bits only — but the easiest way is to XOR the stream longs and
+    // mask. Because the data bits are identical regardless of clock,
+    // the mask removes the carry-dependent part.
     let mut hdr_cksum: u32 = 0;
-    hdr_cksum ^= info_odd;
-    hdr_cksum ^= info_even;
+    hdr_cksum ^= mfm_encode_long_with_prev(odd_bits(info_long), 0);
+    hdr_cksum ^= mfm_encode_long_with_prev(even_bits(info_long), 0);
     for i in 0..4 {
         hdr_cksum ^= label_mfm_odd[i];
         hdr_cksum ^= label_mfm_even[i];
     }
     hdr_cksum &= 0x5555_5555;
-    // The checksum itself is stored odd/even split + MFM
-    let hdr_cksum_odd = mfm_encode_long(odd_bits(hdr_cksum));
-    let hdr_cksum_even = mfm_encode_long(even_bits(hdr_cksum));
-    buf.extend_from_slice(&hdr_cksum_odd.to_be_bytes());
-    buf.extend_from_slice(&hdr_cksum_even.to_be_bytes());
+    emit_encoded_long(buf, last_bit, odd_bits(hdr_cksum));
+    emit_encoded_long(buf, last_bit, even_bits(hdr_cksum));
 
     // 6-7. Data: 512 bytes as 128 longs, odd/even split + MFM
     let mut data_longs = [0u32; 128];
@@ -128,31 +163,29 @@ fn encode_sector(buf: &mut Vec<u8>, track: u8, sector: u8, sectors_per_track: u8
         ]);
     }
 
-    // Data checksum: XOR of all MFM data longs (computed from both halves),
-    // masked with $55555555 to strip clock bits (HRM Appendix C).
+    // First compute the data checksum by encoding each MFM long with a
+    // fixed prev-bit of 0, then mask clock bits. The mask makes the
+    // checksum independent of the running last_bit state, so the value
+    // we write here matches what Kickstart recomputes when reading.
     let mut data_cksum: u32 = 0;
-    let mut data_mfm_odd = [0u32; 128];
-    let mut data_mfm_even = [0u32; 128];
     for i in 0..128 {
-        data_mfm_odd[i] = mfm_encode_long(odd_bits(data_longs[i]));
-        data_mfm_even[i] = mfm_encode_long(even_bits(data_longs[i]));
-        data_cksum ^= data_mfm_odd[i];
-        data_cksum ^= data_mfm_even[i];
+        data_cksum ^= mfm_encode_long_with_prev(odd_bits(data_longs[i]), 0);
+        data_cksum ^= mfm_encode_long_with_prev(even_bits(data_longs[i]), 0);
     }
     data_cksum &= 0x5555_5555;
 
-    // Data checksum (odd/even + MFM)
-    let data_cksum_odd = mfm_encode_long(odd_bits(data_cksum));
-    let data_cksum_even = mfm_encode_long(even_bits(data_cksum));
-    buf.extend_from_slice(&data_cksum_odd.to_be_bytes());
-    buf.extend_from_slice(&data_cksum_even.to_be_bytes());
+    // Data checksum (odd/even + MFM) — written to the stream with the
+    // running last_bit state so clock bits link correctly.
+    emit_encoded_long(buf, last_bit, odd_bits(data_cksum));
+    emit_encoded_long(buf, last_bit, even_bits(data_cksum));
 
-    // Data odd words first, then even words
-    for &l in &data_mfm_odd {
-        buf.extend_from_slice(&l.to_be_bytes());
+    // Data odd longs first, then even longs — each emitted through the
+    // running last_bit state.
+    for i in 0..128 {
+        emit_encoded_long(buf, last_bit, odd_bits(data_longs[i]));
     }
-    for &l in &data_mfm_even {
-        buf.extend_from_slice(&l.to_be_bytes());
+    for i in 0..128 {
+        emit_encoded_long(buf, last_bit, even_bits(data_longs[i]));
     }
 }
 
@@ -178,31 +211,32 @@ fn even_bits(val: u32) -> u32 {
     result
 }
 
-/// MFM-encode a 16-bit data value into a 32-bit MFM longword.
-/// Each data bit is preceded by a clock bit. Clock is 1 only when
-/// both the preceding data bit AND current data bit are 0.
-fn mfm_encode_long(data: u32) -> u32 {
-    let data = data & 0xFFFF; // only low 16 bits are data
+/// MFM-encode a 16-bit data value into a 32-bit MFM longword, with the
+/// last data bit of the previous long supplied as `prev_last_bit`.
+/// Clock is 1 only when both the preceding data bit AND current data
+/// bit are 0 — and the "preceding bit" for the first data bit in this
+/// long is the last data bit of the previous long, not a fixed 0.
+fn mfm_encode_long_with_prev(data: u32, prev_last_bit: u32) -> u32 {
+    let data = data & 0xFFFF;
     let mut mfm = 0u32;
     for i in (0..16).rev() {
         let data_bit = (data >> i) & 1;
-        let bit_pos = (15 - i) * 2; // MSB-first positioning
-        // Clock bit: set if both previous data and current data are 0
+        let bit_pos = (15 - i) * 2;
         let prev_data = if i < 15 {
             (data >> (i + 1)) & 1
         } else {
-            // For the very first bit, use 0 as previous (conservative)
-            0
+            prev_last_bit & 1
         };
-        let clock = if prev_data == 0 && data_bit == 0 {
-            1
-        } else {
-            0
-        };
+        let clock = if prev_data == 0 && data_bit == 0 { 1 } else { 0 };
         mfm |= clock << (31 - bit_pos);
         mfm |= data_bit << (30 - bit_pos);
     }
     mfm
+}
+
+#[cfg(test)]
+fn mfm_encode_long(data: u32) -> u32 {
+    mfm_encode_long_with_prev(data, 0)
 }
 
 /// A decoded sector from an MFM track.

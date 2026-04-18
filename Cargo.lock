@@ -2108,6 +2108,7 @@ dependencies = [
  "emu198x-shell",
  "format-commodore-amiga-adf",
  "machine-commodore-amiga",
+ "peripheral-commodore-amiga-floppy",
  "serde_json",
 ]
 
