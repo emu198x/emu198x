@@ -107,6 +107,15 @@ pub struct AmigaFloppyDrive {
     write_mfm_capture: Vec<u16>,
     /// Pending decode buffer — consumed and cleared by `flush_write_capture()`.
     write_mfm_pending: Vec<u16>,
+    /// Drive-ID shift register. Per Amiga HRM §Floppy / Device I.D.:
+    /// while the motor is OFF, each DSKSEL falling edge shifts one bit
+    /// out through /DSKRDY (MSB first). The Amiga reference value is
+    /// $FFFFFFFF, identifying a 3.5" drive.
+    id_shift_register: u32,
+    /// Next bit to shift out (0..=31). Reloaded to 0 on motor-on.
+    id_bit: u8,
+    /// Latched /DSKRDY output bit — 0 = asserted (ready/id-0), 1 = deasserted.
+    id_ready_bit: bool,
 }
 
 impl AmigaFloppyDrive {
@@ -125,6 +134,9 @@ impl AmigaFloppyDrive {
             step_event_counter: 0,
             write_mfm_capture: Vec::new(),
             write_mfm_pending: Vec::new(),
+            id_shift_register: 0xFFFF_FFFF,
+            id_bit: 0,
+            id_ready_bit: true, // MSB of $FFFFFFFF = 1 (deasserted)
         }
     }
 
@@ -167,10 +179,19 @@ impl AmigaFloppyDrive {
         sel: bool,
         motor: bool,
     ) {
+        let sel_falling_edge = sel && !self.selected;
+
         // Drive select updates the current motor state while asserted.
         if sel {
             self.selected = true;
+            let motor_on_before = self.motor_on;
             self.motor_on = motor;
+            if motor && !motor_on_before {
+                // Motor turning on — reset the ID shift cursor so the
+                // next motor-off + select sequence starts a fresh ID
+                // stream at bit 31 (MSB).
+                self.id_bit = 0;
+            }
             if motor && !self.motor_spinning {
                 self.spin_timer = 0;
             }
@@ -181,6 +202,16 @@ impl AmigaFloppyDrive {
             }
         } else {
             self.selected = false;
+        }
+
+        // Per Amiga HRM §Device I.D.: with motor OFF, each DSKSEL
+        // falling edge shifts one bit out of the ID register onto
+        // /DSKRDY (MSB first). With motor ON the /DSKRDY line reflects
+        // the motor-at-speed signal instead.
+        if sel_falling_edge && !self.motor_on {
+            let bit = (self.id_shift_register >> (31 - self.id_bit)) & 1;
+            self.id_ready_bit = bit != 0;
+            self.id_bit = (self.id_bit + 1) & 31;
         }
 
         // Only the selected drive responds to side select changes.
@@ -240,12 +271,23 @@ impl AmigaFloppyDrive {
 
     /// Current drive status for CIA-A PRA input.
     /// All values are active-low booleans (true = signal asserted = pin low).
+    /// - ready: with motor ON, true when spinning. With motor OFF, reflects
+    ///   the last bit shifted out of the ID register. Kickstart's trackdisk
+    ///   relies on the ID stream to determine drive type before trusting
+    ///   /DSKRDY as a speed signal.
     pub fn status(&self) -> DriveStatus {
+        let ready = if self.motor_on {
+            self.motor_spinning
+        } else {
+            // Latched ID bit: 0 = asserted (line low), 1 = deasserted.
+            // DriveStatus.ready is "true = asserted = pin low"; invert.
+            !self.id_ready_bit
+        };
         DriveStatus {
             disk_change: self.disk_changed,
             write_protect: false, // Not write-protected
             track0: self.cylinder == 0,
-            ready: self.motor_spinning,
+            ready,
         }
     }
 
@@ -405,6 +447,38 @@ mod tests {
         let mut drive = AmigaFloppyDrive::new();
         drive.update_control(false, false, false, true, true);
         assert!(drive.status().track0);
+    }
+
+    #[test]
+    fn motor_off_select_shifts_id_stream_through_ready() {
+        // Per Amiga HRM §Device I.D., the drive shifts $FFFFFFFF out of
+        // /DSKRDY on each DSKSEL falling edge while motor is OFF.
+        // For a standard 3.5" drive the ID is all-ones, so every shifted
+        // bit should leave /DSKRDY deasserted (ready=false in our
+        // "asserted low" boolean).
+        let mut drive = AmigaFloppyDrive::new();
+        for _ in 0..32 {
+            // Select with motor off (sel=true, motor=false) triggers a shift.
+            drive.update_control(false, false, false, true, false);
+            assert!(
+                !drive.status().ready,
+                "all-ones ID stream should leave /DSKRDY deasserted"
+            );
+            // Deselect between pulses so the next select is a fresh falling edge.
+            drive.update_control(false, false, false, false, false);
+        }
+    }
+
+    #[test]
+    fn motor_on_bypasses_id_stream_and_reports_spin_state() {
+        let mut drive = AmigaFloppyDrive::new();
+        // Motor turning on must reset the ID cursor.
+        drive.update_control(false, false, false, true, true);
+        assert!(!drive.status().ready); // not spinning yet
+        for _ in 0..MOTOR_SPINUP_TICKS {
+            drive.tick();
+        }
+        assert!(drive.status().ready); // now spinning
     }
 
     #[test]

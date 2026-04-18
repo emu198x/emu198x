@@ -50,9 +50,12 @@ pub struct Cia8520 {
     timer_b_read_hi_latch: u8,
     timer_b_read_hi_latched: bool,
 
-    // TOD write halt: writing the MSB (reg A) stops the counter.
-    // Writing the LSB (reg 8) restarts it. This prevents the counter
-    // from advancing during a multi-byte write.
+    // TOD write halt (8520): any write to TOD regs $8/$9/$A while the
+    // alarm-target bit (CRB bit 7) is clear stops the counter. Only a
+    // subsequent write to $8 (LSB) restarts it. This is different from
+    // the CMOS 6526, where only MSB-writes halt; the 8520 datasheet and
+    // Amiga HRM Appendix F are unambiguous that *any* register write
+    // halts. Used by timer.device to program TOD atomically.
     tod_halted: bool,
 }
 
@@ -244,23 +247,28 @@ impl Cia8520 {
                     }
                 }
             }
-            // TOD write with halt: writing MSB stops counter,
-            // writing LSB restarts it.
+            // TOD write with halt (8520): ANY write to $8/$9/$A stops
+            // the counter when targeting the clock. Only a write to $8
+            // (LSB) restarts it.
             0x08 => {
                 let writes_alarm = self.tod_write_targets_alarm();
                 self.write_tod_register(0, value);
                 if !writes_alarm {
-                    self.tod_halted = false; // writing LSB restarts counter
+                    self.tod_halted = false; // LSB write restarts counter
                 }
             }
             0x09 => {
+                let writes_alarm = self.tod_write_targets_alarm();
                 self.write_tod_register(1, value);
+                if !writes_alarm {
+                    self.tod_halted = true; // any clock write halts
+                }
             }
             0x0A => {
                 let writes_alarm = self.tod_write_targets_alarm();
                 self.write_tod_register(2, value);
                 if !writes_alarm {
-                    self.tod_halted = true; // writing MSB halts counter
+                    self.tod_halted = true; // any clock write halts
                 }
             }
             0x0C => self.sdr = value,
@@ -737,5 +745,25 @@ mod tests {
         assert!(cia.tod_halted());
         assert_eq!(cia.tod_counter(), 0x120000);
         assert_eq!(cia.tod_alarm(), 0xABCDEF);
+    }
+
+    #[test]
+    fn tod_mid_write_alone_halts_counter_on_8520() {
+        // 8520-specific: writing MID ($9) halts even without writing MSB first.
+        // The 6526 only halts on MSB write.
+        let mut cia = Cia8520::new("T");
+        cia.write(0x0F, 0x00);
+        cia.write(0x09, 0x34);
+        assert!(cia.tod_halted());
+    }
+
+    #[test]
+    fn tod_lsb_write_alone_commits_and_leaves_counter_running() {
+        // Writing only $8 must not leave the clock halted.
+        let mut cia = Cia8520::new("T");
+        cia.write(0x0F, 0x00);
+        cia.write(0x08, 0x01);
+        assert!(!cia.tod_halted());
+        assert_eq!(cia.tod_counter() & 0xFF, 0x01);
     }
 }
