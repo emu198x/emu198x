@@ -6,10 +6,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::SidModel;
 
+use crate::combined_wave_tables::{
+    COMBINED_P_T_6581, COMBINED_PS_6581, COMBINED_PST_6581, COMBINED_TRI_SAW_6581,
+};
+
 const NOISE_LFSR_SEED: u32 = 0x7F_FFFF;
-const COMBINED_TRI_SAW_6581: [u8; 8] = [0x00, 0x00, 0x00, 0x18, 0x00, 0x58, 0x78, 0xE8];
-const COMBINED_TRI_PULSE_6581: [u8; 8] = [0x00, 0x00, 0x00, 0x08, 0x00, 0x48, 0x68, 0xE8];
-const COMBINED_SAW_PULSE_6581: [u8; 8] = [0x00, 0x00, 0x00, 0x28, 0x00, 0x68, 0x88, 0xE8];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Voice {
@@ -99,14 +100,16 @@ impl Voice {
         }
 
         if model == SidModel::Mos6581 && count >= 2 {
+            // reSID combined-waveform tables are 4096-entry ROM samples
+            // from real 6581 chips, indexed by the upper 12 bits of the
+            // 24-bit accumulator. Pulse is a separate 0x000/0xFFF mask
+            // ANDed with the table output (matches reSID wave.h:467).
+            let idx = ((self.accumulator >> 12) & 0x0FFF) as usize;
             let lut_output = match non_noise {
-                0x03 => Some(lookup_combined(&COMBINED_TRI_SAW_6581, tri12, saw12)),
-                0x05 => Some(lookup_combined(&COMBINED_TRI_PULSE_6581, tri12, pulse12)),
-                0x06 => Some(lookup_combined(&COMBINED_SAW_PULSE_6581, saw12, pulse12)),
-                0x07 => {
-                    let ts = lookup_combined(&COMBINED_TRI_SAW_6581, tri12, saw12);
-                    Some(ts & pulse12)
-                }
+                0x03 => Some(COMBINED_TRI_SAW_6581[idx]),
+                0x05 => Some(COMBINED_P_T_6581[idx] & pulse12),
+                0x06 => Some(COMBINED_PS_6581[idx] & pulse12),
+                0x07 => Some(COMBINED_PST_6581[idx] & pulse12),
                 _ => None,
             };
             if let Some(value) = lut_output {
@@ -173,8 +176,3 @@ impl Default for Voice {
     }
 }
 
-fn lookup_combined(table: &[u8; 8], a: u16, b: u16) -> u16 {
-    let anded = a & b;
-    let idx = ((anded >> 9) & 0x07) as usize;
-    u16::from(table[idx]) << 4
-}

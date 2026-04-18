@@ -3,6 +3,7 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 
+mod combined_wave_tables;
 mod envelope;
 mod filter;
 mod voice;
