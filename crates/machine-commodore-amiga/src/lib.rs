@@ -633,7 +633,7 @@ impl Amiga {
                                 lane_word
                             }
                         };
-                        if matches!(offset, 0x09A | 0x09C | 0x080 | 0x082 | 0x084 | 0x086) {
+                        if matches!(offset, 0x09A | 0x09C | 0x080 | 0x082 | 0x084 | 0x086 | 0x020 | 0x022 | 0x024 | 0x07E) {
                             let pc = self.cpu.instr_start_pc;
                             let a0 = self.cpu.regs.a[0];
                             let a1 = self.cpu.regs.a[1];
@@ -641,7 +641,7 @@ impl Amiga {
                             self.debug_custom_write_log.push_back(format!(
                                 "pc=${pc:08X} offset=${offset:03X} val=${val:04X} a0=${a0:08X} a1=${a1:08X} d0=${d0:08X}"
                             ));
-                            if self.debug_custom_write_log.len() > 64 {
+                            if self.debug_custom_write_log.len() > 128 {
                                 self.debug_custom_write_log.pop_front();
                             }
                         }
