@@ -472,6 +472,16 @@ impl Amiga {
                 return;
             }
 
+            // The 68000 doesn't transition out of BusCycle until
+            // cycle_count >= min_bus_cycles() = 4. Between cycle_count 2
+            // (our DTACK sample) and 4 (CPU latches data) we are called
+            // 1-2 more times — but the bus cycle completed at 2. Don't
+            // re-execute the side-effecting read/write. Hold the already-
+            // computed result steady.
+            if matches!(self.cpu.bus_status, BusStatus::Ready(_) | BusStatus::Error) {
+                return;
+            }
+
             if fc == FunctionCode::InterruptAck {
                 let level = self.paula.compute_ipl();
                 self.cpu.bus_status = BusStatus::Ready(24 + u16::from(level));
