@@ -30,6 +30,7 @@ pub struct Cia6526 {
     cra: u8,
     crb: u8,
     tod: [u8; 4],
+    tod_alarm: [u8; 4],
     tod_latch: [u8; 4],
     tod_latched: bool,
     tod_halted: bool,
@@ -76,6 +77,7 @@ impl Cia6526 {
             cra: 0,
             crb: 0,
             tod: [0; 4],
+            tod_alarm: [0; 4],
             tod_latch: [0; 4],
             tod_latched: false,
             tod_halted: true,
@@ -226,16 +228,39 @@ impl Cia6526 {
                     self.timer_b = self.timer_b_latch;
                 }
             }
+            // TOD / alarm writes — CRB bit 7 selects alarm vs clock.
+            // Clock writes: $B halts, $8 restarts. Alarm writes never
+            // affect the TOD halt state (datasheet confirmed).
             0x08 => {
-                self.tod[0] = value & 0x0F;
-                self.tod_halted = false;
-                self.tod_counter = 0;
+                if self.crb & 0x80 != 0 {
+                    self.tod_alarm[0] = value & 0x0F;
+                } else {
+                    self.tod[0] = value & 0x0F;
+                    self.tod_halted = false;
+                    self.tod_counter = 0;
+                }
             }
-            0x09 => self.tod[1] = value & 0x7F,
-            0x0A => self.tod[2] = value & 0x7F,
+            0x09 => {
+                if self.crb & 0x80 != 0 {
+                    self.tod_alarm[1] = value & 0x7F;
+                } else {
+                    self.tod[1] = value & 0x7F;
+                }
+            }
+            0x0A => {
+                if self.crb & 0x80 != 0 {
+                    self.tod_alarm[2] = value & 0x7F;
+                } else {
+                    self.tod[2] = value & 0x7F;
+                }
+            }
             0x0B => {
-                self.tod[3] = value & 0x9F;
-                self.tod_halted = true;
+                if self.crb & 0x80 != 0 {
+                    self.tod_alarm[3] = value & 0x9F;
+                } else {
+                    self.tod[3] = value & 0x9F;
+                    self.tod_halted = true;
+                }
             }
             0x0C => {
                 self.shift_register = value;
@@ -396,6 +421,12 @@ impl Cia6526 {
             self.tod[3] = 0x01 | pm;
         } else {
             self.tod[3] = next | pm;
+        }
+
+        // Alarm match: when all four TOD bytes equal the alarm, raise
+        // ICR bit 2 (ALARM). Checked after any TOD increment.
+        if self.tod == self.tod_alarm {
+            self.icr_status |= 0x04;
         }
     }
 }

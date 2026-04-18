@@ -70,9 +70,15 @@ impl Voice {
             return 0;
         }
 
+        // TEST bit (control bit 3) holds pulse output HIGH, zeros the
+        // accumulator, and reseeds the noise LFSR. Per 6581 datasheet.
+        let test_bit = self.control & 0x08 != 0;
+
         let tri12 = self.triangle_output(ring_mod_source_msb);
         let saw12 = ((self.accumulator >> 12) & 0xFFF) as u16;
-        let pulse12 = {
+        let pulse12 = if test_bit {
+            0x0FFF
+        } else {
             let pw12 = self.pulse_width & 0x0FFF;
             let acc12 = ((self.accumulator >> 12) & 0x0FFF) as u16;
             if acc12 < pw12 { 0x0FFF } else { 0x0000 }
@@ -141,15 +147,18 @@ impl Voice {
     }
 
     fn noise_output(&self) -> u16 {
+        // 6581 noise waveform samples LFSR bits
+        // 22, 20, 16, 13, 11, 7, 4, 2 into output bits 11..=4 (MSB-aligned
+        // 12-bit waveform). Per 6581 datasheet / reSID reference.
         let lfsr = self.noise_lfsr;
-        (((lfsr >> 20) & 1) << 11
-            | ((lfsr >> 18) & 1) << 10
-            | ((lfsr >> 14) & 1) << 9
-            | ((lfsr >> 11) & 1) << 8
-            | ((lfsr >> 9) & 1) << 7
-            | ((lfsr >> 5) & 1) << 6
-            | ((lfsr >> 2) & 1) << 5
-            | (lfsr & 1) << 4) as u16
+        (((lfsr >> 22) & 1) << 11
+            | ((lfsr >> 20) & 1) << 10
+            | ((lfsr >> 16) & 1) << 9
+            | ((lfsr >> 13) & 1) << 8
+            | ((lfsr >> 11) & 1) << 7
+            | ((lfsr >> 7) & 1) << 6
+            | ((lfsr >> 4) & 1) << 5
+            | ((lfsr >> 2) & 1) << 4) as u16
     }
 
     #[must_use]

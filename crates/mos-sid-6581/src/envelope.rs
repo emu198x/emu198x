@@ -4,12 +4,15 @@
 
 use serde::{Deserialize, Serialize};
 
-const ATTACK_RATES: [u16; 16] = [
+// SID envelope rate-counter periods (in phi2 clocks per step).
+// Attack reaches $FF after one period; decay/release is 3× slower per
+// 6581 datasheet (rate 15 attack = 8 s, decay/release = 24 s).
+const ATTACK_RATES: [u32; 16] = [
     9, 32, 63, 95, 149, 220, 267, 313, 392, 977, 1954, 3126, 3907, 11_720, 19_532, 31_251,
 ];
 
-const DECAY_RELEASE_RATES: [u16; 16] = [
-    9, 32, 63, 95, 149, 220, 267, 313, 392, 977, 1954, 3126, 3907, 11_720, 19_532, 31_251,
+const DECAY_RELEASE_RATES: [u32; 16] = [
+    27, 96, 189, 285, 447, 660, 801, 939, 1176, 2931, 5862, 9378, 11_721, 35_160, 58_596, 93_753,
 ];
 
 const SUSTAIN_LEVELS: [u8; 16] = [
@@ -28,7 +31,7 @@ pub enum Phase {
 pub struct Envelope {
     pub level: u8,
     pub phase: Phase,
-    rate_counter: u16,
+    rate_counter: u32,
     exp_counter: u8,
     exp_period: u8,
     pub attack: u8,

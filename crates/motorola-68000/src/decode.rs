@@ -1933,7 +1933,14 @@ impl Cpu68000 {
             // as the return PC) pushes the address of the next instruction
             // after STOP, not the stale address of the immediate word.
             self.irc_addr = self.next_fetch_addr;
-            self.state = State::Stopped;
+            // Per M68000 reference: STOP halts "until trace, interrupt, or
+            // reset occurs." If the loaded SR has T=1, take a trace
+            // exception immediately instead of halting.
+            if self.regs.sr & 0x8000 != 0 {
+                self.begin_group1_exception(9, self.next_fetch_addr);
+            } else {
+                self.state = State::Stopped;
+            }
             return;
         }
 
@@ -1941,12 +1948,13 @@ impl Cpu68000 {
         match opcode {
             0x4E71 => { /* NOP */ }
             0x4E70 => {
-                // RESET (supervisor only)
+                // RESET (supervisor only). Per M68000 Programmer's Reference:
+                // 132 total clocks (4 decode + 124 /RESET asserted + 4 exit).
                 if self.check_supervisor() {
                     return;
                 }
                 self.micro_ops.push(MicroOp::AssertReset);
-                self.micro_ops.push(MicroOp::Internal(124));
+                self.micro_ops.push(MicroOp::Internal(132));
             }
             _ => {
                 // Treat unknown opcodes as illegal for this CPU core model and
