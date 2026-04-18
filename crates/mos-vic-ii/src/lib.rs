@@ -195,12 +195,10 @@ impl Vic {
             self.evaluate_sprite_dma();
         }
 
-        if self.raster_cycle == 0
-            && self.raster_line >= self.first_visible_line
-            && self.raster_line < self.last_visible_line
-        {
-            self.fetch_sprite_data(memory);
-        }
+        // Per-sprite p-access fetches at their documented cycle positions.
+        // Cycles 58/60/62 on line L-1 fetch for line L's display; cycles
+        // 1/3/5/7/9 on line L fetch sprites 3..=7 for the same line L.
+        self.fetch_sprite_if_scheduled(memory);
 
         self.update_border_flip_flops();
         self.render_pixels(memory);
@@ -316,46 +314,90 @@ impl Vic {
         }
     }
 
-    fn fetch_sprite_data(&mut self, memory: &dyn VicMemory) {
+    /// Dispatch per-sprite p-access at the documented cycle position.
+    ///
+    /// For PAL 63-cycle lines:
+    ///
+    /// | sprite | p-access cycle | target line       |
+    /// |--------|----------------|-------------------|
+    /// |   0    | 58 (of line L-1) | L (next line)   |
+    /// |   1    | 60 (of line L-1) | L               |
+    /// |   2    | 62 (of line L-1) | L               |
+    /// |   3    |  1 (of line L)   | L (current)     |
+    /// |   4    |  3 (of line L)   | L               |
+    /// |   5    |  5 (of line L)   | L               |
+    /// |   6    |  7 (of line L)   | L               |
+    /// |   7    |  9 (of line L)   | L               |
+    ///
+    /// All fetches target the same display line L, so sprites 0-2 use
+    /// `raster_line + 1` (wrapping at frame boundary) while sprites 3-7
+    /// use the current `raster_line`.
+    fn fetch_sprite_if_scheduled(&mut self, memory: &dyn VicMemory) {
+        let (sprite_index, next_line) = match self.raster_cycle {
+            58 => (0, true),
+            60 => (1, true),
+            62 => (2, true),
+            1 => (3, false),
+            3 => (4, false),
+            5 => (5, false),
+            7 => (6, false),
+            9 => (7, false),
+            _ => return,
+        };
+        let target_line = if next_line {
+            let lpf = self.lines_per_frame;
+            if self.raster_line + 1 >= lpf {
+                0
+            } else {
+                self.raster_line + 1
+            }
+        } else {
+            self.raster_line
+        };
+        if target_line < self.first_visible_line || target_line >= self.last_visible_line {
+            return;
+        }
+        self.fetch_sprite_single(memory, sprite_index, target_line);
+    }
+
+    fn fetch_sprite_single(&mut self, memory: &dyn VicMemory, i: usize, target_line: u16) {
         let sprite_enable = self.regs[0x15];
         let y_expand = self.regs[0x17];
         let screen_base = self.screen_base();
 
-        for i in 0..8usize {
-            self.sprite_active[i] = false;
+        self.sprite_active[i] = false;
 
-            if sprite_enable & (1 << i) == 0 {
-                continue;
-            }
-
-            let sprite_y = u16::from(self.regs[1 + i * 2]);
-            let height = if y_expand & (1 << i) != 0 {
-                42u16
-            } else {
-                21u16
-            };
-            let line_in_sprite = self.raster_line.wrapping_sub(sprite_y);
-            if line_in_sprite >= height {
-                continue;
-            }
-
-            let data_line = if y_expand & (1 << i) != 0 {
-                line_in_sprite / 2
-            } else {
-                line_in_sprite
-            };
-
-            let ptr_addr = screen_base + 0x03F8 + i as u16;
-            let sprite_ptr = memory.read_vram(self.vram_addr(ptr_addr));
-            self.last_bus_data = sprite_ptr;
-
-            let data_base = u16::from(sprite_ptr) * 64 + data_line * 3;
-            self.sprite_data[i][0] = memory.read_vram(self.vram_addr(data_base));
-            self.sprite_data[i][1] = memory.read_vram(self.vram_addr(data_base + 1));
-            self.sprite_data[i][2] = memory.read_vram(self.vram_addr(data_base + 2));
-            self.last_bus_data = self.sprite_data[i][2];
-            self.sprite_active[i] = true;
+        if sprite_enable & (1 << i) == 0 {
+            return;
         }
+
+        let sprite_y = u16::from(self.regs[1 + i * 2]);
+        let height = if y_expand & (1 << i) != 0 {
+            42u16
+        } else {
+            21u16
+        };
+        let line_in_sprite = target_line.wrapping_sub(sprite_y);
+        if line_in_sprite >= height {
+            return;
+        }
+
+        let data_line = if y_expand & (1 << i) != 0 {
+            line_in_sprite / 2
+        } else {
+            line_in_sprite
+        };
+
+        let ptr_addr = screen_base + 0x03F8 + i as u16;
+        let sprite_ptr = memory.read_vram(self.vram_addr(ptr_addr));
+        self.last_bus_data = sprite_ptr;
+
+        let data_base = u16::from(sprite_ptr) * 64 + data_line * 3;
+        self.sprite_data[i][0] = memory.read_vram(self.vram_addr(data_base));
+        self.sprite_data[i][1] = memory.read_vram(self.vram_addr(data_base + 1));
+        self.sprite_data[i][2] = memory.read_vram(self.vram_addr(data_base + 2));
+        self.last_bus_data = self.sprite_data[i][2];
+        self.sprite_active[i] = true;
     }
 
     fn render_pixels(&mut self, memory: &dyn VicMemory) {
@@ -1511,6 +1553,29 @@ mod tests {
         // Continue to line 252 (another 4 full lines = 4*63 = 252 ticks).
         step_cycles(&mut vic, &memory, 4 * u32::from(CYCLES_PER_LINE));
         assert!(!vic.border_vert_ff, "open-border trick should keep vert FF clear");
+    }
+
+    #[test]
+    fn sprite_fetch_happens_at_p_access_cycles_not_batched() {
+        // Enable sprite 3 (p-access cycle 1) and sprite 0 (p-access
+        // cycle 58 of previous line). Verify that sprite 3 activates
+        // after running exactly one cycle into a line where it's
+        // on-screen, and that NO sprite activates at cycle 0 (the old
+        // batch-fetch cycle).
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x15, 0x08); // enable sprite 3
+        vic.write(0x11, 0x1B); // DEN=1, RSEL=1
+        // Put sprite 3 at Y = line 100 so it's active on lines 100-120.
+        vic.write(0x07, 100); // sprite 3 Y register is at $D007
+        // Wind to cycle 0 of line 100.
+        advance_to(&mut vic, &memory, 100, 0);
+        // At this point sprite 3 should NOT yet be active (old batch
+        // fetch would have activated it here).
+        tick_vic(&mut vic, &memory); // cycle 0 — no fetch scheduled
+        assert!(!vic.sprite_active[3], "sprite 3 should not activate at cycle 0 anymore");
+        // cycle 1 is sprite 3's p-access.
+        tick_vic(&mut vic, &memory);
+        assert!(vic.sprite_active[3], "sprite 3 should activate at its p-access cycle 1");
     }
 
     #[test]
