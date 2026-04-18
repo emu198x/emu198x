@@ -4,10 +4,74 @@ use serde::{Deserialize, Serialize};
 
 const IRQ_CA2: u8 = 0x01;
 const IRQ_CA1: u8 = 0x02;
+const IRQ_SR: u8 = 0x04;
 const IRQ_CB2: u8 = 0x08;
 const IRQ_CB1: u8 = 0x10;
 const IRQ_T2: u8 = 0x20;
 const IRQ_T1: u8 = 0x40;
+
+/// Shift Register operating mode (ACR bits 4:2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SrMode {
+    /// 000: SR disabled, PCR controls CB1/CB2.
+    Disabled,
+    /// 001: Shift in at T2 rate (CB1 = output clock, CB2 = input data).
+    ShiftInT2,
+    /// 010: Shift in at Φ2 rate.
+    ShiftInPhi2,
+    /// 011: Shift in under external clock on CB1 (CB1 = input).
+    ShiftInExt,
+    /// 100: Free-running shift out at T2 rate — the 8-bit pattern
+    /// repeats indefinitely on CB2, no SR-done interrupt.
+    ShiftOutFree,
+    /// 101: Shift out at T2 rate.
+    ShiftOutT2,
+    /// 110: Shift out at Φ2 rate.
+    ShiftOutPhi2,
+    /// 111: Shift out under external clock on CB1 (CB1 = input).
+    ShiftOutExt,
+}
+
+impl SrMode {
+    fn from_acr(acr: u8) -> Self {
+        match (acr >> 2) & 0x07 {
+            0b000 => Self::Disabled,
+            0b001 => Self::ShiftInT2,
+            0b010 => Self::ShiftInPhi2,
+            0b011 => Self::ShiftInExt,
+            0b100 => Self::ShiftOutFree,
+            0b101 => Self::ShiftOutT2,
+            0b110 => Self::ShiftOutPhi2,
+            0b111 => Self::ShiftOutExt,
+            _ => unreachable!(),
+        }
+    }
+
+    fn is_output(self) -> bool {
+        matches!(
+            self,
+            Self::ShiftOutFree
+                | Self::ShiftOutT2
+                | Self::ShiftOutPhi2
+                | Self::ShiftOutExt
+        )
+    }
+
+    fn is_external_clock(self) -> bool {
+        matches!(self, Self::ShiftInExt | Self::ShiftOutExt)
+    }
+
+    fn is_phi2_clock(self) -> bool {
+        matches!(self, Self::ShiftInPhi2 | Self::ShiftOutPhi2)
+    }
+
+    fn is_t2_clock(self) -> bool {
+        matches!(
+            self,
+            Self::ShiftInT2 | Self::ShiftOutFree | Self::ShiftOutT2
+        )
+    }
+}
 
 /// Fresh-workspace MOS 6522 with the board-facing behavior needed for 1541 bring-up.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -43,6 +107,22 @@ pub struct Via6522 {
     t2_latch_low: u8,
     t2_running: bool,
     shift_register: u8,
+    /// Count of bits shifted in the current 8-pulse burst. Reaches 8,
+    /// then IFR_SR fires and shifting stops (except in free-run mode).
+    sr_shift_count: u8,
+    /// Whether a shift burst is currently active. Triggered by reading
+    /// or writing the shift register. Stays true indefinitely in
+    /// free-run mode.
+    sr_active: bool,
+    /// Down-counter for T2-rate shift pulses. Loaded with T2L-L + 2
+    /// each pulse; when it hits 0, one bit is shifted.
+    sr_t2_timer: u8,
+    /// Down-counter for Φ2-rate shift pulses. Every 2 Φ2 ticks produces
+    /// one shift (CB1 output clock flips at Φ2 rate).
+    sr_phi2_timer: u8,
+    /// Current state of the CB1 shift-clock line when driven as output
+    /// (true = high). Used for toggling during shift operations.
+    sr_cb1_clock: bool,
     acr: u8,
     pcr: u8,
     ifr: u8,
@@ -93,6 +173,11 @@ impl Via6522 {
             t2_latch_low: 0,
             t2_running: false,
             shift_register: 0,
+            sr_shift_count: 0,
+            sr_active: false,
+            sr_t2_timer: 0,
+            sr_phi2_timer: 0,
+            sr_cb1_clock: true,
             acr: 0,
             pcr: 0,
             ifr: 0,
@@ -152,6 +237,118 @@ impl Via6522 {
             self.cb2_pulse_low = false;
         }
 
+        self.tick_shift_register();
+
+        self.update_pins();
+    }
+
+    /// Drive one Φ2 tick of the shift register. T2-rate modes count
+    /// down through sr_t2_timer; Φ2-rate modes shift on alternate Φ2
+    /// ticks (CB1 clock toggles at full Φ2 speed). External-clock
+    /// modes are driven by edges on CB1 via `set_cb1_level`.
+    fn tick_shift_register(&mut self) {
+        let mode = SrMode::from_acr(self.acr);
+        if mode == SrMode::Disabled {
+            return;
+        }
+        if mode.is_external_clock() {
+            // External clocking is edge-driven via CB1 input; nothing
+            // to do on a Φ2 tick.
+            return;
+        }
+        if !self.sr_active && mode != SrMode::ShiftOutFree {
+            return;
+        }
+
+        if mode.is_phi2_clock() {
+            // Toggle CB1 clock every Φ2 tick; shift on the trailing edge
+            // (clock going from high to low).
+            let prev = self.sr_cb1_clock;
+            self.sr_cb1_clock = !prev;
+            if prev && !self.sr_cb1_clock {
+                self.advance_shift(mode);
+            }
+        } else if mode.is_t2_clock() {
+            // T2-rate clock: use T2L-L + 2 as the period, toggle CB1
+            // clock on each timer expiry, shift on the trailing edge.
+            if self.sr_t2_timer == 0 {
+                self.sr_t2_timer = self.t2_latch_low.saturating_add(2);
+                let prev = self.sr_cb1_clock;
+                self.sr_cb1_clock = !prev;
+                if prev && !self.sr_cb1_clock {
+                    self.advance_shift(mode);
+                }
+            } else {
+                self.sr_t2_timer -= 1;
+            }
+        }
+    }
+
+    /// Handle one shift pulse (trailing edge of CB1 shift clock).
+    fn advance_shift(&mut self, mode: SrMode) {
+        if mode.is_output() {
+            // Rotate left; MSB recirculates into bit 0 and also appears
+            // on CB2 output.
+            let msb = (self.shift_register >> 7) & 1;
+            self.shift_register = (self.shift_register << 1) | msb;
+            self.cb2_out = msb != 0;
+            self.cb2_drive = true;
+        } else {
+            // Shift in: new bit arrives on CB2 input, shifted into bit 0.
+            let bit = u8::from(self.cb2);
+            self.shift_register = (self.shift_register << 1) | bit;
+        }
+
+        if mode != SrMode::ShiftOutFree {
+            self.sr_shift_count = self.sr_shift_count.wrapping_add(1);
+            if self.sr_shift_count >= 8 {
+                self.raise_interrupt(IRQ_SR);
+                self.sr_active = false;
+                self.sr_shift_count = 0;
+            }
+        }
+    }
+
+    /// Called when software reads or writes the SR register. Resets
+    /// the 8-pulse counter, clears IFR_SR, and starts (or restarts)
+    /// a shift burst — except in disabled or free-run modes.
+    fn trigger_sr_access(&mut self) {
+        let mode = SrMode::from_acr(self.acr);
+        if mode == SrMode::Disabled {
+            return;
+        }
+        self.sr_shift_count = 0;
+        self.clear_interrupts(IRQ_SR);
+        if mode != SrMode::ShiftOutFree {
+            self.sr_active = true;
+        }
+    }
+
+    /// Applies one external CB1 level change immediately. Mirrors
+    /// `set_ca1_level`: fires IRQ_CB1 on the configured active edge,
+    /// latches IRB if PB latching is enabled, and also drives the SR
+    /// shift in ShiftInExt / ShiftOutExt modes (shift on the trailing
+    /// CB1→low edge).
+    pub fn set_cb1_level(&mut self, level_high: bool) {
+        let prev = self.cb1;
+        self.cb1 = level_high;
+
+        if self.edge_matches(prev, self.cb1, self.cb1_active_high()) {
+            self.raise_interrupt(IRQ_CB1);
+            if self.pb_latch_enabled() {
+                self.irb = self.pb_in;
+            }
+            if self.cb2_is_output() && self.cb2_output_mode() == 0x00 {
+                self.cb2_handshake_high = false;
+            }
+        }
+
+        let mode = SrMode::from_acr(self.acr);
+        if mode.is_external_clock() && self.sr_active && prev && !level_high {
+            self.advance_shift(mode);
+        }
+
+        self.prev_cb1 = self.cb1;
         self.update_pins();
     }
 
@@ -164,6 +361,7 @@ impl Via6522 {
             0x01 => self.clear_port_a_interrupts(),
             0x04 => self.clear_interrupts(IRQ_T1),
             0x08 => self.clear_interrupts(IRQ_T2),
+            0x0A => self.trigger_sr_access(),
             _ => {}
         }
 
@@ -269,8 +467,21 @@ impl Via6522 {
                 self.t2_running = true;
                 self.clear_interrupts(IRQ_T2);
             }
-            0x0A => self.shift_register = value,
-            0x0B => self.acr = value,
+            0x0A => {
+                self.shift_register = value;
+                self.trigger_sr_access();
+            }
+            0x0B => {
+                let prev_acr = self.acr;
+                self.acr = value;
+                // Per reference note 6: mode 000 forces SR IFR clear.
+                if SrMode::from_acr(self.acr) == SrMode::Disabled
+                    && SrMode::from_acr(prev_acr) != SrMode::Disabled
+                {
+                    self.clear_interrupts(IRQ_SR);
+                    self.sr_active = false;
+                }
+            }
             0x0C => {
                 self.pcr = value;
                 if self.ca2_is_output() {
@@ -392,20 +603,44 @@ impl Via6522 {
             }
         };
 
-        self.cb1_drive = false;
-        self.cb1_out = true;
-
-        self.cb2_drive = self.cb2_is_output();
-        self.cb2_out = if !self.cb2_drive {
-            true
-        } else {
-            match self.cb2_output_mode() {
-                0x00 => self.cb2_handshake_high,
-                0x01 => !self.cb2_pulse_low,
-                0x02 => false,
-                _ => true,
+        // When SR is enabled (ACR4:2 ≠ 000), CB1 acts as shift clock
+        // and CB2 as shift data; PCR CB1/CB2 settings are overridden.
+        let sr_mode = SrMode::from_acr(self.acr);
+        if sr_mode != SrMode::Disabled {
+            if sr_mode.is_external_clock() {
+                // CB1 is input in external-clock modes.
+                self.cb1_drive = false;
+                self.cb1_out = true;
+            } else {
+                // CB1 is driven by the internal shift clock.
+                self.cb1_drive = true;
+                self.cb1_out = self.sr_cb1_clock;
             }
-        };
+            if sr_mode.is_output() {
+                // CB2 reflects the latest shifted MSB (cb2_out set in
+                // advance_shift). Keep cb2_drive=true.
+                self.cb2_drive = true;
+            } else {
+                // Shift-in modes: CB2 is input.
+                self.cb2_drive = false;
+                self.cb2_out = true;
+            }
+        } else {
+            self.cb1_drive = false;
+            self.cb1_out = true;
+
+            self.cb2_drive = self.cb2_is_output();
+            self.cb2_out = if !self.cb2_drive {
+                true
+            } else {
+                match self.cb2_output_mode() {
+                    0x00 => self.cb2_handshake_high,
+                    0x01 => !self.cb2_pulse_low,
+                    0x02 => false,
+                    _ => true,
+                }
+            };
+        }
 
         self.irq = (self.ifr & self.ier) != 0;
     }
@@ -556,7 +791,7 @@ impl Default for Via6522 {
 
 #[cfg(test)]
 mod tests {
-    use super::{IRQ_CA1, IRQ_CB2, IRQ_T1, IRQ_T2, Via6522};
+    use super::{IRQ_CA1, IRQ_CB2, IRQ_SR, IRQ_T1, IRQ_T2, Via6522};
 
     #[test]
     fn port_reads_mix_outputs_and_inputs() {
@@ -736,5 +971,76 @@ mod tests {
 
         via.write(0x0E, IRQ_CA1);
         assert!(!via.irq);
+    }
+
+    // ─── Shift register mode tests ────────────────────────────────────
+
+    #[test]
+    fn shift_out_phi2_rate_emits_msb_first_over_16_ticks() {
+        // Mode 110 (shift out at Φ2 rate). CB1 toggles every Φ2, shift
+        // fires on trailing edge, so one bit per 2 Φ2 ticks → 16 ticks
+        // for a full byte.
+        let mut via = Via6522::new();
+        via.write(0x0B, 0b000_110_00); // ACR SR = 110, rest zero
+        via.write(0x0A, 0b1010_0101); // $A5 — pattern to verify MSB-first
+        // Collect CB2 on each trailing-edge shift.
+        let mut observed: Vec<bool> = Vec::new();
+        let mut prev_clock = via.sr_cb1_clock;
+        for _ in 0..20 {
+            via.tick();
+            if prev_clock && !via.sr_cb1_clock {
+                observed.push(via.cb2_out);
+            }
+            prev_clock = via.sr_cb1_clock;
+        }
+        // Expect 8 shifts, MSB first: 1 0 1 0 0 1 0 1
+        assert_eq!(observed.len(), 8);
+        assert_eq!(observed, vec![true, false, true, false, false, true, false, true]);
+        // IFR_SR should have fired after the 8th shift.
+        assert_ne!(via.ifr & IRQ_SR, 0, "SR IFR should fire after 8 shifts");
+    }
+
+    #[test]
+    fn sr_disabled_mode_clears_ifr_and_does_not_shift() {
+        let mut via = Via6522::new();
+        via.write(0x0B, 0b000_110_00); // start in shift-out Φ2 mode
+        via.write(0x0A, 0xFF);
+        // Advance a few ticks, forcing the first shift to raise IFR.
+        for _ in 0..20 {
+            via.tick();
+        }
+        assert_ne!(via.ifr & IRQ_SR, 0);
+
+        // Disable: ACR SR = 000. Note 6 says IFR_SR must clear.
+        via.write(0x0B, 0b000_000_00);
+        assert_eq!(via.ifr & IRQ_SR, 0);
+
+        // Writing/reading SR in disabled mode must not start shifting.
+        via.write(0x0A, 0xAA);
+        for _ in 0..20 {
+            via.tick();
+        }
+        assert_eq!(via.ifr & IRQ_SR, 0);
+        assert!(!via.sr_active);
+    }
+
+    #[test]
+    fn sr_external_clock_shift_in_on_cb1_falling_edge() {
+        // Mode 011 — shift in on external CB1 falling edges, data on CB2.
+        // Drive 8 bits of 1,0,1,0,1,0,1,0 in order; after 8 shifts the
+        // shift register contains those bits with the first-arrived bit
+        // in the MSB.
+        let mut via = Via6522::new();
+        via.write(0x0B, 0b000_011_00);
+        via.write(0x0A, 0x00); // start fresh; triggers sr_active
+
+        let data_bits = [true, false, true, false, true, false, true, false];
+        for bit in data_bits {
+            via.cb2 = bit;
+            via.set_cb1_level(true); // rising
+            via.set_cb1_level(false); // falling — shifts one bit
+        }
+        assert_eq!(via.shift_register, 0b1010_1010);
+        assert_ne!(via.ifr & IRQ_SR, 0);
     }
 }
