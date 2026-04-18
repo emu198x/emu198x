@@ -23,7 +23,7 @@ pub struct M6502 {
     pub halted: bool,
     pub decimal_disabled: bool,
     pub(crate) cs: cycle::CycleState,
-    pub(crate) reset_phase: u8,
+    pub reset_phase: u8,
 }
 
 impl M6502 {

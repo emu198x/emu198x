@@ -89,13 +89,17 @@ fn nestest_smoke() {
     let parsed = format_nintendo_nes_ines::parse_ines(&rom_data).expect("parse nestest.nes");
     let mut nes = Nes::new(parsed.mapper);
 
-    // Run through the 2-cycle reset bootstrap (6 PPU dots).
-    for _ in 0..6 {
+    // Run through the 7-cycle reset bootstrap (21 PPU dots).
+    for _ in 0..21 {
         nes.tick();
     }
 
-    // Force PC to $C000 (automated test entry, not $C004 visual mode).
+    // Force PC to $C000 (automated test entry, not $C004 visual mode)
+    // and restore SP to the nestest-log starting value (reset
+    // decrements SP by 3 for phantom pushes, but the reference log
+    // was recorded starting from SP=FD).
     nes.cpu.regs.pc = 0xC000;
+    nes.cpu.regs.sp = 0xFD;
     nes.cpu.addr = 0xC000;
     nes.cpu.rw = true;
     nes.cpu.sync = true;

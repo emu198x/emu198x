@@ -688,7 +688,11 @@ mod tests {
         assert_eq!(machine.raster_line(), 0);
         assert_eq!(machine.cycle_in_line(), 0);
         assert_eq!(machine.vic_bank(), 0);
-        assert_eq!(machine.cpu().addr, 0xFFFC);
+        // Post-reset the CPU is in the 7-cycle reset sequence; the
+        // first five cycles are phantom stack reads, so addr is
+        // SP-relative, not yet on the reset vector. Only rw=read and
+        // !sync are observable right away.
+        assert_eq!(machine.cpu().reset_phase, 7);
         assert!(machine.cpu().rw);
         assert!(!machine.cpu().sync);
     }
@@ -739,11 +743,13 @@ mod tests {
     #[test]
     fn cpu_reset_bootstrap_reaches_first_opcode_fetch() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
-        assert!(!machine.tick());
-        assert!(machine.cpu().rw);
-        assert_eq!(machine.cpu().addr, 0xFFFD);
-
-        assert!(!machine.tick());
+        // 5 phantom cycles + vector-lo + vector-hi = 7 cycles total,
+        // then the first opcode fetch lands on tick 7.
+        for _ in 0..7 {
+            if machine.tick() && machine.cpu().instruction_complete() {
+                break;
+            }
+        }
         assert!(machine.cpu().sync);
         assert_eq!(machine.cpu().addr, 0xE000);
         assert_eq!(machine.cpu().regs.pc, 0xE000);
@@ -759,9 +765,8 @@ mod tests {
         machine.memory.ram_write(0x0403, 0x00);
         machine.memory.ram_write(0x0404, 0x02);
 
-        machine.tick();
-        machine.tick();
-        for _ in 0..6 {
+        // 7 reset + 2 LDA#imm + 4 STA abs = 13 cycles.
+        for _ in 0..13 {
             machine.tick();
         }
 

@@ -1263,8 +1263,13 @@ mod tests {
     }
 
     fn boot(machine: &mut Drive1541) {
-        assert!(!machine.tick());
-        assert!(machine.tick());
+        // 6502 reset is a 7-cycle sequence: step until the CPU is
+        // instruction-complete and sync-pin is asserted.
+        for _ in 0..7 {
+            if machine.tick() && machine.cpu().instruction_complete() {
+                break;
+            }
+        }
         assert!(machine.cpu().instruction_complete());
         assert!(machine.cpu().sync);
     }

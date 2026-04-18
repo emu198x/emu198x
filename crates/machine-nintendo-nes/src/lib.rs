@@ -400,7 +400,10 @@ mod tests {
         let nes = nop_nes();
         assert_eq!(nes.master_clock(), 0);
         assert_eq!(nes.frame_count(), 0);
-        assert_eq!(nes.cpu.addr, 0xFFFC);
+        // Post-reset the CPU is in a 7-cycle reset sequence; the first
+        // five cycles are phantom stack reads, so addr is SP-relative
+        // initially rather than on the reset vector.
+        assert_eq!(nes.cpu.reset_phase, 7);
         assert!(nes.cpu.rw);
     }
 
@@ -507,21 +510,15 @@ mod tests {
     #[test]
     fn cpu_executes_nop_after_reset_bootstrap() {
         let mut nes = nop_nes();
-        // Reset bootstrap: 2 CPU cycles = 6 PPU dots.
-        for _ in 0..6 {
+        // Reset bootstrap is now 7 CPU cycles = 21 PPU dots.
+        for _ in 0..21 {
             nes.tick();
         }
         // After bootstrap, PC should be $8000 (the reset vector).
         assert_eq!(nes.cpu.regs.pc, 0x8000, "PC should point to reset vector");
 
-        // Tick 3 more PPU dots = 1 CPU cycle. The CPU should
-        // fetch the NOP at $8000.
-        for _ in 0..3 {
-            nes.tick();
-        }
-        // After executing NOP (2 cycles = 6 dots total for
-        // fetch + execute), PC advances to $8001.
-        for _ in 0..3 {
+        // Execute one NOP (2 CPU cycles = 6 PPU dots).
+        for _ in 0..6 {
             nes.tick();
         }
         assert_eq!(
@@ -534,8 +531,8 @@ mod tests {
     fn ppu_nmi_routes_to_cpu() {
         let mut nes = nop_nes();
         // Enable NMI in the PPU by writing $2000 bit 7.
-        // First, run through the reset bootstrap.
-        for _ in 0..6 {
+        // First, run through the reset bootstrap (7 CPU cycles = 21 dots).
+        for _ in 0..21 {
             nes.tick();
         }
 
