@@ -51,7 +51,7 @@ members = [
 [workspace.package]
 edition = "2024"
 version = "0.1.0"
-license = "MIT"
+license = "GPL-2.0-or-later"
 
 [workspace.dependencies]
 cpal = "0.15"
