@@ -34,18 +34,20 @@ fn main() {
         if !armed {
             continue;
         }
-        if tick & 0x3F == 0 {
-            let pc_bucket = amiga.cpu.instr_start_pc & !0x3;
-            *pc_hist.entry(pc_bucket).or_insert(0) += 1;
+        // Sample every tick but only record PC changes in trackdisk range.
+        let pc = amiga.cpu.instr_start_pc;
+        if (0x00FE8000..0x00FEA000).contains(&pc) {
+            *pc_hist.entry(pc).or_insert(0) += 1;
         }
     }
 
     let mut entries: Vec<(u32, u64)> = pc_hist.into_iter().collect();
     entries.sort_by(|a, b| b.1.cmp(&a.1));
     println!("Trigger (JSR DoIO CMD_READ) at tick {trigger_tick}");
-    println!("Top 30 PC hotspots (4-byte buckets) after trigger:");
-    for (pc, count) in entries.iter().take(30) {
-        println!("  ${pc:08X}: {count:>8} samples");
+    println!("Top 50 trackdisk/strap PCs (all hits) after trigger:");
+    entries.sort_by_key(|&(pc, _)| pc);
+    for (pc, count) in entries.iter().take(80) {
+        println!("  ${pc:08X}: {count:>8} hits");
     }
 
     println!("\nFloppy final: motor_on={} spinning={} selected={} cyl={} head={}",
@@ -63,4 +65,8 @@ fn main() {
         amiga.cia_b.timer_a(), amiga.cia_b.timer_a_running(),
         amiga.cia_b.timer_b(), amiga.cia_b.timer_b_running(),
         amiga.cia_b.icr_mask(), amiga.cia_b.icr_status());
+    println!("CIA-A TOD counter=${:06X} halted={} alarm=${:06X}",
+        amiga.cia_a.tod_counter(), amiga.cia_a.tod_halted(), amiga.cia_a.tod_alarm());
+    println!("CIA-B TOD counter=${:06X} halted={} alarm=${:06X}",
+        amiga.cia_b.tod_counter(), amiga.cia_b.tod_halted(), amiga.cia_b.tod_alarm());
 }

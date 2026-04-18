@@ -59,7 +59,7 @@ fn main() {
     let mut hits: BTreeMap<u32, (u64, u64)> = BTreeMap::new();
     let mut prev_pc = u32::MAX;
 
-    let total_ticks = 400u64 * ccks_per_frame;
+    let total_ticks = 2000u64 * ccks_per_frame;
     for tick in 0..total_ticks {
         amiga.tick_cck();
         let pc = amiga.cpu.instr_start_pc;

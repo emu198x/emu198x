@@ -1224,31 +1224,33 @@ impl Amiga {
         }
 
         // Update CIA-A PRA with floppy status (active-low signals).
-        let status = self.floppy.status();
+        // On real hardware, PA2-PA5 are multiplexed through the selected
+        // drive; with no drive selected, the lines float high (deasserted).
         let mut ext_a = self.cia_a.external_a;
-        // PA2: /DSKCHANGE
-        if status.disk_change {
-            ext_a &= !0x04;
+        if self.floppy.selected() {
+            let status = self.floppy.status();
+            if status.disk_change {
+                ext_a &= !0x04;
+            } else {
+                ext_a |= 0x04;
+            }
+            if status.write_protect {
+                ext_a &= !0x08;
+            } else {
+                ext_a |= 0x08;
+            }
+            if status.track0 {
+                ext_a &= !0x10;
+            } else {
+                ext_a |= 0x10;
+            }
+            if status.ready {
+                ext_a &= !0x20;
+            } else {
+                ext_a |= 0x20;
+            }
         } else {
-            ext_a |= 0x04;
-        }
-        // PA3: /DSKPROT
-        if status.write_protect {
-            ext_a &= !0x08;
-        } else {
-            ext_a |= 0x08;
-        }
-        // PA4: /DSKTRACK0
-        if status.track0 {
-            ext_a &= !0x10;
-        } else {
-            ext_a |= 0x10;
-        }
-        // PA5: /DSKRDY
-        if status.ready {
-            ext_a &= !0x20;
-        } else {
-            ext_a |= 0x20;
+            ext_a |= 0x3C;
         }
         self.cia_a.external_a = ext_a;
 
