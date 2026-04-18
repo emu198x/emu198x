@@ -334,6 +334,13 @@ pub struct Paula8364 {
     disk_write_dma_log: Vec<u16>,
     disk_write_pio_log: Vec<u16>,
     pub disk_dma_pending: bool,
+    /// DSKLEN arming flip-flop. Per Amiga HRM §Disk Controller: "the
+    /// DMAEN bit in DSKLEN must be turned on twice in order to actually
+    /// enable the disk DMA hardware." The first bit-15=1 write arms
+    /// this flop; the second bit-15=1 write triggers DMA and clears it.
+    /// Any bit-15=0 write disarms (matches the HRM-recommended $4000
+    /// "safety" write after a transfer).
+    dsklen_armed: bool,
     /// Disk PLL phase accumulator for variable-rate MFM streams.
     ///
     /// For standard tracks (fixed byte rate) this stays at zero — the
@@ -372,6 +379,7 @@ impl Paula8364 {
             disk_write_dma_log: Vec::new(),
             disk_write_pio_log: Vec::new(),
             disk_dma_pending: false,
+            dsklen_armed: false,
             disk_pll_phase: 0,
             disk_pll_variable_rate: false,
             audio: [AudioChannel::default(); 4],
@@ -654,17 +662,34 @@ impl Paula8364 {
     }
 
     /// Double-write protocol: DMA starts only when DSKLEN is written
-    /// twice in a row with bit 15 set. Sets `disk_dma_pending` for the
-    /// machine crate to perform the actual transfer and fire DSKBLK.
+    /// twice in a row with bit 15 set. Tracks an explicit armed flip-flop:
+    ///   - bit-15=1 write while not armed → arm
+    ///   - bit-15=1 write while already armed → trigger DMA, disarm
+    ///   - bit-15=0 write → disarm (covers the HRM-recommended $4000
+    ///     "safety" write after a transfer)
     pub fn write_dsklen(&mut self, val: u16) {
-        let prev = self.dsklen;
+        self.dsklen_prev = self.dsklen;
         self.dsklen = val;
-        self.dsklen_prev = prev;
 
-        // Detect double-write with DMA enable (bit 15 set on both writes).
-        if val & 0x8000 != 0 && prev & 0x8000 != 0 {
-            self.disk_dma_pending = true;
+        if val & 0x8000 != 0 {
+            if self.dsklen_armed {
+                self.disk_dma_pending = true;
+                self.dsklen_armed = false;
+            } else {
+                self.dsklen_armed = true;
+            }
+        } else {
+            self.dsklen_armed = false;
         }
+    }
+
+    /// Called by the machine crate when the disk DMA transfer completes.
+    /// Atomically clears the pending flag, disarms, and raises DSKBLK.
+    pub fn complete_disk_dma(&mut self) {
+        self.disk_dma_pending = false;
+        self.dsklen_armed = false;
+        // INTREQ bit 1 = DSKBLK (disk block finished)
+        self.intreq |= 0x0002;
     }
 
     pub fn write_dskdat(&mut self, val: u16) {

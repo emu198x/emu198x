@@ -1087,7 +1087,7 @@ impl Amiga {
         let is_write = self.paula.dsklen & 0x4000 != 0;
 
         if word_count == 0 {
-            self.paula.request_interrupt(1); // DSKBLK
+            self.paula.complete_disk_dma();
             self.disk_dma_runtime = None;
             return;
         }
@@ -1198,7 +1198,7 @@ impl Amiga {
             runtime.words_remaining = runtime.words_remaining.saturating_sub(1);
             if runtime.words_remaining == 0 {
                 self.disk_dma_runtime = None;
-                self.paula.request_interrupt(1); // DSKBLK
+                self.paula.complete_disk_dma();
             }
         }
     }

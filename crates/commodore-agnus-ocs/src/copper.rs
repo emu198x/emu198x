@@ -109,11 +109,6 @@ impl Copper {
     }
 
     fn check_wait(&self, vpos: u16, hpos: u16, blitter_busy: bool) -> bool {
-        // End-of-list marker ($FFFF,$FFFE): never resolves.
-        if self.ir1 == 0xFFFF && self.ir2 == 0xFFFE {
-            return false;
-        }
-
         // BFD (bit 15 of ir2): Blitter-Finished Disable.
         // When BFD=0, the copper also waits for the blitter to be idle.
         // When BFD=1, the blitter state is ignored.
@@ -122,13 +117,16 @@ impl Copper {
             return false;
         }
 
+        // HP uses bits [7:1] of the instruction (LSB ignored per HRM), and
+        // compares against the CCK index directly — hpos is already that
+        // index (0..=226), so no pre-shift is needed.
         let wait_v = (self.ir1 >> 8) & 0xFF;
         let wait_h = (self.ir1 >> 1) & 0x7F;
         let mask_v = (self.ir2 >> 8) & 0x7F;
         let mask_h = (self.ir2 >> 1) & 0x7F;
 
         let cur_v = vpos & 0xFF;
-        let cur_h = (hpos >> 1) & 0x7F;
+        let cur_h = hpos & 0x7F;
 
         // V7 (bit 7 of the vertical beam counter) is always compared on
         // real hardware even though the mask register has no V7 bit. Force
