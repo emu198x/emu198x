@@ -26,15 +26,36 @@ impl M6502 {
             return self.tick_reset();
         }
 
-        // TODO(taskId=32): penultimate-cycle IRQ/NMI sampling and the
-        // one-instruction CLI/SEI/PLP delay are not yet modelled. At
-        // instruction boundary (cs.cycle == 0) we sample the current
-        // IRQ/NMI lines directly rather than the latched penultimate
-        // state. This is correct for simple flow but misses a few
-        // edge-cases that blargg's cpu_interrupts_v2 and some tight
-        // NES timing code exercise. Refactor once we have cycle-count
-        // visibility in every addressing-mode helper.
+        // Interrupt servicing at instruction boundary uses the
+        // penultimate-cycle latches (pending_irq_line, pending_i_mask,
+        // pending_nmi) rather than the live input lines. The latches
+        // are updated on every non-final cycle inside the dispatch
+        // block below, so by the time we arrive here they hold the
+        // sample taken on the penultimate cycle of the previous
+        // instruction. pending_i_mask captures the I-bit AS OF that
+        // penultimate cycle — giving CLI/SEI/PLP their one-instruction
+        // delay for free.
         if self.cs.cycle == 0 {
+            if self.pending_nmi {
+                self.pending_nmi = false;
+                self.nmi_prev = self.nmi;
+                self.cs.opcode = 0x00;
+                self.cs.info = Some(cycle::OpcodeInfo {
+                    addr_mode: AddrMode::Brk,
+                    operation: Operation::Brk,
+                });
+                self.cs.cycle = 1;
+                self.cs.addr = 0;
+                self.cs.data = 1;
+                self.cs.offset = 0;
+                self.cs.page_crossed = false;
+                self.schedule_read(self.regs.pc);
+                return false;
+            }
+
+            // Pick up any NMI edge that arrived but wasn't latched by
+            // the helper loop yet — safety net for the very first
+            // instruction after reset where there was no prior tick.
             if self.nmi && !self.nmi_prev {
                 self.nmi_prev = true;
                 self.cs.opcode = 0x00;
@@ -53,7 +74,7 @@ impl M6502 {
 
             self.nmi_prev = self.nmi;
 
-            if self.irq && !self.regs.interrupt_disable() {
+            if self.pending_irq_line && !self.pending_i_mask {
                 self.cs.opcode = 0x00;
                 self.cs.info = Some(cycle::OpcodeInfo {
                     addr_mode: AddrMode::Brk,
@@ -83,6 +104,10 @@ impl M6502 {
             self.cs.offset = 0;
             self.cs.page_crossed = false;
             self.schedule_read(self.regs.pc);
+            // Opcode-fetch IS the penultimate cycle of a 2-cycle
+            // instruction. Sample here so the latch is current when
+            // the next boundary arrives.
+            self.latch_interrupt_samples();
             return false;
         }
 
@@ -121,9 +146,28 @@ impl M6502 {
         if done {
             self.cs.cycle = 0;
             self.schedule_opcode_fetch(self.regs.pc);
+        } else {
+            // Sample IRQ/NMI on every non-final cycle. The last sample
+            // taken before done=true is the one from the penultimate
+            // cycle — exactly what real hardware uses.
+            self.latch_interrupt_samples();
         }
 
         done
+    }
+
+    /// Capture the interrupt lines + I-bit into the penultimate-cycle
+    /// latches. Called from the opcode-fetch path (to cover the
+    /// 2-cycle-instruction case where the fetch IS the penultimate
+    /// cycle) and after any helper that returns done=false (so the
+    /// last pre-final sample survives into the next boundary check).
+    fn latch_interrupt_samples(&mut self) {
+        self.pending_irq_line = self.irq;
+        self.pending_i_mask = self.regs.interrupt_disable();
+        if self.nmi && !self.nmi_prev {
+            self.pending_nmi = true;
+        }
+        self.nmi_prev = self.nmi;
     }
 
     fn tick_reset(&mut self) -> bool {

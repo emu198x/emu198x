@@ -24,6 +24,22 @@ pub struct M6502 {
     pub decimal_disabled: bool,
     pub(crate) cs: cycle::CycleState,
     pub reset_phase: u8,
+    /// Penultimate-cycle IRQ sample. Updated on every non-final cycle
+    /// of an instruction; the value left here when a helper returns
+    /// done=true is the sample from the penultimate cycle, which is
+    /// what real 6502 hardware uses to decide whether to service an
+    /// IRQ at the end of the current instruction.
+    pub(crate) pending_irq_line: bool,
+    /// I-bit state captured at the same moment as pending_irq_line.
+    /// Gives CLI/SEI/PLP the correct one-instruction delay: the I-bit
+    /// change in the current instruction doesn't affect IRQ servicing
+    /// until the NEXT instruction boundary.
+    pub(crate) pending_i_mask: bool,
+    /// NMI edge-detect latch for penultimate-cycle sampling. When the
+    /// NMI line rises (low-to-high active-low = high-to-low signal)
+    /// during any non-final cycle, this latch is set and remains set
+    /// until the NMI is serviced.
+    pub(crate) pending_nmi: bool,
 }
 
 impl M6502 {
@@ -56,6 +72,9 @@ impl M6502 {
             decimal_disabled: !decimal_enabled,
             cs: cycle::CycleState::default(),
             reset_phase: 0,
+            pending_irq_line: false,
+            pending_i_mask: true,
+            pending_nmi: false,
         }
     }
 
@@ -86,6 +105,9 @@ impl M6502 {
         self.data_in = 0;
         self.so = true;
         self.so_prev = true;
+        self.pending_irq_line = false;
+        self.pending_i_mask = true;
+        self.pending_nmi = false;
     }
 
     #[must_use]
@@ -351,5 +373,67 @@ mod tests {
         assert_eq!(fixture.cpu.regs.x, 0x41);
         fixture.run_one();
         assert_eq!(fixture.cpu.regs.x, 0x42);
+    }
+
+    // ─── Penultimate-cycle IRQ sampling / CLI delay tests (task #32) ──
+
+    /// IRQ asserted BEFORE the instruction starts should be taken at
+    /// the next boundary (provided I is clear).
+    #[test]
+    fn irq_asserted_before_instruction_is_serviced_at_boundary() {
+        // Program: CLI then LDA #imm (to clear I first), then a NOP
+        // where IRQ will fire. IRQ vector points at $3000.
+        let mut fixture = Fixture::with_program(0x0400, &[0x58, 0xA9, 0x00, 0xEA]);
+        fixture.mem[0xFFFE] = 0x00;
+        fixture.mem[0xFFFF] = 0x30;
+        fixture.boot();
+        fixture.run_one(); // CLI — one-instruction delay means next insn still masked
+        fixture.run_one(); // LDA — I clears by end of this; IRQ now unmasked
+        fixture.cpu.irq = true;
+        fixture.run_one(); // NOP — penultimate-cycle sample captures IRQ high + I clear
+        // Next tick should vector to the IRQ handler.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x3000);
+    }
+
+    /// IRQ asserted with I-disable set must NOT be serviced.
+    #[test]
+    fn irq_ignored_when_i_bit_set() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x78, 0xEA, 0xEA]);
+        fixture.mem[0xFFFE] = 0x00;
+        fixture.mem[0xFFFF] = 0x30;
+        fixture.boot();
+        fixture.run_one(); // SEI — I set by end
+        fixture.cpu.irq = true;
+        fixture.run_one();
+        fixture.run_one();
+        // PC must have advanced through both NOPs, not vectored.
+        assert!(fixture.cpu.regs.pc >= 0x0402);
+        assert_ne!(fixture.cpu.regs.pc, 0x3000);
+    }
+
+    /// CLI one-instruction delay: after CLI, the IMMEDIATELY following
+    /// instruction still runs with the old (set) I-bit sampled at its
+    /// penultimate cycle. Only the instruction AFTER that one sees the
+    /// IRQ taken.
+    #[test]
+    fn cli_has_one_instruction_irq_delay() {
+        // Start with I set (reset state), run CLI then NOP with IRQ
+        // high. The IRQ should NOT be taken at the boundary after
+        // CLI — it's taken after the NOP.
+        let mut fixture = Fixture::with_program(0x0400, &[0x58, 0xEA, 0xEA]);
+        fixture.mem[0xFFFE] = 0x00;
+        fixture.mem[0xFFFF] = 0x30;
+        fixture.boot();
+        assert!(fixture.cpu.regs.interrupt_disable()); // I=1 after reset
+        fixture.cpu.irq = true;
+        fixture.run_one(); // CLI — I cleared at end; penultimate sample had I=1
+        // IRQ must not vector yet — NOP runs first.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x0402);
+        // Now NOP's penultimate cycle samples IRQ high + I clear; next
+        // boundary vectors.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x3000);
     }
 }
