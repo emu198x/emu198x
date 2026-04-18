@@ -769,6 +769,8 @@ impl Vic {
 
     /// Read a VIC-II register.
     pub fn read(&mut self, reg: u8) -> u8 {
+        // Per reference: $D019 bits 6:4 read as 1, $D01A bits 7:4 read
+        // as 1, and unused bits on colour regs ($D020-$D02E) read as 1.
         match reg & 0x3F {
             0x11 => {
                 (self.regs[0x11] & 0x7F)
@@ -780,14 +782,14 @@ impl Vic {
             }
             0x12 => (self.raster_line & 0xFF) as u8,
             0x19 => {
-                self.irq_status
-                    | if (self.irq_status & self.irq_enable & 0x0F) != 0 {
-                        0x80
-                    } else {
-                        0x00
-                    }
+                let composite = if (self.irq_status & self.irq_enable & 0x0F) != 0 {
+                    0x80
+                } else {
+                    0x00
+                };
+                self.irq_status | composite | 0x70
             }
-            0x1A => self.irq_enable & 0x0F,
+            0x1A => (self.irq_enable & 0x0F) | 0xF0,
             0x1E => {
                 let val = self.sprite_sprite_collision;
                 self.sprite_sprite_collision = 0;
@@ -800,7 +802,7 @@ impl Vic {
                 self.sprite_bg_irq_latched = false;
                 val
             }
-            r if r <= 0x2E => self.regs[r as usize],
+            r @ 0x20..=0x2E => self.regs[r as usize] | 0xF0,
             _ => self.last_bus_data,
         }
     }
@@ -818,6 +820,9 @@ impl Vic {
                     }
             }
             0x12 => (self.raster_line & 0xFF) as u8,
+            // peek() returns the same composite IRR, but we keep the
+            // raw peek semantics — callers that want the canonical
+            // silicon-observable read mask should use read() instead.
             0x19 => {
                 self.irq_status
                     | if (self.irq_status & self.irq_enable & 0x0F) != 0 {
@@ -1112,11 +1117,13 @@ mod tests {
 
     #[test]
     fn register_read_write() {
+        // Colour registers $D020-$D02E: bits 7:4 read as 1 per reference,
+        // so writing $06 reads back as $F6 and $01 reads back as $F1.
         let mut vic = Vic::new(VicModel::Pal6569);
         vic.write(0x20, 0x06);
-        assert_eq!(vic.read(0x20), 0x06);
+        assert_eq!(vic.read(0x20), 0xF6);
         vic.write(0x21, 0x01);
-        assert_eq!(vic.read(0x21), 0x01);
+        assert_eq!(vic.read(0x21), 0xF1);
     }
 
     #[test]

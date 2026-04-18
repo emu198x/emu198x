@@ -2,9 +2,17 @@
 
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
-/// Same as PAL — both use 227 CCKs per line.
+/// Nominal NTSC short-line length. Per HRM p. 785 the NTSC beam
+/// alternates between 227 and 228 CCKs per line; the per-line
+/// alternation is not yet modelled (all NTSC lines count 227 in this
+/// build). PAL uses a fixed 227 every line.
 #[allow(dead_code)]
-pub const NTSC_CCKS_PER_LINE: u16 = 227;
+pub const NTSC_CCKS_PER_LINE_SHORT: u16 = 227;
+#[allow(dead_code)]
+pub const NTSC_CCKS_PER_LINE_LONG: u16 = 228;
+/// Backwards-compatible alias — equal to the short-line length.
+#[allow(dead_code)]
+pub const NTSC_CCKS_PER_LINE: u16 = NTSC_CCKS_PER_LINE_SHORT;
 /// NTSC uses 262 lines per frame (vs PAL's 312).
 #[allow(dead_code)]
 pub const NTSC_LINES_PER_FRAME: u16 = 262;
