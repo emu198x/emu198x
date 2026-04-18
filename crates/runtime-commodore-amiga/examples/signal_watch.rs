@@ -61,6 +61,15 @@ fn main() {
     let mut replymsg_calls = 0u64;
     let mut prev_sig_recvd: u32 = !0;
     let mut sig_recvd_changes: Vec<(u64, u32)> = Vec::new();
+    let mut exter_rises = 0u64;
+    let mut exter_clears = 0u64;
+    let mut prev_exter_set = false;
+    let mut cia_b_irq_rises = 0u64;
+    let mut prev_cia_b_irq = false;
+    let mut cia_b_icrmask_changes: Vec<(u64, u8)> = Vec::new();
+    let mut prev_icrmask: u8 = !0;
+    let mut ports_rises = 0u64;
+    let mut prev_ports_set = false;
 
     // Instrument from tick 0 for 500 frames.
     for tick in 0..(500 * ccks_per_frame) {
@@ -103,6 +112,24 @@ fn main() {
                 prev_sig_recvd = sr;
             }
         }
+
+        let exter_now = (amiga.paula.intreq & 0x2000) != 0;
+        if exter_now && !prev_exter_set { exter_rises += 1; }
+        if !exter_now && prev_exter_set { exter_clears += 1; }
+        prev_exter_set = exter_now;
+
+        let ports_now = (amiga.paula.intreq & 0x0008) != 0;
+        if ports_now && !prev_ports_set { ports_rises += 1; }
+        prev_ports_set = ports_now;
+
+        let cb_irq = amiga.cia_b.irq_active();
+        if cb_irq && !prev_cia_b_irq { cia_b_irq_rises += 1; }
+        prev_cia_b_irq = cb_irq;
+        let cb_mask = amiga.cia_b.icr_mask();
+        if cb_mask != prev_icrmask {
+            cia_b_icrmask_changes.push((tick, cb_mask));
+            prev_icrmask = cb_mask;
+        }
     }
 
     println!("\n── LVO call counts ──");
@@ -130,5 +157,14 @@ fn main() {
     println!("\ntrackdisk sig_recvd changes ({}):", sig_recvd_changes.len());
     for (tick, sr) in sig_recvd_changes.iter().take(30) {
         println!("  tick={tick} sig_recvd=${sr:08X}");
+    }
+
+    println!("\n── Interrupt + CIA-B activity ──");
+    println!("  EXTER INTREQ rises: {exter_rises}  clears: {exter_clears}");
+    println!("  PORTS INTREQ rises: {ports_rises}");
+    println!("  CIA-B irq_active rises: {cia_b_irq_rises}");
+    println!("  CIA-B ICR mask changes ({}):", cia_b_icrmask_changes.len());
+    for (tick, m) in cia_b_icrmask_changes.iter().take(30) {
+        println!("    tick={tick} icr_mask=${m:02X}");
     }
 }
