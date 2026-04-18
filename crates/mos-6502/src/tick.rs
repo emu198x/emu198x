@@ -26,6 +26,14 @@ impl M6502 {
             return self.tick_reset();
         }
 
+        // TODO(taskId=32): penultimate-cycle IRQ/NMI sampling and the
+        // one-instruction CLI/SEI/PLP delay are not yet modelled. At
+        // instruction boundary (cs.cycle == 0) we sample the current
+        // IRQ/NMI lines directly rather than the latched penultimate
+        // state. This is correct for simple flow but misses a few
+        // edge-cases that blargg's cpu_interrupts_v2 and some tight
+        // NES timing code exercise. Refactor once we have cycle-count
+        // visibility in every addressing-mode helper.
         if self.cs.cycle == 0 {
             if self.nmi && !self.nmi_prev {
                 self.nmi_prev = true;
