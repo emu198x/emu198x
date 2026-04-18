@@ -1,6 +1,5 @@
-//! Detect whether trackdisk.device's task code ever executes after strap
-//! issues DoIO(TD_CHANGESTATE). If not, the task is never being scheduled,
-//! which points to a broken signal/wait path between strap and trackdisk.
+//! After the CIA double-read fix, count total DoIO calls to trackdisk
+//! over a long boot to see if AmigaDOS is actually exercising it.
 
 use emu198x_shell::{MediaKind, read_media_asset};
 use machine_commodore_amiga::Amiga;
@@ -10,7 +9,6 @@ use std::path::Path;
 fn main() {
     let kickstart = fs::read("/Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom").unwrap();
     let mut amiga = Amiga::new_with_slow_ram(kickstart, 512 * 1024);
-
     let disk_path = "/Users/stevehill/Projects/Emu198x-Unclean/Reference/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip";
     let loaded = read_media_asset(Path::new(disk_path), MediaKind::Disk).unwrap();
     let adf = format_commodore_amiga_adf::Adf::from_bytes(loaded.bytes).unwrap();
@@ -20,45 +18,59 @@ fn main() {
     let ccks_per_frame = u64::from(amiga.agnus.lines_per_frame)
         * u64::from(commodore_agnus_ocs::PAL_CCKS_PER_LINE);
 
-    // Strap hits $FE8570 (DoIO TD_CHANGESTATE) at tick ~13,002,035.
-    // Anything after that in trackdisk range ($FE9000-$FEA000) is the task.
-    // Also monitor whether any "custom write" to Paula disk regs happens.
+    const TDSK_BEGINIO: u32 = 0x00FE9C3E;
 
-    // Count fetches in various ranges after strap hits DoIO.
-    let mut fc_fetches = 0u64;
-    let mut trackdisk_fetches = 0u64;
-    let mut other_fetches = 0u64;
-    let mut reached_trigger = false;
-    let mut prev_pc = u32::MAX;
+    let mut trackdisk_beginio_hits = 0u64;
+    let mut dsklen_arms: Vec<(u64, u16)> = Vec::new();
+    let mut cyl_changes: Vec<(u64, u32)> = Vec::new();
+    let mut dskblk_int_rises = 0u64;
+    let mut prev_pc = 0u32;
+    let mut prev_dsklen_armed = false;
+    let mut prev_cyl = 0u32;
+    let mut prev_dskblk_set = false;
 
-    let total_ticks = 500u64 * ccks_per_frame;
-    for _tick in 0..total_ticks {
+    let total_frames = 3000u64;
+    for tick in 0..(total_frames * ccks_per_frame) {
         amiga.tick_cck();
         let pc = amiga.cpu.instr_start_pc;
-        if pc == 0x00FE8570 {
-            reached_trigger = true;
-        }
-        if !reached_trigger || pc == prev_pc {
-            continue;
+        if pc == TDSK_BEGINIO && pc != prev_pc {
+            trackdisk_beginio_hits += 1;
         }
         prev_pc = pc;
-        if pc >= 0x00FE9000 && pc < 0x00FEB000 {
-            trackdisk_fetches += 1;
-        } else if pc >= 0x00FC0000 && pc < 0x00FE9000 {
-            fc_fetches += 1;
-        } else {
-            other_fetches += 1;
+
+        let cyl = amiga.floppy.cylinder();
+        if cyl != prev_cyl {
+            if cyl_changes.len() < 200 {
+                cyl_changes.push((tick, cyl));
+            }
+            prev_cyl = cyl;
         }
+
+        let armed = amiga.paula.dsklen & 0x8000 != 0;
+        if armed && !prev_dsklen_armed && dsklen_arms.len() < 50 {
+            dsklen_arms.push((tick, amiga.paula.dsklen));
+        }
+        prev_dsklen_armed = armed;
+
+        let dskblk = (amiga.paula.intreq & 0x0002) != 0;
+        if dskblk && !prev_dskblk_set { dskblk_int_rises += 1; }
+        prev_dskblk_set = dskblk;
     }
 
-    println!("After strap's DoIO(TD_CHANGESTATE) trigger (tick ~13M):");
-    println!("  Unique PCs in $FE9000-$FEB000 (trackdisk): {trackdisk_fetches}");
-    println!("  Unique PCs in $FC0000-$FE9000 (exec/gfx/intuition): {fc_fetches}");
-    println!("  Unique PCs elsewhere (chip RAM tasks): {other_fetches}");
-    println!(
-        "Final: PC=${:08X} DSKLEN=${:04X} DSKPT=${:08X}",
-        amiga.cpu.instr_start_pc,
-        amiga.paula.dsklen,
-        amiga.agnus.dsk_pt
-    );
+    println!("── trackdisk + disk DMA activity over {total_frames} frames ──");
+    println!("trackdisk BeginIO entries: {trackdisk_beginio_hits}");
+    println!("DSKLEN arms (DMA starts):  {}", dsklen_arms.len());
+    for (tick, dl) in dsklen_arms.iter().take(30) {
+        println!("    tick={tick} DSKLEN=${dl:04X}");
+    }
+    println!("DSKBLK INTREQ rises:       {dskblk_int_rises}");
+    println!("Cylinder transitions ({}):", cyl_changes.len());
+    for (tick, cy) in cyl_changes.iter() {
+        println!("    tick={tick} cyl={cy}");
+    }
+
+    println!("\nFinal: PC=${:08X} motor={} spin={} sel={} cyl={}",
+        amiga.cpu.instr_start_pc, amiga.floppy.motor_on(),
+        amiga.floppy.motor_spinning(), amiga.floppy.selected(),
+        amiga.floppy.cylinder());
 }
