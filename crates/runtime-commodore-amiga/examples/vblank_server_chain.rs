@@ -155,6 +155,84 @@ fn main() {
         n += 1;
     }
 
+    // Dump ciaa.resource (where Timer B handler is registered).
+    let ciaa_base: u32 = 0x00C01680;
+    println!("\n── ciaa.resource @ ${ciaa_base:08X} (dump bytes +$00..+$60) ──");
+    for off in (0..0x60u32).step_by(16) {
+        print!("  +${off:04X}:");
+        for i in 0..16 {
+            print!(" {:02X}", rb(&amiga, ciaa_base + off + i));
+        }
+        println!();
+    }
+    // Typical CIARes has interrupt pointers after the Library proper.
+    // Library size = 34 bytes. At +$22 and beyond, look for 5
+    // Interrupt* pointers (TA, TB, ALARM, SP, FLAG) or Interrupt slots.
+    println!("\n── ciaa.resource candidate interrupt vectors (+$1C..+$4C) ──");
+    for base_off in [0x1C, 0x20, 0x24, 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C, 0x40, 0x44, 0x48, 0x4C] {
+        let v = rl(&amiga, ciaa_base.wrapping_add(base_off));
+        let name_ptr = if v >= 0x400 && v < 0x100_0000 {
+            rl(&amiga, v.wrapping_add(0x0A))
+        } else {
+            0
+        };
+        let code = if v >= 0x400 && v < 0x100_0000 {
+            rl(&amiga, v.wrapping_add(0x12))
+        } else {
+            0
+        };
+        let nm = if name_ptr != 0 { read_str(&amiga, name_ptr, 32) } else { String::new() };
+        println!("  +${base_off:02X}: ptr=${v:08X}  (→ name=${name_ptr:08X} '{nm}' code=${code:08X})");
+    }
+
+    // Walk PORTS chain (IntVects[3]).
+    println!("\n── PORTS (CIA-A) server chain ──");
+    let ports_base = execbase.wrapping_add(0x54 + 3 * 12);
+    let ports_data = rl(&amiga, ports_base);
+    println!("  iv_Data = ${ports_data:08X}");
+    if ports_data >= 0x400 && ports_data < 0x0100_0000 {
+        let h = rl(&amiga, ports_data);
+        let t = rl(&amiga, ports_data.wrapping_add(4));
+        let tp = rl(&amiga, ports_data.wrapping_add(8));
+        println!("  List: head=${h:08X} tail=${t:08X} tailpred=${tp:08X}");
+        let mut node = h;
+        let mut n = 0;
+        while node != 0 && n < 20 {
+            let succ = rl(&amiga, node);
+            let name_ptr = rl(&amiga, node.wrapping_add(0x0A));
+            let is_data = rl(&amiga, node.wrapping_add(0x0E));
+            let is_code = rl(&amiga, node.wrapping_add(0x12));
+            let nm = read_str(&amiga, name_ptr, 40);
+            println!("    srv @ ${node:08X} succ=${succ:08X} name=${name_ptr:08X} '{nm}' is_Data=${is_data:08X} is_Code=${is_code:08X}");
+            if succ == 0 || succ == t { break; }
+            node = succ; n += 1;
+        }
+    }
+
+    // Walk EXTER chain (IntVects[13]).
+    println!("\n── EXTER (CIA-B) server chain ──");
+    let exter_base = execbase.wrapping_add(0x54 + 13 * 12);
+    let exter_data = rl(&amiga, exter_base);
+    println!("  iv_Data = ${exter_data:08X}");
+    if exter_data >= 0x400 && exter_data < 0x0100_0000 {
+        let h = rl(&amiga, exter_data);
+        let t = rl(&amiga, exter_data.wrapping_add(4));
+        let tp = rl(&amiga, exter_data.wrapping_add(8));
+        println!("  List: head=${h:08X} tail=${t:08X} tailpred=${tp:08X}");
+        let mut node = h;
+        let mut n = 0;
+        while node != 0 && n < 20 {
+            let succ = rl(&amiga, node);
+            let name_ptr = rl(&amiga, node.wrapping_add(0x0A));
+            let is_data = rl(&amiga, node.wrapping_add(0x0E));
+            let is_code = rl(&amiga, node.wrapping_add(0x12));
+            let nm = read_str(&amiga, name_ptr, 40);
+            println!("    srv @ ${node:08X} succ=${succ:08X} name=${name_ptr:08X} '{nm}' is_Data=${is_data:08X} is_Code=${is_code:08X}");
+            if succ == 0 || succ == t { break; }
+            node = succ; n += 1;
+        }
+    }
+
     // Inspect timer.device VBLANK unit (is_Data from the server node).
     // The unit is a MsgPort at the head; internal state follows.
     let tvu = 0x00C02366u32; // VBLANK unit pointer from VERTB chain
