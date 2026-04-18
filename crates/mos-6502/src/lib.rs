@@ -60,7 +60,12 @@ impl M6502 {
     }
 
     pub fn reset(&mut self) {
-        self.regs = Registers::new();
+        // Per MCS6500 reference: reset is a 7-cycle sequence that
+        // decrements SP three times (phantom pushes of PC + P, but the
+        // bus is held read-only so no actual store occurs), sets I=1,
+        // and fetches the reset vector at $FFFC/$FFFD. NMOS reset does
+        // NOT clear A/X/Y/D or other P bits — those retain their
+        // previous values.
         self.total_cycles = 0;
         self.cs.reset();
         self.halted = false;
@@ -68,8 +73,13 @@ impl M6502 {
         self.nmi = false;
         self.nmi_prev = false;
         self.rdy = true;
-        self.reset_phase = 2;
-        self.addr = 0xFFFC;
+        // Only I and SP are touched; leave A/X/Y/D/V/N/Z/C alone.
+        self.regs.set_flag(registers::FLAG_I, true);
+        self.regs.sp = self.regs.sp.wrapping_sub(3);
+        // 7 reset cycles total: 2 internal + 3 phantom pushes + 2 vector reads.
+        // We model the tail (vector low + vector high) via reset_phase.
+        self.reset_phase = 7;
+        self.addr = 0x0100u16.wrapping_add(u16::from(self.regs.sp));
         self.rw = true;
         self.sync = false;
         self.data = 0;
@@ -107,14 +117,28 @@ mod tests {
     }
 
     #[test]
-    fn reset_schedules_reset_vector_read() {
+    fn reset_schedules_seven_cycle_sequence() {
         let mut cpu = M6502::new();
         cpu.reset();
-        assert_eq!(cpu.addr, 0xFFFC);
+        assert_eq!(cpu.reset_phase, 7);
         assert!(cpu.rw);
         assert!(!cpu.sync);
-        assert_eq!(cpu.reset_phase, 2);
         assert!(!cpu.instruction_complete());
+    }
+
+    #[test]
+    fn reset_preserves_a_x_y_and_decimal() {
+        let mut cpu = M6502::new();
+        cpu.regs.a = 0x42;
+        cpu.regs.x = 0x84;
+        cpu.regs.y = 0x21;
+        cpu.regs.set_flag(registers::FLAG_D, true);
+        cpu.reset();
+        assert_eq!(cpu.regs.a, 0x42);
+        assert_eq!(cpu.regs.x, 0x84);
+        assert_eq!(cpu.regs.y, 0x21);
+        assert!(cpu.regs.flag(registers::FLAG_D));
+        assert!(cpu.regs.interrupt_disable()); // I is forced to 1
     }
 
     #[test]
@@ -125,6 +149,26 @@ mod tests {
         cpu.reset();
         assert!(!cpu.irq);
         assert!(!cpu.nmi);
+    }
+
+    #[test]
+    fn rdy_low_stalls_read_without_cycle_advance() {
+        let mut cpu = M6502::new();
+        cpu.rdy = false;
+        cpu.rw = true;
+        let before = cpu.total_cycles;
+        let ret = cpu.tick();
+        assert!(!ret);
+        assert_eq!(cpu.total_cycles, before);
+    }
+
+    #[test]
+    fn rdy_high_allows_tick_to_advance() {
+        let mut cpu = M6502::new();
+        cpu.rdy = true;
+        let before = cpu.total_cycles;
+        cpu.tick();
+        assert_eq!(cpu.total_cycles, before + 1);
     }
 
     #[test]
@@ -180,8 +224,13 @@ mod tests {
         }
 
         fn boot(&mut self) {
-            assert!(!self.step());
-            assert!(self.step());
+            // Reset is now a 7-cycle sequence. Step through until the
+            // CPU reports instruction_complete at sync.
+            for _ in 0..7 {
+                if self.step() && self.cpu.instruction_complete() {
+                    break;
+                }
+            }
             assert!(self.cpu.instruction_complete());
             assert!(self.cpu.sync);
         }

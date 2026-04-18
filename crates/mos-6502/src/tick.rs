@@ -7,6 +7,15 @@ impl M6502 {
     const LXA_MAGIC: u8 = 0xEE;
 
     pub fn tick(&mut self) -> bool {
+        // RDY pin: if external hardware (e.g. VIC-II during a bad line)
+        // holds RDY low during a read cycle, the NMOS 6502 stalls with
+        // address/data lines unchanged and no cycle accounting. Writes
+        // proceed normally on NMOS; RDY stalls only reads. The CMOS
+        // 65C02 stalls both, but we model NMOS here.
+        if !self.rdy && self.rw {
+            return false;
+        }
+
         self.total_cycles += 1;
         if self.so_prev && !self.so {
             self.regs.set_flag(FLAG_V, true);
@@ -110,7 +119,23 @@ impl M6502 {
     }
 
     fn tick_reset(&mut self) -> bool {
+        // Reset is 7 cycles: 5 internal/phantom-push cycles during
+        // which the bus is held in read-only on the stack area, then
+        // two reads of the reset vector at $FFFC/$FFFD.
         match self.reset_phase {
+            7 | 6 | 5 | 4 => {
+                // Phantom stack cycles — bus stays on SP-relative addr.
+                self.reset_phase -= 1;
+                self.addr = 0x0100u16.wrapping_add(u16::from(self.regs.sp));
+                self.rw = true;
+                self.sync = false;
+                false
+            }
+            3 => {
+                self.reset_phase = 2;
+                self.schedule_read(0xFFFC);
+                false
+            }
             2 => {
                 self.cs.addr = self.data_in as u16;
                 self.reset_phase = 1;
