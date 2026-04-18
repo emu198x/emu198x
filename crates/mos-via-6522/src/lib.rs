@@ -219,7 +219,9 @@ impl Via6522 {
             0x0B => self.acr,
             0x0C => self.pcr,
             0x0D => self.ifr | self.irq_bit(),
-            0x0E => self.ier | 0x80,
+            // Per MOS 6522 preliminary datasheet: "Bit 7 will read as a
+            // logic 0" — IER read returns only the enable bits.
+            0x0E => self.ier & 0x7F,
             _ => 0xFF,
         }
     }
@@ -233,12 +235,19 @@ impl Via6522 {
                     self.cb2_pulse_low = true;
                 }
             }
-            0x01 | 0x0F => {
+            0x01 => {
+                // ORA with handshake: clears CA1/CA2 interrupts and
+                // pulses CA2 if configured.
                 self.ora = value;
                 self.clear_port_a_interrupts();
                 if self.ca2_is_output() && self.ca2_output_mode() == 0x01 {
                     self.ca2_pulse_low = true;
                 }
+            }
+            0x0F => {
+                // ORA-alt (no-handshake): writes the register but does
+                // NOT clear CA1/CA2 IFR or trigger the CA2 pulse.
+                self.ora = value;
             }
             0x02 => self.ddrb = value,
             0x03 => self.ddra = value,

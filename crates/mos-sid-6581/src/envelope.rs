@@ -59,9 +59,14 @@ impl Envelope {
     }
 
     pub fn clock(&mut self, gate: bool) {
+        // Transition the phase on gate edges but do NOT reset the
+        // rate_counter — the free-running counter is the source of the
+        // famous 6581 "ADSR delay bug" that some tunes exploit: when the
+        // new phase's rate period is shorter than the old period's
+        // remaining count, the comparison skips and the envelope
+        // appears to pause until the counter wraps all the way around.
         if gate && !self.prev_gate {
             self.phase = Phase::Attack;
-            self.rate_counter = 0;
             self.exp_counter = 0;
         } else if !gate && self.prev_gate {
             self.phase = Phase::Release;
@@ -76,7 +81,10 @@ impl Envelope {
         };
 
         self.rate_counter = self.rate_counter.wrapping_add(1);
-        if self.rate_counter < rate_period {
+        // Equality check (not <) so the counter must match the period
+        // exactly — if it's already past the period it will wrap all
+        // the way around before triggering again (this is the bug).
+        if self.rate_counter != rate_period {
             return;
         }
         self.rate_counter = 0;
