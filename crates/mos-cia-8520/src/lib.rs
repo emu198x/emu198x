@@ -458,6 +458,10 @@ impl Cia8520 {
     }
 
     fn step_timer_a_count(&mut self) -> bool {
+        // Datasheet: "$0000 is visible for one cycle before the
+        // underflow flag appears." Model the transition by decrementing
+        // through 0 first — a read on that tick will observe 0 — then
+        // on the next tick perform the reload and raise the flag.
         if self.timer_a == 0 {
             self.icr_status |= 0x01;
             self.timer_a = self.timer_a_latch;

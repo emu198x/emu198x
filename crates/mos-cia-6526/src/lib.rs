@@ -34,22 +34,37 @@ pub struct Cia6526 {
     tod_latch: [u8; 4],
     tod_latched: bool,
     tod_halted: bool,
-    tod_divider: u32,
+    /// Phi2 cycles per 10 Hz tick at 50 Hz input (CRA7 = 1).
+    tod_divider_50hz: u32,
+    /// Phi2 cycles per 10 Hz tick at 60 Hz input (CRA7 = 0).
+    tod_divider_60hz: u32,
     tod_counter: u32,
     prev_flag: bool,
     shift_register: u8,
     shift_count: u8,
     sp_output: bool,
+    /// SP output mode shifts one bit every TWO TA underflows. Tracks
+    /// parity so the bit rate matches the 6526 datasheet (half the
+    /// Timer A underflow rate).
+    sp_shift_phase: bool,
 }
 
 impl Cia6526 {
     #[must_use]
     pub fn new() -> Self {
-        Self::new_with_tod(19_705)
+        // PAL defaults: 985 248 Hz phi2 → 50 Hz / 60 Hz pre-dividers.
+        Self::new_with_tod_dividers(19_705, 16_421)
     }
 
     #[must_use]
     pub fn new_with_tod(tod_divider: u32) -> Self {
+        // Legacy constructor — uses the same divider for both 50 and 60 Hz
+        // modes. Prefer new_with_tod_dividers(pal, ntsc).
+        Self::new_with_tod_dividers(tod_divider, tod_divider)
+    }
+
+    #[must_use]
+    pub fn new_with_tod_dividers(tod_divider_50hz: u32, tod_divider_60hz: u32) -> Self {
         let mut cia = Self {
             irq: false,
             pa: 0xFF,
@@ -81,12 +96,14 @@ impl Cia6526 {
             tod_latch: [0; 4],
             tod_latched: false,
             tod_halted: true,
-            tod_divider,
+            tod_divider_50hz,
+            tod_divider_60hz,
             tod_counter: 0,
             prev_flag: true,
             shift_register: 0,
             shift_count: 0,
             sp_output: false,
+            sp_shift_phase: false,
         };
         cia.update_pins();
         cia
@@ -116,11 +133,18 @@ impl Cia6526 {
             }
         }
 
-        if ta_underflowed && self.sp_output && self.shift_count < 8 {
-            self.shift_register = self.shift_register.wrapping_shl(1);
-            self.shift_count += 1;
-            if self.shift_count == 8 {
-                self.icr_status |= 0x08;
+        // SP output mode shifts one bit per TWO Timer A underflows
+        // (the datasheet specifies half the TA rate so the output is
+        // baud-rate-correct). Toggle phase each underflow and shift
+        // only on every second one.
+        if ta_underflowed && self.sp_output {
+            self.sp_shift_phase = !self.sp_shift_phase;
+            if !self.sp_shift_phase && self.shift_count < 8 {
+                self.shift_register = self.shift_register.wrapping_shl(1);
+                self.shift_count += 1;
+                if self.shift_count == 8 {
+                    self.icr_status |= 0x08;
+                }
             }
         }
 
@@ -388,8 +412,16 @@ impl Cia6526 {
         if self.tod_halted {
             return;
         }
+        // CRA bit 7 (TODIN): 1 = 50 Hz input, 0 = 60 Hz input. Select
+        // the matching pre-divider each tick so runtime flips take
+        // effect as soon as software writes CRA.
+        let divider = if self.cra & 0x80 != 0 {
+            self.tod_divider_50hz
+        } else {
+            self.tod_divider_60hz
+        };
         self.tod_counter += 1;
-        if self.tod_counter < self.tod_divider {
+        if self.tod_counter < divider {
             return;
         }
         self.tod_counter = 0;

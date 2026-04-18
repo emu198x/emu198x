@@ -1045,24 +1045,27 @@ impl M6502 {
     }
 
     fn alu_adc_bcd(&mut self, data: u8) {
+        // NMOS BCD per Oxyron ("Extra Instructions of the 65XX Series CPU"):
+        //   N, Z come from the straight binary sum (bin = a + data + c).
+        //   V comes from the two's-complement overflow of the binary sum.
+        //   C comes from the final decimal adjustment.
         let a = self.regs.a;
-        let carry = self.regs.carry() as u8;
+        let carry_in = self.regs.carry() as u8;
 
-        let mut lo = (a & 0x0F) + (data & 0x0F) + carry;
+        // Binary sum — used for N, Z, V (Oxyron semantics).
+        let bin = a.wrapping_add(data).wrapping_add(carry_in);
+        self.regs.set_flag(FLAG_Z, bin == 0);
+        self.regs.set_flag(FLAG_N, bin & 0x80 != 0);
+        self.regs
+            .set_flag(FLAG_V, ((!(a ^ data) & (a ^ bin)) & 0x80) != 0);
+
+        // Decimal correction produces the result byte and carry-out.
+        let mut lo = (a & 0x0F) + (data & 0x0F) + carry_in;
         let mut hi = (a >> 4) + (data >> 4);
         if lo > 9 {
             lo -= 10;
             hi += 1;
         }
-
-        let intermediate = (hi << 4) | (lo & 0x0F);
-        self.regs.set_flag(FLAG_N, intermediate & 0x80 != 0);
-        self.regs
-            .set_flag(FLAG_V, ((!(a ^ data) & (a ^ intermediate)) & 0x80) != 0);
-
-        let bin = a.wrapping_add(data).wrapping_add(carry);
-        self.regs.set_flag(FLAG_Z, bin == 0);
-
         if hi > 9 {
             hi -= 10;
             self.regs.set_flag(FLAG_C, true);
@@ -1107,14 +1110,24 @@ impl M6502 {
     }
 
     fn alu_sbc_bcd(&mut self, data: u8) {
+        // NMOS BCD subtract per Oxyron: flags come from the binary
+        // subtract (ADC-with-inverted-operand semantics), while the
+        // result byte uses the decimal correction. This matches the
+        // Bruce Clark BCD test suite.
         let a = self.regs.a;
-        let carry = self.regs.carry() as u8;
+        let carry_in = self.regs.carry() as u8;
+        let inv = data ^ 0xFF;
 
-        let bin = a.wrapping_sub(data).wrapping_sub(1 - carry);
+        // Binary path — same math ADC does with ~data, used for N, Z, V.
+        let bin_sum = (a as u16) + (inv as u16) + (carry_in as u16);
+        let bin = bin_sum as u8;
         self.regs.set_flag(FLAG_Z, bin == 0);
         self.regs.set_flag(FLAG_N, bin & 0x80 != 0);
+        self.regs
+            .set_flag(FLAG_V, ((!(a ^ inv) & (a ^ bin)) & 0x80) != 0);
 
-        let mut lo = (a & 0x0F).wrapping_sub(data & 0x0F).wrapping_sub(1 - carry) as i8;
+        // Decimal correction for the result byte + carry.
+        let mut lo = (a & 0x0F).wrapping_sub(data & 0x0F).wrapping_sub(1 - carry_in) as i8;
         let mut hi = ((a >> 4) as i8).wrapping_sub((data >> 4) as i8);
         if lo < 0 {
             lo += 10;
@@ -1126,12 +1139,6 @@ impl M6502 {
         } else {
             self.regs.set_flag(FLAG_C, true);
         }
-
-        let borrow = (a as u16)
-            .wrapping_sub(data as u16)
-            .wrapping_sub((1 - carry) as u16);
-        self.regs
-            .set_flag(FLAG_V, ((a ^ data) & (a ^ borrow as u8) & 0x80) != 0);
 
         self.regs.a = ((hi as u8) << 4) | (lo as u8 & 0x0F);
     }
