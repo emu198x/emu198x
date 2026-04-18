@@ -128,6 +128,15 @@ pub struct Vic {
     last_visible_line: u16,
     lp_triggered: bool,
     last_bus_data: u8,
+    /// Vertical border flip-flop. Set at the last raster line of the
+    /// display window, cleared at the first (DEN=1 required). Gates
+    /// whether the main FF can be cleared — when vert FF is set, the
+    /// main FF stays set, producing solid border for the whole line.
+    border_vert_ff: bool,
+    /// Main (horizontal) border flip-flop. Set at right edge of display,
+    /// cleared at left edge (only if vert FF is clear). When set, the
+    /// current cycle paints border colour.
+    border_main_ff: bool,
 }
 
 impl Vic {
@@ -175,6 +184,8 @@ impl Vic {
             last_visible_line: last_vis,
             lp_triggered: false,
             last_bus_data: 0,
+            border_vert_ff: true,
+            border_main_ff: true,
         }
     }
 
@@ -191,6 +202,7 @@ impl Vic {
             self.fetch_sprite_data(memory);
         }
 
+        self.update_border_flip_flops();
         self.render_pixels(memory);
         self.check_badline();
 
@@ -244,6 +256,50 @@ impl Vic {
         self.is_badline = self.den_latch
             && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
             && (self.raster_line & 7) == yscroll;
+    }
+
+    /// Update border FFs per Bauer's vic-ii.txt rules.
+    ///
+    /// **Vertical FF** (checked at line boundaries, i.e. cycle 0):
+    /// - SET at last display line: 247 (RSEL=0) or 251 (RSEL=1).
+    /// - CLEAR at first display line: 55 (RSEL=0) or 51 (RSEL=1), only
+    ///   when DEN=1 at that moment.
+    ///
+    /// **Main FF** (checked every cycle):
+    /// - SET at right edge cycle: 56 (CSEL=1) or 55 (CSEL=0).
+    /// - CLEAR at left edge cycle: 16 (CSEL=1) or 17 (CSEL=0), only
+    ///   when the vertical FF is clear.
+    ///
+    /// RSEL and CSEL are sampled at the moment each transition fires,
+    /// enabling the classic "open the border" trick: software flicks
+    /// RSEL/CSEL after the vertical FF would set, suppressing the
+    /// transition and leaving the border FF clear.
+    fn update_border_flip_flops(&mut self) {
+        let rsel = self.regs[0x11] & 0x08 != 0;
+        let den = self.regs[0x11] & 0x10 != 0;
+        let csel = self.regs[0x16] & 0x08 != 0;
+
+        // Vertical FF transitions fire on a line's first cycle.
+        if self.raster_cycle == 0 {
+            let last_display = if rsel { 251u16 } else { 247u16 };
+            let first_display = if rsel { 51u16 } else { 55u16 };
+            if self.raster_line == last_display {
+                self.border_vert_ff = true;
+            }
+            if self.raster_line == first_display && den {
+                self.border_vert_ff = false;
+            }
+        }
+
+        // Main FF transitions fire on per-cycle boundaries.
+        let left_edge = if csel { 16u8 } else { 17u8 };
+        let right_edge = if csel { 56u8 } else { 55u8 };
+        if self.raster_cycle == right_edge {
+            self.border_main_ff = true;
+        }
+        if self.raster_cycle == left_edge && !self.border_vert_ff {
+            self.border_main_ff = false;
+        }
     }
 
     fn fetch_screen_row(&mut self, memory: &dyn VicMemory) {
@@ -392,24 +448,11 @@ impl Vic {
             }
         }
 
-        let csel = self.regs[0x16] & 0x08 != 0;
-        let vstart = if rsel { 0x33u16 } else { 0x37u16 };
-        let vstop = if rsel { 0xFBu16 } else { 0xF7u16 };
-        let hstart = if csel {
-            DISPLAY_START_CYCLE
-        } else {
-            DISPLAY_START_CYCLE + 1
-        };
-        let hstop = if csel {
-            DISPLAY_END_CYCLE
-        } else {
-            DISPLAY_END_CYCLE - 1
-        };
-        let in_visible_window = self.den_latch
-            && (vstart..vstop).contains(&self.raster_line)
-            && (hstart..hstop).contains(&self.raster_cycle);
-
-        if !in_visible_window {
+        // Border overlay: paint border colour when the main FF is set.
+        // The FFs are updated per-cycle by update_border_flip_flops(),
+        // so this faithfully reproduces "open the border" tricks that
+        // software uses to keep the main FF clear across a line.
+        if self.border_main_ff {
             for px in 0..8usize {
                 let idx = fb_offset + px;
                 if idx < self.framebuffer.len() {
@@ -1408,6 +1451,76 @@ mod tests {
         for px in 0..8 {
             assert_eq!(fb_pixel(&vic, fb_x0 + px, fb_y), PALETTE[1]);
         }
+    }
+
+    /// Advance by exactly N cycles (one tick per cycle).
+    fn step_cycles(vic: &mut Vic, memory: &TestMemory, n: u32) {
+        for _ in 0..n {
+            tick_vic(vic, memory);
+        }
+    }
+
+    /// Run until the next tick would execute (line, cycle). advance_to
+    /// runs `line * cycles_per_line + cycle` ticks *from construction*,
+    /// so call it only on a fresh VIC.
+    #[test]
+    fn vertical_ff_clears_on_first_display_line_with_den() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // RSEL=1, DEN=1, YSCROLL=3
+        // advance_to(51, 0) leaves the next tick pointing at (51,0).
+        advance_to(&mut vic, &memory, 51, 0);
+        tick_vic(&mut vic, &memory); // executes cycle 0 of line 51
+        assert!(!vic.border_vert_ff, "vert FF should clear at line 51");
+    }
+
+    #[test]
+    fn vertical_ff_sets_at_last_display_line() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // RSEL=1
+        advance_to(&mut vic, &memory, 251, 0);
+        tick_vic(&mut vic, &memory); // executes cycle 0 of line 251
+        assert!(vic.border_vert_ff, "vert FF should set at line 251");
+    }
+
+    #[test]
+    fn main_ff_clears_at_left_edge_when_vert_ff_off() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // RSEL=1, DEN=1
+        vic.write(0x16, 0x08); // CSEL=1
+        advance_to(&mut vic, &memory, 100, 16);
+        tick_vic(&mut vic, &memory);
+        assert!(!vic.border_vert_ff);
+        assert!(!vic.border_main_ff, "main FF should clear at left edge");
+    }
+
+    #[test]
+    fn open_border_trick_rsel_bit_flip_suppresses_vertical_ff() {
+        // Open-border sequence: hold RSEL=1 through line 247 (so the
+        // RSEL=0 set-rule never fires), then flip to RSEL=0 before
+        // line 251 (so the RSEL=1 set-rule doesn't fire either).
+        // Result: vert FF stays clear past the normal close point.
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // RSEL=1, DEN=1
+        // advance_to(248, 0) from a fresh VIC runs 248*63 = 15624 ticks
+        // which covers lines 0-247 in full (including line 51 clear
+        // and line 247 which doesn't fire the set-rule with RSEL=1).
+        advance_to(&mut vic, &memory, 248, 0);
+        assert!(!vic.border_vert_ff);
+        // Flip RSEL to 0 before line 251.
+        vic.write(0x11, 0x13);
+        // Continue to line 252 (another 4 full lines = 4*63 = 252 ticks).
+        step_cycles(&mut vic, &memory, 4 * u32::from(CYCLES_PER_LINE));
+        assert!(!vic.border_vert_ff, "open-border trick should keep vert FF clear");
+    }
+
+    #[test]
+    fn naive_close_sets_vert_ff_at_line_247_rsel_zero() {
+        // Control case: with RSEL=0 throughout, line 247 fires the
+        // set-rule and the vert FF goes high as expected.
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x13); // RSEL=0, DEN=1
+        advance_to(&mut vic, &memory, 248, 0);
+        assert!(vic.border_vert_ff, "RSEL=0 + line 247 should set vert FF");
     }
 
     #[test]
