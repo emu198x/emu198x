@@ -1261,6 +1261,7 @@ dependencies = [
  "motorola-68000",
  "peripheral-commodore-amiga-floppy",
  "peripheral-commodore-amiga-keyboard",
+ "png",
 ]
 
 [[package]]

@@ -952,11 +952,26 @@ impl DeniseOcs {
         if self.shift_count > 0 {
             // Compute color index from per-plane shifter bits (MSB first),
             // honoring BPLCON1 odd/even horizontal delay.
+            //
+            // BPLCON0 BPU=0 means "no bitplanes displayed" (Hardware
+            // Reference Manual). Real Denise outputs COLOR00 only — see
+            // WinUAE `drawing.cpp::getlinetype()`, which classifies the
+            // line as `LINETYPE_BORDER` when `GET_PLANES(bplcon0) == 0`.
+            // The fallback below only fires when BPLCON0 has never been
+            // written (still the default `0`), preserving compatibility
+            // with legacy unit tests that seed `bpl_shift[]` directly
+            // and don't bother to program BPLCON0. Any program that
+            // explicitly writes BPLCON0 — including BPLCON0 = $0000 —
+            // takes the spec-correct path and BPU=0 blanks the playfield.
+            //
+            // See `wiki/decisions/amiga-denise-bpu-zero-rendering.md`.
             let mut num_bpl = self.num_bitplanes();
-            if num_bpl == 0 {
-                // Legacy unit tests may seed shift registers directly without
-                // programming BPLCON0. Infer a minimal active plane span from
-                // the mirrored legacy shift state in that case.
+            if num_bpl == 0 && self.bplcon0 == 0 {
+                // Legacy unit-test compatibility: BPLCON0 has never been
+                // touched, so treat any seeded shift state as the active
+                // plane span. Real Amiga code always sets BPLCON0 (e.g.
+                // bit 9 COLOR enable) so this branch never fires for
+                // ROM-driven traffic.
                 num_bpl = self
                     .bpl_shift_count
                     .iter()

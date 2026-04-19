@@ -68,7 +68,12 @@ impl Memory {
         } else if addr >= ROM_BASE {
             self.kickstart[(addr & self.kickstart_mask) as usize]
         } else {
-            0x00
+            // Real A500: unmapped reads return floating-bus value, which
+            // is typically $FF (high) when nothing drives the bus low.
+            // Returning $00 here was a bug: V34 distinguishes "device
+            // returns 0" from "no device" for some probes. See
+            // wiki/decisions/amiga-chip-only-boot-failure.md.
+            0xFF
         }
     }
 
@@ -167,9 +172,13 @@ mod tests {
     }
 
     #[test]
-    fn unmapped_reads_zero() {
+    fn unmapped_reads_floating_bus() {
+        // Real A500: unmapped reads return floating-bus value, typically
+        // $FF when nothing drives the bus low. KS 1.3 distinguishes
+        // "device returns 0" from "no device" for some probes — see
+        // wiki/decisions/amiga-chip-only-boot-failure.md.
         let mut mem = Memory::new(512 * 1024, test_ks(), 0);
         mem.overlay = false;
-        assert_eq!(mem.read_byte(0xA0_0000), 0x00);
+        assert_eq!(mem.read_byte(0xA0_0000), 0xFF);
     }
 }

@@ -398,11 +398,33 @@ impl Amiga {
             self.audio_buffer.push(self.audio_lpf_right);
         }
 
-        // ── CPU: 2 clock ticks, bus only if CPU owns this CCK ─────
-        let cpu_has_bus = bus_plan.cpu_chip_bus_granted;
+        // ── CPU: 2 clock ticks per CCK ─────────────────────────────
+        // Agnus arbitration only governs the *chip bus* (chip RAM,
+        // custom registers, slow RAM on OCS/A500-class). CPU accesses
+        // to ROM, fast RAM, CIA, Gayle, autoconfig, etc. live on
+        // separate buses and proceed regardless of Agnus's per-CCK
+        // slot allocation. Decode the in-flight bus access here and
+        // gate the CPU only when it actually contends for the chip
+        // bus.
+        let cpu_has_chip_bus = bus_plan.cpu_chip_bus_granted;
+        let needs_chip_bus = match &self.cpu.state {
+            State::BusCycle { fc, .. } if *fc == FunctionCode::InterruptAck => false,
+            State::BusCycle { addr, .. } => {
+                matches!(
+                    self.gary.decode(*addr & 0xFF_FFFF),
+                    ChipSelect::ChipRam | ChipSelect::Custom | ChipSelect::SlowRam
+                )
+            }
+            State::TableWalk { walk_addr, .. } => matches!(
+                self.gary.decode(*walk_addr & 0xFF_FFFF),
+                ChipSelect::ChipRam | ChipSelect::Custom | ChipSelect::SlowRam
+            ),
+            _ => false,
+        };
+        let cpu_can_proceed = !needs_chip_bus || cpu_has_chip_bus;
         for _ in 0..2 {
             self.cpu.ipl = self.paula.compute_ipl();
-            if cpu_has_bus {
+            if cpu_can_proceed {
                 self.service_cpu_bus();
             } else if matches!(
                 &self.cpu.state,
@@ -657,7 +679,7 @@ impl Amiga {
                             self.debug_custom_write_log.push_back(format!(
                                 "pc=${pc:08X} offset=${offset:03X} val=${val:04X} a0=${a0:08X} a1=${a1:08X} d0=${d0:08X}"
                             ));
-                            if self.debug_custom_write_log.len() > 128 {
+                            if self.debug_custom_write_log.len() > 8192 {
                                 self.debug_custom_write_log.pop_front();
                             }
                         }
@@ -667,8 +689,9 @@ impl Amiga {
                 }
 
                 ChipSelect::ChipRam => {
-                    // CPU only reaches here when Agnus granted a bus
-                    // slot (cpu_has_bus check in tick_cck).
+                    // CPU only reaches here when the per-CCK gate in
+                    // tick_cck granted the chip bus for this access
+                    // (`cpu_can_proceed = !needs_chip_bus || cpu_has_chip_bus`).
                     if is_read {
                         let val = if is_word {
                             self.memory.read_word(addr24)
