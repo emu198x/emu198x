@@ -377,22 +377,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "commodore-agnus-ocs"
-version = "0.1.0"
-
-[[package]]
-name = "commodore-denise-ocs"
-version = "0.1.0"
-
-[[package]]
-name = "commodore-gary"
-version = "0.1.0"
-
-[[package]]
-name = "commodore-paula-8364"
-version = "0.1.0"
-
-[[package]]
 name = "common-commodore-c64"
 version = "0.1.0"
 
@@ -640,16 +624,6 @@ dependencies = [
  "runtime-commodore-c64",
  "thiserror 2.0.18",
  "winit",
-]
-
-[[package]]
-name = "emu198x-script-amiga"
-version = "0.1.0"
-dependencies = [
- "emu198x-shell",
- "runtime-commodore-amiga",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1249,18 +1223,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-commodore-amiga"
+name = "machine-commodore-amiga-ocs"
 version = "0.1.0"
 dependencies = [
- "commodore-agnus-ocs",
- "commodore-denise-ocs",
- "commodore-gary",
- "commodore-paula-8364",
- "format-commodore-amiga-adf",
- "mos-cia-8520",
  "motorola-68000",
- "peripheral-commodore-amiga-floppy",
- "peripheral-commodore-amiga-keyboard",
  "png",
 ]
 
@@ -1371,10 +1337,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
 ]
-
-[[package]]
-name = "mos-cia-8520"
-version = "0.1.0"
 
 [[package]]
 name = "mos-sid-6581"
@@ -1843,17 +1805,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "peripheral-commodore-amiga-floppy"
-version = "0.1.0"
-dependencies = [
- "format-commodore-amiga-adf",
-]
-
-[[package]]
-name = "peripheral-commodore-amiga-keyboard"
-version = "0.1.0"
-
-[[package]]
 name = "pin-project"
 version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2098,19 +2049,6 @@ name = "ricoh-ppu-2c02"
 version = "0.1.0"
 dependencies = [
  "format-nintendo-nes-ines",
-]
-
-[[package]]
-name = "runtime-commodore-amiga"
-version = "0.1.0"
-dependencies = [
- "commodore-agnus-ocs",
- "commodore-denise-ocs",
- "emu198x-shell",
- "format-commodore-amiga-adf",
- "machine-commodore-amiga",
- "peripheral-commodore-amiga-floppy",
- "serde_json",
 ]
 
 [[package]]

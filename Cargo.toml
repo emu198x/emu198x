@@ -1,14 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/commodore-agnus-ocs",
-    "crates/commodore-denise-ocs",
-    "crates/commodore-gary",
-    "crates/commodore-paula-8364",
+    # Active members
     "crates/common-commodore-c64",
     "crates/common-commodore-iec",
     "crates/common-sinclair-zx-spectrum",
-    "crates/emu198x-script-amiga",
     "crates/emu198x-c64",
     "crates/emu198x-script-nes",
     "crates/emu198x-spectrum",
@@ -25,27 +21,38 @@ members = [
     "crates/format-nintendo-nes-ines",
     "crates/format-sinclair-zx-spectrum-tap",
     "crates/format-sinclair-zx-spectrum-tzx",
-    "crates/machine-commodore-amiga",
+    "crates/machine-commodore-amiga-ocs",
     "crates/machine-commodore-c64",
     "crates/machine-commodore-1541",
     "crates/machine-nintendo-nes",
     "crates/machine-sinclair-zx-spectrum-48k",
     "crates/mos-6502",
     "crates/mos-cia-6526",
-    "crates/mos-cia-8520",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",
     "crates/motorola-68000",
-    "crates/peripheral-commodore-amiga-floppy",
-    "crates/peripheral-commodore-amiga-keyboard",
     "crates/ricoh-apu-2a03",
     "crates/ricoh-ppu-2c02",
-    "crates/runtime-commodore-amiga",
     "crates/runtime-commodore-c64",
     "crates/runtime-nintendo-nes",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/zilog-z80",
+]
+exclude = [
+    # Archived Amiga crates from the pre-restart implementation. Kept
+    # in tree for reference (see wiki/decisions/amiga-restart-plan.md);
+    # excluded from the build.
+    "crates/commodore-agnus-ocs-archive",
+    "crates/commodore-denise-ocs-archive",
+    "crates/commodore-gary-archive",
+    "crates/commodore-paula-8364-archive",
+    "crates/emu198x-script-amiga-archive",
+    "crates/machine-commodore-amiga-archive",
+    "crates/mos-cia-8520-archive",
+    "crates/peripheral-commodore-amiga-floppy-archive",
+    "crates/peripheral-commodore-amiga-keyboard-archive",
+    "crates/runtime-commodore-amiga-archive",
 ]
 
 [workspace.package]

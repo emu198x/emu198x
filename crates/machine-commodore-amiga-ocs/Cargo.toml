@@ -1,0 +1,15 @@
+[package]
+name = "machine-commodore-amiga-ocs"
+description = "Commodore Amiga (OCS chipset) — A1000, A500, A2000, CDTV. Master-clock-driven tick loop. Built incrementally per wiki/decisions/amiga-restart-plan.md."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+motorola-68000 = { path = "../motorola-68000" }
+
+[dev-dependencies]
+png = { workspace = true }
+
+[lints]
+workspace = true
