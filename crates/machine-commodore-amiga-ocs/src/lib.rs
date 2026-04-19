@@ -4,12 +4,14 @@
 //! `wiki/decisions/amiga-restart-plan.md`. Each milestone adds the
 //! minimum hardware behaviour the running ROM demands; nothing more.
 //!
-//! Current milestone: **M2 — custom-register storage.**
+//! Current milestone: **M3 — OVL clear via CIA-A.**
 
 mod chipset;
+mod cia;
 mod memory;
 
 pub use chipset::Chipset;
+pub use cia::CiaA;
 pub use memory::{Memory, CHIP_RAM_SIZE};
 
 use motorola_68000::bus::{BusStatus, FunctionCode};
@@ -24,6 +26,7 @@ pub struct AmigaOcs {
     cpu: Cpu68000,
     memory: Memory,
     chipset: Chipset,
+    cia_a: CiaA,
     cck_count: u64,
 }
 
@@ -44,6 +47,7 @@ impl AmigaOcs {
             cpu,
             memory,
             chipset: Chipset::new(),
+            cia_a: CiaA::new(),
             cck_count: 0,
         }
     }
@@ -52,6 +56,30 @@ impl AmigaOcs {
     #[must_use]
     pub fn chipset(&self) -> &Chipset {
         &self.chipset
+    }
+
+    /// Read-only memory access (for tests inspecting OVL state etc.).
+    #[must_use]
+    pub fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
+    /// Read-only CIA-A access.
+    #[must_use]
+    pub fn cia_a(&self) -> &CiaA {
+        &self.cia_a
+    }
+
+    /// Convenience: CIA-A PRA byte.
+    #[must_use]
+    pub fn cia_a_pra(&self) -> u8 {
+        self.cia_a.pra
+    }
+
+    /// Convenience: CIA-A DDRA byte.
+    #[must_use]
+    pub fn cia_a_ddra(&self) -> u8 {
+        self.cia_a.ddra
     }
 
     /// Convenience: current INTENA value.
@@ -91,6 +119,22 @@ impl AmigaOcs {
             self.chipset.write_word(offset, val);
         } else {
             self.memory.write_word(addr, val);
+        }
+    }
+
+    /// Backdoor for tests: write a byte as if the CPU did it.
+    pub fn poke_byte(&mut self, addr: u32, val: u8) {
+        if let Some(reg) = cia::decode_cia_a(addr) {
+            self.cia_a.write_register(reg, val);
+            self.memory.set_overlay(self.cia_a.ovl());
+        } else if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr) {
+            // Custom registers are word-only; byte writes pad with
+            // the same byte in both halves on real hardware. For our
+            // purposes a byte write just writes the byte value.
+            let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
+            self.chipset.write_word(offset, u16::from(val) << 8 | u16::from(val));
+        } else {
+            self.memory.write_byte(addr, val);
         }
     }
 
@@ -168,6 +212,22 @@ impl AmigaOcs {
         }
 
         let addr24 = addr & 0xFF_FFFF;
+
+        // CIA-A address space (odd bytes in $BFE000-$BFEFFF).
+        if let Some(reg) = cia::decode_cia_a(addr24) {
+            if is_read {
+                let val = u16::from(self.cia_a.read_register(reg));
+                self.cpu.bus_status = BusStatus::Ready(val);
+            } else {
+                let val = data.unwrap_or(0);
+                // CIA is byte-wide; a word write puts the same byte
+                // in both halves. We just take the low byte.
+                self.cia_a.write_register(reg, val as u8);
+                self.memory.set_overlay(self.cia_a.ovl());
+                self.cpu.bus_status = BusStatus::Ready(0);
+            }
+            return;
+        }
 
         // Custom-register space dispatches to the chipset module.
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {

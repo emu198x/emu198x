@@ -63,10 +63,16 @@ impl Memory {
     }
 
     /// Whether the reset overlay is currently mapping ROM into low
-    /// memory. Read-only at M1 (CIA-A clears it in a later milestone).
+    /// memory.
     #[must_use]
     pub fn overlay(&self) -> bool {
         self.overlay
+    }
+
+    /// Set the overlay state. Driven by CIA-A PRA bit 0 (gated by
+    /// DDRA bit 0). True = ROM mapped at `$0`; false = chip RAM at `$0`.
+    pub fn set_overlay(&mut self, overlay: bool) {
+        self.overlay = overlay;
     }
 
     /// Direct chip-RAM byte read — bypasses the OVL-aware public path.
