@@ -40,6 +40,24 @@ impl Agnus {
         Self::default()
     }
 
+    /// Read VPOSR ($DFF004) — vpos high bit (bit 0) plus other status
+    /// bits. At M6 we expose only the vpos high bit; LOF and CHIP_ID
+    /// land later when interlace + ECS / AGA chipsets enter the
+    /// picture.
+    #[must_use]
+    pub fn vposr(&self) -> u16 {
+        u16::from((self.vpos >> 8) as u8) & 0x0001
+    }
+
+    /// Read VHPOSR ($DFF006) — vpos low byte (bits 8-15) and hpos
+    /// (bits 0-7).
+    #[must_use]
+    pub fn vhposr(&self) -> u16 {
+        let vpos_lo = (self.vpos & 0xFF) as u16;
+        let hpos = (self.hpos & 0xFF) as u16;
+        (vpos_lo << 8) | hpos
+    }
+
     /// Advance one CCK. Returns `true` if a VBL just fired (vpos
     /// wrapped from 311 to 0).
     pub fn tick_cck(&mut self) -> bool {

@@ -15,7 +15,6 @@
 //! M3 only models CIA-A — CIA-B is added when a later milestone
 //! exercises it.
 
-#[derive(Default)]
 pub struct CiaA {
     /// Register 0 — Port A data register.
     pub pra: u8,
@@ -25,6 +24,29 @@ pub struct CiaA {
     pub prb: u8,
     /// Register 3 — Port B direction register.
     pub ddrb: u8,
+    /// External signals driving Port A inputs. Each bit holds the
+    /// **effective** voltage on that line: 1 = floating high (no
+    /// peripheral asserting); 0 = peripheral pulled low.
+    ///
+    /// Defaults to all-high (no peripherals attached). Peripheral
+    /// modules (mouse, joystick, floppy) override these bits as
+    /// they're added in later milestones.
+    pub pa_input_lines: u8,
+    /// Same idea for Port B inputs.
+    pub pb_input_lines: u8,
+}
+
+impl Default for CiaA {
+    fn default() -> Self {
+        Self {
+            pra: 0,
+            ddra: 0,
+            prb: 0,
+            ddrb: 0,
+            pa_input_lines: 0xFF,
+            pb_input_lines: 0xFF,
+        }
+    }
 }
 
 impl CiaA {
@@ -48,8 +70,8 @@ impl CiaA {
     #[must_use]
     pub fn read_register(&self, reg: u8) -> u8 {
         match reg {
-            0 => self.pra,
-            1 => self.prb,
+            0 => effective_port(self.pra, self.ddra, self.pa_input_lines),
+            1 => effective_port(self.prb, self.ddrb, self.pb_input_lines),
             2 => self.ddra,
             3 => self.ddrb,
             _ => 0xFF,
@@ -90,6 +112,14 @@ pub fn decode_cia_a(addr: u32) -> Option<u8> {
     }
 }
 
+/// Compute the effective port-line state: output bits return the
+/// stored data-register value; input bits return the externally
+/// driven line state (floats high if no peripheral asserts).
+#[must_use]
+pub fn effective_port(data: u8, direction: u8, input_lines: u8) -> u8 {
+    (data & direction) | (input_lines & !direction)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,6 +139,35 @@ mod tests {
         assert!(!cia.ovl());
         cia.write_register(0, 0x01); // PRA bit 0 = 1
         assert!(cia.ovl());
+    }
+
+    #[test]
+    fn pra_reads_floating_high_for_inputs_at_reset() {
+        let cia = CiaA::new();
+        // DDRA = $00 (all input), reads should all be high (floating).
+        assert_eq!(cia.read_register(0), 0xFF);
+    }
+
+    #[test]
+    fn pra_reads_mix_outputs_and_inputs() {
+        let mut cia = CiaA::new();
+        cia.write_register(2, 0x03); // DDRA: bits 0+1 outputs, 2-7 inputs
+        cia.write_register(0, 0x02); // PRA: bit 1 high, bit 0 low
+        // Expected: bit 0 = 0 (PRA), bit 1 = 1 (PRA), bits 2-7 = 1 (input)
+        // = 0b1111_1110 = $FE
+        assert_eq!(cia.read_register(0), 0xFE);
+    }
+
+    #[test]
+    fn pra_reads_can_be_pulled_low_by_peripheral() {
+        let mut cia = CiaA::new();
+        cia.write_register(2, 0x03); // DDRA bits 0+1 output
+        cia.write_register(0, 0x02); // PRA bit 1 high
+        // Peripheral pulls bit 4 (/TRK0) low.
+        cia.pa_input_lines = !0x10;
+        // Expected: bits 0+1 = PRA (10), bit 4 = 0 (peripheral),
+        // other input bits = 1 → 0b1110_1110 = $EE
+        assert_eq!(cia.read_register(0), 0xEE);
     }
 
     #[test]

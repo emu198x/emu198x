@@ -162,16 +162,34 @@ impl AmigaOcs {
     }
 
     /// Read a word at the given 24-bit address through the active
-    /// memory map. Used by tests to verify the map.
+    /// system bus — matches what a CPU read would see (chipset, CIA,
+    /// memory all routed correctly).
     #[must_use]
     pub fn read_word(&self, addr: u32) -> u16 {
-        self.memory.read_word(addr)
+        self.bus_read_word(addr & 0xFF_FFFF)
     }
 
     /// Read a longword (big-endian) at the given 24-bit address.
     #[must_use]
     pub fn read_long(&self, addr: u32) -> u32 {
-        self.memory.read_long(addr)
+        let hi = self.bus_read_word(addr & 0xFF_FFFF);
+        let lo = self.bus_read_word(addr.wrapping_add(2) & 0xFF_FFFF);
+        (u32::from(hi) << 16) | u32::from(lo)
+    }
+
+    fn bus_read_word(&self, addr24: u32) -> u16 {
+        if let Some(reg) = cia::decode_cia_a(addr24) {
+            return u16::from(self.cia_a.read_register(reg));
+        }
+        if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
+            let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
+            return match offset {
+                0x004 => self.agnus.vposr(),
+                0x006 => self.agnus.vhposr(),
+                _ => self.chipset.read_word(offset),
+            };
+        }
+        self.memory.read_word(addr24)
     }
 
     /// Read a chip-RAM byte directly, ignoring the OVL overlay.
@@ -252,10 +270,16 @@ impl AmigaOcs {
         }
 
         // Custom-register space dispatches to the chipset module.
+        // Agnus owns the beam-position read-side registers; everything
+        // else routes to Chipset.
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
             if is_read {
-                let val = self.chipset.read_word(offset);
+                let val = match offset {
+                    0x004 => self.agnus.vposr(),
+                    0x006 => self.agnus.vhposr(),
+                    _ => self.chipset.read_word(offset),
+                };
                 self.cpu.bus_status = BusStatus::Ready(if is_word { val } else { val & 0xFF });
             } else {
                 let val = data.unwrap_or(0);
