@@ -22,8 +22,12 @@
 const OVL_BASE: u32 = 0x00_0000;
 const OVL_TOP: u32 = 0x40_0000;
 
-const CHIP_RAM_BASE: u32 = 0x00_0000;
-const CHIP_RAM_TOP: u32 = 0x08_0000;
+/// Gary decodes chip-RAM-style accesses for the entire `$0-$1FFFFF`
+/// range on the A500/A2000 (the full Agnus address space). The actual
+/// installed chip RAM is smaller; addresses above the installed top
+/// alias back via the chip-RAM mask.
+const CHIP_RAM_DECODE_BASE: u32 = 0x00_0000;
+const CHIP_RAM_DECODE_TOP: u32 = 0x20_0000;
 
 const CIA_BASE: u32 = 0x00BF_0000;
 const CIA_TOP: u32 = 0x00C0_0000;
@@ -39,6 +43,7 @@ pub const CHIP_RAM_SIZE: usize = 512 * 1024;
 /// Memory subsystem for the Amiga (OCS).
 pub struct Memory {
     chip_ram: Vec<u8>,
+    chip_ram_mask: u32,
     kickstart: Vec<u8>,
     rom_mask: u32,
     overlay: bool,
@@ -56,6 +61,7 @@ impl Memory {
         let rom_mask = (kickstart.len() as u32).wrapping_sub(1);
         Self {
             chip_ram: vec![0; CHIP_RAM_SIZE],
+            chip_ram_mask: (CHIP_RAM_SIZE as u32).wrapping_sub(1),
             kickstart,
             rom_mask,
             overlay: true,
@@ -81,8 +87,8 @@ impl Memory {
     #[must_use]
     pub fn read_chip_ram_byte(&self, addr: u32) -> u8 {
         let addr = addr & 0xFF_FFFF;
-        if addr < CHIP_RAM_TOP {
-            self.chip_ram[addr as usize]
+        if (CHIP_RAM_DECODE_BASE..CHIP_RAM_DECODE_TOP).contains(&addr) {
+            self.chip_ram[(addr & self.chip_ram_mask) as usize]
         } else {
             0
         }
@@ -98,9 +104,10 @@ impl Memory {
             return self.rom_byte(addr);
         }
 
-        // Chip RAM (when OVL clear, or above the overlay window).
-        if (CHIP_RAM_BASE..CHIP_RAM_TOP).contains(&addr) {
-            return self.chip_ram[addr as usize];
+        // Chip RAM, with incomplete address decode (Agnus 19-bit
+        // address bus → addresses above 512K alias back).
+        if (CHIP_RAM_DECODE_BASE..CHIP_RAM_DECODE_TOP).contains(&addr) {
+            return self.chip_ram[(addr & self.chip_ram_mask) as usize];
         }
 
         // ROM at its anchor.
@@ -133,14 +140,15 @@ impl Memory {
     pub fn write_byte(&mut self, addr: u32, val: u8) {
         let addr = addr & 0xFF_FFFF;
 
-        // Chip-RAM writes always land — OVL only affects reads.
-        if (CHIP_RAM_BASE..CHIP_RAM_TOP).contains(&addr) {
-            self.chip_ram[addr as usize] = val;
+        // Chip-RAM writes always land — OVL only affects reads. The
+        // 19-bit address mask aliases anything in the chip-RAM
+        // decode range into the installed pool.
+        if (CHIP_RAM_DECODE_BASE..CHIP_RAM_DECODE_TOP).contains(&addr) {
+            self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
             return;
         }
 
         // CIA / custom register / ROM / unmapped: silently drop.
-        // (Real chip behaviour comes in M2+.)
         let _ = (CIA_BASE, CIA_TOP, CUSTOM_BASE, CUSTOM_TOP, val);
     }
 
