@@ -712,6 +712,21 @@ impl Amiga {
                         self.cpu.bus_status = BusStatus::Ready(val);
                     } else {
                         let val = data.unwrap_or(0);
+                        if let Some((lo, hi)) = self.debug_cpu_write_watch
+                            && addr24 >= lo
+                            && addr24 <= hi
+                        {
+                            let pc = self.cpu.regs.pc;
+                            self.debug_cpu_write_log.push_back((
+                                pc,
+                                addr24,
+                                if is_word { 'w' } else { 'b' },
+                                u32::from(val),
+                            ));
+                            if self.debug_cpu_write_log.len() > 256 {
+                                self.debug_cpu_write_log.pop_front();
+                            }
+                        }
                         if is_word {
                             self.memory.write_word(addr24, val);
                         } else {
