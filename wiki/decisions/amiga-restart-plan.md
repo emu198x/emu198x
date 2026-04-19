@@ -1,7 +1,29 @@
 # Amiga emulator restart — incremental boot-driven build (all variants)
 
 **Date:** 2026-04-19
-**Status:** Proposed (revised — all variants in scope from day 1)
+**Status:** Approved and underway. M0-M6 complete (Phase A).
+
+## Progress (live)
+
+| Milestone | Status | Tests | Notes |
+|---|---|---|---|
+| M0 | ✅ | 4 | CPU + ROM + OVL mapping. Reset vector reads correct. |
+| M1 | ✅ | 3 | Chip RAM + CPU bus integration. 100K CCKs without bus error. |
+| M2 | ✅ | 2 | Custom-register storage with set/clear semantics. |
+| M3 | ✅ | 2 | OVL clear via CIA-A PRA bit 0. |
+| M4 | ✅ | 1 | Chip-RAM aliasing for the size probe. |
+| M5 | ✅ | 1 | Bootstrap ExecBase placed at $0676 (matches archived investigation). |
+| M6 | ✅ | 2 | Beam counter (PAL) + VBL → INTREQ.VERTB → CPU IPL. |
+| M7 | next | — | Resident library init / SOFTINT handling. |
+| M8-M11 | pending | — | Copper, bitplane DMA, Denise pixels, slow-RAM golden. |
+
+Total tests: 17 integration + 14 unit = **31 passing**. Diagnostic
+(ignored) shows boot reaches PC=$FC3132 / SSP=$7FFFC0 / INTENA=$202C
+by 50M CCKs — past Phase 8 ExecBase construction, into the spin-loop
+that waits for SOFTINT-driven task dispatch. Next milestones unblock
+this.
+
+
 
 ## Two-stage scope
 
