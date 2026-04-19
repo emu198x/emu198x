@@ -4,20 +4,26 @@
 //! `wiki/decisions/amiga-restart-plan.md`. Each milestone adds the
 //! minimum hardware behaviour the running ROM demands; nothing more.
 //!
-//! Current milestone: **M1 — chip RAM + CPU bus integration.**
+//! Current milestone: **M2 — custom-register storage.**
 
+mod chipset;
 mod memory;
 
+pub use chipset::Chipset;
 pub use memory::{Memory, CHIP_RAM_SIZE};
 
 use motorola_68000::bus::{BusStatus, FunctionCode};
 use motorola_68000::cpu::State;
 use motorola_68000::Cpu68000;
 
+const CUSTOM_BASE: u32 = 0x00DF_0000;
+const CUSTOM_TOP: u32 = 0x00E0_0000;
+
 /// Amiga (OCS) machine.
 pub struct AmigaOcs {
     cpu: Cpu68000,
     memory: Memory,
+    chipset: Chipset,
     cck_count: u64,
 }
 
@@ -37,7 +43,54 @@ impl AmigaOcs {
         Self {
             cpu,
             memory,
+            chipset: Chipset::new(),
             cck_count: 0,
+        }
+    }
+
+    /// Read-only chipset access.
+    #[must_use]
+    pub fn chipset(&self) -> &Chipset {
+        &self.chipset
+    }
+
+    /// Convenience: current INTENA value.
+    #[must_use]
+    pub fn intena(&self) -> u16 {
+        self.chipset.intena
+    }
+
+    /// Convenience: current INTREQ value.
+    #[must_use]
+    pub fn intreq(&self) -> u16 {
+        self.chipset.intreq
+    }
+
+    /// Convenience: current DMACON value.
+    #[must_use]
+    pub fn dmacon(&self) -> u16 {
+        self.chipset.dmacon
+    }
+
+    /// Convenience: current BPLCON0 value.
+    #[must_use]
+    pub fn bplcon0(&self) -> u16 {
+        self.chipset.bplcon0
+    }
+
+    /// Convenience: a colour table entry.
+    #[must_use]
+    pub fn color(&self, idx: usize) -> u16 {
+        self.chipset.color[idx]
+    }
+
+    /// Backdoor for tests: write a word as if the CPU did it.
+    pub fn poke_word(&mut self, addr: u32, val: u16) {
+        if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr) {
+            let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
+            self.chipset.write_word(offset, val);
+        } else {
+            self.memory.write_word(addr, val);
         }
     }
 
@@ -115,6 +168,21 @@ impl AmigaOcs {
         }
 
         let addr24 = addr & 0xFF_FFFF;
+
+        // Custom-register space dispatches to the chipset module.
+        if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
+            let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
+            if is_read {
+                let val = self.chipset.read_word(offset);
+                self.cpu.bus_status = BusStatus::Ready(if is_word { val } else { val & 0xFF });
+            } else {
+                let val = data.unwrap_or(0);
+                self.chipset.write_word(offset, val);
+                self.cpu.bus_status = BusStatus::Ready(0);
+            }
+            return;
+        }
+
         if is_read {
             let val = if is_word {
                 self.memory.read_word(addr24)
