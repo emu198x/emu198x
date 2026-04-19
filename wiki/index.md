@@ -57,6 +57,7 @@
 - [CPU bus interface](decisions/cpu-bus-interface.md) — pin-level for *every* CPU, no Bus trait ever, supersedes the old Z80-specific framing
 - [NES clock topology](decisions/nes-clock-topology.md) — master clock drives the loop, PPU every dot, CPU every 3rd dot, mapper observes CPU pins
 - [Amiga port plan](decisions/amiga-port-plan.md) — 9-phase plan, OCS (A500) first, 68000 pin conversion is the long pole, ~35K lines in archive
+- [Amiga architecture review](decisions/amiga-architecture-review.md) — five seams to tighten before the Amiga scales (disk DMA, CPU bus, byte-lane, merge latch, boot invariants); spine unchanged
 
 ## Tests
 - [Spectrum](tests/spectrum.md) — Z80 100% Tom Harte, ZEXDOC/ALL pass, 11 variants boot, Signal Part 3 working
