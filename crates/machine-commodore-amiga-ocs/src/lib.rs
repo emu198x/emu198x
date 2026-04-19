@@ -4,12 +4,14 @@
 //! `wiki/decisions/amiga-restart-plan.md`. Each milestone adds the
 //! minimum hardware behaviour the running ROM demands; nothing more.
 //!
-//! Current milestone: **M3 — OVL clear via CIA-A.**
+//! Current milestone: **M6 — beam counter + VBL interrupt.**
 
+mod agnus;
 mod chipset;
 mod cia;
 mod memory;
 
+pub use agnus::{Agnus, PAL_FRAME_LINES, PAL_LINE_CCKS};
 pub use chipset::Chipset;
 pub use cia::CiaA;
 pub use memory::{Memory, CHIP_RAM_SIZE};
@@ -27,6 +29,7 @@ pub struct AmigaOcs {
     memory: Memory,
     chipset: Chipset,
     cia_a: CiaA,
+    agnus: Agnus,
     cck_count: u64,
 }
 
@@ -48,8 +51,15 @@ impl AmigaOcs {
             memory,
             chipset: Chipset::new(),
             cia_a: CiaA::new(),
+            agnus: Agnus::new(),
             cck_count: 0,
         }
+    }
+
+    /// Read-only Agnus access.
+    #[must_use]
+    pub fn agnus(&self) -> &Agnus {
+        &self.agnus
     }
 
     /// Read-only chipset access.
@@ -173,8 +183,14 @@ impl AmigaOcs {
     /// Tick one colour-clock period. The 68000 advances one CPU
     /// clock per CCK on the A500 (master/4 = 7.09 MHz both ways).
     pub fn tick_cck(&mut self) {
+        // Advance the beam first; if VBL fires, request the VERTB
+        // interrupt before the CPU's interrupt sample.
+        if self.agnus.tick_cck() {
+            // Set INTREQ.VERTB (bit 5) via the set/clear semantics.
+            self.chipset.write_word(0x09C, 0x8020);
+        }
         self.service_cpu_bus();
-        self.cpu.ipl = 0; // No Paula yet — no interrupts.
+        self.cpu.ipl = self.chipset.compute_ipl();
         self.cpu.tick();
         self.cck_count += 1;
     }

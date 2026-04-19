@@ -44,16 +44,19 @@ fn boot_clears_intena_intreq_dmacon_then_sets_bplcon0_color00() {
     }
 
     // After the clear-all writes ($7FFF with bit 15 = 0 = clear),
-    // these registers should be zero.
+    // these registers should be zero — except INTREQ, which may
+    // have re-latched VERTB by the time we sample (M6 fires VBL
+    // every PAL frame regardless of whether the boot has installed
+    // a handler). Mask VERTB out of the INTREQ check.
     assert_eq!(
         amiga.intena(),
         0,
         "INTENA should be cleared by boot's MOVE.W #$7FFF"
     );
     assert_eq!(
-        amiga.intreq(),
+        amiga.intreq() & !0x0020,
         0,
-        "INTREQ should be cleared"
+        "INTREQ (excluding VERTB latched by Agnus) should be cleared"
     );
     assert_eq!(
         amiga.dmacon(),

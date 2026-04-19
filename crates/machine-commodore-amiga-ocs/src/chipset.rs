@@ -80,6 +80,40 @@ fn write_set_clear(reg: &mut u16, val: u16) {
     }
 }
 
+impl Chipset {
+    /// Compute the 68000 IPL (interrupt priority level, 0-7) the
+    /// chipset is requesting based on `INTREQ & INTENA`. Per Paula:
+    ///
+    ///   bit 0 TBE     → level 1
+    ///   bit 1 DSKBLK  → level 1
+    ///   bit 2 SOFT    → level 1
+    ///   bit 3 PORTS   → level 2
+    ///   bit 4 COPER   → level 3
+    ///   bit 5 VERTB   → level 3
+    ///   bit 6 BLIT    → level 3
+    ///   bit 7-10 AUDx → level 4
+    ///   bit 11 RBF    → level 5
+    ///   bit 12 DSKSYN → level 5
+    ///   bit 13 EXTER  → level 6
+    ///
+    /// Bit 14 (INTEN master enable) gates everything except level 7
+    /// (NMI; not used by Amiga in the standard config).
+    #[must_use]
+    pub fn compute_ipl(&self) -> u8 {
+        if self.intena & 0x4000 == 0 {
+            return 0;
+        }
+        let active = self.intreq & self.intena & 0x3FFF;
+        if active & 0x2000 != 0 { 6 }      // EXTER
+        else if active & 0x1800 != 0 { 5 } // RBF, DSKSYN
+        else if active & 0x0780 != 0 { 4 } // AUD0..3
+        else if active & 0x0070 != 0 { 3 } // COPER, VERTB, BLIT
+        else if active & 0x0008 != 0 { 2 } // PORTS
+        else if active & 0x0007 != 0 { 1 } // TBE, DSKBLK, SOFT
+        else { 0 }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +163,23 @@ mod tests {
         assert_eq!(c.read_word(0x01C), 0x0042); // INTENAR mirrors INTENA
         c.write_word(0x096, 0x8200);
         assert_eq!(c.read_word(0x002), 0x0200); // DMACONR mirrors DMACON
+    }
+
+    #[test]
+    fn compute_ipl_respects_master_enable_and_priority() {
+        let mut c = Chipset::new();
+        c.intreq = 0x0020; // VERTB requested
+        // No master enable — IPL should be 0.
+        assert_eq!(c.compute_ipl(), 0);
+        c.intena = 0x4020; // master + VERTB
+        assert_eq!(c.compute_ipl(), 3);
+        // Add EXTER (level 6) — should win over VERTB.
+        c.intena = 0x6020;
+        c.intreq = 0x2020;
+        assert_eq!(c.compute_ipl(), 6);
+        // Drop EXTER request.
+        c.intreq = 0x0020;
+        assert_eq!(c.compute_ipl(), 3);
     }
 
     #[test]
