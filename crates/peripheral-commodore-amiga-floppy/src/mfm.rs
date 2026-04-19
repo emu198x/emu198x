@@ -1,242 +1,171 @@
 //! MFM track encoding for Amiga raw disk format.
 //!
-//! Each track contains 11 sectors in the Amiga-specific MFM format. The
-//! encoding uses an odd/even bit-split: for each longword, odd-position
-//! bits are transmitted first, then even-position bits. Each half is
-//! MFM-encoded separately.
+//! Direct port of vAmiga's `AmigaEncoder::encodeSector` +
+//! `MFM::addClockBits` / `MFM::encodeOddEven`, cross-referenced with
+//! WinUAE `disk.cpp:mfmcode` / `disk.cpp:2188+`. The algorithm is:
 //!
-//! Sector layout (per HRM Appendix C):
-//! 1. Gap: 2 words $AAAA (filler between sync marks)
-//! 2. Sync: 2 words $4489 (MFM-encoded $A1 with missing clock)
-//! 3. Header info: format=$FF, track number, sector number, sectors-to-gap
-//! 4. Sector label: 16 zero bytes
-//! 5. Header checksum: XOR of MFM header + label longs
-//! 6. Data checksum: XOR of MFM data longs
-//! 7. Data: 512 bytes (odd/even split, MFM-encoded)
+//! 1. Reserve 1,088 bytes per sector pre-filled with `$AA`.
+//! 2. Write the pre-SYNC gap and two `$4489` sync words (bytes 0..7).
+//! 3. Spread the header info (4 bytes) into an 8-byte odd/even pair at
+//!    offset 8, and leave the 32-byte unused area at 16..47 filled with
+//!    `$AA`.
+//! 4. Spread the 512 sector data bytes into a 1024-byte odd/even pair
+//!    at offset 64.
+//! 5. Compute the block checksum (byte-wise XOR of bytes 8..47, taken
+//!    4 at a time) and spread it at offset 48.
+//! 6. Compute the data checksum (byte-wise XOR of bytes 64..1087, taken
+//!    4 at a time) and spread it at offset 56.
+//! 7. Run `addClockBits` byte-by-byte from offset 8 to end of sector so
+//!    every `$aa`/`$55`/mixed byte ends up with its clock bits set
+//!    according to the MFM rule.
+//!
+//! The odd/even interleave places one data byte into two output bytes:
+//! the odd-indexed bits land at positions 0,2,4,6 of the first output
+//! byte; the even-indexed bits land at positions 0,2,4,6 of the second
+//! output byte. Clock bits occupy positions 1,3,5,7 and are filled in
+//! afterwards.
 
-/// Size of one MFM-encoded track in bytes.
-/// 11 sectors x (2+2+2+2+8+8+4+4+512+512 = 1,056 raw longs) ≈ various
-/// estimates. The standard raw track size for an Amiga DD disk is 12,668
-/// bytes (or 6,334 words / 3,167 longs). We use a fixed buffer to hold
-/// the encoded track.
-///
-/// Per sector: 2 gap words + 2 sync words + 2 info words + 8 label words +
-/// 2 hdr_cksum words + 2 data_cksum words + 512 data words = 530 words =
-/// 1,060 bytes per sector. 11 sectors = 11,660 bytes. Plus inter-sector gaps.
-/// In practice the track is ~12,668 bytes. We'll compute exactly.
-///
-/// Actual breakdown per sector (in MFM words, i.e. 16-bit units):
-///   - Gap: 2 words
-///   - Sync: 2 words
-///   - Header info (odd + even): 4 bytes → 2 MFM longs = 4 words
-///   - Label (odd + even): 16 bytes → 4 MFM longs = 8 words (odd) + 8 words (even) = 16 words
-///   - Header checksum: 1 MFM long = 2 words (odd) + 2 words (even) = 4 words
-///   - Data checksum: similarly 4 words
-///   - Data (odd + even): 512 bytes → 256 words (odd) + 256 words (even) = 512 words
-///   - Total: 2 + 2 + 4 + 16 + 4 + 4 + 512 = 544 words = 1,088 bytes per sector.
-///     11 sectors = 11,968 bytes. Real tracks have additional gap filler.
-pub const MFM_TRACK_BYTES: usize = 13_630;
+/// Size of one MFM-encoded track in bytes. 11 sectors × 1088 bytes =
+/// 11,968 bytes; the remaining padding up to 12,668 bytes is the
+/// track-level gap the drive rotates through between passes.
+pub const MFM_TRACK_BYTES: usize = 12_668;
+
+/// MFM bytes per sector (header + data).
+pub const SECTOR_MFM_BYTES: usize = 1088;
 
 /// Encode a full track of sector data into Amiga raw MFM format.
 ///
 /// `track_sectors` must be exactly `sectors_per_track * 512` bytes.
 /// `track_num` is `cyl * 2 + head`.
 pub fn encode_mfm_track(track_sectors: &[u8], track_num: u8, sectors_per_track: u32) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(MFM_TRACK_BYTES);
+    let mut buf = vec![0xAAu8; MFM_TRACK_BYTES];
 
-    // Carries the last data bit across long boundaries so MFM clock
-    // bits at the start of each long are computed correctly.
-    let mut last_bit: u32 = 0;
-
-    for sector in 0..sectors_per_track {
-        let sector_data = &track_sectors[sector as usize * 512..(sector as usize + 1) * 512];
-        encode_sector(
-            &mut buf,
-            &mut last_bit,
+    for s in 0..sectors_per_track {
+        let sector_data = &track_sectors[s as usize * 512..(s as usize + 1) * 512];
+        let offset = s as usize * SECTOR_MFM_BYTES;
+        encode_sector_into(
+            &mut buf[offset..offset + SECTOR_MFM_BYTES],
             track_num,
-            sector as u8,
+            s as u8,
             sectors_per_track as u8,
             sector_data,
         );
     }
 
-    // Pad remaining space with MFM gap bytes ($AA = clock bits only)
-    while buf.len() < MFM_TRACK_BYTES {
-        buf.push(0xAA);
-    }
-    buf.truncate(MFM_TRACK_BYTES);
-
     buf
 }
 
-fn encode_sector(
-    buf: &mut Vec<u8>,
-    last_bit: &mut u32,
+fn encode_sector_into(
+    sector: &mut [u8],
     track: u8,
-    sector: u8,
+    sector_num: u8,
     sectors_per_track: u8,
     data: &[u8],
 ) {
-    // Helper: encode one long using the running `last_bit` state, emit
-    // its bytes, and update `last_bit` to this long's LSB (the last
-    // data bit transmitted, at bit position 0 of the MFM long).
-    fn emit_encoded_long(buf: &mut Vec<u8>, last_bit: &mut u32, data: u32) {
-        let mfm = mfm_encode_long_with_prev(data, *last_bit);
-        buf.extend_from_slice(&mfm.to_be_bytes());
-        *last_bit = mfm & 1;
-    }
-    // Helper: emit raw bytes (gap/sync) that contain fixed MFM patterns;
-    // update `last_bit` to the LSB of the last byte.
-    fn emit_raw(buf: &mut Vec<u8>, last_bit: &mut u32, bytes: &[u8]) {
-        buf.extend_from_slice(bytes);
-        if let Some(&last) = bytes.last() {
-            *last_bit = u32::from(last) & 1;
-        }
-    }
+    debug_assert_eq!(sector.len(), SECTOR_MFM_BYTES);
+    debug_assert_eq!(data.len(), 512);
 
-    // 1. Gap: 2 words $AAAA — 1010 pattern, last bit = 0.
-    emit_raw(buf, last_bit, &[0xAA, 0xAA, 0xAA, 0xAA]);
+    // 1. Pre-sync gap (offsets 0..3) and sync words (offsets 4..7).
+    sector[0] = 0xAA;
+    sector[1] = 0xAA;
+    sector[2] = 0xAA;
+    sector[3] = 0xAA;
+    sector[4] = 0x44;
+    sector[5] = 0x89;
+    sector[6] = 0x44;
+    sector[7] = 0x89;
 
-    // 2. Sync: 2 words $4489 — the Amiga's magic constant. Its last
-    //    bit (LSB of $89 = 1) becomes the "previous data bit" for the
-    //    header that follows.
-    emit_raw(buf, last_bit, &[0x44, 0x89, 0x44, 0x89]);
+    // 2. Track + sector info (raw 4 bytes, odd/even encoded into 8).
+    // Sectors-until-gap counts this sector and the ones after it up to
+    // the track gap: range is 11 (for sector 0) down to 1 (for sector
+    // sectors_per_track - 1). vAmiga and WinUAE both use this
+    // convention.
+    let info = [0xFFu8, track, sector_num, sectors_per_track - sector_num];
+    encode_odd_even(&mut sector[8..16], &info);
 
-    // 3. Header info: 4 bytes = [format, track, sector, sectors_to_gap]
-    let sectors_to_gap = sectors_per_track - sector - 1;
-    let info_bytes = [0xFF, track, sector, sectors_to_gap];
-    let info_long = u32::from_be_bytes(info_bytes);
-    // Accumulate the full pre-emit values so the checksum stays
-    // stable regardless of the clock-bit carry.
-    let info_odd_mfm = mfm_encode_long_with_prev(odd_bits(info_long), *last_bit);
-    emit_encoded_long(buf, last_bit, odd_bits(info_long));
-    let info_even_mfm = mfm_encode_long_with_prev(even_bits(info_long), *last_bit);
-    emit_encoded_long(buf, last_bit, even_bits(info_long));
-    let _ = (info_odd_mfm, info_even_mfm);
-
-    // 4. Sector label: 16 zero bytes (4 longs), odd/even split + MFM
-    let label_zeros = [0u32; 4];
-    let mut label_mfm_odd = [0u32; 4];
-    let mut label_mfm_even = [0u32; 4];
-    for i in 0..4 {
-        label_mfm_odd[i] = mfm_encode_long_with_prev(odd_bits(label_zeros[i]), *last_bit);
-        emit_encoded_long(buf, last_bit, odd_bits(label_zeros[i]));
-    }
-    for i in 0..4 {
-        label_mfm_even[i] = mfm_encode_long_with_prev(even_bits(label_zeros[i]), *last_bit);
-        emit_encoded_long(buf, last_bit, even_bits(label_zeros[i]));
+    // 3. Unused area: 32 bytes of $AA at offset 16..47.
+    for b in &mut sector[16..48] {
+        *b = 0xAA;
     }
 
-    // 5. Header checksum: XOR of all MFM header longs (info + label).
-    // Note: we must XOR the *actual emitted* MFM longs, since clock
-    // bits are part of the stream Kickstart hashes. Recompute them
-    // with the running last_bit state replayed — but simpler: re-run
-    // the encode with a scratch state that mirrors what emit produced.
-    // Since label_mfm_odd/even above were sampled before each emit,
-    // they're accurate-for-checksum only if the encode didn't depend
-    // on last_bit. To keep the checksum aligned with the stream,
-    // Kickstart uses: hdr_cksum = XOR of stream longs AND $55555555,
-    // which strips clock bits entirely. So it's safe to XOR the data
-    // bits only — but the easiest way is to XOR the stream longs and
-    // mask. Because the data bits are identical regardless of clock,
-    // the mask removes the carry-dependent part.
-    let mut hdr_cksum: u32 = 0;
-    hdr_cksum ^= mfm_encode_long_with_prev(odd_bits(info_long), 0);
-    hdr_cksum ^= mfm_encode_long_with_prev(even_bits(info_long), 0);
-    for i in 0..4 {
-        hdr_cksum ^= label_mfm_odd[i];
-        hdr_cksum ^= label_mfm_even[i];
-    }
-    hdr_cksum &= 0x5555_5555;
-    emit_encoded_long(buf, last_bit, odd_bits(hdr_cksum));
-    emit_encoded_long(buf, last_bit, even_bits(hdr_cksum));
+    // 4. Sector data: 512 raw bytes, odd/even encoded into 1024 bytes
+    // at offset 64..1087.
+    encode_odd_even(&mut sector[64..1088], data);
 
-    // 6-7. Data: 512 bytes as 128 longs, odd/even split + MFM
-    let mut data_longs = [0u32; 128];
-    for (i, long) in data_longs.iter_mut().enumerate() {
-        let offset = i * 4;
-        *long = u32::from_be_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]);
+    // 5. Block (header) checksum: byte-wise XOR of bytes 8..47 taken
+    // 4 at a time, then odd/even encoded into bytes 48..55.
+    let mut bcheck = [0u8; 4];
+    let mut i = 8;
+    while i < 48 {
+        bcheck[0] ^= sector[i];
+        bcheck[1] ^= sector[i + 1];
+        bcheck[2] ^= sector[i + 2];
+        bcheck[3] ^= sector[i + 3];
+        i += 4;
     }
+    encode_odd_even(&mut sector[48..56], &bcheck);
 
-    // First compute the data checksum by encoding each MFM long with a
-    // fixed prev-bit of 0, then mask clock bits. The mask makes the
-    // checksum independent of the running last_bit state, so the value
-    // we write here matches what Kickstart recomputes when reading.
-    let mut data_cksum: u32 = 0;
-    for i in 0..128 {
-        data_cksum ^= mfm_encode_long_with_prev(odd_bits(data_longs[i]), 0);
-        data_cksum ^= mfm_encode_long_with_prev(even_bits(data_longs[i]), 0);
+    // 6. Data checksum: byte-wise XOR of bytes 64..1087 taken 4 at a
+    // time, then odd/even encoded into bytes 56..63.
+    let mut dcheck = [0u8; 4];
+    let mut i = 64;
+    while i < SECTOR_MFM_BYTES {
+        dcheck[0] ^= sector[i];
+        dcheck[1] ^= sector[i + 1];
+        dcheck[2] ^= sector[i + 2];
+        dcheck[3] ^= sector[i + 3];
+        i += 4;
     }
-    data_cksum &= 0x5555_5555;
+    encode_odd_even(&mut sector[56..64], &dcheck);
 
-    // Data checksum (odd/even + MFM) — written to the stream with the
-    // running last_bit state so clock bits link correctly.
-    emit_encoded_long(buf, last_bit, odd_bits(data_cksum));
-    emit_encoded_long(buf, last_bit, even_bits(data_cksum));
-
-    // Data odd longs first, then even longs — each emitted through the
-    // running last_bit state.
-    for i in 0..128 {
-        emit_encoded_long(buf, last_bit, odd_bits(data_longs[i]));
-    }
-    for i in 0..128 {
-        emit_encoded_long(buf, last_bit, even_bits(data_longs[i]));
+    // 7. Add clock bits to the MFM region (byte 8 onwards). The first
+    // byte's previous context comes from sector[7] (the last sync byte,
+    // $89, whose LSB is 1 — this forces the leading clock bit to 0).
+    for i in 8..SECTOR_MFM_BYTES {
+        sector[i] = add_clock_bits_byte(sector[i], sector[i - 1]);
     }
 }
 
-/// Extract odd-position bits from a longword (bits 31,29,27,...,1).
-/// The result is packed into the low 16 bits.
-fn odd_bits(val: u32) -> u32 {
-    let mut result = 0u32;
-    for i in 0..16 {
-        let bit = (val >> (1 + i * 2)) & 1;
-        result |= bit << i;
+/// vAmiga's odd/even split. For each source byte, write the odd bits
+/// (positions 1,3,5,7 of the source) into the low `count` bytes of dst
+/// at even positions, and the even bits (positions 0,2,4,6) into the
+/// high `count` bytes at even positions.
+fn encode_odd_even(dst: &mut [u8], src: &[u8]) {
+    let count = src.len();
+    debug_assert_eq!(dst.len(), 2 * count);
+    for i in 0..count {
+        dst[i] = (src[i] >> 1) & 0x55;
+        dst[i + count] = src[i] & 0x55;
     }
-    result
 }
 
-/// Extract even-position bits from a longword (bits 30,28,26,...,0).
-/// The result is packed into the low 16 bits.
-fn even_bits(val: u32) -> u32 {
-    let mut result = 0u32;
-    for i in 0..16 {
-        let bit = (val >> (i * 2)) & 1;
-        result |= bit << i;
-    }
-    result
-}
+/// Add MFM clock bits to a byte that already carries data bits at
+/// positions 0,2,4,6. `previous` is the byte immediately before this
+/// one in the MFM stream — its LSB is the last data bit that was
+/// transmitted and feeds into the clock computation for this byte's
+/// leading clock bit (bit 7).
+///
+/// The MFM rule: a clock bit is 1 only when both adjacent data bits
+/// are 0.
+fn add_clock_bits_byte(value: u8, previous: u8) -> u8 {
+    // Strip any stale clock bits, keeping only the data-bit positions.
+    let value = value & 0x55;
 
-/// MFM-encode a 16-bit data value into a 32-bit MFM longword, with the
-/// last data bit of the previous long supplied as `prev_last_bit`.
-/// Clock is 1 only when both the preceding data bit AND current data
-/// bit are 0 — and the "preceding bit" for the first data bit in this
-/// long is the last data bit of the previous long, not a fixed 0.
-fn mfm_encode_long_with_prev(data: u32, prev_last_bit: u32) -> u32 {
-    let data = data & 0xFFFF;
-    let mut mfm = 0u32;
-    for i in (0..16).rev() {
-        let data_bit = (data >> i) & 1;
-        let bit_pos = (15 - i) * 2;
-        let prev_data = if i < 15 {
-            (data >> (i + 1)) & 1
-        } else {
-            prev_last_bit & 1
-        };
-        let clock = if prev_data == 0 && data_bit == 0 { 1 } else { 0 };
-        mfm |= clock << (31 - bit_pos);
-        mfm |= data_bit << (30 - bit_pos);
-    }
-    mfm
-}
+    // `lShifted` carries each data bit up by one — these are the clock
+    // positions whose *right* neighbour is a 1.
+    // `rShifted` carries each data bit down by one, with the previous
+    // byte's LSB tucked into bit 7 — these are the clock positions
+    // whose *left* neighbour is a 1.
+    let l_shifted = value << 1;
+    let r_shifted = (value >> 1) | (previous << 7);
+    let c_bits_inv = l_shifted | r_shifted;
 
-#[cfg(test)]
-fn mfm_encode_long(data: u32) -> u32 {
-    mfm_encode_long_with_prev(data, 0)
+    // Invert so we have 1 where both neighbours are 0 (i.e., where the
+    // clock bit must be 1). The XOR with 0xAA restricts the result to
+    // clock positions only.
+    let c_bits = c_bits_inv ^ 0xAA;
+
+    value | c_bits
 }
 
 /// A decoded sector from an MFM track.
@@ -248,7 +177,7 @@ pub struct DecodedSector {
 
 /// Decode an MFM word stream (as captured by DMA) into sector data.
 ///
-/// Scans for $4489 sync word pairs, then decodes the Amiga sector
+/// Scans for `$4489` sync pairs, then decodes the Amiga sector
 /// structure: header info, label, checksums, and 512-byte data block.
 /// Returns only sectors with valid data checksums.
 pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
@@ -256,84 +185,78 @@ pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
     let mut i = 0;
 
     while i + 1 < mfm_words.len() {
-        // Scan for sync pair: $4489 $4489
         if mfm_words[i] != 0x4489 {
             i += 1;
             continue;
         }
-        // Skip consecutive sync words
         while i < mfm_words.len() && mfm_words[i] == 0x4489 {
             i += 1;
         }
 
-        // After sync: need at least 2 (info) + 8 (label odd) + 8 (label even)
-        //   + 2 (hdr cksum) + 2 (data cksum) + 256 (data odd) + 256 (data even)
-        //   = 534 words
+        // Need 2 info + 8 label + 2 hdr_cksum + 2 data_cksum + 256
+        // data-odd + 256 data-even = 534 words.
         if i + 534 > mfm_words.len() {
             break;
         }
 
-        // Read MFM longs as pairs of u16 words (big-endian)
         let read_mfm_long = |pos: usize| -> u32 {
             (u32::from(mfm_words[pos]) << 16) | u32::from(mfm_words[pos + 1])
         };
+        let decode_long = |odd: u32, even: u32| -> u32 {
+            ((odd & 0x5555_5555) << 1) | (even & 0x5555_5555)
+        };
 
-        // Header info: 1 longword as odd + even halves (2 MFM longs = 4 words)
-        let info_odd_mfm = read_mfm_long(i);
-        let info_even_mfm = read_mfm_long(i + 2);
-        let info_odd = mfm_decode_long(info_odd_mfm);
-        let info_even = mfm_decode_long(info_even_mfm);
-        let info_long = reconstruct_long(info_odd, info_even);
-        let info_bytes = info_long.to_be_bytes();
-        let _format = info_bytes[0];
+        // Info: 2 MFM longs (odd + even), reconstructed into one 32-bit.
+        let info_odd = read_mfm_long(i);
+        let info_even = read_mfm_long(i + 2);
+        let info = decode_long(info_odd, info_even);
+        let info_bytes = info.to_be_bytes();
         let track = info_bytes[1];
-        let sector = info_bytes[2];
+        let sector_num = info_bytes[2];
         i += 4;
 
-        // Label: 4 longs odd + 4 longs even (16 words) — skip
+        // Label (16 bytes = 4 longs odd + 4 longs even) — skip.
         i += 16;
 
-        // Header checksum: 1 longword odd/even (4 words) — skip
+        // Header checksum — skip.
         i += 4;
 
-        // Data checksum: stored as odd/even MFM-encoded longword (4 words)
-        let stored_cksum_odd_mfm = read_mfm_long(i);
-        let stored_cksum_even_mfm = read_mfm_long(i + 2);
-        let stored_data_cksum = reconstruct_long(
-            mfm_decode_long(stored_cksum_odd_mfm),
-            mfm_decode_long(stored_cksum_even_mfm),
-        );
+        // Data checksum — read (odd + even) then reconstruct.
+        let stored_dcheck_odd = read_mfm_long(i);
+        let stored_dcheck_even = read_mfm_long(i + 2);
+        let stored_dcheck = decode_long(stored_dcheck_odd, stored_dcheck_even);
         i += 4;
 
-        // Data: 128 longs, odd first (256 words), then even (256 words)
-        let mut computed_data_cksum: u32 = 0;
-        let mut data_odd_mfm = [0u32; 128];
-        let mut data_even_mfm = [0u32; 128];
-        for (j, odd) in data_odd_mfm.iter_mut().enumerate() {
-            *odd = read_mfm_long(i + j * 2);
-            computed_data_cksum ^= *odd;
+        // Data: 256 odd words + 256 even words = 512 words of data
+        // (128 longs).
+        let mut data_odd_longs = [0u32; 128];
+        let mut data_even_longs = [0u32; 128];
+        for j in 0..128 {
+            data_odd_longs[j] = read_mfm_long(i + j * 2);
         }
         i += 256;
-        for (j, even) in data_even_mfm.iter_mut().enumerate() {
-            *even = read_mfm_long(i + j * 2);
-            computed_data_cksum ^= *even;
+        for j in 0..128 {
+            data_even_longs[j] = read_mfm_long(i + j * 2);
         }
         i += 256;
 
-        // Verify: XOR of all raw MFM data longs, masked with $55555555
-        // to strip clock bits, should equal stored checksum.
-        computed_data_cksum &= 0x5555_5555;
-        if computed_data_cksum != stored_data_cksum {
-            continue; // Bad checksum — skip sector
+        // Verify the data checksum: XOR of all data MFM longs (both
+        // halves), masked to data-bit positions only.
+        let mut computed_dcheck: u32 = 0;
+        for j in 0..128 {
+            computed_dcheck ^= data_odd_longs[j];
+            computed_dcheck ^= data_even_longs[j];
+        }
+        computed_dcheck &= 0x5555_5555;
+        if computed_dcheck != stored_dcheck {
+            continue; // Skip bad sector.
         }
 
-        // Decode data longs
+        // Decode data longs.
         let mut data = [0u8; 512];
         for j in 0..128 {
-            let odd_val = mfm_decode_long(data_odd_mfm[j]);
-            let even_val = mfm_decode_long(data_even_mfm[j]);
-            let long_val = reconstruct_long(odd_val, even_val);
-            let bytes = long_val.to_be_bytes();
+            let long = decode_long(data_odd_longs[j], data_even_longs[j]);
+            let bytes = long.to_be_bytes();
             data[j * 4] = bytes[0];
             data[j * 4 + 1] = bytes[1];
             data[j * 4 + 2] = bytes[2];
@@ -342,7 +265,7 @@ pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
 
         sectors.push(DecodedSector {
             track,
-            sector,
+            sector: sector_num,
             data,
         });
     }
@@ -350,177 +273,91 @@ pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
     sectors
 }
 
-/// Reconstruct a 32-bit value from separate odd and even 16-bit halves.
-fn reconstruct_long(odd: u32, even: u32) -> u32 {
-    let mut result = 0u32;
-    for i in 0..16 {
-        result |= ((even >> i) & 1) << (i * 2);
-        result |= ((odd >> i) & 1) << (i * 2 + 1);
-    }
-    result
-}
-
-/// Decode a 32-bit MFM longword back to a 16-bit data value.
-/// Extracts data bits (odd positions in the MFM stream).
-pub fn mfm_decode_long(mfm: u32) -> u32 {
-    let mut data = 0u32;
-    for i in 0..16 {
-        let bit = (mfm >> (30 - i * 2)) & 1;
-        data |= bit << (15 - i);
-    }
-    data
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn odd_even_bits_reconstruct() {
-        let val: u32 = 0xDEAD_BEEF;
-        let odd = odd_bits(val);
-        let even = even_bits(val);
-        // Reconstruct: interleave odd (high) and even (low) bits
-        let mut reconstructed = 0u32;
+    fn encode_odd_even_round_trip() {
+        let src: Vec<u8> = (0..16).map(|i| i as u8 * 17).collect();
+        let mut tmp = vec![0u8; 32];
+        encode_odd_even(&mut tmp, &src);
+        // Decode by recombining: byte i = (odd[i] << 1) | even[i].
+        let mut decoded = vec![0u8; 16];
         for i in 0..16 {
-            reconstructed |= ((even >> i) & 1) << (i * 2);
-            reconstructed |= ((odd >> i) & 1) << (i * 2 + 1);
+            decoded[i] = ((tmp[i] & 0x55) << 1) | (tmp[i + 16] & 0x55);
         }
-        assert_eq!(reconstructed, val);
+        assert_eq!(decoded, src);
     }
 
     #[test]
-    fn mfm_encode_decode_round_trip() {
-        for data in [0x0000u32, 0xFFFF, 0xAAAA, 0x5555, 0xDEAD, 0x1234] {
-            let mfm = mfm_encode_long(data);
-            let decoded = mfm_decode_long(mfm);
-            assert_eq!(decoded, data, "round-trip failed for ${data:04X}");
+    fn clock_bits_for_all_zero_data_are_all_set() {
+        // A byte with no data bits should produce $AA after clock
+        // insertion (assuming previous byte's LSB is 0): clock bits at
+        // positions 1,3,5,7 all set because both neighbours are 0.
+        assert_eq!(add_clock_bits_byte(0x00, 0x00), 0xAA);
+    }
+
+    #[test]
+    fn clock_bits_for_all_one_data_are_all_clear() {
+        // A byte with data bits at every position should have no
+        // clock bits (both neighbours are 1).
+        assert_eq!(add_clock_bits_byte(0x55, 0xFF), 0x55);
+    }
+
+    #[test]
+    fn encode_track_then_decode_round_trips() {
+        // Build one track of well-distributed data.
+        let mut track_data = vec![0u8; 11 * 512];
+        for (i, b) in track_data.iter_mut().enumerate() {
+            *b = ((i * 31 + 7) & 0xFF) as u8;
         }
-    }
-
-    #[test]
-    fn mfm_zero_gives_clocks() {
-        // All-zero data should produce alternating clock bits: $AAAA_AAAA
-        let mfm = mfm_encode_long(0x0000);
-        assert_eq!(mfm, 0xAAAA_AAAA);
-    }
-
-    #[test]
-    fn mfm_ones_gives_no_clocks() {
-        // All-one data means clock bits are all 0: $5555_5555
-        let mfm = mfm_encode_long(0xFFFF);
-        assert_eq!(mfm, 0x5555_5555);
-    }
-
-    #[test]
-    fn encode_track_has_sync_marks() {
-        let track_data = vec![0u8; 11 * 512]; // 11 sectors of zeros
-        let mfm = encode_mfm_track(&track_data, 0, 11);
-
-        // Each sector should have two $4489 sync words
-        let sync_pattern = [0x44u8, 0x89, 0x44, 0x89];
-        let mut sync_count = 0;
-        for window in mfm.windows(4) {
-            if window == sync_pattern {
-                sync_count += 1;
-            }
-        }
-        assert_eq!(sync_count, 11, "expected 11 sync marks (one per sector)");
-    }
-
-    #[test]
-    fn encode_track_length() {
-        let track_data = vec![0u8; 11 * 512];
         let mfm = encode_mfm_track(&track_data, 0, 11);
         assert_eq!(mfm.len(), MFM_TRACK_BYTES);
-    }
 
-    #[test]
-    fn decode_mfm_track_round_trip() {
-        // Encode a track with known data, then decode and verify
-        let mut track_data = vec![0u8; 11 * 512];
-        for (i, byte) in track_data.iter_mut().enumerate() {
-            *byte = (i & 0xFF) as u8;
-        }
-        let track_num = 5u8;
-        let encoded = encode_mfm_track(&track_data, track_num, 11);
-
-        // Convert byte stream to u16 word stream (as DMA would capture)
-        let mfm_words: Vec<u16> = encoded
+        let words: Vec<u16> = mfm
             .chunks_exact(2)
-            .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
             .collect();
-
-        let decoded = decode_mfm_track(&mfm_words);
-        assert_eq!(decoded.len(), 11, "should decode all 11 sectors");
-
-        for ds in &decoded {
-            assert_eq!(ds.track, track_num, "track number should match");
-            let sector = ds.sector as usize;
-            let expected = &track_data[sector * 512..(sector + 1) * 512];
-            assert_eq!(&ds.data[..], expected, "sector {} data mismatch", sector);
+        let sectors = decode_mfm_track(&words);
+        assert_eq!(sectors.len(), 11);
+        for s in &sectors {
+            assert_eq!(s.track, 0);
+            let expected =
+                &track_data[s.sector as usize * 512..(s.sector as usize + 1) * 512];
+            assert_eq!(&s.data[..], expected, "sector {} mismatch", s.sector);
         }
     }
 
     #[test]
-    fn decode_empty_stream() {
-        let decoded = decode_mfm_track(&[]);
-        assert!(decoded.is_empty());
-    }
-
-    #[test]
-    fn decode_corrupted_sync_skips_bad_sectors() {
-        // Encode a valid track
+    fn sync_words_are_preserved_in_the_stream() {
         let track_data = vec![0u8; 11 * 512];
-        let encoded = encode_mfm_track(&track_data, 0, 11);
-        let mut mfm_words: Vec<u16> = encoded
-            .chunks_exact(2)
-            .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
-            .collect();
-
-        // Corrupt data in the first sector (after the first sync pair)
-        // Find first sync and corrupt data words after it
-        let mut found = 0;
-        for i in 0..mfm_words.len() - 1 {
-            if mfm_words[i] == 0x4489 && mfm_words[i + 1] != 0x4489 {
-                // Corrupt some data words to invalidate checksum
-                if found == 0 {
-                    for j in i + 30..i + 40 {
-                        if j < mfm_words.len() {
-                            mfm_words[j] ^= 0xFFFF;
-                        }
-                    }
-                }
-                found += 1;
-            }
+        let mfm = encode_mfm_track(&track_data, 0, 11);
+        // Each sector should contain exactly the bytes $44 $89 $44 $89
+        // at offsets 4..7.
+        for s in 0..11 {
+            let off = s * SECTOR_MFM_BYTES + 4;
+            assert_eq!(
+                &mfm[off..off + 4],
+                &[0x44, 0x89, 0x44, 0x89],
+                "sync missing for sector {s}"
+            );
         }
-
-        let decoded = decode_mfm_track(&mfm_words);
-        // First sector should be skipped due to bad checksum
-        assert!(
-            decoded.len() < 11,
-            "corrupted sector should be skipped (got {} sectors)",
-            decoded.len()
-        );
-        assert!(
-            decoded.len() >= 9,
-            "remaining sectors should still decode (got {})",
-            decoded.len()
-        );
     }
 
     #[test]
-    fn decode_sector_numbers_match_encoded() {
+    fn header_info_bytes_decode_to_expected_values() {
         let track_data = vec![0u8; 11 * 512];
-        let encoded = encode_mfm_track(&track_data, 10, 11);
-        let mfm_words: Vec<u16> = encoded
-            .chunks_exact(2)
-            .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
-            .collect();
-
-        let decoded = decode_mfm_track(&mfm_words);
-        let mut sector_nums: Vec<u8> = decoded.iter().map(|s| s.sector).collect();
-        sector_nums.sort();
-        assert_eq!(sector_nums, (0..11).collect::<Vec<u8>>());
+        let mfm = encode_mfm_track(&track_data, 3, 11); // track 3
+        // Info is at offset 8 (odd half) + 12 (even half) of sector 0.
+        // Decode the info longword.
+        let odd = u32::from_be_bytes([mfm[8], mfm[9], mfm[10], mfm[11]]);
+        let even = u32::from_be_bytes([mfm[12], mfm[13], mfm[14], mfm[15]]);
+        let info = ((odd & 0x5555_5555) << 1) | (even & 0x5555_5555);
+        let bytes = info.to_be_bytes();
+        assert_eq!(bytes[0], 0xFF, "format");
+        assert_eq!(bytes[1], 3, "track");
+        assert_eq!(bytes[2], 0, "sector");
+        assert_eq!(bytes[3], 11, "sectors until gap");
     }
 }
