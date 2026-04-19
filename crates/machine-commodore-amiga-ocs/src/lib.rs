@@ -158,6 +158,12 @@ impl AmigaOcs {
         self.memory.read_word(addr)
     }
 
+    /// Read a longword (big-endian) at the given 24-bit address.
+    #[must_use]
+    pub fn read_long(&self, addr: u32) -> u32 {
+        self.memory.read_long(addr)
+    }
+
     /// Read a chip-RAM byte directly, ignoring the OVL overlay.
     #[must_use]
     pub fn read_chip_ram_byte(&self, addr: u32) -> u8 {
