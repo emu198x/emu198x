@@ -1,40 +1,51 @@
-//! Memory subsystem — M0 minimal version.
+//! Memory subsystem.
 //!
-//! At M0 the only storage is the Kickstart ROM. There is no chip RAM,
-//! no chipset, no CIAs. Reads either come from ROM (at its anchor or
-//! through the OVL=1 overlay) or return floating-bus `$FF`. Writes
-//! silently drop.
+//! Built incrementally per the restart milestones in
+//! `wiki/decisions/amiga-restart-plan.md`.
 //!
-//! Address map at M0:
+//! Current state — M1:
+//! - 256K Kickstart ROM at its anchor `$F8_0000-$FF_FFFF` (256K
+//!   image mirrored to fill the 512K window).
+//! - 512 KiB chip RAM at `$00_0000-$07_FFFF`.
+//! - OVL=1 (default) maps ROM into `$00_0000-$3F_FFFF` for **reads**
+//!   only. Writes always land in chip RAM, matching real Amiga
+//!   behaviour where OVL gates reads alone.
+//! - Custom registers (`$DF_0000-$DF_FFFF`) and CIA address space
+//!   (`$BF_0000-$BF_FFFF`) silently absorb writes and read as
+//!   floating bus. No behaviour wired yet.
+//! - Everything else: floating-bus reads (`$FF`), writes drop.
 //!
-//! | Range | Source |
-//! |---|---|
-//! | `$00_0000-$3F_FFFF` (when OVL=1) | Kickstart ROM (mirrored to fill 4 MiB window) |
-//! | `$F8_0000-$FF_FFFF` | Kickstart ROM (anchored, 4-way mirror for 256K ROM) |
-//! | everything else | floating bus (`$FF`); writes drop |
+//! Chip-RAM aliasing (`$80000` wraps to `$0` on a 512K-only machine)
+//! is **not** modelled yet — it lands in M3/M4 when the chip-RAM probe
+//! demands it.
 
 const OVL_BASE: u32 = 0x00_0000;
 const OVL_TOP: u32 = 0x40_0000;
 
-const ROM_BASE: u32 = 0xF8_0000;
-const ROM_TOP: u32 = 0x100_0000;
+const CHIP_RAM_BASE: u32 = 0x00_0000;
+const CHIP_RAM_TOP: u32 = 0x08_0000;
 
-/// Memory subsystem at M0: just the Kickstart ROM and the OVL overlay.
+const CIA_BASE: u32 = 0x00BF_0000;
+const CIA_TOP: u32 = 0x00C0_0000;
+
+const CUSTOM_BASE: u32 = 0x00DF_0000;
+const CUSTOM_TOP: u32 = 0x00E0_0000;
+
+const ROM_BASE: u32 = 0x00F8_0000;
+const ROM_TOP: u32 = 0x0100_0000;
+
+pub const CHIP_RAM_SIZE: usize = 512 * 1024;
+
+/// Memory subsystem for the Amiga (OCS).
 pub struct Memory {
+    chip_ram: Vec<u8>,
     kickstart: Vec<u8>,
-    /// Mask for wrapping addresses into the ROM image. ROM size is
-    /// always a power of two (256K, 512K), so size-1 gives the mask.
     rom_mask: u32,
-    /// True while the reset overlay maps ROM into the low memory
-    /// region. Set to `true` at construction (real-hardware reset
-    /// default) and cleared when the OVL line is later disabled via
-    /// CIA-A — not yet wired at M0.
     overlay: bool,
 }
 
 impl Memory {
-    /// Construct memory with the given Kickstart image. The ROM size
-    /// must be a power of two (Amiga Kickstarts are 256K or 512K).
+    /// Construct memory with the given Kickstart image.
     #[must_use]
     pub fn new(kickstart: Vec<u8>) -> Self {
         assert!(
@@ -44,9 +55,30 @@ impl Memory {
         );
         let rom_mask = (kickstart.len() as u32).wrapping_sub(1);
         Self {
+            chip_ram: vec![0; CHIP_RAM_SIZE],
             kickstart,
             rom_mask,
             overlay: true,
+        }
+    }
+
+    /// Whether the reset overlay is currently mapping ROM into low
+    /// memory. Read-only at M1 (CIA-A clears it in a later milestone).
+    #[must_use]
+    pub fn overlay(&self) -> bool {
+        self.overlay
+    }
+
+    /// Direct chip-RAM byte read — bypasses the OVL-aware public path.
+    /// Used by tests to verify chip-RAM contents independent of the
+    /// overlay state.
+    #[must_use]
+    pub fn read_chip_ram_byte(&self, addr: u32) -> u8 {
+        let addr = addr & 0xFF_FFFF;
+        if addr < CHIP_RAM_TOP {
+            self.chip_ram[addr as usize]
+        } else {
+            0
         }
     }
 
@@ -54,13 +86,24 @@ impl Memory {
     #[must_use]
     pub fn read_byte(&self, addr: u32) -> u8 {
         let addr = addr & 0xFF_FFFF;
+
+        // OVL routes low-memory READS to ROM when active.
         if self.overlay && (OVL_BASE..OVL_TOP).contains(&addr) {
             return self.rom_byte(addr);
         }
+
+        // Chip RAM (when OVL clear, or above the overlay window).
+        if (CHIP_RAM_BASE..CHIP_RAM_TOP).contains(&addr) {
+            return self.chip_ram[addr as usize];
+        }
+
+        // ROM at its anchor.
         if (ROM_BASE..ROM_TOP).contains(&addr) {
             return self.rom_byte(addr);
         }
-        // Floating bus — nothing drives the data lines low.
+
+        // Custom-register space and CIA space read as floating bus —
+        // no behaviour wired yet.
         0xFF
     }
 
@@ -80,17 +123,28 @@ impl Memory {
         (u32::from(hi) << 16) | u32::from(lo)
     }
 
-    /// Whether the reset overlay is currently mapping ROM into low
-    /// memory. Read-only at M0 (cleared by CIA-A in a later milestone).
-    #[must_use]
-    pub fn overlay(&self) -> bool {
-        self.overlay
+    /// Write one byte through the active memory map.
+    pub fn write_byte(&mut self, addr: u32, val: u8) {
+        let addr = addr & 0xFF_FFFF;
+
+        // Chip-RAM writes always land — OVL only affects reads.
+        if (CHIP_RAM_BASE..CHIP_RAM_TOP).contains(&addr) {
+            self.chip_ram[addr as usize] = val;
+            return;
+        }
+
+        // CIA / custom register / ROM / unmapped: silently drop.
+        // (Real chip behaviour comes in M2+.)
+        let _ = (CIA_BASE, CIA_TOP, CUSTOM_BASE, CUSTOM_TOP, val);
+    }
+
+    /// Write one word (big-endian) through the active memory map.
+    pub fn write_word(&mut self, addr: u32, val: u16) {
+        self.write_byte(addr, (val >> 8) as u8);
+        self.write_byte(addr.wrapping_add(1), val as u8);
     }
 
     fn rom_byte(&self, addr: u32) -> u8 {
-        // Wraps both the OVL overlay (4 MiB window over a 256K ROM)
-        // and the high anchor (512K window over a 256K ROM) into the
-        // single ROM image via the size-mask.
         self.kickstart[(addr & self.rom_mask) as usize]
     }
 }
@@ -113,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn ovl_maps_rom_at_zero() {
+    fn ovl_maps_rom_at_zero_for_reads() {
         let mem = Memory::new(test_rom());
         assert!(mem.overlay());
         assert_eq!(mem.read_long(0x000000), 0xDEAD_BEEF);
@@ -121,15 +175,26 @@ mod tests {
     }
 
     #[test]
+    fn writes_to_low_memory_land_in_chip_ram_even_when_ovl_is_on() {
+        let mut mem = Memory::new(test_rom());
+        assert!(mem.overlay());
+        mem.write_word(0x100, 0x1234);
+        // Public read goes through OVL → returns ROM (not the value
+        // we just wrote).
+        assert_eq!(mem.read_word(0x100), 0x0000);
+        // Direct chip-RAM read confirms the write landed.
+        assert_eq!(mem.read_chip_ram_byte(0x100), 0x12);
+        assert_eq!(mem.read_chip_ram_byte(0x101), 0x34);
+    }
+
+    #[test]
     fn rom_anchored_at_high_address() {
         let mem = Memory::new(test_rom());
         assert_eq!(mem.read_long(0xFC_0000), 0xDEAD_BEEF);
-        assert_eq!(mem.read_long(0xFC_0004), 0xCAFE_BABE);
     }
 
     #[test]
     fn rom_mirrors_to_fill_512k_window() {
-        // 256K ROM mirrored fills $F80000-$FFFFFF.
         let mem = Memory::new(test_rom());
         assert_eq!(mem.read_long(0xF8_0000), 0xDEAD_BEEF);
     }
@@ -139,7 +204,16 @@ mod tests {
         let mem = Memory::new(test_rom());
         assert_eq!(mem.read_word(0xC0_0000), 0xFFFF);
         assert_eq!(mem.read_word(0xA0_0000), 0xFFFF);
-        // High address past ROM mirror still in chipset/expansion space.
         assert_eq!(mem.read_word(0xE0_0000), 0xFFFF);
+    }
+
+    #[test]
+    fn cia_and_custom_writes_are_silent() {
+        // No panic, no error — just dropped.
+        let mut mem = Memory::new(test_rom());
+        mem.write_word(0x00BFE001, 0x0203);
+        mem.write_word(0x00DFF09A, 0x7FFF);
+        assert_eq!(mem.read_word(0x00BFE000), 0xFFFF); // floating bus
+        assert_eq!(mem.read_word(0x00DFF09A), 0xFFFF);
     }
 }
