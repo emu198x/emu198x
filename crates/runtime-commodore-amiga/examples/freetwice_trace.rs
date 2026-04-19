@@ -34,7 +34,14 @@ use std::fs;
 use std::path::Path;
 
 const EXEC_BASE: u32 = 0x00C00276;
-const ALERT_CALL_SITE: u32 = 0x00FC1788;
+// V33-Exec → K1.3 (V34) Exec offset: this region is shifted by $3C.
+// V33 $FC177E (alert helper start: movem.l D7/A5/A6,-(SP)) →
+// K1.3 $FC17BA. Verified by ROM byte-pattern search.
+const ALERT_CALL_SITE: u32 = 0x00FC17BA;
+// V33 BHI/BEQ-to-alert branches → K1.3 (each + $3C).
+const BRANCH_EXACT_DUP: u32 = 0x00FC1768; // V33 FC172C
+const BRANCH_PREV_OVERLAP: u32 = 0x00FC1782; // V33 FC1746
+const BRANCH_NEXT_OVERLAP: u32 = 0x00FC17A0; // V33 FC1764
 
 #[derive(Clone)]
 struct Event {
@@ -116,13 +123,10 @@ fn main() {
         let lvo = lvos.iter().find(|(_, addr)| *addr == pc);
         let at_alert_site = pc == ALERT_CALL_SITE;
 
-        // Catch the three Deallocate FreeTwice branches: snapshot D3/A2/A1
-        // at the BEQ/BHI just before the branch is taken to FC177E.
+        // Catch the three Deallocate FreeTwice branches at K1.3 addresses.
         if alert_branch_pc == 0
-            && (pc == 0x00FC172C || pc == 0x00FC1746 || pc == 0x00FC1764)
+            && (pc == BRANCH_EXACT_DUP || pc == BRANCH_PREV_OVERLAP || pc == BRANCH_NEXT_OVERLAP)
         {
-            // Note: at the branch point, D3 holds the conflicting MemChunk
-            // (172C) or the chunk-end address (1746, 1764).
             alert_branch_pc = pc;
             alert_d3_value = amiga.cpu.regs.d[3];
             alert_a2_value = amiga.cpu.regs.a[2];
@@ -267,9 +271,9 @@ fn main() {
 
     if alert_branch_pc != 0 {
         let case = match alert_branch_pc {
-            0x00FC172C => "EXACT DUPLICATE (cmp D3,A1; beq) — true double-free",
-            0x00FC1746 => "PREV-CHUNK OVERLAP (D3 = prev-end; bhi) — list corruption",
-            0x00FC1764 => "NEXT-CHUNK OVERLAP (D3 = our-end; bhi) — list corruption",
+            x if x == BRANCH_EXACT_DUP => "EXACT DUPLICATE (cmp D3,A1; beq) — true double-free",
+            x if x == BRANCH_PREV_OVERLAP => "PREV-CHUNK OVERLAP (D3 = prev-end; bhi) — list corruption",
+            x if x == BRANCH_NEXT_OVERLAP => "NEXT-CHUNK OVERLAP (D3 = our-end; bhi) — list corruption",
             _ => "unknown",
         };
         println!("\nFreeTwice branch fired at PC ${alert_branch_pc:08X}: {case}");
