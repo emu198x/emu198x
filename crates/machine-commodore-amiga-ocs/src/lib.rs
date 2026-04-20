@@ -92,6 +92,12 @@ pub struct AmigaOcs {
     /// $026 = DSKDAT, $07E = DSKSYNC). Lets us see how trackdisk
     /// pokes the disk controller before we add any behaviour.
     pub debug_dsk_log: Vec<(u64, u32, u16, u16)>,
+    /// Diagnostic: log of CIA-A register writes. Entry is
+    /// `(cck, pc, reg, raw_val)` where reg is 0..=$F. Lets us see
+    /// how timer.device and other code start/stop the CIA-A timers.
+    pub debug_cia_a_cr_log: Vec<(u64, u32, u8, u8)>,
+    /// Same for CIA-B.
+    pub debug_cia_b_cr_log: Vec<(u64, u32, u8, u8)>,
 }
 
 impl AmigaOcs {
@@ -139,6 +145,8 @@ impl AmigaOcs {
             debug_cop1lc_log: Vec::new(),
             debug_cop2lc_log: Vec::new(),
             debug_dsk_log: Vec::new(),
+            debug_cia_a_cr_log: Vec::new(),
+            debug_cia_b_cr_log: Vec::new(),
         }
     }
 
@@ -598,6 +606,12 @@ impl AmigaOcs {
             } else {
                 let val = data.unwrap_or(0);
                 self.memory.set_last_bus_value(val);
+                self.debug_cia_a_cr_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    reg,
+                    val as u8,
+                ));
                 self.cia_a.write_register(reg, val as u8);
                 self.memory.set_overlay(self.cia_a.ovl());
                 self.cpu.bus_status = BusStatus::Ready(0);
