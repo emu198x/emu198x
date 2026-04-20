@@ -156,12 +156,11 @@ impl Copper {
         }
         self.cck_phase = 0;
 
-        // Fetch instruction pair (4 bytes) from chip RAM. Copper
-        // accesses are always to chip RAM via Agnus.
-        let word1 = (u16::from(memory.read_chip_ram_byte(self.pc)) << 8)
-            | u16::from(memory.read_chip_ram_byte(self.pc.wrapping_add(1)));
-        let word2 = (u16::from(memory.read_chip_ram_byte(self.pc.wrapping_add(2))) << 8)
-            | u16::from(memory.read_chip_ram_byte(self.pc.wrapping_add(3)));
+        // Fetch instruction pair from chip RAM. Copper accesses are
+        // always chip-RAM-only, via Agnus DMA; each fetch drives the
+        // chip bus so the floating-bus residue tracks it.
+        let word1 = memory.read_chip_ram_word(self.pc);
+        let word2 = memory.read_chip_ram_word(self.pc.wrapping_add(2));
         self.pc = self.pc.wrapping_add(4);
 
         if word1 & 1 == 0 {

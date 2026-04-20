@@ -498,9 +498,11 @@ impl AmigaOcs {
         if let Some(reg) = cia::decode_cia_a(addr24) {
             if is_read {
                 let val = u16::from(self.cia_a.read_register(reg));
+                self.memory.set_last_bus_value(val);
                 self.cpu.bus_status = BusStatus::Ready(val);
             } else {
                 let val = data.unwrap_or(0);
+                self.memory.set_last_bus_value(val);
                 self.cia_a.write_register(reg, val as u8);
                 self.memory.set_overlay(self.cia_a.ovl());
                 self.cpu.bus_status = BusStatus::Ready(0);
@@ -515,9 +517,11 @@ impl AmigaOcs {
                 // CIA value in the high byte. We expose the byte
                 // value in the low byte for convenience to the bus.
                 let val = u16::from(self.cia_b.read_register(reg));
+                self.memory.set_last_bus_value(val);
                 self.cpu.bus_status = BusStatus::Ready(val);
             } else {
                 let val = data.unwrap_or(0);
+                self.memory.set_last_bus_value(val);
                 // Word writes to CIA-B target the high byte; we take
                 // the high byte if it's a word write, low byte if byte.
                 let byte = if is_word { (val >> 8) as u8 } else { val as u8 };
@@ -539,9 +543,11 @@ impl AmigaOcs {
                     0x006 => self.agnus.vhposr(),
                     _ => self.chipset.read_word(offset),
                 };
+                self.memory.set_last_bus_value(val);
                 self.cpu.bus_status = BusStatus::Ready(if is_word { val } else { val & 0xFF });
             } else {
                 let val = data.unwrap_or(0);
+                self.memory.set_last_bus_value(val);
                 self.dispatch_custom_write(offset, val);
                 self.cpu.bus_status = BusStatus::Ready(0);
             }

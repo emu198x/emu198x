@@ -59,12 +59,15 @@ fn chip_ram_aliases_on_19_bit_decode() {
     assert_eq!(amiga.read_word(0x000000), 0xBEEF);
 
     // $200000 is OUTSIDE Gary's chip-RAM decode range (Unmapped on
-    // OCS). Writes drop, reads return floating bus.
+    // OCS). Writes drop; reads return floating-bus residue — but
+    // the `poke_word` above drove \$9999 onto the bus, so the bus
+    // now holds \$9999 until something else overwrites it.
     amiga.poke_word(0x200000, 0x9999);
     assert_eq!(
         amiga.read_word(0x200000),
-        0xFFFF,
-        "$200000 is unmapped — reads as floating bus"
+        0x9999,
+        "Floating bus still holds the last-driven value (\\$9999) \
+         after the unmapped write"
     );
     assert_ne!(
         amiga.read_word(0x000000),

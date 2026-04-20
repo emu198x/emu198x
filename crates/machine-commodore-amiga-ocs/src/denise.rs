@@ -214,10 +214,9 @@ impl Denise {
                 let slot_in_block = (hpos - ddf_start) % 8;
                 if let Some(plane) = lores_fetch_plane(slot_in_block, bpu) {
                     let addr = chipset.bpl_pt[plane];
-                    let hi = memory.read_chip_ram_byte(addr);
-                    let lo = memory.read_chip_ram_byte(addr.wrapping_add(1));
-                    self.bpl_data[plane] =
-                        (u16::from(hi) << 8) | u16::from(lo);
+                    // DMA word read — drives the chip bus, so updates
+                    // the floating-bus residue.
+                    self.bpl_data[plane] = memory.read_chip_ram_word(addr);
                     chipset.bpl_pt[plane] =
                         chipset.bpl_pt[plane].wrapping_add(2);
                     self.bytes_this_line += 2;

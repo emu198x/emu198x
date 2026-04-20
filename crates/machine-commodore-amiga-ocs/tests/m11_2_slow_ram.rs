@@ -37,8 +37,17 @@ fn slow_ram_accessible_at_c00000() {
 fn slow_ram_not_present_by_default() {
     let Some(rom) = load_kickstart() else { return };
     let amiga = AmigaOcs::new(rom);
-    // Reads from slow-RAM range return floating bus when not present.
-    assert_eq!(amiga.read_word(0x00C00000), 0xFFFF);
+    // Reads from the slow-RAM range return floating-bus residue
+    // when the expansion isn't installed. Two reads in a row must
+    // match each other (no device is driving new data onto the bus
+    // from this region).
+    let first = amiga.read_word(0x00C00000);
+    let second = amiga.read_word(0x00C00004);
+    assert_eq!(
+        first, second,
+        "Unmapped slow-RAM reads should return identical \
+         floating-bus residue"
+    );
 }
 
 #[test]

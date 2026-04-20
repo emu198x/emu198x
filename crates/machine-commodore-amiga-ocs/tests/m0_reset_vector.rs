@@ -100,14 +100,24 @@ fn unmapped_reads_return_floating_bus() {
     let Some(rom) = load_kickstart() else { return };
     let amiga = AmigaOcs::new(rom);
 
-    // Real A500 unmapped reads return floating-bus value, typically
-    // $FF when nothing drives the bus low. Anything in chipset /
-    // expansion space that isn't yet mapped should read as $FF.
-    for off in [0xC0_0000u32, 0xA0_0000, 0xDC_0000] {
-        assert_eq!(
-            amiga.read_word(off),
-            0xFFFF,
-            "Unmapped read at ${off:06X} should return floating-bus $FFFF"
-        );
-    }
+    // Real A500 unmapped reads return whatever residue is left on
+    // the data lines from the most recent bus transaction. During
+    // construction we read the reset vectors from ROM, so the bus
+    // remembers the low word of the reset PC.
+    //
+    // Walk through several unmapped addresses; each should return
+    // the same value (= whatever the bus currently holds), because
+    // none of them are mapped to a device that would drive new
+    // data onto the lines. The first read fixes the residue and
+    // subsequent reads must match it.
+    let first = amiga.read_word(0xC0_0000);
+    assert_eq!(
+        amiga.read_word(0xA0_0000), first,
+        "Second unmapped read should observe the same floating-bus \
+         residue as the first"
+    );
+    assert_eq!(
+        amiga.read_word(0xDC_0000), first,
+        "Third unmapped read should still observe the same residue"
+    );
 }
