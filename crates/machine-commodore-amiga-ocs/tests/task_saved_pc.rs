@@ -124,9 +124,14 @@ fn dump_task(amiga: &AmigaOcs, label: &str, task_addr: u32) {
 fn run(amiga: &mut AmigaOcs, label: &str) {
     eprintln!("\n########## {label} ##########");
 
-    for _ in 0..(250 * PAL_FRAME_TICKS) {
+    let frames: u64 = std::env::var("FRAMES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(250);
+    for _ in 0..(frames * PAL_FRAME_TICKS) {
         amiga.tick();
     }
+    eprintln!("(ran {frames} frames)");
 
     let exec_base = read_long(amiga, 0x0000_0004);
     eprintln!("ExecBase = ${exec_base:08X}");

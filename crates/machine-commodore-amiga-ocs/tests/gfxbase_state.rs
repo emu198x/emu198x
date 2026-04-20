@@ -240,3 +240,24 @@ fn snapshot_gfxbase_at_frame_300() {
     dump_gfxbase(&slow, "slow-RAM (512K chip + 512K slow)");
     dump_gfxbase(&chip_only, "chip-only (512K chip)");
 }
+
+/// Trackdisk sends a 10.5-second TR_ADDREQUEST on CMD_READ. Run
+/// long enough (700 frames = 14s at 50Hz PAL) to let it expire
+/// and see what the boot state looks like after strap receives a
+/// no-disk reply.
+#[test]
+#[ignore]
+fn snapshot_gfxbase_at_frame_700() {
+    let Some(rom) = load_kickstart() else { return };
+
+    let mut slow = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
+    let mut chip_only = AmigaOcs::new(rom);
+
+    for _ in 0..(700 * PAL_FRAME_TICKS) {
+        slow.tick();
+        chip_only.tick();
+    }
+
+    dump_gfxbase(&slow, "slow-RAM (700 frames)");
+    dump_gfxbase(&chip_only, "chip-only (700 frames)");
+}
