@@ -117,13 +117,83 @@ d0 at $FE8560 is the result of whatever JSR ran just before it —
 one of the several setup / library calls between $FE8498 and
 $FE8560. That ~160-byte window contains the bug.
 
-### Next concrete step
+### Update: we're not throwing an error — we're deadlocking
 
-Bisect the $FE8498..$FE8560 range: add a PC trap at each major
-JSR return point, record d0 at each, and find the first call whose
-return value differs between configs. That's the instruction whose
-preconditions differ — and *that's* the real root cause of the
-chip-only path not reaching the insert-disk screen setup.
+Bisect results (`tests/romboot_d0_bisect.rs`):
+
+| PC | what returned here | slow-RAM d0 | chip-only d0 |
+|---|---|---|---|
+| $FE84AE | FindTask(NULL) | $1558 (task ptr) | $5C40 (task ptr) |
+| $FE84CE | AllocSignal(-1) | $FFFFFFFF | $FFFFFFFF |
+| $FE8506 | OpenDevice(trackdisk) | 0 | 0 |
+| $FE8560 | DoIO(CMD_CLEAR=5) | 0 | **0** |
+| $FE8574 | DoIO(TD_CHANGESTATE=13) | 0 | **NEVER REACHED** |
+| $FE85A0 | DoIO(CMD_READ=2) | 0 | NEVER REACHED |
+
+Every DoIO *up to* TD_CHANGESTATE returns success in chip-only.
+TD_CHANGESTATE never returns — even at 600 frames, chip-only is
+still parked inside the DoIO at $FE8570. The trackdisk BeginIO
+entry ($FE9046) was hit both configs earlier, but its reply-signal
+back to romboot never wakes the waiter in chip-only.
+
+### Why the deadlock happens specifically in chip-only
+
+The corruption chain starts at frame 91, *before* romboot ever runs:
+
+1. LoadView's first call writes `*(View->LOFCprList+4)` into
+   GfxBase->LOFlist. View->LOFCprList is NULL at that point, so
+   the load effectively reads address $4 — the ExecBase slot.
+2. GfxBase->LOFlist now equals the CPU's ExecBase pointer:
+   - chip-only: `$00000676` — *in chip RAM, copper-visible*
+   - slow-RAM:  `$00C00276` — *in slow RAM, copper cannot DMA*
+3. The VBL handler at $FC6D6C copies LOFlist into COP2LC every
+   frame. The active copper list hits `COPJMP2` at the end of its
+   sequence, so the copper jumps to COP2LC and starts interpreting
+   whatever's there as copper instructions.
+4. chip-only: the copper actually reads the ExecBase struct bytes,
+   and the bytes near offset $8 happen to decode as harmful MOVEs
+   (notably one that clears SOFTINT in INTENA).
+5. With SOFTINT disabled, Exec's scheduler can't dispatch soft
+   interrupts properly. By the time romboot is running and calls
+   DoIO(TD_CHANGESTATE), trackdisk's ReplyMsg cannot signal back.
+6. WaitIO inside DoIO blocks forever. romboot never falls through
+   to LoadView #2 (which would have written the *real* buffer to
+   LOFlist), so the corruption is permanent.
+
+Slow-RAM doesn't deadlock because its COP2LC points into slow RAM,
+which the copper cannot DMA from. The copper reads floating-bus
+garbage instead of ExecBase bytes; no harmful MOVEs happen; the
+scheduler survives; TD_CHANGESTATE returns normally.
+
+### What this tells us about the real fix
+
+Real 512 K-chip-only Amigas do boot KS 1.3 — so real hardware must
+avoid this toxicity some way. Given our analysis, the candidates
+shrink to:
+
+1. **Copper DMA is gated differently when bitplane DMA is off.**
+   During boot the display isn't active yet; real Agnus may refuse
+   copper fetches without DDF. Our copper runs regardless.
+2. **The COPJMP2 at the end of the boot copper list doesn't
+   actually execute because the beam is past the active region.**
+   Timing-sensitive — we might run COPJMP2 when real hardware
+   doesn't.
+3. **The ExecBase bytes don't end up at a copper-legal address.**
+   Real hardware might place ExecBase such that the byte pattern
+   doesn't corrupt INTENA.
+4. **Bus-cycle arbitration.** Real Agnus lets the CPU recover
+   before the copper has time to execute many corrupting MOVEs;
+   our cycle timing might give the copper more runway per frame.
+
+Any of these would break the copper-reads-ExecBase cycle on real
+hardware. Our emulator likely needs to match whichever real
+mechanism it is.
+
+### Workaround decision
+
+For the time being the runtime (see `Amiga::new_with_slow_ram(_, 512*1024)`
+in `runtime-commodore-amiga`) keeps the slow-RAM default. Chip-
+only KS 1.3 remains a known-broken configuration documented here.
 
 
 
