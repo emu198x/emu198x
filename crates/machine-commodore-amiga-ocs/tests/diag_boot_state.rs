@@ -15,6 +15,10 @@ const EXEC_DISP_COUNT: u32 = 284;
 const EXEC_QUANTUM: u32 = 288;
 const EXEC_SYS_FLAGS: u32 = 292;
 const EXEC_TD_NEST_CNT: u32 = 295;
+const EXEC_RESOURCE_LIST: u32 = 336;
+const EXEC_DEVICE_LIST: u32 = 350;
+const EXEC_LIB_LIST: u32 = 378;
+const EXEC_PORT_LIST: u32 = 392;
 const EXEC_TASK_READY: u32 = 406;
 const EXEC_TASK_WAIT: u32 = 420;
 /// Task struct field offsets (exec/tasks.h).
@@ -141,21 +145,43 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
     eprintln!("PC      = ${:08X}", copper.pc);
     eprintln!("waiting = {}", copper.waiting);
     if copper.cop1lc != 0 {
-        eprintln!("\n-- first 8 copper instructions at COP1LC --");
+        eprintln!("\n-- full copper list at COP1LC (up to 80 instrs) --");
         let mut addr = copper.cop1lc;
-        for _ in 0..8 {
+        let mut dmacon_seen = false;
+        let mut bplcon0_seen = false;
+        for _ in 0..80 {
             let word1 = (u16::from(amiga.read_chip_ram_byte(addr)) << 8)
                 | u16::from(amiga.read_chip_ram_byte(addr + 1));
             let word2 = (u16::from(amiga.read_chip_ram_byte(addr + 2)) << 8)
                 | u16::from(amiga.read_chip_ram_byte(addr + 3));
+            let reg = word1 & 0x1FE;
             let kind = if word1 & 1 == 0 {
-                format!("MOVE reg=${:03X} val=${word2:04X}", word1 & 0x1FE)
+                if reg == 0x096 {
+                    dmacon_seen = true;
+                    let op = if word2 & 0x8000 != 0 { "SET" } else { "CLEAR" };
+                    format!(
+                        "MOVE DMACON {op} ${:04X}  (BPL={})",
+                        word2 & 0x7FFF,
+                        if word2 & 0x100 != 0 { "yes" } else { "no" }
+                    )
+                } else if reg == 0x100 {
+                    bplcon0_seen = true;
+                    format!("MOVE BPLCON0=${word2:04X}  (BPU={})", (word2 >> 12) & 7)
+                } else {
+                    format!("MOVE reg=${reg:03X} val=${word2:04X}")
+                }
             } else if word2 & 1 == 0 {
-                format!("WAIT v=${:02X} h=${:02X} mask=${word2:04X}",
-                    word1 >> 8, word1 & 0xFE)
+                format!(
+                    "WAIT v=${:02X} h=${:02X} mask=${word2:04X}",
+                    word1 >> 8,
+                    word1 & 0xFE
+                )
             } else {
-                format!("SKIP v=${:02X} h=${:02X} mask=${word2:04X}",
-                    word1 >> 8, word1 & 0xFE)
+                format!(
+                    "SKIP v=${:02X} h=${:02X} mask=${word2:04X}",
+                    word1 >> 8,
+                    word1 & 0xFE
+                )
             };
             eprintln!("  ${addr:08X}: ${word1:04X} ${word2:04X}  {kind}");
             if word1 == 0xFFFF && word2 == 0xFFFE {
@@ -164,14 +190,9 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
             }
             addr = addr.wrapping_add(4);
         }
-    }
-
-    eprintln!("\n=== Bitplane pointers ===");
-    for i in 0..6 {
-        let bpl = amiga.read_long(0x00DF_F0E0 + (i as u32) * 4);
-        // Note: these are read-side of chipset registers which aren't
-        // mapped for BPLxPT. Let me expose them directly.
-        let _ = bpl;
+        eprintln!(
+            "\n  Copper MOVE DMACON seen: {dmacon_seen},  MOVE BPLCON0 seen: {bplcon0_seen}"
+        );
     }
 
     eprintln!("\n=== ExecBase ===");
@@ -209,6 +230,32 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
 
     dump_task_list(amiga, "TaskReady", exec_base.wrapping_add(EXEC_TASK_READY));
     dump_task_list(amiga, "TaskWait", exec_base.wrapping_add(EXEC_TASK_WAIT));
+    dump_task_list(amiga, "LibList", exec_base.wrapping_add(EXEC_LIB_LIST));
+    dump_task_list(amiga, "DeviceList", exec_base.wrapping_add(EXEC_DEVICE_LIST));
+    dump_task_list(amiga, "ResourceList", exec_base.wrapping_add(EXEC_RESOURCE_LIST));
+    dump_task_list(amiga, "PortList", exec_base.wrapping_add(EXEC_PORT_LIST));
+
+    eprintln!("\n=== COP1LC write history ({} entries) ===", amiga.debug_cop1lc_log.len());
+    for (cck, pc, val) in amiga.debug_cop1lc_log.iter().take(20) {
+        eprintln!("  cck={cck:10} pc=${pc:08X} → COP1LC=${val:08X}");
+    }
+    if amiga.debug_cop1lc_log.len() > 20 {
+        eprintln!("  ... (+{} more)", amiga.debug_cop1lc_log.len() - 20);
+        if let Some((cck, pc, val)) = amiga.debug_cop1lc_log.last() {
+            eprintln!("  last: cck={cck:10} pc=${pc:08X} → COP1LC=${val:08X}");
+        }
+    }
+
+    eprintln!("\n=== COP2LC write history ({} entries) ===", amiga.debug_cop2lc_log.len());
+    for (cck, pc, val) in amiga.debug_cop2lc_log.iter().take(20) {
+        eprintln!("  cck={cck:10} pc=${pc:08X} → COP2LC=${val:08X}");
+    }
+    if amiga.debug_cop2lc_log.len() > 20 {
+        eprintln!("  ... (+{} more)", amiga.debug_cop2lc_log.len() - 20);
+        if let Some((cck, pc, val)) = amiga.debug_cop2lc_log.last() {
+            eprintln!("  last: cck={cck:10} pc=${pc:08X} → COP2LC=${val:08X}");
+        }
+    }
 
     eprintln!("\n=== Framebuffer ===");
     let fb = amiga.denise().framebuffer();

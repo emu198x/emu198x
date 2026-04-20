@@ -166,7 +166,18 @@ impl Copper {
         if word1 & 1 == 0 {
             // MOVE: reg = word1 & $1FE; val = word2.
             let reg = word1 & 0x1FE;
-            chipset.write_word(reg, word2);
+            // COPJMP1 / COPJMP2 strobes ($088 / $08A) are copper-
+            // internal — writing to them reloads the copper PC from
+            // COP1LC / COP2LC. These aren't real chipset registers,
+            // so Chipset::write_word doesn't handle them; we must
+            // handle them here because a running copper list can do
+            // its own jumps (tail-chained from one list to another
+            // at the start of each VBL).
+            match reg {
+                0x088 => self.jump1(),
+                0x08A => self.jump2(),
+                _ => chipset.write_word(reg, word2),
+            }
             return true;
         }
 
@@ -516,6 +527,62 @@ mod tests {
         run_ccks(&mut copper, &mem, &mut chipset, 100, 16);
         assert_eq!(chipset.color[0], 0x0000);
         assert_eq!(chipset.color[1], 0x00F0);
+    }
+
+    #[test]
+    fn copjmp2_strobe_inside_list_jumps_to_cop2lc() {
+        // A copper list can chain to another list mid-flight by
+        // writing to COPJMP1 ($088) or COPJMP2 ($08A). Real Agnus
+        // treats these writes as strobes that reload the copper PC.
+        // Chipset::write_word doesn't handle them (they're not
+        // stored registers), so Copper must handle them directly.
+        //
+        // List at $1000:
+        //   MOVE COLOR00 = $0F00   (sets color marker #1)
+        //   MOVE $08A = 0          (COPJMP2 — jumps to COP2LC)
+        //   MOVE COLOR01 = $00F0   (should NOT run — jumped past)
+        //   ...
+        // List at $2000 (COP2LC target):
+        //   MOVE COLOR02 = $00FF   (runs after the jump)
+        //   ...
+        let mem = build_test_memory_with_list(
+            &[
+                (0x0180, 0x0F00),           // MOVE COLOR00
+                (0x008A, 0x0000),           // MOVE COPJMP2 strobe
+                (0x0182, 0x00F0),           // MOVE COLOR01 (should be skipped)
+                (0xFFFF, 0xFFFE),           // end
+            ],
+            0x1000,
+        );
+        // Stash the COP2LC target list at $2000. Re-use a fresh
+        // memory helper call that appends to the same chip RAM.
+        let mut mem = mem;
+        let target_list = [(0x0184u16, 0x00FFu16), (0xFFFF, 0xFFFE)];
+        for (i, (w1, w2)) in target_list.iter().enumerate() {
+            let off = 0x2000 + (i as u32) * 4;
+            mem.write_byte(off, (*w1 >> 8) as u8);
+            mem.write_byte(off + 1, *w1 as u8);
+            mem.write_byte(off + 2, (*w2 >> 8) as u8);
+            mem.write_byte(off + 3, *w2 as u8);
+        }
+
+        let mut chipset = Chipset::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.cop2lc = 0x2000;
+        copper.jump1();
+
+        // Plenty of cycles to run through MOVE + COPJMP2 + MOVE.
+        run_ccks(&mut copper, &mem, &mut chipset, 10, 20);
+        assert_eq!(chipset.color[0], 0x0F00, "first MOVE before COPJMP2 should run");
+        assert_eq!(
+            chipset.color[1], 0x0000,
+            "MOVE after COPJMP2 in list-1 must NOT run (jumped past)",
+        );
+        assert_eq!(
+            chipset.color[2], 0x00FF,
+            "MOVE in list-2 (at COP2LC) should run after the jump",
+        );
     }
 
     #[test]

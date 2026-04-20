@@ -80,6 +80,12 @@ pub struct AmigaOcs {
     /// writes that actually change INTENA are kept (purely-no-op
     /// writes still count toward `debug_intena_writes`).
     pub debug_intena_log: Vec<(u64, u32, u16, u16, u16)>,
+    /// Diagnostic: log of COP1LC writes (when either high or low
+    /// half is written). Entry: (cck, pc, new_cop1lc). Lets us see
+    /// who installs the strap copper list (or doesn't).
+    pub debug_cop1lc_log: Vec<(u64, u32, u32)>,
+    /// Same for COP2LC.
+    pub debug_cop2lc_log: Vec<(u64, u32, u32)>,
 }
 
 impl AmigaOcs {
@@ -124,6 +130,8 @@ impl AmigaOcs {
             debug_peak_intena: 0,
             debug_intena_writes: 0,
             debug_intena_log: Vec::new(),
+            debug_cop1lc_log: Vec::new(),
+            debug_cop2lc_log: Vec::new(),
         }
     }
 
@@ -229,18 +237,38 @@ impl AmigaOcs {
             0x080 => {
                 self.copper.cop1lc =
                     (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(val) << 16);
+                self.debug_cop1lc_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.copper.cop1lc,
+                ));
             }
             0x082 => {
                 self.copper.cop1lc =
                     (self.copper.cop1lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+                self.debug_cop1lc_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.copper.cop1lc,
+                ));
             }
             0x084 => {
                 self.copper.cop2lc =
                     (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(val) << 16);
+                self.debug_cop2lc_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.copper.cop2lc,
+                ));
             }
             0x086 => {
                 self.copper.cop2lc =
                     (self.copper.cop2lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+                self.debug_cop2lc_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.copper.cop2lc,
+                ));
             }
             0x088 => self.copper.jump1(),
             0x08A => self.copper.jump2(),
