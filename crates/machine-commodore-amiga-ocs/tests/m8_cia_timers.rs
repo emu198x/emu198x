@@ -85,3 +85,32 @@ fn cia_a_irq_sets_intreq_ports_bit() {
         "INTREQ.PORTS should latch when CIA-A asserts /IRQ"
     );
 }
+
+#[test]
+fn cia_a_timer_b_underflow_sets_intreq_ports() {
+    // Timer B variant of the IRQ-chain test. This is the path
+    // timer.device's UNIT_MICROHZ uses: CIA-A Timer B in one-shot
+    // mode, ICR mask bit 1 (TB) set. When the underflow happens,
+    // CIA /IRQ → Paula edge-latch → INTREQ.PORTS.
+    //
+    // If this test passes, our CIA→Paula→INTREQ chain is correct
+    // and the MICROHZ-never-fires problem is entirely in what the
+    // ROM writes (not in how we respond to those writes).
+    let Some(rom) = load_kickstart() else { return };
+    let mut amiga = AmigaOcs::new(rom);
+
+    amiga.poke_byte(0x00BFE601, 0x00); // TBLO = 0
+    amiga.poke_byte(0x00BFE701, 0x01); // TBHI = 1 → latch = $0100 = 256
+    amiga.poke_byte(0x00BFED01, 0x82); // ICR write: SET bit 1 (TB mask)
+    amiga.poke_byte(0x00BFEF01, 0x19); // CRB: START | ONE-SHOT | LOAD
+
+    for _ in 0..3000 {
+        amiga.tick();
+    }
+
+    assert_ne!(
+        amiga.intreq() & 0x0008,
+        0,
+        "INTREQ.PORTS should latch on Timer B underflow too"
+    );
+}

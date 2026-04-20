@@ -435,6 +435,66 @@ mod tests {
     }
 
     #[test]
+    fn timer_b_one_shot_underflows_and_sets_icr() {
+        // Mirror of timer_a_one_shot — Timer B uses regs 6/7 (latch)
+        // and $F (CRB). ICR bit 1 = TB. This is the exact pattern
+        // timer.device uses on CIA-A for its UNIT_MICROHZ unit.
+        let mut cia = Cia::new();
+        // ICR mask: enable TB (bit 1).
+        cia.write_register(0xD, 0x82);
+        // Latch = 3.
+        cia.write_register(0x6, 0x03);
+        cia.write_register(0x7, 0x00);
+        // CRB: START | ONE-SHOT | LOAD strobe.
+        cia.write_register(0xF, 0x19);
+        for _ in 0..4 {
+            cia.tick_e_clock();
+        }
+        assert_eq!(cia.peek_register(0xD) & 0x02, 0x02, "TB flag set");
+        assert!(cia.irq_pending, "/IRQ asserted when unmasked TB flag is set");
+        // One-shot mode: timer should be stopped.
+        assert_eq!(cia.timer_b.control & 0x01, 0);
+    }
+
+    #[test]
+    fn timer_b_amiga_microhz_pattern() {
+        // Reproduce timer.device's exact setup for the CIA-A
+        // MICROHZ unit:
+        //   1. Write CRB = $08   (one-shot mode, stopped)
+        //   2. Write TBLO = $FF  (latch low)
+        //   3. Write TBHI = $FF  (latch high — also loads counter
+        //      when timer stopped, per our CIA)
+        //   4. Write CRB = $19   (LOAD + START + one-shot)
+        //   5. Enable TB in ICR (mask bit 1)
+        //   6. Tick until underflow → TB flag set, /IRQ asserted.
+        //
+        // timer.device also later re-loads latch with the "next
+        // delay" value. With a LOAD strobe the counter reloads
+        // even while stopped. We verify the observed hardware
+        // behaviour our traces showed is consistent with this
+        // known-good sequence.
+        let mut cia = Cia::new();
+        cia.write_register(0xF, 0x08);            // one-shot, stopped
+        cia.write_register(0x6, 0xFF);            // TBLO
+        cia.write_register(0x7, 0xFF);            // TBHI (also loads counter)
+        assert_eq!(cia.timer_b.counter, 0xFFFF, "counter loaded from latch on TBHI write while stopped");
+        cia.write_register(0xD, 0x82);            // ICR mask += TB
+        cia.write_register(0xF, 0x19);            // LOAD + START + one-shot
+        assert_eq!(cia.timer_b.counter, 0xFFFF, "LOAD strobe re-loaded counter");
+        assert_eq!(cia.timer_b.control & 0x01, 1, "START bit kept");
+        // Counter decrements toward underflow.
+        for _ in 0..0x10000 {
+            cia.tick_e_clock();
+        }
+        assert_eq!(
+            cia.peek_register(0xD) & 0x02,
+            0x02,
+            "TB flag set after 0x10000 E-clock ticks"
+        );
+        assert!(cia.irq_pending, "/IRQ asserted to Paula");
+    }
+
+    #[test]
     fn timer_a_continuous_reloads_after_underflow() {
         let mut cia = Cia::new();
         cia.write_register(0xD, 0x81); // unmask TA
