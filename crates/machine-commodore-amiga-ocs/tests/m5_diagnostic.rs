@@ -41,9 +41,13 @@ fn diagnostic_long_run() {
         let intena = amiga.intena();
         let bplcon0 = amiga.bplcon0();
         let color00 = amiga.color(0);
+        // Read AttnFlags+AttnResched as a longword from ExecBase+$126.
+        let attn = if exec_base != 0 && exec_base < 0x100_0000 {
+            amiga.read_long(exec_base.wrapping_add(0x126))
+        } else { 0 };
         eprintln!(
             "  cck={cck:9} pc=${pc:08X} sr=${sr:04X} ssp=${ssp:08X} \
-             exec_base=${exec_base:08X} \
+             exec_base=${exec_base:08X} attn=${attn:08X} \
              dmacon=${dmacon:04X} intena=${intena:04X} \
              bplcon0=${bplcon0:04X} color00=${color00:04X} \
              ovl={ovl}",

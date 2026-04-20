@@ -15,29 +15,45 @@
 | M5 | ✅ | 1 | Bootstrap ExecBase placed at $0676. |
 | M6 | ✅ | 2 | Beam counter (PAL) + VBL → INTREQ.VERTB → CPU IPL. |
 | M7 | ✅ | 2 | VPOSR/VHPOSR + CIA-A input-bit floating-high. |
-| M8 | next | — | CIA-A timer A/B + CIA timer interrupt delivery. |
-| M9-M12 | pending | — | Copper, bitplane DMA, Denise pixels, slow-RAM golden. |
+| M8 | ✅ | 2 | CIA-A timer A/B + ICR + CIA→Paula IRQ. |
+| M9 | next | — | Paula stubs (audio, disk, serial register storage). |
+| M10-M12 | pending | — | Copper, bitplane DMA, Denise pixels, slow-RAM golden. |
 
-Total tests: **33 passing** (19 integration + 14 unit). Diagnostic
-(ignored) shows the boot reaches PC=$FC3132 / SSP=$7FFFC0 /
-INTENA=$202C by 50M CCKs — past Phase 8 ExecBase construction. Stalls
-in a spin-loop with INTENA master=0; the boot's path through
-re-enabling master likely depends on CIA-A timer interrupts that
-M8 will add.
+Total tests: **35 passing** (21 integration + 14 unit). Diagnostic
+shows boot reaches PC=$FC3132 / SSP=$7FFFC0 / INTENA=$202C / ExecBase
+= $0676 / AttnFlags = $FFFF_0000 by 50M CCKs.
+
+### Why the boot still stalls at INTENA=$202C
+
+The path to re-enable INTENA master is reached:
+
+```
+$FC3080: TST.L  $126(A6)        ; AttnFlags+AttnResched
+$FC3084: BGE.S  $FC308E         ; skip if non-negative
+$FC3086: MOVE.W #$C000, $DFF09A ; INTENA |= MASTER
+```
+
+AttnFlags correctly sets to $FFFF_0000 (negative as signed long), so
+BGE doesn't take and the master-enable IS executed. But SR=$2718
+(supervisor mode, IPL=7) means the CPU is masking ALL interrupts.
+The boot is inside a critical section.
+
+What reduces IPL from 7? Either an RTE that pops a less-masked SR,
+or an explicit MOVE TO SR. Both happen at end of larger init phases
+that depend on subsystems we haven't added (Paula audio/disk
+register reads, copper, etc).
 
 ### Pickup notes for next session
 
-- Read `tests/m5_diagnostic.rs` to see the live boot-state
-  checkpoints. Run with `cargo test -p machine-commodore-amiga-ocs
-  --test m5_diagnostic --release -- --ignored --nocapture`.
-- The boot is in the busy-wait DBRA loop at $FC3132 (`MOVEM.L
-  D2-D3/A2/A6,-(SP); MOVEQ #8,D1; MOVEQ #-1,D0; DBRA D0; DBRA D1`).
-  Loop body is ~5.2M CCKs; boot re-enters every iteration of an
-  outer wait loop.
-- M8 should add CIA-A timer A and B with set/clear semantics, the
-  ICR (interrupt-control register) that returns active timer IRQs
-  on read (and clears on read), and the FLAG line that fires the
-  CIA-A interrupt to Paula's INT2 (PORTS, INTENA bit 3).
+- Run `cargo test -p machine-commodore-amiga-ocs --test
+  m5_diagnostic --release -- --ignored --nocapture` to see boot
+  state at standard checkpoints.
+- M9 should add Paula register storage for `$DFF0A0-$DFF0DF`
+  (audio), `$DFF020-$DFF026` (disk DMA), `$DFF018-$DFF01A` (serial
+  data). All write-only or read-once registers. No actual audio /
+  disk DMA — just register variables that don't drop silently.
+- After M9, re-run diagnostic. If still stuck, M10 (copper) is
+  next.
 
 
 
