@@ -189,6 +189,48 @@ Any of these would break the copper-reads-ExecBase cycle on real
 hardware. Our emulator likely needs to match whichever real
 mechanism it is.
 
+### Experimental confirmation — the copper is definitively the source
+
+`tests/disable_copper_experiment.rs` patches DMACON every tick to
+clear COPEN. With the copper disabled:
+
+|          PC | counts (neutered) | counts (baseline) | meaning |
+|---|---|---|---|
+| $FE8444 |  1 | 1 | romboot entry |
+| $FE8560 |  4 | 1 | post CMD_CLEAR |
+| $FE8574 |  4 | **0** | post TD_CHANGESTATE |
+| $FE85A0 |  4 | 0 | post CMD_READ |
+| $FE8610 |  2 | 0 | insert-disk-setup caller |
+| $FE8732 |  1 | 0 | insert-disk-setup entry |
+| $FE8888 |  2 | 0 | LoadView JSR |
+
+Final PC = $00FC5A6E (**exactly the WAITBLIT spin where slow-RAM
+lands**) and final INTENA = $602C. So when the copper isn't running,
+chip-only boots normally.
+
+This isn't a fix — the copper is needed for the insert-disk
+animation. But it proves the narrative: the copper executing
+ExecBase-as-instructions is what breaks the scheduler and deadlocks
+trackdisk.
+
+Simple gating by DMACON.BPLEN (bit 8) did **not** help — reverting
+to stuck-at-old-idle the moment BPLEN turns off. So BPLEN is not
+the hardware mechanism.
+
+### Remaining work
+
+Find what prevents real A500 hardware from running the copper
+through the ExecBase-as-list window. Possible avenues:
+
+- Read WinUAE / vAmiga copper source with attention to what gates
+  copper DMA beyond the obvious COPEN/DMAEN.
+- Decode the exact ExecBase bytes the copper interprets and check
+  whether one of them SHOULD cause the copper to stop (e.g. a
+  SKIP / WAIT pattern that never completes) but in our emulator
+  it doesn't.
+- Check whether our COPJMP2 timing or COP2LC update semantics
+  differ from real hardware.
+
 ### Workaround decision
 
 For the time being the runtime (see `Amiga::new_with_slow_ram(_, 512*1024)`
