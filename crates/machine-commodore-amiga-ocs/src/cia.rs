@@ -27,13 +27,63 @@ pub struct CiaA {
     /// External signals driving Port A inputs. Each bit holds the
     /// **effective** voltage on that line: 1 = floating high (no
     /// peripheral asserting); 0 = peripheral pulled low.
-    ///
-    /// Defaults to all-high (no peripherals attached). Peripheral
-    /// modules (mouse, joystick, floppy) override these bits as
-    /// they're added in later milestones.
     pub pa_input_lines: u8,
     /// Same idea for Port B inputs.
     pub pb_input_lines: u8,
+    /// Timer A — counter ticks down on each E clock when CRA bit 0
+    /// (START) is set. Underflow latches ICR bit 0 (TA).
+    pub timer_a: Timer,
+    /// Timer B — separate counter; same shape as Timer A.
+    pub timer_b: Timer,
+    /// Interrupt-control register state. `mask` is the IMR set by
+    /// CPU writes; `flags` is the IDR raised by hardware events.
+    /// CPU read of ICR returns IDR | (IR-bit if any flag matches mask)
+    /// AND clears IDR.
+    pub icr_mask: u8,
+    pub icr_flags: u8,
+    /// `true` when (icr_flags & icr_mask) != 0 — the /IRQ output to
+    /// Paula. Cleared on ICR read.
+    pub irq_pending: bool,
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct Timer {
+    /// Latch — written via TxLO/TxHI; loaded into counter on START
+    /// or LOAD strobe, and on continuous-mode underflow.
+    pub latch: u16,
+    /// Current counter value.
+    pub counter: u16,
+    /// CRA / CRB control register.
+    pub control: u8,
+}
+
+impl Timer {
+    /// Tick one E-clock period. Returns `true` if the counter just
+    /// underflowed.
+    pub fn tick(&mut self) -> bool {
+        if self.control & 0x01 == 0 {
+            return false; // not started
+        }
+        if self.counter == 0 {
+            // Underflow.
+            if self.control & 0x08 != 0 {
+                // One-shot: stop after underflow.
+                self.control &= !0x01;
+            } else {
+                // Continuous: reload from latch.
+                self.counter = self.latch;
+            }
+            return true;
+        }
+        self.counter -= 1;
+        false
+    }
+
+    /// Force-load the latch into the counter (LOAD strobe — bit 4
+    /// of CRx; write-only, doesn't stay set).
+    pub fn force_load(&mut self) {
+        self.counter = self.latch;
+    }
 }
 
 impl Default for CiaA {
@@ -45,6 +95,11 @@ impl Default for CiaA {
             ddrb: 0,
             pa_input_lines: 0xFF,
             pb_input_lines: 0xFF,
+            timer_a: Timer::default(),
+            timer_b: Timer::default(),
+            icr_mask: 0,
+            icr_flags: 0,
+            irq_pending: false,
         }
     }
 }
@@ -62,19 +117,128 @@ impl CiaA {
             1 => self.prb = val,
             2 => self.ddra = val,
             3 => self.ddrb = val,
-            _ => {} // future milestones
+            // $4 / $5 — Timer A latch low/high. Writing high latches
+            // the new value into the counter (per CIA datasheet).
+            4 => self.timer_a.latch = (self.timer_a.latch & 0xFF00) | u16::from(val),
+            5 => {
+                self.timer_a.latch = (self.timer_a.latch & 0x00FF) | (u16::from(val) << 8);
+                if self.timer_a.control & 0x01 == 0 {
+                    // When timer is stopped, writing TxHI also loads
+                    // the counter (one-shot setup pattern).
+                    self.timer_a.counter = self.timer_a.latch;
+                }
+            }
+            // $6 / $7 — Timer B latch.
+            6 => self.timer_b.latch = (self.timer_b.latch & 0xFF00) | u16::from(val),
+            7 => {
+                self.timer_b.latch = (self.timer_b.latch & 0x00FF) | (u16::from(val) << 8);
+                if self.timer_b.control & 0x01 == 0 {
+                    self.timer_b.counter = self.timer_b.latch;
+                }
+            }
+            // $D — ICR write: mask programming with set/clear semantics.
+            0xD => {
+                if val & 0x80 != 0 {
+                    self.icr_mask |= val & 0x1F;
+                } else {
+                    self.icr_mask &= !(val & 0x1F);
+                }
+                self.update_irq();
+            }
+            // $E — CRA: timer A control. LOAD bit (4) is a strobe.
+            0xE => {
+                if val & 0x10 != 0 {
+                    self.timer_a.force_load();
+                }
+                // LOAD bit doesn't stick.
+                self.timer_a.control = val & !0x10;
+            }
+            // $F — CRB: timer B control.
+            0xF => {
+                if val & 0x10 != 0 {
+                    self.timer_b.force_load();
+                }
+                self.timer_b.control = val & !0x10;
+            }
+            _ => {}
         }
     }
 
     /// Read byte from a CIA-A register at the given index (0..=15).
-    #[must_use]
-    pub fn read_register(&self, reg: u8) -> u8 {
+    /// Some registers have read side-effects (notably ICR which clears
+    /// on read), so this takes `&mut self`.
+    pub fn read_register(&mut self, reg: u8) -> u8 {
         match reg {
             0 => effective_port(self.pra, self.ddra, self.pa_input_lines),
             1 => effective_port(self.prb, self.ddrb, self.pb_input_lines),
             2 => self.ddra,
             3 => self.ddrb,
+            4 => (self.timer_a.counter & 0xFF) as u8,
+            5 => (self.timer_a.counter >> 8) as u8,
+            6 => (self.timer_b.counter & 0xFF) as u8,
+            7 => (self.timer_b.counter >> 8) as u8,
+            0xD => {
+                // Return current flags + IR-pending bit; clear on read.
+                let active = self.icr_flags & self.icr_mask;
+                let ir = if active != 0 { 0x80 } else { 0 };
+                let val = ir | self.icr_flags;
+                self.icr_flags = 0;
+                self.irq_pending = false;
+                val
+            }
+            0xE => self.timer_a.control,
+            0xF => self.timer_b.control,
             _ => 0xFF,
+        }
+    }
+
+    /// Read without side-effects — for diagnostics / tests inspecting
+    /// state. Does NOT clear ICR.
+    #[must_use]
+    pub fn peek_register(&self, reg: u8) -> u8 {
+        match reg {
+            0xD => {
+                let active = self.icr_flags & self.icr_mask;
+                let ir = if active != 0 { 0x80 } else { 0 };
+                ir | self.icr_flags
+            }
+            // For the other registers, side-effect-free read matches
+            // the side-effecting one. We can't share code without
+            // duplicating the match arms, so just inline the simple
+            // ones we need.
+            0 => effective_port(self.pra, self.ddra, self.pa_input_lines),
+            1 => effective_port(self.prb, self.ddrb, self.pb_input_lines),
+            2 => self.ddra,
+            3 => self.ddrb,
+            4 => (self.timer_a.counter & 0xFF) as u8,
+            5 => (self.timer_a.counter >> 8) as u8,
+            6 => (self.timer_b.counter & 0xFF) as u8,
+            7 => (self.timer_b.counter >> 8) as u8,
+            0xE => self.timer_a.control,
+            0xF => self.timer_b.control,
+            _ => 0xFF,
+        }
+    }
+
+    /// Tick one E-clock period (= 10 CCKs). Steps timer A and B,
+    /// latches underflow into ICR, and updates the IRQ output.
+    pub fn tick_e_clock(&mut self) {
+        if self.timer_a.tick() {
+            self.icr_flags |= 0x01;
+        }
+        if self.timer_b.tick() {
+            self.icr_flags |= 0x02;
+        }
+        self.update_irq();
+    }
+
+    fn update_irq(&mut self) {
+        let active = self.icr_flags & self.icr_mask;
+        // /IRQ goes from inactive to active when there's an unmasked
+        // flag and we weren't already pending. We track the edge by
+        // checking the transition.
+        if active != 0 && !self.irq_pending {
+            self.irq_pending = true;
         }
     }
 
@@ -143,7 +307,7 @@ mod tests {
 
     #[test]
     fn pra_reads_floating_high_for_inputs_at_reset() {
-        let cia = CiaA::new();
+        let mut cia = CiaA::new();
         // DDRA = $00 (all input), reads should all be high (floating).
         assert_eq!(cia.read_register(0), 0xFF);
     }
@@ -153,21 +317,54 @@ mod tests {
         let mut cia = CiaA::new();
         cia.write_register(2, 0x03); // DDRA: bits 0+1 outputs, 2-7 inputs
         cia.write_register(0, 0x02); // PRA: bit 1 high, bit 0 low
-        // Expected: bit 0 = 0 (PRA), bit 1 = 1 (PRA), bits 2-7 = 1 (input)
-        // = 0b1111_1110 = $FE
         assert_eq!(cia.read_register(0), 0xFE);
     }
 
     #[test]
     fn pra_reads_can_be_pulled_low_by_peripheral() {
         let mut cia = CiaA::new();
-        cia.write_register(2, 0x03); // DDRA bits 0+1 output
-        cia.write_register(0, 0x02); // PRA bit 1 high
-        // Peripheral pulls bit 4 (/TRK0) low.
+        cia.write_register(2, 0x03);
+        cia.write_register(0, 0x02);
         cia.pa_input_lines = !0x10;
-        // Expected: bits 0+1 = PRA (10), bit 4 = 0 (peripheral),
-        // other input bits = 1 → 0b1110_1110 = $EE
         assert_eq!(cia.read_register(0), 0xEE);
+    }
+
+    #[test]
+    fn timer_a_one_shot_underflows_and_sets_icr() {
+        let mut cia = CiaA::new();
+        // ICR mask: enable TA (bit 0).
+        cia.write_register(0xD, 0x81);
+        // Latch = 3 (will count 3, 2, 1, 0, then underflow).
+        cia.write_register(0x4, 0x03);
+        cia.write_register(0x5, 0x00);
+        // CRA: START | ONE-SHOT | LOAD strobe.
+        cia.write_register(0xE, 0x19);
+        for _ in 0..4 {
+            cia.tick_e_clock();
+        }
+        // Read ICR — should report TA + IR.
+        assert_eq!(cia.read_register(0xD), 0x81);
+        // Second read clears.
+        assert_eq!(cia.read_register(0xD), 0);
+        // One-shot mode: timer should be stopped.
+        assert_eq!(cia.timer_a.control & 0x01, 0);
+    }
+
+    #[test]
+    fn timer_a_continuous_reloads_after_underflow() {
+        let mut cia = CiaA::new();
+        cia.write_register(0xD, 0x81); // unmask TA
+        cia.write_register(0x4, 0x02); // latch = 2
+        cia.write_register(0x5, 0x00);
+        cia.write_register(0xE, 0x11); // START | LOAD; continuous
+        // After 3 ticks the first underflow happens; counter reloads.
+        for _ in 0..3 {
+            cia.tick_e_clock();
+        }
+        assert_eq!(cia.peek_register(0xD) & 0x01, 1, "TA flag set");
+        assert_eq!(cia.timer_a.control & 0x01, 1, "continuous mode keeps running");
+        // Counter should hold the latch value (just reloaded).
+        assert_eq!(cia.timer_a.counter, 2);
     }
 
     #[test]

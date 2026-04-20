@@ -53,12 +53,12 @@ fn timer_a_one_shot_underflow_fires_icr() {
 
     // ICR read should now return bit 0 (TA) set + bit 7 (IR pending).
     // Reading clears the IDR, so subsequent read returns 0.
-    let icr_first = amiga.read_word(0x00BFED01) & 0xFF;
+    let icr_first = amiga.cpu_read_word(0x00BFED01) & 0xFF;
     assert_eq!(
         icr_first, 0x81,
         "ICR should report TA underflow (bit 0) + IR pending (bit 7)"
     );
-    let icr_second = amiga.read_word(0x00BFED01) & 0xFF;
+    let icr_second = amiga.cpu_read_word(0x00BFED01) & 0xFF;
     assert_eq!(icr_second, 0, "ICR should clear after read");
 }
 

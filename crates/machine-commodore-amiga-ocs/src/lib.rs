@@ -23,6 +23,9 @@ use motorola_68000::Cpu68000;
 const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
 
+/// CIA E clock divider — CIAs tick once per 10 CCKs.
+const CIA_E_CLOCK_DIVISOR: u64 = 10;
+
 /// Amiga (OCS) machine.
 pub struct AmigaOcs {
     cpu: Cpu68000,
@@ -31,6 +34,7 @@ pub struct AmigaOcs {
     cia_a: CiaA,
     agnus: Agnus,
     cck_count: u64,
+    e_clock_phase: u64,
 }
 
 impl AmigaOcs {
@@ -53,6 +57,7 @@ impl AmigaOcs {
             cia_a: CiaA::new(),
             agnus: Agnus::new(),
             cck_count: 0,
+            e_clock_phase: 0,
         }
     }
 
@@ -161,12 +166,23 @@ impl AmigaOcs {
         self.cck_count
     }
 
-    /// Read a word at the given 24-bit address through the active
-    /// system bus — matches what a CPU read would see (chipset, CIA,
-    /// memory all routed correctly).
+    /// Read a word at the given 24-bit address — peeks state without
+    /// side effects (does NOT clear ICR etc). For inspecting state
+    /// during tests; not equivalent to a CPU bus cycle.
     #[must_use]
     pub fn read_word(&self, addr: u32) -> u16 {
         self.bus_read_word(addr & 0xFF_FFFF)
+    }
+
+    /// Read a word as if the CPU did the bus cycle. Side-effecting:
+    /// CIA-A ICR reads clear ICR; future read-side-effect registers
+    /// behave like the CPU sees them.
+    pub fn cpu_read_word(&mut self, addr: u32) -> u16 {
+        let addr24 = addr & 0xFF_FFFF;
+        if let Some(reg) = cia::decode_cia_a(addr24) {
+            return u16::from(self.cia_a.read_register(reg));
+        }
+        self.bus_read_word(addr24)
     }
 
     /// Read a longword (big-endian) at the given 24-bit address.
@@ -179,7 +195,10 @@ impl AmigaOcs {
 
     fn bus_read_word(&self, addr24: u32) -> u16 {
         if let Some(reg) = cia::decode_cia_a(addr24) {
-            return u16::from(self.cia_a.read_register(reg));
+            // Side-effect-free peek for the public API; the CPU's
+            // bus path uses read_register() directly so reading-clears
+            // ICR gets the proper effect.
+            return u16::from(self.cia_a.peek_register(reg));
         }
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
@@ -204,9 +223,20 @@ impl AmigaOcs {
         // Advance the beam first; if VBL fires, request the VERTB
         // interrupt before the CPU's interrupt sample.
         if self.agnus.tick_cck() {
-            // Set INTREQ.VERTB (bit 5) via the set/clear semantics.
             self.chipset.write_word(0x09C, 0x8020);
         }
+
+        // Tick CIA-A every CIA_E_CLOCK_DIVISOR CCKs (E clock = master/10).
+        self.e_clock_phase += 1;
+        if self.e_clock_phase >= CIA_E_CLOCK_DIVISOR {
+            self.e_clock_phase = 0;
+            self.cia_a.tick_e_clock();
+            // CIA-A /IRQ → Paula INTREQ.PORTS (bit 3). Latch on edge.
+            if self.cia_a.irq_pending {
+                self.chipset.write_word(0x09C, 0x8008);
+            }
+        }
+
         self.service_cpu_bus();
         self.cpu.ipl = self.chipset.compute_ipl();
         self.cpu.tick();
@@ -260,8 +290,6 @@ impl AmigaOcs {
                 self.cpu.bus_status = BusStatus::Ready(val);
             } else {
                 let val = data.unwrap_or(0);
-                // CIA is byte-wide; a word write puts the same byte
-                // in both halves. We just take the low byte.
                 self.cia_a.write_register(reg, val as u8);
                 self.memory.set_overlay(self.cia_a.ovl());
                 self.cpu.bus_status = BusStatus::Ready(0);
