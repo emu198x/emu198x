@@ -1230,6 +1230,7 @@ dependencies = [
 name = "machine-commodore-amiga-ocs"
 version = "0.1.0"
 dependencies = [
+ "commodore-paula-8364",
  "mos-cia-8520",
  "motorola-68000",
  "png",

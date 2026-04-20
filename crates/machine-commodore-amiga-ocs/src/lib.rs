@@ -18,6 +18,7 @@ pub use agnus::{
 };
 pub use chipset::Chipset;
 pub use cia::{Cia, CiaExt};
+pub use commodore_paula_8364::{IntSource, Paula8364};
 pub use copper::Copper;
 pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
 pub use memory::{Memory, CHIP_RAM_SIZE};
@@ -46,6 +47,7 @@ pub struct AmigaOcs {
     chipset: Chipset,
     cia_a: Cia,
     cia_b: Cia,
+    paula: Paula8364,
     agnus: Agnus,
     copper: Copper,
     denise: Denise,
@@ -148,6 +150,7 @@ impl AmigaOcs {
             chipset: Chipset::new(),
             cia_a,
             cia_b: Cia::new(),
+            paula: Paula8364::new(),
             agnus: Agnus::new(),
             copper: Copper::new(),
             denise: Denise::new(),
@@ -245,22 +248,34 @@ impl AmigaOcs {
         self.cia_a.ddr_a()
     }
 
-    /// Convenience: current INTENA value.
+    /// Convenience: current INTENA value (from Paula).
     #[must_use]
     pub fn intena(&self) -> u16 {
-        self.chipset.intena
+        self.paula.intena()
     }
 
-    /// Convenience: current INTREQ value.
+    /// Convenience: current INTREQ value (from Paula).
     #[must_use]
     pub fn intreq(&self) -> u16 {
-        self.chipset.intreq
+        self.paula.intreq()
     }
 
     /// Convenience: current DMACON value.
     #[must_use]
     pub fn dmacon(&self) -> u16 {
         self.chipset.dmacon
+    }
+
+    /// Convenience: current ADKCON value (from Paula).
+    #[must_use]
+    pub fn adkcon(&self) -> u16 {
+        self.paula.adkcon()
+    }
+
+    /// Read-only Paula access.
+    #[must_use]
+    pub fn paula(&self) -> &Paula8364 {
+        &self.paula
     }
 
     /// Convenience: current BPLCON0 value.
@@ -288,7 +303,7 @@ impl AmigaOcs {
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
-        let intena_before = self.chipset.intena;
+        let intena_before = self.paula.intena();
         match offset {
             0x080 => {
                 self.copper.cop1lc =
@@ -328,6 +343,10 @@ impl AmigaOcs {
             }
             0x088 => self.copper.jump1(),
             0x08A => self.copper.jump2(),
+            // Paula-owned register space: INTENA / INTREQ / ADKCON.
+            0x09A => self.paula.write_intena(val),
+            0x09C => self.paula.write_intreq(val),
+            0x09E => self.paula.write_adkcon(val),
             _ => self.chipset.write_word(offset, val),
         }
         if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
@@ -340,14 +359,11 @@ impl AmigaOcs {
         }
         if offset == 0x09A {
             self.debug_intena_writes += 1;
-            let intena_after = self.chipset.intena;
+            let intena_after = self.paula.intena();
             if intena_after > self.debug_peak_intena {
                 self.debug_peak_intena = intena_after;
             }
             if intena_after != intena_before {
-                // Log CCKs (HRM beam-coordinate units) to keep these
-                // timestamps comparable with HRM register descriptions
-                // — tick_count / 2.
                 self.debug_intena_log.push((
                     self.tick_count / TICKS_PER_CCK,
                     self.cpu.regs.pc,
@@ -443,6 +459,10 @@ impl AmigaOcs {
             return match offset {
                 0x004 => self.agnus.vposr(),
                 0x006 => self.agnus.vhposr(),
+                // Paula-owned read-side registers.
+                0x01C => self.paula.intena(),
+                0x01E => self.paula.intreq(),
+                0x010 => self.paula.adkcon(),
                 _ => self.chipset.read_word(offset),
             };
         }
@@ -491,8 +511,8 @@ impl AmigaOcs {
                 // it ticks once per VBL edge.
                 self.cia_a.tod_pulse();
             }
-            if vertb_level && (self.chipset.intreq & 0x0020) == 0 {
-                self.chipset.write_word(0x09C, 0x8020);
+            if vertb_level && (self.paula.intreq() & IntSource::Vertb.mask()) == 0 {
+                self.paula.raise(IntSource::Vertb);
             }
             self.prev_vertb_level = vertb_level;
 
@@ -546,19 +566,19 @@ impl AmigaOcs {
         // real hardware.
         let cia_a_irq = self.cia_a.irq_active();
         if cia_a_irq && !self.prev_cia_a_irq {
-            self.chipset.write_word(0x09C, 0x8008);
+            self.paula.raise(IntSource::Ports);
         }
         self.prev_cia_a_irq = cia_a_irq;
 
         let cia_b_irq = self.cia_b.irq_active();
         if cia_b_irq && !self.prev_cia_b_irq {
-            self.chipset.write_word(0x09C, 0xA000);
+            self.paula.raise(IntSource::Exter);
         }
         self.prev_cia_b_irq = cia_b_irq;
 
         // ── CPU: every master/4 tick = every CPU clock ──────────
         self.service_cpu_bus();
-        self.cpu.ipl = self.chipset.compute_ipl();
+        self.cpu.ipl = self.paula.compute_ipl();
         self.cpu.tick();
 
         self.tick_count += 1;
@@ -691,6 +711,9 @@ impl AmigaOcs {
                 let val = match offset {
                     0x004 => self.agnus.vposr(),
                     0x006 => self.agnus.vhposr(),
+                    0x01C => self.paula.intena(),
+                    0x01E => self.paula.intreq(),
+                    0x010 => self.paula.adkcon(),
                     _ => self.chipset.read_word(offset),
                 };
                 self.memory.set_last_bus_value(val);

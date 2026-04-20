@@ -11,14 +11,9 @@
 
 #[derive(Default)]
 pub struct Chipset {
-    /// `$DFF096` — DMA control.
+    /// `$DFF096` — DMA control. Owned by Agnus; kept here until
+    /// #140 (Agnus DMACON port).
     pub dmacon: u16,
-    /// `$DFF09A` — interrupt enable mask.
-    pub intena: u16,
-    /// `$DFF09C` — interrupt request lines.
-    pub intreq: u16,
-    /// `$DFF09E` — audio + disk control (peripheral DMA flags).
-    pub adkcon: u16,
     /// `$DFF100` — bitplane control 0 (BPU bits 14:12, mode flags).
     pub bplcon0: u16,
     /// `$DFF102` — bitplane control 1 (scroll, dual playfield).
@@ -80,9 +75,9 @@ impl Chipset {
             0x092 => self.ddfstrt = val,
             0x094 => self.ddfstop = val,
             0x096 => write_set_clear(&mut self.dmacon, val),
-            0x09A => write_set_clear(&mut self.intena, val),
-            0x09C => write_set_clear(&mut self.intreq, val),
-            0x09E => write_set_clear(&mut self.adkcon, val),
+            // 0x09A INTENA / 0x09C INTREQ / 0x09E ADKCON are Paula
+            // registers now — the machine's dispatch routes those
+            // offsets straight to Paula, so they never land here.
             // Bitplane pointers $0E0-$0F4: 6 planes × 4 bytes each.
             // Even offset = high half, odd offset = low half.
             0x0E0..=0x0F5 => {
@@ -129,13 +124,13 @@ impl Chipset {
     /// write-only side share offsets ($096 = DMACON write / DMACONR
     /// read at $002; etc) — return the stored bookkeeping value for
     /// the read-side offsets and floating bus elsewhere.
+    ///
+    /// INTENAR / INTREQR / ADKCONR now live in Paula; the machine's
+    /// bus read routes those offsets there before consulting us.
     #[must_use]
     pub fn read_word(&self, offset: u16) -> u16 {
         match offset {
             0x002 => self.dmacon, // DMACONR
-            0x01C => self.intena, // INTENAR
-            0x01E => self.intreq, // INTREQR
-            0x010 => self.adkcon, // ADKCONR
             _ => 0xFFFF,
         }
     }
@@ -157,38 +152,6 @@ impl Chipset {
     pub fn num_bitplanes(&self) -> u8 {
         ((self.bplcon0 >> 12) & 0x07) as u8
     }
-
-    /// Compute the 68000 IPL (interrupt priority level, 0-7) the
-    /// chipset is requesting based on `INTREQ & INTENA`. Per Paula:
-    ///
-    ///   bit 0 TBE     → level 1
-    ///   bit 1 DSKBLK  → level 1
-    ///   bit 2 SOFT    → level 1
-    ///   bit 3 PORTS   → level 2
-    ///   bit 4 COPER   → level 3
-    ///   bit 5 VERTB   → level 3
-    ///   bit 6 BLIT    → level 3
-    ///   bit 7-10 AUDx → level 4
-    ///   bit 11 RBF    → level 5
-    ///   bit 12 DSKSYN → level 5
-    ///   bit 13 EXTER  → level 6
-    ///
-    /// Bit 14 (INTEN master enable) gates everything except level 7
-    /// (NMI; not used by Amiga in the standard config).
-    #[must_use]
-    pub fn compute_ipl(&self) -> u8 {
-        if self.intena & 0x4000 == 0 {
-            return 0;
-        }
-        let active = self.intreq & self.intena & 0x3FFF;
-        if active & 0x2000 != 0 { 6 }      // EXTER
-        else if active & 0x1800 != 0 { 5 } // RBF, DSKSYN
-        else if active & 0x0780 != 0 { 4 } // AUD0..3
-        else if active & 0x0070 != 0 { 3 } // COPER, VERTB, BLIT
-        else if active & 0x0008 != 0 { 2 } // PORTS
-        else if active & 0x0007 != 0 { 1 } // TBE, DSKBLK, SOFT
-        else { 0 }
-    }
 }
 
 #[cfg(test)]
@@ -196,23 +159,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn intena_set_clear() {
+    fn dmacon_set_clear() {
         let mut c = Chipset::new();
-        c.write_word(0x09A, 0x8042); // set bit 6 + bit 1
-        assert_eq!(c.intena, 0x0042);
-        c.write_word(0x09A, 0x8004); // also set bit 2
-        assert_eq!(c.intena, 0x0046);
-        c.write_word(0x09A, 0x0040); // clear bit 6
-        assert_eq!(c.intena, 0x0006);
-    }
-
-    #[test]
-    fn dmacon_independent_from_intena() {
-        let mut c = Chipset::new();
-        c.write_word(0x096, 0x8200); // DMAEN
-        c.write_word(0x09A, 0x8000); // INTENA master only
+        c.write_word(0x096, 0x8200); // SET DMAEN
         assert_eq!(c.dmacon, 0x0200);
-        assert_eq!(c.intena, 0x0000);
+        c.write_word(0x096, 0x0200); // CLEAR DMAEN
+        assert_eq!(c.dmacon, 0x0000);
     }
 
     #[test]
@@ -234,29 +186,10 @@ mod tests {
     }
 
     #[test]
-    fn read_side_offsets_return_bookkeeping_values() {
+    fn dmaconr_mirrors_dmacon() {
         let mut c = Chipset::new();
-        c.write_word(0x09A, 0x8042);
-        assert_eq!(c.read_word(0x01C), 0x0042); // INTENAR mirrors INTENA
         c.write_word(0x096, 0x8200);
-        assert_eq!(c.read_word(0x002), 0x0200); // DMACONR mirrors DMACON
-    }
-
-    #[test]
-    fn compute_ipl_respects_master_enable_and_priority() {
-        let mut c = Chipset::new();
-        c.intreq = 0x0020; // VERTB requested
-        // No master enable — IPL should be 0.
-        assert_eq!(c.compute_ipl(), 0);
-        c.intena = 0x4020; // master + VERTB
-        assert_eq!(c.compute_ipl(), 3);
-        // Add EXTER (level 6) — should win over VERTB.
-        c.intena = 0x6020;
-        c.intreq = 0x2020;
-        assert_eq!(c.compute_ipl(), 6);
-        // Drop EXTER request.
-        c.intreq = 0x0020;
-        assert_eq!(c.compute_ipl(), 3);
+        assert_eq!(c.read_word(0x002), 0x0200);
     }
 
     #[test]
