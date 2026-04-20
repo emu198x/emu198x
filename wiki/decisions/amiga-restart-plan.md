@@ -18,7 +18,8 @@
 | M8 | ✅ | 2 | CIA-A timer A/B + ICR + CIA→Paula IRQ. |
 | M9 | ✅ | 2 | CIA-B stub at $BFD000 + IRQ→EXTER. |
 | M10 | ✅ | 3 | Copper MOVE/WAIT/SKIP, COPJMP1/2, COPEN+DMAEN gating. |
-| M11 | next | — | Bitplane DMA + Denise pixel pipeline. |
+| M11 | ✅ | 2 | Denise framebuffer + COLOR00 background rendering. |
+| M11.1 | next | — | Bitplane DMA fetch + decode (1-3 bitplanes). |
 | M12 | pending | — | Slow-RAM golden test. |
 
 Total tests: **35 passing** (21 integration + 14 unit). Diagnostic
