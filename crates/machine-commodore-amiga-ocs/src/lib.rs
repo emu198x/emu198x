@@ -316,9 +316,14 @@ impl AmigaOcs {
             );
         }
 
-        // Denise renders one CCK's worth of pixels.
-        self.denise
-            .tick_cck(self.agnus.vpos, self.agnus.hpos, &self.chipset);
+        // Denise renders one CCK's worth of pixels (scanline-renderer
+        // at M11.1 — full line at hpos=0 of each visible line).
+        self.denise.tick_cck(
+            self.agnus.vpos,
+            self.agnus.hpos,
+            &mut self.chipset,
+            &self.memory,
+        );
 
         // Tick both CIAs every CIA_E_CLOCK_DIVISOR CCKs (E clock = master/10).
         self.e_clock_phase += 1;
