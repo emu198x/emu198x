@@ -26,6 +26,8 @@
 ### Commodore Amiga
 - [Overview](systems/commodore-amiga.md) — fresh A500 OCS PAL headless baseline, Kickstart-visible output, DF0 `ADF` insertion, screenshots, stereo audio, and scripted keyboard input
 - [Port plan](decisions/amiga-port-plan.md) — the archive-to-fresh-workspace port plan this baseline came from
+- [Archive-port methodology](decisions/archive-port-methodology.md) — three-phase read-characterize / port-with-tests / integrate discipline for bringing -archive crates back in
+- [Chip-only boot failure](decisions/amiga-chip-only-boot-failure.md) — RESOLVED 2026-04-20 via copper CDANG halt; narrative kept for context
 
 ### ZX Spectrum
 - [Overview](systems/spectrum/overview.md) — 11 variants (16K, 48K, 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, TC2048, TS2068), ULA-drives architecture
