@@ -111,7 +111,12 @@ impl AmigaOcs {
             denise: Denise::new(),
             tick_count: 0,
             cck_phase: 0,
-            prev_vertb_level: false,
+            // Initialise as `true` because at reset the beam is at
+            // vpos=0 (inside the VBL window), so the level signal is
+            // already high. A `false` initial value would fake a
+            // rising edge on the first tick and spuriously fire TOD
+            // / copper-restart before the first real VBL.
+            prev_vertb_level: true,
             prev_cia_a_irq: false,
             prev_cia_b_irq: false,
             e_clock_phase: 0,

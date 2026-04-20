@@ -175,15 +175,15 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
     }
 
     eprintln!("\n=== ExecBase ===");
-    let exec_base = chip_long(&amiga, 0x0000_0004);
+    let exec_base = chip_long(amiga, 0x0000_0004);
     eprintln!("ExecBase = ${exec_base:08X}");
     if exec_base == 0 {
         eprintln!("(ExecBase uninitialised — can't walk)");
         return;
     }
-    let this_task = read_long(&amiga, exec_base.wrapping_add(EXEC_THIS_TASK));
-    let idle = read_long(&amiga, exec_base.wrapping_add(EXEC_IDLE_COUNT));
-    let disp = read_long(&amiga, exec_base.wrapping_add(EXEC_DISP_COUNT));
+    let this_task = read_long(amiga, exec_base.wrapping_add(EXEC_THIS_TASK));
+    let idle = read_long(amiga, exec_base.wrapping_add(EXEC_IDLE_COUNT));
+    let disp = read_long(amiga, exec_base.wrapping_add(EXEC_DISP_COUNT));
     let quantum = amiga.read_word(exec_base.wrapping_add(EXEC_QUANTUM));
     let sys_flags = amiga.read_word(exec_base.wrapping_add(EXEC_SYS_FLAGS));
     let td_nest = u32::from(amiga.read_word(exec_base.wrapping_add(EXEC_TD_NEST_CNT)));
@@ -196,19 +196,19 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
 
     // Also dump ThisTask details to see who was just running.
     if this_task != 0 {
-        let name_ptr = read_long(&amiga, this_task.wrapping_add(TASK_LN_NAME));
-        let name = read_cstring(&amiga, name_ptr, 32);
-        let state = read_byte(&amiga, this_task.wrapping_add(TASK_STATE));
-        let sig_wait = read_long(&amiga, this_task.wrapping_add(TASK_SIG_WAIT));
-        let sig_recvd = read_long(&amiga, this_task.wrapping_add(TASK_SIG_RECVD));
+        let name_ptr = read_long(amiga, this_task.wrapping_add(TASK_LN_NAME));
+        let name = read_cstring(amiga, name_ptr, 32);
+        let state = read_byte(amiga, this_task.wrapping_add(TASK_STATE));
+        let sig_wait = read_long(amiga, this_task.wrapping_add(TASK_SIG_WAIT));
+        let sig_recvd = read_long(amiga, this_task.wrapping_add(TASK_SIG_RECVD));
         eprintln!(
             "\n=== ThisTask @ ${this_task:08X} ===\n\
              name='{name}' state={state} sigWait=${sig_wait:08X} sigRecvd=${sig_recvd:08X}"
         );
     }
 
-    dump_task_list(&amiga, "TaskReady", exec_base.wrapping_add(EXEC_TASK_READY));
-    dump_task_list(&amiga, "TaskWait", exec_base.wrapping_add(EXEC_TASK_WAIT));
+    dump_task_list(amiga, "TaskReady", exec_base.wrapping_add(EXEC_TASK_READY));
+    dump_task_list(amiga, "TaskWait", exec_base.wrapping_add(EXEC_TASK_WAIT));
 
     eprintln!("\n=== Framebuffer ===");
     let fb = amiga.denise().framebuffer();
