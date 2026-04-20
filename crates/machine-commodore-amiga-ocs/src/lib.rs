@@ -54,14 +54,19 @@ pub struct AmigaOcs {
 }
 
 impl AmigaOcs {
-    /// Build a new Amiga (OCS) with the given Kickstart ROM image.
-    ///
-    /// The CPU is reset using the SSP/PC longwords at ROM offsets 0/4,
-    /// matching what real-hardware reset would fetch from `$00000000`
-    /// and `$00000004` (mapped to ROM via OVL=1).
+    /// Build a new Amiga (OCS) with the given Kickstart ROM image
+    /// and chip RAM only (no expansion).
     #[must_use]
     pub fn new(kickstart: Vec<u8>) -> Self {
-        let memory = Memory::new(kickstart);
+        Self::with_slow_ram(kickstart, 0)
+    }
+
+    /// Build a new Amiga (OCS) with the given Kickstart ROM image
+    /// plus a trapdoor slow-RAM expansion at `$C00000` (common A500
+    /// config: 512 KiB).
+    #[must_use]
+    pub fn with_slow_ram(kickstart: Vec<u8>, slow_ram_bytes: usize) -> Self {
+        let memory = Memory::new_with_slow_ram(kickstart, slow_ram_bytes);
         let mut cpu = Cpu68000::new();
         let ssp = memory.read_long(0x000000);
         let pc = memory.read_long(0x000004);

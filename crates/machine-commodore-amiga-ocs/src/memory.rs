@@ -32,6 +32,8 @@ const CHIP_RAM_DECODE_TOP: u32 = 0x20_0000;
 const CIA_BASE: u32 = 0x00BF_0000;
 const CIA_TOP: u32 = 0x00C0_0000;
 
+const SLOW_RAM_BASE: u32 = 0x00C0_0000;
+
 const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
 
@@ -44,15 +46,24 @@ pub const CHIP_RAM_SIZE: usize = 512 * 1024;
 pub struct Memory {
     chip_ram: Vec<u8>,
     chip_ram_mask: u32,
+    slow_ram: Vec<u8>,
     kickstart: Vec<u8>,
     rom_mask: u32,
     overlay: bool,
 }
 
 impl Memory {
-    /// Construct memory with the given Kickstart image.
+    /// Construct memory with the given Kickstart image and no slow RAM.
     #[must_use]
     pub fn new(kickstart: Vec<u8>) -> Self {
+        Self::new_with_slow_ram(kickstart, 0)
+    }
+
+    /// Construct memory with the given Kickstart image and a trapdoor
+    /// slow-RAM bank of `slow_ram_bytes` at `$C00000`. Pass 0 for no
+    /// slow RAM (A500 bare configuration).
+    #[must_use]
+    pub fn new_with_slow_ram(kickstart: Vec<u8>, slow_ram_bytes: usize) -> Self {
         assert!(
             kickstart.len().is_power_of_two(),
             "Kickstart ROM size must be a power of two; got {} bytes",
@@ -62,6 +73,7 @@ impl Memory {
         Self {
             chip_ram: vec![0; CHIP_RAM_SIZE],
             chip_ram_mask: (CHIP_RAM_SIZE as u32).wrapping_sub(1),
+            slow_ram: vec![0; slow_ram_bytes],
             kickstart,
             rom_mask,
             overlay: true,
@@ -110,6 +122,14 @@ impl Memory {
             return self.chip_ram[(addr & self.chip_ram_mask) as usize];
         }
 
+        // Slow RAM (trapdoor) at $C00000, up to installed size.
+        if addr >= SLOW_RAM_BASE && !self.slow_ram.is_empty() {
+            let off = (addr - SLOW_RAM_BASE) as usize;
+            if off < self.slow_ram.len() {
+                return self.slow_ram[off];
+            }
+        }
+
         // ROM at its anchor.
         if (ROM_BASE..ROM_TOP).contains(&addr) {
             return self.rom_byte(addr);
@@ -146,6 +166,15 @@ impl Memory {
         if (CHIP_RAM_DECODE_BASE..CHIP_RAM_DECODE_TOP).contains(&addr) {
             self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
             return;
+        }
+
+        // Slow RAM at $C00000, up to installed size.
+        if addr >= SLOW_RAM_BASE && !self.slow_ram.is_empty() {
+            let off = (addr - SLOW_RAM_BASE) as usize;
+            if off < self.slow_ram.len() {
+                self.slow_ram[off] = val;
+                return;
+            }
         }
 
         // CIA / custom register / ROM / unmapped: silently drop.
