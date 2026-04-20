@@ -1,5 +1,36 @@
 //! Agnus - Beam counter and DMA slot allocation.
 
+/// Named bit masks for the DMACON register (HRM Appendix A.3 +
+/// Chapter 6). These describe DMA-channel enables; Paula reads the
+/// same bits for its own slot gating.
+pub mod bits {
+    /// DMACON write flag: 1 = SET bits in val[14..0], 0 = CLEAR.
+    pub const DMACON_SETCLR: u16 = 0x8000;
+    pub const DMACON_BLTPRI: u16 = 0x0400; // blitter bus priority
+    pub const DMACON_DMAEN:  u16 = 0x0200; // master enable
+    pub const DMACON_BPLEN:  u16 = 0x0100; // bitplane DMA
+    pub const DMACON_COPEN:  u16 = 0x0080; // copper DMA
+    pub const DMACON_BLTEN:  u16 = 0x0040; // blitter DMA
+    pub const DMACON_SPREN:  u16 = 0x0020; // sprite DMA
+    pub const DMACON_DSKEN:  u16 = 0x0010; // disk DMA
+    pub const DMACON_AUD3EN: u16 = 0x0008;
+    pub const DMACON_AUD2EN: u16 = 0x0004;
+    pub const DMACON_AUD1EN: u16 = 0x0002;
+    pub const DMACON_AUD0EN: u16 = 0x0001;
+    /// Per-channel audio DMA enable masks, indexed 0..=3.
+    pub const DMACON_AUD: [u16; 4] =
+        [DMACON_AUD0EN, DMACON_AUD1EN, DMACON_AUD2EN, DMACON_AUD3EN];
+    /// DMACON bits Agnus stores (excludes SETCLR write flag).
+    pub const DMACON_MASK: u16 = 0x07FF;
+
+    /// BPLCON0 bits Agnus cares about (rest are Denise-owned).
+    pub const BPLCON0_HIRES: u16 = 0x8000;
+    pub const BPLCON0_LACE:  u16 = 0x0004;
+    /// BPU (number of bitplanes) field — 3 high bits at 14..12.
+    pub const BPLCON0_BPU_MASK: u16 = 0x7000;
+    pub const BPLCON0_BPU_SHIFT: u32 = 12;
+}
+
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
 /// Nominal NTSC short-line length. Per HRM p. 785 the NTSC beam
@@ -1181,6 +1212,54 @@ impl Agnus {
             blitter_dma_progress_granted,
             paula_return_progress_policy,
         }
+    }
+}
+
+/// Machine-facing register-write API. The machine's custom-register
+/// bus dispatches here rather than reaching into Agnus's pub fields,
+/// so that set/clear semantics and write-masking live in one place.
+impl Agnus {
+    /// Write to DMACON ($DFF096) with HRM set/clear semantics:
+    /// bit 15 = SET, bit 15 clear = CLEAR.
+    pub fn write_dmacon(&mut self, val: u16) {
+        if val & bits::DMACON_SETCLR != 0 {
+            self.dmacon |= val & bits::DMACON_MASK;
+        } else {
+            self.dmacon &= !(val & bits::DMACON_MASK);
+        }
+    }
+
+    /// Write BPLCON0 ($DFF100). Straight store; Denise sees the same
+    /// value for mode bits.
+    pub fn write_bplcon0(&mut self, val: u16) { self.bplcon0 = val; }
+
+    pub fn write_ddfstrt(&mut self, val: u16) { self.ddfstrt = val; }
+    pub fn write_ddfstop(&mut self, val: u16) { self.ddfstop = val; }
+    pub fn write_diwstrt(&mut self, val: u16) { self.diwstrt = val; }
+    pub fn write_diwstop(&mut self, val: u16) { self.diwstop = val; }
+    pub fn write_bpl1mod(&mut self, val: u16) { self.bpl1mod = val as i16; }
+    pub fn write_bpl2mod(&mut self, val: u16) { self.bpl2mod = val as i16; }
+
+    /// Write one half of a bitplane pointer. `high_word = true` writes
+    /// BPLxPTH (the upper 16 bits); `false` writes BPLxPTL (lower 16,
+    /// bit 0 forced to 0 for chip-RAM word alignment).
+    pub fn write_bpl_pointer(&mut self, plane: usize, high_word: bool, val: u16) {
+        if plane >= self.bpl_pt.len() { return; }
+        let cur = self.bpl_pt[plane];
+        self.bpl_pt[plane] = if high_word {
+            (cur & 0x0000_FFFF) | (u32::from(val) << 16)
+        } else {
+            (cur & 0xFFFF_0000) | u32::from(val & 0xFFFE)
+        };
+    }
+
+    /// Write one half of DSKPT ($020 / $022).
+    pub fn write_dsk_pointer(&mut self, high_word: bool, val: u16) {
+        self.dsk_pt = if high_word {
+            (self.dsk_pt & 0x0000_FFFF) | (u32::from(val) << 16)
+        } else {
+            (self.dsk_pt & 0xFFFF_0000) | u32::from(val & 0xFFFE)
+        };
     }
 }
 
