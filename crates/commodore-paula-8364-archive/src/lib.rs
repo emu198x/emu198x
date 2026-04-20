@@ -78,6 +78,36 @@ pub mod bits {
     // SERPER ($032 write) — 8-bit vs 9-bit selector + baud divisor.
     pub const SERPER_LONG:       u16 = 0x8000; // 1 = 9 data bits, 0 = 8
 
+    // POTGO / POTGOR pin fields (HRM §6 Controller I/O).
+    //
+    //   bit 15  OUTRY  — port 1 Y-pin output-enable
+    //   bit 14  DATRY  — port 1 Y-pin data (output) / level (input)
+    //   bit 13  OUTLY  — port 1 X-pin output-enable  (often the "right mouse button" input)
+    //   bit 12  DATLY  — port 1 X-pin data / level
+    //   bit 11  OUTRX  — port 0 Y-pin output-enable
+    //   bit 10  DATRX  — port 0 Y-pin data / level   (often the "middle mouse button" input)
+    //   bit  9  OUTLX  — port 0 X-pin output-enable
+    //   bit  8  DATLX  — port 0 X-pin data / level
+    //   bit  0  START  — begin a new charge cycle (write side only)
+    pub const POTGO_START: u16 = 0x0001;
+    pub const POTGO_OUTRY: u16 = 0x8000;
+    pub const POTGO_DATRY: u16 = 0x4000;
+    pub const POTGO_OUTLY: u16 = 0x2000;
+    pub const POTGO_DATLY: u16 = 0x1000;
+    pub const POTGO_OUTRX: u16 = 0x0800;
+    pub const POTGO_DATRX: u16 = 0x0400;
+    pub const POTGO_OUTLX: u16 = 0x0200;
+    pub const POTGO_DATLX: u16 = 0x0100;
+    /// Convenient masks for the four pot pins (input readback in POTGOR
+    /// uses the DAT bits to report the current pin level).
+    pub const POTGOR_BTN_PORT0_MIDDLE: u16 = POTGO_DATRX;
+    pub const POTGOR_BTN_PORT0_RIGHT:  u16 = POTGO_DATLX;
+    pub const POTGOR_BTN_PORT1_MIDDLE: u16 = POTGO_DATRY;
+    pub const POTGOR_BTN_PORT1_RIGHT:  u16 = POTGO_DATLY;
+    /// DAT bit mask for all four pot pins in POTGOR.
+    pub const POTGOR_DAT_ALL: u16 =
+        POTGO_DATRY | POTGO_DATLY | POTGO_DATRX | POTGO_DATLX;
+
     // ADKCON bits Paula uses.
     pub const ADKCON_PRECOMP1: u16 = 0x2000;
     pub const ADKCON_PRECOMP0: u16 = 0x1000;
@@ -515,6 +545,21 @@ pub struct Paula8364 {
     serial_rx_full: bool,
     serial_rx_overrun: bool,
 
+    // ── POTGO / POTxDAT ────────────────────────────────────────────
+    /// Last POTGO write. Mostly stored for readback; the start bit is
+    /// a strobe and does not latch into the register.
+    potgo: u16,
+    /// Live level on the four pot pins (port 0 X/Y and port 1 X/Y).
+    /// Defaults to all-high; future peripheral code updates via
+    /// `set_pot_pin_level`.
+    pot_pin_levels: u16,
+    /// Per-port proportional-input counter. In real hardware these
+    /// rise from 0 to the time taken for the pot RC network to charge;
+    /// software reads them after starting a charge cycle (via
+    /// `POTGO.START`) to decide the paddle position.
+    pot0dat: u16,
+    pot1dat: u16,
+
     // Diagnostic logs — not part of the chip's behavioural contract.
     intena_write_log: VecDeque<u16>,
     intreq_write_log: VecDeque<u16>,
@@ -554,6 +599,10 @@ impl Paula8364 {
             serial_rx_byte: 0,
             serial_rx_full: false,
             serial_rx_overrun: false,
+            potgo: 0,
+            pot_pin_levels: POTGOR_DAT_ALL,
+            pot0dat: 0,
+            pot1dat: 0,
             intena_write_log: VecDeque::new(),
             intreq_write_log: VecDeque::new(),
             disk_write_dma_log: Vec::new(),
@@ -975,6 +1024,69 @@ impl Paula8364 {
         self.serial_rx_byte = u16::from(byte);
         self.serial_rx_full = true;
         self.raise(IntSource::Rbf);
+    }
+
+    // ─── POTGO / POTxDAT ──────────────────────────────────────────────
+
+    /// CPU write to POTGO (\$034). The START bit is a strobe; we zero
+    /// the pot counters as a real charge cycle would.
+    pub fn write_potgo(&mut self, val: u16) {
+        self.potgo = val & !POTGO_START;
+        if val & POTGO_START != 0 {
+            self.pot0dat = 0;
+            self.pot1dat = 0;
+        }
+    }
+
+    /// Side-effect-free POTGOR (\$016) read — returns the OUT bits
+    /// as last written plus the live DAT pin levels (button state or
+    /// driven-output value, depending on direction).
+    #[must_use]
+    pub fn peek_potgor(&self) -> u16 {
+        let out_bits = self.potgo & (POTGO_OUTRY | POTGO_OUTLY | POTGO_OUTRX | POTGO_OUTLX);
+        // For each DAT bit: if the pin is configured as output, report
+        // the latched POTGO data; if input, report the live pin level.
+        let mut dat = 0u16;
+        for (out_mask, dat_mask) in [
+            (POTGO_OUTRY, POTGO_DATRY),
+            (POTGO_OUTLY, POTGO_DATLY),
+            (POTGO_OUTRX, POTGO_DATRX),
+            (POTGO_OUTLX, POTGO_DATLX),
+        ] {
+            let pin = if self.potgo & out_mask != 0 {
+                self.potgo & dat_mask
+            } else {
+                self.pot_pin_levels & dat_mask
+            };
+            dat |= pin;
+        }
+        out_bits | dat
+    }
+
+    #[must_use] pub fn potgo(&self) -> u16 { self.potgo }
+    #[must_use] pub fn pot0dat(&self) -> u16 { self.pot0dat }
+    #[must_use] pub fn pot1dat(&self) -> u16 { self.pot1dat }
+
+    /// Inject the live level of one of the four pot pins. `mask` must
+    /// be one of `POTGOR_BTN_*` / `POTGO_DAT*` constants. `high = true`
+    /// is the idle/released state; `false` is pulled low (button press
+    /// or driven 0).
+    pub fn set_pot_pin_level(&mut self, mask: u16, high: bool) {
+        if high {
+            self.pot_pin_levels |= mask;
+        } else {
+            self.pot_pin_levels &= !mask;
+        }
+    }
+
+    /// Inject pot-counter values (for tests and future paddle / light
+    /// pen peripherals). 10-bit saturating per HRM.
+    pub fn set_pot_data(&mut self, port: u8, value: u16) {
+        match port {
+            0 => self.pot0dat = value & 0x03FF,
+            1 => self.pot1dat = value & 0x03FF,
+            _ => {}
+        }
     }
 
     // ─── Diagnostic logs (not behavioural) ────────────────────────────

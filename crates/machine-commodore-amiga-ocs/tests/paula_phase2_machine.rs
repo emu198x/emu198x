@@ -377,6 +377,40 @@ fn int_tbe_gated_behind_intena_tbe_bit() {
     assert_eq!(amiga.cpu().ipl, 1, "TBE → IPL 1");
 }
 
+// ─── POTGO + POTxDAT + POTGOR (#129) ──────────────────────────────
+
+#[test]
+fn potgo_write_via_bus_stores_out_and_dat_bits() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F034, 0x8000 | 0x4000); // OUT_RY + DATRY
+    assert_eq!(amiga.paula().potgo(), 0xC000);
+}
+
+#[test]
+fn pot0dat_and_pot1dat_read_back_zero_on_reset() {
+    let amiga = AmigaOcs::new(zero_rom());
+    assert_eq!(amiga.read_word(0x00DF_F012), 0);
+    assert_eq!(amiga.read_word(0x00DF_F014), 0);
+}
+
+#[test]
+fn potgor_reads_back_button_pins_floating_high() {
+    // DAT bits 14, 12, 10, 8 all high = idle.
+    let amiga = AmigaOcs::new(zero_rom());
+    let v = amiga.read_word(0x00DF_F016);
+    assert_eq!(v & 0x5500, 0x5500,
+        "all four pot button pins idle-high at reset");
+}
+
+#[test]
+fn set_pot_pin_level_from_peripheral_reflects_through_bus_read() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    // Simulate right mouse button (port 0 LX pin) pressed.
+    amiga.paula_mut().set_pot_pin_level(0x0100, false);
+    let v = amiga.read_word(0x00DF_F016);
+    assert_eq!(v & 0x0100, 0, "pressed button shows as 0 in POTGOR");
+}
+
 #[test]
 fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
     // With ADKCON.FAST set, the chip delivers the next byte 14 CCKs
