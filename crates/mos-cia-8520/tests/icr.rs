@@ -39,7 +39,7 @@ const IR_BIT: u8 = 0x80;
 
 #[test]
 fn icr_write_bit7_set_adds_to_mask() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x81); // SET, TA
     assert_eq!(cia.icr_mask(), 0x01);
     cia.write(ICR, 0x82); // SET, TB — must not clear TA
@@ -48,7 +48,7 @@ fn icr_write_bit7_set_adds_to_mask() {
 
 #[test]
 fn icr_write_bit7_clear_removes_from_mask() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x9F); // SET, all 5
     assert_eq!(cia.icr_mask(), 0x1F);
     cia.write(ICR, 0x04); // CLEAR, ALARM only
@@ -57,7 +57,7 @@ fn icr_write_bit7_clear_removes_from_mask() {
 
 #[test]
 fn icr_write_lower_bits_of_zero_is_a_nop() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x9F);
     cia.write(ICR, 0x80); // SET with no bits specified — no-op
     assert_eq!(cia.icr_mask(), 0x1F);
@@ -67,7 +67,7 @@ fn icr_write_lower_bits_of_zero_is_a_nop() {
 
 #[test]
 fn icr_write_ignores_bits_5_and_6() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     // HRM: bits 5-6 unused. Only low 5 of the write affect the mask.
     cia.write(ICR, 0xFF); // SET, with bits 5,6,7 all set
     assert_eq!(cia.icr_mask(), 0x1F, "only low 5 programmed");
@@ -79,20 +79,20 @@ fn icr_write_ignores_bits_5_and_6() {
 
 #[test]
 fn icr_read_returns_zero_when_no_flags() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     assert_eq!(cia.read(ICR), 0);
 }
 
 #[test]
 fn icr_read_returns_flags_with_ir_bit_when_any_masked_flag_active() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x81); // unmask TA
     cia.write(TALO, 0x01);
     cia.write(TAHI, 0x00);
     cia.write(CRA, 0x19); // LOAD | START | ONESHOT
     // Tick to underflow
     for _ in 0..3 {
-        cia.tick();
+        cia.phi2_pulse();
     }
     assert_ne!(cia.icr_status() & ICR_TA, 0);
     assert!(cia.irq_active());
@@ -103,7 +103,7 @@ fn icr_read_returns_flags_with_ir_bit_when_any_masked_flag_active() {
 
 #[test]
 fn icr_read_returns_flags_without_ir_when_flag_is_masked_off() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     // Don't set mask bit. Flag latches but IR (bit 7) should NOT.
     cia.receive_serial_byte(0x42); // flags ICR_SP
     assert_ne!(cia.icr_status() & ICR_SP, 0);
@@ -115,7 +115,7 @@ fn icr_read_returns_flags_without_ir_when_flag_is_masked_off() {
 
 #[test]
 fn icr_read_clears_all_flag_bits() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x9F); // unmask all 5
     cia.receive_serial_byte(0x01); // SP flag
     cia.flag_falling_edge(); // FLAG bit 4
@@ -131,12 +131,12 @@ fn icr_read_clears_all_flag_bits() {
 
 #[test]
 fn ta_underflow_latches_bit_0() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(TALO, 1);
     cia.write(TAHI, 0);
     cia.write(CRA, 0x19); // LOAD | START | ONESHOT
     for _ in 0..3 {
-        cia.tick();
+        cia.phi2_pulse();
     }
     assert_eq!(cia.icr_status() & ICR_TA, ICR_TA);
     assert_eq!(cia.icr_status() & 0x1E, 0, "no other flags");
@@ -144,12 +144,12 @@ fn ta_underflow_latches_bit_0() {
 
 #[test]
 fn tb_underflow_latches_bit_1() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(TBLO, 1);
     cia.write(TBHI, 0);
     cia.write(CRB, 0x19);
     for _ in 0..3 {
-        cia.tick();
+        cia.phi2_pulse();
     }
     assert_eq!(cia.icr_status() & ICR_TB, ICR_TB);
     assert_eq!(cia.icr_status() & (0x1F & !ICR_TB), 0, "no other flags");
@@ -157,8 +157,8 @@ fn tb_underflow_latches_bit_1() {
 
 #[test]
 fn alarm_latches_bit_2() {
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0);
+    let mut cia = Cia8520::new();
+    // TOD counter defaults to 0 — no seed needed.
     cia.write(CRB, 0x80); // alarm select
     cia.write(0x08, 1); // alarm = 1
     cia.tod_pulse(); // counter → 1, alarm match
@@ -167,14 +167,14 @@ fn alarm_latches_bit_2() {
 
 #[test]
 fn sp_latches_bit_3() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.receive_serial_byte(0);
     assert_eq!(cia.icr_status() & ICR_SP, ICR_SP);
 }
 
 #[test]
 fn flag_pin_falling_edge_latches_bit_4() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.flag_falling_edge();
     assert_eq!(cia.icr_status() & ICR_FLAG, ICR_FLAG);
 }
@@ -185,7 +185,7 @@ fn flag_pin_falling_edge_latches_bit_4() {
 
 #[test]
 fn irq_level_depends_only_on_masked_flags() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.receive_serial_byte(0); // SP flag
     assert!(!cia.irq_active(), "no mask → no IRQ");
     cia.write(ICR, 0x88); // unmask SP
@@ -196,7 +196,7 @@ fn irq_level_depends_only_on_masked_flags() {
 
 #[test]
 fn irq_reasserts_if_flag_latches_while_already_unmasked() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x90); // unmask FLAG
     cia.flag_falling_edge();
     assert!(cia.irq_active());
@@ -212,7 +212,7 @@ fn irq_reasserts_if_flag_latches_while_already_unmasked() {
 
 #[test]
 fn multiple_flags_latched_together_all_visible_on_read() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x9F); // unmask all
     cia.receive_serial_byte(0);
     cia.flag_falling_edge();
@@ -222,7 +222,7 @@ fn multiple_flags_latched_together_all_visible_on_read() {
     cia.write(TAHI, 0);
     cia.write(CRA, 0x19);
     for _ in 0..3 {
-        cia.tick();
+        cia.phi2_pulse();
     }
 
     let ret = cia.read(ICR);
@@ -238,7 +238,7 @@ fn multiple_flags_latched_together_all_visible_on_read() {
 
 #[test]
 fn unmasking_after_flag_already_latched_asserts_irq() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.receive_serial_byte(0); // SP flag without mask → no IRQ
     assert!(!cia.irq_active());
     cia.write(ICR, 0x88); // SET SP mask now

@@ -30,7 +30,7 @@ const ICR_SP: u8 = 0x08;
 
 #[test]
 fn sdr_register_is_directly_readable_and_writeable() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(SDR, 0xA5);
     assert_eq!(cia.read(SDR), 0xA5);
     cia.write(SDR, 0x42);
@@ -39,7 +39,7 @@ fn sdr_register_is_directly_readable_and_writeable() {
 
 #[test]
 fn sdr_reset_value_is_zero() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(SDR, 0xFF);
     cia.reset();
     assert_eq!(cia.read(SDR), 0);
@@ -51,7 +51,7 @@ fn sdr_reset_value_is_zero() {
 
 #[test]
 fn receive_byte_helper_stores_byte_and_latches_sp_flag() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.receive_serial_byte(0xA5);
     assert_eq!(cia.read(SDR), 0xA5, "byte stored in SDR");
     assert_ne!(cia.icr_status() & ICR_SP, 0, "SP flag latched on byte complete");
@@ -59,12 +59,12 @@ fn receive_byte_helper_stores_byte_and_latches_sp_flag() {
 
 #[test]
 fn sp_flag_persists_until_icr_read() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.receive_serial_byte(0x01);
     assert_ne!(cia.icr_status() & ICR_SP, 0);
     // Ticking shouldn't clear it
     for _ in 0..100 {
-        cia.tick();
+        cia.phi2_pulse();
     }
     assert_ne!(cia.icr_status() & ICR_SP, 0);
     // ICR read clears
@@ -74,7 +74,7 @@ fn sp_flag_persists_until_icr_read() {
 
 #[test]
 fn sp_flag_masked_does_not_assert_irq() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.receive_serial_byte(0x01);
     assert!(!cia.irq_active(), "no IRQ when SP mask bit is clear");
     assert_ne!(cia.icr_status() & ICR_SP, 0, "flag latches regardless of mask");
@@ -82,7 +82,7 @@ fn sp_flag_masked_does_not_assert_irq() {
 
 #[test]
 fn sp_flag_unmasked_asserts_irq() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x88); // SET mask bit 3 (SP)
     cia.receive_serial_byte(0x01);
     assert!(cia.irq_active(), "IRQ active when SP is unmasked + flagged");
@@ -100,7 +100,7 @@ fn sp_flag_unmasked_asserts_irq() {
 
 #[test]
 fn cra_bit_6_persists_in_read_back() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(CRA, 0x40); // SPMODE = 1 (output)
     assert_eq!(cia.read(CRA) & 0x40, 0x40);
     cia.write(CRA, 0x00);
@@ -113,7 +113,7 @@ fn cra_bit_6_persists_in_read_back() {
 
 #[test]
 fn consecutive_bytes_each_latch_sp_after_icr_clear() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x88);
     cia.receive_serial_byte(0x01);
     assert!(cia.irq_active());
@@ -131,7 +131,7 @@ fn consecutive_bytes_each_latch_sp_after_icr_clear() {
 
 #[test]
 fn reset_clears_sp_flag_and_sdr_but_not_icr_mask() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(ICR, 0x88); // unmask SP
     cia.receive_serial_byte(0xFF);
     assert_ne!(cia.icr_status() & ICR_SP, 0);

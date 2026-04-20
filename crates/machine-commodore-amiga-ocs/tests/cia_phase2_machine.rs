@@ -66,7 +66,7 @@ fn cia_a_pra_reads_eb_on_reset_for_empty_drive_sense() {
     // empty". PRA read (via memory) returns effective_port = latched
     // output bits OR floating input bits → $EB on reset.
     let amiga = AmigaOcs::with_slow_ram(zero_rom(), 0);
-    let pa = amiga.cia_a().peek_register(0);
+    let pa = amiga.cia_a().peek(0);
     assert_eq!(pa, 0xEB,
         "CIA-A PRA effective byte should be $EB so trackdisk sees /CHNG asserted");
 }
@@ -120,7 +120,7 @@ fn cia_a_tod_alarm_latches_icr_when_counter_matches() {
     assert!(amiga.cia_a().irq_active(),
         "TOD match with ICR.ALARM unmasked must assert /IRQ");
     // ICR read clears; peek to see flags.
-    assert_ne!(amiga.cia_a().peek_register(0x0D) & 0x04, 0,
+    assert_ne!(amiga.cia_a().peek(0x0D) & 0x04, 0,
         "ICR.ALARM flag must be latched");
 }
 
@@ -201,7 +201,7 @@ fn cia_b_prb_output_drives_pin_read_back() {
     // DDRB = $FF (all output).
     amiga.poke_byte(0x00BF_D300, 0xFF);
     amiga.poke_byte(0x00BF_D100, 0x5A);
-    let prb = amiga.cia_b().peek_register(1);
+    let prb = amiga.cia_b().peek(1);
     assert_eq!(prb, 0x5A,
         "all-output DDRB means PRB write is visible on the read-back pin value");
 }
@@ -259,7 +259,7 @@ fn tod_alarm_fires_during_a_long_real_kickstart_run() {
     // match. Alarm flag must latch before the window closes.
     for _ in 0..(20 * PAL_FRAME_TICKS) {
         amiga.tick();
-        if amiga.cia_a().peek_register(0x0D) & 0x04 != 0 {
+        if amiga.cia_a().peek(0x0D) & 0x04 != 0 {
             return;
         }
     }

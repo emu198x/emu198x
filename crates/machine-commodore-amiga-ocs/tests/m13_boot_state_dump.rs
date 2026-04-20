@@ -67,7 +67,7 @@ fn dump_boot_state() {
     eprintln!("DMACON   = ${:04X}", amiga.dmacon() & 0x7FFF);
 
     // CIA-B PRA effective output — disk pins.
-    let pa = amiga.cia_b().peek_register(0);
+    let pa = amiga.cia_b().peek(0);
     eprintln!("\nCIA-B PA = ${pa:02X} (bits: /RDY={} /TK0={} /WPRO={} /CHNG={})",
         (pa >> 5) & 1, (pa >> 4) & 1, (pa >> 3) & 1, (pa >> 2) & 1);
 

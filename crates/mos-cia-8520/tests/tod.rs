@@ -27,13 +27,24 @@ const ICR: u8 = 0x0D;
 
 const ICR_ALARM: u8 = 0x04;
 
+/// Seed the TOD counter via the HRM-correct three-write sequence:
+/// CRB.ALARM_SELECT=0, then HI (halts), MID, LO (restarts). Used
+/// instead of a chip back-door so test setup exercises the same
+/// path real software does.
+fn seed_tod(cia: &mut Cia8520, value: u32) {
+    cia.write(CRB, 0x00);
+    cia.write(TODHI, ((value >> 16) & 0xFF) as u8);
+    cia.write(TODMID, ((value >> 8) & 0xFF) as u8);
+    cia.write(TODLO, (value & 0xFF) as u8);
+}
+
 // ────────────────────────────────────────────────────────────────
 // Basic counter semantics
 // ────────────────────────────────────────────────────────────────
 
 #[test]
 fn tod_counts_up_on_each_pulse() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     assert_eq!(cia.tod_counter(), 0);
     cia.tod_pulse();
     assert_eq!(cia.tod_counter(), 1);
@@ -45,8 +56,8 @@ fn tod_counts_up_on_each_pulse() {
 
 #[test]
 fn tod_wraps_at_24_bits() {
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0x00FF_FFFE);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0x00FF_FFFE);
     cia.tod_pulse();
     assert_eq!(cia.tod_counter(), 0x00FF_FFFF);
     cia.tod_pulse();
@@ -57,8 +68,8 @@ fn tod_wraps_at_24_bits() {
 fn tod_is_binary_not_bcd() {
     // 8520 is binary — $0F + 1 = $10, not $11 (which a BCD 6526
     // would give).
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0x000F);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0x000F);
     cia.tod_pulse();
     assert_eq!(cia.tod_counter(), 0x0010);
 }
@@ -69,7 +80,7 @@ fn tod_is_binary_not_bcd() {
 
 #[test]
 fn tod_writes_to_todhi_halt_the_counter() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(CRB, 0x00); // target counter
     cia.write(TODHI, 0x12);
     assert!(cia.tod_halted(), "any TOD write halts");
@@ -84,7 +95,7 @@ fn tod_writes_to_todhi_halt_the_counter() {
 #[test]
 fn tod_writes_to_todmid_halt_the_counter_8520_specific() {
     // 8520-specific: MID write halts too. 6526 does NOT halt on MID.
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(CRB, 0x00);
     cia.write(TODMID, 0x34);
     assert!(cia.tod_halted(), "8520: MID write halts (HRM §F)");
@@ -92,7 +103,7 @@ fn tod_writes_to_todmid_halt_the_counter_8520_specific() {
 
 #[test]
 fn tod_write_to_todlo_commits_and_restarts_counter() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(CRB, 0x00);
     cia.write(TODHI, 0x12); // halts
     assert!(cia.tod_halted());
@@ -105,7 +116,7 @@ fn tod_write_to_todlo_commits_and_restarts_counter() {
 
 #[test]
 fn tod_pulses_are_ignored_while_halted() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(CRB, 0x00);
     cia.write(TODHI, 0x01);
     assert!(cia.tod_halted());
@@ -125,8 +136,8 @@ fn tod_pulses_are_ignored_while_halted() {
 
 #[test]
 fn tod_writes_target_alarm_when_crb_bit7_set() {
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0x112233);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0x112233);
     cia.write(CRB, 0x80); // alarm-select
     cia.write(TODHI, 0xAA);
     cia.write(TODMID, 0xBB);
@@ -138,7 +149,7 @@ fn tod_writes_target_alarm_when_crb_bit7_set() {
 
 #[test]
 fn alarm_write_after_counter_halt_does_not_restart_counter() {
-    let mut cia = Cia8520::new("T");
+    let mut cia = Cia8520::new();
     cia.write(CRB, 0x00);
     cia.write(TODHI, 0x12); // halt
     assert!(cia.tod_halted());
@@ -159,8 +170,8 @@ fn alarm_write_after_counter_halt_does_not_restart_counter() {
 
 #[test]
 fn tod_alarm_equality_latches_icr_alarm_bit() {
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0x00FF);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0x00FF);
     // Program alarm = $0100 with alarm-select.
     cia.write(CRB, 0x80);
     cia.write(TODHI, 0x00);
@@ -179,8 +190,8 @@ fn tod_alarm_equality_latches_icr_alarm_bit() {
 
 #[test]
 fn tod_alarm_only_fires_once_per_match_cycle() {
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0);
     cia.write(CRB, 0x80);
     cia.write(TODLO, 0x02); // alarm = 2
     for _ in 0..2 {
@@ -194,7 +205,7 @@ fn tod_alarm_only_fires_once_per_match_cycle() {
 
     // Wrap all the way back to 2 via 24-bit overflow is expensive —
     // jump via set_tod_counter and verify the match pulse still fires.
-    cia.set_tod_counter(1);
+    seed_tod(&mut cia, 1);
     cia.tod_pulse();
     assert_eq!(cia.tod_counter(), 2);
     assert_ne!(
@@ -210,8 +221,8 @@ fn tod_alarm_only_fires_once_per_match_cycle() {
 
 #[test]
 fn tod_read_msb_latches_snapshot_until_lsb_read() {
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0x00AA_BBCC);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0x00AA_BBCC);
 
     // Read MSB — snapshot captured
     let hi = cia.read(TODHI);
@@ -232,8 +243,8 @@ fn tod_read_msb_latches_snapshot_until_lsb_read() {
 
 #[test]
 fn tod_lo_read_after_latch_releases_subsequent_reads_return_live() {
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0x00AA_BBCC);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0x00AA_BBCC);
     let _ = cia.read(TODHI);
     let _ = cia.read(TODLO); // releases latch
     // Advance
@@ -253,8 +264,8 @@ fn tod_mid_or_lo_read_without_prior_msb_read_returns_live() {
     // HRM: if only one register is to be read, it can be read "on
     // the fly" provided any MSB read is followed by an LSB read to
     // disable the latching.
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0x001234);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0x001234);
     let lo1 = cia.read(TODLO);
     assert_eq!(lo1, 0x34, "live read when no latch was taken");
     cia.tod_pulse();
@@ -271,8 +282,8 @@ fn tod_counter_and_alarm_survive_hardware_reset() {
     // HRM §F: TOD counter and alarm registers are NOT affected by
     // hardware reset. The `reset()` method clears timers, ICR, etc.
     // but preserves TOD state.
-    let mut cia = Cia8520::new("T");
-    cia.set_tod_counter(0x00ABCDEF);
+    let mut cia = Cia8520::new();
+    seed_tod(&mut cia, 0x00ABCDEF);
     cia.write(CRB, 0x80);
     cia.write(TODLO, 0x42); // alarm LO
     cia.reset();

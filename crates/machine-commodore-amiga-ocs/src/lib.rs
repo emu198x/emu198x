@@ -140,14 +140,14 @@ impl AmigaOcs {
         // With /CHNG latched low, trackdisk's CMD_READ path returns
         // TDERR_DiskChanged (29) to the strap, which then settles at
         // the insert-disk screen.
-        let mut cia_a = Cia::new("A");
-        cia_a.external_a = 0xEB;
+        let mut cia_a = Cia::new();
+        cia_a.set_external_a(0xEB);
         Self {
             cpu,
             memory,
             chipset: Chipset::new(),
             cia_a,
-            cia_b: Cia::new("B"),
+            cia_b: Cia::new(),
             agnus: Agnus::new(),
             copper: Copper::new(),
             denise: Denise::new(),
@@ -433,10 +433,10 @@ impl AmigaOcs {
 
     fn bus_read_word(&self, addr24: u32) -> u16 {
         if let Some(reg) = cia::decode_cia_a(addr24) {
-            return u16::from(self.cia_a.peek_register(reg));
+            return u16::from(self.cia_a.peek(reg));
         }
         if let Some(reg) = cia::decode_cia_b(addr24) {
-            return u16::from(self.cia_b.peek_register(reg));
+            return u16::from(self.cia_b.peek(reg));
         }
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
@@ -531,8 +531,8 @@ impl AmigaOcs {
         self.e_clock_phase += 1;
         if self.e_clock_phase >= CIA_E_CLOCK_DIVISOR {
             self.e_clock_phase = 0;
-            self.cia_a.tick();
-            self.cia_b.tick();
+            self.cia_a.phi2_pulse();
+            self.cia_b.phi2_pulse();
         }
 
         // ── Paula edge-latch of CIA /IRQ lines ──────────────────
