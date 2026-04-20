@@ -114,16 +114,8 @@ fn dump_task_list(amiga: &AmigaOcs, label: &str, list_addr: u32) {
     }
 }
 
-#[test]
-#[ignore]
-fn snapshot_boot_state_at_frame_300() {
-    let Some(rom) = load_kickstart() else { return };
-    let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
-
-    for _ in 0..(300 * PAL_FRAME_TICKS) {
-        amiga.tick();
-    }
-
+fn snapshot(amiga: &AmigaOcs, label: &str) {
+    eprintln!("\n########## {label} ##########");
     let pc = amiga.cpu().regs.pc;
     let sr = amiga.cpu().regs.sr;
 
@@ -140,6 +132,46 @@ fn snapshot_boot_state_at_frame_300() {
     eprintln!("BPLCON0 = ${:04X}", amiga.bplcon0());
     for i in 0..8 {
         eprintln!("COLOR{i:02} = ${:04X}", amiga.color(i));
+    }
+
+    let copper = amiga.copper();
+    eprintln!("\n=== Copper ===");
+    eprintln!("COP1LC  = ${:08X}", copper.cop1lc);
+    eprintln!("COP2LC  = ${:08X}", copper.cop2lc);
+    eprintln!("PC      = ${:08X}", copper.pc);
+    eprintln!("waiting = {}", copper.waiting);
+    if copper.cop1lc != 0 {
+        eprintln!("\n-- first 8 copper instructions at COP1LC --");
+        let mut addr = copper.cop1lc;
+        for _ in 0..8 {
+            let word1 = (u16::from(amiga.read_chip_ram_byte(addr)) << 8)
+                | u16::from(amiga.read_chip_ram_byte(addr + 1));
+            let word2 = (u16::from(amiga.read_chip_ram_byte(addr + 2)) << 8)
+                | u16::from(amiga.read_chip_ram_byte(addr + 3));
+            let kind = if word1 & 1 == 0 {
+                format!("MOVE reg=${:03X} val=${word2:04X}", word1 & 0x1FE)
+            } else if word2 & 1 == 0 {
+                format!("WAIT v=${:02X} h=${:02X} mask=${word2:04X}",
+                    word1 >> 8, word1 & 0xFE)
+            } else {
+                format!("SKIP v=${:02X} h=${:02X} mask=${word2:04X}",
+                    word1 >> 8, word1 & 0xFE)
+            };
+            eprintln!("  ${addr:08X}: ${word1:04X} ${word2:04X}  {kind}");
+            if word1 == 0xFFFF && word2 == 0xFFFE {
+                eprintln!("  (end-of-list sentinel)");
+                break;
+            }
+            addr = addr.wrapping_add(4);
+        }
+    }
+
+    eprintln!("\n=== Bitplane pointers ===");
+    for i in 0..6 {
+        let bpl = amiga.read_long(0x00DF_F0E0 + (i as u32) * 4);
+        // Note: these are read-side of chipset registers which aren't
+        // mapped for BPLxPT. Let me expose them directly.
+        let _ = bpl;
     }
 
     eprintln!("\n=== ExecBase ===");
@@ -193,4 +225,21 @@ fn snapshot_boot_state_at_frame_300() {
         let pct = (*n as f64 / total as f64) * 100.0;
         eprintln!("  ${c:08X}: {n:7} px ({pct:5.1}%)");
     }
+}
+
+#[test]
+#[ignore]
+fn snapshot_boot_state_at_frame_300() {
+    let Some(rom) = load_kickstart() else { return };
+
+    let mut slow = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
+    let mut chip_only = AmigaOcs::new(rom);
+
+    for _ in 0..(300 * PAL_FRAME_TICKS) {
+        slow.tick();
+        chip_only.tick();
+    }
+
+    snapshot(&slow, "slow-RAM (512K chip + 512K slow)");
+    snapshot(&chip_only, "chip-only (512K chip)");
 }
