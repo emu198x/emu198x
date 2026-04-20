@@ -292,6 +292,15 @@ impl AmigaOcs {
         &self.paula
     }
 
+    /// Mutable Paula access for tests / integrations that need to
+    /// drive input pins the machine itself doesn't yet wire — currently
+    /// `note_disk_read_word` (floppy drive has no Rust counterpart) and
+    /// `flag_falling_edge` via CIA-B. Runtime code must not reach
+    /// across this boundary.
+    pub fn paula_mut(&mut self) -> &mut Paula8364 {
+        &mut self.paula
+    }
+
     /// Convenience: current BPLCON0 value.
     #[must_use]
     pub fn bplcon0(&self) -> u16 {
@@ -367,6 +376,10 @@ impl AmigaOcs {
                     self.paula.write_audio(ch, field, val);
                 }
             }
+            // Paula-owned disk registers.
+            0x024 => self.paula.write_dsklen(val),
+            0x026 => self.paula.write_dskdat(val),
+            0x07E => self.paula.set_dsksync(val),
             _ => self.chipset.write_word(offset, val),
         }
         if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
@@ -483,6 +496,7 @@ impl AmigaOcs {
                 0x01C => self.paula.intena(),
                 0x01E => self.paula.intreq(),
                 0x010 => self.paula.adkcon(),
+                0x01A => self.paula.peek_dskbytr(self.chipset.dmacon),
                 0x0A0..=0x0DA => paula_decode::audio_register(offset)
                     .map(|(ch, f)| self.paula.read_audio(ch, f))
                     .unwrap_or(0xFFFF),
@@ -576,6 +590,11 @@ impl AmigaOcs {
                 true,
                 |addr| memory.read_chip_ram_byte(addr),
             );
+
+            // ── Paula disk engine — DSKBYTR byte-pacing + WORDEQUAL
+            // delay. Ticked once per CCK; no-op until a drive has
+            // delivered a word via `note_disk_read_word`.
+            self.paula.tick_disk_cck();
         }
 
         // ── Per-tick: Denise pixel + fetch/reload at phase 0 ────
@@ -748,12 +767,16 @@ impl AmigaOcs {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
             if is_read {
                 *self.debug_reg_read_counts.entry(offset).or_insert(0) += 1;
+                // DSKBYTR read has a side effect (clears DSKBYT); use
+                // read_dskbytr on the CPU path. Everything else is
+                // pure-read or routed to the chipset.
                 let val = match offset {
                     0x004 => self.agnus.vposr(),
                     0x006 => self.agnus.vhposr(),
                     0x01C => self.paula.intena(),
                     0x01E => self.paula.intreq(),
                     0x010 => self.paula.adkcon(),
+                    0x01A => self.paula.read_dskbytr(self.chipset.dmacon),
                     0x0A0..=0x0DA => paula_decode::audio_register(offset)
                         .map(|(ch, f)| self.paula.read_audio(ch, f))
                         .unwrap_or(0xFFFF),

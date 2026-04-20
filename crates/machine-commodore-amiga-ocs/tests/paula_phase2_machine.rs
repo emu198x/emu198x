@@ -218,6 +218,76 @@ fn audio_dma_fetch_at_slot_advances_channel_pointer() {
         "audio sample should have advanced through the DAC; got {:?}", snap);
 }
 
+// ─── Disk register storage (#126) ─────────────────────────────────
+
+#[test]
+fn dsklen_write_lands_in_paula_and_drives_the_arming_flip_flop() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    // First DSKLEN write with DMAEN arms but doesn't start DMA.
+    amiga.poke_word(0x00DF_F024, 0x8200);
+    assert!(!amiga.paula().disk_dma_pending(),
+        "first DMAEN write only arms");
+    // Second identical write triggers.
+    amiga.poke_word(0x00DF_F024, 0x8200);
+    assert!(amiga.paula().disk_dma_pending(),
+        "second DMAEN write starts DMA");
+}
+
+#[test]
+fn dsksync_write_routes_to_paula_and_note_read_word_matches() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F07E, 0x4489);
+    assert_eq!(amiga.paula().dsksync(), 0x4489);
+}
+
+#[test]
+fn dskdat_writes_queue_in_program_order_through_the_bus() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F026, 0xAAAA);
+    amiga.poke_word(0x00DF_F026, 0xBBBB);
+    assert_eq!(amiga.paula().dskdat_queue_len(), 2);
+}
+
+#[test]
+fn dskbytr_peek_read_via_bus_is_side_effect_free() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.paula_mut().note_disk_read_word(0xABCD);
+
+    // `read_word` uses the peek path — DSKBYT should stay latched.
+    assert_ne!(amiga.read_word(0x00DF_F01A) & 0x8000, 0);
+    assert_ne!(amiga.read_word(0x00DF_F01A) & 0x8000, 0,
+        "repeat peek shows DSKBYT still latched");
+
+    // A direct Paula-level read (what the side-effecting CPU bus
+    // servicer invokes) does clear it.
+    let _ = amiga.paula_mut().read_dskbytr(0);
+    assert_eq!(amiga.paula().peek_dskbytr(0) & 0x8000, 0,
+        "side-effecting path cleared DSKBYT");
+}
+
+#[test]
+fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
+    // With ADKCON.FAST set, the chip delivers the next byte 14 CCKs
+    // after a word arrives. The machine's tick loop ticks Paula's
+    // disk engine once per CCK.
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F09E, 0x8100); // ADKCON SET + FAST
+    amiga.paula_mut().note_disk_read_word(0xAABB);
+
+    // Drain the immediate high-byte DSKBYT via the side-effecting
+    // Paula read.
+    let _ = amiga.paula_mut().read_dskbytr(0);
+    assert_eq!(amiga.paula().peek_dskbytr(0) & 0x8000, 0);
+
+    // 14 CCKs = 28 master/4 ticks. Run that, then DSKBYT should have
+    // re-latched with the low byte.
+    for _ in 0..(14 * 2) {
+        amiga.tick();
+    }
+    assert_ne!(amiga.paula().peek_dskbytr(0) & 0x8000, 0,
+        "FAST disk pacing delivers next byte after 14 CCKs");
+}
+
 #[test]
 fn audio_dma_disabled_leaves_channel_silent() {
     let mut amiga = AmigaOcs::new(zero_rom());

@@ -41,22 +41,9 @@ pub struct Chipset {
     pub color: [u16; 32],
     /// `$DFF020/022` — DSKPT: disk DMA source/destination pointer
     /// (chip RAM 24-bit address written as two words — high then
-    /// low). Paula uses this when DSKLEN arms a DMA.
+    /// low). Owned by Agnus on real hardware; kept here until the
+    /// Agnus port lands DSKPT alongside the bitplane pointers.
     pub dskpt: u32,
-    /// `$DFF024` — DSKLEN: disk DMA length + control. Bit 15 =
-    /// DMAEN (must be written twice to actually start, per HRM),
-    /// bit 14 = WRITE (disk write when set), bits 13..0 = word
-    /// count. We currently just store it — behaviour lands when
-    /// we wire DSKBLK IRQ after the second DMAEN arm.
-    pub dsklen: u16,
-    /// `$DFF026` — DSKDAT: disk DMA raw data (MFM stream). Not
-    /// used yet — logged writes are there so we can see if the
-    /// ROM ever touches it via anything other than DMA.
-    pub dskdat: u16,
-    /// `$DFF07E` — DSKSYNC: sync word the disk controller matches
-    /// against the incoming MFM stream. Standard Amiga value is
-    /// `$4489`.
-    pub dsksync: u16,
 }
 
 impl Chipset {
@@ -100,9 +87,8 @@ impl Chipset {
             0x022 => {
                 self.dskpt = (self.dskpt & 0xFFFF_0000) | u32::from(val & 0xFFFE);
             }
-            0x024 => self.dsklen = val,
-            0x026 => self.dskdat = val,
-            0x07E => self.dsksync = val,
+            // $024 DSKLEN / $026 DSKDAT / $07E DSKSYNC are Paula
+            // registers — routed through the machine's dispatch.
             0x100 => self.bplcon0 = val,
             0x102 => self.bplcon1 = val,
             0x104 => self.bplcon2 = val,
