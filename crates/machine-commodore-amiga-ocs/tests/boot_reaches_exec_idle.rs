@@ -204,19 +204,16 @@ fn boot_reaches_exec_idle_with_expected_tasks_waiting() {
     );
 }
 
-/// Companion snapshot: slow-RAM and chip-only currently DIVERGE.
+/// Companion assertion: slow-RAM and chip-only now converge.
 ///
-/// Before M13 both configs ended stuck in Exec's Wait() loop at
-/// $FC0F74..$FC0F96 because trackdisk's 500 ms MICROHZ never fired.
-/// Now that the MICROHZ fix + CIA-A /CHNG=low unblock trackdisk,
-/// slow-RAM progresses into Intuition's insert-disk animation
-/// (CPU lives in WAITBLIT, ThisTask RUN). Chip-only stays stuck in
-/// Exec's old idle at $FC0F94 because it has a separate bug
-/// further upstream (task #96 — the GfxBase LOFlist copper-list
-/// corruption). This test snapshots that divergence until #96 is
-/// resolved, at which point both configs should reach WAITBLIT.
+/// Both configs reach the same WAITBLIT spin with the same task
+/// states. Task #96 closed: once the copper implements the HRM's
+/// "dangerous MOVE halts copper" rule (CDANG protection), chip-only
+/// no longer corrupts INTENA by executing ExecBase struct bytes as
+/// copper instructions. The deadlock on romboot's TD_CHANGESTATE
+/// DoIO clears up, and chip-only boots identically to slow-RAM.
 #[test]
-fn slow_ram_reaches_waitblit_but_chip_only_still_stuck_in_old_idle() {
+fn chip_only_and_slow_ram_both_reach_waitblit() {
     let Some(rom) = load_kickstart() else { return };
     let mut slow = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
     let mut chip_only = AmigaOcs::new(rom);
@@ -227,36 +224,32 @@ fn slow_ram_reaches_waitblit_but_chip_only_still_stuck_in_old_idle() {
     }
 
     let waitblit = 0x00FC_5A6C..=0x00FC_5A7C;
-    let old_exec_idle = 0x00FC_0F74..=0x00FC_0F96;
     assert!(
         waitblit.contains(&slow.cpu().regs.pc),
-        "slow-RAM should progress to WAITBLIT; got \\${:08X}",
+        "slow-RAM should reach WAITBLIT; got \\${:08X}",
         slow.cpu().regs.pc
     );
     assert!(
-        old_exec_idle.contains(&chip_only.cpu().regs.pc),
-        "chip-only should still be stuck in old Exec idle (task #96); got \\${:08X}",
+        waitblit.contains(&chip_only.cpu().regs.pc),
+        "chip-only should reach WAITBLIT; got \\${:08X}",
         chip_only.cpu().regs.pc
     );
 
-    // The two configs have all the same tasks installed, but
-    // slow-RAM has exec.library promoted from TaskWait to ThisTask
-    // because it's running the animation; chip-only still has it
-    // in TaskWait because chip-only is blocked upstream.
+    // Both configs now have the same running task set — exec.library
+    // is running the insert-disk animation in both; trackdisk +
+    // input.device are both waiting.
     let slow_exec = read_long(&slow, 0x00000004);
     let chip_exec = read_long(&chip_only, 0x00000004);
-    let slow_wait = walk_task_names(&slow, slow_exec.wrapping_add(EXEC_TASK_WAIT));
-    let chip_wait = walk_task_names(&chip_only, chip_exec.wrapping_add(EXEC_TASK_WAIT));
-    for name in ["trackdisk.device", "input.device"] {
-        assert!(slow_wait.iter().any(|n| n == name), "slow: {name} in TaskWait");
-        assert!(chip_wait.iter().any(|n| n == name), "chip: {name} in TaskWait");
-    }
-    assert!(
-        !slow_wait.iter().any(|n| n == "exec.library"),
-        "slow-RAM: exec.library should have moved out of TaskWait"
+    let mut slow_wait = walk_task_names(&slow, slow_exec.wrapping_add(EXEC_TASK_WAIT));
+    let mut chip_wait = walk_task_names(&chip_only, chip_exec.wrapping_add(EXEC_TASK_WAIT));
+    slow_wait.sort();
+    chip_wait.sort();
+    assert_eq!(
+        slow_wait, chip_wait,
+        "both configs should have the same TaskWait set"
     );
     assert!(
-        chip_wait.iter().any(|n| n == "exec.library"),
-        "chip-only: exec.library still parked in TaskWait (blocked upstream)"
+        !slow_wait.iter().any(|n| n == "exec.library"),
+        "exec.library should be RUN (not WAIT) in both configs"
     );
 }

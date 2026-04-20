@@ -1,5 +1,32 @@
 # Issue: Kickstart 1.3 won't boot on chip-RAM-only A500
 
+## Resolution (2026-04-20, seventh pass)
+
+The copper now honours the Amiga HRM's **"Copper Danger" (CDANG)**
+rule: when CDANG (COPCON bit 1) is clear (the power-on default and
+what KS 1.3 runs under), any copper `MOVE` whose destination register
+address is `< $80` **halts the copper**. The halted copper stays idle
+until the next `COPJMP1`/`COPJMP2` strobe (automatically fired at VBL).
+
+This rescues chip-only KS 1.3 because the ROM's VBL handler at $FC6D6C
+dutifully writes `GfxBase->LOFlist` (= chip-RAM ExecBase placeholder
+`$00000676`) into COP2LC every frame. When the active copper list
+reaches its end-of-frame `COPJMP2`, the copper jumps to ExecBase and
+the very first longword (`ln_Succ = 0`) decodes as `MOVE $000,
+$xxxx` — dangerous, so the copper halts immediately. No ExecBase
+bytes beyond offset $4 are interpreted as instructions, `INTENA.SOFTINT`
+isn't cleared, the scheduler keeps working, trackdisk's reply signal
+reaches romboot, and the insert-disk setup runs to completion.
+
+Both confirmed against WinUAE `custom.cpp::test_copper_dangerous` and
+vAmiga `Copper.cpp::isIllegalAddress`. The rule is an MOS/Agnus
+chipset feature, not OS behaviour — any Amiga variant needs it.
+
+The entire chain of findings from earlier passes is preserved below
+for historical reference, and the two diagnostic tests that pinned
+the mechanism (`decode_execbase_as_copper.rs` and
+`disable_copper_experiment.rs`) remain in-tree.
+
 ## Findings (2026-04-20, sixth pass — the "second LoadView" gap)
 
 After unblocking the MICROHZ deadlock (8520 one-shot auto-start on
@@ -258,8 +285,8 @@ that would invoke the second LoadView with a valid View.
 
 
 
-**Date:** 2026-04-19 (updated 2026-04-20)
-**Status:** Open — investigate (narrowed to the "second LoadView" caller gap)
+**Date:** 2026-04-19 (resolved 2026-04-20)
+**Status:** **RESOLVED** — copper "dangerous MOVE halts copper" (CDANG) rule implemented
 
 ## Symptom
 

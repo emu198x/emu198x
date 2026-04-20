@@ -72,6 +72,14 @@ pub struct Copper {
     pub pending_wait_target: u16,
     pub pending_wait_mask: u16,
     pub pending_wait_bfd: bool,
+    /// Copper halted by a dangerous MOVE (register address < $80 and
+    /// CDANG = 0). Per HRM + WinUAE: "if the Copper DMA attempts to
+    /// write to a register below $80, the Copper DMA is stopped".
+    /// Resumes when COPJMP1 / COPJMP2 fires (typically the next VBL
+    /// auto-strobe). Without this gate, chip-only KS 1.3 lets the
+    /// copper run through ExecBase-as-copper-list, corrupting INTENA
+    /// and deadlocking the scheduler. See task #96.
+    pub stopped: bool,
 }
 
 impl Copper {
@@ -86,6 +94,7 @@ impl Copper {
         self.waiting = false;
         self.cck_phase = 0;
         self.pending_wait_delay = false;
+        self.stopped = false;
     }
 
     /// COPJMP2 strobe — load PC from COP2LC and clear waiting flag.
@@ -94,6 +103,7 @@ impl Copper {
         self.waiting = false;
         self.cck_phase = 0;
         self.pending_wait_delay = false;
+        self.stopped = false;
     }
 
     /// Tick the copper one CCK. Returns true if a copper-driven
@@ -108,6 +118,12 @@ impl Copper {
         beam_hp: u16,
         claim: DmaClaim,
     ) -> bool {
+        // Halted by a dangerous MOVE? Sit still until the next
+        // COPJMP1/COPJMP2 strobe (which the VBL auto-fires).
+        if self.stopped {
+            return false;
+        }
+
         // If waiting, only resume when the masked beam position
         // reaches the masked target AND (for BFD=0) the blitter is
         // finished. We don't yet model the blitter; treat BFD=0 as
@@ -166,6 +182,22 @@ impl Copper {
         if word1 & 1 == 0 {
             // MOVE: reg = word1 & $1FE; val = word2.
             let reg = word1 & 0x1FE;
+            // "Dangerous" MOVE per HRM Appendix A / WinUAE
+            // test_copper_dangerous: when CDANG (COPCON bit 1) is
+            // clear — the power-on default, what KS 1.3 runs under —
+            // any MOVE to a register address < $80 halts the copper.
+            // The write is discarded. We don't yet model COPCON, so
+            // assume CDANG = 0 (matches KS 1.3 boot).
+            //
+            // This is the mechanism that rescues real 512K-chip-only
+            // A500s when VBL leaves COP2LC = ExecBase: the first
+            // ExecBase longword (ln_Succ = 0) decodes as MOVE $000,
+            // which halts the copper immediately, preventing it from
+            // executing ExecBase struct bytes as instructions.
+            if reg < 0x80 {
+                self.stopped = true;
+                return false;
+            }
             // COPJMP1 / COPJMP2 strobes ($088 / $08A) are copper-
             // internal — writing to them reloads the copper PC from
             // COP1LC / COP2LC. These aren't real chipset registers,
@@ -583,6 +615,66 @@ mod tests {
             chipset.color[2], 0x00FF,
             "MOVE in list-2 (at COP2LC) should run after the jump",
         );
+    }
+
+    #[test]
+    fn dangerous_move_stops_copper() {
+        // MOVE to BLTDDAT (reg $000) with CDANG=0 must halt the
+        // copper. The write is discarded and subsequent instructions
+        // do not execute until a COPJMP strobe restarts it.
+        let mem = build_test_memory_with_list(
+            &[
+                (0x0000, 0x1234),           // MOVE BLTDDAT (dangerous)
+                (0x0180, 0x0F00),           // MOVE COLOR00=$F00 (must NOT run)
+                (0xFFFF, 0xFFFE),
+            ],
+            0x5000,
+        );
+        let mut chipset = Chipset::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x5000;
+        copper.jump1();
+
+        run_ccks(&mut copper, &mem, &mut chipset, 0, 40);
+        assert_eq!(
+            chipset.color[0], 0x0000,
+            "COLOR00 must NOT have been written — dangerous MOVE halts copper"
+        );
+        assert!(copper.stopped, "copper should be stopped after dangerous MOVE");
+
+        // Restart via COPJMP1: COP1LC unchanged → copper re-runs the
+        // same dangerous MOVE and halts again. But if we reset COP1LC
+        // to a safe list first, it resumes.
+        let mem2 = build_test_memory_with_list(
+            &[(0x0180, 0x0ABC), (0xFFFF, 0xFFFE)],
+            0x6000,
+        );
+        copper.cop1lc = 0x6000;
+        copper.jump1();
+        assert!(!copper.stopped, "COPJMP1 must clear stopped");
+        run_ccks(&mut copper, &mem2, &mut chipset, 0, 8);
+        assert_eq!(chipset.color[0], 0x0ABC, "copper restarts after COPJMP1");
+    }
+
+    #[test]
+    fn safe_register_threshold_is_exactly_dollar_80() {
+        // Reg $7E is still dangerous ($< $80); reg $80 is safe.
+        for (reg, should_halt) in [(0x007E, true), (0x0080, false)] {
+            let mem = build_test_memory_with_list(
+                &[(reg, 0x1234), (0xFFFF, 0xFFFE)],
+                0x7000,
+            );
+            let mut chipset = Chipset::new();
+            let mut copper = Copper::new();
+            copper.cop1lc = 0x7000;
+            copper.jump1();
+            run_ccks(&mut copper, &mem, &mut chipset, 0, 8);
+            assert_eq!(
+                copper.stopped, should_halt,
+                "reg ${reg:03X} should {} the copper",
+                if should_halt { "halt" } else { "NOT halt" }
+            );
+        }
     }
 
     #[test]
