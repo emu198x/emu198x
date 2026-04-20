@@ -118,11 +118,28 @@ impl AmigaOcs {
         let ssp = memory.read_long(0x000000);
         let pc = memory.read_long(0x000004);
         cpu.reset_to(ssp, pc);
+        // CIA-A PRA disk-subsystem input pins (per the Amiga HRM's
+        // "Disk Subsystem" table — the ROM reads /DSKCHANGE via
+        // `btst #2, $BFE001`, confirming these live on CIA-A PRA,
+        // not CIA-B). Bits are active-low — 1 = deasserted, 0 = asserted:
+        //   PA5 /DSKRDY — high (drive not ready, motor off)
+        //   PA4 /DSKTRACK0 — low (head parked at track 0)
+        //   PA3 /DSKPROT — high (not write-protected)
+        //   PA2 /DSKCHANGE — low (disk changed / removed; latched
+        //                         on power-up with no disk inserted)
+        // The other bits (PA0=OVL output, PA1=/LED output, PA6=FIR1,
+        // PA7=FIR0) default high / inactive. Net floating-input byte:
+        //   0b1110_1011 = $EB.
+        // With /CHNG latched low, trackdisk's CMD_READ path returns
+        // TDERR_DiskChanged (29) to the strap, which then settles at
+        // the insert-disk screen.
+        let mut cia_a = Cia::new();
+        cia_a.pa_input_lines = 0xEB;
         Self {
             cpu,
             memory,
             chipset: Chipset::new(),
-            cia_a: Cia::new(),
+            cia_a,
             cia_b: Cia::new(),
             agnus: Agnus::new(),
             copper: Copper::new(),

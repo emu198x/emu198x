@@ -80,11 +80,13 @@ fn cia_a_pra_inputs_float_high() {
 
     // Boot writes DDRA=$03 (bits 0+1 outputs) and PRA=$02 within
     // the first ~3M CCKs. Before that, all bits are inputs and
-    // PRA reads should be all-1 ($FF).
+    // PRA reads the CIA-A input-pin default for an A500 with no
+    // disk: $EB = 0b1110_1011 (/CHNG=0, /TK0=0; /RDY, /WPRO,
+    // printer pins all high). See `AmigaOcs::with_slow_ram`.
     let pra_at_reset = amiga.read_word(0x00BFE001) & 0xFF;
     assert_eq!(
-        pra_at_reset, 0xFF,
-        "Before boot configures DDRA, all PRA bits are inputs → read $FF"
+        pra_at_reset, 0xEB,
+        "Before boot configures DDRA, PRA reads the empty-drive defaults"
     );
 
     // Drive past the boot's CIA-A setup.
@@ -93,12 +95,13 @@ fn cia_a_pra_inputs_float_high() {
     }
 
     // Now DDRA=$03, PRA=$02 (boot's setup).
-    // Effective read: bits 0+1 = PRA (binary 10), bits 2-7 = inputs (1).
-    // = 0b1111_1110 = $FE.
+    // Effective read: bits 0+1 driven from PRA (binary 10), bits 2-7
+    // from pa_input_lines = $EB (/CHNG=0, /TK0=0, others high).
+    // (PRA & DDRA) | (input & !DDRA) = $02 | ($EB & $FC) = $02 | $E8 = $EA.
     let pra_after_setup = amiga.read_word(0x00BFE001) & 0xFF;
     assert_eq!(
-        pra_after_setup, 0xFE,
-        "After boot's DDRA=$03 + PRA=$02, effective read is $FE \
-         (bit 0 = PRA, bit 1 = PRA, bits 2-7 = input float-high)"
+        pra_after_setup, 0xEA,
+        "After boot's DDRA=$03 + PRA=$02, effective read is $EA \
+         (bits 0+1 = PRA, bits 2-7 = empty-drive input pins)"
     );
 }

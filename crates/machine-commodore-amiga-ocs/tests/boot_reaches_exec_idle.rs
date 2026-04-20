@@ -110,13 +110,20 @@ fn boot_reaches_exec_idle_with_expected_tasks_waiting() {
         amiga.tick();
     }
 
-    // ── CPU: idle-loop region ───────────────────────────────
-    // The loop body spans $FC0F74..$FC0F96 (LEA / TST / STOP /
-    // BRA). Assert PC is inside that window.
+    // ── CPU: WAITBLIT spin-loop region ──────────────────────
+    // Before M13 the CPU idled in Exec's Wait() loop ($FC0F74..
+    // $FC0F96) because trackdisk blocked forever waiting on a
+    // MICROHZ timer. Now that the timer fires and trackdisk
+    // returns TDERR_DiskChanged, the boot progresses into
+    // Intuition's insert-disk animation, which calls WAITBLIT
+    // repeatedly ($FC5A6C..$FC5A7C). The CPU spends ~99% of its
+    // time in this tight loop, busy-waiting on DMACONR bit 6
+    // (BBUSY) — which our chipset always reads as 0, so each
+    // call returns immediately and the animation loop re-enters.
     let pc = amiga.cpu().regs.pc;
     assert!(
-        (0x00FC_0F74..=0x00FC_0F96).contains(&pc),
-        "CPU should be in Exec's idle loop at \\$FC0F74..\\$FC0F96; got PC=\\${pc:08X}"
+        (0x00FC_5A6C..=0x00FC_5A7C).contains(&pc),
+        "CPU should be in the WAITBLIT spin at \\$FC5A6C..\\$FC5A7C; got PC=\\${pc:08X}"
     );
 
     // SR = $2000 — supervisor mode, IPL mask = 0 (waiting for IRQs).
@@ -131,13 +138,14 @@ fn boot_reaches_exec_idle_with_expected_tasks_waiting() {
         amiga.dmacon() & 0x02FF, 0x02D0,
         "DMACON should have DMAEN + COPEN + BLITEN + DSKEN, BPLEN off"
     );
-    // $602E = master + EXTER + VERTB + PORTS + SOFT + DSKBLK. DSKBLK
-    // was added once the 8520 one-shot auto-start was implemented:
-    // trackdisk's 500 ms MICROHZ request now replies, so it progresses
-    // past WaitIO into the CMD_READ path that enables disk DMA.
+    // $602C = master + EXTER + VERTB + PORTS + SOFT. Before M13 the
+    // DSKBLK bit (2) briefly got enabled because trackdisk reached
+    // CMD_READ's DMA path; now that /DSKCHANGE is latched low on the
+    // CIA-A disk pins, trackdisk returns TDERR_DiskChanged immediately
+    // without arming Paula DMA, and DSKBLK never needs enabling.
     assert_eq!(
-        amiga.intena() & 0x7FFF, 0x602E,
-        "INTENA should be \\$602E (above plus DSKBLK from trackdisk CMD_READ)"
+        amiga.intena() & 0x7FFF, 0x602C,
+        "INTENA should be \\$602C = master + EXTER + VERTB + PORTS + SOFT"
     );
     // BPLCON0 and COLOR00 used to pin at $1000 (BPU=1) and $0FFF
     // (white insert-disk). With COPJMP2 strobes firing, the copper
@@ -163,13 +171,22 @@ fn boot_reaches_exec_idle_with_expected_tasks_waiting() {
         "TaskReady list should be empty — Exec is idle"
     );
 
-    // ── ThisTask: whoever last dispatched is in WAIT now ────
+    // ── ThisTask: the task currently running the animation ──
+    // State 2 = TS_RUN — ThisTask is the task executing right now
+    // (the one whose code the CPU runs inside WAITBLIT). Before
+    // M13 this was 4 (TS_WAIT) because nothing was running; the
+    // CPU sat inside Exec's Wait() waiting for an interrupt.
     let this_task = read_long(&amiga, exec_base.wrapping_add(EXEC_THIS_TASK));
     assert_ne!(this_task, 0, "ThisTask must be set");
     let this_state = read_byte(&amiga, this_task.wrapping_add(TASK_STATE));
-    assert_eq!(this_state, 4, "ThisTask should be in state WAIT (4)");
+    assert_eq!(this_state, 2, "ThisTask should be in state RUN (2)");
 
-    // ── TaskWait: the three expected tasks ──────────────────
+    // ── TaskWait: trackdisk + input blocked ─────────────────
+    // exec.library used to be the third entry here (parked in
+    // Wait() on the idle path). Now that trackdisk returns from
+    // its CMD_READ with TDERR_DiskChanged, exec.library is the
+    // ThisTask that's actively running the animation — so it
+    // lives on the run side, not in TaskWait.
     let wait_addr = exec_base.wrapping_add(EXEC_TASK_WAIT);
     let names = walk_task_names(&amiga, wait_addr);
     eprintln!("TaskWait: {names:?}");
@@ -182,28 +199,24 @@ fn boot_reaches_exec_idle_with_expected_tasks_waiting() {
         "input.device should be in TaskWait"
     );
     assert!(
-        names.iter().any(|n| n == "exec.library"),
-        "exec.library should be in TaskWait"
+        !names.iter().any(|n| n == "exec.library"),
+        "exec.library should NOT be in TaskWait (it is the running task)"
     );
 }
 
-/// Companion assertion: both memory configs must reach the same
-/// behavioural state at the CPU + task level. The addresses
-/// differ (ExecBase lives in slow-RAM for one config, chip RAM
-/// for the other; tasks live in their config's allocator pool),
-/// but the PC, SR, and task names must match. This is what "the
-/// chip-only bug is gone" means — neither config is a special
-/// case anymore.
+/// Companion snapshot: slow-RAM and chip-only currently DIVERGE.
 ///
-/// Chipset-register state is *not* compared: the COP2LC=ExecBase
-/// transient (see header comment) hits chip-only around frame 162
-/// but slow-RAM not until frame 299, so the two configs have
-/// very different amounts of ExecBase-as-copper-list corruption
-/// by the end of 300 frames. That divergence is an artefact of
-/// the puzzle being tracked separately; once solved, we should
-/// be able to re-add chipset convergence here.
+/// Before M13 both configs ended stuck in Exec's Wait() loop at
+/// $FC0F74..$FC0F96 because trackdisk's 500 ms MICROHZ never fired.
+/// Now that the MICROHZ fix + CIA-A /CHNG=low unblock trackdisk,
+/// slow-RAM progresses into Intuition's insert-disk animation
+/// (CPU lives in WAITBLIT, ThisTask RUN). Chip-only stays stuck in
+/// Exec's old idle at $FC0F94 because it has a separate bug
+/// further upstream (task #96 — the GfxBase LOFlist copper-list
+/// corruption). This test snapshots that divergence until #96 is
+/// resolved, at which point both configs should reach WAITBLIT.
 #[test]
-fn chip_only_and_slow_ram_converge_after_300_frames() {
+fn slow_ram_reaches_waitblit_but_chip_only_still_stuck_in_old_idle() {
     let Some(rom) = load_kickstart() else { return };
     let mut slow = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
     let mut chip_only = AmigaOcs::new(rom);
@@ -213,32 +226,37 @@ fn chip_only_and_slow_ram_converge_after_300_frames() {
         chip_only.tick();
     }
 
-    // Same PC region.
-    assert_eq!(
-        slow.cpu().regs.pc,
-        chip_only.cpu().regs.pc,
-        "Both configs should settle at the same PC"
+    let waitblit = 0x00FC_5A6C..=0x00FC_5A7C;
+    let old_exec_idle = 0x00FC_0F74..=0x00FC_0F96;
+    assert!(
+        waitblit.contains(&slow.cpu().regs.pc),
+        "slow-RAM should progress to WAITBLIT; got \\${:08X}",
+        slow.cpu().regs.pc
     );
-    // Same SR (supervisor + IPL mask = 0).
-    assert_eq!(
-        slow.cpu().regs.sr,
-        chip_only.cpu().regs.sr,
-        "Both configs should have identical SR"
+    assert!(
+        old_exec_idle.contains(&chip_only.cpu().regs.pc),
+        "chip-only should still be stuck in old Exec idle (task #96); got \\${:08X}",
+        chip_only.cpu().regs.pc
     );
 
-    // Same task list contents (names, though not addresses).
-    // Compare as sorted sets — the dispatch order can differ
-    // because the two configs hit the scheduler at slightly
-    // different ccks, but the *set* of waiting tasks is what
-    // matters ("both configs reach the same idle state").
+    // The two configs have all the same tasks installed, but
+    // slow-RAM has exec.library promoted from TaskWait to ThisTask
+    // because it's running the animation; chip-only still has it
+    // in TaskWait because chip-only is blocked upstream.
     let slow_exec = read_long(&slow, 0x00000004);
     let chip_exec = read_long(&chip_only, 0x00000004);
-    let mut slow_wait = walk_task_names(&slow, slow_exec.wrapping_add(EXEC_TASK_WAIT));
-    let mut chip_wait = walk_task_names(&chip_only, chip_exec.wrapping_add(EXEC_TASK_WAIT));
-    slow_wait.sort();
-    chip_wait.sort();
-    assert_eq!(
-        slow_wait, chip_wait,
-        "Same set of tasks waiting in both configs"
+    let slow_wait = walk_task_names(&slow, slow_exec.wrapping_add(EXEC_TASK_WAIT));
+    let chip_wait = walk_task_names(&chip_only, chip_exec.wrapping_add(EXEC_TASK_WAIT));
+    for name in ["trackdisk.device", "input.device"] {
+        assert!(slow_wait.iter().any(|n| n == name), "slow: {name} in TaskWait");
+        assert!(chip_wait.iter().any(|n| n == name), "chip: {name} in TaskWait");
+    }
+    assert!(
+        !slow_wait.iter().any(|n| n == "exec.library"),
+        "slow-RAM: exec.library should have moved out of TaskWait"
+    );
+    assert!(
+        chip_wait.iter().any(|n| n == "exec.library"),
+        "chip-only: exec.library still parked in TaskWait (blocked upstream)"
     );
 }
