@@ -29,7 +29,7 @@ members = [
     "crates/mos-6502",
     "crates/mos-cia-6526",
     "crates/mos-cia-8520",
-    "crates/commodore-paula-8364-archive",
+    "crates/commodore-paula-8364",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",

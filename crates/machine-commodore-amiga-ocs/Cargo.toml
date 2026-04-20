@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 motorola-68000 = { path = "../motorola-68000" }
 mos-cia-8520 = { path = "../mos-cia-8520" }
-commodore-paula-8364 = { path = "../commodore-paula-8364-archive" }
+commodore-paula-8364 = { path = "../commodore-paula-8364" }
 
 [dev-dependencies]
 png = { workspace = true }
