@@ -339,8 +339,7 @@ impl AmigaOcs {
             );
         }
 
-        // Denise renders one CCK's worth of pixels (scanline-renderer
-        // at M11.1 — full line at hpos=0 of each visible line).
+        // Denise fetches / shifts / outputs 2 lores pixels this CCK.
         self.denise.tick_cck(
             self.agnus.vpos,
             self.agnus.hpos,
@@ -401,10 +400,16 @@ impl AmigaOcs {
             return;
         }
 
-        // M1 has no interrupt controller — InterruptAck cycles return
-        // a default vector (uninitialised IRQ).
+        // The Amiga uses 68000 autovectored interrupts: the chipset
+        // drives /VPA during InterruptAck rather than supplying a
+        // vector number, and the CPU then computes vector = 24 + IPL.
+        // Our bus model returns the vector directly, so synthesise
+        // (24 + ipl_being_acked). The IPL being acked lives in
+        // `cpu.ipl` — the CPU sampled it just before driving this bus
+        // cycle. Mask to 3 bits defensively.
         if fc == FunctionCode::InterruptAck {
-            self.cpu.bus_status = BusStatus::Ready(0x0018);
+            let ipl = self.cpu.ipl & 0x07;
+            self.cpu.bus_status = BusStatus::Ready(24 + u16::from(ipl));
             return;
         }
 

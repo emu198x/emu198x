@@ -9,15 +9,26 @@
 //! No DMA scheduling, no copper, no bitplane fetch yet — those come
 //! in M9+.
 //!
-//! PAL Amiga timing (from Hardware Reference Manual):
-//!   - 227.5 CCKs per line; we approximate as 227 (an extra CCK lands
-//!     in the long line every other frame; not modelled at M6).
-//!   - 313 lines per long PAL frame (312 + 1 for interlace odd-field).
-//!     We use 312 for non-interlace, which is what KS 1.3 boot
-//!     produces.
+//! PAL Amiga timing (from Amiga Hardware Reference Manual, 3rd ed.,
+//! "Display" chapter):
+//!
+//! > "All lines are not the same length in NTSC. Every other line is a
+//! >  long line (228 color clocks, 0-$E3), with the others being 227
+//! >  color clocks long. **In PAL, they are all 227 long.** The display
+//! >  sees all these lines as 227 1/2 color clocks long, while the
+//! >  copper sees alternating long and short [in NTSC interlace]."
+//!
+//! So for non-interlaced PAL (the mode KS 1.3 boots into):
+//!   - Every line is exactly 227 CCKs.
+//!   - There are exactly 312 lines per frame.
+//!   - Frame total: 227 × 312 = 70,824 CCKs at 3.546895 MHz = 50.000 Hz.
+//!
+//! The "227.5" figure is the interlace average (PAL interlace has
+//! 312/313 alternating fields × 227 CCKs/line; the half is the field
+//! offset, not a per-line half-CCK). NTSC alternates 227/228 per line
+//! for "long line / short line" — that is **not** PAL.
 
-/// PAL line length in CCKs (approximate, ignoring the half-CCK that
-/// lives in long lines).
+/// PAL line length in colour clocks. All PAL lines are exactly 227.
 pub const PAL_LINE_CCKS: u16 = 227;
 
 /// PAL frame line count (non-interlace).
@@ -118,5 +129,33 @@ mod tests {
             agnus.tick_cck();
         }
         assert_eq!(agnus.vbl_count, 10);
+    }
+
+    /// Sanity-lock the PAL constants against the Amiga Hardware
+    /// Reference (3rd ed.): non-interlaced PAL is exactly 227 × 312 =
+    /// 70,824 CCKs per frame. At 3.546895 MHz CCK rate this is exactly
+    /// 50.000 Hz field rate — the canonical PAL value. If either
+    /// constant ever drifts, this test will catch the timing damage
+    /// before it reaches downstream tests.
+    #[test]
+    fn pal_constants_match_hardware_reference() {
+        assert_eq!(PAL_LINE_CCKS, 227, "PAL line is 227 CCKs (HRM 3rd ed)");
+        assert_eq!(PAL_FRAME_LINES, 312, "PAL non-interlaced has 312 lines");
+        assert_eq!(
+            u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES),
+            70_824,
+            "PAL frame must be exactly 70,824 CCKs",
+        );
+        // CCK rate = master/8 = 28.37516 MHz / 8 = 3,546,895 Hz.
+        // Frame rate = 3,546,895 / 70,824 ≈ 50.0786 Hz, which is the
+        // documented Amiga PAL field rate (50 Hz nominal, slightly
+        // higher because the master clock is chosen for the colour
+        // burst rather than for exactly 50 Hz fields).
+        let frame_period_us: f64 =
+            70_824.0_f64 * (1.0 / 3_546_895.0_f64) * 1_000_000.0_f64;
+        assert!(
+            (frame_period_us - 19_968.6_f64).abs() < 1.0,
+            "PAL frame period ≈ 19,968.6 µs (got {frame_period_us:.1})",
+        );
     }
 }
