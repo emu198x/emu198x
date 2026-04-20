@@ -43,17 +43,38 @@ or an explicit MOVE TO SR. Both happen at end of larger init phases
 that depend on subsystems we haven't added (Paula audio/disk
 register reads, copper, etc).
 
+### Why the stall is structural
+
+Diagnostic findings (M8 session):
+
+- 50M CCKs of boot makes only **6** chipset-register reads (all to
+  $110-$11A bitplane data, each once). Boot is NOT chipset-polling.
+- 500M CCKs (~70s emulated): PC stays in $FC313x region. SSP slowly
+  decreases (subroutine calls), but no progress in chipset state.
+- AttnFlags = `$FFFF_0000` (correct, negative signed long), so the
+  master-enable path at $FC3086 IS reached. But CPU SR=$2718 means
+  IPL=7 (interrupts blocked) — re-enabling INTENA master while
+  inside a critical section has no effect.
+
+**The boot is waiting for an exit from a critical section that
+itself depends on chipset behavior we haven't built.** Most likely
+the section ends when a specific resident-module init completes —
+typically the graphics.library or strap module — which needs copper
++ bitplane DMA + Denise pixel output.
+
 ### Pickup notes for next session
 
-- Run `cargo test -p machine-commodore-amiga-ocs --test
-  m5_diagnostic --release -- --ignored --nocapture` to see boot
-  state at standard checkpoints.
-- M9 should add Paula register storage for `$DFF0A0-$DFF0DF`
-  (audio), `$DFF020-$DFF026` (disk DMA), `$DFF018-$DFF01A` (serial
-  data). All write-only or read-once registers. No actual audio /
-  disk DMA — just register variables that don't drop silently.
-- After M9, re-run diagnostic. If still stuck, M10 (copper) is
-  next.
+- Diagnostic: `cargo test -p machine-commodore-amiga-ocs --test
+  m5_diagnostic --release -- --ignored --nocapture`
+- Register-read counter: `cargo test -p machine-commodore-amiga-ocs
+  --test m8_register_read_diagnostic --release -- --ignored --nocapture`
+- **M9-M11 must be done together** to make further forward progress
+  meaningful. Single-milestone steps from here likely won't move
+  the boot's state. Consider:
+  - M9: Paula skeleton (audio/disk register storage; no DMA yet)
+  - M10: Copper module + DMA scheduling for copper slots
+  - M11: Bitplane DMA + Denise pixel pipeline
+  - M12: Slow-RAM golden test (the FS-UAE pixel-exact target)
 
 
 
