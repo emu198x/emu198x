@@ -86,6 +86,12 @@ pub struct AmigaOcs {
     pub debug_cop1lc_log: Vec<(u64, u32, u32)>,
     /// Same for COP2LC.
     pub debug_cop2lc_log: Vec<(u64, u32, u32)>,
+    /// Diagnostic: log of Paula disk-register writes. Entry is
+    /// `(cck, pc, reg_offset, value)` where reg_offset is the
+    /// custom-register offset ($020/$022 = DSKPT, $024 = DSKLEN,
+    /// $026 = DSKDAT, $07E = DSKSYNC). Lets us see how trackdisk
+    /// pokes the disk controller before we add any behaviour.
+    pub debug_dsk_log: Vec<(u64, u32, u16, u16)>,
 }
 
 impl AmigaOcs {
@@ -132,6 +138,7 @@ impl AmigaOcs {
             debug_intena_log: Vec::new(),
             debug_cop1lc_log: Vec::new(),
             debug_cop2lc_log: Vec::new(),
+            debug_dsk_log: Vec::new(),
         }
     }
 
@@ -273,6 +280,14 @@ impl AmigaOcs {
             0x088 => self.copper.jump1(),
             0x08A => self.copper.jump2(),
             _ => self.chipset.write_word(offset, val),
+        }
+        if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
+            self.debug_dsk_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                offset,
+                val,
+            ));
         }
         if offset == 0x09A {
             self.debug_intena_writes += 1;
