@@ -68,6 +68,16 @@ pub mod bits {
     pub const DSKBYTR_WORDEQUAL: u16 = 0x1000;
     pub const DSKBYTR_DATA_MASK: u16 = 0x00FF;
 
+    // SERDATR read fields (HRM §6 — Serial Port Hardware).
+    pub const SERDATR_OVRUN:     u16 = 0x8000; // receive overrun
+    pub const SERDATR_RBF:       u16 = 0x4000; // receive buffer full
+    pub const SERDATR_TBE:       u16 = 0x2000; // transmit buffer empty
+    pub const SERDATR_TSRE:      u16 = 0x1000; // transmit shift register empty
+    pub const SERDATR_DATA_MASK: u16 = 0x00FF;
+
+    // SERPER ($032 write) — 8-bit vs 9-bit selector + baud divisor.
+    pub const SERPER_LONG:       u16 = 0x8000; // 1 = 9 data bits, 0 = 8
+
     // ADKCON bits Paula uses.
     pub const ADKCON_PRECOMP1: u16 = 0x2000;
     pub const ADKCON_PRECOMP0: u16 = 0x1000;
@@ -490,6 +500,21 @@ pub struct Paula8364 {
 
     audio: [AudioChannel; 4],
 
+    // ── Serial (UART) ─────────────────────────────────────────────
+    // Per HRM §6. Paula owns a byte-level UART with programmable baud
+    // and 8- or 9-bit data. For now we model the register surface and
+    // the two IRQs (TBE transmit-buffer-empty, RBF receive-buffer-full)
+    // without per-bit timing: writes to SERDAT raise INT_TBE on the
+    // next IPL sample, and `receive_serial_byte` queues one byte for
+    // the CPU to read via SERDATR.
+    serdat: u16,
+    serper: u16,
+    /// Latest received byte (nine-bit in LONG mode — we only model the
+    /// low 8 bits; bit 8 is stored but not exercised).
+    serial_rx_byte: u16,
+    serial_rx_full: bool,
+    serial_rx_overrun: bool,
+
     // Diagnostic logs — not part of the chip's behavioural contract.
     intena_write_log: VecDeque<u16>,
     intreq_write_log: VecDeque<u16>,
@@ -524,6 +549,11 @@ impl Paula8364 {
             disk_pll_phase: 0,
             disk_pll_variable_rate: false,
             audio: [AudioChannel::default(); 4],
+            serdat: 0,
+            serper: 0,
+            serial_rx_byte: 0,
+            serial_rx_full: false,
+            serial_rx_overrun: false,
             intena_write_log: VecDeque::new(),
             intreq_write_log: VecDeque::new(),
             disk_write_dma_log: Vec::new(),
@@ -896,6 +926,56 @@ impl Paula8364 {
 
     #[must_use]
     pub fn disk_pll_variable_rate(&self) -> bool { self.disk_pll_variable_rate }
+
+    // ─── Serial UART ──────────────────────────────────────────────────
+
+    /// CPU write to SERDAT (\$030). Starts the transmitter; we model
+    /// completion as instantaneous at the chip level — INT_TBE is
+    /// raised immediately so any driver using "write byte, wait for
+    /// TBE IRQ" progresses. SERDATR.TBE + TSRE stay set throughout.
+    pub fn write_serdat(&mut self, val: u16) {
+        self.serdat = val;
+        self.raise(IntSource::Tbe);
+    }
+
+    /// CPU write to SERPER (\$032). Baud-rate divisor + LONG flag.
+    pub fn write_serper(&mut self, val: u16) { self.serper = val; }
+
+    #[must_use] pub fn serdat(&self) -> u16 { self.serdat }
+    #[must_use] pub fn serper(&self) -> u16 { self.serper }
+
+    /// Read SERDATR (\$018) with its HRM side effects: RBF + OVRUN
+    /// clear on a successful read. Returns the composite status word
+    /// with data bits in the low byte.
+    pub fn read_serdatr(&mut self) -> u16 {
+        let value = self.peek_serdatr();
+        self.serial_rx_full = false;
+        self.serial_rx_overrun = false;
+        value
+    }
+
+    /// Side-effect-free SERDATR view.
+    #[must_use]
+    pub fn peek_serdatr(&self) -> u16 {
+        let mut v = self.serial_rx_byte & SERDATR_DATA_MASK;
+        if self.serial_rx_overrun { v |= SERDATR_OVRUN; }
+        if self.serial_rx_full { v |= SERDATR_RBF; }
+        // Transmitter is modelled as always idle after a write.
+        v | SERDATR_TBE | SERDATR_TSRE
+    }
+
+    /// Inject an incoming serial byte — the hook a future serial
+    /// peripheral (modem, MIDI, null-modem pair, etc.) calls on each
+    /// received byte. Raises INT_RBF and sets OVRUN if RBF was still
+    /// pending from a previous unread byte.
+    pub fn receive_serial(&mut self, byte: u8) {
+        if self.serial_rx_full {
+            self.serial_rx_overrun = true;
+        }
+        self.serial_rx_byte = u16::from(byte);
+        self.serial_rx_full = true;
+        self.raise(IntSource::Rbf);
+    }
 
     // ─── Diagnostic logs (not behavioural) ────────────────────────────
 

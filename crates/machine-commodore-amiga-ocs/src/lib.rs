@@ -380,6 +380,9 @@ impl AmigaOcs {
             0x024 => self.paula.write_dsklen(val),
             0x026 => self.paula.write_dskdat(val),
             0x07E => self.paula.set_dsksync(val),
+            // Paula-owned serial registers.
+            0x030 => self.paula.write_serdat(val),
+            0x032 => self.paula.write_serper(val),
             _ => self.chipset.write_word(offset, val),
         }
         if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
@@ -497,6 +500,7 @@ impl AmigaOcs {
                 0x01E => self.paula.intreq(),
                 0x010 => self.paula.adkcon(),
                 0x01A => self.paula.peek_dskbytr(self.chipset.dmacon),
+                0x018 => self.paula.peek_serdatr(),
                 0x0A0..=0x0DA => paula_decode::audio_register(offset)
                     .map(|(ch, f)| self.paula.read_audio(ch, f))
                     .unwrap_or(0xFFFF),
@@ -777,6 +781,7 @@ impl AmigaOcs {
                     0x01E => self.paula.intreq(),
                     0x010 => self.paula.adkcon(),
                     0x01A => self.paula.read_dskbytr(self.chipset.dmacon),
+                    0x018 => self.paula.read_serdatr(),
                     0x0A0..=0x0DA => paula_decode::audio_register(offset)
                         .map(|(ch, f)| self.paula.read_audio(ch, f))
                         .unwrap_or(0xFFFF),

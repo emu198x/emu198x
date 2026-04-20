@@ -329,6 +329,54 @@ fn sync_match_without_wordsync_does_not_raise_dsksyn() {
         "WORDEQUAL latches regardless of WORDSYNC");
 }
 
+// ─── Serial UART (#128) ───────────────────────────────────────────
+
+#[test]
+fn serdat_write_via_bus_raises_int_tbe() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F030, 0x0100 | 0x41); // stop-bit + 'A'
+    assert_ne!(amiga.intreq() & IntSource::Tbe.mask(), 0,
+        "SERDAT write through the bus must raise INT_TBE");
+    assert_eq!(amiga.paula().serdat(), 0x0141);
+}
+
+#[test]
+fn serper_write_via_bus_stores_baud_divisor() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F032, 0x81FB); // MIDI divisor in LONG mode
+    assert_eq!(amiga.paula().serper(), 0x81FB);
+}
+
+#[test]
+fn serdatr_peek_via_bus_shows_rbf_without_clearing() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.paula_mut().receive_serial(0x77);
+    // bus_read_word (peek path) — must not clear RBF.
+    let v1 = amiga.read_word(0x00DF_F018);
+    let v2 = amiga.read_word(0x00DF_F018);
+    assert_ne!(v1 & 0x4000, 0, "RBF visible");
+    assert_ne!(v2 & 0x4000, 0, "peek path is side-effect-free");
+    assert_eq!(v1 & 0x00FF, 0x77);
+}
+
+#[test]
+fn receive_serial_raises_rbf_that_reaches_cpu_ipl_5() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F09A, 0xC800); // SET INTEN + RBF
+    amiga.paula_mut().receive_serial(0xA1);
+    amiga.tick();
+    assert_eq!(amiga.cpu().ipl, 5, "RBF → IPL 5 per HRM");
+}
+
+#[test]
+fn int_tbe_gated_behind_intena_tbe_bit() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F09A, 0xC001); // SET INTEN + TBE
+    amiga.poke_word(0x00DF_F030, 0x0100);
+    amiga.tick();
+    assert_eq!(amiga.cpu().ipl, 1, "TBE → IPL 1");
+}
+
 #[test]
 fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
     // With ADKCON.FAST set, the chip delivers the next byte 14 CCKs
