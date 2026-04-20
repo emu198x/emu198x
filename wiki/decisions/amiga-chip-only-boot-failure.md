@@ -1,7 +1,72 @@
 # Issue: Kickstart 1.3 won't boot on chip-RAM-only A500
 
-**Date:** 2026-04-19
-**Status:** Open — investigate
+## Findings (2026-04-20, sixth pass — the "second LoadView" gap)
+
+After unblocking the MICROHZ deadlock (8520 one-shot auto-start on
+TxHI, see `commit c9ad380`) and the trackdisk no-disk path (CIA-A
+`/DSKCHANGE` defaults, see `commit e0854fc`), slow-RAM reaches the
+WAITBLIT spin running the insert-disk animation while chip-only is
+still stuck at PC `$FC0F94`. Task #96 tracks the remaining gap.
+
+The added diagnostic infrastructure (`AmigaOcs::debug_watch_addr` +
+`debug_watch_writes` in lib.rs) pinpoints writes to `GfxBase->LOFlist`
+by PC + exact value. Test `loflist_write_log.rs` gives the full picture:
+
+| # | Frame | PC | Value written to LOFlist | Config |
+|---|---|---|---|---|
+| 1 | 11  | $FC0612 | $00000000 (init clear) | both |
+| 2 | 85/107 | $FC1814 | $00000000 (init clear again) | both |
+| 3 | 86/108 | $FCAEE6 | chip-only $00002408 / slow-RAM $000004C0 | both |
+| 4 | 91/113 | $FCD5CA | chip-only $00000676 (= ExecBase!) / slow-RAM $00C00276 | both |
+| 5 | 188 | $FCD5CA | slow-RAM only: $0000B888 (real buffer) | slow-RAM only |
+
+`$FCD5CA` is inside LoadView (entry at `$FCD564`). The body does
+`MOVE.L 4(a0), 50(a3)` where `a0 = View->LOFCprList` and
+`50(a3) = GfxBase->LOFlist`. When `View->LOFCprList` is NULL, `a0 = 0`
+and `*(0+4)` reads address `$00000004` — which is ExecBase. That's
+**why LOFlist inadvertently ends up = ExecBase** at step 4 in both
+configs: the ROM's first LoadView runs with a View whose LOFCprList
+is still NULL.
+
+**The divergence is step 5:** slow-RAM gets a SECOND LoadView call at
+frame 188 that writes $B888 (an allocated copper-list buffer). Chip-
+only never gets this second call. Without it, LOFlist remains pointing
+at ExecBase, and the VBL handler at $FC6D6C dutifully copies that
+value into COP2LC every frame, causing the copper to execute ExecBase
+struct bytes as copper instructions and corrupting INTENA (clearing
+SOFTINT).
+
+### The new concrete question
+
+What code runs at slow-RAM frame 188 (but not at any frame in chip-
+only) that calls LoadView with a properly set-up View? The LoadView
+trap shows the return address was chip-RAM address `$5A10` in slow-
+RAM, but that same address in chip-only is uninitialised junk. So the
+"who sets up $5A10's code" is the upstream step we need to find.
+
+### Diagnostic tests added
+
+- `loflist_write_hunt.rs` — polls LOFlist every tick, logs changes.
+- `loadview_trap.rs` — traps LoadView entry, records return addr.
+- `loadview_branch_trap.rs` — traps both branches of LoadView's
+  View-null check; reveals hit counts per config.
+- `cprlist_dump.rs` — dumps cprlist struct + View contents after
+  LoadView runs, to see post-call state.
+- `loflist_write_log.rs` — uses new `debug_watch_addr` infrastructure
+  to log every memory write to LOFlist with exact value + PC.
+- `frame_188_caller.rs` — dumps memory at the caller address.
+
+### Supersedes
+
+The previous (fifth pass) claim that "MrgCop never allocates the
+merged copper list" isn't quite right — MrgCop isn't even reached for
+the "real" list because chip-only never reaches the UPSTREAM caller
+that would invoke the second LoadView with a valid View.
+
+
+
+**Date:** 2026-04-19 (updated 2026-04-20)
+**Status:** Open — investigate (narrowed to the "second LoadView" caller gap)
 
 ## Symptom
 

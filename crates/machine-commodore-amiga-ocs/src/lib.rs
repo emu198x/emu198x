@@ -98,6 +98,13 @@ pub struct AmigaOcs {
     pub debug_cia_a_cr_log: Vec<(u64, u32, u8, u8)>,
     /// Same for CIA-B.
     pub debug_cia_b_cr_log: Vec<(u64, u32, u8, u8)>,
+    /// Diagnostic: when set, every CPU-initiated memory write whose
+    /// address falls in `[watch_addr, watch_addr+watch_len)` is
+    /// recorded as `(cck, pc, addr, val, is_word)`. Used by task #96
+    /// (chip-only LOFlist investigation) to see which instruction
+    /// writes what to a specific memory cell.
+    pub debug_watch_addr: Option<(u32, u32)>,
+    pub debug_watch_writes: Vec<(u64, u32, u32, u16, bool)>,
 }
 
 impl AmigaOcs {
@@ -164,6 +171,8 @@ impl AmigaOcs {
             debug_dsk_log: Vec::new(),
             debug_cia_a_cr_log: Vec::new(),
             debug_cia_b_cr_log: Vec::new(),
+            debug_watch_addr: None,
+            debug_watch_writes: Vec::new(),
         }
     }
 
@@ -689,6 +698,20 @@ impl AmigaOcs {
             self.cpu.bus_status = BusStatus::Ready(val);
         } else {
             let val = data.unwrap_or(0);
+            if let Some((lo, len)) = self.debug_watch_addr {
+                let hi = lo.wrapping_add(len);
+                let access_len = if is_word { 2u32 } else { 1 };
+                let access_hi = addr24.wrapping_add(access_len);
+                if addr24 < hi && access_hi > lo {
+                    self.debug_watch_writes.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        addr24,
+                        val,
+                        is_word,
+                    ));
+                }
+            }
             if is_word {
                 self.memory.write_word(addr24, val);
             } else {
