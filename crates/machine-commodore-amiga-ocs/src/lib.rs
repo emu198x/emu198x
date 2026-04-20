@@ -10,12 +10,14 @@ mod agnus;
 mod chipset;
 mod cia;
 mod copper;
+mod denise;
 mod memory;
 
 pub use agnus::{Agnus, PAL_FRAME_LINES, PAL_LINE_CCKS};
 pub use chipset::Chipset;
 pub use cia::Cia;
 pub use copper::Copper;
+pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
 pub use memory::{Memory, CHIP_RAM_SIZE};
 
 use motorola_68000::bus::{BusStatus, FunctionCode};
@@ -37,6 +39,7 @@ pub struct AmigaOcs {
     cia_b: Cia,
     agnus: Agnus,
     copper: Copper,
+    denise: Denise,
     cck_count: u64,
     e_clock_phase: u64,
     /// Diagnostic: count of unique custom-register read offsets seen
@@ -71,6 +74,7 @@ impl AmigaOcs {
             cia_b: Cia::new(),
             agnus: Agnus::new(),
             copper: Copper::new(),
+            denise: Denise::new(),
             cck_count: 0,
             e_clock_phase: 0,
             debug_reg_read_counts: std::collections::HashMap::new(),
@@ -89,6 +93,12 @@ impl AmigaOcs {
     #[must_use]
     pub fn copper(&self) -> &Copper {
         &self.copper
+    }
+
+    /// Read-only Denise access.
+    #[must_use]
+    pub fn denise(&self) -> &Denise {
+        &self.denise
     }
 
     /// Read-only chipset access.
@@ -305,6 +315,10 @@ impl AmigaOcs {
                 self.agnus.hpos,
             );
         }
+
+        // Denise renders one CCK's worth of pixels.
+        self.denise
+            .tick_cck(self.agnus.vpos, self.agnus.hpos, &self.chipset);
 
         // Tick both CIAs every CIA_E_CLOCK_DIVISOR CCKs (E clock = master/10).
         self.e_clock_phase += 1;
