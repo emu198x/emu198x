@@ -28,11 +28,22 @@
 //! offset, not a per-line half-CCK). NTSC alternates 227/228 per line
 //! for "long line / short line" — that is **not** PAL.
 
-/// PAL line length in colour clocks. All PAL lines are exactly 227.
+/// PAL line length in colour clocks (HRM beam-coordinate units,
+/// master/8). All PAL lines are exactly 227 CCKs.
 pub const PAL_LINE_CCKS: u16 = 227;
 
 /// PAL frame line count (non-interlace).
 pub const PAL_FRAME_LINES: u16 = 312;
+
+/// PAL line length in master/4 ticks (= lores pixels = 68000 CPU
+/// clocks). One CCK = 2 ticks, so one line = 454 ticks. Tests that
+/// want to simulate wall-clock time (e.g. "one frame of ticks")
+/// multiply against this constant rather than PAL_LINE_CCKS.
+pub const PAL_LINE_TICKS: u16 = PAL_LINE_CCKS * 2;
+
+/// PAL frame length in master/4 ticks. Convenience for
+/// `PAL_LINE_TICKS * PAL_FRAME_LINES` = 141,648 ticks/frame.
+pub const PAL_FRAME_TICKS: u64 = (PAL_LINE_TICKS as u64) * (PAL_FRAME_LINES as u64);
 
 #[derive(Default)]
 pub struct Agnus {

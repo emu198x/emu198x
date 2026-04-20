@@ -48,7 +48,7 @@ fn timer_a_one_shot_underflow_fires_icr() {
 
     // Tick enough CCKs for 256 CIA ticks (= 2560 CCKs).
     for _ in 0..3000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     // ICR read should now return bit 0 (TA) set + bit 7 (IR pending).
@@ -75,7 +75,7 @@ fn cia_a_irq_sets_intreq_ports_bit() {
 
     // Run timer to underflow.
     for _ in 0..3000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     // INTREQ.PORTS (bit 3) should be set.

@@ -80,7 +80,7 @@ fn copper_executes_simple_move_list() {
     // Tick enough CCKs for copper to execute MOVE + MOVE + reach WAIT.
     // Each instruction = 4 CCKs (2 words × 2 CCKs/word).
     for _ in 0..32 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     assert_eq!(
@@ -113,7 +113,7 @@ fn copper_does_not_run_without_copen() {
 
     // Note: NO DMACON write — copper should remain inactive.
     for _ in 0..32 {
-        amiga.tick_cck();
+        amiga.tick();
     }
     assert_eq!(
         amiga.color(0),
@@ -152,14 +152,14 @@ fn copper_wait_pauses_until_beam_reaches_target() {
     // After a few CCKs, COLOR00 should be set but COLOR01 should NOT
     // (we haven't reached line 5 yet).
     for _ in 0..16 {
-        amiga.tick_cck();
+        amiga.tick();
     }
     assert_eq!(amiga.color(0) & 0x0FFF, 0x0F00, "first MOVE should have run");
     assert_eq!(amiga.color(1) & 0x0FFF, 0x0000, "post-WAIT MOVE blocked");
 
-    // Tick to line 5 (5 lines × 227 CCKs = 1135 CCKs).
-    for _ in 0..1500 {
-        amiga.tick_cck();
+    // Tick to line 5 (5 lines × 454 ticks/line = 2270 ticks).
+    for _ in 0..3000 {
+        amiga.tick();
     }
     assert_eq!(
         amiga.color(1) & 0x0FFF,

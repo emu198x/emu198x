@@ -40,7 +40,7 @@ fn boot_clears_intena_intreq_dmacon_then_sets_bplcon0_color00() {
     // diag-ROM probe — ~1.5M CCKs at ~12 CCK/iter. 2M CCKs (~280ms
     // emulated) covers the delay plus the early register writes.
     for _ in 0..2_000_000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     // After the clear-all writes ($7FFF with bit 15 = 0 = clear),

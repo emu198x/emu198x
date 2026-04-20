@@ -31,7 +31,7 @@ fn chip_ram_aliases_on_19_bit_decode() {
 
     // Drive past OVL clear so chip RAM is visible at $0.
     for _ in 0..3_000_000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
     assert!(!amiga.memory().overlay());
 

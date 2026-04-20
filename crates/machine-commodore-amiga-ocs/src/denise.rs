@@ -176,11 +176,20 @@ impl Denise {
         &self.framebuffer
     }
 
-    /// Tick one CCK. Performs at most one bitplane fetch (if scheduled)
-    /// and outputs 2 lores pixels into the framebuffer (if in visible
-    /// window). Called from `Amiga::tick_cck` after the beam advance.
-    pub fn tick_cck(
+    /// Tick one master/4 period (= 1 lores pixel, = half a CCK).
+    /// `phase` selects which half of the CCK this tick belongs to:
+    ///   - `0`: first lores pixel of the CCK. This is the CCK boundary
+    ///     where bitplane fetch, shift-register reload, and end-of-line
+    ///     modulo events land.
+    ///   - `1`: second lores pixel of the CCK. Pixel output only.
+    ///
+    /// Every tick advances the shift register by 1 bit and outputs 1
+    /// lores pixel to the framebuffer (when the beam is inside the
+    /// display window). Called from `AmigaOcs::tick` after the beam
+    /// advance on phase 0.
+    pub fn tick(
         &mut self,
+        phase: u8,
         vpos: u16,
         hpos: u16,
         chipset: &mut Chipset,
@@ -197,74 +206,79 @@ impl Denise {
         let in_ddf =
             ddf_stop > ddf_start && (ddf_start..ddf_stop).contains(&hpos);
 
-        // ── 1. Bitplane fetch (one slot per CCK) ────────────────
-        if in_visible_line && bpl_dma_on && in_ddf {
-            let slot_in_block = (hpos - ddf_start) % 8;
-            if let Some(plane) = lores_fetch_plane(slot_in_block, bpu) {
-                let addr = chipset.bpl_pt[plane];
-                let hi = memory.read_chip_ram_byte(addr);
-                let lo = memory.read_chip_ram_byte(addr.wrapping_add(1));
-                self.bpl_data[plane] = (u16::from(hi) << 8) | u16::from(lo);
-                chipset.bpl_pt[plane] = chipset.bpl_pt[plane].wrapping_add(2);
-                self.bytes_this_line += 2;
-            }
-        }
-
-        // ── 2. Reload shift registers at slot 7 of each block ───
-        if in_visible_line && in_ddf {
-            let slot_in_block = (hpos - ddf_start) % 8;
-            if slot_in_block == 7 {
-                for p in 0..bpu as usize {
-                    self.bpl_shift[p] = self.bpl_data[p];
+        // ── CCK-boundary events (phase 0 only) ──────────────────
+        if phase == 0 {
+            // 1. Bitplane fetch — one slot per CCK at the scheduled
+            //    hpos position within the 8-CCK block.
+            if in_visible_line && bpl_dma_on && in_ddf {
+                let slot_in_block = (hpos - ddf_start) % 8;
+                if let Some(plane) = lores_fetch_plane(slot_in_block, bpu) {
+                    let addr = chipset.bpl_pt[plane];
+                    let hi = memory.read_chip_ram_byte(addr);
+                    let lo = memory.read_chip_ram_byte(addr.wrapping_add(1));
+                    self.bpl_data[plane] =
+                        (u16::from(hi) << 8) | u16::from(lo);
+                    chipset.bpl_pt[plane] =
+                        chipset.bpl_pt[plane].wrapping_add(2);
+                    self.bytes_this_line += 2;
                 }
             }
+
+            // 2. Reload shift registers at slot 7 of each 8-CCK block.
+            if in_visible_line && in_ddf {
+                let slot_in_block = (hpos - ddf_start) % 8;
+                if slot_in_block == 7 {
+                    for p in 0..bpu as usize {
+                        self.bpl_shift[p] = self.bpl_data[p];
+                    }
+                }
+            }
+
+            // 3. End-of-line modulo — applied the moment hpos wraps
+            //    to zero (i.e. at the start of the next line).
+            if hpos == 0 && self.bytes_this_line > 0 && bpl_dma_on {
+                for p in 0..bpu as usize {
+                    let modulo = if p & 1 == 0 {
+                        i32::from(chipset.bpl1mod)
+                    } else {
+                        i32::from(chipset.bpl2mod)
+                    };
+                    chipset.bpl_pt[p] =
+                        chipset.bpl_pt[p].wrapping_add(modulo as u32);
+                }
+                self.bytes_this_line = 0;
+            }
         }
 
-        // ── 3. Output 2 lores pixels ────────────────────────────
+        // ── Per-tick: output 1 lores pixel ──────────────────────
         if in_visible_line && in_ddf {
             let local_y = u32::from(vpos.saturating_sub(vstart)) * 2;
-            let local_x_base = u32::from(hpos - ddf_start) * 2;
-            for pixel_in_cck in 0..2u32 {
-                let mut index = 0u8;
-                for p in 0..bpu as usize {
-                    if (self.bpl_shift[p] >> 15) & 1 != 0 {
-                        index |= 1 << p;
-                    }
-                    self.bpl_shift[p] <<= 1;
-                }
-                // Palette has 32 entries. At BPU > 5 the 6-bit index
-                // selects either HAM or EHB semantics which we don't
-                // model yet — fall back to low-5-bit lookup so the
-                // indexing stays in range. EHB with bit 5 set would
-                // halve the colour; HAM uses bits 5-4 as mode bits.
-                let palette_idx = (index & 0x1F) as usize;
-                let colour = chipset.color[palette_idx] & 0x0FFF;
-                let pixel = rgb12_to_argb(colour);
-                let local_x = local_x_base + pixel_in_cck;
-                for dy in [local_y, local_y + 1] {
-                    for dx in 0..2u32 {
-                        let x = local_x * 2 + dx;
-                        let idx = (dy * FB_WIDTH + x) as usize;
-                        if idx < self.framebuffer.len() {
-                            self.framebuffer[idx] = pixel;
-                        }
-                    }
-                }
-            }
-        }
+            // Lores-pixel position within the DDF window:
+            //   each CCK holds 2 lores pixels; `phase` selects which.
+            let local_x = u32::from(hpos - ddf_start) * 2 + u32::from(phase);
 
-        // ── 4. End-of-line modulo ───────────────────────────────
-        if hpos == 0 && self.bytes_this_line > 0 && bpl_dma_on {
+            let mut index = 0u8;
             for p in 0..bpu as usize {
-                let modulo = if p & 1 == 0 {
-                    i32::from(chipset.bpl1mod)
-                } else {
-                    i32::from(chipset.bpl2mod)
-                };
-                chipset.bpl_pt[p] =
-                    chipset.bpl_pt[p].wrapping_add(modulo as u32);
+                if (self.bpl_shift[p] >> 15) & 1 != 0 {
+                    index |= 1 << p;
+                }
+                self.bpl_shift[p] <<= 1;
             }
-            self.bytes_this_line = 0;
+            // Palette has 32 entries. At BPU > 5 the 6-bit index
+            // selects HAM or EHB semantics we don't yet model — fall
+            // back to low-5-bit lookup so indexing stays in range.
+            let palette_idx = (index & 0x1F) as usize;
+            let colour = chipset.color[palette_idx] & 0x0FFF;
+            let pixel = rgb12_to_argb(colour);
+            for dy in [local_y, local_y + 1] {
+                for dx in 0..2u32 {
+                    let x = local_x * 2 + dx;
+                    let idx = (dy * FB_WIDTH + x) as usize;
+                    if idx < self.framebuffer.len() {
+                        self.framebuffer[idx] = pixel;
+                    }
+                }
+            }
         }
     }
 }

@@ -9,7 +9,7 @@
 //! Without VBL the boot's many spin-on-VBL loops never advance.
 
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_LINES, PAL_LINE_CCKS};
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -26,10 +26,9 @@ fn agnus_beam_counts_through_pal_frame() {
     let Some(rom) = load_kickstart() else { return };
     let mut amiga = AmigaOcs::new(rom);
 
-    // After one full PAL frame's worth of CCKs, vbl_count should be 1.
-    let frame_ccks = u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES);
-    for _ in 0..frame_ccks {
-        amiga.tick_cck();
+    // After one full PAL frame's worth of ticks, vbl_count should be 1.
+    for _ in 0..PAL_FRAME_TICKS {
+        amiga.tick();
     }
     assert_eq!(amiga.agnus().vbl_count, 1, "exactly one VBL per PAL frame");
     assert_eq!(amiga.agnus().vpos, 0);
@@ -43,9 +42,8 @@ fn boot_eventually_enables_master_and_vertb_in_intena() {
 
     // Run for ~50 PAL frames worth — well past where the boot
     // should have programmed INTENA with at least VERTB enabled.
-    let frame_ccks = u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES);
-    for _ in 0..(50 * frame_ccks) {
-        amiga.tick_cck();
+    for _ in 0..(50 * PAL_FRAME_TICKS) {
+        amiga.tick();
     }
 
     // We don't pin to an exact INTENA value — the boot's INTENA

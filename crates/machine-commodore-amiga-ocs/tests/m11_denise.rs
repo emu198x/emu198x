@@ -16,7 +16,7 @@
 //! at lores; line-doubled to 768×576 for 4:3 display.
 
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_LINES, PAL_LINE_CCKS};
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -68,10 +68,9 @@ fn visible_pixels_match_color00() {
     amiga.poke_word(0x00DFF092, 0x0038); // DDFSTRT — lores standard
     amiga.poke_word(0x00DFF094, 0x00D0); // DDFSTOP — lores standard
 
-    // Run one full PAL frame.
-    let frame_ccks = u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES);
-    for _ in 0..frame_ccks {
-        amiga.tick_cck();
+    // Run one full PAL frame (master/4 ticks).
+    for _ in 0..PAL_FRAME_TICKS {
+        amiga.tick();
     }
 
     let fb = amiga.denise().framebuffer();

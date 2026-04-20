@@ -13,7 +13,7 @@ mod copper;
 mod denise;
 mod memory;
 
-pub use agnus::{Agnus, PAL_FRAME_LINES, PAL_LINE_CCKS};
+pub use agnus::{Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS};
 pub use chipset::Chipset;
 pub use cia::Cia;
 pub use copper::Copper;
@@ -27,8 +27,15 @@ use motorola_68000::Cpu68000;
 const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
 
-/// CIA E clock divider — CIAs tick once per 10 CCKs.
+/// CIA E-clock divider: real CIA E-clock runs at master/40 = 0.71 MHz.
+/// Our primary tick unit is master/4 (= 68000 CPU clock = lores pixel
+/// rate), so CIAs fire once every 10 ticks. Confirmed by HRM register
+/// map: "CIAA timer A (.709379 MHz PAL)" = master/40 exactly.
 const CIA_E_CLOCK_DIVISOR: u64 = 10;
+
+/// Ticks per Agnus colour clock. A CCK (HRM beam-coordinate unit) is
+/// two master/4 ticks — one tick per lores pixel.
+const TICKS_PER_CCK: u64 = 2;
 
 /// Amiga (OCS) machine.
 pub struct AmigaOcs {
@@ -40,7 +47,10 @@ pub struct AmigaOcs {
     agnus: Agnus,
     copper: Copper,
     denise: Denise,
-    cck_count: u64,
+    tick_count: u64,
+    /// Sub-CCK phase: 0 at the first tick of a CCK (fetch/reload
+    /// events fire here), 1 at the second tick. Flips each tick.
+    cck_phase: u8,
     e_clock_phase: u64,
     /// Diagnostic: count of unique custom-register read offsets seen
     /// since reset, indexed by offset / 2.
@@ -86,7 +96,8 @@ impl AmigaOcs {
             agnus: Agnus::new(),
             copper: Copper::new(),
             denise: Denise::new(),
-            cck_count: 0,
+            tick_count: 0,
+            cck_phase: 0,
             e_clock_phase: 0,
             debug_reg_read_counts: std::collections::HashMap::new(),
             debug_peak_intena: 0,
@@ -221,8 +232,11 @@ impl AmigaOcs {
                 self.debug_peak_intena = intena_after;
             }
             if intena_after != intena_before {
+                // Log CCKs (HRM beam-coordinate units) to keep these
+                // timestamps comparable with HRM register descriptions
+                // — tick_count / 2.
                 self.debug_intena_log.push((
-                    self.cck_count,
+                    self.tick_count / TICKS_PER_CCK,
                     self.cpu.regs.pc,
                     val,
                     intena_before,
@@ -257,10 +271,21 @@ impl AmigaOcs {
         &self.cpu
     }
 
-    /// Total CCKs (colour clocks) elapsed since construction.
+    /// Total master/4 ticks (= 68000 CPU clocks = lores pixels)
+    /// elapsed since construction. This is the finest-grained clock
+    /// in the machine.
+    #[must_use]
+    pub fn tick_count(&self) -> u64 {
+        self.tick_count
+    }
+
+    /// Total Agnus CCKs (colour clocks, master/8) elapsed since
+    /// construction. Derived from `tick_count` — 2 ticks per CCK.
+    /// Useful for comparing timestamps against HRM beam-coordinate
+    /// register values.
     #[must_use]
     pub fn cck_count(&self) -> u64 {
-        self.cck_count
+        self.tick_count / TICKS_PER_CCK
     }
 
     /// Read a word at the given 24-bit address — peeks state without
@@ -317,46 +342,61 @@ impl AmigaOcs {
         self.memory.read_chip_ram_byte(addr)
     }
 
-    /// Tick one colour-clock period. The 68000 advances one CPU
-    /// clock per CCK on the A500 (master/4 = 7.09 MHz both ways).
-    pub fn tick_cck(&mut self) {
-        // Advance the beam first; if VBL fires, request the VERTB
-        // interrupt before the CPU's interrupt sample.
-        if self.agnus.tick_cck() {
-            self.chipset.write_word(0x09C, 0x8020);
-            // VBL also restarts the copper from COP1LC.
-            self.copper.jump1();
-        }
+    /// Tick one primary period — master/4 = 68000 CPU clock = lores
+    /// pixel rate (7.09 MHz PAL). This is the finest granularity in
+    /// the machine; everything coarser (CCK, CIA E-clock, 68000 bus
+    /// cycle) derives from it.
+    ///
+    /// Two ticks make one Agnus CCK, so chip-side events that the HRM
+    /// describes at CCK granularity (beam advance, copper fetch slot,
+    /// bitplane fetch, shift-register reload) fire on alternate ticks
+    /// (`cck_phase == 0`). Per-tick events (CPU clock, lores pixel
+    /// output, CIA E-clock divisor, CPU bus service) fire every tick.
+    pub fn tick(&mut self) {
+        let phase = self.cck_phase;
 
-        // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9) are
-        // both set. Agnus arbitrates the chip bus; pass the current
-        // CCK's claim so the copper yields to bitplane DMA.
-        let claim = denise::dma_claim(
-            self.agnus.hpos,
-            self.chipset.dmacon,
-            self.chipset.bplcon0,
-            self.chipset.ddfstrt,
-            self.chipset.ddfstop,
-        );
-        if self.chipset.dmacon & 0x0280 == 0x0280 {
-            self.copper.tick_cck(
-                &self.memory,
-                &mut self.chipset,
-                self.agnus.vpos,
+        // ── CCK-granular events (phase 0 only) ───────────────────
+        if phase == 0 {
+            // Advance the beam; if VBL fires, request VERTB and
+            // restart the copper from COP1LC before the CPU's next
+            // interrupt sample.
+            if self.agnus.tick_cck() {
+                self.chipset.write_word(0x09C, 0x8020);
+                self.copper.jump1();
+            }
+
+            // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9)
+            // are both set. Agnus arbitrates the chip bus; pass the
+            // current CCK's claim so the copper yields to bitplane
+            // DMA.
+            let claim = denise::dma_claim(
                 self.agnus.hpos,
-                claim,
+                self.chipset.dmacon,
+                self.chipset.bplcon0,
+                self.chipset.ddfstrt,
+                self.chipset.ddfstop,
             );
+            if self.chipset.dmacon & 0x0280 == 0x0280 {
+                self.copper.tick_cck(
+                    &self.memory,
+                    &mut self.chipset,
+                    self.agnus.vpos,
+                    self.agnus.hpos,
+                    claim,
+                );
+            }
         }
 
-        // Denise fetches / shifts / outputs 2 lores pixels this CCK.
-        self.denise.tick_cck(
+        // ── Per-tick: Denise pixel + fetch/reload at phase 0 ────
+        self.denise.tick(
+            phase,
             self.agnus.vpos,
             self.agnus.hpos,
             &mut self.chipset,
             &self.memory,
         );
 
-        // Tick both CIAs every CIA_E_CLOCK_DIVISOR CCKs (E clock = master/10).
+        // ── CIA E-clock: every 10 master/4 ticks = master/40 ────
         self.e_clock_phase += 1;
         if self.e_clock_phase >= CIA_E_CLOCK_DIVISOR {
             self.e_clock_phase = 0;
@@ -372,10 +412,13 @@ impl AmigaOcs {
             }
         }
 
+        // ── CPU: every master/4 tick = every CPU clock ──────────
         self.service_cpu_bus();
         self.cpu.ipl = self.chipset.compute_ipl();
         self.cpu.tick();
-        self.cck_count += 1;
+
+        self.tick_count += 1;
+        self.cck_phase ^= 1;
     }
 
     fn service_cpu_bus(&mut self) {

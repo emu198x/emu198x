@@ -186,7 +186,7 @@ fn run_to_frame(amiga: &mut AmigaOcs, frame: u64) {
     let frame_ccks = u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES);
     let target = frame * frame_ccks;
     while amiga.cck_count() < target {
-        amiga.tick_cck();
+        amiga.tick();
     }
 }
 

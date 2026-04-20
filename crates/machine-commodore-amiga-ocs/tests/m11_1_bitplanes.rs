@@ -10,7 +10,7 @@
 //!     write to framebuffer, advance pointers by line + modulo.
 
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_LINES, PAL_LINE_CCKS};
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -88,10 +88,9 @@ fn one_bitplane_stripes_render() {
     let mut amiga = AmigaOcs::new(rom);
     let _ = setup_one_bitplane_stripes(&mut amiga);
 
-    // Run one PAL frame.
-    let frame_ccks = u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES);
-    for _ in 0..frame_ccks {
-        amiga.tick_cck();
+    // Run one PAL frame (master/4 ticks).
+    for _ in 0..PAL_FRAME_TICKS {
+        amiga.tick();
     }
 
     let fb = amiga.denise().framebuffer();

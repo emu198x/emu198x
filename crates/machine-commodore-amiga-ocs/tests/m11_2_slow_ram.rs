@@ -9,6 +9,10 @@
 use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_LINES, PAL_LINE_CCKS};
 
+// frame_ccks below is in Agnus beam-coordinate units (CCKs); cck_count()
+// also returns CCKs, so the while-loop gating is unchanged by the
+// master/4 tick migration.
+
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
@@ -48,7 +52,7 @@ fn diagnostic_boot_with_slow_ram() {
     for checkpoint_frame in [50u64, 100, 200, 300, 500, 1000, 2000] {
         let target_cck = checkpoint_frame * frame_ccks;
         while amiga.cck_count() < target_cck {
-            amiga.tick_cck();
+            amiga.tick();
         }
         let pc = amiga.cpu().regs.pc;
         let sr = amiga.cpu().regs.sr;

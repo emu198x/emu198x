@@ -30,7 +30,7 @@ fn diagnostic_long_run() {
 
     for cp in checkpoints {
         while amiga.cck_count() < cp {
-            amiga.tick_cck();
+            amiga.tick();
         }
         let pc = amiga.cpu().regs.pc;
         let sr = amiga.cpu().regs.sr;

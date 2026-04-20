@@ -12,7 +12,7 @@
 //!    misinterprets things like /CHNG, /TRK0, /RDY, /FIR0, /FIR1.
 
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_LINES, PAL_LINE_CCKS};
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_LINES, PAL_LINE_TICKS};
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -36,18 +36,19 @@ fn vhposr_reflects_beam_position() {
     assert_eq!(vposr & 0xFF, 0, "VPOSR low byte (vpos[8]) should be 0");
     assert_eq!(vhposr, 0, "VHPOSR should be 0 at reset");
 
-    // Tick part of a line — hpos should advance.
-    for _ in 0..50 {
-        amiga.tick_cck();
+    // Tick part of a line. Agnus hpos advances 1 per CCK = 1 per
+    // 2 master/4 ticks, so 100 ticks → hpos = 50.
+    for _ in 0..100 {
+        amiga.tick();
     }
     let vhposr = amiga.read_word(0x00DFF006);
     assert_eq!(vhposr & 0xFF, 50, "VHPOSR low byte (hpos) should be 50");
     assert_eq!((vhposr >> 8) & 0xFF, 0, "VHPOSR high byte (vpos low) should still be 0");
 
-    // Tick into the next line.
-    let to_next = u64::from(PAL_LINE_CCKS) - 50;
-    for _ in 0..to_next {
-        amiga.tick_cck();
+    // Tick into the next line — one full line = PAL_LINE_TICKS ticks.
+    let to_next_line_start = u64::from(PAL_LINE_TICKS) - 100;
+    for _ in 0..to_next_line_start {
+        amiga.tick();
     }
     let vhposr = amiga.read_word(0x00DFF006);
     assert_eq!(vhposr & 0xFF, 0, "after wrap, hpos should be 0");
@@ -55,16 +56,16 @@ fn vhposr_reflects_beam_position() {
 
     // Tick to the middle of the frame — vpos should be at line N.
     let lines_to_advance = 100u64;
-    for _ in 0..(lines_to_advance * u64::from(PAL_LINE_CCKS)) {
-        amiga.tick_cck();
+    for _ in 0..(lines_to_advance * u64::from(PAL_LINE_TICKS)) {
+        amiga.tick();
     }
     let vhposr = amiga.read_word(0x00DFF006);
     assert_eq!((vhposr >> 8) & 0xFF, 101, "vpos should reach 101 ((1 + 100) line)");
 
     // Run beyond 256 lines so the high bit of vpos goes into VPOSR.
     let lines_to_high = u64::from(PAL_FRAME_LINES) - 101 - 1;
-    for _ in 0..(lines_to_high * u64::from(PAL_LINE_CCKS)) {
-        amiga.tick_cck();
+    for _ in 0..(lines_to_high * u64::from(PAL_LINE_TICKS)) {
+        amiga.tick();
     }
     let vposr = amiga.read_word(0x00DFF004);
     // VPOSR low bit (bit 0) is vpos[8]. We're at vpos = 311 (0x137 = 0b1_0011_0111).
@@ -88,7 +89,7 @@ fn cia_a_pra_inputs_float_high() {
 
     // Drive past the boot's CIA-A setup.
     for _ in 0..3_000_000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     // Now DDRA=$03, PRA=$02 (boot's setup).

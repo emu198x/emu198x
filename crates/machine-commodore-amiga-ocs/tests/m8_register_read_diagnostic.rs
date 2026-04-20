@@ -34,7 +34,7 @@ fn count_register_reads() {
     let mut amiga = AmigaOcs::new(rom);
 
     for _ in 0..50_000_000u64 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     let mut entries: Vec<_> = amiga.debug_reg_read_counts.iter().collect();

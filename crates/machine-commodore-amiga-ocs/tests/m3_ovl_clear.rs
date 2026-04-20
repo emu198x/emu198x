@@ -41,7 +41,7 @@ fn boot_clears_overlay_via_cia_a() {
     // and into the CIA-A setup. The boot reaches $FC0106 within
     // ~2.5M CCKs (delay loop dominates).
     for _ in 0..3_000_000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     assert!(

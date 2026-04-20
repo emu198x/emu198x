@@ -128,7 +128,7 @@ fn build_rom(arm_bitplane_dma: bool) -> Vec<u8> {
 
 fn run_n_ccks(amiga: &mut AmigaOcs, n: u64) {
     for _ in 0..n {
-        amiga.tick_cck();
+        amiga.tick();
     }
 }
 

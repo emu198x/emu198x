@@ -36,7 +36,7 @@ fn boot_places_execbase_in_chip_ram() {
     // probe), which itself follows the busy-wait delay. ~5M CCKs
     // (~700ms emulated) is comfortably past Phase 8.
     for _ in 0..5_000_000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     // ExecBase pointer at $00000004 should hold a chip-RAM address.

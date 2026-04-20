@@ -42,7 +42,7 @@ fn cpu_advances_past_reset_pc() {
     // delay loop at $FC00DE, and into the early CIA-A / custom-reg
     // setup. 200_000 CCKs is ~28ms emulated time — plenty.
     for _ in 0..200_000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     let pc = amiga.cpu().regs.pc;
@@ -83,7 +83,7 @@ fn boot_executes_without_bus_errors() {
     // (would indicate the boot hit a RESET instruction or fatal
     // exception).
     for _ in 0..100_000 {
-        amiga.tick_cck();
+        amiga.tick();
         assert!(
             !amiga.cpu().reset_out,
             "CPU should not be asserting RESET line during early boot"

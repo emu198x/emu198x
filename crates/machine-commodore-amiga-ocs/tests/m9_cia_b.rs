@@ -46,7 +46,7 @@ fn cia_b_irq_sets_intreq_exter() {
     amiga.poke_byte(0x00BFDE00, 0x19); // CRA: START | one-shot | LOAD
 
     for _ in 0..3000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     assert_ne!(

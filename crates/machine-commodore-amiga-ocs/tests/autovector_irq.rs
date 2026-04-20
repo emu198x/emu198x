@@ -150,7 +150,7 @@ fn vertb_interrupt_lands_on_correct_autovector() {
     // Plenty of CCKs for boot routine to set up + interrupt to fire +
     // handler to run + return.
     for _ in 0..10_000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     // The handler increments the long at $0001000. With the autovector
@@ -228,7 +228,7 @@ fn exter_interrupt_lands_on_correct_autovector() {
     let mut amiga = AmigaOcs::new(rom);
 
     for _ in 0..10_000 {
-        amiga.tick_cck();
+        amiga.tick();
     }
 
     let counter = read_chip_long(&amiga, 0x1000);
