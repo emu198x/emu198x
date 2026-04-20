@@ -232,7 +232,13 @@ impl Denise {
                     }
                     self.bpl_shift[p] <<= 1;
                 }
-                let colour = chipset.color[index as usize] & 0x0FFF;
+                // Palette has 32 entries. At BPU > 5 the 6-bit index
+                // selects either HAM or EHB semantics which we don't
+                // model yet — fall back to low-5-bit lookup so the
+                // indexing stays in range. EHB with bit 5 set would
+                // halve the colour; HAM uses bits 5-4 as mode bits.
+                let palette_idx = (index & 0x1F) as usize;
+                let colour = chipset.color[palette_idx] & 0x0FFF;
                 let pixel = rgb12_to_argb(colour);
                 let local_x = local_x_base + pixel_in_cck;
                 for dy in [local_y, local_y + 1] {

@@ -409,6 +409,35 @@ impl AmigaOcs {
             return;
         }
 
+        // Chip-bus arbitration. Agnus shares the chip-RAM bus between
+        // DMA and the CPU; when a CCK is claimed by DMA (bitplane,
+        // and later sprite/disk/audio/refresh) the CPU must stall
+        // its chip-RAM access to the next free CCK.
+        //
+        // Only real chip-RAM accesses are contended:
+        //   - Reads: low-memory reads with OVL on are routed to ROM
+        //     by Gary and don't touch the chip bus — not contended.
+        //   - Writes: always land in chip RAM when in the chip-RAM
+        //     decode range (OVL only gates reads).
+        //   - CIA / custom / slow-RAM / ROM / unmapped accesses are
+        //     not on the chip-RAM arbitration path.
+        let addr24 = addr & 0xFF_FFFF;
+        let is_chip_ram_access = addr24 < 0x20_0000
+            && (!is_read || !self.memory.overlay());
+        if is_chip_ram_access {
+            let claim = denise::dma_claim(
+                self.agnus.hpos,
+                self.chipset.dmacon,
+                self.chipset.bplcon0,
+                self.chipset.ddfstrt,
+                self.chipset.ddfstop,
+            );
+            if !claim.is_free() {
+                self.cpu.bus_status = BusStatus::Wait;
+                return;
+            }
+        }
+
         // The Amiga uses 68000 autovectored interrupts: the chipset
         // drives /VPA during InterruptAck rather than supplying a
         // vector number, and the CPU then computes vector = 24 + IPL.
@@ -421,8 +450,6 @@ impl AmigaOcs {
             self.cpu.bus_status = BusStatus::Ready(24 + u16::from(ipl));
             return;
         }
-
-        let addr24 = addr & 0xFF_FFFF;
 
         // CIA-A address space (odd bytes in $BFE000-$BFEFFF).
         if let Some(reg) = cia::decode_cia_a(addr24) {
