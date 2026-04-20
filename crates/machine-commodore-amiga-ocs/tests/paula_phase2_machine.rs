@@ -265,6 +265,70 @@ fn dskbytr_peek_read_via_bus_is_side_effect_free() {
         "side-effecting path cleared DSKBYT");
 }
 
+// ─── Disk DMA completion + MFM sync IRQs (#127) ───────────────────
+
+#[test]
+fn complete_disk_dma_raises_dskblk_through_the_machine_intreq() {
+    // The drive peripheral calls complete_disk_dma() after its DMA
+    // transfer is finished. INT_DSKBLK must be visible through the
+    // machine's intreq accessor.
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F024, 0x8200); // arm DSKLEN
+    amiga.poke_word(0x00DF_F024, 0x8200); // trigger
+    assert!(amiga.paula().disk_dma_pending());
+
+    amiga.paula_mut().complete_disk_dma();
+    assert!(!amiga.paula().disk_dma_pending());
+    assert_ne!(amiga.intreq() & IntSource::DskBlk.mask(), 0,
+        "DSKBLK should be set on machine INTREQ after DMA completion");
+}
+
+#[test]
+fn dskblk_reaches_cpu_ipl_when_enabled() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F09A, 0xC002); // SET INTEN + DSKBLK
+    amiga.paula_mut().complete_disk_dma();
+    amiga.tick();
+    assert_eq!(amiga.cpu().ipl, 1,
+        "DSKBLK is IPL 1 per HRM priority table");
+}
+
+#[test]
+fn sync_match_via_wordsync_raises_dsksyn_through_machine_intreq() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F09E, 0x8200); // ADKCON SET + WORDSYNC
+    amiga.poke_word(0x00DF_F07E, 0x4489); // DSKSYNC
+
+    // Without WORDSYNC gate → nothing would fire; with it, INT_DSKSYN.
+    amiga.paula_mut().note_disk_read_word(0x4489);
+    assert_ne!(amiga.intreq() & IntSource::DskSyn.mask(), 0,
+        "machine INTREQ should show DSKSYN after a sync-gated match");
+}
+
+#[test]
+fn dsksyn_reaches_cpu_ipl_when_enabled() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F09E, 0x8200); // ADKCON SET + WORDSYNC
+    amiga.poke_word(0x00DF_F07E, 0x4489);
+    amiga.poke_word(0x00DF_F09A, 0xD000); // SET INTEN + DSKSYN
+    amiga.paula_mut().note_disk_read_word(0x4489);
+    amiga.tick();
+    assert_eq!(amiga.cpu().ipl, 5,
+        "DSKSYN is IPL 5 per HRM priority table");
+}
+
+#[test]
+fn sync_match_without_wordsync_does_not_raise_dsksyn() {
+    // ADKCON.WORDSYNC clear → the sync comparator is inert for IRQ
+    // purposes. DSKBYTR.WORDEQUAL still latches (different contract).
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F07E, 0x4489); // DSKSYNC set, WORDSYNC clear
+    amiga.paula_mut().note_disk_read_word(0x4489);
+    assert_eq!(amiga.intreq() & IntSource::DskSyn.mask(), 0);
+    assert_ne!(amiga.paula().peek_dskbytr(0) & 0x1000, 0,
+        "WORDEQUAL latches regardless of WORDSYNC");
+}
+
 #[test]
 fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
     // With ADKCON.FAST set, the chip delivers the next byte 14 CCKs

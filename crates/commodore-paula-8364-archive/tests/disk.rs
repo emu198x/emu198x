@@ -121,6 +121,31 @@ fn received_word_matching_dsksync_returns_true() {
 }
 
 #[test]
+fn sync_match_raises_int_dsksyn_only_when_adkcon_wordsync_is_set() {
+    // HRM: WORDSYNC controls whether the comparator's match raises
+    // INT_DSKSYN. DSKBYTR.WORDEQUAL latches independently.
+    let mut p = Paula8364::new();
+    p.set_dsksync(0x4489);
+
+    // Match with WORDSYNC clear → no IRQ.
+    assert!(p.note_disk_read_word(0x4489));
+    assert_eq!(p.intreq() & IntSource::DskSyn.mask(), 0,
+        "match with WORDSYNC clear must not raise INT_DSKSYN");
+
+    // Enable WORDSYNC, match again → IRQ.
+    p.write_adkcon(INT_SETCLR | ADKCON_WORDSYNC);
+    assert!(p.note_disk_read_word(0x4489));
+    assert_ne!(p.intreq() & IntSource::DskSyn.mask(), 0,
+        "match with WORDSYNC set raises INT_DSKSYN");
+
+    // Non-match with WORDSYNC set → no new IRQ bit (but existing
+    // pending bit stays — INTREQ is sticky until cleared).
+    p.write_intreq(IntSource::DskSyn.mask()); // CLEAR
+    assert!(!p.note_disk_read_word(0xAAAA));
+    assert_eq!(p.intreq() & IntSource::DskSyn.mask(), 0);
+}
+
+#[test]
 fn wordequal_bit_latches_until_delay_elapses_then_clears() {
     let mut p = Paula8364::new();
     p.set_dsksync(0x4489);

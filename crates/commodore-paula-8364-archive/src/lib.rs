@@ -802,8 +802,15 @@ impl Paula8364 {
     #[must_use] pub fn disk_dma_pending(&self) -> bool { self.disk_dma_pending }
 
     /// Called by the drive when a fresh MFM word has arrived. Returns
-    /// `true` iff it matches DSKSYNC (caller decides what to do about
-    /// INT_DSKSYN based on ADKCON.WORDSYNC).
+    /// `true` iff it matches DSKSYNC.
+    ///
+    /// Sync-match gating follows HRM: if `ADKCON.WORDSYNC` is set and
+    /// the word matches DSKSYNC, Paula raises `INT_DSKSYN` directly —
+    /// the sync comparator is in Paula, not in the drive peripheral.
+    /// `DSKBYTR.WORDEQUAL` latches on the comparison result itself,
+    /// independently of WORDSYNC (HRM: "the comparator is always
+    /// running; WORDSYNC controls only the interrupt and the DMA
+    /// word-boundary gate").
     pub fn note_disk_read_word(&mut self, word: u16) -> bool {
         self.dskdatr = word;
         self.dskbytr_data = (word >> 8) as u8;
@@ -813,6 +820,9 @@ impl Paula8364 {
         let wordequal = word == self.dsksync;
         self.dskbytr_wordequal = wordequal;
         self.dskbytr_wordequal_delay_cck = if wordequal { self.disk_byte_cck_delay() } else { 0 };
+        if wordequal && self.adkcon & ADKCON_WORDSYNC != 0 {
+            self.raise(IntSource::DskSyn);
+        }
         wordequal
     }
 
