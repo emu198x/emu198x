@@ -208,3 +208,96 @@ fn diff_memlist_chip_only_vs_slow_ram() {
         checkpoint(&slow_ram, "slow-RAM ");
     }
 }
+
+fn dump_intena_log(amiga: &AmigaOcs, label: &str) {
+    eprintln!(
+        "[{label}] INTENA writes total={}  peak=${peak:04X}  log entries={}",
+        amiga.debug_intena_writes,
+        amiga.debug_intena_log.len(),
+        peak = amiga.debug_peak_intena,
+    );
+    for (cck, pc, val, before, after) in &amiga.debug_intena_log {
+        let kind = if val & 0x8000 != 0 { "SET  " } else { "CLEAR" };
+        let master_change =
+            match ((before & 0x4000) != 0, (after & 0x4000) != 0) {
+                (false, true) => " *master ON*",
+                (true, false) => " *master OFF*",
+                _ => "",
+            };
+        eprintln!(
+            "[{label}]   cck={cck:9} pc=${pc:08X} {kind} write=${val:04X} \
+             before=${before:04X} after=${after:04X}{master_change}",
+        );
+    }
+}
+
+/// Disassemble — well, hex-dump — N words of ROM around `pc` so we
+/// can hand them to a 68000 disassembler to identify what code is
+/// stalling boot.
+fn dump_rom_bytes(rom: &[u8], pc: u32, words_before: u32, words_after: u32) {
+    let rom_off = (pc & 0x3_FFFF) as usize;
+    let start = rom_off.saturating_sub(words_before as usize * 2);
+    let end = (rom_off + words_after as usize * 2 + 2).min(rom.len());
+    eprintln!(
+        "  ROM bytes around PC=${pc:08X} (rom offset ${rom_off:05X}):",
+    );
+    let mut addr = pc - words_before * 2;
+    let mut i = start;
+    while i + 1 < end {
+        let mut line = format!("    ${addr:08X}:");
+        let mut j = 0;
+        while j < 8 && i + 1 < end {
+            let w = (u16::from(rom[i]) << 8) | u16::from(rom[i + 1]);
+            line.push_str(&format!(" {w:04X}"));
+            i += 2;
+            j += 1;
+        }
+        eprintln!("{line}");
+        addr += 16;
+    }
+}
+
+/// Trace every INTENA write through the boot. This is the primary
+/// diagnostic for "why does INTENA settle at $202C with master clear
+/// instead of $602C with master set."
+#[test]
+#[ignore]
+fn trace_intena_writes_chip_only_vs_slow_ram() {
+    let Some(rom) = load_kickstart() else { return };
+
+    let mut chip_only = AmigaOcs::new(rom.clone());
+    let mut slow_ram = AmigaOcs::with_slow_ram(rom, 512 * 1024);
+
+    // Long enough to see both configs reach the $202C settling state.
+    run_to_frame(&mut chip_only, 300);
+    run_to_frame(&mut slow_ram, 300);
+
+    eprintln!("\n=== chip-only INTENA write log (300 frames) ===");
+    dump_intena_log(&chip_only, "chip-only");
+
+    eprintln!("\n=== slow-RAM INTENA write log (300 frames) ===");
+    dump_intena_log(&slow_ram, "slow-RAM ");
+
+    // Dump ROM bytes around the culprit PCs so we can disassemble.
+    let rom = std::fs::read(
+        PathBuf::from(std::env::var("HOME").expect("HOME is set"))
+            .join(".emu198x/roms/commodore-amiga/kick13.rom"),
+    )
+    .expect("read kick13.rom");
+
+    eprintln!("\n=== ROM disassembly context ===");
+    // $FC3012 — Disable() entry that drops master to $202C.
+    dump_rom_bytes(&rom, 0x00FC_3012, 0, 32);
+    // $FC05F6 — chip-only's PC after stall (suspected exception or
+    // reset-recovery loop).
+    eprintln!("\n  -- chip-only stall PC --");
+    dump_rom_bytes(&rom, 0x00FC_05F6, 8, 16);
+    // $FC30CC — slow-RAM's PC at the same checkpoint (further along
+    // in the cold-reset routine).
+    eprintln!("\n  -- slow-RAM stall PC --");
+    dump_rom_bytes(&rom, 0x00FC_30CC, 8, 16);
+    // $FC3132 — chip-only's PC at frame 200 (reached just past the
+    // Disable, before the backward jump to $FC05F6).
+    eprintln!("\n  -- chip-only PC at frame 200 --");
+    dump_rom_bytes(&rom, 0x00FC_3132, 4, 16);
+}

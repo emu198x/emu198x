@@ -618,10 +618,95 @@ into $C00000 region without slow RAM, that's the smoking gun.
   Either this comment is wrong, or it documents a real symptom whose
   underlying cause is the bug we are looking for.
 
+## Findings (2026-04-20, restart codebase — divergence is downstream, not upstream)
+
+Replaying the chip-only-vs-slow-RAM comparison on the
+`machine-commodore-amiga-ocs` restart codebase (post M11.1) with a
+fresh differential trace
+(`crates/machine-commodore-amiga-ocs/tests/diag_memlist_diff.rs`):
+
+### What the new trace shows
+
+Both configurations traverse an **identical sequence of 20 INTENA
+writes** with the same PCs and the same written values — only the CCK
+timestamps differ (slow-RAM ~25% later because of the extra memory
+probe). Peak INTENA reaches **`$602C`** (master + EXTER + VERTB +
+PORTS + SOFT) in both configs, matching the OLD codebase's peak. The
+final INTENA state `$202C` is produced by a canonical `Disable()`
+macro — `MOVE.W #$4000, $DFF09A` — at ROM address `$FC3012`.
+
+After `Disable()`, the boot enters the cold-reset path:
+
+```
+$FC3012: 33FC 4000 00DF F09A   MOVE.W #$4000, $DFF09A   ; Disable()
+$FC301A: 203C 4845 4C50         MOVE.L #$48454C50, D0    ; D0 = "HELP"
+$FC3020: B0B8 0000               CMP.L  $0000, D0         ; warm-reset magic
+$FC3024: 6700 0074               BEQ.W  $FC309A           ; warm path
+$FC3028: 21C0 0000               MOVE.L D0, $0000         ; write magic
+```
+
+The "final PCs" observed at frame 300 (`$FC05F6` chip-only, `$FC30CC`
+slow-RAM) are **both inside delay loops** — the LED-flash alert
+routine that Kickstart enters when early init fails:
+
+```
+$FC05F6: 5380 6EFC              SUBQ.L #1, D0; BGT *-2     ; ~250ms delay
+$FC30C4: 08F9 0001 00BFE001     BSET  #1, $BFE001          ; LED off
+$FC30CC: 51C8 FFF6              DBF   D0, *-8              ; LED-flash loop
+```
+
+### Reframing the bug
+
+The "INTENA settled at `$202C` without master" shape that triggered
+this investigation is **not a set/clear semantics bug** (our
+`write_set_clear` is correct) and not a missing re-enable write
+(boot never reaches a re-enable because init already failed
+upstream). It is the **normal endpoint of the alert-flash routine**
+when cold-reset init hits a condition we haven't satisfied.
+
+The chip-only-vs-slow-RAM PC divergence at any single frame is
+purely a timing artefact of both configs cycling through the same
+alert-flash loops at different phases. There is no separate
+"chip-only-only" bug exposed in the restart yet — we are stalled
+upstream of the point where the OLD codebase observed the
+copper-jumps-into-ExecBase toxicity.
+
+### What's actually missing
+
+The post-`Disable()` cold-reset block invokes init code that depends
+on chipset features we haven't built yet in the restart:
+
+- Sprite DMA, blitter, audio DMA (Paula)
+- Disk DMA and FDC step/ready handshake
+- Copper edge cases (skip, wait-forever, vertical comparisons)
+- CIA TOD counter (50 Hz tick from VBL)
+
+Whichever of those the cold-reset probes first is the actual missing
+piece. The next milestones (M12+) in
+`wiki/decisions/amiga-restart-plan.md` will add these one at a time;
+the `diag_memlist_diff` trace provides a stable regression signal —
+we expect the alert-flash entry to retreat further into the boot as
+features come online.
+
+### Disposition of the old hypotheses
+
+- **Open-bus / phantom-RAM** (Gemini's hypothesis, recorded
+  2026-04-20): not our bug. We return `$FFFF` for unmapped reads,
+  so KS correctly rejects slow-RAM absence.
+- **MemList / allocation placement** (ChatGPT's hypothesis, recorded
+  2026-04-20): real topology difference (chip-only has 1 header,
+  slow-RAM has 2), but both layouts are sane and Exec builds them
+  successfully. Not the proximate cause of stall.
+- **Copper jumps into ExecBase** (OLD codebase's fourth/fifth pass):
+  still the most likely chip-only-specific downstream failure once
+  we get past the current upstream stall. Tracking as future work.
+
 ## Related
 
 - `wiki/decisions/amiga-architecture-review.md`
 - `wiki/decisions/amiga-port-plan.md`
+- `wiki/decisions/amiga-restart-plan.md` — current restart milestones
 - `crates/machine-commodore-amiga/tests/kickstart_boot_invariants.rs` — current tests, gated on slow-RAM config
 - `crates/machine-commodore-amiga/tests/chip_only_boot_probe.rs` — diagnostic probe added 2026-04-19
+- `crates/machine-commodore-amiga-ocs/tests/diag_memlist_diff.rs` — restart-codebase differential trace, 2026-04-20
 - `crates/runtime-commodore-amiga/src/runtime.rs:517` — the workaround

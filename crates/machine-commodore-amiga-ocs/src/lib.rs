@@ -51,6 +51,12 @@ pub struct AmigaOcs {
     pub debug_peak_intena: u16,
     /// Diagnostic: cumulative count of CPU writes to INTENA ($DFF09A).
     pub debug_intena_writes: u64,
+    /// Diagnostic: per-write log of every INTENA store, captured to
+    /// help trace the master-enable lifecycle. Each entry is
+    /// `(cck, pc, written_word, intena_before, intena_after)`. Only
+    /// writes that actually change INTENA are kept (purely-no-op
+    /// writes still count toward `debug_intena_writes`).
+    pub debug_intena_log: Vec<(u64, u32, u16, u16, u16)>,
 }
 
 impl AmigaOcs {
@@ -85,6 +91,7 @@ impl AmigaOcs {
             debug_reg_read_counts: std::collections::HashMap::new(),
             debug_peak_intena: 0,
             debug_intena_writes: 0,
+            debug_intena_log: Vec::new(),
         }
     }
 
@@ -185,6 +192,7 @@ impl AmigaOcs {
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        let intena_before = self.chipset.intena;
         match offset {
             0x080 => {
                 self.copper.cop1lc =
@@ -208,8 +216,18 @@ impl AmigaOcs {
         }
         if offset == 0x09A {
             self.debug_intena_writes += 1;
-            if self.chipset.intena > self.debug_peak_intena {
-                self.debug_peak_intena = self.chipset.intena;
+            let intena_after = self.chipset.intena;
+            if intena_after > self.debug_peak_intena {
+                self.debug_peak_intena = intena_after;
+            }
+            if intena_after != intena_before {
+                self.debug_intena_log.push((
+                    self.cck_count,
+                    self.cpu.regs.pc,
+                    val,
+                    intena_before,
+                    intena_after,
+                ));
             }
         }
     }
