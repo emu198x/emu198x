@@ -286,9 +286,8 @@ fn trace_intena_writes_chip_only_vs_slow_ram() {
     .expect("read kick13.rom");
 
     eprintln!("\n=== ROM disassembly context ===");
-    // $FE8F32 — the current terminal PC (final INTENA write in both
-    // configs). Dump a wider window to see the full routine + the
-    // subroutine called at $FE8F34.
-    eprintln!("  -- terminal PC $FE8F32 region --");
-    dump_rom_bytes(&rom, 0x00FE_8F32, 16, 128);
+    // $FC0F94 — boot settles here by frame 200 (Exec idle/wait
+    // state).
+    eprintln!("  -- settled PC $FC0F94 region --");
+    dump_rom_bytes(&rom, 0x00FC_0F94, 16, 48);
 }
