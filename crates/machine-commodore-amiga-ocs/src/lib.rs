@@ -35,6 +35,9 @@ pub struct AmigaOcs {
     agnus: Agnus,
     cck_count: u64,
     e_clock_phase: u64,
+    /// Diagnostic: count of unique custom-register read offsets seen
+    /// since reset, indexed by offset / 2.
+    pub debug_reg_read_counts: std::collections::HashMap<u16, u64>,
 }
 
 impl AmigaOcs {
@@ -58,6 +61,7 @@ impl AmigaOcs {
             agnus: Agnus::new(),
             cck_count: 0,
             e_clock_phase: 0,
+            debug_reg_read_counts: std::collections::HashMap::new(),
         }
     }
 
@@ -303,6 +307,7 @@ impl AmigaOcs {
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
             if is_read {
+                *self.debug_reg_read_counts.entry(offset).or_insert(0) += 1;
                 let val = match offset {
                     0x004 => self.agnus.vposr(),
                     0x006 => self.agnus.vhposr(),

@@ -24,8 +24,7 @@ fn diagnostic_long_run() {
     let mut amiga = AmigaOcs::new(rom);
 
     let checkpoints = [
-        500_000u64, 1_000_000, 2_000_000, 5_000_000, 10_000_000,
-        20_000_000, 50_000_000,
+        500_000u64, 5_000_000, 50_000_000, 200_000_000, 500_000_000,
     ];
     let mut last_cck = 0u64;
 
