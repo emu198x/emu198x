@@ -15,7 +15,7 @@
 //! M3 only models CIA-A — CIA-B is added when a later milestone
 //! exercises it.
 
-pub struct CiaA {
+pub struct Cia {
     /// Register 0 — Port A data register.
     pub pra: u8,
     /// Register 2 — Port A direction register (1 bit = output).
@@ -86,7 +86,7 @@ impl Timer {
     }
 }
 
-impl Default for CiaA {
+impl Default for Cia {
     fn default() -> Self {
         Self {
             pra: 0,
@@ -104,7 +104,7 @@ impl Default for CiaA {
     }
 }
 
-impl CiaA {
+impl Cia {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -266,10 +266,20 @@ impl CiaA {
 
 /// Decode a 24-bit Amiga address into a CIA-A register index, if the
 /// address falls into the CIA-A address space (odd byte, $BFExxx).
-/// Returns `Some(reg)` on hit, `None` otherwise.
 #[must_use]
 pub fn decode_cia_a(addr: u32) -> Option<u8> {
     if (0x00BF_E000..0x00BF_F000).contains(&addr) && addr & 1 == 1 {
+        Some(((addr >> 8) & 0x0F) as u8)
+    } else {
+        None
+    }
+}
+
+/// Decode a 24-bit Amiga address into a CIA-B register index, if the
+/// address falls into the CIA-B address space (even byte, $BFDxxx).
+#[must_use]
+pub fn decode_cia_b(addr: u32) -> Option<u8> {
+    if (0x00BF_D000..0x00BF_E000).contains(&addr) && addr & 1 == 0 {
         Some(((addr >> 8) & 0x0F) as u8)
     } else {
         None
@@ -290,14 +300,14 @@ mod tests {
 
     #[test]
     fn ovl_default_high_when_ddra_input() {
-        let cia = CiaA::new();
+        let cia = Cia::new();
         // DDRA = 0 (input), PRA bit 0 floats high → OVL asserted
         assert!(cia.ovl());
     }
 
     #[test]
     fn ovl_follows_pra_when_ddra_output() {
-        let mut cia = CiaA::new();
+        let mut cia = Cia::new();
         cia.write_register(2, 0x01); // DDRA bit 0 = output
         cia.write_register(0, 0x00); // PRA bit 0 = 0
         assert!(!cia.ovl());
@@ -307,14 +317,14 @@ mod tests {
 
     #[test]
     fn pra_reads_floating_high_for_inputs_at_reset() {
-        let mut cia = CiaA::new();
+        let mut cia = Cia::new();
         // DDRA = $00 (all input), reads should all be high (floating).
         assert_eq!(cia.read_register(0), 0xFF);
     }
 
     #[test]
     fn pra_reads_mix_outputs_and_inputs() {
-        let mut cia = CiaA::new();
+        let mut cia = Cia::new();
         cia.write_register(2, 0x03); // DDRA: bits 0+1 outputs, 2-7 inputs
         cia.write_register(0, 0x02); // PRA: bit 1 high, bit 0 low
         assert_eq!(cia.read_register(0), 0xFE);
@@ -322,7 +332,7 @@ mod tests {
 
     #[test]
     fn pra_reads_can_be_pulled_low_by_peripheral() {
-        let mut cia = CiaA::new();
+        let mut cia = Cia::new();
         cia.write_register(2, 0x03);
         cia.write_register(0, 0x02);
         cia.pa_input_lines = !0x10;
@@ -331,7 +341,7 @@ mod tests {
 
     #[test]
     fn timer_a_one_shot_underflows_and_sets_icr() {
-        let mut cia = CiaA::new();
+        let mut cia = Cia::new();
         // ICR mask: enable TA (bit 0).
         cia.write_register(0xD, 0x81);
         // Latch = 3 (will count 3, 2, 1, 0, then underflow).
@@ -352,7 +362,7 @@ mod tests {
 
     #[test]
     fn timer_a_continuous_reloads_after_underflow() {
-        let mut cia = CiaA::new();
+        let mut cia = Cia::new();
         cia.write_register(0xD, 0x81); // unmask TA
         cia.write_register(0x4, 0x02); // latch = 2
         cia.write_register(0x5, 0x00);

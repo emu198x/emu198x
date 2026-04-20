@@ -13,7 +13,7 @@ mod memory;
 
 pub use agnus::{Agnus, PAL_FRAME_LINES, PAL_LINE_CCKS};
 pub use chipset::Chipset;
-pub use cia::CiaA;
+pub use cia::Cia;
 pub use memory::{Memory, CHIP_RAM_SIZE};
 
 use motorola_68000::bus::{BusStatus, FunctionCode};
@@ -31,7 +31,8 @@ pub struct AmigaOcs {
     cpu: Cpu68000,
     memory: Memory,
     chipset: Chipset,
-    cia_a: CiaA,
+    cia_a: Cia,
+    cia_b: Cia,
     agnus: Agnus,
     cck_count: u64,
     e_clock_phase: u64,
@@ -57,7 +58,8 @@ impl AmigaOcs {
             cpu,
             memory,
             chipset: Chipset::new(),
-            cia_a: CiaA::new(),
+            cia_a: Cia::new(),
+            cia_b: Cia::new(),
             agnus: Agnus::new(),
             cck_count: 0,
             e_clock_phase: 0,
@@ -85,8 +87,14 @@ impl AmigaOcs {
 
     /// Read-only CIA-A access.
     #[must_use]
-    pub fn cia_a(&self) -> &CiaA {
+    pub fn cia_a(&self) -> &Cia {
         &self.cia_a
+    }
+
+    /// Read-only CIA-B access.
+    #[must_use]
+    pub fn cia_b(&self) -> &Cia {
+        &self.cia_b
     }
 
     /// Convenience: CIA-A PRA byte.
@@ -146,6 +154,8 @@ impl AmigaOcs {
         if let Some(reg) = cia::decode_cia_a(addr) {
             self.cia_a.write_register(reg, val);
             self.memory.set_overlay(self.cia_a.ovl());
+        } else if let Some(reg) = cia::decode_cia_b(addr) {
+            self.cia_b.write_register(reg, val);
         } else if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr) {
             // Custom registers are word-only; byte writes pad with
             // the same byte in both halves on real hardware. For our
@@ -186,6 +196,9 @@ impl AmigaOcs {
         if let Some(reg) = cia::decode_cia_a(addr24) {
             return u16::from(self.cia_a.read_register(reg));
         }
+        if let Some(reg) = cia::decode_cia_b(addr24) {
+            return u16::from(self.cia_b.read_register(reg));
+        }
         self.bus_read_word(addr24)
     }
 
@@ -199,10 +212,10 @@ impl AmigaOcs {
 
     fn bus_read_word(&self, addr24: u32) -> u16 {
         if let Some(reg) = cia::decode_cia_a(addr24) {
-            // Side-effect-free peek for the public API; the CPU's
-            // bus path uses read_register() directly so reading-clears
-            // ICR gets the proper effect.
             return u16::from(self.cia_a.peek_register(reg));
+        }
+        if let Some(reg) = cia::decode_cia_b(addr24) {
+            return u16::from(self.cia_b.peek_register(reg));
         }
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
@@ -230,14 +243,19 @@ impl AmigaOcs {
             self.chipset.write_word(0x09C, 0x8020);
         }
 
-        // Tick CIA-A every CIA_E_CLOCK_DIVISOR CCKs (E clock = master/10).
+        // Tick both CIAs every CIA_E_CLOCK_DIVISOR CCKs (E clock = master/10).
         self.e_clock_phase += 1;
         if self.e_clock_phase >= CIA_E_CLOCK_DIVISOR {
             self.e_clock_phase = 0;
             self.cia_a.tick_e_clock();
-            // CIA-A /IRQ → Paula INTREQ.PORTS (bit 3). Latch on edge.
+            self.cia_b.tick_e_clock();
+            // CIA-A /IRQ → Paula INTREQ.PORTS (bit 3, level 2).
             if self.cia_a.irq_pending {
                 self.chipset.write_word(0x09C, 0x8008);
+            }
+            // CIA-B /IRQ → Paula INTREQ.EXTER (bit 13, level 6).
+            if self.cia_b.irq_pending {
+                self.chipset.write_word(0x09C, 0xA000);
             }
         }
 
@@ -296,6 +314,25 @@ impl AmigaOcs {
                 let val = data.unwrap_or(0);
                 self.cia_a.write_register(reg, val as u8);
                 self.memory.set_overlay(self.cia_a.ovl());
+                self.cpu.bus_status = BusStatus::Ready(0);
+            }
+            return;
+        }
+
+        // CIA-B address space (even bytes in $BFD000-$BFDFFF).
+        if let Some(reg) = cia::decode_cia_b(addr24) {
+            if is_read {
+                // CIA-B is on the high data byte; word reads put the
+                // CIA value in the high byte. We expose the byte
+                // value in the low byte for convenience to the bus.
+                let val = u16::from(self.cia_b.read_register(reg));
+                self.cpu.bus_status = BusStatus::Ready(val);
+            } else {
+                let val = data.unwrap_or(0);
+                // Word writes to CIA-B target the high byte; we take
+                // the high byte if it's a word write, low byte if byte.
+                let byte = if is_word { (val >> 8) as u8 } else { val as u8 };
+                self.cia_b.write_register(reg, byte);
                 self.cpu.bus_status = BusStatus::Ready(0);
             }
             return;
