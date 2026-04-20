@@ -30,7 +30,7 @@ fn cia_a_tod_ticks_once_per_pal_frame() {
         amiga.tick();
     }
     assert_eq!(
-        amiga.cia_a().tod_counter,
+        amiga.cia_a().tod_counter(),
         0,
         "TOD should not have ticked before the first VBL edge"
     );
@@ -40,7 +40,7 @@ fn cia_a_tod_ticks_once_per_pal_frame() {
         amiga.tick();
     }
     assert_eq!(
-        amiga.cia_a().tod_counter,
+        amiga.cia_a().tod_counter(),
         1,
         "TOD should have ticked exactly once on first VBL"
     );
@@ -51,7 +51,7 @@ fn cia_a_tod_ticks_once_per_pal_frame() {
         amiga.tick();
     }
     assert_eq!(
-        amiga.cia_a().tod_counter,
+        amiga.cia_a().tod_counter(),
         50,
         "TOD should advance exactly once per PAL frame"
     );

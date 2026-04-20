@@ -1226,6 +1226,7 @@ dependencies = [
 name = "machine-commodore-amiga-ocs"
 version = "0.1.0"
 dependencies = [
+ "mos-cia-8520",
  "motorola-68000",
  "png",
 ]
@@ -1337,6 +1338,10 @@ version = "0.1.0"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "mos-cia-8520"
+version = "0.1.0"
 
 [[package]]
 name = "mos-sid-6581"

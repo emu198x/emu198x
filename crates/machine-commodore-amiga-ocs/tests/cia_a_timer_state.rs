@@ -23,13 +23,13 @@ fn sample(amiga: &AmigaOcs, frame: u64, label: &str) {
     let cia_a = amiga.cia_a();
     eprintln!(
         "frame {frame:>4} {label}:\n  \
-         TA latch=${:04X} counter=${:04X} CRA=${:02X}  \
-         TB latch=${:04X} counter=${:04X} CRB=${:02X}\n  \
-         ICR mask=${:02X} flags=${:02X}  irq={}  TOD=${:06X}",
-        cia_a.timer_a.latch, cia_a.timer_a.counter, cia_a.timer_a.control,
-        cia_a.timer_b.latch, cia_a.timer_b.counter, cia_a.timer_b.control,
-        cia_a.icr_mask, cia_a.icr_flags, cia_a.irq_pending,
-        cia_a.tod_counter,
+         TA counter=${:04X} CRA=${:02X}  \
+         TB counter=${:04X} CRB=${:02X}\n  \
+         ICR mask=${:02X} status=${:02X}  irq={}  TOD=${:06X}",
+        cia_a.timer_a(), cia_a.cra(),
+        cia_a.timer_b(), cia_a.crb(),
+        cia_a.icr_mask(), cia_a.icr_status(), cia_a.irq_active(),
+        cia_a.tod_counter(),
     );
 }
 

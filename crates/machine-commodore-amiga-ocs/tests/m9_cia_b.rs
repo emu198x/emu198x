@@ -29,9 +29,12 @@ fn cia_b_at_bfd000_even_bytes() {
     let mut amiga = AmigaOcs::new(rom);
 
     // Write to CIA-B PRA ($BFD000) — should land in cia_b, not cia_a.
+    // CIA-A PRA reset value is $FF (HRM: port latches reset to all-1s
+    // so pull-ups float high); the Amiga ROM then writes bits 0-1
+    // (OVL, LED) via DDRA soon after, but not before we run the test.
     amiga.poke_byte(0x00BFD000, 0x42);
-    assert_eq!(amiga.cia_b().pra, 0x42);
-    assert_eq!(amiga.cia_a().pra, 0); // CIA-A unchanged
+    assert_eq!(amiga.cia_b().port_a_latch(), 0x42);
+    assert_eq!(amiga.cia_a().port_a_latch(), 0xFF, "CIA-A unchanged, still at reset default");
 }
 
 #[test]

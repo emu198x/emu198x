@@ -17,7 +17,7 @@ pub use agnus::{
     Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, VBL_END_LINE,
 };
 pub use chipset::Chipset;
-pub use cia::Cia;
+pub use cia::{Cia, CiaExt};
 pub use copper::Copper;
 pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
 pub use memory::{Memory, CHIP_RAM_SIZE};
@@ -140,14 +140,14 @@ impl AmigaOcs {
         // With /CHNG latched low, trackdisk's CMD_READ path returns
         // TDERR_DiskChanged (29) to the strap, which then settles at
         // the insert-disk screen.
-        let mut cia_a = Cia::new();
-        cia_a.pa_input_lines = 0xEB;
+        let mut cia_a = Cia::new("A");
+        cia_a.external_a = 0xEB;
         Self {
             cpu,
             memory,
             chipset: Chipset::new(),
             cia_a,
-            cia_b: Cia::new(),
+            cia_b: Cia::new("B"),
             agnus: Agnus::new(),
             copper: Copper::new(),
             denise: Denise::new(),
@@ -212,22 +212,37 @@ impl AmigaOcs {
         &self.cia_a
     }
 
+    /// Mutable CIA-A access. Counterpart to `cia_b_mut` — for tests
+    /// driving input-pin-level behaviour (e.g. `receive_serial_byte`
+    /// for the keyboard path). Not used by the runtime tick loop.
+    pub fn cia_a_mut(&mut self) -> &mut Cia {
+        &mut self.cia_a
+    }
+
     /// Read-only CIA-B access.
     #[must_use]
     pub fn cia_b(&self) -> &Cia {
         &self.cia_b
     }
 
-    /// Convenience: CIA-A PRA byte.
+    /// Mutable CIA-B access. Only for tests/integrations that need to
+    /// drive input pins the machine itself doesn't yet wire — currently
+    /// the floppy index pulse via `flag_falling_edge()`. Runtime code
+    /// must not reach across this boundary.
+    pub fn cia_b_mut(&mut self) -> &mut Cia {
+        &mut self.cia_b
+    }
+
+    /// Convenience: CIA-A PRA byte (the latched data register).
     #[must_use]
     pub fn cia_a_pra(&self) -> u8 {
-        self.cia_a.pra
+        self.cia_a.port_a_latch()
     }
 
     /// Convenience: CIA-A DDRA byte.
     #[must_use]
     pub fn cia_a_ddra(&self) -> u8 {
-        self.cia_a.ddra
+        self.cia_a.ddr_a()
     }
 
     /// Convenience: current INTENA value.
@@ -347,10 +362,10 @@ impl AmigaOcs {
     /// Backdoor for tests: write a byte as if the CPU did it.
     pub fn poke_byte(&mut self, addr: u32, val: u8) {
         if let Some(reg) = cia::decode_cia_a(addr) {
-            self.cia_a.write_register(reg, val);
+            self.cia_a.write(reg, val);
             self.memory.set_overlay(self.cia_a.ovl());
         } else if let Some(reg) = cia::decode_cia_b(addr) {
-            self.cia_b.write_register(reg, val);
+            self.cia_b.write(reg, val);
         } else if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr) {
             // Custom registers are word-only; byte writes pad with
             // the same byte in both halves on real hardware. For our
@@ -400,10 +415,10 @@ impl AmigaOcs {
     pub fn cpu_read_word(&mut self, addr: u32) -> u16 {
         let addr24 = addr & 0xFF_FFFF;
         if let Some(reg) = cia::decode_cia_a(addr24) {
-            return u16::from(self.cia_a.read_register(reg));
+            return u16::from(self.cia_a.read(reg));
         }
         if let Some(reg) = cia::decode_cia_b(addr24) {
-            return u16::from(self.cia_b.read_register(reg));
+            return u16::from(self.cia_b.read(reg));
         }
         self.bus_read_word(addr24)
     }
@@ -474,7 +489,7 @@ impl AmigaOcs {
                 self.copper.jump1();
                 // CIA-A TOD pin is wired to /VSYNC on real Amiga, so
                 // it ticks once per VBL edge.
-                self.cia_a.tick_tod();
+                self.cia_a.tod_pulse();
             }
             if vertb_level && (self.chipset.intreq & 0x0020) == 0 {
                 self.chipset.write_word(0x09C, 0x8020);
@@ -516,8 +531,8 @@ impl AmigaOcs {
         self.e_clock_phase += 1;
         if self.e_clock_phase >= CIA_E_CLOCK_DIVISOR {
             self.e_clock_phase = 0;
-            self.cia_a.tick_e_clock();
-            self.cia_b.tick_e_clock();
+            self.cia_a.tick();
+            self.cia_b.tick();
         }
 
         // ── Paula edge-latch of CIA /IRQ lines ──────────────────
@@ -529,13 +544,13 @@ impl AmigaOcs {
         // CIA ICR will *not* trigger another interrupt until the
         // CIA line first goes low and then high again — matching
         // real hardware.
-        let cia_a_irq = self.cia_a.irq_pending;
+        let cia_a_irq = self.cia_a.irq_active();
         if cia_a_irq && !self.prev_cia_a_irq {
             self.chipset.write_word(0x09C, 0x8008);
         }
         self.prev_cia_a_irq = cia_a_irq;
 
-        let cia_b_irq = self.cia_b.irq_pending;
+        let cia_b_irq = self.cia_b.irq_active();
         if cia_b_irq && !self.prev_cia_b_irq {
             self.chipset.write_word(0x09C, 0xA000);
         }
@@ -626,7 +641,7 @@ impl AmigaOcs {
         // CIA-A address space (odd bytes in $BFE000-$BFEFFF).
         if let Some(reg) = cia::decode_cia_a(addr24) {
             if is_read {
-                let val = u16::from(self.cia_a.read_register(reg));
+                let val = u16::from(self.cia_a.read(reg));
                 self.memory.set_last_bus_value(val);
                 self.cpu.bus_status = BusStatus::Ready(val);
             } else {
@@ -638,7 +653,7 @@ impl AmigaOcs {
                     reg,
                     val as u8,
                 ));
-                self.cia_a.write_register(reg, val as u8);
+                self.cia_a.write(reg, val as u8);
                 self.memory.set_overlay(self.cia_a.ovl());
                 self.cpu.bus_status = BusStatus::Ready(0);
             }
@@ -651,7 +666,7 @@ impl AmigaOcs {
                 // CIA-B is on the high data byte; word reads put the
                 // CIA value in the high byte. We expose the byte
                 // value in the low byte for convenience to the bus.
-                let val = u16::from(self.cia_b.read_register(reg));
+                let val = u16::from(self.cia_b.read(reg));
                 self.memory.set_last_bus_value(val);
                 self.cpu.bus_status = BusStatus::Ready(val);
             } else {
@@ -660,7 +675,7 @@ impl AmigaOcs {
                 // Word writes to CIA-B target the high byte; we take
                 // the high byte if it's a word write, low byte if byte.
                 let byte = if is_word { (val >> 8) as u8 } else { val as u8 };
-                self.cia_b.write_register(reg, byte);
+                self.cia_b.write(reg, byte);
                 self.cpu.bus_status = BusStatus::Ready(0);
             }
             return;

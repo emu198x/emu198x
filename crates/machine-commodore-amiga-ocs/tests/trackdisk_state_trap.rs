@@ -68,25 +68,25 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
     let cia_b = amiga.cia_b();
     eprintln!(
         "CIA-A PRA effective = ${:02X}  (pa_input_lines=${:02X} data=${:02X} ddra=${:02X})",
-        effective_port(cia_a.pra, cia_a.ddra, cia_a.pa_input_lines),
-        cia_a.pa_input_lines, cia_a.pra, cia_a.ddra
+        effective_port(cia_a.port_a_latch(), cia_a.ddr_a(), cia_a.external_a),
+        cia_a.external_a, cia_a.port_a_latch(), cia_a.ddr_a()
     );
     eprintln!(
         "  bit 2 /CHNG = {}  bit 3 /WPRO = {}  bit 4 /TK0 = {}  bit 5 /RDY = {}",
-        if (cia_a.pa_input_lines & 0x04) != 0 { "1 (no change)" } else { "0 (change pending)" },
-        if (cia_a.pa_input_lines & 0x08) != 0 { "1 (not protected)" } else { "0 (protected)" },
-        if (cia_a.pa_input_lines & 0x10) != 0 { "1 (not at trk0)" } else { "0 (at trk0)" },
-        if (cia_a.pa_input_lines & 0x20) != 0 { "1 (NOT ready)" } else { "0 (ready)" },
+        if (cia_a.external_a & 0x04) != 0 { "1 (no change)" } else { "0 (change pending)" },
+        if (cia_a.external_a & 0x08) != 0 { "1 (not protected)" } else { "0 (protected)" },
+        if (cia_a.external_a & 0x10) != 0 { "1 (not at trk0)" } else { "0 (at trk0)" },
+        if (cia_a.external_a & 0x20) != 0 { "1 (NOT ready)" } else { "0 (ready)" },
     );
     eprintln!(
         "CIA-B PRB effective = ${:02X}  (pb_input_lines=${:02X} data=${:02X} ddrb=${:02X})",
-        effective_port(cia_b.prb, cia_b.ddrb, cia_b.pb_input_lines),
-        cia_b.pb_input_lines, cia_b.prb, cia_b.ddrb
+        effective_port(cia_b.port_b_latch(), cia_b.ddr_b(), cia_b.external_b),
+        cia_b.external_b, cia_b.port_b_latch(), cia_b.ddr_b()
     );
     eprintln!(
         "  bit 7 /MTR = {}  bit 3 /SEL0 = {}  bit 2 /SIDE = {}  bit 1 DIR = {}  bit 0 /STEP = {}",
-        (cia_b.prb >> 7) & 1, (cia_b.prb >> 3) & 1, (cia_b.prb >> 2) & 1,
-        (cia_b.prb >> 1) & 1, cia_b.prb & 1,
+        (cia_b.port_b_latch() >> 7) & 1, (cia_b.port_b_latch() >> 3) & 1, (cia_b.port_b_latch() >> 2) & 1,
+        (cia_b.port_b_latch() >> 1) & 1, cia_b.port_b_latch() & 1,
     );
     eprintln!();
     eprintln!("INTENA  = ${:04X}", amiga.intena());

@@ -7,7 +7,7 @@
 //! Ignored by default — it's for investigation, not a pass/fail gate.
 
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use machine_commodore_amiga_ocs::{AmigaOcs, CiaExt, PAL_FRAME_TICKS};
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
