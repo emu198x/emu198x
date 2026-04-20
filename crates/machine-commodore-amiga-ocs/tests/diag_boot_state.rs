@@ -16,6 +16,18 @@ const EXEC_QUANTUM: u32 = 288;
 const EXEC_SYS_FLAGS: u32 = 292;
 const EXEC_TD_NEST_CNT: u32 = 295;
 const EXEC_TASK_READY: u32 = 406;
+const EXEC_TASK_WAIT: u32 = 420;
+/// Task struct field offsets (exec/tasks.h).
+const TASK_LN_SUCC: u32 = 0;
+const TASK_LN_NAME: u32 = 10;
+/// tc_State (BYTE, offset 0x0F inside task = 15 = after the Node).
+/// Values: 0 = INVALID, 1 = ADDED, 2 = RUN, 3 = READY, 4 = WAIT,
+///         5 = EXCEPT, 6 = REMOVED.
+const TASK_STATE: u32 = 15;
+/// tc_SigWait (ULONG) — which signals this task is waiting on.
+const TASK_SIG_WAIT: u32 = 22;
+/// tc_SigRecvd (ULONG) — signals received but not yet consumed.
+const TASK_SIG_RECVD: u32 = 26;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -37,6 +49,69 @@ fn chip_long(amiga: &AmigaOcs, addr: u32) -> u32 {
 
 fn read_long(amiga: &AmigaOcs, addr: u32) -> u32 {
     amiga.read_long(addr)
+}
+
+fn read_byte(amiga: &AmigaOcs, addr: u32) -> u8 {
+    (amiga.read_word(addr & !1) >> (if addr & 1 == 0 { 8 } else { 0 })) as u8
+}
+
+fn read_cstring(amiga: &AmigaOcs, addr: u32, max: u32) -> String {
+    if addr == 0 {
+        return "<null>".into();
+    }
+    let mut s = String::new();
+    for i in 0..max {
+        let b = read_byte(amiga, addr.wrapping_add(i));
+        if b == 0 {
+            break;
+        }
+        if b.is_ascii() && !b.is_ascii_control() {
+            s.push(b as char);
+        } else {
+            s.push('?');
+        }
+    }
+    s
+}
+
+fn dump_task_list(amiga: &AmigaOcs, label: &str, list_addr: u32) {
+    let head = read_long(amiga, list_addr);
+    let tail_sentinel = list_addr.wrapping_add(4);
+    eprintln!(
+        "\n=== {label} List @ ${list_addr:08X} ===\n\
+         head = ${head:08X}  (tail-sentinel = ${tail_sentinel:08X})"
+    );
+    if head == tail_sentinel || head == 0 {
+        eprintln!("→ LIST IS EMPTY");
+        return;
+    }
+    let mut node = head;
+    for i in 0..8 {
+        if node == 0 || node == tail_sentinel {
+            break;
+        }
+        let succ = read_long(amiga, node.wrapping_add(TASK_LN_SUCC));
+        let name_ptr = read_long(amiga, node.wrapping_add(TASK_LN_NAME));
+        let name = read_cstring(amiga, name_ptr, 32);
+        let state = read_byte(amiga, node.wrapping_add(TASK_STATE));
+        let sig_wait = read_long(amiga, node.wrapping_add(TASK_SIG_WAIT));
+        let sig_recvd = read_long(amiga, node.wrapping_add(TASK_SIG_RECVD));
+        let state_name = match state {
+            0 => "INVALID",
+            1 => "ADDED",
+            2 => "RUN",
+            3 => "READY",
+            4 => "WAIT",
+            5 => "EXCEPT",
+            6 => "REMOVED",
+            _ => "???",
+        };
+        eprintln!(
+            "  [{i}] ${node:08X} \"{name}\" state={state_name}({state}) \
+             sigWait=${sig_wait:08X} sigRecvd=${sig_recvd:08X}",
+        );
+        node = succ;
+    }
 }
 
 #[test]
@@ -87,31 +162,21 @@ fn snapshot_boot_state_at_frame_300() {
     eprintln!("SysFlags  = ${sys_flags:04X}");
     eprintln!("TDNestCnt = ${td_nest:02X}  (task-disable nest)");
 
-    // TaskReady is a struct List at ExecBase+406. Head pointer at +0,
-    // Tail (NULL sentinel) at +4, TailPred at +8. An empty list has
-    // head pointing at the address of Tail, and head's ln_Succ is
-    // NULL. So we can detect empty by reading head then head->ln_Succ.
-    let taskready_addr = exec_base.wrapping_add(EXEC_TASK_READY);
-    let head = read_long(&amiga, taskready_addr);
-    let tail_addr = taskready_addr.wrapping_add(4);
-    eprintln!(
-        "\n=== TaskReady List @ ${taskready_addr:08X} ===\n\
-         head = ${head:08X}  (tail-sentinel = ${tail_addr:08X})"
-    );
-    if head == tail_addr {
-        eprintln!("→ READY LIST IS EMPTY — Exec is idle, waiting for a signal");
-    } else {
-        eprintln!("→ head points to a real node — tasks are ready");
-        let mut node = head;
-        for i in 0..4 {
-            if node == 0 || node == tail_addr {
-                break;
-            }
-            let succ = read_long(&amiga, node);
-            eprintln!("  node[{i}] = ${node:08X}  (succ = ${succ:08X})");
-            node = succ;
-        }
+    // Also dump ThisTask details to see who was just running.
+    if this_task != 0 {
+        let name_ptr = read_long(&amiga, this_task.wrapping_add(TASK_LN_NAME));
+        let name = read_cstring(&amiga, name_ptr, 32);
+        let state = read_byte(&amiga, this_task.wrapping_add(TASK_STATE));
+        let sig_wait = read_long(&amiga, this_task.wrapping_add(TASK_SIG_WAIT));
+        let sig_recvd = read_long(&amiga, this_task.wrapping_add(TASK_SIG_RECVD));
+        eprintln!(
+            "\n=== ThisTask @ ${this_task:08X} ===\n\
+             name='{name}' state={state} sigWait=${sig_wait:08X} sigRecvd=${sig_recvd:08X}"
+        );
     }
+
+    dump_task_list(&amiga, "TaskReady", exec_base.wrapping_add(EXEC_TASK_READY));
+    dump_task_list(&amiga, "TaskWait", exec_base.wrapping_add(EXEC_TASK_WAIT));
 
     eprintln!("\n=== Framebuffer ===");
     let fb = amiga.denise().framebuffer();
