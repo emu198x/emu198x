@@ -60,6 +60,14 @@ fn visible_pixels_match_color00() {
     amiga.poke_byte(0x00BFE001, 0x02);
     amiga.poke_word(0x00DFF180, 0x0F00); // COLOR00 = red
 
+    // Set up a PAL-standard display window so Denise has somewhere
+    // to render. Denise now reads these from the chipset registers
+    // instead of using fixed constants.
+    amiga.poke_word(0x00DFF08E, 0x2C81); // DIWSTRT — V=$2C, H=$81
+    amiga.poke_word(0x00DFF090, 0x2CC1); // DIWSTOP — V=$2C (→$12C), H=$C1 (→$1C1)
+    amiga.poke_word(0x00DFF092, 0x0038); // DDFSTRT — lores standard
+    amiga.poke_word(0x00DFF094, 0x00D0); // DDFSTOP — lores standard
+
     // Run one full PAL frame.
     let frame_ccks = u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES);
     for _ in 0..frame_ccks {
@@ -68,9 +76,13 @@ fn visible_pixels_match_color00() {
 
     let fb = amiga.denise().framebuffer();
     let expected = rgb12_to_argb(0x0F00);
-    // Sample a pixel near the center of the visible viewport.
+    // Sample a pixel near the center of the visible viewport. With
+    // DIW V = [$2C, $12C), the displayed rows start at line $2C = 44.
+    // Framebuffer y = (vpos - $2C) * 2, so vpos $90 (144, roughly
+    // mid-screen) lands at framebuffer row ($90 - $2C) * 2 = $E0*2
+    // = 200 / ... actually (144-44)*2 = 200. Sample there.
     let (w, _h) = amiga.denise().framebuffer_size();
-    let center_idx = (288 * w + 384) as usize;
+    let center_idx = (200 * w + 384) as usize;
     assert_eq!(
         fb[center_idx], expected,
         "Center pixel should be COLOR00=$0F00 → ARGB ${expected:08X}, got ${:08X}",

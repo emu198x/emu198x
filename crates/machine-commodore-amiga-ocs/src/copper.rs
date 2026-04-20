@@ -273,7 +273,8 @@ mod tests {
         // VP bit 7 = 1 and current has VP bit 7 = 0, WAIT never
         // releases.
         let target = 0x8000; // VP=128, HP=0
-        let mask = (0x0000u16 & 0x7FFE) | 0x8000; // all low bits masked; bit 15 forced
+        // All low bits masked out; bit 15 forced per HRM.
+        let mask = 0x8000u16;
 
         assert!(!beam_match(target, mask, 127, 0));
         assert!(!beam_match(target, mask, 10, 0xE2));

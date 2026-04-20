@@ -25,15 +25,40 @@ use crate::memory::Memory;
 pub const FB_WIDTH: u32 = 768;
 pub const FB_HEIGHT: u32 = 576;
 
-/// Visible viewport bounds (lines).
-pub const VIEWPORT_V_START_LINE: u16 = 0x19;
-pub const VIEWPORT_V_END_LINE: u16 = 0x139;
+/// Decode a DIWSTRT/DIWSTOP register pair into the effective vertical
+/// display window `[vstart, vstop)` in absolute line numbers.
+///
+/// Per HRM 3rd ed., Table 3-9 and the surrounding "Setting the
+/// Display Window" prose:
+///
+/// - VSTART is the low 8 bits of DIWSTRT's high byte; bit 8 is
+///   implicitly 0 (VSTART is in the upper half of the frame).
+/// - VSTOP is the low 8 bits of DIWSTOP's high byte; bit 8 is
+///   **the complement of bit 7** ("forcing the MSB of the stop
+///   position to be the complement of the next MSB"). So a byte
+///   value >=$80 means VSTOP is in the upper half (bit 8 = 0),
+///   and <$80 means VSTOP is in the lower half (bit 8 = 1,
+///   i.e. add $100).
+#[must_use]
+pub fn diw_vertical_window(diwstrt: u16, diwstop: u16) -> (u16, u16) {
+    let vstart = (diwstrt >> 8) & 0xFF;
+    let vstop_byte = (diwstop >> 8) & 0xFF;
+    let vstop = if vstop_byte & 0x80 != 0 {
+        vstop_byte
+    } else {
+        vstop_byte | 0x100
+    };
+    (vstart, vstop)
+}
 
-/// Display data fetch window — fixed at the boot's typical bounds for
-/// now. Future refinement: respect DDFSTRT/STOP and DIWSTRT/STOP per
-/// frame, including their CCK-quantised rules.
-const DDF_START_CCK: u16 = 0x38;
-const DDF_STOP_CCK: u16 = 0xD0;
+/// Decode a DDFSTRT/DDFSTOP register pair into a CCK-aligned fetch
+/// window `[ddf_start, ddf_stop)`. The low 2 bits of each register
+/// are forced to zero per HRM — fetch block boundaries must align to
+/// 4 CCKs for lores.
+#[must_use]
+pub fn ddf_window(ddfstrt: u16, ddfstop: u16) -> (u16, u16) {
+    (ddfstrt & 0x00FC, ddfstop & 0x00FC)
+}
 
 /// Lores 8-CCK fetch block schedule:
 ///   slot 0: BPL4 (BPU >= 4)
@@ -108,15 +133,20 @@ impl Denise {
         chipset: &mut Chipset,
         memory: &Memory,
     ) {
-        let in_visible_line =
-            (VIEWPORT_V_START_LINE..VIEWPORT_V_END_LINE).contains(&vpos);
+        let (vstart, vstop) =
+            diw_vertical_window(chipset.diwstrt, chipset.diwstop);
+        let (ddf_start, ddf_stop) =
+            ddf_window(chipset.ddfstrt, chipset.ddfstop);
+
+        let in_visible_line = (vstart..vstop).contains(&vpos);
         let bpl_dma_on = chipset.dmacon & 0x0300 == 0x0300;
         let bpu = chipset.num_bitplanes();
-        let in_ddf = (DDF_START_CCK..DDF_STOP_CCK).contains(&hpos);
+        let in_ddf =
+            ddf_stop > ddf_start && (ddf_start..ddf_stop).contains(&hpos);
 
         // ── 1. Bitplane fetch (one slot per CCK) ────────────────
         if in_visible_line && bpl_dma_on && in_ddf {
-            let slot_in_block = (hpos - DDF_START_CCK) % 8;
+            let slot_in_block = (hpos - ddf_start) % 8;
             if let Some(plane) = lores_fetch_plane(slot_in_block, bpu) {
                 let addr = chipset.bpl_pt[plane];
                 let hi = memory.read_chip_ram_byte(addr);
@@ -128,10 +158,8 @@ impl Denise {
         }
 
         // ── 2. Reload shift registers at slot 7 of each block ───
-        // After all fetches in this 8-CCK block have completed, copy
-        // each plane's latched fetch result into the shift register.
         if in_visible_line && in_ddf {
-            let slot_in_block = (hpos - DDF_START_CCK) % 8;
+            let slot_in_block = (hpos - ddf_start) % 8;
             if slot_in_block == 7 {
                 for p in 0..bpu as usize {
                     self.bpl_shift[p] = self.bpl_data[p];
@@ -141,8 +169,8 @@ impl Denise {
 
         // ── 3. Output 2 lores pixels ────────────────────────────
         if in_visible_line && in_ddf {
-            let local_y = (vpos - VIEWPORT_V_START_LINE) as u32 * 2;
-            let local_x_base = (hpos - DDF_START_CCK) as u32 * 2;
+            let local_y = u32::from(vpos.saturating_sub(vstart)) * 2;
+            let local_x_base = u32::from(hpos - ddf_start) * 2;
             for pixel_in_cck in 0..2u32 {
                 let mut index = 0u8;
                 for p in 0..bpu as usize {
@@ -154,7 +182,6 @@ impl Denise {
                 let colour = chipset.color[index as usize] & 0x0FFF;
                 let pixel = rgb12_to_argb(colour);
                 let local_x = local_x_base + pixel_in_cck;
-                // Pixel-double horizontally, line-double vertically.
                 for dy in [local_y, local_y + 1] {
                     for dx in 0..2u32 {
                         let x = local_x * 2 + dx;
@@ -168,18 +195,15 @@ impl Denise {
         }
 
         // ── 4. End-of-line modulo ───────────────────────────────
-        // At the very last CCK before line wrap, apply modulo. The
-        // beam wraps after `PAL_LINE_CCKS - 1`; we tick the modulo
-        // when hpos == 0 (the line that just started). At hpos==0 we
-        // know the previous line's fetches are done.
         if hpos == 0 && self.bytes_this_line > 0 && bpl_dma_on {
             for p in 0..bpu as usize {
                 let modulo = if p & 1 == 0 {
-                    chipset.bpl1mod as i32
+                    i32::from(chipset.bpl1mod)
                 } else {
-                    chipset.bpl2mod as i32
+                    i32::from(chipset.bpl2mod)
                 };
-                chipset.bpl_pt[p] = chipset.bpl_pt[p].wrapping_add(modulo as u32);
+                chipset.bpl_pt[p] =
+                    chipset.bpl_pt[p].wrapping_add(modulo as u32);
             }
             self.bytes_this_line = 0;
         }
@@ -220,5 +244,32 @@ mod tests {
         assert_eq!(lores_fetch_plane(4, 3), Some(2));
         assert_eq!(lores_fetch_plane(6, 3), Some(0));
         assert_eq!(lores_fetch_plane(0, 3), None);
+    }
+
+    #[test]
+    fn diw_vertical_window_pal_nominal() {
+        // PAL nominal values per HRM Table 3-9: DIWSTRT $2C81,
+        // DIWSTOP $2CC1. VSTOP byte $2C < $80 so MSB is 1 →
+        // effective VSTOP = $12C (300).
+        let (vstart, vstop) = diw_vertical_window(0x2C81, 0x2CC1);
+        assert_eq!(vstart, 0x2C);
+        assert_eq!(vstop, 0x12C);
+    }
+
+    #[test]
+    fn diw_vertical_window_ntsc_nominal() {
+        // NTSC DIWSTOP $F4C1. VSTOP byte $F4 >= $80 so MSB is 0 →
+        // effective VSTOP = $F4 (244).
+        let (vstart, vstop) = diw_vertical_window(0x2C81, 0xF4C1);
+        assert_eq!(vstart, 0x2C);
+        assert_eq!(vstop, 0xF4);
+    }
+
+    #[test]
+    fn ddf_window_masks_to_fetch_alignment() {
+        // Low 2 bits forced to zero (4-CCK alignment).
+        assert_eq!(ddf_window(0x0038, 0x00D0), (0x38, 0xD0));
+        assert_eq!(ddf_window(0x003B, 0x00D2), (0x38, 0xD0));
+        assert_eq!(ddf_window(0x003C, 0x00D3), (0x3C, 0xD0));
     }
 }
