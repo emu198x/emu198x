@@ -377,6 +377,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "commodore-paula-8364"
+version = "0.1.0"
+
+[[package]]
 name = "common-commodore-c64"
 version = "0.1.0"
 
