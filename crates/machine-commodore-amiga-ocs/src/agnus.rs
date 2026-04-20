@@ -53,8 +53,8 @@ impl Agnus {
     /// (bits 0-7).
     #[must_use]
     pub fn vhposr(&self) -> u16 {
-        let vpos_lo = (self.vpos & 0xFF) as u16;
-        let hpos = (self.hpos & 0xFF) as u16;
+        let vpos_lo = self.vpos & 0xFF;
+        let hpos = self.hpos & 0xFF;
         (vpos_lo << 8) | hpos
     }
 

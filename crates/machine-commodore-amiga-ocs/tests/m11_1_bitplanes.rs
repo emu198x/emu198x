@@ -100,20 +100,27 @@ fn one_bitplane_stripes_render() {
     // With alternating-word data ($FFFF, $0000, $FFFF, ...), each
     // 16-bit lores word covers 32 displayed pixels (lores bits are
     // pixel-doubled horizontally). Expect runs of 32 white / 32 black.
+    //
+    // Cycle-accurate Denise has a fetch warm-up: for BPU=1 the first
+    // BPL1 fetch lands at slot 6 of the first DDF block, the shift
+    // register reloads at slot 7, and the first fetched pixel reaches
+    // the framebuffer at CCK DDF_START_CCK+7 → framebuffer x = 28.
+    // Earlier columns are color 0 (black) from the empty shift reg.
     let center_line = 200u32;
     let row_start = center_line * w;
     let white = rgb12_to_argb(0x0FFF);
     let black = rgb12_to_argb(0x0000);
+    let warmup_px = 28u32;
 
     for word in 0..8 {
-        let base_x = (word * 32) as u32;
+        let base_x = warmup_px + (word as u32) * 32;
         let expect = if word & 1 == 0 { white } else { black };
         // Sample mid-word to avoid any edge ambiguity.
-        let p = fb[(row_start + base_x + 16) as usize];
+        let sample_x = base_x + 16;
+        let p = fb[(row_start + sample_x) as usize];
         assert_eq!(
             p, expect,
-            "word {word} (x={}): expected ${expect:08X}, got ${p:08X}",
-            base_x + 16
+            "word {word} (x={sample_x}): expected ${expect:08X}, got ${p:08X}",
         );
     }
 }

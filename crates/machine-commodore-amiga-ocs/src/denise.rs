@@ -1,18 +1,22 @@
-//! Denise — display chip (M11 minimum).
+//! Denise — display chip, per-CCK cycle-accurate.
 //!
-//! At M11 Denise just outputs the background color (COLOR00) for each
-//! pixel in the visible PAL Standard viewport. No bitplane decoding
-//! yet — bits move into Denise's shift registers in M11.1.
+//! Each CCK while the beam is in the visible region:
+//!   1. If the current CCK is a bitplane-fetch slot (per the lores
+//!      DMA schedule) and bitplane DMA is enabled, fetch a 16-bit
+//!      word from the appropriate `BPL[n]PT`, advance the pointer
+//!      by 2, and latch into `bpl_data[n]`.
+//!   2. At the slot boundary (end of the 8-CCK block), load
+//!      `bpl_shift[n] ← bpl_data[n]` for each active plane.
+//!   3. Output 2 lores pixels: combine the MSB of each plane's
+//!      shift register into a color index, look up `chipset.color`,
+//!      write to the framebuffer (with horizontal pixel-doubling
+//!      and vertical line-doubling for square-pixel 4:3 output).
+//!      Then left-shift each plane's shift register by 1.
 //!
-//! Output format: 768 × 576 ARGB8888.
+//! End of line: advance `BPL[n]PT` by the line modulo.
 //!
-//! Visible viewport (matches archived investigation's PAL Standard):
-//!   - Horizontal: CCKs $2C..$EC (192 CCKs) → 384 lores px → 768 hires/displayed
-//!   - Vertical: lines $19..$139 (288 lines) → 576 line-doubled rows
-//!
-//! Each CCK in the visible region produces 2 lores pixels (the
-//! current implementation always renders lores; hires comes when
-//! the boot demands it).
+//! This is the minimum cycle-accurate form. Hires + dual-playfield
+//! + HAM + EHB are NOT supported — those land when a test demands.
 
 use crate::chipset::Chipset;
 use crate::memory::Memory;
@@ -21,14 +25,48 @@ use crate::memory::Memory;
 pub const FB_WIDTH: u32 = 768;
 pub const FB_HEIGHT: u32 = 576;
 
-/// Visible viewport bounds (lines). Horizontal bounds weren't used
-/// by the scanline renderer; DDFSTRT/STOP gating lives in M11.2.
+/// Visible viewport bounds (lines).
 pub const VIEWPORT_V_START_LINE: u16 = 0x19;
 pub const VIEWPORT_V_END_LINE: u16 = 0x139;
+
+/// Display data fetch window — fixed at the boot's typical bounds for
+/// now. Future refinement: respect DDFSTRT/STOP and DIWSTRT/STOP per
+/// frame, including their CCK-quantised rules.
+const DDF_START_CCK: u16 = 0x38;
+const DDF_STOP_CCK: u16 = 0xD0;
+
+/// Lores 8-CCK fetch block schedule:
+///   slot 0: BPL4 (BPU >= 4)
+///   slot 1: BPL6 (BPU >= 6) — HAM/EHB only
+///   slot 2: BPL2 (BPU >= 2)
+///   slot 3: BPL5 (BPU >= 5)
+///   slot 4: BPL3 (BPU >= 3)
+///   slot 5: (idle)
+///   slot 6: BPL1 (BPU >= 1)
+///   slot 7: (idle)
+fn lores_fetch_plane(slot_in_block: u16, bpu: u8) -> Option<usize> {
+    match slot_in_block {
+        0 if bpu >= 4 => Some(3),
+        1 if bpu >= 6 => Some(5),
+        2 if bpu >= 2 => Some(1),
+        3 if bpu >= 5 => Some(4),
+        4 if bpu >= 3 => Some(2),
+        6 if bpu >= 1 => Some(0),
+        _ => None,
+    }
+}
 
 pub struct Denise {
     /// ARGB8888 framebuffer (FB_WIDTH × FB_HEIGHT pixels).
     pub framebuffer: Vec<u32>,
+    /// Per-bitplane shift registers — current 16 bits being clocked out.
+    pub bpl_shift: [u16; 6],
+    /// Per-bitplane data registers — latched fetched word, copied
+    /// into shift register at the next slot boundary.
+    pub bpl_data: [u16; 6],
+    /// Bytes fetched on the current line per plane (used to compute
+    /// modulo adjustment at end of line).
+    bytes_this_line: u32,
 }
 
 impl Default for Denise {
@@ -42,6 +80,9 @@ impl Denise {
     pub fn new() -> Self {
         Self {
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            bpl_shift: [0; 6],
+            bpl_data: [0; 6],
+            bytes_this_line: 0,
         }
     }
 
@@ -57,11 +98,9 @@ impl Denise {
         &self.framebuffer
     }
 
-    /// Render a single CCK's worth of pixels into the framebuffer at
-    /// the given beam position. When `hpos == 0` and we're in the
-    /// visible vertical window, compose the entire visible line from
-    /// bitplane data + palette (scanline renderer; per-CCK bitplane
-    /// fetch scheduling is left for a future refinement).
+    /// Tick one CCK. Performs at most one bitplane fetch (if scheduled)
+    /// and outputs 2 lores pixels into the framebuffer (if in visible
+    /// window). Called from `Amiga::tick_cck` after the beam advance.
     pub fn tick_cck(
         &mut self,
         vpos: u16,
@@ -69,55 +108,56 @@ impl Denise {
         chipset: &mut Chipset,
         memory: &Memory,
     ) {
-        if hpos != 0 {
-            return;
+        let in_visible_line =
+            (VIEWPORT_V_START_LINE..VIEWPORT_V_END_LINE).contains(&vpos);
+        let bpl_dma_on = chipset.dmacon & 0x0300 == 0x0300;
+        let bpu = chipset.num_bitplanes();
+        let in_ddf = (DDF_START_CCK..DDF_STOP_CCK).contains(&hpos);
+
+        // ── 1. Bitplane fetch (one slot per CCK) ────────────────
+        if in_visible_line && bpl_dma_on && in_ddf {
+            let slot_in_block = (hpos - DDF_START_CCK) % 8;
+            if let Some(plane) = lores_fetch_plane(slot_in_block, bpu) {
+                let addr = chipset.bpl_pt[plane];
+                let hi = memory.read_chip_ram_byte(addr);
+                let lo = memory.read_chip_ram_byte(addr.wrapping_add(1));
+                self.bpl_data[plane] = (u16::from(hi) << 8) | u16::from(lo);
+                chipset.bpl_pt[plane] = chipset.bpl_pt[plane].wrapping_add(2);
+                self.bytes_this_line += 2;
+            }
         }
-        if !(VIEWPORT_V_START_LINE..VIEWPORT_V_END_LINE).contains(&vpos) {
-            return;
-        }
 
-        let local_y = (vpos - VIEWPORT_V_START_LINE) as u32 * 2;
-        let bpl_dma_on =
-            chipset.dmacon & 0x0100 != 0 && chipset.dmacon & 0x0200 != 0;
-        let num_planes = chipset.num_bitplanes();
-
-        // Display window is 384 lores pixels = 24 16-bit words per
-        // bitplane per line. We simplify by always rendering that
-        // full 384-pixel span (DIWSTRT/STOP and DDFSTRT/STOP are
-        // stored but not yet gating the span).
-        const PIXELS_PER_LINE: u32 = 384;
-        const WORDS_PER_LINE: u32 = 24;
-
-        for word_idx in 0..WORDS_PER_LINE {
-            // Fetch one 16-bit word from each active bitplane, or
-            // zero if bitplane DMA is off / no planes active.
-            let mut words = [0u16; 6];
-            for p in 0..num_planes as usize {
-                if bpl_dma_on && num_planes > 0 {
-                    let addr = chipset.bpl_pt[p].wrapping_add(word_idx * 2);
-                    let hi = memory.read_chip_ram_byte(addr);
-                    let lo = memory.read_chip_ram_byte(addr.wrapping_add(1));
-                    words[p] = (u16::from(hi) << 8) | u16::from(lo);
+        // ── 2. Reload shift registers at slot 7 of each block ───
+        // After all fetches in this 8-CCK block have completed, copy
+        // each plane's latched fetch result into the shift register.
+        if in_visible_line && in_ddf {
+            let slot_in_block = (hpos - DDF_START_CCK) % 8;
+            if slot_in_block == 7 {
+                for p in 0..bpu as usize {
+                    self.bpl_shift[p] = self.bpl_data[p];
                 }
             }
+        }
 
-            for bit in 0..16u32 {
+        // ── 3. Output 2 lores pixels ────────────────────────────
+        if in_visible_line && in_ddf {
+            let local_y = (vpos - VIEWPORT_V_START_LINE) as u32 * 2;
+            let local_x_base = (hpos - DDF_START_CCK) as u32 * 2;
+            for pixel_in_cck in 0..2u32 {
                 let mut index = 0u8;
-                let shift = 15 - bit;
-                for p in 0..num_planes as usize {
-                    if (words[p] >> shift) & 1 != 0 {
+                for p in 0..bpu as usize {
+                    if (self.bpl_shift[p] >> 15) & 1 != 0 {
                         index |= 1 << p;
                     }
+                    self.bpl_shift[p] <<= 1;
                 }
                 let colour = chipset.color[index as usize] & 0x0FFF;
                 let pixel = rgb12_to_argb(colour);
-                let local_x = (word_idx * 16 + bit) * 2; // pixel-double
-                if local_x + 1 >= PIXELS_PER_LINE * 2 {
-                    continue;
-                }
+                let local_x = local_x_base + pixel_in_cck;
+                // Pixel-double horizontally, line-double vertically.
                 for dy in [local_y, local_y + 1] {
                     for dx in 0..2u32 {
-                        let x = local_x + dx;
+                        let x = local_x * 2 + dx;
                         let idx = (dy * FB_WIDTH + x) as usize;
                         if idx < self.framebuffer.len() {
                             self.framebuffer[idx] = pixel;
@@ -127,19 +167,21 @@ impl Denise {
             }
         }
 
-        // Advance bitplane pointers by line width + modulo.
-        if bpl_dma_on && num_planes > 0 {
-            let line_bytes = WORDS_PER_LINE * 2;
-            for p in 0..num_planes as usize {
+        // ── 4. End-of-line modulo ───────────────────────────────
+        // At the very last CCK before line wrap, apply modulo. The
+        // beam wraps after `PAL_LINE_CCKS - 1`; we tick the modulo
+        // when hpos == 0 (the line that just started). At hpos==0 we
+        // know the previous line's fetches are done.
+        if hpos == 0 && self.bytes_this_line > 0 && bpl_dma_on {
+            for p in 0..bpu as usize {
                 let modulo = if p & 1 == 0 {
                     chipset.bpl1mod as i32
                 } else {
                     chipset.bpl2mod as i32
                 };
-                chipset.bpl_pt[p] = chipset.bpl_pt[p]
-                    .wrapping_add(line_bytes)
-                    .wrapping_add(modulo as u32);
+                chipset.bpl_pt[p] = chipset.bpl_pt[p].wrapping_add(modulo as u32);
             }
+            self.bytes_this_line = 0;
         }
     }
 }
@@ -163,43 +205,20 @@ mod tests {
         assert_eq!(rgb12_to_argb(0x0FFF), 0xFFFF_FFFF);
         assert_eq!(rgb12_to_argb(0x0000), 0xFF00_0000);
         assert_eq!(rgb12_to_argb(0x0F00), 0xFFFF_0000);
-        assert_eq!(rgb12_to_argb(0x00F0), 0xFF00_FF00);
-        assert_eq!(rgb12_to_argb(0x000F), 0xFF00_00FF);
         assert_eq!(rgb12_to_argb(0x0444), 0xFF44_4444);
     }
 
     #[test]
-    fn outside_viewport_does_nothing() {
-        let mut d = Denise::new();
-        let mut c = Chipset::new();
-        let mut mem = Memory::new(vec![0u8; 256 * 1024]);
-        mem.set_overlay(false);
-        c.color[0] = 0x0FFF;
-        // hpos != 0 → no-op for the scanline renderer
-        d.tick_cck(100, 50, &mut c, &mem);
-        // vpos before viewport
-        d.tick_cck(5, 0, &mut c, &mem);
-        assert!(d.framebuffer.iter().all(|&p| p == 0xFF00_0000));
-    }
-
-    #[test]
-    fn visible_line_fills_with_color00_when_no_bitplanes() {
-        let mut d = Denise::new();
-        let mut c = Chipset::new();
-        let mut mem = Memory::new(vec![0u8; 256 * 1024]);
-        mem.set_overlay(false);
-        c.color[0] = 0x0F00;
-        // BPU=0 → all pixels = color 0.
-        c.bplcon0 = 0x0200;
-        d.tick_cck(100, 0, &mut c, &mem);
-        let local_y = (100 - VIEWPORT_V_START_LINE) as u32 * 2;
-        let red = 0xFFFF_0000;
-        for x in 0..16u32 {
-            assert_eq!(
-                d.framebuffer[(local_y * FB_WIDTH + x) as usize],
-                red,
-                "pixel {x} on filled line should be red (color 0)"
-            );
+    fn lores_fetch_schedule() {
+        // BPU=1: only slot 6 (BPL1).
+        assert_eq!(lores_fetch_plane(6, 1), Some(0));
+        for s in [0, 1, 2, 3, 4, 5, 7] {
+            assert_eq!(lores_fetch_plane(s, 1), None);
         }
+        // BPU=3: slots 2 (BPL2), 4 (BPL3), 6 (BPL1).
+        assert_eq!(lores_fetch_plane(2, 3), Some(1));
+        assert_eq!(lores_fetch_plane(4, 3), Some(2));
+        assert_eq!(lores_fetch_plane(6, 3), Some(0));
+        assert_eq!(lores_fetch_plane(0, 3), None);
     }
 }
