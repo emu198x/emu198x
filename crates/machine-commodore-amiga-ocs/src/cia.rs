@@ -57,6 +57,25 @@ pub struct Cia {
     /// Paula-side edge detection in AmigaOcs, the double-latch
     /// doesn't happen.
     pub irq_pending: bool,
+    /// 24-bit binary Time-Of-Day counter. On Amiga CIA-A the TOD
+    /// pin is wired to /VSYNC (VBL, 50 Hz PAL / 60 Hz NTSC); on
+    /// CIA-B it's /HSYNC (~15.6 kHz PAL). Each rising edge of the
+    /// external tick input increments this counter, wrapping at
+    /// \$1_000_000. The 8520 CIA uses **binary** counting, not
+    /// BCD (unlike the original MOS 6526).
+    ///
+    /// Register map:
+    ///   \$8 — TODLO  (bits 7-0)
+    ///   \$9 — TODMID (bits 15-8)
+    ///   \$A — TODHI  (bits 23-16)
+    ///
+    /// The hardware also supports a read-latch feature (reading
+    /// TODHI freezes all three byte views until TODLO is read) for
+    /// atomic 24-bit reads. KS 1.3's PAL/NTSC probe only reads
+    /// TODLO repeatedly, so the latch path isn't exercised yet.
+    /// When a later milestone needs it we'll add `tod_latched:
+    /// Option<u32>` and gate the byte reads accordingly.
+    pub tod_counter: u32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -113,6 +132,7 @@ impl Default for Cia {
             icr_mask: 0,
             icr_flags: 0,
             irq_pending: false,
+            tod_counter: 0,
         }
     }
 }
@@ -148,6 +168,24 @@ impl Cia {
                 if self.timer_b.control & 0x01 == 0 {
                     self.timer_b.counter = self.timer_b.latch;
                 }
+            }
+            // $8-$A — TOD counter write. On real hardware, CRB bit 7
+            // routes these writes to the alarm registers instead; we
+            // don't model the alarm yet (KS 1.3 PAL/NTSC probe only
+            // reads TODLO). A TODLO write also pauses counting on
+            // real hardware until the next TODHI write — likewise
+            // deferred.
+            8 => {
+                self.tod_counter =
+                    (self.tod_counter & 0x00FF_FF00) | u32::from(val);
+            }
+            9 => {
+                self.tod_counter = (self.tod_counter & 0x00FF_00FF)
+                    | (u32::from(val) << 8);
+            }
+            0xA => {
+                self.tod_counter = (self.tod_counter & 0x0000_FFFF)
+                    | (u32::from(val) << 16);
             }
             // $D — ICR write: mask programming with set/clear semantics.
             0xD => {
@@ -190,6 +228,15 @@ impl Cia {
             5 => (self.timer_a.counter >> 8) as u8,
             6 => (self.timer_b.counter & 0xFF) as u8,
             7 => (self.timer_b.counter >> 8) as u8,
+            // $8-$A — TOD counter byte reads. Real hardware freezes
+            // the view on TODHI read and unfreezes on TODLO read
+            // (atomic 24-bit read). We don't need that latch path
+            // yet for the KS 1.3 PAL/NTSC probe, which only reads
+            // TODLO in a tight loop. When something needs consistent
+            // TODHI/MID/LO reads we'll add a shadow register.
+            8 => (self.tod_counter & 0xFF) as u8,
+            9 => ((self.tod_counter >> 8) & 0xFF) as u8,
+            0xA => ((self.tod_counter >> 16) & 0xFF) as u8,
             0xD => {
                 // Return current flags + IR-pending bit; clear flags
                 // on read. update_irq recomputes /IRQ level — with
@@ -229,10 +276,25 @@ impl Cia {
             5 => (self.timer_a.counter >> 8) as u8,
             6 => (self.timer_b.counter & 0xFF) as u8,
             7 => (self.timer_b.counter >> 8) as u8,
+            8 => (self.tod_counter & 0xFF) as u8,
+            9 => ((self.tod_counter >> 8) & 0xFF) as u8,
+            0xA => ((self.tod_counter >> 16) & 0xFF) as u8,
             0xE => self.timer_a.control,
             0xF => self.timer_b.control,
             _ => 0xFF,
         }
+    }
+
+    /// Tick the TOD counter by one external-pin pulse. On CIA-A
+    /// this is the rising edge of /VSYNC (VBL, 50/60 Hz); on CIA-B
+    /// it's /HSYNC (line rate). The 8520 counts in binary 24-bit
+    /// and wraps to zero at \$1_000_000.
+    ///
+    /// An ALARM register + interrupt flag is specified but not yet
+    /// modelled — KS 1.3 boot's PAL/NTSC probe only needs the
+    /// counter to increment.
+    pub fn tick_tod(&mut self) {
+        self.tod_counter = (self.tod_counter + 1) & 0x00FF_FFFF;
     }
 
     /// Tick one E-clock period (= 10 CCKs). Steps timer A and B,
@@ -387,6 +449,43 @@ mod tests {
         assert_eq!(cia.timer_a.control & 0x01, 1, "continuous mode keeps running");
         // Counter should hold the latch value (just reloaded).
         assert_eq!(cia.timer_a.counter, 2);
+    }
+
+    #[test]
+    fn tod_counter_increments_on_tick_and_wraps_at_24_bits() {
+        let mut cia = Cia::new();
+        assert_eq!(cia.tod_counter, 0);
+        cia.tick_tod();
+        assert_eq!(cia.tod_counter, 1);
+        for _ in 0..10 {
+            cia.tick_tod();
+        }
+        assert_eq!(cia.tod_counter, 11);
+
+        // Wrap check: set counter near the 24-bit boundary.
+        cia.tod_counter = 0x00FF_FFFE;
+        cia.tick_tod();
+        assert_eq!(cia.tod_counter, 0x00FF_FFFF);
+        cia.tick_tod();
+        assert_eq!(cia.tod_counter, 0x0000_0000, "TOD wraps at \\$1_000_000");
+    }
+
+    #[test]
+    fn tod_register_reads_return_counter_bytes() {
+        let mut cia = Cia::new();
+        cia.tod_counter = 0x00AB_CDEF;
+        assert_eq!(cia.read_register(0x8), 0xEF, "TODLO");
+        assert_eq!(cia.read_register(0x9), 0xCD, "TODMID");
+        assert_eq!(cia.read_register(0xA), 0xAB, "TODHI");
+    }
+
+    #[test]
+    fn tod_register_writes_update_counter_bytes() {
+        let mut cia = Cia::new();
+        cia.write_register(0x8, 0x11);
+        cia.write_register(0x9, 0x22);
+        cia.write_register(0xA, 0x33);
+        assert_eq!(cia.tod_counter, 0x0033_2211);
     }
 
     #[test]

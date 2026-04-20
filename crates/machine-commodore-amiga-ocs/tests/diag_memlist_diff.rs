@@ -286,18 +286,9 @@ fn trace_intena_writes_chip_only_vs_slow_ram() {
     .expect("read kick13.rom");
 
     eprintln!("\n=== ROM disassembly context ===");
-    // $FC3012 — Disable() entry that drops master to $202C.
-    dump_rom_bytes(&rom, 0x00FC_3012, 0, 32);
-    // $FC05F6 — chip-only's PC after stall (suspected exception or
-    // reset-recovery loop).
-    eprintln!("\n  -- chip-only stall PC --");
-    dump_rom_bytes(&rom, 0x00FC_05F6, 8, 16);
-    // $FC30CC — slow-RAM's PC at the same checkpoint (further along
-    // in the cold-reset routine).
-    eprintln!("\n  -- slow-RAM stall PC --");
-    dump_rom_bytes(&rom, 0x00FC_30CC, 8, 16);
-    // $FC3132 — chip-only's PC at frame 200 (reached just past the
-    // Disable, before the backward jump to $FC05F6).
-    eprintln!("\n  -- chip-only PC at frame 200 --");
-    dump_rom_bytes(&rom, 0x00FC_3132, 4, 16);
+    // $FE8F32 — the current terminal PC (final INTENA write in both
+    // configs). Dump a wider window to see the full routine + the
+    // subroutine called at $FE8F34.
+    eprintln!("  -- terminal PC $FE8F32 region --");
+    dump_rom_bytes(&rom, 0x00FE_8F32, 16, 128);
 }

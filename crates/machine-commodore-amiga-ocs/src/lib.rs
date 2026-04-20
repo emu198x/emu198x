@@ -388,7 +388,11 @@ impl AmigaOcs {
             let vertb_level = self.agnus.vertb_level();
             let rising_edge = vertb_level && !self.prev_vertb_level;
             if rising_edge {
+                // Copper restarts from COP1LC on every VBL edge.
                 self.copper.jump1();
+                // CIA-A TOD pin is wired to /VSYNC on real Amiga, so
+                // it ticks once per VBL edge.
+                self.cia_a.tick_tod();
             }
             if vertb_level && (self.chipset.intreq & 0x0020) == 0 {
                 self.chipset.write_word(0x09C, 0x8020);
