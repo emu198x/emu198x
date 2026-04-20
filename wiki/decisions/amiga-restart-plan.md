@@ -16,8 +16,9 @@
 | M6 | ✅ | 2 | Beam counter (PAL) + VBL → INTREQ.VERTB → CPU IPL. |
 | M7 | ✅ | 2 | VPOSR/VHPOSR + CIA-A input-bit floating-high. |
 | M8 | ✅ | 2 | CIA-A timer A/B + ICR + CIA→Paula IRQ. |
-| M9 | next | — | Paula stubs (audio, disk, serial register storage). |
-| M10-M12 | pending | — | Copper, bitplane DMA, Denise pixels, slow-RAM golden. |
+| M9 | ✅ | 2 | CIA-B stub at $BFD000 + IRQ→EXTER. |
+| M10 | next | — | Copper module + DMA scheduling. |
+| M11-M12 | pending | — | Bitplane DMA + Denise pixels, slow-RAM golden. |
 
 Total tests: **35 passing** (21 integration + 14 unit). Diagnostic
 shows boot reaches PC=$FC3132 / SSP=$7FFFC0 / INTENA=$202C / ExecBase
@@ -43,24 +44,31 @@ or an explicit MOVE TO SR. Both happen at end of larger init phases
 that depend on subsystems we haven't added (Paula audio/disk
 register reads, copper, etc).
 
-### Why the stall is structural
+### Where we are: parity with the archived chip-only investigation
 
-Diagnostic findings (M8 session):
+After M0-M9, the restart reproduces the **exact same stall point**
+the old emulator hit on chip-only KS 1.3 (per
+`amiga-chip-only-boot-failure.md`). Diagnostic findings:
 
-- 50M CCKs of boot makes only **6** chipset-register reads (all to
-  $110-$11A bitplane data, each once). Boot is NOT chipset-polling.
-- 500M CCKs (~70s emulated): PC stays in $FC313x region. SSP slowly
-  decreases (subroutine calls), but no progress in chipset state.
-- AttnFlags = `$FFFF_0000` (correct, negative signed long), so the
-  master-enable path at $FC3086 IS reached. But CPU SR=$2718 means
-  IPL=7 (interrupts blocked) — re-enabling INTENA master while
-  inside a critical section has no effect.
+- Boot reaches user mode, OVL clear, ExecBase placement, AttnFlags
+  setup, INTENA cycling.
+- Peak INTENA = `$602C` — master enable IS reached (bit 14 latches
+  briefly).
+- 71 INTENA writes over 500M CCKs ≈ 1 write per 7M CCKs.
+- Boot cycles `Disable() → work → Enable() → busy-wait → Disable()`
+  forever; the "work" doesn't advance.
+- Only **6** chipset-register reads in 50M CCKs (boot isn't
+  chipset-polling).
+- SSP slowly decreases (subroutines run) but never reaches
+  display init.
 
-**The boot is waiting for an exit from a critical section that
-itself depends on chipset behavior we haven't built.** Most likely
-the section ends when a specific resident-module init completes —
-typically the graphics.library or strap module — which needs copper
-+ bitplane DMA + Denise pixel output.
+This is the **same KS 1.3 chip-only deadlock** the archived
+investigation characterised: the boot needs proper copper + Denise
++ bitplane DMA to escape its outer wait loop. The archive
+documented that the V34 ROM uses ExecBase as a copper-list
+placeholder, which only works once proper graphics.library init
+allocates a real list — and that init can't run because the
+scheduler can't dispatch the task that would do it.
 
 ### Pickup notes for next session
 
