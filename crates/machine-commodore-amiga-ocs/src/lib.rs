@@ -329,13 +329,22 @@ impl AmigaOcs {
         }
 
         // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9) are
-        // both set.
+        // both set. Agnus arbitrates the chip bus; pass the current
+        // CCK's claim so the copper yields to bitplane DMA.
+        let claim = denise::dma_claim(
+            self.agnus.hpos,
+            self.chipset.dmacon,
+            self.chipset.bplcon0,
+            self.chipset.ddfstrt,
+            self.chipset.ddfstop,
+        );
         if self.chipset.dmacon & 0x0280 == 0x0280 {
             self.copper.tick_cck(
                 &self.memory,
                 &mut self.chipset,
                 self.agnus.vpos,
                 self.agnus.hpos,
+                claim,
             );
         }
 

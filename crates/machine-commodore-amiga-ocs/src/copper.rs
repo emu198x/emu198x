@@ -30,6 +30,7 @@
 //! the full slot schedule.
 
 use crate::chipset::Chipset;
+use crate::denise::DmaClaim;
 use crate::memory::Memory;
 
 /// Copper internal state.
@@ -91,6 +92,7 @@ impl Copper {
         chipset: &mut Chipset,
         beam_vp: u16,
         beam_hp: u16,
+        claim: DmaClaim,
     ) -> bool {
         // If waiting, only resume when the masked beam position
         // reaches the masked target AND (for BFD=0) the blitter is
@@ -105,9 +107,24 @@ impl Copper {
             return false;
         }
 
-        // Throttle to one instruction per 4 CCKs.
+        // Copper-eligible CCK: odd hpos AND no bitplane claim. Per
+        // HRM Chapter 2: "The Copper is a two-cycle processor that
+        // requests the bus only during odd-numbered memory cycles."
+        // BPL5 / BPL6 at BPU ≥ 5 / 6 claim odd slots within DDF —
+        // those are the ones copper must yield to.
+        let eligible = (beam_hp & 1) != 0 && claim.is_free();
+        if !eligible {
+            return false;
+        }
+
+        // Each copper instruction requires two memory cycles (= two
+        // eligible CCKs). In unconstrained conditions those are two
+        // consecutive odd CCKs, for 4 wall CCKs per instruction. When
+        // BPL5 / BPL6 steal odd slots the copper's effective rate
+        // drops proportionally, which is the intended hardware
+        // behaviour.
         self.cck_phase = self.cck_phase.wrapping_add(1);
-        if self.cck_phase < 4 {
+        if self.cck_phase < 2 {
             return false;
         }
         self.cck_phase = 0;
@@ -194,6 +211,21 @@ mod tests {
         mem
     }
 
+    /// Tick the copper for `ccks` wall-CCKs, advancing hpos each
+    /// tick and holding vpos fixed. Keeps claim = Free so copper
+    /// sees unconstrained odd-CCK availability.
+    fn run_ccks(
+        copper: &mut Copper,
+        mem: &Memory,
+        chipset: &mut Chipset,
+        vpos: u16,
+        ccks: u16,
+    ) {
+        for i in 0..ccks {
+            copper.tick_cck(mem, chipset, vpos, i % 227, DmaClaim::Free);
+        }
+    }
+
     #[test]
     fn move_writes_chipset_register() {
         let mem = build_test_memory_with_list(
@@ -205,11 +237,58 @@ mod tests {
         copper.cop1lc = 0x1000;
         copper.jump1();
 
-        // Copper instruction = 4 CCKs, so tick 4 times.
-        for _ in 0..4 {
-            copper.tick_cck(&mem, &mut chipset, 0, 0);
-        }
+        // Copper instruction = 2 odd-CCK memory cycles = 4 wall CCKs
+        // when unconstrained. Run 4 wall CCKs with hpos cycling 0..3.
+        run_ccks(&mut copper, &mem, &mut chipset, 0, 4);
         assert_eq!(chipset.color[0], 0x0F0F);
+    }
+
+    #[test]
+    fn move_does_not_run_when_only_even_ccks_offered() {
+        // Pin hpos = 0 (even) for 40 ticks — copper gets zero
+        // eligible cycles and should not execute.
+        let mem = build_test_memory_with_list(
+            &[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)],
+            0x1000,
+        );
+        let mut chipset = Chipset::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+
+        for _ in 0..40 {
+            copper.tick_cck(&mem, &mut chipset, 0, 0, DmaClaim::Free);
+        }
+        assert_eq!(chipset.color[0], 0x0000, "copper must not run on even CCKs");
+    }
+
+    #[test]
+    fn move_blocked_by_bitplane_claim_on_odd_cck() {
+        // Copper MOVE needs 2 eligible odd CCKs. If every odd CCK is
+        // claimed by a bitplane (simulating BPL5/BPL6 contention at
+        // BPU ≥ 5), the copper never completes.
+        let mem = build_test_memory_with_list(
+            &[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)],
+            0x1000,
+        );
+        let mut chipset = Chipset::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+
+        for i in 0..40u16 {
+            let hpos = i % 227;
+            let claim = if hpos & 1 != 0 {
+                DmaClaim::Bitplane(5) // BPL6 blocks copper
+            } else {
+                DmaClaim::Free
+            };
+            copper.tick_cck(&mem, &mut chipset, 0, hpos, claim);
+        }
+        assert_eq!(
+            chipset.color[0], 0x0000,
+            "copper must yield to bitplane DMA on odd CCKs",
+        );
     }
 
     #[test]
@@ -228,24 +307,22 @@ mod tests {
         copper.cop1lc = 0x1000;
         copper.jump1();
 
-        // Tick the WAIT instruction (4 CCKs) — copper goes to waiting.
-        for _ in 0..4 {
-            copper.tick_cck(&mem, &mut chipset, 0, 0);
-        }
+        // Tick the WAIT instruction (4 wall CCKs with hpos cycling).
+        run_ccks(&mut copper, &mem, &mut chipset, 0, 4);
         assert!(copper.waiting);
 
         // Tick more with beam still below target — MOVE doesn't run.
-        for _ in 0..50 {
-            copper.tick_cck(&mem, &mut chipset, 4, 200);
+        for i in 0..50 {
+            copper.tick_cck(&mem, &mut chipset, 4, i % 227, DmaClaim::Free);
         }
         assert_eq!(chipset.color[0], 0);
 
-        // Tick with beam at target — copper resumes.
-        for _ in 0..8 {
-            copper.tick_cck(&mem, &mut chipset, 5, 0);
-        }
-        assert!(!copper.waiting);
-        assert_eq!(chipset.color[0], 0x0FFF);
+        // Tick with beam at target — WAIT releases (i=0) then copper
+        // needs 2 eligible odd CCKs (i=1, i=3) to execute the MOVE.
+        // 4 wall CCKs is exactly right; running further would fetch
+        // the end-of-list WAIT and re-enter the waiting state.
+        run_ccks(&mut copper, &mem, &mut chipset, 5, 4);
+        assert_eq!(chipset.color[0], 0x0FFF, "MOVE after WAIT release");
     }
 
     /// Direct beam_match coverage of the mask semantics in the HRM.
@@ -321,22 +398,18 @@ mod tests {
         copper.cop1lc = 0x2000;
         copper.jump1();
 
-        // Execute WAIT at vpos=0 hpos=200 — should enter waiting.
-        for _ in 0..4 {
-            copper.tick_cck(&mem, &mut chipset, 0, 200);
-        }
+        // Execute WAIT at vpos=0 — cycle hpos so copper gets odd CCKs.
+        run_ccks(&mut copper, &mem, &mut chipset, 0, 4);
         assert!(copper.waiting);
         assert_eq!(copper.wait_target, 0x0A00);
         // Mask: (0xFF00 & 0x7FFE) | 0x8000 = 0xFF00.
         assert_eq!(copper.wait_mask, 0xFF00);
 
-        // Advance beam to vpos=10 at any hpos — WAIT releases and
-        // MOVE runs on the next instruction window.
-        for _ in 0..8 {
-            copper.tick_cck(&mem, &mut chipset, 10, 50);
-        }
-        assert!(!copper.waiting);
-        assert_eq!(chipset.color[0], 0x0ABC);
+        // Advance beam to vpos=10 — WAIT releases (i=0), then copper
+        // takes 2 eligible odd CCKs to fetch + execute the MOVE.
+        // 4 wall CCKs is enough; don't overrun into end-of-list.
+        run_ccks(&mut copper, &mem, &mut chipset, 10, 4);
+        assert_eq!(chipset.color[0], 0x0ABC, "MOVE after horizontal-masked WAIT");
     }
 
     #[test]
@@ -358,10 +431,9 @@ mod tests {
         copper.jump1();
 
         // Beam past target → SKIP consumes COLOR00 MOVE, only COLOR01
-        // runs.
-        for _ in 0..16 {
-            copper.tick_cck(&mem, &mut chipset, 100, 0);
-        }
+        // runs. Each instruction = 4 wall CCKs, we have 3 instrs →
+        // need ≥ 12 CCKs of eligible copper cycles.
+        run_ccks(&mut copper, &mem, &mut chipset, 100, 16);
         assert_eq!(chipset.color[0], 0x0000);
         assert_eq!(chipset.color[1], 0x00F0);
     }
@@ -381,9 +453,7 @@ mod tests {
         copper.cop1lc = 0x4000;
         copper.jump1();
 
-        for _ in 0..12 {
-            copper.tick_cck(&mem, &mut chipset, 10, 0);
-        }
+        run_ccks(&mut copper, &mem, &mut chipset, 10, 12);
         assert_eq!(chipset.color[0], 0x0F00);
     }
 }

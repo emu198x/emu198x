@@ -69,7 +69,8 @@ pub fn ddf_window(ddfstrt: u16, ddfstop: u16) -> (u16, u16) {
 ///   slot 5: (idle)
 ///   slot 6: BPL1 (BPU >= 1)
 ///   slot 7: (idle)
-fn lores_fetch_plane(slot_in_block: u16, bpu: u8) -> Option<usize> {
+#[must_use]
+pub fn lores_fetch_plane(slot_in_block: u16, bpu: u8) -> Option<usize> {
     match slot_in_block {
         0 if bpu >= 4 => Some(3),
         1 if bpu >= 6 => Some(5),
@@ -78,6 +79,58 @@ fn lores_fetch_plane(slot_in_block: u16, bpu: u8) -> Option<usize> {
         4 if bpu >= 3 => Some(2),
         6 if bpu >= 1 => Some(0),
         _ => None,
+    }
+}
+
+/// DMA arbitration claim for a given CCK. Currently only bitplane
+/// DMA is modelled — refresh / audio / sprites / disk land in later
+/// milestones with their own features.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DmaClaim {
+    /// CCK is free — copper, blitter, or CPU can use the chip bus.
+    Free,
+    /// CCK is claimed by bitplane DMA for plane index 0..=5.
+    Bitplane(u8),
+}
+
+impl DmaClaim {
+    #[must_use]
+    pub const fn is_free(self) -> bool {
+        matches!(self, DmaClaim::Free)
+    }
+}
+
+/// Compute the DMA claim at the given horizontal beam position for
+/// a given chipset state. Considers bitplane DMA only (M12 minimum).
+///
+/// Per HRM Chapter 2: "The Copper is a two-cycle processor that
+/// requests the bus only during odd-numbered memory cycles. This
+/// prevents collision with audio, disk, refresh, sprites, and most
+/// low resolution display DMA access, all of which use only the
+/// even-numbered memory cycles." — so bitplane DMA predominantly
+/// claims even CCKs, but BPL5 / BPL6 claim odd CCKs, which is
+/// exactly where copper competes.
+#[must_use]
+pub fn dma_claim(
+    hpos: u16,
+    dmacon: u16,
+    bplcon0: u16,
+    ddfstrt: u16,
+    ddfstop: u16,
+) -> DmaClaim {
+    // Bitplane DMA requires DMACON.DMAEN + DMACON.BPLEN (bits 9 + 8).
+    if dmacon & 0x0300 != 0x0300 {
+        return DmaClaim::Free;
+    }
+    let (ddf_start, ddf_stop) = ddf_window(ddfstrt, ddfstop);
+    if !(ddf_stop > ddf_start && (ddf_start..ddf_stop).contains(&hpos)) {
+        return DmaClaim::Free;
+    }
+    let bpu = ((bplcon0 >> 12) & 0x07) as u8;
+    let slot_in_block = (hpos - ddf_start) % 8;
+    match lores_fetch_plane(slot_in_block, bpu) {
+        Some(p) => DmaClaim::Bitplane(p as u8),
+        None => DmaClaim::Free,
     }
 }
 
@@ -271,5 +324,79 @@ mod tests {
         assert_eq!(ddf_window(0x0038, 0x00D0), (0x38, 0xD0));
         assert_eq!(ddf_window(0x003B, 0x00D2), (0x38, 0xD0));
         assert_eq!(ddf_window(0x003C, 0x00D3), (0x3C, 0xD0));
+    }
+
+    // DMA-claim coverage. Values match the default lores boot
+    // configuration: DMACON = $8300 (DMAEN + BPLEN), BPLCON0 with
+    // BPU in bits 14-12, DDFSTRT = $38, DDFSTOP = $D0.
+    const DMACON_BPL: u16 = 0x0300;
+    const DDFSTRT: u16 = 0x0038;
+    const DDFSTOP: u16 = 0x00D0;
+    const fn bplcon0(bpu: u16) -> u16 { bpu << 12 }
+
+    #[test]
+    fn dma_claim_free_when_bpl_dma_disabled() {
+        // DMACON has no bits set → bitplane DMA off.
+        for hpos in 0..227 {
+            assert_eq!(
+                dma_claim(hpos, 0x0000, bplcon0(3), DDFSTRT, DDFSTOP),
+                DmaClaim::Free,
+            );
+        }
+    }
+
+    #[test]
+    fn dma_claim_free_outside_ddf_window() {
+        // Before DDFSTRT and after DDFSTOP → always free.
+        assert_eq!(
+            dma_claim(0x30, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
+            DmaClaim::Free,
+        );
+        assert_eq!(
+            dma_claim(0xE0, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
+            DmaClaim::Free,
+        );
+    }
+
+    #[test]
+    fn dma_claim_bpu1_claims_only_slot_6() {
+        // Only BPL1 fetches, at slot 6 of each 8-CCK block (so even
+        // CCKs only, starting at DDFSTRT + 6).
+        assert_eq!(
+            dma_claim(0x38 + 6, DMACON_BPL, bplcon0(1), DDFSTRT, DDFSTOP),
+            DmaClaim::Bitplane(0),
+        );
+        // All other slots within DDF are free for BPU=1.
+        for s in [0u16, 1, 2, 3, 4, 5, 7] {
+            assert_eq!(
+                dma_claim(0x38 + s, DMACON_BPL, bplcon0(1), DDFSTRT, DDFSTOP),
+                DmaClaim::Free,
+                "BPU=1, slot {s} should be free",
+            );
+        }
+    }
+
+    #[test]
+    fn dma_claim_bpu6_claims_bpl5_and_bpl6_on_odd_slots() {
+        // With BPU=6, BPL5 fetches at slot 3 (odd CCK) and BPL6 at
+        // slot 1 (odd CCK). This is what blocks the copper per HRM.
+        assert_eq!(
+            dma_claim(0x38 + 1, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
+            DmaClaim::Bitplane(5),
+        );
+        assert_eq!(
+            dma_claim(0x38 + 3, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
+            DmaClaim::Bitplane(4),
+        );
+        // Slots 5 and 7 (odd) remain free — these are the odd slots
+        // that stay available for copper even at BPU=6.
+        assert_eq!(
+            dma_claim(0x38 + 5, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
+            DmaClaim::Free,
+        );
+        assert_eq!(
+            dma_claim(0x38 + 7, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
+            DmaClaim::Free,
+        );
     }
 }
