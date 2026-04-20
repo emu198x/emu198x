@@ -6,7 +6,7 @@
 //! these tests exercise the *wiring* through the Amiga custom-register
 //! bus, the 68000 IPL line, and the CIA→Paula edge latches.
 
-use machine_commodore_amiga_ocs::{AmigaOcs, IntSource};
+use machine_commodore_amiga_ocs::{AmigaOcs, AudioField, IntSource};
 
 fn zero_rom() -> Vec<u8> { vec![0; 512 * 1024] }
 
@@ -96,4 +96,61 @@ fn master_enable_plus_source_raises_cpu_ipl_to_matching_level() {
     amiga.poke_word(0x00DF_F09C, 0xA000); // SET EXTER
     amiga.tick();
     assert_eq!(amiga.cpu().ipl, 6, "EXTER enabled + pending + INTEN → IPL 6");
+}
+
+// ─── Audio channel register storage (#124) ────────────────────────
+
+#[test]
+fn aud0_registers_round_trip_through_the_custom_bus() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F0A0, 0x0012); // AUD0LC  hi
+    amiga.poke_word(0x00DF_F0A2, 0x3456); // AUD0LC  lo
+    amiga.poke_word(0x00DF_F0A4, 0x0008); // AUD0LEN
+    amiga.poke_word(0x00DF_F0A6, 500);    // AUD0PER
+    amiga.poke_word(0x00DF_F0A8, 32);     // AUD0VOL
+    amiga.poke_word(0x00DF_F0AA, 0xAABB); // AUD0DAT
+
+    assert_eq!(amiga.paula().read_audio(0, AudioField::LcHi), 0x0012);
+    assert_eq!(amiga.paula().read_audio(0, AudioField::LcLo), 0x3456);
+    assert_eq!(amiga.paula().read_audio(0, AudioField::Len), 0x0008);
+    assert_eq!(amiga.paula().read_audio(0, AudioField::Per), 500);
+    assert_eq!(amiga.paula().read_audio(0, AudioField::Vol), 32);
+    assert_eq!(amiga.paula().read_audio(0, AudioField::Dat), 0xAABB);
+}
+
+#[test]
+fn aud_channels_1_through_3_decode_at_their_custom_offsets() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F0B8, 16); // AUD1VOL
+    amiga.poke_word(0x00DF_F0C8, 24); // AUD2VOL
+    amiga.poke_word(0x00DF_F0D8, 48); // AUD3VOL
+    assert_eq!(amiga.paula().read_audio(1, AudioField::Vol), 16);
+    assert_eq!(amiga.paula().read_audio(2, AudioField::Vol), 24);
+    assert_eq!(amiga.paula().read_audio(3, AudioField::Vol), 48);
+}
+
+#[test]
+fn cpu_bus_read_of_audio_register_returns_paula_state() {
+    // The CPU bus servicer (the side-effecting read path) is separate
+    // from bus_read_word. Exercise it via `cpu_read_word`.
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F0A6, 0x1234); // AUD0PER
+    let val = amiga.cpu_read_word(0x00DF_F0A6);
+    assert_eq!(val, 0x1234,
+        "CPU-side bus read must see Paula audio state, not floating bus");
+}
+
+#[test]
+fn audio_lc_low_word_masks_off_bit_0_from_bus_writes() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F0A2, 0xFFFF);
+    assert_eq!(amiga.paula().read_audio(0, AudioField::LcLo), 0xFFFE,
+        "chip enforces word-alignment on low LC at the register layer");
+}
+
+#[test]
+fn audio_vol_clamps_to_64_at_the_chip_layer() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.poke_word(0x00DF_F0A8, 0x00FF);
+    assert_eq!(amiga.paula().read_audio(0, AudioField::Vol), 64);
 }

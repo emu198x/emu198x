@@ -18,7 +18,8 @@ pub use agnus::{
 };
 pub use chipset::Chipset;
 pub use cia::{Cia, CiaExt};
-pub use commodore_paula_8364::{IntSource, Paula8364};
+pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
+use commodore_paula_8364::decode as paula_decode;
 pub use copper::Copper;
 pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
 pub use memory::{Memory, CHIP_RAM_SIZE};
@@ -347,6 +348,12 @@ impl AmigaOcs {
             0x09A => self.paula.write_intena(val),
             0x09C => self.paula.write_intreq(val),
             0x09E => self.paula.write_adkcon(val),
+            // Paula-owned audio channel storage ($0A0..=$0DA).
+            0x0A0..=0x0DA => {
+                if let Some((ch, field)) = paula_decode::audio_register(offset) {
+                    self.paula.write_audio(ch, field, val);
+                }
+            }
             _ => self.chipset.write_word(offset, val),
         }
         if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
@@ -463,6 +470,9 @@ impl AmigaOcs {
                 0x01C => self.paula.intena(),
                 0x01E => self.paula.intreq(),
                 0x010 => self.paula.adkcon(),
+                0x0A0..=0x0DA => paula_decode::audio_register(offset)
+                    .map(|(ch, f)| self.paula.read_audio(ch, f))
+                    .unwrap_or(0xFFFF),
                 _ => self.chipset.read_word(offset),
             };
         }
@@ -714,6 +724,9 @@ impl AmigaOcs {
                     0x01C => self.paula.intena(),
                     0x01E => self.paula.intreq(),
                     0x010 => self.paula.adkcon(),
+                    0x0A0..=0x0DA => paula_decode::audio_register(offset)
+                        .map(|(ch, f)| self.paula.read_audio(ch, f))
+                        .unwrap_or(0xFFFF),
                     _ => self.chipset.read_word(offset),
                 };
                 self.memory.set_last_bus_value(val);
