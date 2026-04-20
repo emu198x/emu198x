@@ -41,8 +41,21 @@ pub struct Cia {
     /// AND clears IDR.
     pub icr_mask: u8,
     pub icr_flags: u8,
-    /// `true` when (icr_flags & icr_mask) != 0 — the /IRQ output to
-    /// Paula. Cleared on ICR read.
+    /// Level-sensitive /IRQ output to Paula — `true` whenever any
+    /// unmasked ICR flag is set. Paula edge-latches this signal
+    /// into INTREQ.PORTS / INTREQ.EXTER, so the consumer observes
+    /// rising edges rather than continuous level.
+    ///
+    /// Goes false when:
+    ///   - A CPU ICR read clears the flags, or
+    ///   - The mask is narrowed so no active flag matches.
+    ///
+    /// The previous emulator version set this on the rising edge
+    /// and held it until ICR read; that model incorrectly re-
+    /// latched INTREQ.PORTS when a handler cleared the Paula bit
+    /// without reading CIA ICR. With true level semantics here and
+    /// Paula-side edge detection in AmigaOcs, the double-latch
+    /// doesn't happen.
     pub irq_pending: bool,
 }
 
@@ -178,12 +191,14 @@ impl Cia {
             6 => (self.timer_b.counter & 0xFF) as u8,
             7 => (self.timer_b.counter >> 8) as u8,
             0xD => {
-                // Return current flags + IR-pending bit; clear on read.
+                // Return current flags + IR-pending bit; clear flags
+                // on read. update_irq recomputes /IRQ level — with
+                // flags now zero, irq_pending drops to false.
                 let active = self.icr_flags & self.icr_mask;
                 let ir = if active != 0 { 0x80 } else { 0 };
                 let val = ir | self.icr_flags;
                 self.icr_flags = 0;
-                self.irq_pending = false;
+                self.update_irq();
                 val
             }
             0xE => self.timer_a.control,
@@ -233,13 +248,10 @@ impl Cia {
     }
 
     fn update_irq(&mut self) {
-        let active = self.icr_flags & self.icr_mask;
-        // /IRQ goes from inactive to active when there's an unmasked
-        // flag and we weren't already pending. We track the edge by
-        // checking the transition.
-        if active != 0 && !self.irq_pending {
-            self.irq_pending = true;
-        }
+        // /IRQ is level-sensitive: asserted whenever any unmasked
+        // ICR flag is set. Edge detection happens in Paula (our
+        // AmigaOcs wrapper) so we don't have to track edges here.
+        self.irq_pending = (self.icr_flags & self.icr_mask) != 0;
     }
 
     /// Effective output value for Port A bit `bit`. Returns the PRA

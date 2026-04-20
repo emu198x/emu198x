@@ -13,7 +13,9 @@ mod copper;
 mod denise;
 mod memory;
 
-pub use agnus::{Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS};
+pub use agnus::{
+    Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, VBL_END_LINE,
+};
 pub use chipset::Chipset;
 pub use cia::Cia;
 pub use copper::Copper;
@@ -51,6 +53,17 @@ pub struct AmigaOcs {
     /// Sub-CCK phase: 0 at the first tick of a CCK (fetch/reload
     /// events fire here), 1 at the second tick. Flips each tick.
     cck_phase: u8,
+    /// Paula's latched state of Agnus's `/VERTB` level signal. Used
+    /// to detect rising edges — INTREQ.VERTB is re-latched whenever
+    /// the CPU clears it and the beam is still inside the blanking
+    /// window.
+    prev_vertb_level: bool,
+    /// Paula's latched state of the CIA-A `/IRQ` line (level-
+    /// sensitive on the CIA, edge-latched on Paula). Set to true
+    /// when CIA-A has any unmasked ICR flag active.
+    prev_cia_a_irq: bool,
+    /// Same for CIA-B.
+    prev_cia_b_irq: bool,
     e_clock_phase: u64,
     /// Diagnostic: count of unique custom-register read offsets seen
     /// since reset, indexed by offset / 2.
@@ -98,6 +111,9 @@ impl AmigaOcs {
             denise: Denise::new(),
             tick_count: 0,
             cck_phase: 0,
+            prev_vertb_level: false,
+            prev_cia_a_irq: false,
+            prev_cia_b_irq: false,
             e_clock_phase: 0,
             debug_reg_read_counts: std::collections::HashMap::new(),
             debug_peak_intena: 0,
@@ -357,13 +373,27 @@ impl AmigaOcs {
 
         // ── CCK-granular events (phase 0 only) ───────────────────
         if phase == 0 {
-            // Advance the beam; if VBL fires, request VERTB and
-            // restart the copper from COP1LC before the CPU's next
-            // interrupt sample.
-            if self.agnus.tick_cck() {
-                self.chipset.write_word(0x09C, 0x8020);
+            // Advance the beam.
+            self.agnus.tick_cck();
+
+            // Paula-style latch of Agnus's /VERTB level signal:
+            // - On the rising edge (beam enters blanking window) we
+            //   fire the copper restart — real Agnus reloads the
+            //   copper PC from COP1LC at the start of every VBL.
+            // - While the level stays high AND INTREQ.VERTB is
+            //   clear, re-latch the bit. This models the subtle
+            //   "handler clears INTREQ.VERTB mid-blanking" case —
+            //   real hardware re-asserts because /VERTB is still
+            //   high; a cleared-once-only pulse model would miss it.
+            let vertb_level = self.agnus.vertb_level();
+            let rising_edge = vertb_level && !self.prev_vertb_level;
+            if rising_edge {
                 self.copper.jump1();
             }
+            if vertb_level && (self.chipset.intreq & 0x0020) == 0 {
+                self.chipset.write_word(0x09C, 0x8020);
+            }
+            self.prev_vertb_level = vertb_level;
 
             // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9)
             // are both set. Agnus arbitrates the chip bus; pass the
@@ -402,15 +432,28 @@ impl AmigaOcs {
             self.e_clock_phase = 0;
             self.cia_a.tick_e_clock();
             self.cia_b.tick_e_clock();
-            // CIA-A /IRQ → Paula INTREQ.PORTS (bit 3, level 2).
-            if self.cia_a.irq_pending {
-                self.chipset.write_word(0x09C, 0x8008);
-            }
-            // CIA-B /IRQ → Paula INTREQ.EXTER (bit 13, level 6).
-            if self.cia_b.irq_pending {
-                self.chipset.write_word(0x09C, 0xA000);
-            }
         }
+
+        // ── Paula edge-latch of CIA /IRQ lines ──────────────────
+        // CIA::irq_pending is now level-sensitive (asserted while
+        // any unmasked ICR flag is set). Paula's interrupt input
+        // uses a rising-edge detector, so we only set the INTREQ
+        // bit on the transition from low to high. A handler that
+        // clears INTREQ.PORTS / INTREQ.EXTER without reading the
+        // CIA ICR will *not* trigger another interrupt until the
+        // CIA line first goes low and then high again — matching
+        // real hardware.
+        let cia_a_irq = self.cia_a.irq_pending;
+        if cia_a_irq && !self.prev_cia_a_irq {
+            self.chipset.write_word(0x09C, 0x8008);
+        }
+        self.prev_cia_a_irq = cia_a_irq;
+
+        let cia_b_irq = self.cia_b.irq_pending;
+        if cia_b_irq && !self.prev_cia_b_irq {
+            self.chipset.write_word(0x09C, 0xA000);
+        }
+        self.prev_cia_b_irq = cia_b_irq;
 
         // ── CPU: every master/4 tick = every CPU clock ──────────
         self.service_cpu_bus();

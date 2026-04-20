@@ -45,6 +45,16 @@ pub const PAL_LINE_TICKS: u16 = PAL_LINE_CCKS * 2;
 /// `PAL_LINE_TICKS * PAL_FRAME_LINES` = 141,648 ticks/frame.
 pub const PAL_FRAME_TICKS: u64 = (PAL_LINE_TICKS as u64) * (PAL_FRAME_LINES as u64);
 
+/// Last line of the vertical blanking interval. VERTB is asserted
+/// while `vpos < VBL_END_LINE` — i.e. lines 0..24 inclusive. The
+/// display window for standard PAL typically starts at line $2C,
+/// leaving a generous gap between VBL end and display start for the
+/// "VBL handler" window that KS 1.3 uses. Line 25 matches our
+/// previous display-start constant (\$19) and is consistent with the
+/// `blanking falls in the range of \$0F to \$35` note in HRM for
+/// horizontal — we use a similar "25 lines" figure vertically.
+pub const VBL_END_LINE: u16 = 25;
+
 #[derive(Default)]
 pub struct Agnus {
     pub hpos: u16,
@@ -98,6 +108,17 @@ impl Agnus {
             }
         }
         false
+    }
+
+    /// True while the beam is inside the vertical blanking interval
+    /// (`vpos < VBL_END_LINE`). This is the level-sensitive input
+    /// Paula latches on the rising edge to set INTREQ.VERTB. A VBL
+    /// handler that clears INTREQ.VERTB *during* blanking will see
+    /// the latch re-arm the next time Paula samples this level and
+    /// sees it still high.
+    #[must_use]
+    pub fn vertb_level(&self) -> bool {
+        self.vpos < VBL_END_LINE
     }
 }
 
