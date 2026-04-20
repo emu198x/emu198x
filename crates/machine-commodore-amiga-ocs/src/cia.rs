@@ -160,6 +160,15 @@ impl Cia {
                     // the counter (one-shot setup pattern).
                     self.timer_a.counter = self.timer_a.latch;
                 }
+                // 8520-only feature (Amiga HRM): in one-shot mode, a
+                // write to TAHI transfers latch → counter and starts
+                // counting regardless of the START bit. Kickstart 1.3
+                // timer.device relies on this to (re)start UNIT_MICROHZ
+                // from the TB interrupt handler by writing latch alone.
+                if self.timer_a.control & 0x08 != 0 {
+                    self.timer_a.counter = self.timer_a.latch;
+                    self.timer_a.control |= 0x01;
+                }
             }
             // $6 / $7 — Timer B latch.
             6 => self.timer_b.latch = (self.timer_b.latch & 0xFF00) | u16::from(val),
@@ -167,6 +176,11 @@ impl Cia {
                 self.timer_b.latch = (self.timer_b.latch & 0x00FF) | (u16::from(val) << 8);
                 if self.timer_b.control & 0x01 == 0 {
                     self.timer_b.counter = self.timer_b.latch;
+                }
+                // See TAHI above for the 8520 one-shot auto-start rule.
+                if self.timer_b.control & 0x08 != 0 {
+                    self.timer_b.counter = self.timer_b.latch;
+                    self.timer_b.control |= 0x01;
                 }
             }
             // $8-$A — TOD counter write. On real hardware, CRB bit 7
@@ -492,6 +506,73 @@ mod tests {
             "TB flag set after 0x10000 E-clock ticks"
         );
         assert!(cia.irq_pending, "/IRQ asserted to Paula");
+    }
+
+    #[test]
+    fn timer_b_8520_oneshot_autostart_on_tbhi_write() {
+        // 8520-only feature (Amiga HRM, confirmed in AROS and vAmiga):
+        // writing TBHI while CRB bit 3 (ONESHOT) is set transfers the
+        // latch into the counter AND sets the START bit — regardless
+        // of the current START state. Kickstart 1.3 timer.device uses
+        // this to re-arm UNIT_MICROHZ from its TB interrupt handler
+        // without ever writing CRB again after init.
+        let mut cia = Cia::new();
+        // Put CRB into "one-shot, stopped" (the exact state KS 1.3
+        // leaves CRB in after the PAL/NTSC probe at $FE8F42).
+        cia.write_register(0xF, 0x08);
+        cia.write_register(0xD, 0x82); // unmask TB
+        assert_eq!(cia.timer_b.control & 0x01, 0, "timer stopped before TBHI");
+        // Program a small countdown and rely on the TBHI write to
+        // auto-start it — no explicit CRB=$19 write.
+        cia.write_register(0x6, 0x04); // TBLO = 4
+        cia.write_register(0x7, 0x00); // TBHI — triggers auto-start
+        assert_eq!(cia.timer_b.counter, 4, "TBHI loaded counter");
+        assert_eq!(cia.timer_b.control & 0x01, 1, "TBHI auto-started timer");
+        // Tick to underflow and confirm the IRQ chain fires.
+        for _ in 0..5 {
+            cia.tick_e_clock();
+        }
+        assert_eq!(
+            cia.peek_register(0xD) & 0x02,
+            0x02,
+            "TB flag set after countdown"
+        );
+        assert!(cia.irq_pending, "/IRQ asserted to Paula");
+        // One-shot self-stops on underflow.
+        assert_eq!(cia.timer_b.control & 0x01, 0, "one-shot stopped itself");
+    }
+
+    #[test]
+    fn timer_a_8520_oneshot_autostart_on_tahi_write() {
+        // Mirror of the Timer B auto-start test for Timer A.
+        let mut cia = Cia::new();
+        cia.write_register(0xE, 0x08); // CRA: one-shot, stopped
+        cia.write_register(0xD, 0x81); // unmask TA
+        cia.write_register(0x4, 0x04);
+        cia.write_register(0x5, 0x00);
+        assert_eq!(cia.timer_a.counter, 4);
+        assert_eq!(cia.timer_a.control & 0x01, 1, "TAHI auto-started timer");
+        for _ in 0..5 {
+            cia.tick_e_clock();
+        }
+        assert!(cia.irq_pending);
+    }
+
+    #[test]
+    fn tbhi_write_in_continuous_mode_does_not_auto_start() {
+        // Safety check: the auto-start trick is one-shot-only. In
+        // continuous mode, writing TBHI while stopped should still
+        // leave the timer stopped (the CPU must set START explicitly).
+        let mut cia = Cia::new();
+        cia.write_register(0xF, 0x00); // CRB: continuous, stopped
+        cia.write_register(0x6, 0x04);
+        cia.write_register(0x7, 0x00);
+        assert_eq!(cia.timer_b.counter, 4, "latch loaded while stopped");
+        assert_eq!(
+            cia.timer_b.control & 0x01,
+            0,
+            "continuous mode: TBHI must NOT auto-start"
+        );
     }
 
     #[test]

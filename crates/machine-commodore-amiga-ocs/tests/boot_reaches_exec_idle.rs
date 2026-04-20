@@ -131,9 +131,13 @@ fn boot_reaches_exec_idle_with_expected_tasks_waiting() {
         amiga.dmacon() & 0x02FF, 0x02D0,
         "DMACON should have DMAEN + COPEN + BLITEN + DSKEN, BPLEN off"
     );
+    // $602E = master + EXTER + VERTB + PORTS + SOFT + DSKBLK. DSKBLK
+    // was added once the 8520 one-shot auto-start was implemented:
+    // trackdisk's 500 ms MICROHZ request now replies, so it progresses
+    // past WaitIO into the CMD_READ path that enables disk DMA.
     assert_eq!(
-        amiga.intena() & 0x7FFF, 0x602C,
-        "INTENA should be \\$602C = master + EXTER + VERTB + PORTS + SOFT"
+        amiga.intena() & 0x7FFF, 0x602E,
+        "INTENA should be \\$602E (above plus DSKBLK from trackdisk CMD_READ)"
     );
     // BPLCON0 and COLOR00 used to pin at $1000 (BPU=1) and $0FFF
     // (white insert-disk). With COPJMP2 strobes firing, the copper
