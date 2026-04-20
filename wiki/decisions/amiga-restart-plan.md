@@ -17,8 +17,9 @@
 | M7 | ✅ | 2 | VPOSR/VHPOSR + CIA-A input-bit floating-high. |
 | M8 | ✅ | 2 | CIA-A timer A/B + ICR + CIA→Paula IRQ. |
 | M9 | ✅ | 2 | CIA-B stub at $BFD000 + IRQ→EXTER. |
-| M10 | next | — | Copper module + DMA scheduling. |
-| M11-M12 | pending | — | Bitplane DMA + Denise pixels, slow-RAM golden. |
+| M10 | ✅ | 3 | Copper MOVE/WAIT/SKIP, COPJMP1/2, COPEN+DMAEN gating. |
+| M11 | next | — | Bitplane DMA + Denise pixel pipeline. |
+| M12 | pending | — | Slow-RAM golden test. |
 
 Total tests: **35 passing** (21 integration + 14 unit). Diagnostic
 shows boot reaches PC=$FC3132 / SSP=$7FFFC0 / INTENA=$202C / ExecBase
