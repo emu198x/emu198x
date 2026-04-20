@@ -39,6 +39,12 @@ pub struct AmigaOcs {
     /// Diagnostic: count of unique custom-register read offsets seen
     /// since reset, indexed by offset / 2.
     pub debug_reg_read_counts: std::collections::HashMap<u16, u64>,
+    /// Diagnostic: peak INTENA value seen during boot. Bit 14 set
+    /// here would prove the boot has reached the master-enable code
+    /// path even if INTENA is later cleared.
+    pub debug_peak_intena: u16,
+    /// Diagnostic: cumulative count of CPU writes to INTENA ($DFF09A).
+    pub debug_intena_writes: u64,
 }
 
 impl AmigaOcs {
@@ -64,6 +70,8 @@ impl AmigaOcs {
             cck_count: 0,
             e_clock_phase: 0,
             debug_reg_read_counts: std::collections::HashMap::new(),
+            debug_peak_intena: 0,
+            debug_intena_writes: 0,
         }
     }
 
@@ -354,6 +362,12 @@ impl AmigaOcs {
             } else {
                 let val = data.unwrap_or(0);
                 self.chipset.write_word(offset, val);
+                if offset == 0x09A {
+                    self.debug_intena_writes += 1;
+                    if self.chipset.intena > self.debug_peak_intena {
+                        self.debug_peak_intena = self.chipset.intena;
+                    }
+                }
                 self.cpu.bus_status = BusStatus::Ready(0);
             }
             return;

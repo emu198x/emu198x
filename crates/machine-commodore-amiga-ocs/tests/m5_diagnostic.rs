@@ -47,11 +47,13 @@ fn diagnostic_long_run() {
         eprintln!(
             "  cck={cck:9} pc=${pc:08X} sr=${sr:04X} ssp=${ssp:08X} \
              exec_base=${exec_base:08X} attn=${attn:08X} \
-             dmacon=${dmacon:04X} intena=${intena:04X} \
+             dmacon=${dmacon:04X} intena=${intena:04X} (peak ${peak:04X}, writes {writes}) \
              bplcon0=${bplcon0:04X} color00=${color00:04X} \
              ovl={ovl}",
             cck = amiga.cck_count(),
             ovl = amiga.memory().overlay(),
+            peak = amiga.debug_peak_intena,
+            writes = amiga.debug_intena_writes,
         );
         last_cck = amiga.cck_count();
     }
