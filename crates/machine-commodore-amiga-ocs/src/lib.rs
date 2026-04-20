@@ -9,11 +9,13 @@
 mod agnus;
 mod chipset;
 mod cia;
+mod copper;
 mod memory;
 
 pub use agnus::{Agnus, PAL_FRAME_LINES, PAL_LINE_CCKS};
 pub use chipset::Chipset;
 pub use cia::Cia;
+pub use copper::Copper;
 pub use memory::{Memory, CHIP_RAM_SIZE};
 
 use motorola_68000::bus::{BusStatus, FunctionCode};
@@ -34,6 +36,7 @@ pub struct AmigaOcs {
     cia_a: Cia,
     cia_b: Cia,
     agnus: Agnus,
+    copper: Copper,
     cck_count: u64,
     e_clock_phase: u64,
     /// Diagnostic: count of unique custom-register read offsets seen
@@ -67,6 +70,7 @@ impl AmigaOcs {
             cia_a: Cia::new(),
             cia_b: Cia::new(),
             agnus: Agnus::new(),
+            copper: Copper::new(),
             cck_count: 0,
             e_clock_phase: 0,
             debug_reg_read_counts: std::collections::HashMap::new(),
@@ -79,6 +83,12 @@ impl AmigaOcs {
     #[must_use]
     pub fn agnus(&self) -> &Agnus {
         &self.agnus
+    }
+
+    /// Read-only Copper access.
+    #[must_use]
+    pub fn copper(&self) -> &Copper {
+        &self.copper
     }
 
     /// Read-only chipset access.
@@ -151,9 +161,41 @@ impl AmigaOcs {
     pub fn poke_word(&mut self, addr: u32, val: u16) {
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr) {
             let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
-            self.chipset.write_word(offset, val);
+            self.dispatch_custom_write(offset, val);
         } else {
             self.memory.write_word(addr, val);
+        }
+    }
+
+    /// Dispatch a custom-register word write to the right submodule.
+    /// Shared between `poke_word` and the CPU bus servicer.
+    fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        match offset {
+            0x080 => {
+                self.copper.cop1lc =
+                    (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(val) << 16);
+            }
+            0x082 => {
+                self.copper.cop1lc =
+                    (self.copper.cop1lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+            }
+            0x084 => {
+                self.copper.cop2lc =
+                    (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(val) << 16);
+            }
+            0x086 => {
+                self.copper.cop2lc =
+                    (self.copper.cop2lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+            }
+            0x088 => self.copper.jump1(),
+            0x08A => self.copper.jump2(),
+            _ => self.chipset.write_word(offset, val),
+        }
+        if offset == 0x09A {
+            self.debug_intena_writes += 1;
+            if self.chipset.intena > self.debug_peak_intena {
+                self.debug_peak_intena = self.chipset.intena;
+            }
         }
     }
 
@@ -249,6 +291,19 @@ impl AmigaOcs {
         // interrupt before the CPU's interrupt sample.
         if self.agnus.tick_cck() {
             self.chipset.write_word(0x09C, 0x8020);
+            // VBL also restarts the copper from COP1LC.
+            self.copper.jump1();
+        }
+
+        // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9) are
+        // both set.
+        if self.chipset.dmacon & 0x0280 == 0x0280 {
+            self.copper.tick_cck(
+                &self.memory,
+                &mut self.chipset,
+                self.agnus.vpos,
+                self.agnus.hpos,
+            );
         }
 
         // Tick both CIAs every CIA_E_CLOCK_DIVISOR CCKs (E clock = master/10).
@@ -361,13 +416,7 @@ impl AmigaOcs {
                 self.cpu.bus_status = BusStatus::Ready(if is_word { val } else { val & 0xFF });
             } else {
                 let val = data.unwrap_or(0);
-                self.chipset.write_word(offset, val);
-                if offset == 0x09A {
-                    self.debug_intena_writes += 1;
-                    if self.chipset.intena > self.debug_peak_intena {
-                        self.debug_peak_intena = self.chipset.intena;
-                    }
-                }
+                self.dispatch_custom_write(offset, val);
                 self.cpu.bus_status = BusStatus::Ready(0);
             }
             return;
