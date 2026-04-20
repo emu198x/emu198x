@@ -44,7 +44,88 @@ trap shows the return address was chip-RAM address `$5A10` in slow-
 RAM, but that same address in chip-only is uninitialised junk. So the
 "who sets up $5A10's code" is the upstream step we need to find.
 
-### Diagnostic tests added
+### Update: the "insert-disk setup" routine never runs in chip-only
+
+Further tracing with `tests/view_struct_writers.rs` and
+`tests/viewport_writer_pc.rs` shows the View at slow-RAM $5A10 is
+populated by a routine at $FE8732 that:
+
+1. Opens graphics.library via `OpenLibrary("graphics.library")` (LVO -552)
+2. AllocMems **$5E9A (24218) bytes** of chip RAM with flags
+   MEMF_PUBLIC|MEMF_CHIP|MEMF_CLEAR
+3. Initializes a BitMap + RastPort, sets screen size 320x200
+4. Calls `InitView` (LVO -390) on the View struct
+5. Populates View.ViewPort + View.LOFCprList + View.SHFCprList
+6. Calls `LoadView` (LVO -222) — this is the $B888 write to LOFlist
+
+This routine is invoked via `BSR.W $FE8732` at $FE8616, guarded by
+`TST.L a5@(4); BNE skip-setup` at $FE8610. The BSR runs only when
+a5@(4) (presumably the graphics.library base ptr cached in a state
+struct) is zero.
+
+**Observed hit counts over 250 frames:**
+
+|          PC | slow-RAM | chip-only | What |
+|---|---|---|---|
+| $FE8610 | 2 | 0 | caller test |
+| $FE8616 | 1 | 0 | BSR to setup |
+| $FE8732 | 1 | 0 | setup entry |
+| $FE876E | 1 | 0 | AllocMem 24KB |
+| $FE8888 | 2 | 0 | JSR LoadView |
+
+Chip-only never reaches $FE8610 at all — so the divergence is not
+"AllocMem fails" or "graphics.library OpenLibrary returns zero".
+It's further upstream, in whatever dispatch / task path leads to
+the caller of $FE8610.
+
+### Update: identified the routine and its entry
+
+The routine containing $FE8610 starts at $FE8444 — it's `romboot`,
+the priority-(-40) resident that owns the boot sequence.
+(Preceded in ROM by the string `romboot.\0\0` at $FE8434.) The
+same routine:
+
+- AllocMems 1160 bytes (for an IORequest + workspace) at $FE8476
+- Opens trackdisk.device (at ~$FE8532)
+- Issues `TD_CHANGESTATE` (CMD=13) at $FE856A
+- If no disk, issues `CMD_READ` of the bootblock
+- Scans memory for Resident structs by matchword / checksum
+- Falls through to the insert-disk setup at $FE8610
+
+### Where chip-only actually diverges
+
+More granular hit counts over 250 frames:
+
+| PC | slow-RAM | chip-only | meaning |
+|---|---|---|---|
+| $FE8444 | 1 | 1 | romboot entry |
+| $FE8476 | 1 | 1 | AllocMem |
+| $FE8498 | 1 | 1 | AllocMem OK, a4 = buffer |
+| $FE8524 | 3 | 1 | scan loop entry |
+| $FE8560 | 3 | **1** | post-setup checkpoint |
+| $FE85A0 | 3 | **0** | matchword TST |
+| $FE8600 | 2 | **0** | skip-candidate, advance |
+| $FE8610 | 2 | **0** | insert-disk-setup caller |
+
+Chip-only reaches $FE8560 once, then the `BNE.W $2867C` at $FE8562
+takes because d0 is non-zero — routing execution to the exit at
+$FE867C without entering the matchword-scan loop or the insert-
+disk setup. In slow-RAM the same point sees d0 = 0 and falls
+through.
+
+d0 at $FE8560 is the result of whatever JSR ran just before it —
+one of the several setup / library calls between $FE8498 and
+$FE8560. That ~160-byte window contains the bug.
+
+### Next concrete step
+
+Bisect the $FE8498..$FE8560 range: add a PC trap at each major
+JSR return point, record d0 at each, and find the first call whose
+return value differs between configs. That's the instruction whose
+preconditions differ — and *that's* the real root cause of the
+chip-only path not reaching the insert-disk screen setup.
+
+
 
 - `loflist_write_hunt.rs` — polls LOFlist every tick, logs changes.
 - `loadview_trap.rs` — traps LoadView entry, records return addr.
