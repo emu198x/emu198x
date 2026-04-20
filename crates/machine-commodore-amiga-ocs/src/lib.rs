@@ -41,6 +41,19 @@ const CIA_E_CLOCK_DIVISOR: u64 = 10;
 /// two master/4 ticks — one tick per lores pixel.
 const TICKS_PER_CCK: u64 = 2;
 
+/// Audio-DMA slot arbitration — one slot per line per channel, at
+/// fixed hpos positions in the refresh window (HRM Table 6-1). Returns
+/// `Some(channel)` when this CCK is that channel's slot.
+fn audio_dma_slot(hpos: u16) -> Option<u8> {
+    match hpos {
+        0x0E => Some(0),
+        0x10 => Some(1),
+        0x12 => Some(2),
+        0x14 => Some(3),
+        _ => None,
+    }
+}
+
 /// Amiga (OCS) machine.
 pub struct AmigaOcs {
     cpu: Cpu68000,
@@ -546,6 +559,23 @@ impl AmigaOcs {
                     claim,
                 );
             }
+
+            // ── Paula audio engine — one step per CCK ────────────────
+            // Audio DMA slot arbitration per HRM §5: one slot per line
+            // per channel, at hpos 0x0E..=0x14 (even positions after
+            // the memory-refresh window). Each audio channel gets one
+            // fetch per line when its DMA bit is enabled.
+            let slot = audio_dma_slot(self.agnus.hpos);
+            let dmacon = self.chipset.dmacon;
+            // Move the memory borrow outside the closure so the
+            // closure only borrows the Memory, not all of Self.
+            let memory = &self.memory;
+            self.paula.tick_audio_cck(
+                dmacon,
+                slot,
+                true,
+                |addr| memory.read_chip_ram_byte(addr),
+            );
         }
 
         // ── Per-tick: Denise pixel + fetch/reload at phase 0 ────

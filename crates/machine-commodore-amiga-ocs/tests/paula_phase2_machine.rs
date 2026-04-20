@@ -154,3 +154,88 @@ fn audio_vol_clamps_to_64_at_the_chip_layer() {
     amiga.poke_word(0x00DF_F0A8, 0x00FF);
     assert_eq!(amiga.paula().read_audio(0, AudioField::Vol), 64);
 }
+
+// ─── Audio DMA engine + AUDx IRQs (#125) ──────────────────────────
+
+/// Helper: poke a canonical AUD0 program (one-word block at $1000
+/// with full volume and minimum period), enable DMAEN + AUD0EN.
+fn program_aud0_one_word_block(amiga: &mut AmigaOcs) {
+    amiga.poke_word(0x00DF_F0A0, 0x0000); // AUD0LC hi
+    amiga.poke_word(0x00DF_F0A2, 0x1000); // AUD0LC lo
+    amiga.poke_word(0x00DF_F0A4, 0x0001); // AUD0LEN
+    amiga.poke_word(0x00DF_F0A6, 124);    // AUD0PER (minimum)
+    amiga.poke_word(0x00DF_F0A8, 64);     // AUD0VOL (max)
+    amiga.poke_word(0x00DF_F096, 0x8201); // DMAEN + AUD0EN
+}
+
+#[test]
+fn audio_dma_enable_rising_edge_raises_aud0_irq_within_one_cck() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    // Pre-enable INTENA so we can see the IRQ flow but mask the master
+    // enable so the CPU doesn't actually service.
+    amiga.poke_word(0x00DF_F09A, 0x8080); // SET INT_AUD0
+
+    program_aud0_one_word_block(&mut amiga);
+
+    // Tick one CCK — Paula sees DMAEN rising and raises INT_AUD0.
+    // (Tick loop pulses Paula once per CCK at phase 0.)
+    amiga.tick(); // phase 0
+    amiga.tick(); // phase 1
+
+    assert_ne!(
+        amiga.paula().intreq() & (1 << 7),
+        0,
+        "INT_AUD0 must latch on the DMA-enable rising edge"
+    );
+}
+
+#[test]
+fn audio_dma_fetch_at_slot_advances_channel_pointer() {
+    // Put a recognisable pattern in chip RAM at the AUD0 base, run
+    // long enough for the channel's DMA slot to fire (hpos 0x0E on
+    // the first line), and confirm the fetched word is observable.
+    let mut rom = vec![0u8; 512 * 1024];
+    // Writing to chip RAM here isn't possible — ROM is passed in.
+    // Instead, use the CPU backdoor after construction.
+    rom[0] = 0; // keep rom simple
+    let mut amiga = AmigaOcs::new(rom);
+
+    // Plant a sample pair at chip RAM $1000: bytes $7F, $80 (max +/-).
+    amiga.poke_byte(0x0000_1000, 0x7F);
+    amiga.poke_byte(0x0000_1001, 0x80);
+
+    program_aud0_one_word_block(&mut amiga);
+
+    // 227 CCKs per line + a bit extra → guarantees we cross at least
+    // one DMA slot and the full DMA return latency.
+    for _ in 0..(machine_commodore_amiga_ocs::PAL_LINE_TICKS as u32 * 4) {
+        amiga.tick();
+    }
+
+    // The archive's `audio_state` surfaces the live output sample.
+    let snap = amiga.paula().audio_state(0).expect("ch 0 exists");
+    assert_ne!(snap.sample, 0,
+        "audio sample should have advanced through the DAC; got {:?}", snap);
+}
+
+#[test]
+fn audio_dma_disabled_leaves_channel_silent() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    // Program regs but leave DMACON.AUD0 clear.
+    amiga.poke_word(0x00DF_F0A0, 0x0000);
+    amiga.poke_word(0x00DF_F0A2, 0x1000);
+    amiga.poke_word(0x00DF_F0A4, 0x0001);
+    amiga.poke_word(0x00DF_F0A6, 124);
+    amiga.poke_word(0x00DF_F0A8, 64);
+    // Master DMA on, but AUD0 off.
+    amiga.poke_word(0x00DF_F096, 0x8200);
+
+    for _ in 0..(machine_commodore_amiga_ocs::PAL_LINE_TICKS as u32 * 4) {
+        amiga.tick();
+    }
+
+    assert_eq!(amiga.paula().intreq() & (1 << 7), 0,
+        "with AUD0EN clear, no audio IRQ should fire");
+    let snap = amiga.paula().audio_state(0).unwrap();
+    assert_eq!(snap.sample, 0, "no DMA → no sample delivered");
+}
