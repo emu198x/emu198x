@@ -56,10 +56,22 @@ pub struct Copper {
     /// currently behaves as "blitter always finished" — this is the
     /// same simplification UAE uses when the blitter is idle.
     pub wait_bfd: bool,
-    /// CCKs accumulated since last copper instruction step. The
-    /// copper does one MOVE / WAIT / SKIP every 4 CCKs (two 16-bit
-    /// chip-RAM reads + an internal cycle).
+    /// CCKs accumulated since last copper instruction step. MOVE and
+    /// SKIP complete in 2 eligible CCKs (HRM: "two memory cycles and
+    /// four memory clocks per instruction"). WAIT needs 3 eligible
+    /// CCKs total; see `pending_wait_delay`.
     pub cck_phase: u8,
+    /// Post-decode one-CCK delay for WAIT. HRM: "The WAIT instruction
+    /// requires three memory cycles and six memory clocks per
+    /// instruction" — one more memory cycle than MOVE/SKIP. After
+    /// fetching + decoding a WAIT, the copper holds this extra cycle
+    /// before entering the waiting state. Fields below stash the
+    /// target / mask / bfd that will be committed when the delay
+    /// eligible-CCK arrives.
+    pub pending_wait_delay: bool,
+    pub pending_wait_target: u16,
+    pub pending_wait_mask: u16,
+    pub pending_wait_bfd: bool,
 }
 
 impl Copper {
@@ -73,6 +85,7 @@ impl Copper {
         self.pc = self.cop1lc;
         self.waiting = false;
         self.cck_phase = 0;
+        self.pending_wait_delay = false;
     }
 
     /// COPJMP2 strobe — load PC from COP2LC and clear waiting flag.
@@ -80,6 +93,7 @@ impl Copper {
         self.pc = self.cop2lc;
         self.waiting = false;
         self.cck_phase = 0;
+        self.pending_wait_delay = false;
     }
 
     /// Tick the copper one CCK. Returns true if a copper-driven
@@ -117,12 +131,25 @@ impl Copper {
             return false;
         }
 
-        // Each copper instruction requires two memory cycles (= two
-        // eligible CCKs). In unconstrained conditions those are two
-        // consecutive odd CCKs, for 4 wall CCKs per instruction. When
-        // BPL5 / BPL6 steal odd slots the copper's effective rate
-        // drops proportionally, which is the intended hardware
-        // behaviour.
+        // WAIT takes 3 memory cycles (HRM). The first 2 fetch + decode
+        // the instruction pair (handled by the fetch throttle below);
+        // the 3rd is the extra cycle before actually pausing. When
+        // this flag is set, the current eligible CCK is that 3rd
+        // cycle: commit the stashed target/mask and enter waiting.
+        if self.pending_wait_delay {
+            self.waiting = true;
+            self.wait_target = self.pending_wait_target;
+            self.wait_mask = self.pending_wait_mask;
+            self.wait_bfd = self.pending_wait_bfd;
+            self.pending_wait_delay = false;
+            return false;
+        }
+
+        // Each MOVE / SKIP (and the fetch+decode portion of WAIT)
+        // requires two memory cycles (= two eligible CCKs). In
+        // unconstrained conditions those are two consecutive odd
+        // CCKs, for 4 wall CCKs. When BPL5 / BPL6 steal odd slots the
+        // copper's effective rate drops proportionally.
         self.cck_phase = self.cck_phase.wrapping_add(1);
         if self.cck_phase < 2 {
             return false;
@@ -158,11 +185,17 @@ impl Copper {
             if beam_match(target, mask, beam_vp, beam_hp) {
                 // Already past — instruction completes, copper
                 // continues with the next pair on the next tick.
+                // (HRM's 3rd memory cycle still runs on real
+                // hardware but produces no observable delay when the
+                // beam check passes immediately — we elide it here.)
             } else {
-                self.waiting = true;
-                self.wait_target = target;
-                self.wait_mask = mask;
-                self.wait_bfd = bfd;
+                // Arm the 3rd-memory-cycle delay. The next eligible
+                // CCK will commit the waiting state. Stash target /
+                // mask / bfd now so the delay tick can restore them.
+                self.pending_wait_delay = true;
+                self.pending_wait_target = target;
+                self.pending_wait_mask = mask;
+                self.pending_wait_bfd = bfd;
             }
         } else {
             // SKIP: if beam already satisfies the mask/target, skip
@@ -307,8 +340,10 @@ mod tests {
         copper.cop1lc = 0x1000;
         copper.jump1();
 
-        // Tick the WAIT instruction (4 wall CCKs with hpos cycling).
-        run_ccks(&mut copper, &mem, &mut chipset, 0, 4);
+        // Tick the WAIT instruction: 3 eligible CCKs = 6 wall CCKs
+        // (HRM: "WAIT requires three memory cycles and six memory
+        // clocks per instruction").
+        run_ccks(&mut copper, &mem, &mut chipset, 0, 6);
         assert!(copper.waiting);
 
         // Tick more with beam still below target — MOVE doesn't run.
@@ -323,6 +358,51 @@ mod tests {
         // the end-of-list WAIT and re-enter the waiting state.
         run_ccks(&mut copper, &mem, &mut chipset, 5, 4);
         assert_eq!(chipset.color[0], 0x0FFF, "MOVE after WAIT release");
+    }
+
+    #[test]
+    fn wait_takes_3_eligible_ccks_before_pausing() {
+        // HRM: "The WAIT instruction requires three memory cycles
+        // and six memory clocks per instruction." MOVE and SKIP take
+        // 2 memory cycles / 4 memory clocks. The difference is one
+        // extra eligible CCK of delay between the word-pair fetch
+        // (cycles 1 + 2) and actually entering the waiting state
+        // (cycle 3).
+        let mem = build_test_memory_with_list(
+            &[
+                (0x0501, 0xFFFE),  // WAIT v=5, full mask
+                (0xFFFF, 0xFFFE),  // end-of-list
+            ],
+            0x1000,
+        );
+        let mut chipset = Chipset::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+
+        // Tick 2 eligible CCKs (= 4 wall CCKs). The WAIT is fetched
+        // and decoded, but the 3rd memory cycle hasn't fired yet:
+        // `waiting` should still be false and the delay should be
+        // armed instead.
+        run_ccks(&mut copper, &mem, &mut chipset, 0, 4);
+        assert!(
+            !copper.waiting,
+            "WAIT must not enter waiting yet — only 2 eligible CCKs \
+             elapsed, HRM requires 3",
+        );
+        assert!(
+            copper.pending_wait_delay,
+            "After fetch+decode of WAIT the 3rd-cycle delay should be armed",
+        );
+
+        // One more eligible CCK (2 wall CCKs) fires the 3rd memory
+        // cycle and commits the waiting state.
+        run_ccks(&mut copper, &mem, &mut chipset, 0, 2);
+        assert!(
+            copper.waiting,
+            "3rd eligible CCK enters waiting (HRM's 3-cycle rule)",
+        );
+        assert!(!copper.pending_wait_delay);
     }
 
     /// Direct beam_match coverage of the mask semantics in the HRM.
@@ -398,8 +478,9 @@ mod tests {
         copper.cop1lc = 0x2000;
         copper.jump1();
 
-        // Execute WAIT at vpos=0 — cycle hpos so copper gets odd CCKs.
-        run_ccks(&mut copper, &mem, &mut chipset, 0, 4);
+        // Execute WAIT at vpos=0: 3 eligible CCKs = 6 wall CCKs for
+        // the full HRM-accurate WAIT timing.
+        run_ccks(&mut copper, &mem, &mut chipset, 0, 6);
         assert!(copper.waiting);
         assert_eq!(copper.wait_target, 0x0A00);
         // Mask: (0xFF00 & 0x7FFE) | 0x8000 = 0xFF00.
