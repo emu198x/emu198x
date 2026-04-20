@@ -85,24 +85,28 @@ bugs.
 
 ## ROM availability
 
-We have:
+All ROMs in `~/.emu198x/roms/commodore-amiga/` (alternate revisions
+and region variants archived to `_archive/`):
 
-- ✓ `kick12.rom` (V33) — A1000
-- ✓ `kick13.rom` (V34) — A500, A2000, CDTV (with extension)
-- ✓ `kick204.rom` (V37) — A500+, late A2000
-- ✓ `kick31.rom` (V40) — A3000, A4000, A1200 (older revision)
-- ✓ `kick31a1200.rom` (V40.068) — A1200 specific
+- ✓ `kick12.rom` (V33.180) — A1000, A500, A2000
+- ✓ `kick13.rom` (V34.005) — A500, A2000
+- ✓ `kick204.rom` (V37.175) — A500+
+- ✓ `kick205.rom` (V37.299) — A600
+- ✓ `kick30.rom` (V39.106) — A1200 KS3.0
+- ✓ `kick30a4000.rom` (V39.106) — A4000 KS3.0
+- ✓ `kick31.rom` (V40.063) — A500, A600, A2000 KS3.1
+- ✓ `kick31a1200.rom` (V40.068) — A1200 KS3.1
+- ✓ `kick31a3000.rom` (V40.068) — A3000 KS3.1
+- ✓ `kick31a4000.rom` (V40.068) — A4000 KS3.1
+- ✓ `kick31cd32.rom` (V40.060) — CD32 KS3.1
+- ✓ `cdtv.rom` — CDTV extension ROM (V1.0)
+- ✓ `cd32.rom` — CD32 extension ROM (V40.60)
+- ✓ `a1000-bootstrap.rom` — A1000 boot ROM (loads Kickstart from disk)
+- ✓ `a3000-boot-rom0.rom` / `a3000-boot-rom1.rom` — A3000 SuperKickstart
+  boot ROMs (V1.4 r36.16, the bootstrap that loads Kickstart from disk
+  on early A3000s)
 
-Need to acquire (user has access):
-
-- ✗ `kick205.rom` (V37.299/300/350) — A600 specific
-- ✗ `kick30.rom` (V39.106) — A1200 KS3.0, A4000 KS3.0
-- ✗ `cdtv.rom` — CDTV extension ROM
-- ✗ `cd32.rom` — CD32 extension ROM
-
-Place these in `~/.emu198x/roms/commodore-amiga/` to match the
-existing convention. Tests skip silently when ROM is missing, so the
-build doesn't break while we wait.
+Tests skip silently when ROM is missing.
 
 ## Why restart
 
