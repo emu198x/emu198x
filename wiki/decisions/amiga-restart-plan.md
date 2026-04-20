@@ -19,8 +19,9 @@
 | M9 | ✅ | 2 | CIA-B stub at $BFD000 + IRQ→EXTER. |
 | M10 | ✅ | 3 | Copper MOVE/WAIT/SKIP, COPJMP1/2, COPEN+DMAEN gating. |
 | M11 | ✅ | 2 | Denise framebuffer + COLOR00 background rendering. |
-| M11.1 | next | — | Bitplane DMA fetch + decode (1-3 bitplanes). |
-| M12 | pending | — | Slow-RAM golden test. |
+| M11.1 | ✅ | 1 | Bitplane DMA fetch + scanline decode (tested 1-plane). |
+| M11.2 | ✅ | 2 | Slow RAM at $C00000. Slow-RAM KS 1.3 boot progresses further than chip-only. |
+| M12 | next | — | Slow-RAM golden test (still stalls before display init). |
 
 Total tests: **35 passing** (21 integration + 14 unit). Diagnostic
 shows boot reaches PC=$FC3132 / SSP=$7FFFC0 / INTENA=$202C / ExecBase
