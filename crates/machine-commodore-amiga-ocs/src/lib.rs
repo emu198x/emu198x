@@ -400,13 +400,25 @@ impl AmigaOcs {
             0x090 => self.agnus.write_diwstop(val),
             0x092 => self.agnus.write_ddfstrt(val),
             0x094 => self.agnus.write_ddfstop(val),
-            0x100 => self.agnus.write_bplcon0(val),
+            0x100 => {
+                self.agnus.write_bplcon0(val);
+                // Mirror into Denise so HIRES/HAM/DBLPF/LACE bits take
+                // effect at the next pixel, not only next tick.
+                self.denise.ocs.bplcon0 = val;
+            }
             0x108 => self.agnus.write_bpl1mod(val),
             0x10A => self.agnus.write_bpl2mod(val),
             0x0E0..=0x0F5 => {
                 let plane_idx = ((offset - 0x0E0) / 4) as usize;
                 let high = (offset & 2) == 0;
                 self.agnus.write_bpl_pointer(plane_idx, high, val);
+            }
+            // Agnus-owned sprite pointers SPR0PTH..SPR7PTL at $120..=$13E.
+            // Per HRM 4-4, pointer low-word write commits the pair.
+            0x120..=0x13E => {
+                let sprite = ((offset - 0x120) / 4) as usize;
+                let high = (offset & 2) == 0;
+                self.agnus.write_sprite_pointer_reg(sprite, high, val);
             }
             _ => self.denise.write_word(offset, val),
         }

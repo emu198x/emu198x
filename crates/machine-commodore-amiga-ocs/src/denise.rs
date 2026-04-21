@@ -151,6 +151,19 @@ pub struct Denise {
     /// vpos of the most recent `begin_beam_line()` call — guards
     /// against multiple resets per line.
     last_begin_line: Option<u16>,
+    /// vpos of the most recent sprite-DMA pass — guards against
+    /// re-fetching the same sprite pair if tick is called twice on
+    /// the same line for any reason.
+    last_sprite_dma_line: Option<u16>,
+    /// Per-sprite display-mode flag. When `true` the next line-start
+    /// DMA pair fetches DATA+DATB (displaying); when `false` it
+    /// fetches POS+CTL (waiting for vstart). Real Agnus transitions
+    /// between these states based on comparing vpos against the
+    /// latched VSTART/VSTOP.
+    spr_displaying: [bool; 8],
+    /// Latched sprite vertical window from the most recent POS+CTL
+    /// fetch. `(vstart, vstop)`.
+    spr_vwindow: [(u16, u16); 8],
 }
 
 impl Default for Denise {
@@ -167,6 +180,9 @@ impl Denise {
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
             bytes_this_line: 0,
             last_begin_line: None,
+            last_sprite_dma_line: None,
+            spr_displaying: [false; 8],
+            spr_vwindow: [(0, 0); 8],
         }
     }
 
@@ -234,6 +250,12 @@ impl Denise {
         // Agnus owns the primary storage (it consumes BPU for the DMA
         // scheduler); Denise reads HIRES/HOMOD/DBLPF/LACE from it.
         self.ocs.bplcon0 = agnus.bplcon0;
+        // Mirror interlace state: Agnus toggles `lof` each frame when
+        // BPLCON0 LACE (bit 2) is set; Denise consumes both for
+        // per-field row interleaving.
+        let lace = (agnus.bplcon0 & 0x0004) != 0;
+        self.ocs.interlace_active = lace;
+        self.ocs.lof = agnus.lof;
 
         // ── CCK-boundary events (phase 0 only) ──────────────────
         if phase == 0 {
@@ -280,6 +302,61 @@ impl Denise {
             } else if !in_visible_line {
                 self.last_begin_line = None;
             }
+
+            // Sprite DMA — one 2-word pair per sprite per line, done
+            // synchronously at line start when DMACON.SPREN (bit 5) +
+            // DMAEN (bit 9) are both set. Real hardware distributes
+            // the 16 word-fetches across hpos $0B..$1A; we fetch them
+            // all at once on hpos==0 since the live Denise pipeline
+            // only needs the registers populated before the display
+            // comparator fires on this line.
+            //
+            // Per sprite:
+            //   - If displaying and vpos has advanced past vstop:
+            //     switch back to "waiting" (will fetch POS+CTL below).
+            //   - Fetch a 2-word pair from agnus.spr_pt[sprite].
+            //     Waiting mode -> POS+CTL (decode vstart/vstop).
+            //     Displaying mode -> DATA+DATB.
+            //   - Advance the pointer by 4 regardless.
+            //   - After POS+CTL, if vstart matches current vpos,
+            //     promote to displaying for the next line.
+            let spr_dma_on = dmacon & 0x0220 == 0x0220;
+            if hpos == 0 && spr_dma_on && self.last_sprite_dma_line != Some(vpos) {
+                for sprite in 0..8 {
+                    let (vstart, vstop) = self.spr_vwindow[sprite];
+                    if self.spr_displaying[sprite] && vpos >= vstop {
+                        self.spr_displaying[sprite] = false;
+                    }
+                    let addr = agnus.spr_pt[sprite];
+                    let w0 = memory.read_chip_ram_word(addr);
+                    let w1 = memory.read_chip_ram_word(addr.wrapping_add(2));
+                    agnus.spr_pt[sprite] = agnus.spr_pt[sprite].wrapping_add(4);
+                    if self.spr_displaying[sprite] {
+                        self.ocs.write_sprite_data(sprite, w0);
+                        self.ocs.write_sprite_datb(sprite, w1);
+                    } else {
+                        self.ocs.write_sprite_pos(sprite, w0);
+                        self.ocs.write_sprite_ctl(sprite, w1);
+                        let new_vstart =
+                            (((w1 >> 2) & 1) << 8) | ((w0 >> 8) & 0xFF);
+                        let new_vstop =
+                            (((w1 >> 1) & 1) << 8) | ((w1 >> 8) & 0xFF);
+                        self.spr_vwindow[sprite] = (new_vstart, new_vstop);
+                        // Arm if we've reached vstart. (vstart == 0
+                        // with vstop == 0 means the sprite is off —
+                        // leave it waiting.)
+                        if new_vstart == vpos.wrapping_add(1)
+                            && new_vstop > new_vstart
+                        {
+                            self.spr_displaying[sprite] = true;
+                        }
+                        let _ = vstart;
+                    }
+                }
+                self.last_sprite_dma_line = Some(vpos);
+            } else if hpos != 0 {
+                self.last_sprite_dma_line = None;
+            }
         }
 
         // ── Per-tick: output one lores pixel ────────────────────
@@ -295,7 +372,22 @@ impl Denise {
             if dbg.called {
                 let rgb12 = self.ocs.resolve_color_rgb12(dbg.final_color_idx);
                 let pixel = rgb12_to_argb(rgb12);
-                for dy in [local_y, local_y + 1] {
+                // LACE: paint one row per field (long frame = even,
+                // short frame = odd). Non-interlaced: paint both rows
+                // of the doubled pair. Both cases pixel-double across
+                // X for square-pixel 4:3.
+                let rows: &[u32] = if lace {
+                    if agnus.lof {
+                        &[local_y]
+                    } else {
+                        // Short-field rows land immediately above the
+                        // long-field row to match real-beam interleave.
+                        &[local_y + 1]
+                    }
+                } else {
+                    &[local_y, local_y + 1]
+                };
+                for &dy in rows {
                     for dx in 0..2u32 {
                         let x = local_x * 2 + dx;
                         let idx = (dy * FB_WIDTH + x) as usize;
