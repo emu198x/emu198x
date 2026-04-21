@@ -323,7 +323,7 @@ mod tests {
         // Copper instruction = 2 odd-CCK memory cycles = 4 wall CCKs
         // when unconstrained. Run 4 wall CCKs with hpos cycling 0..3.
         run_ccks(&mut copper, &mem, &mut denise, 0, 4);
-        assert_eq!(denise.color[0], 0x0F0F);
+        assert_eq!(denise.color(0), 0x0F0F);
     }
 
     #[test]
@@ -342,7 +342,7 @@ mod tests {
         for _ in 0..40 {
             copper.tick_cck(&mem, &mut denise, 0, 0, DmaClaim::Free);
         }
-        assert_eq!(denise.color[0], 0x0000, "copper must not run on even CCKs");
+        assert_eq!(denise.color(0), 0x0000, "copper must not run on even CCKs");
     }
 
     #[test]
@@ -369,7 +369,7 @@ mod tests {
             copper.tick_cck(&mem, &mut denise, 0, hpos, claim);
         }
         assert_eq!(
-            denise.color[0], 0x0000,
+            denise.color(0), 0x0000,
             "copper must yield to bitplane DMA on odd CCKs",
         );
     }
@@ -400,14 +400,14 @@ mod tests {
         for i in 0..50 {
             copper.tick_cck(&mem, &mut denise, 4, i % 227, DmaClaim::Free);
         }
-        assert_eq!(denise.color[0], 0);
+        assert_eq!(denise.color(0), 0);
 
         // Tick with beam at target — WAIT releases (i=0) then copper
         // needs 2 eligible odd CCKs (i=1, i=3) to execute the MOVE.
         // 4 wall CCKs is exactly right; running further would fetch
         // the end-of-list WAIT and re-enter the waiting state.
         run_ccks(&mut copper, &mem, &mut denise, 5, 4);
-        assert_eq!(denise.color[0], 0x0FFF, "MOVE after WAIT release");
+        assert_eq!(denise.color(0), 0x0FFF, "MOVE after WAIT release");
     }
 
     #[test]
@@ -540,7 +540,7 @@ mod tests {
         // takes 2 eligible odd CCKs to fetch + execute the MOVE.
         // 4 wall CCKs is enough; don't overrun into end-of-list.
         run_ccks(&mut copper, &mem, &mut denise, 10, 4);
-        assert_eq!(denise.color[0], 0x0ABC, "MOVE after horizontal-masked WAIT");
+        assert_eq!(denise.color(0), 0x0ABC, "MOVE after horizontal-masked WAIT");
     }
 
     #[test]
@@ -565,8 +565,8 @@ mod tests {
         // runs. Each instruction = 4 wall CCKs, we have 3 instrs →
         // need ≥ 12 CCKs of eligible copper cycles.
         run_ccks(&mut copper, &mem, &mut denise, 100, 16);
-        assert_eq!(denise.color[0], 0x0000);
-        assert_eq!(denise.color[1], 0x00F0);
+        assert_eq!(denise.color(0), 0x0000);
+        assert_eq!(denise.color(1), 0x00F0);
     }
 
     #[test]
@@ -614,13 +614,13 @@ mod tests {
 
         // Plenty of cycles to run through MOVE + COPJMP2 + MOVE.
         run_ccks(&mut copper, &mem, &mut denise, 10, 20);
-        assert_eq!(denise.color[0], 0x0F00, "first MOVE before COPJMP2 should run");
+        assert_eq!(denise.color(0), 0x0F00, "first MOVE before COPJMP2 should run");
         assert_eq!(
-            denise.color[1], 0x0000,
+            denise.color(1), 0x0000,
             "MOVE after COPJMP2 in list-1 must NOT run (jumped past)",
         );
         assert_eq!(
-            denise.color[2], 0x00FF,
+            denise.color(2), 0x00FF,
             "MOVE in list-2 (at COP2LC) should run after the jump",
         );
     }
@@ -645,7 +645,7 @@ mod tests {
 
         run_ccks(&mut copper, &mem, &mut denise, 0, 40);
         assert_eq!(
-            denise.color[0], 0x0000,
+            denise.color(0), 0x0000,
             "COLOR00 must NOT have been written — dangerous MOVE halts copper"
         );
         assert!(copper.stopped, "copper should be stopped after dangerous MOVE");
@@ -661,7 +661,7 @@ mod tests {
         copper.jump1();
         assert!(!copper.stopped, "COPJMP1 must clear stopped");
         run_ccks(&mut copper, &mem2, &mut denise, 0, 8);
-        assert_eq!(denise.color[0], 0x0ABC, "copper restarts after COPJMP1");
+        assert_eq!(denise.color(0), 0x0ABC, "copper restarts after COPJMP1");
     }
 
     #[test]
@@ -701,6 +701,6 @@ mod tests {
         copper.jump1();
 
         run_ccks(&mut copper, &mem, &mut denise, 10, 12);
-        assert_eq!(denise.color[0], 0x0F00);
+        assert_eq!(denise.color(0), 0x0F00);
     }
 }

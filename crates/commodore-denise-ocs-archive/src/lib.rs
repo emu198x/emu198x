@@ -227,6 +227,60 @@ impl DeniseOcs {
         }
     }
 
+    /// CPU / copper write to a Denise-owned custom register.
+    ///
+    /// Unified dispatcher used by the live machine's custom-register
+    /// bus and by Copper MOVEs. Handles the full Denise address slice:
+    ///
+    /// | Offset      | Register                                          |
+    /// | ----------- | ------------------------------------------------- |
+    /// | `$100`      | BPLCON0 (mirrored — Agnus owns the primary copy)  |
+    /// | `$102`      | BPLCON1 (fine scroll, dual-playfield)             |
+    /// | `$104`      | BPLCON2 (sprite/playfield priority)               |
+    /// | `$098`      | CLXCON (collision match/enable mask)              |
+    /// | `$10C`      | BPLCON4 (AGA sprite XOR — ignored on OCS)         |
+    /// | `$110..$11C`| BPL1DAT..BPL6DAT (shift-load triggers on BPL1DAT) |
+    /// | `$140..$17C`| SPRxPOS / SPRxCTL / SPRxDATA / SPRxDATB × 8       |
+    /// | `$180..$1BE`| COLOR00..COLOR31                                  |
+    ///
+    /// Anything else is silently ignored; machine dispatch routes
+    /// non-Denise registers elsewhere before reaching here.
+    pub fn write_word(&mut self, offset: u16, val: u16) {
+        match offset {
+            0x098 => self.clxcon = val,
+            0x100 => self.bplcon0 = val,
+            0x102 => self.bplcon1 = val,
+            0x104 => self.bplcon2 = val,
+            0x10C => self.bplcon4 = val,
+            0x110..=0x11C => {
+                let plane = ((offset - 0x110) / 2) as usize;
+                self.load_bitplane(plane, val);
+                // BPL1DAT (plane 0) is always the last plane fetched
+                // in each 8-CCK DMA group. Its arrival queues the
+                // parallel shift-load that BPLCON1 will time via its
+                // comparator.
+                if plane == 0 {
+                    self.queue_shift_load_from_bpl1dat();
+                }
+            }
+            0x140..=0x17C => {
+                let sprite = ((offset - 0x140) / 8) as usize;
+                match (offset - 0x140) % 8 {
+                    0 => self.write_sprite_pos(sprite, val),
+                    2 => self.write_sprite_ctl(sprite, val),
+                    4 => self.write_sprite_data(sprite, val),
+                    6 => self.write_sprite_datb(sprite, val),
+                    _ => {}
+                }
+            }
+            0x180..=0x1BE => {
+                let idx = ((offset - 0x180) / 2) as usize;
+                self.set_palette(idx, val);
+            }
+            _ => {}
+        }
+    }
+
     /// Convert 12-bit RGB (Amiga OCS) to 24-bit RGB (0x00RRGGBB).
     #[must_use]
     pub fn rgb12_to_rgb24(rgb12: u16) -> u32 {

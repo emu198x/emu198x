@@ -307,7 +307,7 @@ impl AmigaOcs {
     /// Convenience: a colour table entry.
     #[must_use]
     pub fn color(&self, idx: usize) -> u16 {
-        self.denise.color[idx]
+        self.denise.color(idx)
     }
 
     /// Backdoor for tests: write a word as if the CPU did it.

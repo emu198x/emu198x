@@ -1,30 +1,27 @@
-//! Denise — display chip, per-CCK cycle-accurate.
+//! Denise — display chip wiring for the OCS machine.
 //!
-//! Each CCK while the beam is in the visible region:
-//!   1. If the current CCK is a bitplane-fetch slot (per the lores
-//!      DMA schedule) and bitplane DMA is enabled, fetch a 16-bit
-//!      word from the appropriate `BPL[n]PT`, advance the pointer
-//!      by 2, and latch into `bpl_data[n]`.
-//!   2. At the slot boundary (end of the 8-CCK block), load
-//!      `bpl_shift[n] ← bpl_data[n]` for each active plane.
-//!   3. Output 2 lores pixels: combine the MSB of each plane's
-//!      shift register into a color index, look up `self.color`,
-//!      write to the framebuffer (with horizontal pixel-doubling
-//!      and vertical line-doubling for square-pixel 4:3 output).
-//!      Then left-shift each plane's shift register by 1.
+//! Register + pixel-pipeline state lives in the upstream
+//! `commodore_denise_ocs::DeniseOcs`. This module is the narrow wiring
+//! layer that the machine uses to:
 //!
-//! End of line: advance `BPL[n]PT` by the line modulo.
+//!   - dispatch custom-register writes into `DeniseOcs::write_word`
+//!     (BPLCON0/1/2, CLXCON, BPL*DAT, SPR*, COLOR00..COLOR31),
+//!   - drive the per-CCK bitplane DMA fetch + shift-load cycle that
+//!     the archive leaves to the caller,
+//!   - copy the archive's per-pixel output into the machine's own
+//!     ARGB framebuffer for display.
 //!
-//! This module also owns the Denise-side register storage per the
-//! silicon ownership map in wiki/amiga/denise-ocs-porting-gap-list.md:
-//! BPLCON1 (scroll), BPLCON2 (priority), and the 32-entry colour
-//! palette. Post tasks #154 + #156 these live here rather than in the
-//! now-retired `chipset` module.
+//! DDF / DIW windowing helpers and the bitplane-DMA slot schedule
+//! (`dma_claim`, `lores_fetch_plane`) stay in this module because
+//! Agnus (not Denise) owns those registers on real silicon — the
+//! helpers only need the register values, not Denise state.
 //!
-//! This is the minimum cycle-accurate form. Hires + dual-playfield
-//! + HAM + EHB are NOT supported — those land when a test demands.
+//! HIRES / HAM / EHB / DPF / sprites / collisions all flow through
+//! the archive's `output_pixel_with_beam` unchanged — wholesale
+//! delegation per wiki/amiga/denise-ocs-porting-gap-list.md Phase 2b.
 
 use crate::memory::Memory;
+use commodore_denise_ocs::DeniseOcs;
 
 /// Display dimensions for PAL Standard (line-doubled, lores → 4:3).
 pub const FB_WIDTH: u32 = 768;
@@ -140,24 +137,20 @@ pub fn dma_claim(
 }
 
 pub struct Denise {
-    /// ARGB8888 framebuffer (FB_WIDTH × FB_HEIGHT pixels).
+    /// Archive pixel pipeline — owns BPLCON1/2, COLOR palette, sprite
+    /// registers, shift registers, HAM prev-RGB, collision state.
+    pub ocs: DeniseOcs,
+    /// ARGB8888 framebuffer (FB_WIDTH × FB_HEIGHT pixels) for the
+    /// frontend. We resolve the archive's `final_color_idx` through
+    /// its palette for each pixel and fill a 2×2 block here (pixel-
+    /// doubling + line-doubling for square-pixel 4:3 output).
     pub framebuffer: Vec<u32>,
-    /// Per-bitplane shift registers — current 16 bits being clocked out.
-    pub bpl_shift: [u16; 6],
-    /// Per-bitplane data registers — latched fetched word, copied
-    /// into shift register at the next slot boundary.
-    pub bpl_data: [u16; 6],
-    /// Bytes fetched on the current line per plane (used to compute
-    /// modulo adjustment at end of line).
+    /// Bytes fetched on the current line (used to decide when to
+    /// apply the end-of-line modulo).
     bytes_this_line: u32,
-    /// `$DFF102` — bitplane control 1 (scroll, dual playfield).
-    pub bplcon1: u16,
-    /// `$DFF104` — bitplane control 2 (priority).
-    pub bplcon2: u16,
-    /// `$DFF180-$DFF1BE` — 32-entry colour palette. OCS stores 12-bit
-    /// RGB in the low nibbles; upper 4 bits are reserved (ECS+) and
-    /// masked off on write.
-    pub color: [u16; 32],
+    /// vpos of the most recent `begin_beam_line()` call — guards
+    /// against multiple resets per line.
+    last_begin_line: Option<u16>,
 }
 
 impl Default for Denise {
@@ -170,37 +163,17 @@ impl Denise {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            ocs: DeniseOcs::new(),
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
-            bpl_shift: [0; 6],
-            bpl_data: [0; 6],
             bytes_this_line: 0,
-            bplcon1: 0,
-            bplcon2: 0,
-            color: [0; 32],
+            last_begin_line: None,
         }
     }
 
     /// CPU / copper write to a Denise-owned custom register.
-    ///
-    /// Handles BPLCON1 ($102), BPLCON2 ($104), and the 32-entry COLOR
-    /// palette ($180..=$1BE). Other offsets are silently ignored —
-    /// machine dispatch routes Agnus / Paula / copper registers before
-    /// reaching us, so this is the "fall-through" leaf writer for
-    /// anything the copper MOVEs into chipset space that isn't handled
-    /// elsewhere.
+    /// Thin forwarder into `DeniseOcs::write_word`.
     pub fn write_word(&mut self, offset: u16, val: u16) {
-        match offset {
-            0x102 => self.bplcon1 = val,
-            0x104 => self.bplcon2 = val,
-            0x180..=0x1BE => {
-                let idx = ((offset - 0x180) / 2) as usize;
-                if idx < self.color.len() {
-                    // OCS Denise: 12-bit colour; high nibble ignored.
-                    self.color[idx] = val & 0x0FFF;
-                }
-            }
-            _ => {}
-        }
+        self.ocs.write_word(offset, val);
     }
 
     /// Framebuffer dimensions (width, height).
@@ -215,17 +188,28 @@ impl Denise {
         &self.framebuffer
     }
 
+    /// Read one COLOR palette entry. Palette storage lives on
+    /// `self.ocs` now; this is a convenience for the AmigaOcs
+    /// `color(idx)` accessor which many tests rely on.
+    #[must_use]
+    pub fn color(&self, idx: usize) -> u16 {
+        if idx < 32 {
+            self.ocs.palette[idx]
+        } else {
+            0
+        }
+    }
+
     /// Tick one master/4 period (= 1 lores pixel, = half a CCK).
     /// `phase` selects which half of the CCK this tick belongs to:
-    ///   - `0`: first lores pixel of the CCK. This is the CCK boundary
-    ///     where bitplane fetch, shift-register reload, and end-of-line
-    ///     modulo events land.
-    ///   - `1`: second lores pixel of the CCK. Pixel output only.
+    ///   - `0`: first lores pixel of the CCK. CCK-boundary events
+    ///     (fetch, end-of-line modulo, begin-line reset) fire here.
+    ///   - `1`: second lores pixel of the CCK.
     ///
-    /// Every tick advances the shift register by 1 bit and outputs 1
-    /// lores pixel to the framebuffer (when the beam is inside the
-    /// display window). Called from `AmigaOcs::tick` after the beam
-    /// advance on phase 0.
+    /// Every tick advances the archive's shift register by the mode-
+    /// appropriate number of source pixels and writes one lores pixel
+    /// (pixel-doubled) to the framebuffer when the beam is inside the
+    /// display window.
     pub fn tick(
         &mut self,
         phase: u8,
@@ -246,33 +230,35 @@ impl Denise {
         let in_ddf =
             ddf_stop > ddf_start && (ddf_start..ddf_stop).contains(&hpos);
 
+        // Keep the archive's BPLCON0 copy in lockstep with Agnus's —
+        // Agnus owns the primary storage (it consumes BPU for the DMA
+        // scheduler); Denise reads HIRES/HOMOD/DBLPF/LACE from it.
+        self.ocs.bplcon0 = agnus.bplcon0;
+
         // ── CCK-boundary events (phase 0 only) ──────────────────
         if phase == 0 {
-            // 1. Bitplane fetch — one slot per CCK at the scheduled
-            //    hpos position within the 8-CCK block.
+            // Bitplane fetch — one slot per CCK at the scheduled hpos
+            // position within the 8-CCK block. The fetch writes into
+            // the archive's `bpl_data` latch; writing BPL1DAT (plane
+            // 0) queues the parallel shift-load that BPLCON1 will
+            // commit when its comparator matches.
             if in_visible_line && bpl_dma_on && in_ddf {
                 let slot_in_block = (hpos - ddf_start) % 8;
                 if let Some(plane) = lores_fetch_plane(slot_in_block, bpu) {
                     let addr = agnus.bpl_pt[plane];
-                    self.bpl_data[plane] = memory.read_chip_ram_word(addr);
+                    let word = memory.read_chip_ram_word(addr);
+                    self.ocs.load_bitplane(plane, word);
+                    if plane == 0 {
+                        self.ocs.queue_shift_load_from_bpl1dat();
+                    }
                     agnus.bpl_pt[plane] =
                         agnus.bpl_pt[plane].wrapping_add(2);
                     self.bytes_this_line += 2;
                 }
             }
 
-            // 2. Reload shift registers at slot 7 of each 8-CCK block.
-            if in_visible_line && in_ddf {
-                let slot_in_block = (hpos - ddf_start) % 8;
-                if slot_in_block == 7 {
-                    for p in 0..bpu as usize {
-                        self.bpl_shift[p] = self.bpl_data[p];
-                    }
-                }
-            }
-
-            // 3. End-of-line modulo — applied the moment hpos wraps
-            //    to zero (i.e. at the start of the next line).
+            // End-of-line modulo — applied the moment hpos wraps to
+            // zero (i.e. at the start of the next line).
             if hpos == 0 && self.bytes_this_line > 0 && bpl_dma_on {
                 for p in 0..bpu as usize {
                     let modulo = if p & 1 == 0 {
@@ -285,34 +271,37 @@ impl Denise {
                 }
                 self.bytes_this_line = 0;
             }
+
+            // Line-start reset — clears the archive's BPLCON1 carry
+            // and the HAM prev-RGB. Fire once per visible line.
+            if in_visible_line && self.last_begin_line != Some(vpos) {
+                self.ocs.begin_beam_line();
+                self.last_begin_line = Some(vpos);
+            } else if !in_visible_line {
+                self.last_begin_line = None;
+            }
         }
 
-        // ── Per-tick: output 1 lores pixel ──────────────────────
+        // ── Per-tick: output one lores pixel ────────────────────
         if in_visible_line && in_ddf {
             let local_y = u32::from(vpos.saturating_sub(vstart)) * 2;
             // Lores-pixel position within the DDF window:
             //   each CCK holds 2 lores pixels; `phase` selects which.
             let local_x = u32::from(hpos - ddf_start) * 2 + u32::from(phase);
 
-            let mut index = 0u8;
-            for p in 0..bpu as usize {
-                if (self.bpl_shift[p] >> 15) & 1 != 0 {
-                    index |= 1 << p;
-                }
-                self.bpl_shift[p] <<= 1;
-            }
-            // Palette has 32 entries. At BPU > 5 the 6-bit index
-            // selects HAM or EHB semantics we don't yet model — fall
-            // back to low-5-bit lookup so indexing stays in range.
-            let palette_idx = (index & 0x1F) as usize;
-            let colour = self.color[palette_idx] & 0x0FFF;
-            let pixel = rgb12_to_argb(colour);
-            for dy in [local_y, local_y + 1] {
-                for dx in 0..2u32 {
-                    let x = local_x * 2 + dx;
-                    let idx = (dy * FB_WIDTH + x) as usize;
-                    if idx < self.framebuffer.len() {
-                        self.framebuffer[idx] = pixel;
+            let dbg = self.ocs.output_pixel_with_beam(
+                local_x, local_y, local_x, local_y,
+            );
+            if dbg.called {
+                let rgb12 = self.ocs.resolve_color_rgb12(dbg.final_color_idx);
+                let pixel = rgb12_to_argb(rgb12);
+                for dy in [local_y, local_y + 1] {
+                    for dx in 0..2u32 {
+                        let x = local_x * 2 + dx;
+                        let idx = (dy * FB_WIDTH + x) as usize;
+                        if idx < self.framebuffer.len() {
+                            self.framebuffer[idx] = pixel;
+                        }
                     }
                 }
             }

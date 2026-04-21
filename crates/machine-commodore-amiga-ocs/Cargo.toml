@@ -10,6 +10,7 @@ motorola-68000 = { path = "../motorola-68000" }
 mos-cia-8520 = { path = "../mos-cia-8520" }
 commodore-paula-8364 = { path = "../commodore-paula-8364" }
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs-archive" }
 
 [dev-dependencies]
 png = { workspace = true }
