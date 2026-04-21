@@ -29,8 +29,7 @@
 //! one instruction per 4 CCKs" until a later milestone brings in
 //! the full slot schedule.
 
-use crate::chipset::Chipset;
-use crate::denise::DmaClaim;
+use crate::denise::{Denise, DmaClaim};
 use crate::memory::Memory;
 
 /// Copper internal state.
@@ -123,7 +122,7 @@ impl Copper {
     pub fn tick_cck(
         &mut self,
         memory: &Memory,
-        chipset: &mut Chipset,
+        denise: &mut Denise,
         beam_vp: u16,
         beam_hp: u16,
         claim: DmaClaim,
@@ -217,7 +216,7 @@ impl Copper {
             match reg {
                 0x088 => self.jump1(),
                 0x08A => self.jump2(),
-                _ => chipset.write_word(reg, word2),
+                _ => denise.write_word(reg, word2),
             }
             return true;
         }
@@ -301,12 +300,12 @@ mod tests {
     fn run_ccks(
         copper: &mut Copper,
         mem: &Memory,
-        chipset: &mut Chipset,
+        denise: &mut Denise,
         vpos: u16,
         ccks: u16,
     ) {
         for i in 0..ccks {
-            copper.tick_cck(mem, chipset, vpos, i % 227, DmaClaim::Free);
+            copper.tick_cck(mem, denise, vpos, i % 227, DmaClaim::Free);
         }
     }
 
@@ -316,15 +315,15 @@ mod tests {
             &[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)],
             0x1000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
 
         // Copper instruction = 2 odd-CCK memory cycles = 4 wall CCKs
         // when unconstrained. Run 4 wall CCKs with hpos cycling 0..3.
-        run_ccks(&mut copper, &mem, &mut chipset, 0, 4);
-        assert_eq!(chipset.color[0], 0x0F0F);
+        run_ccks(&mut copper, &mem, &mut denise, 0, 4);
+        assert_eq!(denise.color[0], 0x0F0F);
     }
 
     #[test]
@@ -335,15 +334,15 @@ mod tests {
             &[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)],
             0x1000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
 
         for _ in 0..40 {
-            copper.tick_cck(&mem, &mut chipset, 0, 0, DmaClaim::Free);
+            copper.tick_cck(&mem, &mut denise, 0, 0, DmaClaim::Free);
         }
-        assert_eq!(chipset.color[0], 0x0000, "copper must not run on even CCKs");
+        assert_eq!(denise.color[0], 0x0000, "copper must not run on even CCKs");
     }
 
     #[test]
@@ -355,7 +354,7 @@ mod tests {
             &[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)],
             0x1000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
@@ -367,10 +366,10 @@ mod tests {
             } else {
                 DmaClaim::Free
             };
-            copper.tick_cck(&mem, &mut chipset, 0, hpos, claim);
+            copper.tick_cck(&mem, &mut denise, 0, hpos, claim);
         }
         assert_eq!(
-            chipset.color[0], 0x0000,
+            denise.color[0], 0x0000,
             "copper must yield to bitplane DMA on odd CCKs",
         );
     }
@@ -386,7 +385,7 @@ mod tests {
             ],
             0x1000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
@@ -394,21 +393,21 @@ mod tests {
         // Tick the WAIT instruction: 3 eligible CCKs = 6 wall CCKs
         // (HRM: "WAIT requires three memory cycles and six memory
         // clocks per instruction").
-        run_ccks(&mut copper, &mem, &mut chipset, 0, 6);
+        run_ccks(&mut copper, &mem, &mut denise, 0, 6);
         assert!(copper.waiting);
 
         // Tick more with beam still below target — MOVE doesn't run.
         for i in 0..50 {
-            copper.tick_cck(&mem, &mut chipset, 4, i % 227, DmaClaim::Free);
+            copper.tick_cck(&mem, &mut denise, 4, i % 227, DmaClaim::Free);
         }
-        assert_eq!(chipset.color[0], 0);
+        assert_eq!(denise.color[0], 0);
 
         // Tick with beam at target — WAIT releases (i=0) then copper
         // needs 2 eligible odd CCKs (i=1, i=3) to execute the MOVE.
         // 4 wall CCKs is exactly right; running further would fetch
         // the end-of-list WAIT and re-enter the waiting state.
-        run_ccks(&mut copper, &mem, &mut chipset, 5, 4);
-        assert_eq!(chipset.color[0], 0x0FFF, "MOVE after WAIT release");
+        run_ccks(&mut copper, &mem, &mut denise, 5, 4);
+        assert_eq!(denise.color[0], 0x0FFF, "MOVE after WAIT release");
     }
 
     #[test]
@@ -426,7 +425,7 @@ mod tests {
             ],
             0x1000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
@@ -435,7 +434,7 @@ mod tests {
         // and decoded, but the 3rd memory cycle hasn't fired yet:
         // `waiting` should still be false and the delay should be
         // armed instead.
-        run_ccks(&mut copper, &mem, &mut chipset, 0, 4);
+        run_ccks(&mut copper, &mem, &mut denise, 0, 4);
         assert!(
             !copper.waiting,
             "WAIT must not enter waiting yet — only 2 eligible CCKs \
@@ -448,7 +447,7 @@ mod tests {
 
         // One more eligible CCK (2 wall CCKs) fires the 3rd memory
         // cycle and commits the waiting state.
-        run_ccks(&mut copper, &mem, &mut chipset, 0, 2);
+        run_ccks(&mut copper, &mem, &mut denise, 0, 2);
         assert!(
             copper.waiting,
             "3rd eligible CCK enters waiting (HRM's 3-cycle rule)",
@@ -524,14 +523,14 @@ mod tests {
             ],
             0x2000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x2000;
         copper.jump1();
 
         // Execute WAIT at vpos=0: 3 eligible CCKs = 6 wall CCKs for
         // the full HRM-accurate WAIT timing.
-        run_ccks(&mut copper, &mem, &mut chipset, 0, 6);
+        run_ccks(&mut copper, &mem, &mut denise, 0, 6);
         assert!(copper.waiting);
         assert_eq!(copper.wait_target, 0x0A00);
         // Mask: (0xFF00 & 0x7FFE) | 0x8000 = 0xFF00.
@@ -540,8 +539,8 @@ mod tests {
         // Advance beam to vpos=10 — WAIT releases (i=0), then copper
         // takes 2 eligible odd CCKs to fetch + execute the MOVE.
         // 4 wall CCKs is enough; don't overrun into end-of-list.
-        run_ccks(&mut copper, &mem, &mut chipset, 10, 4);
-        assert_eq!(chipset.color[0], 0x0ABC, "MOVE after horizontal-masked WAIT");
+        run_ccks(&mut copper, &mem, &mut denise, 10, 4);
+        assert_eq!(denise.color[0], 0x0ABC, "MOVE after horizontal-masked WAIT");
     }
 
     #[test]
@@ -557,7 +556,7 @@ mod tests {
             ],
             0x3000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x3000;
         copper.jump1();
@@ -565,9 +564,9 @@ mod tests {
         // Beam past target → SKIP consumes COLOR00 MOVE, only COLOR01
         // runs. Each instruction = 4 wall CCKs, we have 3 instrs →
         // need ≥ 12 CCKs of eligible copper cycles.
-        run_ccks(&mut copper, &mem, &mut chipset, 100, 16);
-        assert_eq!(chipset.color[0], 0x0000);
-        assert_eq!(chipset.color[1], 0x00F0);
+        run_ccks(&mut copper, &mem, &mut denise, 100, 16);
+        assert_eq!(denise.color[0], 0x0000);
+        assert_eq!(denise.color[1], 0x00F0);
     }
 
     #[test]
@@ -607,21 +606,21 @@ mod tests {
             mem.write_byte(off + 3, *w2 as u8);
         }
 
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.cop2lc = 0x2000;
         copper.jump1();
 
         // Plenty of cycles to run through MOVE + COPJMP2 + MOVE.
-        run_ccks(&mut copper, &mem, &mut chipset, 10, 20);
-        assert_eq!(chipset.color[0], 0x0F00, "first MOVE before COPJMP2 should run");
+        run_ccks(&mut copper, &mem, &mut denise, 10, 20);
+        assert_eq!(denise.color[0], 0x0F00, "first MOVE before COPJMP2 should run");
         assert_eq!(
-            chipset.color[1], 0x0000,
+            denise.color[1], 0x0000,
             "MOVE after COPJMP2 in list-1 must NOT run (jumped past)",
         );
         assert_eq!(
-            chipset.color[2], 0x00FF,
+            denise.color[2], 0x00FF,
             "MOVE in list-2 (at COP2LC) should run after the jump",
         );
     }
@@ -639,14 +638,14 @@ mod tests {
             ],
             0x5000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x5000;
         copper.jump1();
 
-        run_ccks(&mut copper, &mem, &mut chipset, 0, 40);
+        run_ccks(&mut copper, &mem, &mut denise, 0, 40);
         assert_eq!(
-            chipset.color[0], 0x0000,
+            denise.color[0], 0x0000,
             "COLOR00 must NOT have been written — dangerous MOVE halts copper"
         );
         assert!(copper.stopped, "copper should be stopped after dangerous MOVE");
@@ -661,8 +660,8 @@ mod tests {
         copper.cop1lc = 0x6000;
         copper.jump1();
         assert!(!copper.stopped, "COPJMP1 must clear stopped");
-        run_ccks(&mut copper, &mem2, &mut chipset, 0, 8);
-        assert_eq!(chipset.color[0], 0x0ABC, "copper restarts after COPJMP1");
+        run_ccks(&mut copper, &mem2, &mut denise, 0, 8);
+        assert_eq!(denise.color[0], 0x0ABC, "copper restarts after COPJMP1");
     }
 
     #[test]
@@ -673,11 +672,11 @@ mod tests {
                 &[(reg, 0x1234), (0xFFFF, 0xFFFE)],
                 0x7000,
             );
-            let mut chipset = Chipset::new();
+            let mut denise = Denise::new();
             let mut copper = Copper::new();
             copper.cop1lc = 0x7000;
             copper.jump1();
-            run_ccks(&mut copper, &mem, &mut chipset, 0, 8);
+            run_ccks(&mut copper, &mem, &mut denise, 0, 8);
             assert_eq!(
                 copper.stopped, should_halt,
                 "reg ${reg:03X} should {} the copper",
@@ -696,12 +695,12 @@ mod tests {
             ],
             0x4000,
         );
-        let mut chipset = Chipset::new();
+        let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x4000;
         copper.jump1();
 
-        run_ccks(&mut copper, &mem, &mut chipset, 10, 12);
-        assert_eq!(chipset.color[0], 0x0F00);
+        run_ccks(&mut copper, &mem, &mut denise, 10, 12);
+        assert_eq!(denise.color[0], 0x0F00);
     }
 }

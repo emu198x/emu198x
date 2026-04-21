@@ -8,17 +8,22 @@
 //!   2. At the slot boundary (end of the 8-CCK block), load
 //!      `bpl_shift[n] ← bpl_data[n]` for each active plane.
 //!   3. Output 2 lores pixels: combine the MSB of each plane's
-//!      shift register into a color index, look up `chipset.color`,
+//!      shift register into a color index, look up `self.color`,
 //!      write to the framebuffer (with horizontal pixel-doubling
 //!      and vertical line-doubling for square-pixel 4:3 output).
 //!      Then left-shift each plane's shift register by 1.
 //!
 //! End of line: advance `BPL[n]PT` by the line modulo.
 //!
+//! This module also owns the Denise-side register storage per the
+//! silicon ownership map in wiki/amiga/denise-ocs-porting-gap-list.md:
+//! BPLCON1 (scroll), BPLCON2 (priority), and the 32-entry colour
+//! palette. Post tasks #154 + #156 these live here rather than in the
+//! now-retired `chipset` module.
+//!
 //! This is the minimum cycle-accurate form. Hires + dual-playfield
 //! + HAM + EHB are NOT supported — those land when a test demands.
 
-use crate::chipset::Chipset;
 use crate::memory::Memory;
 
 /// Display dimensions for PAL Standard (line-doubled, lores → 4:3).
@@ -145,6 +150,14 @@ pub struct Denise {
     /// Bytes fetched on the current line per plane (used to compute
     /// modulo adjustment at end of line).
     bytes_this_line: u32,
+    /// `$DFF102` — bitplane control 1 (scroll, dual playfield).
+    pub bplcon1: u16,
+    /// `$DFF104` — bitplane control 2 (priority).
+    pub bplcon2: u16,
+    /// `$DFF180-$DFF1BE` — 32-entry colour palette. OCS stores 12-bit
+    /// RGB in the low nibbles; upper 4 bits are reserved (ECS+) and
+    /// masked off on write.
+    pub color: [u16; 32],
 }
 
 impl Default for Denise {
@@ -161,6 +174,32 @@ impl Denise {
             bpl_shift: [0; 6],
             bpl_data: [0; 6],
             bytes_this_line: 0,
+            bplcon1: 0,
+            bplcon2: 0,
+            color: [0; 32],
+        }
+    }
+
+    /// CPU / copper write to a Denise-owned custom register.
+    ///
+    /// Handles BPLCON1 ($102), BPLCON2 ($104), and the 32-entry COLOR
+    /// palette ($180..=$1BE). Other offsets are silently ignored —
+    /// machine dispatch routes Agnus / Paula / copper registers before
+    /// reaching us, so this is the "fall-through" leaf writer for
+    /// anything the copper MOVEs into chipset space that isn't handled
+    /// elsewhere.
+    pub fn write_word(&mut self, offset: u16, val: u16) {
+        match offset {
+            0x102 => self.bplcon1 = val,
+            0x104 => self.bplcon2 = val,
+            0x180..=0x1BE => {
+                let idx = ((offset - 0x180) / 2) as usize;
+                if idx < self.color.len() {
+                    // OCS Denise: 12-bit colour; high nibble ignored.
+                    self.color[idx] = val & 0x0FFF;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -194,7 +233,6 @@ impl Denise {
         hpos: u16,
         dmacon: u16,
         agnus: &mut commodore_agnus_ocs::Agnus,
-        chipset: &Chipset,
         memory: &Memory,
     ) {
         let (vstart, vstop) =
@@ -267,7 +305,7 @@ impl Denise {
             // selects HAM or EHB semantics we don't yet model — fall
             // back to low-5-bit lookup so indexing stays in range.
             let palette_idx = (index & 0x1F) as usize;
-            let colour = chipset.color[palette_idx] & 0x0FFF;
+            let colour = self.color[palette_idx] & 0x0FFF;
             let pixel = rgb12_to_argb(colour);
             for dy in [local_y, local_y + 1] {
                 for dx in 0..2u32 {

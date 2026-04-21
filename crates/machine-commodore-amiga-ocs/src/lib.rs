@@ -7,7 +7,6 @@
 //! Current milestone: **M6 — beam counter + VBL interrupt.**
 
 mod agnus;
-mod chipset;
 mod cia;
 mod copper;
 mod denise;
@@ -16,7 +15,6 @@ mod memory;
 pub use agnus::{
     Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, VBL_END_LINE,
 };
-pub use chipset::Chipset;
 pub use cia::{Cia, CiaExt};
 pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
 use commodore_paula_8364::decode as paula_decode;
@@ -45,7 +43,6 @@ const TICKS_PER_CCK: u64 = 2;
 pub struct AmigaOcs {
     cpu: Cpu68000,
     memory: Memory,
-    chipset: Chipset,
     cia_a: Cia,
     cia_b: Cia,
     paula: Paula8364,
@@ -148,7 +145,6 @@ impl AmigaOcs {
         Self {
             cpu,
             memory,
-            chipset: Chipset::new(),
             cia_a,
             cia_b: Cia::new(),
             paula: Paula8364::new(),
@@ -196,12 +192,6 @@ impl AmigaOcs {
     #[must_use]
     pub fn denise(&self) -> &Denise {
         &self.denise
-    }
-
-    /// Read-only chipset access.
-    #[must_use]
-    pub fn chipset(&self) -> &Chipset {
-        &self.chipset
     }
 
     /// Read-only memory access (for tests inspecting OVL state etc.).
@@ -317,7 +307,7 @@ impl AmigaOcs {
     /// Convenience: a colour table entry.
     #[must_use]
     pub fn color(&self, idx: usize) -> u16 {
-        self.chipset.color[idx]
+        self.denise.color[idx]
     }
 
     /// Backdoor for tests: write a word as if the CPU did it.
@@ -418,7 +408,7 @@ impl AmigaOcs {
                 let high = (offset & 2) == 0;
                 self.agnus.write_bpl_pointer(plane_idx, high, val);
             }
-            _ => self.chipset.write_word(offset, val),
+            _ => self.denise.write_word(offset, val),
         }
         if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
             self.debug_dsk_log.push((
@@ -458,7 +448,7 @@ impl AmigaOcs {
             // the same byte in both halves on real hardware. For our
             // purposes a byte write just writes the byte value.
             let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
-            self.chipset.write_word(offset, u16::from(val) << 8 | u16::from(val));
+            self.denise.write_word(offset, u16::from(val) << 8 | u16::from(val));
         } else {
             self.memory.write_byte(addr, val);
         }
@@ -544,7 +534,7 @@ impl AmigaOcs {
                 0x0A0..=0x0DA => paula_decode::audio_register(offset)
                     .map(|(ch, f)| self.paula.read_audio(ch, f))
                     .unwrap_or(0xFFFF),
-                _ => self.chipset.read_word(offset),
+                _ => 0xFFFF,
             };
         }
         self.memory.read_word(addr24)
@@ -611,7 +601,7 @@ impl AmigaOcs {
             if self.agnus.dmacon & 0x0280 == 0x0280 {
                 self.copper.tick_cck(
                     &self.memory,
-                    &mut self.chipset,
+                    &mut self.denise,
                     self.agnus.vpos,
                     self.agnus.hpos,
                     claim,
@@ -649,7 +639,6 @@ impl AmigaOcs {
             self.agnus.hpos,
             self.agnus.dmacon,
             &mut self.agnus,
-            &self.chipset,
             &self.memory,
         );
 
@@ -832,7 +821,7 @@ impl AmigaOcs {
                     0x0A0..=0x0DA => paula_decode::audio_register(offset)
                         .map(|(ch, f)| self.paula.read_audio(ch, f))
                         .unwrap_or(0xFFFF),
-                    _ => self.chipset.read_word(offset),
+                    _ => 0xFFFF,
                 };
                 self.memory.set_last_bus_value(val);
                 self.cpu.bus_status = BusStatus::Ready(if is_word { val } else { val & 0xFF });
