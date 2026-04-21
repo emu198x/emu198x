@@ -207,6 +207,75 @@ fn dump_state_at_frame_250_a500_a501() {
         "CPU: PC=${:08X}  SR=${:04X}  IPL={}",
         cpu.regs.pc, cpu.regs.sr, cpu.ipl,
     );
+    println!();
+
+    // Dump chip RAM at the bitplane pointers. If the copper list
+    // is correct and the blitter drew the hand-disk graphic there,
+    // these should contain line-art bit patterns. All-zero means
+    // nobody ever wrote anything to the bitplanes.
+    println!("=== chip RAM at BPL1PT ($5AC2), 8 lines of 20 bytes ===");
+    for line in 0..8 {
+        print!("  +{:03X}: ", line * 20);
+        for byte in 0..20 {
+            let addr = 0x5AC2u32 + line * 20 + byte;
+            let b = m.read_chip_ram_byte(addr);
+            print!("{b:02X} ");
+        }
+        println!();
+    }
+    println!();
+    println!("=== chip RAM at BPL2PT ($7A02), 8 lines of 20 bytes ===");
+    for line in 0..8 {
+        print!("  +{:03X}: ", line * 20);
+        for byte in 0..20 {
+            let addr = 0x7A02u32 + line * 20 + byte;
+            let b = m.read_chip_ram_byte(addr);
+            print!("{b:02X} ");
+        }
+        println!();
+    }
+    println!();
+
+    // Count the total number of CPU DMACON writes + BPL*DAT writes
+    // logged. If CPU never wrote BPL*DAT, that rules out the CPU-
+    // direct-bitplane theory too.
+    println!(
+        "DMACON writes recorded: {}",
+        m.debug_dmacon_log.len()
+    );
+    println!();
+
+    // Blitter state right now. Bitplanes are all zeros so either
+    // (a) the blitter never ran in a way that wrote bitplane data,
+    // (b) the destination pointer (DPT) doesn't land in the BPL
+    //     window, or (c) the blit is producing zero output because
+    //     the source data (APT/BPT/CPT) is itself zero or the
+    //     minterm selects nothing.
+    let last_cck = m.debug_cia_b_cr_log
+        .last()
+        .map(|(cck, _, _, _)| *cck)
+        .unwrap_or(0);
+    println!("=== blitter state at end (cck={last_cck}) ===");
+    println!("Total blit starts (BLTSIZE writes) since reset: {}", m.debug_blit_starts);
+    println!();
+    println!("Top 10 custom-register read counts:");
+    let mut counts: Vec<(u16, u64)> = m
+        .debug_reg_read_counts
+        .iter()
+        .map(|(k, v)| (*k, *v))
+        .collect();
+    counts.sort_by_key(|&(_, v)| std::cmp::Reverse(v));
+    for &(reg, count) in counts.iter().take(10) {
+        println!("  ${reg:03X}:  {count}");
+    }
+    println!();
+    println!("  BLTCON0  = ${:04X}", a.bltcon0);
+    println!("  BLTCON1  = ${:04X}", a.bltcon1);
+    println!("  BLTSIZE  = ${:04X}", a.bltsize);
+    println!("  BLTAPT   = ${:08X}   AMOD = {}", a.blt_apt, a.blt_amod);
+    println!("  BLTBPT   = ${:08X}   BMOD = {}", a.blt_bpt, a.blt_bmod);
+    println!("  BLTCPT   = ${:08X}   CMOD = {}", a.blt_cpt, a.blt_cmod);
+    println!("  BLTDPT   = ${:08X}   DMOD = {}", a.blt_dpt, a.blt_dmod);
 }
 
 fn dump_copper_list(m: &AmigaOcs, label: &str, base: u32, len_instrs: u32) {

@@ -36,6 +36,7 @@ fn dump_rom_around_dmacon_clear_sites() {
     // conditional branches.
     dump_window(&rt, "SPREN clear site", 0x00FD_689E, 0x20, 0x40);
     dump_window(&rt, "BPLEN clear site", 0x00FE_8554, 0x20, 0x40);
+    dump_window(&rt, "WAITBLIT spin (where the CPU is pinned)", 0x00FC_5A70, 0x10, 0x20);
 }
 
 fn dump_window(

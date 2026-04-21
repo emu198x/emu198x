@@ -111,7 +111,19 @@ fn walk_task_names(amiga: &AmigaOcs, list_addr: u32) -> Vec<String> {
 /// (task #174) changed the SR regime from supervisor to user
 /// because input.device now dispatches on ICR SP events instead of
 /// sleeping in Wait(); this test captures the updated invariants.
+///
+/// **Currently disabled (task #191):** this test pinned the
+/// "CPU stuck in WAITBLIT forever" state as expected behaviour.
+/// That state was an emulator bug — byte reads of DMACONR
+/// ($DFF002) returned the low byte of DMACON instead of the high
+/// byte, so `btst.b #6, $DFF002` testing BBUSY always read 1 and
+/// the CPU spun forever. Once the byte-read semantics were fixed
+/// the CPU correctly exits WAITBLIT and advances past `$FE9C8C`
+/// into KS 1.3's screen-setup path. Re-enable this test once the
+/// downstream rendering is sorted (the new steady-state PC is the
+/// right place to lock in).
 #[test]
+#[ignore = "task #191: re-baseline against fixed boot once rendering is sorted"]
 fn boot_reaches_insert_disk_idle_with_keyboard_live() {
     let Some(rom) = load_kickstart() else { return };
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -198,7 +210,12 @@ fn boot_reaches_insert_disk_idle_with_keyboard_live() {
 /// no longer corrupts INTENA by executing ExecBase struct bytes as
 /// copper instructions. The deadlock on romboot's TD_CHANGESTATE
 /// DoIO clears up, and chip-only boots identically to slow-RAM.
+///
+/// **Currently disabled (task #191)** for the same reason as the
+/// sibling test — it pinned the stuck-in-WAITBLIT state. Re-enable
+/// once the downstream rendering pipeline is sorted.
 #[test]
+#[ignore = "task #191: re-baseline against fixed boot once rendering is sorted"]
 fn chip_only_and_slow_ram_both_reach_waitblit() {
     let Some(rom) = load_kickstart() else { return };
     let mut slow = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);

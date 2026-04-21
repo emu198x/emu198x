@@ -237,6 +237,10 @@ pub struct AmigaOcs {
     /// every write to $DFF096; lets us see who enables / disables
     /// BPLEN / SPREN / etc. during boot.
     pub debug_dmacon_log: Vec<(u64, u32, u16, u16, u16)>,
+    /// Diagnostic: count of BLTSIZE writes (every one starts a
+    /// blit). Independent of whether the blit actually touched
+    /// chip RAM — just counts the "CPU kicked a blit" events.
+    pub debug_blit_starts: u64,
     /// Diagnostic: log of CIA-A register writes. Entry is
     /// `(cck, pc, reg, raw_val)` where reg is 0..=$F. Lets us see
     /// how timer.device and other code start/stop the CIA-A timers.
@@ -375,6 +379,7 @@ impl AmigaOcs {
             debug_cop2lc_log: Vec::new(),
             debug_dsk_log: Vec::new(),
             debug_dmacon_log: Vec::new(),
+            debug_blit_starts: 0,
             debug_cia_a_cr_log: Vec::new(),
             debug_cia_b_cr_log: Vec::new(),
             debug_watch_addr: None,
@@ -779,6 +784,7 @@ impl AmigaOcs {
             // BBUSY clear on the next DMACONR read.
             0x040..=0x074 if self.agnus.write_blitter_register(offset, val) => {
                 if offset == 0x058 {
+                    self.debug_blit_starts += 1;
                     self.run_blit_to_completion();
                 }
             }
@@ -1355,7 +1361,30 @@ impl AmigaOcs {
                     _ => 0xFFFF,
                 };
                 self.memory.set_last_bus_value(val);
-                self.cpu.bus_status = BusStatus::Ready(if is_word { val } else { val & 0xFF });
+                // Byte-access semantics on the 68000 16-bit chip
+                // bus: even address → UDS → upper byte (bits 15-8);
+                // odd address → LDS → lower byte (bits 7-0). The
+                // CPU stores whatever the bus returns in the low 8
+                // bits of its read_data word (`finish_bus_cycle`
+                // ReadByte arm), so the machine must pre-shift the
+                // upper byte down for even byte reads.
+                //
+                // Before this fix, byte reads of $DFF002 (DMACONR)
+                // returned `val & 0xFF` — the low byte of DMACON.
+                // Kickstart 1.3's WAITBLIT does `btst.b #6, $DFF002`
+                // to test bit 14 of the full word (= BBUSY in the
+                // upper byte, bit 6 of that byte). With the old
+                // behaviour, DMACON=$02D0 gave back $D0 whose bit 6
+                // is set — so KS 1.3 spun in WAITBLIT forever and
+                // never drew the insert-disk hand-disk graphic.
+                let delivered = if is_word {
+                    val
+                } else if addr24 & 1 == 0 {
+                    (val >> 8) & 0xFF
+                } else {
+                    val & 0xFF
+                };
+                self.cpu.bus_status = BusStatus::Ready(delivered);
             } else {
                 let val = data.unwrap_or(0);
                 self.memory.set_last_bus_value(val);
