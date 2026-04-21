@@ -256,6 +256,38 @@ fn dump_state_at_frame_250_a500_a501() {
         .map(|(cck, _, _, _)| *cck)
         .unwrap_or(0);
     println!("=== blitter state at end (cck={last_cck}) ===");
+    // Scan chip RAM for non-zero content in 256-byte pages. If the
+    // blitter drew the hand-disk line art, we should see non-trivial
+    // byte patterns somewhere — track which pages are non-empty.
+    println!("=== chip RAM pages with non-zero bytes ===");
+    let mut non_zero_pages = Vec::new();
+    for page in 0..(512 * 1024 / 256) {
+        let base = (page * 256) as u32;
+        let mut any_non_zero = false;
+        for off in 0..256 {
+            if m.read_chip_ram_byte(base + off) != 0 {
+                any_non_zero = true;
+                break;
+            }
+        }
+        if any_non_zero {
+            non_zero_pages.push(base);
+        }
+    }
+    println!("  {} / {} pages non-empty", non_zero_pages.len(), 512 * 1024 / 256);
+    println!("  ALL non-empty page bases:");
+    for page in &non_zero_pages {
+        // Count non-zero bytes in the page as a cheap "density".
+        let mut count = 0;
+        for off in 0..256 {
+            if m.read_chip_ram_byte(page + off) != 0 {
+                count += 1;
+            }
+        }
+        println!("    ${page:06X}  ({count}/256 non-zero bytes)");
+    }
+    println!();
+
     println!("Total blit starts (BLTSIZE writes) since reset: {}", m.debug_blit_starts);
     println!();
     println!("Top 10 custom-register read counts:");

@@ -21,6 +21,7 @@
 //! delegation per wiki/amiga/denise-ocs-porting-gap-list.md Phase 2b.
 
 use crate::memory::Memory;
+use commodore_agnus_ocs::PAL_CCKS_PER_LINE;
 use commodore_denise_ocs::DeniseOcs;
 
 /// Display dimensions for PAL Standard (line-doubled, lores → 4:3).
@@ -373,38 +374,65 @@ impl Denise {
         }
 
         // ── Per-tick: output one lores pixel ────────────────────
-        if in_visible_line && in_ddf {
-            // Framebuffer layout matches the PAL "Standard" viewport
-            // the archive used (`ViewportPreset::Standard`,
-            // h_start_cck=$2C, v_start_line=$19). Aligning our
-            // per-pixel write origin to that viewport puts the
-            // display content at the same framebuffer coordinates
-            // FS-UAE captures — which is what the golden PNGs were
-            // sampled from. If we used DDFSTRT / DIWSTRT as the
-            // origin instead (like an earlier port did), the content
-            // position in the framebuffer would track the software's
-            // display-setup choices rather than the viewport, and
-            // differ from FS-UAE by up to ~100 display pixels.
-            const VIEWPORT_H_START_CCK: u16 = 0x2C;
-            const VIEWPORT_V_START_LINE: u16 = 0x19;
-            let fb_y = u32::from(vpos.saturating_sub(VIEWPORT_V_START_LINE)) * 2;
-            let fb_x_lores = u32::from(hpos.saturating_sub(VIEWPORT_H_START_CCK)) * 2
+        //
+        // Every beam cycle in the visible viewport paints SOMETHING
+        // into the framebuffer. Inside DIW+DDF with live bitplane
+        // data we use the bitplane-decoded colour; outside that
+        // region (border, pre-warmup slots, lines above/below the
+        // DIW window) we paint COLOR00 — the background colour
+        // Agnus/Denise outputs during blanking-free beam slots. KS
+        // 1.3's insert-disk screen sets COLOR00=$0FFF (white), so
+        // the borders should render white, not the framebuffer's
+        // init-time black. The previous piecewise-port-state gated
+        // all framebuffer writes on `in_visible_line && in_ddf`,
+        // leaving the border at the init colour.
+        //
+        // Framebuffer layout matches the PAL "Standard" viewport
+        // the archive used (`ViewportPreset::Standard`,
+        // h_start_cck=$2C, v_start_line=$19). Aligning our per-
+        // pixel write origin to that viewport puts the display
+        // content at the same framebuffer coordinates FS-UAE
+        // captures — which is what the golden PNGs were sampled
+        // from.
+        const VIEWPORT_H_START_CCK: u16 = 0x2C;
+        const VIEWPORT_V_START_LINE: u16 = 0x19;
+        const VIEWPORT_H_END_CCK: u16 = 0xEC;
+        const VIEWPORT_V_END_LINE: u16 = 0x139;
+        let in_viewport_h =
+            hpos >= VIEWPORT_H_START_CCK && hpos < VIEWPORT_H_END_CCK;
+        let in_viewport_v =
+            vpos >= VIEWPORT_V_START_LINE && vpos < VIEWPORT_V_END_LINE;
+        if in_viewport_h && in_viewport_v {
+            let fb_y = u32::from(vpos - VIEWPORT_V_START_LINE) * 2;
+            let fb_x_lores = u32::from(hpos - VIEWPORT_H_START_CCK) * 2
                 + u32::from(phase);
 
             // Pipeline coordinates (DDF-relative) stay the same —
             // they're what Denise uses internally for sprite and
             // shift-register comparators.
-            let pipeline_x = u32::from(hpos - ddf_start) * 2 + u32::from(phase);
+            let pipeline_x = if hpos >= ddf_start {
+                u32::from(hpos - ddf_start) * 2 + u32::from(phase)
+            } else {
+                0
+            };
             let pipeline_y = u32::from(vpos.saturating_sub(vstart)) * 2;
 
             let local_x = fb_x_lores;
             let local_y = fb_y;
 
-            let dbg = self.ocs.output_pixel_with_beam(
-                pipeline_x, pipeline_y, pipeline_x, pipeline_y,
-            );
-            if dbg.called {
-                let rgb12 = self.ocs.resolve_color_rgb12(dbg.final_color_idx);
+            // Only consult the bitplane pipeline inside DIW+DDF;
+            // elsewhere the beam shows COLOR00 background.
+            let color_idx = if in_visible_line && in_ddf {
+                let dbg = self.ocs.output_pixel_with_beam(
+                    pipeline_x, pipeline_y, pipeline_x, pipeline_y,
+                );
+                if dbg.called { Some(dbg.final_color_idx) } else { None }
+            } else {
+                None
+            };
+            let final_idx = color_idx.unwrap_or(0);
+            {
+                let rgb12 = self.ocs.resolve_color_rgb12(final_idx);
                 let pixel = rgb12_to_argb(rgb12);
                 // LACE: paint one row per field (long frame = even,
                 // short frame = odd). Non-interlaced: paint both rows
@@ -427,6 +455,41 @@ impl Denise {
                         let idx = (dy * FB_WIDTH + x) as usize;
                         if idx < self.framebuffer.len() {
                             self.framebuffer[idx] = pixel;
+                        }
+                    }
+                }
+            }
+
+            // Tail fill — extend COLOR00 to the right border.
+            //
+            // The Standard viewport is 192 CCKs wide ($2C..$EC) which
+            // maps to all 768 FB columns. But PAL lines are only 227
+            // CCKs long, so the beam's `hpos` never reaches the
+            // viewport's right edge — cols [732..768) would otherwise
+            // stay at the framebuffer's init colour for the entire
+            // frame. Real CRTs still show the Amiga's current COLOR00
+            // across the full visible scanline, so at the last
+            // painted CCK of the line we spray COLOR00 across the
+            // remaining FB columns. `resolve_color_rgb12(0)` matches
+            // the value we already write for pre-DDF / post-DIW
+            // pixels, keeping the border a single uniform colour.
+            if phase == 1 && hpos == PAL_CCKS_PER_LINE - 1 {
+                let tail_start = u32::from(hpos - VIEWPORT_H_START_CCK + 1)
+                    * 4;
+                if tail_start < FB_WIDTH {
+                    let rgb12_bg = self.ocs.resolve_color_rgb12(0);
+                    let bg_pixel = rgb12_to_argb(rgb12_bg);
+                    let rows: &[u32] = if lace {
+                        if agnus.lof { &[local_y] } else { &[local_y + 1] }
+                    } else {
+                        &[local_y, local_y + 1]
+                    };
+                    for &dy in rows {
+                        for x in tail_start..FB_WIDTH {
+                            let idx = (dy * FB_WIDTH + x) as usize;
+                            if idx < self.framebuffer.len() {
+                                self.framebuffer[idx] = bg_pixel;
+                            }
                         }
                     }
                 }

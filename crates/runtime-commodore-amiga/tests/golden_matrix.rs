@@ -374,38 +374,32 @@ fn run_row(row: &GoldenRow) {
     );
 }
 
-// The three rows we have FS-UAE goldens for all fail today: OCS
-// renders the insert-disk screen as a plain white rectangle instead
-// of the hand-holding-disk graphic. The failure is real and visible
-// in `tests/goldens/*.diff.png` — bitplane 0 lands in the right
-// place, but planes 1+ aren't contributing. Tracked as task #191;
-// remove the `#[ignore]` row-by-row as OCS catches up with
-// FS-UAE's output. Run with `cargo test -- --ignored` to see the
-// current gap.
+// The KS 1.3 insert-disk rows are pixel-exact against FS-UAE
+// captures. A1000 KS 1.2 still fails — that's a separate boot bug
+// (task #188, golden itself is all-black so the symptom differs).
+// Run `cargo test -- --ignored` to see the A1000 diff while #188
+// is outstanding.
 
 #[test]
-#[ignore = "task #191: OCS insert-disk rendering regressed from archive (see diff.png)"]
 fn a500_ks13_no_disk() {
     run_row(&MATRIX[0]);
 }
 
 #[test]
-#[ignore = "task #191: OCS insert-disk rendering regressed from archive (see diff.png)"]
 fn a500_ks13_a501_no_disk() {
     run_row(&MATRIX[1]);
 }
 
 #[test]
 fn a500_ks13_wb13() {
-    // Not yet ignored: this row skips when the Workbench ADF is
-    // absent (task #189), which is the current state. Once the ADF
-    // lands and we have a golden, expect it to fail the same way as
-    // the no-disk rows until task #191 is closed.
+    // Skips when the Workbench ADF is absent (task #189), which is
+    // the current state. Expected to pass once the ADF and golden
+    // land.
     run_row(&MATRIX[2]);
 }
 
 #[test]
-#[ignore = "task #191: OCS insert-disk rendering regressed from archive (see diff.png)"]
+#[ignore = "task #188: A1000 KS 1.2 boot produces all-black golden — separate bug"]
 fn a1000_ks12_no_disk() {
     run_row(&MATRIX[3]);
 }
