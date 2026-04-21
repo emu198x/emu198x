@@ -30,6 +30,11 @@ pub use runtime::{AmigaRuntime, AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPL
 /// presets are available through `AmigaRuntime::from_ram_config`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
+    /// A1000 OCS PAL (shipping config, 1985): 256 KiB chip RAM.
+    /// Shares the OCS chipset with the A500; the differences (RAM
+    /// size, expansion layout, keyboard/case) don't affect the
+    /// chipset tick path, so we reuse `AmigaOcs` as-is.
+    A1000OcsPal,
     /// Stock A500 OCS PAL: 512 KiB chip RAM only.
     A500OcsPal,
     /// A500 + A501 trapdoor: 512 KiB chip + 512 KiB slow RAM.
@@ -55,6 +60,7 @@ impl Model {
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
+            Self::A1000OcsPal => "commodore-amiga-a1000-ocs-pal",
             Self::A500OcsPal => "commodore-amiga-a500-ocs-pal",
             Self::A500OcsPalA501 => "commodore-amiga-a500-ocs-pal-a501",
             Self::A500PlusOcsPal => "commodore-amiga-a500-plus-ocs-pal",
@@ -72,6 +78,7 @@ impl Model {
     #[must_use]
     pub const fn display_name(self) -> &'static str {
         match self {
+            Self::A1000OcsPal => "Commodore Amiga 1000 (OCS PAL)",
             Self::A500OcsPal => "Commodore Amiga 500 (OCS PAL)",
             Self::A500OcsPalA501 => "Commodore Amiga 500 + A501 trapdoor (OCS PAL)",
             Self::A500PlusOcsPal => "Commodore Amiga 500+ (OCS PAL)",
@@ -84,6 +91,7 @@ impl Model {
     #[must_use]
     pub const fn ram_config(self) -> RamConfig {
         match self {
+            Self::A1000OcsPal => RamConfig { chip_kb: 256, slow_kb: 0, fast_kb: 0 },
             Self::A500OcsPal => RamConfig::bare(),
             Self::A500OcsPalA501 => RamConfig::a501_trapdoor(),
             Self::A500PlusOcsPal => RamConfig::a500_plus(),
@@ -96,6 +104,7 @@ impl Model {
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
     vec![
+        profile_for(Model::A1000OcsPal),
         profile_for(Model::A500OcsPal),
         profile_for(Model::A500OcsPalA501),
         profile_for(Model::A500PlusOcsPal),
@@ -112,6 +121,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     let release_year = match model {
+        Model::A1000OcsPal => 1985,
         Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsPalMaxed => 1987,
         Model::A500PlusOcsPal => 1991,
     };

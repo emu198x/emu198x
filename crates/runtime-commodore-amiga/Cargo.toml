@@ -12,5 +12,8 @@ format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
 machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs" }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+png = { workspace = true }
+
 [lints]
 workspace = true

@@ -1,0 +1,6 @@
+# Debug artefacts written by the golden-matrix harness on mismatch.
+# The committed `*.png` files are the reference frames; anything
+# with `.actual.png` or `.diff.png` suffixes is generated and must
+# not be tracked.
+*.actual.png
+*.diff.png
