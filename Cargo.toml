@@ -34,6 +34,10 @@ members = [
     "crates/commodore-denise-ocs",
     "crates/peripheral-commodore-amiga-floppy",
     "crates/peripheral-commodore-amiga-keyboard",
+    # Gary archive — included during Phase 1 of the Gary port so
+    # characterisation tests can run against archive behaviour.
+    # Renamed to `commodore-gary` at Phase 3.
+    "crates/commodore-gary-archive",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",
@@ -49,7 +53,6 @@ exclude = [
     # Archived Amiga crates from the pre-restart implementation. Kept
     # in tree for reference (see wiki/decisions/amiga-restart-plan.md);
     # excluded from the build.
-    "crates/commodore-gary-archive",
     "crates/emu198x-script-amiga-archive",
     "crates/machine-commodore-amiga-archive",
     "crates/runtime-commodore-amiga-archive",
