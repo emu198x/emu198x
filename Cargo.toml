@@ -34,10 +34,7 @@ members = [
     "crates/commodore-denise-ocs",
     "crates/peripheral-commodore-amiga-floppy",
     "crates/peripheral-commodore-amiga-keyboard",
-    # Gary archive — included during Phase 1 of the Gary port so
-    # characterisation tests can run against archive behaviour.
-    # Renamed to `commodore-gary` at Phase 3.
-    "crates/commodore-gary-archive",
+    "crates/commodore-gary",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",
