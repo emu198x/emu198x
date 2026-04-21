@@ -99,118 +99,95 @@ fn walk_task_names(amiga: &AmigaOcs, list_addr: u32) -> Vec<String> {
     names
 }
 
-// Keyboard Phase 2 (task #174, commit aa8aaf5+) makes this test's
-// detailed assertions obsolete. With a live keyboard, input.device
-// no longer parks in Wait(); it actively dispatches on keyboard
-// ICR SP events, which changes SR / ThisTask / TaskWait membership.
-// The parallel `chip_only_and_slow_ram_both_reach_waitblit` test
-// still validates the boot-progresses-to-idle invariant. The new
-// keyboard-aware idle assertions are owned by task #180 (cross-
-// cutting boot scenarios).
+/// Task #180 — cross-cutting boot scenario: Kickstart 1.3 reaches
+/// the post-keyboard steady-state idle.
+///
+/// With CIA + Paula + Agnus + Blitter + Denise + Floppy + Keyboard
+/// all wired, Kickstart 1.3 runs Exec init, spawns the standard
+/// task set, and settles into Intuition's insert-disk animation.
+/// The user-mode task running the animation (exec.library's own
+/// task) spends >99% of its time inside graphics.library WAITBLIT
+/// at `$FC5A6C..$FC5A7C`, polling `DMACONR.BBUSY`. Keyboard Phase 2
+/// (task #174) changed the SR regime from supervisor to user
+/// because input.device now dispatches on ICR SP events instead of
+/// sleeping in Wait(); this test captures the updated invariants.
 #[test]
-#[ignore = "pre-keyboard assertions — updated set lives in task #180"]
-fn boot_reaches_exec_idle_with_expected_tasks_waiting() {
+fn boot_reaches_insert_disk_idle_with_keyboard_live() {
     let Some(rom) = load_kickstart() else { return };
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
 
     // 300 frames is well past the point where the boot settles.
-    // The idle state is reached around frame 200.
     for _ in 0..(300 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
 
-    // ── CPU: WAITBLIT spin-loop region ──────────────────────
-    // Before M13 the CPU idled in Exec's Wait() loop ($FC0F74..
-    // $FC0F96) because trackdisk blocked forever waiting on a
-    // MICROHZ timer. Now that the timer fires and trackdisk
-    // returns TDERR_DiskChanged, the boot progresses into
-    // Intuition's insert-disk animation, which calls WAITBLIT
-    // repeatedly ($FC5A6C..$FC5A7C). The CPU spends ~99% of its
-    // time in this tight loop, busy-waiting on DMACONR bit 6
-    // (BBUSY) — which our chipset always reads as 0, so each
-    // call returns immediately and the animation loop re-enters.
+    // ── CPU: WAITBLIT spin loop ─────────────────────────────
     let pc = amiga.cpu().regs.pc;
     assert!(
         (0x00FC_5A6C..=0x00FC_5A7C).contains(&pc),
         "CPU should be in the WAITBLIT spin at \\$FC5A6C..\\$FC5A7C; got PC=\\${pc:08X}"
     );
 
-    // SR = $2000 — supervisor mode, IPL mask = 0 (waiting for IRQs).
+    // Keyboard-live regime: the animation runs as a user-mode
+    // task (exec.library's own task calling graphics.library
+    // WAITBLIT). Pre-keyboard the CPU sat in supervisor mode
+    // inside Wait() waiting for an IRQ. IPL mask = 0 either way —
+    // the CPU is ready to take interrupts, it just has userland
+    // code currently on the PC.
     let sr = amiga.cpu().regs.sr;
-    assert_eq!(
-        sr & 0x2700, 0x2000,
-        "SR should be supervisor with IPL mask 0; got \\${sr:04X}"
-    );
+    assert_eq!(sr & 0x0700, 0x0000,
+        "IPL mask must be 0 (taking interrupts); got SR=\\${sr:04X}");
+    assert_eq!(sr & 0x2000, 0x0000,
+        "CPU should be in user mode after keyboard made input.device dispatchable; got SR=\\${sr:04X}");
 
-    // ── Chipset ─────────────────────────────────────────────
-    assert_eq!(
-        amiga.dmacon() & 0x02FF, 0x02D0,
-        "DMACON should have DMAEN + COPEN + BLITEN + DSKEN, BPLEN off"
-    );
-    // $602C = master + EXTER + VERTB + PORTS + SOFT. Before M13 the
-    // DSKBLK bit (2) briefly got enabled because trackdisk reached
-    // CMD_READ's DMA path; now that /DSKCHANGE is latched low on the
-    // CIA-A disk pins, trackdisk returns TDERR_DiskChanged immediately
-    // without arming Paula DMA, and DSKBLK never needs enabling.
-    assert_eq!(
-        amiga.intena() & 0x7FFF, 0x602C,
-        "INTENA should be \\$602C = master + EXTER + VERTB + PORTS + SOFT"
-    );
-    // BPLCON0 and COLOR00 used to pin at $1000 (BPU=1) and $0FFF
-    // (white insert-disk). With COPJMP2 strobes firing, the copper
-    // briefly runs ExecBase-as-copper-list when the ROM transiently
-    // writes ExecBase to COP2LC (frame 299). That stomps them. The
-    // underlying D0-holds-ExecBase puzzle is tracked separately.
+    // ── Chipset: same steady-state as pre-keyboard ──────────
+    assert_eq!(amiga.dmacon() & 0x02FF, 0x02D0,
+        "DMACON should have DMAEN + COPEN + BLITEN + DSKEN, BPLEN off");
+    assert_eq!(amiga.intena() & 0x7FFF, 0x602C,
+        "INTENA should be \\$602C = master + EXTER + VERTB + PORTS + SOFT");
 
     // ── ExecBase ────────────────────────────────────────────
     let exec_base = read_long(&amiga, 0x00000004);
     assert_ne!(exec_base, 0, "ExecBase must be initialised");
     let disp_count = read_long(&amiga, exec_base.wrapping_add(EXEC_DISP_COUNT));
-    assert!(
-        disp_count >= 100,
-        "Exec should have done ≥ 100 task dispatches; got {disp_count}"
-    );
+    assert!(disp_count >= 100,
+        "Exec should have done ≥ 100 task dispatches; got {disp_count}");
 
-    // ── TaskReady: empty ────────────────────────────────────
+    // ── TaskReady empty, ThisTask running ───────────────────
     let ready_addr = exec_base.wrapping_add(EXEC_TASK_READY);
     let ready_head = read_long(&amiga, ready_addr);
     let ready_tail = ready_addr.wrapping_add(4);
-    assert_eq!(
-        ready_head, ready_tail,
-        "TaskReady list should be empty — Exec is idle"
-    );
+    assert_eq!(ready_head, ready_tail,
+        "TaskReady should be empty — all runnable work is handled");
 
-    // ── ThisTask: the task currently running the animation ──
-    // State 2 = TS_RUN — ThisTask is the task executing right now
-    // (the one whose code the CPU runs inside WAITBLIT). Before
-    // M13 this was 4 (TS_WAIT) because nothing was running; the
-    // CPU sat inside Exec's Wait() waiting for an interrupt.
     let this_task = read_long(&amiga, exec_base.wrapping_add(EXEC_THIS_TASK));
     assert_ne!(this_task, 0, "ThisTask must be set");
     let this_state = read_byte(&amiga, this_task.wrapping_add(TASK_STATE));
     assert_eq!(this_state, 2, "ThisTask should be in state RUN (2)");
 
-    // ── TaskWait: trackdisk + input blocked ─────────────────
-    // exec.library used to be the third entry here (parked in
-    // Wait() on the idle path). Now that trackdisk returns from
-    // its CMD_READ with TDERR_DiskChanged, exec.library is the
-    // ThisTask that's actively running the animation — so it
-    // lives on the run side, not in TaskWait.
+    // ── TaskWait: trackdisk + input still blocked ───────────
+    // Keyboard liveness doesn't move input.device off TaskWait —
+    // input.device still waits on the port-signal bitmask; the SP
+    // IRQ only dispatches from inside that wait. trackdisk.device
+    // similarly waits on its MsgPort. exec.library remains the
+    // ThisTask running the animation.
     let wait_addr = exec_base.wrapping_add(EXEC_TASK_WAIT);
     let names = walk_task_names(&amiga, wait_addr);
-    eprintln!("TaskWait: {names:?}");
-    assert!(
-        names.iter().any(|n| n == "trackdisk.device"),
-        "trackdisk.device should be in TaskWait"
-    );
-    assert!(
-        names.iter().any(|n| n == "input.device"),
-        "input.device should be in TaskWait"
-    );
-    assert!(
-        !names.iter().any(|n| n == "exec.library"),
-        "exec.library should NOT be in TaskWait (it is the running task)"
-    );
+    assert!(names.iter().any(|n| n == "trackdisk.device"),
+        "trackdisk.device should be in TaskWait (got {names:?})");
+    assert!(names.iter().any(|n| n == "input.device"),
+        "input.device should be in TaskWait (got {names:?})");
+    assert!(!names.iter().any(|n| n == "exec.library"),
+        "exec.library should NOT be in TaskWait — it is the running task (got {names:?})");
+
+    // ── Keyboard: power-up sequence has settled ─────────────
+    // The keyboard controller needs at least the $FD + $FE pair
+    // handshaked by the host. By 300 frames (~6 s wall-clock)
+    // that pair is long done; bytes_sent counts both plus any
+    // timeout-retransmit.
+    assert!(amiga.keyboard().bytes_sent >= 2,
+        "keyboard should have emitted at least the \\$FD + \\$FE power-up pair; got {}",
+        amiga.keyboard().bytes_sent);
 }
 
 /// Companion assertion: slow-RAM and chip-only now converge.
