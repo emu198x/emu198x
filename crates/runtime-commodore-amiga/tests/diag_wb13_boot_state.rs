@@ -317,6 +317,42 @@ fn wb13_boot_state_checkpoints() {
     // to $4489. If it's something else we have a different story.
     println!("paula.dsksync = ${:04X}", m.paula().dsksync());
 
+    // Bit-level sync scan: look for the 32-bit pattern $44894489
+    // at *every* bit offset within the track region of chip RAM,
+    // not just byte-aligned word pairs. A trackdisk that scans
+    // bit-by-bit would pick up any such match; a byte-aligned
+    // scan (like ours) only sees 22. Extras would explain KS 1.3
+    // finding a "false" sync inside sector 0's data and decoding
+    // the following bytes as a spurious sector 1 header.
+    let mut bit_aligned = 0usize;
+    let mut byte_aligned = 0usize;
+    for bit_off in 0..((MFM_TRACK_BYTES - 4) * 8) {
+        let byte_off = bit_off / 8;
+        let in_byte = bit_off % 8;
+        // Assemble 40 bits starting at bit_off (we need 32 sync
+        // bits plus enough to handle byte crossings). Read 5
+        // consecutive chip-RAM bytes, compose into a u64, then
+        // shift down to extract the 32-bit candidate.
+        let mut acc: u64 = 0;
+        for i in 0..5 {
+            acc = (acc << 8)
+                | u64::from(m.memory().read_chip_ram_byte(
+                    target + (byte_off + i) as u32,
+                ));
+        }
+        // acc has byte[0] in bits 32..39, byte[4] in bits 0..7.
+        // Shift right so the first candidate bit is at bit 31.
+        let candidate = ((acc >> (8 - in_byte)) & 0xFFFF_FFFF) as u32;
+        if candidate == 0x4489_4489 {
+            bit_aligned += 1;
+            if in_byte == 0 { byte_aligned += 1; }
+        }
+    }
+    println!(
+        "$4489_$4489 bit-level matches: {bit_aligned} total, \
+         {byte_aligned} byte-aligned"
+    );
+
     // Display pipeline state — tells us whether Intuition has put
     // something up (non-zero BPU, non-white COLOR00) or whether we
     // are still on the insert-disk screen or stuck at all-white.
