@@ -232,6 +232,11 @@ pub struct AmigaOcs {
     /// $026 = DSKDAT, $07E = DSKSYNC). Lets us see how trackdisk
     /// pokes the disk controller before we add any behaviour.
     pub debug_dsk_log: Vec<(u64, u32, u16, u16)>,
+    /// Diagnostic: log of DMACON writes. Entry is
+    /// `(cck, pc, raw_val, dmacon_before, dmacon_after)`. Captures
+    /// every write to $DFF096; lets us see who enables / disables
+    /// BPLEN / SPREN / etc. during boot.
+    pub debug_dmacon_log: Vec<(u64, u32, u16, u16, u16)>,
     /// Diagnostic: log of CIA-A register writes. Entry is
     /// `(cck, pc, reg, raw_val)` where reg is 0..=$F. Lets us see
     /// how timer.device and other code start/stop the CIA-A timers.
@@ -369,6 +374,7 @@ impl AmigaOcs {
             debug_cop1lc_log: Vec::new(),
             debug_cop2lc_log: Vec::new(),
             debug_dsk_log: Vec::new(),
+            debug_dmacon_log: Vec::new(),
             debug_cia_a_cr_log: Vec::new(),
             debug_cia_b_cr_log: Vec::new(),
             debug_watch_addr: None,
@@ -735,7 +741,20 @@ impl AmigaOcs {
             0x08A => self.copper.jump2(),
             0x02E => self.copper.write_copcon(val),
             // Paula-owned register space: INTENA / INTREQ / ADKCON.
-            0x096 => self.agnus.write_dmacon(val),
+            0x096 => {
+                let before = self.agnus.dmacon;
+                self.agnus.write_dmacon(val);
+                let after = self.agnus.dmacon;
+                if before != after {
+                    self.debug_dmacon_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        val,
+                        before,
+                        after,
+                    ));
+                }
+            }
             0x09A => self.paula.write_intena(val),
             0x09C => self.paula.write_intreq(val),
             0x09E => self.paula.write_adkcon(val),
