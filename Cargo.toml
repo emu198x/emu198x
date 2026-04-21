@@ -31,11 +31,7 @@ members = [
     "crates/mos-cia-8520",
     "crates/commodore-paula-8364",
     "crates/commodore-agnus-ocs",
-    # Denise archive — included temporarily during Phase 1 of the Denise
-    # port so characterisation tests can run against the archive
-    # behaviour (per archive-port methodology). Will be renamed to
-    # `commodore-denise-ocs` and migrated to live status during Phase 3.
-    "crates/commodore-denise-ocs-archive",
+    "crates/commodore-denise-ocs",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",
