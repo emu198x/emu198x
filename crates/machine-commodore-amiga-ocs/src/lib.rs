@@ -288,6 +288,26 @@ impl AmigaOcs {
         &mut self.paula
     }
 
+    /// Drive the pending Agnus blit to completion and raise INT_BLIT.
+    /// Called immediately after a BLTSIZE ($058) write — the simple
+    /// "synchronous completion" integration model — so any CPU code
+    /// that writes BLTSIZE and then polls DMACONR.BBUSY sees BBUSY
+    /// already clear on the next bus cycle.
+    fn run_blit_to_completion(&mut self) {
+        struct ChipRamBus<'a>(&'a mut Memory);
+        impl<'a> commodore_agnus_ocs::BlitterBus for ChipRamBus<'a> {
+            fn read_word(&mut self, addr: u32) -> u16 {
+                self.0.read_chip_ram_word(addr)
+            }
+            fn write_word(&mut self, addr: u32, val: u16) {
+                self.0.write_word(addr & 0x001F_FFFE, val);
+            }
+        }
+        let mut bus = ChipRamBus(&mut self.memory);
+        self.agnus.run_blit_to_completion(&mut bus);
+        self.paula.raise(IntSource::Blit);
+    }
+
     /// Convenience: current BPLCON0 value.
     #[must_use]
     pub fn bplcon0(&self) -> u16 {
@@ -374,6 +394,15 @@ impl AmigaOcs {
             0x032 => self.paula.write_serper(val),
             // Paula-owned POTGO (\$034).
             0x034 => self.paula.write_potgo(val),
+            // Agnus-owned blitter registers. BLTSIZE ($058) fires
+            // `start_blit` inside the helper; we drive the blit to
+            // completion below, raise INT_BLIT, and let the CPU see
+            // BBUSY clear on the next DMACONR read.
+            0x040..=0x074 if self.agnus.write_blitter_register(offset, val) => {
+                if offset == 0x058 {
+                    self.run_blit_to_completion();
+                }
+            }
             // Agnus-owned bitplane + display-window + DSK pointer.
             0x020 => self.agnus.write_dsk_pointer(true, val),
             0x022 => self.agnus.write_dsk_pointer(false, val),

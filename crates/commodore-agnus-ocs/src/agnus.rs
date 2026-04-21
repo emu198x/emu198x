@@ -596,9 +596,11 @@ impl Agnus {
 
     /// Advance the blitter scheduler by one CCK and report completion.
     ///
-    /// Compatibility wrapper used by unit tests. Handles the full
-    /// request→grant→advance cycle. Returns `true` when the blit completes.
-    #[cfg(test)]
+    /// Full request→grant→advance cycle wrapper around
+    /// `tick_blitter_scheduler_op`. Returns `true` when the blit
+    /// completes. Useful to tests + any integrator that wants a
+    /// one-call progress step rather than driving the op-by-op
+    /// protocol manually.
     pub fn tick_blitter_scheduler(&mut self, progress_this_cck: bool) -> bool {
         if self.tick_blitter_scheduler_op(progress_this_cck).is_none() {
             return false;
@@ -1267,6 +1269,89 @@ impl Agnus {
             (self.dsk_pt & 0xFFFF_0000) | u32::from(val & 0xFFFE)
         };
     }
+
+    /// Dispatch a CPU write to any blitter register ($040..=$074).
+    /// Returns `true` if the offset is a blitter register (handled or
+    /// silently dropped on the unused slots), `false` otherwise.
+    /// Writing BLTSIZE ($058) triggers `start_blit()` — the caller is
+    /// responsible for running the blit to completion afterward.
+    pub fn write_blitter_register(&mut self, offset: u16, val: u16) -> bool {
+        match offset {
+            0x040 => self.bltcon0 = val,
+            0x042 => self.bltcon1 = val,
+            0x044 => self.blt_afwm = val,
+            0x046 => self.blt_alwm = val,
+            0x048 => self.blt_cpt = (self.blt_cpt & 0x0000_FFFF) | (u32::from(val) << 16),
+            0x04A => self.blt_cpt = (self.blt_cpt & 0xFFFF_0000) | u32::from(val & 0xFFFE),
+            0x04C => self.blt_bpt = (self.blt_bpt & 0x0000_FFFF) | (u32::from(val) << 16),
+            0x04E => self.blt_bpt = (self.blt_bpt & 0xFFFF_0000) | u32::from(val & 0xFFFE),
+            0x050 => self.blt_apt = (self.blt_apt & 0x0000_FFFF) | (u32::from(val) << 16),
+            0x052 => self.blt_apt = (self.blt_apt & 0xFFFF_0000) | u32::from(val & 0xFFFE),
+            0x054 => self.blt_dpt = (self.blt_dpt & 0x0000_FFFF) | (u32::from(val) << 16),
+            0x056 => self.blt_dpt = (self.blt_dpt & 0xFFFF_0000) | u32::from(val & 0xFFFE),
+            0x058 => {
+                self.bltsize = val;
+                self.start_blit();
+            }
+            0x060 => self.blt_cmod = val as i16,
+            0x062 => self.blt_bmod = val as i16,
+            0x064 => self.blt_amod = val as i16,
+            0x066 => self.blt_dmod = val as i16,
+            0x070 => self.blt_cdat = val,
+            0x072 => self.blt_bdat = val,
+            0x074 => self.blt_adat = val,
+            // Unused / ECS-only slots in the blitter range.
+            0x05A..=0x05E | 0x068..=0x06E | 0x076..=0x07A => {}
+            _ => return false,
+        }
+        true
+    }
+
+    /// Drive a blit to completion synchronously. Used by the simple
+    /// "run the blit on BLTSIZE write" integration model — later work
+    /// (task #147, true per-slot pacing) replaces this with
+    /// incremental tick-driven progress.
+    ///
+    /// Takes a single bus trait implementation — matches on op type
+    /// so only one direction of the bus is borrowed at a time.
+    pub fn run_blit_to_completion(&mut self, bus: &mut dyn BlitterBus) {
+        let mut guard = 0u32;
+        while let Some(op) = self.next_blitter_dma_request() {
+            self.grant_blitter_dma_op(op);
+            let done = match op {
+                BlitterDmaOp::WriteD => self.execute_incremental_blitter_op(
+                    op,
+                    |_| 0,
+                    |addr, val| bus.write_word(addr, val),
+                ),
+                BlitterDmaOp::Internal => self.execute_incremental_blitter_op(
+                    op,
+                    |_| 0,
+                    |_, _| {},
+                ),
+                _ => self.execute_incremental_blitter_op(
+                    op,
+                    |addr| bus.read_word(addr),
+                    |_, _| {},
+                ),
+            };
+            if self.blitter_word_complete() && !done {
+                self.advance_blitter_word();
+            }
+            guard += 1;
+            if guard > 1_000_000 { break; }
+        }
+        self.blitter_busy = false;
+    }
+}
+
+/// Chip-bus interface for the blitter synchronous-completion helper.
+pub trait BlitterBus {
+    fn read_word(&mut self, addr: u32) -> u16;
+    fn write_word(&mut self, addr: u32, val: u16);
+}
+
+impl Agnus {
 
     /// Read VPOSR ($DFF004): bit 15 = LOF, bits 14-8 = agnus_id, bit 0
     /// = vpos high bit (vpos bit 8). Bits 7-1 are unused.

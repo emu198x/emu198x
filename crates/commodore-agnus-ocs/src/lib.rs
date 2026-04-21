@@ -8,8 +8,8 @@ mod agnus;
 mod copper;
 
 pub use agnus::{
-    Agnus, BlitterDmaOp, CckBusPlan, HIRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE, PAL_CCKS_PER_LINE,
-    PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner, VBL_END_LINE,
+    Agnus, BlitterBus, BlitterDmaOp, CckBusPlan, HIRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE,
+    PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner, VBL_END_LINE,
 };
 pub use agnus::bits;
 pub use copper::{Copper, State as CopperState};
