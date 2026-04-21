@@ -103,13 +103,18 @@ fn one_bitplane_stripes_render() {
     // Cycle-accurate Denise has a fetch warm-up: for BPU=1 the first
     // BPL1 fetch lands at slot 6 of the first DDF block, the shift
     // register reloads at slot 7, and the first fetched pixel reaches
-    // the framebuffer at CCK DDF_START_CCK+7 → framebuffer x = 28.
-    // Earlier columns are color 0 (black) from the empty shift reg.
+    // the framebuffer 7 CCKs into the DDF window. That's 7 CCKs * 2
+    // lores pixels/CCK * 2 display pixels/lores = 28 display pixels
+    // from DDFSTRT. The framebuffer itself is aligned to the PAL
+    // Standard viewport (`h_start_cck = $2C`), so DDFSTRT=$38 lands
+    // 12 CCKs = 48 display pixels into the framebuffer. Total x-
+    // position of the first bitplane pixel = 48 + 28 = 76.
     let center_line = 200u32;
     let row_start = center_line * w;
     let white = rgb12_to_argb(0x0FFF);
     let black = rgb12_to_argb(0x0000);
-    let warmup_px = 28u32;
+    let viewport_h_px = (0x38u32 - 0x2C) * 4; // 48
+    let warmup_px = viewport_h_px + 28;
 
     for word in 0..8 {
         let base_x = warmup_px + (word as u32) * 32;

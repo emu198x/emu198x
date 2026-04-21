@@ -374,13 +374,34 @@ impl Denise {
 
         // ── Per-tick: output one lores pixel ────────────────────
         if in_visible_line && in_ddf {
-            let local_y = u32::from(vpos.saturating_sub(vstart)) * 2;
-            // Lores-pixel position within the DDF window:
-            //   each CCK holds 2 lores pixels; `phase` selects which.
-            let local_x = u32::from(hpos - ddf_start) * 2 + u32::from(phase);
+            // Framebuffer layout matches the PAL "Standard" viewport
+            // the archive used (`ViewportPreset::Standard`,
+            // h_start_cck=$2C, v_start_line=$19). Aligning our
+            // per-pixel write origin to that viewport puts the
+            // display content at the same framebuffer coordinates
+            // FS-UAE captures — which is what the golden PNGs were
+            // sampled from. If we used DDFSTRT / DIWSTRT as the
+            // origin instead (like an earlier port did), the content
+            // position in the framebuffer would track the software's
+            // display-setup choices rather than the viewport, and
+            // differ from FS-UAE by up to ~100 display pixels.
+            const VIEWPORT_H_START_CCK: u16 = 0x2C;
+            const VIEWPORT_V_START_LINE: u16 = 0x19;
+            let fb_y = u32::from(vpos.saturating_sub(VIEWPORT_V_START_LINE)) * 2;
+            let fb_x_lores = u32::from(hpos.saturating_sub(VIEWPORT_H_START_CCK)) * 2
+                + u32::from(phase);
+
+            // Pipeline coordinates (DDF-relative) stay the same —
+            // they're what Denise uses internally for sprite and
+            // shift-register comparators.
+            let pipeline_x = u32::from(hpos - ddf_start) * 2 + u32::from(phase);
+            let pipeline_y = u32::from(vpos.saturating_sub(vstart)) * 2;
+
+            let local_x = fb_x_lores;
+            let local_y = fb_y;
 
             let dbg = self.ocs.output_pixel_with_beam(
-                local_x, local_y, local_x, local_y,
+                pipeline_x, pipeline_y, pipeline_x, pipeline_y,
             );
             if dbg.called {
                 let rgb12 = self.ocs.resolve_color_rgb12(dbg.final_color_idx);
