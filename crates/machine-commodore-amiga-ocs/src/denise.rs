@@ -243,8 +243,21 @@ impl Denise {
         let in_visible_line = (vstart..vstop).contains(&vpos);
         let bpl_dma_on = dmacon & 0x0300 == 0x0300;
         let bpu = agnus.num_bitplanes();
+        // The OCS fetch sequencer completes the 8-CCK block
+        // containing DDFSTOP *and one more* (per WinUAE's DDF state
+        // machine). For DDFSTRT=$38 DDFSTOP=$D0 lores that's 20 full
+        // blocks (spans $38-$D7), not 19 — matching Agnus's
+        // `current_slot` arbitrator which schedules the same 20
+        // blocks as `Bitplane`. Without the extra block Denise
+        // fetches one word too few per line, advances the pointer
+        // by N-1 words instead of N, and the following scanline
+        // reads data drawn one word earlier — producing the
+        // per-scanline horizontal shear on KS 1.3's insert-disk
+        // graphic.
+        let ddf_fetch_stop = ddf_stop.saturating_add(8);
         let in_ddf =
-            ddf_stop > ddf_start && (ddf_start..ddf_stop).contains(&hpos);
+            ddf_fetch_stop > ddf_start
+                && (ddf_start..ddf_fetch_stop).contains(&hpos);
 
         // Keep the archive's BPLCON0 copy in lockstep with Agnus's —
         // Agnus owns the primary storage (it consumes BPU for the DMA
