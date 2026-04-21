@@ -49,9 +49,16 @@ members = [
     "crates/zilog-z80",
 ]
 exclude = [
-    # Archived Amiga crates from the pre-restart implementation. Kept
-    # in tree for reference (see wiki/decisions/amiga-restart-plan.md);
-    # excluded from the build.
+    # Pre-restart A500 machine implementation. Intentionally kept in
+    # tree as historical reference — `wiki/decisions/amiga-restart-
+    # plan.md` and `wiki/decisions/amiga-chip-only-boot-failure.md`
+    # cite file:line coordinates into it. The CIA / Paula / Agnus /
+    # Blitter / Denise / Floppy / Keyboard / Gary / Runtime /
+    # Script-amiga ports all completed under the archive-port
+    # methodology; this archive was wholesale replaced by
+    # `machine-commodore-amiga-ocs` rather than ported piecewise, so
+    # it retires by deletion rather than promotion and we're holding
+    # that until the referenced decision records age out.
     "crates/machine-commodore-amiga-archive",
 ]
 
