@@ -643,6 +643,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-script-amiga"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "runtime-commodore-amiga",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-script-c64"
 version = "0.1.0"
 dependencies = [

@@ -36,6 +36,7 @@ members = [
     "crates/peripheral-commodore-amiga-keyboard",
     "crates/commodore-gary",
     "crates/runtime-commodore-amiga",
+    "crates/emu198x-script-amiga",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",
@@ -51,7 +52,6 @@ exclude = [
     # Archived Amiga crates from the pre-restart implementation. Kept
     # in tree for reference (see wiki/decisions/amiga-restart-plan.md);
     # excluded from the build.
-    "crates/emu198x-script-amiga-archive",
     "crates/machine-commodore-amiga-archive",
 ]
 

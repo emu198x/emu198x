@@ -31,6 +31,11 @@ pub const DISPLAY_HEIGHT: u32 = FB_HEIGHT;
 /// provider. Kept deliberately short — shell diagnostics start here
 /// and can grow as the verifier UI adds panels.
 const AMIGA_QUERY_PATHS: &[&str] = &[
+    // Boot-status heuristic. `HeadlessSession::wait_for_boot` keys
+    // off `boot.detected` so scripts can sleep-until-ready.
+    "boot.detected",
+    "boot.reason",
+    "boot.row",
     "amiga.machine.frame_count",
     "amiga.memory.overlay",
     "amiga.cpu.pc",
@@ -66,6 +71,22 @@ pub struct AmigaRuntime {
     floppy0_bytes: Option<Vec<u8>>,
     rgba_framebuffer: Vec<u8>,
     frame_count: u64,
+    /// Pixel counts from the most recently emitted frame — drives the
+    /// `boot.*` query set.
+    non_black_pixels: u32,
+    non_white_pixels: u32,
+    first_active_row: Option<u32>,
+}
+
+/// Boot-status snapshot derived from the most recent frame. Matches
+/// the archive's `AmigaBootStatus` heuristic: a mostly-coloured
+/// framebuffer with visible pixels above row zero counts as boot-
+/// detected, matching the Kickstart insert-disk screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AmigaBootStatus {
+    detected: bool,
+    reason: &'static str,
+    row: Option<u32>,
 }
 
 impl AmigaRuntime {
@@ -86,6 +107,9 @@ impl AmigaRuntime {
             floppy0_bytes: None,
             rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
             frame_count: 0,
+            non_black_pixels: 0,
+            non_white_pixels: 0,
+            first_active_row: None,
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)
@@ -144,7 +168,10 @@ impl AmigaRuntime {
 
     /// Copy the machine's ARGB framebuffer into the RGBA frame
     /// packet buffer the shell expects. ARGB → RGBA is a simple
-    /// byte reorder.
+    /// byte reorder. Side-effect: refreshes the pixel-based boot
+    /// heuristic (`non_black_pixels` / `non_white_pixels` /
+    /// `first_active_row`) so the next `boot.detected` query reads
+    /// consistent values.
     fn update_rgba_framebuffer(&mut self) {
         let fb = self.machine.denise().framebuffer();
         let expected = (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize;
@@ -152,12 +179,64 @@ impl AmigaRuntime {
         if self.rgba_framebuffer.len() != expected * 4 {
             self.rgba_framebuffer.resize(expected * 4, 0);
         }
+
+        let mut non_black = 0u32;
+        let mut non_white = 0u32;
+        let mut first_active_row: Option<u32> = None;
+
         for (i, &pixel) in fb.iter().enumerate() {
             let base = i * 4;
             self.rgba_framebuffer[base] = ((pixel >> 16) & 0xFF) as u8; // R
             self.rgba_framebuffer[base + 1] = ((pixel >> 8) & 0xFF) as u8; // G
             self.rgba_framebuffer[base + 2] = (pixel & 0xFF) as u8; // B
             self.rgba_framebuffer[base + 3] = ((pixel >> 24) & 0xFF) as u8; // A
+
+            let rgb = pixel & 0x00FF_FFFF;
+            if rgb != 0 {
+                non_black = non_black.saturating_add(1);
+                if first_active_row.is_none() {
+                    first_active_row = Some(i as u32 / DISPLAY_WIDTH);
+                }
+            }
+            if rgb != 0x00FF_FFFF {
+                non_white = non_white.saturating_add(1);
+            }
+        }
+
+        self.non_black_pixels = non_black;
+        self.non_white_pixels = non_white;
+        self.first_active_row = first_active_row;
+    }
+
+    /// Boot-status heuristic matching the archive's semantics:
+    ///   - `display-active` once the framebuffer has mostly non-
+    ///     white content and a non-zero first active row (Kickstart
+    ///     insert-disk screen or beyond)
+    ///   - `monochrome-framebuffer` if some pixels lit but below
+    ///     the threshold
+    ///   - `no-visible-output` before the copper has programmed the
+    ///     palette at all
+    fn boot_status(&self) -> AmigaBootStatus {
+        if let Some(row) = self.first_active_row
+            && self.non_white_pixels > 1_000
+        {
+            AmigaBootStatus {
+                detected: true,
+                reason: "display-active",
+                row: Some(row),
+            }
+        } else if self.non_black_pixels > 0 {
+            AmigaBootStatus {
+                detected: false,
+                reason: "monochrome-framebuffer",
+                row: self.first_active_row,
+            }
+        } else {
+            AmigaBootStatus {
+                detected: false,
+                reason: "no-visible-output",
+                row: None,
+            }
         }
     }
 }
@@ -182,7 +261,11 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
         let amiga = &machine.machine;
         let drive = amiga.drive();
         let drive_status = drive.status();
+        let boot = machine.boot_status();
         let value = match path {
+            "boot.detected" => json!(boot.detected),
+            "boot.reason" => json!(boot.reason),
+            "boot.row" => json!(boot.row),
             "amiga.machine.frame_count" => json!(machine.frame_count),
             "amiga.memory.overlay" => json!(amiga.memory().overlay()),
             "amiga.cpu.pc" => json!(amiga.cpu().regs.pc),
