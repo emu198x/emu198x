@@ -16,6 +16,8 @@ pub use agnus::{
     Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, VBL_END_LINE,
 };
 pub use cia::{Cia, CiaExt};
+pub use format_commodore_amiga_adf::Adf;
+pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
 pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
 use commodore_paula_8364::decode as paula_decode;
 pub use copper::Copper;
@@ -28,6 +30,40 @@ use motorola_68000::Cpu68000;
 
 const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
+
+/// Convert drive status (active-high booleans) into the CIA-A PRA
+/// external-input byte Kickstart reads via `$BFE001`.
+///
+/// Non-disk bits (PA0=OVL out, PA1=/LED out, PA6=FIR1, PA7=FIR0)
+/// default high. Disk bits default high and are pulled low when the
+/// corresponding drive signal is asserted.
+fn drive_pra_byte(s: &DriveStatus) -> u8 {
+    let mut v = 0b1111_1111u8;
+    if s.disk_change   { v &= !(1 << 2); }
+    if s.write_protect { v &= !(1 << 3); }
+    if s.track0        { v &= !(1 << 4); }
+    if s.ready         { v &= !(1 << 5); }
+    v
+}
+
+/// Decode CIA-B PRB (active-low) into DF0 control booleans for the
+/// drive's `update_control(step, dir_inward, side_upper, sel, motor)`
+/// signature.
+///
+/// HRM Appendix F:
+///   PB0 /STEP     — step pulse, falling edge advances head
+///   PB1  DIR      — active-HIGH, 1 = step inward
+///   PB2 /SIDE     — 0 = upper head
+///   PB3 /SEL0     — 0 = DF0 selected
+///   PB7 /MTR      — 0 = motor on
+fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
+    let step = (prb & 0x01) == 0;
+    let dir_inward = (prb & 0x02) != 0;
+    let side_upper = (prb & 0x04) == 0;
+    let sel_df0 = (prb & 0x08) == 0;
+    let motor_on = (prb & 0x80) == 0;
+    (step, dir_inward, side_upper, sel_df0, motor_on)
+}
 
 /// CIA E-clock divider: real CIA E-clock runs at master/40 = 0.71 MHz.
 /// Our primary tick unit is master/4 (= 68000 CPU clock = lores pixel
@@ -43,6 +79,21 @@ const TICKS_PER_CCK: u64 = 2;
 pub struct AmigaOcs {
     cpu: Cpu68000,
     memory: Memory,
+    /// DF0 floppy drive — head / motor / MFM track encoder. Responds
+    /// to CIA-B PRB control pulses and feeds CIA-A PRA status bits +
+    /// MFM words into Paula's disk DMA engine.
+    drive: AmigaFloppyDrive,
+    /// Cached encoded MFM track for the drive's current (cyl, head).
+    /// Re-encoded on demand when the head moves or a new disk is
+    /// inserted; `None` if no disk is present or the head is at a
+    /// cylinder we haven't encoded yet this access.
+    track_cache: Option<(u32, u32, Vec<u8>)>,
+    /// Word cursor into `track_cache.2` — next word to feed to Paula.
+    track_word_cursor: usize,
+    /// CCKs remaining before the next MFM word is pushed to Paula.
+    /// One word every `DISK_BYTE_CCK_SLOW * 2` CCKs in 250 kbit/s
+    /// (ADKCON.FAST clear) mode, or `DISK_BYTE_CCK_FAST * 2` in fast.
+    track_pacer: u16,
     cia_a: Cia,
     cia_b: Cia,
     paula: Paula8364,
@@ -129,22 +180,28 @@ impl AmigaOcs {
         // "Disk Subsystem" table — the ROM reads /DSKCHANGE via
         // `btst #2, $BFE001`, confirming these live on CIA-A PRA,
         // not CIA-B). Bits are active-low — 1 = deasserted, 0 = asserted:
-        //   PA5 /DSKRDY — high (drive not ready, motor off)
-        //   PA4 /DSKTRACK0 — low (head parked at track 0)
-        //   PA3 /DSKPROT — high (not write-protected)
-        //   PA2 /DSKCHANGE — low (disk changed / removed; latched
-        //                         on power-up with no disk inserted)
+        //   PA5 /DSKRDY — reflects drive-ID stream when motor off,
+        //                 otherwise motor-at-speed.
+        //   PA4 /DSKTRACK0 — low when head is at cylinder 0.
+        //   PA3 /DSKPROT — low when disk is write-protected.
+        //   PA2 /DSKCHANGE — low when disk changed since last step.
         // The other bits (PA0=OVL output, PA1=/LED output, PA6=FIR1,
-        // PA7=FIR0) default high / inactive. Net floating-input byte:
-        //   0b1110_1011 = $EB.
-        // With /CHNG latched low, trackdisk's CMD_READ path returns
-        // TDERR_DiskChanged (29) to the strap, which then settles at
-        // the insert-disk screen.
+        // PA7=FIR0) default high / inactive.
+        //
+        // Prior to the floppy port we used a static `$EB` constant
+        // here. That still matches `drive_pra_byte(drive.status())`
+        // on a fresh drive with no disk, so boot reaches the insert-
+        // disk screen identically.
+        let drive = AmigaFloppyDrive::new();
         let mut cia_a = Cia::new();
-        cia_a.set_external_a(0xEB);
+        cia_a.set_external_a(drive_pra_byte(&drive.status()));
         Self {
             cpu,
             memory,
+            drive,
+            track_cache: None,
+            track_word_cursor: 0,
+            track_pacer: 0,
             cia_a,
             cia_b: Cia::new(),
             paula: Paula8364::new(),
@@ -271,11 +328,74 @@ impl AmigaOcs {
 
     /// Mutable Paula access for tests / integrations that need to
     /// drive input pins the machine itself doesn't yet wire — currently
-    /// `note_disk_read_word` (floppy drive has no Rust counterpart) and
     /// `flag_falling_edge` via CIA-B. Runtime code must not reach
     /// across this boundary.
     pub fn paula_mut(&mut self) -> &mut Paula8364 {
         &mut self.paula
+    }
+
+    /// Read-only DF0 drive access.
+    #[must_use]
+    pub fn drive(&self) -> &AmigaFloppyDrive {
+        &self.drive
+    }
+
+    /// Insert an ADF image into DF0 and acknowledge the change so
+    /// Kickstart sees "disk ready" rather than "newly inserted".
+    pub fn insert_adf(&mut self, adf: Adf) {
+        self.drive.insert_disk(adf);
+        self.drive.acknowledge_disk_change();
+        self.cia_a.set_external_a(drive_pra_byte(&self.drive.status()));
+    }
+
+    /// Eject the disk from DF0.
+    pub fn eject_disk(&mut self) {
+        self.drive.eject_disk();
+        self.cia_a.set_external_a(drive_pra_byte(&self.drive.status()));
+    }
+
+    /// Push the next MFM word from the drive's encoded track buffer
+    /// into Paula's disk register. Re-encodes the track when the
+    /// drive head has moved since the last word, or when no cache
+    /// exists yet. Rotates the cursor back to 0 at end of track so
+    /// successive revolutions keep delivering words.
+    fn feed_next_mfm_word(&mut self) {
+        let cyl = self.drive.cylinder();
+        let head = self.drive.head();
+        let need_refresh = match &self.track_cache {
+            Some((c, h, _)) => *c != cyl || *h != head,
+            None => true,
+        };
+        if need_refresh {
+            let Some(bytes) = self.drive.encode_mfm_track() else {
+                self.track_cache = None;
+                return;
+            };
+            self.track_cache = Some((cyl, head, bytes));
+            self.track_word_cursor = 0;
+        }
+        let Some((_, _, bytes)) = &self.track_cache else {
+            return;
+        };
+        let word_count = bytes.len() / 2;
+        if word_count == 0 {
+            return;
+        }
+        if self.track_word_cursor >= word_count {
+            self.track_word_cursor = 0;
+        }
+        let i = self.track_word_cursor * 2;
+        let word = (u16::from(bytes[i]) << 8) | u16::from(bytes[i + 1]);
+        self.track_word_cursor += 1;
+        self.paula.note_disk_read_word(word);
+    }
+
+    /// CCKs between consecutive MFM words at 250 kbit/s (ADKCON.FAST
+    /// clear) or 500 kbit/s (FAST set). Paula's internal byte pacer
+    /// uses 28 / 14 CCKs per byte; a word is two bytes.
+    fn disk_word_cck_interval(&self) -> u16 {
+        const ADKCON_FAST: u16 = 0x0100;
+        if self.paula.adkcon() & ADKCON_FAST != 0 { 28 } else { 56 }
     }
 
     /// Drive the pending Agnus blit to completion and raise INT_BLIT.
@@ -642,6 +762,21 @@ impl AmigaOcs {
             // delay. Ticked once per CCK; no-op until a drive has
             // delivered a word via `note_disk_read_word`.
             self.paula.tick_disk_cck();
+
+            // ── Floppy track-read path ──────────────────────────
+            // With drive selected, motor spinning, disk present, and
+            // Paula expecting data, feed MFM words word-by-word at
+            // the disk byte rate.
+            if self.drive.read_data_available() {
+                if self.track_pacer == 0 {
+                    self.feed_next_mfm_word();
+                    self.track_pacer = self.disk_word_cck_interval();
+                } else {
+                    self.track_pacer = self.track_pacer.saturating_sub(1);
+                }
+            } else {
+                self.track_pacer = 0;
+            }
         }
 
         // ── Per-tick: Denise pixel + fetch/reload at phase 0 ────
@@ -660,6 +795,16 @@ impl AmigaOcs {
             self.e_clock_phase = 0;
             self.cia_a.phi2_pulse();
             self.cia_b.phi2_pulse();
+
+            // Floppy drive runs at E-clock rate (same rate as CIA
+            // internal ticks). CIA-B PRB drives the control pins;
+            // CIA-A PRA inputs reflect drive status.
+            let prb = self.cia_b.port_b_output();
+            let (step, dir_in, side_upper, sel0, motor) =
+                decode_cia_b_prb_for_df0(prb);
+            self.drive.update_control(step, dir_in, side_upper, sel0, motor);
+            let _ = self.drive.tick();
+            self.cia_a.set_external_a(drive_pra_byte(&self.drive.status()));
         }
 
         // ── Paula edge-latch of CIA /IRQ lines ──────────────────

@@ -11,6 +11,8 @@ mos-cia-8520 = { path = "../mos-cia-8520" }
 commodore-paula-8364 = { path = "../commodore-paula-8364" }
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
 commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy-archive" }
+format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
 
 [dev-dependencies]
 png = { workspace = true }

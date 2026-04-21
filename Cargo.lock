@@ -1241,8 +1241,10 @@ dependencies = [
  "commodore-agnus-ocs",
  "commodore-denise-ocs",
  "commodore-paula-8364",
+ "format-commodore-amiga-adf",
  "mos-cia-8520",
  "motorola-68000",
+ "peripheral-commodore-amiga-floppy",
  "png",
 ]
 
