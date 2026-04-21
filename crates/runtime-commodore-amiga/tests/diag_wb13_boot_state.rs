@@ -9,7 +9,9 @@
 use std::path::PathBuf;
 
 use format_commodore_amiga_adf::Adf;
-use peripheral_commodore_amiga_floppy::mfm::decode_mfm_track;
+use peripheral_commodore_amiga_floppy::mfm::{
+    MFM_TRACK_BYTES, decode_mfm_track, encode_mfm_track,
+};
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntime, Model};
 
 fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
@@ -263,6 +265,57 @@ fn wb13_boot_state_checkpoints() {
             );
         }
     }
+
+    // Encode the track fresh from the ADF using our encoder, then
+    // compare byte-for-byte with what DMA actually landed in chip
+    // RAM. If these diverge, the bug is in the DMA/memory path, not
+    // in the encoder itself.
+    let adf_full = std::fs::read(
+        home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"),
+    ).expect("re-read ADF");
+    let track0 = &adf_full[0..11 * 512];
+    let expected_mfm = encode_mfm_track(track0, 0, 11);
+    assert_eq!(expected_mfm.len(), MFM_TRACK_BYTES);
+    let mut encode_vs_dma_mismatches = 0u32;
+    let mut first_mismatch: Option<(u32, u8, u8)> = None;
+    for i in 0..MFM_TRACK_BYTES {
+        let got = m.memory().read_chip_ram_byte(target + i as u32);
+        let want = expected_mfm[i];
+        if got != want {
+            encode_vs_dma_mismatches += 1;
+            if first_mismatch.is_none() {
+                first_mismatch = Some((i as u32, want, got));
+            }
+        }
+    }
+    println!(
+        "encoder → chip RAM diff: {} / {} bytes, first {}",
+        encode_vs_dma_mismatches, MFM_TRACK_BYTES,
+        match first_mismatch {
+            Some((o, w, g)) => format!("off=${o:04X} want=${w:02X} got=${g:02X}"),
+            None => "<none — identical>".into(),
+        }
+    );
+
+    // What MFM bytes back the corrupted sector-1 decoded byte 9?
+    // Sector 1 starts at offset $440 in the MFM buffer. Data
+    // starts at sector-internal offset $40 (= $480 absolute).
+    // For byte 9 of the decoded sector, the odd half lives at
+    // sector_data_start + 9 and the even half at +9 +512.
+    let sec1_data_start = 0x440 + 0x40;
+    let odd_off = sec1_data_start + 9;
+    let even_off = sec1_data_start + 9 + 512;
+    println!(
+        "sector-1 data byte 9 MFM: odd @ ${:04X} = ${:02X}  even @ ${:04X} = ${:02X}",
+        odd_off,
+        m.memory().read_chip_ram_byte(target + odd_off as u32),
+        even_off,
+        m.memory().read_chip_ram_byte(target + even_off as u32),
+    );
+
+    // DSKSYNC value at end of run — trackdisk typically sets this
+    // to $4489. If it's something else we have a different story.
+    println!("paula.dsksync = ${:04X}", m.paula().dsksync());
 
     // Display pipeline state — tells us whether Intuition has put
     // something up (non-zero BPU, non-white COLOR00) or whether we
