@@ -1244,6 +1244,7 @@ version = "0.1.0"
 dependencies = [
  "commodore-agnus-ocs",
  "commodore-denise-ocs",
+ "commodore-gary",
  "commodore-paula-8364",
  "format-commodore-amiga-adf",
  "mos-cia-8520",

@@ -16,6 +16,7 @@ pub use agnus::{
     Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, VBL_END_LINE,
 };
 pub use cia::{Cia, CiaExt};
+pub use commodore_gary::{ChipSelect, Gary};
 pub use format_commodore_amiga_adf::Adf;
 pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
 pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
@@ -102,6 +103,10 @@ pub struct AmigaOcs {
     /// 0→1 transition as a handshake: the host has read SDR and is
     /// ready for the next byte.
     prev_cia_a_spmode: bool,
+    /// Address decoder — maps 24-bit CPU addresses to chip selects.
+    /// Configured once at construction (A500 + slow RAM) and read-
+    /// only thereafter.
+    gary: Gary,
     cia_a: Cia,
     cia_b: Cia,
     paula: Paula8364,
@@ -203,6 +208,16 @@ impl AmigaOcs {
         let drive = AmigaFloppyDrive::new();
         let mut cia_a = Cia::new();
         cia_a.set_external_a(drive_pra_byte(&drive.status()));
+        // Gary address decoder configured for A500 + slow RAM. The
+        // machine's Memory layer decides whether to populate the
+        // slow-RAM window based on the caller's `with_slow_ram`
+        // argument, but Gary's decode is config-fixed: any read or
+        // write to $C00000..$DFFFFF (minus CIA / custom shadows)
+        // routes to `ChipSelect::SlowRam`. When the Memory hasn't
+        // been given slow RAM, reads return 0 and writes land in
+        // the slow-RAM backing anyway (harmless for boot).
+        let mut gary = Gary::new();
+        gary.set_slow_ram_present(true);
         Self {
             cpu,
             memory,
@@ -212,6 +227,7 @@ impl AmigaOcs {
             track_pacer: 0,
             keyboard: AmigaKeyboard::new(),
             prev_cia_a_spmode: false,
+            gary,
             cia_a,
             cia_b: Cia::new(),
             paula: Paula8364::new(),
@@ -379,6 +395,20 @@ impl AmigaOcs {
         self.keyboard.key_event(keycode, pressed);
     }
 
+    /// Read-only Gary access — useful for tests / diagnostics that
+    /// want to inspect the chip-select decode.
+    #[must_use]
+    pub fn gary(&self) -> &Gary {
+        &self.gary
+    }
+
+    /// Decode a 24-bit CPU address to its chip select. Convenience
+    /// wrapper around `gary.decode(addr)`.
+    #[must_use]
+    pub fn chip_select(&self, addr: u32) -> ChipSelect {
+        self.gary.decode(addr)
+    }
+
     /// Push the next MFM word from the drive's encoded track buffer
     /// into Paula's disk register. Re-encodes the track when the
     /// drive head has moved since the last word, or when no cache
@@ -457,11 +487,12 @@ impl AmigaOcs {
 
     /// Backdoor for tests: write a word as if the CPU did it.
     pub fn poke_word(&mut self, addr: u32, val: u16) {
-        if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr) {
-            let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
-            self.dispatch_custom_write(offset, val);
-        } else {
-            self.memory.write_word(addr, val);
+        match self.gary.decode(addr) {
+            ChipSelect::Custom => {
+                let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
+                self.dispatch_custom_write(offset, val);
+            }
+            _ => self.memory.write_word(addr, val),
         }
     }
 
