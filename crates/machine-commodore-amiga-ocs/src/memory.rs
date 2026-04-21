@@ -40,7 +40,35 @@ const CUSTOM_TOP: u32 = 0x00E0_0000;
 const ROM_BASE: u32 = 0x00F8_0000;
 const ROM_TOP: u32 = 0x0100_0000;
 
-pub const CHIP_RAM_SIZE: usize = 512 * 1024;
+/// Default chip-RAM size used by `Memory::new` and the A500 bare
+/// factory — 512 KiB, the stock A500 config.
+pub const DEFAULT_CHIP_RAM_SIZE: usize = 512 * 1024;
+
+/// Back-compat alias. Prefer `DEFAULT_CHIP_RAM_SIZE` at call sites —
+/// this will be deprecated once downstream crates migrate.
+pub const CHIP_RAM_SIZE: usize = DEFAULT_CHIP_RAM_SIZE;
+
+/// Chip-RAM sizes Agnus can decode with different address-bus widths.
+/// The three-chip family:
+///   - 8361  — 19-bit bus, 256K/512K only (A1000 / original A500)
+///   - 8370  — same, introduced in 8372A revisions (A500 pre-ECS)
+///   - 8372A — 20-bit bus, up to 1M (A500Plus / A2000 rev 6)
+///   - 8372B — 21-bit bus, up to 2M (ECS, A3000)
+#[must_use]
+pub fn is_valid_chip_ram_size(bytes: usize) -> bool {
+    matches!(bytes, 0x4_0000 | 0x8_0000 | 0x10_0000 | 0x20_0000)
+}
+
+/// Slow-RAM sizes the A501 trapdoor and its clones supported. 1.5M is
+/// the pre-ECS "fast" A501S trapdoor (split 512K + 1M); ECS A500Plus
+/// remapped the trapdoor slot as chip RAM.
+#[must_use]
+pub fn is_valid_slow_ram_size(bytes: usize) -> bool {
+    matches!(
+        bytes,
+        0 | 0x4_0000 | 0x8_0000 | 0x10_0000 | 0x18_0000
+    )
+}
 
 /// Memory subsystem for the Amiga (OCS).
 pub struct Memory {
@@ -62,32 +90,73 @@ pub struct Memory {
 }
 
 impl Memory {
-    /// Construct memory with the given Kickstart image and no slow RAM.
+    /// Construct memory with the given Kickstart image, stock 512K
+    /// chip RAM, no slow RAM.
     #[must_use]
     pub fn new(kickstart: Vec<u8>) -> Self {
-        Self::new_with_slow_ram(kickstart, 0)
+        Self::new_with_ram(kickstart, DEFAULT_CHIP_RAM_SIZE, 0)
     }
 
-    /// Construct memory with the given Kickstart image and a trapdoor
-    /// slow-RAM bank of `slow_ram_bytes` at `$C00000`. Pass 0 for no
-    /// slow RAM (A500 bare configuration).
+    /// Construct memory with stock 512K chip RAM + a trapdoor slow-RAM
+    /// bank of `slow_ram_bytes` at `$C00000`. Pass 0 for no slow RAM.
     #[must_use]
     pub fn new_with_slow_ram(kickstart: Vec<u8>, slow_ram_bytes: usize) -> Self {
+        Self::new_with_ram(kickstart, DEFAULT_CHIP_RAM_SIZE, slow_ram_bytes)
+    }
+
+    /// Construct memory with fully explicit chip + slow-RAM sizes.
+    ///
+    /// `chip_bytes` must be one of {256K, 512K, 1M, 2M} (see
+    /// `is_valid_chip_ram_size`). `slow_bytes` must be one of
+    /// {0, 256K, 512K, 1M, 1.5M} (see `is_valid_slow_ram_size`).
+    ///
+    /// Fast RAM (Zorro-II autoconfig) lives on a separate chip in a
+    /// later milestone — the machine wires it up; `Memory` only owns
+    /// chip + slow.
+    #[must_use]
+    pub fn new_with_ram(
+        kickstart: Vec<u8>,
+        chip_bytes: usize,
+        slow_bytes: usize,
+    ) -> Self {
         assert!(
             kickstart.len().is_power_of_two(),
             "Kickstart ROM size must be a power of two; got {} bytes",
             kickstart.len()
         );
+        assert!(
+            is_valid_chip_ram_size(chip_bytes),
+            "chip-RAM size must be 256K / 512K / 1M / 2M; got {} bytes",
+            chip_bytes
+        );
+        assert!(
+            is_valid_slow_ram_size(slow_bytes),
+            "slow-RAM size must be 0 / 256K / 512K / 1M / 1.5M; got {} bytes",
+            slow_bytes
+        );
         let rom_mask = (kickstart.len() as u32).wrapping_sub(1);
         Self {
-            chip_ram: vec![0; CHIP_RAM_SIZE],
-            chip_ram_mask: (CHIP_RAM_SIZE as u32).wrapping_sub(1),
-            slow_ram: vec![0; slow_ram_bytes],
+            chip_ram: vec![0; chip_bytes],
+            chip_ram_mask: (chip_bytes as u32).wrapping_sub(1),
+            slow_ram: vec![0; slow_bytes],
             kickstart,
             rom_mask,
             overlay: true,
             last_bus_value: std::cell::Cell::new(0x0000),
         }
+    }
+
+    /// Currently-installed chip-RAM size in bytes.
+    #[must_use]
+    pub fn chip_ram_size(&self) -> usize {
+        self.chip_ram.len()
+    }
+
+    /// Currently-installed slow-RAM size in bytes. Returns 0 when no
+    /// trapdoor expansion is present.
+    #[must_use]
+    pub fn slow_ram_size(&self) -> usize {
+        self.slow_ram.len()
     }
 
     /// Whether the reset overlay is currently mapping ROM into low
@@ -361,6 +430,67 @@ mod tests {
         assert_eq!(word, 0xCAFE);
         assert_eq!(mem.last_bus_value(), 0xCAFE);
         assert_eq!(mem.read_word(0x00A0_0000), 0xCAFE);
+    }
+
+    #[test]
+    fn chip_ram_sizes_cover_all_agnus_variants() {
+        assert!(is_valid_chip_ram_size(256 * 1024));
+        assert!(is_valid_chip_ram_size(512 * 1024));
+        assert!(is_valid_chip_ram_size(1024 * 1024));
+        assert!(is_valid_chip_ram_size(2048 * 1024));
+        assert!(!is_valid_chip_ram_size(128 * 1024));
+        assert!(!is_valid_chip_ram_size(3 * 512 * 1024));
+        assert!(!is_valid_chip_ram_size(4096 * 1024));
+    }
+
+    #[test]
+    fn slow_ram_sizes_match_a501_family() {
+        assert!(is_valid_slow_ram_size(0));
+        assert!(is_valid_slow_ram_size(256 * 1024));
+        assert!(is_valid_slow_ram_size(512 * 1024));
+        assert!(is_valid_slow_ram_size(1024 * 1024));
+        assert!(is_valid_slow_ram_size(1536 * 1024));
+        assert!(!is_valid_slow_ram_size(2048 * 1024));
+    }
+
+    #[test]
+    fn new_with_ram_installs_requested_chip_size() {
+        let mem = Memory::new_with_ram(test_rom(), 1024 * 1024, 0);
+        assert_eq!(mem.chip_ram_size(), 1024 * 1024);
+        assert_eq!(mem.slow_ram_size(), 0);
+    }
+
+    #[test]
+    fn chip_ram_1m_decodes_full_range_without_aliasing() {
+        // With 1 MiB of chip RAM installed, writes at $0000 and
+        // $80000 must land in distinct bytes (no 19-bit aliasing).
+        let mut mem = Memory::new_with_ram(test_rom(), 1024 * 1024, 0);
+        mem.set_overlay(false);
+        mem.write_byte(0x0000_0000, 0x11);
+        mem.write_byte(0x0008_0000, 0x22);
+        assert_eq!(mem.read_chip_ram_byte(0x0000_0000), 0x11);
+        assert_eq!(mem.read_chip_ram_byte(0x0008_0000), 0x22);
+    }
+
+    #[test]
+    fn chip_ram_512k_still_aliases_at_eighty_k_boundary() {
+        // Stock 512 KiB config: $80000 wraps back to $0.
+        let mut mem = Memory::new_with_ram(test_rom(), 512 * 1024, 0);
+        mem.set_overlay(false);
+        mem.write_byte(0x0000_0000, 0x33);
+        assert_eq!(mem.read_chip_ram_byte(0x0008_0000), 0x33);
+    }
+
+    #[test]
+    #[should_panic(expected = "chip-RAM size must be")]
+    fn invalid_chip_ram_size_panics() {
+        let _ = Memory::new_with_ram(test_rom(), 128 * 1024, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "slow-RAM size must be")]
+    fn invalid_slow_ram_size_panics() {
+        let _ = Memory::new_with_ram(test_rom(), 512 * 1024, 768 * 1024);
     }
 
     #[test]

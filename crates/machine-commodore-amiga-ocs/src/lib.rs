@@ -24,7 +24,7 @@ pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
 use commodore_paula_8364::decode as paula_decode;
 pub use copper::Copper;
 pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
-pub use memory::{Memory, CHIP_RAM_SIZE};
+pub use memory::{Memory, CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE};
 
 use motorola_68000::bus::{BusStatus, FunctionCode};
 use motorola_68000::cpu::State;
@@ -32,6 +32,70 @@ use motorola_68000::Cpu68000;
 
 const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
+
+/// RAM layout for an Amiga instance.
+///
+/// Chip RAM lives at `$000000` and is required. Slow RAM is the A501-
+/// style trapdoor expansion at `$C00000`. Fast RAM is a Zorro-II
+/// autoconfig board (implementation lands in a follow-up commit);
+/// `fast_kb` is carried here so the runtime preset surface is stable
+/// across the autoconfig wiring.
+///
+/// Sizes are in kilobytes. Only the sizes listed in
+/// `memory::is_valid_chip_ram_size` / `is_valid_slow_ram_size` are
+/// accepted by `AmigaOcs::with_ram_config`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RamConfig {
+    /// Chip RAM in KiB. One of 256, 512, 1024, 2048.
+    pub chip_kb: u32,
+    /// Slow RAM in KiB. One of 0, 256, 512, 1024, 1536.
+    pub slow_kb: u32,
+    /// Fast RAM in KiB. Multiples of 64 up to 8192; autoconfig
+    /// protocol supports sizes {64, 128, 256, 512, 1024, 2048, 4096,
+    /// 8192}. Zero means "no board present".
+    pub fast_kb: u32,
+}
+
+impl RamConfig {
+    /// Stock A500: 512K chip, no expansion.
+    #[must_use]
+    pub const fn bare() -> Self {
+        Self { chip_kb: 512, slow_kb: 0, fast_kb: 0 }
+    }
+
+    /// A500 with A501 trapdoor: 512K chip + 512K slow.
+    #[must_use]
+    pub const fn a501_trapdoor() -> Self {
+        Self { chip_kb: 512, slow_kb: 512, fast_kb: 0 }
+    }
+
+    /// A500Plus-equivalent chip layout: 1M chip, no slow, no fast.
+    #[must_use]
+    pub const fn a500_plus() -> Self {
+        Self { chip_kb: 1024, slow_kb: 0, fast_kb: 0 }
+    }
+
+    /// Maxed A500: 1M chip + 512K slow + 8M Zorro-II fast.
+    #[must_use]
+    pub const fn a500_maxed() -> Self {
+        Self { chip_kb: 1024, slow_kb: 512, fast_kb: 8192 }
+    }
+
+    /// `true` if the sizes are all within the supported set.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        memory::is_valid_chip_ram_size(self.chip_kb as usize * 1024)
+            && memory::is_valid_slow_ram_size(self.slow_kb as usize * 1024)
+            && self.fast_kb <= 8192
+            && self.fast_kb % 64 == 0
+    }
+}
+
+impl Default for RamConfig {
+    fn default() -> Self {
+        Self::bare()
+    }
+}
 
 /// Convert drive status (active-high booleans) into the CIA-A PRA
 /// external-input byte Kickstart reads via `$BFE001`.
@@ -173,18 +237,48 @@ pub struct AmigaOcs {
 
 impl AmigaOcs {
     /// Build a new Amiga (OCS) with the given Kickstart ROM image
-    /// and chip RAM only (no expansion).
+    /// and stock 512K chip RAM only (no expansion).
     #[must_use]
     pub fn new(kickstart: Vec<u8>) -> Self {
-        Self::with_slow_ram(kickstart, 0)
+        Self::with_ram_config(kickstart, RamConfig::bare())
     }
 
     /// Build a new Amiga (OCS) with the given Kickstart ROM image
     /// plus a trapdoor slow-RAM expansion at `$C00000` (common A500
-    /// config: 512 KiB).
+    /// config: 512 KiB). Chip RAM stays at stock 512K. Thin wrapper
+    /// around `with_ram_config` for test / integration callers that
+    /// don't need a full `RamConfig`.
     #[must_use]
     pub fn with_slow_ram(kickstart: Vec<u8>, slow_ram_bytes: usize) -> Self {
-        let memory = Memory::new_with_slow_ram(kickstart, slow_ram_bytes);
+        Self::with_ram_config(
+            kickstart,
+            RamConfig {
+                chip_kb: DEFAULT_CHIP_RAM_SIZE as u32 / 1024,
+                slow_kb: (slow_ram_bytes / 1024) as u32,
+                fast_kb: 0,
+            },
+        )
+    }
+
+    /// Build a new Amiga (OCS) with a fully explicit RAM layout.
+    ///
+    /// Panics if `cfg` is not one of the supported size combinations
+    /// (see `RamConfig::is_valid`). Fast RAM wiring through Zorro-II
+    /// autoconfig lands in a follow-up commit; `cfg.fast_kb` is
+    /// currently stored on the struct but not yet mapped into
+    /// memory.
+    #[must_use]
+    pub fn with_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
+        assert!(
+            cfg.is_valid(),
+            "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
+             slow=0/256/512/1024/1536 KiB, fast multiple-of-64 up to 8192 KiB"
+        );
+        let memory = Memory::new_with_ram(
+            kickstart,
+            cfg.chip_kb as usize * 1024,
+            cfg.slow_kb as usize * 1024,
+        );
         let mut cpu = Cpu68000::new();
         let ssp = memory.read_long(0x000000);
         let pc = memory.read_long(0x000004);
