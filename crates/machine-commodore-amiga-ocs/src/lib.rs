@@ -18,6 +18,7 @@ pub use agnus::{
 pub use cia::{Cia, CiaExt};
 pub use format_commodore_amiga_adf::Adf;
 pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
+pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
 use commodore_paula_8364::decode as paula_decode;
 pub use copper::Copper;
@@ -94,6 +95,13 @@ pub struct AmigaOcs {
     /// One word every `DISK_BYTE_CCK_SLOW * 2` CCKs in 250 kbit/s
     /// (ADKCON.FAST clear) mode, or `DISK_BYTE_CCK_FAST * 2` in fast.
     track_pacer: u16,
+    /// Keyboard controller — produces $FD + $FE power-up sequence and
+    /// encoded key events, ticked at the CIA E-clock rate.
+    keyboard: AmigaKeyboard,
+    /// Last-observed CIA-A CRA bit 6 (SPMODE). The keyboard treats a
+    /// 0→1 transition as a handshake: the host has read SDR and is
+    /// ready for the next byte.
+    prev_cia_a_spmode: bool,
     cia_a: Cia,
     cia_b: Cia,
     paula: Paula8364,
@@ -202,6 +210,8 @@ impl AmigaOcs {
             track_cache: None,
             track_word_cursor: 0,
             track_pacer: 0,
+            keyboard: AmigaKeyboard::new(),
+            prev_cia_a_spmode: false,
             cia_a,
             cia_b: Cia::new(),
             paula: Paula8364::new(),
@@ -352,6 +362,21 @@ impl AmigaOcs {
     pub fn eject_disk(&mut self) {
         self.drive.eject_disk();
         self.cia_a.set_external_a(drive_pra_byte(&self.drive.status()));
+    }
+
+    /// Read-only keyboard controller access — useful for tests
+    /// inspecting the power-up state or queued key count.
+    #[must_use]
+    pub fn keyboard(&self) -> &AmigaKeyboard {
+        &self.keyboard
+    }
+
+    /// Queue a keyboard event for transmission to the host. `pressed`
+    /// = true sets the raw keycode (bit 7 clear); `pressed` = false
+    /// raises bit 7 to signal key-up. Bytes are rotated + inverted
+    /// before they leave via CIA-A SDR.
+    pub fn key_event(&mut self, keycode: u8, pressed: bool) {
+        self.keyboard.key_event(keycode, pressed);
     }
 
     /// Push the next MFM word from the drive's encoded track buffer
@@ -805,6 +830,19 @@ impl AmigaOcs {
             self.drive.update_control(step, dir_in, side_upper, sel0, motor);
             let _ = self.drive.tick();
             self.cia_a.set_external_a(drive_pra_byte(&self.drive.status()));
+
+            // Keyboard controller — detect CIA-A CRA bit 6 (SPMODE)
+            // rising edge as the host handshake, then tick the state
+            // machine and inject the next serial byte (if any).
+            const CRA_SPMODE: u8 = 0x40;
+            let spmode = self.cia_a.cra() & CRA_SPMODE != 0;
+            if spmode && !self.prev_cia_a_spmode {
+                self.keyboard.handshake();
+            }
+            self.prev_cia_a_spmode = spmode;
+            if let Some(byte) = self.keyboard.tick() {
+                self.cia_a.receive_serial_byte(byte);
+            }
         }
 
         // ── Paula edge-latch of CIA /IRQ lines ──────────────────

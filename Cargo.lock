@@ -1245,6 +1245,7 @@ dependencies = [
  "mos-cia-8520",
  "motorola-68000",
  "peripheral-commodore-amiga-floppy",
+ "peripheral-commodore-amiga-keyboard",
  "png",
 ]
 
