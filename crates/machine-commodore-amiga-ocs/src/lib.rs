@@ -1017,13 +1017,19 @@ impl AmigaOcs {
                 self.agnus.ddfstop,
             );
             if self.agnus.dmacon & 0x0280 == 0x0280 {
-                self.copper.tick_cck(
-                    &self.memory,
-                    &mut self.denise,
-                    self.agnus.vpos,
-                    self.agnus.hpos,
-                    claim,
-                );
+                // Route copper MOVEs through the same custom-register
+                // dispatch the CPU uses. The copper can legitimately
+                // write any register (bitplane pointers, DMACON,
+                // INTENA, sprite pointers, DDF/DIW, modulos, etc.);
+                // routing only through Denise would silently drop
+                // the non-Denise ones.
+                let vpos = self.agnus.vpos;
+                let hpos = self.agnus.hpos;
+                if let Some((reg, val)) =
+                    self.copper.tick_cck(&self.memory, vpos, hpos, claim)
+                {
+                    self.dispatch_custom_write(reg, val);
+                }
             }
 
             // ── Paula audio engine — one step per CCK ────────────────

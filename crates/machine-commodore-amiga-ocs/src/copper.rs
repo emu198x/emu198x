@@ -115,22 +115,32 @@ impl Copper {
         self.stopped = false;
     }
 
-    /// Tick the copper one CCK. Returns true if a copper-driven
-    /// chipset write happened this CCK (caller used it to know
-    /// whether to re-evaluate state, e.g. update IPL after an
-    /// INTREQ write).
+    /// Tick the copper one CCK. Returns `Some((reg, val))` when
+    /// the copper has just executed a MOVE instruction — the
+    /// caller is responsible for routing the write through the
+    /// full machine-layer dispatch (same path the CPU uses). This
+    /// matters because the copper can legitimately MOVE to any
+    /// custom register, not just the Denise-owned ones: bitplane
+    /// pointers (Agnus), DMACON/INTENA/INTREQ/ADKCON (Agnus/Paula),
+    /// DDF/DIW/modulos (Agnus), and sprite pointers (Agnus) all
+    /// see copper writes during normal boot. Routing everything to
+    /// `denise.write_word` (as an earlier port did) silently drops
+    /// those writes and leaves the copper unable to re-load
+    /// bitplane pointers each frame.
+    ///
+    /// COPJMP1 / COPJMP2 strobes stay internal — the copper reloads
+    /// its own PC and returns `None` for those.
     pub fn tick_cck(
         &mut self,
         memory: &Memory,
-        denise: &mut Denise,
         beam_vp: u16,
         beam_hp: u16,
         claim: DmaClaim,
-    ) -> bool {
+    ) -> Option<(u16, u16)> {
         // Halted by a dangerous MOVE? Sit still until the next
         // COPJMP1/COPJMP2 strobe (which the VBL auto-fires).
         if self.stopped {
-            return false;
+            return None;
         }
 
         // If waiting, only resume when the masked beam position
@@ -143,7 +153,7 @@ impl Copper {
                 self.waiting = false;
                 self.cck_phase = 0;
             }
-            return false;
+            return None;
         }
 
         // Copper-eligible CCK: odd hpos AND no bitplane claim. Per
@@ -153,7 +163,7 @@ impl Copper {
         // those are the ones copper must yield to.
         let eligible = (beam_hp & 1) != 0 && claim.is_free();
         if !eligible {
-            return false;
+            return None;
         }
 
         // WAIT takes 3 memory cycles (HRM). The first 2 fetch + decode
@@ -167,7 +177,7 @@ impl Copper {
             self.wait_mask = self.pending_wait_mask;
             self.wait_bfd = self.pending_wait_bfd;
             self.pending_wait_delay = false;
-            return false;
+            return None;
         }
 
         // Each MOVE / SKIP (and the fetch+decode portion of WAIT)
@@ -177,7 +187,7 @@ impl Copper {
         // copper's effective rate drops proportionally.
         self.cck_phase = self.cck_phase.wrapping_add(1);
         if self.cck_phase < 2 {
-            return false;
+            return None;
         }
         self.cck_phase = 0;
 
@@ -204,7 +214,7 @@ impl Copper {
             // executing ExecBase struct bytes as instructions.
             if reg < 0x80 && !self.cdang {
                 self.stopped = true;
-                return false;
+                return None;
             }
             // COPJMP1 / COPJMP2 strobes ($088 / $08A) are copper-
             // internal — writing to them reloads the copper PC from
@@ -213,48 +223,57 @@ impl Copper {
             // handle them here because a running copper list can do
             // its own jumps (tail-chained from one list to another
             // at the start of each VBL).
+            //
+            // Every other MOVE bubbles up to the caller, which is
+            // responsible for driving it through the full machine
+            // dispatch (`dispatch_custom_write`). Bitplane pointers,
+            // DMACON, INTENA, sprite pointers, DDF/DIW etc. all land
+            // there — writing them directly through Denise would
+            // silently drop all non-Denise registers.
             match reg {
-                0x088 => self.jump1(),
-                0x08A => self.jump2(),
-                _ => denise.write_word(reg, word2),
-            }
-            return true;
-        }
-
-        // WAIT or SKIP — distinguished by word2 bit 0.
-        let target = word1 & 0xFFFE;
-        // Enable mask: word2 bits 14-1 come from the instruction.
-        // Bit 15 (BFD) is NOT part of the mask (separate semantics).
-        // Bit 0 (WAIT/SKIP flag) is not a position bit.
-        // VP bit 7 is ALWAYS compared per HRM — force mask bit 15 = 1.
-        let mask = (word2 & 0x7FFE) | 0x8000;
-        let bfd = (word2 & 0x8000) != 0;
-
-        if word2 & 1 == 0 {
-            // WAIT.
-            if beam_match(target, mask, beam_vp, beam_hp) {
-                // Already past — instruction completes, copper
-                // continues with the next pair on the next tick.
-                // (HRM's 3rd memory cycle still runs on real
-                // hardware but produces no observable delay when the
-                // beam check passes immediately — we elide it here.)
-            } else {
-                // Arm the 3rd-memory-cycle delay. The next eligible
-                // CCK will commit the waiting state. Stash target /
-                // mask / bfd now so the delay tick can restore them.
-                self.pending_wait_delay = true;
-                self.pending_wait_target = target;
-                self.pending_wait_mask = mask;
-                self.pending_wait_bfd = bfd;
+                0x088 => {
+                    self.jump1();
+                    None
+                }
+                0x08A => {
+                    self.jump2();
+                    None
+                }
+                _ => Some((reg, word2)),
             }
         } else {
-            // SKIP: if beam already satisfies the mask/target, skip
-            // the next instruction word-pair.
-            if beam_match(target, mask, beam_vp, beam_hp) {
-                self.pc = self.pc.wrapping_add(4);
+            // WAIT or SKIP — distinguished by word2 bit 0.
+            let target = word1 & 0xFFFE;
+            // Enable mask: word2 bits 14-1 come from the instruction.
+            // Bit 15 (BFD) is NOT part of the mask (separate
+            // semantics). Bit 0 (WAIT/SKIP flag) is not a position
+            // bit. VP bit 7 is ALWAYS compared per HRM — force mask
+            // bit 15 = 1.
+            let mask = (word2 & 0x7FFE) | 0x8000;
+            let bfd = (word2 & 0x8000) != 0;
+
+            if word2 & 1 == 0 {
+                // WAIT.
+                if beam_match(target, mask, beam_vp, beam_hp) {
+                    // Already past — instruction completes, copper
+                    // continues with the next pair on the next tick.
+                } else {
+                    // Arm the 3rd-memory-cycle delay. The next
+                    // eligible CCK will commit the waiting state.
+                    self.pending_wait_delay = true;
+                    self.pending_wait_target = target;
+                    self.pending_wait_mask = mask;
+                    self.pending_wait_bfd = bfd;
+                }
+            } else {
+                // SKIP: if beam already satisfies the mask/target,
+                // skip the next instruction word-pair.
+                if beam_match(target, mask, beam_vp, beam_hp) {
+                    self.pc = self.pc.wrapping_add(4);
+                }
             }
+            None
         }
-        false
     }
 }
 
@@ -296,7 +315,11 @@ mod tests {
 
     /// Tick the copper for `ccks` wall-CCKs, advancing hpos each
     /// tick and holding vpos fixed. Keeps claim = Free so copper
-    /// sees unconstrained odd-CCK availability.
+    /// sees unconstrained odd-CCK availability. MOVEs returned by
+    /// the copper are routed through Denise — these tests only
+    /// exercise Denise-owned registers, so a local routing closure
+    /// is enough. The machine layer wires this through the full
+    /// `dispatch_custom_write` in production.
     fn run_ccks(
         copper: &mut Copper,
         mem: &Memory,
@@ -305,7 +328,11 @@ mod tests {
         ccks: u16,
     ) {
         for i in 0..ccks {
-            copper.tick_cck(mem, denise, vpos, i % 227, DmaClaim::Free);
+            if let Some((reg, val)) =
+                copper.tick_cck(mem, vpos, i % 227, DmaClaim::Free)
+            {
+                denise.write_word(reg, val);
+            }
         }
     }
 
@@ -340,7 +367,10 @@ mod tests {
         copper.jump1();
 
         for _ in 0..40 {
-            copper.tick_cck(&mem, &mut denise, 0, 0, DmaClaim::Free);
+            let write = copper.tick_cck(&mem, 0, 0, DmaClaim::Free);
+            if let Some((reg, val)) = write {
+                denise.write_word(reg, val);
+            }
         }
         assert_eq!(denise.color(0), 0x0000, "copper must not run on even CCKs");
     }
@@ -366,7 +396,9 @@ mod tests {
             } else {
                 DmaClaim::Free
             };
-            copper.tick_cck(&mem, &mut denise, 0, hpos, claim);
+            if let Some((reg, val)) = copper.tick_cck(&mem, 0, hpos, claim) {
+                denise.write_word(reg, val);
+            }
         }
         assert_eq!(
             denise.color(0), 0x0000,
@@ -398,7 +430,11 @@ mod tests {
 
         // Tick more with beam still below target — MOVE doesn't run.
         for i in 0..50 {
-            copper.tick_cck(&mem, &mut denise, 4, i % 227, DmaClaim::Free);
+            if let Some((reg, val)) =
+                copper.tick_cck(&mem, 4, i % 227, DmaClaim::Free)
+            {
+                denise.write_word(reg, val);
+            }
         }
         assert_eq!(denise.color(0), 0);
 
