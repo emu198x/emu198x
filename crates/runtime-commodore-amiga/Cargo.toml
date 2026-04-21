@@ -13,6 +13,7 @@ machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs" }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy" }
 png = { workspace = true }
 
 [lints]

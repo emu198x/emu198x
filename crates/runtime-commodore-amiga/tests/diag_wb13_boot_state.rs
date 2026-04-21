@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 
 use format_commodore_amiga_adf::Adf;
+use peripheral_commodore_amiga_floppy::mfm::decode_mfm_track;
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntime, Model};
 
 fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
@@ -33,6 +34,12 @@ fn wb13_boot_state_checkpoints() {
         return;
     };
 
+    // Keep a copy of the first 1024 bytes of the ADF so we can
+    // byte-compare against the decoded bootblock at the end — if
+    // the MFM encode/decode round trip lost a bit, we'll see
+    // exactly where.
+    let adf_bootblock: Vec<u8> = adf_bytes[..1024].to_vec();
+
     let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)
         .expect("build runtime");
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
@@ -52,10 +59,66 @@ fn wb13_boot_state_checkpoints() {
     // 50 frames — narrow enough to show the loop we're spinning in.
     let mut pc_histogram = std::collections::HashMap::<u32, u32>::new();
 
+    // Phase A probe 1 — strap checkpoints from strap_path_trap.rs.
+    // If the CPU's PC ever equals one of these, we know strap got
+    // that far. $FE85F2 ("STRAP_EXEC_BOOT") is the one we care
+    // about most: it's where strap JSRs into the decoded bootblock.
+    const STRAP_POST_CMD_READ: u32 = 0x00FE_85A0;
+    const STRAP_DOS_MAGIC_OK: u32 = 0x00FE_85AC;
+    const STRAP_EXEC_BOOT: u32 = 0x00FE_85F2;
+    const STRAP_ERR_EXIT: u32 = 0x00FE_867C;
+    let strap_points = [
+        (STRAP_POST_CMD_READ, "post-CMD_READ"),
+        (STRAP_DOS_MAGIC_OK, "DOS-magic-OK"),
+        (STRAP_EXEC_BOOT, "EXEC_BOOT"),
+        (STRAP_ERR_EXIT, "err-exit"),
+    ];
+    let mut strap_hits = [0u64; 4];
+
+    // Phase A probe 2 — any PC in the bootblock / chip-RAM code
+    // range. The decoded bootblock lands in the low 32 KB of chip
+    // RAM (at $604C in our runs); any JSR target the bootblock
+    // calls would also typically land below $8000.
+    let bootblock_range = 0x0000_0400u32..0x0000_8000u32;
+    let mut max_chip_pc = 0u32;
+    let mut min_chip_pc = u32::MAX;
+    let mut chip_pc_hits = 0u64;
+
+    // Phase A probe 3 — CIA-A /IRQ edge count. The scheduler idle
+    // loop can only wake on an interrupt; if CIA-A (Timer A or
+    // Timer B or TOD alarm) never pulses /IRQ, scheduled tasks
+    // never run. Track the trailing 200 frames so early boot
+    // traffic doesn't dominate.
+    let mut prev_cia_a_irq = false;
+    let mut cia_a_irq_edges_total = 0u64;
+    let mut cia_a_irq_edges_tail = 0u64;
+
     let total_frames = *checkpoints.last().unwrap();
     for frame in 0..total_frames {
         for _ in 0..A500_PAL_FRAME_TICKS {
             rt.machine_mut().tick();
+
+            // Per-tick sampling: read PC once, do O(1) checks.
+            let m = rt.machine();
+            let pc = m.cpu().regs.pc;
+            for (i, (addr, _)) in strap_points.iter().enumerate() {
+                if pc == *addr {
+                    strap_hits[i] = strap_hits[i].saturating_add(1);
+                }
+            }
+            if bootblock_range.contains(&pc) {
+                chip_pc_hits += 1;
+                if pc > max_chip_pc { max_chip_pc = pc; }
+                if pc < min_chip_pc { min_chip_pc = pc; }
+            }
+            let cia_irq_now = m.cia_a().irq_active();
+            if cia_irq_now && !prev_cia_a_irq {
+                cia_a_irq_edges_total += 1;
+                if frame + 200 >= total_frames {
+                    cia_a_irq_edges_tail += 1;
+                }
+            }
+            prev_cia_a_irq = cia_irq_now;
         }
         // Sample the CPU PC every frame over the last 50 frames
         // (by which point the boot has either finished loading or
@@ -155,6 +218,52 @@ fn wb13_boot_state_checkpoints() {
     }
     println!("DSKSYNC (0x4489) occurrences in 16KB at ${target:06X}: {sync_hits}");
 
+    // Record the byte offsets of every $4489 sync pair so we can
+    // see the sector boundaries trackdisk scanned.
+    let mut sync_offsets = Vec::new();
+    for i in 0..(16 * 1024 - 1) {
+        let a = m.memory().read_chip_ram_byte(target + i);
+        let b = m.memory().read_chip_ram_byte(target + i + 1);
+        if a == 0x44 && b == 0x89 {
+            sync_offsets.push(i);
+        }
+    }
+    println!("Sync offsets (rel to ${target:06X}):");
+    for chunk in sync_offsets.chunks(4) {
+        let mut line = String::from("  ");
+        for o in chunk {
+            line.push_str(&format!("${o:04X} "));
+        }
+        println!("{line}");
+    }
+
+    // Feed the same chip-RAM buffer trackdisk sees through our own
+    // `decode_mfm_track`. If our decoder recovers sector 1 correctly
+    // but the KS trackdisk output in the bootblock buffer doesn't
+    // match, the encoder + our decoder agree but KS's decoder
+    // diverges — MFM format bug, not a DMA bug. If our decoder
+    // *also* fails on sector 1, the encoder itself is wrong.
+    let mut mfm_words: Vec<u16> = Vec::with_capacity(16 * 512);
+    for i in (0..(16 * 1024)).step_by(2) {
+        let hi = m.memory().read_chip_ram_byte(target + i) as u16;
+        let lo = m.memory().read_chip_ram_byte(target + i + 1) as u16;
+        mfm_words.push((hi << 8) | lo);
+    }
+    let decoded = decode_mfm_track(&mfm_words);
+    println!("Our decoder: recovered {} sectors from chip RAM", decoded.len());
+    for ds in &decoded {
+        if ds.sector <= 1 {
+            let sec_off = ds.sector as usize * 512;
+            let adf_sec = &adf_bootblock[sec_off..sec_off + 512];
+            let matches = ds.data.as_slice() == adf_sec;
+            println!(
+                "  track={} sector={} data matches ADF? {}",
+                ds.track, ds.sector,
+                if matches { "YES" } else { "NO" }
+            );
+        }
+    }
+
     // Display pipeline state — tells us whether Intuition has put
     // something up (non-zero BPU, non-white COLOR00) or whether we
     // are still on the insert-disk screen or stuck at all-white.
@@ -188,7 +297,12 @@ fn wb13_boot_state_checkpoints() {
     // Dump whatever's at each DOS hit — shows whether the
     // bootblock was decoded into a normal-looking block
     // (DOS\0 ... CHECKSUM ... ROOTBLOCK ... code) or something
-    // garbled.
+    // garbled. Also verify the Amiga bootblock checksum: sum all
+    // 256 longwords with end-around carry, the result should be
+    // $FFFFFFFF for a valid block. strap.resource in KS 1.3 will
+    // refuse to JSR into a block with a bad checksum — which
+    // matches our Phase A observation of EXEC_BOOT reached but
+    // bootblock code never executed.
     for base in &dos_hits {
         let mut line = format!("  bootblock @ ${base:06X}: ");
         for i in 0..16 {
@@ -198,6 +312,79 @@ fn wb13_boot_state_checkpoints() {
             ));
         }
         println!("{line}");
+        // Bootblock length is 2 sectors = 1024 bytes for OFS/FFS.
+        let mut sum: u32 = 0;
+        for off in (0..1024u32).step_by(4) {
+            let b0 = m.memory().read_chip_ram_byte(base + off) as u32;
+            let b1 = m.memory().read_chip_ram_byte(base + off + 1) as u32;
+            let b2 = m.memory().read_chip_ram_byte(base + off + 2) as u32;
+            let b3 = m.memory().read_chip_ram_byte(base + off + 3) as u32;
+            let lw = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+            let (ns, carry) = sum.overflowing_add(lw);
+            sum = ns.wrapping_add(if carry { 1 } else { 0 });
+        }
+        println!(
+            "     checksum sum=${sum:08X}  (valid if $FFFFFFFF)  \
+             {}",
+            if sum == 0xFFFF_FFFF { "PASS" } else { "FAIL" }
+        );
+        // Byte-wise diff against the raw ADF. The decoded bootblock
+        // in chip RAM *should* equal adf[0..1024] byte for byte, with
+        // the checksum field reconstructed by the MFM layer. Any
+        // mismatch is a round-trip bug somewhere in encode/decode.
+        let mut mismatches = 0u32;
+        let mut first_mismatch: Option<(u32, u8, u8)> = None;
+        for off in 0..1024u32 {
+            let got = m.memory().read_chip_ram_byte(base + off);
+            let want = adf_bootblock[off as usize];
+            if got != want {
+                mismatches += 1;
+                if first_mismatch.is_none() {
+                    first_mismatch = Some((off, want, got));
+                }
+            }
+        }
+        println!(
+            "     raw-ADF diff: {mismatches} bytes differ, first \
+             at {}",
+            match first_mismatch {
+                Some((o, w, g)) => format!("off=${o:03X} want=${w:02X} got=${g:02X}"),
+                None => "<none — identical>".into(),
+            }
+        );
+        // Diff by sector (512 bytes each) so we see which sector
+        // decoded cleanly and which didn't. The bootblock is
+        // sector 0 + sector 1.
+        for sector in 0..2u32 {
+            let mut bad = 0u32;
+            let sec_base = sector * 512;
+            for off in 0..512u32 {
+                let got = m.memory().read_chip_ram_byte(base + sec_base + off);
+                let want = adf_bootblock[(sec_base + off) as usize];
+                if got != want { bad += 1; }
+            }
+            println!("     sector {sector}: {bad}/512 bytes differ");
+        }
+        // Dump bootblock[$200..$230] (start of sector 1) side by
+        // side with adf[$200..$230] to see the pattern of divergence.
+        println!("     sector 1 head (decoded | raw ADF):");
+        for row in 0..3u32 {
+            let mut got_line = format!("       got ${:03X}: ", 0x200 + row * 16);
+            let mut want_line = format!("       adf ${:03X}: ", 0x200 + row * 16);
+            for i in 0..16u32 {
+                let off = 0x200 + row * 16 + i;
+                got_line.push_str(&format!(
+                    "{:02X} ",
+                    m.memory().read_chip_ram_byte(base + off)
+                ));
+                want_line.push_str(&format!(
+                    "{:02X} ",
+                    adf_bootblock[off as usize]
+                ));
+            }
+            println!("{got_line}");
+            println!("{want_line}");
+        }
     }
 
     // CPU program counter at end — helps identify whether we're
@@ -253,5 +440,45 @@ fn wb13_boot_state_checkpoints() {
          max_step_events={max_step_events} max_cylinder={max_cylinder} \
          dsk_writes={}",
         dsk.len(),
+    );
+
+    // ── Phase A yes/no answers ────────────────────────────────
+    println!();
+    println!("=== Phase A probes ===");
+    println!("1) Strap checkpoint hits (per-tick PC samples):");
+    for ((addr, label), hits) in strap_points.iter().zip(strap_hits.iter()) {
+        println!("   ${addr:08X}  {label:<16}  hits={hits}");
+    }
+    println!("2) Bootblock / chip-RAM code range (PC in $0400..$8000):");
+    if chip_pc_hits == 0 {
+        println!("   NO HIT — CPU never executed bootblock code");
+    } else {
+        println!(
+            "   {chip_pc_hits} PC samples, range ${min_chip_pc:06X}..${max_chip_pc:06X}"
+        );
+    }
+    let cia = rt.machine().cia_a();
+    let ta = cia.timer_a();
+    let tb = cia.timer_b();
+    let cra = cia.cra();
+    let crb = cia.crb();
+    let icr_status = cia.icr_status();
+    let icr_mask = cia.icr_mask();
+    println!(
+        "3) CIA-A IRQ edges: total={cia_a_irq_edges_total} \
+         last-200-frames={cia_a_irq_edges_tail}"
+    );
+    println!(
+        "   Timer A: counter=${ta:04X} CRA=${cra:02X} running={} \
+         (START bit0 = {})",
+        cia.timer_a_running(),
+        if cra & 0x01 != 0 { "SET" } else { "CLEAR" }
+    );
+    println!(
+        "   Timer B: counter=${tb:04X} CRB=${crb:02X} running={}",
+        cia.timer_b_running(),
+    );
+    println!(
+        "   CIA-A ICR: status=${icr_status:02X} mask=${icr_mask:02X}"
     );
 }

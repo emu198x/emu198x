@@ -724,6 +724,17 @@ impl AmigaOcs {
     /// `DiskDmaRuntime`. Captures the word count, direction, and
     /// WORDSYNC gate at arm time so subsequent register writes
     /// don't retroactively change the in-flight transfer.
+    ///
+    /// Rewinds the encoded-track cursor to byte 0 so every transfer
+    /// begins with sector 0's pre-sync gap + sync. Real hardware
+    /// doesn't do this — the disk keeps spinning between reads, and
+    /// trackdisk's scanner relies on sector headers to place data
+    /// correctly. Modelling continuous rotation would require
+    /// encoding a full disk image stream and tracking head angular
+    /// position; for boot-path parity what matters is that each
+    /// DMA'd buffer contains *a* full track's worth of syncs with
+    /// sector 0 at the start. That's exactly what
+    /// `track_word_cursor = 0` gives us.
     fn start_disk_dma_transfer(&mut self) {
         let dsklen = self.paula.dsklen();
         let word_count = u32::from(dsklen & 0x3FFF);
@@ -738,6 +749,9 @@ impl AmigaOcs {
             self.paula.complete_disk_dma();
             self.disk_dma_runtime = None;
             return;
+        }
+        if !is_write {
+            self.track_word_cursor = 0;
         }
         self.disk_dma_runtime = Some(DiskDmaRuntime {
             words_remaining: word_count,
