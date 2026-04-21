@@ -32,6 +32,10 @@ members = [
     "crates/commodore-paula-8364",
     "crates/commodore-agnus-ocs",
     "crates/commodore-denise-ocs",
+    # Floppy archive — included during Phase 1 of the floppy port so
+    # characterisation tests can run against archive behaviour. Will be
+    # renamed to `peripheral-commodore-amiga-floppy` during Phase 3.
+    "crates/peripheral-commodore-amiga-floppy-archive",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",
@@ -50,7 +54,6 @@ exclude = [
     "crates/commodore-gary-archive",
     "crates/emu198x-script-amiga-archive",
     "crates/machine-commodore-amiga-archive",
-    "crates/peripheral-commodore-amiga-floppy-archive",
     "crates/peripheral-commodore-amiga-keyboard-archive",
     "crates/runtime-commodore-amiga-archive",
 ]
