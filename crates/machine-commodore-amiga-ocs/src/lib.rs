@@ -671,12 +671,26 @@ impl AmigaOcs {
         if word_count == 0 {
             return;
         }
-        if self.track_word_cursor >= word_count {
-            self.track_word_cursor = 0;
-        }
-        let i = self.track_word_cursor * 2;
-        let word = (u16::from(bytes[i]) << 8) | u16::from(bytes[i + 1]);
-        self.track_word_cursor += 1;
+        // Past the end of one revolution, feed the MFM gap filler
+        // ($AAAA) rather than wrapping back to sector 0. Real disks
+        // keep rotating past the end-of-track gap, but our encoded
+        // track doesn't include a full rotation's worth of gap — if
+        // we wrap, a second copy of sector 0 (and a *partial* second
+        // copy of sector 1) lands in the DMA buffer. KS 1.3
+        // trackdisk scans the whole DMA buffer for syncs and
+        // processes every match; the partial sector 1 near the end
+        // of the buffer decodes to garbage and overwrites the good
+        // decode that happened earlier. Plain $AAAA filler has no
+        // sync pattern, so the scanner simply falls off the end of
+        // the buffer without finding another candidate.
+        let word = if self.track_word_cursor < word_count {
+            let i = self.track_word_cursor * 2;
+            let w = (u16::from(bytes[i]) << 8) | u16::from(bytes[i + 1]);
+            self.track_word_cursor += 1;
+            w
+        } else {
+            0xAAAA
+        };
         let matched_sync = self.paula.note_disk_read_word(word);
         self.service_disk_dma_word(word, matched_sync);
     }

@@ -37,6 +37,19 @@ pub const SECTOR_MFM_BYTES: usize = 1088;
 ///
 /// `track_sectors` must be exactly `sectors_per_track * 512` bytes.
 /// `track_num` is `cyl * 2 + head`.
+///
+/// After each sector is independently encoded (see
+/// `encode_sector_into`), the leading clock bit of each sector (the
+/// MSB of its first $AA gap byte) is re-computed against the last
+/// data bit of the previous byte on the track. Each sector is
+/// encoded as if starting from scratch — fine in isolation, but
+/// when sectors sit next to each other on the track the MFM
+/// invariant "clock bit = 1 iff both adjacent data bits = 0"
+/// breaks at the sector boundary when the previous sector's last
+/// data bit happens to be 1. Real trackdisk readers rely on that
+/// invariant; KS 1.3 trackdisk will decode sector 0 correctly but
+/// mangle later sectors if the boundary clock bits are wrong. This
+/// step matches vAmiga's `rectifyClockBit` fix-up pass.
 pub fn encode_mfm_track(track_sectors: &[u8], track_num: u8, sectors_per_track: u32) -> Vec<u8> {
     let mut buf = vec![0xAAu8; MFM_TRACK_BYTES];
 
@@ -50,6 +63,23 @@ pub fn encode_mfm_track(track_sectors: &[u8], track_num: u8, sectors_per_track: 
             sectors_per_track as u8,
             sector_data,
         );
+    }
+
+    // Rectify clock bits at sector boundaries. Each boundary is the
+    // MSB of byte `n * SECTOR_MFM_BYTES` for n in 0..=sectors_per_track.
+    // The MSB is a clock bit; it should be 0 when either neighbouring
+    // data bit is 1 (the data bit *in* this byte — bit 6 — and the
+    // data bit *before* — bit 0 of the previous byte on the track,
+    // wrapping at the track end like a real disk).
+    let sector_count = sectors_per_track as usize;
+    let track_len = buf.len();
+    for n in 0..=sector_count {
+        let byte_idx = (n * SECTOR_MFM_BYTES) % track_len;
+        let prev_idx = (byte_idx + track_len - 1) % track_len;
+        let next_data_in_same_byte = (buf[byte_idx] >> 6) & 1;
+        let prev_data = buf[prev_idx] & 1;
+        let clock_bit = if prev_data == 0 && next_data_in_same_byte == 0 { 1 } else { 0 };
+        buf[byte_idx] = (buf[byte_idx] & 0x7F) | (clock_bit << 7);
     }
 
     buf
