@@ -391,10 +391,13 @@ impl MachineCore for AmigaRuntime {
 
 fn build_machine(model: Model, kickstart_rom: &[u8]) -> AmigaOcs {
     match model {
-        // A500 Kickstart 1.2+ boot paths rely on 512 KiB trapdoor
-        // slow RAM at $C00000 so ExecBase lands there rather than
-        // consuming scarce chip RAM.
-        Model::A500OcsPal => AmigaOcs::with_slow_ram(kickstart_rom.to_vec(), 512 * 1024),
+        // A500 stock config: 512 KiB chip RAM, no trapdoor
+        // expansion. Kickstart 1.3 boots to the insert-disk screen
+        // without slow RAM now that M13's chip-only boot-failure
+        // root cause is fixed (copper CDANG halt + COPJMP2
+        // corruption guard). Runtimes that need slow RAM can still
+        // call `AmigaOcs::with_slow_ram` directly.
+        Model::A500OcsPal => AmigaOcs::new(kickstart_rom.to_vec()),
     }
 }
 
