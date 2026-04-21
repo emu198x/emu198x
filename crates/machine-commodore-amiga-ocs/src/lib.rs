@@ -143,6 +143,36 @@ fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
 /// map: "CIAA timer A (.709379 MHz PAL)" = master/40 exactly.
 const CIA_E_CLOCK_DIVISOR: u64 = 10;
 
+/// State carried while a disk DMA transfer is in-flight.
+///
+/// Armed when Paula sees the second DSKLEN write with DMAEN set
+/// (two consecutive `$8000+len` writes — the anti-glitch guard
+/// from HRM Chapter 3). Serviced once per MFM word arrival: when
+/// WORDSYNC is enabled and the first match hasn't happened yet,
+/// words get discarded; once the sync word is seen the NEXT word
+/// starts landing in chip RAM at DSKPT (DSKPT auto-increments by 2,
+/// modulo chip RAM). After `words_remaining` reaches zero Paula
+/// clears its pending flag and raises DSKBLK — trackdisk's wait
+/// returns and the bootblock read can complete.
+#[derive(Debug, Clone)]
+struct DiskDmaRuntime {
+    /// Word count remaining (copied from DSKLEN bits 13:0 at arm).
+    words_remaining: u32,
+    /// `true` if DSKLEN.WRITE (bit 14) was set at arm — we're
+    /// writing MFM from chip RAM back to the drive. (Not used by
+    /// Kickstart boot — boot is always read — but we honour the
+    /// flag so writes don't silently behave as reads.)
+    is_write: bool,
+    /// `true` if ADKCON.WORDSYNC was set at arm. Controls whether
+    /// the transfer waits for a DSKSYNC match before the first DMA
+    /// word gets written.
+    wordsync_enabled: bool,
+    /// `true` until the first DSKSYNC match is observed. While
+    /// true, incoming MFM words are shown to Paula (so WORDEQUAL
+    /// can latch and DSKSYN can fire) but not written to chip RAM.
+    wordsync_waiting: bool,
+}
+
 /// Ticks per Agnus colour clock. A CCK (HRM beam-coordinate unit) is
 /// two master/4 ticks — one tick per lores pixel.
 const TICKS_PER_CCK: u64 = 2;
@@ -166,6 +196,10 @@ pub struct AmigaOcs {
     /// One word every `DISK_BYTE_CCK_SLOW * 2` CCKs in 250 kbit/s
     /// (ADKCON.FAST clear) mode, or `DISK_BYTE_CCK_FAST * 2` in fast.
     track_pacer: u16,
+    /// Active disk DMA transfer — `Some` between a DSKLEN arm and
+    /// the final word landing in chip RAM. `None` means no transfer
+    /// is in flight (including between arm-sequence writes).
+    disk_dma_runtime: Option<DiskDmaRuntime>,
     /// Keyboard controller — produces $FD + $FE power-up sequence and
     /// encoded key events, ticked at the CIA E-clock rate.
     keyboard: AmigaKeyboard,
@@ -350,6 +384,7 @@ impl AmigaOcs {
             track_cache: None,
             track_word_cursor: 0,
             track_pacer: 0,
+            disk_dma_runtime: None,
             keyboard: AmigaKeyboard::new(),
             prev_cia_a_spmode: false,
             gary,
@@ -605,6 +640,15 @@ impl AmigaOcs {
     /// drive head has moved since the last word, or when no cache
     /// exists yet. Rotates the cursor back to 0 at end of track so
     /// successive revolutions keep delivering words.
+    ///
+    /// If a disk DMA read transfer is armed, the word is also
+    /// written into chip RAM at DSKPT (subject to WORDSYNC gating),
+    /// DSKPT auto-increments, and the transfer counter decrements.
+    /// When the counter reaches zero Paula clears its pending flag
+    /// and raises DSKBLK — matching real hardware, where the
+    /// serialiser decodes one word, hands it to disk DMA for a
+    /// chip-bus write on the next available disk slot, and counts
+    /// down against DSKLEN.
     fn feed_next_mfm_word(&mut self) {
         let cyl = self.drive.cylinder();
         let head = self.drive.head();
@@ -633,7 +677,74 @@ impl AmigaOcs {
         let i = self.track_word_cursor * 2;
         let word = (u16::from(bytes[i]) << 8) | u16::from(bytes[i + 1]);
         self.track_word_cursor += 1;
-        self.paula.note_disk_read_word(word);
+        let matched_sync = self.paula.note_disk_read_word(word);
+        self.service_disk_dma_word(word, matched_sync);
+    }
+
+    /// Consume one MFM word on behalf of an in-flight disk DMA read.
+    /// Honours ADKCON.WORDSYNC (suppress words until the first
+    /// DSKSYNC match, and suppress the sync word itself during DMA
+    /// so software sees aligned sector data). Writes the word's two
+    /// bytes to chip RAM at `agnus.dsk_pt`, auto-increments DSKPT,
+    /// and calls `complete_disk_dma` when the countdown hits zero.
+    fn service_disk_dma_word(&mut self, word: u16, matched_sync: bool) {
+        let Some(runtime) = self.disk_dma_runtime.as_mut() else {
+            return;
+        };
+        if runtime.is_write {
+            // DMA writes go chip RAM -> drive. Not exercised by the
+            // boot path and not needed for WB 1.3 parity; bail out
+            // until a test actually drives it.
+            return;
+        }
+        if runtime.wordsync_enabled {
+            if runtime.wordsync_waiting {
+                if matched_sync {
+                    runtime.wordsync_waiting = false;
+                }
+                return;
+            }
+            if matched_sync {
+                // Resync: the sync word itself isn't written to memory.
+                return;
+            }
+        }
+        let addr = self.agnus.dsk_pt & 0x001F_FFFE;
+        self.memory.write_word(addr, word);
+        self.agnus.dsk_pt = self.agnus.dsk_pt.wrapping_add(2);
+        runtime.words_remaining = runtime.words_remaining.saturating_sub(1);
+        if runtime.words_remaining == 0 {
+            self.disk_dma_runtime = None;
+            self.paula.complete_disk_dma();
+        }
+    }
+
+    /// Promote a freshly-armed DSKLEN transfer (Paula's
+    /// `disk_dma_pending` just went true) into a live
+    /// `DiskDmaRuntime`. Captures the word count, direction, and
+    /// WORDSYNC gate at arm time so subsequent register writes
+    /// don't retroactively change the in-flight transfer.
+    fn start_disk_dma_transfer(&mut self) {
+        let dsklen = self.paula.dsklen();
+        let word_count = u32::from(dsklen & 0x3FFF);
+        let is_write = (dsklen & 0x4000) != 0;
+        const ADKCON_WORDSYNC: u16 = 0x0400;
+        let wordsync_enabled = !is_write
+            && (self.paula.adkcon() & ADKCON_WORDSYNC) != 0;
+        if word_count == 0 {
+            // Zero-length transfers complete immediately — matches
+            // the archive and HRM ("a DSKLEN write with DMAEN set
+            // and length=0 fires DSKBLK at once").
+            self.paula.complete_disk_dma();
+            self.disk_dma_runtime = None;
+            return;
+        }
+        self.disk_dma_runtime = Some(DiskDmaRuntime {
+            words_remaining: word_count,
+            is_write,
+            wordsync_enabled,
+            wordsync_waiting: wordsync_enabled,
+        });
     }
 
     /// CCKs between consecutive MFM words at 250 kbit/s (ADKCON.FAST
@@ -1054,6 +1165,17 @@ impl AmigaOcs {
             // delay. Ticked once per CCK; no-op until a drive has
             // delivered a word via `note_disk_read_word`.
             self.paula.tick_disk_cck();
+
+            // ── Disk DMA arm detection ──────────────────────────
+            // Paula latches `disk_dma_pending` on the second DSKLEN
+            // write with DMAEN set (the paired-write anti-glitch
+            // from HRM). Promote that pending flag into a live
+            // transfer once per arm — the runtime carries DSKLEN /
+            // write-direction / WORDSYNC as captured at arm time so
+            // register thrash mid-transfer doesn't confuse us.
+            if self.paula.disk_dma_pending() && self.disk_dma_runtime.is_none() {
+                self.start_disk_dma_transfer();
+            }
 
             // ── Floppy track-read path ──────────────────────────
             // With drive selected, motor spinning, disk present, and
