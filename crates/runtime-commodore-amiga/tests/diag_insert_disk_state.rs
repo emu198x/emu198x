@@ -46,6 +46,21 @@ fn dump_dmacon_trajectory_from_reset() {
         );
     }
     println!();
+
+    // Copper list writes over the entire boot. If LoadView ran
+    // normally after BPLEN was cleared, we should see COP1LC/COP2LC
+    // updates at roughly that timestamp. If we don't, LoadView
+    // never made it to the "program copper list" step.
+    println!("=== COP1LC writes ===");
+    for &(cck, pc, val) in &rt.machine().debug_cop1lc_log {
+        println!("  CCK {:>10} PC=${:08X}  COP1LC=${:08X}", cck, pc, val);
+    }
+    println!();
+    println!("=== COP2LC writes ===");
+    for &(cck, pc, val) in &rt.machine().debug_cop2lc_log {
+        println!("  CCK {:>10} PC=${:08X}  COP2LC=${:08X}", cck, pc, val);
+    }
+    println!();
 }
 
 #[test]
