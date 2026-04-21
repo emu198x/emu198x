@@ -1,0 +1,11 @@
+[package]
+name = "commodore-amiga-autoconfig"
+description = "Amiga Zorro-II autoconfig board state machine — probe-window register reads, base-address configuration writes, shut-up escape, post-config RAM backing."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

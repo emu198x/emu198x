@@ -381,6 +381,10 @@ name = "commodore-agnus-ocs"
 version = "0.1.0"
 
 [[package]]
+name = "commodore-amiga-autoconfig"
+version = "0.1.0"
+
+[[package]]
 name = "commodore-denise-ocs"
 version = "0.1.0"
 
@@ -1253,6 +1257,7 @@ name = "machine-commodore-amiga-ocs"
 version = "0.1.0"
 dependencies = [
  "commodore-agnus-ocs",
+ "commodore-amiga-autoconfig",
  "commodore-denise-ocs",
  "commodore-gary",
  "commodore-paula-8364",

@@ -14,6 +14,7 @@ commodore-denise-ocs = { path = "../commodore-denise-ocs" }
 peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy" }
 peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard" }
 commodore-gary = { path = "../commodore-gary" }
+commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig" }
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
 
 [dev-dependencies]

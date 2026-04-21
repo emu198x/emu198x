@@ -16,6 +16,7 @@ pub use agnus::{
     Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, VBL_END_LINE,
 };
 pub use cia::{Cia, CiaExt};
+pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use commodore_gary::{ChipSelect, Gary};
 pub use format_commodore_amiga_adf::Adf;
 pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
@@ -32,6 +33,11 @@ use motorola_68000::Cpu68000;
 
 const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
+/// Zorro-II autoconfig probe window — the first unconfigured board
+/// answers here until `expansion.library` writes its base-address
+/// pair to `$E80048` / `$E8004A`.
+const AUTOCONFIG_BASE: u32 = 0x00E8_0000;
+const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
 
 /// RAM layout for an Amiga instance.
 ///
@@ -171,6 +177,12 @@ pub struct AmigaOcs {
     /// Configured once at construction (A500 + slow RAM) and read-
     /// only thereafter.
     gary: Gary,
+    /// Zorro-II autoconfig board, present when the `RamConfig` asks
+    /// for fast RAM. `None` when `fast_kb == 0`. Answers at the probe
+    /// window `$E80000-$E8007F` until `expansion.library` writes both
+    /// halves of the base-address pair; thereafter serves RAM from
+    /// its assigned base.
+    autoconfig: Option<AutoconfigBoard>,
     cia_a: Cia,
     cia_b: Cia,
     paula: Paula8364,
@@ -263,10 +275,10 @@ impl AmigaOcs {
     /// Build a new Amiga (OCS) with a fully explicit RAM layout.
     ///
     /// Panics if `cfg` is not one of the supported size combinations
-    /// (see `RamConfig::is_valid`). Fast RAM wiring through Zorro-II
-    /// autoconfig lands in a follow-up commit; `cfg.fast_kb` is
-    /// currently stored on the struct but not yet mapped into
-    /// memory.
+    /// (see `RamConfig::is_valid`). When `cfg.fast_kb > 0` a single
+    /// Zorro-II fast-RAM board is attached and starts unconfigured;
+    /// `expansion.library` discovers it during boot and assigns its
+    /// base address.
     #[must_use]
     pub fn with_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
         assert!(
@@ -279,6 +291,16 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
+        // Autoconfig only supports the eight Zorro-II sizes; other
+        // (still-valid) fast_kb values are rounded down to the nearest
+        // supported size, dropping the remainder. In practice the
+        // preset surface only asks for supported sizes.
+        let autoconfig = if cfg.fast_kb == 0 {
+            None
+        } else {
+            let size = Self::zorro_size_for_kib(cfg.fast_kb);
+            size.map(AutoconfigBoard::fast_ram)
+        };
         let mut cpu = Cpu68000::new();
         let ssp = memory.read_long(0x000000);
         let pc = memory.read_long(0x000004);
@@ -322,6 +344,7 @@ impl AmigaOcs {
             keyboard: AmigaKeyboard::new(),
             prev_cia_a_spmode: false,
             gary,
+            autoconfig,
             cia_a,
             cia_b: Cia::new(),
             paula: Paula8364::new(),
@@ -496,6 +519,69 @@ impl AmigaOcs {
         &self.gary
     }
 
+    /// Read-only access to the Zorro-II fast-RAM autoconfig board, if
+    /// one is present. `None` when the `RamConfig` had `fast_kb == 0`
+    /// or the size wasn't one of the supported autoconfig sizes.
+    #[must_use]
+    pub fn autoconfig(&self) -> Option<&AutoconfigBoard> {
+        self.autoconfig.as_ref()
+    }
+
+    /// Round an arbitrary fast-RAM size in KiB down to the nearest
+    /// Zorro-II board size. `None` for zero or sub-64 KiB requests.
+    /// Zorro-II boards come in {64, 128, 256, 512, 1024, 2048, 4096,
+    /// 8192} KiB; smaller-than-max requests that fall between tiers
+    /// round down (e.g. 1024 + 64 → 1024).
+    fn zorro_size_for_kib(kib: u32) -> Option<u32> {
+        const TIERS: &[u32] = &[8192, 4096, 2048, 1024, 512, 256, 128, 64];
+        TIERS.iter().copied().find(|&t| kib >= t)
+    }
+
+    /// Read a word from the autoconfig board's RAM window, if the
+    /// board is configured and the address lands inside its assigned
+    /// range. Returns `None` otherwise so the caller falls through to
+    /// the next handler.
+    fn autoconfig_fast_ram_read_word(&self, addr24: u32) -> Option<u16> {
+        let board = self.autoconfig.as_ref()?;
+        let hi = board.read_ram_byte(addr24)?;
+        let lo = board.read_ram_byte(addr24.wrapping_add(1)).unwrap_or(0);
+        Some((u16::from(hi) << 8) | u16::from(lo))
+    }
+
+    /// Read a byte from the autoconfig board's RAM window, if the
+    /// board is configured and the address lands inside its assigned
+    /// range. Returns `None` otherwise.
+    fn autoconfig_fast_ram_read_byte(&self, addr24: u32) -> Option<u8> {
+        self.autoconfig.as_ref()?.read_ram_byte(addr24)
+    }
+
+    /// Write a byte to the autoconfig board's RAM window if the
+    /// address lands inside its range. Returns `true` when the write
+    /// was absorbed by the board, `false` to let the caller continue
+    /// with the default handler.
+    fn autoconfig_fast_ram_write_byte(&mut self, addr24: u32, val: u8) -> bool {
+        let Some(board) = self.autoconfig.as_mut() else {
+            return false;
+        };
+        let Some(base) = board.base() else { return false };
+        let size = board.ram_size();
+        if addr24 < base || addr24 >= base + size {
+            return false;
+        }
+        board.write_ram_byte(addr24, val);
+        true
+    }
+
+    /// Write a word to the autoconfig board's RAM window if the
+    /// address lands inside its range. Returns `true` on absorption.
+    fn autoconfig_fast_ram_write_word(&mut self, addr24: u32, val: u16) -> bool {
+        if !self.autoconfig_fast_ram_write_byte(addr24, (val >> 8) as u8) {
+            return false;
+        }
+        self.autoconfig_fast_ram_write_byte(addr24.wrapping_add(1), val as u8);
+        true
+    }
+
     /// Decode a 24-bit CPU address to its chip select. Convenience
     /// wrapper around `gary.decode(addr)`.
     #[must_use]
@@ -581,12 +667,26 @@ impl AmigaOcs {
 
     /// Backdoor for tests: write a word as if the CPU did it.
     pub fn poke_word(&mut self, addr: u32, val: u16) {
-        match self.gary.decode(addr) {
+        let addr24 = addr & 0xFF_FFFF;
+        // Zorro-II autoconfig probe window: base-address assignment
+        // and shut-up writes go here. Test harnesses use this path
+        // to walk the `expansion.library` probe scan step by step.
+        if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
+            if let Some(board) = self.autoconfig.as_mut() {
+                board.write_word((addr24 - AUTOCONFIG_BASE) as u16, val);
+            }
+            return;
+        }
+        // Fast-RAM window for a configured autoconfig board.
+        if self.autoconfig_fast_ram_write_word(addr24, val) {
+            return;
+        }
+        match self.gary.decode(addr24) {
             ChipSelect::Custom => {
-                let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
+                let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
                 self.dispatch_custom_write(offset, val);
             }
-            _ => self.memory.write_word(addr, val),
+            _ => self.memory.write_word(addr24, val),
         }
     }
 
@@ -796,6 +896,17 @@ impl AmigaOcs {
         }
         if let Some(reg) = cia::decode_cia_b(addr24) {
             return u16::from(self.cia_b.peek(reg));
+        }
+        // Zorro-II autoconfig probe window.
+        if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
+            if let Some(board) = &self.autoconfig {
+                return board.read_word((addr24 - AUTOCONFIG_BASE) as u16);
+            }
+            return 0xFFFF;
+        }
+        // Fast-RAM window served by a configured autoconfig board.
+        if let Some(val) = self.autoconfig_fast_ram_read_word(addr24) {
+            return val;
         }
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
@@ -1114,6 +1225,61 @@ impl AmigaOcs {
                 self.cpu.bus_status = BusStatus::Ready(0);
             }
             return;
+        }
+
+        // Zorro-II autoconfig probe window ($E80000-$E8007F). Only the
+        // first unconfigured board answers; once configured, reads
+        // return floating bus and writes are no-ops. `expansion.
+        // library` drives the full base-address handshake here during
+        // boot.
+        if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
+            let offset = (addr24 - AUTOCONFIG_BASE) as u16;
+            if is_read {
+                let val = self
+                    .autoconfig
+                    .as_ref()
+                    .map_or(0xFFFF, |b| b.read_word(offset));
+                self.memory.set_last_bus_value(val);
+                self.cpu.bus_status = BusStatus::Ready(
+                    if is_word { val } else { val & 0xFF }
+                );
+            } else {
+                let val = data.unwrap_or(0);
+                self.memory.set_last_bus_value(val);
+                if let Some(board) = self.autoconfig.as_mut() {
+                    board.write_word(offset, val);
+                }
+                self.cpu.bus_status = BusStatus::Ready(0);
+            }
+            return;
+        }
+
+        // Fast-RAM window served by the configured autoconfig board.
+        // Checked before custom/memory dispatch so writes land in the
+        // board's backing store rather than silently dropping at the
+        // unmapped-write path.
+        if is_read {
+            if let Some(val) = self.autoconfig_fast_ram_read_word(addr24) {
+                let byte = self
+                    .autoconfig_fast_ram_read_byte(addr24)
+                    .map(u16::from)
+                    .unwrap_or(0);
+                self.memory.set_last_bus_value(val);
+                self.cpu.bus_status = BusStatus::Ready(if is_word { val } else { byte });
+                return;
+            }
+        } else {
+            let data_val = data.unwrap_or(0);
+            let absorbed = if is_word {
+                self.autoconfig_fast_ram_write_word(addr24, data_val)
+            } else {
+                self.autoconfig_fast_ram_write_byte(addr24, data_val as u8)
+            };
+            if absorbed {
+                self.memory.set_last_bus_value(data_val);
+                self.cpu.bus_status = BusStatus::Ready(0);
+                return;
+            }
         }
 
         // Custom-register space dispatches to the chipset module.

@@ -1,11 +1,11 @@
 //! Configurable RAM layout tests.
 //!
 //! Exercises `AmigaOcs::with_ram_config` through the `RamConfig`
-//! presets. Fast RAM is currently a no-op at this layer — the
-//! Zorro-II autoconfig board that maps it into memory lands in a
-//! follow-up commit; these tests only assert the preset round-trips
-//! through chip + slow and that out-of-range configs panic as
-//! documented.
+//! presets. Asserts that the preset round-trips through chip + slow
+//! sizes, that `fast_kb > 0` attaches a Zorro-II autoconfig board
+//! visible in the probe window, and that out-of-range configs panic
+//! as documented. Full `expansion.library` probe-scan semantics are
+//! covered by `autoconfig_probe.rs`.
 
 use machine_commodore_amiga_ocs::{AmigaOcs, RamConfig};
 
@@ -41,8 +41,13 @@ fn a500_maxed_preset_installs_1m_chip_plus_512k_slow_plus_8m_fast() {
     let amiga = AmigaOcs::with_ram_config(zero_rom(), cfg);
     assert_eq!(amiga.memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(amiga.memory().slow_ram_size(), 512 * 1024);
-    // Fast RAM wiring lands in the follow-up autoconfig commit; the
-    // Memory layer doesn't surface fast RAM directly.
+    // Fast RAM is exposed through the Zorro-II autoconfig board, not
+    // the Memory layer. The board starts unconfigured — the host
+    // assigns its base address during the expansion-library probe
+    // scan (see `autoconfig_probe.rs`).
+    let board = amiga.autoconfig().expect("fast_kb > 0 attaches a board");
+    assert_eq!(board.ram_size(), 8 * 1024 * 1024);
+    assert!(board.visible_in_probe_window());
 }
 
 #[test]

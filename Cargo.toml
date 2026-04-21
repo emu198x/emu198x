@@ -35,6 +35,7 @@ members = [
     "crates/peripheral-commodore-amiga-floppy",
     "crates/peripheral-commodore-amiga-keyboard",
     "crates/commodore-gary",
+    "crates/commodore-amiga-autoconfig",
     "crates/runtime-commodore-amiga",
     "crates/emu198x-script-amiga",
     "crates/mos-sid-6581",
