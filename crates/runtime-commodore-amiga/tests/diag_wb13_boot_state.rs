@@ -353,6 +353,25 @@ fn wb13_boot_state_checkpoints() {
          {byte_aligned} byte-aligned"
     );
 
+    // KS 1.3's sync scanner at $FEABCC enters "try to match
+    // $4489-shifted" mode on ANY byte-aligned word matching
+    // either $AAAA or $5555. $AAAA is expected (gap filler), but
+    // $5555 should be rare in a well-formed track — every hit is
+    // a candidate place where the sync-match table might fire on
+    // a coincidental pattern.
+    let mut aaaa_words = 0usize;
+    let mut five_words = 0usize;
+    for i in (0..(MFM_TRACK_BYTES - 1)).step_by(2) {
+        let hi = m.memory().read_chip_ram_byte(target + i as u32);
+        let lo = m.memory().read_chip_ram_byte(target + (i + 1) as u32);
+        let w = ((hi as u16) << 8) | (lo as u16);
+        if w == 0xAAAA { aaaa_words += 1; }
+        if w == 0x5555 { five_words += 1; }
+    }
+    println!(
+        "byte-aligned $AAAA words: {aaaa_words}, $5555 words: {five_words}"
+    );
+
     // Display pipeline state — tells us whether Intuition has put
     // something up (non-zero BPU, non-white COLOR00) or whether we
     // are still on the insert-disk screen or stuck at all-white.
