@@ -12,7 +12,7 @@ use emu198x_shell::{
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
 use format_commodore_amiga_adf::Adf;
-use machine_commodore_amiga_ocs::{AmigaOcs, FB_HEIGHT, FB_WIDTH};
+use machine_commodore_amiga_ocs::{AmigaOcs, FB_HEIGHT, FB_WIDTH, RamConfig};
 use serde_json::json;
 
 use crate::{A500_PAL_FRAME_TICKS, Model, profile_for};
@@ -65,6 +65,11 @@ pub struct AmigaSessionQueryProvider;
 pub struct AmigaRuntime {
     profile: MachineProfile,
     model: Model,
+    /// Active RAM layout. Defaults to `model.ram_config()` for the
+    /// standard model presets; `from_ram_config` overrides it with a
+    /// caller-supplied layout. Held here so `reset` / `rebuild_machine`
+    /// reconstructs with the same sizes.
+    ram_config: RamConfig,
     machine: AmigaOcs,
     time: MachineTime,
     kickstart_rom: Vec<u8>,
@@ -90,17 +95,38 @@ struct AmigaBootStatus {
 }
 
 impl AmigaRuntime {
-    /// Construct a runtime from owned Kickstart ROM bytes.
+    /// Construct a runtime from owned Kickstart ROM bytes, using the
+    /// model's preset RAM layout.
     ///
     /// # Errors
     ///
     /// Returns an error if the ROM size is not a supported A500-era size.
     pub fn new(model: Model, kickstart_rom: Vec<u8>) -> Result<Self, MachineError> {
+        Self::with_ram_config(model, kickstart_rom, model.ram_config())
+    }
+
+    /// Construct a runtime with an explicit RAM layout, bypassing the
+    /// model's preset. Useful for matching custom hardware profiles
+    /// (e.g. A500 + custom Zorro-II fast-RAM size) or driving tests
+    /// over ranges the enum doesn't cover. The model still determines
+    /// the profile metadata (display name, firmware, media slots).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ROM size is invalid. Panics if the RAM
+    /// layout is not one of the supported size combinations — see
+    /// `RamConfig::is_valid`.
+    pub fn with_ram_config(
+        model: Model,
+        kickstart_rom: Vec<u8>,
+        ram_config: RamConfig,
+    ) -> Result<Self, MachineError> {
         validate_kickstart_rom(&kickstart_rom)?;
-        let machine = build_machine(model, &kickstart_rom);
+        let machine = build_machine(ram_config, &kickstart_rom);
         let mut runtime = Self {
             profile: profile_for(model),
             model,
+            ram_config,
             machine,
             time: MachineTime::default(),
             kickstart_rom,
@@ -144,9 +170,16 @@ impl AmigaRuntime {
         &self.machine
     }
 
+    /// Mutable access to the wrapped machine. Only for tests /
+    /// integrations that need to drive the tick loop directly (e.g.
+    /// autoconfig boot tests that run the machine outside `run_until`).
+    pub fn machine_mut(&mut self) -> &mut AmigaOcs {
+        &mut self.machine
+    }
+
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {
         validate_kickstart_rom(&self.kickstart_rom)?;
-        self.machine = build_machine(self.model, &self.kickstart_rom);
+        self.machine = build_machine(self.ram_config, &self.kickstart_rom);
         if let Some(bytes) = self.floppy0_bytes.clone() {
             self.insert_floppy_bytes("floppy-0", &bytes)?;
         }
@@ -154,6 +187,19 @@ impl AmigaRuntime {
         self.frame_count = 0;
         self.update_rgba_framebuffer();
         Ok(())
+    }
+
+    /// RAM layout currently installed — read back for diagnostics or
+    /// for tests asserting a preset was honoured.
+    #[must_use]
+    pub fn ram_config(&self) -> RamConfig {
+        self.ram_config
+    }
+
+    /// Active model (affects profile metadata, not the RAM layout).
+    #[must_use]
+    pub fn model(&self) -> Model {
+        self.model
     }
 
     fn insert_floppy_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
@@ -389,16 +435,13 @@ impl MachineCore for AmigaRuntime {
     }
 }
 
-fn build_machine(model: Model, kickstart_rom: &[u8]) -> AmigaOcs {
-    match model {
-        // A500 stock config: 512 KiB chip RAM, no trapdoor
-        // expansion. Kickstart 1.3 boots to the insert-disk screen
-        // without slow RAM now that M13's chip-only boot-failure
-        // root cause is fixed (copper CDANG halt + COPJMP2
-        // corruption guard). Runtimes that need slow RAM can still
-        // call `AmigaOcs::with_slow_ram` directly.
-        Model::A500OcsPal => AmigaOcs::new(kickstart_rom.to_vec()),
-    }
+fn build_machine(ram_config: RamConfig, kickstart_rom: &[u8]) -> AmigaOcs {
+    // Every A500-family layout in the current `Model` catalogue
+    // routes through the same autoconfig-aware constructor. A
+    // Zorro-II fast-RAM board is attached automatically when
+    // `ram_config.fast_kb > 0`; the ROM's `expansion.library` picks
+    // it up during boot without runtime cooperation.
+    AmigaOcs::with_ram_config(kickstart_rom.to_vec(), ram_config)
 }
 
 fn validate_kickstart_rom(kickstart_rom: &[u8]) -> Result<(), MachineError> {

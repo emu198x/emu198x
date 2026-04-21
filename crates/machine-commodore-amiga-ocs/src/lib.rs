@@ -1232,6 +1232,15 @@ impl AmigaOcs {
         // return floating bus and writes are no-ops. `expansion.
         // library` drives the full base-address handshake here during
         // boot.
+        //
+        // Byte-read semantics: Zorro-II delivers every nibble on the
+        // top four data lines (D15-D12). When the CPU does a byte
+        // read, it samples either UDS (even addr → upper byte D15-D8)
+        // or LDS (odd addr → lower byte D7-D0). Our 68000 takes the
+        // full 16-bit `read_data` word and keeps the low eight bits
+        // as the byte value, so the machine has to pre-shift the
+        // upper byte into the low half for even byte reads — see the
+        // upstream `finish_bus_cycle` (ReadByte arm) for context.
         if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
             let offset = (addr24 - AUTOCONFIG_BASE) as u16;
             if is_read {
@@ -1240,14 +1249,31 @@ impl AmigaOcs {
                     .as_ref()
                     .map_or(0xFFFF, |b| b.read_word(offset));
                 self.memory.set_last_bus_value(val);
-                self.cpu.bus_status = BusStatus::Ready(
-                    if is_word { val } else { val & 0xFF }
-                );
+                let delivered = if is_word {
+                    val
+                } else if addr24 & 1 == 0 {
+                    (val >> 8) & 0xFF
+                } else {
+                    val & 0xFF
+                };
+                self.cpu.bus_status = BusStatus::Ready(delivered);
             } else {
                 let val = data.unwrap_or(0);
                 self.memory.set_last_bus_value(val);
                 if let Some(board) = self.autoconfig.as_mut() {
-                    board.write_word(offset, val);
+                    // Byte writes at even addresses deliver the data
+                    // on D15-D8 — move.b to $E80048 / $E8004A is a
+                    // legitimate KS 1.3 opcode for the base-address
+                    // handshake. Mirror the byte into the high half
+                    // so the board's nibble extraction sees it.
+                    let written = if is_word {
+                        val
+                    } else if addr24 & 1 == 0 {
+                        (val & 0xFF) << 8
+                    } else {
+                        val & 0xFF
+                    };
+                    board.write_word(offset, written);
                 }
                 self.cpu.bus_status = BusStatus::Ready(0);
             }
