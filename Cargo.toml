@@ -35,6 +35,7 @@ members = [
     "crates/peripheral-commodore-amiga-floppy",
     "crates/peripheral-commodore-amiga-keyboard",
     "crates/commodore-gary",
+    "crates/runtime-commodore-amiga",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",
@@ -52,7 +53,6 @@ exclude = [
     # excluded from the build.
     "crates/emu198x-script-amiga-archive",
     "crates/machine-commodore-amiga-archive",
-    "crates/runtime-commodore-amiga-archive",
 ]
 
 [workspace.package]

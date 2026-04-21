@@ -1,4 +1,14 @@
-//! Commodore Amiga family metadata and runtime surface.
+//! Commodore Amiga runtime — bridges `machine-commodore-amiga-ocs` with
+//! the `emu198x-shell` MachineCore trait.
+//!
+//! The runtime exposes one model for now — A500 OCS PAL — and is
+//! deliberately minimal: profile metadata, ADF insertion, the per-
+//! frame tick loop that emits ARGB frames from Denise's framebuffer,
+//! plus a small set of query paths useful for boot-status diagnostics.
+//!
+//! Query paths are keyed by dotted string and surface just the state
+//! the shell needs to drive its verifier UI. Host snapshots and
+//! control commands are reserved for later tasks.
 
 mod runtime;
 
@@ -18,7 +28,11 @@ pub enum Model {
 }
 
 /// Native PAL frame length in Agnus colour clocks.
-pub const A500_PAL_FRAME_TICKS: u64 = PAL_CCKS_PER_LINE as u64 * PAL_LINES_PER_FRAME as u64;
+pub const A500_PAL_FRAME_CCKS: u64 =
+    PAL_CCKS_PER_LINE as u64 * PAL_LINES_PER_FRAME as u64;
+
+/// Native PAL frame length in machine ticks (master/4 = 2 per CCK).
+pub const A500_PAL_FRAME_TICKS: u64 = A500_PAL_FRAME_CCKS * 2;
 
 /// PAL Agnus colour-clock rate in Hz.
 pub const A500_PAL_CCK_HZ: u64 = 28_375_160 / 8;
@@ -65,7 +79,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             region: Region::Pal,
             support_tier: SupportTier::Boots,
             release_year: 1987,
-            summary: "A500 OCS PAL baseline with Kickstart-backed headless boot, viewport RGBA framebuffer output, stereo Paula audio capture, DF0 ADF insertion, and shared keyboard input. Native verifier UI, snapshots, and broader software validation are still pending.".into(),
+            summary: "A500 OCS PAL baseline — Kickstart-backed headless boot, 768x576 ARGB framebuffer output, DF0 ADF insertion, keyboard input. Audio output, snapshots, and broader software validation are still pending.".into(),
             clock: ClockDesc::new("cck", ClockRate::from_hz(A500_PAL_CCK_HZ)),
             firmware: vec![FirmwareRequirement::new(
                 "commodore-amiga-kickstart-rom",
