@@ -80,12 +80,22 @@ pub struct Copper {
     /// copper run through ExecBase-as-copper-list, corrupting INTENA
     /// and deadlocking the scheduler. See task #96.
     pub stopped: bool,
+    /// COPCON bit 1 (CDANG — "copper danger"). When 1, the copper is
+    /// allowed to MOVE to registers below $80 (blitter + Agnus I/O
+    /// space). Power-on default is 0, which matches the KS 1.3 boot
+    /// path. Set via the $DFF02E write at the custom-register bus.
+    pub cdang: bool,
 }
 
 impl Copper {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// CPU write to COPCON ($DFF02E). Only bit 1 (CDANG) is meaningful.
+    pub fn write_copcon(&mut self, val: u16) {
+        self.cdang = val & 0x0002 != 0;
     }
 
     /// COPJMP1 strobe — load PC from COP1LC and clear waiting flag.
@@ -183,18 +193,17 @@ impl Copper {
             // MOVE: reg = word1 & $1FE; val = word2.
             let reg = word1 & 0x1FE;
             // "Dangerous" MOVE per HRM Appendix A / WinUAE
-            // test_copper_dangerous: when CDANG (COPCON bit 1) is
-            // clear — the power-on default, what KS 1.3 runs under —
-            // any MOVE to a register address < $80 halts the copper.
-            // The write is discarded. We don't yet model COPCON, so
-            // assume CDANG = 0 (matches KS 1.3 boot).
+            // test_copper_dangerous: a MOVE to a register address
+            // below $80 halts the copper unless CDANG (COPCON bit 1)
+            // has been set. CDANG defaults clear at reset; KS 1.3 boot
+            // never sets it.
             //
             // This is the mechanism that rescues real 512K-chip-only
             // A500s when VBL leaves COP2LC = ExecBase: the first
             // ExecBase longword (ln_Succ = 0) decodes as MOVE $000,
             // which halts the copper immediately, preventing it from
             // executing ExecBase struct bytes as instructions.
-            if reg < 0x80 {
+            if reg < 0x80 && !self.cdang {
                 self.stopped = true;
                 return false;
             }

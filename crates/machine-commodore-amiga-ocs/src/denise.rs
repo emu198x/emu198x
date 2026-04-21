@@ -192,17 +192,19 @@ impl Denise {
         phase: u8,
         vpos: u16,
         hpos: u16,
-        chipset: &mut Chipset,
+        dmacon: u16,
+        agnus: &mut commodore_agnus_ocs::Agnus,
+        chipset: &Chipset,
         memory: &Memory,
     ) {
         let (vstart, vstop) =
-            diw_vertical_window(chipset.diwstrt, chipset.diwstop);
+            diw_vertical_window(agnus.diwstrt, agnus.diwstop);
         let (ddf_start, ddf_stop) =
-            ddf_window(chipset.ddfstrt, chipset.ddfstop);
+            ddf_window(agnus.ddfstrt, agnus.ddfstop);
 
         let in_visible_line = (vstart..vstop).contains(&vpos);
-        let bpl_dma_on = chipset.dmacon & 0x0300 == 0x0300;
-        let bpu = chipset.num_bitplanes();
+        let bpl_dma_on = dmacon & 0x0300 == 0x0300;
+        let bpu = agnus.num_bitplanes();
         let in_ddf =
             ddf_stop > ddf_start && (ddf_start..ddf_stop).contains(&hpos);
 
@@ -213,12 +215,10 @@ impl Denise {
             if in_visible_line && bpl_dma_on && in_ddf {
                 let slot_in_block = (hpos - ddf_start) % 8;
                 if let Some(plane) = lores_fetch_plane(slot_in_block, bpu) {
-                    let addr = chipset.bpl_pt[plane];
-                    // DMA word read — drives the chip bus, so updates
-                    // the floating-bus residue.
+                    let addr = agnus.bpl_pt[plane];
                     self.bpl_data[plane] = memory.read_chip_ram_word(addr);
-                    chipset.bpl_pt[plane] =
-                        chipset.bpl_pt[plane].wrapping_add(2);
+                    agnus.bpl_pt[plane] =
+                        agnus.bpl_pt[plane].wrapping_add(2);
                     self.bytes_this_line += 2;
                 }
             }
@@ -238,12 +238,12 @@ impl Denise {
             if hpos == 0 && self.bytes_this_line > 0 && bpl_dma_on {
                 for p in 0..bpu as usize {
                     let modulo = if p & 1 == 0 {
-                        i32::from(chipset.bpl1mod)
+                        i32::from(agnus.bpl1mod)
                     } else {
-                        i32::from(chipset.bpl2mod)
+                        i32::from(agnus.bpl2mod)
                     };
-                    chipset.bpl_pt[p] =
-                        chipset.bpl_pt[p].wrapping_add(modulo as u32);
+                    agnus.bpl_pt[p] =
+                        agnus.bpl_pt[p].wrapping_add(modulo as u32);
                 }
                 self.bytes_this_line = 0;
             }

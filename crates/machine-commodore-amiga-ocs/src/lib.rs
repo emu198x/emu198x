@@ -41,19 +41,6 @@ const CIA_E_CLOCK_DIVISOR: u64 = 10;
 /// two master/4 ticks — one tick per lores pixel.
 const TICKS_PER_CCK: u64 = 2;
 
-/// Audio-DMA slot arbitration — one slot per line per channel, at
-/// fixed hpos positions in the refresh window (HRM Table 6-1). Returns
-/// `Some(channel)` when this CCK is that channel's slot.
-fn audio_dma_slot(hpos: u16) -> Option<u8> {
-    match hpos {
-        0x0E => Some(0),
-        0x10 => Some(1),
-        0x12 => Some(2),
-        0x14 => Some(3),
-        _ => None,
-    }
-}
-
 /// Amiga (OCS) machine.
 pub struct AmigaOcs {
     cpu: Cpu68000,
@@ -277,7 +264,7 @@ impl AmigaOcs {
     /// Convenience: current DMACON value.
     #[must_use]
     pub fn dmacon(&self) -> u16 {
-        self.chipset.dmacon
+        self.agnus.dmacon
     }
 
     /// Convenience: current ADKCON value (from Paula).
@@ -304,7 +291,7 @@ impl AmigaOcs {
     /// Convenience: current BPLCON0 value.
     #[must_use]
     pub fn bplcon0(&self) -> u16 {
-        self.chipset.bplcon0
+        self.agnus.bplcon0
     }
 
     /// Convenience: a colour table entry.
@@ -366,7 +353,9 @@ impl AmigaOcs {
             }
             0x088 => self.copper.jump1(),
             0x08A => self.copper.jump2(),
+            0x02E => self.copper.write_copcon(val),
             // Paula-owned register space: INTENA / INTREQ / ADKCON.
+            0x096 => self.agnus.write_dmacon(val),
             0x09A => self.paula.write_intena(val),
             0x09C => self.paula.write_intreq(val),
             0x09E => self.paula.write_adkcon(val),
@@ -385,6 +374,21 @@ impl AmigaOcs {
             0x032 => self.paula.write_serper(val),
             // Paula-owned POTGO (\$034).
             0x034 => self.paula.write_potgo(val),
+            // Agnus-owned bitplane + display-window + DSK pointer.
+            0x020 => self.agnus.write_dsk_pointer(true, val),
+            0x022 => self.agnus.write_dsk_pointer(false, val),
+            0x08E => self.agnus.write_diwstrt(val),
+            0x090 => self.agnus.write_diwstop(val),
+            0x092 => self.agnus.write_ddfstrt(val),
+            0x094 => self.agnus.write_ddfstop(val),
+            0x100 => self.agnus.write_bplcon0(val),
+            0x108 => self.agnus.write_bpl1mod(val),
+            0x10A => self.agnus.write_bpl2mod(val),
+            0x0E0..=0x0F5 => {
+                let plane_idx = ((offset - 0x0E0) / 4) as usize;
+                let high = (offset & 2) == 0;
+                self.agnus.write_bpl_pointer(plane_idx, high, val);
+            }
             _ => self.chipset.write_word(offset, val),
         }
         if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
@@ -495,13 +499,14 @@ impl AmigaOcs {
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
             return match offset {
+                0x002 => self.agnus.dmacon,
                 0x004 => self.agnus.vposr(),
                 0x006 => self.agnus.vhposr(),
                 // Paula-owned read-side registers.
                 0x01C => self.paula.intena(),
                 0x01E => self.paula.intreq(),
                 0x010 => self.paula.adkcon(),
-                0x01A => self.paula.peek_dskbytr(self.chipset.dmacon),
+                0x01A => self.paula.peek_dskbytr(self.agnus.dmacon),
                 0x018 => self.paula.peek_serdatr(),
                 // Paula POT read registers (read-only).
                 0x012 => self.paula.pot0dat(),
@@ -569,12 +574,12 @@ impl AmigaOcs {
             // DMA.
             let claim = denise::dma_claim(
                 self.agnus.hpos,
-                self.chipset.dmacon,
-                self.chipset.bplcon0,
-                self.chipset.ddfstrt,
-                self.chipset.ddfstop,
+                self.agnus.dmacon,
+                self.agnus.bplcon0,
+                self.agnus.ddfstrt,
+                self.agnus.ddfstop,
             );
-            if self.chipset.dmacon & 0x0280 == 0x0280 {
+            if self.agnus.dmacon & 0x0280 == 0x0280 {
                 self.copper.tick_cck(
                     &self.memory,
                     &mut self.chipset,
@@ -585,12 +590,13 @@ impl AmigaOcs {
             }
 
             // ── Paula audio engine — one step per CCK ────────────────
-            // Audio DMA slot arbitration per HRM §5: one slot per line
-            // per channel, at hpos 0x0E..=0x14 (even positions after
-            // the memory-refresh window). Each audio channel gets one
-            // fetch per line when its DMA bit is enabled.
-            let slot = audio_dma_slot(self.agnus.hpos);
-            let dmacon = self.chipset.dmacon;
+            // Audio DMA slot arbitration is Agnus's job now; we pull
+            // the plan for this CCK and extract the audio grant. Paula
+            // also needs the raw DMACON value for its master+channel
+            // enable gates.
+            let bus_plan = self.agnus.cck_bus_plan();
+            let slot = bus_plan.audio_dma_service_channel;
+            let dmacon = self.agnus.dmacon;
             // Move the memory borrow outside the closure so the
             // closure only borrows the Memory, not all of Self.
             let memory = &self.memory;
@@ -612,7 +618,9 @@ impl AmigaOcs {
             phase,
             self.agnus.vpos,
             self.agnus.hpos,
-            &mut self.chipset,
+            self.agnus.dmacon,
+            &mut self.agnus,
+            &self.chipset,
             &self.memory,
         );
 
@@ -703,10 +711,10 @@ impl AmigaOcs {
         if is_chip_ram_access {
             let claim = denise::dma_claim(
                 self.agnus.hpos,
-                self.chipset.dmacon,
-                self.chipset.bplcon0,
-                self.chipset.ddfstrt,
-                self.chipset.ddfstop,
+                self.agnus.dmacon,
+                self.agnus.bplcon0,
+                self.agnus.ddfstrt,
+                self.agnus.ddfstop,
             );
             if !claim.is_free() {
                 self.cpu.bus_status = BusStatus::Wait;
@@ -786,11 +794,12 @@ impl AmigaOcs {
                     0x01C => self.paula.intena(),
                     0x01E => self.paula.intreq(),
                     0x010 => self.paula.adkcon(),
-                    0x01A => self.paula.read_dskbytr(self.chipset.dmacon),
+                    0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
                     0x018 => self.paula.read_serdatr(),
                     0x012 => self.paula.pot0dat(),
                     0x014 => self.paula.pot1dat(),
                     0x016 => self.paula.peek_potgor(),
+                    0x002 => self.agnus.dmacon,
                     0x0A0..=0x0DA => paula_decode::audio_register(offset)
                         .map(|(ch, f)| self.paula.read_audio(ch, f))
                         .unwrap_or(0xFFFF),

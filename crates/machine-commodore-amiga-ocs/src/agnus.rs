@@ -1,193 +1,27 @@
-//! Agnus — beam counter (M6 minimum).
+//! Agnus wiring for the OCS machine.
 //!
-//! At M6, Agnus tracks only vpos (vertical position) and hpos
-//! (horizontal position within a scanline). On every CCK we advance
-//! hpos; when it crosses the line length, we wrap and increment vpos.
-//! When vpos crosses the frame length, we wrap and signal VBL (the
-//! Amiga vertical-blank event that sets INTREQ bit 5 = VERTB).
-//!
-//! No DMA scheduling, no copper, no bitplane fetch yet — those come
-//! in M9+.
-//!
-//! PAL Amiga timing (from Amiga Hardware Reference Manual, 3rd ed.,
-//! "Display" chapter):
-//!
-//! > "All lines are not the same length in NTSC. Every other line is a
-//! >  long line (228 color clocks, 0-$E3), with the others being 227
-//! >  color clocks long. **In PAL, they are all 227 long.** The display
-//! >  sees all these lines as 227 1/2 color clocks long, while the
-//! >  copper sees alternating long and short [in NTSC interlace]."
-//!
-//! So for non-interlaced PAL (the mode KS 1.3 boots into):
-//!   - Every line is exactly 227 CCKs.
-//!   - There are exactly 312 lines per frame.
-//!   - Frame total: 227 × 312 = 70,824 CCKs at 3.546895 MHz = 50.000 Hz.
-//!
-//! The "227.5" figure is the interlace average (PAL interlace has
-//! 312/313 alternating fields × 227 CCKs/line; the half is the field
-//! offset, not a per-line half-CCK). NTSC alternates 227/228 per line
-//! for "long line / short line" — that is **not** PAL.
+//! As of task #139 (port session 2026-04-20), the Agnus implementation
+//! lives in the standalone `commodore-agnus-ocs` crate. This module
+//! re-exports the chip type and provides a few derived constants the
+//! machine uses to convert between CCK time (Agnus's native unit) and
+//! master/4 ticks (the machine's primary clock).
 
-/// PAL line length in colour clocks (HRM beam-coordinate units,
-/// master/8). All PAL lines are exactly 227 CCKs.
-pub const PAL_LINE_CCKS: u16 = 227;
+pub use commodore_agnus_ocs::{
+    Agnus, CckBusPlan, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE,
+    bits,
+};
 
-/// PAL frame line count (non-interlace).
-pub const PAL_FRAME_LINES: u16 = 312;
+/// PAL line length in CCKs — alias for the chip-crate constant under
+/// the name the machine has historically used.
+pub const PAL_LINE_CCKS: u16 = PAL_CCKS_PER_LINE;
+
+/// PAL frame line count.
+pub const PAL_FRAME_LINES: u16 = PAL_LINES_PER_FRAME;
 
 /// PAL line length in master/4 ticks (= lores pixels = 68000 CPU
-/// clocks). One CCK = 2 ticks, so one line = 454 ticks. Tests that
-/// want to simulate wall-clock time (e.g. "one frame of ticks")
-/// multiply against this constant rather than PAL_LINE_CCKS.
-pub const PAL_LINE_TICKS: u16 = PAL_LINE_CCKS * 2;
+/// clocks). One CCK = 2 ticks.
+pub const PAL_LINE_TICKS: u16 = PAL_CCKS_PER_LINE * 2;
 
-/// PAL frame length in master/4 ticks. Convenience for
-/// `PAL_LINE_TICKS * PAL_FRAME_LINES` = 141,648 ticks/frame.
-pub const PAL_FRAME_TICKS: u64 = (PAL_LINE_TICKS as u64) * (PAL_FRAME_LINES as u64);
-
-/// Last line of the vertical blanking interval. VERTB is asserted
-/// while `vpos < VBL_END_LINE` — i.e. lines 0..24 inclusive. The
-/// display window for standard PAL typically starts at line $2C,
-/// leaving a generous gap between VBL end and display start for the
-/// "VBL handler" window that KS 1.3 uses. Line 25 matches our
-/// previous display-start constant (\$19) and is consistent with the
-/// `blanking falls in the range of \$0F to \$35` note in HRM for
-/// horizontal — we use a similar "25 lines" figure vertically.
-pub const VBL_END_LINE: u16 = 25;
-
-#[derive(Default)]
-pub struct Agnus {
-    pub hpos: u16,
-    pub vpos: u16,
-    /// Whether a vertical-blank just happened this CCK (cleared on
-    /// the next tick).
-    pub vbl_pulse: bool,
-    /// Total VBLs since construction — debugging aid.
-    pub vbl_count: u64,
-}
-
-impl Agnus {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Read VPOSR ($DFF004) — vpos high bit (bit 0) plus other status
-    /// bits. At M6 we expose only the vpos high bit; LOF and CHIP_ID
-    /// land later when interlace + ECS / AGA chipsets enter the
-    /// picture.
-    #[must_use]
-    pub fn vposr(&self) -> u16 {
-        u16::from((self.vpos >> 8) as u8) & 0x0001
-    }
-
-    /// Read VHPOSR ($DFF006) — vpos low byte (bits 8-15) and hpos
-    /// (bits 0-7).
-    #[must_use]
-    pub fn vhposr(&self) -> u16 {
-        let vpos_lo = self.vpos & 0xFF;
-        let hpos = self.hpos & 0xFF;
-        (vpos_lo << 8) | hpos
-    }
-
-    /// Advance one CCK. Returns `true` if a VBL just fired (vpos
-    /// wrapped from 311 to 0).
-    pub fn tick_cck(&mut self) -> bool {
-        // Clear last cycle's VBL pulse signal.
-        self.vbl_pulse = false;
-
-        self.hpos += 1;
-        if self.hpos >= PAL_LINE_CCKS {
-            self.hpos = 0;
-            self.vpos += 1;
-            if self.vpos >= PAL_FRAME_LINES {
-                self.vpos = 0;
-                self.vbl_pulse = true;
-                self.vbl_count += 1;
-                return true;
-            }
-        }
-        false
-    }
-
-    /// True while the beam is inside the vertical blanking interval
-    /// (`vpos < VBL_END_LINE`). This is the level-sensitive input
-    /// Paula latches on the rising edge to set INTREQ.VERTB. A VBL
-    /// handler that clears INTREQ.VERTB *during* blanking will see
-    /// the latch re-arm the next time Paula samples this level and
-    /// sees it still high.
-    #[must_use]
-    pub fn vertb_level(&self) -> bool {
-        self.vpos < VBL_END_LINE
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ticks_advance_hpos_then_vpos() {
-        let mut agnus = Agnus::new();
-        for _ in 0..PAL_LINE_CCKS {
-            agnus.tick_cck();
-        }
-        assert_eq!(agnus.hpos, 0);
-        assert_eq!(agnus.vpos, 1);
-    }
-
-    #[test]
-    fn vbl_fires_after_full_frame() {
-        let mut agnus = Agnus::new();
-        let cycles_per_frame =
-            u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES);
-        let mut vbls = 0u64;
-        for _ in 0..cycles_per_frame {
-            if agnus.tick_cck() {
-                vbls += 1;
-            }
-        }
-        assert_eq!(vbls, 1, "exactly one VBL per frame");
-        assert_eq!(agnus.vpos, 0);
-        assert_eq!(agnus.hpos, 0);
-    }
-
-    #[test]
-    fn many_frames() {
-        let mut agnus = Agnus::new();
-        let cycles_per_frame =
-            u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES);
-        for _ in 0..(10 * cycles_per_frame) {
-            agnus.tick_cck();
-        }
-        assert_eq!(agnus.vbl_count, 10);
-    }
-
-    /// Sanity-lock the PAL constants against the Amiga Hardware
-    /// Reference (3rd ed.): non-interlaced PAL is exactly 227 × 312 =
-    /// 70,824 CCKs per frame. At 3.546895 MHz CCK rate this is exactly
-    /// 50.000 Hz field rate — the canonical PAL value. If either
-    /// constant ever drifts, this test will catch the timing damage
-    /// before it reaches downstream tests.
-    #[test]
-    fn pal_constants_match_hardware_reference() {
-        assert_eq!(PAL_LINE_CCKS, 227, "PAL line is 227 CCKs (HRM 3rd ed)");
-        assert_eq!(PAL_FRAME_LINES, 312, "PAL non-interlaced has 312 lines");
-        assert_eq!(
-            u64::from(PAL_LINE_CCKS) * u64::from(PAL_FRAME_LINES),
-            70_824,
-            "PAL frame must be exactly 70,824 CCKs",
-        );
-        // CCK rate = master/8 = 28.37516 MHz / 8 = 3,546,895 Hz.
-        // Frame rate = 3,546,895 / 70,824 ≈ 50.0786 Hz, which is the
-        // documented Amiga PAL field rate (50 Hz nominal, slightly
-        // higher because the master clock is chosen for the colour
-        // burst rather than for exactly 50 Hz fields).
-        let frame_period_us: f64 =
-            70_824.0_f64 * (1.0 / 3_546_895.0_f64) * 1_000_000.0_f64;
-        assert!(
-            (frame_period_us - 19_968.6_f64).abs() < 1.0,
-            "PAL frame period ≈ 19,968.6 µs (got {frame_period_us:.1})",
-        );
-    }
-}
+/// PAL frame length in master/4 ticks: 227 × 312 × 2 = 141,648.
+pub const PAL_FRAME_TICKS: u64 =
+    (PAL_LINE_TICKS as u64) * (PAL_FRAME_LINES as u64);

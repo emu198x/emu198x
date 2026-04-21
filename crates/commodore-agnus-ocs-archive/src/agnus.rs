@@ -345,6 +345,10 @@ pub struct Agnus {
     /// OCS NTSC (8361/8370) = $00, OCS PAL (8367/8371) = $10,
     /// ECS NTSC (8372A) = $20, ECS PAL (8372A) = $30.
     pub agnus_id: u16,
+
+    /// Total VBLs since construction. Diagnostic — incremented every
+    /// time `tick_cck` wraps vpos.
+    pub vbl_count: u64,
 }
 
 impl Agnus {
@@ -394,6 +398,7 @@ impl Agnus {
             lof: true,
             lines_per_frame: PAL_LINES_PER_FRAME,
             agnus_id: 0x00,
+            vbl_count: 0,
         }
     }
 
@@ -1065,6 +1070,7 @@ impl Agnus {
             };
             if self.vpos >= frame_lines {
                 self.vpos = 0;
+                self.vbl_count += 1;
                 if interlace {
                     self.lof = !self.lof;
                 }
@@ -1261,7 +1267,35 @@ impl Agnus {
             (self.dsk_pt & 0xFFFF_0000) | u32::from(val & 0xFFFE)
         };
     }
+
+    /// Read VPOSR ($DFF004): bit 15 = LOF, bits 14-8 = agnus_id, bit 0
+    /// = vpos high bit (vpos bit 8). Bits 7-1 are unused.
+    #[must_use]
+    pub fn vposr(&self) -> u16 {
+        let mut v = self.agnus_id & 0x7F00;
+        if self.lof { v |= 0x8000; }
+        v | ((self.vpos >> 8) & 0x0001)
+    }
+
+    /// Read VHPOSR ($DFF006): vpos low 8 bits + hpos low 8 bits.
+    #[must_use]
+    pub fn vhposr(&self) -> u16 {
+        ((self.vpos & 0xFF) << 8) | (self.hpos & 0xFF)
+    }
+
+    /// Level-sensitive /VERTB signal — high while the beam sits inside
+    /// the vertical blanking interval. Paula edge-latches this to set
+    /// INTREQ.VERTB.
+    #[must_use]
+    pub fn vertb_level(&self) -> bool {
+        self.vpos < VBL_END_LINE
+    }
 }
+
+/// Last line of the vertical blanking interval (inclusive of lines
+/// 0..24 — HRM standard PAL). Exposed so machine callers don't
+/// hard-code the boundary.
+pub const VBL_END_LINE: u16 = 25;
 
 impl Default for Agnus {
     fn default() -> Self {
