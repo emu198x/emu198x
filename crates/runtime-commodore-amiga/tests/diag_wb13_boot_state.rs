@@ -1027,6 +1027,33 @@ fn wb13_boot_state_checkpoints() {
         if rt.machine().intena() & 0x40 != 0 { "✓" } else { "✗" }
     );
 
+    // Show all blits whose dest pointer falls in the bootblock buffer
+    // range ($604C..$6850). DESC mode adjusts dst by length, so check
+    // both raw dpt and dpt-len.
+    println!("   Blits writing to bootblock buffer ($604C..$6850):");
+    let bb_lo = 0x604Cu32;
+    let bb_hi = 0x6850u32;
+    let log = &rt.machine().debug_blit_log;
+    for (cck, pc, c0, c1, apt, bpt, _cpt, dpt, sz) in log {
+        // For DESC mode (BLTCON1 bit 1 set), dst is the END pointer.
+        // For ascending, dst is the start. Either way, the write
+        // range covers a length of ((sz>>6)*(sz&$3F)*2) bytes.
+        let height = (sz >> 6) as u32;
+        let width = (sz & 0x3F) as u32;
+        let len_bytes = if width == 0 { 64 } else { width } * 2 * if height == 0 { 1024 } else { height };
+        let desc = (c1 & 0x02) != 0;
+        let (dlo, dhi) = if desc {
+            (dpt.wrapping_sub(len_bytes), *dpt)
+        } else {
+            (*dpt, dpt.wrapping_add(len_bytes))
+        };
+        if dhi > bb_lo && dlo < bb_hi {
+            println!(
+                "     cck={cck:>9} pc=${pc:06X} c0=${c0:04X} c1=${c1:04X} apt=${apt:08X} bpt=${bpt:08X} dpt=${dpt:08X} size=${sz:04X} dest=${dlo:06X}..${dhi:06X}"
+            );
+        }
+    }
+
     // Bucket all INTENA writes by value to see what's being written.
     let mut intena_writes: std::collections::HashMap<u16, u32> =
         std::collections::HashMap::new();
