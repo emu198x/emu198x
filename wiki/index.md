@@ -52,6 +52,7 @@
 - [Native UI strategy](decisions/native-ui-strategy.md) — platform-specific frontends (SwiftUI/GTK4/WinUI), SDL2+native menus for October
 - [Save state format](decisions/save-state-format.md) — serde + postcard, derive on everything from day one
 - [System-specific run loops](decisions/system-specific-run-loops.md) — no universal tick pattern, each system matches its hardware
+- [Within-family layering](decisions/within-family-layering.md) — five-piece structure (common / chip / format / machine / runtime) every family follows; copy-this-shape blueprint for adding Game Boy, SG-1000, etc.
 - [SpectrumDriver](decisions/spectrum-driver.md) — one shared run loop across the Spectrum family via a provided-method trait
 - [Peripheral trait](decisions/peripheral-trait.md) — static dispatch for edge-connector devices, typed fields per machine
 - [Hotkey modifier policy](decisions/hotkey-modifier-policy.md) — Alt only, never Ctrl/Shift (they're SYMBOL SHIFT / CAPS SHIFT)
