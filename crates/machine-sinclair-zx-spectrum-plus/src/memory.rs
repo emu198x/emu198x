@@ -1,5 +1,6 @@
-use serde_big_array::BigArray;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::snapshot::Paged128kMemory;
+use serde_big_array::BigArray;
 use std::path::Path;
 
 /// A single 16 KB bank — newtype wrapping the flat array so `BigArray`
@@ -162,6 +163,12 @@ impl MemoryPlus {
 impl Default for MemoryPlus {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Paged128kMemory for MemoryPlus {
+    fn write_7ffd(&mut self, val: u8) {
+        MemoryPlus::write_7ffd(self, val)
     }
 }
 

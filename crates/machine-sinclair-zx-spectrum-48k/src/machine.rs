@@ -5,6 +5,7 @@
 //! path, and beeper/EAR audio path.
 
 use common_sinclair_zx_spectrum::audio::BeeperAudio;
+use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::{
@@ -385,21 +386,20 @@ impl Spectrum48k {
         Ok(())
     }
 
-    /// Runs one native 48K video frame.
+    /// Runs one native 48K video frame. Delegates to `SpectrumDriver::run_frame`.
     pub fn run_frame(&mut self) {
-        while self.hc < TIMING_48K.halfcycles_per_frame {
-            self.tick_halfcycle();
-        }
-
-        self.end_frame();
+        <Self as SpectrumDriver>::run_frame(self);
     }
 
     /// Advances the machine by an exact number of master-clock half-cycles.
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
+        let frame_hc = TIMING_48K.halfcycles_per_frame;
         for _ in 0..halfcycles {
-            self.tick_halfcycle();
-            if self.hc >= TIMING_48K.halfcycles_per_frame {
-                self.end_frame();
+            self.tick_one_halfcycle();
+            if self.hc >= frame_hc {
+                self.end_frame_ula();
+                self.on_end_frame();
+                self.hc -= frame_hc;
             }
         }
     }
@@ -475,36 +475,63 @@ impl Spectrum48k {
         }
     }
 
-    fn tick_halfcycle(&mut self) {
-        if self.hc & 1 == 0 {
-            self.ula.tick(
-                &self.memory,
-                self.z80.addr,
-                self.z80.mreq,
-                self.z80.iorq,
-                &mut self.framebuffer,
-            );
+}
 
-            if self.ula.cpu_clock_active() {
-                self.z80.tick();
-                self.handle_bus();
-            }
-
-            self.z80.irq = self.ula.interrupt_active();
-
-            if self.hc % 4 == 2 {
-                self.tape.advance_tstates(1);
-                self.sync_ear_level();
-            }
-        }
-
-        self.hc += 1;
+impl SpectrumDriver for Spectrum48k {
+    #[inline(always)]
+    fn hc(&self) -> u32 {
+        self.hc
+    }
+    #[inline(always)]
+    fn hc_mut(&mut self) -> &mut u32 {
+        &mut self.hc
+    }
+    #[inline(always)]
+    fn frame_hc(&self) -> u32 {
+        TIMING_48K.halfcycles_per_frame
     }
 
-    fn end_frame(&mut self) {
+    #[inline(always)]
+    fn tick_ula(&mut self) {
+        self.ula.tick(
+            &self.memory,
+            self.z80.addr,
+            self.z80.mreq,
+            self.z80.iorq,
+            &mut self.framebuffer,
+        );
+    }
+
+    #[inline(always)]
+    fn cpu_clock_active(&self) -> bool {
+        self.ula.cpu_clock_active()
+    }
+
+    #[inline(always)]
+    fn tick_cpu_and_bus(&mut self) {
+        self.z80.tick();
+        self.handle_bus();
+    }
+
+    #[inline(always)]
+    fn feed_irq(&mut self) {
+        self.z80.irq = self.ula.interrupt_active();
+    }
+
+    #[inline(always)]
+    fn on_tstate(&mut self, _hc: u32) {
+        self.tape.advance_tstates(1);
+        self.sync_ear_level();
+    }
+
+    #[inline(always)]
+    fn end_frame_ula(&mut self) {
         self.ula.end_frame();
+    }
+
+    #[inline(always)]
+    fn on_end_frame(&mut self) {
         self.audio.end_frame(&mut self.audio_frame);
-        self.hc -= TIMING_48K.halfcycles_per_frame;
     }
 }
 
@@ -615,7 +642,9 @@ mod tests {
 
         machine.hc += 1;
         if machine.hc >= TIMING_48K.halfcycles_per_frame {
-            machine.end_frame();
+            machine.end_frame_ula();
+            machine.on_end_frame();
+            machine.hc -= TIMING_48K.halfcycles_per_frame;
         }
 
         sample

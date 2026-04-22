@@ -6,18 +6,25 @@
 //! engine.
 
 pub mod audio;
+pub mod driver;
 pub mod error;
 pub mod memory;
 pub mod palette;
 pub mod peripheral;
+pub mod snapshot;
 pub mod tape;
 pub mod timing;
 pub mod ula;
 pub mod ula_engine;
 
 pub use audio::BeeperAudio;
+pub use driver::SpectrumDriver;
 pub use error::RomImageError;
 pub use memory::{MemoryBus, Spectrum48kMemory};
 pub use palette::SPECTRUM_PALETTE;
 pub use peripheral::Peripheral;
+pub use snapshot::{
+    Paged128kMemory, SnapshotBankTarget, apply_128k_bank_pages, apply_ay_registers,
+    apply_z80_registers,
+};
 pub use tape::{TapeBlock, TapePlayer, TapeSpan};

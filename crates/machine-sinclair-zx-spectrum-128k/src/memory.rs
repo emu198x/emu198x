@@ -6,6 +6,7 @@
 //! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/machine-sinclair-zx-spectrum-128k/src/memory.rs`
 
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::snapshot::Paged128kMemory;
 use serde_big_array::BigArray;
 use std::path::Path;
 
@@ -147,6 +148,12 @@ impl Memory128K {
 impl Default for Memory128K {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Paged128kMemory for Memory128K {
+    fn write_7ffd(&mut self, val: u8) {
+        Memory128K::write_7ffd(self, val)
     }
 }
 

@@ -19,7 +19,11 @@
 pub mod memory;
 
 use common_sinclair_zx_spectrum::audio::BeeperAudio;
+use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::snapshot::{
+    apply_128k_bank_pages, apply_ay_registers, apply_z80_registers, Z80Snapshot,
+};
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K};
 use common_sinclair_zx_spectrum::ula::Ula;
@@ -126,20 +130,33 @@ impl Spectrum128K {
         self.tape.play();
     }
 
-    /// Run exactly one PAL frame.
-    pub fn run_frame(&mut self) {
-        while self.hc < TIMING_128K.halfcycles_per_frame {
-            self.tick_halfcycle();
-        }
-        self.end_frame();
+    /// Apply a parsed `.z80` snapshot. The 128K-family snapshot layout
+    /// pages banks through `$7FFD`; the AY register file is replayed
+    /// from the snapshot-captured values.
+    pub fn apply_snapshot(&mut self, snap: &Z80Snapshot) {
+        apply_z80_registers(&mut self.z80, snap);
+        self.ula.write_fe(snap.border);
+        apply_128k_bank_pages(snap, &mut self.memory);
+        self.memory.write_7ffd(snap.port_7ffd);
+        apply_ay_registers(snap, &mut self.ay);
     }
 
-    /// Advance the machine by an exact number of master-clock half-cycles.
+    /// Run exactly one PAL frame. Delegates to `SpectrumDriver::run_frame`.
+    pub fn run_frame(&mut self) {
+        <Self as SpectrumDriver>::run_frame(self);
+    }
+
+    /// Advance the machine by an exact number of master-clock
+    /// half-cycles, handling frame wrap when `hc` crosses the frame
+    /// boundary.
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
+        let frame_hc = TIMING_128K.halfcycles_per_frame;
         for _ in 0..halfcycles {
-            self.tick_halfcycle();
-            if self.hc >= TIMING_128K.halfcycles_per_frame {
-                self.end_frame();
+            self.tick_one_halfcycle();
+            if self.hc >= frame_hc {
+                self.end_frame_ula();
+                self.on_end_frame();
+                self.hc -= frame_hc;
             }
         }
     }
@@ -147,46 +164,6 @@ impl Spectrum128K {
     /// Advance the machine by an exact number of CPU T-states.
     pub fn advance_tstates(&mut self, tstates: u32) {
         self.advance_halfcycles(TIMING_128K.tstates_to_hc(tstates));
-    }
-
-    fn tick_halfcycle(&mut self) {
-        if self.hc & 1 == 0 {
-            self.ula.tick(
-                &self.memory,
-                self.z80.addr,
-                self.z80.mreq,
-                self.z80.iorq,
-                &mut self.framebuffer,
-            );
-
-            if self.ula.cpu_clock_active() {
-                self.z80.tick();
-                self.handle_bus();
-            }
-
-            self.z80.irq = self.ula.interrupt_active();
-
-            if self.hc % 4 == 2 {
-                self.tape.advance_tstates(1);
-                if self.hc % 8 == 2 {
-                    self.ay.tick();
-                }
-                let ear = self.tape.ear_level();
-                if ear != self.last_ear {
-                    self.last_ear = ear;
-                    let tstate = self.hc / 4;
-                    self.audio.set_level(tstate, self.speaker_level());
-                }
-            }
-        }
-
-        self.hc += 1;
-    }
-
-    fn end_frame(&mut self) {
-        self.ula.end_frame();
-        self.audio.end_frame(&mut self.audio_frame);
-        self.hc -= TIMING_128K.halfcycles_per_frame;
     }
 
     fn handle_bus(&mut self) {
@@ -260,6 +237,72 @@ impl Spectrum128K {
 impl Default for Spectrum128K {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl SpectrumDriver for Spectrum128K {
+    #[inline(always)]
+    fn hc(&self) -> u32 {
+        self.hc
+    }
+    #[inline(always)]
+    fn hc_mut(&mut self) -> &mut u32 {
+        &mut self.hc
+    }
+    #[inline(always)]
+    fn frame_hc(&self) -> u32 {
+        TIMING_128K.halfcycles_per_frame
+    }
+
+    #[inline(always)]
+    fn tick_ula(&mut self) {
+        self.ula.tick(
+            &self.memory,
+            self.z80.addr,
+            self.z80.mreq,
+            self.z80.iorq,
+            &mut self.framebuffer,
+        );
+    }
+
+    #[inline(always)]
+    fn cpu_clock_active(&self) -> bool {
+        self.ula.cpu_clock_active()
+    }
+
+    #[inline(always)]
+    fn tick_cpu_and_bus(&mut self) {
+        self.z80.tick();
+        self.handle_bus();
+    }
+
+    #[inline(always)]
+    fn feed_irq(&mut self) {
+        self.z80.irq = self.ula.interrupt_active();
+    }
+
+    #[inline(always)]
+    fn on_tstate(&mut self, hc: u32) {
+        self.tape.advance_tstates(1);
+        if hc % 8 == 2 {
+            self.ay.tick();
+        }
+        let ear = self.tape.ear_level();
+        if ear != self.last_ear {
+            self.last_ear = ear;
+            let tstate = hc / 4;
+            self.audio.set_level(tstate, self.speaker_level());
+        }
+    }
+
+    #[inline(always)]
+    fn end_frame_ula(&mut self) {
+        self.ula.end_frame();
+    }
+
+    #[inline(always)]
+    fn on_end_frame(&mut self) {
+        self.audio.end_frame(&mut self.audio_frame);
     }
 }
 

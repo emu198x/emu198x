@@ -1,5 +1,6 @@
-use serde_big_array::BigArray;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::snapshot::Paged128kMemory;
+use serde_big_array::BigArray;
 use std::path::Path;
 
 /// A single 16 KB bank — newtype wrapping the flat array so `BigArray`
@@ -135,6 +136,12 @@ impl MemoryPentagon {
 impl Default for MemoryPentagon {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Paged128kMemory for MemoryPentagon {
+    fn write_7ffd(&mut self, val: u8) {
+        MemoryPentagon::write_7ffd(self, val)
     }
 }
 

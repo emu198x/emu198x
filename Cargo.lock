@@ -427,8 +427,11 @@ dependencies = [
 name = "common-sinclair-zx-spectrum"
 version = "0.1.0"
 dependencies = [
+ "format-sinclair-zx-spectrum-z80",
+ "gi-ay-3-8912",
  "serde",
  "thiserror 2.0.18",
+ "zilog-z80",
 ]
 
 [[package]]

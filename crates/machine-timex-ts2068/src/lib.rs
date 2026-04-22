@@ -18,7 +18,9 @@
 pub mod memory;
 
 use common_sinclair_zx_spectrum::audio::BeeperAudio;
+use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{
     FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K,
@@ -165,25 +167,8 @@ impl TimexTS2068 {
     /// for snapshot purposes — the page-to-base map matches the 48K
     /// convention. AY state is not carried in `.z80` v2/v3 for Timex.
     pub fn apply_snapshot(&mut self, snap: &Z80Snapshot) {
-        self.z80.regs.af = snap.af;
-        self.z80.regs.bc = snap.bc;
-        self.z80.regs.de = snap.de;
-        self.z80.regs.hl = snap.hl;
-        self.z80.regs.af_alt = snap.af_alt;
-        self.z80.regs.bc_alt = snap.bc_alt;
-        self.z80.regs.de_alt = snap.de_alt;
-        self.z80.regs.hl_alt = snap.hl_alt;
-        self.z80.regs.ix = snap.ix;
-        self.z80.regs.iy = snap.iy;
-        self.z80.regs.sp = snap.sp;
-        self.z80.regs.pc = snap.pc;
-        self.z80.regs.i = snap.i;
-        self.z80.regs.r = snap.r;
-        self.z80.regs.im = snap.im;
-        self.z80.regs.iff1 = snap.iff1;
-        self.z80.regs.iff2 = snap.iff2;
+        apply_z80_registers(&mut self.z80, snap);
         self.ula.write_fe(snap.border);
-
         for (page, data) in &snap.pages {
             let base: u16 = match *page {
                 4 => 0x8000,
@@ -198,64 +183,23 @@ impl TimexTS2068 {
     }
 
     pub fn run_frame(&mut self) {
-        let frame_hc = self.timing.halfcycles_per_frame;
-        while self.hc < frame_hc {
-            self.tick_halfcycle();
-        }
-        self.end_frame();
+        <Self as SpectrumDriver>::run_frame(self);
     }
 
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
+        let frame_hc = self.timing.halfcycles_per_frame;
         for _ in 0..halfcycles {
-            self.tick_halfcycle();
-            if self.hc >= self.timing.halfcycles_per_frame {
-                self.end_frame();
+            self.tick_one_halfcycle();
+            if self.hc >= frame_hc {
+                self.end_frame_ula();
+                self.on_end_frame();
+                self.hc -= frame_hc;
             }
         }
     }
 
     pub fn advance_tstates(&mut self, tstates: u32) {
         self.advance_halfcycles(self.timing.tstates_to_hc(tstates));
-    }
-
-    fn tick_halfcycle(&mut self) {
-        if self.hc & 1 == 0 {
-            self.ula.tick(
-                &self.memory,
-                self.z80.addr,
-                self.z80.mreq,
-                self.z80.iorq,
-                &mut self.framebuffer,
-            );
-
-            if self.ula.cpu_clock_active() {
-                self.z80.tick();
-                self.handle_bus();
-            }
-
-            self.z80.irq = self.ula.interrupt_active();
-
-            if self.hc % 4 == 2 {
-                self.tape.advance_tstates(1);
-                if self.hc % 8 == 2 {
-                    self.ay.tick();
-                }
-                let ear = self.tape.ear_level();
-                if ear != self.last_ear {
-                    self.last_ear = ear;
-                    let tstate = self.hc / 4;
-                    self.audio.set_level(tstate, self.speaker_level());
-                }
-            }
-        }
-
-        self.hc += 1;
-    }
-
-    fn end_frame(&mut self) {
-        self.ula.end_frame();
-        self.audio.end_frame(&mut self.audio_frame);
-        self.hc -= self.timing.halfcycles_per_frame;
     }
 
     fn handle_bus(&mut self) {
@@ -320,6 +264,72 @@ impl TimexTS2068 {
 
     pub fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
+    }
+}
+
+impl SpectrumDriver for TimexTS2068 {
+    #[inline(always)]
+    fn hc(&self) -> u32 {
+        self.hc
+    }
+    #[inline(always)]
+    fn hc_mut(&mut self) -> &mut u32 {
+        &mut self.hc
+    }
+    #[inline(always)]
+    fn frame_hc(&self) -> u32 {
+        self.timing.halfcycles_per_frame
+    }
+
+    #[inline(always)]
+    fn tick_ula(&mut self) {
+        self.ula.tick(
+            &self.memory,
+            self.z80.addr,
+            self.z80.mreq,
+            self.z80.iorq,
+            &mut self.framebuffer,
+        );
+    }
+
+    #[inline(always)]
+    fn cpu_clock_active(&self) -> bool {
+        self.ula.cpu_clock_active()
+    }
+
+    #[inline(always)]
+    fn tick_cpu_and_bus(&mut self) {
+        self.z80.tick();
+        self.handle_bus();
+    }
+
+    #[inline(always)]
+    fn feed_irq(&mut self) {
+        self.z80.irq = self.ula.interrupt_active();
+    }
+
+    #[inline(always)]
+    fn on_tstate(&mut self, hc: u32) {
+        self.tape.advance_tstates(1);
+        if hc % 8 == 2 {
+            self.ay.tick();
+        }
+        let ear = self.tape.ear_level();
+        if ear != self.last_ear {
+            self.last_ear = ear;
+            let tstate = hc / 4;
+            self.audio.set_level(tstate, self.speaker_level());
+        }
+    }
+
+    #[inline(always)]
+    fn end_frame_ula(&mut self) {
+        self.ula.end_frame();
+    }
+
+    #[inline(always)]
+    fn on_end_frame(&mut self) {
+        self.audio.end_frame(&mut self.audio_frame);
     }
 }
 
