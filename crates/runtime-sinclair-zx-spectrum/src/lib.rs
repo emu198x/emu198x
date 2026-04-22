@@ -1,9 +1,12 @@
-//! Sinclair ZX Spectrum family metadata.
+//! Sinclair ZX Spectrum family metadata and runtime layer.
 //!
-//! This crate owns the Spectrum family's metadata catalogue plus the first
-//! runtime wrapper over the 48K machine implementation. The wrapper is the
-//! shared-control-surface boundary: it translates `MediaSet`, host input
-//! events, and frame/audio sinks into concrete 48K machine operations.
+//! This crate owns the Spectrum family's metadata catalogue plus the
+//! generic `SpectrumRuntime<M>` that translates `MediaSet`, host input
+//! events, and frame/audio sinks into concrete machine operations. Each
+//! variant — 48K through Timex TS2068 — exposes a `Spectrum…Runtime`
+//! type alias backed by the same generic implementation. The 48K
+//! additionally wears the `SpectrumSessionQueryProvider` for ROM-glyph
+//! text extraction and boot detection.
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
@@ -11,7 +14,7 @@ use emu198x_shell::{
 };
 
 mod autoload;
-mod runtime;
+mod spectrum_48k;
 mod spectrum_runtime;
 mod variants;
 
@@ -19,11 +22,11 @@ pub use autoload::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumAutoloadError,
     SpectrumTapeAutoloadResult, autoload_basic_tape,
 };
-pub use runtime::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
+pub use spectrum_48k::SpectrumSessionQueryProvider;
 pub use spectrum_runtime::{SpectrumMachine, SpectrumRuntime};
 pub use variants::{
-    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime, SpectrumPlusRuntime,
-    TimexTC2048Runtime, TimexTS2068Runtime,
+    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime, Spectrum48kRuntime,
+    SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
 };
 
 /// Supported Spectrum family models.
@@ -323,7 +326,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
                     WritebackPolicy::InMemoryOnly,
                 ),
             ],
-            capabilities: ay_capabilities(),
+            capabilities: {
+                let mut caps = ay_capabilities();
+                caps.insert(known_capability("disk-input"));
+                caps
+            },
         },
         Model::Pentagon128 => MachineProfile {
             machine_id: MachineId::from("sinclair-zx-spectrum"),

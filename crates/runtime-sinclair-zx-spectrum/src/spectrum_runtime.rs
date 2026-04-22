@@ -62,10 +62,24 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// Soft-resets the machine's CPU, timing, and audio state.
     fn reset_machine(&mut self);
 
-    /// Called after deserialization. Default: no-op. Variants with
-    /// `#[serde(skip)]` fields (e.g. TS2068's static `FrameTiming`
-    /// reference) override this to reinstate runtime state.
-    fn post_deserialize(&mut self) {}
+    /// Returns `true` when this machine accepts a disk image at the
+    /// given media slot. Default: `false` (tape-only machines).
+    fn supports_disk_slot(&self, _slot: &str) -> bool {
+        false
+    }
+
+    /// Loads disk-image bytes into the machine's FDC. Default: reports
+    /// that the machine has no disk interface. Variants with a real
+    /// drive (e.g. the +3) parse the payload and hand it to the
+    /// controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable reason if the image cannot be parsed
+    /// or if the target slot is unknown.
+    fn load_disk_image(&mut self, _slot: &str, _bytes: &[u8]) -> Result<(), String> {
+        Err("this machine has no disk interface".to_owned())
+    }
 }
 
 /// Generic `MachineCore` runtime wrapper for Spectrum-family variants.
@@ -124,6 +138,14 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         self.time
     }
 
+    /// Returns mutable access to the runtime's machine profile so that
+    /// per-variant adapters can promote the support tier or extend the
+    /// declared capability set without re-implementing the runtime.
+    #[must_use]
+    pub fn profile_mut(&mut self) -> &mut MachineProfile {
+        &mut self.profile
+    }
+
     fn load_tape_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
         if is_tzx(bytes) {
             let stream =
@@ -166,15 +188,28 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
 
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
         for image in &media.images {
-            if image.slot.as_ref() != "tape-1" {
-                return Err(MachineError::UnknownMediaSlot {
-                    slot: image.slot.as_ref().to_owned(),
-                });
+            let slot = image.slot.as_ref();
+            match image.kind {
+                MediaKind::Tape if slot == "tape-1" => {
+                    self.load_tape_bytes(slot, image.bytes)?;
+                }
+                MediaKind::Disk if self.machine.supports_disk_slot(slot) => {
+                    self.machine.load_disk_image(slot, image.bytes).map_err(
+                        |reason| MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason,
+                        },
+                    )?;
+                }
+                MediaKind::Tape | MediaKind::Disk => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                _ => {
+                    return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+                }
             }
-            if image.kind != MediaKind::Tape {
-                return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
-            }
-            self.load_tape_bytes(image.slot.as_ref(), image.bytes)?;
         }
         Ok(())
     }
@@ -254,7 +289,6 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         }
 
         self.machine = snapshot.machine;
-        self.machine.post_deserialize();
         self.time = snapshot.time;
         *self.keyboard.rows_mut() = snapshot.keyboard_rows;
         self.machine.set_keyboard_rows(self.keyboard.rows());

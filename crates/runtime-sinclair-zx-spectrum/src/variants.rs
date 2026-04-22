@@ -12,11 +12,15 @@ use common_sinclair_zx_spectrum::timing::{
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
+use machine_sinclair_zx_spectrum_48k::Spectrum48k;
+use machine_sinclair_zx_spectrum_plus::{Model as PlusModel, SpectrumPlus};
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
 
 use crate::spectrum_runtime::{SpectrumMachine, SpectrumRuntime};
+
+/// ZX Spectrum 48K runtime.
+pub type Spectrum48kRuntime = SpectrumRuntime<Spectrum48k>;
 
 /// ZX Spectrum 128K / +2 runtime.
 pub type Spectrum128kRuntime = SpectrumRuntime<Spectrum128K>;
@@ -35,6 +39,42 @@ pub type TimexTC2048Runtime = SpectrumRuntime<TimexTC2048>;
 
 /// Timex TC2068 / TS2068 runtime.
 pub type TimexTS2068Runtime = SpectrumRuntime<TimexTS2068>;
+
+impl SpectrumMachine for Spectrum48k {
+    const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
+    const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
+
+    fn frame_halfcycles(&self) -> u32 {
+        TIMING_48K.halfcycles_per_frame
+    }
+    fn run_frame(&mut self) {
+        Spectrum48k::run_frame(self);
+    }
+    fn framebuffer(&self) -> &[u8] {
+        Spectrum48k::framebuffer(self)
+    }
+    fn audio_frame(&self) -> &[f32] {
+        Spectrum48k::audio_frame(self)
+    }
+    fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
+        *self.keyboard_mut().rows_mut() = *rows;
+    }
+    fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
+        Spectrum48k::load_tape_blocks(self, blocks);
+    }
+    fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
+        Spectrum48k::load_tape_stream(self, stream);
+    }
+    fn tape_play(&mut self) {
+        self.play_tape();
+    }
+    fn tape_stop(&mut self) {
+        self.stop_tape();
+    }
+    fn reset_machine(&mut self) {
+        self.reset();
+    }
+}
 
 impl SpectrumMachine for Spectrum128K {
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
@@ -105,6 +145,19 @@ impl SpectrumMachine for SpectrumPlus {
     }
     fn reset_machine(&mut self) {
         SpectrumPlus::reset(self);
+    }
+
+    fn supports_disk_slot(&self, slot: &str) -> bool {
+        matches!(self.model, PlusModel::Plus3) && slot == "disk-a"
+    }
+
+    fn load_disk_image(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String> {
+        if !self.supports_disk_slot(slot) {
+            return Err(format!("unsupported disk slot `{slot}`"));
+        }
+        let image = format_amstrad_dsk::parse(bytes)?;
+        self.insert_disk(image);
+        Ok(())
     }
 }
 
@@ -253,9 +306,6 @@ impl SpectrumMachine for TimexTS2068 {
     fn reset_machine(&mut self) {
         TimexTS2068::reset(self);
     }
-    fn post_deserialize(&mut self) {
-        self.restore_timing();
-    }
 }
 
 #[cfg(test)]
@@ -367,6 +417,55 @@ mod tests {
 
         let round_trip = restored.snapshot().expect("restored snapshot should encode");
         assert_eq!(round_trip, bytes);
+    }
+
+    #[test]
+    fn spectrum_plus3_accepts_disk_slot_via_machine_core() {
+        use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet};
+
+        let mut runtime =
+            SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+        let mut media = MediaSet::new();
+        let dsk = minimal_standard_dsk();
+        media.push(MediaImage::new("disk-a", MediaKind::Disk, &dsk));
+
+        runtime
+            .load_media(&media)
+            .expect("Plus3 should accept DSK media into disk-a");
+    }
+
+    #[test]
+    fn spectrum_plus2a_rejects_disk_slot() {
+        use emu198x_shell::{MachineCore, MachineError, MediaImage, MediaKind, MediaSet};
+
+        let mut runtime =
+            SpectrumPlusRuntime::new(Model::SpectrumPlus2A, SpectrumPlus::new(PlusModel::Plus2A));
+        let mut media = MediaSet::new();
+        let dsk = minimal_standard_dsk();
+        media.push(MediaImage::new("disk-a", MediaKind::Disk, &dsk));
+
+        let err = runtime
+            .load_media(&media)
+            .expect_err("+2A has no drive and must refuse disk slots");
+        assert!(matches!(err, MachineError::UnknownMediaSlot { .. }));
+    }
+
+    fn minimal_standard_dsk() -> Vec<u8> {
+        // Standard DSK: 256-byte disk header + one 256-byte Track-Info
+        // block with zero sectors. 512 bytes in total.
+        let mut dsk = vec![0u8; 512];
+        dsk[..8].copy_from_slice(b"MV - CPC");
+        dsk[0x30] = 1; // 1 track per side
+        dsk[0x31] = 1; // single-sided
+        // Track size in bytes (little-endian u16): 256 bytes.
+        dsk[0x32] = 0x00;
+        dsk[0x33] = 0x01;
+        // Track-Info block at offset 256.
+        dsk[256..256 + 10].copy_from_slice(b"Track-Info");
+        // track_n = 2 (512-byte sectors — unused here), sector_count = 0.
+        dsk[256 + 0x14] = 2;
+        dsk[256 + 0x15] = 0;
+        dsk
     }
 
     #[test]

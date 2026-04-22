@@ -85,19 +85,9 @@ pub struct TimexTS2068 {
     pub audio_frame: Vec<f32>,
     pub model: TimexModel,
 
-    /// Frame timing for this variant. Skipped on serialise — restore
-    /// via `restore_timing()` after `load_state` because the static
-    /// reference can't be deserialised.
-    #[serde(skip, default = "default_timing")]
-    timing: &'static FrameTiming,
-
     pub(crate) hc: u32,
     beeper_state: bool,
     last_ear: bool,
-}
-
-fn default_timing() -> &'static FrameTiming {
-    &TIMING_48K
 }
 
 impl TimexTS2068 {
@@ -124,19 +114,19 @@ impl TimexTS2068 {
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, timing.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; samples_per_frame],
             model,
-            timing,
             hc: 0,
             beeper_state: false,
             last_ear: false,
         }
     }
 
-    /// Re-install the static timing reference after deserialisation.
-    pub fn restore_timing(&mut self) {
-        self.timing = match self.model {
+    /// Returns the static frame-timing descriptor for this variant.
+    #[must_use]
+    pub fn timing(&self) -> &'static FrameTiming {
+        match self.model {
             TimexModel::TC2068 => &TIMING_48K,
             TimexModel::TS2068 => &TIMING_TS2068,
-        };
+        }
     }
 
     #[must_use]
@@ -199,7 +189,7 @@ impl TimexTS2068 {
     }
 
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
-        let frame_hc = self.timing.halfcycles_per_frame;
+        let frame_hc = self.timing().halfcycles_per_frame;
         for _ in 0..halfcycles {
             self.tick_one_halfcycle();
             if self.hc >= frame_hc {
@@ -211,7 +201,7 @@ impl TimexTS2068 {
     }
 
     pub fn advance_tstates(&mut self, tstates: u32) {
-        self.advance_halfcycles(self.timing.tstates_to_hc(tstates));
+        self.advance_halfcycles(self.timing().tstates_to_hc(tstates));
     }
 
     fn handle_bus(&mut self) {
@@ -290,7 +280,7 @@ impl SpectrumDriver for TimexTS2068 {
     }
     #[inline(always)]
     fn frame_hc(&self) -> u32 {
-        self.timing.halfcycles_per_frame
+        self.timing().halfcycles_per_frame
     }
 
     #[inline(always)]
@@ -352,16 +342,16 @@ mod tests {
     #[test]
     fn pal_variant_uses_48k_timing() {
         let m = TimexTS2068::new(TimexModel::TC2068);
-        assert_eq!(m.timing.master_hz, 14_000_000);
-        assert_eq!(m.timing.lines_per_frame, 312);
+        assert_eq!(m.timing().master_hz, 14_000_000);
+        assert_eq!(m.timing().lines_per_frame, 312);
         assert_eq!(m.model_id(), "timex-tc2068");
     }
 
     #[test]
     fn ntsc_variant_uses_ts2068_timing() {
         let m = TimexTS2068::new(TimexModel::TS2068);
-        assert_eq!(m.timing.master_hz, 14_112_000);
-        assert_eq!(m.timing.lines_per_frame, 262);
+        assert_eq!(m.timing().master_hz, 14_112_000);
+        assert_eq!(m.timing().lines_per_frame, 262);
         assert_eq!(m.model_id(), "timex-ts2068");
     }
 

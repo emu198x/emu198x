@@ -9,6 +9,9 @@
 //! The fresh implementation keeps only the 48K memory map and removes all file
 //! I/O from the component boundary.
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 use crate::error::RomImageError;
 use crate::timing::is_contended_address_48k;
 
@@ -16,6 +19,43 @@ const ROM_BYTES_48K: usize = 16 * 1024;
 const RAM_BYTES_48K: usize = 48 * 1024;
 const ROM_END: u16 = 0x3fff;
 const RAM_BASE: u16 = 0x4000;
+
+/// One 16 KiB memory bank. Every paged Spectrum variant (128K, +2, +2A,
+/// +2B, +3, Pentagon, Scorpion) lays its ROMs and RAM out as a sequence
+/// of these. The newtype wraps the raw `[u8; 16384]` so `serde_big_array`
+/// can handle the >32-element serde limit inside any enclosing array or
+/// vector of banks.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Bank16K(#[serde(with = "BigArray")] [u8; 16 * 1024]);
+
+impl Bank16K {
+    /// Returns a freshly-zeroed bank.
+    #[must_use]
+    pub const fn zeroed() -> Self {
+        Self([0; 16 * 1024])
+    }
+}
+
+impl Default for Bank16K {
+    fn default() -> Self {
+        Self::zeroed()
+    }
+}
+
+impl std::ops::Deref for Bank16K {
+    type Target = [u8; 16 * 1024];
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Bank16K {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// Spectrum-family memory surface used by the machine and ULA layers.
 pub trait MemoryBus {
@@ -39,10 +79,16 @@ pub trait MemoryBus {
 }
 
 /// 48K Spectrum memory: 16 KiB ROM plus 48 KiB RAM.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// The backing storage lives on the heap (behind `Vec<u8>`) rather than
+/// inline on the stack — that keeps serde deserialization bounded to a
+/// small stack footprint, which matters when an enclosing snapshot
+/// struct is materialised from `postcard::from_bytes`. Lengths are
+/// maintained as strict invariants via the public constructors.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Spectrum48kMemory {
-    rom: [u8; ROM_BYTES_48K],
-    ram: [u8; RAM_BYTES_48K],
+    rom: Vec<u8>,
+    ram: Vec<u8>,
 }
 
 impl Spectrum48kMemory {
@@ -50,8 +96,8 @@ impl Spectrum48kMemory {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            rom: [0; ROM_BYTES_48K],
-            ram: [0; RAM_BYTES_48K],
+            rom: vec![0; ROM_BYTES_48K],
+            ram: vec![0; RAM_BYTES_48K],
         }
     }
 
@@ -59,8 +105,8 @@ impl Spectrum48kMemory {
     #[must_use]
     pub fn with_rom(rom: [u8; ROM_BYTES_48K]) -> Self {
         Self {
-            rom,
-            ram: [0; RAM_BYTES_48K],
+            rom: rom.to_vec(),
+            ram: vec![0; RAM_BYTES_48K],
         }
     }
 
@@ -82,19 +128,19 @@ impl Spectrum48kMemory {
 
     /// Returns the ROM bytes.
     #[must_use]
-    pub fn rom(&self) -> &[u8; ROM_BYTES_48K] {
+    pub fn rom(&self) -> &[u8] {
         &self.rom
     }
 
     /// Returns the RAM bytes.
     #[must_use]
-    pub fn ram(&self) -> &[u8; RAM_BYTES_48K] {
+    pub fn ram(&self) -> &[u8] {
         &self.ram
     }
 
     /// Returns mutable RAM bytes.
     #[must_use]
-    pub fn ram_mut(&mut self) -> &mut [u8; RAM_BYTES_48K] {
+    pub fn ram_mut(&mut self) -> &mut [u8] {
         &mut self.ram
     }
 }

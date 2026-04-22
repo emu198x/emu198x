@@ -8,6 +8,7 @@
 pub mod audio;
 pub mod driver;
 pub mod error;
+pub mod keyboard;
 pub mod memory;
 pub mod palette;
 pub mod peripheral;
@@ -20,7 +21,8 @@ pub mod ula_engine;
 pub use audio::BeeperAudio;
 pub use driver::SpectrumDriver;
 pub use error::RomImageError;
-pub use memory::{MemoryBus, Spectrum48kMemory};
+pub use keyboard::{KeyboardMatrix, SpectrumKey};
+pub use memory::{Bank16K, MemoryBus, Spectrum48kMemory};
 pub use palette::SPECTRUM_PALETTE;
 pub use peripheral::Peripheral;
 pub use snapshot::{

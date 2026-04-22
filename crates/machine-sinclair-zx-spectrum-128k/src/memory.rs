@@ -5,36 +5,9 @@
 //! - `wiki/systems/spectrum/contention.md`
 //! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/machine-sinclair-zx-spectrum-128k/src/memory.rs`
 
-use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::memory::{Bank16K, MemoryBus};
 use common_sinclair_zx_spectrum::snapshot::Paged128kMemory;
-use serde_big_array::BigArray;
 use std::path::Path;
-
-/// A single 16 KB bank — newtype wrapping the flat array so `BigArray`
-/// can handle the >32-element serde limit inside a nested `[Bank; N]`.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct Bank16K(#[serde(with = "BigArray")] [u8; 16384]);
-
-impl Bank16K {
-    const fn zeroed() -> Self {
-        Self([0; 16384])
-    }
-}
-
-impl std::ops::Deref for Bank16K {
-    type Target = [u8; 16384];
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for Bank16K {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
 /// ZX Spectrum 128K memory: 2 × 16K ROM + 8 × 16K RAM banks.
 ///

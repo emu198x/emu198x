@@ -1,11 +1,12 @@
 //! ZX Spectrum keyboard matrix.
 //!
+//! Every machine in the Spectrum family — from the 48K Ferranti through the
+//! Amstrad +3, Pentagon, Scorpion and Timex variants — shares the same 40-key
+//! active-low matrix laid out in eight half-rows. This module owns that shared
+//! encoding plus the stable key-name / alias mapping used by host input.
+//!
 //! Source references:
 //! - `docs/platforms/sinclair-zx-spectrum/language/ZX-SPECTRUM-MEMORY-AND-GRAPHICS-REFERENCE.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/runtime-sinclair-zx-spectrum/src/system_impl.rs`
-//!
-//! The ported part here is the stable physical matrix encoding and key-name
-//! mapping, not the older runtime or machine loop.
 
 use emu198x_shell::InputEvent;
 

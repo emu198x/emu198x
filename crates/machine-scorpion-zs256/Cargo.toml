@@ -12,5 +12,4 @@ format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" 
 gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
 scorpion-ula = { path = "../scorpion-ula" }
 serde = { workspace = true }
-serde-big-array = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }

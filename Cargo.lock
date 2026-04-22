@@ -427,9 +427,11 @@ dependencies = [
 name = "common-sinclair-zx-spectrum"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "format-sinclair-zx-spectrum-z80",
  "gi-ay-3-8912",
  "serde",
+ "serde-big-array",
  "thiserror 2.0.18",
  "zilog-z80",
 ]
@@ -1357,7 +1359,6 @@ dependencies = [
  "gi-ay-3-8912",
  "scorpion-ula",
  "serde",
- "serde-big-array",
  "zilog-z80",
 ]
 
@@ -1368,7 +1369,6 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "gi-ay-3-8912",
  "serde",
- "serde-big-array",
  "sinclair-ula-7k010e",
  "zilog-z80",
 ]
@@ -1393,7 +1393,6 @@ dependencies = [
  "gi-ay-3-8912",
  "nec-upd765a",
  "serde",
- "serde-big-array",
  "zilog-z80",
 ]
 
@@ -2283,6 +2282,7 @@ version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-shell",
+ "format-amstrad-dsk",
  "format-sinclair-zx-spectrum-tap",
  "format-sinclair-zx-spectrum-tzx",
  "machine-pentagon-128",

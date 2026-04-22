@@ -11,5 +11,4 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
 nec-upd765a = { path = "../nec-upd765a" }
 serde = { workspace = true }
-serde-big-array = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }

@@ -40,19 +40,12 @@ const AUDIO_SAMPLE_RATE: u32 = 44_100;
 /// 128K's 50 Hz frame produces ~882 samples at 44.1 kHz.
 const AUDIO_SAMPLES_PER_FRAME: usize = 882;
 
-/// 128K-family hardware variant.
+/// 128K-family machine.
 ///
-/// Both share the same chip set — the +2 just adds a built-in tape deck
-/// and a restyled case running an Amstrad-edited but functionally
-/// identical ROM set.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Variant {
-    /// Original Sinclair 128K ("toastrack").
-    Original,
-    /// Sinclair-branded +2 (1986, Amstrad-manufactured, grey case, built-in tape).
-    Plus2,
-}
-
+/// The Sinclair 128K ("toastrack") and the Sinclair-branded Amstrad-built
+/// +2 (1986, grey case, built-in tape deck) share the same chip set and
+/// ULA, so one implementation covers both. The runtime-level profile ID
+/// distinguishes them for snapshot compatibility.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Spectrum128K {
     pub z80: Z80,
@@ -65,7 +58,6 @@ pub struct Spectrum128K {
     pub ay: Ay3_8912,
     pub audio: BeeperAudio,
     pub audio_frame: Vec<f32>,
-    pub variant: Variant,
 
     pub(crate) hc: u32,
     beeper_state: bool,
@@ -75,15 +67,6 @@ pub struct Spectrum128K {
 impl Spectrum128K {
     #[must_use]
     pub fn new() -> Self {
-        Self::with_variant(Variant::Original)
-    }
-
-    #[must_use]
-    pub fn new_plus2() -> Self {
-        Self::with_variant(Variant::Plus2)
-    }
-
-    fn with_variant(variant: Variant) -> Self {
         let cpu_hz = (TIMING_128K.master_hz / u64::from(TIMING_128K.cpu_divisor)) as u32;
         let ay_hz = cpu_hz / 2;
         Self {
@@ -97,21 +80,18 @@ impl Spectrum128K {
             ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME),
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_128K.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; AUDIO_SAMPLES_PER_FRAME],
-            variant,
             hc: 0,
             beeper_state: false,
             last_ear: false,
         }
     }
 
-    /// Stable model identifier used by save-state headers and runtime
-    /// introspection.
+    /// Stable hardware identifier. Use the runtime-level profile ID to
+    /// distinguish the toastrack 128K from the Amstrad-built +2 —
+    /// they're the same chip set.
     #[must_use]
     pub fn model_id(&self) -> &'static str {
-        match self.variant {
-            Variant::Original => "sinclair-zx-spectrum-128k",
-            Variant::Plus2 => "sinclair-zx-spectrum-plus2",
-        }
+        "sinclair-zx-spectrum-128k"
     }
 
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
@@ -327,18 +307,10 @@ mod tests {
     #[test]
     fn defaults_are_sane() {
         let m = Spectrum128K::new();
-        assert_eq!(m.variant, Variant::Original);
         assert_eq!(m.model_id(), "sinclair-zx-spectrum-128k");
         assert_eq!(m.framebuffer.len(), SCREEN_WIDTH * SCREEN_HEIGHT);
         assert_eq!(m.keyboard, [0xFF; 8]);
         assert_eq!(m.kempston, 0);
-    }
-
-    #[test]
-    fn plus2_variant_uses_distinct_model_id() {
-        let m = Spectrum128K::new_plus2();
-        assert_eq!(m.variant, Variant::Plus2);
-        assert_eq!(m.model_id(), "sinclair-zx-spectrum-plus2");
     }
 
     #[test]

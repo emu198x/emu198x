@@ -9,6 +9,5 @@ license.workspace = true
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
 serde = { workspace = true }
-serde-big-array = { workspace = true }
 sinclair-ula-7k010e = { path = "../sinclair-ula-7k010e" }
 zilog-z80 = { path = "../zilog-z80" }
