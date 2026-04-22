@@ -109,13 +109,20 @@ pub mod bits {
         POTGO_DATRY | POTGO_DATLY | POTGO_DATRX | POTGO_DATLX;
 
     // ADKCON bits Paula uses.
-    pub const ADKCON_PRECOMP1: u16 = 0x2000;
-    pub const ADKCON_PRECOMP0: u16 = 0x1000;
-    pub const ADKCON_MFMPREC:  u16 = 0x0800;
-    pub const ADKCON_UARTBRK:  u16 = 0x0400;
-    pub const ADKCON_WORDSYNC: u16 = 0x0200;
-    /// Shared bit-8 meaning depending on context: MSBSYNC for serial,
-    /// FAST-disk in the disk-byte timing path (HRM calls this FAST).
+    //
+    // Bit positions per HRM ch 5 (Disk Hardware) + amiga-custom-chips
+    // reference: bits 14..8 are PRECOMP1, PRECOMP0, MFMPREC, UARTBRK,
+    // WORDSYNC, MSBSYNC, FAST. Earlier versions of this file had every
+    // upper constant shifted down by one bit (treating bit 8 as both
+    // FAST and MSBSYNC), which silently broke WORDSYNC: KS 1.3 sets
+    // bit 10 to enable disk-DMA sync gating, but the comparator
+    // checked bit 9 (MSBSYNC) and never raised DSKSYN.
+    pub const ADKCON_PRECOMP1: u16 = 0x4000;
+    pub const ADKCON_PRECOMP0: u16 = 0x2000;
+    pub const ADKCON_MFMPREC:  u16 = 0x1000;
+    pub const ADKCON_UARTBRK:  u16 = 0x0800;
+    pub const ADKCON_WORDSYNC: u16 = 0x0400;
+    pub const ADKCON_MSBSYNC:  u16 = 0x0200;
     pub const ADKCON_FAST:     u16 = 0x0100;
     /// Per-channel "channel N modulates channel N+1's period" enables.
     pub const ADKCON_USE_PER: [u16; 4] = [0x0010, 0x0020, 0x0040, 0x0080];

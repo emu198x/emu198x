@@ -4,12 +4,12 @@
 //! control register for Paula's audio and disk subsystems.
 //!
 //!   bit 15  SET/CLEAR flag (write-only)
-//!   bit 14  (unused on OCS)
-//!   bit 13  PRECOMP1 (disk write precompensation, upper bit)
-//!   bit 12  PRECOMP0 (disk write precompensation, lower bit)
-//!   bit 11  MFMPREC  (MFM vs GCR; always 1 on Amiga floppies)
-//!   bit 10  UARTBRK  (send serial break)
-//!   bit  9  WORDSYNC (latch DSKSYNC compare)
+//!   bit 14  PRECOMP1 (disk write precompensation, upper bit)
+//!   bit 13  PRECOMP0 (disk write precompensation, lower bit)
+//!   bit 12  MFMPREC  (MFM vs GCR; always 1 on Amiga floppies)
+//!   bit 11  UARTBRK  (send serial break)
+//!   bit 10  WORDSYNC (latch DSKSYNC compare)
+//!   bit  9  MSBSYNC  (Apple-GCR MSB sync mode)
 //!   bit  8  FAST     (disk byte-pacing: 14 vs 28 CCK)
 //!   bits 7-4  USE3P3..USE0P1  (N modulates N+1 period)
 //!   bits 3-0  USE3V2..USE0V1  (N modulates N+1 volume)

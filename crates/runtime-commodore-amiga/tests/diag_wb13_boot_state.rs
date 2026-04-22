@@ -331,6 +331,42 @@ fn wb13_boot_state_checkpoints() {
         sec1_b9_even_off
     );
 
+    // Dump trackdisk's per-unit buffer header. At base+$3 is the
+    // most-recent error code from the sector validation function:
+    //   $00..$0A = success (sector_num of first found)
+    //   $15 = no first sync found
+    //   $16 = gap or sync mismatch in slot loop
+    //   $17 = format/track/sector mismatch in slot loop
+    //   $18 = header checksum mismatch
+    //   $19 = data checksum mismatch
+    //   $1A = no next sync found after Blit #1
+    //   $1B = first-sync header / cksum mismatch
+    // state[$4E] points to a buffer that's $684 bytes into the
+    // chip-RAM region trackdisk allocates. The DMA target $2064 IS
+    // state[$4E] + $684, so state[$4E] = $2064 - $684 = $19E0.
+    // buffer[3] holds the most-recent validation error code, written
+    // by `move.b d0, $3(a2)` at $FEA652.
+    let buf_base = target - 0x684;
+    println!("\nTrackdisk unit buffer header @ ${buf_base:06X} (state[$4E]):");
+    let mut line = format!("  header: ");
+    for k in 0..16u32 {
+        line.push_str(&format!("{:02X} ", m.memory().read_chip_ram_byte(buf_base + k)));
+    }
+    println!("{line}");
+    let err = m.memory().read_chip_ram_byte(buf_base + 3);
+    let err_label = match err {
+        0..=10 => "success (sector_num)",
+        0x15 => "$15 NO FIRST SYNC FOUND",
+        0x16 => "$16 GAP/SYNC MISMATCH IN SLOT LOOP",
+        0x17 => "$17 FORMAT/TRACK/SECTOR MISMATCH",
+        0x18 => "$18 HDR CKSUM MISMATCH",
+        0x19 => "$19 DATA CKSUM MISMATCH",
+        0x1A => "$1A NO NEXT SYNC FOUND",
+        0x1B => "$1B FIRST-SYNC HEADER/CKSUM",
+        _ => "(unknown)",
+    };
+    println!("  buffer[3] (last validation result) = ${err:02X}  → {err_label}");
+
     // KEY: The trackdisk decode buffer is at state[$4E] + $680, and
     // the DMA buffer is at state[$4E] + $684 — i.e., the decode
     // buffer is 4 bytes BEFORE the DMA buffer. The blits copy in-place,
@@ -830,6 +866,30 @@ fn wb13_boot_state_checkpoints() {
         rt.machine().intena(),
         if rt.machine().intena() & 0x40 != 0 { "set" } else { "CLEAR — gfx library never enabled BLITINT" },
         if rt.machine().intena() & 0x40 != 0 { "✓" } else { "✗" }
+    );
+
+    // Bucket all INTENA writes by value to see what's being written.
+    let mut intena_writes: std::collections::HashMap<u16, u32> =
+        std::collections::HashMap::new();
+    for (_, _, val, _, _) in intena_log {
+        *intena_writes.entry(*val).or_insert(0) += 1;
+    }
+    let mut sorted: Vec<_> = intena_writes.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(a.1));
+    println!("   INTENA write values (top 12):");
+    for (val, count) in sorted.iter().take(12) {
+        let setclr = if *val & 0x8000 != 0 { "SET" } else { "CLEAR" };
+        let blit_bit = if *val & 0x40 != 0 { " ⚠ has BLIT bit" } else { "" };
+        println!("     ${val:04X} ({setclr}) × {count}{blit_bit}");
+    }
+    // Count ANY write that touches bit 6 (BLIT) — set or clear.
+    let touches_blit: u32 = intena_log
+        .iter()
+        .filter(|(_, _, val, _, _)| *val & 0x40 != 0)
+        .count() as u32;
+    println!(
+        "   INTENA writes touching BLIT bit (any direction): {}",
+        touches_blit
     );
 
     // Show all blit logs that look like trackdisk's B→D copy

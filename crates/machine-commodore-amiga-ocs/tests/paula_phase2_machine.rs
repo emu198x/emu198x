@@ -296,7 +296,7 @@ fn dskblk_reaches_cpu_ipl_when_enabled() {
 #[test]
 fn sync_match_via_wordsync_raises_dsksyn_through_machine_intreq() {
     let mut amiga = AmigaOcs::new(zero_rom());
-    amiga.poke_word(0x00DF_F09E, 0x8200); // ADKCON SET + WORDSYNC
+    amiga.poke_word(0x00DF_F09E, 0x8400); // ADKCON SET + WORDSYNC (bit 10)
     amiga.poke_word(0x00DF_F07E, 0x4489); // DSKSYNC
 
     // Without WORDSYNC gate → nothing would fire; with it, INT_DSKSYN.
@@ -308,7 +308,7 @@ fn sync_match_via_wordsync_raises_dsksyn_through_machine_intreq() {
 #[test]
 fn dsksyn_reaches_cpu_ipl_when_enabled() {
     let mut amiga = AmigaOcs::new(zero_rom());
-    amiga.poke_word(0x00DF_F09E, 0x8200); // ADKCON SET + WORDSYNC
+    amiga.poke_word(0x00DF_F09E, 0x8400); // ADKCON SET + WORDSYNC (bit 10)
     amiga.poke_word(0x00DF_F07E, 0x4489);
     amiga.poke_word(0x00DF_F09A, 0xD000); // SET INTEN + DSKSYN
     amiga.paula_mut().note_disk_read_word(0x4489);
