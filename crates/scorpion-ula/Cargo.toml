@@ -1,0 +1,10 @@
+[package]
+name = "scorpion-ula"
+description = "Scorpion ZS-256 ULA — Russian extended Spectrum, no contention, 48K-style geometry"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

@@ -1,0 +1,10 @@
+[package]
+name = "pentagon-ula"
+description = "Pentagon ULA — Russian Spectrum clone, no contention, 14.336 MHz crystal"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

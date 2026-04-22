@@ -165,6 +165,61 @@ pub const TIMING_128K: FrameTiming = FrameTiming {
     interrupt_length_tstates: 32,
 };
 
+/// Pentagon 128 (Russian Spectrum clone, no contention).
+///
+/// Different crystal (14.336 MHz, slightly faster than the 48K), 224
+/// T-states/line, 320 lines (extra VBlank). The CPU runs at full
+/// speed — the Pentagon ULA never gates the clock.
+pub const TIMING_PENTAGON: FrameTiming = FrameTiming {
+    master_hz: 14_336_000,
+    cpu_divisor: 4,
+    tstates_per_line: 224,
+    halfcycles_per_line: 224 * 4,
+    lines_per_frame: 320,
+    halfcycles_per_frame: 224 * 4 * 320,
+    tstates_per_frame: 224 * 320,
+    first_border_line: 16,
+    first_screen_line: 80,
+    last_screen_line: 272,
+    last_border_line: 312,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 0,
+    contention_pattern: [0; 8],
+    contention_phase: 0,
+    contention_tstates_per_line: 0,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
+/// Scorpion ZS-256 (Russian extended Spectrum, no contention,
+/// 48K-style frame geometry).
+pub const TIMING_SCORPION: FrameTiming = FrameTiming {
+    master_hz: MASTER_HZ_48K,
+    cpu_divisor: 4,
+    tstates_per_line: TSTATES_PER_LINE_48K,
+    halfcycles_per_line: TSTATES_PER_LINE_48K * 4,
+    lines_per_frame: LINES_PER_FRAME_48K,
+    halfcycles_per_frame: TSTATES_PER_LINE_48K * 4 * LINES_PER_FRAME_48K,
+    tstates_per_frame: TSTATES_PER_FRAME_48K,
+    first_border_line: 8,
+    first_screen_line: 64,
+    last_screen_line: 256,
+    last_border_line: 304,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 0,
+    contention_pattern: [0; 8],
+    contention_phase: 0,
+    contention_tstates_per_line: 0,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
 /// ZX Spectrum +2A / +2B / +3 (Amstrad 40077 gate array, PAL).
 ///
 /// Shares the 128K's clock and line layout but uses a completely

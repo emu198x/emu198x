@@ -1,0 +1,10 @@
+[package]
+name = "timex-scld"
+description = "Timex SCLD (Semi-Custom Logic Device) — TC2048 / TC2068 / TS2068"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
